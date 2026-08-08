@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,21 +20,21 @@ func TestEvalContainerFields(t *testing.T) {
 	tests := []struct {
 		name     string
 		setup    func(ctx context.Context) context.Context
-		input    core.Container
-		expected core.Container
+		input    ir.Container
+		expected ir.Container
 	}{
 		{
 			name: "NoVariables",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image:      "alpine:latest",
 				Name:       "my-container",
 				WorkingDir: "/app",
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image:      "alpine:latest",
 				Name:       "my-container",
 				WorkingDir: "/app",
@@ -43,21 +43,21 @@ func TestEvalContainerFields(t *testing.T) {
 		{
 			name: "ImageVariable",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntry("IMAGE", "myimage:v1.0", cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image: "${IMAGE}",
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image: "myimage:v1.0",
 			},
 		},
 		{
 			name: "MultipleVariables",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"IMAGE":          "nginx:latest",
 					"CONTAINER_NAME": "web-server",
@@ -66,13 +66,13 @@ func TestEvalContainerFields(t *testing.T) {
 				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image:      "${IMAGE}",
 				Name:       "${CONTAINER_NAME}",
 				WorkingDir: "${WORK_DIR}",
 				Network:    "${NET}",
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image:      "nginx:latest",
 				Name:       "web-server",
 				WorkingDir: "/var/www",
@@ -82,18 +82,18 @@ func TestEvalContainerFields(t *testing.T) {
 		{
 			name: "VolumesWithVariables",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"HOST_PATH":      "/host/data",
 					"CONTAINER_PATH": "/container/data",
 				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image:   "alpine",
 				Volumes: []string{"${HOST_PATH}:${CONTAINER_PATH}:ro"},
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image:   "alpine",
 				Volumes: []string{"/host/data:/container/data:ro"},
 			},
@@ -101,18 +101,18 @@ func TestEvalContainerFields(t *testing.T) {
 		{
 			name: "PortsWithVariables",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"HOST_PORT":      "8080",
 					"CONTAINER_PORT": "80",
 				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image: "nginx",
 				Ports: []string{"${HOST_PORT}:${CONTAINER_PORT}"},
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image: "nginx",
 				Ports: []string{"8080:80"},
 			},
@@ -120,18 +120,18 @@ func TestEvalContainerFields(t *testing.T) {
 		{
 			name: "EnvWithVariables",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"DB_HOST": "localhost",
 					"DB_PORT": "5432",
 				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image: "myapp",
 				Env:   []string{"DATABASE_URL=postgres://${DB_HOST}:${DB_PORT}/db"},
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image: "myapp",
 				Env:   []string{"DATABASE_URL=postgres://localhost:5432/db"},
 			},
@@ -139,10 +139,10 @@ func TestEvalContainerFields(t *testing.T) {
 		{
 			name: "EnvEntriesEvaluateSequentially",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image: "myapp",
 				Env: []string{
 					"SERVICE=api",
@@ -150,7 +150,7 @@ func TestEvalContainerFields(t *testing.T) {
 					"SELF=${env.SELF}",
 				},
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image: "myapp",
 				Env: []string{
 					"SERVICE=api",
@@ -162,18 +162,18 @@ func TestEvalContainerFields(t *testing.T) {
 		{
 			name: "CommandWithVariables",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"SCRIPT": "run.sh",
 					"ARG1":   "value1",
 				}, cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image:   "alpine",
 				Command: []string{"/bin/sh", "${SCRIPT}", "${ARG1}"},
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image:   "alpine",
 				Command: []string{"/bin/sh", "run.sh", "value1"},
 			},
@@ -181,15 +181,15 @@ func TestEvalContainerFields(t *testing.T) {
 		{
 			name: "UserWithVariable",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntry("UID", "1000", cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image: "alpine",
 				User:  "${UID}",
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image: "alpine",
 				User:  "1000",
 			},
@@ -197,26 +197,26 @@ func TestEvalContainerFields(t *testing.T) {
 		{
 			name: "NonEvaluatedFieldsRemainUnchanged",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntry("POLICY", "always", cmnvalue.EnvSourceStepEnv)
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image:         "alpine",
-				PullPolicy:    core.PullPolicyAlways,
+				PullPolicy:    ir.PullPolicyAlways,
 				KeepContainer: true,
-				Startup:       core.StartupCommand,
-				WaitFor:       core.WaitForHealthy,
+				Startup:       ir.StartupCommand,
+				WaitFor:       ir.WaitForHealthy,
 				Platform:      "linux/amd64",
 				LogPattern:    "ready.*started",
 				RestartPolicy: "on-failure",
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image:         "alpine",
-				PullPolicy:    core.PullPolicyAlways,
+				PullPolicy:    ir.PullPolicyAlways,
 				KeepContainer: true,
-				Startup:       core.StartupCommand,
-				WaitFor:       core.WaitForHealthy,
+				Startup:       ir.StartupCommand,
+				WaitFor:       ir.WaitForHealthy,
 				Platform:      "linux/amd64",
 				LogPattern:    "ready.*started",
 				RestartPolicy: "on-failure",
@@ -225,14 +225,14 @@ func TestEvalContainerFields(t *testing.T) {
 		{
 			name: "OutputFromPreviousStep",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntry("IMAGE_TAG", "v2.0.0", cmnvalue.EnvSourceOutput)
 				return runtime.WithEnv(ctx, env)
 			},
-			input: core.Container{
+			input: ir.Container{
 				Image: "myapp:${IMAGE_TAG}",
 			},
-			expected: core.Container{
+			expected: ir.Container{
 				Image: "myapp:v2.0.0",
 			},
 		},
@@ -261,7 +261,7 @@ func TestEvalStringSlice(t *testing.T) {
 		{
 			name: "EmptySlice",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				return runtime.WithEnv(ctx, env)
 			},
 			input:    []string{},
@@ -270,7 +270,7 @@ func TestEvalStringSlice(t *testing.T) {
 		{
 			name: "NilSlice",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				return runtime.WithEnv(ctx, env)
 			},
 			input:    nil,
@@ -279,7 +279,7 @@ func TestEvalStringSlice(t *testing.T) {
 		{
 			name: "NoVariables",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				return runtime.WithEnv(ctx, env)
 			},
 			input:    []string{"hello", "world"},
@@ -288,7 +288,7 @@ func TestEvalStringSlice(t *testing.T) {
 		{
 			name: "WithVariables",
 			setup: func(ctx context.Context) context.Context {
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntries(map[string]string{
 					"VAR1": "value1",
 					"VAR2": "value2",

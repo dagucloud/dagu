@@ -10,7 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -24,7 +25,7 @@ type logExecutor struct {
 	message string
 }
 
-func newLog(_ context.Context, step core.Step) (executor.Executor, error) {
+func newLog(_ context.Context, step ir.Step) (executor.Executor, error) {
 	message, err := parseMessage(step.ExecutorConfig.Config)
 	if err != nil {
 		return nil, err
@@ -75,7 +76,7 @@ func (e *logExecutor) Run(ctx context.Context) error {
 	return err
 }
 
-func validateLogStep(step core.Step) error {
+func validateLogStep(step ir.Step) error {
 	_, err := parseMessage(step.ExecutorConfig.Config)
 	return err
 }
@@ -93,6 +94,6 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema(executorType, configSchema)
-	executor.RegisterExecutor(executorType, newLog, validateLogStep, core.ExecutorCapabilities{})
+	registry.RegisterExecutorConfigSchema(executorType, configSchema)
+	executor.RegisterExecutor(executorType, newLog, validateLogStep, registry.ExecutorCapabilities{})
 }

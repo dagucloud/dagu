@@ -9,7 +9,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -17,10 +19,10 @@ var _ executor.Executor = (*routerExecutor)(nil)
 
 type routerExecutor struct {
 	stdout io.Writer
-	step   core.Step
+	step   ir.Step
 }
 
-func newRouter(_ context.Context, step core.Step) (executor.Executor, error) {
+func newRouter(_ context.Context, step ir.Step) (executor.Executor, error) {
 	return &routerExecutor{
 		stdout: os.Stdout,
 		step:   step,
@@ -42,5 +44,5 @@ func (e *routerExecutor) Run(_ context.Context) error {
 }
 
 func init() {
-	executor.RegisterExecutor("router", newRouter, nil, core.ExecutorCapabilities{})
+	executor.RegisterExecutor("router", newRouter, nil, registry.ExecutorCapabilities{})
 }

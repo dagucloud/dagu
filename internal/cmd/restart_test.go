@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +39,7 @@ steps:
 	}()
 
 	// Wait for the DAG to be running.
-	dag.AssertCurrentStatus(t, core.Running)
+	dag.AssertCurrentStatus(t, ir.Running)
 
 	// Restart the DAG.
 	done2 := make(chan struct{})
@@ -93,7 +93,7 @@ steps:
 
 	require.Eventually(t, func() bool {
 		status, err := th.DAGRunMgr.GetCurrentStatus(th.Context, dag.DAG, "")
-		return err == nil && status != nil && status.Status == core.Running
+		return err == nil && status != nil && status.Status == ir.Running
 	}, 10*time.Second, 100*time.Millisecond)
 
 	releaseDone := releaseHoldFileWhenRecentStatusCountAtLeastWithin(t, th, dag.Name, 2, release, holdTimeout)
@@ -104,10 +104,10 @@ steps:
 
 	latestStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, latestStatus.Status)
+	require.Equal(t, ir.Succeeded, latestStatus.Status)
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, &latestStatus, "RESULT"))
 
-	latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dag.Name, latestStatus.DAGRunID))
+	latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, latestStatus.DAGRunID))
 	require.NoError(t, err)
 	latestAttemptStatus, err := latestAttempt.ReadStatus(th.Context)
 	require.NoError(t, err)

@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,10 +22,10 @@ func TestDAGRunStatusToProto(t *testing.T) {
 	})
 
 	t.Run("basic status", func(t *testing.T) {
-		status := &exec.DAGRunStatus{
+		status := &dagrun.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		}
 
 		result, err := DAGRunStatusToProto(status)
@@ -65,15 +65,15 @@ func TestRoundTrip(t *testing.T) {
 		outputVars.Store("key2", "value2")
 		outputsValue := `{"messageId":"msg-123","accepted":true}`
 
-		original := &exec.DAGRunStatus{
+		original := &dagrun.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			PID:        12345,
-			Root:       exec.DAGRunRef{Name: "root-dag", ID: "root-run"},
-			Parent:     exec.DAGRunRef{Name: "parent-dag", ID: "parent-run"},
+			Root:       dagrun.DAGRunRef{Name: "root-dag", ID: "root-run"},
+			Parent:     dagrun.DAGRunRef{Name: "parent-dag", ID: "parent-run"},
 			CreatedAt:  1234567890,
 			QueuedAt:   "2024-01-01T00:00:00Z",
 			StartedAt:  "2024-01-01T00:01:00Z",
@@ -82,14 +82,14 @@ func TestRoundTrip(t *testing.T) {
 			Error:      "test error",
 			Params:     "key=value",
 			ParamsList: []string{"key=value"},
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
-					Step: core.Step{
+					Step: ir.Step{
 						Name:           "step-1",
 						Description:    "first step",
-						ExecutorConfig: core.ExecutorConfig{Type: "shell"},
+						ExecutorConfig: ir.ExecutorConfig{Type: "shell"},
 					},
-					Status:          core.NodeSucceeded,
+					Status:          ir.NodeSucceeded,
 					Stdout:          "/path/stdout.log",
 					Stderr:          "/path/stderr.log",
 					StartedAt:       "2024-01-01T00:00:00Z",
@@ -100,18 +100,18 @@ func TestRoundTrip(t *testing.T) {
 					RetriedAt:       "2024-01-01T00:00:30Z",
 					OutputVariables: outputVars,
 					OutputsValue:    &outputsValue,
-					SubRuns: []exec.SubDAGRun{
+					SubRuns: []dagrun.SubDAGRun{
 						{DAGRunID: "sub-run-1", Params: "p1=v1"},
 						{DAGRunID: "sub-run-2", Params: "p2=v2"},
 					},
 				},
 			},
-			OnInit:    &exec.Node{Step: core.Step{Name: "on-init"}, Status: core.NodeSucceeded},
-			OnExit:    &exec.Node{Step: core.Step{Name: "on-exit"}, Status: core.NodeSucceeded},
-			OnSuccess: &exec.Node{Step: core.Step{Name: "on-success"}, Status: core.NodeSucceeded},
-			OnFailure: &exec.Node{Step: core.Step{Name: "on-failure"}, Status: core.NodeNotStarted},
-			OnAbort:   &exec.Node{Step: core.Step{Name: "onAbort"}, Status: core.NodeNotStarted},
-			OnWait:    &exec.Node{Step: core.Step{Name: "on-wait"}, Status: core.NodeNotStarted},
+			OnInit:    &dagrun.Node{Step: ir.Step{Name: "on-init"}, Status: ir.NodeSucceeded},
+			OnExit:    &dagrun.Node{Step: ir.Step{Name: "on-exit"}, Status: ir.NodeSucceeded},
+			OnSuccess: &dagrun.Node{Step: ir.Step{Name: "on-success"}, Status: ir.NodeSucceeded},
+			OnFailure: &dagrun.Node{Step: ir.Step{Name: "on-failure"}, Status: ir.NodeNotStarted},
+			OnAbort:   &dagrun.Node{Step: ir.Step{Name: "onAbort"}, Status: ir.NodeNotStarted},
+			OnWait:    &dagrun.Node{Step: ir.Step{Name: "on-wait"}, Status: ir.NodeNotStarted},
 		}
 
 		// Convert to proto and back
@@ -147,7 +147,7 @@ func TestRoundTrip(t *testing.T) {
 		assert.Equal(t, "step-1", node.Step.Name)
 		assert.Equal(t, "first step", node.Step.Description)
 		assert.Equal(t, "shell", node.Step.ExecutorConfig.Type)
-		assert.Equal(t, core.NodeSucceeded, node.Status)
+		assert.Equal(t, ir.NodeSucceeded, node.Status)
 		assert.Equal(t, "/path/stdout.log", node.Stdout)
 		assert.Equal(t, "/path/stderr.log", node.Stderr)
 		assert.Equal(t, 2, node.RetryCount)
@@ -174,18 +174,18 @@ func TestRoundTrip(t *testing.T) {
 	})
 
 	t.Run("roundtrip with ChatMessages", func(t *testing.T) {
-		original := &exec.DAGRunStatus{
+		original := &dagrun.DAGRunStatus{
 			Name:     "chat-dag",
 			DAGRunID: "chat-run-123",
-			Status:   core.Succeeded,
-			Nodes: []*exec.Node{
+			Status:   ir.Succeeded,
+			Nodes: []*dagrun.Node{
 				{
-					Step:   core.Step{Name: "chat-step"},
-					Status: core.NodeSucceeded,
-					ChatMessages: []exec.LLMMessage{
-						{Role: exec.RoleSystem, Content: "You are a helpful assistant."},
-						{Role: exec.RoleUser, Content: "Hello!"},
-						{Role: exec.RoleAssistant, Content: "Hi there! How can I help?", Metadata: &exec.LLMMessageMetadata{
+					Step:   ir.Step{Name: "chat-step"},
+					Status: ir.NodeSucceeded,
+					ChatMessages: []dagrun.LLMMessage{
+						{Role: dagrun.RoleSystem, Content: "You are a helpful assistant."},
+						{Role: dagrun.RoleUser, Content: "Hello!"},
+						{Role: dagrun.RoleAssistant, Content: "Hi there! How can I help?", Metadata: &dagrun.LLMMessageMetadata{
 							Provider:         "openai",
 							Model:            "gpt-4",
 							PromptTokens:     10,
@@ -195,8 +195,8 @@ func TestRoundTrip(t *testing.T) {
 					},
 				},
 				{
-					Step:   core.Step{Name: "no-messages-step"},
-					Status: core.NodeSucceeded,
+					Step:   ir.Step{Name: "no-messages-step"},
+					Status: ir.NodeSucceeded,
 					// No ChatMessages - tests omitempty behavior
 				},
 			},
@@ -215,14 +215,14 @@ func TestRoundTrip(t *testing.T) {
 		// First node with messages
 		chatNode := result.Nodes[0]
 		require.Len(t, chatNode.ChatMessages, 3)
-		assert.Equal(t, exec.RoleSystem, chatNode.ChatMessages[0].Role)
+		assert.Equal(t, dagrun.RoleSystem, chatNode.ChatMessages[0].Role)
 		assert.Equal(t, "You are a helpful assistant.", chatNode.ChatMessages[0].Content)
 		assert.Nil(t, chatNode.ChatMessages[0].Metadata)
 
-		assert.Equal(t, exec.RoleUser, chatNode.ChatMessages[1].Role)
+		assert.Equal(t, dagrun.RoleUser, chatNode.ChatMessages[1].Role)
 		assert.Equal(t, "Hello!", chatNode.ChatMessages[1].Content)
 
-		assert.Equal(t, exec.RoleAssistant, chatNode.ChatMessages[2].Role)
+		assert.Equal(t, dagrun.RoleAssistant, chatNode.ChatMessages[2].Role)
 		assert.Equal(t, "Hi there! How can I help?", chatNode.ChatMessages[2].Content)
 		require.NotNil(t, chatNode.ChatMessages[2].Metadata)
 		assert.Equal(t, "openai", chatNode.ChatMessages[2].Metadata.Provider)

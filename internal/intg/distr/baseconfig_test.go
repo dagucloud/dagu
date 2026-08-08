@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,8 +37,8 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
-		require.Equal(t, core.Succeeded, status.Status)
+		status := f.waitForStatus(ir.Succeeded, 20*time.Second)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assertLogContains(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "use-base-env", "github.com")
 	})
 }
@@ -69,8 +69,8 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
-		require.Equal(t, core.Succeeded, status.Status)
+		status := f.waitForStatus(ir.Succeeded, 20*time.Second)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assertLogContains(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "use-embedded-env", "https://api.example.com")
 	})
 }
@@ -101,8 +101,8 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
-		require.Equal(t, core.Succeeded, status.Status)
+		status := f.waitForStatus(ir.Succeeded, 20*time.Second)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assertLogContains(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "use-all-vars", "base-value-1 base-value-2 dag-value")
 	})
 }
@@ -138,6 +138,6 @@ steps:
 		// to test base config propagation through the sub-DAG dispatch specifically.
 		agent := f.dagWrapper.Agent()
 		agent.RunSuccess(t)
-		f.dagWrapper.AssertLatestStatus(t, core.Succeeded)
+		f.dagWrapper.AssertLatestStatus(t, ir.Succeeded)
 	})
 }

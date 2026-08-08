@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -119,7 +119,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"SSH_OUT": "hello from ssh",
 		})
@@ -138,7 +138,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"SSH_ARGS_OUT": "hello world",
 		})
@@ -158,7 +158,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"SSH_PWD_OUT": "/tmp",
 		})
@@ -181,7 +181,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"SSH_SCRIPT_OUT": "hello world",
 		})
@@ -202,7 +202,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"SSH_SCRIPT_WORKDIR_OUT": "working in /tmp",
 		})
@@ -258,7 +258,7 @@ steps:
 
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"STEP_SSH_OUT": "step config works",
 		})
@@ -280,7 +280,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"SSH_BASH_OUT": "bash test",
 		})
@@ -301,7 +301,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Should be the SSH user's home directory (e.g., /home/testuser)
 		dag.AssertOutputs(t, map[string]any{
 			"SSH_HOME_DIR_OUT": test.Contains("/home/"),
@@ -322,7 +322,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"SSH_OVERRIDE_WORKDIR_OUT": "/tmp",
 		})
@@ -342,7 +342,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"SSH_PIPE_OUT": "Hello",
 		})
@@ -361,7 +361,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Just verify it ran - hostname will vary
 	})
 
@@ -396,7 +396,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"PASSWORD_AUTH_OUT": "authenticated with password",
 		})
@@ -417,7 +417,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Remote $HOME should be /home/testuser, not the local $HOME
 		dag.AssertOutputs(t, map[string]any{
 			"REMOTE_HOME": fmt.Sprintf("/home/%s", sshTestUser),
@@ -437,7 +437,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"ESCAPE_CMD_SHELL_OUT": "$HOME",
 		})
@@ -456,7 +456,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"ESCAPE_CMD_NOSHELL_OUT": fmt.Sprintf("/home/%s", sshTestUser),
 		})
@@ -476,7 +476,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"ESCAPE_SCRIPT_SHELL_OUT": "$HOME",
 		})
@@ -496,7 +496,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"ESCAPE_SCRIPT_NOSHELL_OUT": fmt.Sprintf("/home/%s", sshTestUser),
 		})
@@ -519,7 +519,7 @@ steps:
 `
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// GREETING is DAG-scoped → expanded by Dagu to "hello"
 		// $USER is OS-only → left for the remote shell → resolves to sshTestUser
 		dag.AssertOutputs(t, map[string]any{
@@ -548,7 +548,7 @@ steps:
 `, sshServer.hostPort, sshTestUser, sshServer.keyPath)
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"TIMEOUT_OUT": "timeout configured",
 		})

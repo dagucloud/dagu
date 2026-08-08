@@ -9,7 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +18,7 @@ import (
 )
 
 // Helper function to create an executor via the registry
-func newRedisExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newRedisExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	return executor.NewExecutor(ctx, step)
 }
 
@@ -36,9 +36,9 @@ func TestRedisExecutor_Registration(t *testing.T) {
 
 	// Verify redis executor is registered
 	ctx := context.Background()
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-registration",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -60,9 +60,9 @@ func TestRedisExecutor_SetStdout(t *testing.T) {
 	host := skipIfNoRedis(t)
 
 	ctx := context.Background()
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-stdout",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -83,9 +83,9 @@ func TestRedisExecutor_SetStderr(t *testing.T) {
 	host := skipIfNoRedis(t)
 
 	ctx := context.Background()
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-stderr",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -139,9 +139,9 @@ func TestRedisExecutor_ConfigValidation_Invalid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			step := core.Step{
+			step := ir.Step{
 				Name: "test-config",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type:   "redis",
 					Config: tt.config,
 				},
@@ -174,9 +174,9 @@ func TestRedisExecutor_ConfigValidation_Valid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := core.Step{
+			step := ir.Step{
 				Name: "test-config",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type:   "redis",
 					Config: tt.config,
 				},
@@ -194,9 +194,9 @@ func TestRedisExecutor_PING_Integration(t *testing.T) {
 	host := skipIfNoRedis(t)
 
 	ctx := context.Background()
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-ping",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -230,9 +230,9 @@ func TestRedisExecutor_SET_GET_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// SET a value
-	setStep := core.Step{
+	setStep := ir.Step{
 		Name: "test-set",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -250,9 +250,9 @@ func TestRedisExecutor_SET_GET_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// GET the value
-	getStep := core.Step{
+	getStep := ir.Step{
 		Name: "test-get",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -275,9 +275,9 @@ func TestRedisExecutor_SET_GET_Integration(t *testing.T) {
 	assert.Contains(t, output, "hello-world")
 
 	// Cleanup
-	delStep := core.Step{
+	delStep := ir.Step{
 		Name: "test-del",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -296,9 +296,9 @@ func TestRedisExecutor_Pipeline_Integration(t *testing.T) {
 	host := skipIfNoRedis(t)
 
 	ctx := context.Background()
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-pipeline",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host": host,
@@ -338,9 +338,9 @@ func TestRedisExecutor_Script_Integration(t *testing.T) {
 	host := skipIfNoRedis(t)
 
 	ctx := context.Background()
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-script",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":        host,
@@ -367,9 +367,9 @@ func TestRedisExecutor_Script_Integration(t *testing.T) {
 	assert.Contains(t, metrics, `"status":"success"`)
 
 	// Cleanup
-	delStep := core.Step{
+	delStep := ir.Step{
 		Name: "cleanup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -388,9 +388,9 @@ func TestRedisExecutor_OutputFormats_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Set up test data
-	setup := core.Step{
+	setup := ir.Step{
 		Name: "setup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -405,9 +405,9 @@ func TestRedisExecutor_OutputFormats_Integration(t *testing.T) {
 
 	defer func() {
 		// Cleanup
-		cleanup := core.Step{
+		cleanup := ir.Step{
 			Name: "cleanup",
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "redis",
 				Config: map[string]any{
 					"host":    host,
@@ -431,9 +431,9 @@ func TestRedisExecutor_OutputFormats_Integration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := core.Step{
+			step := ir.Step{
 				Name: "test-format",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: "redis",
 					Config: map[string]any{
 						"host":          host,
@@ -465,9 +465,9 @@ func TestRedisExecutor_Hash_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// HSET
-	hsetStep := core.Step{
+	hsetStep := ir.Step{
 		Name: "test-hset",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -487,9 +487,9 @@ func TestRedisExecutor_Hash_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// HGETALL
-	hgetallStep := core.Step{
+	hgetallStep := ir.Step{
 		Name: "test-hgetall",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -515,9 +515,9 @@ func TestRedisExecutor_Hash_Integration(t *testing.T) {
 	assert.Contains(t, output, "value2")
 
 	// Cleanup
-	delStep := core.Step{
+	delStep := ir.Step{
 		Name: "cleanup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -536,9 +536,9 @@ func TestRedisExecutor_List_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// RPUSH
-	rpushStep := core.Step{
+	rpushStep := ir.Step{
 		Name: "test-rpush",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -555,9 +555,9 @@ func TestRedisExecutor_List_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// LRANGE
-	lrangeStep := core.Step{
+	lrangeStep := ir.Step{
 		Name: "test-lrange",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -584,9 +584,9 @@ func TestRedisExecutor_List_Integration(t *testing.T) {
 	assert.Contains(t, output, "item3")
 
 	// Cleanup
-	delStep := core.Step{
+	delStep := ir.Step{
 		Name: "cleanup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -605,9 +605,9 @@ func TestRedisExecutor_Set_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// SADD
-	saddStep := core.Step{
+	saddStep := ir.Step{
 		Name: "test-sadd",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -624,9 +624,9 @@ func TestRedisExecutor_Set_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// SMEMBERS
-	smembersStep := core.Step{
+	smembersStep := ir.Step{
 		Name: "test-smembers",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -651,9 +651,9 @@ func TestRedisExecutor_Set_Integration(t *testing.T) {
 	assert.Contains(t, output, "member3")
 
 	// Cleanup
-	delStep := core.Step{
+	delStep := ir.Step{
 		Name: "cleanup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -672,9 +672,9 @@ func TestRedisExecutor_SortedSet_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// ZADD
-	zaddStep := core.Step{
+	zaddStep := ir.Step{
 		Name: "test-zadd",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -692,9 +692,9 @@ func TestRedisExecutor_SortedSet_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// ZRANGE with scores
-	zrangeStep := core.Step{
+	zrangeStep := ir.Step{
 		Name: "test-zrange",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":        host,
@@ -720,9 +720,9 @@ func TestRedisExecutor_SortedSet_Integration(t *testing.T) {
 	assert.Contains(t, output, "member1")
 
 	// Cleanup
-	delStep := core.Step{
+	delStep := ir.Step{
 		Name: "cleanup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -739,9 +739,9 @@ func TestRedisExecutor_Timeout_Integration(t *testing.T) {
 	host := skipIfNoRedis(t)
 
 	ctx := context.Background()
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-timeout",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -767,9 +767,9 @@ func TestRedisExecutor_Kill(t *testing.T) {
 	host := skipIfNoRedis(t)
 
 	ctx := context.Background()
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-kill",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -790,9 +790,9 @@ func TestRedisExecutor_Close(t *testing.T) {
 	host := skipIfNoRedis(t)
 
 	ctx := context.Background()
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-close",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,
@@ -1040,9 +1040,9 @@ func TestGlobalRedisPoolManager_Integration(t *testing.T) {
 	ctx := redisexec.WithRedisPoolManager(context.Background(), pm)
 
 	// Create executor using global pool
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-pool",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "redis",
 			Config: map[string]any{
 				"host":    host,

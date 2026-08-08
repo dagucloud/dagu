@@ -10,18 +10,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type warningDAGStore struct {
-	exec.DAGStore
+	dagstore.DAGStore
 }
 
-func (warningDAGStore) List(_ context.Context, opts exec.ListDAGsOptions) (exec.PaginatedResult[*core.DAG], []string, error) {
-	return exec.NewPaginatedResult([]*core.DAG{}, 0, *opts.Paginator), []string{"catalog warning"}, nil
+func (warningDAGStore) List(_ context.Context, opts dagstore.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
+	return pagination.NewPaginatedResult([]*ir.DAG{}, 0, *opts.Paginator), []string{"catalog warning"}, nil
 }
 
 func TestRunLsWritesWarningsToCommandErrorStream(t *testing.T) {
@@ -47,10 +48,10 @@ func TestSortLsRowsByLastRun(t *testing.T) {
 	older := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	newer := older.Add(time.Hour)
 	rows := []lsRow{
-		{dag: &core.DAG{Name: "never-b"}},
-		{dag: &core.DAG{Name: "older"}, lastTime: older},
-		{dag: &core.DAG{Name: "newer"}, lastTime: newer},
-		{dag: &core.DAG{Name: "never-a"}},
+		{dag: &ir.DAG{Name: "never-b"}},
+		{dag: &ir.DAG{Name: "older"}, lastTime: older},
+		{dag: &ir.DAG{Name: "newer"}, lastTime: newer},
+		{dag: &ir.DAG{Name: "never-a"}},
 	}
 
 	sortLsRowsByLastRun(rows, false)

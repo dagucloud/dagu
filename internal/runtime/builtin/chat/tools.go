@@ -8,10 +8,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 // toolParam represents a parsed parameter definition.
@@ -29,7 +29,7 @@ type ToolRegistry struct {
 type toolInfo struct {
 	Name        string
 	Description string
-	DAG         *core.DAG
+	DAG         *ir.DAG
 	Params      []toolParam
 }
 
@@ -41,7 +41,7 @@ func NewToolRegistry(ctx context.Context, dagNames []string) (*ToolRegistry, err
 		return nil, nil
 	}
 
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 
 	registry := &ToolRegistry{
 		tools:    make(map[string]*toolInfo),
@@ -49,7 +49,7 @@ func NewToolRegistry(ctx context.Context, dagNames []string) (*ToolRegistry, err
 	}
 
 	for _, dagName := range dagNames {
-		var dag *core.DAG
+		var dag *ir.DAG
 
 		// First, check if it's a local DAG defined in the same file (using --- separator)
 		// This follows the same pattern as SubDAGExecutor.NewSubDAGExecutor()
@@ -122,7 +122,7 @@ func (r *ToolRegistry) ToLLMTools() []llmpkg.Tool {
 }
 
 // GetDAGByToolName returns the DAG for a given tool name.
-func (r *ToolRegistry) GetDAGByToolName(toolName string) (*core.DAG, bool) {
+func (r *ToolRegistry) GetDAGByToolName(toolName string) (*ir.DAG, bool) {
 	if r == nil {
 		return nil, false
 	}

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,15 +48,15 @@ func createTempLogFile(t *testing.T, pattern, content string) (string, func()) {
 
 func TestRenderDAGStatus_BasicSuccess(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "2024-01-15 10:01:00",
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{
-				Step:       core.Step{Name: "step1", Command: "echo", Args: []string{"hello"}},
-				Status:     core.NodeSucceeded,
+				Step:       ir.Step{Name: "step1", Command: "echo", Args: []string{"hello"}},
+				Status:     ir.NodeSucceeded,
 				StartedAt:  "2024-01-15 10:00:00",
 				FinishedAt: "2024-01-15 10:00:30",
 			},
@@ -73,24 +73,24 @@ func TestRenderDAGStatus_BasicSuccess(t *testing.T) {
 
 func TestRenderDAGStatus_BuildDecision(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "build-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "build-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "build"},
-				Status: core.NodeSucceeded,
-				Build: &exec.BuildExecution{
+				Step:   ir.Step{Name: "build"},
+				Status: ir.NodeSucceeded,
+				Build: &dagrun.BuildExecution{
 					Decision:    "reuse",
 					Reason:      "matched",
 					Detail:      "recipe, inputs, and output match the committed manifest",
-					ProducerRun: exec.NewDAGRunRef("build-dag", "run-1"),
+					ProducerRun: dagrun.NewDAGRunRef("build-dag", "run-1"),
 				},
 			},
 			{
-				Step:   core.Step{Name: "publish"},
-				Status: core.NodeSkipped,
-				Build: &exec.BuildExecution{
+				Step:   ir.Step{Name: "publish"},
+				Status: ir.NodeSkipped,
+				Build: &dagrun.BuildExecution{
 					Decision: "none",
 					Reason:   "precondition_not_met",
 				},
@@ -107,13 +107,13 @@ func TestRenderDAGStatus_BuildDecision(t *testing.T) {
 
 func TestRenderDAGStatus_FailedStep(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "failed-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Failed,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "failed-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Failed,
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "failing-step", Command: "exit", Args: []string{"1"}},
-				Status: core.NodeFailed,
+				Step:   ir.Step{Name: "failing-step", Command: "exit", Args: []string{"1"}},
+				Status: ir.NodeFailed,
 				Error:  "command exited with code 1",
 			},
 		},
@@ -129,13 +129,13 @@ func TestRenderDAGStatus_FailedStep(t *testing.T) {
 
 func TestRenderDAGStatus_MultipleSteps(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "multi-step-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
-			{Step: core.Step{Name: "step1"}, Status: core.NodeSucceeded},
-			{Step: core.Step{Name: "step2"}, Status: core.NodeSucceeded},
-			{Step: core.Step{Name: "step3"}, Status: core.NodeSucceeded},
+	dag := &ir.DAG{Name: "multi-step-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
+			{Step: ir.Step{Name: "step1"}, Status: ir.NodeSucceeded},
+			{Step: ir.Step{Name: "step2"}, Status: ir.NodeSucceeded},
+			{Step: ir.Step{Name: "step3"}, Status: ir.NodeSucceeded},
 		},
 	}
 
@@ -150,20 +150,20 @@ func TestRenderDAGStatus_MultipleSteps(t *testing.T) {
 
 func TestRenderDAGStatus_LifecycleHandlers(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "handler-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Failed,
-		OnInit: &exec.Node{
-			Step:   core.Step{Name: "onInit", Command: "exit", Args: []string{"1"}},
-			Status: core.NodeFailed,
+	dag := &ir.DAG{Name: "handler-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Failed,
+		OnInit: &dagrun.Node{
+			Step:   ir.Step{Name: "onInit", Command: "exit", Args: []string{"1"}},
+			Status: ir.NodeFailed,
 			Error:  "init handler failed",
 		},
-		Nodes: []*exec.Node{
-			{Step: core.Step{Name: "step1"}, Status: core.NodeNotStarted},
+		Nodes: []*dagrun.Node{
+			{Step: ir.Step{Name: "step1"}, Status: ir.NodeNotStarted},
 		},
-		OnExit: &exec.Node{
-			Step:   core.Step{Name: "onExit"},
-			Status: core.NodeSucceeded,
+		OnExit: &dagrun.Node{
+			Step:   ir.Step{Name: "onExit"},
+			Status: ir.NodeSucceeded,
 		},
 	}
 
@@ -180,12 +180,12 @@ func TestRenderDAGStatus_LifecycleHandlers(t *testing.T) {
 
 func TestRenderDAGStatus_RunningStatus(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "running-dag"}
-	status := &exec.DAGRunStatus{
-		Status:    core.Running,
+	dag := &ir.DAG{Name: "running-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:    ir.Running,
 		StartedAt: "2024-01-15 10:00:00",
-		Nodes: []*exec.Node{
-			{Step: core.Step{Name: "running-step"}, Status: core.NodeRunning, StartedAt: "2024-01-15 10:00:00"},
+		Nodes: []*dagrun.Node{
+			{Step: ir.Step{Name: "running-step"}, Status: ir.NodeRunning, StartedAt: "2024-01-15 10:00:00"},
 		},
 	}
 
@@ -198,20 +198,20 @@ func TestRenderDAGStatus_RunningStatus(t *testing.T) {
 func TestRenderDAGStatus_WaitingHumanTask(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{Name: "deploy"}
-	status := &exec.DAGRunStatus{
+	dag := &ir.DAG{Name: "deploy"}
+	status := &dagrun.DAGRunStatus{
 		Name:   "deploy",
-		Status: core.Waiting,
-		Nodes: []*exec.Node{{
-			Step: core.Step{
+		Status: ir.Waiting,
+		Nodes: []*dagrun.Node{{
+			Step: ir.Step{
 				ID:   "production_review",
 				Name: "production_review",
-				HumanTask: &core.HumanTaskConfig{
+				HumanTask: &ir.HumanTaskConfig{
 					Prompt: "Review production",
 					Form:   []byte(`{"type":"object","additionalProperties":false}`),
 				},
 			},
-			Status: core.NodeWaiting,
+			Status: ir.NodeWaiting,
 		}},
 	}
 
@@ -224,28 +224,28 @@ func TestRenderDAGStatus_WaitingHumanTask(t *testing.T) {
 func TestRenderDAGStatus_WaitingHumanTaskPreservesResolvedPromptAndUTF8(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{Name: "deploy"}
-	status := &exec.DAGRunStatus{
-		Status: core.Waiting,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "deploy"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Waiting,
+		Nodes: []*dagrun.Node{
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					ID:        "empty_prompt",
 					Name:      "empty_prompt",
-					HumanTask: &core.HumanTaskConfig{},
+					HumanTask: &ir.HumanTaskConfig{},
 				},
-				Status: core.NodeWaiting,
+				Status: ir.NodeWaiting,
 			},
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					ID:   "multiline",
 					Name: "multiline",
-					HumanTask: &core.HumanTaskConfig{
+					HumanTask: &ir.HumanTaskConfig{
 						Prompt: "第一行\n第二行",
 						Form:   []byte(`{"type":"object","description":"日本語の長い説明文を安全に折り返します"}`),
 					},
 				},
-				Status: core.NodeWaiting,
+				Status: ir.NodeWaiting,
 			},
 		},
 	}
@@ -260,13 +260,13 @@ func TestRenderDAGStatus_WaitingHumanTaskPreservesResolvedPromptAndUTF8(t *testi
 
 func TestRenderDAGStatus_AbortedStatus(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "aborted-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Aborted,
+	dag := &ir.DAG{Name: "aborted-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Aborted,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "2024-01-15 10:00:30",
-		Nodes: []*exec.Node{
-			{Step: core.Step{Name: "aborted-step"}, Status: core.NodeAborted},
+		Nodes: []*dagrun.Node{
+			{Step: ir.Step{Name: "aborted-step"}, Status: ir.NodeAborted},
 		},
 	}
 
@@ -278,13 +278,13 @@ func TestRenderDAGStatus_AbortedStatus(t *testing.T) {
 
 func TestRenderDAGStatus_PartiallySucceededStatus(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "partial-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.PartiallySucceeded,
+	dag := &ir.DAG{Name: "partial-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.PartiallySucceeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "2024-01-15 10:00:30",
-		Nodes: []*exec.Node{
-			{Step: core.Step{Name: "partial-step"}, Status: core.NodePartiallySucceeded},
+		Nodes: []*dagrun.Node{
+			{Step: ir.Step{Name: "partial-step"}, Status: ir.NodePartiallySucceeded},
 		},
 	}
 
@@ -296,10 +296,10 @@ func TestRenderDAGStatus_PartiallySucceededStatus(t *testing.T) {
 
 func TestRenderDAGStatus_QueuedStatus(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "queued-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Queued,
-		Nodes:  []*exec.Node{},
+	dag := &ir.DAG{Name: "queued-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Queued,
+		Nodes:  []*dagrun.Node{},
 	}
 
 	output := newTestRenderer().RenderDAGStatus(dag, status)
@@ -309,11 +309,11 @@ func TestRenderDAGStatus_QueuedStatus(t *testing.T) {
 
 func TestRenderDAGStatus_NotStartedStatus(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "not-started-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.NotStarted,
-		Nodes: []*exec.Node{
-			{Step: core.Step{Name: "not-started-step"}, Status: core.NodeNotStarted},
+	dag := &ir.DAG{Name: "not-started-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.NotStarted,
+		Nodes: []*dagrun.Node{
+			{Step: ir.Step{Name: "not-started-step"}, Status: ir.NodeNotStarted},
 		},
 	}
 
@@ -324,11 +324,11 @@ func TestRenderDAGStatus_NotStartedStatus(t *testing.T) {
 
 func TestRenderDAGStatus_SkippedStep(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "skipped-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
-			{Step: core.Step{Name: "skipped-step"}, Status: core.NodeSkipped},
+	dag := &ir.DAG{Name: "skipped-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
+			{Step: ir.Step{Name: "skipped-step"}, Status: ir.NodeSkipped},
 		},
 	}
 
@@ -339,14 +339,14 @@ func TestRenderDAGStatus_SkippedStep(t *testing.T) {
 
 func TestRenderDAGStatus_WithSubRuns(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "parent-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "parent-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "sub-step"},
-				Status: core.NodeSucceeded,
-				SubRuns: []exec.SubDAGRun{
+				Step:   ir.Step{Name: "sub-step"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []dagrun.SubDAGRun{
 					{DAGRunID: "sub-run-123", Params: "param1=value1"},
 				},
 			},
@@ -362,14 +362,14 @@ func TestRenderDAGStatus_WithSubRuns(t *testing.T) {
 
 func TestRenderDAGStatus_WithSubRunsNoParams(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "parent-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "parent-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "sub-step"},
-				Status: core.NodeSucceeded,
-				SubRuns: []exec.SubDAGRun{
+				Step:   ir.Step{Name: "sub-step"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []dagrun.SubDAGRun{
 					{DAGRunID: "sub-run-456"},
 				},
 			},
@@ -383,13 +383,13 @@ func TestRenderDAGStatus_WithSubRunsNoParams(t *testing.T) {
 
 func TestRenderDAGStatus_DisabledOutputs(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "step1", Command: "echo"},
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{Name: "step1", Command: "echo"},
+				Status: ir.NodeSucceeded,
 				Stdout: "/tmp/nonexistent-stdout.log",
 				Stderr: "/tmp/nonexistent-stderr.log",
 			},
@@ -415,15 +415,15 @@ func TestRenderDAGStatus_WithActualLogFiles(t *testing.T) {
 	stderrPath, cleanupStderr := createTempLogFile(t, "stderr-*.log", "Warning: something happened\n")
 	defer cleanupStderr()
 
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "2024-01-15 10:00:30",
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{
-				Step:       core.Step{Name: "step1", Command: "echo"},
-				Status:     core.NodeSucceeded,
+				Step:       ir.Step{Name: "step1", Command: "echo"},
+				Status:     ir.NodeSucceeded,
 				StartedAt:  "2024-01-15 10:00:00",
 				FinishedAt: "2024-01-15 10:00:30",
 				Stdout:     stdoutPath,
@@ -449,13 +449,13 @@ func TestRenderDAGStatus_WithTruncatedOutput(t *testing.T) {
 	}
 	_ = tmpfile.Close()
 
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "step1"},
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{Name: "step1"},
+				Status: ir.NodeSucceeded,
 				Stdout: tmpfile.Name(),
 			},
 		},
@@ -483,11 +483,11 @@ func TestRenderDAGStatus_StartTimeFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			dag := &core.DAG{Name: "test-dag"}
-			status := &exec.DAGRunStatus{
-				Status:    core.NotStarted,
+			dag := &ir.DAG{Name: "test-dag"}
+			status := &dagrun.DAGRunStatus{
+				Status:    ir.NotStarted,
 				StartedAt: tt.startedAt,
-				Nodes:     []*exec.Node{},
+				Nodes:     []*dagrun.Node{},
 			}
 
 			output := newTestRenderer().RenderDAGStatus(dag, status)
@@ -499,11 +499,11 @@ func TestRenderDAGStatus_StartTimeFallback(t *testing.T) {
 
 func TestRenderDAGStatus_NoDuration(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:    core.NotStarted,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:    ir.NotStarted,
 		StartedAt: "",
-		Nodes:     []*exec.Node{},
+		Nodes:     []*dagrun.Node{},
 	}
 
 	output := newTestRenderer().RenderDAGStatus(dag, status)
@@ -513,12 +513,12 @@ func TestRenderDAGStatus_NoDuration(t *testing.T) {
 
 func TestRenderDAGStatus_InvalidTimeFormat(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "invalid-time",
 		FinishedAt: "also-invalid",
-		Nodes:      []*exec.Node{},
+		Nodes:      []*dagrun.Node{},
 	}
 
 	output := newTestRenderer().RenderDAGStatus(dag, status)
@@ -642,16 +642,16 @@ func TestReadLogFileTail_LargeFile(t *testing.T) {
 func TestStatusText(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		status core.Status
+		status ir.Status
 		text   string
 	}{
-		{core.Running, "Running"},
-		{core.Succeeded, "Succeeded"},
-		{core.Failed, "Failed"},
-		{core.Aborted, "Aborted"},
-		{core.PartiallySucceeded, "Partially Succeeded"},
-		{core.Queued, "Queued"},
-		{core.NotStarted, "Not Started"},
+		{ir.Running, "Running"},
+		{ir.Succeeded, "Succeeded"},
+		{ir.Failed, "Failed"},
+		{ir.Aborted, "Aborted"},
+		{ir.PartiallySucceeded, "Partially Succeeded"},
+		{ir.Queued, "Queued"},
+		{ir.NotStarted, "Not Started"},
 	}
 
 	for _, tt := range tests {
@@ -674,12 +674,12 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestRenderDAGStatus_TreeStructure(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "tree-test"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
-			{Step: core.Step{Name: "first_step"}, Status: core.NodeSucceeded},
-			{Step: core.Step{Name: "last_step"}, Status: core.NodeSucceeded},
+	dag := &ir.DAG{Name: "tree-test"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
+			{Step: ir.Step{Name: "first_step"}, Status: ir.NodeSucceeded},
+			{Step: ir.Step{Name: "last_step"}, Status: ir.NodeSucceeded},
 		},
 	}
 
@@ -716,19 +716,19 @@ func TestIsBinaryContent(t *testing.T) {
 
 func TestRenderDAGStatus_WithMultipleCommands(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "multi-cmd-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "multi-cmd-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					Name: "multi-step",
-					Commands: []core.CommandEntry{
+					Commands: []ir.CommandEntry{
 						{Command: "echo", Args: []string{"first"}, CmdWithArgs: "echo first"},
 						{Command: "echo", Args: []string{"second"}, CmdWithArgs: "echo second"},
 					},
 				},
-				Status: core.NodeSucceeded,
+				Status: ir.NodeSucceeded,
 			},
 		},
 	}
@@ -745,16 +745,16 @@ func TestRenderDAGStatus_WithMultipleCommands(t *testing.T) {
 
 func TestRenderDAGStatus_WithLegacyCommand(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "legacy-cmd-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "legacy-cmd-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					Name:        "legacy-step",
 					CmdWithArgs: "echo hello world",
 				},
-				Status: core.NodeSucceeded,
+				Status: ir.NodeSucceeded,
 			},
 		},
 	}
@@ -766,17 +766,17 @@ func TestRenderDAGStatus_WithLegacyCommand(t *testing.T) {
 
 func TestRenderDAGStatus_WithLegacyCommandAndArgs(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "legacy-cmd-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "legacy-cmd-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					Name:    "legacy-step",
 					Command: "echo",
 					Args:    []string{"hello", "world"},
 				},
-				Status: core.NodeSucceeded,
+				Status: ir.NodeSucceeded,
 			},
 		},
 	}
@@ -788,13 +788,13 @@ func TestRenderDAGStatus_WithLegacyCommandAndArgs(t *testing.T) {
 
 func TestRenderDAGStatus_NoCommand(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "no-cmd-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "no-cmd-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "no-cmd-step"},
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{Name: "no-cmd-step"},
+				Status: ir.NodeSucceeded,
 			},
 		},
 	}
@@ -828,20 +828,20 @@ func TestTrimTrailingEmptyLines(t *testing.T) {
 func TestNodeStatusToStatus(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		nodeStatus core.NodeStatus
-		expected   core.Status
+		nodeStatus ir.NodeStatus
+		expected   ir.Status
 	}{
-		{core.NodeRunning, core.Running},
-		{core.NodeRetrying, core.Running},
-		{core.NodeSucceeded, core.Succeeded},
-		{core.NodeFailed, core.Failed},
-		{core.NodeAborted, core.Aborted},
-		{core.NodePartiallySucceeded, core.PartiallySucceeded},
-		{core.NodeWaiting, core.Waiting},
-		{core.NodeRejected, core.Rejected},
-		{core.NodeSkipped, core.NotStarted},
-		{core.NodeNotStarted, core.NotStarted},
-		{core.NodeStatus(999), core.NotStarted},
+		{ir.NodeRunning, ir.Running},
+		{ir.NodeRetrying, ir.Running},
+		{ir.NodeSucceeded, ir.Succeeded},
+		{ir.NodeFailed, ir.Failed},
+		{ir.NodeAborted, ir.Aborted},
+		{ir.NodePartiallySucceeded, ir.PartiallySucceeded},
+		{ir.NodeWaiting, ir.Waiting},
+		{ir.NodeRejected, ir.Rejected},
+		{ir.NodeSkipped, ir.NotStarted},
+		{ir.NodeNotStarted, ir.NotStarted},
+		{ir.NodeStatus(999), ir.NotStarted},
 	}
 
 	for _, tt := range tests {
@@ -854,19 +854,19 @@ func TestNodeStatusToStatus(t *testing.T) {
 func TestShouldShowDuration(t *testing.T) {
 	t.Parallel()
 
-	assert.True(t, shouldShowDuration(core.NodeRunning))
-	assert.True(t, shouldShowDuration(core.NodeRetrying))
-	assert.True(t, shouldShowDuration(core.NodeSucceeded))
-	assert.False(t, shouldShowDuration(core.NodeWaiting))
-	assert.False(t, shouldShowDuration(core.NodeSkipped))
+	assert.True(t, shouldShowDuration(ir.NodeRunning))
+	assert.True(t, shouldShowDuration(ir.NodeRetrying))
+	assert.True(t, shouldShowDuration(ir.NodeSucceeded))
+	assert.False(t, shouldShowDuration(ir.NodeWaiting))
+	assert.False(t, shouldShowDuration(ir.NodeSkipped))
 }
 
 func TestRenderDAGStatus_UnknownStatus(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "unknown-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Status(999),
-		Nodes:  []*exec.Node{},
+	dag := &ir.DAG{Name: "unknown-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Status(999),
+		Nodes:  []*dagrun.Node{},
 	}
 
 	output := newTestRenderer().RenderDAGStatus(dag, status)
@@ -880,13 +880,13 @@ func TestRenderDAGStatus_OnlyStdout(t *testing.T) {
 	stdoutPath, cleanup := createTempLogFile(t, "stdout-*.log", "Hello stdout\n")
 	defer cleanup()
 
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "step1", Command: "echo"},
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{Name: "step1", Command: "echo"},
+				Status: ir.NodeSucceeded,
 				Stdout: stdoutPath,
 			},
 		},
@@ -908,13 +908,13 @@ func TestRenderDAGStatus_OnlyStderr(t *testing.T) {
 	stderrPath, cleanup := createTempLogFile(t, "stderr-*.log", "Hello stderr\n")
 	defer cleanup()
 
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "step1", Command: "echo"},
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{Name: "step1", Command: "echo"},
+				Status: ir.NodeSucceeded,
 				Stderr: stderrPath,
 			},
 		},
@@ -951,12 +951,12 @@ func TestReadLogFileTail_PermissionDenied(t *testing.T) {
 
 func TestCalculateDuration_InvalidFinishedAt(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "invalid-time-format",
-		Nodes:      []*exec.Node{},
+		Nodes:      []*dagrun.Node{},
 	}
 
 	output := newTestRenderer().RenderDAGStatus(dag, status)
@@ -966,12 +966,12 @@ func TestCalculateDuration_InvalidFinishedAt(t *testing.T) {
 
 func TestCalculateDuration_NotRunningWithDashFinishedAt(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "-",
-		Nodes:      []*exec.Node{},
+		Nodes:      []*dagrun.Node{},
 	}
 
 	output := newTestRenderer().RenderDAGStatus(dag, status)
@@ -981,12 +981,12 @@ func TestCalculateDuration_NotRunningWithDashFinishedAt(t *testing.T) {
 
 func TestCalculateDuration_NotRunningWithEmptyFinishedAt(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "",
-		Nodes:      []*exec.Node{},
+		Nodes:      []*dagrun.Node{},
 	}
 
 	output := newTestRenderer().RenderDAGStatus(dag, status)
@@ -996,13 +996,13 @@ func TestCalculateDuration_NotRunningWithEmptyFinishedAt(t *testing.T) {
 
 func TestRenderDAGStatus_NodeDurationWithInvalidTime(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status: core.Succeeded,
-		Nodes: []*exec.Node{
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*dagrun.Node{
 			{
-				Step:       core.Step{Name: "step1"},
-				Status:     core.NodeSucceeded,
+				Step:       ir.Step{Name: "step1"},
+				Status:     ir.NodeSucceeded,
 				StartedAt:  "2024-01-15 10:00:00",
 				FinishedAt: "invalid-time",
 			},
@@ -1016,14 +1016,14 @@ func TestRenderDAGStatus_NodeDurationWithInvalidTime(t *testing.T) {
 
 func TestRenderDAGStatus_RunningNodeCalculatesDuration(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:    core.Running,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:    ir.Running,
 		StartedAt: "2024-01-15 10:00:00",
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{
-				Step:      core.Step{Name: "running-step"},
-				Status:    core.NodeRunning,
+				Step:      ir.Step{Name: "running-step"},
+				Status:    ir.NodeRunning,
 				StartedAt: "2024-01-15 10:00:00",
 			},
 		},
@@ -1124,15 +1124,15 @@ func TestRenderDAGStatus_ShowsLogFilePaths(t *testing.T) {
 	stderrPath, cleanupStderr := createTempLogFile(t, "stderr-*.log", "Warning message\n")
 	defer cleanupStderr()
 
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "2024-01-15 10:00:30",
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{
-				Step:       core.Step{Name: "step1", Command: "echo"},
-				Status:     core.NodeSucceeded,
+				Step:       ir.Step{Name: "step1", Command: "echo"},
+				Status:     ir.NodeSucceeded,
 				StartedAt:  "2024-01-15 10:00:00",
 				FinishedAt: "2024-01-15 10:00:30",
 				Stdout:     stdoutPath,
@@ -1151,16 +1151,16 @@ func TestRenderDAGStatus_ShowsLogFilePaths(t *testing.T) {
 
 func TestRenderDAGStatus_ShowsSchedulerLog(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "2024-01-15 10:00:30",
 		Log:        "/path/to/scheduler.log",
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "step1"},
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{Name: "step1"},
+				Status: ir.NodeSucceeded,
 			},
 		},
 	}
@@ -1172,16 +1172,16 @@ func TestRenderDAGStatus_ShowsSchedulerLog(t *testing.T) {
 
 func TestRenderDAGStatus_NoSchedulerLogWhenEmpty(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "2024-01-15 10:00:30",
 		Log:        "",
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{
-				Step:   core.Step{Name: "step1"},
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{Name: "step1"},
+				Status: ir.NodeSucceeded,
 			},
 		},
 	}
@@ -1193,13 +1193,13 @@ func TestRenderDAGStatus_NoSchedulerLogWhenEmpty(t *testing.T) {
 
 func TestRenderDAGStatus_SchedulerLogLastBranchWhenNoSteps(t *testing.T) {
 	t.Parallel()
-	dag := &core.DAG{Name: "test-dag"}
-	status := &exec.DAGRunStatus{
-		Status:     core.Succeeded,
+	dag := &ir.DAG{Name: "test-dag"}
+	status := &dagrun.DAGRunStatus{
+		Status:     ir.Succeeded,
 		StartedAt:  "2024-01-15 10:00:00",
 		FinishedAt: "2024-01-15 10:00:30",
 		Log:        "/path/to/scheduler.log",
-		Nodes:      []*exec.Node{},
+		Nodes:      []*dagrun.Node{},
 	}
 
 	output := newTestRenderer().RenderDAGStatus(dag, status)

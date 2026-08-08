@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -130,7 +130,7 @@ func TestResolveStandardRegistryRefFallsBackToBootstrap(t *testing.T) {
 
 	resolved := installer.resolveStandardRegistryRef(context.Background(), tools.InstallOptions{ToolsDir: t.TempDir()}, false)
 	assert.Equal(t, registryRefSourceBootstrap, resolved.Source)
-	assert.Equal(t, core.DefaultAquaStandardRegistryRef, resolved.SHA)
+	assert.Equal(t, ir.DefaultAquaStandardRegistryRef, resolved.SHA)
 	assert.Empty(t, resolved.Tag)
 }
 
@@ -161,8 +161,8 @@ func TestInstallDoesNotRefreshRegistryOnLocalFailure(t *testing.T) {
 	seedFreshRefCache(t, installer, opts)
 	callsAfterSeed := calls
 
-	_, err := installer.Install(context.Background(), &core.ToolConfig{
-		Packages: []core.ToolPackage{{Package: "jqlang/jq", Version: "jq-1.7.1"}},
+	_, err := installer.Install(context.Background(), &ir.ToolConfig{
+		Packages: []ir.ToolPackage{{Package: "jqlang/jq", Version: "jq-1.7.1"}},
 	}, opts)
 
 	require.Error(t, err)
@@ -184,8 +184,8 @@ func TestInstallDoesNotRefreshRegistryOnCanceledContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := installer.Install(ctx, &core.ToolConfig{
-		Packages: []core.ToolPackage{{Package: "jqlang/jq", Version: "jq-1.7.1"}},
+	_, err := installer.Install(ctx, &ir.ToolConfig{
+		Packages: []ir.ToolPackage{{Package: "jqlang/jq", Version: "jq-1.7.1"}},
 	}, opts)
 
 	require.Error(t, err)

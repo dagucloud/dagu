@@ -16,8 +16,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
@@ -33,7 +35,7 @@ var (
 type SubDAGExecutor struct {
 	// DAG is the sub DAG to execute.
 	// For local DAGs, this DAG's Location will be set to a temporary file.
-	DAG *core.DAG
+	DAG *ir.DAG
 
 	// tempFile holds the temporary file path for local DAGs.
 	// This will be cleaned up after execution.
@@ -50,7 +52,7 @@ type SubDAGExecutor struct {
 
 	mu         sync.Mutex
 	activeRuns map[string]context.CancelFunc // runID -> cancel active runner wait
-	dagCtx     exec.Context
+	dagCtx     runctx.Context
 
 	// killed should be closed when Kill is called
 	killed     chan struct{}
@@ -70,7 +72,7 @@ type WorkspaceSeed struct {
 // It handles the logic for finding the DAG - either from the database
 // or from local DAGs defined in the parent.
 func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, error) {
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 
 	// First, check if it's a local DAG in the parent
 	if rCtx.DAG != nil && rCtx.DAG.LocalDAGs != nil {
@@ -99,29 +101,29 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 
 	// If not found as local DAG, look it up in the database
 	if rCtx.DB == nil {
-		return nil, fmt.Errorf("cannot resolve sub-DAG %q: no local DAG store available (hint: parent DAG was dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, exec.ErrDAGNotFound)
+		return nil, fmt.Errorf("cannot resolve sub-DAG %q: no local DAG store available (hint: parent DAG was dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, dagstore.ErrDAGNotFound)
 	}
 	dag, err := rCtx.DB.GetDAG(ctx, childName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find DAG %q: %w", childName, err)
 	}
 	if dag == nil {
-		return nil, fmt.Errorf("sub-DAG %q resolved to nil (hint: parent DAG may have been dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, exec.ErrDAGNotFound)
+		return nil, fmt.Errorf("sub-DAG %q resolved to nil (hint: parent DAG may have been dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, dagstore.ErrDAGNotFound)
 	}
 
 	return newSubDAGExecutor(ctx, rCtx, dag, ""), nil
 }
 
 // NewSubDAGExecutorForDAG creates a SubDAGExecutor for an already-loaded DAG.
-func NewSubDAGExecutorForDAG(ctx context.Context, dag *core.DAG) (*SubDAGExecutor, error) {
+func NewSubDAGExecutorForDAG(ctx context.Context, dag *ir.DAG) (*SubDAGExecutor, error) {
 	if dag == nil {
 		return nil, fmt.Errorf("sub DAG is required")
 	}
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	return newSubDAGExecutor(ctx, rCtx, dag, ""), nil
 }
 
-func newSubDAGExecutor(ctx context.Context, rCtx exec.Context, dag *core.DAG, tempFile string) *SubDAGExecutor {
+func newSubDAGExecutor(ctx context.Context, rCtx runctx.Context, dag *ir.DAG, tempFile string) *SubDAGExecutor {
 	subWorkflowRunner, _ := SubWorkflowRunnerFromContext(ctx)
 	return &SubDAGExecutor{
 		DAG:               dag,
@@ -192,7 +194,7 @@ func (e *SubDAGExecutor) Cleanup(ctx context.Context) error {
 
 // Execute executes the sub DAG and returns the result.
 // This is useful for parallel execution where results need to be collected.
-func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workDir string) (*exec.RunStatus, error) {
+func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workDir string) (*dagrun.RunStatus, error) {
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
 
 	req := e.subWorkflowRequest(ctx, runParams, workDir)
@@ -216,7 +218,7 @@ func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workD
 }
 
 // Reuse returns the persisted result of a child run without executing it.
-func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir string) (*exec.RunStatus, error) {
+func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir string) (*dagrun.RunStatus, error) {
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
 
 	req := e.subWorkflowRequest(ctx, runParams, workDir)
@@ -239,7 +241,7 @@ func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir
 }
 
 // Retry executes a parent-managed step retry for a previously started sub DAG.
-func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepName, workDir string, path exec.RetryPath) (*exec.RunStatus, error) {
+func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepName, workDir string, path dagrun.RetryPath) (*dagrun.RunStatus, error) {
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
 
 	req := e.subWorkflowRequest(ctx, runParams, workDir)
@@ -277,8 +279,8 @@ func validateSubWorkflowRequest(req SubWorkflowRequest) error {
 }
 
 func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunParams, workDir string) SubWorkflowRequest {
-	rCtx := exec.GetContext(ctx)
-	var parent exec.DAGRunRef
+	rCtx := runctx.GetContext(ctx)
+	var parent dagrun.DAGRunRef
 	if rCtx.DAG != nil {
 		parent = rCtx.DAGRunRef()
 	}
@@ -388,7 +390,7 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 			}
 		} else if e.dagCtx.DB != nil {
 			if err := e.dagCtx.DB.RequestChildCancel(ctx, run.runID, e.dagCtx.RootDAGRun); err != nil {
-				if !errors.Is(err, exec.ErrDAGRunIDNotFound) {
+				if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 					errs = append(errs, err)
 					logger.Warn(ctx, "Failed to request child cancel via local DB",
 						tag.SubRunID(run.runID),

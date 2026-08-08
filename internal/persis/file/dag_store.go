@@ -8,8 +8,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -19,14 +19,14 @@ type DAGStoreOption func(*DAGStoreOptions)
 
 // DAGStoreOptions contains file-backed DAG definition store settings.
 type DAGStoreOptions struct {
-	Cache                 *fileutil.Cache[*core.DAG]
+	Cache                 *fileutil.Cache[*ir.DAG]
 	SearchPaths           []string
 	SkipExamples          *bool
 	SkipDirectoryCreation bool
 }
 
 // WithDAGFileCache sets the cache used for loading DAG definitions.
-func WithDAGFileCache(cache *fileutil.Cache[*core.DAG]) DAGStoreOption {
+func WithDAGFileCache(cache *fileutil.Cache[*ir.DAG]) DAGStoreOption {
 	return func(o *DAGStoreOptions) {
 		o.Cache = cache
 	}
@@ -54,7 +54,7 @@ func WithDAGSkipDirectoryCreation(skip bool) DAGStoreOption {
 }
 
 // NewDAGStore wires the file-backed DAG definition store from application config.
-func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (exec.DAGStore, error) {
+func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (dagstore.DAGStore, error) {
 	options := DAGStoreOptions{}
 	for _, opt := range opts {
 		if opt != nil {

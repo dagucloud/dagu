@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,9 +16,9 @@ import (
 func TestValidateDAGToolsSupportedRejectsContainer(t *testing.T) {
 	t.Parallel()
 
-	err := dagutools.ValidateDAGSupported(&core.DAG{
-		Tools:     &core.ToolConfig{Provider: "aqua"},
-		Container: &core.Container{Image: "alpine"},
+	err := dagutools.ValidateDAGSupported(&ir.DAG{
+		Tools:     &ir.ToolConfig{Provider: "aqua"},
+		Container: &ir.Container{Image: "alpine"},
 	})
 
 	require.Error(t, err)
@@ -28,11 +28,11 @@ func TestValidateDAGToolsSupportedRejectsContainer(t *testing.T) {
 func TestValidateDAGToolsSupportedAllowsHostCommandSteps(t *testing.T) {
 	t.Parallel()
 
-	err := dagutools.ValidateDAGSupported(&core.DAG{
-		Tools: &core.ToolConfig{Provider: "aqua"},
-		Steps: []core.Step{{
+	err := dagutools.ValidateDAGSupported(&ir.DAG{
+		Tools: &ir.ToolConfig{Provider: "aqua"},
+		Steps: []ir.Step{{
 			Name: "check",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "jq",
 			}},
 		}},

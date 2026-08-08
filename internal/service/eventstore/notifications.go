@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -49,15 +49,15 @@ type NotificationReader interface {
 }
 
 type DAGRunNodeSnapshot struct {
-	StepName      string                  `json:"step_name,omitempty"`
-	Status        core.NodeStatus         `json:"status,omitempty"`
-	Error         string                  `json:"error,omitempty"`
-	StatusDetails []exec.NodeStatusDetail `json:"status_details,omitempty"`
+	StepName      string                    `json:"step_name,omitempty"`
+	Status        ir.NodeStatus             `json:"status,omitempty"`
+	Error         string                    `json:"error,omitempty"`
+	StatusDetails []dagrun.NodeStatusDetail `json:"status_details,omitempty"`
 }
 
 type NotificationNodeSnapshot = DAGRunNodeSnapshot
 
-func newDAGRunNodeSnapshot(node *exec.Node) *DAGRunNodeSnapshot {
+func newDAGRunNodeSnapshot(node *dagrun.Node) *DAGRunNodeSnapshot {
 	if node == nil {
 		return nil
 	}
@@ -65,19 +65,19 @@ func newDAGRunNodeSnapshot(node *exec.Node) *DAGRunNodeSnapshot {
 		StepName:      node.Step.Name,
 		Status:        node.Status,
 		Error:         node.Error,
-		StatusDetails: append([]exec.NodeStatusDetail(nil), node.StatusDetails...),
+		StatusDetails: append([]dagrun.NodeStatusDetail(nil), node.StatusDetails...),
 	}
 }
 
-func (s *DAGRunNodeSnapshot) Node() *exec.Node {
+func (s *DAGRunNodeSnapshot) Node() *dagrun.Node {
 	if s == nil {
 		return nil
 	}
-	return &exec.Node{
-		Step:          core.Step{Name: s.StepName},
+	return &dagrun.Node{
+		Step:          ir.Step{Name: s.StepName},
 		Status:        s.Status,
 		Error:         s.Error,
-		StatusDetails: append([]exec.NodeStatusDetail(nil), s.StatusDetails...),
+		StatusDetails: append([]dagrun.NodeStatusDetail(nil), s.StatusDetails...),
 	}
 }
 
@@ -86,18 +86,18 @@ type DAGRunRefSnapshot struct {
 	DAGRunID string `json:"dag_run_id,omitempty"`
 }
 
-func newDAGRunRefSnapshot(ref exec.DAGRunRef) DAGRunRefSnapshot {
+func newDAGRunRefSnapshot(ref dagrun.DAGRunRef) DAGRunRefSnapshot {
 	return DAGRunRefSnapshot{
 		Name:     ref.Name,
 		DAGRunID: ref.ID,
 	}
 }
 
-func (s DAGRunRefSnapshot) DAGRunRef() exec.DAGRunRef {
+func (s DAGRunRefSnapshot) DAGRunRef() dagrun.DAGRunRef {
 	if s.Name == "" || s.DAGRunID == "" {
-		return exec.DAGRunRef{}
+		return dagrun.DAGRunRef{}
 	}
-	return exec.NewDAGRunRef(s.Name, s.DAGRunID)
+	return dagrun.NewDAGRunRef(s.Name, s.DAGRunID)
 }
 
 type DAGRunStatusSnapshot struct {
@@ -109,7 +109,7 @@ type DAGRunStatusSnapshot struct {
 	DAGRunID       string               `json:"dag_run_id"`
 	AttemptID      string               `json:"attempt_id"`
 	ProcGroup      string               `json:"proc_group,omitempty"`
-	Status         core.Status          `json:"status"`
+	Status         ir.Status            `json:"status"`
 	Error          string               `json:"error,omitempty"`
 	Log            string               `json:"log,omitempty"`
 	QueuedAt       string               `json:"queued_at,omitempty"`
@@ -139,14 +139,14 @@ func (s *DAGRunStatusSnapshot) Validate() error {
 		return errors.New("eventstore: invalid dag-run snapshot: missing name")
 	}
 	switch s.Status { //nolint:exhaustive // persisted DAG-run events only allow lifecycle states
-	case core.Queued, core.Running, core.Waiting, core.Succeeded, core.PartiallySucceeded, core.Failed, core.Aborted, core.Rejected:
+	case ir.Queued, ir.Running, ir.Waiting, ir.Succeeded, ir.PartiallySucceeded, ir.Failed, ir.Aborted, ir.Rejected:
 	default:
 		return errors.New("eventstore: invalid dag-run snapshot: missing or unsupported status")
 	}
 	return nil
 }
 
-func newDAGRunStatusSnapshot(status *exec.DAGRunStatus, dagFile string) *DAGRunStatusSnapshot {
+func newDAGRunStatusSnapshot(status *dagrun.DAGRunStatus, dagFile string) *DAGRunStatusSnapshot {
 	if status == nil {
 		return nil
 	}
@@ -184,17 +184,17 @@ func newDAGRunStatusSnapshot(status *exec.DAGRunStatus, dagFile string) *DAGRunS
 	}
 }
 
-func (s *DAGRunStatusSnapshot) DAGRunStatus() *exec.DAGRunStatus {
+func (s *DAGRunStatusSnapshot) DAGRunStatus() *dagrun.DAGRunStatus {
 	if s == nil {
 		return nil
 	}
 
-	nodes := make([]*exec.Node, 0, len(s.Nodes))
+	nodes := make([]*dagrun.Node, 0, len(s.Nodes))
 	for _, node := range s.Nodes {
 		nodes = append(nodes, node.Node())
 	}
 
-	return &exec.DAGRunStatus{
+	return &dagrun.DAGRunStatus{
 		Root:           s.Root.DAGRunRef(),
 		Parent:         s.Parent.DAGRunRef(),
 		Name:           s.Name,
@@ -253,7 +253,7 @@ func IsNotificationEventType(kind EventKind, eventType EventType) bool {
 	}
 }
 
-func DAGRunStatusFromEvent(event *Event) (*exec.DAGRunStatus, error) {
+func DAGRunStatusFromEvent(event *Event) (*dagrun.DAGRunStatus, error) {
 	snapshot, err := DAGRunSnapshotFromEvent(event)
 	if err != nil {
 		return nil, err
@@ -271,7 +271,7 @@ func DAGRunSnapshotFromEvent(event *Event) (*DAGRunStatusSnapshot, error) {
 	return dagRunSnapshotFromData(event.Data)
 }
 
-func NotificationStatusFromEvent(event *Event) (*exec.DAGRunStatus, error) {
+func NotificationStatusFromEvent(event *Event) (*dagrun.DAGRunStatus, error) {
 	if event == nil {
 		return nil, errors.New("eventstore: event is nil")
 	}

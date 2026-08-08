@@ -8,13 +8,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestStartWarnsAndContinuesWhenNativeEnforcementFails(t *testing.T) {
-	limits, err := core.NewResourceLimits("1", "128Mi")
+	limits, err := ir.NewResourceLimits("1", "128Mi")
 	require.NoError(t, err)
 
 	oldStartNative := startNative
@@ -35,7 +35,7 @@ func TestStartWarnsAndContinuesWhenNativeEnforcementFails(t *testing.T) {
 }
 
 func TestStartReturnsEnforcedResultWhenNativeEnforcementSucceeds(t *testing.T) {
-	limits, err := core.NewResourceLimits("500m", "64Mi")
+	limits, err := ir.NewResourceLimits("500m", "64Mi")
 	require.NoError(t, err)
 
 	fake := &fakeNativeGuard{}

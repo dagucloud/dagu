@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +63,7 @@ params:
 func TestResolveRuntimeParams_RequiresSource(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{Name: "runtime-params"}
+	dag := &ir.DAG{Name: "runtime-params"}
 
 	_, err := ResolveRuntimeParams(context.Background(), dag, "", ResolveRuntimeParamsOptions{})
 	require.Error(t, err)

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -24,7 +24,7 @@ const (
 type dagParamPlan struct {
 	kind             dagParamKind
 	entries          []dagParamEntry
-	paramDefs        []core.ParamDef
+	paramDefs        []ir.ParamDef
 	schema           *jsonschema.Resolved
 	schemaOrder      []string
 	schemaProperties map[string]*jsonschema.Schema
@@ -154,7 +154,7 @@ func finalizeDAGParamPlan(plan *dagParamPlan) error {
 	return validateParamReferenceNames(plan.paramDefs)
 }
 
-func validateParamReferenceNames(defs []core.ParamDef) error {
+func validateParamReferenceNames(defs []ir.ParamDef) error {
 	for _, def := range defs {
 		name := strings.TrimSpace(def.Name)
 		if name == "" || isPositionalName(name) {
@@ -163,7 +163,7 @@ func validateParamReferenceNames(defs []core.ParamDef) error {
 		if isParamReferenceName(name) {
 			continue
 		}
-		return core.NewValidationError(
+		return ir.NewValidationError(
 			"params",
 			name,
 			fmt.Errorf("%w: parameter name %q must match ^[A-Za-z][A-Za-z0-9_]*$", ErrInvalidParamValue, name),
@@ -227,7 +227,7 @@ func buildLegacyParamPlan(input any) (*dagParamPlan, error) {
 	case string:
 		pairs, err := parseStringParams(noEvalCtx, v)
 		if err != nil {
-			return nil, core.NewValidationError("params", v, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+			return nil, ir.NewValidationError("params", v, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 		}
 		if err := appendLegacyPairs(plan, pairs, seenNames); err != nil {
 			return nil, err
@@ -237,7 +237,7 @@ func buildLegacyParamPlan(input any) (*dagParamPlan, error) {
 	case []string:
 		pairs, err := parseListParams(noEvalCtx, v)
 		if err != nil {
-			return nil, core.NewValidationError("params", v, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+			return nil, ir.NewValidationError("params", v, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 		}
 		if err := appendLegacyPairs(plan, pairs, seenNames); err != nil {
 			return nil, err
@@ -247,7 +247,7 @@ func buildLegacyParamPlan(input any) (*dagParamPlan, error) {
 	case map[string]any:
 		pairs, err := parseMapParams(noEvalCtx, []any{v})
 		if err != nil {
-			return nil, core.NewValidationError("params", v, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+			return nil, ir.NewValidationError("params", v, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 		}
 		if err := appendLegacyPairs(plan, pairs, seenNames); err != nil {
 			return nil, err
@@ -261,7 +261,7 @@ func buildLegacyParamPlan(input any) (*dagParamPlan, error) {
 			case string:
 				pairs, err := parseStringParams(noEvalCtx, value)
 				if err != nil {
-					return nil, core.NewValidationError("params", item, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+					return nil, ir.NewValidationError("params", item, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 				}
 				if err := appendLegacyPairs(plan, pairs, seenNames); err != nil {
 					return nil, err
@@ -270,13 +270,13 @@ func buildLegacyParamPlan(input any) (*dagParamPlan, error) {
 			case map[string]any:
 				inlineDef, err := detectInlineParamDefinition(value)
 				if err != nil {
-					return nil, core.NewValidationError("params", item, err)
+					return nil, ir.NewValidationError("params", item, err)
 				}
 				if inlineDef != nil {
 					hasInlineDefinitions = true
 					paramDef, entry, err := parseInlineParamDefinition(inlineDef.name, inlineDef.fields)
 					if err != nil {
-						return nil, core.NewValidationError("params", item, err)
+						return nil, ir.NewValidationError("params", item, err)
 					}
 					if err := rememberParamName(seenNames, paramDef.Name); err != nil {
 						return nil, err
@@ -288,14 +288,14 @@ func buildLegacyParamPlan(input any) (*dagParamPlan, error) {
 
 				pairs, err := parseMapParams(noEvalCtx, []any{value})
 				if err != nil {
-					return nil, core.NewValidationError("params", item, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+					return nil, ir.NewValidationError("params", item, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 				}
 				if err := appendLegacyPairs(plan, pairs, seenNames); err != nil {
 					return nil, err
 				}
 
 			default:
-				return nil, core.NewValidationError("params", item, fmt.Errorf("%w: %T", ErrInvalidParamValue, item))
+				return nil, ir.NewValidationError("params", item, fmt.Errorf("%w: %T", ErrInvalidParamValue, item))
 			}
 		}
 
@@ -316,7 +316,7 @@ func buildLegacyParamPlan(input any) (*dagParamPlan, error) {
 		return plan, nil
 
 	default:
-		return nil, core.NewValidationError("params", v, fmt.Errorf("%w: %T", ErrInvalidParamValue, v))
+		return nil, ir.NewValidationError("params", v, fmt.Errorf("%w: %T", ErrInvalidParamValue, v))
 	}
 }
 
@@ -333,7 +333,7 @@ func buildExternalSchemaParamPlan(input any, workingDir, dagLocation string) (*d
 	noEvalCtx := buildContext{opts: buildOpts{Flags: buildFlagNoEval}}
 	basePairs, err := parseParamValue(noEvalCtx, values)
 	if err != nil {
-		return nil, core.NewValidationError("params", values, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+		return nil, ir.NewValidationError("params", values, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 	}
 
 	root := resolvedSchema.Schema()
@@ -378,9 +378,9 @@ func appendLegacyPairs(plan *dagParamPlan, pairs []paramPair, seenNames map[stri
 			Value:    pair.Value,
 			HasValue: true,
 		})
-		plan.paramDefs = append(plan.paramDefs, core.ParamDef{
+		plan.paramDefs = append(plan.paramDefs, ir.ParamDef{
 			Name:    pair.Name,
-			Type:    core.ParamDefTypeString,
+			Type:    ir.ParamDefTypeString,
 			Default: pair.Value,
 		})
 	}
@@ -392,14 +392,14 @@ func rememberParamName(seenNames map[string]struct{}, name string) error {
 		return nil
 	}
 	if !isPositionalName(name) && !isParamReferenceName(name) {
-		return core.NewValidationError(
+		return ir.NewValidationError(
 			"params",
 			name,
 			fmt.Errorf("%w: parameter name %q must match ^[A-Za-z][A-Za-z0-9_]*$", ErrInvalidParamValue, name),
 		)
 	}
 	if _, exists := seenNames[name]; exists {
-		return core.NewValidationError(
+		return ir.NewValidationError(
 			"params",
 			name,
 			fmt.Errorf("%w: duplicate parameter name %q", ErrInvalidParamValue, name),

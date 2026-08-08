@@ -10,7 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 )
 
@@ -35,7 +35,7 @@ func (a *API) GetSchedulerStatus(ctx context.Context, _ api.GetSchedulerStatusRe
 	}
 
 	// Get all scheduler instances from service registry
-	members, err := a.serviceRegistry.GetServiceMembers(ctx, exec.ServiceNameScheduler)
+	members, err := a.serviceRegistry.GetServiceMembers(ctx, serviceregistry.ServiceNameScheduler)
 	if err != nil {
 		logger.Error(ctx, "Failed to get scheduler members from service registry", tag.Error(err))
 		return api.GetSchedulerStatusdefaultJSONResponse{
@@ -51,11 +51,11 @@ func (a *API) GetSchedulerStatus(ctx context.Context, _ api.GetSchedulerStatusRe
 	for _, member := range members {
 		var status api.SchedulerInstanceStatus
 		switch member.Status {
-		case exec.ServiceStatusActive:
+		case serviceregistry.ServiceStatusActive:
 			status = api.SchedulerInstanceStatusActive
-		case exec.ServiceStatusInactive:
+		case serviceregistry.ServiceStatusInactive:
 			status = api.SchedulerInstanceStatusInactive
-		case exec.ServiceStatusUnknown:
+		case serviceregistry.ServiceStatusUnknown:
 			status = api.SchedulerInstanceStatusUnknown
 		}
 
@@ -93,7 +93,7 @@ func (a *API) GetCoordinatorStatus(ctx context.Context, _ api.GetCoordinatorStat
 	}
 
 	// Get all coordinator instances from service registry
-	members, err := a.serviceRegistry.GetServiceMembers(ctx, exec.ServiceNameCoordinator)
+	members, err := a.serviceRegistry.GetServiceMembers(ctx, serviceregistry.ServiceNameCoordinator)
 	if err != nil {
 		logger.Error(ctx, "Failed to get coordinator members from service registry", tag.Error(err))
 		return api.GetCoordinatorStatusdefaultJSONResponse{
@@ -109,11 +109,11 @@ func (a *API) GetCoordinatorStatus(ctx context.Context, _ api.GetCoordinatorStat
 	for _, member := range members {
 		var status api.CoordinatorInstanceStatus
 		switch member.Status {
-		case exec.ServiceStatusActive:
+		case serviceregistry.ServiceStatusActive:
 			status = api.CoordinatorInstanceStatusActive
-		case exec.ServiceStatusInactive:
+		case serviceregistry.ServiceStatusInactive:
 			status = api.CoordinatorInstanceStatusInactive
-		case exec.ServiceStatusUnknown:
+		case serviceregistry.ServiceStatusUnknown:
 			status = api.CoordinatorInstanceStatusUnknown
 		}
 

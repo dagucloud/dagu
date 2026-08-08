@@ -7,8 +7,12 @@ import (
 	"context"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // TestHooks exposes selected internal scheduler hooks to external tests only.
@@ -20,11 +24,11 @@ func NewWithHooksForTest(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunStore exec.DAGRunStore,
-	queueStore exec.QueueStore,
-	procStore exec.ProcStore,
-	reg exec.ServiceRegistry,
-	coordinatorCli exec.Dispatcher,
+	dagRunStore dagrun.DAGRunStore,
+	queueStore queuedomain.QueueStore,
+	procStore procdomain.ProcStore,
+	reg serviceregistry.ServiceRegistry,
+	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
 	hooks TestHooks,
 ) (*Scheduler, error) {

@@ -12,8 +12,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 )
 
@@ -24,25 +25,25 @@ var (
 
 // LocalAttemptBuilder creates or resolves the attempt that a local execution
 // will own.
-type LocalAttemptBuilder func(context.Context) (exec.DAGRunAttempt, error)
+type LocalAttemptBuilder func(context.Context) (dagrun.DAGRunAttempt, error)
 
 // LocalProcStore is the proc-store surface needed to claim local execution
 // ownership.
 type LocalProcStore interface {
 	Lock(ctx context.Context, groupName string) error
 	Unlock(ctx context.Context, groupName string)
-	Acquire(ctx context.Context, groupName string, meta exec.ProcMeta) (exec.ProcHandle, error)
+	Acquire(ctx context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error)
 }
 
 // LocalRequest describes local DAG-run intake before execution starts.
 type LocalRequest struct {
 	ProcStore LocalProcStore
-	DAG       *core.DAG
+	DAG       *ir.DAG
 	DAGRunID  string
 
-	Root         exec.DAGRunRef
-	Parent       exec.DAGRunRef
-	TriggerType  core.TriggerType
+	Root         dagrun.DAGRunRef
+	Parent       dagrun.DAGRunRef
+	TriggerType  ir.TriggerType
 	TriggerActor string
 
 	ScheduleTime string
@@ -56,8 +57,8 @@ type LocalRequest struct {
 
 // LocalPreparation is the successfully prepared local execution ownership.
 type LocalPreparation struct {
-	Attempt exec.DAGRunAttempt
-	Proc    exec.ProcHandle
+	Attempt dagrun.DAGRunAttempt
+	Proc    proc.ProcHandle
 }
 
 // PrepareLocalExecution creates or resolves the execution attempt, acquires the
@@ -68,7 +69,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 		return nil, err
 	}
 	if req.Root.Zero() {
-		req.Root = exec.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
+		req.Root = dagrun.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
 	}
 
 	if err := req.ProcStore.Lock(ctx, req.DAG.ProcGroup()); err != nil {
@@ -78,7 +79,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 
 	attempt, err := req.BuildAttempt(ctx)
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunAlreadyExists) {
+		if errors.Is(err, dagrun.ErrDAGRunAlreadyExists) {
 			return nil, fmt.Errorf("%w: dag-run ID %s already exists for DAG %s", ErrLocalExecutionAlreadyExists, req.DAGRunID, req.DAG.Name)
 		}
 		return nil, fmt.Errorf("failed to prepare execution attempt: %w", err)
@@ -88,7 +89,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 	}
 	attempt.SetDAG(req.DAG)
 
-	proc, err := req.ProcStore.Acquire(ctx, req.DAG.ProcGroup(), exec.ProcMeta{
+	proc, err := req.ProcStore.Acquire(ctx, req.DAG.ProcGroup(), proc.ProcMeta{
 		StartedAt:    time.Now().Unix(),
 		Name:         req.DAG.Name,
 		DAGRunID:     req.DAGRunID,
@@ -131,7 +132,7 @@ func (r LocalRequest) validate() error {
 func recordPreparedAttemptFailure(
 	ctx context.Context,
 	req LocalRequest,
-	attempt exec.DAGRunAttempt,
+	attempt dagrun.DAGRunAttempt,
 	runErr error,
 ) error {
 	logFile, logErr := logpath.Generate(ctx, req.LogBaseDir, req.DAG.LogDir, req.DAG.Name, req.DAGRunID)
@@ -167,7 +168,7 @@ func recordPreparedAttemptFailure(
 	if req.ScheduleTime != "" {
 		opts = append(opts, transform.WithScheduleTime(req.ScheduleTime))
 	}
-	status := transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, core.Failed, 0, time.Now(), opts...)
+	status := transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Failed, 0, time.Now(), opts...)
 
 	if err := attempt.Open(ctx); err != nil {
 		return fmt.Errorf("failed to open attempt for failure recording: %w", err)

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const SchedulerStateVersion = 4
@@ -69,7 +69,7 @@ func sameTimePtr(a, b *time.Time) bool {
 	}
 }
 
-func reconcileNextRunState(current DAGWatermark, schedules []core.Schedule, now time.Time, suspended bool) DAGWatermark {
+func reconcileNextRunState(current DAGWatermark, schedules []ir.Schedule, now time.Time, suspended bool) DAGWatermark {
 	next := cloneDAGWatermark(current)
 	var projected *time.Time
 	if !suspended {
@@ -85,8 +85,8 @@ func reconcileNextRunState(current DAGWatermark, schedules []core.Schedule, now 
 	return next
 }
 
-func oneOffSchedules(all []core.Schedule) []core.Schedule {
-	var result []core.Schedule
+func oneOffSchedules(all []ir.Schedule) []ir.Schedule {
+	var result []ir.Schedule
 	for _, schedule := range all {
 		if schedule.IsOneOff() {
 			result = append(result, schedule)
@@ -95,7 +95,7 @@ func oneOffSchedules(all []core.Schedule) []core.Schedule {
 	return result
 }
 
-func reconcileOneOffState(current DAGWatermark, schedules []core.Schedule, now time.Time) (DAGWatermark, bool) {
+func reconcileOneOffState(current DAGWatermark, schedules []ir.Schedule, now time.Time) (DAGWatermark, bool) {
 	next := cloneDAGWatermark(current)
 	active := make(map[string]struct{})
 	changed := false
@@ -151,7 +151,7 @@ func reconcileOneOffState(current DAGWatermark, schedules []core.Schedule, now t
 	return next, changed
 }
 
-func startScheduleFingerprint(schedules []core.Schedule, skipIfSuccessful bool) string {
+func startScheduleFingerprint(schedules []ir.Schedule, skipIfSuccessful bool) string {
 	fingerprints := make([]string, 0, len(schedules))
 	for _, schedule := range schedules {
 		if !schedule.IsCron() {
@@ -171,7 +171,7 @@ func startScheduleFingerprint(schedules []core.Schedule, skipIfSuccessful bool) 
 	return fmt.Sprintf("skip:%t|%s", skipIfSuccessful, strings.Join(fingerprints, ","))
 }
 
-func reconcileStartScheduleState(current DAGWatermark, schedules []core.Schedule, skipIfSuccessful bool, observedAt time.Time) (DAGWatermark, bool) {
+func reconcileStartScheduleState(current DAGWatermark, schedules []ir.Schedule, skipIfSuccessful bool, observedAt time.Time) (DAGWatermark, bool) {
 	next := cloneDAGWatermark(current)
 	fingerprint := startScheduleFingerprint(schedules, skipIfSuccessful)
 
@@ -199,7 +199,7 @@ func reconcileStartScheduleState(current DAGWatermark, schedules []core.Schedule
 	return next, true
 }
 
-func nextPlannedRunFromSchedules(schedules []core.Schedule, now time.Time, dagState DAGWatermark) time.Time {
+func nextPlannedRunFromSchedules(schedules []ir.Schedule, now time.Time, dagState DAGWatermark) time.Time {
 	var next time.Time
 	for _, schedule := range schedules {
 		var candidate time.Time
@@ -229,7 +229,7 @@ func nextPlannedRunFromSchedules(schedules []core.Schedule, now time.Time, dagSt
 }
 
 // ProjectedNextRun returns the scheduler-owned next-run projection for a DAG.
-func ProjectedNextRun(dag *core.DAG, state *SchedulerState) (time.Time, bool) {
+func ProjectedNextRun(dag *ir.DAG, state *SchedulerState) (time.Time, bool) {
 	if dag == nil || state == nil {
 		return time.Time{}, false
 	}
@@ -244,7 +244,7 @@ func ProjectedNextRun(dag *core.DAG, state *SchedulerState) (time.Time, bool) {
 }
 
 // NextPlannedRun projects the next scheduler-aware run time for DAG listing/sorting.
-func NextPlannedRun(dag *core.DAG, now time.Time, state *SchedulerState) time.Time {
+func NextPlannedRun(dag *ir.DAG, now time.Time, state *SchedulerState) time.Time {
 	if dag == nil {
 		return time.Time{}
 	}
@@ -256,11 +256,11 @@ func NextPlannedRun(dag *core.DAG, now time.Time, state *SchedulerState) time.Ti
 }
 
 // NewNextRunProjection returns a scheduler-aware next-run projection for DAG listings.
-func NewNextRunProjection(location *time.Location, state *SchedulerState) func(*core.DAG, time.Time) time.Time {
+func NewNextRunProjection(location *time.Location, state *SchedulerState) func(*ir.DAG, time.Time) time.Time {
 	if location == nil {
 		location = time.Local
 	}
-	return func(dag *core.DAG, now time.Time) time.Time {
+	return func(dag *ir.DAG, now time.Time) time.Time {
 		if state != nil {
 			if nextRun, ok := ProjectedNextRun(dag, state); ok {
 				return nextRun
@@ -273,7 +273,7 @@ func NewNextRunProjection(location *time.Location, state *SchedulerState) func(*
 	}
 }
 
-func hasProfileSchedule(dag *core.DAG) bool {
+func hasProfileSchedule(dag *ir.DAG) bool {
 	if dag == nil {
 		return false
 	}

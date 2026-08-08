@@ -11,7 +11,7 @@ import (
 
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,22 +36,22 @@ func TestGCPSecretManagerResolverValidate(t *testing.T) {
 	resolver := &gcpSecretManagerResolver{}
 	tests := []struct {
 		name    string
-		ref     core.SecretRef
+		ref     secretref.Ref
 		wantErr string
 	}{
-		{name: "ShortID", ref: core.SecretRef{Key: "database-password"}},
-		{name: "GlobalSecret", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password"}},
-		{name: "GlobalVersion", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password/versions/5"}},
-		{name: "RegionalSecret", ref: core.SecretRef{Key: "projects/project-a/locations/us-central1/secrets/database-password"}},
-		{name: "RegionalVersion", ref: core.SecretRef{Key: "projects/project-a/locations/us-central1/secrets/database-password/versions/latest"}},
-		{name: "Empty", ref: core.SecretRef{}, wantErr: "key"},
-		{name: "ShortIDWithSlash", ref: core.SecretRef{Key: "team/database-password"}, wantErr: "must not contain slashes"},
-		{name: "MalformedResource", ref: core.SecretRef{Key: "projects/project-a/locations/us-central1/secrets"}, wantErr: "invalid"},
-		{name: "VersionConflict", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password/versions/5", Options: map[string]string{"version": "6"}}, wantErr: "conflicts"},
-		{name: "ResourceWhitespaceOptions", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password/versions/5", Options: map[string]string{"project_id": " ", "location": " ", "version": " "}}},
-		{name: "ProjectConflict", ref: core.SecretRef{Key: "projects/project-a/secrets/database-password", Options: map[string]string{"project_id": "project-b"}}, wantErr: "cannot be used"},
-		{name: "InvalidLocation", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"location": "evil.example.com:443"}}, wantErr: "invalid characters"},
-		{name: "UnsupportedOption", ref: core.SecretRef{Key: "database-password", Options: map[string]string{"profile": "production"}}, wantErr: `unsupported option "profile"`},
+		{name: "ShortID", ref: secretref.Ref{Key: "database-password"}},
+		{name: "GlobalSecret", ref: secretref.Ref{Key: "projects/project-a/secrets/database-password"}},
+		{name: "GlobalVersion", ref: secretref.Ref{Key: "projects/project-a/secrets/database-password/versions/5"}},
+		{name: "RegionalSecret", ref: secretref.Ref{Key: "projects/project-a/locations/us-central1/secrets/database-password"}},
+		{name: "RegionalVersion", ref: secretref.Ref{Key: "projects/project-a/locations/us-central1/secrets/database-password/versions/latest"}},
+		{name: "Empty", ref: secretref.Ref{}, wantErr: "key"},
+		{name: "ShortIDWithSlash", ref: secretref.Ref{Key: "team/database-password"}, wantErr: "must not contain slashes"},
+		{name: "MalformedResource", ref: secretref.Ref{Key: "projects/project-a/locations/us-central1/secrets"}, wantErr: "invalid"},
+		{name: "VersionConflict", ref: secretref.Ref{Key: "projects/project-a/secrets/database-password/versions/5", Options: map[string]string{"version": "6"}}, wantErr: "conflicts"},
+		{name: "ResourceWhitespaceOptions", ref: secretref.Ref{Key: "projects/project-a/secrets/database-password/versions/5", Options: map[string]string{"project_id": " ", "location": " ", "version": " "}}},
+		{name: "ProjectConflict", ref: secretref.Ref{Key: "projects/project-a/secrets/database-password", Options: map[string]string{"project_id": "project-b"}}, wantErr: "cannot be used"},
+		{name: "InvalidLocation", ref: secretref.Ref{Key: "database-password", Options: map[string]string{"location": "evil.example.com:443"}}, wantErr: "invalid characters"},
+		{name: "UnsupportedOption", ref: secretref.Ref{Key: "database-password", Options: map[string]string{"profile": "production"}}, wantErr: `unsupported option "profile"`},
 	}
 
 	for _, tc := range tests {
@@ -92,11 +92,11 @@ func TestGCPSecretManagerResolverResolve(t *testing.T) {
 		Secrets: config.SecretsConfig{GCP: config.GCPSecretsConfig{ProjectID: " config-project "}},
 	})
 
-	got, err := resolver.Resolve(ctx, core.SecretRef{Key: "database-password", Options: map[string]string{"field": "token"}})
+	got, err := resolver.Resolve(ctx, secretref.Ref{Key: "database-password", Options: map[string]string{"field": "token"}})
 	require.NoError(t, err)
 	assert.Equal(t, "resolved", got)
 
-	got, err = resolver.Resolve(ctx, core.SecretRef{
+	got, err = resolver.Resolve(ctx, secretref.Ref{
 		Key: "database-password",
 		Options: map[string]string{
 			"project_id": " option-project ",
@@ -108,11 +108,11 @@ func TestGCPSecretManagerResolverResolve(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "true", got)
 
-	got, err = resolver.Resolve(context.Background(), core.SecretRef{Key: "projects/full-project/secrets/name/versions/7"})
+	got, err = resolver.Resolve(context.Background(), secretref.Ref{Key: "projects/full-project/secrets/name/versions/7"})
 	require.NoError(t, err)
 	assert.Equal(t, string(data), got)
 
-	got, err = resolver.Resolve(context.Background(), core.SecretRef{
+	got, err = resolver.Resolve(context.Background(), secretref.Ref{
 		Key:     "projects/full-project/locations/europe-west1/secrets/name",
 		Options: map[string]string{"version": " 9 "},
 	})
@@ -131,7 +131,7 @@ func TestGCPSecretManagerResolverResolve(t *testing.T) {
 func TestGCPSecretManagerResolverErrors(t *testing.T) {
 	t.Run("MissingProject", func(t *testing.T) {
 		resolver := &gcpSecretManagerResolver{}
-		_, err := resolver.Resolve(context.Background(), core.SecretRef{Key: "name"})
+		_, err := resolver.Resolve(context.Background(), secretref.Ref{Key: "name"})
 		require.ErrorContains(t, err, "project ID is required")
 	})
 
@@ -157,7 +157,7 @@ func TestGCPSecretManagerResolverErrors(t *testing.T) {
 					}}, nil
 				},
 			}
-			_, err := resolver.Resolve(context.Background(), core.SecretRef{Key: "projects/project-a/secrets/name/versions/latest"})
+			_, err := resolver.Resolve(context.Background(), secretref.Ref{Key: "projects/project-a/secrets/name/versions/latest"})
 			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
@@ -181,7 +181,7 @@ func TestGCPSecretManagerResolverClose(t *testing.T) {
 	}
 
 	for _, location := range []string{"", "us-central1"} {
-		_, err := resolver.Resolve(context.Background(), core.SecretRef{
+		_, err := resolver.Resolve(context.Background(), secretref.Ref{
 			Key: "name", Options: map[string]string{"project_id": "project-a", "location": location},
 		})
 		require.NoError(t, err)

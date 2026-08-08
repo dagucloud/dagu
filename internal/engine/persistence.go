@@ -9,11 +9,14 @@ import (
 	"fmt"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // PersistenceFactory wires backend-specific stores after configuration is loaded.
@@ -21,12 +24,12 @@ type PersistenceFactory func(context.Context, *config.Config) (Persistence, erro
 
 // Persistence contains the storage dependencies required by Engine.
 type Persistence struct {
-	DAGStore             exec.DAGStore
-	DAGRunStore          exec.DAGRunStore
+	DAGStore             dagstore.DAGStore
+	DAGRunStore          dagrun.DAGRunStore
 	RunStateStore        runstate.Store
-	ProcStore            exec.ProcStore
+	ProcStore            proc.ProcStore
 	StateStore           dagstate.Store
-	ServiceRegistry      exec.ServiceRegistry
+	ServiceRegistry      serviceregistry.ServiceRegistry
 	DAGStoreFactory      DAGStoreFactory
 	RuntimeStoresFactory RuntimeStoresFactory
 }
@@ -37,7 +40,7 @@ type DAGStoreFactoryOptions struct {
 }
 
 // DAGStoreFactory creates DAG stores needed by execution-scoped loaders.
-type DAGStoreFactory func(context.Context, *config.Config, DAGStoreFactoryOptions) (exec.DAGStore, error)
+type DAGStoreFactory func(context.Context, *config.Config, DAGStoreFactoryOptions) (dagstore.DAGStore, error)
 
 // RuntimeStoresFactory creates stores for local workflow execution.
 type RuntimeStoresFactory func(context.Context, *config.Config) RuntimeStores

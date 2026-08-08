@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +26,7 @@ func TestCollectOutputsUsesCanonicalStringOutputValue(t *testing.T) {
 
 		plan, err := runtime.NewPlanFromNodes(
 			runtime.NodeWithData(runtime.NodeData{
-				Step: core.Step{Name: "publish", Output: "RESULT"},
+				Step: ir.Step{Name: "publish", Output: "RESULT"},
 				State: runtime.NodeState{
 					OutputValue:     &value,
 					OutputVariables: vars,
@@ -47,7 +47,7 @@ func TestCollectOutputsUsesCanonicalStringOutputValue(t *testing.T) {
 
 		plan, err := runtime.NewPlanFromNodes(
 			runtime.NodeWithData(runtime.NodeData{
-				Step: core.Step{Name: "publish", Output: "RESULT"},
+				Step: ir.Step{Name: "publish", Output: "RESULT"},
 				State: runtime.NodeState{
 					OutputVariables: vars,
 				},
@@ -65,7 +65,7 @@ func TestCollectOutputsUsesCanonicalStringOutputValue(t *testing.T) {
 		outputsValue := `{"messageId":"msg-123","accepted":true}`
 		plan, err := runtime.NewPlanFromNodes(
 			runtime.NodeWithData(runtime.NodeData{
-				Step: core.Step{Name: "publish"},
+				Step: ir.Step{Name: "publish"},
 				State: runtime.NodeState{
 					OutputsValue: &outputsValue,
 				},

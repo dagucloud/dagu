@@ -15,9 +15,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -30,7 +30,7 @@ type Service struct {
 	grpcListener        net.Listener
 	grpcHealthServer    *health.Server
 	httpHealthServer    *healthcheck.Server
-	registry            exec.ServiceRegistry
+	registry            serviceregistry.ServiceRegistry
 	cfg                 *config.Config
 	instanceID          string
 	hostPort            string
@@ -48,7 +48,7 @@ func NewService(
 	grpcListener net.Listener,
 	grpcHealthServer *health.Server,
 	httpHealthServer *healthcheck.Server,
-	registry exec.ServiceRegistry,
+	registry serviceregistry.ServiceRegistry,
 	cfg *config.Config,
 	instanceID string,
 	configuredHost string,
@@ -142,13 +142,13 @@ func (srv *Service) Start(ctx context.Context) (err error) {
 			return fmt.Errorf("failed to parse port number: %w", err)
 		}
 
-		hostInfo := exec.HostInfo{
+		hostInfo := serviceregistry.HostInfo{
 			ID:     srv.instanceID,
 			Host:   srv.configuredHost,
 			Port:   port,
-			Status: exec.ServiceStatusActive, // Coordinator is active when serving
+			Status: serviceregistry.ServiceStatusActive, // Coordinator is active when serving
 		}
-		if err := srv.registry.Register(ctx, exec.ServiceNameCoordinator, hostInfo); err != nil {
+		if err := srv.registry.Register(ctx, serviceregistry.ServiceNameCoordinator, hostInfo); err != nil {
 			return fmt.Errorf("failed to register with service registry: %w", err)
 		}
 		logger.Info(ctx, "Registered with service registry",

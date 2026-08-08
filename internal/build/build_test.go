@@ -11,9 +11,11 @@ import (
 	"testing"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/build"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,14 +34,14 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 
 	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
 	request := prepareRequest(workingDir, inputPath, outputPath)
-	request.Step.Inputs = append(request.Step.Inputs, core.StepInputDeclaration{Name: "second", Path: secondInputPath})
-	request.Environment[exec.EnvKeyDAGRunID] = "run-1"
+	request.Step.Inputs = append(request.Step.Inputs, ir.StepInputDeclaration{Name: "second", Path: secondInputPath})
+	request.Environment[runenv.EnvKeyDAGRunID] = "run-1"
 
 	first, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, first.Evaluate(ctx))
-	assert.Equal(t, exec.BuildDecisionExecute, first.Metadata().Decision)
-	assert.Equal(t, exec.BuildReasonManifestMissing, first.Metadata().Reason)
+	assert.Equal(t, dagrun.BuildDecisionExecute, first.Metadata().Decision)
+	assert.Equal(t, dagrun.BuildReasonManifestMissing, first.Metadata().Reason)
 
 	outputs, staging, err := first.NewAttempt(0)
 	require.NoError(t, err)
@@ -50,7 +52,7 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 
 	request.DAGRunID = "run-2"
 	request.AttemptID = "attempt-2"
-	request.Environment[exec.EnvKeyDAGRunID] = "run-2"
+	request.Environment[runenv.EnvKeyDAGRunID] = "run-2"
 	request.Step.Inputs[0], request.Step.Inputs[1] = request.Step.Inputs[1], request.Step.Inputs[0]
 	second, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
@@ -58,8 +60,8 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 	require.NoError(t, second.Evaluate(ctx))
 
 	assert.True(t, second.Reused())
-	assert.Equal(t, exec.BuildReasonMatched, second.Metadata().Reason)
-	assert.Equal(t, exec.NewDAGRunRef("build-test", "run-1"), second.Metadata().ProducerRun)
+	assert.Equal(t, dagrun.BuildReasonMatched, second.Metadata().Reason)
+	assert.Equal(t, dagrun.NewDAGRunRef("build-test", "run-1"), second.Metadata().ProducerRun)
 	assert.Equal(t, outputPath, second.PublishedOutputs()["artifact"])
 	content, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
@@ -153,7 +155,7 @@ func TestPrepareReevaluatesAfterWaitingForOutputLock(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, result.session.Close("")) })
 	require.NoError(t, result.session.Evaluate(ctx))
 	assert.True(t, result.session.Reused())
-	assert.Equal(t, exec.BuildReasonMatched, result.session.Metadata().Reason)
+	assert.Equal(t, dagrun.BuildReasonMatched, result.session.Metadata().Reason)
 }
 
 func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
@@ -182,8 +184,8 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.BuildDecisionExecute, session.Metadata().Decision)
-		assert.Equal(t, exec.BuildReasonInputChanged, session.Metadata().Reason)
+		assert.Equal(t, dagrun.BuildDecisionExecute, session.Metadata().Decision)
+		assert.Equal(t, dagrun.BuildReasonInputChanged, session.Metadata().Reason)
 	})
 
 	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
@@ -194,7 +196,7 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.BuildReasonRecipeChanged, session.Metadata().Reason)
+		assert.Equal(t, dagrun.BuildReasonRecipeChanged, session.Metadata().Reason)
 	})
 
 	t.Run("step environment changed", func(t *testing.T) {
@@ -204,7 +206,7 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.BuildReasonRecipeChanged, session.Metadata().Reason)
+		assert.Equal(t, dagrun.BuildReasonRecipeChanged, session.Metadata().Reason)
 	})
 
 	t.Run("effective shell changed", func(t *testing.T) {
@@ -214,7 +216,7 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.BuildReasonRecipeChanged, session.Metadata().Reason)
+		assert.Equal(t, dagrun.BuildReasonRecipeChanged, session.Metadata().Reason)
 	})
 
 	t.Run("reuse disabled", func(t *testing.T) {
@@ -224,7 +226,7 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.BuildReasonReuseDisabled, session.Metadata().Reason)
+		assert.Equal(t, dagrun.BuildReasonReuseDisabled, session.Metadata().Reason)
 	})
 
 	t.Run("secret consuming step", func(t *testing.T) {
@@ -234,8 +236,8 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.BuildDecisionAlways, session.Metadata().Decision)
-		assert.Equal(t, exec.BuildReasonIneligible, session.Metadata().Reason)
+		assert.Equal(t, dagrun.BuildDecisionAlways, session.Metadata().Decision)
+		assert.Equal(t, dagrun.BuildReasonIneligible, session.Metadata().Reason)
 		assert.Empty(t, session.Metadata().Fingerprint)
 	})
 }
@@ -267,7 +269,7 @@ func TestIneligibleCommitPreservesReusableManifest(t *testing.T) {
 	ineligible, err := build.Prepare(ctx, store, ineligibleRequest)
 	require.NoError(t, err)
 	require.NoError(t, ineligible.Evaluate(ctx))
-	require.Equal(t, exec.BuildDecisionAlways, ineligible.Metadata().Decision)
+	require.Equal(t, dagrun.BuildDecisionAlways, ineligible.Metadata().Decision)
 	_, staging, err = ineligible.NewAttempt(0)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(staging, []byte("second"), 0o600))
@@ -280,8 +282,8 @@ func TestIneligibleCommitPreservesReusableManifest(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, third.Close("")) })
 	require.NoError(t, third.Evaluate(ctx))
-	require.Equal(t, exec.BuildDecisionExecute, third.Metadata().Decision)
-	require.Equal(t, exec.BuildReasonOutputChanged, third.Metadata().Reason)
+	require.Equal(t, dagrun.BuildDecisionExecute, third.Metadata().Decision)
+	require.Equal(t, dagrun.BuildReasonOutputChanged, third.Metadata().Reason)
 }
 
 func TestPrepareDryRunDoesNotAcquirePathLocks(t *testing.T) {
@@ -298,8 +300,8 @@ func TestPrepareDryRunDoesNotAcquirePathLocks(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, session.Evaluate(context.Background()))
 	assert.False(t, store.acquireCalled)
-	assert.Equal(t, exec.BuildDecisionExecute, session.Metadata().Decision)
-	assert.Equal(t, exec.BuildReasonManifestMissing, session.Metadata().Reason)
+	assert.Equal(t, dagrun.BuildDecisionExecute, session.Metadata().Decision)
+	assert.Equal(t, dagrun.BuildReasonManifestMissing, session.Metadata().Reason)
 }
 
 func TestCommitRejectsUnavailableStore(t *testing.T) {
@@ -400,7 +402,7 @@ type previewStore struct {
 }
 
 type notifyingStore struct {
-	exec.MaterializationStore
+	build.MaterializationStore
 	acquireStarted chan struct{}
 }
 
@@ -411,38 +413,38 @@ type prepareResult struct {
 
 func (s notifyingStore) AcquirePaths(
 	ctx context.Context,
-	requests []exec.PathLockRequest,
-) (exec.MaterializationLock, error) {
+	requests []build.PathLockRequest,
+) (build.MaterializationLock, error) {
 	close(s.acquireStarted)
 	return s.MaterializationStore.AcquirePaths(ctx, requests)
 }
 
-func (s *previewStore) Get(context.Context, string) (*exec.Materialization, error) {
-	return nil, exec.ErrMaterializationNotFound
+func (s *previewStore) Get(context.Context, string) (*build.Materialization, error) {
+	return nil, build.ErrMaterializationNotFound
 }
 
-func (s *previewStore) AcquirePaths(context.Context, []exec.PathLockRequest) (exec.MaterializationLock, error) {
+func (s *previewStore) AcquirePaths(context.Context, []build.PathLockRequest) (build.MaterializationLock, error) {
 	s.acquireCalled = true
 	return nil, nil
 }
 
-func (*previewStore) Commit(context.Context, exec.MaterializationLock, exec.MaterializationCommit) error {
+func (*previewStore) Commit(context.Context, build.MaterializationLock, build.MaterializationCommit) error {
 	return nil
 }
 
 func prepareRequest(workingDir, inputPath, outputPath string) build.PrepareRequest {
 	return build.PrepareRequest{
-		DAG: &core.DAG{
+		DAG: &ir.DAG{
 			Name:       "build-test",
-			Type:       core.TypeBuild,
+			Type:       ir.TypeBuild,
 			WorkingDir: workingDir,
 		},
-		Step: core.Step{
+		Step: ir.Step{
 			ID:       "build",
 			Name:     "build",
-			Commands: []core.CommandEntry{{Command: "build"}},
-			Inputs:   []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
-			Outputs:  []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
+			Commands: []ir.CommandEntry{{Command: "build"}},
+			Inputs:   []ir.StepInputDeclaration{{Name: "source", Path: inputPath}},
+			Outputs:  []ir.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
 		},
 		DAGRunID:   "run-1",
 		AttemptID:  "attempt-1",

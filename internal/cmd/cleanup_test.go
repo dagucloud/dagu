@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +35,7 @@ func TestCleanupCommand(t *testing.T) {
 		})
 
 		// Wait for DAG to complete
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		// Verify history exists
 		dag.AssertDAGRunCount(t, 1)
@@ -65,7 +65,7 @@ func TestCleanupCommand(t *testing.T) {
 		})
 
 		// Wait for DAG to complete
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		// Verify history exists
 		dag.AssertDAGRunCount(t, 1)
@@ -95,7 +95,7 @@ func TestCleanupCommand(t *testing.T) {
 		})
 
 		// Wait for DAG to complete
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		// Verify history exists
 		dag.AssertDAGRunCount(t, 1)
@@ -131,7 +131,7 @@ func TestCleanupCommand(t *testing.T) {
 		}()
 
 		// Wait for DAG to start running
-		dag.AssertLatestStatus(t, core.Running)
+		dag.AssertLatestStatus(t, ir.Running)
 
 		// Try to cleanup while running (nothing to delete since only active run exists)
 		th.RunCommand(t, cmd.Cleanup(), test.CmdTest{
@@ -139,7 +139,7 @@ func TestCleanupCommand(t *testing.T) {
 		})
 
 		// Verify the running DAG is still there (should be preserved)
-		dag.AssertLatestStatus(t, core.Running)
+		dag.AssertLatestStatus(t, ir.Running)
 
 		releaseHoldFile(t, release)
 		<-done
@@ -222,7 +222,7 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 		recentTime := time.Now()
 
 		// Create a minimal DAG for the test
-		testDAG := &core.DAG{Name: dagName}
+		testDAG := &ir.DAG{Name: dagName}
 
 		// Create an old run
 		oldAttempt, err := th.DAGRunStore.CreateAttempt(
@@ -230,14 +230,14 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 			testDAG,
 			oldTime,
 			"old-run-id",
-			exec.NewDAGRunAttemptOptions{},
+			dagrun.NewDAGRunAttemptOptions{},
 		)
 		require.NoError(t, err)
 		require.NoError(t, oldAttempt.Open(th.Context))
-		require.NoError(t, oldAttempt.Write(th.Context, exec.DAGRunStatus{
+		require.NoError(t, oldAttempt.Write(th.Context, dagrun.DAGRunStatus{
 			Name:     dagName,
 			DAGRunID: "old-run-id",
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		}))
 		require.NoError(t, oldAttempt.Close(th.Context))
 
@@ -247,14 +247,14 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 			testDAG,
 			recentTime,
 			"recent-run-id",
-			exec.NewDAGRunAttemptOptions{},
+			dagrun.NewDAGRunAttemptOptions{},
 		)
 		require.NoError(t, err)
 		require.NoError(t, recentAttempt.Open(th.Context))
-		require.NoError(t, recentAttempt.Write(th.Context, exec.DAGRunStatus{
+		require.NoError(t, recentAttempt.Write(th.Context, dagrun.DAGRunStatus{
 			Name:     dagName,
 			DAGRunID: "recent-run-id",
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		}))
 		require.NoError(t, recentAttempt.Close(th.Context))
 

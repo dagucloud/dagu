@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,9 +43,9 @@ func TestCachePathsSanitizesPlatformPathSegment(t *testing.T) {
 func TestToolsetHashChangesWithPlatform(t *testing.T) {
 	t.Parallel()
 
-	cfg := &core.ToolConfig{
+	cfg := &ir.ToolConfig{
 		Provider: "aqua",
-		Packages: []core.ToolPackage{{
+		Packages: []ir.ToolPackage{{
 			Name:     "jq",
 			Package:  "jqlang/jq",
 			Version:  "jq-1.7.1",
@@ -97,12 +97,12 @@ func TestPrepareDAGInstallsDeclaredTools(t *testing.T) {
 			ManifestFile: "/data/tools/aqua/envs/linux-amd64/hash/manifest.json",
 		},
 	}
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "tool-dag",
 		WorkingDir: "/work",
-		Tools: &core.ToolConfig{
+		Tools: &ir.ToolConfig{
 			Provider: "aqua",
-			Packages: []core.ToolPackage{{
+			Packages: []ir.ToolPackage{{
 				Package: "jqlang/jq",
 				Version: "jq-1.7.1",
 			}},
@@ -142,11 +142,11 @@ func TestPrepareDAGLogsToolPreparationStatus(t *testing.T) {
 			},
 		},
 	}
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "tool-dag",
-		Tools: &core.ToolConfig{
+		Tools: &ir.ToolConfig{
 			Provider: "aqua",
-			Packages: []core.ToolPackage{{
+			Packages: []ir.ToolPackage{{
 				Package: "jqlang/jq",
 				Version: "jq-1.7.1",
 			}},
@@ -163,15 +163,15 @@ func TestPrepareDAGLogsToolPreparationStatus(t *testing.T) {
 func TestPrepareDAGRejectsUnsupportedExecutor(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "tool-dag",
-		Tools: &core.ToolConfig{
+		Tools: &ir.ToolConfig{
 			Provider: "aqua",
-			Packages: []core.ToolPackage{{Package: "jqlang/jq", Version: "jq-1.7.1"}},
+			Packages: []ir.ToolPackage{{Package: "jqlang/jq", Version: "jq-1.7.1"}},
 		},
-		Steps: []core.Step{{
+		Steps: []ir.Step{{
 			Name:           "container-step",
-			ExecutorConfig: core.ExecutorConfig{Type: "docker"},
+			ExecutorConfig: ir.ExecutorConfig{Type: "docker"},
 		}},
 	}
 	installer := &fakeInstaller{}
@@ -186,13 +186,13 @@ func TestPrepareDAGRejectsUnsupportedExecutor(t *testing.T) {
 
 type fakeInstaller struct {
 	calls    int
-	cfg      *core.ToolConfig
+	cfg      *ir.ToolConfig
 	opts     InstallOptions
 	manifest *Manifest
 	err      error
 }
 
-func (f *fakeInstaller) Install(_ context.Context, cfg *core.ToolConfig, opts InstallOptions) (*Manifest, error) {
+func (f *fakeInstaller) Install(_ context.Context, cfg *ir.ToolConfig, opts InstallOptions) (*Manifest, error) {
 	f.calls++
 	f.cfg = cfg
 	f.opts = opts

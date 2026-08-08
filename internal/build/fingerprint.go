@@ -12,8 +12,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -22,22 +23,22 @@ const (
 )
 
 type recipe struct {
-	SchemaVersion int                          `json:"schemaVersion"`
-	ExecutorType  string                       `json:"executorType"`
-	Executor      map[string]any               `json:"executor,omitempty"`
-	Commands      []core.CommandEntry          `json:"commands,omitempty"`
-	Script        string                       `json:"script,omitempty"`
-	Shell         []string                     `json:"shell,omitempty"`
-	ShellPackages []string                     `json:"shellPackages,omitempty"`
-	WorkingDir    string                       `json:"workingDir"`
-	WorkingDirKey string                       `json:"workingDirKey"`
-	Parameters    map[string]any               `json:"parameters,omitempty"`
-	Environment   map[string]string            `json:"environment,omitempty"`
-	StepEnv       []string                     `json:"stepEnv,omitempty"`
-	Inputs        []core.StepInputDeclaration  `json:"inputs,omitempty"`
-	Outputs       []core.StepOutputDeclaration `json:"outputs,omitempty"`
-	Tools         *core.ToolConfig             `json:"tools,omitempty"`
-	Platform      string                       `json:"platform"`
+	SchemaVersion int                        `json:"schemaVersion"`
+	ExecutorType  string                     `json:"executorType"`
+	Executor      map[string]any             `json:"executor,omitempty"`
+	Commands      []ir.CommandEntry          `json:"commands,omitempty"`
+	Script        string                     `json:"script,omitempty"`
+	Shell         []string                   `json:"shell,omitempty"`
+	ShellPackages []string                   `json:"shellPackages,omitempty"`
+	WorkingDir    string                     `json:"workingDir"`
+	WorkingDirKey string                     `json:"workingDirKey"`
+	Parameters    map[string]any             `json:"parameters,omitempty"`
+	Environment   map[string]string          `json:"environment,omitempty"`
+	StepEnv       []string                   `json:"stepEnv,omitempty"`
+	Inputs        []ir.StepInputDeclaration  `json:"inputs,omitempty"`
+	Outputs       []ir.StepOutputDeclaration `json:"outputs,omitempty"`
+	Tools         *ir.ToolConfig             `json:"tools,omitempty"`
+	Platform      string                     `json:"platform"`
 }
 
 func recipeDigest(request PrepareRequest) (string, error) {
@@ -81,8 +82,8 @@ func recipeWorkingDir(workingDir, runWorkDir string) (string, string) {
 	return workingDir, ComparisonKey(workingDir)
 }
 
-func canonicalInputs(inputs []core.StepInputDeclaration) []core.StepInputDeclaration {
-	result := append([]core.StepInputDeclaration(nil), inputs...)
+func canonicalInputs(inputs []ir.StepInputDeclaration) []ir.StepInputDeclaration {
+	result := append([]ir.StepInputDeclaration(nil), inputs...)
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }
@@ -108,26 +109,26 @@ func recipeEnvironment(environment map[string]string, workingDir, runWorkDir str
 }
 
 var volatileRuntimeEnvironment = map[string]bool{
-	exec.EnvKeyDAGRunID:                      true,
-	exec.EnvKeyDAGRunLogFile:                 true,
-	exec.EnvKeyDAGRunStepStdoutFile:          true,
-	exec.EnvKeyDAGRunStepStderrFile:          true,
-	exec.EnvKeyDAGUOutputFile:                true,
-	exec.EnvKeyDAGRunStatus:                  true,
-	exec.EnvKeyDAGWaitingSteps:               true,
-	exec.EnvKeyDAGRunWorkDir:                 true,
-	exec.EnvKeyDAGRunArtifactsDir:            true,
-	exec.EnvKeyDAGPushBack:                   true,
-	exec.EnvKeyDAGPushBackIteration:          true,
-	exec.EnvKeyDAGPushBackPreviousStdoutFile: true,
+	runenv.EnvKeyDAGRunID:                      true,
+	runenv.EnvKeyDAGRunLogFile:                 true,
+	runenv.EnvKeyDAGRunStepStdoutFile:          true,
+	runenv.EnvKeyDAGRunStepStderrFile:          true,
+	runenv.EnvKeyDAGUOutputFile:                true,
+	runenv.EnvKeyDAGRunStatus:                  true,
+	runenv.EnvKeyDAGWaitingSteps:               true,
+	runenv.EnvKeyDAGRunWorkDir:                 true,
+	runenv.EnvKeyDAGRunArtifactsDir:            true,
+	runenv.EnvKeyDAGPushBack:                   true,
+	runenv.EnvKeyDAGPushBackIteration:          true,
+	runenv.EnvKeyDAGPushBackPreviousStdoutFile: true,
 }
 
-func fingerprint(recipeDigest string, inputs []exec.FileSnapshot, controlTokens map[string]string) string {
+func fingerprint(recipeDigest string, inputs []FileSnapshot, controlTokens map[string]string) string {
 	value := struct {
-		SchemaVersion int                 `json:"schemaVersion"`
-		RecipeDigest  string              `json:"recipeDigest"`
-		Inputs        []exec.FileSnapshot `json:"inputs,omitempty"`
-		Control       map[string]string   `json:"control,omitempty"`
+		SchemaVersion int               `json:"schemaVersion"`
+		RecipeDigest  string            `json:"recipeDigest"`
+		Inputs        []FileSnapshot    `json:"inputs,omitempty"`
+		Control       map[string]string `json:"control,omitempty"`
 	}{fingerprintSchemaVersion, recipeDigest, inputs, controlTokens}
 	data, _ := json.Marshal(value)
 	return digest(data)

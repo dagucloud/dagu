@@ -20,10 +20,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/proc"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -35,19 +39,19 @@ type Scheduler struct {
 	entryReader         EntryReader
 	quit                chan any
 	running             atomic.Bool
-	dagRunStore         exec.DAGRunStore
-	queueStore          exec.QueueStore
-	procStore           exec.ProcStore
+	dagRunStore         dagrun.DAGRunStore
+	queueStore          queuedomain.QueueStore
+	procStore           proc.ProcStore
 	config              *config.Config
 	dirLock             dirlock.DirLock // File-based lock to prevent multiple scheduler instances
 	dagExecutor         *DAGExecutor
 	healthServer        *HealthServer // Health check server for monitoring
-	serviceRegistry     exec.ServiceRegistry
+	serviceRegistry     serviceregistry.ServiceRegistry
 	disableHealthServer bool            // Disable health server when running from start-all
 	zombieDetector      *ZombieDetector // Zombie DAG run detector
 	instanceID          string          // Unique instance identifier for service registry
 	queueProcessor      *QueueProcessor // Processor for queued DAG runs
-	queueWatcher        exec.QueueWatcher
+	queueWatcher        queuedomain.QueueWatcher
 	retryScanner        *RetryScanner // DAG-level retry scanner
 	planner             *TickPlanner  // Unified scheduling decision module
 	stopOnce            sync.Once
@@ -101,11 +105,11 @@ func New(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunStore exec.DAGRunStore,
-	queueStore exec.QueueStore,
-	procStore exec.ProcStore,
-	reg exec.ServiceRegistry,
-	coordinatorCli exec.Dispatcher,
+	dagRunStore dagrun.DAGRunStore,
+	queueStore queuedomain.QueueStore,
+	procStore proc.ProcStore,
+	reg serviceregistry.ServiceRegistry,
+	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
 	opts ...Option,
 ) (*Scheduler, error) {
@@ -122,11 +126,11 @@ func newScheduler(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunStore exec.DAGRunStore,
-	queueStore exec.QueueStore,
-	procStore exec.ProcStore,
-	reg exec.ServiceRegistry,
-	coordinatorCli exec.Dispatcher,
+	dagRunStore dagrun.DAGRunStore,
+	queueStore queuedomain.QueueStore,
+	procStore proc.ProcStore,
+	reg serviceregistry.ServiceRegistry,
+	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
 	hooks schedulerHooks,
 	options schedulerOptions,
@@ -179,14 +183,14 @@ func newScheduler(
 	var isQueued IsQueuedFunc
 	var enqueueFunc EnqueueFunc
 	if queuesEnabled {
-		isQueued = func(ctx context.Context, dag *core.DAG) (bool, error) {
+		isQueued = func(ctx context.Context, dag *ir.DAG) (bool, error) {
 			items, err := queueStore.ListByDAGName(ctx, dag.ProcGroup(), dag.Name)
 			if err != nil {
 				return false, err
 			}
 			return len(items) > 0, nil
 		}
-		enqueueFunc = func(ctx context.Context, dag *core.DAG, runID string, triggerType core.TriggerType, scheduleTime time.Time) error {
+		enqueueFunc = func(ctx context.Context, dag *ir.DAG, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			profileName, err := dagExecutor.defaultProfileName(ctx, dag)
 			if err != nil {
 				return fmt.Errorf("failed to resolve DAG profile: %w", err)
@@ -212,7 +216,7 @@ func newScheduler(
 		WatermarkStore:  watermarkStore,
 		IsSuspended:     isSuspended,
 		GetLatestStatus: drm.GetLatestStatus,
-		IsRunning: func(ctx context.Context, dag *core.DAG) (bool, error) {
+		IsRunning: func(ctx context.Context, dag *ir.DAG) (bool, error) {
 			count, err := procStore.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
 			if err != nil {
 				return false, err
@@ -220,17 +224,17 @@ func newScheduler(
 			return count > 0, nil
 		},
 		GenRunID: drm.GenDAGRunID,
-		Dispatch: func(ctx context.Context, dag *core.DAG, runID string, triggerType core.TriggerType, scheduleTime time.Time) error {
+		Dispatch: func(ctx context.Context, dag *ir.DAG, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			return dagExecutor.HandleJob(
 				ctx, dag,
-				exec.DispatchOperationStart,
+				dispatch.DispatchOperationStart,
 				runID, triggerType, scheduleTime,
 			)
 		},
-		Stop: func(ctx context.Context, dag *core.DAG) error {
+		Stop: func(ctx context.Context, dag *ir.DAG) error {
 			return drm.Stop(ctx, dag, "")
 		},
-		Restart: func(ctx context.Context, dag *core.DAG, scheduleTime time.Time) error {
+		Restart: func(ctx context.Context, dag *ir.DAG, scheduleTime time.Time) error {
 			return dagExecutor.Restart(ctx, dag, scheduleTime)
 		},
 		Clock:           defaultClock,
@@ -240,14 +244,14 @@ func newScheduler(
 		QueuesEnabled:   queuesEnabled,
 		Enqueue:         enqueueFunc,
 		IsQueued:        isQueued,
-		RunExists: func(ctx context.Context, dag *core.DAG, runID string) (bool, error) {
-			_, err := dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, runID))
+		RunExists: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
+			_, err := dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, runID))
 			switch {
 			case err == nil:
 				return true, nil
-			case errors.Is(err, exec.ErrDAGRunIDNotFound):
+			case errors.Is(err, dagrun.ErrDAGRunIDNotFound):
 				return false, nil
-			case errors.Is(err, exec.ErrNoStatusData):
+			case errors.Is(err, dagrun.ErrNoStatusData):
 				return true, nil
 			default:
 				return false, err
@@ -323,7 +327,7 @@ func (s *Scheduler) SetIncidentMonitor(monitor backgroundRunner) {
 
 // SetDAGRunLeaseStore configures the shared distributed lease store used for
 // queue capacity accounting.
-func (s *Scheduler) SetDAGRunLeaseStore(store exec.DAGRunLeaseStore) {
+func (s *Scheduler) SetDAGRunLeaseStore(store dispatch.DAGRunLeaseStore) {
 	if s == nil || s.queueProcessor == nil {
 		return
 	}
@@ -332,7 +336,7 @@ func (s *Scheduler) SetDAGRunLeaseStore(store exec.DAGRunLeaseStore) {
 
 // SetDispatchTaskStore configures the shared distributed dispatch reservation
 // store used for queue admission and restart-safe deduplication.
-func (s *Scheduler) SetDispatchTaskStore(store exec.DispatchTaskStore) {
+func (s *Scheduler) SetDispatchTaskStore(store dispatch.DispatchTaskStore) {
 	if s == nil || s.queueProcessor == nil {
 		return
 	}
@@ -445,11 +449,11 @@ func (s *Scheduler) cleanupFailedStartup(state startupState) {
 	}
 }
 
-func (s *Scheduler) updateServiceStatus(ctx context.Context, status exec.ServiceStatus, failureMsg, successMsg string) {
+func (s *Scheduler) updateServiceStatus(ctx context.Context, status serviceregistry.ServiceStatus, failureMsg, successMsg string) {
 	if s.serviceRegistry == nil {
 		return
 	}
-	if err := s.serviceRegistry.UpdateStatus(ctx, exec.ServiceNameScheduler, status); err != nil {
+	if err := s.serviceRegistry.UpdateStatus(ctx, serviceregistry.ServiceNameScheduler, status); err != nil {
 		logger.Error(ctx, failureMsg, tag.Error(err))
 		return
 	}
@@ -473,7 +477,7 @@ func (s *Scheduler) closeDAGExecutor(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) setQueueWatcher(w exec.QueueWatcher) {
+func (s *Scheduler) setQueueWatcher(w queuedomain.QueueWatcher) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -522,14 +526,14 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	if s.serviceRegistry != nil {
 		hostname, _ := os.Hostname()
-		hostInfo := exec.HostInfo{
+		hostInfo := serviceregistry.HostInfo{
 			ID:        s.instanceID,
 			Host:      hostname,
 			Port:      s.config.Scheduler.Port, // Health check port (0 if disabled)
-			Status:    exec.ServiceStatusInactive,
+			Status:    serviceregistry.ServiceStatusInactive,
 			StartedAt: time.Now(),
 		}
-		if err := s.serviceRegistry.Register(ctx, exec.ServiceNameScheduler, hostInfo); err != nil {
+		if err := s.serviceRegistry.Register(ctx, serviceregistry.ServiceNameScheduler, hostInfo); err != nil {
 			logger.Error(ctx, "Failed to register with service registry", tag.Error(err))
 			// Continue anyway - service registry is not critical
 		} else {
@@ -568,7 +572,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return nil
 	}
 
-	s.updateServiceStatus(ctx, exec.ServiceStatusActive, "Failed to update status to active", "Updated scheduler status to active")
+	s.updateServiceStatus(ctx, serviceregistry.ServiceStatusActive, "Failed to update status to active", "Updated scheduler status to active")
 
 	sig := make(chan os.Signal, 1)
 
@@ -868,7 +872,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 }
 
 func (s *Scheduler) stopCron(ctx context.Context) {
-	s.updateServiceStatus(ctx, exec.ServiceStatusInactive, "Failed to update status to inactive", "")
+	s.updateServiceStatus(ctx, serviceregistry.ServiceStatusInactive, "Failed to update status to inactive", "")
 	s.stopHealthServer(ctx, "Failed to stop health check server")
 	s.closeDAGExecutor(ctx)
 	s.unregisterService(ctx)
@@ -881,7 +885,7 @@ func (s *Scheduler) stopCron(ctx context.Context) {
 // we need the result to decide whether to advance the watermark).
 // Non-catchup runs are dispatched in a goroutine (process spawn can be slow).
 func (s *Scheduler) dispatchRun(ctx context.Context, run PlannedRun) {
-	if run.TriggerType == core.TriggerTypeCatchUp {
+	if run.TriggerType == ir.TriggerTypeCatchUp {
 		s.dispatchPlannedRun(ctx, run)
 		return
 	}

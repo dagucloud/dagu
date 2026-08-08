@@ -11,27 +11,27 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/require"
 )
 
 func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
-	dag := &core.DAG{Name: "latest-pointer"}
+	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	dag := &ir.DAG{Name: "latest-pointer"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", exec.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
-	require.NoError(t, attempt.Write(ctx, exec.DAGRunStatus{
+	require.NoError(t, attempt.Write(ctx, dagrun.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: attempt.ID(),
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		StartedAt: startedAt.Format(time.RFC3339),
 	}))
 	require.NoError(t, attempt.Close(ctx))
@@ -43,7 +43,7 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	status, err := latest.ReadStatus(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "run-1", status.DAGRunID)
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 }
 
 func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
@@ -56,15 +56,15 @@ func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
 
 	canceledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	err := dagrun.UpdateLatestAttemptPointerForTest(canceledCtx, statusFile)
+	err := filedagrun.UpdateLatestAttemptPointerForTest(canceledCtx, statusFile)
 	require.ErrorIs(t, err, context.Canceled)
 
 	dagRunsDir := filepath.Join(baseDir, dagName, "dag-runs")
-	pointerFile := dagrun.LatestAttemptPointerPathForTest(dagRunsDir)
+	pointerFile := filedagrun.LatestAttemptPointerPathForTest(dagRunsDir)
 	_, err = os.Stat(pointerFile)
 	require.ErrorIs(t, err, os.ErrNotExist)
 
-	require.NoError(t, dagrun.UpdateLatestAttemptPointerForTest(ctx, statusFile))
+	require.NoError(t, filedagrun.UpdateLatestAttemptPointerForTest(ctx, statusFile))
 	_, err = os.Stat(pointerFile)
 	require.NoError(t, err)
 }
@@ -72,18 +72,18 @@ func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
 func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 	ctx := context.Background()
 	baseDir := b.TempDir()
-	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
-	dag := &core.DAG{Name: "latest-pointer-bench"}
+	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	dag := &ir.DAG{Name: "latest-pointer-bench"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", exec.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(b, err)
 	require.NoError(b, attempt.Open(ctx))
-	require.NoError(b, attempt.Write(ctx, exec.DAGRunStatus{
+	require.NoError(b, attempt.Write(ctx, dagrun.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: attempt.ID(),
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		StartedAt: startedAt.Format(time.RFC3339),
 	}))
 	require.NoError(b, attempt.Close(ctx))
@@ -119,5 +119,5 @@ func createStatuslessRunDir(t testing.TB, baseDir, dagName string, ts time.Time,
 		fmt.Sprintf("attempt_%s_%06d", ts.UTC().Format("20060102_150405_000Z"), 1),
 	)
 	require.NoError(t, os.MkdirAll(runDir, 0750))
-	return filepath.Join(runDir, dagrun.JSONLStatusFile)
+	return filepath.Join(runDir, filedagrun.JSONLStatusFile)
 }

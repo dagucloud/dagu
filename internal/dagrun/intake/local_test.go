@@ -8,8 +8,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,15 +21,15 @@ func TestPrepareLocalExecutionAcquiresProcWithPreparedAttempt(t *testing.T) {
 	attempt := &queueAttempt{id: "attempt-1"}
 	procStore := &localProcStore{handle: &localProcHandle{}}
 	dag := newLocalDAG()
-	root := exec.NewDAGRunRef("root-dag", "root-run")
+	root := dagrun.NewDAGRunRef("root-dag", "root-run")
 
 	prepared, err := PrepareLocalExecution(context.Background(), LocalRequest{
 		ProcStore:   procStore,
 		DAG:         dag,
 		DAGRunID:    "run-1",
 		Root:        root,
-		TriggerType: core.TriggerTypeManual,
-		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
+		TriggerType: ir.TriggerTypeManual,
+		BuildAttempt: func(context.Context) (dagrun.DAGRunAttempt, error) {
 			return attempt, nil
 		},
 	})
@@ -60,15 +61,15 @@ func TestPrepareLocalExecutionRecordsFailedStatusWhenProcAcquireFails(t *testing
 		ProcStore:   procStore,
 		DAG:         dag,
 		DAGRunID:    "run-1",
-		TriggerType: core.TriggerTypeManual,
-		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
+		TriggerType: ir.TriggerTypeManual,
+		BuildAttempt: func(context.Context) (dagrun.DAGRunAttempt, error) {
 			return attempt, nil
 		},
 	})
 
 	require.ErrorIs(t, err, ErrProcAcquisitionFailed)
 	require.NotNil(t, attempt.status)
-	assert.Equal(t, core.Failed, attempt.status.Status)
+	assert.Equal(t, ir.Failed, attempt.status.Status)
 	assert.Equal(t, "attempt-1", attempt.status.AttemptID)
 	assert.Equal(t, "local", attempt.status.WorkerID)
 	assert.Contains(t, attempt.status.Error, "already running")
@@ -91,8 +92,8 @@ func TestPrepareLocalExecutionReturnsFailureRecordingErrorWhenRecordFails(t *tes
 		ProcStore:   procStore,
 		DAG:         dag,
 		DAGRunID:    "run-1",
-		TriggerType: core.TriggerTypeManual,
-		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
+		TriggerType: ir.TriggerTypeManual,
+		BuildAttempt: func(context.Context) (dagrun.DAGRunAttempt, error) {
 			return attempt, nil
 		},
 	})
@@ -104,22 +105,22 @@ func TestPrepareLocalExecutionReturnsFailureRecordingErrorWhenRecordFails(t *tes
 	assert.True(t, procStore.unlocked)
 }
 
-func newLocalDAG() *core.DAG {
-	dag := &core.DAG{
+func newLocalDAG() *ir.DAG {
+	dag := &ir.DAG{
 		Name:   "test-dag",
 		LogDir: "logs",
 	}
-	core.InitializeDefaults(dag)
+	ir.InitializeDefaults(dag)
 	return dag
 }
 
 type localProcStore struct {
-	handle     exec.ProcHandle
+	handle     proc.ProcHandle
 	acquireErr error
 	locked     bool
 	unlocked   bool
 	groupName  string
-	meta       exec.ProcMeta
+	meta       proc.ProcMeta
 }
 
 func (s *localProcStore) Lock(_ context.Context, groupName string) error {
@@ -132,7 +133,7 @@ func (s *localProcStore) Unlock(context.Context, string) {
 	s.unlocked = true
 }
 
-func (s *localProcStore) Acquire(_ context.Context, groupName string, meta exec.ProcMeta) (exec.ProcHandle, error) {
+func (s *localProcStore) Acquire(_ context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error) {
 	s.groupName = groupName
 	s.meta = meta
 	if s.acquireErr != nil {

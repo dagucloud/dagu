@@ -9,7 +9,8 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 )
 
 // ResolveEnvOptions controls how a DAG is reloaded to recover resolved env
@@ -19,16 +20,15 @@ type ResolveEnvOptions struct {
 	WorkspaceBaseConfigDir string
 }
 
-// ResolveEnvResult contains resolved env entries and warnings encountered while
-// rebuilding them.
-type ResolveEnvResult struct {
+// ResolveRuntimeEnvResult contains resolved entries and non-fatal load warnings.
+type ResolveRuntimeEnvResult struct {
 	Env           []string
 	BuildWarnings []string
 }
 
 // QuoteRuntimeParams quotes persisted params so values containing spaces survive
 // re-parsing when a DAG is rebuilt from status metadata.
-func QuoteRuntimeParams(params []string, paramDefs []core.ParamDef) []string {
+func QuoteRuntimeParams(params []string, paramDefs []ir.ParamDef) []string {
 	positionalKeys := positionalParamKeys(paramDefs)
 	quoted := make([]string, len(params))
 	for i, p := range params {
@@ -45,38 +45,27 @@ func QuoteRuntimeParams(params []string, paramDefs []core.ParamDef) []string {
 	return quoted
 }
 
-// ResolveEnv rebuilds the DAG env from source when the current DAG snapshot no
-// longer carries resolved env entries (for example when restored from dag.json).
-func ResolveEnv(ctx context.Context, dag *core.DAG, params any, opts ResolveEnvOptions) ([]string, error) {
-	result, err := ResolveEnvWithWarnings(ctx, dag, params, opts)
-	if err != nil {
-		return nil, err
-	}
-	return result.Env, nil
-}
-
-// ResolveEnvWithWarnings rebuilds the DAG env and returns warnings emitted
-// during dotenv loading.
-func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts ResolveEnvOptions) (ResolveEnvResult, error) {
+// ResolveRuntimeEnv returns the complete per-run environment without mutating dag.
+func ResolveRuntimeEnv(ctx context.Context, dag *ir.DAG, params any, opts ResolveEnvOptions) (ResolveRuntimeEnvResult, error) {
 	if dag == nil {
-		return ResolveEnvResult{}, nil
+		return ResolveRuntimeEnvResult{}, nil
 	}
 	if canReuseCurrentEnv(dag, params) {
-		return ResolveEnvResult{Env: append([]string{}, dag.Env...)}, nil
+		return ResolveRuntimeEnvResult{Env: append([]string{}, dag.Env...)}, nil
 	}
 
 	loadOpts, err := runtimeParamLoadOptions(dag, params, ResolveRuntimeParamsOptions(opts))
 	if err != nil {
-		return ResolveEnvResult{}, err
+		return ResolveRuntimeEnvResult{}, err
 	}
 	runtimeParams, err := resolveRuntimeParamsForEnv(ctx, dag, loadOpts)
 	if err != nil {
-		return ResolveEnvResult{}, err
+		return ResolveRuntimeEnvResult{}, err
 	}
 
 	cloned := dag.Clone()
-	cloned.BuildWarnings = append([]string(nil), cloned.BuildWarnings...)
 	cloned.Params = runtimeParams
+	cloned.RuntimeResolved = false
 	if shouldRecomputeEnv(dag, params) {
 		// Recompute DAG/base-config env entries when params or raw source-backed
 		// metadata can affect build-time env resolution.
@@ -84,17 +73,20 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 	} else {
 		cloned.Env = append([]string(nil), cloned.Env...)
 	}
-	warningStart := len(cloned.BuildWarnings)
-	errorStart := len(cloned.BuildErrors)
-	cloned.LoadDotEnv(ctx)
-	buildWarnings := append([]string{}, cloned.BuildWarnings[warningStart:]...)
-	if len(cloned.BuildErrors) > errorStart {
-		return ResolveEnvResult{}, core.ErrorList(cloned.BuildErrors[errorStart:])
+	resolved, err := runtimeenv.Resolve(ctx, cloned)
+	if err != nil {
+		return ResolveRuntimeEnvResult{
+			Env:           resolved.Env,
+			BuildWarnings: resolved.Warnings,
+		}, err
 	}
-	loadedEnv := append([]string{}, cloned.Env...)
-	buildEnv := buildEnvMap(loadedEnv)
+	loadedEnv := resolved.Env
+	buildEnv := buildenv.ToMap(loadedEnv)
 	if len(buildEnv) > 0 {
-		loadOpts = append(loadOpts, WithBuildEnv(buildEnv))
+		loadOpts = append(loadOpts, WithBuildEnvSnapshot(buildenv.Snapshot{
+			Env:             buildEnv,
+			RuntimeResolved: true,
+		}))
 	}
 	presolvedEnv := buildenv.FromMap(dag.PresolvedBuildEnv)
 
@@ -102,54 +94,54 @@ func ResolveEnvWithWarnings(ctx context.Context, dag *core.DAG, params any, opts
 	case len(dag.YamlData) > 0:
 		fresh, err := LoadYAML(ctx, dag.YamlData, loadOpts...)
 		if err != nil {
-			return ResolveEnvResult{}, err
+			return ResolveRuntimeEnvResult{}, err
 		}
-		return ResolveEnvResult{
+		return ResolveRuntimeEnvResult{
 			Env:           buildenv.AppendMissing(fresh.Env, loadedEnv, presolvedEnv),
-			BuildWarnings: buildWarnings,
+			BuildWarnings: resolved.Warnings,
 		}, nil
 
 	case dag.Location != "":
 		fresh, err := Load(ctx, dag.Location, loadOpts...)
 		if err != nil {
-			return ResolveEnvResult{}, err
+			return ResolveRuntimeEnvResult{}, err
 		}
-		return ResolveEnvResult{
+		return ResolveRuntimeEnvResult{
 			Env:           buildenv.AppendMissing(fresh.Env, loadedEnv, presolvedEnv),
-			BuildWarnings: buildWarnings,
+			BuildWarnings: resolved.Warnings,
 		}, nil
 
 	case dag.SourceFile != "":
 		fresh, err := Load(ctx, dag.SourceFile, loadOpts...)
 		if err != nil {
-			return ResolveEnvResult{}, err
+			return ResolveRuntimeEnvResult{}, err
 		}
-		return ResolveEnvResult{
+		return ResolveRuntimeEnvResult{
 			Env:           buildenv.AppendMissing(fresh.Env, loadedEnv, presolvedEnv),
-			BuildWarnings: buildWarnings,
+			BuildWarnings: resolved.Warnings,
 		}, nil
 
 	default:
-		return ResolveEnvResult{
+		return ResolveRuntimeEnvResult{
 			Env:           buildenv.AppendMissing(dag.Env, loadedEnv, presolvedEnv),
-			BuildWarnings: buildWarnings,
+			BuildWarnings: resolved.Warnings,
 		}, nil
 	}
 }
 
-func canReuseCurrentEnv(dag *core.DAG, params any) bool {
-	return !hasRuntimeParams(params) && ((dag.EnvEvaluated && dag.Env != nil) || (len(dag.Env) > 0 && !hasDAGSource(dag)))
+func canReuseCurrentEnv(dag *ir.DAG, params any) bool {
+	return !hasRuntimeParams(params) && dag.RuntimeResolved
 }
 
-func shouldRecomputeEnv(dag *core.DAG, params any) bool {
+func shouldRecomputeEnv(dag *ir.DAG, params any) bool {
 	return hasRuntimeParams(params) || (hasDAGSource(dag) && !dag.EnvEvaluated)
 }
 
-func hasDAGSource(dag *core.DAG) bool {
+func hasDAGSource(dag *ir.DAG) bool {
 	return len(dag.YamlData) > 0 || dag.Location != "" || dag.SourceFile != ""
 }
 
-func resolveRuntimeParamsForEnv(ctx context.Context, dag *core.DAG, loadOpts []LoadOption) ([]string, error) {
+func resolveRuntimeParamsForEnv(ctx context.Context, dag *ir.DAG, loadOpts []LoadOption) ([]string, error) {
 	switch {
 	case len(dag.YamlData) > 0:
 		fresh, err := LoadYAML(ctx, dag.YamlData, loadOpts...)
@@ -174,7 +166,7 @@ func resolveRuntimeParamsForEnv(ctx context.Context, dag *core.DAG, loadOpts []L
 	}
 }
 
-func positionalParamKeys(paramDefs []core.ParamDef) map[string]struct{} {
+func positionalParamKeys(paramDefs []ir.ParamDef) map[string]struct{} {
 	if len(paramDefs) == 0 {
 		return nil
 	}
@@ -203,23 +195,4 @@ func hasRuntimeParams(params any) bool {
 	default:
 		return true
 	}
-}
-
-func buildEnvMap(env []string) map[string]string {
-	if len(env) == 0 {
-		return nil
-	}
-
-	buildEnv := make(map[string]string)
-	for _, item := range env {
-		key, value, ok := strings.Cut(item, "=")
-		if !ok || key == "" {
-			continue
-		}
-		buildEnv[key] = value
-	}
-	if len(buildEnv) == 0 {
-		return nil
-	}
-	return buildEnv
 }

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -38,7 +38,7 @@ func TestTemplateExecutor(t *testing.T) {
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": test.Contains("hello, world!"),
 		})
@@ -63,7 +63,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "Hello, Alice!",
 		})
@@ -93,7 +93,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "Hello, Bob!",
 		})
@@ -123,7 +123,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "Hello, Alice! ${env.NESTED}",
 		})
@@ -151,7 +151,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		content, err := os.ReadFile(outFile)
 		require.NoError(t, err)
@@ -186,7 +186,7 @@ steps:
 		})
 
 		status, _ := readAttemptStatusAndOutputs(t, th, "template-artifact-auto-enable", runID)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.NotEmpty(t, status.ArchiveDir)
 
 		content, err := os.ReadFile(filepath.Join(status.ArchiveDir, "greeting.txt"))
@@ -214,7 +214,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		content, err := os.ReadFile(filepath.Join(tmpDir, "subdir", "output.txt"))
 		require.NoError(t, err)
@@ -245,7 +245,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "Hello, Alice!",
 		})
@@ -270,7 +270,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": []test.Contains{
 				test.Contains("${BAR}"),
@@ -303,7 +303,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": []test.Contains{
 				test.Contains("```yaml"),
@@ -329,7 +329,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunCheckErr(t, "execution error")
 
-		dag.AssertLatestStatus(t, core.Failed)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
 	t.Run("ComplexTemplate", func(t *testing.T) {
@@ -355,7 +355,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": []test.Contains{
 				test.Contains("# Domain Report"),
@@ -384,7 +384,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": test.Contains("No items found."),
 		})
@@ -435,7 +435,7 @@ steps:
 		})
 
 		status, outputs := readAttemptStatusAndOutputs(t, th, "template-optional-param", runID)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.Contains(t, outputs.Outputs, "result")
 		assert.Contains(t, outputs.Outputs["result"], "Hello, tom!")
 		assert.Contains(t, outputs.Outputs["result"], "You are 21 years old.")
@@ -460,7 +460,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "Anonymous (Admin)",
 		})
@@ -482,7 +482,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "my-service",
 		})
@@ -507,7 +507,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": []test.Contains{
 				test.Contains("name=MyApp"),
@@ -535,7 +535,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "api.example.com,app.example.com",
 		})
@@ -565,7 +565,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": []test.Contains{
 				test.Contains("app=my-service"),
@@ -588,7 +588,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunCheckErr(t, "error")
 
-		dag.AssertLatestStatus(t, core.Failed)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
 	t.Run("SlimSprigMissingKeyBoundary", func(t *testing.T) {
@@ -607,7 +607,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunCheckErr(t, "execution error")
 
-		dag.AssertLatestStatus(t, core.Failed)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
 	t.Run("SlimSprigOverlapBehavior", func(t *testing.T) {
@@ -628,7 +628,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": []test.Contains{
 				test.Contains("items=a;b;c"),

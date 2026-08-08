@@ -14,8 +14,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/spf13/cobra"
 )
 
@@ -146,7 +146,7 @@ func validateFormat(format string) error {
 }
 
 // renderHistory renders DAG run history in the specified format.
-func renderHistory(format string, statuses []*exec.DAGRunStatus) error {
+func renderHistory(format string, statuses []*dagrun.DAGRunStatus) error {
 	switch format {
 	case "json":
 		return renderHistoryJSON(statuses)
@@ -158,8 +158,8 @@ func renderHistory(format string, statuses []*exec.DAGRunStatus) error {
 }
 
 // buildHistoryOptions constructs query options from command-line flags.
-func buildHistoryOptions(ctx *Context, args []string) ([]exec.ListDAGRunStatusesOption, error) {
-	var opts []exec.ListDAGRunStatusesOption
+func buildHistoryOptions(ctx *Context, args []string) ([]dagrun.ListDAGRunStatusesOption, error) {
+	var opts []dagrun.ListDAGRunStatusesOption
 
 	// DAG name filter
 	if len(args) > 0 {
@@ -167,7 +167,7 @@ func buildHistoryOptions(ctx *Context, args []string) ([]exec.ListDAGRunStatuses
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract DAG name: %w", err)
 		}
-		opts = append(opts, exec.WithExactName(dagName))
+		opts = append(opts, dagrun.WithExactName(dagName))
 	}
 
 	// Date range filters
@@ -209,8 +209,8 @@ func buildHistoryOptions(ctx *Context, args []string) ([]exec.ListDAGRunStatuses
 }
 
 // buildDateRangeOptions constructs date range filtering options.
-func buildDateRangeOptions(ctx *Context) ([]exec.ListDAGRunStatusesOption, error) {
-	var opts []exec.ListDAGRunStatusesOption
+func buildDateRangeOptions(ctx *Context) ([]dagrun.ListDAGRunStatusesOption, error) {
+	var opts []dagrun.ListDAGRunStatusesOption
 
 	lastDuration, _ := ctx.StringParam("last")
 	fromDate, _ := ctx.StringParam("from")
@@ -228,7 +228,7 @@ func buildDateRangeOptions(ctx *Context) ([]exec.ListDAGRunStatusesOption, error
 			return nil, fmt.Errorf("invalid --last value '%s': %w. Valid formats: 7d, 24h, 1w, 30d", lastDuration, err)
 		}
 		fromTime := time.Now().UTC().Add(-duration)
-		opts = append(opts, exec.WithFrom(exec.NewUTC(fromTime)))
+		opts = append(opts, dagrun.WithFrom(dagrun.NewUTC(fromTime)))
 		return opts, nil
 	}
 
@@ -241,11 +241,11 @@ func buildDateRangeOptions(ctx *Context) ([]exec.ListDAGRunStatusesOption, error
 		if err != nil {
 			return nil, fmt.Errorf("invalid --from date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", fromDate, err)
 		}
-		opts = append(opts, exec.WithFrom(exec.NewUTC(fromTime)))
+		opts = append(opts, dagrun.WithFrom(dagrun.NewUTC(fromTime)))
 	} else if toDate == "" {
 		// Default: last 30 days if no date filters specified
 		defaultFrom := time.Now().UTC().AddDate(0, 0, -30)
-		opts = append(opts, exec.WithFrom(exec.NewUTC(defaultFrom)))
+		opts = append(opts, dagrun.WithFrom(dagrun.NewUTC(defaultFrom)))
 	}
 
 	if toDate != "" {
@@ -253,7 +253,7 @@ func buildDateRangeOptions(ctx *Context) ([]exec.ListDAGRunStatusesOption, error
 		if err != nil {
 			return nil, fmt.Errorf("invalid --to date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", toDate, err)
 		}
-		opts = append(opts, exec.WithTo(exec.NewUTC(toTime)))
+		opts = append(opts, dagrun.WithTo(dagrun.NewUTC(toTime)))
 
 		// Validate date range if both dates are provided
 		if fromDate != "" && fromTime.After(toTime) {
@@ -265,7 +265,7 @@ func buildDateRangeOptions(ctx *Context) ([]exec.ListDAGRunStatusesOption, error
 }
 
 // buildStatusOption constructs status filtering option.
-func buildStatusOption(ctx *Context) (exec.ListDAGRunStatusesOption, error) {
+func buildStatusOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 	statusStr, err := ctx.StringParam("status")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get 'status' parameter: %w", err)
@@ -280,11 +280,11 @@ func buildStatusOption(ctx *Context) (exec.ListDAGRunStatusesOption, error) {
 		return nil, err
 	}
 
-	return exec.WithStatuses(statuses), nil
+	return dagrun.WithStatuses(statuses), nil
 }
 
 // buildRunIDOption constructs run ID filtering option.
-func buildRunIDOption(ctx *Context) (exec.ListDAGRunStatusesOption, error) {
+func buildRunIDOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 	runID, err := ctx.StringParam("run-id")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get 'run-id' parameter: %w", err)
@@ -294,11 +294,11 @@ func buildRunIDOption(ctx *Context) (exec.ListDAGRunStatusesOption, error) {
 		return nil, nil
 	}
 
-	return exec.WithDAGRunID(runID), nil
+	return dagrun.WithDAGRunID(runID), nil
 }
 
 // buildLabelsOption constructs labels filtering option.
-func buildLabelsOption(ctx *Context) (exec.ListDAGRunStatusesOption, error) {
+func buildLabelsOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 	labelsStr, err := labelsParam(ctx)
 	if err != nil {
 		return nil, err
@@ -309,14 +309,14 @@ func buildLabelsOption(ctx *Context) (exec.ListDAGRunStatusesOption, error) {
 	}
 
 	if labels := parseLabels(labelsStr); len(labels) > 0 {
-		return exec.WithLabels(labels), nil
+		return dagrun.WithLabels(labels), nil
 	}
 
 	return nil, nil
 }
 
 // buildLimitOption constructs limit option with validation.
-func buildLimitOption(ctx *Context) (exec.ListDAGRunStatusesOption, error) {
+func buildLimitOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 	const (
 		defaultLimit = 100
 		maxLimit     = 1000
@@ -341,7 +341,7 @@ func buildLimitOption(ctx *Context) (exec.ListDAGRunStatusesOption, error) {
 		}
 	}
 
-	return exec.WithLimit(limit), nil
+	return dagrun.WithLimit(limit), nil
 }
 
 // parseRelativeDuration parses relative time duration strings like "7d", "24h", "1w".
@@ -398,44 +398,44 @@ func parseAbsoluteDateTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unsupported date format")
 }
 
-// parseStatus converts status string to core.Status with validation.
-func parseStatus(s string) (core.Status, error) {
+// parseStatus converts status string to ir.Status with validation.
+func parseStatus(s string) (ir.Status, error) {
 	normalized := strings.ToLower(strings.TrimSpace(s))
 
-	// Map of all accepted status values to their core.Status equivalents
-	statusMap := map[string]core.Status{
+	// Map of all accepted status values to their ir.Status equivalents
+	statusMap := map[string]ir.Status{
 		// Canonical names
-		"not_started":         core.NotStarted,
-		"running":             core.Running,
-		"succeeded":           core.Succeeded,
-		"failed":              core.Failed,
-		"aborted":             core.Aborted,
-		"queued":              core.Queued,
-		"partially_succeeded": core.PartiallySucceeded,
-		"waiting":             core.Waiting,
-		"rejected":            core.Rejected,
+		"not_started":         ir.NotStarted,
+		"running":             ir.Running,
+		"succeeded":           ir.Succeeded,
+		"failed":              ir.Failed,
+		"aborted":             ir.Aborted,
+		"queued":              ir.Queued,
+		"partially_succeeded": ir.PartiallySucceeded,
+		"waiting":             ir.Waiting,
+		"rejected":            ir.Rejected,
 
 		// Common aliases
-		"notstarted":         core.NotStarted,
-		"success":            core.Succeeded,
-		"failure":            core.Failed,
-		"canceled":           core.Aborted,
-		"cancelled":          core.Aborted,
-		"cancel":             core.Aborted,
-		"partiallysucceeded": core.PartiallySucceeded,
+		"notstarted":         ir.NotStarted,
+		"success":            ir.Succeeded,
+		"failure":            ir.Failed,
+		"canceled":           ir.Aborted,
+		"cancelled":          ir.Aborted,
+		"cancel":             ir.Aborted,
+		"partiallysucceeded": ir.PartiallySucceeded,
 	}
 
 	if status, ok := statusMap[normalized]; ok {
 		return status, nil
 	}
 
-	return core.NotStarted, fmt.Errorf("invalid status '%s'. Valid values: running, succeeded, failed, aborted, queued, waiting, rejected, not_started, partially_succeeded", s)
+	return ir.NotStarted, fmt.Errorf("invalid status '%s'. Valid values: running, succeeded, failed, aborted, queued, waiting, rejected, not_started, partially_succeeded", s)
 }
 
-// parseStatuses converts a comma-separated status string to core.Status values.
-func parseStatuses(s string) ([]core.Status, error) {
+// parseStatuses converts a comma-separated status string to ir.Status values.
+func parseStatuses(s string) ([]ir.Status, error) {
 	parts := strings.Split(s, ",")
-	statuses := make([]core.Status, 0, len(parts))
+	statuses := make([]ir.Status, 0, len(parts))
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
 		if trimmed == "" {
@@ -473,7 +473,7 @@ func parseLabels(s string) []string {
 }
 
 // renderHistoryTable displays DAG run history as an aligned table.
-func renderHistoryTable(statuses []*exec.DAGRunStatus) error {
+func renderHistoryTable(statuses []*dagrun.DAGRunStatus) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer func() {
 		_ = w.Flush()
@@ -509,7 +509,7 @@ func renderHistoryTable(statuses []*exec.DAGRunStatus) error {
 }
 
 // renderHistoryCSV displays DAG run history as comma-separated values.
-func renderHistoryCSV(statuses []*exec.DAGRunStatus) error {
+func renderHistoryCSV(statuses []*dagrun.DAGRunStatus) error {
 	const csvHeader = "DAG NAME,RUN ID,STATUS,STARTED (UTC),DURATION,PARAMS"
 
 	// Write header
@@ -529,7 +529,7 @@ func renderHistoryCSV(statuses []*exec.DAGRunStatus) error {
 }
 
 // formatCSVRow formats a single DAG run status as a CSV row.
-func formatCSVRow(status *exec.DAGRunStatus) string {
+func formatCSVRow(status *dagrun.DAGRunStatus) string {
 	fields := []string{
 		escapeCSV(status.Name),
 		escapeCSV(status.DAGRunID),
@@ -560,7 +560,7 @@ func needsCSVQuoting(s string) bool {
 }
 
 // renderHistoryJSON displays DAG run history as JSON.
-func renderHistoryJSON(statuses []*exec.DAGRunStatus) error {
+func renderHistoryJSON(statuses []*dagrun.DAGRunStatus) error {
 	type historyEntry struct {
 		Name       string   `json:"name"`
 		DAGRunID   string   `json:"dagRunId"`
@@ -596,26 +596,26 @@ func renderHistoryJSON(statuses []*exec.DAGRunStatus) error {
 	return encoder.Encode(entries)
 }
 
-// formatStatusText converts core.Status to human-readable text.
-func formatStatusText(status core.Status) string {
+// formatStatusText converts ir.Status to human-readable text.
+func formatStatusText(status ir.Status) string {
 	switch status {
-	case core.NotStarted:
+	case ir.NotStarted:
 		return "Not Started"
-	case core.Running:
+	case ir.Running:
 		return "Running"
-	case core.Succeeded:
+	case ir.Succeeded:
 		return "Succeeded"
-	case core.Failed:
+	case ir.Failed:
 		return "Failed"
-	case core.Aborted:
+	case ir.Aborted:
 		return "Aborted"
-	case core.Queued:
+	case ir.Queued:
 		return "Queued"
-	case core.PartiallySucceeded:
+	case ir.PartiallySucceeded:
 		return "Partially Succeeded"
-	case core.Waiting:
+	case ir.Waiting:
 		return "Waiting"
-	case core.Rejected:
+	case ir.Rejected:
 		return "Rejected"
 	default:
 		return status.String()
@@ -639,7 +639,7 @@ func formatTimestamp(ts string) string {
 
 // formatDuration calculates and formats the duration of a DAG run.
 // For running DAGs, shows elapsed time. For completed DAGs, shows total duration.
-func formatDuration(status *exec.DAGRunStatus) string {
+func formatDuration(status *dagrun.DAGRunStatus) string {
 	if status.StartedAt == "" {
 		return "-"
 	}

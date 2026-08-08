@@ -39,12 +39,14 @@ The module root is package `dagu` — an experimental embedded API (`engine.go`,
 
 ### Go Backend (`internal/`)
 
-- **`core/`** — Domain types: `DAG`, `Step`, and the full YAML spec surface (schedules, handlers, containers, params, retry/repeat, human tasks, routers). Three DAG execution types: `graph` (default), `chain`, `controller` (LLM-driven step ordering).
-- **`core/spec/`** — YAML loader/builder/normalizer. Also normalizes the step-level `action:` shorthand (~58 built-in action names like `file.*`, `state.*`, `git.worktree.*`, `human.task`) into executor configs (`step_v2.go`).
-- **`core/exec/`** — Execution-layer port interfaces: `DAGStore`, `DAGRunStore`, `DAGRunAttempt`, `ProcStore`, `QueueStore`, `Dispatcher`, `ServiceRegistry`, worker/lease/dispatch stores.
+- **`ir/`** — Canonical normalized DAG and step definitions shared by storage and execution. It owns configuration value objects, lifecycle enums, compatibility decoding, cloning, defaults, and intrinsic queries, but not mutable run results or environment loading. Three DAG execution types: `graph` (default), `chain`, `controller` (LLM-driven step ordering).
+- **`core/spec/`** — YAML decoding, building, normalization, and build-time validation. Authored YAML structs remain private to this package; loaders return `*ir.DAG`. It also normalizes the step-level `action:` shorthand (~58 built-in action names like `file.*`, `state.*`, `git.worktree.*`, `human.task`) into executor configs (`step_v2.go`).
+- **Domain contracts** — Ports live with their owning concepts: `dagrun` (run status, attempts, run stores), `dagstore` (DAG loading/storage), `queue`, `proc`, `dispatch` (distributed dispatch, worker and lease stores), `serviceregistry`, `build`, and `workspace`. Runtime condition results live in `dagrun`; `ir.Condition` remains definition-only.
+- **`executor/registry/`** — Executor capabilities, step validators, and configuration-schema registries used by spec and runtime.
 - **`runtime/`** — Execution engine. `plan.go` builds the step graph (cycle validation), `runner.go` runs a plan (concurrency, lifecycle handlers, metrics), `node.go` is the per-step state machine (retry, repeat, output capture), `manager.go` starts/stops/inspects DAG runs. `runtime/agent/` is the DAG-run process agent (unix-socket control, signal propagation, status persistence) — not an LLM agent. `runtime/controller/` implements `type: controller` DAGs.
+- **`runctx/` and `runtimeenv/`** — `runctx` owns per-run execution context and shared runtime dependencies. `runtimeenv` resolves dotenv-backed environment snapshots without mutating DAG definitions; subprocess transport records whether a snapshot is already resolved.
 - **`runtime/builtin/`** — 28 executor packages registering ~37 executor type names: `command`/`shell`, `docker`, `container`, `kubernetes`, `ssh`/`sftp`, `http`, `jq`, `mail`, `postgres`/`sqlite`, `redis`, `s3`, `dag`/`subworkflow`/`parallel`/`foreach`, `router`, `chat` (LLM), `controller`, `action` (reusable Dagu Actions from `owner/repo@version`), `harness` (external coding-agent CLIs: claude, codex, copilot, opencode, pi), plus `archive`, `artifact`, `data`, `file`, `git`, `state`, `template`, `wait`, etc.
-- **`runtime/executor/`** — Executor registry + `Executor` interface. Factory pattern: registered globally, instantiated by type name.
+- **`runtime/executor/`** — Executor factories and runtime `Executor` interface. Factories are registered globally and instantiated by type name.
 - **`persis/`** — Storage layer behind a generic `Backend` → `Collection` → `Record` abstraction (`backend.go`). Only production backend is `persis/file` (local filesystem). `persis/store` holds collection-backed adapters (queue, user, API key, profile, secret, workspace, view, webhook, license, worker-heartbeat, etc.).
 - **`service/frontend/`** — HTTP server (chi router). REST API v1 handlers in `api/v1/` (~150 paths), SSE, terminal, static assets; also mounts the MCP server at `/mcp`.
 - **`service/scheduler/`** — Cron scheduling with timezones, catchup, zombie detection, queue processing, file watching.
@@ -89,7 +91,7 @@ Distributed mode: Scheduler → Queue → dispatch policy → Coordinator (gRPC)
 
 ## Key Conventions
 
-- All storage is behind interfaces (`core/exec/`, `persis.Backend`) with file-based implementations (`persis/file`, `persis/store`).
+- All storage is behind domain-owned interfaces and `persis.Backend`, with file-based implementations in `persis/file` and `persis/store`.
 - Executors follow the factory pattern — registered globally, instantiated dynamically by type name.
 - DAGs compose hierarchically — steps invoke other DAGs via the `dag` executor; `action:` is shorthand normalized at spec-build time.
 - Configuration uses `DAGU_*` environment variables, with fallback to `~/.config/dagu/config.yaml`.

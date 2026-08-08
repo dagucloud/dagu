@@ -7,25 +7,25 @@ import (
 	"context"
 	"os"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
 // SubWorkflowRunner runs child workflows behind a workflow-level interface.
 type SubWorkflowRunner interface {
 	ShouldRun(ctx context.Context, req SubWorkflowRequest) bool
-	Run(ctx context.Context, req SubWorkflowRequest) (*exec.RunStatus, error)
-	Retry(ctx context.Context, req SubWorkflowRetryRequest) (*exec.RunStatus, error)
+	Run(ctx context.Context, req SubWorkflowRequest) (*dagrun.RunStatus, error)
+	Retry(ctx context.Context, req SubWorkflowRetryRequest) (*dagrun.RunStatus, error)
 	Cancel(ctx context.Context, req SubWorkflowCancelRequest) error
 }
 
 // SubWorkflowRequest describes a child workflow invocation.
 type SubWorkflowRequest struct {
-	DAG               *core.DAG
-	ParentDAG         *core.DAG
-	RootDAGRun        exec.DAGRunRef
-	ParentDAGRun      exec.DAGRunRef
+	DAG               *ir.DAG
+	ParentDAG         *ir.DAG
+	RootDAGRun        dagrun.DAGRunRef
+	ParentDAGRun      dagrun.DAGRunRef
 	RunID             string
 	Params            string
 	ProfileName       string
@@ -34,7 +34,7 @@ type SubWorkflowRequest struct {
 	WorkerSelector    map[string]string
 	ExternalStepRetry bool
 	Reuse             bool
-	RetryPath         exec.RetryPath
+	RetryPath         dagrun.RetryPath
 	Workspace         *SubWorkflowWorkspace
 }
 
@@ -62,8 +62,8 @@ type SubWorkflowCancelIntent struct {
 
 // SubWorkflowCancelRequest describes a child workflow cancellation.
 type SubWorkflowCancelRequest struct {
-	DAG        *core.DAG
-	RootDAGRun exec.DAGRunRef
+	DAG        *ir.DAG
+	RootDAGRun dagrun.DAGRunRef
 	RunID      string
 	Intent     SubWorkflowCancelIntent
 }

@@ -6,10 +6,9 @@ package store
 import (
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 func TestProcEntryIdentityRoundTrip(t *testing.T) {
@@ -17,7 +16,7 @@ func TestProcEntryIdentityRoundTrip(t *testing.T) {
 
 	cases := []struct {
 		name  string
-		id    exec.ProcEntryID
+		id    proc.ProcEntryID
 		kind  string
 		value string
 	}{
@@ -33,7 +32,7 @@ func TestProcEntryIdentityRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			entry := exec.ProcEntry{Identity: tc.id}
+			entry := proc.ProcEntry{Identity: tc.id}
 			assert.Equal(t, tc.kind, procEntryIdentityKind(entry))
 
 			value, ok := procEntryIdentityValue(entry, tc.kind)
@@ -51,20 +50,20 @@ func TestProcEntryIdentityRejectsMalformedTokens(t *testing.T) {
 
 	cases := []struct {
 		name string
-		id   exec.ProcEntryID
+		id   proc.ProcEntryID
 	}{
-		{name: "zero", id: exec.ProcEntryID{}},
-		{name: "missing separator", id: exec.NewProcEntryID("plain-file.proc")},
-		{name: "empty kind", id: exec.NewProcEntryID(":cmVjb3Jk")},
-		{name: "empty value", id: exec.NewProcEntryID("collection:")},
-		{name: "bad encoding", id: exec.NewProcEntryID("collection:not base64")},
+		{name: "zero", id: proc.ProcEntryID{}},
+		{name: "missing separator", id: proc.NewProcEntryID("plain-file.proc")},
+		{name: "empty kind", id: proc.NewProcEntryID(":cmVjb3Jk")},
+		{name: "empty value", id: proc.NewProcEntryID("collection:")},
+		{name: "bad encoding", id: proc.NewProcEntryID("collection:not base64")},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			entry := exec.ProcEntry{Identity: tc.id}
+			entry := proc.ProcEntry{Identity: tc.id}
 			assert.Empty(t, procEntryIdentityKind(entry))
 
 			value, ok := procEntryIdentityValue(entry, procEntryIdentityCollection)

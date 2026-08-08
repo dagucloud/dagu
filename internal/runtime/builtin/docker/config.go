@@ -8,7 +8,8 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/moby/moby/api/types/container"
@@ -32,7 +33,7 @@ type Config struct {
 	// ContainerName is the name or ID of an existing container to exec into.
 	ContainerName string
 	// Pull is the image pull policy for new containers.
-	Pull core.PullPolicy
+	Pull ir.PullPolicy
 	// Container is the container configuration for new containers.
 	// See https://pkg.go.dev/github.com/moby/moby/api/types/container#Config
 	Container *container.Config
@@ -65,13 +66,13 @@ type Config struct {
 }
 
 // LoadConfigFromMap parses executorConfig into Container struct with registry auth.
-func LoadConfigFromMap(data map[string]any, registryAuths map[string]*core.AuthConfig) (*Config, error) {
+func LoadConfigFromMap(data map[string]any, registryAuths map[string]*ir.AuthConfig) (*Config, error) {
 	return LoadConfigFromMapWithWorkDir("", data, registryAuths)
 }
 
 // LoadConfigFromMapWithWorkDir parses executorConfig and resolves shortcut
 // volume sources relative to workDir.
-func LoadConfigFromMapWithWorkDir(workDir string, data map[string]any, registryAuths map[string]*core.AuthConfig) (*Config, error) {
+func LoadConfigFromMapWithWorkDir(workDir string, data map[string]any, registryAuths map[string]*ir.AuthConfig) (*Config, error) {
 	ret := struct {
 		Container     container.Config         `mapstructure:"container"`
 		Host          container.HostConfig     `mapstructure:"host"`
@@ -105,9 +106,9 @@ func LoadConfigFromMapWithWorkDir(workDir string, data map[string]any, registryA
 		autoRemove = true
 	}
 
-	pull := core.PullPolicyMissing
+	pull := ir.PullPolicyMissing
 	if ret.Pull != nil {
-		parsed, err := core.ParsePullPolicy(ret.Pull)
+		parsed, err := ir.ParsePullPolicy(ret.Pull)
 		if err != nil {
 			return nil, err
 		}
@@ -190,8 +191,8 @@ func LoadConfigFromMapWithWorkDir(workDir string, data map[string]any, registryA
 	}), nil
 }
 
-// NewFromContainerConfigWithAuth parses core.Container into Container struct with registry auth
-func LoadConfig(workDir string, ct core.Container, registryAuths map[string]*core.AuthConfig) (*Config, error) {
+// NewFromContainerConfigWithAuth parses ir.Container into Container struct with registry auth
+func LoadConfig(workDir string, ct ir.Container, registryAuths map[string]*ir.AuthConfig) (*Config, error) {
 	// Handle exec mode (exec into existing container)
 	if ct.IsExecMode() {
 		execOpts := &client.ExecCreateOptions{
@@ -319,7 +320,7 @@ func loadDefaults(cfg *Config) *Config {
 }
 
 // ApplyResourceLimits maps DAG resource limits to Docker host resources.
-func ApplyResourceLimits(host *container.HostConfig, limits *core.ResourceLimits) bool {
+func ApplyResourceLimits(host *container.HostConfig, limits *ir.ResourceLimits) bool {
 	if host == nil || limits == nil {
 		return false
 	}
@@ -334,7 +335,7 @@ func ApplyResourceLimits(host *container.HostConfig, limits *core.ResourceLimits
 
 // ApplyResourceLimitsToConfig applies limits only to configurations that create
 // a new container. Existing-container exec mode cannot change host resources.
-func ApplyResourceLimitsToConfig(cfg *Config, limits *core.ResourceLimits) bool {
+func ApplyResourceLimitsToConfig(cfg *Config, limits *ir.ResourceLimits) bool {
 	if cfg == nil || limits == nil || cfg.Image == "" {
 		return false
 	}
@@ -345,8 +346,8 @@ func ApplyResourceLimitsToConfig(cfg *Config, limits *core.ResourceLimits) bool 
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema("docker", configSchema)
-	core.RegisterExecutorConfigSchema("container", configSchema)
+	registry.RegisterExecutorConfigSchema("docker", configSchema)
+	registry.RegisterExecutorConfigSchema("container", configSchema)
 }
 
 // configSchema defines the JSON schema for docker/container executor config.

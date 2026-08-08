@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 )
 
@@ -86,7 +86,7 @@ func ValidateDAGName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("%w: DAG name must not be empty", ErrInvalidDAGName)
 	}
-	if err := core.ValidateDAGName(name); err != nil {
+	if err := ir.ValidateDAGName(name); err != nil {
 		return fmt.Errorf("%w: %s", ErrInvalidDAGName, err)
 	}
 	return nil

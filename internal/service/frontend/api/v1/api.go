@@ -21,16 +21,21 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
@@ -44,6 +49,7 @@ import (
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 	"github.com/dagucloud/dagu/v2/internal/view"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -58,20 +64,20 @@ import (
 var _ api.StrictServerInterface = (*API)(nil)
 
 type API struct {
-	dagStore             exec.DAGStore
-	dagRunStore          exec.DAGRunStore
+	dagStore             dagstore.DAGStore
+	dagRunStore          dagrun.DAGRunStore
 	dagRunMgr            runtime.Manager
-	queueStore           exec.QueueStore
-	procStore            exec.ProcStore
-	dagRunLeaseStore     exec.DAGRunLeaseStore
-	workerHeartbeatStore exec.WorkerHeartbeatStore
+	queueStore           queue.QueueStore
+	procStore            proc.ProcStore
+	dagRunLeaseStore     dispatch.DAGRunLeaseStore
+	workerHeartbeatStore dispatch.WorkerHeartbeatStore
 	remoteNodeResolver   *remotenode.Resolver
 	remoteNodeStore      remotenode.Store
 	logEncodingCharset   string
 	config               *config.Config
 	metricsRegistry      *prometheus.Registry
 	coordinatorCli       coordinator.Client
-	serviceRegistry      exec.ServiceRegistry
+	serviceRegistry      serviceregistry.ServiceRegistry
 	subCmdBuilder        *launcher.SubCmdBuilder
 	resourceService      *resource.Service
 	authService          AuthService
@@ -329,7 +335,7 @@ func WithDocMutationNotifier(fn func()) APIOption {
 }
 
 // WithDAGRunLeaseStore sets the shared distributed run lease store.
-func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) APIOption {
+func WithDAGRunLeaseStore(store dispatch.DAGRunLeaseStore) APIOption {
 	return func(a *API) {
 		a.dagRunLeaseStore = store
 	}
@@ -337,7 +343,7 @@ func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) APIOption {
 
 // WithWorkerHeartbeatStore sets the shared worker heartbeat store used for
 // conservative distributed run auto-repair on single-run reads.
-func WithWorkerHeartbeatStore(store exec.WorkerHeartbeatStore) APIOption {
+func WithWorkerHeartbeatStore(store dispatch.WorkerHeartbeatStore) APIOption {
 	return func(a *API) {
 		a.workerHeartbeatStore = store
 	}
@@ -356,14 +362,14 @@ func WithLeaseStaleThreshold(threshold time.Duration) APIOption {
 // and resource service. It builds the remote node map and base path, then
 // applies any supplied APIOption functions to customize the instance.
 func New(
-	dr exec.DAGStore,
-	drs exec.DAGRunStore,
-	qs exec.QueueStore,
-	ps exec.ProcStore,
+	dr dagstore.DAGStore,
+	drs dagrun.DAGRunStore,
+	qs queue.QueueStore,
+	ps proc.ProcStore,
 	drm runtime.Manager,
 	cfg *config.Config,
 	cc coordinator.Client,
-	sr exec.ServiceRegistry,
+	sr serviceregistry.ServiceRegistry,
 	mr *prometheus.Registry,
 	rs *resource.Service,
 	opts ...APIOption,
@@ -382,7 +388,7 @@ func New(
 		metricsRegistry:     mr,
 		resourceService:     rs,
 		defaultExecMode:     cfg.DefaultExecMode,
-		leaseStaleThreshold: exec.DefaultStaleLeaseThreshold,
+		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
 	}
 
 	for _, opt := range opts {
@@ -616,7 +622,7 @@ func validateDAGFileNameFromRequest(request any) error {
 		return nil
 	}
 
-	if err := core.ValidateDAGName(fileName.String()); err != nil {
+	if err := ir.ValidateDAGName(fileName.String()); err != nil {
 		return &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,
@@ -754,13 +760,13 @@ func (a *API) resolveError(err error) (api.ErrorCode, string, int) {
 		return apiErr.Code, apiErr.Message, apiErr.HTTPStatus
 	}
 
-	if errors.Is(err, exec.ErrDAGNotFound) {
+	if errors.Is(err, dagstore.ErrDAGNotFound) {
 		return api.ErrorCodeNotFound, "DAG not found", http.StatusNotFound
 	}
-	if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return api.ErrorCodeNotFound, "dag-run ID not found", http.StatusNotFound
 	}
-	if errors.Is(err, exec.ErrDAGAlreadyExists) {
+	if errors.Is(err, dagstore.ErrDAGAlreadyExists) {
 		return api.ErrorCodeAlreadyExists, "DAG already exists", http.StatusConflict
 	}
 
@@ -1120,7 +1126,7 @@ func valueOf[T any](ptr *T) T {
 }
 
 // toPagination converts a paginated result to an API pagination object.
-func toPagination[T any](paginatedResult exec.PaginatedResult[T]) api.Pagination {
+func toPagination[T any](paginatedResult pagination.PaginatedResult[T]) api.Pagination {
 	return api.Pagination{
 		CurrentPage:  paginatedResult.CurrentPage,
 		NextPage:     paginatedResult.NextPage,

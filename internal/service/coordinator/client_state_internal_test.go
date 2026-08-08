@@ -9,26 +9,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOrderStateCoordinatorMembersIsDeterministicAndMinimizesMovement(t *testing.T) {
 	t.Parallel()
 
-	members := []exec.HostInfo{
+	members := []serviceregistry.HostInfo{
 		{ID: "coord-b", Host: "127.0.0.1", Port: 1002},
 		{ID: "coord-a", Host: "127.0.0.1", Port: 1001},
 		{ID: "coord-c", Host: "127.0.0.1", Port: 1003},
 	}
-	reordered := []exec.HostInfo{members[2], members[0], members[1]}
+	reordered := []serviceregistry.HostInfo{members[2], members[0], members[1]}
 
 	key := "dag\x00namespace"
 	ordered := orderStateCoordinatorMembers(members, key)
 	owner := ordered[0]
 	require.Equal(t, owner.ID, orderStateCoordinatorMembers(reordered, key)[0].ID)
 
-	remaining := make([]exec.HostInfo, 0, len(members)-1)
+	remaining := make([]serviceregistry.HostInfo, 0, len(members)-1)
 	removed := ordered[len(ordered)-1]
 	for _, member := range members {
 		if member.ID == removed.ID {
@@ -42,7 +42,7 @@ func TestOrderStateCoordinatorMembersIsDeterministicAndMinimizesMovement(t *test
 func TestPinnedStateCoordinatorUsesDeterministicOwnerWithoutHealthFailover(t *testing.T) {
 	t.Parallel()
 
-	members := []exec.HostInfo{
+	members := []serviceregistry.HostInfo{
 		{ID: "coord-a", Host: "127.0.0.1", Port: 1001},
 		{ID: "coord-b", Host: "127.0.0.1", Port: 1002},
 		{ID: "coord-c", Host: "127.0.0.1", Port: 1003},
@@ -111,7 +111,7 @@ func TestRememberPinnedStateCoordinatorEvictsLeastRecentlyUsed(t *testing.T) {
 	base := time.Unix(0, 0).UTC()
 	for i := range maxPinnedStateCoordinators {
 		key := fmt.Sprintf("key-%04d", i)
-		member := exec.HostInfo{ID: fmt.Sprintf("coord-%04d", i)}
+		member := serviceregistry.HostInfo{ID: fmt.Sprintf("coord-%04d", i)}
 		cli.stateCoordinators[key] = pinnedStateCoordinator{
 			member:    member,
 			memberKey: coordinatorMemberKey(member),
@@ -119,7 +119,7 @@ func TestRememberPinnedStateCoordinatorEvictsLeastRecentlyUsed(t *testing.T) {
 		}
 	}
 
-	newMember := exec.HostInfo{ID: "coord-new"}
+	newMember := serviceregistry.HostInfo{ID: "coord-new"}
 	cli.rememberPinnedStateCoordinatorLocked("key-new", newMember)
 
 	require.Len(t, cli.stateCoordinators, maxPinnedStateCoordinators)
@@ -132,36 +132,36 @@ type blockingStateRegistry struct {
 	release <-chan struct{}
 }
 
-func (r *blockingStateRegistry) Register(context.Context, exec.ServiceName, exec.HostInfo) error {
+func (r *blockingStateRegistry) Register(context.Context, serviceregistry.ServiceName, serviceregistry.HostInfo) error {
 	return nil
 }
 
 func (r *blockingStateRegistry) Unregister(context.Context) {}
 
-func (r *blockingStateRegistry) GetServiceMembers(context.Context, exec.ServiceName) ([]exec.HostInfo, error) {
+func (r *blockingStateRegistry) GetServiceMembers(context.Context, serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
 	close(r.started)
 	<-r.release
 	return nil, fmt.Errorf("discovery stopped")
 }
 
-func (r *blockingStateRegistry) UpdateStatus(context.Context, exec.ServiceName, exec.ServiceStatus) error {
+func (r *blockingStateRegistry) UpdateStatus(context.Context, serviceregistry.ServiceName, serviceregistry.ServiceStatus) error {
 	return nil
 }
 
 type staticStateRegistry struct {
-	members []exec.HostInfo
+	members []serviceregistry.HostInfo
 }
 
-func (r staticStateRegistry) Register(context.Context, exec.ServiceName, exec.HostInfo) error {
+func (r staticStateRegistry) Register(context.Context, serviceregistry.ServiceName, serviceregistry.HostInfo) error {
 	return nil
 }
 
 func (r staticStateRegistry) Unregister(context.Context) {}
 
-func (r staticStateRegistry) GetServiceMembers(context.Context, exec.ServiceName) ([]exec.HostInfo, error) {
-	return append([]exec.HostInfo(nil), r.members...), nil
+func (r staticStateRegistry) GetServiceMembers(context.Context, serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
+	return append([]serviceregistry.HostInfo(nil), r.members...), nil
 }
 
-func (r staticStateRegistry) UpdateStatus(context.Context, exec.ServiceName, exec.ServiceStatus) error {
+func (r staticStateRegistry) UpdateStatus(context.Context, serviceregistry.ServiceName, serviceregistry.ServiceStatus) error {
 	return nil
 }

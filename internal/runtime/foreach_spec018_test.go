@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/foreach"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +32,7 @@ func TestForeachRuntimeRunsBodyAndPublishesAggregate(t *testing.T) {
 		map[string]any{"slug": "two", "url": "https://example.com/two"},
 	}, 2)
 
-	result := r.newPlan(t, parent).assertRun(t, core.Succeeded)
+	result := r.newPlan(t, parent).assertRun(t, ir.Succeeded)
 	node := result.nodeByName(t, "each")
 	raw, ok := node.NodeData().StringFormOutputValue()
 	require.True(t, ok)
@@ -45,13 +47,13 @@ func TestForeachRuntimeRunsBodyAndPublishesAggregate(t *testing.T) {
 	assert.Equal(t, foreachAggregateItem{
 		Index:   0,
 		Key:     "one",
-		Status:  core.NodeSucceeded.String(),
+		Status:  ir.NodeSucceeded.String(),
 		Outputs: map[string]string{"summary": "https://example.com/one"},
 	}, aggregate.Items[0])
 	assert.Equal(t, foreachAggregateItem{
 		Index:   1,
 		Key:     "two",
-		Status:  core.NodeSucceeded.String(),
+		Status:  ir.NodeSucceeded.String(),
 		Outputs: map[string]string{"summary": "https://example.com/two"},
 	}, aggregate.Items[1])
 	assert.Equal(t, []map[string]string{
@@ -76,7 +78,7 @@ func TestForeachRuntimeHonorsMaxConcurrent(t *testing.T) {
 	}, 2)
 	parent.Foreach.Steps[0].ExecutorConfig.Config["wait_for_active"] = "2"
 
-	r.newPlan(t, parent).assertRun(t, core.Succeeded)
+	r.newPlan(t, parent).assertRun(t, ir.Succeeded)
 
 	assert.Equal(t, 2, state.maxActive())
 }
@@ -99,21 +101,21 @@ type foreachAggregateItem struct {
 	Error   string            `json:"error,omitempty"`
 }
 
-func foreachRuntimeStep(probeType string, items []any, maxConcurrent int) core.Step {
-	return core.Step{
+func foreachRuntimeStep(probeType string, items []any, maxConcurrent int) ir.Step {
+	return ir.Step{
 		Name:           "each",
 		Output:         "RESULT",
-		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeForeach},
-		Foreach: &core.ForeachConfig{
+		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeForeach},
+		Foreach: &ir.ForeachConfig{
 			Items:         items,
 			As:            "episode",
 			Key:           "${foreach.episode.slug}",
 			MaxConcurrent: maxConcurrent,
-			Steps: []core.Step{
+			Steps: []ir.Step{
 				{
 					Name: "write",
 					ID:   "write",
-					ExecutorConfig: core.ExecutorConfig{
+					ExecutorConfig: ir.ExecutorConfig{
 						Type: probeType,
 						Config: map[string]any{
 							"value": "${foreach.episode.url}",
@@ -134,15 +136,15 @@ func registerForeachProbeExecutor(t *testing.T) (string, *foreachProbeState) {
 
 	state := &foreachProbeState{activeChanged: make(chan struct{})}
 	executorType := "foreach_probe_" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	executor.RegisterExecutor(executorType, func(_ context.Context, step core.Step) (executor.Executor, error) {
+	executor.RegisterExecutor(executorType, func(_ context.Context, step ir.Step) (executor.Executor, error) {
 		return &foreachProbeExecutor{
 			state: state,
 			cfg:   step.ExecutorConfig.Config,
 		}, nil
-	}, nil, core.ExecutorCapabilities{})
+	}, nil, registry.ExecutorCapabilities{})
 	t.Cleanup(func() {
 		executor.UnregisterExecutor(executorType)
-		core.UnregisterExecutorCapabilities(executorType)
+		registry.UnregisterExecutorCapabilities(executorType)
 	})
 	return executorType, state
 }

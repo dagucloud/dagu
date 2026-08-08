@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func overrideParams(paramPairs *[]paramPair, override []paramPair) error {
@@ -112,7 +112,7 @@ func parseParams(value any, params *[]paramPair, envs *[]string) error {
 
 	paramPairs, err := parseParamValue(noEvalCtx, value)
 	if err != nil {
-		return core.NewValidationError("params", value, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+		return ir.NewValidationError("params", value, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 	}
 
 	for index, paramPair := range paramPairs {
@@ -162,7 +162,7 @@ func parseParamValue(ctx buildContext, input any) ([]paramPair, error) {
 
 		return parseMapParams(ctx, []any{values})
 	default:
-		return nil, core.NewValidationError("params", v, fmt.Errorf("%w: %T", ErrInvalidParamValue, v))
+		return nil, ir.NewValidationError("params", v, fmt.Errorf("%w: %T", ErrInvalidParamValue, v))
 
 	}
 }
@@ -219,7 +219,7 @@ func parseMapParams(ctx buildContext, input []any) ([]paramPair, error) {
 			}
 
 		default:
-			return nil, core.NewValidationError("params", m, fmt.Errorf("%w: %T", ErrInvalidParamValue, m))
+			return nil, ir.NewValidationError("params", m, fmt.Errorf("%w: %T", ErrInvalidParamValue, m))
 		}
 	}
 

@@ -14,10 +14,11 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/stretchr/testify/require"
@@ -25,13 +26,13 @@ import (
 
 type retryCoordinatorRecorder struct {
 	stubCoordinatorClient
-	dispatched  []*exec.DispatchTask
+	dispatched  []*dispatch.DispatchTask
 	dispatchErr error
 }
 
 var _ coordinator.Client = (*retryCoordinatorRecorder)(nil)
 
-func (c *retryCoordinatorRecorder) Dispatch(_ context.Context, req exec.DispatchRequest) error {
+func (c *retryCoordinatorRecorder) Dispatch(_ context.Context, req dispatch.DispatchRequest) error {
 	c.dispatched = append(c.dispatched, req.Task)
 	return c.dispatchErr
 }
@@ -53,19 +54,19 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	attempt, err := dagRunStore.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-2*time.Minute),
 		"distributed-run",
-		exec.NewDAGRunAttemptOptions{},
+		dagrun.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
 
 	status := transform.NewStatusBuilder(dag).Create(
 		"distributed-run",
-		core.Failed,
+		ir.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
 		transform.WithAttemptID(attempt.ID()),
@@ -73,9 +74,9 @@ steps:
 		transform.WithError("step failed"),
 	)
 	require.NotEmpty(t, status.Nodes)
-	status.Nodes[0].Status = core.NodeFailed
+	status.Nodes[0].Status = ir.NodeFailed
 	status.Nodes[0].Error = "step failed"
-	status.Nodes[0].FinishedAt = exec.FormatTime(time.Now().Add(-time.Minute))
+	status.Nodes[0].FinishedAt = dagrun.FormatTime(time.Now().Add(-time.Minute))
 
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, status))
@@ -108,7 +109,7 @@ steps:
 
 	require.Len(t, coordinatorCli.dispatched, 1)
 	task := coordinatorCli.dispatched[0]
-	require.Equal(t, exec.DispatchOperationRetry, task.Operation)
+	require.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
 	require.Equal(t, dag.Name, task.Target)
 	require.Equal(t, "distributed-run", task.DAGRunID)
 	require.Equal(t, dag.WorkerSelector, task.WorkerSelector)
@@ -132,18 +133,18 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	attempt, err := dagRunStore.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-2*time.Minute),
 		"build-run",
-		exec.NewDAGRunAttemptOptions{},
+		dagrun.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
 	status := transform.NewStatusBuilder(dag).Create(
 		"build-run",
-		core.Failed,
+		ir.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
 		transform.WithAttemptID(attempt.ID()),
@@ -151,7 +152,7 @@ steps:
 		transform.WithError("step failed"),
 	)
 	require.NotEmpty(t, status.Nodes)
-	status.Nodes[0].Status = core.NodeFailed
+	status.Nodes[0].Status = ir.NodeFailed
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, status))
 	require.NoError(t, attempt.Close(ctx))
@@ -212,29 +213,29 @@ func TestRetryDAGRun_RejectsMismatchedBodyDagRunID(t *testing.T) {
 
 func TestRetryDAGRun_RejectsWaitingDAGAndStepRetry(t *testing.T) {
 	ctx := context.Background()
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:  "waiting_retry_dag",
-		Steps: []core.Step{{Name: "approve"}},
+		Steps: []ir.Step{{Name: "approve"}},
 	}
-	dagRunStore := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	attempt, err := dagRunStore.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-time.Minute),
 		"waiting-run",
-		exec.NewDAGRunAttemptOptions{},
+		dagrun.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
 
 	status := transform.NewStatusBuilder(dag).Create(
 		"waiting-run",
-		core.Waiting,
+		ir.Waiting,
 		0,
 		time.Now().Add(-time.Minute),
 		transform.WithAttemptID(attempt.ID()),
 	)
 	require.Len(t, status.Nodes, 1)
-	status.Nodes[0].Status = core.NodeSucceeded
+	status.Nodes[0].Status = ir.NodeSucceeded
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, status))
 	require.NoError(t, attempt.Close(ctx))
@@ -291,19 +292,19 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	attempt, err := dagRunStore.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-time.Minute),
 		"latest-run",
-		exec.NewDAGRunAttemptOptions{},
+		dagrun.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
 
 	status := transform.NewStatusBuilder(dag).Create(
 		"latest-run",
-		core.Failed,
+		ir.Failed,
 		0,
 		time.Now().Add(-time.Minute),
 		transform.WithAttemptID(attempt.ID()),
@@ -342,34 +343,34 @@ steps:
 
 func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	ctx := context.Background()
-	rootRef := exec.NewDAGRunRef("root_retry_dag", "root-run")
-	rootStep := core.Step{
+	rootRef := dagrun.NewDAGRunRef("root_retry_dag", "root-run")
+	rootStep := ir.Step{
 		Name:           "parallel-children",
-		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeParallel},
-		SubDAG:         &core.SubDAG{Name: "child_retry_dag"},
-		Parallel:       &core.ParallelConfig{},
+		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeParallel},
+		SubDAG:         &ir.SubDAG{Name: "child_retry_dag"},
+		Parallel:       &ir.ParallelConfig{},
 	}
-	rootDAG := &core.DAG{
+	rootDAG := &ir.DAG{
 		Name:           rootRef.Name,
-		Steps:          []core.Step{rootStep},
+		Steps:          []ir.Step{rootStep},
 		WorkerSelector: map[string]string{"region": "apac"},
 	}
-	childStep := core.Step{Name: "target-step"}
-	childDAG := &core.DAG{Name: "child_retry_dag", Steps: []core.Step{childStep}}
-	store := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	childStep := ir.Step{Name: "target-step"}
+	childDAG := &ir.DAG{Name: "child_retry_dag", Steps: []ir.Step{childStep}}
+	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 
-	rootAttempt, err := store.CreateAttempt(ctx, rootDAG, time.Now().Add(-time.Minute), rootRef.ID, exec.NewDAGRunAttemptOptions{})
+	rootAttempt, err := store.CreateAttempt(ctx, rootDAG, time.Now().Add(-time.Minute), rootRef.ID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
-	rootStatus := exec.DAGRunStatus{
+	rootStatus := dagrun.DAGRunStatus{
 		Root:      rootRef,
 		Name:      rootRef.Name,
 		DAGRunID:  rootRef.ID,
 		AttemptID: rootAttempt.ID(),
-		Status:    core.Failed,
-		Nodes: []*exec.Node{{
+		Status:    ir.Failed,
+		Nodes: []*dagrun.Node{{
 			Step:   rootStep,
-			Status: core.NodeFailed,
-			SubRuns: []exec.SubDAGRun{
+			Status: ir.NodeFailed,
+			SubRuns: []dagrun.SubDAGRun{
 				{DAGRunID: "child-success", DAGName: childDAG.Name, Params: "ITEM=one"},
 				{DAGRunID: "child-target", DAGName: childDAG.Name, Params: "ITEM=two"},
 			},
@@ -379,16 +380,16 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
 	require.NoError(t, rootAttempt.Close(ctx))
 
-	childAttempt, err := store.CreateAttempt(ctx, childDAG, time.Now(), "child-target", exec.NewDAGRunAttemptOptions{RootDAGRun: &rootRef})
+	childAttempt, err := store.CreateAttempt(ctx, childDAG, time.Now(), "child-target", dagrun.NewDAGRunAttemptOptions{RootDAGRun: &rootRef})
 	require.NoError(t, err)
-	childStatus := exec.DAGRunStatus{
+	childStatus := dagrun.DAGRunStatus{
 		Root:      rootRef,
 		Parent:    rootRef,
 		Name:      childDAG.Name,
 		DAGRunID:  "child-target",
 		AttemptID: childAttempt.ID(),
-		Status:    core.Succeeded,
-		Nodes:     []*exec.Node{{Step: childStep, Status: core.NodeSucceeded}},
+		Status:    ir.Succeeded,
+		Nodes:     []*dagrun.Node{{Step: childStep, Status: ir.NodeSucceeded}},
 	}
 	require.NoError(t, childAttempt.Open(ctx))
 	require.NoError(t, childAttempt.Write(ctx, childStatus))
@@ -423,8 +424,8 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	task := coordinatorCli.dispatched[0]
 	require.Equal(t, rootStep.Name, task.Step)
 	require.NotNil(t, task.PreviousStatus)
-	require.Equal(t, core.Failed, task.PreviousStatus.Status)
-	path, err := exec.ParseRetryPath(task.RetryPath)
+	require.Equal(t, ir.Failed, task.PreviousStatus.Status)
+	path, err := dagrun.ParseRetryPath(task.RetryPath)
 	require.NoError(t, err)
 	require.Equal(t, childStep.Name, path.Step)
 	require.Equal(t, subRunID, path.Hops[0].RunID)

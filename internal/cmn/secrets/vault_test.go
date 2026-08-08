@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/hashicorp/vault/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,7 +44,7 @@ func TestVaultResolver_Validate(t *testing.T) {
 	resolver := &vaultResolver{}
 
 	t.Run("ValidReference", func(t *testing.T) {
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "API_KEY",
 			Provider: "vault",
 			Key:      "secret/data/my-secret",
@@ -54,7 +54,7 @@ func TestVaultResolver_Validate(t *testing.T) {
 	})
 
 	t.Run("EmptyKey", func(t *testing.T) {
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SECRET",
 			Provider: "vault",
 			Key:      "",
@@ -83,7 +83,7 @@ func TestVaultResolver_Resolve(t *testing.T) {
 		}
 
 		resolver := &vaultResolver{client: mockClient}
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MY_API_KEY",
 			Provider: "vault",
 			Key:      "kv/data/dummy/my-secret",
@@ -107,7 +107,7 @@ func TestVaultResolver_Resolve(t *testing.T) {
 		}
 
 		resolver := &vaultResolver{client: mockClient}
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MY_API_KEY",
 			Provider: "vault",
 			Key:      "kv/data/dummy/my-secret/",
@@ -131,7 +131,7 @@ func TestVaultResolver_Resolve(t *testing.T) {
 		}
 
 		resolver := &vaultResolver{client: mockClient}
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MY_API_KEY",
 			Provider: "vault",
 			Key:      "kv/data/dummy",
@@ -151,7 +151,7 @@ func TestVaultResolver_Resolve(t *testing.T) {
 		}
 
 		resolver := &vaultResolver{client: mockClient}
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MY_SECRET",
 			Provider: "vault",
 			Key:      "kv/data/dummy/missing",
@@ -174,7 +174,7 @@ func TestVaultResolver_Resolve(t *testing.T) {
 		}
 
 		resolver := &vaultResolver{client: mockClient}
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "TEST",
 			Provider: "vault",
 			Key:      "path/data", // Convention: path="path", field="data"
@@ -196,7 +196,7 @@ func TestVaultResolver_Resolve(t *testing.T) {
 		}
 
 		resolver := &vaultResolver{client: mockClient}
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "DB_PASS",
 			Provider: "vault",
 			Key:      "projects/team-a/production/db/password",
@@ -217,7 +217,7 @@ func TestVaultResolver_Concurrency(t *testing.T) {
 	}
 
 	resolver := &vaultResolver{client: mockClient}
-	ref := core.SecretRef{
+	ref := secretref.Ref{
 		Name:     "CONCURRENT",
 		Provider: "vault",
 		Key:      "path/value",
@@ -253,7 +253,7 @@ func TestVaultResolver_CheckAccessibility(t *testing.T) {
 		}
 
 		resolver := &vaultResolver{client: mockClient}
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "TEST",
 			Provider: "vault",
 			Key:      "path/field",
@@ -271,7 +271,7 @@ func TestVaultResolver_CheckAccessibility(t *testing.T) {
 		}
 
 		resolver := &vaultResolver{client: mockClient}
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "TEST",
 			Provider: "vault",
 			Key:      "path/field",
@@ -287,7 +287,7 @@ func TestVaultResolver_resolveClientSettings(t *testing.T) {
 	t.Run("DefaultsWithoutConfig", func(t *testing.T) {
 		resolver := &vaultResolver{}
 
-		settings := resolver.resolveClientSettings(context.Background(), core.SecretRef{})
+		settings := resolver.resolveClientSettings(context.Background(), secretref.Ref{})
 
 		assert.Equal(t, api.DefaultAddress, settings.address)
 		assert.Empty(t, settings.token)
@@ -304,7 +304,7 @@ func TestVaultResolver_resolveClientSettings(t *testing.T) {
 			},
 		})
 
-		settings := resolver.resolveClientSettings(ctx, core.SecretRef{})
+		settings := resolver.resolveClientSettings(ctx, secretref.Ref{})
 
 		assert.Equal(t, "https://vault.example.com", settings.address)
 		assert.Equal(t, "config-token", settings.token)
@@ -320,7 +320,7 @@ func TestVaultResolver_resolveClientSettings(t *testing.T) {
 				},
 			},
 		})
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Options: map[string]string{
 				"vault_address": "https://override.example.com",
 			},
@@ -346,7 +346,7 @@ func TestVaultResolver_resolveClientSettings(t *testing.T) {
 			},
 		})
 
-		settings := resolver.resolveClientSettings(ctx, core.SecretRef{})
+		settings := resolver.resolveClientSettings(ctx, secretref.Ref{})
 
 		assert.Equal(t, "/path/to/ca.pem", settings.caCert)
 		assert.Equal(t, "/path/to/client.pem", settings.clientCert)
@@ -363,7 +363,7 @@ func TestVaultResolver_resolveClientSettings(t *testing.T) {
 				},
 			},
 		})
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Options: map[string]string{
 				"vault_ca_cert":     "/other/ca.pem",
 				"vault_client_cert": "/other/client.pem",
@@ -396,7 +396,7 @@ func TestVaultResolver_getClient_CachesByResolvedSettings(t *testing.T) {
 			},
 		},
 	})
-	ref := core.SecretRef{Name: "TEST", Provider: "vault", Key: "path/value"}
+	ref := secretref.Ref{Name: "TEST", Provider: "vault", Key: "path/value"}
 
 	client1, err := resolver.getClient(ctx, ref)
 	require.NoError(t, err)
@@ -409,7 +409,7 @@ func TestVaultResolver_getClient_CachesByResolvedSettings(t *testing.T) {
 		token:   "config-token",
 	}, created[0])
 
-	overrideRef := core.SecretRef{
+	overrideRef := secretref.Ref{
 		Name:     "TEST",
 		Provider: "vault",
 		Key:      "path/value",
@@ -453,7 +453,7 @@ func TestVaultResolver_CheckAccessibility_UsesMergedSettingsPath(t *testing.T) {
 			},
 		},
 	})
-	ref := core.SecretRef{
+	ref := secretref.Ref{
 		Name:     "TEST",
 		Provider: "vault",
 		Key:      "path/value",

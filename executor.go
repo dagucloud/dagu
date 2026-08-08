@@ -7,13 +7,14 @@ import (
 	"context"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
 // Step is the public alias for a Dagu step passed to custom executors.
-type Step = core.Step
+type Step = ir.Step
 
 // Executor is implemented by custom step executors.
 type Executor = runtimeexec.Executor
@@ -22,10 +23,10 @@ type Executor = runtimeexec.Executor
 type ExecutorFactory func(context.Context, Step) (Executor, error)
 
 // StepValidator validates custom executor step configuration during DAG loading.
-type StepValidator = core.StepValidator
+type StepValidator = registry.StepValidator
 
 // ExecutorCapabilities declares which step fields a custom executor supports.
-type ExecutorCapabilities = core.ExecutorCapabilities
+type ExecutorCapabilities = registry.ExecutorCapabilities
 
 // ExecutorOption customizes custom executor registration.
 type ExecutorOption func(*executorRegistration)
@@ -60,7 +61,6 @@ func RegisterExecutor(name string, factory ExecutorFactory, opts ...ExecutorOpti
 		registration.validator,
 		registration.caps,
 	)
-	spec.RegisterExecutorTypeName(name)
 }
 
 // UnregisterExecutor removes a custom executor type registered by RegisterExecutor.
@@ -71,9 +71,6 @@ func UnregisterExecutor(name string) {
 		return
 	}
 	runtimeexec.UnregisterExecutor(name)
-	core.UnregisterStepValidator(name)
-	core.UnregisterExecutorCapabilities(name)
-	spec.UnregisterExecutorTypeName(name)
 }
 
 // WithStepValidator registers a validation function for the custom executor.

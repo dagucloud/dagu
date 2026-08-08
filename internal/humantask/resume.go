@@ -8,8 +8,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 // Resume retries a pending human-task enqueue without requiring the submitted form values.
@@ -22,7 +24,7 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 	if err != nil {
 		return Result{}, err
 	}
-	if target.status.Status != core.Waiting {
+	if target.status.Status != ir.Waiting {
 		if !hasCompletedHumanTask(target.status.Nodes) {
 			return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
 		}
@@ -39,7 +41,7 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 }
 
 func (s *Service) enqueueResume(ctx context.Context, target *target, result Result) (Result, error) {
-	if target.status == nil || target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
+	if target.status == nil || target.status.Status != ir.Waiting || hasWaitingNodes(target.status.Nodes) {
 		return result, nil
 	}
 	if s.QueueStore == nil {
@@ -49,16 +51,16 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 	postCommitCtx := context.WithoutCancel(ctx)
 	enqueueCtx, cancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
 	defer cancel()
-	queued, err := exec.EnqueueRetry(
+	queued, err := queue.EnqueueRetry(
 		enqueueCtx,
 		s.DAGRunStore,
 		s.QueueStore,
 		target.dag,
 		target.status,
-		exec.EnqueueRetryOptions{},
+		queue.EnqueueRetryOptions{},
 	)
 	if err != nil {
-		var latest *exec.DAGRunStatus
+		var latest *dagrun.DAGRunStatus
 		readCtx, readCancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
 		defer readCancel()
 		attempt, readErr := s.DAGRunStore.FindAttempt(readCtx, target.ref)
@@ -68,13 +70,13 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 				return result, &ResumeError{Result: result, Err: err}
 			}
 			if readErr == nil && latest == nil {
-				readErr = exec.ErrNoStatusData
+				readErr = dagrun.ErrNoStatusData
 			}
 		}
 		if readErr != nil {
 			return result, errorf(ErrorInternal, "failed to verify DAG-run status after queue failure: %v", readErr)
 		}
-		if errors.Is(err, exec.ErrRetryStaleLatest) {
+		if errors.Is(err, queue.ErrRetryStaleLatest) {
 			completed := hasCompletedHumanTask(latest.Nodes)
 			if result.StepID != "" {
 				node, findErr := findNodeByID(latest.Nodes, result.StepID)
@@ -92,16 +94,16 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 
 func (s *Service) waitForCompletionReady(
 	ctx context.Context,
-	attempt exec.DAGRunAttempt,
-	dag *core.DAG,
-	status *exec.DAGRunStatus,
+	attempt dagrun.DAGRunAttempt,
+	dag *ir.DAG,
+	status *dagrun.DAGRunStatus,
 	stepID string,
-) (*exec.DAGRunStatus, error) {
-	if status.Status != core.Waiting || status.AttemptID == "" {
+) (*dagrun.DAGRunStatus, error) {
+	if status.Status != ir.Waiting || status.AttemptID == "" {
 		return status, nil
 	}
 	originalAttemptID := status.AttemptID
-	if !exec.IsRemoteWorkerID(status.WorkerID) && s.ProcStore != nil {
+	if !dispatch.IsRemoteWorkerID(status.WorkerID) && s.ProcStore != nil {
 		deadline := s.Now().Add(s.SettleTimeout)
 		for {
 			alive, err := s.ProcStore.IsAttemptAlive(ctx, dag.ProcGroup(), status.DAGRun(), status.AttemptID)
@@ -158,7 +160,7 @@ func (s *Service) waitForPoll(ctx context.Context) error {
 	}
 }
 
-func reloadStatus(ctx context.Context, attempt exec.DAGRunAttempt) (*exec.DAGRunStatus, error) {
+func reloadStatus(ctx context.Context, attempt dagrun.DAGRunAttempt) (*dagrun.DAGRunStatus, error) {
 	latest, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return nil, errorf(ErrorInternal, "failed to reload DAG-run status after waiting for the attempt to settle: %v", err)
@@ -169,8 +171,8 @@ func reloadStatus(ctx context.Context, attempt exec.DAGRunAttempt) (*exec.DAGRun
 	return latest, nil
 }
 
-func attemptFinalizing(status *exec.DAGRunStatus, attemptID, stepID string) (bool, error) {
-	if status.Status != core.Waiting || status.AttemptID != attemptID || status.FinishedAt != "" {
+func attemptFinalizing(status *dagrun.DAGRunStatus, attemptID, stepID string) (bool, error) {
+	if status.Status != ir.Waiting || status.AttemptID != attemptID || status.FinishedAt != "" {
 		return false, nil
 	}
 	node, err := findNodeByID(status.Nodes, stepID)
@@ -180,8 +182,8 @@ func attemptFinalizing(status *exec.DAGRunStatus, attemptID, stepID string) (boo
 	return !nodeCompleted(node), nil
 }
 
-func findNodeByID(nodes []*exec.Node, stepID string) (*exec.Node, error) {
-	var found *exec.Node
+func findNodeByID(nodes []*dagrun.Node, stepID string) (*dagrun.Node, error) {
+	var found *dagrun.Node
 	for _, node := range nodes {
 		if node == nil || node.Step.ID != stepID {
 			continue
@@ -208,25 +210,25 @@ func classifyMutationError(prefix string, err error) error {
 	return errorf(ErrorInternal, "%s: %v", prefix, err)
 }
 
-func nodeCompleted(node *exec.Node) bool {
+func nodeCompleted(node *dagrun.Node) bool {
 	return node != nil && len(node.HumanTaskInput) > 0
 }
 
-func hasWaitingNodes(nodes []*exec.Node) bool {
+func hasWaitingNodes(nodes []*dagrun.Node) bool {
 	return countWaitingNodes(nodes) > 0
 }
 
-func countWaitingNodes(nodes []*exec.Node) int {
+func countWaitingNodes(nodes []*dagrun.Node) int {
 	count := 0
 	for _, node := range nodes {
-		if node != nil && node.Status == core.NodeWaiting {
+		if node != nil && node.Status == ir.NodeWaiting {
 			count++
 		}
 	}
 	return count
 }
 
-func hasCompletedHumanTask(nodes []*exec.Node) bool {
+func hasCompletedHumanTask(nodes []*dagrun.Node) bool {
 	for _, node := range nodes {
 		if node != nil && node.Step.HumanTask != nil && nodeCompleted(node) {
 			return true
@@ -235,9 +237,9 @@ func hasCompletedHumanTask(nodes []*exec.Node) bool {
 	return false
 }
 
-func hasWaitingHumanTask(nodes []*exec.Node) bool {
+func hasWaitingHumanTask(nodes []*dagrun.Node) bool {
 	for _, node := range nodes {
-		if node != nil && node.Status == core.NodeWaiting && node.Step.HumanTask != nil {
+		if node != nil && node.Status == ir.NodeWaiting && node.Step.HumanTask != nil {
 			return true
 		}
 	}
@@ -245,17 +247,17 @@ func hasWaitingHumanTask(nodes []*exec.Node) bool {
 }
 
 // HasCompletedTask reports whether status contains durable human-task completion input.
-func HasCompletedTask(status *exec.DAGRunStatus) bool {
+func HasCompletedTask(status *dagrun.DAGRunStatus) bool {
 	return status != nil && hasCompletedHumanTask(status.Nodes)
 }
 
 // ResumePending reports whether a run is waiting for its human-task retry to be queued.
-func ResumePending(status *exec.DAGRunStatus) bool {
-	return status != nil && status.Status == core.Waiting && !hasWaitingNodes(status.Nodes) && hasCompletedHumanTask(status.Nodes)
+func ResumePending(status *dagrun.DAGRunStatus) bool {
+	return status != nil && status.Status == ir.Waiting && !hasWaitingNodes(status.Nodes) && hasCompletedHumanTask(status.Nodes)
 }
 
 // ValidateRetry rejects retry operations that would bypass human-task completion state.
-func ValidateRetry(status *exec.DAGRunStatus, stepName string) error {
+func ValidateRetry(status *dagrun.DAGRunStatus, stepName string) error {
 	if status == nil {
 		return nil
 	}
@@ -270,7 +272,7 @@ func ValidateRetry(status *exec.DAGRunStatus, stepName string) error {
 			break
 		}
 	}
-	if status.Status == core.Waiting && (hasWaitingHumanTask(status.Nodes) || ResumePending(status)) {
+	if status.Status == ir.Waiting && (hasWaitingHumanTask(status.Nodes) || ResumePending(status)) {
 		return errorf(ErrorConflict, "DAG-run %s is waiting on a human-task checkpoint; complete or resume it instead", status.DAGRun())
 	}
 	return nil

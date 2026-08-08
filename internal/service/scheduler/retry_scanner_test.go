@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -21,15 +23,15 @@ func TestRetryScannerEvaluateRetryDecision(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	baseDAG := &core.DAG{
+	baseDAG := &ir.DAG{
 		Name:        "retry-dag",
-		RetryPolicy: &core.DAGRetryPolicy{Limit: 3, Interval: time.Minute, Backoff: 0, MaxInterval: 10 * time.Minute},
+		RetryPolicy: &ir.DAGRetryPolicy{Limit: 3, Interval: time.Minute, Backoff: 0, MaxInterval: 10 * time.Minute},
 	}
-	baseStatus := &exec.DAGRunStatus{
+	baseStatus := &dagrun.DAGRunStatus{
 		Name:           "retry-dag",
 		DAGRunID:       "run-1",
 		AttemptID:      "att-1",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     now.Add(-2 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
@@ -37,7 +39,7 @@ func TestRetryScannerEvaluateRetryDecision(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		status    *exec.DAGRunStatus
+		status    *dagrun.DAGRunStatus
 		metadata  dagRetryMetadata
 		enqueue   bool
 		reason    string
@@ -166,7 +168,7 @@ func TestDAGSuspendFlagName(t *testing.T) {
 	t.Run("UsesFilenameStem", func(t *testing.T) {
 		t.Parallel()
 
-		got := dagSuspendFlagName(&core.DAG{
+		got := dagSuspendFlagName(&ir.DAG{
 			Name:     "logical-name",
 			Location: "/tmp/example-dag.yaml",
 		})
@@ -177,7 +179,7 @@ func TestDAGSuspendFlagName(t *testing.T) {
 	t.Run("FallsBackToDAGNameWhenLocationMissing", func(t *testing.T) {
 		t.Parallel()
 
-		got := dagSuspendFlagName(&core.DAG{
+		got := dagSuspendFlagName(&ir.DAG{
 			Name: "logical-name",
 		})
 
@@ -189,28 +191,28 @@ func TestRetryScannerScanEnqueuesRetry(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-dag",
 		Location: "/tmp/retry-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       3,
 			Interval:    time.Minute,
 			Backoff:     0,
 			MaxInterval: 10 * time.Minute,
 		},
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           dag.Name,
 		DAGRunID:       "run-1",
 		AttemptID:      "att-1",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 1,
 		FinishedAt:     now.Add(-3 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
 	store := newRetryScannerStore(dag, status)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, status.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -227,8 +229,8 @@ func TestRetryScannerScanEnqueuesRetry(t *testing.T) {
 	require.NoError(t, err)
 
 	latest := store.mustStatus(status.DAGRun())
-	assert.Equal(t, core.Queued, latest.Status)
-	assert.Equal(t, core.TriggerTypeRetry, latest.TriggerType)
+	assert.Equal(t, ir.Queued, latest.Status)
+	assert.Equal(t, ir.TriggerTypeRetry, latest.TriggerType)
 	assert.NotEmpty(t, latest.QueuedAt)
 	assert.Equal(t, 2, latest.AutoRetryCount)
 	assert.Equal(t, 0, store.latestAttemptCalls)
@@ -241,27 +243,27 @@ func TestRetryScannerScanSkipsDisabledRetryPolicy(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-disabled-dag",
 		Location: "/tmp/retry-disabled-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       0,
 			Interval:    time.Minute,
 			Backoff:     0,
 			MaxInterval: 10 * time.Minute,
 		},
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           dag.Name,
 		DAGRunID:       "run-1",
 		AttemptID:      "att-1",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     now.Add(-3 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
 	store := newRetryScannerStore(dag, status)
-	queueStore := &exec.MockQueueStore{}
+	queueStore := &testutil.MockQueueStore{}
 
 	scanner, err := NewRetryScanner(
 		store,
@@ -276,41 +278,41 @@ func TestRetryScannerScanSkipsDisabledRetryPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	latest := store.mustStatus(status.DAGRun())
-	assert.Equal(t, core.Failed, latest.Status)
+	assert.Equal(t, ir.Failed, latest.Status)
 	assert.Equal(t, 0, latest.AutoRetryCount)
 	assert.Equal(t, 0, latest.AutoRetryLimit)
 	assert.Equal(t, 0, store.latestAttemptCalls)
 	assert.Len(t, store.listCalls, 1)
 	assert.Equal(t, 0, store.findAttemptCalls)
-	queueStore.AssertNotCalled(t, "Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, status.DAGRun())
+	queueStore.AssertNotCalled(t, "Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun())
 }
 
 func TestRetryScannerScanEnqueuesRetryWithoutLiveTargets(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-dag",
 		Location: "/tmp/retry-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       3,
 			Interval:    time.Minute,
 			Backoff:     0,
 			MaxInterval: 10 * time.Minute,
 		},
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           dag.Name,
 		DAGRunID:       "run-1",
 		AttemptID:      "att-1",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     now.Add(-2 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
 	store := newRetryScannerStore(dag, status)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, status.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -325,7 +327,7 @@ func TestRetryScannerScanEnqueuesRetryWithoutLiveTargets(t *testing.T) {
 
 	err = scanner.scan(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, core.Queued, store.mustStatus(status.DAGRun()).Status)
+	assert.Equal(t, ir.Queued, store.mustStatus(status.DAGRun()).Status)
 	assert.Len(t, store.listCalls, 1)
 	queueStore.AssertExpectations(t)
 }
@@ -334,36 +336,36 @@ func TestRetryScannerScanRetriesOlderFailedRunEvenWhenNewerRunExists(t *testing.
 	t.Parallel()
 
 	now := time.Date(2026, 3, 15, 0, 10, 0, 0, time.UTC)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-dag",
 		Location: "/tmp/retry-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       3,
 			Interval:    time.Minute,
 			Backoff:     0,
 			MaxInterval: 10 * time.Minute,
 		},
 	}
-	failed := &exec.DAGRunStatus{
+	failed := &dagrun.DAGRunStatus{
 		Name:           dag.Name,
 		DAGRunID:       "run-1",
 		AttemptID:      "att-1",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     time.Date(2026, 3, 15, 0, 2, 0, 0, time.UTC).Format(time.RFC3339),
 		ScheduleTime:   time.Date(2026, 3, 14, 23, 50, 0, 0, time.UTC).Format(time.RFC3339),
 	}
-	active := &exec.DAGRunStatus{
+	active := &dagrun.DAGRunStatus{
 		Name:         dag.Name,
 		DAGRunID:     "run-2",
 		AttemptID:    "att-2",
-		Status:       core.Running,
+		Status:       ir.Running,
 		ScheduleTime: time.Date(2026, 3, 14, 23, 59, 0, 0, time.UTC).Format(time.RFC3339),
 	}
 
 	store := newRetryScannerStore(dag, failed, active)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, failed.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, failed.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -379,8 +381,8 @@ func TestRetryScannerScanRetriesOlderFailedRunEvenWhenNewerRunExists(t *testing.
 	err = scanner.scan(context.Background())
 	require.NoError(t, err)
 
-	assert.Equal(t, core.Queued, store.mustStatus(failed.DAGRun()).Status)
-	assert.Equal(t, core.Running, store.mustStatus(active.DAGRun()).Status)
+	assert.Equal(t, ir.Queued, store.mustStatus(failed.DAGRun()).Status)
+	assert.Equal(t, ir.Running, store.mustStatus(active.DAGRun()).Status)
 	assert.Equal(t, 0, store.latestAttemptCalls)
 	assert.Len(t, store.listCalls, 1)
 	queueStore.AssertExpectations(t)
@@ -390,31 +392,31 @@ func TestRetryScannerScanUsesPersistedRetryPolicy(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	retryDAG := &core.DAG{
+	retryDAG := &ir.DAG{
 		Name:     "retry-dag",
 		Location: "/tmp/retry-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       3,
 			Interval:    time.Minute,
 			Backoff:     0,
 			MaxInterval: 10 * time.Minute,
 		},
 	}
-	noRetryDAG := &core.DAG{Name: "plain-dag", Location: "/tmp/plain-dag.yaml"}
-	retryStatus := &exec.DAGRunStatus{
+	noRetryDAG := &ir.DAG{Name: "plain-dag", Location: "/tmp/plain-dag.yaml"}
+	retryStatus := &dagrun.DAGRunStatus{
 		Name:           retryDAG.Name,
 		DAGRunID:       "run-1",
 		AttemptID:      "att-1",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     now.Add(-2 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
-	plainStatus := &exec.DAGRunStatus{
+	plainStatus := &dagrun.DAGRunStatus{
 		Name:           noRetryDAG.Name,
 		DAGRunID:       "run-2",
 		AttemptID:      "att-2",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     now.Add(-2 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
@@ -423,8 +425,8 @@ func TestRetryScannerScanUsesPersistedRetryPolicy(t *testing.T) {
 		retryScannerStoreEntry{dag: retryDAG, status: retryStatus},
 		retryScannerStoreEntry{dag: noRetryDAG, status: plainStatus},
 	)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, retryDAG.ProcGroup(), exec.QueuePriorityLow, retryStatus.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, retryDAG.ProcGroup(), queuedomain.QueuePriorityLow, retryStatus.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -443,7 +445,7 @@ func TestRetryScannerScanUsesPersistedRetryPolicy(t *testing.T) {
 	assert.Equal(t, 0, store.latestAttemptCalls)
 	assert.Len(t, store.listCalls, 1)
 	assert.Equal(t, 1, store.mustStatus(retryStatus.DAGRun()).AutoRetryCount)
-	assert.Equal(t, core.Failed, store.mustStatus(plainStatus.DAGRun()).Status)
+	assert.Equal(t, ir.Failed, store.mustStatus(plainStatus.DAGRun()).Status)
 	queueStore.AssertExpectations(t)
 }
 
@@ -451,21 +453,21 @@ func TestRetryScannerScanSkipsSuspendedPersistedRetries(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-dag",
 		Location: "/tmp/retry-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       3,
 			Interval:    time.Minute,
 			Backoff:     0,
 			MaxInterval: 10 * time.Minute,
 		},
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           dag.Name,
 		DAGRunID:       "run-1",
 		AttemptID:      "att-1",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     now.Add(-2 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
@@ -476,7 +478,7 @@ func TestRetryScannerScanSkipsSuspendedPersistedRetries(t *testing.T) {
 
 	scanner, err := NewRetryScanner(
 		store,
-		&exec.MockQueueStore{},
+		&testutil.MockQueueStore{},
 		func(_ context.Context, name string) bool { return name == suspendedFlag },
 		24*time.Hour,
 		func() time.Time { return now },
@@ -485,7 +487,7 @@ func TestRetryScannerScanSkipsSuspendedPersistedRetries(t *testing.T) {
 
 	require.NoError(t, scanner.scan(context.Background()))
 
-	assert.Equal(t, core.Failed, store.mustStatus(status.DAGRun()).Status)
+	assert.Equal(t, ir.Failed, store.mustStatus(status.DAGRun()).Status)
 	assert.Equal(t, 0, store.mustStatus(status.DAGRun()).AutoRetryCount)
 	assert.Equal(t, 0, store.latestAttemptCalls)
 	assert.Len(t, store.listCalls, 1)
@@ -496,21 +498,21 @@ func TestRetryScannerScanSkipsSuspendedLegacyStatuses(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-dag",
 		Location: "/tmp/retry-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       3,
 			Interval:    time.Minute,
 			Backoff:     0,
 			MaxInterval: 10 * time.Minute,
 		},
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           dag.Name,
 		DAGRunID:       "run-legacy",
 		AttemptID:      "att-legacy",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     now.Add(-2 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
@@ -530,7 +532,7 @@ func TestRetryScannerScanSkipsSuspendedLegacyStatuses(t *testing.T) {
 
 	scanner, err := NewRetryScanner(
 		store,
-		&exec.MockQueueStore{},
+		&testutil.MockQueueStore{},
 		func(_ context.Context, name string) bool { return name == suspendedFlag },
 		24*time.Hour,
 		func() time.Time { return now },
@@ -542,28 +544,28 @@ func TestRetryScannerScanSkipsSuspendedLegacyStatuses(t *testing.T) {
 	assert.Equal(t, 1, store.findAttemptCalls)
 	assert.Equal(t, 0, store.latestAttemptCalls)
 	assert.Len(t, store.listCalls, 1)
-	assert.Equal(t, core.Failed, store.mustStatus(status.DAGRun()).Status)
+	assert.Equal(t, ir.Failed, store.mustStatus(status.DAGRun()).Status)
 }
 
 func TestRetryScannerScanFallsBackToDAGNameWhenSuspendSnapshotMissing(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-dag",
 		Location: "/tmp/retry-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       3,
 			Interval:    time.Minute,
 			Backoff:     0,
 			MaxInterval: 10 * time.Minute,
 		},
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           dag.Name,
 		DAGRunID:       "run-1",
 		AttemptID:      "att-1",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     now.Add(-2 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
@@ -574,7 +576,7 @@ func TestRetryScannerScanFallsBackToDAGNameWhenSuspendSnapshotMissing(t *testing
 	var checked string
 	scanner, err := NewRetryScanner(
 		store,
-		&exec.MockQueueStore{},
+		&testutil.MockQueueStore{},
 		func(_ context.Context, name string) bool {
 			checked = name
 			return name == dag.Name
@@ -587,7 +589,7 @@ func TestRetryScannerScanFallsBackToDAGNameWhenSuspendSnapshotMissing(t *testing
 	require.NoError(t, scanner.scan(context.Background()))
 
 	assert.Equal(t, dag.Name, checked)
-	assert.Equal(t, core.Failed, store.mustStatus(status.DAGRun()).Status)
+	assert.Equal(t, ir.Failed, store.mustStatus(status.DAGRun()).Status)
 	assert.Equal(t, 0, store.findAttemptCalls)
 }
 
@@ -595,28 +597,28 @@ func TestRetryScannerScanIsIdempotentForQueuedRun(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 14, 14, 0, 0, 0, time.UTC)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-dag",
 		Location: "/tmp/retry-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       3,
 			Interval:    time.Minute,
 			Backoff:     0,
 			MaxInterval: 10 * time.Minute,
 		},
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           dag.Name,
 		DAGRunID:       "run-1",
 		AttemptID:      "att-1",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		AutoRetryCount: 0,
 		FinishedAt:     now.Add(-2 * time.Minute).Format(time.RFC3339),
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
 	store := newRetryScannerStore(dag, status)
-	queueStore := &exec.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), exec.QueuePriorityLow, status.DAGRun()).
+	queueStore := &testutil.MockQueueStore{}
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -632,7 +634,7 @@ func TestRetryScannerScanIsIdempotentForQueuedRun(t *testing.T) {
 	require.NoError(t, scanner.scan(context.Background()))
 	require.NoError(t, scanner.scan(context.Background()))
 
-	assert.Equal(t, core.Queued, store.mustStatus(status.DAGRun()).Status)
+	assert.Equal(t, ir.Queued, store.mustStatus(status.DAGRun()).Status)
 	assert.Equal(t, 0, store.latestAttemptCalls)
 	assert.Len(t, store.listCalls, 2)
 	queueStore.AssertExpectations(t)
@@ -642,16 +644,16 @@ type retryScannerStore struct {
 	attempts           map[string]*retryScannerAttempt
 	latestByName       map[string]*retryScannerAttempt
 	latestAttemptCalls int
-	listCalls          []exec.ListDAGRunStatusesOptions
+	listCalls          []dagrun.ListDAGRunStatusesOptions
 	findAttemptCalls   int
 }
 
 type retryScannerStoreEntry struct {
-	dag    *core.DAG
-	status *exec.DAGRunStatus
+	dag    *ir.DAG
+	status *dagrun.DAGRunStatus
 }
 
-func newRetryScannerStore(dag *core.DAG, statuses ...*exec.DAGRunStatus) *retryScannerStore {
+func newRetryScannerStore(dag *ir.DAG, statuses ...*dagrun.DAGRunStatus) *retryScannerStore {
 	entries := make([]retryScannerStoreEntry, 0, len(statuses))
 	for _, status := range statuses {
 		if status == nil {
@@ -681,31 +683,31 @@ func newRetryScannerStoreWithEntries(entries ...retryScannerStoreEntry) *retrySc
 	return &retryScannerStore{attempts: attempts, latestByName: latestByName}
 }
 
-func (s *retryScannerStore) CreateAttempt(context.Context, *core.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (s *retryScannerStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected CreateAttempt call")
 }
 
-func (s *retryScannerStore) RecentAttempts(context.Context, string, int) []exec.DAGRunAttempt {
+func (s *retryScannerStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
 	return nil
 }
 
-func (s *retryScannerStore) LatestAttempt(_ context.Context, name string) (exec.DAGRunAttempt, error) {
+func (s *retryScannerStore) LatestAttempt(_ context.Context, name string) (dagrun.DAGRunAttempt, error) {
 	s.latestAttemptCalls++
 	attempt, ok := s.latestByName[name]
 	if !ok {
-		return nil, exec.ErrDAGRunIDNotFound
+		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return attempt, nil
 }
 
-func (s *retryScannerStore) ListStatuses(_ context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
-	var cfg exec.ListDAGRunStatusesOptions
+func (s *retryScannerStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+	var cfg dagrun.ListDAGRunStatusesOptions
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	s.listCalls = append(s.listCalls, cfg)
 
-	var ret []*exec.DAGRunStatus
+	var ret []*dagrun.DAGRunStatus
 	for _, attempt := range s.attempts {
 		status := attempt.status
 		if status == nil {
@@ -722,22 +724,22 @@ func (s *retryScannerStore) ListStatuses(_ context.Context, opts ...exec.ListDAG
 	return ret, nil
 }
 
-func (s *retryScannerStore) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
+func (s *retryScannerStore) ListStatusesPage(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
 	items, err := s.ListStatuses(ctx, opts...)
 	if err != nil {
-		return exec.DAGRunStatusPage{}, err
+		return dagrun.DAGRunStatusPage{}, err
 	}
-	return exec.DAGRunStatusPage{Items: items}, nil
+	return dagrun.DAGRunStatusPage{Items: items}, nil
 }
 
 func (s *retryScannerStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	dagRun exec.DAGRunRef,
+	dagRun dagrun.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
-	mutate func(*exec.DAGRunStatus) error,
-	_ ...exec.CompareAndSwapStatusOption,
-) (*exec.DAGRunStatus, bool, error) {
+	expectedStatus ir.Status,
+	mutate func(*dagrun.DAGRunStatus) error,
+	_ ...dagrun.CompareAndSwapStatusOption,
+) (*dagrun.DAGRunStatus, bool, error) {
 	attempt, ok := s.attempts[dagRun.String()]
 	if !ok {
 		return nil, false, nil
@@ -753,32 +755,32 @@ func (s *retryScannerStore) CompareAndSwapLatestAttemptStatus(
 	return cloneRetryStatus(attempt.status), true, nil
 }
 
-func (s *retryScannerStore) FindAttempt(_ context.Context, dagRun exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+func (s *retryScannerStore) FindAttempt(_ context.Context, dagRun dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	s.findAttemptCalls++
 	attempt, ok := s.attempts[dagRun.String()]
 	if !ok {
-		return nil, exec.ErrDAGRunIDNotFound
+		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return attempt, nil
 }
 
-func (s *retryScannerStore) FindSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+func (s *retryScannerStore) FindSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected FindSubAttempt call")
 }
 
-func (s *retryScannerStore) CreateSubAttempt(context.Context, exec.DAGRunRef, string) (exec.DAGRunAttempt, error) {
+func (s *retryScannerStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected CreateSubAttempt call")
 }
 
-func (s *retryScannerStore) RemoveOldDAGRuns(context.Context, string, int, ...exec.RemoveOldDAGRunsOption) ([]string, error) {
+func (s *retryScannerStore) RemoveOldDAGRuns(context.Context, string, int, ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
 	return nil, nil
 }
 
-func (s *retryScannerStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...exec.RemoveDAGRunOption) error {
+func (s *retryScannerStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	return nil
 }
 
-func (s *retryScannerStore) mustStatus(ref exec.DAGRunRef) *exec.DAGRunStatus {
+func (s *retryScannerStore) mustStatus(ref dagrun.DAGRunRef) *dagrun.DAGRunStatus {
 	attempt, ok := s.attempts[ref.String()]
 	if !ok {
 		return nil
@@ -788,81 +790,81 @@ func (s *retryScannerStore) mustStatus(ref exec.DAGRunRef) *exec.DAGRunStatus {
 
 type retryScannerAttempt struct {
 	id     string
-	status *exec.DAGRunStatus
-	dag    *core.DAG
+	status *dagrun.DAGRunStatus
+	dag    *ir.DAG
 }
 
 func (a *retryScannerAttempt) ID() string { return a.id }
 func (a *retryScannerAttempt) Open(context.Context) error {
 	return errors.New("unexpected Open call")
 }
-func (a *retryScannerAttempt) Write(context.Context, exec.DAGRunStatus) error {
+func (a *retryScannerAttempt) Write(context.Context, dagrun.DAGRunStatus) error {
 	return errors.New("unexpected Write call")
 }
 func (a *retryScannerAttempt) Close(context.Context) error { return nil }
-func (a *retryScannerAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus, error) {
+func (a *retryScannerAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
 	return cloneRetryStatus(a.status), nil
 }
-func (a *retryScannerAttempt) ReadDAG(context.Context) (*core.DAG, error) { return a.dag, nil }
-func (a *retryScannerAttempt) SetDAG(*core.DAG)                           {}
-func (a *retryScannerAttempt) Abort(context.Context) error                { return nil }
-func (a *retryScannerAttempt) IsAborting(context.Context) (bool, error)   { return false, nil }
-func (a *retryScannerAttempt) Hide(context.Context) error                 { return nil }
-func (a *retryScannerAttempt) Hidden() bool                               { return false }
-func (a *retryScannerAttempt) WriteOutputs(context.Context, *exec.DAGRunOutputs) error {
+func (a *retryScannerAttempt) ReadDAG(context.Context) (*ir.DAG, error) { return a.dag, nil }
+func (a *retryScannerAttempt) SetDAG(*ir.DAG)                           {}
+func (a *retryScannerAttempt) Abort(context.Context) error              { return nil }
+func (a *retryScannerAttempt) IsAborting(context.Context) (bool, error) { return false, nil }
+func (a *retryScannerAttempt) Hide(context.Context) error               { return nil }
+func (a *retryScannerAttempt) Hidden() bool                             { return false }
+func (a *retryScannerAttempt) WriteOutputs(context.Context, *dagrun.DAGRunOutputs) error {
 	return nil
 }
-func (a *retryScannerAttempt) ReadOutputs(context.Context) (*exec.DAGRunOutputs, error) {
+func (a *retryScannerAttempt) ReadOutputs(context.Context) (*dagrun.DAGRunOutputs, error) {
 	return nil, nil
 }
-func (a *retryScannerAttempt) WriteStepMessages(context.Context, string, []exec.LLMMessage) error {
+func (a *retryScannerAttempt) WriteStepMessages(context.Context, string, []dagrun.LLMMessage) error {
 	return nil
 }
-func (a *retryScannerAttempt) ReadStepMessages(context.Context, string) ([]exec.LLMMessage, error) {
+func (a *retryScannerAttempt) ReadStepMessages(context.Context, string) ([]dagrun.LLMMessage, error) {
 	return nil, nil
 }
 func (a *retryScannerAttempt) WorkDir() string { return "" }
 
-func cloneRetryStatus(status *exec.DAGRunStatus) *exec.DAGRunStatus {
+func cloneRetryStatus(status *dagrun.DAGRunStatus) *dagrun.DAGRunStatus {
 	if status == nil {
 		return nil
 	}
 	cloned := *status
 	if status.Nodes != nil {
-		cloned.Nodes = append([]*exec.Node(nil), status.Nodes...)
+		cloned.Nodes = append([]*dagrun.Node(nil), status.Nodes...)
 	}
 	return &cloned
 }
 
-func containsStatus(statuses []core.Status, want core.Status) bool {
+func containsStatus(statuses []ir.Status, want ir.Status) bool {
 	return slices.Contains(statuses, want)
 }
 
-func withAutoRetryCount(status *exec.DAGRunStatus, retryCount int) *exec.DAGRunStatus {
+func withAutoRetryCount(status *dagrun.DAGRunStatus, retryCount int) *dagrun.DAGRunStatus {
 	cloned := cloneRetryStatus(status)
 	cloned.AutoRetryCount = retryCount
 	return cloned
 }
 
-func withFinishedAt(status *exec.DAGRunStatus, finishedAt string) *exec.DAGRunStatus {
+func withFinishedAt(status *dagrun.DAGRunStatus, finishedAt string) *dagrun.DAGRunStatus {
 	cloned := cloneRetryStatus(status)
 	cloned.FinishedAt = finishedAt
 	return cloned
 }
 
-func withCreatedAt(status *exec.DAGRunStatus, createdAt int64) *exec.DAGRunStatus {
+func withCreatedAt(status *dagrun.DAGRunStatus, createdAt int64) *dagrun.DAGRunStatus {
 	cloned := cloneRetryStatus(status)
 	cloned.CreatedAt = createdAt
 	return cloned
 }
 
-func withStartedAt(status *exec.DAGRunStatus, startedAt string) *exec.DAGRunStatus {
+func withStartedAt(status *dagrun.DAGRunStatus, startedAt string) *dagrun.DAGRunStatus {
 	cloned := cloneRetryStatus(status)
 	cloned.StartedAt = startedAt
 	return cloned
 }
 
-func applyRetrySnapshot(status *exec.DAGRunStatus, dag *core.DAG) {
+func applyRetrySnapshot(status *dagrun.DAGRunStatus, dag *ir.DAG) {
 	if status == nil || dag == nil {
 		return
 	}
@@ -876,7 +878,7 @@ func applyRetrySnapshot(status *exec.DAGRunStatus, dag *core.DAG) {
 	}
 }
 
-func mustRetryMetadataFromDAG(t *testing.T, dag *core.DAG) dagRetryMetadata {
+func mustRetryMetadataFromDAG(t *testing.T, dag *ir.DAG) dagRetryMetadata {
 	t.Helper()
 	metadata, ok := retryMetadataFromDAG(dag)
 	require.True(t, ok)

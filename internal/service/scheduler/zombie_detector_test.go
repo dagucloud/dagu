@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -42,7 +44,7 @@ func TestZombieDetectorDetectAndCleanZombies_NoEntries(t *testing.T) {
 	procStore := &mockProcStore{}
 	detector := NewZombieDetector(dagRunStore, procStore, time.Second, 1)
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{}, nil).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{}, nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
@@ -59,7 +61,7 @@ func TestZombieDetectorDetectAndCleanZombies_FreshEntrySkipsRepair(t *testing.T)
 	detector := NewZombieDetector(dagRunStore, procStore, time.Second, 1)
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", true)
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
@@ -75,33 +77,33 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 	procStore := &mockProcStore{}
 	detector := NewZombieDetector(dagRunStore, procStore, time.Second, 1)
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "step1"},
 		},
 	}
 	entry := testRootProcEntry(dag.ProcGroup(), dag.Name, "run-1", "attempt-1", false)
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
-		Status:    core.Running,
-		Nodes:     exec.NewNodesFromSteps(dag.Steps),
+		Status:    ir.Running,
+		Nodes:     dagrun.NewNodesFromSteps(dag.Steps),
 	}
-	status.Nodes[0].Status = core.NodeRunning
-	attempt := &exec.MockDAGRunAttempt{}
+	status.Nodes[0].Status = ir.NodeRunning
+	attempt := &testutil.MockDAGRunAttempt{}
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
-	dagRunStore.On("FindAttempt", mock.Anything, exec.NewDAGRunRef(dag.Name, "run-1")).Return(attempt, nil).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	dagRunStore.On("FindAttempt", mock.Anything, dagrun.NewDAGRunRef(dag.Name, "run-1")).Return(attempt, nil).Once()
 	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Twice()
 	attempt.On("ReadDAG", mock.Anything).Return(dag, nil).Once()
 	attempt.On("Open", mock.Anything).Return(nil).Once()
-	attempt.On("Write", mock.Anything, mock.MatchedBy(func(s exec.DAGRunStatus) bool {
-		return s.Status == core.Failed &&
+	attempt.On("Write", mock.Anything, mock.MatchedBy(func(s dagrun.DAGRunStatus) bool {
+		return s.Status == ir.Failed &&
 			s.AttemptID == status.AttemptID &&
 			len(s.Nodes) == 1 &&
-			s.Nodes[0].Status == core.NodeFailed
+			s.Nodes[0].Status == ir.NodeFailed
 	})).Return(nil).Once()
 	attempt.On("Close", mock.Anything).Return(nil).Once()
 	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
@@ -121,30 +123,30 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRep
 	procStore := &mockProcStore{}
 	detector := NewZombieDetector(dagRunStore, procStore, time.Second, 1)
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "step1"},
 		},
 	}
 	entry := testRootProcEntry(dag.ProcGroup(), dag.Name, "run-1", "attempt-1", false)
 	pidStartedAt, ok := procutil.StartTime(os.Getpid())
 	require.True(t, ok)
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:         dag.Name,
 		DAGRunID:     "run-1",
 		AttemptID:    "attempt-1",
-		Status:       core.Running,
+		Status:       ir.Running,
 		WorkerID:     "local",
-		PID:          exec.PID(os.Getpid()),
+		PID:          dagrun.PID(os.Getpid()),
 		PIDStartedAt: pidStartedAt,
-		Nodes:        exec.NewNodesFromSteps(dag.Steps),
+		Nodes:        dagrun.NewNodesFromSteps(dag.Steps),
 	}
-	status.Nodes[0].Status = core.NodeRunning
-	attempt := &exec.MockDAGRunAttempt{}
+	status.Nodes[0].Status = ir.NodeRunning
+	attempt := &testutil.MockDAGRunAttempt{}
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
-	dagRunStore.On("FindAttempt", mock.Anything, exec.NewDAGRunRef(dag.Name, "run-1")).Return(attempt, nil).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	dagRunStore.On("FindAttempt", mock.Anything, dagrun.NewDAGRunRef(dag.Name, "run-1")).Return(attempt, nil).Once()
 	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
@@ -168,7 +170,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithFreshSiblingRemovesOn
 	staleEntry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 	freshEntry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-2", true)
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{staleEntry, freshEntry}, nil).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{staleEntry, freshEntry}, nil).Once()
 	procStore.On("RemoveIfStale", mock.Anything, staleEntry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
@@ -185,15 +187,15 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 	procStore := &mockProcStore{}
 	detector := NewZombieDetector(dagRunStore, procStore, time.Second, 1)
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "child",
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "child-step"},
 		},
 	}
-	entry := exec.ProcEntry{
+	entry := proc.ProcEntry{
 		GroupName: dag.ProcGroup(),
-		Meta: exec.ProcMeta{
+		Meta: proc.ProcMeta{
 			StartedAt:    time.Now().Add(-time.Minute).Unix(),
 			Name:         dag.Name,
 			DAGRunID:     "sub-1",
@@ -203,23 +205,23 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 		},
 		Fresh: false,
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "sub-1",
 		AttemptID: "attempt-1",
-		Status:    core.Running,
-		Nodes:     exec.NewNodesFromSteps(dag.Steps),
+		Status:    ir.Running,
+		Nodes:     dagrun.NewNodesFromSteps(dag.Steps),
 	}
-	status.Nodes[0].Status = core.NodeRunning
-	attempt := &exec.MockDAGRunAttempt{}
+	status.Nodes[0].Status = ir.NodeRunning
+	attempt := &testutil.MockDAGRunAttempt{}
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
-	dagRunStore.On("FindSubAttempt", mock.Anything, exec.NewDAGRunRef("root", "root-1"), "sub-1").Return(attempt, nil).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	dagRunStore.On("FindSubAttempt", mock.Anything, dagrun.NewDAGRunRef("root", "root-1"), "sub-1").Return(attempt, nil).Once()
 	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Twice()
 	attempt.On("ReadDAG", mock.Anything).Return(dag, nil).Once()
 	attempt.On("Open", mock.Anything).Return(nil).Once()
-	attempt.On("Write", mock.Anything, mock.MatchedBy(func(s exec.DAGRunStatus) bool {
-		return s.Status == core.Failed && s.AttemptID == status.AttemptID
+	attempt.On("Write", mock.Anything, mock.MatchedBy(func(s dagrun.DAGRunStatus) bool {
+		return s.Status == ir.Failed && s.AttemptID == status.AttemptID
 	})).Return(nil).Once()
 	attempt.On("Close", mock.Anything).Return(nil).Once()
 	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
@@ -242,10 +244,10 @@ func TestZombieDetectorDetectAndCleanZombies_AttemptCounterDoesNotCarryAcrossRet
 	firstAttempt := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 	secondAttempt := testRootProcEntry("queue", "test-dag", "run-1", "attempt-2", false)
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{firstAttempt}, nil).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{firstAttempt}, nil).Once()
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{secondAttempt}, nil).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{secondAttempt}, nil).Once()
 	detector.detectAndCleanZombies(ctx)
 
 	dagRunStore.AssertNotCalled(t, "FindAttempt", mock.Anything, mock.Anything)
@@ -262,8 +264,8 @@ func TestZombieDetectorDetectAndCleanZombies_OrphanedStaleEntryIsRemoved(t *test
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
-	dagRunStore.On("FindAttempt", mock.Anything, exec.NewDAGRunRef("test-dag", "run-1")).Return(nil, exec.ErrDAGRunIDNotFound).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	dagRunStore.On("FindAttempt", mock.Anything, dagrun.NewDAGRunRef("test-dag", "run-1")).Return(nil, dagrun.ErrDAGRunIDNotFound).Once()
 	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
@@ -282,8 +284,8 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithMissingStatusIsRemove
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
-	dagRunStore.On("FindAttempt", mock.Anything, exec.NewDAGRunRef("test-dag", "run-1")).Return(nil, exec.ErrNoStatusData).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	dagRunStore.On("FindAttempt", mock.Anything, dagrun.NewDAGRunRef("test-dag", "run-1")).Return(nil, dagrun.ErrNoStatusData).Once()
 	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
@@ -302,8 +304,8 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithCorruptedStatusIsRemo
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 
-	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
-	dagRunStore.On("FindAttempt", mock.Anything, exec.NewDAGRunRef("test-dag", "run-1")).Return(nil, exec.ErrCorruptedStatusFile).Once()
+	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	dagRunStore.On("FindAttempt", mock.Anything, dagrun.NewDAGRunRef("test-dag", "run-1")).Return(nil, dagrun.ErrCorruptedStatusFile).Once()
 	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
@@ -312,10 +314,10 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithCorruptedStatusIsRemo
 	dagRunStore.AssertExpectations(t)
 }
 
-func testRootProcEntry(groupName, dagName, dagRunID, attemptID string, fresh bool) exec.ProcEntry {
-	return exec.ProcEntry{
+func testRootProcEntry(groupName, dagName, dagRunID, attemptID string, fresh bool) proc.ProcEntry {
+	return proc.ProcEntry{
 		GroupName: groupName,
-		Meta: exec.ProcMeta{
+		Meta: proc.ProcMeta{
 			StartedAt:    time.Now().Add(-time.Minute).Unix(),
 			Name:         dagName,
 			DAGRunID:     dagRunID,
@@ -328,92 +330,92 @@ func testRootProcEntry(groupName, dagName, dagRunID, attemptID string, fresh boo
 	}
 }
 
-var _ exec.DAGRunStore = (*mockDAGRunStore)(nil)
+var _ dagrun.DAGRunStore = (*mockDAGRunStore)(nil)
 
 type mockDAGRunStore struct {
 	mock.Mock
 }
 
-func (m *mockDAGRunStore) CreateAttempt(ctx context.Context, dag *core.DAG, ts time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) CreateAttempt(ctx context.Context, dag *ir.DAG, ts time.Time, dagRunID string, opts dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
 	args := m.Called(ctx, dag, ts, dagRunID, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(exec.DAGRunAttempt), args.Error(1)
+	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
 }
 
-func (m *mockDAGRunStore) RecentAttempts(ctx context.Context, name string, itemLimit int) []exec.DAGRunAttempt {
+func (m *mockDAGRunStore) RecentAttempts(ctx context.Context, name string, itemLimit int) []dagrun.DAGRunAttempt {
 	args := m.Called(ctx, name, itemLimit)
 	if args.Get(0) == nil {
 		return nil
 	}
-	return args.Get(0).([]exec.DAGRunAttempt)
+	return args.Get(0).([]dagrun.DAGRunAttempt)
 }
 
-func (m *mockDAGRunStore) LatestAttempt(ctx context.Context, name string) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) LatestAttempt(ctx context.Context, name string) (dagrun.DAGRunAttempt, error) {
 	args := m.Called(ctx, name)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(exec.DAGRunAttempt), args.Error(1)
+	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
 }
 
-func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
 	args := m.Called(ctx, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]*exec.DAGRunStatus), args.Error(1)
+	return args.Get(0).([]*dagrun.DAGRunStatus), args.Error(1)
 }
 
-func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...exec.ListDAGRunStatusesOption) (exec.DAGRunStatusPage, error) {
+func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
 	args := m.Called(ctx, opts)
 	if args.Get(0) == nil {
-		return exec.DAGRunStatusPage{}, args.Error(1)
+		return dagrun.DAGRunStatusPage{}, args.Error(1)
 	}
-	return args.Get(0).(exec.DAGRunStatusPage), args.Error(1)
+	return args.Get(0).(dagrun.DAGRunStatusPage), args.Error(1)
 }
 
 func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	dagRun exec.DAGRunRef,
+	dagRun dagrun.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
-	_ func(*exec.DAGRunStatus) error,
-	_ ...exec.CompareAndSwapStatusOption,
-) (*exec.DAGRunStatus, bool, error) {
+	expectedStatus ir.Status,
+	_ func(*dagrun.DAGRunStatus) error,
+	_ ...dagrun.CompareAndSwapStatusOption,
+) (*dagrun.DAGRunStatus, bool, error) {
 	args := m.Called(ctx, dagRun, expectedAttemptID, expectedStatus, mock.Anything)
 	if args.Get(0) == nil {
 		return nil, args.Bool(1), args.Error(2)
 	}
-	return args.Get(0).(*exec.DAGRunStatus), args.Bool(1), args.Error(2)
+	return args.Get(0).(*dagrun.DAGRunStatus), args.Bool(1), args.Error(2)
 }
 
-func (m *mockDAGRunStore) FindAttempt(ctx context.Context, dagRun exec.DAGRunRef) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) FindAttempt(ctx context.Context, dagRun dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	args := m.Called(ctx, dagRun)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(exec.DAGRunAttempt), args.Error(1)
+	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
 }
 
-func (m *mockDAGRunStore) FindSubAttempt(ctx context.Context, dagRun exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) FindSubAttempt(ctx context.Context, dagRun dagrun.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	args := m.Called(ctx, dagRun, subDAGRunID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(exec.DAGRunAttempt), args.Error(1)
+	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
 }
 
-func (m *mockDAGRunStore) CreateSubAttempt(ctx context.Context, rootRef exec.DAGRunRef, subDAGRunID string) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) CreateSubAttempt(ctx context.Context, rootRef dagrun.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	args := m.Called(ctx, rootRef, subDAGRunID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(exec.DAGRunAttempt), args.Error(1)
+	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
 }
 
-func (m *mockDAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retentionDays int, opts ...exec.RemoveOldDAGRunsOption) ([]string, error) {
+func (m *mockDAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retentionDays int, opts ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
 	args := m.Called(ctx, name, retentionDays, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -421,12 +423,12 @@ func (m *mockDAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, ret
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *mockDAGRunStore) RemoveDAGRun(ctx context.Context, dagRun exec.DAGRunRef, _ ...exec.RemoveDAGRunOption) error {
+func (m *mockDAGRunStore) RemoveDAGRun(ctx context.Context, dagRun dagrun.DAGRunRef, _ ...dagrun.RemoveDAGRunOption) error {
 	args := m.Called(ctx, dagRun)
 	return args.Error(0)
 }
 
-var _ exec.ProcStore = (*mockProcStore)(nil)
+var _ proc.ProcStore = (*mockProcStore)(nil)
 
 type mockProcStore struct {
 	mock.Mock
@@ -436,12 +438,12 @@ func (m *mockProcStore) Lock(_ context.Context, _ string) error { return nil }
 
 func (m *mockProcStore) Unlock(_ context.Context, _ string) {}
 
-func (m *mockProcStore) Acquire(ctx context.Context, groupName string, meta exec.ProcMeta) (exec.ProcHandle, error) {
+func (m *mockProcStore) Acquire(ctx context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error) {
 	args := m.Called(ctx, groupName, meta)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(exec.ProcHandle), args.Error(1)
+	return args.Get(0).(proc.ProcHandle), args.Error(1)
 }
 
 func (m *mockProcStore) CountAlive(ctx context.Context, groupName string) (int, error) {
@@ -454,73 +456,73 @@ func (m *mockProcStore) CountAliveByDAGName(ctx context.Context, groupName, dagN
 	return args.Int(0), args.Error(1)
 }
 
-func (m *mockProcStore) IsRunAlive(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (bool, error) {
+func (m *mockProcStore) IsRunAlive(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef) (bool, error) {
 	args := m.Called(ctx, groupName, dagRun)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *mockProcStore) IsAttemptAlive(ctx context.Context, groupName string, dagRun exec.DAGRunRef, attemptID string) (bool, error) {
+func (m *mockProcStore) IsAttemptAlive(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef, attemptID string) (bool, error) {
 	args := m.Called(ctx, groupName, dagRun, attemptID)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *mockProcStore) ListAlive(ctx context.Context, groupName string) ([]exec.DAGRunRef, error) {
+func (m *mockProcStore) ListAlive(ctx context.Context, groupName string) ([]dagrun.DAGRunRef, error) {
 	args := m.Called(ctx, groupName)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]exec.DAGRunRef), args.Error(1)
+	return args.Get(0).([]dagrun.DAGRunRef), args.Error(1)
 }
 
-func (m *mockProcStore) ListAllAlive(ctx context.Context) (map[string][]exec.DAGRunRef, error) {
+func (m *mockProcStore) ListAllAlive(ctx context.Context) (map[string][]dagrun.DAGRunRef, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(map[string][]exec.DAGRunRef), args.Error(1)
+	return args.Get(0).(map[string][]dagrun.DAGRunRef), args.Error(1)
 }
 
-func (m *mockProcStore) ListEntries(ctx context.Context, groupName string) ([]exec.ProcEntry, error) {
+func (m *mockProcStore) ListEntries(ctx context.Context, groupName string) ([]proc.ProcEntry, error) {
 	args := m.Called(ctx, groupName)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]exec.ProcEntry), args.Error(1)
+	return args.Get(0).([]proc.ProcEntry), args.Error(1)
 }
 
-func (m *mockProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*exec.ProcEntry, error) {
+func (m *mockProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*proc.ProcEntry, error) {
 	args := m.Called(ctx, groupName, dagName)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	if entry, ok := args.Get(0).(*exec.ProcEntry); ok {
+	if entry, ok := args.Get(0).(*proc.ProcEntry); ok {
 		return entry, args.Error(1)
 	}
-	entry := args.Get(0).(exec.ProcEntry)
+	entry := args.Get(0).(proc.ProcEntry)
 	return &entry, args.Error(1)
 }
 
-func (m *mockProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun exec.DAGRunRef) (*exec.ProcHeartbeat, error) {
+func (m *mockProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef) (*proc.ProcHeartbeat, error) {
 	args := m.Called(ctx, groupName, dagRun)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	if heartbeat, ok := args.Get(0).(*exec.ProcHeartbeat); ok {
+	if heartbeat, ok := args.Get(0).(*proc.ProcHeartbeat); ok {
 		return heartbeat, args.Error(1)
 	}
-	heartbeat := args.Get(0).(exec.ProcHeartbeat)
+	heartbeat := args.Get(0).(proc.ProcHeartbeat)
 	return &heartbeat, args.Error(1)
 }
 
-func (m *mockProcStore) ListAllEntries(ctx context.Context) ([]exec.ProcEntry, error) {
+func (m *mockProcStore) ListAllEntries(ctx context.Context) ([]proc.ProcEntry, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]exec.ProcEntry), args.Error(1)
+	return args.Get(0).([]proc.ProcEntry), args.Error(1)
 }
 
-func (m *mockProcStore) RemoveIfStale(ctx context.Context, entry exec.ProcEntry) error {
+func (m *mockProcStore) RemoveIfStale(ctx context.Context, entry proc.ProcEntry) error {
 	args := m.Called(ctx, entry)
 	return args.Error(0)
 }

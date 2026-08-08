@@ -17,7 +17,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 )
 
 const azureKeyVaultProvider = "azure"
@@ -56,16 +56,16 @@ func (r *azureKeyVaultResolver) Name() string {
 	return azureKeyVaultProvider
 }
 
-func (r *azureKeyVaultResolver) Validate(ref core.SecretRef) error {
+func (r *azureKeyVaultResolver) Validate(ref secretref.Ref) error {
 	_, err := parseAzureSecretReference(ref, "")
 	return err
 }
 
-func (r *azureKeyVaultResolver) CheckCapability(core.SecretRef) CheckCapability {
+func (r *azureKeyVaultResolver) CheckCapability(secretref.Ref) CheckCapability {
 	return CheckCapabilityRequiresValueRead
 }
 
-func (r *azureKeyVaultResolver) Resolve(ctx context.Context, ref core.SecretRef) (string, error) {
+func (r *azureKeyVaultResolver) Resolve(ctx context.Context, ref secretref.Ref) (string, error) {
 	defaultVaultURL := config.GetConfig(ctx).Secrets.Azure.VaultURL
 	parsed, err := parseAzureSecretReference(ref, defaultVaultURL)
 	if err != nil {
@@ -93,7 +93,7 @@ func (r *azureKeyVaultResolver) Resolve(ctx context.Context, ref core.SecretRef)
 	return selectJSONField(*value, ref.Options["field"])
 }
 
-func (r *azureKeyVaultResolver) CheckAccessibility(ctx context.Context, ref core.SecretRef) error {
+func (r *azureKeyVaultResolver) CheckAccessibility(ctx context.Context, ref secretref.Ref) error {
 	_, err := r.Resolve(ctx, ref)
 	return err
 }
@@ -161,7 +161,7 @@ func (r *azureKeyVaultResolver) getCredential() (azcore.TokenCredential, error) 
 	return credential, nil
 }
 
-func parseAzureSecretReference(ref core.SecretRef, defaultVaultURL string) (azureSecretReference, error) {
+func parseAzureSecretReference(ref secretref.Ref, defaultVaultURL string) (azureSecretReference, error) {
 	key := strings.TrimSpace(ref.Key)
 	if key == "" {
 		return azureSecretReference{}, fmt.Errorf("key (Azure Key Vault secret name or URL) is required")

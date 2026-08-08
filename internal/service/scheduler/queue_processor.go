@@ -14,7 +14,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/proc"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 const queueAgeWarningThreshold = 2 * time.Minute
@@ -86,12 +89,12 @@ func (e startupExecutionError) Unwrap() error {
 
 // QueueProcessor is responsible for processing queued DAG runs.
 type QueueProcessor struct {
-	queueStore             exec.QueueStore
-	dagRunStore            exec.DAGRunStore
-	procStore              exec.ProcStore
-	dagRunLeaseStore       exec.DAGRunLeaseStore
-	dispatchTaskStore      exec.DispatchTaskStore
-	dispatchAdmissionStore exec.DispatchAdmissionStore
+	queueStore             queuedomain.QueueStore
+	dagRunStore            dagrun.DAGRunStore
+	procStore              proc.ProcStore
+	dagRunLeaseStore       dispatch.DAGRunLeaseStore
+	dispatchTaskStore      dispatch.DispatchTaskStore
+	dispatchAdmissionStore dispatch.DispatchAdmissionStore
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	queues                 sync.Map // map[string]*queue
@@ -150,28 +153,28 @@ func WithLeaseStaleThreshold(threshold time.Duration) QueueProcessorOption {
 }
 
 // WithDAGRunLeaseStore sets the shared distributed run lease store.
-func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) QueueProcessorOption {
+func WithDAGRunLeaseStore(store dispatch.DAGRunLeaseStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dagRunLeaseStore = store
 	}
 }
 
 // WithDispatchTaskStore sets the shared distributed dispatch reservation store.
-func WithDispatchTaskStore(store exec.DispatchTaskStore) QueueProcessorOption {
+func WithDispatchTaskStore(store dispatch.DispatchTaskStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dispatchTaskStore = store
 		p.dispatchAdmissionStore = dispatchAdmissionStoreFromTaskStore(store)
 	}
 }
 
-func WithDispatchAdmissionStore(store exec.DispatchAdmissionStore) QueueProcessorOption {
+func WithDispatchAdmissionStore(store dispatch.DispatchAdmissionStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dispatchAdmissionStore = store
 	}
 }
 
-func dispatchAdmissionStoreFromTaskStore(store exec.DispatchTaskStore) exec.DispatchAdmissionStore {
-	admissionStore, _ := store.(exec.DispatchAdmissionStore)
+func dispatchAdmissionStoreFromTaskStore(store dispatch.DispatchTaskStore) dispatch.DispatchAdmissionStore {
+	admissionStore, _ := store.(dispatch.DispatchAdmissionStore)
 	return admissionStore
 }
 
@@ -184,9 +187,9 @@ func WithIsSuspended(isSuspended IsSuspendedFunc) QueueProcessorOption {
 
 // NewQueueProcessor creates a new QueueProcessor.
 func NewQueueProcessor(
-	queueStore exec.QueueStore,
-	dagRunStore exec.DAGRunStore,
-	procStore exec.ProcStore,
+	queueStore queuedomain.QueueStore,
+	dagRunStore dagrun.DAGRunStore,
+	procStore proc.ProcStore,
 	dagExecutor *DAGExecutor,
 	queuesConfig config.Queues,
 	opts ...QueueProcessorOption,
@@ -202,7 +205,7 @@ func NewQueueProcessor(
 		// throttled by the minimum processing interval.
 		prevTime:            time.Now().Add(-queueProcessMinInterval),
 		backoffConfig:       DefaultBackoffConfig(),
-		leaseStaleThreshold: exec.DefaultStaleLeaseThreshold,
+		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
 		isSuspended:         func(context.Context, string) bool { return false },
 	}
 
@@ -395,7 +398,7 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	var wg sync.WaitGroup
 	for _, item := range batch.items {
 		wg.Add(1)
-		go func(queuedItem exec.QueuedItemData) {
+		go func(queuedItem queuedomain.QueuedItemData) {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
@@ -413,7 +416,7 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	wg.Wait()
 }
 
-func currentStatusString(status *exec.DAGRunStatus) string {
+func currentStatusString(status *dagrun.DAGRunStatus) string {
 	if status == nil {
 		return "unknown"
 	}
@@ -461,7 +464,7 @@ func readStartupExecutionError(execErrCh <-chan error) error {
 	}
 }
 
-func queueAttemptKey(runRef exec.DAGRunRef, attempt exec.DAGRunAttempt, status *exec.DAGRunStatus) string {
+func queueAttemptKey(runRef dagrun.DAGRunRef, attempt dagrun.DAGRunAttempt, status *dagrun.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -476,12 +479,12 @@ func queueAttemptKey(runRef exec.DAGRunRef, attempt exec.DAGRunAttempt, status *
 	if attemptID == "" {
 		return ""
 	}
-	return exec.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID)
+	return dagrun.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID)
 }
 
 func (p *QueueProcessor) leaseStaleThresholdOrDefault() time.Duration {
 	if p.leaseStaleThreshold <= 0 {
-		return exec.DefaultStaleLeaseThreshold
+		return dagrun.DefaultStaleLeaseThreshold
 	}
 	return p.leaseStaleThreshold
 }

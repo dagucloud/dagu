@@ -14,15 +14,18 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	workersvc "github.com/dagucloud/dagu/v2/internal/service/worker"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +55,7 @@ func TestRemoteTaskHandlerResolvesRegistrySecretsViaCoordinator(t *testing.T) {
 	}))
 
 	client := &secretResolvingRemoteCoordinatorClient{
-		resolveSecret: func(ctx context.Context, ref core.SecretRef, workspace string, checkOnly bool) (string, error) {
+		resolveSecret: func(ctx context.Context, ref secretref.Ref, workspace string, checkOnly bool) (string, error) {
 			resolver := secretpkg.NewReferenceResolver(coordinatorSecrets, workspace)
 			if checkOnly {
 				return "", resolver.CheckReferenceAccessibility(ctx, ref)
@@ -97,15 +100,15 @@ steps:
 
 	err = handler.Handle(ctx, task)
 	require.NoError(t, err)
-	require.Equal(t, []core.SecretRef{{Name: "MY_SECRET", Ref: "prod/my-secret"}}, client.resolvedRefs())
-	require.Equal(t, []exec.HostInfo{{ID: "coord-1", Host: "127.0.0.1", Port: 4521}}, client.resolvedOwners())
+	require.Equal(t, []secretref.Ref{{Name: "MY_SECRET", Ref: "prod/my-secret"}}, client.resolvedRefs())
+	require.Equal(t, []serviceregistry.HostInfo{{ID: "coord-1", Host: "127.0.0.1", Port: 4521}}, client.resolvedOwners())
 	require.Equal(t, []coordinator.SecretReferenceRun{{WorkerID: workerID, AttemptKey: "attempt-key-1", AttemptID: "attempt-1"}}, client.resolvedRuns())
 
 	reported := client.reportedStatuses()
 	require.NotEmpty(t, reported)
 	status, convErr := convert.ProtoToDAGRunStatus(reported[len(reported)-1].Status)
 	require.NoError(t, convErr)
-	assert.Equal(t, core.Succeeded, status.Status)
+	assert.Equal(t, ir.Succeeded, status.Status)
 }
 
 func secretAssertionStep() string {
@@ -121,10 +124,10 @@ func secretAssertionStep() string {
 type secretResolvingRemoteCoordinatorClient struct {
 	mu            sync.Mutex
 	reported      []*coordinatorv1.ReportStatusRequest
-	resolved      []core.SecretRef
-	owners        []exec.HostInfo
+	resolved      []secretref.Ref
+	owners        []serviceregistry.HostInfo
 	runs          []coordinator.SecretReferenceRun
-	resolveSecret func(context.Context, core.SecretRef, string, bool) (string, error)
+	resolveSecret func(context.Context, secretref.Ref, string, bool) (string, error)
 }
 
 var _ coordinator.Client = (*secretResolvingRemoteCoordinatorClient)(nil)
@@ -136,16 +139,16 @@ func (c *secretResolvingRemoteCoordinatorClient) reportedStatuses() []*coordinat
 	return append([]*coordinatorv1.ReportStatusRequest(nil), c.reported...)
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) resolvedRefs() []core.SecretRef {
+func (c *secretResolvingRemoteCoordinatorClient) resolvedRefs() []secretref.Ref {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]core.SecretRef(nil), c.resolved...)
+	return append([]secretref.Ref(nil), c.resolved...)
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) resolvedOwners() []exec.HostInfo {
+func (c *secretResolvingRemoteCoordinatorClient) resolvedOwners() []serviceregistry.HostInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]exec.HostInfo(nil), c.owners...)
+	return append([]serviceregistry.HostInfo(nil), c.owners...)
 }
 
 func (c *secretResolvingRemoteCoordinatorClient) resolvedRuns() []coordinator.SecretReferenceRun {
@@ -154,7 +157,7 @@ func (c *secretResolvingRemoteCoordinatorClient) resolvedRuns() []coordinator.Se
 	return append([]coordinator.SecretReferenceRun(nil), c.runs...)
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) Dispatch(context.Context, exec.DispatchRequest) error {
+func (c *secretResolvingRemoteCoordinatorClient) Dispatch(context.Context, dispatch.DispatchRequest) error {
 	return nil
 }
 
@@ -162,11 +165,11 @@ func (c *secretResolvingRemoteCoordinatorClient) Cleanup(context.Context) error 
 	return nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
-	return &exec.DAGRunStatusResult{Found: false}, nil
+func (c *secretResolvingRemoteCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+	return &dispatch.DAGRunStatusResult{Found: false}, nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) RequestCancel(context.Context, string, string, *exec.DAGRunRef) error {
+func (c *secretResolvingRemoteCoordinatorClient) RequestCancel(context.Context, string, string, *dagrun.DAGRunRef) error {
 	return nil
 }
 
@@ -182,11 +185,11 @@ func (c *secretResolvingRemoteCoordinatorClient) Heartbeat(context.Context, *coo
 	return &coordinatorv1.HeartbeatResponse{}, nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) AckTaskClaimTo(context.Context, exec.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+func (c *secretResolvingRemoteCoordinatorClient) AckTaskClaimTo(context.Context, serviceregistry.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) RunHeartbeatTo(context.Context, exec.HostInfo, *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+func (c *secretResolvingRemoteCoordinatorClient) RunHeartbeatTo(context.Context, serviceregistry.HostInfo, *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 	return &coordinatorv1.RunHeartbeatResponse{}, nil
 }
 
@@ -197,7 +200,7 @@ func (c *secretResolvingRemoteCoordinatorClient) ReportStatus(_ context.Context,
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) ReportStatusTo(ctx context.Context, _ exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+func (c *secretResolvingRemoteCoordinatorClient) ReportStatusTo(ctx context.Context, _ serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	return c.ReportStatus(ctx, req)
 }
 
@@ -205,7 +208,7 @@ func (c *secretResolvingRemoteCoordinatorClient) StreamLogs(context.Context) (co
 	return newSecretTestStreamLogsClient(), nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) StreamLogsTo(ctx context.Context, _ exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+func (c *secretResolvingRemoteCoordinatorClient) StreamLogsTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 	return c.StreamLogs(ctx)
 }
 
@@ -213,7 +216,7 @@ func (c *secretResolvingRemoteCoordinatorClient) StreamArtifacts(context.Context
 	return newSecretTestStreamArtifactsClient(), nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) StreamArtifactsTo(ctx context.Context, _ exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+func (c *secretResolvingRemoteCoordinatorClient) StreamArtifactsTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 	return c.StreamArtifacts(ctx)
 }
 
@@ -225,8 +228,8 @@ func (c *secretResolvingRemoteCoordinatorClient) Metrics() coordinator.Metrics {
 	return coordinator.Metrics{IsConnected: true}
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref core.SecretRef, workspace string, checkOnly bool, run coordinator.SecretReferenceRun) (string, error) {
-	if owner == (exec.HostInfo{}) {
+func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run coordinator.SecretReferenceRun) (string, error) {
+	if owner == (serviceregistry.HostInfo{}) {
 		return "", fmt.Errorf("secret resolution for %q did not target the owner coordinator", ref.Ref)
 	}
 	c.mu.Lock()

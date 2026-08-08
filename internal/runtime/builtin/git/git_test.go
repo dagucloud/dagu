@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -146,14 +146,14 @@ func TestGitCheckoutRejectsMixedHTTPSAuth(t *testing.T) {
 	assert.Contains(t, err.Error(), "token cannot be combined with username/password")
 }
 
-func checkoutStep(config map[string]any) core.Step {
-	return core.Step{
+func checkoutStep(config map[string]any) ir.Step {
+	return ir.Step{
 		Name: "checkout",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   executorType,
 			Config: config,
 		},
-		Commands: []core.CommandEntry{{Command: opCheckout}},
+		Commands: []ir.CommandEntry{{Command: opCheckout}},
 	}
 }
 

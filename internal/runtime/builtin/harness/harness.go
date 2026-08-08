@@ -18,12 +18,15 @@ import (
 	"sync"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -44,7 +47,7 @@ const failedStdoutTailLimit = 1024
 type providerConfig struct {
 	name       string
 	provider   Provider
-	definition *core.HarnessDefinition
+	definition *ir.HarnessDefinition
 	flags      map[string]any
 }
 
@@ -59,13 +62,13 @@ type harnessExecutor struct {
 	stderr                 io.Writer
 	exitCode               int
 	stderrTail             *executor.TailWriter
-	step                   core.Step
+	step                   ir.Step
 	configs                []providerConfig
 	prompt                 string
 	script                 string // piped to stdin if present
 	workDir                string
-	contextMessages        []coreexec.LLMMessage
-	savedMessages          []coreexec.LLMMessage
+	contextMessages        []dagrun.LLMMessage
+	savedMessages          []dagrun.LLMMessage
 	pushBackInputs         map[string]string
 	pushBackIteration      int
 	pushBackPreviousStdout string
@@ -90,15 +93,15 @@ func (e *harnessExecutor) SetStderr(out io.Writer) {
 	e.stderr = out
 }
 
-func (e *harnessExecutor) SetContext(msgs []coreexec.LLMMessage) {
-	e.contextMessages = append([]coreexec.LLMMessage(nil), msgs...)
+func (e *harnessExecutor) SetContext(msgs []dagrun.LLMMessage) {
+	e.contextMessages = append([]dagrun.LLMMessage(nil), msgs...)
 }
 
-func (e *harnessExecutor) GetMessages() []coreexec.LLMMessage {
+func (e *harnessExecutor) GetMessages() []dagrun.LLMMessage {
 	if e.savedMessages == nil {
-		return append([]coreexec.LLMMessage(nil), e.contextMessages...)
+		return append([]dagrun.LLMMessage(nil), e.contextMessages...)
 	}
-	return append([]coreexec.LLMMessage(nil), e.savedMessages...)
+	return append([]dagrun.LLMMessage(nil), e.savedMessages...)
 }
 
 func (e *harnessExecutor) Kill(sig os.Signal) error {
@@ -336,8 +339,8 @@ func mergedContainerEnv(inherited, explicit []string) []string {
 // container entrypoint (image mode) so an image ENTRYPOINT does not double it.
 func buildHarnessContainerRunConfig(
 	workDir string,
-	ct core.Container,
-	registryAuths map[string]*core.AuthConfig,
+	ct ir.Container,
+	registryAuths map[string]*ir.AuthConfig,
 	binaryName string,
 	args []string,
 	inheritedEnv []string,
@@ -648,14 +651,14 @@ func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg provid
 }
 
 var sharedContainerHostPathEnvKeys = map[string]struct{}{
-	"PWD":                                        {},
-	coreexec.EnvKeyDAGDocsDir:                    {},
-	coreexec.EnvKeyDAGRunArtifactsDir:            {},
-	coreexec.EnvKeyDAGRunLogFile:                 {},
-	coreexec.EnvKeyDAGRunStepStderrFile:          {},
-	coreexec.EnvKeyDAGRunStepStdoutFile:          {},
-	coreexec.EnvKeyDAGRunWorkDir:                 {},
-	coreexec.EnvKeyDAGPushBackPreviousStdoutFile: {},
+	"PWD":                                      {},
+	runenv.EnvKeyDAGDocsDir:                    {},
+	runenv.EnvKeyDAGRunArtifactsDir:            {},
+	runenv.EnvKeyDAGRunLogFile:                 {},
+	runenv.EnvKeyDAGRunStepStderrFile:          {},
+	runenv.EnvKeyDAGRunStepStdoutFile:          {},
+	runenv.EnvKeyDAGRunWorkDir:                 {},
+	runenv.EnvKeyDAGPushBackPreviousStdoutFile: {},
 }
 
 func sharedContainerHarnessEnv(userEnv map[string]string) []string {
@@ -775,7 +778,7 @@ var reservedKeys = map[string]bool{
 //
 // Reserved keys are skipped. Built-in providers normalize snake_case keys to
 // kebab-case. Keys are sorted for deterministic output.
-func configToFlags(cfg map[string]any, definition *core.HarnessDefinition) []string {
+func configToFlags(cfg map[string]any, definition *ir.HarnessDefinition) []string {
 	keys := make([]string, 0, len(cfg))
 	for k := range cfg {
 		if reservedKeys[k] {
@@ -838,13 +841,13 @@ func configToFlags(cfg map[string]any, definition *core.HarnessDefinition) []str
 	return args
 }
 
-func newHarness(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newHarness(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if err := validatePromptCommand(step); err != nil {
 		return nil, err
 	}
 
 	cfg := normalizeConfigMap(step.ExecutorConfig.Config)
-	var defs core.HarnessDefinitions
+	var defs ir.HarnessDefinitions
 	env := runtime.GetEnv(ctx)
 	if env.DAG != nil {
 		defs = env.DAG.Harnesses
@@ -867,7 +870,7 @@ func newHarness(ctx context.Context, step core.Step) (executor.Executor, error) 
 	}, nil
 }
 
-func buildProviderConfigs(cfg map[string]any, defs core.HarnessDefinitions) ([]providerConfig, error) {
+func buildProviderConfigs(cfg map[string]any, defs ir.HarnessDefinitions) ([]providerConfig, error) {
 	if err := validateProviderConfigs(cfg); err != nil {
 		return nil, err
 	}
@@ -933,7 +936,7 @@ func fallbackConfigsFromValue(raw any) ([]map[string]any, error) {
 	}
 }
 
-func resolveProvider(cfg map[string]any, defs core.HarnessDefinitions) (providerConfig, error) {
+func resolveProvider(cfg map[string]any, defs ir.HarnessDefinitions) (providerConfig, error) {
 	providerName, _ := cfg["provider"].(string)
 	if providerName == "" {
 		return providerConfig{}, fmt.Errorf("harness: config.provider is required")
@@ -941,7 +944,7 @@ func resolveProvider(cfg map[string]any, defs core.HarnessDefinitions) (provider
 	if isTemplatedValue(providerName) {
 		return providerConfig{}, fmt.Errorf("harness: unresolved provider template %q", providerName)
 	}
-	if core.IsBuiltinCLIHarnessProvider(providerName) {
+	if ir.IsBuiltinCLIHarnessProvider(providerName) {
 		provider, err := getProvider(providerName)
 		if err != nil {
 			return providerConfig{}, err
@@ -975,8 +978,8 @@ func mergeProviderDefaultConfig(provider Provider, cfg map[string]any) map[strin
 	if len(defaults) == 0 {
 		return merged
 	}
-	defaults = core.NormalizeBuiltinHarnessFlagKeys(defaults)
-	merged = core.NormalizeBuiltinHarnessFlagKeys(merged)
+	defaults = ir.NormalizeBuiltinHarnessFlagKeys(defaults)
+	merged = ir.NormalizeBuiltinHarnessFlagKeys(merged)
 	withDefaults := cloneConfigMap(defaults)
 	maps.Copy(withDefaults, merged)
 	return withDefaults
@@ -1085,7 +1088,7 @@ func cloneConfigValue(value any) any {
 	}
 }
 
-func extractPrompt(step core.Step) string {
+func extractPrompt(step ir.Step) string {
 	if len(step.Commands) == 0 {
 		return ""
 	}
@@ -1102,7 +1105,7 @@ func extractPrompt(step core.Step) string {
 	return cmd.Command
 }
 
-func validateHarnessStep(step core.Step) error {
+func validateHarnessStep(step ir.Step) error {
 	if err := validatePromptCommand(step); err != nil {
 		return err
 	}
@@ -1113,26 +1116,26 @@ func validateHarnessStep(step core.Step) error {
 	// time, since the executor advertises both Script and Container capability.
 	// Use container.exec or drop script: to run a scripted harness in a container.
 	if step.Container != nil && strings.TrimSpace(step.Script) != "" {
-		return core.NewValidationError("script", nil,
+		return ir.NewValidationError("script", nil,
 			fmt.Errorf("action %q does not support script with a container; the containerized agent has no stdin", "harness"))
 	}
 	cfg := step.ExecutorConfig.Config
 	if cfg == nil {
-		return core.NewValidationError("with", nil, fmt.Errorf("config is required"))
+		return ir.NewValidationError("with", nil, fmt.Errorf("config is required"))
 	}
 
 	if err := validateProviderConfigs(cfg); err != nil {
-		return core.NewValidationError("with", nil, err)
+		return ir.NewValidationError("with", nil, err)
 	}
 	return nil
 }
 
-func validatePromptCommand(step core.Step) error {
+func validatePromptCommand(step ir.Step) error {
 	if len(step.Commands) > 1 {
-		return core.NewValidationError("command", nil, fmt.Errorf("action %q supports only one command", "harness"))
+		return ir.NewValidationError("command", nil, fmt.Errorf("action %q supports only one command", "harness"))
 	}
 	if len(step.Commands) == 0 || extractPrompt(step) == "" {
-		return core.NewValidationError("command", nil, fmt.Errorf("command field (prompt) is required"))
+		return ir.NewValidationError("command", nil, fmt.Errorf("command field (prompt) is required"))
 	}
 	return nil
 }
@@ -1201,9 +1204,9 @@ func (cfg providerConfig) buildInvocation(prompt, script string) ([]string, io.R
 	flags := configToFlags(cfg.flags, cfg.definition)
 
 	switch cfg.definition.PromptMode {
-	case core.HarnessPromptModeArg:
+	case ir.HarnessPromptModeArg:
 		promptArgs := []string{prompt}
-		if cfg.definition.PromptPosition == core.HarnessPromptPositionAfterFlags {
+		if cfg.definition.PromptPosition == ir.HarnessPromptPositionAfterFlags {
 			args = append(args, flags...)
 			args = append(args, promptArgs...)
 		} else {
@@ -1214,9 +1217,9 @@ func (cfg providerConfig) buildInvocation(prompt, script string) ([]string, io.R
 			return args, nil, nil
 		}
 		return args, strings.NewReader(script), nil
-	case core.HarnessPromptModeFlag:
+	case ir.HarnessPromptModeFlag:
 		promptArgs := []string{cfg.definition.PromptFlag, prompt}
-		if cfg.definition.PromptPosition == core.HarnessPromptPositionAfterFlags {
+		if cfg.definition.PromptPosition == ir.HarnessPromptPositionAfterFlags {
 			args = append(args, flags...)
 			args = append(args, promptArgs...)
 		} else {
@@ -1227,7 +1230,7 @@ func (cfg providerConfig) buildInvocation(prompt, script string) ([]string, io.R
 			return args, nil, nil
 		}
 		return args, strings.NewReader(script), nil
-	case core.HarnessPromptModeStdin:
+	case ir.HarnessPromptModeStdin:
 		args = append(args, flags...)
 		return args, strings.NewReader(promptAndScript(prompt, script)), nil
 	default:
@@ -1235,7 +1238,7 @@ func (cfg providerConfig) buildInvocation(prompt, script string) ([]string, io.R
 	}
 }
 
-func flagTokenForKey(key string, definition *core.HarnessDefinition) string {
+func flagTokenForKey(key string, definition *ir.HarnessDefinition) string {
 	if definition != nil && definition.OptionFlags != nil {
 		if token, ok := definition.OptionFlags[key]; ok && strings.TrimSpace(token) != "" {
 			return token
@@ -1244,7 +1247,7 @@ func flagTokenForKey(key string, definition *core.HarnessDefinition) string {
 	if definition == nil {
 		key = strings.ReplaceAll(key, "_", "-")
 	}
-	if definition != nil && definition.FlagStyle == core.HarnessFlagStyleSingleDash {
+	if definition != nil && definition.FlagStyle == ir.HarnessFlagStyleSingleDash {
 		return "-" + key
 	}
 	return "--" + key
@@ -1261,8 +1264,8 @@ func promptAndScript(prompt, script string) string {
 	}
 }
 
-func knownProviders(defs core.HarnessDefinitions) []string {
-	names := core.BuiltinHarnessProviderNames()
+func knownProviders(defs ir.HarnessDefinitions) []string {
+	names := ir.BuiltinCLIHarnessProviderNames()
 	for name, def := range defs {
 		if def == nil {
 			continue
@@ -1273,11 +1276,11 @@ func knownProviders(defs core.HarnessDefinitions) []string {
 	return names
 }
 
-func cloneDefinition(def *core.HarnessDefinition) *core.HarnessDefinition {
+func cloneDefinition(def *ir.HarnessDefinition) *ir.HarnessDefinition {
 	if def == nil {
 		return nil
 	}
-	return &core.HarnessDefinition{
+	return &ir.HarnessDefinition{
 		Binary:         def.Binary,
 		PrefixArgs:     append([]string(nil), def.PrefixArgs...),
 		PromptMode:     def.PromptMode,
@@ -1429,7 +1432,7 @@ func exitCodeFromError(err error) int {
 }
 
 func init() {
-	caps := core.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		Command:   true,
 		Script:    true,
 		Container: true,

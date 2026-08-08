@@ -10,7 +10,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
 const (
@@ -20,11 +21,11 @@ const (
 
 var procSafeAttemptIDPattern = regexp.MustCompile(`^[-a-zA-Z0-9_]+$`)
 
-func validateProcMeta(meta exec.ProcMeta) error {
+func validateProcMeta(meta proc.ProcMeta) error {
 	if meta.Name == "" {
 		return fmt.Errorf("proc meta name is required")
 	}
-	if err := exec.ValidateDAGRunID(meta.DAGRunID); err != nil {
+	if err := dagrun.ValidateDAGRunID(meta.DAGRunID); err != nil {
 		return fmt.Errorf("invalid proc meta dag run id: %w", err)
 	}
 	if meta.AttemptID == "" {
@@ -40,18 +41,18 @@ func validateProcMeta(meta exec.ProcMeta) error {
 		return fmt.Errorf("proc meta root name and root dag run id must both be set or both be empty")
 	}
 	if meta.RootDAGRunID != "" {
-		if err := exec.ValidateDAGRunID(meta.RootDAGRunID); err != nil {
+		if err := dagrun.ValidateDAGRunID(meta.RootDAGRunID); err != nil {
 			return fmt.Errorf("invalid proc meta root dag run id: %w", err)
 		}
 	}
 	return nil
 }
 
-func procRecordID(groupName string, meta exec.ProcMeta, t time.Time) string {
+func procRecordID(groupName string, meta proc.ProcMeta, t time.Time) string {
 	return filepath.ToSlash(filepath.Join(groupName, meta.Name, procRecordName(meta, t)))
 }
 
-func procRecordName(meta exec.ProcMeta, t time.Time) string {
+func procRecordName(meta proc.ProcMeta, t time.Time) string {
 	return fmt.Sprintf("%s%sZ_%s_%s",
 		procRecordPrefix,
 		t.UTC().Format(procDateTimeUTC),

@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -132,7 +133,7 @@ func TestConvertRejectsDataAndInput(t *testing.T) {
 func TestConvertConfigSchemaRejectsMissingDataAndInput(t *testing.T) {
 	t.Parallel()
 
-	err := core.ValidateExecutorConfig(executorType, map[string]any{
+	err := registry.ValidateExecutorConfig(executorType, map[string]any{
 		"from": "csv",
 		"to":   "json",
 	})
@@ -163,19 +164,19 @@ func runDataPick(t *testing.T, cfg map[string]any) *bytes.Buffer {
 	return out
 }
 
-func dataStep(op string, cfg map[string]any) core.Step {
-	return core.Step{
+func dataStep(op string, cfg map[string]any) ir.Step {
+	return ir.Step{
 		Name:     "convert",
-		Commands: []core.CommandEntry{{Command: op}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: op}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   executorType,
 			Config: cfg,
 		},
 	}
 }
 
-func dataContext(workDir string, step core.Step) context.Context {
-	dag := &core.DAG{
+func dataContext(workDir string, step ir.Step) context.Context {
+	dag := &ir.DAG{
 		Name:               "data-test",
 		WorkingDir:         workDir,
 		WorkingDirExplicit: true,

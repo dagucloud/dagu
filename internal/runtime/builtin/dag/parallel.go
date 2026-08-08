@@ -18,8 +18,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -31,7 +33,7 @@ var _ executor.NodeStatusDeterminer = (*parallelExecutor)(nil)
 var _ executor.StatusDetailsProvider = (*parallelExecutor)(nil)
 
 type parallelExecutor struct {
-	step          core.Step
+	step          ir.Step
 	lock          sync.Mutex
 	workDir       string
 	stdout        io.Writer
@@ -40,7 +42,7 @@ type parallelExecutor struct {
 	maxConcurrent int
 
 	// Runtime state
-	results  map[string]*exec1.RunStatus         // Maps DAG run ID to result
+	results  map[string]*dagrun.RunStatus        // Maps DAG run ID to result
 	errors   []error                             // Collects errors from failed executions
 	children map[string]*executor.SubDAGExecutor // Active child executors keyed by attempt
 
@@ -55,17 +57,17 @@ type scheduledAttempt struct {
 	stepName  string
 	readyAt   time.Time
 	reuse     bool
-	retryPath exec1.RetryPath
+	retryPath dagrun.RetryPath
 }
 
 type attemptResult struct {
 	attempt scheduledAttempt
-	result  *exec1.RunStatus
+	result  *dagrun.RunStatus
 	err     error
 }
 
 func newParallelExecutor(
-	ctx context.Context, step core.Step,
+	ctx context.Context, step ir.Step,
 ) (executor.Executor, error) {
 	// The parallel executor doesn't use the params from the step directly
 	// as they are passed through SetParamsList
@@ -79,7 +81,7 @@ func newParallelExecutor(
 		return nil, ErrWorkingDirNotExist
 	}
 
-	maxConcurrent := core.DefaultMaxConcurrent
+	maxConcurrent := ir.DefaultMaxConcurrent
 	if step.Parallel != nil && step.Parallel.MaxConcurrent > 0 {
 		maxConcurrent = step.Parallel.MaxConcurrent
 	}
@@ -88,7 +90,7 @@ func newParallelExecutor(
 		step:          step,
 		workDir:       dir,
 		maxConcurrent: maxConcurrent,
-		results:       make(map[string]*exec1.RunStatus),
+		results:       make(map[string]*dagrun.RunStatus),
 		errors:        make([]error, 0),
 		children:      make(map[string]*executor.SubDAGExecutor),
 		cancel:        make(chan struct{}),
@@ -130,7 +132,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 	pending := make([]scheduledAttempt, 0, len(e.runParamsList))
 	pendingSet := make(map[string]struct{}, len(e.runParamsList))
 	busyRuns := make(map[string]struct{}, len(e.runParamsList))
-	path := exec1.GetContext(ctx).RetryPath
+	path := runctx.GetContext(ctx).RetryPath
 	hop, targeted := path.Current()
 	targeted = targeted && hop.Step == e.step.Name
 	targetFound := false
@@ -287,7 +289,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 	e.lock.Lock()
 	failedCount := 0
 	for _, result := range e.results {
-		if !result.Status.IsSuccess() && result.Status != core.Waiting {
+		if !result.Status.IsSuccess() && result.Status != ir.Waiting {
 			failedCount++
 		}
 	}
@@ -306,7 +308,7 @@ func (e *parallelExecutor) SetParamsList(paramsList []executor.RunParams) {
 	e.runParamsList = paramsList
 }
 
-func (e *parallelExecutor) GetStatusDetails() []exec1.NodeStatusDetail {
+func (e *parallelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
@@ -318,16 +320,16 @@ func (e *parallelExecutor) GetStatusDetails() []exec1.NodeStatusDetail {
 		}
 	}
 
-	details := make([]exec1.NodeStatusDetail, 0, len(e.runParamsList))
+	details := make([]dagrun.NodeStatusDetail, 0, len(e.runParamsList))
 	for _, params := range e.runParamsList {
 		result := e.results[params.RunID]
-		status := core.NodeFailed
+		status := ir.NodeFailed
 		if e.cancelled() {
-			status = core.NodeAborted
+			status = ir.NodeAborted
 		} else if result != nil {
 			status = parallelNodeStatus(result.Status)
 		}
-		details = append(details, exec1.NodeStatusDetail{
+		details = append(details, dagrun.NodeStatusDetail{
 			Label:  parallelRunLabel(params, result, nameCounts[parallelRunName(params, result)] > 1),
 			Status: status,
 		})
@@ -335,30 +337,30 @@ func (e *parallelExecutor) GetStatusDetails() []exec1.NodeStatusDetail {
 	return details
 }
 
-func parallelNodeStatus(status core.Status) core.NodeStatus {
+func parallelNodeStatus(status ir.Status) ir.NodeStatus {
 	switch status {
-	case core.Succeeded:
-		return core.NodeSucceeded
-	case core.PartiallySucceeded:
-		return core.NodePartiallySucceeded
-	case core.Aborted:
-		return core.NodeAborted
-	case core.Failed:
-		return core.NodeFailed
-	case core.Waiting:
-		return core.NodeWaiting
-	case core.Rejected:
-		return core.NodeRejected
-	case core.Running:
-		return core.NodeRunning
-	case core.Queued, core.NotStarted:
-		return core.NodeNotStarted
+	case ir.Succeeded:
+		return ir.NodeSucceeded
+	case ir.PartiallySucceeded:
+		return ir.NodePartiallySucceeded
+	case ir.Aborted:
+		return ir.NodeAborted
+	case ir.Failed:
+		return ir.NodeFailed
+	case ir.Waiting:
+		return ir.NodeWaiting
+	case ir.Rejected:
+		return ir.NodeRejected
+	case ir.Running:
+		return ir.NodeRunning
+	case ir.Queued, ir.NotStarted:
+		return ir.NodeNotStarted
 	default:
-		return core.NodeNotStarted
+		return ir.NodeNotStarted
 	}
 }
 
-func parallelRunName(params executor.RunParams, result *exec1.RunStatus) string {
+func parallelRunName(params executor.RunParams, result *dagrun.RunStatus) string {
 	name := params.DAGName
 	if result != nil && result.Name != "" {
 		name = result.Name
@@ -366,7 +368,7 @@ func parallelRunName(params executor.RunParams, result *exec1.RunStatus) string 
 	return name
 }
 
-func parallelRunLabel(params executor.RunParams, result *exec1.RunStatus, duplicateName bool) string {
+func parallelRunLabel(params executor.RunParams, result *dagrun.RunStatus, duplicateName bool) string {
 	name := parallelRunName(params, result)
 	values := params.Params
 	if result != nil && result.Params != "" {
@@ -397,19 +399,19 @@ func (e *parallelExecutor) SetStderr(out io.Writer) {
 }
 
 // DetermineNodeStatus implements NodeStatusDeterminer.
-func (e *parallelExecutor) DetermineNodeStatus() (core.NodeStatus, error) {
+func (e *parallelExecutor) DetermineNodeStatus() (ir.NodeStatus, error) {
 	if e.cancelled() {
-		return core.NodeAborted, nil
+		return ir.NodeAborted, nil
 	}
 
 	if len(e.results) == 0 {
 		if len(e.errors) > 0 {
-			return core.NodeFailed, fmt.Errorf(
+			return ir.NodeFailed, fmt.Errorf(
 				"all %d sub DAG execution(s) failed; first error: %v",
 				len(e.runParamsList), e.errors[0],
 			)
 		}
-		return core.NodeFailed, fmt.Errorf("no results available for node status determination")
+		return ir.NodeFailed, fmt.Errorf("no results available for node status determination")
 	}
 
 	// Check if all sub DAGs succeeded or if any had partial success or waiting
@@ -420,22 +422,22 @@ func (e *parallelExecutor) DetermineNodeStatus() (core.NodeStatus, error) {
 	)
 	for _, result := range e.results {
 		switch result.Status {
-		case core.Succeeded:
+		case ir.Succeeded:
 			// continue checking other results
-		case core.PartiallySucceeded:
+		case ir.PartiallySucceeded:
 			partialSuccess = true
-		case core.Waiting:
+		case ir.Waiting:
 			// Sub-DAG is waiting for human approval
 			hasWaiting = true
 		default:
-			return core.NodeFailed, fmt.Errorf("sub DAG run %s is still in progress with status: %s", result.DAGRunID, result.Status)
+			return ir.NodeFailed, fmt.Errorf("sub DAG run %s is still in progress with status: %s", result.DAGRunID, result.Status)
 		}
 	}
 
 	// If any sub-DAG is waiting, propagate the waiting status to the parent
 	// This takes priority over partial success since we need human action
 	if hasWaiting {
-		return core.NodeWaiting, nil
+		return ir.NodeWaiting, nil
 	}
 
 	// Check count of items equal to count of succeeded items
@@ -444,13 +446,13 @@ func (e *parallelExecutor) DetermineNodeStatus() (core.NodeStatus, error) {
 	}
 
 	if partialSuccess {
-		return core.NodePartiallySucceeded, nil
+		return ir.NodePartiallySucceeded, nil
 	}
 
-	return core.NodeSucceeded, nil
+	return ir.NodeSucceeded, nil
 }
 
-func (e *parallelExecutor) runAttempt(ctx context.Context, attempt *scheduledAttempt) (*exec1.RunStatus, error) {
+func (e *parallelExecutor) runAttempt(ctx context.Context, attempt *scheduledAttempt) (*dagrun.RunStatus, error) {
 	if e.cancelled() {
 		return nil, errParallelCancelled
 	}
@@ -563,12 +565,12 @@ func (e *parallelExecutor) outputResults() error {
 			Succeeded int `json:"succeeded"`
 			Failed    int `json:"failed"`
 		} `json:"summary"`
-		Results []exec1.RunStatus   `json:"results"`
+		Results []dagrun.RunStatus  `json:"results"`
 		Outputs []map[string]string `json:"outputs"`
 	}{}
 
 	output.Summary.Total = len(e.runParamsList)
-	output.Results = make([]exec1.RunStatus, 0, len(e.results))
+	output.Results = make([]dagrun.RunStatus, 0, len(e.results))
 	output.Outputs = make([]map[string]string, 0, len(e.results))
 
 	// Collect results in order of runParamsList for consistency
@@ -679,9 +681,9 @@ func (e *parallelExecutor) newChildExecutor(
 }
 
 func init() {
-	caps := core.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		SubDAG:         true,
 		WorkerSelector: true,
 	}
-	executor.RegisterExecutor(core.ExecutorTypeParallel, newParallelExecutor, nil, caps)
+	executor.RegisterExecutor(ir.ExecutorTypeParallel, newParallelExecutor, nil, caps)
 }

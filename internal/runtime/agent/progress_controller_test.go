@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +18,7 @@ import (
 
 // newTestControllerDisplay returns a display writing to the returned buffer
 // instead of stderr.
-func newTestControllerDisplay(dag *core.DAG) (*ControllerProgressDisplay, *bytes.Buffer) {
+func newTestControllerDisplay(dag *ir.DAG) (*ControllerProgressDisplay, *bytes.Buffer) {
 	display := NewControllerProgressDisplay(dag)
 	var buf bytes.Buffer
 	display.progressWriter = progressWriter{out: &buf}
@@ -26,17 +26,17 @@ func newTestControllerDisplay(dag *core.DAG) (*ControllerProgressDisplay, *bytes
 }
 
 func TestCreateProgressReporter_ControllerDAG(t *testing.T) {
-	controllerDAG := &core.DAG{Name: "triage", Type: core.TypeController}
+	controllerDAG := &ir.DAG{Name: "triage", Type: ir.TypeController}
 	reporter := createProgressReporter(controllerDAG, "run-1", nil)
 	assert.IsType(t, &ControllerProgressDisplay{}, reporter)
 
-	graphDAG := &core.DAG{Name: "etl"}
+	graphDAG := &ir.DAG{Name: "etl"}
 	reporter = createProgressReporter(graphDAG, "run-2", nil)
 	assert.IsType(t, &SimpleProgressDisplay{}, reporter)
 }
 
 func TestControllerProgressDisplay_UpdateNode(t *testing.T) {
-	display, out := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, out := newTestControllerDisplay(&ir.DAG{Name: "triage", Type: ir.TypeController})
 
 	state := controller.State{
 		Tasks: []controller.TaskState{{Name: "triage", Status: controller.TaskOpen}},
@@ -49,9 +49,9 @@ func TestControllerProgressDisplay_UpdateNode(t *testing.T) {
 	raw, err := json.Marshal(state)
 	require.NoError(t, err)
 
-	display.UpdateNode(&exec.Node{
-		Step:            core.Step{Name: core.ControllerStepName},
-		Status:          core.NodeRunning,
+	display.UpdateNode(&dagrun.Node{
+		Step:            ir.Step{Name: ir.ControllerStepName},
+		Status:          ir.NodeRunning,
 		ControllerState: raw,
 	})
 
@@ -68,9 +68,9 @@ func TestControllerProgressDisplay_UpdateNode(t *testing.T) {
 	})
 	raw, err = json.Marshal(state)
 	require.NoError(t, err)
-	display.UpdateNode(&exec.Node{
-		Step:            core.Step{Name: core.ControllerStepName},
-		Status:          core.NodeRunning,
+	display.UpdateNode(&dagrun.Node{
+		Step:            ir.Step{Name: ir.ControllerStepName},
+		Status:          ir.NodeRunning,
 		ControllerState: raw,
 	})
 	assert.Equal(t, 3, display.printedEvents)
@@ -80,19 +80,19 @@ func TestControllerProgressDisplay_UpdateNode(t *testing.T) {
 
 // controllerStateNode wraps a controller state into the node update the
 // display receives.
-func controllerStateNode(t *testing.T, state controller.State) *exec.Node {
+func controllerStateNode(t *testing.T, state controller.State) *dagrun.Node {
 	t.Helper()
 	raw, err := json.Marshal(state)
 	require.NoError(t, err)
-	return &exec.Node{
-		Step:            core.Step{Name: core.ControllerStepName},
-		Status:          core.NodeRunning,
+	return &dagrun.Node{
+		Step:            ir.Step{Name: ir.ControllerStepName},
+		Status:          ir.NodeRunning,
 		ControllerState: raw,
 	}
 }
 
 func TestControllerProgressDisplay_HoldsBackUnsettledAction(t *testing.T) {
-	display, out := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, out := newTestControllerDisplay(&ir.DAG{Name: "triage", Type: ir.TypeController})
 
 	// A resumed run first reports the inherited timeline with the suspended
 	// action still waiting.
@@ -116,7 +116,7 @@ func TestControllerProgressDisplay_HoldsBackUnsettledAction(t *testing.T) {
 }
 
 func TestControllerProgressDisplay_PrintFinalFlushesUnsettledAction(t *testing.T) {
-	display, out := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, out := newTestControllerDisplay(&ir.DAG{Name: "triage", Type: ir.TypeController})
 
 	state := controller.State{
 		Events: []controller.Event{
@@ -129,7 +129,7 @@ func TestControllerProgressDisplay_PrintFinalFlushesUnsettledAction(t *testing.T
 
 	// Suspension ends the process with the action still waiting; the final
 	// flush shows it as it stands.
-	display.UpdateStatus(&exec.DAGRunStatus{Status: core.Waiting})
+	display.UpdateStatus(&dagrun.DAGRunStatus{Status: ir.Waiting})
 	display.printFinal()
 	assert.Contains(t, out.String(), "review ⏸")
 	assert.Contains(t, out.String(), "⏸ ")
@@ -147,40 +147,40 @@ func TestActionSettled(t *testing.T) {
 }
 
 func TestControllerProgressDisplay_UpdateNode_TracksRunningAction(t *testing.T) {
-	display, _ := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, _ := newTestControllerDisplay(&ir.DAG{Name: "triage", Type: ir.TypeController})
 
-	display.UpdateNode(&exec.Node{Step: core.Step{Name: "disk"}, Status: core.NodeRunning})
+	display.UpdateNode(&dagrun.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeRunning})
 	assert.Equal(t, "disk", display.runningAction)
 
-	display.UpdateNode(&exec.Node{Step: core.Step{Name: "disk"}, Status: core.NodeSucceeded})
+	display.UpdateNode(&dagrun.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeSucceeded})
 	assert.Equal(t, "", display.runningAction)
 
 	// A finished node that is not the one in flight leaves the marker alone.
-	display.UpdateNode(&exec.Node{Step: core.Step{Name: "load"}, Status: core.NodeRunning})
-	display.UpdateNode(&exec.Node{Step: core.Step{Name: "disk"}, Status: core.NodeSucceeded})
+	display.UpdateNode(&dagrun.Node{Step: ir.Step{Name: "load"}, Status: ir.NodeRunning})
+	display.UpdateNode(&dagrun.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeSucceeded})
 	assert.Equal(t, "load", display.runningAction)
 }
 
 func TestControllerProgressDisplay_UpdateNode_IgnoresBadState(t *testing.T) {
-	display, out := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, out := newTestControllerDisplay(&ir.DAG{Name: "triage", Type: ir.TypeController})
 
-	display.UpdateNode(&exec.Node{
-		Step:            core.Step{Name: core.ControllerStepName},
-		Status:          core.NodeRunning,
+	display.UpdateNode(&dagrun.Node{
+		Step:            ir.Step{Name: ir.ControllerStepName},
+		Status:          ir.NodeRunning,
 		ControllerState: json.RawMessage("{not json"),
 	})
 	assert.Equal(t, 0, display.printedEvents)
 
-	display.UpdateNode(&exec.Node{
-		Step:   core.Step{Name: core.ControllerStepName},
-		Status: core.NodeRunning,
+	display.UpdateNode(&dagrun.Node{
+		Step:   ir.Step{Name: ir.ControllerStepName},
+		Status: ir.NodeRunning,
 	})
 	assert.Equal(t, 0, display.printedEvents)
 	assert.Equal(t, "", out.String())
 }
 
 func TestControllerProgressDisplay_FormatEvent(t *testing.T) {
-	display, _ := newTestControllerDisplay(&core.DAG{Name: "triage", Type: core.TypeController})
+	display, _ := newTestControllerDisplay(&ir.DAG{Name: "triage", Type: ir.TypeController})
 
 	tests := []struct {
 		name  string
@@ -237,7 +237,7 @@ func TestControllerProgressDisplay_FormatEvent(t *testing.T) {
 		{
 			name: "question",
 			event: controller.Event{
-				Turn: 7, Kind: controller.EventAskUser, Name: core.AskUserStepName,
+				Turn: 7, Kind: controller.EventAskUser, Name: ir.AskUserStepName,
 				Reason: "Which region?",
 			},
 			want: []string{"asked", "Which region?"},
@@ -287,9 +287,9 @@ func TestEventDuration(t *testing.T) {
 
 func TestControllerProgressDisplay_OpenTasksText(t *testing.T) {
 	// Before any controller state arrives, every declared task is open.
-	display, _ := newTestControllerDisplay(&core.DAG{
-		Name: "triage", Type: core.TypeController,
-		Tasks: []core.ControllerTask{{Name: "a"}, {Name: "b"}},
+	display, _ := newTestControllerDisplay(&ir.DAG{
+		Name: "triage", Type: ir.TypeController,
+		Tasks: []ir.ControllerTask{{Name: "a"}, {Name: "b"}},
 	})
 	assert.Equal(t, "2 tasks open", display.openTasksText())
 

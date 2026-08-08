@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"strings"
 
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 )
 
 // BuildConfig constructs a mailer configuration from resolved SMTP settings.
-func BuildConfig(host, port, username, password string, oauthConfig *mailoauth.Config) (Config, error) {
+func BuildConfig(host, port, username, password string, oauthConfig *oauthconfig.Config) (Config, error) {
 	if oauthConfig == nil {
 		return Config{Host: host, Port: port, Username: username, Password: password}, nil
 	}
@@ -24,7 +25,7 @@ func BuildConfig(host, port, username, password string, oauthConfig *mailoauth.C
 	}
 	oauthConfigCopy := *oauthConfig
 	oauthConfigCopy.Provider = strings.TrimSpace(oauthConfigCopy.Provider)
-	destination, err := mailoauth.SMTPDestination(oauthConfigCopy.Provider)
+	destination, err := oauthconfig.SMTPDestination(oauthConfigCopy.Provider)
 	if err != nil {
 		return Config{}, err
 	}
@@ -34,7 +35,7 @@ func BuildConfig(host, port, username, password string, oauthConfig *mailoauth.C
 	if port != "" && port != destination.Port {
 		return Config{}, fmt.Errorf("SMTP OAuth provider %q requires port %q", oauthConfigCopy.Provider, destination.Port)
 	}
-	token, err := mailoauth.NewTokenFunc(username, &oauthConfigCopy)
+	token, err := oauth.NewTokenFunc(username, &oauthConfigCopy)
 	if err != nil {
 		return Config{}, err
 	}

@@ -19,7 +19,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -73,13 +74,13 @@ func GetContainerClient(ctx context.Context) *Client {
 }
 
 // WithRegistryAuth creates a new context with registry authentication.
-func WithRegistryAuth(ctx context.Context, auths map[string]*core.AuthConfig) context.Context {
+func WithRegistryAuth(ctx context.Context, auths map[string]*ir.AuthConfig) context.Context {
 	return context.WithValue(ctx, registryAuthCtxKey{}, auths)
 }
 
 // getRegistryAuth retrieves the registry authentication from the context.
-func getRegistryAuth(ctx context.Context) map[string]*core.AuthConfig {
-	if auths, ok := ctx.Value(registryAuthCtxKey{}).(map[string]*core.AuthConfig); ok {
+func getRegistryAuth(ctx context.Context) map[string]*ir.AuthConfig {
+	if auths, ok := ctx.Value(registryAuthCtxKey{}).(map[string]*ir.AuthConfig); ok {
 		return auths
 	}
 	return nil
@@ -88,12 +89,12 @@ func getRegistryAuth(ctx context.Context) map[string]*core.AuthConfig {
 // RegistryAuthFromContext exposes the context registry auth to other executors
 // (the harness executor reuses it so containerized harness steps pull private
 // images with the same auth as the docker executor).
-func RegistryAuthFromContext(ctx context.Context) map[string]*core.AuthConfig {
+func RegistryAuthFromContext(ctx context.Context) map[string]*ir.AuthConfig {
 	return getRegistryAuth(ctx)
 }
 
 type docker struct {
-	step      core.Step
+	step      ir.Step
 	stdout    io.Writer
 	stderr    io.Writer
 	context   context.Context
@@ -341,7 +342,7 @@ func (e *docker) setExitCode(code int) {
 
 // buildCommand builds a command slice from a CommandEntry, applying shell wrapping if configured.
 // This method is used when executing in an existing container where shell wrapping is needed.
-func (e *docker) buildCommand(cmdEntry core.CommandEntry) []string {
+func (e *docker) buildCommand(cmdEntry ir.CommandEntry) []string {
 	// For shell wrapping, use CmdWithArgs (original string) instead of reconstructed array
 	// This preserves quoting and matches command executor behavior
 	if e.cfg != nil && len(e.cfg.Shell) > 0 && cmdEntry.CmdWithArgs != "" {
@@ -351,14 +352,14 @@ func (e *docker) buildCommand(cmdEntry core.CommandEntry) []string {
 }
 
 // buildCommandRaw builds a command slice from a CommandEntry without shell consideration.
-func (e *docker) buildCommandRaw(cmdEntry core.CommandEntry) []string {
+func (e *docker) buildCommandRaw(cmdEntry ir.CommandEntry) []string {
 	if cmdEntry.Command == "" {
 		return nil
 	}
 	return append([]string{cmdEntry.Command}, cmdEntry.Args...)
 }
 
-func newDocker(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newDocker(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	execCfg := step.ExecutorConfig
 	registryAuths := getRegistryAuth(ctx)
 
@@ -471,7 +472,7 @@ func mergeEnvVars(base, override []string) []string {
 // - Volumes, Ports, Env, Command, Shell (slice fields)
 // Fields like PullPolicy, Startup, WaitFor, KeepContainer are NOT evaluated
 // as they have specific enum/boolean values.
-func EvalContainerFields(ctx context.Context, ct core.Container) (core.Container, error) {
+func EvalContainerFields(ctx context.Context, ct ir.Container) (ir.Container, error) {
 	var err error
 
 	// Evaluate exec field (for exec-into-existing-container mode)
@@ -571,11 +572,11 @@ func evalEnvSequentially(ctx context.Context, envs []string) ([]string, error) {
 }
 
 func init() {
-	caps := core.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		Command:          true,
 		MultipleCommands: true,
 		Container:        true,
-		CommandContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+		CommandContext: func(ctx context.Context, step ir.Step) cmnvalue.CommandContext {
 			return cmnvalue.CommandContext{
 				Target:          cmnvalue.CommandTargetDocker,
 				ShellConfigured: hasShellConfigured(ctx, step),
@@ -587,7 +588,7 @@ func init() {
 	executor.RegisterExecutor("container", newDocker, nil, caps)
 }
 
-func hasShellConfigured(ctx context.Context, step core.Step) bool {
+func hasShellConfigured(ctx context.Context, step ir.Step) bool {
 	if step.Container != nil {
 		return cmdutil.HasShellArgs(step.Container.Shell)
 	}

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // ComputeReplayFrom computes the earliest timestamp worth replaying for a DAG.
@@ -34,7 +34,7 @@ func ComputeReplayFrom(catchupWindow time.Duration, lastTick, lastScheduledTime,
 const MaxMissedRuns = 1000
 
 type missedScheduleInterval struct {
-	Schedule      core.Schedule
+	Schedule      ir.Schedule
 	ScheduledTime time.Time
 }
 
@@ -42,7 +42,7 @@ type missedScheduleInterval struct {
 // replayFrom to replayTo, collects all missed ticks, merges and sorts
 // chronologically. Duplicates across schedules are removed.
 // If the total exceeds MaxMissedRuns, only the most recent runs are kept.
-func ComputeMissedIntervals(schedules []core.Schedule, replayFrom, replayTo time.Time) []time.Time {
+func ComputeMissedIntervals(schedules []ir.Schedule, replayFrom, replayTo time.Time) []time.Time {
 	intervals := computeMissedScheduleIntervals(schedules, replayFrom, replayTo)
 	result := make([]time.Time, 0, len(intervals))
 	for _, interval := range intervals {
@@ -51,7 +51,7 @@ func ComputeMissedIntervals(schedules []core.Schedule, replayFrom, replayTo time
 	return result
 }
 
-func computeMissedScheduleIntervals(schedules []core.Schedule, replayFrom, replayTo time.Time) []missedScheduleInterval {
+func computeMissedScheduleIntervals(schedules []ir.Schedule, replayFrom, replayTo time.Time) []missedScheduleInterval {
 	seen := make(map[time.Time]struct{})
 	var result []missedScheduleInterval
 

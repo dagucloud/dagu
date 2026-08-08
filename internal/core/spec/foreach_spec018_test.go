@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +39,7 @@ steps:
 
 	step := dag.Steps[0]
 	require.NotNil(t, step.Foreach)
-	assert.Equal(t, core.ExecutorTypeForeach, step.ExecutorConfig.Type)
+	assert.Equal(t, ir.ExecutorTypeForeach, step.ExecutorConfig.Type)
 	assert.Equal(t, "episode", step.Foreach.As)
 	assert.Equal(t, "${foreach.episode}", step.Foreach.Key)
 	assert.Equal(t, 2, step.Foreach.MaxConcurrent)

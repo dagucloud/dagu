@@ -8,13 +8,14 @@ import (
 	"io"
 	"os"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
 type noopExecutor struct{}
 
-func newNoop(_ context.Context, _ core.Step) (executor.Executor, error) {
+func newNoop(_ context.Context, _ ir.Step) (executor.Executor, error) {
 	return &noopExecutor{}, nil
 }
 
@@ -27,5 +28,5 @@ func (*noopExecutor) Kill(_ os.Signal) error { return nil }
 func (*noopExecutor) Run(_ context.Context) error { return nil }
 
 func init() {
-	executor.RegisterExecutor("noop", newNoop, nil, core.ExecutorCapabilities{})
+	executor.RegisterExecutor("noop", newNoop, nil, registry.ExecutorCapabilities{})
 }

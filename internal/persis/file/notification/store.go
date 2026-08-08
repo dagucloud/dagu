@@ -18,7 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
@@ -515,12 +515,12 @@ type smtpConfigForStorage struct {
 }
 
 type smtpOAuthConfigForStorage struct {
-	Provider              mailoauth.Provider `json:"provider"`
-	TenantID              string             `json:"tenantId,omitempty"`
-	ClientID              string             `json:"clientId,omitempty"`
-	ClientSecretEnc       string             `json:"clientSecretEnc,omitempty"`
-	RefreshTokenEnc       string             `json:"refreshTokenEnc,omitempty"`
-	ServiceAccountJSONEnc string             `json:"serviceAccountJsonEnc,omitempty"`
+	Provider              oauthconfig.Provider `json:"provider"`
+	TenantID              string               `json:"tenantId,omitempty"`
+	ClientID              string               `json:"clientId,omitempty"`
+	ClientSecretEnc       string               `json:"clientSecretEnc,omitempty"`
+	RefreshTokenEnc       string               `json:"refreshTokenEnc,omitempty"`
+	ServiceAccountJSONEnc string               `json:"serviceAccountJsonEnc,omitempty"`
 }
 
 type subscriptionForStorage struct {
@@ -867,7 +867,7 @@ func (s *Store) workspaceSettingsFromStorage(stored *workspaceSettingsForStorage
 			if err != nil {
 				return nil, err
 			}
-			settings.SMTP.OAuth = &mailoauth.Config{
+			settings.SMTP.OAuth = &oauthconfig.Config{
 				Provider:           stored.SMTP.OAuth.Provider,
 				TenantID:           stored.SMTP.OAuth.TenantID,
 				ClientID:           stored.SMTP.OAuth.ClientID,

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -107,7 +107,7 @@ func newPanickingScheduler(t *testing.T) (*Scheduler, <-chan struct{}) {
 			panic("test tick panic")
 		},
 	})
-	require.NoError(t, planner.Init(t.Context(), []*core.DAG{{Name: "panic-dag"}}))
+	require.NoError(t, planner.Init(t.Context(), []*ir.DAG{{Name: "panic-dag"}}))
 
 	return &Scheduler{planner: planner}, panicTriggered
 }

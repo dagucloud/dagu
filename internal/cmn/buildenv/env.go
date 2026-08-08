@@ -16,12 +16,21 @@ import (
 // to a subprocess.
 const PresolvedEnvFileKey = "_DAGU_PRESOLVED_BUILD_ENV_FILE"
 
-// Prepare writes resolved env entries to a secure temp file and returns the
-// transport env vars plus a cleanup function. Duplicate keys are collapsed so
-// the last value wins.
-func Prepare(env []string) ([]string, func() error, error) {
-	entries := ToMap(env)
-	if len(entries) == 0 {
+// Snapshot carries environment values and whether runtime resolution is complete.
+type Snapshot struct {
+	Env             map[string]string `json:"env,omitempty"`
+	RuntimeResolved bool              `json:"runtimeResolved,omitempty"`
+}
+
+// NewSnapshot creates a snapshot from KEY=value entries.
+func NewSnapshot(env []string, runtimeResolved bool) Snapshot {
+	return Snapshot{Env: ToMap(env), RuntimeResolved: runtimeResolved}
+}
+
+// Prepare writes a snapshot to a secure temp file and returns the transport env
+// vars plus a cleanup function.
+func Prepare(snapshot Snapshot) ([]string, func() error, error) {
+	if len(snapshot.Env) == 0 && !snapshot.RuntimeResolved {
 		return nil, nil, nil
 	}
 
@@ -39,7 +48,7 @@ func Prepare(env []string) ([]string, func() error, error) {
 	}
 
 	encoder := json.NewEncoder(file)
-	if err := encoder.Encode(entries); err != nil {
+	if err := encoder.Encode(snapshot); err != nil {
 		_ = file.Close()
 		_ = cleanup()
 		return nil, nil, fmt.Errorf("failed to encode presolved build env file: %w", err)
@@ -52,27 +61,29 @@ func Prepare(env []string) ([]string, func() error, error) {
 	return []string{PresolvedEnvFileKey + "=" + path}, cleanup, nil
 }
 
-// Load returns the pre-resolved build env currently present in the process
-// environment.
-func Load() (map[string]string, error) {
+// Load returns the environment snapshot currently present in the process.
+func Load() (Snapshot, error) {
 	path, ok := os.LookupEnv(PresolvedEnvFileKey)
 	if !ok || path == "" {
-		return nil, nil
+		return Snapshot{}, nil
 	}
 
 	data, err := os.ReadFile(path) //nolint:gosec // Path comes from parent-created internal transport env.
 	if err != nil {
-		return nil, fmt.Errorf("failed to read presolved build env file: %w", err)
+		return Snapshot{}, fmt.Errorf("failed to read presolved build env file: %w", err)
 	}
 
-	var entries map[string]string
-	if err := json.Unmarshal(data, &entries); err != nil {
-		return nil, fmt.Errorf("failed to decode presolved build env file: %w", err)
+	var snapshot Snapshot
+	if err := json.Unmarshal(data, &snapshot); err == nil && (snapshot.Env != nil || snapshot.RuntimeResolved) {
+		return snapshot, nil
 	}
-	if len(entries) == 0 {
-		return nil, nil
+
+	// Older launchers wrote the environment map directly.
+	var legacy map[string]string
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return Snapshot{}, fmt.Errorf("failed to decode presolved build env file: %w", err)
 	}
-	return entries, nil
+	return Snapshot{Env: legacy}, nil
 }
 
 // ToMap converts env entries into a map. Duplicate keys are collapsed so the

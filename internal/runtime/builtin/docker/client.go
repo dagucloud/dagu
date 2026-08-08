@@ -27,7 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
@@ -776,7 +776,7 @@ func (c *Client) startNewContainer(ctx context.Context, name string, cli *client
 
 		// Handle pull failure with unified fallback logic
 		if err != nil {
-			if c.cfg.Pull == core.PullPolicyFallback {
+			if c.cfg.Pull == ir.PullPolicyFallback {
 				hasLocal, checkErr := c.hasLocalImage(ctx, cli, &c.platform)
 				if checkErr != nil {
 					return "", fmt.Errorf("image pull failed and local image check failed: %w (original pull error: %v)", checkErr, err)
@@ -1371,13 +1371,13 @@ func checkImagePullStream(reader io.Reader) error {
 }
 
 func (c *Client) shouldPullImage(ctx context.Context, cli *client.Client, platform *specs.Platform) (bool, error) {
-	if c.cfg.Pull == core.PullPolicyAlways {
+	if c.cfg.Pull == ir.PullPolicyAlways {
 		return true, nil
 	}
-	if c.cfg.Pull == core.PullPolicyNever {
+	if c.cfg.Pull == ir.PullPolicyNever {
 		return false, nil
 	}
-	if c.cfg.Pull == core.PullPolicyFallback {
+	if c.cfg.Pull == ir.PullPolicyFallback {
 		// Always attempt pull; fallback to local is handled by the caller.
 		return true, nil
 	}

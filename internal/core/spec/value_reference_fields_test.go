@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,7 +39,7 @@ steps:
 	require.NoError(t, err)
 	require.Len(t, dag.Steps, 1)
 
-	fields := core.ReferenceFields(dag)
+	fields := spec.ReferenceFields(dag)
 	values := make(map[string]string, len(fields))
 	for _, field := range fields {
 		values[field.Path] = field.Value
@@ -76,7 +75,7 @@ steps:
 `)), spec.WithoutEval())
 	require.NoError(t, err)
 
-	fields := core.ReferenceFields(dag)
+	fields := spec.ReferenceFields(dag)
 	values := make(map[string]string, len(fields))
 	for _, field := range fields {
 		values[field.Path] = field.Value

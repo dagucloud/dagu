@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,12 +53,12 @@ func TestMail(t *testing.T) {
 	t.Run("NewMail", func(t *testing.T) {
 		tests := []struct {
 			name string
-			step core.Step
+			step ir.Step
 		}{
 			{
 				name: "ValidConfig",
-				step: core.Step{
-					ExecutorConfig: core.ExecutorConfig{
+				step: ir.Step{
+					ExecutorConfig: ir.ExecutorConfig{
 						Config: map[string]any{
 							"from":        "test@example.com",
 							"to":          "recipient@example.com",
@@ -71,8 +71,8 @@ func TestMail(t *testing.T) {
 			},
 			{
 				name: "ValidConfigWithEnv",
-				step: core.Step{
-					ExecutorConfig: core.ExecutorConfig{
+				step: ir.Step{
+					ExecutorConfig: ir.ExecutorConfig{
 						Config: map[string]any{
 							"from":        "test@example.com",
 							"to":          "recipient@example.com",
@@ -88,8 +88,8 @@ func TestMail(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				ctx := context.Background()
-				ctx = runtime.NewContext(ctx, &core.DAG{
-					SMTP: &core.SMTPConfig{},
+				ctx = runtime.NewContext(ctx, &ir.DAG{
+					SMTP: &ir.SMTPConfig{},
 				}, "", "")
 
 				exec, err := newMail(ctx, tt.step)
@@ -151,8 +151,8 @@ func TestMail(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				step := core.Step{
-					ExecutorConfig: core.ExecutorConfig{
+				step := ir.Step{
+					ExecutorConfig: ir.ExecutorConfig{
 						Config: map[string]any{
 							"from":    "test@example.com",
 							"to":      tt.toField,
@@ -163,8 +163,8 @@ func TestMail(t *testing.T) {
 				}
 
 				ctx := context.Background()
-				ctx = runtime.NewContext(ctx, &core.DAG{
-					SMTP: &core.SMTPConfig{},
+				ctx = runtime.NewContext(ctx, &ir.DAG{
+					SMTP: &ir.SMTPConfig{},
 				}, "", "")
 
 				exec, err := newMail(ctx, step)
@@ -226,8 +226,8 @@ func TestMailRunSendsAttachments(t *testing.T) {
 		}
 	}()
 
-	step := core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	step := ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Config: map[string]any{
 				"from":        "sender@example.com",
 				"to":          "rcpt@example.com",
@@ -238,8 +238,8 @@ func TestMailRunSendsAttachments(t *testing.T) {
 		},
 	}
 
-	ctx := runtime.NewContext(context.Background(), &core.DAG{
-		SMTP: &core.SMTPConfig{Host: host, Port: port},
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{
+		SMTP: &ir.SMTPConfig{Host: host, Port: port},
 	}, "", "")
 
 	exec, err := newMail(ctx, step)

@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/chat"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -21,91 +21,91 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func successStep(name string, depends ...string) core.Step {
+func successStep(name string, depends ...string) ir.Step {
 	return newStep(name, withDepends(depends...), withCommand("exit 0"))
 }
 
-func failStep(name string, depends ...string) core.Step {
+func failStep(name string, depends ...string) ir.Step {
 	return newStep(name, withDepends(depends...), withCommand("exit 1"))
 }
 
-func waitStep(name string, depends ...string) core.Step {
-	return newStep(name, withDepends(depends...), withCommand("exit 0"), withApproval(&core.ApprovalConfig{}))
+func waitStep(name string, depends ...string) ir.Step {
+	return newStep(name, withDepends(depends...), withCommand("exit 0"), withApproval(&ir.ApprovalConfig{}))
 }
 
-type stepOption func(*core.Step)
+type stepOption func(*ir.Step)
 
 func withDepends(depends ...string) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.Depends = depends
 	}
 }
 
-func withContinueOn(c core.ContinueOn) stepOption {
-	return func(step *core.Step) {
+func withContinueOn(c ir.ContinueOn) stepOption {
+	return func(step *ir.Step) {
 		step.ContinueOn = c
 	}
 }
 
 func withRetryPolicy(limit int, interval time.Duration) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.RetryPolicy.Limit = limit
 		step.RetryPolicy.Interval = interval
 	}
 }
 
 func withRepeatPolicy(repeat bool, interval time.Duration) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		if repeat {
-			step.RepeatPolicy.RepeatMode = core.RepeatModeWhile
+			step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
 		}
 		step.RepeatPolicy.Interval = interval
 	}
 }
 
-func withPrecondition(condition *core.Condition) stepOption {
-	return func(step *core.Step) {
-		step.Preconditions = []*core.Condition{condition}
+func withPrecondition(condition *ir.Condition) stepOption {
+	return func(step *ir.Step) {
+		step.Preconditions = []*ir.Condition{condition}
 	}
 }
 
 func withScript(script string) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.Script = script
 	}
 }
 
 func withWorkingDir(dir string) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.Dir = dir
 	}
 }
 
 func withOutput(output string) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.Output = output
 	}
 }
 
 func withStdout(stdout string) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.Stdout = stdout
 	}
 }
 
 func withEnvVars(envs ...string) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.Env = append(step.Env, envs...)
 	}
 }
 
 // parseCommand parses a command string into a CommandEntry.
-func parseCommand(command string) core.CommandEntry {
+func parseCommand(command string) ir.CommandEntry {
 	cmd, args, err := cmdutil.SplitCommand(command)
 	if err != nil {
 		panic(fmt.Errorf("failed to parse command %q: %w", command, err))
 	}
-	return core.CommandEntry{
+	return ir.CommandEntry{
 		Command:     cmd,
 		Args:        args,
 		CmdWithArgs: command,
@@ -113,37 +113,37 @@ func parseCommand(command string) core.CommandEntry {
 }
 
 func withCommand(command string) stepOption {
-	return func(step *core.Step) {
-		step.Commands = []core.CommandEntry{parseCommand(command)}
+	return func(step *ir.Step) {
+		step.Commands = []ir.CommandEntry{parseCommand(command)}
 	}
 }
 
 func withID(id string) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.ID = id
 	}
 }
 
-func withApproval(approval *core.ApprovalConfig) stepOption {
-	return func(step *core.Step) {
+func withApproval(approval *ir.ApprovalConfig) stepOption {
+	return func(step *ir.Step) {
 		step.Approval = approval
 	}
 }
 
-func withHumanTask(task *core.HumanTaskConfig) stepOption {
-	return func(step *core.Step) {
+func withHumanTask(task *ir.HumanTaskConfig) stepOption {
+	return func(step *ir.Step) {
 		step.HumanTask = task
 	}
 }
 
 func withStepTimeout(d time.Duration) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.Timeout = d
 	}
 }
 
-func newStep(name string, opts ...stepOption) core.Step {
-	step := core.Step{Name: name}
+func newStep(name string, opts ...stepOption) ir.Step {
+	step := ir.Step{Name: name}
 	for _, opt := range opts {
 		opt(&step)
 	}
@@ -172,7 +172,7 @@ func withMaxActiveRuns(n int) runnerOption {
 	}
 }
 
-func withForcedStatus(status core.Status) runnerOption {
+func withForcedStatus(status ir.Status) runnerOption {
 	return func(cfg *runtime.Config) {
 		cfg.ForcedStatus = &status
 	}
@@ -186,33 +186,33 @@ func withDAGAutoRetry(count, limit int, isRoot bool) runnerOption {
 	}
 }
 
-func newHandlerStep(_ *testing.T, name, id, command string) core.Step {
-	return core.Step{
+func newHandlerStep(_ *testing.T, name, id, command string) ir.Step {
+	return ir.Step{
 		Name:     name,
 		ID:       id,
-		Commands: []core.CommandEntry{parseCommand(command)},
+		Commands: []ir.CommandEntry{parseCommand(command)},
 	}
 }
 
-func withOnSuccess(step core.Step) runnerOption {
+func withOnSuccess(step ir.Step) runnerOption {
 	return func(cfg *runtime.Config) {
 		cfg.OnSuccess = &step
 	}
 }
 
-func withOnFailure(step core.Step) runnerOption {
+func withOnFailure(step ir.Step) runnerOption {
 	return func(cfg *runtime.Config) {
 		cfg.OnFailure = &step
 	}
 }
 
-func withOnExit(step core.Step) runnerOption {
+func withOnExit(step ir.Step) runnerOption {
 	return func(cfg *runtime.Config) {
 		cfg.OnExit = &step
 	}
 }
 
-func withOnAbort(step core.Step) runnerOption {
+func withOnAbort(step ir.Step) runnerOption {
 	return func(cfg *runtime.Config) {
 		cfg.OnAbort = &step
 	}
@@ -246,7 +246,7 @@ func platformTestDuration(nonWindows, windows time.Duration) time.Duration {
 	return nonWindows
 }
 
-func (th testHelper) newPlan(t *testing.T, steps ...core.Step) planHelper {
+func (th testHelper) newPlan(t *testing.T, steps ...ir.Step) planHelper {
 	t.Helper()
 
 	plan, err := runtime.NewPlan(steps...)
@@ -265,10 +265,10 @@ type planHelper struct {
 	workDir string
 }
 
-func (ph planHelper) assertRun(t *testing.T, expectedStatus core.Status) runResult {
+func (ph planHelper) assertRun(t *testing.T, expectedStatus ir.Status) runResult {
 	t.Helper()
 
-	dag := &core.DAG{Name: "test_dag", WorkingDir: ph.workDir}
+	dag := &ir.DAG{Name: "test_dag", WorkingDir: ph.workDir}
 	logFilename := fmt.Sprintf("%s_%s.log", dag.Name, ph.cfg.DAGRunID)
 	logFilePath := path.Join(ph.cfg.LogDir, logFilename)
 
@@ -290,13 +290,13 @@ func (ph planHelper) assertRun(t *testing.T, expectedStatus core.Status) runResu
 	close(progressCh)
 
 	switch expectedStatus {
-	case core.Succeeded, core.Aborted, core.Waiting, core.Rejected:
+	case ir.Succeeded, ir.Aborted, ir.Waiting, ir.Rejected:
 		require.NoError(t, err)
 
-	case core.Failed, core.PartiallySucceeded:
+	case ir.Failed, ir.PartiallySucceeded:
 		require.Error(t, err)
 
-	case core.Running, core.NotStarted, core.Queued:
+	case ir.Running, ir.NotStarted, ir.Queued:
 		t.Errorf("unexpected status %s", expectedStatus)
 
 	}
@@ -331,22 +331,22 @@ type runResult struct {
 	Error error
 }
 
-func (rr runResult) assertNodeStatus(t *testing.T, stepName string, expected core.NodeStatus) {
+func (rr runResult) assertNodeStatus(t *testing.T, stepName string, expected ir.NodeStatus) {
 	t.Helper()
 
 	target := rr.GetNodeByName(stepName)
 	if target == nil {
 		if rr.cfg.OnExit != nil && rr.cfg.OnExit.Name == stepName {
-			target = rr.runner.HandlerNode(core.HandlerOnExit)
+			target = rr.runner.HandlerNode(ir.HandlerOnExit)
 		}
 		if rr.cfg.OnSuccess != nil && rr.cfg.OnSuccess.Name == stepName {
-			target = rr.runner.HandlerNode(core.HandlerOnSuccess)
+			target = rr.runner.HandlerNode(ir.HandlerOnSuccess)
 		}
 		if rr.cfg.OnFailure != nil && rr.cfg.OnFailure.Name == stepName {
-			target = rr.runner.HandlerNode(core.HandlerOnFailure)
+			target = rr.runner.HandlerNode(ir.HandlerOnFailure)
 		}
 		if rr.cfg.OnAbort != nil && rr.cfg.OnAbort.Name == stepName {
-			target = rr.runner.HandlerNode(core.HandlerOnAbort)
+			target = rr.runner.HandlerNode(ir.HandlerOnAbort)
 		}
 	}
 
@@ -362,16 +362,16 @@ func (rr runResult) nodeByName(t *testing.T, stepName string) *runtime.Node {
 	}
 
 	if rr.cfg.OnExit != nil && rr.cfg.OnExit.Name == stepName {
-		return rr.runner.HandlerNode(core.HandlerOnExit)
+		return rr.runner.HandlerNode(ir.HandlerOnExit)
 	}
 	if rr.cfg.OnSuccess != nil && rr.cfg.OnSuccess.Name == stepName {
-		return rr.runner.HandlerNode(core.HandlerOnSuccess)
+		return rr.runner.HandlerNode(ir.HandlerOnSuccess)
 	}
 	if rr.cfg.OnFailure != nil && rr.cfg.OnFailure.Name == stepName {
-		return rr.runner.HandlerNode(core.HandlerOnFailure)
+		return rr.runner.HandlerNode(ir.HandlerOnFailure)
 	}
 	if rr.cfg.OnAbort != nil && rr.cfg.OnAbort.Name == stepName {
-		return rr.runner.HandlerNode(core.HandlerOnAbort)
+		return rr.runner.HandlerNode(ir.HandlerOnAbort)
 	}
 
 	require.FailNow(t, "step not found", "step %s not found in nodes", stepName)
@@ -380,7 +380,7 @@ func (rr runResult) nodeByName(t *testing.T, stepName string) *runtime.Node {
 
 // mockMessagesHandler is a mock implementation of ChatMessagesHandler for testing.
 type mockMessagesHandler struct {
-	messages   map[string][]exec.LLMMessage
+	messages   map[string][]dagrun.LLMMessage
 	readErr    error
 	writeErr   error
 	writeCalls int
@@ -390,18 +390,18 @@ var _ runtime.ChatMessagesHandler = (*mockMessagesHandler)(nil)
 
 func newMockMessagesHandler() *mockMessagesHandler {
 	return &mockMessagesHandler{
-		messages: make(map[string][]exec.LLMMessage),
+		messages: make(map[string][]dagrun.LLMMessage),
 	}
 }
 
-func (m *mockMessagesHandler) ReadStepMessages(_ context.Context, stepName string) ([]exec.LLMMessage, error) {
+func (m *mockMessagesHandler) ReadStepMessages(_ context.Context, stepName string) ([]dagrun.LLMMessage, error) {
 	if m.readErr != nil {
 		return nil, m.readErr
 	}
 	return m.messages[stepName], nil
 }
 
-func (m *mockMessagesHandler) WriteStepMessages(_ context.Context, stepName string, messages []exec.LLMMessage) error {
+func (m *mockMessagesHandler) WriteStepMessages(_ context.Context, stepName string, messages []dagrun.LLMMessage) error {
 	m.writeCalls++
 	if m.writeErr != nil {
 		return m.writeErr
@@ -417,18 +417,18 @@ func withMessagesHandler(handler runtime.ChatMessagesHandler) runnerOption {
 }
 
 func withExecutorType(t string) stepOption {
-	return func(step *core.Step) {
+	return func(step *ir.Step) {
 		step.ExecutorConfig.Type = t
 	}
 }
 
-func chatStep(name string, depends ...string) core.Step {
-	return newStep(name, withDepends(depends...), withExecutorType(core.ExecutorTypeChat))
+func chatStep(name string, depends ...string) ir.Step {
+	return newStep(name, withDepends(depends...), withExecutorType(ir.ExecutorTypeChat))
 }
 
 // waitForNodeStatus polls until the named node reaches the given status or
 // the timeout expires.
-func waitForNodeStatus(plan *runtime.Plan, name string, status core.NodeStatus, timeout time.Duration) {
+func waitForNodeStatus(plan *runtime.Plan, name string, status ir.NodeStatus, timeout time.Duration) {
 	deadline := time.After(timeout)
 	for {
 		if node := plan.GetNodeByName(name); node != nil && node.State().Status == status {
@@ -478,7 +478,7 @@ func waitForNodeRepeatScheduled(plan *runtime.Plan, name string, timeout time.Du
 
 // waitForHandlerNodeStatus polls until the runner's handler node for the given
 // handler type reaches the specified status or the timeout expires.
-func waitForHandlerNodeStatus(r *runtime.Runner, handler core.HandlerType, status core.NodeStatus, timeout time.Duration) {
+func waitForHandlerNodeStatus(r *runtime.Runner, handler ir.HandlerType, status ir.NodeStatus, timeout time.Duration) {
 	deadline := time.After(timeout)
 	for {
 		if node := r.HandlerNode(handler); node != nil && node.State().Status == status {

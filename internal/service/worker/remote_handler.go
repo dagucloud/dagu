@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -21,21 +23,25 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -48,13 +54,13 @@ type RemoteTaskHandlerConfig struct {
 	// CoordinatorClient is the coordinator client with load balancing support
 	CoordinatorClient coordinator.Client
 	// DAGStore is the store for DAG definitions
-	DAGStore exec.DAGStore
+	DAGStore dagstore.DAGStore
 	// DAGRunMgr is the manager for DAG runs
 	DAGRunMgr runtime.Manager
 	// StateStore is the persistent state store shared across DAG runs.
 	StateStore dagstate.Store
 	// ServiceRegistry is the service registry
-	ServiceRegistry exec.ServiceRegistry
+	ServiceRegistry serviceregistry.ServiceRegistry
 	// PeerConfig is the peer configuration
 	PeerConfig config.Peer
 	// Config is the main application configuration
@@ -101,10 +107,10 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 type remoteTaskHandler struct {
 	workerID          string
 	coordinatorClient coordinator.Client
-	dagStore          exec.DAGStore
+	dagStore          dagstore.DAGStore
 	dagRunMgr         runtime.Manager
 	stateStore        dagstate.Store
-	serviceRegistry   exec.ServiceRegistry
+	serviceRegistry   serviceregistry.ServiceRegistry
 	peerConfig        config.Peer
 	config            *config.Config
 	runtimeStores     runtimeStores
@@ -135,8 +141,8 @@ func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task
 }
 
 func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1.Task, queuedRun bool) error {
-	root := exec.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
-	parent := exec.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
+	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	parent := dagrun.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
 	owner, err := taskOwner(task)
 	if err != nil {
 		return fmt.Errorf("invalid task owner coordinator metadata: %w", err)
@@ -169,8 +175,8 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 }
 
 func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1.Task) error {
-	root := exec.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
-	parent := exec.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
+	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	parent := dagrun.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
 	owner, err := taskOwner(task)
 	if err != nil {
 		return fmt.Errorf("invalid task owner coordinator metadata: %w", err)
@@ -184,7 +190,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	if convErr != nil {
 		return fmt.Errorf("failed to convert previous status: %w", convErr)
 	}
-	retryPath, err := exec.ParseRetryPath(task.RetryPath)
+	retryPath, err := dagrun.ParseRetryPath(task.RetryPath)
 	if err != nil {
 		return fmt.Errorf("invalid retry path: %w", err)
 	}
@@ -198,7 +204,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		retry: &retryConfig{
 			target:      status,
 			stepName:    task.Step,
-			triggerType: exec.PreservedQueueTriggerType(status),
+			triggerType: queue.PreservedQueueTriggerType(status),
 			retryPath:   retryPath,
 		},
 	}
@@ -224,7 +230,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	return err
 }
 
-func retryTaskProfileName(status *exec.DAGRunStatus) string {
+func retryTaskProfileName(status *dagrun.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -240,13 +246,13 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		tag.RunID(task.DagRunId),
 		tag.Error(loadErr),
 	)
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Root:         run.root,
 		Parent:       run.parent,
 		Name:         task.Target,
 		DAGRunID:     task.DagRunId,
 		AttemptID:    task.AttemptId,
-		Status:       core.Failed,
+		Status:       ir.Failed,
 		FinishedAt:   finishedAt,
 		Error:        sanitizeTaskLoadError(task.Target, loadErr),
 		Params:       task.Params,
@@ -294,13 +300,13 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		tag.RunID(task.DagRunId),
 		tag.Error(initErr),
 	)
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Root:         run.root,
 		Parent:       run.parent,
 		Name:         target,
 		DAGRunID:     task.DagRunId,
 		AttemptID:    task.AttemptId,
-		Status:       core.Failed,
+		Status:       ir.Failed,
 		FinishedAt:   finishedAt,
 		Error:        initErr.Error(),
 		Params:       params,
@@ -333,10 +339,10 @@ func sanitizeTaskLoadError(target string, loadErr error) string {
 
 // retryConfig holds retry-specific configuration
 type retryConfig struct {
-	target      *exec.DAGRunStatus
+	target      *dagrun.DAGRunStatus
 	stepName    string
-	triggerType core.TriggerType
-	retryPath   exec.RetryPath
+	triggerType ir.TriggerType
+	retryPath   dagrun.RetryPath
 }
 
 type runHandlers struct {
@@ -347,9 +353,9 @@ type runHandlers struct {
 
 type remoteRun struct {
 	task        *coordinatorv1.Task
-	root        exec.DAGRunRef
-	parent      exec.DAGRunRef
-	owner       exec.HostInfo
+	root        dagrun.DAGRunRef
+	parent      dagrun.DAGRunRef
+	owner       serviceregistry.HostInfo
 	handlers    runHandlers
 	queued      bool
 	retry       *retryConfig
@@ -387,7 +393,7 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 	if task == nil || !task.ExternalStepRetry {
 		return nil
 	}
-	return []string{exec.EnvKeyExternalStepRetry + "=1"}
+	return []string{runenv.EnvKeyExternalStepRetry + "=1"}
 }
 
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.
@@ -414,7 +420,7 @@ func (h *remoteTaskHandler) createRemoteHandlers(run remoteRun, dagName string) 
 
 // loadDAG loads the DAG from task definition.
 // Returns the loaded DAG and a cleanup function that should be called after task execution.
-func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Task) (*core.DAG, func(), error) {
+func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Task) (*ir.DAG, func(), error) {
 	if _, ok, err := taskWorkspaceDescriptor(task); err != nil {
 		return nil, nil, err
 	} else if ok {
@@ -472,7 +478,7 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 	return dag, cleanupFunc, nil
 }
 
-func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task) (*core.DAG, func(), error) {
+func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task) (*ir.DAG, func(), error) {
 	client, ok := h.coordinatorClient.(workspacebundle.Client)
 	if !ok {
 		return nil, nil, fmt.Errorf("coordinator client does not support workspace bundles")
@@ -531,7 +537,7 @@ type agentEnv struct {
 // createAgentEnv creates temporary directories for agent execution.
 // The cleanup function must be called after execution completes.
 // Includes workerID in path to prevent collisions with concurrent workers on the same host.
-func (h *remoteTaskHandler) createAgentEnv(ctx context.Context, dag *core.DAG, dagRunID string) (*agentEnv, error) {
+func (h *remoteTaskHandler) createAgentEnv(ctx context.Context, dag *ir.DAG, dagRunID string) (*agentEnv, error) {
 	logDir := filepath.Join(os.TempDir(), "dagu", "worker-logs", h.workerID, dagRunID)
 	if err := os.MkdirAll(logDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
@@ -575,10 +581,10 @@ func (h *remoteTaskHandler) createAgentEnv(ctx context.Context, dag *core.DAG, d
 
 func (h *remoteTaskHandler) executeDAGRun(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	run remoteRun,
 ) error {
-	if dag != nil && dag.Type == core.TypeBuild {
+	if dag != nil && dag.Type == ir.TypeBuild {
 		return newTaskInitError(dispatch.ErrBuildRequiresLocal)
 	}
 	task := run.task
@@ -676,7 +682,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 
 	// Create a remote DAG loader that fetches DAG definitions from the coordinator
 	// as a fallback when the local DAG store misses.
-	remoteDAGLoader := rtagent.RemoteDAGLoader(func(ctx context.Context, name string) (*core.DAG, error) {
+	remoteDAGLoader := rtagent.RemoteDAGLoader(func(ctx context.Context, name string) (*ir.DAG, error) {
 		dagYAML, err := h.coordinatorClient.GetDAG(ctx, name)
 		if err != nil {
 			return nil, err
@@ -749,21 +755,21 @@ func (h *remoteTaskHandler) executeDAGRun(
 	return nil
 }
 
-func (h *remoteTaskHandler) secretReferenceResolver(dag *core.DAG, owner exec.HostInfo, run coordinator.SecretReferenceRun) secrets.ReferenceResolver {
+func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) secrets.ReferenceResolver {
 	client, ok := h.coordinatorClient.(coordinator.SecretReferenceClient)
 	if !ok {
 		return nil
 	}
 	workspaceName := ""
 	if dag != nil {
-		if name, found := exec.WorkspaceNameFromLabels(dag.Labels); found {
+		if name, found := workspace.WorkspaceNameFromLabels(dag.Labels); found {
 			workspaceName = name
 		}
 	}
 	return coordinator.NewSecretReferenceResolver(client, workspaceName, owner, run)
 }
 
-func (h *remoteTaskHandler) prepareDAGTools(ctx context.Context, dag *core.DAG) ([]string, error) {
+func (h *remoteTaskHandler) prepareDAGTools(ctx context.Context, dag *ir.DAG) ([]string, error) {
 	workDir := ""
 	if dag != nil {
 		workDir = dag.WorkingDir

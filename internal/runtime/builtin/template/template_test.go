@@ -11,13 +11,13 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestValidateTemplateRequiresScriptMessage(t *testing.T) {
-	err := validateTemplate(core.Step{})
+	err := validateTemplate(ir.Step{})
 	require.Error(t, err)
 	assert.Equal(t, "field 'script': script field is required", err.Error())
 	assert.NotContains(t, err.Error(), "executor")
@@ -26,8 +26,8 @@ func TestValidateTemplateRequiresScriptMessage(t *testing.T) {
 func TestValidateTemplateAcceptsScopedTemplateReference(t *testing.T) {
 	t.Parallel()
 
-	err := validateTemplate(core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	err := validateTemplate(ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Config: map[string]any{"template_ref": "${env.TEMPLATE}"},
 		},
 	})
@@ -39,14 +39,14 @@ func TestValidateTemplateRejectsAmbiguousTemplateReference(t *testing.T) {
 
 	tests := []struct {
 		name string
-		step core.Step
+		step ir.Step
 		err  string
 	}{
 		{
 			name: "script and reference",
-			step: core.Step{
+			step: ir.Step{
 				Script: "literal",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Config: map[string]any{"template_ref": "${env.TEMPLATE}"},
 				},
 			},
@@ -54,8 +54,8 @@ func TestValidateTemplateRejectsAmbiguousTemplateReference(t *testing.T) {
 		},
 		{
 			name: "invalid reference",
-			step: core.Step{
-				ExecutorConfig: core.ExecutorConfig{
+			step: ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{
 					Config: map[string]any{"template_ref": "TEMPLATE"},
 				},
 			},
@@ -74,7 +74,7 @@ func TestValidateTemplateRejectsAmbiguousTemplateReference(t *testing.T) {
 }
 
 func TestNewTemplateRequiresScriptMessage(t *testing.T) {
-	_, err := newTemplate(context.Background(), core.Step{})
+	_, err := newTemplate(context.Background(), ir.Step{})
 	require.Error(t, err)
 	assert.Equal(t, "field 'script': script field is required", err.Error())
 	assert.NotContains(t, err.Error(), "executor")

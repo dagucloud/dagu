@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -28,8 +28,8 @@ func newWorkerHeartbeatStore(t *testing.T) *store.WorkerHeartbeatStore {
 	return store.NewWorkerHeartbeatStore(col)
 }
 
-func newRecord(workerID string) exec.WorkerHeartbeatRecord {
-	return exec.WorkerHeartbeatRecord{
+func newRecord(workerID string) dispatch.WorkerHeartbeatRecord {
+	return dispatch.WorkerHeartbeatRecord{
 		WorkerID:        workerID,
 		Labels:          map[string]string{"env": "test"},
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
@@ -58,7 +58,7 @@ func TestWorkerHeartbeatFileLayout(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	s := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(root, "workers")))
-	rec := exec.WorkerHeartbeatRecord{
+	rec := dispatch.WorkerHeartbeatRecord{
 		WorkerID:        "worker-1",
 		Labels:          map[string]string{"env": "test"},
 		LastHeartbeatAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli(),
@@ -77,7 +77,7 @@ func TestWorkerHeartbeatFileLayout(t *testing.T) {
 	assert.NotContains(t, body, "encoding")
 	assert.NotContains(t, body, "data")
 
-	var saved exec.WorkerHeartbeatRecord
+	var saved dispatch.WorkerHeartbeatRecord
 	require.NoError(t, json.Unmarshal(raw, &saved))
 	assert.Equal(t, rec.WorkerID, saved.WorkerID)
 	assert.Equal(t, rec.LastHeartbeatAt, saved.LastHeartbeatAt)
@@ -100,7 +100,7 @@ func TestWorkerHeartbeatUpsert_Overwrite(t *testing.T) {
 func TestWorkerHeartbeatGet_NotFound(t *testing.T) {
 	ctx := context.Background()
 	_, err := newWorkerHeartbeatStore(t).Get(ctx, "missing")
-	assert.ErrorIs(t, err, exec.ErrWorkerHeartbeatNotFound)
+	assert.ErrorIs(t, err, dispatch.ErrWorkerHeartbeatNotFound)
 }
 
 func TestWorkerHeartbeatList(t *testing.T) {
@@ -120,11 +120,11 @@ func TestWorkerHeartbeatDeleteStale(t *testing.T) {
 	ctx := context.Background()
 	s := newWorkerHeartbeatStore(t)
 
-	old := exec.WorkerHeartbeatRecord{
+	old := dispatch.WorkerHeartbeatRecord{
 		WorkerID:        "old-worker",
 		LastHeartbeatAt: time.Now().Add(-10 * time.Minute).UTC().UnixMilli(),
 	}
-	fresh := exec.WorkerHeartbeatRecord{
+	fresh := dispatch.WorkerHeartbeatRecord{
 		WorkerID:        "fresh-worker",
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 	}
@@ -137,7 +137,7 @@ func TestWorkerHeartbeatDeleteStale(t *testing.T) {
 	assert.Equal(t, 1, n)
 
 	_, err = s.Get(ctx, "old-worker")
-	assert.ErrorIs(t, err, exec.ErrWorkerHeartbeatNotFound)
+	assert.ErrorIs(t, err, dispatch.ErrWorkerHeartbeatNotFound)
 
 	_, err = s.Get(ctx, "fresh-worker")
 	assert.NoError(t, err)
@@ -148,14 +148,14 @@ func TestDeleteStale_RefreshDuringCleanup(t *testing.T) {
 	s := newWorkerHeartbeatStore(t)
 
 	// Upsert with an old heartbeat time so it would qualify for deletion.
-	old := exec.WorkerHeartbeatRecord{
+	old := dispatch.WorkerHeartbeatRecord{
 		WorkerID:        "refresh-worker",
 		LastHeartbeatAt: time.Now().Add(-10 * time.Minute).UTC().UnixMilli(),
 	}
 	require.NoError(t, s.Upsert(ctx, old))
 
 	// Simulate the worker refreshing its heartbeat before DeleteStale runs.
-	refreshed := exec.WorkerHeartbeatRecord{
+	refreshed := dispatch.WorkerHeartbeatRecord{
 		WorkerID:        "refresh-worker",
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 	}

@@ -6,13 +6,13 @@ package engine
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
 func TestApplyRunOverridesMergesLabels(t *testing.T) {
-	dag := &core.DAG{
-		Labels: core.NewLabels([]string{"env=prod"}),
+	dag := &ir.DAG{
+		Labels: ir.NewLabels([]string{"env=prod"}),
 	}
 
 	applyRunOverrides(dag, RunOptions{

@@ -6,12 +6,12 @@ package agent
 import (
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // createProgressReporter creates the progress reporter
-func createProgressReporter(dag *core.DAG, dagRunID string, params []string) ProgressReporter {
-	if dag != nil && dag.Type == core.TypeController {
+func createProgressReporter(dag *ir.DAG, dagRunID string, params []string) ProgressReporter {
+	if dag != nil && dag.Type == ir.TypeController {
 		display := NewControllerProgressDisplay(dag)
 		display.SetDAGRunInfo(dagRunID, strings.Join(params, " "))
 		return display

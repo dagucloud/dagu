@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var topicTypePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -75,7 +75,7 @@ func canonicalizeTopicIdentifier(topicType TopicType, identifier string) (string
 		if identifier == "" {
 			return "", fmt.Errorf("topic %q requires an identifier", topicType)
 		}
-		if err := core.ValidateDAGName(identifier); err != nil {
+		if err := ir.ValidateDAGName(identifier); err != nil {
 			return "", fmt.Errorf("invalid DAG file name: %w", err)
 		}
 		return identifier, nil

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 const (
@@ -21,19 +21,19 @@ const (
 // finder discovers active service instances from the file system
 type finder struct {
 	baseDir     string
-	serviceName exec.ServiceName
+	serviceName serviceregistry.ServiceName
 	quarantine  *quarantine
 	cleaner     *cleaner
 
 	// Cache to avoid excessive file system access
 	mu            sync.Mutex
-	cachedMembers []exec.HostInfo
+	cachedMembers []serviceregistry.HostInfo
 	cacheTime     time.Time
 	cacheDuration time.Duration
 }
 
 // newFinder creates a finder for discovering service instances
-func newFinder(baseDir string, serviceName exec.ServiceName, enableCleanup bool) *finder {
+func newFinder(baseDir string, serviceName serviceregistry.ServiceName, enableCleanup bool) *finder {
 	f := &finder{
 		baseDir:       baseDir,
 		serviceName:   serviceName,
@@ -56,7 +56,7 @@ func (f *finder) close() {
 }
 
 // members returns all active instances of the service
-func (f *finder) members(ctx context.Context) ([]exec.HostInfo, error) {
+func (f *finder) members(ctx context.Context) ([]serviceregistry.HostInfo, error) {
 	// Try to use cached results first
 	if cached := f.getCachedMembers(); cached != nil {
 		return cached, nil
@@ -75,7 +75,7 @@ func (f *finder) members(ctx context.Context) ([]exec.HostInfo, error) {
 }
 
 // getCachedMembers returns cached members if the cache is still valid
-func (f *finder) getCachedMembers() []exec.HostInfo {
+func (f *finder) getCachedMembers() []serviceregistry.HostInfo {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -83,19 +83,19 @@ func (f *finder) getCachedMembers() []exec.HostInfo {
 		return nil
 	}
 
-	members := make([]exec.HostInfo, len(f.cachedMembers))
+	members := make([]serviceregistry.HostInfo, len(f.cachedMembers))
 	copy(members, f.cachedMembers)
 	return members
 }
 
 // scanServiceDirectory scans the service directory for active instances
-func (f *finder) scanServiceDirectory(ctx context.Context) ([]exec.HostInfo, error) {
+func (f *finder) scanServiceDirectory(ctx context.Context) ([]serviceregistry.HostInfo, error) {
 	instanceFiles, err := f.listInstanceFiles()
 	if err != nil {
 		return nil, err
 	}
 
-	members := make([]exec.HostInfo, 0, len(instanceFiles))
+	members := make([]serviceregistry.HostInfo, 0, len(instanceFiles))
 
 	for _, path := range instanceFiles {
 		if ctx.Err() != nil {
@@ -118,7 +118,7 @@ func (f *finder) listInstanceFiles() ([]string, error) {
 }
 
 // processInstanceFile checks if an instance file is valid and returns its info
-func (f *finder) processInstanceFile(ctx context.Context, path string) *exec.HostInfo {
+func (f *finder) processInstanceFile(ctx context.Context, path string) *serviceregistry.HostInfo {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return nil
@@ -136,7 +136,7 @@ func (f *finder) processInstanceFile(ctx context.Context, path string) *exec.Hos
 		return nil
 	}
 
-	return &exec.HostInfo{
+	return &serviceregistry.HostInfo{
 		ID:        instance.ID,
 		Host:      instance.Host,
 		Port:      instance.Port,
@@ -146,7 +146,7 @@ func (f *finder) processInstanceFile(ctx context.Context, path string) *exec.Hos
 }
 
 // updateCache stores members in the cache (only caches non-empty results)
-func (f *finder) updateCache(members []exec.HostInfo) {
+func (f *finder) updateCache(members []serviceregistry.HostInfo) {
 	if len(members) == 0 {
 		// Don't cache empty results - keep scanning for new services
 		return
@@ -155,7 +155,7 @@ func (f *finder) updateCache(members []exec.HostInfo) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.cachedMembers = make([]exec.HostInfo, len(members))
+	f.cachedMembers = make([]serviceregistry.HostInfo, len(members))
 	copy(f.cachedMembers, members)
 	f.cacheTime = time.Now()
 }

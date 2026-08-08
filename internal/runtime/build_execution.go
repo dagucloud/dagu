@@ -9,15 +9,17 @@ import (
 	"fmt"
 	"maps"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/build"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func (r *Runner) startBuildSession(ctx context.Context, plan *Plan, node *Node) (context.Context, *build.Session, error) {
 	dag := GetDAGContext(ctx).DAG
-	if dag == nil || dag.Type != core.TypeBuild {
+	if dag == nil || dag.Type != ir.TypeBuild {
 		return ctx, nil, nil
 	}
 
@@ -26,7 +28,7 @@ func (r *Runner) startBuildSession(ctx context.Context, plan *Plan, node *Node) 
 	runWorkDir := ""
 	if env.Scope != nil {
 		environment = env.Scope.ToMap()
-		runWorkDir, _ = env.Scope.Get(exec.EnvKeyDAGRunWorkDir)
+		runWorkDir, _ = env.Scope.Get(runenv.EnvKeyDAGRunWorkDir)
 	}
 	shell, err := env.ResolveShell(ctx)
 	if err != nil {
@@ -39,7 +41,7 @@ func (r *Runner) startBuildSession(ctx context.Context, plan *Plan, node *Node) 
 		dependency := plan.GetNode(dependencyID)
 		state := dependency.State()
 		if plan.IsInferredDependency(dependencyID, node.ID()) {
-			if r.dry && (state.Build == nil || state.Build.Decision != exec.BuildDecisionReuse) {
+			if r.dry && (state.Build == nil || state.Build.Decision != dagrun.BuildDecisionReuse) {
 				deferred = true
 			}
 			continue
@@ -47,7 +49,7 @@ func (r *Runner) startBuildSession(ctx context.Context, plan *Plan, node *Node) 
 		if state.Build != nil && state.Build.Fingerprint != "" {
 			controlTokens[dependency.Name()] = state.Build.Fingerprint
 		}
-		if state.Build != nil && state.Build.Decision == exec.BuildDecisionReuse {
+		if state.Build != nil && state.Build.Decision == dagrun.BuildDecisionReuse {
 			continue
 		}
 		controlDependencyRan = true
@@ -86,7 +88,7 @@ func (r *Runner) startBuildSession(ctx context.Context, plan *Plan, node *Node) 
 func markBuildPrecondition(
 	session *build.Session,
 	node *Node,
-	reason exec.BuildReason,
+	reason dagrun.BuildReason,
 	detail string,
 	progressCh chan *Node,
 ) {
@@ -94,8 +96,8 @@ func markBuildPrecondition(
 		return
 	}
 	metadata := session.Metadata()
-	metadata.Decision = exec.BuildDecisionNone
-	metadata.Phase = exec.BuildPhasePrecondition
+	metadata.Decision = dagrun.BuildDecisionNone
+	metadata.Phase = dagrun.BuildPhasePrecondition
 	metadata.Reason = reason
 	metadata.Detail = detail
 	node.setBuild(metadata)
@@ -114,8 +116,8 @@ func (r *Runner) evaluateBuildNode(
 		return false
 	}
 	var err error
-	if session.Metadata().Decision != exec.BuildDecisionAlways {
-		var resolvedStep core.Step
+	if session.Metadata().Decision != dagrun.BuildDecisionAlways {
+		var resolvedStep ir.Step
 		var environment map[string]string
 		resolvedStep, environment, err = resolveBuildRecipe(ctx, node.Step())
 		if err == nil {
@@ -129,14 +131,14 @@ func (r *Runner) evaluateBuildNode(
 		node.setBuild(session.Metadata())
 		r.setLastError(err)
 		node.MarkError(err)
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		reportPreparedNode()
 		return true
 	}
 	node.setBuild(session.Metadata())
 	if r.dry {
 		node.IncDoneCount()
-		node.SetStatus(core.NodeSucceeded)
+		node.SetStatus(ir.NodeSucceeded)
 		reportPreparedNode()
 		return true
 	}
@@ -146,17 +148,17 @@ func (r *Runner) evaluateBuildNode(
 	if err := publishBuildOutputs(ctx, node, session.PublishedOutputs()); err != nil {
 		r.setLastError(err)
 		node.MarkError(err)
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		reportPreparedNode()
 		return true
 	}
 	node.IncDoneCount()
-	node.SetStatus(core.NodeSucceeded)
+	node.SetStatus(ir.NodeSucceeded)
 	reportPreparedNode()
 	return true
 }
 
-func resolveBuildRecipe(ctx context.Context, step core.Step) (core.Step, map[string]string, error) {
+func resolveBuildRecipe(ctx context.Context, step ir.Step) (ir.Step, map[string]string, error) {
 	env := GetEnv(ctx)
 	inputs := make(map[string]string, len(step.Inputs))
 	for _, input := range step.Inputs {
@@ -173,23 +175,23 @@ func resolveBuildRecipe(ctx context.Context, step core.Step) (core.Step, map[str
 	env.Inputs = cmnvalue.ValuesFromStrings(inputs)
 	env.Outputs = cmnvalue.ValuesFromStrings(outputs)
 	if err := addResolvedEnvVars(ctx, &env, step.Env, "env.", cmnvalue.StepEnvField); err != nil {
-		return core.Step{}, nil, err
+		return ir.Step{}, nil, err
 	}
 
 	resolvedCtx := WithEnv(ctx, env)
 	resolvedStep, err := resolveStepCommandArgs(resolvedCtx, step)
 	if err != nil {
-		return core.Step{}, nil, err
+		return ir.Step{}, nil, err
 	}
 	config, err := evalExecutorConfig(resolvedCtx, resolvedStep)
 	if err != nil {
-		return core.Step{}, nil, fmt.Errorf("failed to evaluate step configuration: %w", err)
+		return ir.Step{}, nil, fmt.Errorf("failed to evaluate step configuration: %w", err)
 	}
 	resolvedStep.ExecutorConfig.Config = config
 	if resolvedStep.Script != "" {
 		resolvedStep.Script, err = resolveRuntimeString(resolvedCtx, resolvedStep.Script, scriptField(resolvedCtx, resolvedStep))
 		if err != nil {
-			return core.Step{}, nil, fmt.Errorf("failed to eval script: %w", err)
+			return ir.Step{}, nil, fmt.Errorf("failed to eval script: %w", err)
 		}
 	}
 	return resolvedStep, env.Scope.ToMap(), nil
@@ -199,7 +201,7 @@ func prepareBuildAttempt(
 	ctx context.Context,
 	node *Node,
 	session *build.Session,
-	declaredStep core.Step,
+	declaredStep ir.Step,
 ) (context.Context, string, error) {
 	if session == nil || !session.HasPathOutput() {
 		return ctx, "", nil

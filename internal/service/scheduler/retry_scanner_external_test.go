@@ -8,29 +8,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type retryCandidateDAGRunStore struct {
-	exec.DAGRunStore
+	dagrun.DAGRunStore
 
 	candidateCalls int
-	candidateFrom  exec.TimeInUTC
+	candidateFrom  dagrun.TimeInUTC
 	listCalls      int
-	listOptions    exec.ListDAGRunStatusesOptions
+	listOptions    dagrun.ListDAGRunStatusesOptions
 }
 
-func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from exec.TimeInUTC) ([]*exec.DAGRunStatus, error) {
+func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error) {
 	s.candidateCalls++
 	s.candidateFrom = from
 	return nil, nil
 }
 
-func (s *retryCandidateDAGRunStore) ListStatuses(_ context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (s *retryCandidateDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
 	s.listCalls++
 	for _, opt := range opts {
 		opt(&s.listOptions)
@@ -39,13 +39,13 @@ func (s *retryCandidateDAGRunStore) ListStatuses(_ context.Context, opts ...exec
 }
 
 type fallbackRetryDAGRunStore struct {
-	exec.DAGRunStore
+	dagrun.DAGRunStore
 
 	listCalls   int
-	listOptions exec.ListDAGRunStatusesOptions
+	listOptions dagrun.ListDAGRunStatusesOptions
 }
 
-func (s *fallbackRetryDAGRunStore) ListStatuses(_ context.Context, opts ...exec.ListDAGRunStatusesOption) ([]*exec.DAGRunStatus, error) {
+func (s *fallbackRetryDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
 	s.listCalls++
 	for _, opt := range opts {
 		opt(&s.listOptions)
@@ -92,6 +92,6 @@ func TestRetryScannerFallsBackToStatusListingWithoutCandidateLister(t *testing.T
 
 	assert.Equal(t, 1, store.listCalls)
 	assert.Equal(t, now.Add(-time.Hour), store.listOptions.From.Time)
-	assert.Equal(t, []core.Status{core.Failed}, store.listOptions.Statuses)
+	assert.Equal(t, []ir.Status{ir.Failed}, store.listOptions.Statuses)
 	assert.True(t, store.listOptions.Unlimited)
 }

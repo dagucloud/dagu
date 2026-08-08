@@ -13,17 +13,18 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 )
 
 // QueueRequest describes a DAG-run intake operation that persists a queued
 // attempt before publishing the queue item.
 type QueueRequest struct {
-	DAGRunStore exec.DAGRunStore
-	QueueStore  exec.QueueStore
-	DAG         *core.DAG
+	DAGRunStore dagrun.DAGRunStore
+	QueueStore  queue.QueueStore
+	DAG         *ir.DAG
 	DAGRunID    string
 
 	QueueName string
@@ -31,15 +32,15 @@ type QueueRequest struct {
 	LogBaseDir      string
 	ArtifactBaseDir string
 
-	Root         exec.DAGRunRef
-	Parent       exec.DAGRunRef
-	TriggerType  core.TriggerType
+	Root         dagrun.DAGRunRef
+	Parent       dagrun.DAGRunRef
+	TriggerType  ir.TriggerType
 	TriggerActor string
 	ScheduleTime string
 	ProfileName  string
 	NoReuse      bool
 
-	AttemptOptions exec.NewDAGRunAttemptOptions
+	AttemptOptions dagrun.NewDAGRunAttemptOptions
 
 	// ProceedOnStatusCloseErr preserves legacy CLI enqueue behavior: publish
 	// the queue item after best-effort close so readers can see the queued status.
@@ -50,9 +51,9 @@ type QueueRequest struct {
 
 // QueuedRun is the result of successful DAG-run queue intake.
 type QueuedRun struct {
-	DAGRun      exec.DAGRunRef
-	Attempt     exec.DAGRunAttempt
-	Status      exec.DAGRunStatus
+	DAGRun      dagrun.DAGRunRef
+	Attempt     dagrun.DAGRunAttempt
+	Status      dagrun.DAGRunStatus
 	QueueName   string
 	LogFile     string
 	ArtifactDir string
@@ -70,7 +71,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 	}
 
 	now := req.now()
-	dagRun := exec.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
+	dagRun := dagrun.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
 	queueName := req.queueName()
 
 	logFile, err := logpath.Generate(ctx, req.LogBaseDir, req.DAG.LogDir, req.DAG.Name, req.DAGRunID)
@@ -108,7 +109,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		return nil, err
 	}
 
-	if err := req.QueueStore.Enqueue(ctx, queueName, exec.QueuePriorityLow, dagRun); err != nil {
+	if err := req.QueueStore.Enqueue(ctx, queueName, queue.QueuePriorityLow, dagRun); err != nil {
 		return nil, joinCloseAndEnqueue(
 			wrapCloseErr(writeResult.closeErr),
 			fmt.Errorf("failed to enqueue DAG run: %w", err),
@@ -169,7 +170,7 @@ func artifactDir(ctx context.Context, req QueueRequest) (string, error) {
 	return dir, nil
 }
 
-func queuedStatus(req QueueRequest, dagRun exec.DAGRunRef, attemptID, logFile, archiveDir string, now time.Time) exec.DAGRunStatus {
+func queuedStatus(req QueueRequest, dagRun dagrun.DAGRunRef, attemptID, logFile, archiveDir string, now time.Time) dagrun.DAGRunStatus {
 	root := req.Root
 	if root.Zero() {
 		root = dagRun
@@ -191,7 +192,7 @@ func queuedStatus(req QueueRequest, dagRun exec.DAGRunRef, attemptID, logFile, a
 		opts = append(opts, transform.WithScheduleTime(req.ScheduleTime))
 	}
 
-	return transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, core.Queued, 0, time.Time{}, opts...)
+	return transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Queued, 0, time.Time{}, opts...)
 }
 
 // queuedStatusWriteResult captures non-fatal status write side effects.
@@ -201,7 +202,7 @@ type queuedStatusWriteResult struct {
 	closeErr error
 }
 
-func writeQueuedStatus(ctx context.Context, attempt exec.DAGRunAttempt, status exec.DAGRunStatus, proceedOnCloseErr bool) (queuedStatusWriteResult, error) {
+func writeQueuedStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, status dagrun.DAGRunStatus, proceedOnCloseErr bool) (queuedStatusWriteResult, error) {
 	if err := attempt.Open(ctx); err != nil {
 		return queuedStatusWriteResult{}, fmt.Errorf("failed to open queued DAG run: %w", err)
 	}

@@ -11,8 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 var (
@@ -20,22 +21,22 @@ var (
 )
 
 type queueItemPayload struct {
-	FileName string         `json:"fileName"`
-	DAGRun   exec.DAGRunRef `json:"dagRun"`
-	QueuedAt time.Time      `json:"queuedAt"`
+	FileName string           `json:"fileName"`
+	DAGRun   dagrun.DAGRunRef `json:"dagRun"`
+	QueuedAt time.Time        `json:"queuedAt"`
 }
 
 type queueItem struct {
 	id       string
 	queue    string
-	priority exec.QueuePriority
+	priority queue.QueuePriority
 	queuedAt time.Time
-	dagRun   exec.DAGRunRef
+	dagRun   dagrun.DAGRunRef
 	recordID string
 	dataErr  error
 }
 
-var _ exec.QueuedItemData = (*queueItem)(nil)
+var _ queue.QueuedItemData = (*queueItem)(nil)
 
 func (i *queueItem) ID() string {
 	if i == nil {
@@ -44,7 +45,7 @@ func (i *queueItem) ID() string {
 	return i.id
 }
 
-func (i *queueItem) Data() (*exec.DAGRunRef, error) {
+func (i *queueItem) Data() (*dagrun.DAGRunRef, error) {
 	if i == nil {
 		return nil, fmt.Errorf("queue item is nil")
 	}
@@ -118,8 +119,8 @@ func invalidQueueItemFromRecordID(recordID string, err error) (*queueItem, error
 	return invalidQueueItem(queueName, itemID, recordID, time.Time{}, err), nil
 }
 
-func queueItemsAsData(items []*queueItem) []exec.QueuedItemData {
-	out := make([]exec.QueuedItemData, 0, len(items))
+func queueItemsAsData(items []*queueItem) []queue.QueuedItemData {
+	out := make([]queue.QueuedItemData, 0, len(items))
 	for _, item := range items {
 		out = append(out, item)
 	}
@@ -188,9 +189,9 @@ func normalizeQueueItemID(itemID string) string {
 	return itemID
 }
 
-func newQueueItemID(priority exec.QueuePriority, dagRunID string, t time.Time) string {
+func newQueueItemID(priority queue.QueuePriority, dagRunID string, t time.Time) string {
 	label := "low"
-	if priority == exec.QueuePriorityHigh {
+	if priority == queue.QueuePriorityHigh {
 		label = "high"
 	}
 	t = t.UTC()
@@ -202,15 +203,15 @@ func newQueueItemID(priority exec.QueuePriority, dagRunID string, t time.Time) s
 	)
 }
 
-func queueItemMetadata(itemID string, fallback time.Time) (exec.QueuePriority, time.Time) {
-	priority := exec.QueuePriorityLow
+func queueItemMetadata(itemID string, fallback time.Time) (queue.QueuePriority, time.Time) {
+	priority := queue.QueuePriorityLow
 	queuedAt := fallback.UTC()
 	matches := queueItemIDPattern.FindStringSubmatch(itemID)
 	if len(matches) != 5 {
 		return priority, queuedAt
 	}
 	if matches[1] == "high" {
-		priority = exec.QueuePriorityHigh
+		priority = queue.QueuePriorityHigh
 	}
 	parsed, err := time.Parse(queueDateTimeUTC, matches[2])
 	if err != nil {

@@ -13,8 +13,8 @@ import (
 
 	openapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,13 +29,13 @@ func writeArtifactFile(t *testing.T) string {
 }
 
 func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 2,
 		AutoRetryLimit: 5,
 		ArchiveDir:     writeArtifactFile(t),
-		Status:         core.Queued,
+		Status:         ir.Queued,
 		ScheduleTime:   "2026-03-13T00:00:00Z",
 		TriggerActor:   "alice",
 	}
@@ -52,13 +52,13 @@ func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 3,
 		AutoRetryLimit: 5,
 		ArchiveDir:     writeArtifactFile(t),
-		Status:         core.Queued,
+		Status:         ir.Queued,
 		QueuedAt:       "2026-03-13T00:01:00Z",
 		ScheduleTime:   "2026-03-13T00:00:00Z",
 		TriggerActor:   "alice",
@@ -86,20 +86,20 @@ func TestTriggerActorFromContext(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
-		Status:   core.Waiting,
-		Nodes: []*exec.Node{{
-			Step: core.Step{
+		Status:   ir.Waiting,
+		Nodes: []*dagrun.Node{{
+			Step: ir.Step{
 				ID:   "review",
 				Name: "Review",
-				HumanTask: &core.HumanTaskConfig{
+				HumanTask: &ir.HumanTaskConfig{
 					Prompt: "Confirm the release",
 					Form:   json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer","maximum":9007199254740993}}}`),
 				},
 			},
-			Status:         core.NodeSucceeded,
+			Status:         ir.NodeSucceeded,
 			HumanTaskInput: json.RawMessage(`{}`),
 		}},
 	}
@@ -118,11 +118,11 @@ func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
 }
 
 func TestToDAGRunDetailsTreatsNullHumanTaskFormAsAbsent(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
-		Nodes: []*exec.Node{{
-			Step: core.Step{HumanTask: &core.HumanTaskConfig{Form: json.RawMessage(`null`)}},
+		Nodes: []*dagrun.Node{{
+			Step: ir.Step{HumanTask: &ir.HumanTaskConfig{Form: json.RawMessage(`null`)}},
 		}},
 	}
 
@@ -134,11 +134,11 @@ func TestToDAGRunDetailsTreatsNullHumanTaskFormAsAbsent(t *testing.T) {
 }
 
 func TestToDAGRunDetailsTreatsHumanTaskFormWithTrailingDataAsAbsent(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
-		Nodes: []*exec.Node{{
-			Step: core.Step{HumanTask: &core.HumanTaskConfig{
+		Nodes: []*dagrun.Node{{
+			Step: ir.Step{HumanTask: &ir.HumanTaskConfig{
 				Form: json.RawMessage(`{"type":"object"} trailing`),
 			}},
 		}},
@@ -152,12 +152,12 @@ func TestToDAGRunDetailsTreatsHumanTaskFormWithTrailingDataAsAbsent(t *testing.T
 }
 
 func TestToDAGRunSummaryOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 0,
 		AutoRetryLimit: 0,
-		Status:         core.Failed,
+		Status:         ir.Failed,
 	}
 
 	summary := toDAGRunSummary(status)
@@ -166,12 +166,12 @@ func TestToDAGRunSummaryOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 }
 
 func TestToDAGRunDetailsOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 0,
 		AutoRetryLimit: 0,
-		Status:         core.Failed,
+		Status:         ir.Failed,
 	}
 
 	details := ToDAGRunDetails(status)
@@ -180,10 +180,10 @@ func TestToDAGRunDetailsOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 }
 
 func TestToDAGRunSummarySetsProfileNameWhenPresent(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:        "test-dag",
 		DAGRunID:    "run-1",
-		Status:      core.Succeeded,
+		Status:      ir.Succeeded,
 		ProfileName: "prod",
 	}
 
@@ -193,10 +193,10 @@ func TestToDAGRunSummarySetsProfileNameWhenPresent(t *testing.T) {
 }
 
 func TestToDAGRunSummaryOmitsProfileNameWhenEmpty(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
-		Status:   core.Succeeded,
+		Status:   ir.Succeeded,
 	}
 
 	summary := toDAGRunSummary(status)
@@ -204,10 +204,10 @@ func TestToDAGRunSummaryOmitsProfileNameWhenEmpty(t *testing.T) {
 }
 
 func TestToDAGRunDetailsSetsProfileNameWhenPresent(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:        "test-dag",
 		DAGRunID:    "run-1",
-		Status:      core.Succeeded,
+		Status:      ir.Succeeded,
 		ProfileName: "prod",
 	}
 
@@ -217,10 +217,10 @@ func TestToDAGRunDetailsSetsProfileNameWhenPresent(t *testing.T) {
 }
 
 func TestToDAGRunDetailsOmitsProfileNameWhenEmpty(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
-		Status:   core.Succeeded,
+		Status:   ir.Succeeded,
 	}
 
 	details := ToDAGRunDetails(status)
@@ -228,12 +228,12 @@ func TestToDAGRunDetailsOmitsProfileNameWhenEmpty(t *testing.T) {
 }
 
 func TestToDAGDetailsIncludesParamDefDescriptions(t *testing.T) {
-	details := toDAGDetails(&core.DAG{
+	details := toDAGDetails(&ir.DAG{
 		Name: "described-params",
-		ParamDefs: []core.ParamDef{
+		ParamDefs: []ir.ParamDef{
 			{
 				Name:        "notes",
-				Type:        core.ParamDefTypeString,
+				Type:        ir.ParamDefTypeString,
 				Description: "Free-form operator notes",
 			},
 		},
@@ -247,7 +247,7 @@ func TestToDAGDetailsIncludesParamDefDescriptions(t *testing.T) {
 }
 
 func TestToDAGDetailsIncludesHistoryRetentionRuns(t *testing.T) {
-	details := toDAGDetails(&core.DAG{
+	details := toDAGDetails(&ir.DAG{
 		Name:              "retention-runs",
 		HistRetentionRuns: 3,
 	})
@@ -258,12 +258,12 @@ func TestToDAGDetailsIncludesHistoryRetentionRuns(t *testing.T) {
 }
 
 func TestToDAGIncludesResources(t *testing.T) {
-	limits, err := core.NewResourceLimits("500m", "1Gi")
+	limits, err := ir.NewResourceLimits("500m", "1Gi")
 	require.NoError(t, err)
 
-	dag := toDAG(&core.DAG{
+	dag := toDAG(&ir.DAG{
 		Name:      "limited-dag",
-		Resources: &core.Resources{Limits: limits},
+		Resources: &ir.Resources{Limits: limits},
 	})
 
 	require.NotNil(t, dag.Resources)
@@ -275,12 +275,12 @@ func TestToDAGIncludesResources(t *testing.T) {
 }
 
 func TestToDAGDetailsIncludesResources(t *testing.T) {
-	limits, err := core.NewResourceLimits("750m", "512Mi")
+	limits, err := ir.NewResourceLimits("750m", "512Mi")
 	require.NoError(t, err)
 
-	details := toDAGDetails(&core.DAG{
+	details := toDAGDetails(&ir.DAG{
 		Name:      "limited-dag",
-		Resources: &core.Resources{Limits: limits},
+		Resources: &ir.Resources{Limits: limits},
 	})
 
 	require.NotNil(t, details)
@@ -293,7 +293,7 @@ func TestToDAGDetailsIncludesResources(t *testing.T) {
 }
 
 func TestToDAGDetailsIncludesParamSchema(t *testing.T) {
-	details := toDAGDetails(&core.DAG{
+	details := toDAGDetails(&ir.DAG{
 		Name:        "schema-params",
 		ParamSchema: json.RawMessage(`{"type":"object","properties":{"region":{"type":"string"}}}`),
 	})
@@ -311,14 +311,14 @@ func TestToDAGDetailsIncludesParamSchema(t *testing.T) {
 
 func TestToDAGDetailsOmitsInvalidParamSchema(t *testing.T) {
 	t.Run("missing schema", func(t *testing.T) {
-		details := toDAGDetails(&core.DAG{Name: "no-schema"})
+		details := toDAGDetails(&ir.DAG{Name: "no-schema"})
 
 		require.NotNil(t, details)
 		assert.Nil(t, details.ParamSchema)
 	})
 
 	t.Run("malformed schema", func(t *testing.T) {
-		details := toDAGDetails(&core.DAG{
+		details := toDAGDetails(&ir.DAG{
 			Name:        "bad-schema",
 			ParamSchema: json.RawMessage(`{"type":"object"`),
 		})
@@ -329,9 +329,9 @@ func TestToDAGDetailsOmitsInvalidParamSchema(t *testing.T) {
 }
 
 func TestToDAGDetailsIncludesArtifactsDir(t *testing.T) {
-	details := toDAGDetails(&core.DAG{
+	details := toDAGDetails(&ir.DAG{
 		Name: "artifacts-dir",
-		Artifacts: &core.ArtifactsConfig{
+		Artifacts: &ir.ArtifactsConfig{
 			Enabled: true,
 			Dir:     "/var/lib/dagu/artifacts",
 		},
@@ -345,19 +345,19 @@ func TestToDAGDetailsIncludesArtifactsDir(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesLifecycleHandlers(t *testing.T) {
-	handler := func(name string) *exec.Node {
-		return &exec.Node{
-			Step:      core.Step{Name: name},
-			Status:    core.NodeSucceeded,
+	handler := func(name string) *dagrun.Node {
+		return &dagrun.Node{
+			Step:      ir.Step{Name: name},
+			Status:    ir.NodeSucceeded,
 			Stdout:    name + ".out",
 			StartedAt: "2026-07-25T12:50:56Z",
 		}
 	}
 
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:      "test-dag",
 		DAGRunID:  "run-1",
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		OnInit:    handler("onInit"),
 		OnWait:    handler("onWait"),
 		OnSuccess: handler("onSuccess"),
@@ -380,14 +380,14 @@ func TestToDAGRunDetailsIncludesLifecycleHandlers(t *testing.T) {
 }
 
 func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
-	node := &exec.Node{
-		Step: core.Step{
+	node := &dagrun.Node{
+		Step: ir.Step{
 			Name: "review",
-			Approval: &core.ApprovalConfig{
+			Approval: &ir.ApprovalConfig{
 				Input: []string{"FEEDBACK"},
 			},
 		},
-		Status:                 core.NodeWaiting,
+		Status:                 ir.NodeWaiting,
 		StartedAt:              "2026-04-26T06:00:00Z",
 		FinishedAt:             "2026-04-26T06:01:00Z",
 		HumanTaskCompletedBy:   "operator",
@@ -400,7 +400,7 @@ func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
 		Stderr:                 "stderr.log",
 		ApprovalIteration:      1,
 		PushBackInputs:         map[string]string{"FEEDBACK": "revise the summary", "IGNORED": "x"},
-		PushBackHistory: []exec.PushBackEntry{{
+		PushBackHistory: []dagrun.PushBackEntry{{
 			Iteration: 1,
 			By:        "reviewer",
 			ByID:      "user-3",
@@ -436,16 +436,16 @@ func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
 }
 
 func TestToDAGIncludesTypedSchedules(t *testing.T) {
-	cronSchedule, err := core.NewCronSchedule("*/5 * * * *")
+	cronSchedule, err := ir.NewCronSchedule("*/5 * * * *")
 	require.NoError(t, err)
 	cronSchedule.Profile = "prod"
 
-	oneOffSchedule, err := core.NewOneOffSchedule("2026-03-29T02:10:00+01:00")
+	oneOffSchedule, err := ir.NewOneOffSchedule("2026-03-29T02:10:00+01:00")
 	require.NoError(t, err)
 
-	dag := toDAG(&core.DAG{
+	dag := toDAG(&ir.DAG{
 		Name:     "typed-schedules",
-		Schedule: []core.Schedule{cronSchedule, oneOffSchedule},
+		Schedule: []ir.Schedule{cronSchedule, oneOffSchedule},
 	})
 
 	require.NotNil(t, dag.Schedule)
@@ -471,12 +471,12 @@ func TestToDAGIncludesTypedSchedules(t *testing.T) {
 }
 
 func TestToDAGDetailsIncludesTypedSchedules(t *testing.T) {
-	oneOffSchedule, err := core.NewOneOffSchedule("2026-03-29T02:10:00Z")
+	oneOffSchedule, err := ir.NewOneOffSchedule("2026-03-29T02:10:00Z")
 	require.NoError(t, err)
 
-	details := toDAGDetails(&core.DAG{
+	details := toDAGDetails(&ir.DAG{
 		Name:     "typed-schedules",
-		Schedule: []core.Schedule{oneOffSchedule},
+		Schedule: []ir.Schedule{oneOffSchedule},
 	})
 
 	require.NotNil(t, details.Schedule)
@@ -492,25 +492,25 @@ func TestToNodeMapsStatuses(t *testing.T) {
 
 	testCases := []struct {
 		name        string
-		coreStatus  core.NodeStatus
+		coreStatus  ir.NodeStatus
 		apiStatus   openapi.NodeStatus
 		statusLabel openapi.NodeStatusLabel
 	}{
 		{
 			name:        "running",
-			coreStatus:  core.NodeRunning,
+			coreStatus:  ir.NodeRunning,
 			apiStatus:   openapi.NodeStatusRunning,
 			statusLabel: openapi.NodeStatusLabelRunning,
 		},
 		{
 			name:        "retrying",
-			coreStatus:  core.NodeRetrying,
+			coreStatus:  ir.NodeRetrying,
 			apiStatus:   openapi.NodeStatusRetrying,
 			statusLabel: openapi.NodeStatusLabelRetrying,
 		},
 		{
 			name:        "partial success",
-			coreStatus:  core.NodePartiallySucceeded,
+			coreStatus:  ir.NodePartiallySucceeded,
 			apiStatus:   openapi.NodeStatusPartialSuccess,
 			statusLabel: openapi.NodeStatusLabelPartiallySucceeded,
 		},
@@ -520,9 +520,9 @@ func TestToNodeMapsStatuses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			node := &exec.Node{
+			node := &dagrun.Node{
 				Status: tc.coreStatus,
-				Step: core.Step{
+				Step: ir.Step{
 					Name: "step-" + tc.name,
 				},
 			}
@@ -538,24 +538,24 @@ func TestToNodeMapsStatuses(t *testing.T) {
 func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 	t.Parallel()
 
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "build-dag",
 		DAGRunID: "run-2",
-		Status:   core.Succeeded,
+		Status:   ir.Succeeded,
 		NoReuse:  true,
-		Nodes: []*exec.Node{{
-			Step: core.Step{
+		Nodes: []*dagrun.Node{{
+			Step: ir.Step{
 				ID:      "build",
 				Name:    "build",
-				Inputs:  []core.StepInputDeclaration{{Name: "source", Path: "/data/source.txt"}},
-				Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: "/data/artifact.txt"}},
+				Inputs:  []ir.StepInputDeclaration{{Name: "source", Path: "/data/source.txt"}},
+				Outputs: []ir.StepOutputDeclaration{{Name: "artifact", Path: "/data/artifact.txt"}},
 			},
-			Status: core.NodeSucceeded,
-			Build: &exec.BuildExecution{
+			Status: ir.NodeSucceeded,
+			Build: &dagrun.BuildExecution{
 				Decision:    "reuse",
 				Phase:       "complete",
 				Reason:      "matched",
-				ProducerRun: exec.NewDAGRunRef("build-dag", "run-1"),
+				ProducerRun: dagrun.NewDAGRunRef("build-dag", "run-1"),
 			},
 		}},
 	}
@@ -578,17 +578,17 @@ func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 func TestNodeStatusMappingIsExhaustive(t *testing.T) {
 	t.Parallel()
 
-	expected := map[openapi.NodeStatus]core.NodeStatus{
-		openapi.NodeStatusNotStarted:     core.NodeNotStarted,
-		openapi.NodeStatusRunning:        core.NodeRunning,
-		openapi.NodeStatusFailed:         core.NodeFailed,
-		openapi.NodeStatusAborted:        core.NodeAborted,
-		openapi.NodeStatusSuccess:        core.NodeSucceeded,
-		openapi.NodeStatusSkipped:        core.NodeSkipped,
-		openapi.NodeStatusPartialSuccess: core.NodePartiallySucceeded,
-		openapi.NodeStatusWaiting:        core.NodeWaiting,
-		openapi.NodeStatusRejected:       core.NodeRejected,
-		openapi.NodeStatusRetrying:       core.NodeRetrying,
+	expected := map[openapi.NodeStatus]ir.NodeStatus{
+		openapi.NodeStatusNotStarted:     ir.NodeNotStarted,
+		openapi.NodeStatusRunning:        ir.NodeRunning,
+		openapi.NodeStatusFailed:         ir.NodeFailed,
+		openapi.NodeStatusAborted:        ir.NodeAborted,
+		openapi.NodeStatusSuccess:        ir.NodeSucceeded,
+		openapi.NodeStatusSkipped:        ir.NodeSkipped,
+		openapi.NodeStatusPartialSuccess: ir.NodePartiallySucceeded,
+		openapi.NodeStatusWaiting:        ir.NodeWaiting,
+		openapi.NodeStatusRejected:       ir.NodeRejected,
+		openapi.NodeStatusRetrying:       ir.NodeRetrying,
 	}
 
 	assert.Len(t, nodeStatusMapping, len(expected))

@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
@@ -21,18 +21,18 @@ func TestRouterPrefersFirstMatchingRunner(t *testing.T) {
 
 	distributed := &stubRunner{
 		shouldRun: true,
-		result: &exec.RunStatus{
+		result: &dagrun.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		},
 	}
 	local := &stubRunner{
 		shouldRun: true,
-		result: &exec.RunStatus{
+		result: &dagrun.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
-			Status:   core.Failed,
+			Status:   ir.Failed,
 		},
 	}
 	router := subflow.NewRouter(distributed, local)
@@ -41,7 +41,7 @@ func TestRouterPrefersFirstMatchingRunner(t *testing.T) {
 	got, err := router.Run(context.Background(), req)
 	require.NoError(t, err)
 
-	assert.Equal(t, core.Succeeded, got.Status)
+	assert.Equal(t, ir.Succeeded, got.Status)
 	assert.Equal(t, 1, distributed.runCount)
 	assert.Equal(t, 0, local.runCount)
 }
@@ -52,10 +52,10 @@ func TestRouterFallsBackToLocalRunner(t *testing.T) {
 	distributed := &stubRunner{shouldRun: false}
 	local := &stubRunner{
 		shouldRun: true,
-		result: &exec.RunStatus{
+		result: &dagrun.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		},
 	}
 	router := subflow.NewRouter(distributed, local)
@@ -64,7 +64,7 @@ func TestRouterFallsBackToLocalRunner(t *testing.T) {
 	got, err := router.Run(context.Background(), req)
 	require.NoError(t, err)
 
-	assert.Equal(t, core.Succeeded, got.Status)
+	assert.Equal(t, ir.Succeeded, got.Status)
 	assert.Equal(t, 0, distributed.runCount)
 	assert.Equal(t, 1, local.runCount)
 }
@@ -151,19 +151,19 @@ func TestLocalForceLocalOverridesWorkerSelector(t *testing.T) {
 
 func validSubWorkflowRequest() executor.SubWorkflowRequest {
 	return executor.SubWorkflowRequest{
-		DAG: &core.DAG{
+		DAG: &ir.DAG{
 			Name:     "child",
 			Location: "/tmp/child.yaml",
 		},
-		RootDAGRun:   exec.NewDAGRunRef("root", "root-run"),
-		ParentDAGRun: exec.NewDAGRunRef("parent", "parent-run"),
+		RootDAGRun:   dagrun.NewDAGRunRef("root", "root-run"),
+		ParentDAGRun: dagrun.NewDAGRunRef("parent", "parent-run"),
 		RunID:        "child-run",
 	}
 }
 
 type stubRunner struct {
 	shouldRun   bool
-	result      *exec.RunStatus
+	result      *dagrun.RunStatus
 	runCount    int
 	cancelCount int
 }
@@ -172,12 +172,12 @@ func (r *stubRunner) ShouldRun(context.Context, executor.SubWorkflowRequest) boo
 	return r.shouldRun
 }
 
-func (r *stubRunner) Run(context.Context, executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *stubRunner) Run(context.Context, executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
 	r.runCount++
 	return r.result, nil
 }
 
-func (r *stubRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+func (r *stubRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
 	return r.result, nil
 }
 
@@ -205,17 +205,17 @@ func (r *blockingRunner) ShouldRun(context.Context, executor.SubWorkflowRequest)
 	return r.shouldRun
 }
 
-func (r *blockingRunner) Run(context.Context, executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *blockingRunner) Run(context.Context, executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
 	close(r.started)
 	<-r.release
-	return &exec.RunStatus{
+	return &dagrun.RunStatus{
 		Name:     "child",
 		DAGRunID: "child-run",
-		Status:   core.Succeeded,
+		Status:   ir.Succeeded,
 	}, nil
 }
 
-func (r *blockingRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+func (r *blockingRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
 	return nil, nil
 }
 

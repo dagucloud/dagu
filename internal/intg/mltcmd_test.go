@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -38,7 +38,7 @@ steps:
 `)
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "hello\nworld",
@@ -59,7 +59,7 @@ steps:
 `)
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "first command\nsecond command\nthird command",
@@ -81,7 +81,7 @@ steps:
 `)
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "hello\nhello world",
@@ -101,7 +101,7 @@ steps:
 `)
 		agent := dag.Agent()
 		agent.RunError(t)
-		dag.AssertLatestStatus(t, core.Failed)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
 	t.Run("SecondCommandFails", func(t *testing.T) {
@@ -118,7 +118,7 @@ steps:
 `)
 		agent := dag.Agent()
 		agent.RunError(t)
-		dag.AssertLatestStatus(t, core.Failed)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
 	t.Run("CommandsWithPipes", func(t *testing.T) {
@@ -135,7 +135,7 @@ steps:
 `)
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "Hello world\nFoo bar",
@@ -156,7 +156,7 @@ steps:
 `)
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "/tmp\ndone",
@@ -182,7 +182,7 @@ steps:
 `)
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"STEP1_OUT": "step1",
@@ -202,7 +202,7 @@ steps:
 `)
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "SATID: 123",
 		})
@@ -235,7 +235,7 @@ steps:
 `, testImage))
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "hello\nworld",
@@ -263,7 +263,7 @@ steps:
 `, testImage))
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "hello\ndone",
@@ -289,7 +289,7 @@ steps:
 `, testImage))
 		agent := dag.Agent()
 		agent.RunError(t)
-		dag.AssertLatestStatus(t, core.Failed)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
 	t.Run("SecondCommandFailsInContainer", func(t *testing.T) {
@@ -312,7 +312,7 @@ steps:
 `, testImage))
 		agent := dag.Agent()
 		agent.RunError(t)
-		dag.AssertLatestStatus(t, core.Failed)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
 	t.Run("DAGLevelContainerWithMultipleCommands", func(t *testing.T) {
@@ -331,7 +331,7 @@ steps:
 `, testImage))
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "hello\nworld",
@@ -362,7 +362,7 @@ steps:
 `, testImage))
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"STEP1_OUT": "step1-cmd1\nstep1-cmd2",
@@ -388,7 +388,7 @@ steps:
 `, testImage))
 		agent := dag.Agent()
 		agent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Output is concatenated from all commands
 		dag.AssertOutputs(t, map[string]any{
 			"OUT": "hello\nworld",

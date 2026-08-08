@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
 
 // Sentinel errors for doc store operations.
@@ -98,13 +99,13 @@ type SearchDocMatchesOptions struct {
 
 // DocSearchResult holds a doc ID/title and its grep matches.
 type DocSearchResult struct {
-	ID                string        `json:"id"`
-	Title             string        `json:"title"`
-	Description       string        `json:"description,omitempty"`
-	ModTime           time.Time     `json:"modTime"`
-	Matches           []*exec.Match `json:"matches"`
-	HasMoreMatches    bool          `json:"hasMoreMatches"`
-	NextMatchesCursor string        `json:"nextMatchesCursor,omitempty"`
+	ID                string            `json:"id"`
+	Title             string            `json:"title"`
+	Description       string            `json:"description,omitempty"`
+	ModTime           time.Time         `json:"modTime"`
+	Matches           []*dagstore.Match `json:"matches"`
+	HasMoreMatches    bool              `json:"hasMoreMatches"`
+	NextMatchesCursor string            `json:"nextMatchesCursor,omitempty"`
 }
 
 // DeleteError represents a single item failure in a batch delete operation.
@@ -115,8 +116,8 @@ type DeleteError struct {
 
 // DocStore defines the interface for doc persistence.
 type DocStore interface {
-	List(ctx context.Context, opts ListDocsOptions) (*exec.PaginatedResult[*DocTreeNode], error)
-	ListFlat(ctx context.Context, opts ListDocsOptions) (*exec.PaginatedResult[DocMetadata], error)
+	List(ctx context.Context, opts ListDocsOptions) (*pagination.PaginatedResult[*DocTreeNode], error)
+	ListFlat(ctx context.Context, opts ListDocsOptions) (*pagination.PaginatedResult[DocMetadata], error)
 	Get(ctx context.Context, id string) (*Doc, error)
 	Create(ctx context.Context, id, content string) error
 	Update(ctx context.Context, id, content string) error
@@ -124,8 +125,8 @@ type DocStore interface {
 	DeleteBatch(ctx context.Context, ids []string) (deleted []string, failed []DeleteError, err error)
 	Rename(ctx context.Context, oldID, newID string) error
 	Search(ctx context.Context, query string) ([]*DocSearchResult, error)
-	SearchCursor(ctx context.Context, opts SearchDocsOptions) (*exec.CursorResult[DocSearchResult], error)
-	SearchMatches(ctx context.Context, id string, opts SearchDocMatchesOptions) (*exec.CursorResult[*exec.Match], error)
+	SearchCursor(ctx context.Context, opts SearchDocsOptions) (*pagination.CursorResult[DocSearchResult], error)
+	SearchMatches(ctx context.Context, id string, opts SearchDocMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error)
 }
 
 // validDocIDRegexp matches a valid doc ID: segments separated by slashes.

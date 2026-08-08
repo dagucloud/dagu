@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,12 +55,12 @@ steps:
 	assert.Equal(t, "Deploy ${ENVIRONMENT}?", step.HumanTask.Prompt)
 	assert.Empty(t, step.ExecutorConfig.Type)
 	assert.Empty(t, step.ExecutorConfig.Config)
-	assert.ElementsMatch(t, []core.StepOutputDeclaration{
-		{Name: "window", Type: core.StepDeclaredOutputTypeString},
-		{Name: "retries", Type: core.StepDeclaredOutputTypeJSON},
-		{Name: "confirmed", Type: core.StepDeclaredOutputTypeJSON},
-		{Name: "note", Type: core.StepDeclaredOutputTypeString},
-		{Name: "decision", Type: core.StepDeclaredOutputTypeString},
+	assert.ElementsMatch(t, []ir.StepOutputDeclaration{
+		{Name: "window", Type: ir.StepDeclaredOutputTypeString},
+		{Name: "retries", Type: ir.StepDeclaredOutputTypeJSON},
+		{Name: "confirmed", Type: ir.StepDeclaredOutputTypeJSON},
+		{Name: "note", Type: ir.StepDeclaredOutputTypeString},
+		{Name: "decision", Type: ir.StepDeclaredOutputTypeString},
 	}, step.Outputs)
 
 	var form map[string]any

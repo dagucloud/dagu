@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 )
 
@@ -30,12 +30,12 @@ const maxReasonWidth = 120
 type ControllerProgressDisplay struct {
 	progressWriter
 
-	dag      *core.DAG
+	dag      *ir.DAG
 	dagRunID string
 	params   string
 
 	mu            sync.Mutex
-	status        core.Status
+	status        ir.Status
 	state         controller.State
 	printedEvents int
 	runningAction string
@@ -51,7 +51,7 @@ type ControllerProgressDisplay struct {
 var _ ProgressReporter = (*ControllerProgressDisplay)(nil)
 
 // NewControllerProgressDisplay creates a progress display for a controller DAG.
-func NewControllerProgressDisplay(dag *core.DAG) *ControllerProgressDisplay {
+func NewControllerProgressDisplay(dag *ir.DAG) *ControllerProgressDisplay {
 	return &ControllerProgressDisplay{
 		progressWriter: newProgressWriter(),
 		dag:            dag,
@@ -75,11 +75,11 @@ func (p *ControllerProgressDisplay) Stop() {
 
 // UpdateNode consumes node updates. The controller node carries the decision
 // timeline; every other node marks which action is in flight.
-func (p *ControllerProgressDisplay) UpdateNode(node *exec.Node) {
+func (p *ControllerProgressDisplay) UpdateNode(node *dagrun.Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if node.Step.Name == core.ControllerStepName {
+	if node.Step.Name == ir.ControllerStepName {
 		if len(node.ControllerState) == 0 {
 			return
 		}
@@ -93,7 +93,7 @@ func (p *ControllerProgressDisplay) UpdateNode(node *exec.Node) {
 	}
 
 	switch {
-	case node.Status == core.NodeRunning:
+	case node.Status == ir.NodeRunning:
 		p.runningAction = node.Step.Name
 	case p.runningAction == node.Step.Name:
 		p.runningAction = ""
@@ -101,7 +101,7 @@ func (p *ControllerProgressDisplay) UpdateNode(node *exec.Node) {
 }
 
 // UpdateStatus updates the overall DAG status.
-func (p *ControllerProgressDisplay) UpdateStatus(status *exec.DAGRunStatus) {
+func (p *ControllerProgressDisplay) UpdateStatus(status *dagrun.DAGRunStatus) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.status = status.Status
@@ -169,7 +169,7 @@ func (p *ControllerProgressDisplay) flushEventsLocked(final bool) {
 // actionSettled reports whether an action event carries its final outcome.
 func actionSettled(status string) bool {
 	switch status {
-	case "", core.NodeRunning.String(), core.NodeRetrying.String(), core.NodeWaiting.String():
+	case "", ir.NodeRunning.String(), ir.NodeRetrying.String(), ir.NodeWaiting.String():
 		return false
 	}
 	return true
@@ -197,7 +197,7 @@ func (p *ControllerProgressDisplay) formatEvent(event controller.Event) string {
 		if event.Attempt > 1 {
 			line += " " + p.gray(fmt.Sprintf("(attempt %d)", event.Attempt))
 		}
-		if event.Status == core.NodeFailed.String() && event.Reason != "" {
+		if event.Status == ir.NodeFailed.String() && event.Reason != "" {
 			line += " " + p.gray(compactReason(event.Reason))
 		}
 		return line
@@ -300,11 +300,11 @@ func compactReason(reason string) string {
 // nodeStatusMark maps a node status to a one-character outcome mark.
 func nodeStatusMark(status string) string {
 	switch status {
-	case core.NodeSucceeded.String():
+	case ir.NodeSucceeded.String():
 		return "✓"
-	case core.NodeFailed.String(), core.NodeAborted.String(), core.NodeRejected.String():
+	case ir.NodeFailed.String(), ir.NodeAborted.String(), ir.NodeRejected.String():
 		return "✗"
-	case core.NodeWaiting.String():
+	case ir.NodeWaiting.String():
 		return "⏸"
 	default:
 		return status

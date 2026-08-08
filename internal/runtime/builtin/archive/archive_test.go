@@ -14,15 +14,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/mholt/archives"
 )
 
 func TestNewExecutorRequiresCommandMessage(t *testing.T) {
 	t.Parallel()
 
-	_, err := newExecutor(context.Background(), core.Step{
-		ExecutorConfig: core.ExecutorConfig{Type: executorType},
+	_, err := newExecutor(context.Background(), ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -46,10 +46,10 @@ func TestRunExtractZip(t *testing.T) {
 
 	destDir := filepath.Join(tempDir, "out")
 
-	step := core.Step{
+	step := ir.Step{
 		Name:     "extract-zip",
-		Commands: []core.CommandEntry{{Command: opExtract}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: opExtract}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: executorType,
 			Config: map[string]any{
 				"source":      sourceArchive,
@@ -105,10 +105,10 @@ func TestRunCreateTarGzAndList(t *testing.T) {
 
 	destArchive := filepath.Join(tempDir, "bundle.tar.gz")
 
-	createStep := core.Step{
+	createStep := ir.Step{
 		Name:     "create-tar",
-		Commands: []core.CommandEntry{{Command: opCreate}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: opCreate}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: executorType,
 			Config: map[string]any{
 				"source":      sourceDir,
@@ -153,10 +153,10 @@ func TestRunCreateTarGzAndList(t *testing.T) {
 	checkFile("data/a.txt", "alpha")
 	checkFile("data/b.txt", "beta")
 
-	listStep := core.Step{
+	listStep := ir.Step{
 		Name:     "list-archive",
-		Commands: []core.CommandEntry{{Command: opList}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: opList}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: executorType,
 			Config: map[string]any{
 				"source": destArchive,

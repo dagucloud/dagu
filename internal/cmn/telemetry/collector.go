@@ -17,8 +17,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // Histogram bucket definitions
@@ -36,11 +40,11 @@ var _ prometheus.Collector = (*Collector)(nil)
 type Collector struct {
 	startTime            time.Time
 	version              string
-	dagStore             exec.DAGStore
-	dagRunStore          exec.DAGRunStore
-	queueStore           exec.QueueStore
-	serviceRegistry      exec.ServiceRegistry
-	workerHeartbeatStore exec.WorkerHeartbeatStore
+	dagStore             dagstore.DAGStore
+	dagRunStore          dagrun.DAGRunStore
+	queueStore           queue.QueueStore
+	serviceRegistry      serviceregistry.ServiceRegistry
+	workerHeartbeatStore dispatch.WorkerHeartbeatStore
 	caches               []fileutil.CacheMetrics
 	now                  func() time.Time
 
@@ -78,10 +82,10 @@ type Collector struct {
 // NewCollector creates a new metrics collector
 func NewCollector(
 	version string,
-	dagStore exec.DAGStore,
-	dagRunStore exec.DAGRunStore,
-	queueStore exec.QueueStore,
-	serviceRegistry exec.ServiceRegistry,
+	dagStore dagstore.DAGStore,
+	dagRunStore dagrun.DAGRunStore,
+	queueStore queue.QueueStore,
+	serviceRegistry serviceregistry.ServiceRegistry,
 ) *Collector {
 	return &Collector{
 		startTime:       time.Now(),
@@ -223,7 +227,7 @@ func NewCollector(
 }
 
 // SetWorkerHeartbeatStore sets the worker heartbeat store used for worker metrics.
-func (c *Collector) SetWorkerHeartbeatStore(store exec.WorkerHeartbeatStore) {
+func (c *Collector) SetWorkerHeartbeatStore(store dispatch.WorkerHeartbeatStore) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.workerHeartbeatStore = store
@@ -302,11 +306,11 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	// Scheduler status
 	schedulerRunning := float64(0)
 	if c.serviceRegistry != nil {
-		members, err := c.serviceRegistry.GetServiceMembers(ctx, exec.ServiceNameScheduler)
+		members, err := c.serviceRegistry.GetServiceMembers(ctx, serviceregistry.ServiceNameScheduler)
 		if err == nil {
 			// Check if any scheduler instance is active
 			for _, member := range members {
-				if member.Status == exec.ServiceStatusActive {
+				if member.Status == serviceregistry.ServiceStatusActive {
 					schedulerRunning = 1
 					break
 				}
@@ -370,7 +374,7 @@ func (c *Collector) collectDAGRunMetrics(ctx context.Context, ch chan<- promethe
 		statusCounts[statusLabel]++
 		dm.statusCounts[statusLabel]++
 
-		if st.Status == core.Running {
+		if st.Status == ir.Running {
 			currentlyRunning++
 			dm.running++
 		}
@@ -440,7 +444,7 @@ func (c *Collector) collectDAGRunMetrics(ctx context.Context, ch chan<- promethe
 
 func (c *Collector) collectDAGMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
 	// Get all DAGs using List with empty options to get all
-	result, _, err := c.dagStore.List(ctx, exec.ListDAGsOptions{})
+	result, _, err := c.dagStore.List(ctx, dagstore.ListDAGsOptions{})
 	if err != nil {
 		return
 	}
@@ -545,7 +549,7 @@ func (c *Collector) collectWorkerMetrics(ctx context.Context, ch chan<- promethe
 
 func (c *Collector) collectWorkerRecordMetrics(
 	ch chan<- prometheus.Metric,
-	record exec.WorkerHeartbeatRecord,
+	record dispatch.WorkerHeartbeatRecord,
 	now time.Time,
 ) {
 	c.collectWorkerInfoMetrics(ch, record)
@@ -612,7 +616,7 @@ func (c *Collector) collectWorkerRecordMetrics(
 	)
 }
 
-func (c *Collector) collectWorkerInfoMetrics(ch chan<- prometheus.Metric, record exec.WorkerHeartbeatRecord) {
+func (c *Collector) collectWorkerInfoMetrics(ch chan<- prometheus.Metric, record dispatch.WorkerHeartbeatRecord) {
 	keys := make([]string, 0, len(record.Labels))
 	for key := range record.Labels {
 		keys = append(keys, key)
@@ -654,7 +658,7 @@ func workerHealthStatus(sinceLastHeartbeat time.Duration) string {
 	}
 }
 
-func workerStats(record exec.WorkerHeartbeatRecord, now time.Time) workerStatsSnapshot {
+func workerStats(record dispatch.WorkerHeartbeatRecord, now time.Time) workerStatsSnapshot {
 	if record.Stats == nil {
 		return workerStatsSnapshot{}
 	}
@@ -678,11 +682,11 @@ func workerStats(record exec.WorkerHeartbeatRecord, now time.Time) workerStatsSn
 }
 
 // isCompletedStatus returns true if the status represents a terminal state
-func isCompletedStatus(s core.Status) bool {
+func isCompletedStatus(s ir.Status) bool {
 	switch s {
-	case core.Succeeded, core.Failed, core.Aborted, core.PartiallySucceeded, core.Rejected:
+	case ir.Succeeded, ir.Failed, ir.Aborted, ir.PartiallySucceeded, ir.Rejected:
 		return true
-	case core.NotStarted, core.Running, core.Queued, core.Waiting:
+	case ir.NotStarted, ir.Running, ir.Queued, ir.Waiting:
 		return false
 	}
 	return false

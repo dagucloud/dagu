@@ -8,13 +8,13 @@ package docker_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	dockerruntime "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLoadConfigPreservesWindowsDriveLetterBindSource(t *testing.T) {
-	cfg, err := dockerruntime.LoadConfig("", core.Container{
+	cfg, err := dockerruntime.LoadConfig("", ir.Container{
 		Image:   "alpine",
 		Volumes: []string{`C:\temp\data:/data:ro`},
 	}, nil)
@@ -24,7 +24,7 @@ func TestLoadConfigPreservesWindowsDriveLetterBindSource(t *testing.T) {
 }
 
 func TestLoadConfigPreservesWindowsForwardSlashDriveLetterBindSource(t *testing.T) {
-	cfg, err := dockerruntime.LoadConfig("", core.Container{
+	cfg, err := dockerruntime.LoadConfig("", ir.Container{
 		Image:   "alpine",
 		Volumes: []string{"C:/temp/data:/data"},
 	}, nil)
@@ -34,7 +34,7 @@ func TestLoadConfigPreservesWindowsForwardSlashDriveLetterBindSource(t *testing.
 }
 
 func TestLoadConfigPreservesDockerToolboxStyleBindSource(t *testing.T) {
-	cfg, err := dockerruntime.LoadConfig("", core.Container{
+	cfg, err := dockerruntime.LoadConfig("", ir.Container{
 		Image:   "alpine",
 		Volumes: []string{"//C:/temp/data:/data:rw"},
 	}, nil)

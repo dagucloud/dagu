@@ -37,6 +37,8 @@ type DAGEditorWithDocsProps = {
   schema?: JSONSchema | null;
   /** Stable model URI used for per-document schema association */
   modelUri?: string;
+  /** Server-side validation markers forwarded to the editor */
+  markers?: import('monaco-editor').editor.IMarkerData[];
 };
 
 /**
@@ -52,6 +54,7 @@ function DAGEditorWithDocs({
   headerActions,
   schema,
   modelUri,
+  markers,
 }: DAGEditorWithDocsProps) {
   // Schema documentation sidebar state (default open, remembers user preference)
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -151,6 +154,7 @@ function DAGEditorWithDocs({
               onCursorPositionChange={handleCursorPositionChange}
               modelUri={modelUri}
               schema={schema}
+              markers={markers}
             />
           </React.Suspense>
         </div>

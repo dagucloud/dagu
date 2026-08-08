@@ -14,11 +14,13 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 const (
@@ -30,7 +32,7 @@ type remoteRunMetadata struct {
 	dagRunID  string
 	dagName   string
 	attemptID string
-	root      exec.DAGRunRef
+	root      dagrun.DAGRunRef
 }
 
 func (m remoteRunMetadata) key() string {
@@ -39,12 +41,12 @@ func (m remoteRunMetadata) key() string {
 
 func (m remoteRunMetadata) normalize() remoteRunMetadata {
 	if m.root.Zero() && m.dagName != "" && m.dagRunID != "" {
-		m.root = exec.NewDAGRunRef(m.dagName, m.dagRunID)
+		m.root = dagrun.NewDAGRunRef(m.dagName, m.dagRunID)
 	}
 	return m
 }
 
-func (m remoteRunMetadata) withRun(dagRunID, dagName, attemptID string, root exec.DAGRunRef) remoteRunMetadata {
+func (m remoteRunMetadata) withRun(dagRunID, dagName, attemptID string, root dagrun.DAGRunRef) remoteRunMetadata {
 	if dagRunID != "" {
 		m.dagRunID = dagRunID
 	}
@@ -70,7 +72,7 @@ func (m remoteRunMetadata) withAttemptID(attemptID string) remoteRunMetadata {
 type remoteRunReporter struct {
 	client    coordinator.Client
 	workerID  string
-	owner     exec.HostInfo
+	owner     serviceregistry.HostInfo
 	mu        sync.Mutex
 	defaults  remoteRunMetadata
 	logs      map[string]*coordreport.LogStreamer
@@ -82,7 +84,7 @@ func newRemoteRunReporter(
 	client coordinator.Client,
 	workerID string,
 	defaults remoteRunMetadata,
-	owner exec.HostInfo,
+	owner serviceregistry.HostInfo,
 ) *remoteRunReporter {
 	return &remoteRunReporter{
 		client:    client,
@@ -182,7 +184,7 @@ func (r *remoteRunReporter) Finalize(ctx context.Context, attemptID, dir string)
 	return uploader.Finalize(ctx, attemptID, dir)
 }
 
-func (r *remoteRunReporter) finalizeSchedulerLogForStatus(ctx context.Context, status exec.DAGRunStatus) (bool, error) {
+func (r *remoteRunReporter) finalizeSchedulerLogForStatus(ctx context.Context, status dagrun.DAGRunStatus) (bool, error) {
 	if r == nil {
 		return false, nil
 	}
@@ -220,7 +222,7 @@ func (r *remoteRunReporter) schedulerLogEntry(meta remoteRunMetadata, logFile st
 
 func (r *remoteRunReporter) metadataFromContext(ctx context.Context) remoteRunMetadata {
 	meta := r.defaultMetadata()
-	if rCtx, ok := exec.LookupContext(ctx); ok {
+	if rCtx, ok := runctx.LookupContext(ctx); ok {
 		dagName := ""
 		if rCtx.DAG != nil {
 			dagName = rCtx.DAG.Name
@@ -230,7 +232,7 @@ func (r *remoteRunReporter) metadataFromContext(ctx context.Context) remoteRunMe
 	return meta.normalize()
 }
 
-func (r *remoteRunReporter) metadataFromStatus(status exec.DAGRunStatus) remoteRunMetadata {
+func (r *remoteRunReporter) metadataFromStatus(status dagrun.DAGRunStatus) remoteRunMetadata {
 	return r.defaultMetadata().withRun(status.DAGRunID, status.Name, status.AttemptID, status.Root)
 }
 
@@ -510,10 +512,10 @@ type finalSchedulerLogStatusPusher struct {
 }
 
 type schedulerLogStatusFinalizer interface {
-	finalizeSchedulerLogForStatus(context.Context, exec.DAGRunStatus) (bool, error)
+	finalizeSchedulerLogForStatus(context.Context, dagrun.DAGRunStatus) (bool, error)
 }
 
-func (p *finalSchedulerLogStatusPusher) Push(ctx context.Context, status exec.DAGRunStatus) error {
+func (p *finalSchedulerLogStatusPusher) Push(ctx context.Context, status dagrun.DAGRunStatus) error {
 	if p.finalizer != nil && shouldFinalizeSchedulerLogBeforeStatus(status.Status) {
 		if ran, err := p.finalizer.finalizeSchedulerLogForStatus(ctx, status); ran {
 			if err != nil {
@@ -533,11 +535,11 @@ func (p *finalSchedulerLogStatusPusher) Push(ctx context.Context, status exec.DA
 	return p.pusher.Push(ctx, status)
 }
 
-func shouldFinalizeSchedulerLogBeforeStatus(status core.Status) bool {
+func shouldFinalizeSchedulerLogBeforeStatus(status ir.Status) bool {
 	switch status {
-	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Rejected:
+	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:
 		return true
-	case core.NotStarted, core.Running, core.Queued, core.Waiting:
+	case ir.NotStarted, ir.Running, ir.Queued, ir.Waiting:
 		return false
 	}
 	return false

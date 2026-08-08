@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -28,12 +28,12 @@ const (
 )
 
 type retryCandidateFile struct {
-	RunTimestampUnix int64             `json:"runTimestampUnix"`
-	Status           exec.DAGRunStatus `json:"status"`
+	RunTimestampUnix int64               `json:"runTimestampUnix"`
+	Status           dagrun.DAGRunStatus `json:"status"`
 }
 
-func (store *Store) ListRetryCandidates(ctx context.Context, from exec.TimeInUTC) ([]*exec.DAGRunStatus, error) {
-	var candidates []*exec.DAGRunStatus
+func (store *Store) ListRetryCandidates(ctx context.Context, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error) {
+	var candidates []*dagrun.DAGRunStatus
 
 	roots, err := store.listRoot(ctx, "")
 	if err != nil {
@@ -41,7 +41,7 @@ func (store *Store) ListRetryCandidates(ctx context.Context, from exec.TimeInUTC
 	}
 
 	for _, root := range roots {
-		dayPaths, err := listDayPathsInRange(root, from, exec.TimeInUTC{})
+		dayPaths, err := listDayPathsInRange(root, from, dagrun.TimeInUTC{})
 		if err != nil {
 			return nil, err
 		}
@@ -63,11 +63,11 @@ func (store *Store) ListRetryCandidates(ctx context.Context, from exec.TimeInUTC
 	return candidates, nil
 }
 
-func (store *Store) listRetryCandidatesForDay(ctx context.Context, dayPath string, from exec.TimeInUTC) ([]*exec.DAGRunStatus, error) {
+func (store *Store) listRetryCandidatesForDay(ctx context.Context, dayPath string, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error) {
 	return store.listRetryCandidatesForDayAfterRebuild(ctx, dayPath, from, false)
 }
 
-func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, dayPath string, from exec.TimeInUTC, rebuiltCorruptCandidate bool) ([]*exec.DAGRunStatus, error) {
+func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, dayPath string, from dagrun.TimeInUTC, rebuiltCorruptCandidate bool) ([]*dagrun.DAGRunStatus, error) {
 	candidateDir := filepath.Join(dayPath, retryCandidateDirName)
 	needsRebuild, err := retryCandidatesNeedRebuild(dayPath)
 	if err != nil {
@@ -87,7 +87,7 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 		return nil, fmt.Errorf("read retry candidate directory %s: %w", candidateDir, err)
 	}
 
-	var candidates []*exec.DAGRunStatus
+	var candidates []*dagrun.DAGRunStatus
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), retryCandidateExt) {
 			continue
@@ -135,7 +135,7 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 	return candidates, nil
 }
 
-func updateRetryCandidateFromStatus(statusFile string, status exec.DAGRunStatus) error {
+func updateRetryCandidateFromStatus(statusFile string, status dagrun.DAGRunStatus) error {
 	runDir, dayDir, ok := retryCandidateRootPaths(statusFile)
 	if !ok {
 		return nil
@@ -214,7 +214,7 @@ func retryCandidatesNeedRebuild(dayPath string) (bool, error) {
 	return false, fmt.Errorf("stat retry candidate directory %s: %w", candidateDir, err)
 }
 
-func rebuildRetryCandidatesForDay(ctx context.Context, dayPath string, cache *fileutil.Cache[*exec.DAGRunStatus]) error {
+func rebuildRetryCandidatesForDay(ctx context.Context, dayPath string, cache *fileutil.Cache[*dagrun.DAGRunStatus]) error {
 	candidateDir := filepath.Join(dayPath, retryCandidateDirName)
 	if err := fileutil.RemoveAll(candidateDir); err != nil {
 		return fmt.Errorf("remove retry candidate directory: %w", err)
@@ -284,14 +284,14 @@ func readRetryCandidateFile(dir, name string) (*retryCandidateFile, error) {
 	return &candidate, nil
 }
 
-func retryCandidatePath(dayDir string, status exec.DAGRunStatus) string {
+func retryCandidatePath(dayDir string, status dagrun.DAGRunStatus) string {
 	key := status.Name + "\x00" + status.DAGRunID
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(dayDir, retryCandidateDirName, hex.EncodeToString(sum[:])+retryCandidateExt)
 }
 
 func retryCandidateRunExists(dayPath string, candidate *retryCandidateFile) (bool, error) {
-	runTimestamp := exec.NewUTC(time.Unix(candidate.RunTimestampUnix, 0).UTC())
+	runTimestamp := dagrun.NewUTC(time.Unix(candidate.RunTimestampUnix, 0).UTC())
 	runDir := filepath.Join(dayPath, DAGRunDirPrefix+formatDAGRunTimestamp(runTimestamp)+"_"+candidate.Status.DAGRunID)
 	info, err := os.Stat(runDir)
 	if err == nil {
@@ -303,15 +303,15 @@ func retryCandidateRunExists(dayPath string, candidate *retryCandidateFile) (boo
 	return false, fmt.Errorf("stat retry candidate run directory %s: %w", runDir, err)
 }
 
-func isRetryCandidateStatus(status exec.DAGRunStatus) bool {
-	return status.Status == core.Failed &&
+func isRetryCandidateStatus(status dagrun.DAGRunStatus) bool {
+	return status.Status == ir.Failed &&
 		status.Parent.Zero() &&
 		status.AutoRetryLimit > 0 &&
 		status.ProcGroup != ""
 }
 
-func retryCandidateStatus(status exec.DAGRunStatus) exec.DAGRunStatus {
-	return exec.DAGRunStatus{
+func retryCandidateStatus(status dagrun.DAGRunStatus) dagrun.DAGRunStatus {
+	return dagrun.DAGRunStatus{
 		Root:                 status.Root,
 		Parent:               status.Parent,
 		Name:                 status.Name,

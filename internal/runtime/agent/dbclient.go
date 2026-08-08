@@ -10,25 +10,26 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 var _ runtime.Database = &dbClient{}
 
 type dbClient struct {
-	ds              exec.DAGStore
-	drs             exec.DAGRunStore
+	ds              dagstore.DAGStore
+	drs             dagrun.DAGRunStore
 	remoteDAGLoader RemoteDAGLoader
 }
 
-func newDBClient(drs exec.DAGRunStore, ds exec.DAGStore, remoteDAGLoader RemoteDAGLoader) *dbClient {
+func newDBClient(drs dagrun.DAGRunStore, ds dagstore.DAGStore, remoteDAGLoader RemoteDAGLoader) *dbClient {
 	return &dbClient{drs: drs, ds: ds, remoteDAGLoader: remoteDAGLoader}
 }
 
-// GetDAG implements core.DBClient.
-func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
+// GetDAG implements ir.DBClient.
+func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 	// Guard against nil DAG store
 	if o.ds == nil {
 		logger.Info(ctx, "No local DAG store, trying remote fallback", tag.SubDAG(name))
@@ -47,12 +48,12 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
 		return remoteDAG, nil
 	}
 
-	dag, err := o.ds.GetDetails(ctx, name, exec.DAGLoadOptions{})
+	dag, err := o.ds.GetDetails(ctx, name, dagstore.DAGLoadOptions{})
 	if err == nil {
 		return dag, nil
 	}
 	// Only fallback to remote for not-found errors; propagate other errors directly
-	if !errors.Is(err, exec.ErrDAGNotFound) {
+	if !errors.Is(err, dagstore.ErrDAGNotFound) {
 		return nil, err
 	}
 	// Try remote fallback if configured
@@ -79,7 +80,7 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
 	return remoteDAG, nil
 }
 
-func (o *dbClient) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun exec.DAGRunRef) error {
+func (o *dbClient) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun dagrun.DAGRunRef) error {
 	subAttempt, err := o.drs.FindSubAttempt(ctx, rootDAGRun, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to find child attempt for dag-run ID %s: %w", dagRunID, err)

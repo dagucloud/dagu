@@ -14,8 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -187,33 +187,33 @@ func workspaceParamFromValues(params url.Values) *api.Workspace {
 	return workspaceParam
 }
 
-func dagWorkspaceName(dag *core.DAG) string {
+func dagWorkspaceName(dag *ir.DAG) string {
 	if dag == nil {
 		return ""
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(dag.Labels)
+	workspaceName, state := workspace.WorkspaceLabelFromLabels(dag.Labels)
 	switch state {
-	case exec.WorkspaceLabelValid:
+	case workspace.WorkspaceLabelValid:
 		return workspaceName
-	case exec.WorkspaceLabelInvalid:
+	case workspace.WorkspaceLabelInvalid:
 		return invalidWorkspaceLabelName
-	case exec.WorkspaceLabelMissing:
+	case workspace.WorkspaceLabelMissing:
 		return ""
 	}
 	return ""
 }
 
-func statusWorkspaceName(status *exec.DAGRunStatus) string {
+func statusWorkspaceName(status *dagrun.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(status.Labels))
+	workspaceName, state := workspace.WorkspaceLabelFromLabels(ir.NewLabels(status.Labels))
 	switch state {
-	case exec.WorkspaceLabelValid:
+	case workspace.WorkspaceLabelValid:
 		return workspaceName
-	case exec.WorkspaceLabelInvalid:
+	case workspace.WorkspaceLabelInvalid:
 		return invalidWorkspaceLabelName
-	case exec.WorkspaceLabelMissing:
+	case workspace.WorkspaceLabelMissing:
 		return ""
 	}
 	return ""
@@ -223,32 +223,32 @@ func workspaceNameFromLabelString(labels string) string {
 	if strings.TrimSpace(labels) == "" {
 		return ""
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(strings.Split(labels, ",")))
+	workspaceName, state := workspace.WorkspaceLabelFromLabels(ir.NewLabels(strings.Split(labels, ",")))
 	switch state {
-	case exec.WorkspaceLabelValid:
+	case workspace.WorkspaceLabelValid:
 		return workspaceName
-	case exec.WorkspaceLabelInvalid:
+	case workspace.WorkspaceLabelInvalid:
 		return invalidWorkspaceLabelName
-	case exec.WorkspaceLabelMissing:
+	case workspace.WorkspaceLabelMissing:
 		return ""
 	}
 	return ""
 }
 
-func runtimeWorkspaceName(dag *core.DAG, labels string) string {
+func runtimeWorkspaceName(dag *ir.DAG, labels string) string {
 	if workspaceName := workspaceNameFromLabelString(labels); workspaceName != "" {
 		return workspaceName
 	}
 	return dagWorkspaceName(dag)
 }
 
-func (a *API) workspaceFilterForContext(ctx context.Context) *exec.WorkspaceFilter {
+func (a *API) workspaceFilterForContext(ctx context.Context) *workspace.WorkspaceFilter {
 	if a.authService == nil {
 		return nil
 	}
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
-		return &exec.WorkspaceFilter{Enabled: true}
+		return &workspace.WorkspaceFilter{Enabled: true}
 	}
 	access := auth.NormalizeWorkspaceAccess(user.WorkspaceAccess)
 	if access.All {
@@ -262,14 +262,14 @@ func (a *API) workspaceFilterForContext(ctx context.Context) *exec.WorkspaceFilt
 	if isMCPSourceContext(ctx) {
 		includeUnlabelled = workspaceAccessHasGrant(access, "default")
 	}
-	return &exec.WorkspaceFilter{
+	return &workspace.WorkspaceFilter{
 		Enabled:           true,
 		Workspaces:        names,
 		IncludeUnlabelled: includeUnlabelled,
 	}
 }
 
-func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspaceSelection) (*exec.WorkspaceFilter, error) {
+func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspaceSelection) (*workspace.WorkspaceFilter, error) {
 	switch selection.mode {
 	case workspaceSelectionAll:
 		return a.workspaceFilterForContext(ctx), nil
@@ -277,7 +277,7 @@ func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspa
 		if err := a.requireWorkspaceVisible(ctx, ""); err != nil {
 			return nil, err
 		}
-		return &exec.WorkspaceFilter{
+		return &workspace.WorkspaceFilter{
 			Enabled:           true,
 			IncludeUnlabelled: true,
 		}, nil
@@ -285,7 +285,7 @@ func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspa
 		if err := a.requireWorkspaceVisible(ctx, selection.workspace); err != nil {
 			return nil, err
 		}
-		return &exec.WorkspaceFilter{
+		return &workspace.WorkspaceFilter{
 			Enabled:    true,
 			Workspaces: []string{selection.workspace},
 		}, nil
@@ -294,7 +294,7 @@ func (a *API) workspaceFilterForSelection(ctx context.Context, selection workspa
 	}
 }
 
-func (a *API) workspaceFilterForParams(ctx context.Context, workspaceParam *api.Workspace) (*exec.WorkspaceFilter, error) {
+func (a *API) workspaceFilterForParams(ctx context.Context, workspaceParam *api.Workspace) (*workspace.WorkspaceFilter, error) {
 	selection, err := parseWorkspaceSelection(workspaceParam)
 	if err != nil {
 		return nil, err
@@ -380,7 +380,7 @@ func (a *API) requireExecuteForWorkspace(ctx context.Context, workspaceName stri
 	return nil
 }
 
-func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun exec.DAGRunRef) (string, error) {
+func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun dagrun.DAGRunRef) (string, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
@@ -388,7 +388,7 @@ func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun exec.DAGRunRef)
 	return workspaceNameForAttempt(ctx, attempt)
 }
 
-func workspaceNameForAttempt(ctx context.Context, attempt exec.DAGRunAttempt) (string, error) {
+func workspaceNameForAttempt(ctx context.Context, attempt dagrun.DAGRunAttempt) (string, error) {
 	status, err := attempt.ReadStatus(ctx)
 	if err == nil && status != nil {
 		if workspaceName := statusWorkspaceName(status); workspaceName != "" {
@@ -405,7 +405,7 @@ func workspaceNameForAttempt(ctx context.Context, attempt exec.DAGRunAttempt) (s
 	return dagWorkspaceName(dag), nil
 }
 
-func (a *API) requireDAGRunVisible(ctx context.Context, dagRun exec.DAGRunRef) error {
+func (a *API) requireDAGRunVisible(ctx context.Context, dagRun dagrun.DAGRunRef) error {
 	if a.authService == nil {
 		return nil
 	}
@@ -416,14 +416,14 @@ func (a *API) requireDAGRunVisible(ctx context.Context, dagRun exec.DAGRunRef) e
 	return a.requireWorkspaceVisible(ctx, workspaceName)
 }
 
-func (a *API) requireDAGRunStatusVisible(ctx context.Context, status *exec.DAGRunStatus) error {
+func (a *API) requireDAGRunStatusVisible(ctx context.Context, status *dagrun.DAGRunStatus) error {
 	if status == nil {
 		return nil
 	}
 	return a.requireWorkspaceVisible(ctx, statusWorkspaceName(status))
 }
 
-func (a *API) requireDAGRunStatusExecute(ctx context.Context, status *exec.DAGRunStatus) error {
+func (a *API) requireDAGRunStatusExecute(ctx context.Context, status *dagrun.DAGRunStatus) error {
 	if status == nil {
 		return nil
 	}

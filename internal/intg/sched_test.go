@@ -14,9 +14,10 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
@@ -50,8 +51,8 @@ steps:
 	require.NoError(t, err)
 
 	var dispatchCount atomic.Int32
-	schedulerInstance.SetDispatchFunc(func(_ context.Context, dag *core.DAG, _ string, trigger core.TriggerType, _ time.Time) error {
-		if dag != nil && dag.Name == "cron-test" && trigger == core.TriggerTypeScheduler {
+	schedulerInstance.SetDispatchFunc(func(_ context.Context, dag *ir.DAG, _ string, trigger ir.TriggerType, _ time.Time) error {
+		if dag != nil && dag.Name == "cron-test" && trigger == ir.TriggerTypeScheduler {
 			dispatchCount.Add(1)
 		}
 		return nil
@@ -104,24 +105,24 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	writeSpec("0 10 * * *")
 
 	th := test.SetupScheduler(t, test.WithDAGsDir(dagsDir))
-	dag, err := th.DAGStore.GetDetails(th.Context, dagName, exec.DAGLoadOptions{})
+	dag, err := th.DAGStore.GetDetails(th.Context, dagName, dagstore.DAGLoadOptions{})
 	require.NoError(t, err)
 
 	require.NoError(t, os.MkdirAll(th.Config.Paths.SuspendFlagsDir, 0o755))
 	suspendFlag := filepath.Join(th.Config.Paths.SuspendFlagsDir, dag.SuspendFlagName())
 	require.NoError(t, os.WriteFile(suspendFlag, []byte{}, 0o644))
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, oldSlot, "old-success", exec.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, oldSlot, "old-success", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	status := exec.InitialStatus(dag)
+	status := dagrun.InitialStatus(dag)
 	status.DAGRunID = "old-success"
 	status.AttemptID = attempt.ID()
-	status.Status = core.Succeeded
-	status.TriggerType = core.TriggerTypeScheduler
-	status.ScheduleTime = exec.FormatTime(oldSlot)
-	status.StartedAt = exec.FormatTime(oldSlot.Add(15 * time.Second))
-	status.FinishedAt = exec.FormatTime(oldSlot.Add(45 * time.Second))
+	status.Status = ir.Succeeded
+	status.TriggerType = ir.TriggerTypeScheduler
+	status.ScheduleTime = dagrun.FormatTime(oldSlot)
+	status.StartedAt = dagrun.FormatTime(oldSlot.Add(15 * time.Second))
+	status.FinishedAt = dagrun.FormatTime(oldSlot.Add(45 * time.Second))
 
 	require.NoError(t, attempt.Open(th.Context))
 	require.NoError(t, attempt.Write(th.Context, status))
@@ -134,9 +135,9 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 		dispatchCount    atomic.Int32
 		lastDispatchMu   sync.Mutex
 		lastDispatchTime time.Time
-		lastDispatchType core.TriggerType
+		lastDispatchType ir.TriggerType
 	)
-	sc.SetDispatchFunc(func(_ context.Context, dag *core.DAG, _ string, trigger core.TriggerType, scheduleTime time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, dag *ir.DAG, _ string, trigger ir.TriggerType, scheduleTime time.Time) error {
 		if dag != nil && dag.Name == dagName {
 			dispatchCount.Add(1)
 			lastDispatchMu.Lock()
@@ -171,7 +172,7 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	})
 	require.Equal(t, int32(1), dispatchCount.Load(), "edited schedules should dispatch exactly once")
 	lastDispatchMu.Lock()
-	require.Equal(t, core.TriggerTypeScheduler, lastDispatchType)
+	require.Equal(t, ir.TriggerTypeScheduler, lastDispatchType)
 	require.Equal(t, newSlot, lastDispatchTime)
 	lastDispatchMu.Unlock()
 

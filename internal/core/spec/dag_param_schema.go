@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -114,14 +114,14 @@ func sanitizeRenderableParamProperty(schema *jsonschema.Schema) (*jsonschema.Sch
 		maxLength := *schema.MaxLength
 		result.MaxLength = &maxLength
 	}
-	if result.Type != core.ParamDefTypeString {
+	if result.Type != ir.ParamDefTypeString {
 		result.Pattern = ""
 	}
-	if result.Type != core.ParamDefTypeInteger && result.Type != core.ParamDefTypeNumber {
+	if result.Type != ir.ParamDefTypeInteger && result.Type != ir.ParamDefTypeNumber {
 		result.Minimum = nil
 		result.Maximum = nil
 	}
-	if result.Type != core.ParamDefTypeString {
+	if result.Type != ir.ParamDefTypeString {
 		result.MinLength = nil
 		result.MaxLength = nil
 	}

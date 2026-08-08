@@ -12,8 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 const (
@@ -23,11 +25,11 @@ const (
 	queuePollInterval        = 2 * time.Second
 )
 
-var _ exec.QueueStore = (*QueueStore)(nil)
+var _ queue.QueueStore = (*QueueStore)(nil)
 
-// QueueStore implements [exec.QueueStore] on top of a [persis.Collection].
+// QueueStore implements [queue.QueueStore] on top of a [persis.Collection].
 // Records are keyed as "{queueName}/{itemID}", while item IDs exposed through
-// exec.QueuedItemData intentionally stay as "{itemID}" for caller compatibility.
+// queue.QueuedItemData intentionally stay as "{itemID}" for caller compatibility.
 type QueueStore struct {
 	col     persis.Collection
 	indices map[string]*queueReadIndexCache
@@ -43,14 +45,14 @@ func NewQueueStore(col persis.Collection) *QueueStore {
 }
 
 // Enqueue adds a DAG-run reference to the named queue.
-func (s *QueueStore) Enqueue(ctx context.Context, name string, priority exec.QueuePriority, dagRun exec.DAGRunRef) error {
+func (s *QueueStore) Enqueue(ctx context.Context, name string, priority queue.QueuePriority, dagRun dagrun.DAGRunRef) error {
 	if name == "" {
 		return fmt.Errorf("queue store: queue name is required")
 	}
 	if dagRun.Name == "" || dagRun.ID == "" {
 		return fmt.Errorf("queue store: dag-run reference is required")
 	}
-	if priority != exec.QueuePriorityHigh && priority != exec.QueuePriorityLow {
+	if priority != queue.QueuePriorityHigh && priority != queue.QueuePriorityLow {
 		return fmt.Errorf("queue store: invalid queue priority %d", priority)
 	}
 
@@ -90,7 +92,7 @@ func (s *QueueStore) Enqueue(ctx context.Context, name string, priority exec.Que
 func (s *QueueStore) nextQueueItemID(
 	ctx context.Context,
 	name string,
-	priority exec.QueuePriority,
+	priority queue.QueuePriority,
 	dagRunID string,
 	start time.Time,
 ) (string, time.Time, error) {
@@ -113,8 +115,8 @@ func (s *QueueStore) nextQueueItemID(
 // sort by filename (priority-prefixed ID) so `item_high_*` is dequeued
 // before `item_low_*`; the surrounding withQueueLock + s.mu provides
 // serialization, so a plain Get→Delete is atomic in practice.
-func (s *QueueStore) DequeueByName(ctx context.Context, name string) (exec.QueuedItemData, error) {
-	var item exec.QueuedItemData
+func (s *QueueStore) DequeueByName(ctx context.Context, name string) (queue.QueuedItemData, error) {
+	var item queue.QueuedItemData
 	err := s.withQueueLock(ctx, name, func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -124,13 +126,13 @@ func (s *QueueStore) DequeueByName(ctx context.Context, name string) (exec.Queue
 			return err
 		}
 		if len(ids) == 0 {
-			return exec.ErrQueueEmpty
+			return queue.ErrQueueEmpty
 		}
 		nextID := ids[0]
 		rec, err := s.col.Get(ctx, nextID)
 		if err != nil {
 			if errors.Is(err, persis.ErrNotFound) {
-				return exec.ErrQueueEmpty
+				return queue.ErrQueueEmpty
 			}
 			return err
 		}
@@ -155,8 +157,8 @@ func (s *QueueStore) DequeueByName(ctx context.Context, name string) (exec.Queue
 }
 
 // DequeueByDAGRunID removes all queued items matching dagRun from the named queue.
-func (s *QueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun exec.DAGRunRef) ([]exec.QueuedItemData, error) {
-	var removed []exec.QueuedItemData
+func (s *QueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun dagrun.DAGRunRef) ([]queue.QueuedItemData, error) {
+	var removed []queue.QueuedItemData
 	err := s.withQueueLock(ctx, name, func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -166,7 +168,7 @@ func (s *QueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun 
 			return err
 		}
 
-		removed = make([]exec.QueuedItemData, 0)
+		removed = make([]queue.QueuedItemData, 0)
 		for _, item := range items {
 			if item.dataErr != nil || item.dagRun != dagRun {
 				continue
@@ -177,7 +179,7 @@ func (s *QueueStore) DequeueByDAGRunID(ctx context.Context, name string, dagRun 
 			removed = append(removed, item)
 		}
 		if len(removed) == 0 {
-			return exec.ErrQueueItemNotFound
+			return queue.ErrQueueItemNotFound
 		}
 		removedIDs := make([]string, 0, len(removed))
 		for _, item := range removed {
@@ -231,7 +233,7 @@ func (s *QueueStore) Len(ctx context.Context, name string) (int, error) {
 }
 
 // List returns all queued items in the named queue.
-func (s *QueueStore) List(ctx context.Context, name string) ([]exec.QueuedItemData, error) {
+func (s *QueueStore) List(ctx context.Context, name string) ([]queue.QueuedItemData, error) {
 	items, err := s.listQueue(ctx, name)
 	if err != nil {
 		return nil, err
@@ -240,16 +242,16 @@ func (s *QueueStore) List(ctx context.Context, name string) ([]exec.QueuedItemDa
 }
 
 // ListCursor returns one forward-only page of queued items.
-func (s *QueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (exec.CursorResult[exec.QueuedItemData], error) {
+func (s *QueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[queue.QueuedItemData], error) {
 	if limit <= 0 {
 		limit = 1
 	}
 	decoded, err := decodeQueueCursor(name, cursor)
 	if err != nil {
-		return exec.CursorResult[exec.QueuedItemData]{}, err
+		return pagination.CursorResult[queue.QueuedItemData]{}, err
 	}
 
-	var result exec.CursorResult[exec.QueuedItemData]
+	var result pagination.CursorResult[queue.QueuedItemData]
 	err = s.withQueueLock(ctx, name, func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -261,7 +263,7 @@ func (s *QueueStore) ListCursor(ctx context.Context, name, cursor string, limit 
 }
 
 // All returns all queued items across all queues.
-func (s *QueueStore) All(ctx context.Context) ([]exec.QueuedItemData, error) {
+func (s *QueueStore) All(ctx context.Context) ([]queue.QueuedItemData, error) {
 	items, err := s.listAllQueueItems(ctx, persis.ListQuery{})
 	if err != nil {
 		return nil, err
@@ -270,7 +272,7 @@ func (s *QueueStore) All(ctx context.Context) ([]exec.QueuedItemData, error) {
 }
 
 // ListByDAGName returns all items in a queue for a DAG name.
-func (s *QueueStore) ListByDAGName(ctx context.Context, name, dagName string) ([]exec.QueuedItemData, error) {
+func (s *QueueStore) ListByDAGName(ctx context.Context, name, dagName string) ([]queue.QueuedItemData, error) {
 	items, err := s.listQueue(ctx, name)
 	if err != nil {
 		return nil, err
@@ -309,7 +311,7 @@ func (s *QueueStore) QueueList(ctx context.Context) ([]string, error) {
 }
 
 // QueueWatcher returns a backend-neutral polling watcher.
-func (s *QueueStore) QueueWatcher(ctx context.Context) exec.QueueWatcher {
+func (s *QueueStore) QueueWatcher(ctx context.Context) queue.QueueWatcher {
 	return newPollingQueueWatcher(queuePollInterval, func(watchCtx context.Context) (string, error) {
 		if watchCtx == nil {
 			watchCtx = ctx

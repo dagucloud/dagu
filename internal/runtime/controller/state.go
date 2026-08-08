@@ -10,8 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // TaskStatus is where a goal stands. A run ends once no task is open.
@@ -133,11 +133,11 @@ type State struct {
 
 	// messages is the conversation. It is persisted separately, as the node's
 	// chat transcript, so the UI can render it with the other LLM steps.
-	messages []exec.LLMMessage
+	messages []dagrun.LLMMessage
 }
 
 // NewState builds the initial state for a controller DAG.
-func NewState(dag *core.DAG) *State {
+func NewState(dag *ir.DAG) *State {
 	tasks := make([]TaskState, 0, len(dag.Tasks))
 	for _, task := range dag.Tasks {
 		tasks = append(tasks, TaskState{
@@ -152,7 +152,7 @@ func NewState(dag *core.DAG) *State {
 // LoadState restores state persisted by an earlier attempt of the same run and
 // reconciles it with the DAG, so that editing the task list between attempts
 // neither drops progress nor resurrects removed tasks.
-func LoadState(raw json.RawMessage, messages []exec.LLMMessage, dag *core.DAG) (*State, error) {
+func LoadState(raw json.RawMessage, messages []dagrun.LLMMessage, dag *ir.DAG) (*State, error) {
 	fresh := NewState(dag)
 	if len(raw) == 0 {
 		fresh.messages = messages
@@ -280,12 +280,12 @@ func (s *State) Marshal() (json.RawMessage, error) {
 }
 
 // Messages returns the conversation so far.
-func (s *State) Messages() []exec.LLMMessage {
+func (s *State) Messages() []dagrun.LLMMessage {
 	return s.messages
 }
 
 // Append adds a message to the conversation.
-func (s *State) Append(msgs ...exec.LLMMessage) {
+func (s *State) Append(msgs ...dagrun.LLMMessage) {
 	s.messages = append(s.messages, msgs...)
 }
 

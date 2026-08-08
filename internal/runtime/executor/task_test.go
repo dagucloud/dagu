@@ -6,8 +6,9 @@ package executor_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 )
@@ -35,7 +36,7 @@ steps:
 		task := executor.CreateTask(
 			dagName,
 			yamlDefinition,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			runID,
 			executor.WithTaskParams(params),
 			executor.WithWorkerSelector(selector),
@@ -44,7 +45,7 @@ steps:
 		assert.NotNil(t, task)
 		assert.Equal(t, "test-dag", task.RootDAGRunName)
 		assert.Equal(t, runID, task.RootDAGRunID)
-		assert.Equal(t, exec.DispatchOperationStart, task.Operation)
+		assert.Equal(t, dispatch.DispatchOperationStart, task.Operation)
 		assert.Equal(t, runID, task.DAGRunID)
 		assert.Equal(t, "test-dag", task.Target)
 		assert.Equal(t, params, task.Params)
@@ -58,11 +59,11 @@ steps:
 	t.Run("WithRootDagRunOption", func(t *testing.T) {
 		t.Parallel()
 
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "sub-dag",
 		}
 
-		rootRef := exec.DAGRunRef{
+		rootRef := dagrun.DAGRunRef{
 			Name: "root-dag",
 			ID:   "root-run-123",
 		}
@@ -70,7 +71,7 @@ steps:
 		task := executor.CreateTask(
 			dag.Name,
 			string(dag.YamlData),
-			exec.DispatchOperationRetry,
+			dispatch.DispatchOperationRetry,
 			"child-run-456",
 			executor.WithRootDagRun(rootRef),
 		)
@@ -84,7 +85,7 @@ steps:
 	t.Run("WithParentDagRunOption", func(t *testing.T) {
 		t.Parallel()
 
-		parentRef := exec.DAGRunRef{
+		parentRef := dagrun.DAGRunRef{
 			Name: "parent-dag",
 			ID:   "parent-run-789",
 		}
@@ -92,7 +93,7 @@ steps:
 		task := executor.CreateTask(
 			"sub-dag",
 			`name: sub-dag`,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"child-run-456",
 			executor.WithParentDagRun(parentRef),
 		)
@@ -106,11 +107,11 @@ steps:
 	t.Run("WithMultipleOptions", func(t *testing.T) {
 		t.Parallel()
 
-		rootRef := exec.DAGRunRef{
+		rootRef := dagrun.DAGRunRef{
 			Name: "root-dag",
 			ID:   "root-run-123",
 		}
-		parentRef := exec.DAGRunRef{
+		parentRef := dagrun.DAGRunRef{
 			Name: "parent-dag",
 			ID:   "parent-run-456",
 		}
@@ -118,7 +119,7 @@ steps:
 		task := executor.CreateTask(
 			"grandsub-dag",
 			`name: grandsub-dag`,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"grandchild-run-789",
 			executor.WithTaskParams("nested=true"),
 			executor.WithWorkerSelector(map[string]string{"env": "prod"}),
@@ -142,7 +143,7 @@ steps:
 		task := executor.CreateTask(
 			"test-dag",
 			`name: test-dag`,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"run-123",
 		)
 
@@ -153,13 +154,13 @@ steps:
 		t.Parallel()
 
 		// Test that empty refs don't modify the task
-		emptyRootRef := exec.DAGRunRef{}
-		emptyParentRef := exec.DAGRunRef{Name: "", ID: ""}
+		emptyRootRef := dagrun.DAGRunRef{}
+		emptyParentRef := dagrun.DAGRunRef{Name: "", ID: ""}
 
 		task := executor.CreateTask(
 			"test-dag",
 			`name: test-dag`,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"run-123",
 			executor.WithRootDagRun(emptyRootRef),
 			executor.WithParentDagRun(emptyParentRef),
@@ -177,13 +178,13 @@ steps:
 		t.Parallel()
 
 		// Test refs with only one field set
-		partialRootRef := exec.DAGRunRef{Name: "root-dag", ID: ""}
-		partialParentRef := exec.DAGRunRef{Name: "", ID: "parent-id"}
+		partialRootRef := dagrun.DAGRunRef{Name: "root-dag", ID: ""}
+		partialParentRef := dagrun.DAGRunRef{Name: "", ID: "parent-id"}
 
 		task := executor.CreateTask(
 			"test-dag",
 			`name: test-dag`,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"run-123",
 			executor.WithRootDagRun(partialRootRef),
 			executor.WithParentDagRun(partialParentRef),
@@ -201,7 +202,7 @@ steps:
 
 		// Create a custom task option
 		withStep := func(step string) executor.TaskOption {
-			return func(task *exec.DispatchTask) {
+			return func(task *dispatch.DispatchTask) {
 				task.Step = step
 			}
 		}
@@ -209,13 +210,13 @@ steps:
 		task := executor.CreateTask(
 			"test-dag",
 			`name: test-dag`,
-			exec.DispatchOperationRetry,
+			dispatch.DispatchOperationRetry,
 			"run-123",
 			withStep("step-2"),
 		)
 
 		assert.Equal(t, "step-2", task.Step)
-		assert.Equal(t, exec.DispatchOperationRetry, task.Operation)
+		assert.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
 	})
 
 	t.Run("WithLabelsOption", func(t *testing.T) {
@@ -224,7 +225,7 @@ steps:
 		task := executor.CreateTask(
 			"test-dag",
 			`name: test-dag`,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"run-123",
 			executor.WithLabels("env=prod,region=us-east-1"),
 		)
@@ -238,7 +239,7 @@ steps:
 		task := executor.CreateTask(
 			"test-dag",
 			`name: test-dag`,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"run-123",
 			executor.WithScheduleTime("2026-03-13T10:00:00Z"),
 		)
@@ -252,7 +253,7 @@ steps:
 		task := executor.CreateTask(
 			"test-dag",
 			`name: test-dag`,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"run-123",
 			executor.WithExternalStepRetry(true),
 		)
@@ -263,10 +264,10 @@ steps:
 	t.Run("AllOperationTypes", func(t *testing.T) {
 		t.Parallel()
 
-		operations := []exec.DispatchOperation{
-			exec.DispatchOperationUnspecified,
-			exec.DispatchOperationStart,
-			exec.DispatchOperationRetry,
+		operations := []dispatch.DispatchOperation{
+			dispatch.DispatchOperationUnspecified,
+			dispatch.DispatchOperationStart,
+			dispatch.DispatchOperationRetry,
 		}
 
 		for _, op := range operations {
@@ -287,8 +288,8 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithRootDagRun", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
-		ref := exec.DAGRunRef{Name: "root", ID: "123"}
+		task := &dispatch.DispatchTask{}
+		ref := dagrun.DAGRunRef{Name: "root", ID: "123"}
 
 		executor.WithRootDagRun(ref)(task)
 
@@ -299,8 +300,8 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithParentDagRun", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
-		ref := exec.DAGRunRef{Name: "parent", ID: "456"}
+		task := &dispatch.DispatchTask{}
+		ref := dagrun.DAGRunRef{Name: "parent", ID: "456"}
 
 		executor.WithParentDagRun(ref)(task)
 
@@ -311,7 +312,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithTaskParams", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 
 		executor.WithTaskParams("key1=value1 key2=value2")(task)
 
@@ -321,7 +322,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithWorkerSelector", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 		selector := map[string]string{
 			"gpu":    "true",
 			"region": "us-west-2",
@@ -335,7 +336,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithStep", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 
 		executor.WithStep("step-name")(task)
 
@@ -345,7 +346,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithLabels", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 
 		executor.WithLabels("env=prod,team=backend")(task)
 
@@ -355,7 +356,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithLabelsEmpty", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 
 		executor.WithLabels("")(task)
 
@@ -365,7 +366,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithTags", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 
 		executor.WithTags("env=prod,team=backend")(task)
 
@@ -375,7 +376,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithTagsEmpty", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 
 		executor.WithTags("")(task)
 
@@ -385,15 +386,15 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithPreviousStatus", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
-		status := &exec.DAGRunStatus{
+		task := &dispatch.DispatchTask{}
+		status := &dagrun.DAGRunStatus{
 			Name:      "test-dag",
 			DAGRunID:  "run-123",
 			ProcGroup: "shared-queue",
-			Status:    core.Running,
-			Nodes: []*exec.Node{
-				{Step: core.Step{Name: "step1"}, Status: core.NodeSucceeded},
-				{Step: core.Step{Name: "step2"}, Status: core.NodeFailed},
+			Status:    ir.Running,
+			Nodes: []*dagrun.Node{
+				{Step: ir.Step{Name: "step1"}, Status: ir.NodeSucceeded},
+				{Step: ir.Step{Name: "step2"}, Status: ir.NodeFailed},
 			},
 		}
 
@@ -406,7 +407,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithPreviousStatusNil", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 
 		// Should not panic with nil status
 		executor.WithPreviousStatus(nil)(task)
@@ -417,7 +418,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithExternalStepRetry", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 		executor.WithExternalStepRetry(true)(task)
 
 		assert.True(t, task.ExternalStepRetry)
@@ -426,7 +427,7 @@ func TestTaskOption_Functions(t *testing.T) {
 	t.Run("WithSourceFile", func(t *testing.T) {
 		t.Parallel()
 
-		task := &exec.DispatchTask{}
+		task := &dispatch.DispatchTask{}
 		executor.WithSourceFile("/dags/test-dag.yaml")(task)
 
 		assert.Equal(t, "/dags/test-dag.yaml", task.SourceFile)

@@ -6,116 +6,118 @@ package runtime
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 // Type aliases for execution package types.
 // These allow runtime package users to access execution types without importing execution directly.
 type (
 	// Context is an alias for execution.Context
-	Context = exec.Context
+	Context = runctx.Context
 	// Database is an alias for execution.Database
-	Database = exec.Database
+	Database = runctx.Database
 	// Dispatcher is an alias for execution.Dispatcher
-	Dispatcher = exec.Dispatcher
+	Dispatcher = dispatch.Dispatcher
 	// RunStatus is an alias for execution.RunStatus
-	RunStatus = exec.RunStatus
+	RunStatus = dagrun.RunStatus
 	// ContextOption is an alias for execution.ContextOption
-	ContextOption = exec.ContextOption
+	ContextOption = runctx.ContextOption
 )
 
 // Re-export execution package functions for convenience.
 var (
 	// NewContext creates a new context with DAG execution metadata.
-	NewContext = exec.NewContext
+	NewContext = runctx.NewContext
 	// LookupDAGContext returns the DAG execution metadata when it is present.
-	LookupDAGContext = exec.LookupContext
+	LookupDAGContext = runctx.LookupContext
 	// WithDatabase sets the database interface.
-	WithDatabase = exec.WithDatabase
+	WithDatabase = runctx.WithDatabase
 	// WithRootDAGRun sets the root DAG run reference for sub-DAG execution.
-	WithRootDAGRun = exec.WithRootDAGRun
+	WithRootDAGRun = runctx.WithRootDAGRun
 	// WithRetryPath sets a targeted child DAG retry path.
-	WithRetryPath = exec.WithRetryPath
+	WithRetryPath = runctx.WithRetryPath
 	// WithAttemptID sets the DAG-run attempt identifier.
-	WithAttemptID = exec.WithAttemptID
+	WithAttemptID = runctx.WithAttemptID
 	// WithTriggerType sets the DAG-run trigger type.
-	WithTriggerType = exec.WithTriggerType
+	WithTriggerType = runctx.WithTriggerType
 	// WithTriggerActor sets the attributable trigger actor.
-	WithTriggerActor = exec.WithTriggerActor
+	WithTriggerActor = runctx.WithTriggerActor
 	// WithRunStartedAt sets the recorded DAG-run start timestamp.
-	WithRunStartedAt = exec.WithRunStartedAt
+	WithRunStartedAt = runctx.WithRunStartedAt
 	// WithScheduleTime sets the logical schedule time.
-	WithScheduleTime = exec.WithScheduleTime
+	WithScheduleTime = runctx.WithScheduleTime
 	// WithParams sets runtime parameters.
-	WithParams = exec.WithParams
+	WithParams = runctx.WithParams
 	// WithDefaultEnvVars sets low-precedence inherited environment variables.
-	WithDefaultEnvVars = exec.WithDefaultEnvVars
+	WithDefaultEnvVars = runctx.WithDefaultEnvVars
 	// WithEnvVars sets additional execution-scoped environment variables.
-	WithEnvVars = exec.WithEnvVars
+	WithEnvVars = runctx.WithEnvVars
 	// WithCoordinator sets the coordinator dispatcher for distributed execution.
-	WithCoordinator = exec.WithCoordinator
+	WithCoordinator = runctx.WithCoordinator
 	// WithDefaultSecrets sets low-precedence inherited secret environment variables.
-	WithDefaultSecrets = exec.WithDefaultSecrets
+	WithDefaultSecrets = runctx.WithDefaultSecrets
 	// WithSecrets sets secret environment variables.
-	WithSecrets = exec.WithSecrets
+	WithSecrets = runctx.WithSecrets
 	// WithLogEncoding sets the log file character encoding.
-	WithLogEncoding = exec.WithLogEncoding
+	WithLogEncoding = runctx.WithLogEncoding
 	// WithLogWriterFactory sets the log writer factory for remote log streaming.
-	WithLogWriterFactory = exec.WithLogWriterFactory
+	WithLogWriterFactory = runctx.WithLogWriterFactory
 	// WithDefaultExecMode sets the server-level default execution mode.
-	WithDefaultExecMode = exec.WithDefaultExecMode
+	WithDefaultExecMode = runctx.WithDefaultExecMode
 	// WithDAGRunStore sets the dag-run store.
-	WithDAGRunStore = exec.WithDAGRunStore
+	WithDAGRunStore = runctx.WithDAGRunStore
 	// WithQueueStore sets the queue store.
-	WithQueueStore = exec.WithQueueStore
+	WithQueueStore = runctx.WithQueueStore
 	// WithStateStore sets the persistent DAG state store.
-	WithStateStore = exec.WithStateStore
+	WithStateStore = runctx.WithStateStore
 	// WithMaterializationStore sets the build materialization store.
-	WithMaterializationStore = exec.WithMaterializationStore
+	WithMaterializationStore = runctx.WithMaterializationStore
 	// WithNoReuse records that manifest hits are disabled for the run.
-	WithNoReuse = exec.WithNoReuse
+	WithNoReuse = runctx.WithNoReuse
 	// WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.
-	WithDAGRunLogDir = exec.WithDAGRunLogDir
+	WithDAGRunLogDir = runctx.WithDAGRunLogDir
 	// WithDAGRunArtifactDir sets the base artifact directory for newly persisted DAG runs.
-	WithDAGRunArtifactDir = exec.WithDAGRunArtifactDir
+	WithDAGRunArtifactDir = runctx.WithDAGRunArtifactDir
 	// WithWorkDir sets the per-DAG-run working directory path.
-	WithWorkDir = exec.WithWorkDir
+	WithWorkDir = runctx.WithWorkDir
 	// WithArtifactDir sets the per-DAG-run artifact directory path.
-	WithArtifactDir = exec.WithArtifactDir
+	WithArtifactDir = runctx.WithArtifactDir
 	// WithRuntimeProfile sets selected runtime profile metadata.
-	WithRuntimeProfile = exec.WithRuntimeProfile
+	WithRuntimeProfile = runctx.WithRuntimeProfile
 )
 
 // LogWriterFactory is re-exported from execution package
-type LogWriterFactory = exec.LogWriterFactory
+type LogWriterFactory = runctx.LogWriterFactory
 
 // GetDAGContext retrieves the DAGContext from the context.
 // This is a convenience wrapper for execution.GetContext.
 func GetDAGContext(ctx context.Context) Context {
-	return exec.GetContext(ctx)
+	return runctx.GetContext(ctx)
 }
 
 // MustDAGContext retrieves the DAGContext from the context and panics when one
 // is not present.
 // This is a convenience wrapper for execution.MustContext.
 func MustDAGContext(ctx context.Context) Context {
-	return exec.MustContext(ctx)
+	return runctx.MustContext(ctx)
 }
 
 // WithDAGContext returns a new context with the given DAGContext.
 // This is a convenience wrapper for execution.WithContext.
 func WithDAGContext(ctx context.Context, rCtx Context) context.Context {
-	return exec.WithContext(ctx, rCtx)
+	return runctx.WithContext(ctx, rCtx)
 }
 
 // NewDAGRunRef is a convenience wrapper for execution.NewDAGRunRef.
-func NewDAGRunRef(name, runID string) exec.DAGRunRef {
-	return exec.NewDAGRunRef(name, runID)
+func NewDAGRunRef(name, runID string) dagrun.DAGRunRef {
+	return dagrun.NewDAGRunRef(name, runID)
 }
 
 // NewContextForTest creates a minimal context for testing purposes.
 // This is useful when you need a context with just basic DAG metadata.
-func NewContextForTest(ctx context.Context, dag *core.DAG, dagRunID, logFile string) context.Context {
-	return exec.NewContext(ctx, dag, dagRunID, logFile)
+func NewContextForTest(ctx context.Context, dag *ir.DAG, dagRunID, logFile string) context.Context {
+	return runctx.NewContext(ctx, dag, dagRunID, logFile)
 }

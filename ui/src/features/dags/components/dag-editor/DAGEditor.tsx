@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { configureMonacoYaml } from 'monaco-yaml';
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   buildSchemaRegistration,
   removeSchemaRegistration,
@@ -83,6 +83,8 @@ type Props = {
   modelUri?: string;
   /** Optional document-specific schema */
   schema?: JSONSchema | null;
+  /** Server-side validation markers rendered under the 'dagu-server' owner */
+  markers?: monaco.editor.IMarkerData[];
 };
 
 /**
@@ -98,6 +100,7 @@ function DAGEditor({
   onCursorPositionChange,
   modelUri,
   schema,
+  markers,
 }: Omit<Props, 'highlightLine'>) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const activeSchemaRegistrationRef = useRef<SchemaRegistrationOwner | null>(
@@ -174,6 +177,26 @@ function DAGEditor({
     }
   }, []);
 
+  // Apply server-side validation markers to the model under a dedicated
+  // owner so monaco-yaml's own schema diagnostics are untouched. The model
+  // exists only after the editor mounts.
+  const [isEditorMounted, setIsEditorMounted] = useState(false);
+  useEffect(() => {
+    if (!isEditorMounted) {
+      return;
+    }
+    const model = monaco.editor.getModel(monaco.Uri.parse(effectiveModelUri));
+    if (!model) {
+      return;
+    }
+    monaco.editor.setModelMarkers(model, 'dagu-server', markers ?? []);
+    return () => {
+      if (!model.isDisposed()) {
+        monaco.editor.setModelMarkers(model, 'dagu-server', []);
+      }
+    };
+  }, [markers, effectiveModelUri, isEditorMounted]);
+
   // Listen for theme changes
   useEffect(() => {
     const observer = new MutationObserver((mutations) => {
@@ -205,6 +228,7 @@ function DAGEditor({
    */
   const editorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
+    setIsEditorMounted(true);
 
     if (!readOnly) {
       editor.addAction({

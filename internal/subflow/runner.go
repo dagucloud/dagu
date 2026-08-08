@@ -18,9 +18,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
@@ -48,7 +48,7 @@ var _ executor.SubWorkflowRunner = (*Runner)(nil)
 
 // Runner executes child workflows through Dagu's distributed coordinator.
 type Runner struct {
-	dispatcher           exec.Dispatcher
+	dispatcher           dispatch.Dispatcher
 	defaultMode          config.ExecutionMode
 	pollInterval         time.Duration
 	logInterval          time.Duration
@@ -81,7 +81,7 @@ func WithCancellationTimeout(timeout time.Duration) Option {
 }
 
 // New creates a coordinator-backed child workflow runner.
-func New(dispatcher exec.Dispatcher, defaultMode config.ExecutionMode, opts ...Option) *Runner {
+func New(dispatcher dispatch.Dispatcher, defaultMode config.ExecutionMode, opts ...Option) *Runner {
 	r := &Runner{
 		dispatcher:           dispatcher,
 		defaultMode:          defaultMode,
@@ -126,7 +126,7 @@ func (r *Runner) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) b
 }
 
 // Run starts a child workflow and waits for its result.
-func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
 	if err := r.validate(req); err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 			result.PendingStepRetries = nil
 			return result, nil
 		}
-		if req.ExternalStepRetry && previousStatus.Status == core.Succeeded {
+		if req.ExternalStepRetry && previousStatus.Status == ir.Succeeded {
 			return statusToRunStatus(previousStatus, req.RunID), nil
 		}
 		if err := r.dispatchRetryWithStatus(ctx, req, "", previousStatus); err != nil {
@@ -170,7 +170,7 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 }
 
 // Retry schedules a parent-managed retry for a child workflow step.
-func (r *Runner) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+func (r *Runner) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
 	if err := r.validate(req.SubWorkflowRequest); err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (r *Runner) validate(req executor.SubWorkflowRequest) error {
 	if req.DAG == nil {
 		return errMissingChildDAG
 	}
-	if req.DAG.Type == core.TypeBuild {
+	if req.DAG.Type == ir.TypeBuild {
 		return dispatch.ErrBuildRequiresLocal
 	}
 	if req.RunID == "" {
@@ -253,7 +253,7 @@ func (r *Runner) dispatchStart(ctx context.Context, req executor.SubWorkflowRequ
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
-	if err := r.dispatcher.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
+	if err := r.dispatcher.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch task: %w", err)
 	}
 	return nil
@@ -271,7 +271,7 @@ func (r *Runner) dispatchRetryWithStatus(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
 	stepName string,
-	previousStatus *exec.DAGRunStatus,
+	previousStatus *dagrun.DAGRunStatus,
 ) error {
 	task, err := r.buildRetryTask(req, stepName, previousStatus)
 	if err != nil {
@@ -287,13 +287,13 @@ func (r *Runner) dispatchRetryWithStatus(
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
-	if err := r.dispatcher.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
+	if err := r.dispatcher.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch retry task: %w", err)
 	}
 	return nil
 }
 
-func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*exec.DispatchTask, error) {
+func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*dispatch.DispatchTask, error) {
 	opts, err := r.taskOptions(req, executor.WithTaskParams(req.Params))
 	if err != nil {
 		return nil, err
@@ -301,7 +301,7 @@ func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*exec.Dispatch
 	return executor.CreateTask(
 		req.DAG.Name,
 		string(req.DAG.YamlData),
-		exec.DispatchOperationStart,
+		dispatch.DispatchOperationStart,
 		req.RunID,
 		opts...,
 	), nil
@@ -310,8 +310,8 @@ func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*exec.Dispatch
 func (r *Runner) buildRetryTask(
 	req executor.SubWorkflowRequest,
 	stepName string,
-	previousStatus *exec.DAGRunStatus,
-) (*exec.DispatchTask, error) {
+	previousStatus *dagrun.DAGRunStatus,
+) (*dispatch.DispatchTask, error) {
 	extra := []executor.TaskOption{executor.WithPreviousStatus(previousStatus)}
 	if stepName != "" {
 		extra = append(extra, executor.WithStep(stepName))
@@ -323,7 +323,7 @@ func (r *Runner) buildRetryTask(
 	return executor.CreateTask(
 		req.DAG.Name,
 		string(req.DAG.YamlData),
-		exec.DispatchOperationRetry,
+		dispatch.DispatchOperationRetry,
 		req.RunID,
 		opts...,
 	), nil
@@ -332,7 +332,7 @@ func (r *Runner) buildRetryTask(
 func (r *Runner) existingStatus(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*exec.DAGRunStatus, bool, error) {
+) (*dagrun.DAGRunStatus, bool, error) {
 	result, err := r.dispatcher.GetDAGRunStatus(ctx, req.DAG.Name, req.RunID, &req.RootDAGRun)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get DAG run status from coordinator: %w", err)
@@ -390,7 +390,7 @@ func (r *Runner) taskOptions(
 	return options, nil
 }
 
-func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
 	waitCtx := logger.WithValues(ctx,
 		tag.RunID(req.RunID),
 		tag.DAG(req.DAG.Name),
@@ -436,7 +436,7 @@ func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowReq
 				return result, nil
 			}
 
-			if result.Status.IsActive() || result.Status == core.NotStarted {
+			if result.Status.IsActive() || result.Status == ir.NotStarted {
 				logger.Debug(waitCtx, "Child workflow run not completed yet")
 				continue
 			}
@@ -456,7 +456,7 @@ func (r *Runner) waitForCancellation(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
 	startTime time.Time,
-) (*exec.RunStatus, error) {
+) (*dagrun.RunStatus, error) {
 	waitCtx := logger.WithValues(ctx,
 		tag.RunID(req.RunID),
 		tag.DAG(req.DAG.Name),
@@ -471,7 +471,7 @@ func (r *Runner) waitForCancellation(
 	logTicker := time.NewTicker(defaultCancellationLogDelay)
 	defer logTicker.Stop()
 
-	var lastStatus *exec.RunStatus
+	var lastStatus *dagrun.RunStatus
 
 	for {
 		status, err := r.getStatus(ctx, req)
@@ -485,7 +485,7 @@ func (r *Runner) waitForCancellation(
 		}
 		lastStatus = status
 
-		if status != nil && !status.Status.IsActive() && status.Status != core.NotStarted {
+		if status != nil && !status.Status.IsActive() && status.Status != ir.NotStarted {
 			return status, nil
 		}
 
@@ -508,7 +508,7 @@ func (r *Runner) waitForCancellation(
 	}
 }
 
-func (r *Runner) getStatus(ctx context.Context, req executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *Runner) getStatus(ctx context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
 	status, err := r.getFullStatus(ctx, req)
 	if err != nil {
 		return nil, err
@@ -519,7 +519,7 @@ func (r *Runner) getStatus(ctx context.Context, req executor.SubWorkflowRequest)
 func (r *Runner) getFullStatus(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*exec.DAGRunStatus, error) {
+) (*dagrun.DAGRunStatus, error) {
 	result, err := r.dispatcher.GetDAGRunStatus(ctx, req.DAG.Name, req.RunID, &req.RootDAGRun)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DAG run status from coordinator: %w", err)
@@ -536,20 +536,20 @@ func (r *Runner) getFullStatus(
 	return result.Status, nil
 }
 
-func statusToRunStatus(status *exec.DAGRunStatus, runID string) *exec.RunStatus {
+func statusToRunStatus(status *dagrun.DAGRunStatus, runID string) *dagrun.RunStatus {
 	nodes := status.NodesInRunOrder()
-	return &exec.RunStatus{
+	return &dagrun.RunStatus{
 		Name:               status.Name,
 		DAGRunID:           runID,
 		Params:             status.Params,
 		Outputs:            outputVariablesFromNodes(nodes),
 		OutputValues:       outputValuesFromNodes(nodes),
 		Status:             status.Status,
-		PendingStepRetries: exec.PendingStepRetriesFromStatus(status),
+		PendingStepRetries: dagrun.PendingStepRetriesFromStatus(status),
 	}
 }
 
-func outputVariablesFromNodes(nodes []*exec.Node) map[string]string {
+func outputVariablesFromNodes(nodes []*dagrun.Node) map[string]string {
 	outputs := make(map[string]string)
 	for _, node := range nodes {
 		if node == nil || node.OutputVariables == nil {
@@ -575,7 +575,7 @@ func outputVariablesFromNodes(nodes []*exec.Node) map[string]string {
 	return outputs
 }
 
-func outputValuesFromNodes(nodes []*exec.Node) map[string]any {
+func outputValuesFromNodes(nodes []*dagrun.Node) map[string]any {
 	outputs := make(map[string]any)
 	for _, node := range nodes {
 		if node == nil || node.OutputsValue == nil {

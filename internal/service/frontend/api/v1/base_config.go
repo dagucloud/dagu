@@ -13,9 +13,9 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -265,7 +265,7 @@ func validateBaseConfig(ctx context.Context, yamlSpec string) []string {
 		spec.WithoutEval(),
 	)
 
-	var loadErrs core.ErrorList
+	var loadErrs ir.ErrorList
 	if errors.As(err, &loadErrs) {
 		return loadErrs.ToStringList()
 	}

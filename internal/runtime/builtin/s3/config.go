@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -90,11 +92,11 @@ func DefaultConfig() *Config {
 	}
 }
 
-// ApplyDefaults maps the core.S3Config values to the Config struct
+// ApplyDefaults maps the ir.S3Config values to the Config struct
 // if they are present and not already set in the Config.
 // Note: This sets DAG-level defaults BEFORE step config is decoded,
 // so step config will override these values.
-func (c *Config) ApplyDefaults(defaults *core.S3Config) {
+func (c *Config) ApplyDefaults(defaults *ir.S3Config) {
 	if defaults == nil {
 		return
 	}
@@ -288,5 +290,5 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema("s3", configSchema)
+	registry.RegisterExecutorConfigSchema("s3", configSchema)
 }

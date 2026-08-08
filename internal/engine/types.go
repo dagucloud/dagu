@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -37,7 +38,7 @@ type Options struct {
 	Persistence        Persistence
 	PersistenceFactory PersistenceFactory
 	RunStateStore      runstate.Store
-	DAGRunStore        coreexec.DAGRunStore
+	DAGRunStore        dagrun.DAGRunStore
 	DefaultMode        ExecutionMode
 	Distributed        *DistributedOptions
 }
@@ -103,7 +104,7 @@ type Run struct {
 	doneErr   error
 
 	agent *agent.Agent
-	dag   *core.DAG
+	dag   *ir.DAG
 
 	coordinator coordinator.Client
 }
@@ -122,6 +123,6 @@ type Worker struct {
 }
 
 type localPreparation struct {
-	attempt coreexec.DAGRunAttempt
-	proc    coreexec.ProcHandle
+	attempt dagrun.DAGRunAttempt
+	proc    proc.ProcHandle
 }

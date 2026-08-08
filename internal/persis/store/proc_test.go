@@ -16,11 +16,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 )
 
 func newProcStore(t *testing.T, opts ...store.ProcStoreOption) *store.ProcStore {
@@ -28,8 +29,8 @@ func newProcStore(t *testing.T, opts ...store.ProcStoreOption) *store.ProcStore 
 	return store.NewProcStore(testutil.NewMemoryBackend().Collection("proc_entries"), opts...)
 }
 
-func procMeta(ref exec.DAGRunRef) exec.ProcMeta {
-	return exec.ProcMeta{
+func procMeta(ref dagrun.DAGRunRef) procdomain.ProcMeta {
+	return procdomain.ProcMeta{
 		StartedAt:    time.Now().UTC().Unix(),
 		Name:         ref.Name,
 		DAGRunID:     ref.ID,
@@ -44,7 +45,7 @@ func TestProcStoreAcquireStop(t *testing.T) {
 
 	ctx := context.Background()
 	s := newProcStore(t)
-	ref := exec.NewDAGRunRef("proc-dag", "run-1")
+	ref := dagrun.NewDAGRunRef("proc-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
 	require.NoError(t, err)
@@ -74,7 +75,7 @@ func TestProcStoreHeartbeatAdvances(t *testing.T) {
 	s := newProcStore(t,
 		store.WithProcHeartbeatInterval(10*time.Millisecond),
 	)
-	ref := exec.NewDAGRunRef("heartbeat-dag", "run-1")
+	ref := dagrun.NewDAGRunRef("heartbeat-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
 	require.NoError(t, err)
@@ -100,7 +101,7 @@ func TestProcHandleRemovesEntryWhenContextCanceled(t *testing.T) {
 		store.WithProcHeartbeatInterval(time.Hour),
 		store.WithProcStaleThreshold(time.Hour),
 	)
-	ref := exec.NewDAGRunRef("cancel-dag", "run-1")
+	ref := dagrun.NewDAGRunRef("cancel-dag", "run-1")
 
 	_, err := s.Acquire(ctx, "queue-a", procMeta(ref))
 	require.NoError(t, err)
@@ -124,7 +125,7 @@ func TestProcHandleStopCleansUpWithCanceledContext(t *testing.T) {
 	ctx := context.Background()
 	col := cancelAwareDeleteCollection{Collection: testutil.NewMemoryBackend().Collection("proc_entries")}
 	s := store.NewProcStore(col)
-	ref := exec.NewDAGRunRef("stop-cancel-dag", "run-1")
+	ref := dagrun.NewDAGRunRef("stop-cancel-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
 	require.NoError(t, err)
@@ -146,13 +147,13 @@ func TestProcStoreRemoveIfStale(t *testing.T) {
 		store.WithProcStaleThreshold(20*time.Millisecond),
 		store.WithProcHeartbeatInterval(time.Hour),
 	)
-	ref := exec.NewDAGRunRef("stale-dag", "run-1")
+	ref := dagrun.NewDAGRunRef("stale-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
 	require.NoError(t, err)
 	defer func() { _ = proc.Stop(ctx) }()
 
-	var stale exec.ProcEntry
+	var stale procdomain.ProcEntry
 	require.Eventually(t, func() bool {
 		entries, err := s.ListEntries(ctx, "queue-a")
 		require.NoError(t, err)
@@ -180,13 +181,13 @@ func TestProcStoreRemoveIfStaleKeepsRefreshedCollectionRecord(t *testing.T) {
 		store.WithProcStaleThreshold(20*time.Millisecond),
 		store.WithProcHeartbeatInterval(time.Hour),
 	)
-	ref := exec.NewDAGRunRef("stale-refresh-dag", "run-1")
+	ref := dagrun.NewDAGRunRef("stale-refresh-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
 	require.NoError(t, err)
 	defer func() { _ = proc.Stop(ctx) }()
 
-	var stale exec.ProcEntry
+	var stale procdomain.ProcEntry
 	require.Eventually(t, func() bool {
 		entries, err := s.ListEntries(ctx, "queue-a")
 		require.NoError(t, err)
@@ -228,13 +229,13 @@ func TestProcStoreRemoveIfStaleIgnoresEntryWithoutStoreIdentity(t *testing.T) {
 		store.WithProcStaleThreshold(20*time.Millisecond),
 		store.WithProcHeartbeatInterval(time.Hour),
 	)
-	ref := exec.NewDAGRunRef("stale-no-identity-dag", "run-1")
+	ref := dagrun.NewDAGRunRef("stale-no-identity-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
 	require.NoError(t, err)
 	defer func() { _ = proc.Stop(ctx) }()
 
-	var stale exec.ProcEntry
+	var stale procdomain.ProcEntry
 	require.Eventually(t, func() bool {
 		entries, err := s.ListEntries(ctx, "queue-a")
 		require.NoError(t, err)
@@ -247,11 +248,11 @@ func TestProcStoreRemoveIfStaleIgnoresEntryWithoutStoreIdentity(t *testing.T) {
 
 	for _, tc := range []struct {
 		name     string
-		identity exec.ProcEntryID
+		identity procdomain.ProcEntryID
 	}{
-		{name: "zero", identity: exec.ProcEntryID{}},
-		{name: "missing separator", identity: exec.NewProcEntryID("plain-file.proc")},
-		{name: "bad encoding", identity: exec.NewProcEntryID("collection:not base64")},
+		{name: "zero", identity: procdomain.ProcEntryID{}},
+		{name: "missing separator", identity: procdomain.NewProcEntryID("plain-file.proc")},
+		{name: "bad encoding", identity: procdomain.NewProcEntryID("collection:not base64")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			entry := stale
@@ -271,9 +272,9 @@ func TestProcStoreLatestFreshEntryByDAGName(t *testing.T) {
 	ctx := context.Background()
 	s := newProcStore(t)
 
-	older := procMeta(exec.NewDAGRunRef("latest-dag", "run-older"))
+	older := procMeta(dagrun.NewDAGRunRef("latest-dag", "run-older"))
 	older.StartedAt = 100
-	newer := procMeta(exec.NewDAGRunRef("latest-dag", "run-newer"))
+	newer := procMeta(dagrun.NewDAGRunRef("latest-dag", "run-newer"))
 	newer.StartedAt = 200
 
 	proc1, err := s.Acquire(ctx, "queue-a", older)
@@ -336,7 +337,7 @@ func TestProcStoreRejectsFutureCollectionHeartbeat(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("proc_entries")
 	s := store.NewProcStore(col)
-	meta := procMeta(exec.NewDAGRunRef("future-dag", "run-1"))
+	meta := procMeta(dagrun.NewDAGRunRef("future-dag", "run-1"))
 	data, err := json.Marshal(map[string]any{
 		"version":         1,
 		"groupName":       "queue-a",
@@ -364,7 +365,7 @@ func TestProcStoreRejectsCollectionRecordGroupMismatch(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("proc_entries")
 	s := store.NewProcStore(col)
-	meta := procMeta(exec.NewDAGRunRef("mismatch-dag", "run-1"))
+	meta := procMeta(dagrun.NewDAGRunRef("mismatch-dag", "run-1"))
 	data, err := json.Marshal(map[string]any{
 		"version":         1,
 		"groupName":       "queue-b",
@@ -411,13 +412,13 @@ func TestProcStoreLatestHeartbeatSkipsCorruptCollectionRecords(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("proc_entries")
 	s := store.NewProcStore(col)
-	ref := exec.NewDAGRunRef("collection-corrupt-dag", "run-1")
+	ref := dagrun.NewDAGRunRef("collection-corrupt-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
 	require.NoError(t, err)
 	defer func() { _ = proc.Stop(ctx) }()
 
-	otherMeta := procMeta(exec.NewDAGRunRef(ref.Name, "run-other"))
+	otherMeta := procMeta(dagrun.NewDAGRunRef(ref.Name, "run-other"))
 	now := time.Now().UTC()
 	require.NoError(t, col.Put(ctx, &persis.Record{
 		ID:        procRecordIDForTest("queue-a", otherMeta, now),
@@ -432,7 +433,7 @@ func TestProcStoreLatestHeartbeatSkipsCorruptCollectionRecords(t *testing.T) {
 	assert.Equal(t, ref, heartbeat.DAGRun)
 }
 
-func procRecordIDForTest(groupName string, meta exec.ProcMeta, t time.Time) string {
+func procRecordIDForTest(groupName string, meta procdomain.ProcMeta, t time.Time) string {
 	return filepath.ToSlash(filepath.Join(
 		groupName,
 		meta.Name,

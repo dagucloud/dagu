@@ -6,7 +6,7 @@ package intg_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -31,7 +31,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "1\n2\n3",
 		})
@@ -55,7 +55,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "1\n2\n3",
 		})
@@ -79,7 +79,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "hello\nworld",
 		})
@@ -103,7 +103,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "\"hello\"\n\"world\"",
 		})
@@ -127,7 +127,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "1\t100\n2\t200\n3\t300",
 		})
@@ -152,7 +152,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "bar",
 		})
@@ -177,7 +177,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": `"bar"`,
 		})
@@ -202,7 +202,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "42",
 		})
@@ -227,7 +227,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"ENABLED": "true",
 		})
@@ -252,7 +252,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// Null values output empty string, but the output variable still exists
 		// So we check that it contains an empty value
 		dag.AssertOutputs(t, map[string]any{
@@ -279,7 +279,7 @@ func TestJQExecutor(t *testing.T) {
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		// In raw mode, object is output as compact JSON (key order not guaranteed)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": []test.Contains{
@@ -314,7 +314,7 @@ steps:
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "a\nb",
 		})
@@ -345,7 +345,7 @@ steps:
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "a\nb",
 		})
@@ -376,7 +376,7 @@ steps:
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "\"a\"\n\"b\"",
 		})
@@ -409,7 +409,7 @@ steps:
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "100",
 		})
@@ -440,7 +440,7 @@ steps:
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "Alice\nBob",
 		})
@@ -465,7 +465,7 @@ steps:
 
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"RESULT": "hello\nworld\ttab",
 		})

@@ -14,9 +14,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -34,7 +35,7 @@ steps:
 `).Enqueue(3).StartScheduler(30 * time.Second)
 	defer f.Stop()
 
-	f.WaitForAllStatusesAndDrain(core.Succeeded, 20*time.Second, 35*time.Second)
+	f.WaitForAllStatusesAndDrain(ir.Succeeded, 20*time.Second, 35*time.Second)
 
 	items, err := f.th.QueueStore.List(f.th.Context, f.queue)
 	require.NoError(t, err)
@@ -53,7 +54,7 @@ steps:
 			defer f.Stop()
 
 			f.WaitDrain(15 * time.Second)
-			f.WaitForStatus(f.runIDs[0], core.Succeeded, 10*time.Second)
+			f.WaitForStatus(f.runIDs[0], ir.Succeeded, 10*time.Second)
 		})
 	}
 }
@@ -97,7 +98,7 @@ steps:
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("release"), 0600))
 	released = true
-	f.WaitForAllStatuses(core.Succeeded, 20*time.Second)
+	f.WaitForAllStatuses(ir.Succeeded, 20*time.Second)
 	f.WaitForAllStopped(10 * time.Second)
 	f.Stop()
 	stopped = true
@@ -160,14 +161,14 @@ steps:
   - name: echo
     run: echo done
 `).
-		EnqueueWithPriority(exec.QueuePriorityLow).
-		EnqueueWithPriority(exec.QueuePriorityLow).
-		EnqueueWithPriority(exec.QueuePriorityHigh).
-		EnqueueWithPriority(exec.QueuePriorityHigh).
+		EnqueueWithPriority(queue.QueuePriorityLow).
+		EnqueueWithPriority(queue.QueuePriorityLow).
+		EnqueueWithPriority(queue.QueuePriorityHigh).
+		EnqueueWithPriority(queue.QueuePriorityHigh).
 		StartScheduler(30 * time.Second)
 	defer f.Stop()
 
-	f.WaitForAllStatusesAndDrain(core.Succeeded, 20*time.Second, 35*time.Second)
+	f.WaitForAllStatusesAndDrain(ir.Succeeded, 20*time.Second, 35*time.Second)
 
 	times := f.collectStartTimes()
 	require.Len(t, times, 4)
@@ -195,12 +196,12 @@ steps:
 
 	runID := f.runIDs[0]
 
-	ref := exec.NewDAGRunRef(f.dag.Name, runID)
+	ref := dagrun.NewDAGRunRef(f.dag.Name, runID)
 	att, err := f.th.DAGRunStore.FindAttempt(f.th.Context, ref)
 	require.NoError(t, err)
 	status, err := att.ReadStatus(f.th.Context)
 	require.NoError(t, err)
-	require.Equal(t, core.Failed, status.Status)
+	require.Equal(t, ir.Failed, status.Status)
 
 	f.RetryEnqueue(runID)
 
@@ -208,9 +209,9 @@ steps:
 	require.NoError(t, err)
 	status, err = att.ReadStatus(f.th.Context)
 	require.NoError(t, err)
-	assert.Equal(t, core.Queued, status.Status)
+	assert.Equal(t, ir.Queued, status.Status)
 	assert.NotEmpty(t, status.QueuedAt)
-	assert.Equal(t, core.TriggerTypeRetry, status.TriggerType)
+	assert.Equal(t, ir.TriggerTypeRetry, status.TriggerType)
 	assert.Zero(t, status.AutoRetryCount)
 
 	items, err := f.th.QueueStore.List(f.th.Context, "retry-queue")
@@ -250,7 +251,7 @@ steps:
 
 	directStatus, err := f.th.DAGRunMgr.GetLatestStatus(f.th.Context, f.dag)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, directStatus.Status)
+	require.Equal(t, ir.Succeeded, directStatus.Status)
 	directOutput := test.StatusOutputValue(t, &directStatus, "RESULT")
 	directParts := strings.SplitN(directOutput, "|", 2)
 	require.Len(t, directParts, 2)
@@ -281,7 +282,7 @@ steps:
 	)
 	queueProcessor.ProcessQueueItems(f.th.Context, "queue-explicit-env")
 
-	f.WaitForStatus(queuedRunID, core.Succeeded, 10*time.Second)
+	f.WaitForStatus(queuedRunID, ir.Succeeded, 10*time.Second)
 
 	queuedStatus := f.MustStatus(queuedRunID)
 	queuedOutput := test.StatusOutputValue(t, queuedStatus, "RESULT")
@@ -316,7 +317,7 @@ steps:
 			StartedAt:    failedAt.Add(-5 * time.Second),
 			FinishedAt:   failedAt,
 			ScheduleTime: failedAt.Add(-time.Minute),
-			TriggerType:  core.TriggerTypeScheduler,
+			TriggerType:  ir.TriggerTypeScheduler,
 		})
 		markerModTime := prepareFailureMarker(t, markerPath)
 		originalAttemptID := f.MustStatus(runID).AttemptID
@@ -324,13 +325,13 @@ steps:
 		f.StartScheduler(40 * time.Second)
 		defer f.Stop()
 
-		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *exec.DAGRunStatus) bool {
-			return status.Status == core.Succeeded &&
+		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *dagrun.DAGRunStatus) bool {
+			return status.Status == ir.Succeeded &&
 				status.AttemptID != originalAttemptID &&
 				status.AutoRetryCount == 1
 		})
 		require.NoError(t, err)
-		assert.Equal(t, core.Succeeded, latest.Status)
+		assert.Equal(t, ir.Succeeded, latest.Status)
 		assert.NotEqual(t, originalAttemptID, latest.AttemptID)
 		assert.Equal(t, 1, latest.AutoRetryCount)
 
@@ -362,20 +363,20 @@ steps:
 			CreatedAt:    failedAt,
 			StartedAt:    failedAt.Add(-5 * time.Second),
 			ScheduleTime: failedAt.Add(-time.Minute),
-			TriggerType:  core.TriggerTypeScheduler,
+			TriggerType:  ir.TriggerTypeScheduler,
 		})
 		originalAttemptID := f.MustStatus(runID).AttemptID
 
 		f.StartScheduler(40 * time.Second)
 		defer f.Stop()
 
-		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *exec.DAGRunStatus) bool {
-			return status.Status == core.Succeeded &&
+		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *dagrun.DAGRunStatus) bool {
+			return status.Status == ir.Succeeded &&
 				status.AttemptID != originalAttemptID &&
 				status.AutoRetryCount == 1
 		})
 		require.NoError(t, err)
-		assert.Equal(t, core.Succeeded, latest.Status)
+		assert.Equal(t, ir.Succeeded, latest.Status)
 		assert.NotEqual(t, originalAttemptID, latest.AttemptID)
 		assert.Equal(t, 1, latest.AutoRetryCount)
 	})
@@ -411,7 +412,7 @@ retry_policy:
 			StartedAt:    failedAt.Add(-5 * time.Second),
 			FinishedAt:   failedAt,
 			ScheduleTime: failedAt.Add(-time.Minute),
-			TriggerType:  core.TriggerTypeScheduler,
+			TriggerType:  ir.TriggerTypeScheduler,
 		})
 		originalStatus := f.MustStatus(runID)
 		originalAttemptID := originalStatus.AttemptID
@@ -426,12 +427,12 @@ retry_policy:
 				return false
 			}
 			return status.AttemptID != originalAttemptID ||
-				status.Status != core.Failed ||
+				status.Status != ir.Failed ||
 				status.AutoRetryCount != 0
 		}, 3*time.Second, 100*time.Millisecond)
 
 		latest := f.MustStatus(runID)
-		assert.Equal(t, core.Failed, latest.Status)
+		assert.Equal(t, ir.Failed, latest.Status)
 		assert.Equal(t, originalAttemptID, latest.AttemptID)
 		assert.Equal(t, 0, latest.AutoRetryCount)
 		assert.Equal(t, 0, latest.AutoRetryLimit)
@@ -470,12 +471,12 @@ steps:
 			StartedAt:    failedFinishedAt.Add(-5 * time.Second),
 			FinishedAt:   failedFinishedAt,
 			ScheduleTime: failedScheduleTime,
-			TriggerType:  core.TriggerTypeScheduler,
+			TriggerType:  ir.TriggerTypeScheduler,
 		})
 		_ = f.RunningRunWithMetadata(runStatusOptions{
 			StartedAt:    now.Add(-time.Minute),
 			ScheduleTime: newerScheduleTime,
-			TriggerType:  core.TriggerTypeScheduler,
+			TriggerType:  ir.TriggerTypeScheduler,
 		})
 		markerModTime := prepareFailureMarker(t, markerPath)
 		originalAttemptID := f.MustStatus(runID).AttemptID
@@ -483,13 +484,13 @@ steps:
 		f.StartScheduler(35 * time.Second)
 		defer f.Stop()
 
-		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *exec.DAGRunStatus) bool {
-			return status.Status == core.Succeeded &&
+		latest, err := f.WaitForStatusMatch(runID, 25*time.Second, func(status *dagrun.DAGRunStatus) bool {
+			return status.Status == ir.Succeeded &&
 				status.AttemptID != originalAttemptID &&
 				status.AutoRetryCount == 1
 		})
 		require.NoError(t, err)
-		assert.Equal(t, core.Succeeded, latest.Status)
+		assert.Equal(t, ir.Succeeded, latest.Status)
 		assert.NotEqual(t, originalAttemptID, latest.AttemptID)
 		assert.Equal(t, 1, latest.AutoRetryCount)
 		assert.Equal(t, markerModTime, readMarkerModTime(t, markerPath))
@@ -511,11 +512,11 @@ steps:
 	defer f.Stop()
 
 	f.WaitDrain(25 * time.Second)
-	status := f.waitForRecentStatus(25*time.Second, func(st exec.DAGRunStatus) bool {
-		return st.DAGRunID == runID && st.Status == core.Succeeded
+	status := f.waitForRecentStatus(25*time.Second, func(st dagrun.DAGRunStatus) bool {
+		return st.DAGRunID == runID && st.Status == ir.Succeeded
 	})
 
-	require.Equal(t, core.TriggerTypeCatchUp, status.TriggerType)
+	require.Equal(t, ir.TriggerTypeCatchUp, status.TriggerType)
 	require.Equal(t, stringutil.FormatTime(scheduleTime), status.ScheduleTime)
 	require.NotEmpty(t, status.Log)
 	require.FileExists(t, status.Log)
@@ -541,13 +542,13 @@ steps:
 	defer f.Stop()
 
 	f.WaitDrain(30 * time.Second)
-	status := f.waitForRecentStatus(30*time.Second, func(st exec.DAGRunStatus) bool {
-		return st.Status == core.Succeeded &&
-			st.TriggerType == core.TriggerTypeCatchUp &&
+	status := f.waitForRecentStatus(30*time.Second, func(st dagrun.DAGRunStatus) bool {
+		return st.Status == ir.Succeeded &&
+			st.TriggerType == ir.TriggerTypeCatchUp &&
 			st.ScheduleTime == stringutil.FormatTime(scheduledTime)
 	})
 
-	require.Equal(t, core.TriggerTypeCatchUp, status.TriggerType)
+	require.Equal(t, ir.TriggerTypeCatchUp, status.TriggerType)
 	require.Equal(t, stringutil.FormatTime(scheduledTime), status.ScheduleTime)
 	require.NotEmpty(t, status.Log)
 	require.FileExists(t, status.Log)

@@ -14,8 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -695,7 +695,7 @@ func TestWorkerCancellation(t *testing.T) {
 		var validationCalls atomic.Int32
 		executedTaskIDs := make(chan string, 2)
 
-		mockCoordinatorCli.RunHeartbeatFunc = func(_ context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+		mockCoordinatorCli.RunHeartbeatFunc = func(_ context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 			callNum := validationCalls.Add(1)
 			assert.Equal(t, "coord-a", owner.ID)
 			assert.Len(t, req.RunningTasks, 1)
@@ -777,7 +777,7 @@ func TestWorkerCancellation(t *testing.T) {
 
 	t.Run("OwnerValidationFailureDoesNotBlockExecution", func(t *testing.T) {
 		mockCoordinatorCli := newMockCoordinatorCli()
-		mockCoordinatorCli.RunHeartbeatFunc = func(_ context.Context, _ exec.HostInfo, _ *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+		mockCoordinatorCli.RunHeartbeatFunc = func(_ context.Context, _ serviceregistry.HostInfo, _ *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 			return nil, errors.New("owner unavailable")
 		}
 

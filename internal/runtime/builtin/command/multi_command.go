@@ -10,7 +10,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -30,7 +30,7 @@ type multiCommandExecutor struct {
 }
 
 // newMultiCommandExecutor creates an executor that runs multiple commands sequentially.
-func newMultiCommandExecutor(ctx context.Context, step core.Step) (*multiCommandExecutor, error) {
+func newMultiCommandExecutor(ctx context.Context, step ir.Step) (*multiCommandExecutor, error) {
 	env := runtime.GetEnv(ctx)
 
 	configs := make([]*commandConfig, 0, len(step.Commands))

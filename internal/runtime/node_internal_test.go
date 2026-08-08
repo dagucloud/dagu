@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/log"
 	"github.com/stretchr/testify/require"
 )
@@ -22,24 +22,24 @@ import (
 func TestEvalExecutorConfig_TemplateTreatsOmittedOptionalParamsAsEmpty(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
-		&core.DAG{
+		&ir.DAG{
 			Name: "test-dag",
-			ParamDefs: []core.ParamDef{
-				{Name: "name", Type: core.ParamDefTypeString, Required: true},
-				{Name: "favorite_color", Type: core.ParamDefTypeString},
+			ParamDefs: []ir.ParamDef{
+				{Name: "name", Type: ir.ParamDefTypeString, Required: true},
+				{Name: "favorite_color", Type: ir.ParamDefTypeString},
 			},
 		},
 		"",
 		"",
-		exec.WithParams([]string{"name=tom"}),
+		runctx.WithParams([]string{"name=tom"}),
 	)
-	env := NewEnv(ctx, core.Step{Name: "render"})
+	env := NewEnv(ctx, ir.Step{Name: "render"})
 	ctx = WithEnv(ctx, env)
 
-	result, err := evalExecutorConfig(ctx, core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	result, err := evalExecutorConfig(ctx, ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "template",
 			Config: map[string]any{
 				"data": map[string]any{
@@ -63,20 +63,20 @@ func TestEvalExecutorConfig_TemplateTreatsOmittedOptionalParamsAsEmpty(t *testin
 func TestEvalExecutorConfig_TemplatePreservesLiteralCodeFencesInData(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
-		&core.DAG{Name: "test-dag"},
+		&ir.DAG{Name: "test-dag"},
 		"",
 		"",
 	)
-	env := NewEnv(ctx, core.Step{Name: "render"})
+	env := NewEnv(ctx, ir.Step{Name: "render"})
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"ISSUE_TEXT": "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```",
 	}, cmnvalue.EnvSourceStepEnv)
 	ctx = WithEnv(ctx, env)
 
-	result, err := evalExecutorConfig(ctx, core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	result, err := evalExecutorConfig(ctx, ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "template",
 			Config: map[string]any{
 				"data": map[string]any{
@@ -95,21 +95,21 @@ func TestEvalExecutorConfig_TemplatePreservesLiteralCodeFencesInData(t *testing.
 func TestEvalExecutorConfig_TemplateReferenceResolvesOnce(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
-		&core.DAG{Name: "test-dag"},
+		&ir.DAG{Name: "test-dag"},
 		"",
 		"",
 	)
-	env := NewEnv(ctx, core.Step{Name: "render"})
+	env := NewEnv(ctx, ir.Step{Name: "render"})
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"TEMPLATE": "  Hello, {{ .name }}! ${env.NESTED} `command`\n",
 		"NESTED":   "must-not-expand",
 	}, cmnvalue.EnvSourceStepEnv)
 	ctx = WithEnv(ctx, env)
 
-	result, err := evalExecutorConfig(ctx, core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	result, err := evalExecutorConfig(ctx, ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "template",
 			Config: map[string]any{
 				"template_ref": "${env.TEMPLATE}",
@@ -125,17 +125,17 @@ func TestEvalExecutorConfig_TemplateReferenceResolvesOnce(t *testing.T) {
 func TestEvalExecutorConfig_TemplateReferenceMustResolve(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
-		&core.DAG{Name: "test-dag"},
+		&ir.DAG{Name: "test-dag"},
 		"",
 		"",
 	)
-	env := NewEnv(ctx, core.Step{Name: "render"})
+	env := NewEnv(ctx, ir.Step{Name: "render"})
 	ctx = WithEnv(ctx, env)
 
-	_, err := evalExecutorConfig(ctx, core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	_, err := evalExecutorConfig(ctx, ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "template",
 			Config: map[string]any{
 				"template_ref": "${env.MISSING}",
@@ -151,20 +151,20 @@ func TestEvalExecutorConfig_TemplateReferenceMustResolve(t *testing.T) {
 func TestEvalExecutorConfig_DefaultPreservesLiteralCodeFencesInData(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
-		&core.DAG{Name: "test-dag"},
+		&ir.DAG{Name: "test-dag"},
 		"",
 		"",
 	)
-	env := NewEnv(ctx, core.Step{Name: "analyze"})
+	env := NewEnv(ctx, ir.Step{Name: "analyze"})
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"PROMPT_TEXT": "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```",
 	}, cmnvalue.EnvSourceStepEnv)
 	ctx = WithEnv(ctx, env)
 
-	result, err := evalExecutorConfig(ctx, core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	result, err := evalExecutorConfig(ctx, ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "harness",
 			Config: map[string]any{
 				"provider": "codex",
@@ -179,19 +179,19 @@ func TestEvalExecutorConfig_DefaultPreservesLiteralCodeFencesInData(t *testing.T
 func TestEvalExecutorConfig_ExpandsStepOutputsReferences(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
-		&core.DAG{Name: "test-dag"},
+		&ir.DAG{Name: "test-dag"},
 		"",
 		"",
 	)
-	env := NewEnv(ctx, core.Step{Name: "audit"})
+	env := NewEnv(ctx, ir.Step{Name: "audit"})
 	outputs := `{"messageId":"msg-123","status":"sent"}`
 	env.StepMap["call_action"] = cmnvalue.StepInfo{Outputs: &outputs}
 	ctx = WithEnv(ctx, env)
 
-	result, err := evalExecutorConfig(ctx, core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	result, err := evalExecutorConfig(ctx, ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "log",
 			Config: map[string]any{
 				"message": "message=${call_action.outputs.messageId} status=${call_action.outputs.status}",
@@ -205,16 +205,16 @@ func TestEvalExecutorConfig_ExpandsStepOutputsReferences(t *testing.T) {
 func TestSetupExecutor_LogMessageExpandsVariables(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "announce",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "log",
 			Config: map[string]any{
 				"message": "Deploying ${ENVIRONMENT}",
 			},
 		},
 	}
-	ctx := NewContextForTest(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
+	ctx := NewContextForTest(context.Background(), &ir.DAG{Name: "test-dag"}, "run-1", "test.log")
 	env := NewEnv(ctx, step)
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"ENVIRONMENT": "production",
@@ -238,14 +238,14 @@ func TestSetupExecutor_LogMessageExpandsVariables(t *testing.T) {
 func TestBuildSubDAGRunsAddressesPreviousAttemptRuns(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "parallel_2",
-		SubDAG: &core.SubDAG{Name: "child"},
-		Parallel: &core.ParallelConfig{
-			Items: []core.ParallelItem{{Value: "one"}, {Value: "two"}},
+		SubDAG: &ir.SubDAG{Name: "child"},
+		Parallel: &ir.ParallelConfig{
+			Items: []ir.ParallelItem{{Value: "one"}, {Value: "two"}},
 		},
 	}
-	dag := &core.DAG{Name: "root", Steps: []core.Step{step}}
+	dag := &ir.DAG{Name: "root", Steps: []ir.Step{step}}
 
 	buildIDs := func(t *testing.T, node *Node) []string {
 		t.Helper()
@@ -265,7 +265,7 @@ func TestBuildSubDAGRunsAddressesPreviousAttemptRuns(t *testing.T) {
 	require.Len(t, firstAttempt, 2)
 
 	retried := NewNode(step, NodeState{
-		Status:  core.NodeFailed,
+		Status:  ir.NodeFailed,
 		SubRuns: []SubDAGRun{{DAGRunID: firstAttempt[0]}, {DAGRunID: firstAttempt[1]}},
 	})
 	_, err := CreateStepRetryPlan(dag, []*Node{retried}, step.Name)
@@ -277,16 +277,16 @@ func TestBuildSubDAGRunsAddressesPreviousAttemptRuns(t *testing.T) {
 func TestBuildChildRunParams_SelectorConflict(t *testing.T) {
 	t.Parallel()
 
-	subDAG := &core.SubDAG{Name: "child", Params: "MODE=batch"}
-	step := core.Step{
+	subDAG := &ir.SubDAG{Name: "child", Params: "MODE=batch"}
+	step := ir.Step{
 		Name:           "run-child",
 		SubDAG:         subDAG,
 		WorkerSelector: map[string]string{"host": "${ITEM}"},
-		Parallel: &core.ParallelConfig{
-			Items: []core.ParallelItem{{Value: "serverA"}, {Value: "serverB"}},
+		Parallel: &ir.ParallelConfig{
+			Items: []ir.ParallelItem{{Value: "serverA"}, {Value: "serverB"}},
 		},
 	}
-	dag := &core.DAG{Name: "root", Steps: []core.Step{step}}
+	dag := &ir.DAG{Name: "root", Steps: []ir.Step{step}}
 	ctx := NewContextForTest(context.Background(), dag, "root-run", "")
 	ctx = WithEnv(ctx, NewEnv(ctx, step))
 
@@ -301,17 +301,17 @@ func TestBuildChildRunParams_SelectorConflict(t *testing.T) {
 func TestSetupExecutor_HarnessCommandPreservesLiteralCodeFences(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "analyze",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "harness",
 			Config: map[string]any{"provider": "codex"},
 		},
-		Commands: []core.CommandEntry{{
+		Commands: []ir.CommandEntry{{
 			CmdWithArgs: "${ANALYZE_PROMPT}",
 		}},
 	}
-	ctx := NewContextForTest(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
+	ctx := NewContextForTest(context.Background(), &ir.DAG{Name: "test-dag"}, "run-1", "test.log")
 	env := NewEnv(ctx, step)
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"ANALYZE_PROMPT": "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```",
@@ -330,18 +330,18 @@ func TestSetupExecutor_HarnessCommandPreservesLiteralCodeFences(t *testing.T) {
 func TestSetupExecutor_HarnessScriptPreservesLiteralCodeFences(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "analyze",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "harness",
 			Config: map[string]any{"provider": "codex"},
 		},
-		Commands: []core.CommandEntry{{
+		Commands: []ir.CommandEntry{{
 			CmdWithArgs: "Summarize the issue",
 		}},
 		Script: "${ANALYZE_SCRIPT}",
 	}
-	ctx := NewContextForTest(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
+	ctx := NewContextForTest(context.Background(), &ir.DAG{Name: "test-dag"}, "run-1", "test.log")
 	env := NewEnv(ctx, step)
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"ANALYZE_SCRIPT": "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```",

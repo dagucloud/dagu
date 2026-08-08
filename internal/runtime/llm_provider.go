@@ -11,14 +11,14 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 )
 
 // NewLLMProvider builds an LLM provider from a resolved DAG or step LLM config.
 // The API key and base URL are evaluated against the current runtime env.
-func NewLLMProvider(ctx context.Context, cfg *core.LLMConfig) (llmpkg.Provider, error) {
+func NewLLMProvider(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error) {
 	providerType, err := llmpkg.ParseProviderType(cfg.Provider)
 	if err != nil {
 		// ParseProviderType already reports an invalid provider by name.
@@ -69,8 +69,8 @@ func NewLLMProvider(ctx context.Context, cfg *core.LLMConfig) (llmpkg.Provider, 
 // each entry. base_url is resolved later, when the provider is built, once shared
 // config has been merged in; api_key_name is not value-resolved at all, since it
 // names an environment variable the provider construction reads.
-func ResolveModels(ctx context.Context, models []core.ModelEntry) ([]core.ModelEntry, error) {
-	resolved := make([]core.ModelEntry, len(models))
+func ResolveModels(ctx context.Context, models []ir.ModelEntry) ([]ir.ModelEntry, error) {
+	resolved := make([]ir.ModelEntry, len(models))
 	for i, model := range models {
 		provider, err := ResolveString(ctx, model.Provider, cmnvalue.WorkflowField("llm.provider"))
 		if err != nil {
@@ -104,8 +104,8 @@ func emptyAfterResolution(field, raw string) error {
 
 // EffectiveLLMConfig folds one model entry into the shared LLM config, so the
 // entry's own provider, name, and overrides win where it sets them.
-func EffectiveLLMConfig(cfg *core.LLMConfig, model core.ModelEntry) *core.LLMConfig {
-	return &core.LLMConfig{
+func EffectiveLLMConfig(cfg *ir.LLMConfig, model ir.ModelEntry) *ir.LLMConfig {
+	return &ir.LLMConfig{
 		Provider:              model.Provider,
 		Model:                 model.Name,
 		System:                cfg.System,
@@ -144,7 +144,7 @@ func coalesceStr(override, fallback string) string {
 // resolved against the runtime scope, so a reference to a secret becomes the
 // secret itself; only the copy sent to the provider is masked, and the run's own
 // transcript keeps the resolved text.
-func MaskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.LLMMessage {
+func MaskSecretsForProvider(ctx context.Context, msgs []dagrun.LLMMessage) []dagrun.LLMMessage {
 	rCtx := GetDAGContext(ctx)
 	if rCtx.EnvScope == nil {
 		return msgs
@@ -160,9 +160,9 @@ func MaskSecretsForProvider(ctx context.Context, msgs []exec.LLMMessage) []exec.
 	}
 	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: envPairs})
 
-	result := make([]exec.LLMMessage, len(msgs))
+	result := make([]dagrun.LLMMessage, len(msgs))
 	for i, msg := range msgs {
-		result[i] = exec.LLMMessage{
+		result[i] = dagrun.LLMMessage{
 			Role:       msg.Role,
 			Content:    masker.MaskString(msg.Content),
 			ToolCallID: msg.ToolCallID,

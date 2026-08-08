@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +42,7 @@ steps:
 	// Wait for completion
 	require.Eventually(t, func() bool {
 		status, err := th.DAGRunMgr.GetLatestStatus(ctx, dag.DAG)
-		return err == nil && status.Status == core.Succeeded
+		return err == nil && status.Status == ir.Succeeded
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// Run history command - stdout table output is not captured in LoggingOutput,
@@ -80,7 +80,7 @@ steps:
 	require.Eventually(t, func() bool {
 		s1, err1 := th.DAGRunMgr.GetLatestStatus(ctx, dag1.DAG)
 		s2, err2 := th.DAGRunMgr.GetLatestStatus(ctx, dag2.DAG)
-		return err1 == nil && err2 == nil && s1.Status == core.Succeeded && s2.Status == core.Succeeded
+		return err1 == nil && err2 == nil && s1.Status == ir.Succeeded && s2.Status == ir.Succeeded
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// Filter by specific DAG name - stdout table output is not captured,
@@ -118,7 +118,7 @@ steps:
 	require.Eventually(t, func() bool {
 		s1, err1 := th.DAGRunMgr.GetLatestStatus(ctx, dagSuccess.DAG)
 		s2, err2 := th.DAGRunMgr.GetLatestStatus(ctx, dagFail.DAG)
-		return err1 == nil && err2 == nil && s1.Status == core.Succeeded && s2.Status == core.Failed
+		return err1 == nil && err2 == nil && s1.Status == ir.Succeeded && s2.Status == ir.Failed
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// Filter by succeeded status - stdout table output is not captured,
@@ -145,7 +145,7 @@ steps:
 
 	require.Eventually(t, func() bool {
 		status, err := th.DAGRunMgr.GetLatestStatus(ctx, dag.DAG)
-		return err == nil && status.Status == core.Succeeded
+		return err == nil && status.Status == ir.Succeeded
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// Test JSON output - stdout is not captured in LoggingOutput,
@@ -176,7 +176,7 @@ steps:
 
 	require.Eventually(t, func() bool {
 		status, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, customRunID)
-		return err == nil && status != nil && status.Status == core.Succeeded
+		return err == nil && status != nil && status.Status == ir.Succeeded
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// Verify full run ID is displayed - stdout table output is not captured,
@@ -204,7 +204,7 @@ steps:
 
 	require.Eventually(t, func() bool {
 		status, err := th.DAGRunMgr.GetLatestStatus(ctx, dag.DAG)
-		return err == nil && status.Status == core.Succeeded
+		return err == nil && status.Status == ir.Succeeded
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// Test relative date filtering - stdout table output is not captured,
@@ -337,7 +337,7 @@ steps:
 	require.Eventually(t, func() bool {
 		s1, err1 := th.DAGRunMgr.GetLatestStatus(ctx, dag1.DAG)
 		s2, err2 := th.DAGRunMgr.GetLatestStatus(ctx, dag2.DAG)
-		return err1 == nil && err2 == nil && s1.Status == core.Succeeded && s2.Status == core.Succeeded
+		return err1 == nil && err2 == nil && s1.Status == ir.Succeeded && s2.Status == ir.Succeeded
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// Filter by label - stdout table output is not captured,
@@ -347,7 +347,7 @@ steps:
 		Args: []string{"history", "--labels=prod"},
 	})
 
-	statuses, err := th.DAGRunStore.ListStatuses(ctx, exec.WithLabels([]string{"prod"}), exec.WithAllHistory())
+	statuses, err := th.DAGRunStore.ListStatuses(ctx, dagrun.WithLabels([]string{"prod"}), dagrun.WithAllHistory())
 	require.NoError(t, err)
 	names := make(map[string]bool, len(statuses))
 	for _, status := range statuses {
@@ -412,7 +412,7 @@ steps:
 			statuses := th.DAGRunMgr.ListRecentStatus(ctx, dag.Name, expected)
 			count := 0
 			for _, s := range statuses {
-				if s.Status == core.Succeeded {
+				if s.Status == ir.Succeeded {
 					count++
 				}
 			}
@@ -422,7 +422,7 @@ steps:
 
 	// Test limit - verify command runs successfully with --limit flag.
 	// Stdout table output is not captured, so we just verify no error.
-	// The limit logic is tested via the exec.WithLimit() functional option.
+	// The limit logic is tested via the dagrun.WithLimit() functional option.
 	th.RunCommand(t, cmd.History(), test.CmdTest{
 		Name: "LimitResults",
 		Args: []string{"history", "test-limit", "--limit=2"},

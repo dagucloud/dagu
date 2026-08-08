@@ -7,12 +7,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
 )
 
-func prepareDAGTools(ctx *Context, dag *core.DAG) ([]string, error) {
+func prepareDAGTools(ctx *Context, dag *ir.DAG) ([]string, error) {
 	workDir := ""
 	if dag != nil {
 		workDir = dag.WorkingDir

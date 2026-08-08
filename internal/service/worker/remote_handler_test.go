@@ -15,19 +15,24 @@ import (
 	"testing"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	dagruntime "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -70,7 +75,7 @@ func TestTaskOwner(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		assert.Equal(t, exec.HostInfo{}, owner)
+		assert.Equal(t, serviceregistry.HostInfo{}, owner)
 	})
 
 	t.Run("AcceptsCompleteMetadata", func(t *testing.T) {
@@ -83,7 +88,7 @@ func TestTaskOwner(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		assert.Equal(t, exec.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}, owner)
+		assert.Equal(t, serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}, owner)
 	})
 }
 
@@ -92,7 +97,7 @@ func TestPollerAckTaskClaimRejectsPartialOwnerMetadata(t *testing.T) {
 
 	called := false
 	client := newMockRemoteCoordinatorClient()
-	client.AckTaskClaimFunc = func(context.Context, exec.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+	client.AckTaskClaimFunc = func(context.Context, serviceregistry.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 		called = true
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 	}
@@ -187,16 +192,16 @@ func (m *mockStreamLogsClient) snapshotChunks() []*coordinatorv1.LogChunk {
 }
 
 type recordingStatusPusher struct {
-	push func(context.Context, exec.DAGRunStatus) error
+	push func(context.Context, dagrun.DAGRunStatus) error
 }
 
-func (p *recordingStatusPusher) Push(ctx context.Context, status exec.DAGRunStatus) error {
+func (p *recordingStatusPusher) Push(ctx context.Context, status dagrun.DAGRunStatus) error {
 	return p.push(ctx, status)
 }
 
-type schedulerLogStatusFinalizerFunc func(context.Context, exec.DAGRunStatus) (bool, error)
+type schedulerLogStatusFinalizerFunc func(context.Context, dagrun.DAGRunStatus) (bool, error)
 
-func (f schedulerLogStatusFinalizerFunc) finalizeSchedulerLogForStatus(ctx context.Context, status exec.DAGRunStatus) (bool, error) {
+func (f schedulerLogStatusFinalizerFunc) finalizeSchedulerLogForStatus(ctx context.Context, status dagrun.DAGRunStatus) (bool, error) {
 	return f(ctx, status)
 }
 
@@ -346,13 +351,13 @@ func countSchedulerFinalChunks(streams []*mockStreamLogsClient) int {
 	})
 }
 
-func hasLogChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string) bool {
+func hasLogChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root dagrun.DAGRunRef, stepName string) bool {
 	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
 		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) && chunk.StepName == stepName
 	})
 }
 
-func hasStepLogDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, stepName string, streamType coordinatorv1.LogStreamType) bool {
+func hasStepLogDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root dagrun.DAGRunRef, stepName string, streamType coordinatorv1.LogStreamType) bool {
 	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
 		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) &&
 			chunk.StepName == stepName &&
@@ -361,7 +366,7 @@ func hasStepLogDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, att
 	})
 }
 
-func hasSchedulerDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
+func hasSchedulerDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root dagrun.DAGRunRef) bool {
 	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
 		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) &&
 			chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
@@ -370,7 +375,7 @@ func hasSchedulerDataChunk(streams []*mockStreamLogsClient, dagRunID, dagName, a
 	})
 }
 
-func hasSchedulerFinalChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
+func hasSchedulerFinalChunk(streams []*mockStreamLogsClient, dagRunID, dagName, attemptID string, root dagrun.DAGRunRef) bool {
 	return hasLogChunkMatching(streams, func(chunk *coordinatorv1.LogChunk) bool {
 		return logChunkHasMetadata(chunk, dagRunID, dagName, attemptID, root) &&
 			chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER &&
@@ -394,7 +399,7 @@ func countLogChunks(streams []*mockStreamLogsClient, match func(*coordinatorv1.L
 	return count
 }
 
-func logChunkHasMetadata(chunk *coordinatorv1.LogChunk, dagRunID, dagName, attemptID string, root exec.DAGRunRef) bool {
+func logChunkHasMetadata(chunk *coordinatorv1.LogChunk, dagRunID, dagName, attemptID string, root dagrun.DAGRunRef) bool {
 	return chunk.DagRunId == dagRunID &&
 		chunk.DagName == dagName &&
 		chunk.AttemptId == attemptID &&
@@ -402,7 +407,7 @@ func logChunkHasMetadata(chunk *coordinatorv1.LogChunk, dagRunID, dagName, attem
 		chunk.RootDagRunId == root.ID
 }
 
-func hasArtifactChunk(streams []*mockStreamArtifactsClient, dagRunID, dagName, attemptID string, root exec.DAGRunRef, relPath string) bool {
+func hasArtifactChunk(streams []*mockStreamArtifactsClient, dagRunID, dagName, attemptID string, root dagrun.DAGRunRef, relPath string) bool {
 	for _, stream := range streams {
 		for _, chunk := range stream.snapshotChunks() {
 			if chunk.DagRunId == dagRunID &&
@@ -419,23 +424,23 @@ func hasArtifactChunk(streams []*mockStreamArtifactsClient, dagRunID, dagName, a
 }
 
 type mockRemoteCoordinatorClient struct {
-	AckTaskClaimFunc      func(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error)
-	RunHeartbeatFunc      func(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)
+	AckTaskClaimFunc      func(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error)
+	RunHeartbeatFunc      func(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)
 	ReportStatusFunc      func(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
-	ReportStatusToFunc    func(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
+	ReportStatusToFunc    func(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
 	StreamLogsFunc        func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
-	StreamLogsToFunc      func(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
+	StreamLogsToFunc      func(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
 	StreamArtifactsFunc   func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
-	StreamArtifactsToFunc func(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
-	GetDAGRunStatusFunc   func(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*exec.DAGRunStatusResult, error)
+	StreamArtifactsToFunc func(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
+	GetDAGRunStatusFunc   func(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error)
 	GetDAGFunc            func(ctx context.Context, name string) (string, error)
-	DispatchFunc          func(ctx context.Context, task *exec.DispatchTask) error
+	DispatchFunc          func(ctx context.Context, task *dispatch.DispatchTask) error
 	PollFunc              func(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error)
 	HeartbeatFunc         func(ctx context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
 	GetWorkersFunc        func(ctx context.Context) ([]*coordinatorv1.WorkerInfo, error)
 	CleanupFunc           func(ctx context.Context) error
 	MetricsFunc           func() coordinator.Metrics
-	RequestCancelFunc     func(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) error
+	RequestCancelFunc     func(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) error
 }
 
 func newMockRemoteCoordinatorClient() *mockRemoteCoordinatorClient {
@@ -449,8 +454,8 @@ func newMockRemoteCoordinatorClient() *mockRemoteCoordinatorClient {
 		StreamArtifactsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 			return newMockStreamArtifactsClient(), nil
 		},
-		GetDAGRunStatusFunc: func(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
-			return &exec.DAGRunStatusResult{Found: false}, nil
+		GetDAGRunStatusFunc: func(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+			return &dispatch.DAGRunStatusResult{Found: false}, nil
 		},
 		MetricsFunc: func() coordinator.Metrics {
 			return coordinator.Metrics{IsConnected: true}
@@ -465,21 +470,21 @@ func (m *mockRemoteCoordinatorClient) ReportStatus(ctx context.Context, req *coo
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 }
 
-func (m *mockRemoteCoordinatorClient) AckTaskClaimTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+func (m *mockRemoteCoordinatorClient) AckTaskClaimTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	if m.AckTaskClaimFunc != nil {
 		return m.AckTaskClaimFunc(ctx, owner, req)
 	}
 	return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 }
 
-func (m *mockRemoteCoordinatorClient) RunHeartbeatTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+func (m *mockRemoteCoordinatorClient) RunHeartbeatTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 	if m.RunHeartbeatFunc != nil {
 		return m.RunHeartbeatFunc(ctx, owner, req)
 	}
 	return &coordinatorv1.RunHeartbeatResponse{}, nil
 }
 
-func (m *mockRemoteCoordinatorClient) ReportStatusTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+func (m *mockRemoteCoordinatorClient) ReportStatusTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	if m.ReportStatusToFunc != nil {
 		return m.ReportStatusToFunc(ctx, owner, req)
 	}
@@ -493,7 +498,7 @@ func (m *mockRemoteCoordinatorClient) StreamLogs(ctx context.Context) (coordinat
 	return newMockStreamLogsClient(), nil
 }
 
-func (m *mockRemoteCoordinatorClient) StreamLogsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+func (m *mockRemoteCoordinatorClient) StreamLogsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 	if m.StreamLogsToFunc != nil {
 		return m.StreamLogsToFunc(ctx, owner)
 	}
@@ -507,18 +512,18 @@ func (m *mockRemoteCoordinatorClient) StreamArtifacts(ctx context.Context) (coor
 	return newMockStreamArtifactsClient(), nil
 }
 
-func (m *mockRemoteCoordinatorClient) StreamArtifactsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+func (m *mockRemoteCoordinatorClient) StreamArtifactsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 	if m.StreamArtifactsToFunc != nil {
 		return m.StreamArtifactsToFunc(ctx, owner)
 	}
 	return m.StreamArtifacts(ctx)
 }
 
-func (m *mockRemoteCoordinatorClient) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (m *mockRemoteCoordinatorClient) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	if m.GetDAGRunStatusFunc != nil {
 		return m.GetDAGRunStatusFunc(ctx, dagName, dagRunID, rootRef)
 	}
-	return &exec.DAGRunStatusResult{Found: false}, nil
+	return &dispatch.DAGRunStatusResult{Found: false}, nil
 }
 
 func (m *mockRemoteCoordinatorClient) GetDAG(ctx context.Context, name string) (string, error) {
@@ -528,7 +533,7 @@ func (m *mockRemoteCoordinatorClient) GetDAG(ctx context.Context, name string) (
 	return "", nil
 }
 
-func (m *mockRemoteCoordinatorClient) Dispatch(ctx context.Context, req exec.DispatchRequest) error {
+func (m *mockRemoteCoordinatorClient) Dispatch(ctx context.Context, req dispatch.DispatchRequest) error {
 	if m.DispatchFunc != nil {
 		return m.DispatchFunc(ctx, req.Task)
 	}
@@ -570,7 +575,7 @@ func (m *mockRemoteCoordinatorClient) Metrics() coordinator.Metrics {
 	return coordinator.Metrics{IsConnected: true}
 }
 
-func (m *mockRemoteCoordinatorClient) RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) error {
+func (m *mockRemoteCoordinatorClient) RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) error {
 	if m.RequestCancelFunc != nil {
 		return m.RequestCancelFunc(ctx, dagName, dagRunID, rootRef)
 	}
@@ -704,7 +709,7 @@ func TestCreateRemoteHandlers(t *testing.T) {
 			AttemptId:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 		},
-		root: exec.DAGRunRef{Name: "root-dag", ID: "root-123"},
+		root: dagrun.DAGRunRef{Name: "root-dag", ID: "root-123"},
 	}, "test-dag")
 
 	require.NotNil(t, handlers.status)
@@ -998,11 +1003,11 @@ steps:
 		runID := "remote-catchup-run"
 		status := transform.NewStatusBuilder(dag.DAG).Create(
 			runID,
-			core.Queued,
+			ir.Queued,
 			0,
 			time.Time{},
 			transform.WithAttemptID("queued-attempt"),
-			transform.WithTriggerType(core.TriggerTypeCatchUp),
+			transform.WithTriggerType(ir.TriggerTypeCatchUp),
 			transform.WithQueuedAt(stringutil.FormatTime(time.Now())),
 			transform.WithScheduleTime(stringutil.FormatTime(time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))),
 		)
@@ -1012,7 +1017,7 @@ steps:
 
 		var (
 			mu       sync.Mutex
-			reported []*exec.DAGRunStatus
+			reported []*dagrun.DAGRunStatus
 		)
 		client := newMockRemoteCoordinatorClient()
 		client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
@@ -1052,8 +1057,8 @@ steps:
 		require.NotEmpty(t, reported)
 
 		final := reported[len(reported)-1]
-		require.Equal(t, core.Succeeded, final.Status)
-		require.Equal(t, core.TriggerTypeCatchUp, final.TriggerType)
+		require.Equal(t, ir.Succeeded, final.Status)
+		require.Equal(t, ir.TriggerTypeCatchUp, final.TriggerType)
 	})
 
 	t.Run("RemoteWorkerWithEmbeddedStatus", func(t *testing.T) {
@@ -1080,10 +1085,10 @@ steps:
 		}
 
 		// Create a previous status proto
-		previousStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		previousStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:   "retry-dag",
-			Status: core.Succeeded,
-			Nodes:  []*exec.Node{},
+			Status: ir.Succeeded,
+			Nodes:  []*dagrun.Node{},
 		})
 		require.NoError(t, convErr)
 
@@ -1110,7 +1115,7 @@ steps:
 func TestRetryTaskProfileNameUsesStoredStatus(t *testing.T) {
 	t.Parallel()
 
-	status := &exec.DAGRunStatus{ProfileName: "prod"}
+	status := &dagrun.DAGRunStatus{ProfileName: "prod"}
 	assert.Equal(t, "prod", retryTaskProfileName(status))
 	assert.Empty(t, retryTaskProfileName(nil))
 }
@@ -1120,7 +1125,7 @@ func TestTaskExtraEnvs(t *testing.T) {
 
 	assert.Nil(t, taskExtraEnvs(nil))
 	assert.Nil(t, taskExtraEnvs(&coordinatorv1.Task{}))
-	assert.Equal(t, []string{exec.EnvKeyExternalStepRetry + "=1"}, taskExtraEnvs(&coordinatorv1.Task{
+	assert.Equal(t, []string{runenv.EnvKeyExternalStepRetry + "=1"}, taskExtraEnvs(&coordinatorv1.Task{
 		ExternalStepRetry: true,
 	}))
 }
@@ -1140,7 +1145,7 @@ steps:
 
 	var (
 		mu       sync.Mutex
-		reported []*exec.DAGRunStatus
+		reported []*dagrun.DAGRunStatus
 	)
 	client := newMockRemoteCoordinatorClient()
 	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
@@ -1179,8 +1184,8 @@ steps:
 
 	final := reported[len(reported)-1]
 	mu.Unlock()
-	require.Equal(t, core.Queued, final.Status)
-	require.Equal(t, []exec.PendingStepRetry{
+	require.Equal(t, ir.Queued, final.Status)
+	require.Equal(t, []dagrun.PendingStepRetry{
 		{StepName: "flaky", Interval: 30 * time.Second},
 	}, final.PendingStepRetries)
 }
@@ -1411,10 +1416,10 @@ steps:
 	err := os.WriteFile(dagFile, []byte(dagContent), 0644)
 	require.NoError(t, err)
 
-	previousStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+	previousStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 		Name:   "exec-retry-dag",
-		Status: core.Succeeded,
-		Nodes:  []*exec.Node{},
+		Status: ir.Succeeded,
+		Nodes:  []*dagrun.Node{},
 	})
 	require.NoError(t, convErr)
 
@@ -1470,10 +1475,10 @@ func TestHandleRetry_LoadDAGErrorPath(t *testing.T) {
 	t.Parallel()
 
 	// Test the path where handleRetry fails at loadDAG after getting status
-	previousStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+	previousStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 		Name:   "loaddag-error-dag",
-		Status: core.Succeeded,
-		Nodes:  []*exec.Node{},
+		Status: ir.Succeeded,
+		Nodes:  []*dagrun.Node{},
 	})
 	require.NoError(t, convErr)
 
@@ -1507,10 +1512,10 @@ func TestHandleRetry_WithDefinitionAndCleanup(t *testing.T) {
 	t.Parallel()
 
 	// Test handleRetry with inline definition to trigger cleanup path
-	previousStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+	previousStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 		Name:   "def-cleanup-dag",
-		Status: core.Succeeded,
-		Nodes:  []*exec.Node{},
+		Status: ir.Succeeded,
+		Nodes:  []*dagrun.Node{},
 	})
 	require.NoError(t, convErr)
 
@@ -1651,8 +1656,8 @@ steps:
 	defer cleanup()
 
 	// Create remote handlers
-	root := exec.DAGRunRef{Name: "root", ID: "root-1"}
-	parent := exec.DAGRunRef{Name: "parent", ID: "parent-1"}
+	root := dagrun.DAGRunRef{Name: "root", ID: "root-1"}
+	parent := dagrun.DAGRunRef{Name: "parent", ID: "parent-1"}
 	run := remoteRun{
 		task: &coordinatorv1.Task{
 			DagRunId:   "run-error",
@@ -1696,7 +1701,7 @@ steps:
 	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
 		require.NoError(t, err)
-		if status.Status == core.Succeeded {
+		if status.Status == ir.Succeeded {
 			reportedMu.Lock()
 			finalActor = status.TriggerActor
 			reportedMu.Unlock()
@@ -1717,7 +1722,7 @@ steps:
 
 	// For a top-level run, root ID should match the dagRunID
 	dagRunID := "run-success-1"
-	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
+	root := dagrun.DAGRunRef{Name: dag.Name, ID: dagRunID}
 	handlers := runHandlers{
 		status:    coordreport.NewStatusPusher(client, "integration-test-worker", ""),
 		logs:      coordreport.NewLogStreamer(client, "integration-test-worker", dagRunID, dag.Name, "", root),
@@ -1778,8 +1783,8 @@ func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testi
 		dagRunID:  dagRunID,
 		dagName:   dagName,
 		attemptID: attemptID,
-		root:      exec.NewDAGRunRef(dagName, dagRunID),
-	}, exec.HostInfo{})
+		root:      dagrun.NewDAGRunRef(dagName, dagRunID),
+	}, serviceregistry.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(logFilePath))
 
 	schedulerWriter := reporter.NewSchedulerLogWriter(context.Background(), logFile)
@@ -1789,9 +1794,9 @@ func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testi
 	statusPusher := &finalSchedulerLogStatusPusher{
 		finalizer: reporter,
 		pusher: &recordingStatusPusher{
-			push: func(ctx context.Context, status exec.DAGRunStatus) error {
+			push: func(ctx context.Context, status dagrun.DAGRunStatus) error {
 				require.Equal(t, dagRunID, status.DAGRunID)
-				require.Equal(t, core.Succeeded, status.Status)
+				require.Equal(t, ir.Succeeded, status.Status)
 				require.NoError(t, ctx.Err(), "terminal status should be pushed with a live context")
 				record("terminal-status")
 				return nil
@@ -1799,12 +1804,12 @@ func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testi
 		},
 	}
 
-	require.NoError(t, statusPusher.Push(context.Background(), exec.DAGRunStatus{
-		Root:      exec.NewDAGRunRef(dagName, dagRunID),
+	require.NoError(t, statusPusher.Push(context.Background(), dagrun.DAGRunStatus{
+		Root:      dagrun.NewDAGRunRef(dagName, dagRunID),
 		Name:      dagName,
 		DAGRunID:  dagRunID,
 		AttemptID: attemptID,
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		Log:       logFilePath,
 	}))
 	streamsMu.Lock()
@@ -1839,7 +1844,7 @@ func TestFinalSchedulerLogStatusPusher_BoundsSchedulerLogFinalization(t *testing
 	entry := finalizer.register(remoteRunMetadata{
 		dagRunID: dagRunID,
 		dagName:  dagName,
-		root:     exec.NewDAGRunRef(dagName, dagRunID),
+		root:     dagrun.NewDAGRunRef(dagName, dagRunID),
 	}, filepath.Join(t.TempDir(), "scheduler.log"))
 	require.NotNil(t, entry)
 
@@ -1856,13 +1861,13 @@ func TestFinalSchedulerLogStatusPusher_BoundsSchedulerLogFinalization(t *testing
 
 	statusPushed := make(chan struct{}, 1)
 	statusPusher := &finalSchedulerLogStatusPusher{
-		finalizer: schedulerLogStatusFinalizerFunc(func(ctx context.Context, _ exec.DAGRunStatus) (bool, error) {
+		finalizer: schedulerLogStatusFinalizerFunc(func(ctx context.Context, _ dagrun.DAGRunStatus) (bool, error) {
 			return entry.finalizeLog(ctx)
 		}),
 		pusher: &recordingStatusPusher{
-			push: func(ctx context.Context, status exec.DAGRunStatus) error {
+			push: func(ctx context.Context, status dagrun.DAGRunStatus) error {
 				require.Equal(t, dagRunID, status.DAGRunID)
-				require.Equal(t, core.Succeeded, status.Status)
+				require.Equal(t, ir.Succeeded, status.Status)
 				require.NoError(t, ctx.Err(), "terminal status should use a live context")
 				statusPushed <- struct{}{}
 				return nil
@@ -1871,11 +1876,11 @@ func TestFinalSchedulerLogStatusPusher_BoundsSchedulerLogFinalization(t *testing
 	}
 
 	start := time.Now()
-	require.NoError(t, statusPusher.Push(context.Background(), exec.DAGRunStatus{
-		Root:     exec.NewDAGRunRef(dagName, dagRunID),
+	require.NoError(t, statusPusher.Push(context.Background(), dagrun.DAGRunStatus{
+		Root:     dagrun.NewDAGRunRef(dagName, dagRunID),
 		Name:     dagName,
 		DAGRunID: dagRunID,
-		Status:   core.Succeeded,
+		Status:   ir.Succeeded,
 	}))
 	require.Less(t, time.Since(start), time.Second)
 
@@ -1907,7 +1912,7 @@ func TestSchedulerLogFinalizerEntry_FinalizeBeforeWriterDoesNotConsumeOnce(t *te
 	entry := finalizer.register(remoteRunMetadata{
 		dagRunID: dagRunID,
 		dagName:  dagName,
-		root:     exec.NewDAGRunRef(dagName, dagRunID),
+		root:     dagrun.NewDAGRunRef(dagName, dagRunID),
 	}, filepath.Join(t.TempDir(), "scheduler.log"))
 	require.NotNil(t, entry)
 
@@ -1973,8 +1978,8 @@ func TestRemoteRunReporter_SchedulerWriterCloseUsesLiveStream(t *testing.T) {
 		dagRunID:  dagRunID,
 		dagName:   dagName,
 		attemptID: attemptID,
-		root:      exec.NewDAGRunRef(dagName, dagRunID),
-	}, exec.HostInfo{})
+		root:      dagrun.NewDAGRunRef(dagName, dagRunID),
+	}, serviceregistry.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(logFilePath))
 
 	schedulerWriter := reporter.NewSchedulerLogWriter(context.Background(), logFile)
@@ -2039,20 +2044,20 @@ func TestRemoteRunReporter_MirrorsStepOutputIntoFinalSchedulerLog(t *testing.T) 
 		dagRunID:  dagRunID,
 		dagName:   dagName,
 		attemptID: attemptID,
-		root:      exec.NewDAGRunRef(dagName, dagRunID),
-	}, exec.HostInfo{})
+		root:      dagrun.NewDAGRunRef(dagName, dagRunID),
+	}, serviceregistry.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(logFilePath))
 
 	schedulerWriter := reporter.NewSchedulerLogWriter(context.Background(), logFile)
 	_, err = schedulerWriter.Write([]byte("scheduler-start\n"))
 	require.NoError(t, err)
 
-	stdoutWriter := reporter.NewStepWriter(context.Background(), "step-one", exec.StreamTypeStdout)
+	stdoutWriter := reporter.NewStepWriter(context.Background(), "step-one", runctx.StreamTypeStdout)
 	_, err = stdoutWriter.Write([]byte("mirrored-stdout\n"))
 	require.NoError(t, err)
 	require.NoError(t, stdoutWriter.Close())
 
-	stderrWriter := reporter.NewStepWriter(context.Background(), "step-one", exec.StreamTypeStderr)
+	stderrWriter := reporter.NewStepWriter(context.Background(), "step-one", runctx.StreamTypeStderr)
 	_, err = stderrWriter.Write([]byte("mirrored-stderr\n"))
 	require.NoError(t, err)
 	require.NoError(t, stderrWriter.Close())
@@ -2117,23 +2122,23 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 		return stream, nil
 	}
 
-	rootRef := exec.NewDAGRunRef(rootName, rootRunID)
+	rootRef := dagrun.NewDAGRunRef(rootName, rootRunID)
 	reporter := newRemoteRunReporter(client, "worker-1", remoteRunMetadata{
 		dagRunID:  rootRunID,
 		dagName:   rootName,
 		attemptID: rootAttempt,
 		root:      rootRef,
-	}, exec.HostInfo{})
+	}, serviceregistry.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(filepath.Join(t.TempDir(), "scheduler.log")))
 
-	rootWriter := reporter.NewStepWriter(context.Background(), "root-step", exec.StreamTypeStdout)
+	rootWriter := reporter.NewStepWriter(context.Background(), "root-step", runctx.StreamTypeStdout)
 	_, err := rootWriter.Write([]byte("root output"))
 	require.NoError(t, err)
 	require.NoError(t, rootWriter.Close())
 
-	childDAG := &core.DAG{Name: childName}
+	childDAG := &ir.DAG{Name: childName}
 	childCtx := dagruntime.NewContext(context.Background(), childDAG, childRunID, "", dagruntime.WithAttemptID(childAttempt), dagruntime.WithRootDAGRun(rootRef))
-	childWriter := reporter.NewStepWriter(childCtx, "child-step", exec.StreamTypeStdout)
+	childWriter := reporter.NewStepWriter(childCtx, "child-step", runctx.StreamTypeStdout)
 	_, err = childWriter.Write([]byte("child output"))
 	require.NoError(t, err)
 	require.NoError(t, childWriter.Close())
@@ -2150,7 +2155,7 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 	statusPusher := &finalSchedulerLogStatusPusher{
 		finalizer: reporter,
 		pusher: &recordingStatusPusher{
-			push: func(ctx context.Context, status exec.DAGRunStatus) error {
+			push: func(ctx context.Context, status dagrun.DAGRunStatus) error {
 				require.NoError(t, ctx.Err())
 				require.Equal(t, childRunID, status.DAGRunID)
 				require.Equal(t, childAttempt, status.AttemptID)
@@ -2162,12 +2167,12 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 			},
 		},
 	}
-	require.NoError(t, statusPusher.Push(childCtx, exec.DAGRunStatus{
+	require.NoError(t, statusPusher.Push(childCtx, dagrun.DAGRunStatus{
 		Root:      rootRef,
 		Name:      childName,
 		DAGRunID:  childRunID,
 		AttemptID: childAttempt,
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		Log:       childLogFile,
 	}))
 
@@ -2230,7 +2235,7 @@ steps:
 	client.ReportStatusFunc = func(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
 		require.NoError(t, err)
-		if status.Status != core.Failed {
+		if status.Status != ir.Failed {
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 		}
 		terminalStatusSeen = true
@@ -2317,7 +2322,7 @@ steps:
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
 		require.NoError(t, err)
 
-		if status.Status != core.Succeeded {
+		if status.Status != ir.Succeeded {
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 		}
 		terminalStatusSeen = true
@@ -2357,7 +2362,7 @@ steps:
 	}
 
 	dagRunID := "run-final-scheduler-log"
-	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
+	root := dagrun.DAGRunRef{Name: dag.Name, ID: dagRunID}
 	run := remoteRun{
 		task: &coordinatorv1.Task{DagRunId: dagRunID},
 		root: root,
@@ -2424,12 +2429,12 @@ steps:
 		return stream, nil
 	}
 
-	root := exec.NewDAGRunRef(dag.Name, "run-local-subdag-final-scheduler-log")
+	root := dagrun.NewDAGRunRef(dag.Name, "run-local-subdag-final-scheduler-log")
 	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
 		require.NoError(t, err)
 
-		if status.Name != childDAGName || status.Status != core.Succeeded {
+		if status.Name != childDAGName || status.Status != ir.Succeeded {
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 		}
 
@@ -2441,7 +2446,7 @@ steps:
 		require.NotEqual(t, root.ID, childRunID)
 		require.NotEmpty(t, childAttemptID)
 		require.Equal(t, root, status.Root)
-		require.Equal(t, exec.NewDAGRunRef(dag.Name, root.ID), status.Parent)
+		require.Equal(t, dagrun.NewDAGRunRef(dag.Name, root.ID), status.Parent)
 
 		streamsMu.Lock()
 		defer streamsMu.Unlock()
@@ -2503,7 +2508,7 @@ func TestExecuteDAGRun_FailedExecutionStillUploadsArtifacts(t *testing.T) {
 	}
 
 	dagRunID := "run-failure-artifacts-1"
-	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
+	root := dagrun.DAGRunRef{Name: dag.Name, ID: dagRunID}
 	err := handler.executeDAGRun(th.Context, dag.DAG, remoteRun{
 		task: &coordinatorv1.Task{DagRunId: dagRunID},
 		root: root,
@@ -2545,7 +2550,7 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 		Error: "coordinator write failed",
 	}
 
-	var reported []exec.DAGRunStatus
+	var reported []dagrun.DAGRunStatus
 	var reportedMu sync.Mutex
 	client := newMockRemoteCoordinatorClient()
 	client.StreamArtifactsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
@@ -2571,7 +2576,7 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 	}
 
 	dagRunID := "run-upload-failure-1"
-	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
+	root := dagrun.DAGRunRef{Name: dag.Name, ID: dagRunID}
 	err := handler.executeDAGRun(th.Context, dag.DAG, remoteRun{
 		task: &coordinatorv1.Task{DagRunId: dagRunID},
 		root: root,
@@ -2588,7 +2593,7 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 
 	final := reported[len(reported)-1]
 	reportedMu.Unlock()
-	assert.Equal(t, core.Failed, final.Status)
+	assert.Equal(t, ir.Failed, final.Status)
 	assert.Contains(t, final.Error, "failed to upload artifacts")
 }
 
@@ -2605,7 +2610,7 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 		Error: "coordinator write failed",
 	}
 
-	var reported []exec.DAGRunStatus
+	var reported []dagrun.DAGRunStatus
 	var reportedMu sync.Mutex
 	client := newMockRemoteCoordinatorClient()
 	client.StreamArtifactsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
@@ -2631,7 +2636,7 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 	}
 
 	dagRunID := "run-failure-upload-failure-1"
-	root := exec.DAGRunRef{Name: dag.Name, ID: dagRunID}
+	root := dagrun.DAGRunRef{Name: dag.Name, ID: dagRunID}
 	err := handler.executeDAGRun(th.Context, dag.DAG, remoteRun{
 		task: &coordinatorv1.Task{DagRunId: dagRunID},
 		root: root,
@@ -2648,6 +2653,6 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 
 	final := reported[len(reported)-1]
 	reportedMu.Unlock()
-	assert.Equal(t, core.Failed, final.Status)
+	assert.Equal(t, ir.Failed, final.Status)
 	assert.Contains(t, final.Error, "failed to upload artifacts")
 }

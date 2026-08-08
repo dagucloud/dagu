@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 const (
@@ -74,9 +76,9 @@ func (e *ResumeError) Unwrap() error { return e.Err }
 
 // Service completes human tasks and queues recoverable retries.
 type Service struct {
-	DAGRunStore    exec.DAGRunStore
-	QueueStore     exec.QueueStore
-	ProcStore      exec.ProcStore
+	DAGRunStore    dagrun.DAGRunStore
+	QueueStore     queue.QueueStore
+	ProcStore      proc.ProcStore
 	Now            func() time.Time
 	SettleTimeout  time.Duration
 	PollInterval   time.Duration
@@ -104,9 +106,9 @@ type Result struct {
 }
 
 type target struct {
-	dag    *core.DAG
-	status *exec.DAGRunStatus
-	ref    exec.DAGRunRef
+	dag    *ir.DAG
+	status *dagrun.DAGRunStatus
+	ref    dagrun.DAGRunRef
 	stepID string
 }
 
@@ -126,11 +128,11 @@ func (s *Service) defaults() {
 }
 
 func (s *Service) loadTarget(ctx context.Context, dagName, dagRunID, stepID string) (*target, error) {
-	ref := exec.NewDAGRunRef(dagName, dagRunID)
+	ref := dagrun.NewDAGRunRef(dagName, dagRunID)
 	attempt, err := s.DAGRunStore.FindAttempt(ctx, ref)
 	if err != nil {
 		kind := ErrorInternal
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			kind = ErrorNotFound
 		}
 		return nil, errorf(kind, "failed to find DAG-run %q with run ID %q: %v", dagName, dagRunID, err)
@@ -165,13 +167,13 @@ func (s *Service) loadTarget(ctx context.Context, dagName, dagRunID, stepID stri
 	return &target{dag: dag, status: status, ref: ref, stepID: stepID}, nil
 }
 
-func (t *target) withStatus(status *exec.DAGRunStatus) *target {
+func (t *target) withStatus(status *dagrun.DAGRunStatus) *target {
 	clone := *t
 	clone.status = status
 	return &clone
 }
 
-func resultFor(status *exec.DAGRunStatus, stepID string, alreadyCompleted bool) Result {
+func resultFor(status *dagrun.DAGRunStatus, stepID string, alreadyCompleted bool) Result {
 	if status == nil {
 		return Result{StepID: stepID, AlreadyCompleted: alreadyCompleted}
 	}

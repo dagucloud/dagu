@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -22,7 +22,7 @@ var _ dagstate.Store = (*stateStoreClient)(nil)
 
 func (cli *clientImpl) GetState(ctx context.Context, req *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error) {
 	var resp *coordinatorv1.GetStateResponse
-	err := cli.callPinnedStateCoordinator(ctx, stateRefRoutingKey(req.GetRef()), func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	err := cli.callPinnedStateCoordinator(ctx, stateRefRoutingKey(req.GetRef()), func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.GetState(ctx, req)
 		return callErr
@@ -32,7 +32,7 @@ func (cli *clientImpl) GetState(ctx context.Context, req *coordinatorv1.GetState
 
 func (cli *clientImpl) PutState(ctx context.Context, req *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error) {
 	var resp *coordinatorv1.PutStateResponse
-	err := cli.callPinnedStateCoordinator(ctx, stateRefRoutingKey(req.GetRef()), func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	err := cli.callPinnedStateCoordinator(ctx, stateRefRoutingKey(req.GetRef()), func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.PutState(ctx, req)
 		return callErr
@@ -42,7 +42,7 @@ func (cli *clientImpl) PutState(ctx context.Context, req *coordinatorv1.PutState
 
 func (cli *clientImpl) DeleteState(ctx context.Context, req *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error) {
 	var resp *coordinatorv1.DeleteStateResponse
-	err := cli.callPinnedStateCoordinator(ctx, stateRefRoutingKey(req.GetRef()), func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	err := cli.callPinnedStateCoordinator(ctx, stateRefRoutingKey(req.GetRef()), func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.DeleteState(ctx, req)
 		return callErr
@@ -52,7 +52,7 @@ func (cli *clientImpl) DeleteState(ctx context.Context, req *coordinatorv1.Delet
 
 func (cli *clientImpl) ListState(ctx context.Context, req *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error) {
 	var resp *coordinatorv1.ListStateResponse
-	err := cli.callPinnedStateCoordinator(ctx, stateListRoutingKey(req), func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	err := cli.callPinnedStateCoordinator(ctx, stateListRoutingKey(req), func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.ListState(ctx, req)
 		return callErr

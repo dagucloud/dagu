@@ -8,7 +8,8 @@ import (
 	"os"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
@@ -18,11 +19,11 @@ import (
 func CreateTask(
 	dagName string,
 	yamlDefinition string,
-	op exec.DispatchOperation,
+	op dispatch.DispatchOperation,
 	runID string,
 	opts ...TaskOption,
-) *exec.DispatchTask {
-	task := &exec.DispatchTask{
+) *dispatch.DispatchTask {
+	task := &dispatch.DispatchTask{
 		RootDAGRunName: dagName,
 		RootDAGRunID:   runID,
 		Operation:      op,
@@ -39,11 +40,11 @@ func CreateTask(
 }
 
 // TaskOption is a function that modifies a dispatch task.
-type TaskOption func(*exec.DispatchTask)
+type TaskOption func(*dispatch.DispatchTask)
 
 // WithRootDagRun sets the root DAG run name and ID in the task.
-func WithRootDagRun(ref exec.DAGRunRef) TaskOption {
-	return func(task *exec.DispatchTask) {
+func WithRootDagRun(ref dagrun.DAGRunRef) TaskOption {
+	return func(task *dispatch.DispatchTask) {
 		if ref.Name == "" || ref.ID == "" {
 			return // No root DAG run reference provided
 		}
@@ -53,8 +54,8 @@ func WithRootDagRun(ref exec.DAGRunRef) TaskOption {
 }
 
 // WithParentDagRun sets the parent DAG run name and ID in the task.
-func WithParentDagRun(ref exec.DAGRunRef) TaskOption {
-	return func(task *exec.DispatchTask) {
+func WithParentDagRun(ref dagrun.DAGRunRef) TaskOption {
+	return func(task *dispatch.DispatchTask) {
 		if ref.Name == "" || ref.ID == "" {
 			return // No parent DAG run reference provided
 		}
@@ -65,35 +66,35 @@ func WithParentDagRun(ref exec.DAGRunRef) TaskOption {
 
 // WithTaskParams sets the parameters for the task.
 func WithTaskParams(params string) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.Params = params
 	}
 }
 
 // WithSourceFile sets the original DAG source file path for provenance-aware flows.
 func WithSourceFile(sourceFile string) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.SourceFile = sourceFile
 	}
 }
 
 // WithWorkerSelector sets the worker selector labels for the task.
 func WithWorkerSelector(selector map[string]string) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.WorkerSelector = selector
 	}
 }
 
 // WithStep sets the step name for retry operations.
 func WithStep(step string) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.Step = step
 	}
 }
 
 // WithLabels sets additional labels (comma-separated) for the task.
 func WithLabels(labels string) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.Labels = labels
 	}
 }
@@ -106,21 +107,21 @@ func WithTags(tags string) TaskOption {
 
 // WithScheduleTime sets the RFC 3339 timestamp of when the task was scheduled.
 func WithScheduleTime(scheduleTime string) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.ScheduleTime = scheduleTime
 	}
 }
 
 // WithProfileName sets the runtime profile name for a dispatched task.
 func WithProfileName(profileName string) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.ProfileName = profileName
 	}
 }
 
 // WithTriggerActor sets the attributable trigger actor for a dispatched task.
 func WithTriggerActor(actor string) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.TriggerActor = actor
 	}
 }
@@ -128,14 +129,14 @@ func WithTriggerActor(actor string) TaskOption {
 // WithBaseConfig sets the base config YAML content on the task.
 // This allows workers to apply base config without needing local base config files.
 func WithBaseConfig(content string) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.BaseConfig = content
 	}
 }
 
 // WithWorkspaceBundle sets workspace bundle metadata for worker dispatch.
 func WithWorkspaceBundle(desc workspacebundle.Descriptor) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.WorkspaceBundleDigest = desc.Digest
 		task.WorkspaceBundleSize = desc.Size
 		task.WorkspaceBundleDAGPath = desc.DAGPath
@@ -146,14 +147,14 @@ func WithWorkspaceBundle(desc workspacebundle.Descriptor) TaskOption {
 
 // WithExternalStepRetry enables parent-managed step retries for the dispatched task.
 func WithExternalStepRetry(enabled bool) TaskOption {
-	return func(task *exec.DispatchTask) {
+	return func(task *dispatch.DispatchTask) {
 		task.ExternalStepRetry = enabled
 	}
 }
 
 // WithRetryPath sets the persisted child DAG path for a retry task.
-func WithRetryPath(path exec.RetryPath) TaskOption {
-	return func(task *exec.DispatchTask) {
+func WithRetryPath(path dagrun.RetryPath) TaskOption {
+	return func(task *dispatch.DispatchTask) {
 		task.RetryPath = path.Encode()
 	}
 }
@@ -179,8 +180,8 @@ func ResolveBaseConfig(baseConfigData []byte, fallbackPath string) string {
 
 // WithPreviousStatus sets the previous status for retry operations.
 // When set, workers can retry without needing local DAGRunStore access.
-func WithPreviousStatus(status *exec.DAGRunStatus) TaskOption {
-	return func(task *exec.DispatchTask) {
+func WithPreviousStatus(status *dagrun.DAGRunStatus) TaskOption {
+	return func(task *dispatch.DispatchTask) {
 		if status != nil {
 			if task.QueueName == "" && status.ProcGroup != "" {
 				task.QueueName = status.ProcGroup

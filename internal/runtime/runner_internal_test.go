@@ -12,34 +12,37 @@ import (
 	"testing"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/build"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestExternalStepRetryEnabled(t *testing.T) {
 	t.Run("DisabledByDefault", func(t *testing.T) {
-		ctx := exec.NewContext(context.Background(), &core.DAG{Name: "test"}, "run-1", "test.log")
+		ctx := runctx.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1", "test.log")
 		assert.False(t, externalStepRetryEnabled(ctx))
 	})
 
 	t.Run("EnabledByProcessEnv", func(t *testing.T) {
-		t.Setenv(exec.EnvKeyExternalStepRetry, "1")
-		ctx := exec.NewContext(context.Background(), &core.DAG{Name: "test"}, "run-1", "test.log")
+		t.Setenv(runenv.EnvKeyExternalStepRetry, "1")
+		ctx := runctx.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1", "test.log")
 		assert.True(t, externalStepRetryEnabled(ctx))
 	})
 
 	t.Run("EnabledByExecutionContextEnv", func(t *testing.T) {
-		_ = os.Unsetenv(exec.EnvKeyExternalStepRetry)
-		ctx := exec.NewContext(
+		_ = os.Unsetenv(runenv.EnvKeyExternalStepRetry)
+		ctx := runctx.NewContext(
 			context.Background(),
-			&core.DAG{Name: "test"},
+			&ir.DAG{Name: "test"},
 			"run-1",
 			"test.log",
-			exec.WithEnvVars(exec.EnvKeyExternalStepRetry+"=1"),
+			runctx.WithEnvVars(runenv.EnvKeyExternalStepRetry+"=1"),
 		)
 		assert.True(t, externalStepRetryEnabled(ctx))
 	})
@@ -48,17 +51,17 @@ func TestExternalStepRetryEnabled(t *testing.T) {
 func TestRunNodeExecution_ExternalStepRetrySkipsRepeatBookkeeping(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "retrying-step",
-		Commands: []core.CommandEntry{
+		Commands: []ir.CommandEntry{
 			{Command: "exit", Args: []string{"1"}, CmdWithArgs: "exit 1"},
 		},
-		RetryPolicy: core.RetryPolicy{
+		RetryPolicy: ir.RetryPolicy{
 			Limit:    1,
 			Interval: 5 * time.Second,
 		},
-		RepeatPolicy: core.RepeatPolicy{
-			RepeatMode: core.RepeatModeWhile,
+		RepeatPolicy: ir.RepeatPolicy{
+			RepeatMode: ir.RepeatModeWhile,
 			Interval:   time.Millisecond,
 		},
 	}
@@ -75,17 +78,17 @@ func TestRunNodeExecution_ExternalStepRetrySkipsRepeatBookkeeping(t *testing.T) 
 	})
 	ctx := NewContext(
 		context.Background(),
-		&core.DAG{Name: "retry-dag", WorkingDir: logDir},
+		&ir.DAG{Name: "retry-dag", WorkingDir: logDir},
 		"run-1",
 		filepath.Join(logDir, "dag.log"),
-		exec.WithEnvVars(exec.EnvKeyExternalStepRetry+"=1"),
+		runctx.WithEnvVars(runenv.EnvKeyExternalStepRetry+"=1"),
 	)
 	require.NoError(t, node.Prepare(ctx, logDir, "run-1"))
 
 	runner.runNodeExecution(ctx, plan, node, nil)
 	require.NoError(t, node.Teardown())
 
-	assert.Equal(t, core.NodeRetrying, node.State().Status)
+	assert.Equal(t, ir.NodeRetrying, node.State().Status)
 	assert.Equal(t, 0, node.State().DoneCount)
 	assert.Equal(t, 1, node.State().RetryCount)
 }
@@ -99,27 +102,27 @@ func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T
 	}
 	tests := []struct {
 		name         string
-		step         core.Step
-		dagContainer *core.Container
+		step         ir.Step
+		dagContainer *ir.Container
 	}{
 		{
 			name: "step env",
-			step: core.Step{
+			step: ir.Step{
 				Name: "render",
 				Env:  envs,
 			},
 		},
 		{
 			name: "step container env",
-			step: core.Step{
+			step: ir.Step{
 				Name:      "render",
-				Container: &core.Container{Env: envs},
+				Container: &ir.Container{Env: envs},
 			},
 		},
 		{
 			name: "dag container fallback env",
-			step: core.Step{Name: "render"},
-			dagContainer: &core.Container{
+			step: ir.Step{Name: "render"},
+			dagContainer: &ir.Container{
 				Env: envs,
 			},
 		},
@@ -136,7 +139,7 @@ func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T
 			runner := New(&Config{})
 			ctx := NewContext(
 				context.Background(),
-				&core.DAG{
+				&ir.DAG{
 					Name:       "test-dag",
 					WorkingDir: t.TempDir(),
 					Container:  tt.dagContainer,
@@ -161,21 +164,21 @@ func TestPrepareBuildPlanInfersFileDependency(t *testing.T) {
 
 	workingDir := t.TempDir()
 	runWorkDir := t.TempDir()
-	producer := core.Step{
+	producer := ir.Step{
 		ID:      "producer",
 		Name:    "producer",
-		Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
+		Outputs: []ir.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
 	}
-	consumer := core.Step{
+	consumer := ir.Step{
 		ID:     "consumer",
 		Name:   "consumer",
-		Inputs: []core.StepInputDeclaration{{Name: "artifact", Path: "./artifact.txt"}},
+		Inputs: []ir.StepInputDeclaration{{Name: "artifact", Path: "./artifact.txt"}},
 	}
 	plan, err := NewPlan(producer, consumer)
 	require.NoError(t, err)
-	ctx := NewContext(context.Background(), &core.DAG{
+	ctx := NewContext(context.Background(), &ir.DAG{
 		Name:       "build-test",
-		Type:       core.TypeBuild,
+		Type:       ir.TypeBuild,
 		WorkingDir: workingDir,
 	}, "run-1", filepath.Join(workingDir, "dag.log"), WithWorkDir(runWorkDir))
 
@@ -223,11 +226,11 @@ func TestPrepareBuildPlanRejectsRedirectAlias(t *testing.T) {
 				outputPath = "${context.paths.artifacts_dir}/artifact.txt"
 				redirectPath = "artifact.txt"
 			}
-			step := core.Step{
+			step := ir.Step{
 				ID:      "build",
 				Name:    "build",
-				Inputs:  []core.StepInputDeclaration{{Name: "source", Path: "source.txt"}},
-				Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
+				Inputs:  []ir.StepInputDeclaration{{Name: "source", Path: "source.txt"}},
+				Outputs: []ir.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
 			}
 			switch tt.field {
 			case "stdout":
@@ -241,9 +244,9 @@ func TestPrepareBuildPlanRejectsRedirectAlias(t *testing.T) {
 			}
 			plan, err := NewPlan(step)
 			require.NoError(t, err)
-			ctx := NewContext(context.Background(), &core.DAG{
+			ctx := NewContext(context.Background(), &ir.DAG{
 				Name:       "build-test",
-				Type:       core.TypeBuild,
+				Type:       ir.TypeBuild,
 				WorkingDir: workingDir,
 			}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir), WithWorkDir(runWorkDir))
 
@@ -258,18 +261,18 @@ func TestPrepareBuildPlanChecksPlainRedirectWhenArtifactRedirectIsSet(t *testing
 
 	workingDir := t.TempDir()
 	artifactDir := t.TempDir()
-	step := core.Step{
+	step := ir.Step{
 		ID:             "build",
 		Name:           "build",
-		Outputs:        []core.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
+		Outputs:        []ir.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
 		Stdout:         "./artifact.txt",
 		StdoutArtifact: "step.log",
 	}
 	plan, err := NewPlan(step)
 	require.NoError(t, err)
-	ctx := NewContext(context.Background(), &core.DAG{
+	ctx := NewContext(context.Background(), &ir.DAG{
 		Name:               "build-test",
-		Type:               core.TypeBuild,
+		Type:               ir.TypeBuild,
 		WorkingDir:         workingDir,
 		WorkingDirExplicit: true,
 	}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir))
@@ -298,14 +301,14 @@ func TestValidateBuildRuntimeRedirectAliases(t *testing.T) {
 			sourcePath := filepath.Join(workingDir, "source.txt")
 			require.NoError(t, os.WriteFile(sourcePath, []byte("source"), 0o600))
 
-			producer := core.Step{ID: "producer", Name: "producer", Output: "TARGET"}
+			producer := ir.Step{ID: "producer", Name: "producer", Output: "TARGET"}
 			outputPath := "result.txt"
 			resolvedRedirect := sourcePath
-			consumer := core.Step{
+			consumer := ir.Step{
 				ID:      "consumer",
 				Name:    "consumer",
 				Depends: []string{"producer"},
-				Inputs:  []core.StepInputDeclaration{{Name: "source", Path: "source.txt"}},
+				Inputs:  []ir.StepInputDeclaration{{Name: "source", Path: "source.txt"}},
 			}
 			if tt.artifact {
 				outputPath = "${context.paths.artifacts_dir}/result.txt"
@@ -314,13 +317,13 @@ func TestValidateBuildRuntimeRedirectAliases(t *testing.T) {
 			} else {
 				consumer.Stdout = tt.reference
 			}
-			consumer.Outputs = []core.StepOutputDeclaration{{Name: "result", Path: outputPath}}
+			consumer.Outputs = []ir.StepOutputDeclaration{{Name: "result", Path: outputPath}}
 
 			plan, err := NewPlan(producer, consumer)
 			require.NoError(t, err)
-			ctx := NewContext(context.Background(), &core.DAG{
+			ctx := NewContext(context.Background(), &ir.DAG{
 				Name:               "build-test",
-				Type:               core.TypeBuild,
+				Type:               ir.TypeBuild,
 				WorkingDir:         workingDir,
 				WorkingDirExplicit: true,
 			}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir))
@@ -366,19 +369,19 @@ func TestBuildInputIsAvailableToStepPrecondition(t *testing.T) {
 	workingDir := t.TempDir()
 	inputPath := filepath.Join(workingDir, "source.txt")
 	require.NoError(t, os.WriteFile(inputPath, []byte("source"), 0o600))
-	step := core.Step{
+	step := ir.Step{
 		ID:            "build",
 		Name:          "build",
-		Inputs:        []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
-		Outputs:       []core.StepOutputDeclaration{{Name: "artifact", Path: filepath.Join(workingDir, "artifact.txt")}},
+		Inputs:        []ir.StepInputDeclaration{{Name: "source", Path: inputPath}},
+		Outputs:       []ir.StepOutputDeclaration{{Name: "artifact", Path: filepath.Join(workingDir, "artifact.txt")}},
 		Env:           []string{"SOURCE=${inputs.source}"},
-		Preconditions: []*core.Condition{{Condition: `test -f "$SOURCE"`}},
+		Preconditions: []*ir.Condition{{Condition: `test -f "$SOURCE"`}},
 	}
 	plan, err := NewPlan(step)
 	require.NoError(t, err)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:               "build-test",
-		Type:               core.TypeBuild,
+		Type:               ir.TypeBuild,
 		WorkingDir:         workingDir,
 		WorkingDirExplicit: true,
 		Shell:              "sh",
@@ -415,20 +418,20 @@ func TestBuildRunnerFingerprintsResolvedRecipe(t *testing.T) {
 	require.NoError(t, os.WriteFile(inputPath, []byte("source"), 0o600))
 	store := filematerialization.New(filepath.Join(t.TempDir(), "materializations"))
 
-	run := func(runID, version string) exec.BuildExecution {
+	run := func(runID, version string) dagrun.BuildExecution {
 		t.Helper()
-		step := core.Step{
+		step := ir.Step{
 			ID:       "build",
 			Name:     "build",
-			Commands: []core.CommandEntry{{CmdWithArgs: `printf '%s' "${consts.version}" > "${outputs.artifact}"`}},
-			Inputs:   []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
-			Outputs:  []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
+			Commands: []ir.CommandEntry{{CmdWithArgs: `printf '%s' "${consts.version}" > "${outputs.artifact}"`}},
+			Inputs:   []ir.StepInputDeclaration{{Name: "source", Path: inputPath}},
+			Outputs:  []ir.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
 		}
 		plan, err := NewPlan(step)
 		require.NoError(t, err)
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name:       "build-test",
-			Type:       core.TypeBuild,
+			Type:       ir.TypeBuild,
 			WorkingDir: dataDir,
 			Shell:      "sh",
 			Consts:     map[string]any{"version": version},
@@ -454,17 +457,17 @@ func TestBuildRunnerFingerprintsResolvedRecipe(t *testing.T) {
 	}
 
 	first := run("run-1", "v1")
-	require.Equal(t, exec.BuildDecisionExecute, first.Decision)
+	require.Equal(t, dagrun.BuildDecisionExecute, first.Decision)
 	content, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
 	require.Equal(t, "v1", string(content))
 
 	second := run("run-2", "v1")
-	require.Equal(t, exec.BuildDecisionReuse, second.Decision)
+	require.Equal(t, dagrun.BuildDecisionReuse, second.Decision)
 
 	third := run("run-3", "v2")
-	require.Equal(t, exec.BuildDecisionExecute, third.Decision)
-	require.Equal(t, exec.BuildReasonRecipeChanged, third.Reason)
+	require.Equal(t, dagrun.BuildDecisionExecute, third.Decision)
+	require.Equal(t, dagrun.BuildReasonRecipeChanged, third.Reason)
 	content, err = os.ReadFile(outputPath)
 	require.NoError(t, err)
 	require.Equal(t, "v2", string(content))
@@ -478,13 +481,13 @@ func TestEvaluateBuildNodeReportsReusePublishFailure(t *testing.T) {
 	inputPath := filepath.Join(workingDir, "input.txt")
 	outputPath := filepath.Join(workingDir, "output.txt")
 	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
-	dag := &core.DAG{Name: "build-test", Type: core.TypeBuild, WorkingDir: workingDir}
-	step := core.Step{
+	dag := &ir.DAG{Name: "build-test", Type: ir.TypeBuild, WorkingDir: workingDir}
+	step := ir.Step{
 		ID:       "build",
 		Name:     "build",
-		Commands: []core.CommandEntry{{Command: "build"}},
-		Inputs:   []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
-		Outputs:  []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
+		Commands: []ir.CommandEntry{{Command: "build"}},
+		Inputs:   []ir.StepInputDeclaration{{Name: "source", Path: inputPath}},
+		Outputs:  []ir.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
 	}
 	store := filematerialization.New(filepath.Join(t.TempDir(), "materializations"))
 	request := build.PrepareRequest{
@@ -525,7 +528,7 @@ func TestEvaluateBuildNodeReportsReusePublishFailure(t *testing.T) {
 	handled := runner.evaluateBuildNode(ctx, node, second, func() { reported++ })
 
 	require.True(t, handled)
-	require.Equal(t, core.NodeFailed, node.State().Status)
+	require.Equal(t, ir.NodeFailed, node.State().Status)
 	require.Equal(t, 1, reported)
 }
 
@@ -539,7 +542,7 @@ func TestBuildRepeatRemovesUncommittedStagingOutput(t *testing.T) {
 	outputPath := filepath.Join(workingDir, "artifact.txt")
 	counterPath := filepath.Join(workingDir, "counter")
 	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
-	step := core.Step{
+	step := ir.Step{
 		ID:   "build",
 		Name: "build",
 		Script: fmt.Sprintf(`
@@ -550,14 +553,14 @@ if [ ! -f %q ]; then
 fi
 echo complete > "${outputs.artifact}"
 `, counterPath, counterPath),
-		Inputs:  []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
-		Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
-		ContinueOn: core.ContinueOn{
+		Inputs:  []ir.StepInputDeclaration{{Name: "source", Path: inputPath}},
+		Outputs: []ir.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
+		ContinueOn: ir.ContinueOn{
 			Failure:     true,
 			MarkSuccess: true,
 			ExitCode:    []int{1},
 		},
-		RepeatPolicy: core.RepeatPolicy{RepeatMode: core.RepeatModeUntil},
+		RepeatPolicy: ir.RepeatPolicy{RepeatMode: ir.RepeatModeUntil},
 	}
 	plan, err := NewPlan(step)
 	require.NoError(t, err)
@@ -566,9 +569,9 @@ echo complete > "${outputs.artifact}"
 		LogDir:               t.TempDir(),
 		MaterializationStore: filematerialization.New(filepath.Join(t.TempDir(), "materializations")),
 	})
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:               "build-test",
-		Type:               core.TypeBuild,
+		Type:               ir.TypeBuild,
 		WorkingDir:         workingDir,
 		WorkingDirExplicit: true,
 		Shell:              "sh",
@@ -588,23 +591,23 @@ func TestPrepareBuildPlanRejectsInferredCycle(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	first := core.Step{
+	first := ir.Step{
 		ID:      "first",
 		Name:    "first",
-		Inputs:  []core.StepInputDeclaration{{Name: "second", Path: "second.txt"}},
-		Outputs: []core.StepOutputDeclaration{{Name: "first", Path: "first.txt"}},
+		Inputs:  []ir.StepInputDeclaration{{Name: "second", Path: "second.txt"}},
+		Outputs: []ir.StepOutputDeclaration{{Name: "first", Path: "first.txt"}},
 	}
-	second := core.Step{
+	second := ir.Step{
 		ID:      "second",
 		Name:    "second",
-		Inputs:  []core.StepInputDeclaration{{Name: "first", Path: "first.txt"}},
-		Outputs: []core.StepOutputDeclaration{{Name: "second", Path: "second.txt"}},
+		Inputs:  []ir.StepInputDeclaration{{Name: "first", Path: "first.txt"}},
+		Outputs: []ir.StepOutputDeclaration{{Name: "second", Path: "second.txt"}},
 	}
 	plan, err := NewPlan(first, second)
 	require.NoError(t, err)
-	ctx := NewContext(context.Background(), &core.DAG{
+	ctx := NewContext(context.Background(), &ir.DAG{
 		Name:       "build-test",
-		Type:       core.TypeBuild,
+		Type:       ir.TypeBuild,
 		WorkingDir: workingDir,
 	}, "run-1", filepath.Join(workingDir, "dag.log"))
 

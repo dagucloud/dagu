@@ -13,13 +13,14 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var outputFileDelimiterPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func readDeclaredStepOutputs(ctx context.Context, path string, declarations []core.StepOutputDeclaration) (map[string]string, error) {
+func readDeclaredStepOutputs(ctx context.Context, path string, declarations []ir.StepOutputDeclaration) (map[string]string, error) {
 	data, err := readStepOutputFile(path, maxOutputSize(ctx))
 	if err != nil {
 		return nil, err
@@ -45,12 +46,12 @@ func readStepOutputFile(path string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-func parseDeclaredStepOutputs(data []byte, declarations []core.StepOutputDeclaration) (map[string]string, error) {
+func parseDeclaredStepOutputs(data []byte, declarations []ir.StepOutputDeclaration) (map[string]string, error) {
 	if !utf8.Valid(data) {
 		return nil, fmt.Errorf("step output file is not valid UTF-8")
 	}
 
-	declared := make(map[string]core.StepOutputDeclaration, len(declarations))
+	declared := make(map[string]ir.StepOutputDeclaration, len(declarations))
 	for _, declaration := range declarations {
 		declared[declaration.Name] = declaration
 	}
@@ -126,7 +127,7 @@ func normalizeOutputFileLineEndings(value string) string {
 
 func recordDeclaredStepOutput(
 	values map[string]string,
-	declared map[string]core.StepOutputDeclaration,
+	declared map[string]ir.StepOutputDeclaration,
 	name string,
 	value string,
 ) error {
@@ -137,14 +138,14 @@ func recordDeclaredStepOutput(
 	if _, exists := values[name]; exists {
 		return fmt.Errorf("duplicate step output %q", name)
 	}
-	if declaration.Type == core.StepDeclaredOutputTypeJSON && !json.Valid([]byte(value)) {
+	if declaration.Type == ir.StepDeclaredOutputTypeJSON && !json.Valid([]byte(value)) {
 		return fmt.Errorf("step output %q is not valid JSON", name)
 	}
 	values[name] = value
 	return nil
 }
 
-func missingDeclaredOutputError(declarations []core.StepOutputDeclaration, values map[string]string) error {
+func missingDeclaredOutputError(declarations []ir.StepOutputDeclaration, values map[string]string) error {
 	for _, declaration := range declarations {
 		if _, ok := values[declaration.Name]; !ok {
 			return fmt.Errorf("declared step output %q was not emitted", declaration.Name)
@@ -168,12 +169,12 @@ func (n *Node) captureDeclaredStepOutputs(ctx context.Context) error {
 	declarations := n.Step().ValueOutputs()
 	path := n.stepOutputFile()
 	if path == "" {
-		return fmt.Errorf("%s was not set", coreexec.EnvKeyDAGUOutputFile)
+		return fmt.Errorf("%s was not set", runenv.EnvKeyDAGUOutputFile)
 	}
 
 	values, err := readDeclaredStepOutputs(ctx, path, declarations)
 	if err != nil {
-		return fmt.Errorf("failed to parse %s: %w", coreexec.EnvKeyDAGUOutputFile, err)
+		return fmt.Errorf("failed to parse %s: %w", runenv.EnvKeyDAGUOutputFile, err)
 	}
 	if len(values) == 0 {
 		n.clearStepOutputsValue()

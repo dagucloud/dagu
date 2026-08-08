@@ -10,28 +10,32 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/telemetry"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // ServerConfig contains the wiring needed to construct the frontend process role.
 type ServerConfig struct {
 	Context              context.Context
 	Config               *config.Config
-	DAGRunStore          exec.DAGRunStore
-	QueueStore           exec.QueueStore
-	ProcStore            exec.ProcStore
+	DAGRunStore          dagrun.DAGRunStore
+	QueueStore           queue.QueueStore
+	ProcStore            proc.ProcStore
 	DAGRunManager        runtime.Manager
-	ServiceRegistry      exec.ServiceRegistry
-	DAGRunLeaseStore     exec.DAGRunLeaseStore
-	WorkerHeartbeatStore exec.WorkerHeartbeatStore
+	ServiceRegistry      serviceregistry.ServiceRegistry
+	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
+	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
 	LicenseManager       *license.Manager
 	ResourceService      *resource.Service
 }
@@ -44,7 +48,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	}
 
 	limits := cfg.Config.Cache.Limits()
-	dagCache := fileutil.NewCache[*core.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
+	dagCache := fileutil.NewCache[*ir.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
 	dagCache.StartEviction(ctx)
 
 	dagStore, err := NewDAGStore(cfg.Config, DAGStoreConfig{Cache: dagCache})

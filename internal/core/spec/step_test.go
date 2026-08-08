@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,59 +25,59 @@ func TestMain(m *testing.M) {
 
 	// Command executors: support command, multiple commands, script, shell
 	for _, t := range []string{"", "shell", "command"} {
-		core.RegisterExecutorCapabilities(t, core.ExecutorCapabilities{
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{
 			Command: true, MultipleCommands: true, Script: true, Shell: true,
 		})
 	}
 	// Docker: supports command, multiple commands, and container
 	for _, t := range []string{"docker", "container"} {
-		core.RegisterExecutorCapabilities(t, core.ExecutorCapabilities{
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{
 			Command: true, MultipleCommands: true, Container: true,
 		})
 	}
 	// SSH: supports command, multiple commands, and shell
-	core.RegisterExecutorCapabilities("ssh", core.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("ssh", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Shell: true,
 	})
 	// jq and http: support command and script
-	core.RegisterExecutorCapabilities("jq", core.ExecutorCapabilities{Command: true, Script: true})
-	core.RegisterExecutorCapabilities("http", core.ExecutorCapabilities{Command: true, Script: true})
+	registry.RegisterExecutorCapabilities("jq", registry.ExecutorCapabilities{Command: true, Script: true})
+	registry.RegisterExecutorCapabilities("http", registry.ExecutorCapabilities{Command: true, Script: true})
 	// SQL executors: support query command and script execution
 	for _, t := range []string{"postgres", "sqlite"} {
-		core.RegisterExecutorCapabilities(t, core.ExecutorCapabilities{Command: true, Script: true})
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{Command: true, Script: true})
 	}
 	// kubernetes: supports a single command only
 	for _, t := range []string{"kubernetes", "k8s"} {
-		core.RegisterExecutorCapabilities(t, core.ExecutorCapabilities{Command: true})
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{Command: true})
 	}
 	// archive: supports command only
-	core.RegisterExecutorCapabilities("archive", core.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("archive", registry.ExecutorCapabilities{Command: true})
 	// artifact: supports command only
-	core.RegisterExecutorCapabilities("artifact", core.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("artifact", registry.ExecutorCapabilities{Command: true})
 	// file: supports command only
-	core.RegisterExecutorCapabilities("file", core.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("file", registry.ExecutorCapabilities{Command: true})
 	// data: supports operation commands only
-	core.RegisterExecutorCapabilities("data", core.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("data", registry.ExecutorCapabilities{Command: true})
 	// wait: supports command only
-	core.RegisterExecutorCapabilities("wait", core.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("wait", registry.ExecutorCapabilities{Command: true})
 	// git: supports command only
-	core.RegisterExecutorCapabilities("git", core.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("git", registry.ExecutorCapabilities{Command: true})
 	// dag/subworkflow/parallel/dag_enqueue: support SubDAG and WorkerSelector
-	for _, t := range []string{"dag", "subworkflow", "parallel", core.ExecutorTypeDAGEnqueue} {
-		core.RegisterExecutorCapabilities(t, core.ExecutorCapabilities{
+	for _, t := range []string{"dag", "subworkflow", "parallel", ir.ExecutorTypeDAGEnqueue} {
+		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{
 			SubDAG: true, WorkerSelector: true,
 		})
 	}
 	// mail: no command support
-	core.RegisterExecutorCapabilities("mail", core.ExecutorCapabilities{})
+	registry.RegisterExecutorCapabilities("mail", registry.ExecutorCapabilities{})
 	// log: no command support
-	core.RegisterExecutorCapabilities("log", core.ExecutorCapabilities{})
+	registry.RegisterExecutorCapabilities("log", registry.ExecutorCapabilities{})
 	// outputs: supports write command
-	core.RegisterExecutorCapabilities("outputs", core.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("outputs", registry.ExecutorCapabilities{Command: true})
 	// state: supports operation commands only
-	core.RegisterExecutorCapabilities("state", core.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorCapabilities("state", registry.ExecutorCapabilities{Command: true})
 	// chat: LLM executor
-	core.RegisterExecutorCapabilities("chat", core.ExecutorCapabilities{LLM: true})
+	registry.RegisterExecutorCapabilities("chat", registry.ExecutorCapabilities{LLM: true})
 
 	os.Exit(m.Run())
 }
@@ -437,7 +438,7 @@ func TestBuildStepShell(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Shell: tt.shell}
-			var out core.Step
+			var out ir.Step
 			require.NoError(t, stepShellField().apply(testStepBuildContext(), s, &out))
 			assert.Equal(t, tt.expected, out.Shell)
 		})
@@ -461,7 +462,7 @@ func TestBuildStepShellArgs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Shell: tt.shell}
-			var out core.Step
+			var out ir.Step
 			require.NoError(t, stepShellField().apply(testStepBuildContext(), s, &out))
 			assert.Equal(t, tt.expected, out.ShellArgs)
 		})
@@ -550,17 +551,17 @@ func TestBuildStepContinueOn(t *testing.T) {
 	tests := []struct {
 		name       string
 		continueOn types.ContinueOnValue
-		expected   core.ContinueOn
+		expected   ir.ContinueOn
 	}{
 		{
 			name:       "SkippedString",
 			continueOn: continueOnValue("skipped"),
-			expected:   core.ContinueOn{Skipped: true},
+			expected:   ir.ContinueOn{Skipped: true},
 		},
 		{
 			name:       "FailedString",
 			continueOn: continueOnValue("failed"),
-			expected:   core.ContinueOn{Failure: true},
+			expected:   ir.ContinueOn{Failure: true},
 		},
 		{
 			name: "ObjectWithMultipleFields",
@@ -569,12 +570,12 @@ func TestBuildStepContinueOn(t *testing.T) {
 				"failed":       true,
 				"mark_success": true,
 			}),
-			expected: core.ContinueOn{Skipped: true, Failure: true, MarkSuccess: true},
+			expected: ir.ContinueOn{Skipped: true, Failure: true, MarkSuccess: true},
 		},
 		{
 			name:       "Empty",
 			continueOn: types.ContinueOnValue{},
-			expected:   core.ContinueOn{},
+			expected:   ir.ContinueOn{},
 		},
 	}
 
@@ -594,13 +595,13 @@ func TestBuildStepRetryPolicy(t *testing.T) {
 	tests := []struct {
 		name        string
 		retryPolicy *retryPolicy
-		expected    core.RetryPolicy
+		expected    ir.RetryPolicy
 		wantErr     bool
 	}{
 		{
 			name:        "NilPolicy",
 			retryPolicy: nil,
-			expected:    core.RetryPolicy{},
+			expected:    ir.RetryPolicy{},
 		},
 		{
 			name: "BasicPolicyWithIntValues",
@@ -608,7 +609,7 @@ func TestBuildStepRetryPolicy(t *testing.T) {
 				Limit:       3,
 				IntervalSec: 10,
 			},
-			expected: core.RetryPolicy{
+			expected: ir.RetryPolicy{
 				Limit:    3,
 				Interval: 10 * time.Second,
 			},
@@ -619,7 +620,7 @@ func TestBuildStepRetryPolicy(t *testing.T) {
 				Limit:       "${RETRY_LIMIT}",
 				IntervalSec: 5,
 			},
-			expected: core.RetryPolicy{
+			expected: ir.RetryPolicy{
 				LimitStr: "${RETRY_LIMIT}",
 				Interval: 5 * time.Second,
 			},
@@ -631,7 +632,7 @@ func TestBuildStepRetryPolicy(t *testing.T) {
 				IntervalSec: 5,
 				ExitCode:    []int{1, 2, 3},
 			},
-			expected: core.RetryPolicy{
+			expected: ir.RetryPolicy{
 				Limit:     2,
 				Interval:  5 * time.Second,
 				ExitCodes: []int{1, 2, 3},
@@ -644,7 +645,7 @@ func TestBuildStepRetryPolicy(t *testing.T) {
 				IntervalSec: 5,
 				Backoff:     true,
 			},
-			expected: core.RetryPolicy{
+			expected: ir.RetryPolicy{
 				Limit:    3,
 				Interval: 5 * time.Second,
 				Backoff:  2.0,
@@ -666,7 +667,7 @@ func TestBuildStepRetryPolicy(t *testing.T) {
 				IntervalSec: 5,
 				Backoff:     2.5,
 			},
-			expected: core.RetryPolicy{
+			expected: ir.RetryPolicy{
 				Limit:    3,
 				Interval: 5 * time.Second,
 				Backoff:  2.5,
@@ -680,7 +681,7 @@ func TestBuildStepRetryPolicy(t *testing.T) {
 				Backoff:        2.0,
 				MaxIntervalSec: 60,
 			},
-			expected: core.RetryPolicy{
+			expected: ir.RetryPolicy{
 				Limit:       3,
 				Interval:    5 * time.Second,
 				Backoff:     2.0,
@@ -725,13 +726,13 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 	tests := []struct {
 		name         string
 		repeatPolicy *repeatPolicy
-		expected     core.RepeatPolicy
+		expected     ir.RepeatPolicy
 		wantErr      bool
 	}{
 		{
 			name:         "NilPolicy",
 			repeatPolicy: nil,
-			expected:     core.RepeatPolicy{},
+			expected:     ir.RepeatPolicy{},
 		},
 		{
 			name: "WhileModeWithCondition",
@@ -740,9 +741,9 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				Condition:   "test -f /tmp/flag",
 				IntervalSec: types.IntOrDynamicFromInt(5),
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode: core.RepeatModeWhile,
-				Condition:  &core.Condition{Condition: "test -f /tmp/flag"},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeWhile,
+				Condition:  &ir.Condition{Condition: "test -f /tmp/flag"},
 				Interval:   5 * time.Second,
 			},
 		},
@@ -754,9 +755,9 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				Expected:    "done",
 				IntervalSec: types.IntOrDynamicFromInt(10),
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode: core.RepeatModeUntil,
-				Condition:  &core.Condition{Condition: "cat /tmp/status", Expected: "done"},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeUntil,
+				Condition:  &ir.Condition{Condition: "cat /tmp/status", Expected: "done"},
 				Interval:   10 * time.Second,
 			},
 		},
@@ -766,9 +767,9 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				Repeat:    types.RepeatModeFromBool(true),
 				Condition: "test condition",
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode: core.RepeatModeWhile,
-				Condition:  &core.Condition{Condition: "test condition"},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeWhile,
+				Condition:  &ir.Condition{Condition: "test condition"},
 			},
 		},
 		{
@@ -777,8 +778,8 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				Repeat:   types.RepeatModeFromString("while"),
 				ExitCode: []int{0, 1},
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode: core.RepeatModeWhile,
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeWhile,
 				ExitCode:   []int{0, 1},
 			},
 		},
@@ -789,9 +790,9 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				Condition: "true",
 				Limit:     types.IntOrDynamicFromInt(10),
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode: core.RepeatModeWhile,
-				Condition:  &core.Condition{Condition: "true"},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeWhile,
+				Condition:  &ir.Condition{Condition: "true"},
 				Limit:      10,
 			},
 		},
@@ -803,9 +804,9 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				IntervalSec: types.IntOrDynamicFromInt(5),
 				Backoff:     types.BackoffValueFromFloat(2.0),
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode: core.RepeatModeWhile,
-				Condition:  &core.Condition{Condition: "true"},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeWhile,
+				Condition:  &ir.Condition{Condition: "true"},
 				Interval:   5 * time.Second,
 				Backoff:    2.0,
 			},
@@ -819,9 +820,9 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				Backoff:        types.BackoffValueFromFloat(2.0),
 				MaxIntervalSec: types.IntOrDynamicFromInt(120),
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode:  core.RepeatModeWhile,
-				Condition:   &core.Condition{Condition: "true"},
+			expected: ir.RepeatPolicy{
+				RepeatMode:  ir.RepeatModeWhile,
+				Condition:   &ir.Condition{Condition: "true"},
 				Interval:    5 * time.Second,
 				Backoff:     2.0,
 				MaxInterval: 120 * time.Second,
@@ -841,9 +842,9 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				Condition: "true",
 				Limit:     types.IntOrDynamicFromStr("${max_rounds}"),
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode: core.RepeatModeWhile,
-				Condition:  &core.Condition{Condition: "true"},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeWhile,
+				Condition:  &ir.Condition{Condition: "true"},
 				LimitStr:   "${max_rounds}",
 			},
 		},
@@ -854,9 +855,9 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				Condition:   "true",
 				IntervalSec: types.IntOrDynamicFromStr("$INTERVAL"),
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode:  core.RepeatModeWhile,
-				Condition:   &core.Condition{Condition: "true"},
+			expected: ir.RepeatPolicy{
+				RepeatMode:  ir.RepeatModeWhile,
+				Condition:   &ir.Condition{Condition: "true"},
 				IntervalStr: "$INTERVAL",
 			},
 		},
@@ -869,9 +870,9 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 				Backoff:        types.BackoffValueFromFloat(2.0),
 				MaxIntervalSec: types.IntOrDynamicFromStr("${MAX_INTERVAL}"),
 			},
-			expected: core.RepeatPolicy{
-				RepeatMode:     core.RepeatModeWhile,
-				Condition:      &core.Condition{Condition: "true"},
+			expected: ir.RepeatPolicy{
+				RepeatMode:     ir.RepeatModeWhile,
+				Condition:      &ir.Condition{Condition: "true"},
 				Interval:       5 * time.Second,
 				Backoff:        2.0,
 				MaxIntervalStr: "${MAX_INTERVAL}",
@@ -993,7 +994,7 @@ func TestBuildStepCommand(t *testing.T) {
 		name             string
 		command          any
 		expectedScript   string
-		expectedCommands []core.CommandEntry
+		expectedCommands []ir.CommandEntry
 		wantErr          bool
 	}{
 		{
@@ -1003,7 +1004,7 @@ func TestBuildStepCommand(t *testing.T) {
 		{
 			name:    "SimpleStringCommand",
 			command: "echo hello",
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}, CmdWithArgs: "echo hello"},
 			},
 		},
@@ -1032,7 +1033,7 @@ func TestBuildStepCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Command: tt.command}
-			result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
+			result := &ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)}}
 			err := buildStepCommand(testStepBuildContext(), s, result)
 
 			if tt.wantErr {
@@ -1055,8 +1056,8 @@ func TestBuildStepCommand_MultilineHarnessPromptStaysCommand(t *testing.T) {
 	t.Parallel()
 
 	s := &step{Command: "hey\nyou"}
-	result := &core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	result := &ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "harness",
 			Config: map[string]any{"provider": "passthrough"},
 		},
@@ -1065,7 +1066,7 @@ func TestBuildStepCommand_MultilineHarnessPromptStaysCommand(t *testing.T) {
 	err := buildStepCommand(testStepBuildContext(), s, result)
 	require.NoError(t, err)
 	assert.Empty(t, result.Script)
-	assert.Equal(t, []core.CommandEntry{
+	assert.Equal(t, []ir.CommandEntry{
 		{CmdWithArgs: "hey\nyou"},
 	}, result.Commands)
 }
@@ -1076,20 +1077,20 @@ func TestBuildStepCommand_MultipleCommands(t *testing.T) {
 	tests := []struct {
 		name             string
 		command          any
-		expectedCommands []core.CommandEntry
+		expectedCommands []ir.CommandEntry
 		wantErr          bool
 	}{
 		{
 			name:    "SingleCommandInArray",
 			command: []any{"echo hello"},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}, CmdWithArgs: "echo hello"},
 			},
 		},
 		{
 			name:    "TwoSimpleCommands",
 			command: []any{"echo hello", "echo world"},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}, CmdWithArgs: "echo hello"},
 				{Command: "echo", Args: []string{"world"}, CmdWithArgs: "echo world"},
 			},
@@ -1097,7 +1098,7 @@ func TestBuildStepCommand_MultipleCommands(t *testing.T) {
 		{
 			name:    "MultipleCommandsWithArgs",
 			command: []any{"npm install", "npm run build", "npm test"},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "npm", Args: []string{"install"}, CmdWithArgs: "npm install"},
 				{Command: "npm", Args: []string{"run", "build"}, CmdWithArgs: "npm run build"},
 				{Command: "npm", Args: []string{"test"}, CmdWithArgs: "npm test"},
@@ -1106,7 +1107,7 @@ func TestBuildStepCommand_MultipleCommands(t *testing.T) {
 		{
 			name:    "CommandsWithQuotedArgs",
 			command: []any{`echo "hello world"`, `grep "search term"`},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello world"}, CmdWithArgs: `echo "hello world"`},
 				{Command: "grep", Args: []string{"search term"}, CmdWithArgs: `grep "search term"`},
 			},
@@ -1114,7 +1115,7 @@ func TestBuildStepCommand_MultipleCommands(t *testing.T) {
 		{
 			name:    "CommandsWithPipes",
 			command: []any{"ls -la", "cat file.txt | grep pattern"},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "ls", Args: []string{"-la"}, CmdWithArgs: "ls -la"},
 				{Command: "cat", Args: []string{"file.txt", "|", "grep", "pattern"}, CmdWithArgs: "cat file.txt | grep pattern"},
 			},
@@ -1122,7 +1123,7 @@ func TestBuildStepCommand_MultipleCommands(t *testing.T) {
 		{
 			name:    "SimpleCommandsNoArgs",
 			command: []any{"pwd", "whoami", "date"},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "pwd", Args: []string{}, CmdWithArgs: "pwd"},
 				{Command: "whoami", Args: []string{}, CmdWithArgs: "whoami"},
 				{Command: "date", Args: []string{}, CmdWithArgs: "date"},
@@ -1141,14 +1142,14 @@ func TestBuildStepCommand_MultipleCommands(t *testing.T) {
 		{
 			name:    "ArrayWithMixedEmptyAndValid",
 			command: []any{"", "echo hello", "   "},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}, CmdWithArgs: "echo hello"},
 			},
 		},
 		{
 			name:    "NonStringElementsConverted",
 			command: []any{123, true, 45.6},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "123", Args: []string{}, CmdWithArgs: "123"},
 				{Command: "true", Args: []string{}, CmdWithArgs: "true"},
 				{Command: "45.6", Args: []string{}, CmdWithArgs: "45.6"},
@@ -1159,7 +1160,7 @@ func TestBuildStepCommand_MultipleCommands(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Command: tt.command}
-			result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
+			result := &ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)}}
 			err := buildStepCommand(testStepBuildContext(), s, result)
 
 			if tt.wantErr {
@@ -1244,7 +1245,7 @@ func TestBuildSingleCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &core.Step{}
+			result := &ir.Step{}
 			err := buildSingleCommand(tt.command, result)
 
 			if tt.wantErr {
@@ -1276,13 +1277,13 @@ func TestBuildMultipleCommands(t *testing.T) {
 	tests := []struct {
 		name             string
 		commands         []any
-		expectedCommands []core.CommandEntry
+		expectedCommands []ir.CommandEntry
 		wantErr          bool
 	}{
 		{
 			name:     "BasicCommands",
 			commands: []any{"echo foo", "echo bar"},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"foo"}, CmdWithArgs: "echo foo"},
 				{Command: "echo", Args: []string{"bar"}, CmdWithArgs: "echo bar"},
 			},
@@ -1300,14 +1301,14 @@ func TestBuildMultipleCommands(t *testing.T) {
 		{
 			name:     "SkipsEmptyPreservesValid",
 			commands: []any{"", "valid command", ""},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "valid", Args: []string{"command"}, CmdWithArgs: "valid command"},
 			},
 		},
 		{
 			name:     "AcceptsSingleKeyMap",
 			commands: []any{"echo hello", map[string]any{"key": "value"}},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}, CmdWithArgs: "echo hello"},
 				{Command: "key:", Args: []string{"value"}, CmdWithArgs: "key: value"},
 			},
@@ -1325,7 +1326,7 @@ func TestBuildMultipleCommands(t *testing.T) {
 		{
 			name:     "AcceptsPrimitiveTypes",
 			commands: []any{"echo", 123, true, 45.6},
-			expectedCommands: []core.CommandEntry{
+			expectedCommands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{}, CmdWithArgs: "echo"},
 				{Command: "123", Args: []string{}, CmdWithArgs: "123"},
 				{Command: "true", Args: []string{}, CmdWithArgs: "true"},
@@ -1336,7 +1337,7 @@ func TestBuildMultipleCommands(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &core.Step{}
+			result := &ir.Step{}
 			err := buildMultipleCommands(tt.commands, result)
 
 			if tt.wantErr {
@@ -1360,18 +1361,18 @@ func TestStepHasMultipleCommands(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		step     *core.Step
+		step     *ir.Step
 		expected bool
 	}{
 		{
 			name:     "NoCommands",
-			step:     &core.Step{},
+			step:     &ir.Step{},
 			expected: false,
 		},
 		{
 			name: "SingleCommandInCommands",
-			step: &core.Step{
-				Commands: []core.CommandEntry{
+			step: &ir.Step{
+				Commands: []ir.CommandEntry{
 					{Command: "echo", Args: []string{"hello"}},
 				},
 			},
@@ -1379,8 +1380,8 @@ func TestStepHasMultipleCommands(t *testing.T) {
 		},
 		{
 			name: "HasMultipleCommands",
-			step: &core.Step{
-				Commands: []core.CommandEntry{
+			step: &ir.Step{
+				Commands: []ir.CommandEntry{
 					{Command: "echo", Args: []string{"hello"}},
 					{Command: "echo", Args: []string{"world"}},
 				},
@@ -1389,8 +1390,8 @@ func TestStepHasMultipleCommands(t *testing.T) {
 		},
 		{
 			name: "EmptyCommandsSlice",
-			step: &core.Step{
-				Commands: []core.CommandEntry{},
+			step: &ir.Step{
+				Commands: []ir.CommandEntry{},
 			},
 			expected: false,
 		},
@@ -1410,20 +1411,20 @@ func TestBuildStepExecutor(t *testing.T) {
 		name     string
 		step     *step
 		ctx      stepBuildContext
-		expected core.ExecutorConfig
+		expected ir.ExecutorConfig
 		wantErr  bool
 	}{
 		{
 			name:     "NoType",
 			step:     &step{},
 			ctx:      testStepBuildContext(),
-			expected: core.ExecutorConfig{Config: make(map[string]any)},
+			expected: ir.ExecutorConfig{Config: make(map[string]any)},
 		},
 		{
 			name:     "TypeField",
 			step:     &step{Type: "http"},
 			ctx:      testStepBuildContext(),
-			expected: core.ExecutorConfig{Type: "http", Config: make(map[string]any)},
+			expected: ir.ExecutorConfig{Type: "http", Config: make(map[string]any)},
 		},
 		{
 			name: "SFTPTypeAndWith",
@@ -1435,7 +1436,7 @@ func TestBuildStepExecutor(t *testing.T) {
 				},
 			},
 			ctx: testStepBuildContext(),
-			expected: core.ExecutorConfig{
+			expected: ir.ExecutorConfig{
 				Type: "sftp",
 				Config: map[string]any{
 					"source":      "./backup.tar.gz",
@@ -1452,7 +1453,7 @@ func TestBuildStepExecutor(t *testing.T) {
 				},
 			},
 			ctx: testStepBuildContext(),
-			expected: core.ExecutorConfig{
+			expected: ir.ExecutorConfig{
 				Type:   "docker",
 				Config: map[string]any{"image": "alpine:latest"},
 			},
@@ -1466,7 +1467,7 @@ func TestBuildStepExecutor(t *testing.T) {
 				},
 			},
 			ctx: testStepBuildContext(),
-			expected: core.ExecutorConfig{
+			expected: ir.ExecutorConfig{
 				Type:   "docker",
 				Config: map[string]any{"image": "alpine:latest"},
 			},
@@ -1486,24 +1487,24 @@ func TestBuildStepExecutor(t *testing.T) {
 			step: &step{},
 			ctx: stepBuildContext{
 				buildContext: testBuildContext(),
-				dag:          &core.DAG{Container: &core.Container{Image: "alpine"}},
+				dag:          &ir.DAG{Container: &ir.Container{Image: "alpine"}},
 			},
-			expected: core.ExecutorConfig{Type: "container", Config: make(map[string]any)},
+			expected: ir.ExecutorConfig{Type: "container", Config: make(map[string]any)},
 		},
 		{
 			name: "InheritsSSHExecutor",
 			step: &step{},
 			ctx: stepBuildContext{
 				buildContext: testBuildContext(),
-				dag:          &core.DAG{SSH: &core.SSHConfig{Host: "example.com"}},
+				dag:          &ir.DAG{SSH: &ir.SSHConfig{Host: "example.com"}},
 			},
-			expected: core.ExecutorConfig{Type: "ssh", Config: make(map[string]any)},
+			expected: ir.ExecutorConfig{Type: "ssh", Config: make(map[string]any)},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
+			result := &ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)}}
 			err := buildStepExecutor(tt.ctx, tt.step, result)
 
 			if tt.wantErr {
@@ -1585,7 +1586,7 @@ func TestBuildStepParamsField(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			s := &step{Params: tt.params}
-			result := &core.Step{}
+			result := &ir.Step{}
 			err := buildStepParamsField(testStepBuildContext(), s, result)
 			require.NoError(t, err)
 
@@ -1613,7 +1614,7 @@ func TestBuildStepParallel(t *testing.T) {
 	tests := []struct {
 		name     string
 		parallel any
-		expected *core.ParallelConfig
+		expected *ir.ParallelConfig
 		wantErr  bool
 	}{
 		{
@@ -1624,30 +1625,30 @@ func TestBuildStepParallel(t *testing.T) {
 		{
 			name:     "StringVariableReference",
 			parallel: "${ITEMS}",
-			expected: &core.ParallelConfig{Variable: "${ITEMS}", MaxConcurrent: core.DefaultMaxConcurrent},
+			expected: &ir.ParallelConfig{Variable: "${ITEMS}", MaxConcurrent: ir.DefaultMaxConcurrent},
 		},
 		{
 			name:     "StaticArrayOfStrings",
 			parallel: []any{"item1", "item2", "item3"},
-			expected: &core.ParallelConfig{
-				Items: []core.ParallelItem{
+			expected: &ir.ParallelConfig{
+				Items: []ir.ParallelItem{
 					{Value: "item1"},
 					{Value: "item2"},
 					{Value: "item3"},
 				},
-				MaxConcurrent: core.DefaultMaxConcurrent,
+				MaxConcurrent: ir.DefaultMaxConcurrent,
 			},
 		},
 		{
 			name:     "ArrayOfNumbers",
 			parallel: []any{1, 2, 3},
-			expected: &core.ParallelConfig{
-				Items: []core.ParallelItem{
+			expected: &ir.ParallelConfig{
+				Items: []ir.ParallelItem{
 					{Value: "1"},
 					{Value: "2"},
 					{Value: "3"},
 				},
-				MaxConcurrent: core.DefaultMaxConcurrent,
+				MaxConcurrent: ir.DefaultMaxConcurrent,
 			},
 		},
 		{
@@ -1656,12 +1657,12 @@ func TestBuildStepParallel(t *testing.T) {
 				map[string]any{"name": "first", "value": 100},
 				map[string]any{"name": "second", "value": 200},
 			},
-			expected: &core.ParallelConfig{
-				Items: []core.ParallelItem{
+			expected: &ir.ParallelConfig{
+				Items: []ir.ParallelItem{
 					{Params: map[string]string{"name": "first", "value": "100"}},
 					{Params: map[string]string{"name": "second", "value": "200"}},
 				},
-				MaxConcurrent: core.DefaultMaxConcurrent,
+				MaxConcurrent: ir.DefaultMaxConcurrent,
 			},
 		},
 		{
@@ -1670,8 +1671,8 @@ func TestBuildStepParallel(t *testing.T) {
 				"items":          []any{"a", "b"},
 				"max_concurrent": 5,
 			},
-			expected: &core.ParallelConfig{
-				Items: []core.ParallelItem{
+			expected: &ir.ParallelConfig{
+				Items: []ir.ParallelItem{
 					{Value: "a"},
 					{Value: "b"},
 				},
@@ -1684,7 +1685,7 @@ func TestBuildStepParallel(t *testing.T) {
 				"items":          "${MY_ITEMS}",
 				"max_concurrent": 3,
 			},
-			expected: &core.ParallelConfig{
+			expected: &ir.ParallelConfig{
 				Variable:      "${MY_ITEMS}",
 				MaxConcurrent: 3,
 			},
@@ -1695,7 +1696,7 @@ func TestBuildStepParallel(t *testing.T) {
 				"items":          "${ITEMS}",
 				"max_concurrent": int64(10),
 			},
-			expected: &core.ParallelConfig{
+			expected: &ir.ParallelConfig{
 				Variable:      "${ITEMS}",
 				MaxConcurrent: 10,
 			},
@@ -1738,11 +1739,11 @@ func TestBuildStepParallel(t *testing.T) {
 			parallel: []any{
 				map[string]any{"name": "test", "enabled": true},
 			},
-			expected: &core.ParallelConfig{
-				Items: []core.ParallelItem{
+			expected: &ir.ParallelConfig{
+				Items: []ir.ParallelItem{
 					{Params: map[string]string{"name": "test", "enabled": "true"}},
 				},
-				MaxConcurrent: core.DefaultMaxConcurrent,
+				MaxConcurrent: ir.DefaultMaxConcurrent,
 			},
 		},
 		{
@@ -1750,11 +1751,11 @@ func TestBuildStepParallel(t *testing.T) {
 			parallel: []any{
 				map[string]any{"name": "test", "rate": 3.14},
 			},
-			expected: &core.ParallelConfig{
-				Items: []core.ParallelItem{
+			expected: &ir.ParallelConfig{
+				Items: []ir.ParallelItem{
 					{Params: map[string]string{"name": "test", "rate": "3.14"}},
 				},
-				MaxConcurrent: core.DefaultMaxConcurrent,
+				MaxConcurrent: ir.DefaultMaxConcurrent,
 			},
 		},
 		{
@@ -1769,7 +1770,7 @@ func TestBuildStepParallel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Parallel: tt.parallel}
-			result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
+			result := &ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)}}
 			err := buildStepParallel(testStepBuildContext(), s, result)
 
 			if tt.wantErr {
@@ -1789,7 +1790,7 @@ func TestBuildStepSubDAG(t *testing.T) {
 	tests := []struct {
 		name     string
 		step     *step
-		expected *core.SubDAG
+		expected *ir.SubDAG
 	}{
 		{
 			name:     "NoSubDAG",
@@ -1799,7 +1800,7 @@ func TestBuildStepSubDAG(t *testing.T) {
 		{
 			name:     "SimpleCall",
 			step:     &step{Call: "other-dag"},
-			expected: &core.SubDAG{Name: "other-dag", Params: ""},
+			expected: &ir.SubDAG{Name: "other-dag", Params: ""},
 		},
 		{
 			name: "CallWithParams",
@@ -1807,13 +1808,13 @@ func TestBuildStepSubDAG(t *testing.T) {
 				Call:   "other-dag",
 				Params: map[string]any{"key": "value"},
 			},
-			expected: &core.SubDAG{Name: "other-dag", Params: `key="value"`},
+			expected: &ir.SubDAG{Name: "other-dag", Params: `key="value"`},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
+			result := &ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)}}
 			err := buildStepSubDAG(testStepBuildContext(), tt.step, result)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result.SubDAG)
@@ -1827,13 +1828,13 @@ func TestParseParallelItems(t *testing.T) {
 	tests := []struct {
 		name     string
 		items    []any
-		expected []core.ParallelItem
+		expected []ir.ParallelItem
 		wantErr  bool
 	}{
 		{
 			name:  "StringItems",
 			items: []any{"a", "b", "c"},
-			expected: []core.ParallelItem{
+			expected: []ir.ParallelItem{
 				{Value: "a"},
 				{Value: "b"},
 				{Value: "c"},
@@ -1842,7 +1843,7 @@ func TestParseParallelItems(t *testing.T) {
 		{
 			name:  "NumericItems",
 			items: []any{1, 2.5, int64(3)},
-			expected: []core.ParallelItem{
+			expected: []ir.ParallelItem{
 				{Value: "1"},
 				{Value: "2.5"},
 				{Value: "3"},
@@ -1854,7 +1855,7 @@ func TestParseParallelItems(t *testing.T) {
 				map[string]any{"name": "item1", "count": 5},
 				map[string]any{"name": "item2", "count": 10},
 			},
-			expected: []core.ParallelItem{
+			expected: []ir.ParallelItem{
 				{Params: map[string]string{"name": "item1", "count": "5"}},
 				{Params: map[string]string{"name": "item2", "count": "10"}},
 			},
@@ -1894,7 +1895,7 @@ func TestBuildStepContainer(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    *container
-		expected *core.Container
+		expected *ir.Container
 		wantErr  bool
 	}{
 		{
@@ -1912,9 +1913,9 @@ func TestBuildStepContainer(t *testing.T) {
 			input: &container{
 				Image: "alpine:latest",
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Image:      "alpine:latest",
-				PullPolicy: core.PullPolicyMissing,
+				PullPolicy: ir.PullPolicyMissing,
 			},
 		},
 		{
@@ -1936,10 +1937,10 @@ func TestBuildStepContainer(t *testing.T) {
 				LogPattern:    "ready",
 				RestartPolicy: "no",
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Name:          "my-step-container",
 				Image:         "golang:1.22",
-				PullPolicy:    core.PullPolicyAlways,
+				PullPolicy:    ir.PullPolicyAlways,
 				Volumes:       []string{"./src:/app"},
 				User:          "1000",
 				WorkingDir:    "/app",
@@ -1947,9 +1948,9 @@ func TestBuildStepContainer(t *testing.T) {
 				Ports:         []string{"8080:8080"},
 				Network:       "host",
 				KeepContainer: false,
-				Startup:       core.StartupEntrypoint,
+				Startup:       ir.StartupEntrypoint,
 				Command:       []string{"go", "build"},
-				WaitFor:       core.WaitForRunning,
+				WaitFor:       ir.WaitForRunning,
 				LogPattern:    "ready",
 				RestartPolicy: "no",
 			},
@@ -1960,9 +1961,9 @@ func TestBuildStepContainer(t *testing.T) {
 				Image: "node:20",
 				Env:   map[string]any{"NODE_ENV": "production"},
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Image:      "node:20",
-				PullPolicy: core.PullPolicyMissing,
+				PullPolicy: ir.PullPolicyMissing,
 				Env:        []string{"NODE_ENV=production"},
 			},
 		},
@@ -1972,9 +1973,9 @@ func TestBuildStepContainer(t *testing.T) {
 				Image:   "postgres:16",
 				Volumes: []string{"./data:/var/lib/postgresql/data", "/tmp:/tmp:ro"},
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Image:      "postgres:16",
-				PullPolicy: core.PullPolicyMissing,
+				PullPolicy: ir.PullPolicyMissing,
 				Volumes:    []string{"./data:/var/lib/postgresql/data", "/tmp:/tmp:ro"},
 			},
 		},
@@ -1984,9 +1985,9 @@ func TestBuildStepContainer(t *testing.T) {
 				Image:      "myimage:local",
 				PullPolicy: "never",
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Image:      "myimage:local",
-				PullPolicy: core.PullPolicyNever,
+				PullPolicy: ir.PullPolicyNever,
 			},
 		},
 		{
@@ -1995,9 +1996,9 @@ func TestBuildStepContainer(t *testing.T) {
 				Image:      "alpine:3.18",
 				PullPolicy: "missing",
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Image:      "alpine:3.18",
-				PullPolicy: core.PullPolicyMissing,
+				PullPolicy: ir.PullPolicyMissing,
 			},
 		},
 		{
@@ -2006,9 +2007,9 @@ func TestBuildStepContainer(t *testing.T) {
 				Image:      "alpine:3.18",
 				PullPolicy: "fallback",
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Image:      "alpine:3.18",
-				PullPolicy: core.PullPolicyFallback,
+				PullPolicy: ir.PullPolicyFallback,
 			},
 		},
 		{
@@ -2016,9 +2017,9 @@ func TestBuildStepContainer(t *testing.T) {
 			input: &container{
 				Image: "alpine:3.18",
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Image:      "alpine:3.18",
-				PullPolicy: core.PullPolicyMissing,
+				PullPolicy: ir.PullPolicyMissing,
 			},
 		},
 	}
@@ -2026,7 +2027,7 @@ func TestBuildStepContainer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &step{Container: tt.input}
-			result := &core.Step{}
+			result := &ir.Step{}
 			err := buildStepContainer(testStepBuildContext(), s, result)
 
 			if tt.wantErr {
@@ -2047,27 +2048,27 @@ func TestValidateMultipleCommands(t *testing.T) {
 	tests := []struct {
 		name         string
 		executorType string
-		commands     []core.CommandEntry
+		commands     []ir.CommandEntry
 		wantErr      bool
 	}{
 		// Single command - should always pass
 		{
 			name:         "SingleCommand_NoExecutorType",
 			executorType: "",
-			commands:     []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+			commands:     []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			wantErr:      false,
 		},
 		{
 			name:         "SingleCommand_JQExecutor",
 			executorType: "jq",
-			commands:     []core.CommandEntry{{Command: ".foo"}},
+			commands:     []ir.CommandEntry{{Command: ".foo"}},
 			wantErr:      false,
 		},
 		// Multiple commands - should pass for multi-command executors
 		{
 			name:         "MultipleCommands_NoExecutorType",
 			executorType: "",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}},
 				{Command: "echo", Args: []string{"world"}},
 			},
@@ -2076,7 +2077,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_ShellExecutor",
 			executorType: "shell",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}},
 				{Command: "echo", Args: []string{"world"}},
 			},
@@ -2085,7 +2086,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_CommandExecutor",
 			executorType: "command",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "npm", Args: []string{"install"}},
 				{Command: "npm", Args: []string{"run", "build"}},
 			},
@@ -2094,7 +2095,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_DockerExecutor",
 			executorType: "docker",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "apt-get", Args: []string{"update"}},
 				{Command: "apt-get", Args: []string{"install", "curl"}},
 			},
@@ -2103,7 +2104,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_ContainerExecutor",
 			executorType: "container",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}},
 				{Command: "echo", Args: []string{"world"}},
 			},
@@ -2112,7 +2113,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_SSHExecutor",
 			executorType: "ssh",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "ls", Args: []string{"-la"}},
 				{Command: "pwd"},
 			},
@@ -2122,7 +2123,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_JQExecutor",
 			executorType: "jq",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: ".foo"},
 				{Command: ".bar"},
 			},
@@ -2131,7 +2132,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_HTTPExecutor",
 			executorType: "http",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "GET", Args: []string{"https://example.com"}},
 				{Command: "POST", Args: []string{"https://example.com"}},
 			},
@@ -2140,7 +2141,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_KubernetesExecutor",
 			executorType: "kubernetes",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}},
 				{Command: "echo", Args: []string{"world"}},
 			},
@@ -2149,7 +2150,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_K8sExecutor",
 			executorType: "k8s",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}},
 				{Command: "echo", Args: []string{"world"}},
 			},
@@ -2158,7 +2159,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_ArchiveExecutor",
 			executorType: "archive",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "extract"},
 				{Command: "list"},
 			},
@@ -2167,7 +2168,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_MailExecutor",
 			executorType: "mail",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "send"},
 				{Command: "another"},
 			},
@@ -2176,7 +2177,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_DAGExecutor",
 			executorType: "dag",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "dag1"},
 				{Command: "dag2"},
 			},
@@ -2185,7 +2186,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "MultipleCommands_ParallelExecutor",
 			executorType: "parallel",
-			commands: []core.CommandEntry{
+			commands: []ir.CommandEntry{
 				{Command: "task1"},
 				{Command: "task2"},
 			},
@@ -2201,7 +2202,7 @@ func TestValidateMultipleCommands(t *testing.T) {
 		{
 			name:         "EmptyCommands_HTTPExecutor",
 			executorType: "http",
-			commands:     []core.CommandEntry{},
+			commands:     []ir.CommandEntry{},
 			wantErr:      false,
 		},
 	}
@@ -2209,9 +2210,9 @@ func TestValidateMultipleCommands(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := &core.Step{
+			result := &ir.Step{
 				Commands: tt.commands,
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: tt.executorType,
 				},
 			}
@@ -2301,9 +2302,9 @@ func TestValidateScript(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := &core.Step{
+			result := &ir.Step{
 				Script: tt.script,
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: tt.executorType,
 				},
 			}
@@ -2391,9 +2392,9 @@ func TestValidateShell(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := &core.Step{
+			result := &ir.Step{
 				Shell: tt.shell,
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: tt.executorType,
 				},
 			}
@@ -2416,33 +2417,33 @@ func TestValidateContainer(t *testing.T) {
 	tests := []struct {
 		name         string
 		executorType string
-		container    *core.Container
+		container    *ir.Container
 		wantErr      bool
 	}{
 		// Executors that support container
 		{
 			name:         "ContainerWithDockerExecutor",
 			executorType: "docker",
-			container:    &core.Container{Image: "alpine"},
+			container:    &ir.Container{Image: "alpine"},
 			wantErr:      false,
 		},
 		// Executors that do not support container
 		{
 			name:         "ContainerWithSSHExecutor",
 			executorType: "ssh",
-			container:    &core.Container{Image: "alpine"},
+			container:    &ir.Container{Image: "alpine"},
 			wantErr:      true,
 		},
 		{
 			name:         "ContainerWithCommandExecutor",
 			executorType: "command",
-			container:    &core.Container{Image: "alpine"},
+			container:    &ir.Container{Image: "alpine"},
 			wantErr:      true,
 		},
 		{
 			name:         "ContainerWithJQExecutor",
 			executorType: "jq",
-			container:    &core.Container{Image: "alpine"},
+			container:    &ir.Container{Image: "alpine"},
 			wantErr:      true,
 		},
 		// Nil container - should always pass
@@ -2457,9 +2458,9 @@ func TestValidateContainer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := &core.Step{
+			result := &ir.Step{
 				Container: tt.container,
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: tt.executorType,
 				},
 			}
@@ -2482,39 +2483,39 @@ func TestValidateSubDAG(t *testing.T) {
 	tests := []struct {
 		name         string
 		executorType string
-		subDAG       *core.SubDAG
+		subDAG       *ir.SubDAG
 		wantErr      bool
 	}{
 		// Executors that support SubDAG
 		{
 			name:         "SubDAGWithDAGExecutor",
 			executorType: "dag",
-			subDAG:       &core.SubDAG{Name: "child-dag"},
+			subDAG:       &ir.SubDAG{Name: "child-dag"},
 			wantErr:      false,
 		},
 		{
 			name:         "SubDAGWithParallelExecutor",
 			executorType: "parallel",
-			subDAG:       &core.SubDAG{Name: "child-dag"},
+			subDAG:       &ir.SubDAG{Name: "child-dag"},
 			wantErr:      false,
 		},
 		// Executors that do not support SubDAG
 		{
 			name:         "SubDAGWithCommandExecutor",
 			executorType: "command",
-			subDAG:       &core.SubDAG{Name: "child-dag"},
+			subDAG:       &ir.SubDAG{Name: "child-dag"},
 			wantErr:      true,
 		},
 		{
 			name:         "SubDAGWithSSHExecutor",
 			executorType: "ssh",
-			subDAG:       &core.SubDAG{Name: "child-dag"},
+			subDAG:       &ir.SubDAG{Name: "child-dag"},
 			wantErr:      true,
 		},
 		{
 			name:         "SubDAGWithDockerExecutor",
 			executorType: "docker",
-			subDAG:       &core.SubDAG{Name: "child-dag"},
+			subDAG:       &ir.SubDAG{Name: "child-dag"},
 			wantErr:      true,
 		},
 		// Nil SubDAG - should always pass
@@ -2529,9 +2530,9 @@ func TestValidateSubDAG(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := &core.Step{
+			result := &ir.Step{
 				SubDAG: tt.subDAG,
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: tt.executorType,
 				},
 			}
@@ -2554,81 +2555,81 @@ func TestValidateCommand(t *testing.T) {
 	tests := []struct {
 		name         string
 		executorType string
-		commands     []core.CommandEntry
+		commands     []ir.CommandEntry
 		wantErr      bool
 	}{
 		// Executors that support command
 		{
 			name:         "CommandWithDefaultExecutor",
 			executorType: "",
-			commands:     []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+			commands:     []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			wantErr:      false,
 		},
 		{
 			name:         "CommandWithShellExecutor",
 			executorType: "shell",
-			commands:     []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+			commands:     []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			wantErr:      false,
 		},
 		{
 			name:         "CommandWithCommandExecutor",
 			executorType: "command",
-			commands:     []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+			commands:     []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			wantErr:      false,
 		},
 		{
 			name:         "CommandWithDockerExecutor",
 			executorType: "docker",
-			commands:     []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+			commands:     []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			wantErr:      false,
 		},
 		{
 			name:         "CommandWithSSHExecutor",
 			executorType: "ssh",
-			commands:     []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+			commands:     []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			wantErr:      false,
 		},
 		{
 			name:         "CommandWithJQExecutor",
 			executorType: "jq",
-			commands:     []core.CommandEntry{{Command: ".foo"}},
+			commands:     []ir.CommandEntry{{Command: ".foo"}},
 			wantErr:      false,
 		},
 		{
 			name:         "CommandWithHTTPExecutor",
 			executorType: "http",
-			commands:     []core.CommandEntry{{Command: "GET", Args: []string{"https://example.com"}}},
+			commands:     []ir.CommandEntry{{Command: "GET", Args: []string{"https://example.com"}}},
 			wantErr:      false,
 		},
 		{
 			name:         "CommandWithArchiveExecutor",
 			executorType: "archive",
-			commands:     []core.CommandEntry{{Command: "extract"}},
+			commands:     []ir.CommandEntry{{Command: "extract"}},
 			wantErr:      false,
 		},
 		// Executors that do not support command
 		{
 			name:         "CommandWithDAGExecutor",
 			executorType: "dag",
-			commands:     []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+			commands:     []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			wantErr:      true,
 		},
 		{
 			name:         "CommandWithSubworkflowExecutor",
 			executorType: "subworkflow",
-			commands:     []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+			commands:     []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			wantErr:      true,
 		},
 		{
 			name:         "CommandWithParallelExecutor",
 			executorType: "parallel",
-			commands:     []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+			commands:     []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			wantErr:      true,
 		},
 		{
 			name:         "CommandWithMailExecutor",
 			executorType: "mail",
-			commands:     []core.CommandEntry{{Command: "send"}},
+			commands:     []ir.CommandEntry{{Command: "send"}},
 			wantErr:      true,
 		},
 		// Empty commands - should always pass
@@ -2641,7 +2642,7 @@ func TestValidateCommand(t *testing.T) {
 		{
 			name:         "EmptyCommandsWithMailExecutor",
 			executorType: "mail",
-			commands:     []core.CommandEntry{},
+			commands:     []ir.CommandEntry{},
 			wantErr:      false,
 		},
 	}
@@ -2649,9 +2650,9 @@ func TestValidateCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := &core.Step{
+			result := &ir.Step{
 				Commands: tt.commands,
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: tt.executorType,
 				},
 			}
@@ -2739,9 +2740,9 @@ func TestValidateWorkerSelector(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := &core.Step{
+			result := &ir.Step{
 				WorkerSelector: tt.workerSelector,
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: tt.executorType,
 				},
 			}
@@ -2769,9 +2770,9 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 		{
 			name: "unsupported command",
 			err: func() error {
-				return validateCommand(&core.Step{
-					Commands:       []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
-					ExecutorConfig: core.ExecutorConfig{Type: "dag"},
+				return validateCommand(&ir.Step{
+					Commands:       []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+					ExecutorConfig: ir.ExecutorConfig{Type: "dag"},
 				})
 			},
 			want: `action "dag" does not support command field`,
@@ -2779,12 +2780,12 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 		{
 			name: "unsupported multiple commands",
 			err: func() error {
-				return validateMultipleCommands(&core.Step{
-					Commands: []core.CommandEntry{
+				return validateMultipleCommands(&ir.Step{
+					Commands: []ir.CommandEntry{
 						{Command: "GET", Args: []string{"https://example.com"}},
 						{Command: "POST", Args: []string{"https://example.com"}},
 					},
-					ExecutorConfig: core.ExecutorConfig{Type: "http"},
+					ExecutorConfig: ir.ExecutorConfig{Type: "http"},
 				})
 			},
 			want: `action "http" supports only one command`,
@@ -2792,9 +2793,9 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 		{
 			name: "unsupported llm",
 			err: func() error {
-				return validateLLM(&core.Step{
-					ExecutorConfig: core.ExecutorConfig{Type: "shell"},
-					LLM:            &core.LLMConfig{Provider: "openai", Model: "gpt-4"},
+				return validateLLM(&ir.Step{
+					ExecutorConfig: ir.ExecutorConfig{Type: "shell"},
+					LLM:            &ir.LLMConfig{Provider: "openai", Model: "gpt-4"},
 				})
 			},
 			want: `action "shell" does not support llm field`,
@@ -2802,7 +2803,7 @@ func TestStepValidationMessagesUseYAMLTerms(t *testing.T) {
 		{
 			name: "unknown type",
 			err: func() error {
-				result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
+				result := &ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)}}
 				return buildStepExecutor(testStepBuildContext(), &step{Type: "non-existent"}, result)
 			},
 			want: `unknown action "non-existent"`,
@@ -2848,7 +2849,7 @@ func TestBuildStepLogOutput(t *testing.T) {
 	tests := []struct {
 		name        string
 		yaml        string
-		expected    core.LogOutputMode
+		expected    ir.LogOutputMode
 		wantErr     bool
 		errContains string
 	}{
@@ -2860,17 +2861,17 @@ func TestBuildStepLogOutput(t *testing.T) {
 		{
 			name:     "ExplicitSeparate",
 			yaml:     "log_output: separate",
-			expected: core.LogOutputSeparate,
+			expected: ir.LogOutputSeparate,
 		},
 		{
 			name:     "Merged",
 			yaml:     "log_output: merged",
-			expected: core.LogOutputMerged,
+			expected: ir.LogOutputMerged,
 		},
 		{
 			name:     "MergedUppercase",
 			yaml:     "log_output: MERGED",
-			expected: core.LogOutputMerged,
+			expected: ir.LogOutputMerged,
 		},
 		{
 			name:        "InvalidValue",
@@ -2984,7 +2985,7 @@ func TestValidateStdoutStderr(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			step := &core.Step{
+			step := &ir.Step{
 				Stdout:         tt.stdout,
 				Stderr:         tt.stderr,
 				StdoutArtifact: tt.stdoutArtifact,
@@ -3052,14 +3053,14 @@ func TestBuildStepExecutorNewFormat(t *testing.T) {
 		name     string
 		step     *step
 		ctx      stepBuildContext
-		expected core.ExecutorConfig
+		expected ir.ExecutorConfig
 		wantErr  bool
 	}{
 		{
 			name: "NewFormat_TypeOnly",
 			step: &step{Type: "http"},
 			ctx:  testStepBuildContext(),
-			expected: core.ExecutorConfig{
+			expected: ir.ExecutorConfig{
 				Type:   "http",
 				Config: make(map[string]any),
 			},
@@ -3074,7 +3075,7 @@ func TestBuildStepExecutorNewFormat(t *testing.T) {
 				},
 			},
 			ctx: testStepBuildContext(),
-			expected: core.ExecutorConfig{
+			expected: ir.ExecutorConfig{
 				Type: "ssh",
 				Config: map[string]any{
 					"host": "server.com",
@@ -3090,7 +3091,7 @@ func TestBuildStepExecutorNewFormat(t *testing.T) {
 				},
 			},
 			ctx: testStepBuildContext(),
-			expected: core.ExecutorConfig{
+			expected: ir.ExecutorConfig{
 				Type: "",
 				Config: map[string]any{
 					"timeout": 30,
@@ -3104,9 +3105,9 @@ func TestBuildStepExecutorNewFormat(t *testing.T) {
 			},
 			ctx: stepBuildContext{
 				buildContext: testBuildContext(),
-				dag:          &core.DAG{Container: &core.Container{Image: "alpine"}},
+				dag:          &ir.DAG{Container: &ir.Container{Image: "alpine"}},
 			},
-			expected: core.ExecutorConfig{
+			expected: ir.ExecutorConfig{
 				Type:   "http",
 				Config: make(map[string]any),
 			},
@@ -3115,7 +3116,7 @@ func TestBuildStepExecutorNewFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
+			result := &ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)}}
 			err := buildStepExecutor(tt.ctx, tt.step, result)
 
 			if tt.wantErr {
@@ -3245,58 +3246,58 @@ func TestValidateLLM(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		step    *core.Step
+		step    *ir.Step
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name:    "NilLLM",
-			step:    &core.Step{},
+			step:    &ir.Step{},
 			wantErr: false,
 		},
 		{
 			name: "ValidChatStep",
-			step: &core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "chat"},
-				LLM:            &core.LLMConfig{Provider: "openai", Model: "gpt-4"},
-				Messages:       []core.LLMMessage{{Role: "user", Content: "hello"}},
+			step: &ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "chat"},
+				LLM:            &ir.LLMConfig{Provider: "openai", Model: "gpt-4"},
+				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: false,
 		},
 		{
 			name: "UnsupportedExecutorType",
-			step: &core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "shell"},
-				LLM:            &core.LLMConfig{Provider: "openai", Model: "gpt-4"},
+			step: &ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "shell"},
+				LLM:            &ir.LLMConfig{Provider: "openai", Model: "gpt-4"},
 			},
 			wantErr: true,
 			errMsg:  "does not support llm field",
 		},
 		{
 			name: "MissingProvider",
-			step: &core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "chat"},
-				LLM:            &core.LLMConfig{Model: "gpt-4"},
-				Messages:       []core.LLMMessage{{Role: "user", Content: "hello"}},
+			step: &ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "chat"},
+				LLM:            &ir.LLMConfig{Model: "gpt-4"},
+				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: true,
 			errMsg:  "provider is required",
 		},
 		{
 			name: "MissingModel",
-			step: &core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "chat"},
-				LLM:            &core.LLMConfig{Provider: "openai"},
-				Messages:       []core.LLMMessage{{Role: "user", Content: "hello"}},
+			step: &ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "chat"},
+				LLM:            &ir.LLMConfig{Provider: "openai"},
+				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: true,
 			errMsg:  "model is required",
 		},
 		{
 			name: "MissingMessages",
-			step: &core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "chat"},
-				LLM:            &core.LLMConfig{Provider: "openai", Model: "gpt-4"},
+			step: &ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "chat"},
+				LLM:            &ir.LLMConfig{Provider: "openai", Model: "gpt-4"},
 			},
 			wantErr: true,
 			errMsg:  "at least one message is required",
@@ -3322,27 +3323,27 @@ func TestValidateMessages(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		step    *core.Step
+		step    *ir.Step
 		wantErr bool
 	}{
 		{
 			name:    "NoMessages",
-			step:    &core.Step{},
+			step:    &ir.Step{},
 			wantErr: false,
 		},
 		{
 			name: "MessagesWithChatExecutor",
-			step: &core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "chat"},
-				Messages:       []core.LLMMessage{{Role: "user", Content: "hello"}},
+			step: &ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "chat"},
+				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: false,
 		},
 		{
 			name: "MessagesWithUnsupportedExecutor",
-			step: &core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "shell"},
-				Messages:       []core.LLMMessage{{Role: "user", Content: "hello"}},
+			step: &ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "shell"},
+				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: true,
 		},
@@ -3376,7 +3377,7 @@ func TestBuildStepLLM(t *testing.T) {
 	tests := []struct {
 		name    string
 		step    *step
-		dag     *core.DAG
+		dag     *ir.DAG
 		wantErr bool
 		errMsg  string
 	}{
@@ -3388,8 +3389,8 @@ func TestBuildStepLLM(t *testing.T) {
 		{
 			name: "InheritFromDAG",
 			step: &step{Type: "chat"},
-			dag: &core.DAG{
-				LLM: &core.LLMConfig{Provider: "openai", Model: "gpt-4"},
+			dag: &ir.DAG{
+				LLM: &ir.LLMConfig{Provider: "openai", Model: "gpt-4"},
 			},
 			wantErr: false,
 		},
@@ -3475,7 +3476,7 @@ func TestBuildStepLLM(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := &core.Step{ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)}}
+			result := &ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)}}
 
 			// Build executor first to set the type
 			ctx := stepBuildContext{
@@ -3608,7 +3609,7 @@ func TestBuildStepMessages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := &core.Step{}
+			result := &ir.Step{}
 			err := buildStepMessages(tt.step, result)
 			if tt.wantErr {
 				require.Error(t, err)
@@ -3640,9 +3641,9 @@ steps:
 `), WithoutEval())
 	require.NoError(t, err)
 	require.Len(t, dag.Steps, 1)
-	assert.Equal(t, core.TypeBuild, dag.Type)
-	assert.Equal(t, []core.StepInputDeclaration{{Name: "source", Path: "source.txt"}}, dag.Steps[0].Inputs)
-	assert.Equal(t, []core.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}}, dag.Steps[0].Outputs)
+	assert.Equal(t, ir.TypeBuild, dag.Type)
+	assert.Equal(t, []ir.StepInputDeclaration{{Name: "source", Path: "source.txt"}}, dag.Steps[0].Inputs)
+	assert.Equal(t, []ir.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}}, dag.Steps[0].Outputs)
 }
 
 func TestLoadBuildStepPathValidation(t *testing.T) {

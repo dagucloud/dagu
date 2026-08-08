@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
@@ -39,10 +39,10 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(30 * time.Second)
 
-	waiting := f.waitForStatus(core.Waiting, 20*time.Second)
+	waiting := f.waitForStatus(ir.Waiting, 20*time.Second)
 	require.NotEmpty(t, waiting.FinishedAt)
 	require.Equal(t, "worker-1", waiting.WorkerID)
-	require.Equal(t, core.NodeWaiting, waiting.Nodes[0].Status)
+	require.Equal(t, ir.NodeWaiting, waiting.Nodes[0].Status)
 
 	root := &cobra.Command{Use: "root"}
 	root.AddCommand(cmd.HumanTask())
@@ -56,10 +56,10 @@ steps:
 	}, f.coord.Config))
 	require.NoError(t, root.ExecuteContext(f.coord.Context))
 
-	completed := f.waitForStatus(core.Succeeded, 20*time.Second)
+	completed := f.waitForStatus(ir.Succeeded, 20*time.Second)
 	require.Len(t, completed.Nodes, 2)
-	require.Equal(t, core.NodeSucceeded, completed.Nodes[0].Status)
+	require.Equal(t, ir.NodeSucceeded, completed.Nodes[0].Status)
 	require.JSONEq(t, `{"environment":"production"}`, string(completed.Nodes[0].HumanTaskInput))
-	require.Equal(t, core.NodeSucceeded, completed.Nodes[1].Status)
+	require.Equal(t, ir.NodeSucceeded, completed.Nodes[1].Status)
 	assertLogContains(t, f.logDir(), f.dagWrapper.Name, completed.DAGRunID, "deploy", "environment=production")
 }

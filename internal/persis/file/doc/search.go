@@ -18,7 +18,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/grep"
 )
 
@@ -156,7 +157,7 @@ func decodeDocSearchCursor(
 		return docSearchCursor{}, nil
 	}
 	var cursor docSearchCursor
-	if err := exec.DecodeSearchCursor(raw, &cursor); err != nil {
+	if err := pagination.DecodeSearchCursor(raw, &cursor); err != nil {
 		return docSearchCursor{}, err
 	}
 	if cursor.Version != docSearchCursorVersion ||
@@ -164,7 +165,7 @@ func decodeDocSearchCursor(
 		cursor.PathPrefix != pathPrefix ||
 		cursor.FilterPrefix != filterPrefix ||
 		!slices.Equal(cursor.ExcludedRoots, excludedRoots) {
-		return docSearchCursor{}, exec.ErrInvalidCursor
+		return docSearchCursor{}, pagination.ErrInvalidCursor
 	}
 	return cursor, nil
 }
@@ -174,19 +175,19 @@ func decodeDocMatchCursor(raw, query, pathPrefix, id string) (docMatchCursor, er
 		return docMatchCursor{ID: id}, nil
 	}
 	var cursor docMatchCursor
-	if err := exec.DecodeSearchCursor(raw, &cursor); err != nil {
+	if err := pagination.DecodeSearchCursor(raw, &cursor); err != nil {
 		return docMatchCursor{}, err
 	}
 	if cursor.Version != docSearchCursorVersion || cursor.Query != query || cursor.PathPrefix != pathPrefix || cursor.ID != id || cursor.Offset < 0 {
-		return docMatchCursor{}, exec.ErrInvalidCursor
+		return docMatchCursor{}, pagination.ErrInvalidCursor
 	}
 	return cursor, nil
 }
 
 // SearchCursor returns lightweight, cursor-based document search hits.
-func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (*exec.CursorResult[docs.DocSearchResult], error) {
+func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (*pagination.CursorResult[docs.DocSearchResult], error) {
 	if opts.Query == "" {
-		return &exec.CursorResult[docs.DocSearchResult]{Items: []docs.DocSearchResult{}}, nil
+		return &pagination.CursorResult[docs.DocSearchResult]{Items: []docs.DocSearchResult{}}, nil
 	}
 	pathPrefix, err := cleanDocPathPrefix(opts.PathPrefix)
 	if err != nil {
@@ -244,7 +245,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 
 		if len(results) == limit {
 			hasMore = true
-			nextCursor = exec.EncodeSearchCursor(docSearchCursor{
+			nextCursor = pagination.EncodeSearchCursor(docSearchCursor{
 				Version:       docSearchCursorVersion,
 				Query:         opts.Query,
 				PathPrefix:    pathPrefix,
@@ -271,7 +272,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 			HasMoreMatches: window.HasMore,
 		}
 		if window.HasMore {
-			item.NextMatchesCursor = exec.EncodeSearchCursor(docMatchCursor{
+			item.NextMatchesCursor = pagination.EncodeSearchCursor(docMatchCursor{
 				Version:    docSearchCursorVersion,
 				Query:      opts.Query,
 				PathPrefix: pathPrefix,
@@ -282,7 +283,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 		results = append(results, item)
 	}
 
-	return &exec.CursorResult[docs.DocSearchResult]{
+	return &pagination.CursorResult[docs.DocSearchResult]{
 		Items:      results,
 		HasMore:    hasMore,
 		NextCursor: nextCursor,
@@ -290,12 +291,12 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 }
 
 // SearchMatches returns cursor-based snippets for one document.
-func (s *Store) SearchMatches(_ context.Context, id string, opts docs.SearchDocMatchesOptions) (*exec.CursorResult[*exec.Match], error) {
+func (s *Store) SearchMatches(_ context.Context, id string, opts docs.SearchDocMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error) {
 	if err := docs.ValidateDocID(id); err != nil {
 		return nil, err
 	}
 	if opts.Query == "" {
-		return &exec.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+		return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
 	}
 	pathPrefix, err := cleanDocPathPrefix(opts.PathPrefix)
 	if err != nil {
@@ -335,17 +336,17 @@ func (s *Store) SearchMatches(_ context.Context, id string, opts docs.SearchDocM
 	})
 	if err != nil {
 		if errors.Is(err, grep.ErrNoMatch) {
-			return &exec.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+			return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
 		}
 		return nil, err
 	}
 
-	result := &exec.CursorResult[*exec.Match]{
+	result := &pagination.CursorResult[*dagstore.Match]{
 		Items:   window.Matches,
 		HasMore: window.HasMore,
 	}
 	if window.HasMore {
-		result.NextCursor = exec.EncodeSearchCursor(docMatchCursor{
+		result.NextCursor = pagination.EncodeSearchCursor(docMatchCursor{
 			Version:    docSearchCursorVersion,
 			Query:      opts.Query,
 			PathPrefix: pathPrefix,

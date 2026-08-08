@@ -6,7 +6,7 @@ package runtime
 import (
 	"encoding/json"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
 type pushBackPayload struct {
@@ -30,10 +30,10 @@ func marshalPushBackPayload(allowedInputs []string, state NodeState) (string, er
 		return "", nil
 	}
 
-	history := exec.NormalizePushBackHistory(allowedInputs, state.ApprovalIteration, state.PushBackInputs, state.PushBackHistory)
+	history := dagrun.NormalizePushBackHistory(allowedInputs, state.ApprovalIteration, state.PushBackInputs, state.PushBackHistory)
 	payload := pushBackPayload{
 		Iteration: state.ApprovalIteration,
-		Inputs:    exec.FilterPushBackInputs(allowedInputs, state.PushBackInputs),
+		Inputs:    dagrun.FilterPushBackInputs(allowedInputs, state.PushBackInputs),
 		History:   make([]pushBackHistoryEntry, len(history)),
 	}
 	for i, entry := range history {

@@ -6,7 +6,7 @@ package intg_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -41,7 +41,7 @@ steps:
 
 	agent.RunSuccess(t)
 
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 	dag.AssertOutputs(t, map[string]any{
 		"FIRST_NAME": "Alice",
 	})

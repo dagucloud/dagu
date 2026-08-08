@@ -7,35 +7,39 @@ import (
 	"context"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
 )
 
 // DAGStoreFactory creates the DAG definition store used by local child workflows.
-type DAGStoreFactory func(context.Context) (exec.DAGStore, error)
+type DAGStoreFactory func(context.Context) (dagstore.DAGStore, error)
 
 // SubWorkflowRunnerConfig contains dependencies for child workflow execution.
 type SubWorkflowRunnerConfig struct {
 	DAGRunMgr         runtime.Manager
-	DAGStore          exec.DAGStore
+	DAGStore          dagstore.DAGStore
 	DAGStoreFactory   DAGStoreFactory
-	DAGRunStore       exec.DAGRunStore
+	DAGRunStore       dagrun.DAGRunStore
 	RunStateStore     runstate.Store
-	QueueStore        exec.QueueStore
+	QueueStore        queue.QueueStore
 	StateStore        dagstate.Store
 	SecretStore       secret.Store
 	ProfileStore      profile.Store
-	ServiceRegistry   exec.ServiceRegistry
+	ServiceRegistry   serviceregistry.ServiceRegistry
 	PeerConfig        config.Peer
 	DefaultExecMode   config.ExecutionMode
 	StatusPusher      runtime.StatusPusher
-	LogWriterFactory  exec.LogWriterFactory
+	LogWriterFactory  runctx.LogWriterFactory
 	ArtifactFinalizer runtime.ArtifactFinalizer
 	WorkerID          string
 	DAGRunLogDir      string
@@ -78,7 +82,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 	return factory
 }
 
-func subWorkflowDAGStore(ctx context.Context, cfg SubWorkflowRunnerConfig) (exec.DAGStore, error) {
+func subWorkflowDAGStore(ctx context.Context, cfg SubWorkflowRunnerConfig) (dagstore.DAGStore, error) {
 	if cfg.DAGStoreFactory != nil {
 		return cfg.DAGStoreFactory(ctx)
 	}

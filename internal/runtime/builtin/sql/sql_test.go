@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -397,7 +397,7 @@ func TestValidateParams(t *testing.T) {
 }
 
 // Helper function to create an executor via the registry
-func newSQLiteExecutor(t *testing.T, ctx context.Context, step core.Step) (executor.Executor, error) {
+func newSQLiteExecutor(t *testing.T, ctx context.Context, step ir.Step) (executor.Executor, error) {
 	t.Helper()
 
 	exec, err := executor.NewExecutor(ctx, step)
@@ -421,9 +421,9 @@ func TestSQLiteExecutor_InMemory(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a step with SQLite config
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-sqlite",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": ":memory:",
@@ -460,9 +460,9 @@ func TestSQLiteExecutor_FileDB(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Create a step with SQLite file database
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-sqlite-file",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": "file:" + dbPath + "?mode=rwc",
@@ -497,9 +497,9 @@ func TestSQLiteExecutor_Transaction(t *testing.T) {
 
 	ctx := context.Background()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-transaction",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":         ":memory:",
@@ -565,9 +565,9 @@ func TestSQLiteExecutor_OutputFormats(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			step := core.Step{
+			step := ir.Step{
 				Name: "test-format",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: "sqlite",
 					Config: map[string]any{
 						"dsn":           ":memory:",
@@ -607,9 +607,9 @@ func TestSQLiteExecutor_MaxRows(t *testing.T) {
 
 	ctx := context.Background()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-maxrows",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":      ":memory:",
@@ -902,9 +902,9 @@ func TestSQLiteExecutor_ImportCSV(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// First create the table
-	setupStep := core.Step{
+	setupStep := ir.Step{
 		Name: "setup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -918,9 +918,9 @@ func TestSQLiteExecutor_ImportCSV(t *testing.T) {
 	require.NoError(t, setupExec.Run(ctx))
 
 	// Now import the CSV
-	importStep := core.Step{
+	importStep := ir.Step{
 		Name: "import-users",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -949,9 +949,9 @@ func TestSQLiteExecutor_ImportCSV(t *testing.T) {
 	assert.Contains(t, metricsOutput, `"status":"completed"`)
 
 	// Verify imported data
-	verifyStep := core.Step{
+	verifyStep := ir.Step{
 		Name: "verify",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -987,9 +987,9 @@ func TestSQLiteExecutor_ImportCSV_NoHeader(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Create table
-	setupStep := core.Step{
+	setupStep := ir.Step{
 		Name: "setup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1003,9 +1003,9 @@ func TestSQLiteExecutor_ImportCSV_NoHeader(t *testing.T) {
 	require.NoError(t, setupExec.Run(ctx))
 
 	// Import with explicit columns
-	importStep := core.Step{
+	importStep := ir.Step{
 		Name: "import",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1045,9 +1045,9 @@ func TestSQLiteExecutor_ImportJSONL(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Create table
-	setupStep := core.Step{
+	setupStep := ir.Step{
 		Name: "setup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1061,9 +1061,9 @@ func TestSQLiteExecutor_ImportJSONL(t *testing.T) {
 	require.NoError(t, setupExec.Run(ctx))
 
 	// Import JSONL
-	importStep := core.Step{
+	importStep := ir.Step{
 		Name: "import",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1100,9 +1100,9 @@ func TestSQLiteExecutor_ImportWithTransaction(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Create table
-	setupStep := core.Step{
+	setupStep := ir.Step{
 		Name: "setup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1116,9 +1116,9 @@ func TestSQLiteExecutor_ImportWithTransaction(t *testing.T) {
 	require.NoError(t, setupExec.Run(ctx))
 
 	// Import with transaction
-	importStep := core.Step{
+	importStep := ir.Step{
 		Name: "import",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":         dbPath,
@@ -1156,9 +1156,9 @@ func TestSQLiteExecutor_ImportDryRun(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Create table
-	setupStep := core.Step{
+	setupStep := ir.Step{
 		Name: "setup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1172,9 +1172,9 @@ func TestSQLiteExecutor_ImportDryRun(t *testing.T) {
 	require.NoError(t, setupExec.Run(ctx))
 
 	// Import with dry run
-	importStep := core.Step{
+	importStep := ir.Step{
 		Name: "import",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1199,9 +1199,9 @@ func TestSQLiteExecutor_ImportDryRun(t *testing.T) {
 	assert.Contains(t, stderr.String(), `"rows_imported":2`)
 
 	// Verify table is empty (dry run didn't insert)
-	verifyStep := core.Step{
+	verifyStep := ir.Step{
 		Name: "verify",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1230,9 +1230,9 @@ func TestSQLiteExecutor_ImportIgnoreConflict(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Create table with unique constraint
-	setupStep := core.Step{
+	setupStep := ir.Step{
 		Name: "setup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1254,9 +1254,9 @@ func TestSQLiteExecutor_ImportIgnoreConflict(t *testing.T) {
 	require.NoError(t, os.WriteFile(csvPath, []byte(csvContent), 0o644))
 
 	// Import with ignore
-	importStep := core.Step{
+	importStep := ir.Step{
 		Name: "import",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1275,9 +1275,9 @@ func TestSQLiteExecutor_ImportIgnoreConflict(t *testing.T) {
 	require.NoError(t, importExec.Run(ctx))
 
 	// Verify id=1 still has original name (Existing), and id=2 was inserted
-	verifyStep := core.Step{
+	verifyStep := ir.Step{
 		Name: "verify",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1312,9 +1312,9 @@ func TestSQLiteExecutor_ImportMaxRows(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Create table
-	setupStep := core.Step{
+	setupStep := ir.Step{
 		Name: "setup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1328,9 +1328,9 @@ func TestSQLiteExecutor_ImportMaxRows(t *testing.T) {
 	require.NoError(t, setupExec.Run(ctx))
 
 	// Import with max_rows limit
-	importStep := core.Step{
+	importStep := ir.Step{
 		Name: "import",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1369,9 +1369,9 @@ func TestSQLiteExecutor_ImportSkipRows(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Create table
-	setupStep := core.Step{
+	setupStep := ir.Step{
 		Name: "setup",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1385,9 +1385,9 @@ func TestSQLiteExecutor_ImportSkipRows(t *testing.T) {
 	require.NoError(t, setupExec.Run(ctx))
 
 	// Import with skip_rows
-	importStep := core.Step{
+	importStep := ir.Step{
 		Name: "import",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1413,9 +1413,9 @@ func TestSQLiteExecutor_ImportSkipRows(t *testing.T) {
 	assert.Contains(t, stderr.String(), `"rows_skipped":1`)
 
 	// Verify Alice was skipped
-	verifyStep := core.Step{
+	verifyStep := ir.Step{
 		Name: "verify",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -1529,9 +1529,9 @@ func TestSQLiteExecutor_NamedParams(t *testing.T) {
 	ctx := context.Background()
 
 	// Named params work with single queries (command), not multi-statement scripts
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-named-params",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": ":memory:",
@@ -1541,7 +1541,7 @@ func TestSQLiteExecutor_NamedParams(t *testing.T) {
 				},
 			},
 		},
-		Commands: []core.CommandEntry{
+		Commands: []ir.CommandEntry{
 			{Command: "SELECT :value1 as v1, :value2 as v2"},
 		},
 	}
@@ -1565,15 +1565,15 @@ func TestSQLiteExecutor_Command(t *testing.T) {
 
 	ctx := context.Background()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-command",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": ":memory:",
 			},
 		},
-		Commands: []core.CommandEntry{
+		Commands: []ir.CommandEntry{
 			{Command: "SELECT 1 as result, 'hello' as message"},
 		},
 	}
@@ -1598,9 +1598,9 @@ func TestSQLiteExecutor_NullHandling(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "null_handling.db")
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-null-handling",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":         dbPath,
@@ -1636,9 +1636,9 @@ func TestSQLiteExecutor_Timeout(t *testing.T) {
 
 	ctx := context.Background()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-timeout",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":     ":memory:",
@@ -1666,9 +1666,9 @@ func TestSQLiteExecutor_Pragma(t *testing.T) {
 
 	ctx := context.Background()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-pragma",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": ":memory:",
@@ -1696,9 +1696,9 @@ func TestSQLiteExecutor_EmptyResult(t *testing.T) {
 
 	ctx := context.Background()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-empty-result",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": ":memory:",
@@ -1730,9 +1730,9 @@ func TestSQLiteExecutor_InsertReturnsAffected(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "insert_affected.db")
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-insert",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": dbPath,
@@ -2377,9 +2377,9 @@ func TestSQLiteExecutor_StreamingOutput(t *testing.T) {
 	tmpDir := t.TempDir()
 	outputFile := filepath.Join(tmpDir, "output.jsonl")
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-streaming",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":           ":memory:",
@@ -2422,9 +2422,9 @@ func TestSQLiteExecutor_StreamingOutputCSV(t *testing.T) {
 	tmpDir := t.TempDir()
 	outputFile := filepath.Join(tmpDir, "output.csv")
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-streaming-csv",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":           ":memory:",
@@ -2465,9 +2465,9 @@ func TestSQLiteExecutor_StreamingOutputSubdir(t *testing.T) {
 	// Create path in non-existent subdirectory
 	outputFile := filepath.Join(tmpDir, "subdir", "nested", "output.jsonl")
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-streaming-subdir",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":           ":memory:",
@@ -2498,9 +2498,9 @@ func TestSQLiteExecutor_FileLock(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "locked.db")
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-filelock",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":       dbPath,
@@ -2538,9 +2538,9 @@ func TestSQLiteExecutor_SharedMemory(t *testing.T) {
 	tableName := fmt.Sprintf("shared_test_%d", time.Now().UnixNano())
 
 	// First step creates the table with shared memory
-	step1 := core.Step{
+	step1 := ir.Step{
 		Name: "test-shared-memory-create",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn":           ":memory:",
@@ -2581,9 +2581,9 @@ func TestSQLiteExecutor_ScriptFile(t *testing.T) {
 	err := os.WriteFile(scriptFile, []byte(scriptContent), 0644)
 	require.NoError(t, err)
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-script-file",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sqlite",
 			Config: map[string]any{
 				"dsn": ":memory:",

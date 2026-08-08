@@ -10,16 +10,20 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type SecretReferenceClient interface {
-	ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref core.SecretRef, workspace string, checkOnly bool, run SecretReferenceRun) (string, error)
+	ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error)
 }
 
 type SecretReferenceRun struct {
@@ -31,11 +35,11 @@ type SecretReferenceRun struct {
 type secretReferenceResolver struct {
 	client    SecretReferenceClient
 	workspace string
-	owner     exec.HostInfo
+	owner     serviceregistry.HostInfo
 	run       SecretReferenceRun
 }
 
-func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, owner exec.HostInfo, run SecretReferenceRun) secrets.ReferenceResolver {
+func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, owner serviceregistry.HostInfo, run SecretReferenceRun) secrets.ReferenceResolver {
 	if client == nil {
 		return nil
 	}
@@ -47,20 +51,20 @@ func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, 
 	}
 }
 
-func (r *secretReferenceResolver) ResolveReference(ctx context.Context, ref core.SecretRef) (string, error) {
+func (r *secretReferenceResolver) ResolveReference(ctx context.Context, ref secretref.Ref) (string, error) {
 	return r.resolve(ctx, ref, false)
 }
 
-func (r *secretReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref core.SecretRef) error {
+func (r *secretReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error {
 	_, err := r.resolve(ctx, ref, true)
 	return err
 }
 
-func (r *secretReferenceResolver) resolve(ctx context.Context, ref core.SecretRef, checkOnly bool) (string, error) {
+func (r *secretReferenceResolver) resolve(ctx context.Context, ref secretref.Ref, checkOnly bool) (string, error) {
 	return r.client.ResolveSecretReference(ctx, r.owner, ref, r.workspace, checkOnly, r.run)
 }
 
-func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref core.SecretRef, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
+func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
 	if !emptySecretReferenceOwner(owner) && !completeSecretReferenceOwner(owner) {
 		return "", fmt.Errorf("secret reference owner coordinator endpoint is incomplete")
 	}
@@ -79,7 +83,7 @@ func (cli *clientImpl) resolveSecretReference(ctx context.Context, req *coordina
 	}
 
 	var resp *coordinatorv1.ResolveSecretReferenceResponse
-	err = cli.attemptCall(ctx, members, func(ctx context.Context, member exec.HostInfo, client *client) error {
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = resolveSecretReferenceRPC(ctx, member.ID, client, req)
 		return callErr
@@ -90,7 +94,7 @@ func (cli *clientImpl) resolveSecretReference(ctx context.Context, req *coordina
 	return resp.GetValue(), nil
 }
 
-func (cli *clientImpl) resolveSecretReferenceTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.ResolveSecretReferenceRequest) (string, error) {
+func (cli *clientImpl) resolveSecretReferenceTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ResolveSecretReferenceRequest) (string, error) {
 	var resp *coordinatorv1.ResolveSecretReferenceResponse
 	err := cli.callMemberWithTimeout(ctx, owner, func(ctx context.Context, client *client) error {
 		var callErr error
@@ -103,7 +107,7 @@ func (cli *clientImpl) resolveSecretReferenceTo(ctx context.Context, owner exec.
 	return resp.GetValue(), nil
 }
 
-func emptySecretReferenceOwner(owner exec.HostInfo) bool {
+func emptySecretReferenceOwner(owner serviceregistry.HostInfo) bool {
 	return owner.ID == "" && owner.Host == "" && owner.Port == 0
 }
 
@@ -118,11 +122,11 @@ func resolveSecretReferenceRPC(ctx context.Context, coordinatorID string, client
 	return resp, nil
 }
 
-func completeSecretReferenceOwner(owner exec.HostInfo) bool {
+func completeSecretReferenceOwner(owner serviceregistry.HostInfo) bool {
 	return owner.ID != "" && owner.Host != "" && owner.Port != 0
 }
 
-func secretReferenceRequest(ref core.SecretRef, workspace string, checkOnly bool, run SecretReferenceRun) *coordinatorv1.ResolveSecretReferenceRequest {
+func secretReferenceRequest(ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) *coordinatorv1.ResolveSecretReferenceRequest {
 	return &coordinatorv1.ResolveSecretReferenceRequest{
 		Name:       ref.Name,
 		Ref:        ref.Ref,
@@ -141,7 +145,7 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "secret reference request is required")
 	}
-	ref := core.SecretRef{
+	ref := secretref.Ref{
 		Name: req.GetName(),
 		Ref:  req.GetRef(),
 	}
@@ -173,7 +177,7 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 	return &coordinatorv1.ResolveSecretReferenceResponse{Value: value}, nil
 }
 
-func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinatorv1.ResolveSecretReferenceRequest, ref core.SecretRef) error {
+func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinatorv1.ResolveSecretReferenceRequest, ref secretref.Ref) error {
 	if req.GetWorkerId() == "" {
 		return status.Error(codes.InvalidArgument, "worker_id is required")
 	}
@@ -192,7 +196,7 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 
 	lease, err := h.dagRunLeaseStore.Get(ctx, req.GetAttemptKey())
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
+		if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
 			return status.Error(codes.PermissionDenied, "secret reference access denied")
 		}
 		return status.Error(codes.Internal, err.Error())
@@ -217,13 +221,13 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 	return nil
 }
 
-func (h *Handler) secretReferenceDAG(ctx context.Context, lease *exec.DAGRunLease) (*core.DAG, error) {
+func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRunLease) (*ir.DAG, error) {
 	if lease == nil {
 		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
 	}
 
 	var (
-		attempt exec.DAGRunAttempt
+		attempt dagrun.DAGRunAttempt
 		err     error
 	)
 	if !lease.Root.Zero() && lease.Root != lease.DAGRun {
@@ -232,7 +236,7 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *exec.DAGRunLeas
 		attempt, err = h.dagRunStore.FindAttempt(ctx, lease.DAGRun)
 	}
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, exec.ErrNoStatusData) || errors.Is(err, exec.ErrCorruptedStatusFile) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
 			return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
 		}
 		return nil, status.Error(codes.Internal, err.Error())
@@ -251,17 +255,17 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *exec.DAGRunLeas
 	return dag, nil
 }
 
-func secretReferenceWorkspace(dag *core.DAG) string {
+func secretReferenceWorkspace(dag *ir.DAG) string {
 	if dag == nil {
 		return secretpkg.GlobalWorkspace
 	}
-	if workspaceName, found := exec.WorkspaceNameFromLabels(dag.Labels); found {
+	if workspaceName, found := workspace.WorkspaceNameFromLabels(dag.Labels); found {
 		return secretpkg.NormalizeWorkspace(workspaceName)
 	}
 	return secretpkg.GlobalWorkspace
 }
 
-func secretReferenceDeclared(dag *core.DAG, ref core.SecretRef) bool {
+func secretReferenceDeclared(dag *ir.DAG, ref secretref.Ref) bool {
 	if dag == nil {
 		return false
 	}

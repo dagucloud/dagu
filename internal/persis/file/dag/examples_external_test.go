@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 
 	"github.com/stretchr/testify/require"
@@ -62,7 +62,7 @@ func TestFirstLaunchExamplesLoadAndRun(t *testing.T) {
 			status, err := run.Wait(runCtx)
 			require.NoError(t, err)
 			require.NotNil(t, status)
-			require.Equal(t, core.Succeeded.String(), status.Status)
+			require.Equal(t, ir.Succeeded.String(), status.Status)
 		})
 	}
 }

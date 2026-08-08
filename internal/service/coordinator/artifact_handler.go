@@ -15,21 +15,21 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type artifactHandler struct {
-	dagRunStore exec.DAGRunStore
+	dagRunStore dagrun.DAGRunStore
 	ownerID     string
 
 	writers   map[string]*logWriter
 	writersMu sync.Mutex
 }
 
-func newArtifactHandler(dagRunStore exec.DAGRunStore, ownerID string) *artifactHandler {
+func newArtifactHandler(dagRunStore dagrun.DAGRunStore, ownerID string) *artifactHandler {
 	return &artifactHandler{
 		dagRunStore: dagRunStore,
 		ownerID:     ownerID,
@@ -170,16 +170,16 @@ func (h *artifactHandler) artifactFilePath(ctx context.Context, chunk *coordinat
 
 func (h *artifactHandler) archiveDir(ctx context.Context, chunk *coordinatorv1.ArtifactChunk) (string, error) {
 	var (
-		attempt exec.DAGRunAttempt
+		attempt dagrun.DAGRunAttempt
 		err     error
 	)
 	if chunk.RootDagRunId != "" && chunk.RootDagRunId != chunk.DagRunId {
-		attempt, err = h.dagRunStore.FindSubAttempt(ctx, exec.DAGRunRef{
+		attempt, err = h.dagRunStore.FindSubAttempt(ctx, dagrun.DAGRunRef{
 			Name: chunk.RootDagRunName,
 			ID:   chunk.RootDagRunId,
 		}, chunk.DagRunId)
 	} else {
-		attempt, err = h.dagRunStore.FindAttempt(ctx, exec.DAGRunRef{
+		attempt, err = h.dagRunStore.FindAttempt(ctx, dagrun.DAGRunRef{
 			Name: chunk.DagName,
 			ID:   chunk.DagRunId,
 		})

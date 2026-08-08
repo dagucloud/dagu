@@ -8,33 +8,33 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 type runOptions struct {
-	root            exec.DAGRunRef
-	parent          exec.DAGRunRef
+	root            dagrun.DAGRunRef
+	parent          dagrun.DAGRunRef
 	workerID        string
 	attemptID       string
-	triggerType     core.TriggerType
+	triggerType     ir.TriggerType
 	triggerActor    string
 	scheduleTime    string
 	profileName     string
 	step            string
-	retryPath       exec.RetryPath
-	preparedAttempt exec.DAGRunAttempt
+	retryPath       dagrun.RetryPath
+	preparedAttempt dagrun.DAGRunAttempt
 	noReuse         bool
 }
 
 func withPreparedLocalExecution(
 	ctx *Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	dagRunID string,
 	opts runOptions,
-	buildAttempt func(context.Context) (exec.DAGRunAttempt, error),
-	run func(exec.DAGRunAttempt) error,
+	buildAttempt func(context.Context) (dagrun.DAGRunAttempt, error),
+	run func(dagrun.DAGRunAttempt) error,
 ) error {
 	prepared, err := intake.PrepareLocalExecution(ctx.Context, intake.LocalRequest{
 		ProcStore:       ctx.ProcStore,

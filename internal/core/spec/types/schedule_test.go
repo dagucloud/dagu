@@ -6,14 +6,14 @@ package types_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func scheduleExpressions(schedules []core.Schedule) []string {
+func scheduleExpressions(schedules []ir.Schedule) []string {
 	result := make([]string, 0, len(schedules))
 	for _, schedule := range schedules {
 		result = append(result, schedule.DisplayValue())
@@ -21,15 +21,15 @@ func scheduleExpressions(schedules []core.Schedule) []string {
 	return result
 }
 
-func scheduleKinds(schedules []core.Schedule) []core.ScheduleKind {
-	result := make([]core.ScheduleKind, 0, len(schedules))
+func scheduleKinds(schedules []ir.Schedule) []ir.ScheduleKind {
+	result := make([]ir.ScheduleKind, 0, len(schedules))
 	for _, schedule := range schedules {
 		result = append(result, schedule.GetKind())
 	}
 	return result
 }
 
-func scheduleProfiles(schedules []core.Schedule) []string {
+func scheduleProfiles(schedules []ir.Schedule) []string {
 	result := make([]string, 0, len(schedules))
 	for _, schedule := range schedules {
 		result = append(result, schedule.Profile)
@@ -446,7 +446,7 @@ start:
   - at: "2026-03-29T02:10:00+01:00"
 `), &s)
 		require.NoError(t, err)
-		require.Equal(t, []core.ScheduleKind{core.ScheduleKindAt}, scheduleKinds(s.Starts()))
+		require.Equal(t, []ir.ScheduleKind{ir.ScheduleKindAt}, scheduleKinds(s.Starts()))
 		assert.Equal(t, []string{"2026-03-29T02:10:00+01:00"}, scheduleExpressions(s.Starts()))
 	})
 

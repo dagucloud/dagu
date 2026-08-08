@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,9 +27,9 @@ steps:
 `), spec.WithoutEval())
 	require.NoError(t, err)
 	require.Len(t, dag.Steps, 1)
-	require.Equal(t, []core.StepOutputDeclaration{
-		{Name: "image_tag", Type: core.StepDeclaredOutputTypeString},
-		{Name: "metadata", Type: core.StepDeclaredOutputTypeJSON},
+	require.Equal(t, []ir.StepOutputDeclaration{
+		{Name: "image_tag", Type: ir.StepDeclaredOutputTypeString},
+		{Name: "metadata", Type: ir.StepDeclaredOutputTypeJSON},
 	}, dag.Steps[0].Outputs)
 }
 

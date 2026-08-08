@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -180,9 +180,9 @@ func TestNotificationMonitor_ShutdownDrainRetriesInFlightBatchWithoutLLM(t *test
 		close(done)
 	}()
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "briefing",
-		Status:    core.Failed,
+		Status:    ir.Failed,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
 		Error:     "boom",
@@ -243,9 +243,9 @@ func TestNotificationMonitor_NotifyCompletionSkipsFailedRunWithAutoRetryRemainin
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           "briefing",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		DAGRunID:       "run-1",
 		AttemptID:      "attempt-1",
 		Error:          "boom",
@@ -314,9 +314,9 @@ func TestNotificationMonitor_PollSourceRoutesEventsPerDestination(t *testing.T) 
 		return headCalls > 0
 	}, time.Second, 10*time.Millisecond)
 
-	for _, status := range []*exec.DAGRunStatus{
-		{Name: "dag-a", Status: core.Failed, DAGRunID: "run-a", AttemptID: "attempt-a"},
-		{Name: "dag-b", Status: core.Failed, DAGRunID: "run-b", AttemptID: "attempt-b"},
+	for _, status := range []*dagrun.DAGRunStatus{
+		{Name: "dag-a", Status: ir.Failed, DAGRunID: "run-a", AttemptID: "attempt-a"},
+		{Name: "dag-b", Status: ir.Failed, DAGRunID: "run-b", AttemptID: "attempt-b"},
 	} {
 		require.NoError(t, store.Emit(context.Background(), eventstore.NewDAGRunEvent(
 			eventstore.Source{Service: eventstore.SourceServiceServer},
@@ -371,9 +371,9 @@ func TestNotificationMonitor_PollSourceSkipsFailedRunWithAutoRetryRemaining(t *t
 		return headCalls > 0
 	}, time.Second, 10*time.Millisecond)
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           "briefing",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		DAGRunID:       "run-1",
 		AttemptID:      "attempt-1",
 		Error:          "boom",
@@ -412,9 +412,9 @@ func TestEnqueueNotificationsByEventFiltersUnknownAndDuplicateRoutes(t *testing.
 			return []string{"dest-a", "unknown", "dest-a", ""}
 		},
 	}
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "dag-a",
-		Status:    core.Failed,
+		Status:    ir.Failed,
 		DAGRunID:  "run-a",
 		AttemptID: "attempt-a",
 	}
@@ -445,9 +445,9 @@ func TestNotificationMonitor_RequeuePendingDropsFailedRunWithAutoRetryRemaining(
 	cfg.SeenEvictInterval = time.Hour
 
 	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:           "briefing",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		DAGRunID:       "run-1",
 		AttemptID:      "attempt-1",
 		Error:          "boom",
@@ -524,11 +524,11 @@ func TestNotificationMonitor_BootstrapFailureDoesNotReplayFromZeroCursor(t *test
 		<-done
 	}()
 
-	oldStatus := &exec.DAGRunStatus{
+	oldStatus := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-old",
 		AttemptID:  "attempt-old",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "old failure",
 		FinishedAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
 	}
@@ -559,11 +559,11 @@ func TestNotificationMonitor_BootstrapFailureDoesNotReplayFromZeroCursor(t *test
 	assert.Empty(t, delivered)
 	mu.Unlock()
 
-	newStatus := &exec.DAGRunStatus{
+	newStatus := &dagrun.DAGRunStatus{
 		Name:       "briefing",
 		DAGRunID:   "run-new",
 		AttemptID:  "attempt-new",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "new failure",
 		FinishedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -617,9 +617,9 @@ func TestNotificationMonitor_ShutdownDrainFlushesPendingBatchWithoutLLM(t *testi
 		close(done)
 	}()
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "briefing",
-		Status:    core.Failed,
+		Status:    ir.Failed,
 		DAGRunID:  "run-2",
 		AttemptID: "attempt-2",
 		Error:     "boom",
@@ -667,15 +667,15 @@ func TestNotificationMonitor_SuccessEventsAreAcknowledgedWithoutDelivery(t *test
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
-	first := &exec.DAGRunStatus{
+	first := &dagrun.DAGRunStatus{
 		Name:      "briefing",
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
 	}
-	second := &exec.DAGRunStatus{
+	second := &dagrun.DAGRunStatus{
 		Name:      "briefing",
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		DAGRunID:  "run-2",
 		AttemptID: "attempt-2",
 	}
@@ -724,9 +724,9 @@ func TestNotificationMonitor_PartiallySucceededEventsCanBeDeliveredByOptInTransp
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:      "briefing",
-		Status:    core.PartiallySucceeded,
+		Status:    ir.PartiallySucceeded,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
 	}
@@ -761,15 +761,15 @@ func TestNotificationMonitor_PollSourceFiltersInterestedEventTypes(t *testing.T)
 	monitor := NewNotificationMonitor(service, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	monitor.initializeSession(context.Background())
 
-	queued := &exec.DAGRunStatus{
+	queued := &dagrun.DAGRunStatus{
 		Name:      "briefing",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
-		Status:    core.Queued,
+		Status:    ir.Queued,
 		QueuedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
 	running := *queued
-	running.Status = core.Running
+	running.Status = ir.Running
 	running.StartedAt = time.Now().UTC().Format(time.RFC3339)
 
 	require.NoError(t, service.Emit(context.Background(), eventstore.NewDAGRunEvent(
@@ -791,5 +791,5 @@ func TestNotificationMonitor_PollSourceFiltersInterestedEventTypes(t *testing.T)
 	require.Len(t, ready.Batch.Events, 1)
 	assert.Equal(t, NotificationClassInformational, ready.Batch.Class)
 	assert.Equal(t, eventstore.TypeDAGRunRunning, ready.Batch.Events[0].Type)
-	assert.Equal(t, core.Running, ready.Batch.Events[0].Status.Status)
+	assert.Equal(t, ir.Running, ready.Batch.Events[0].Status.Status)
 }

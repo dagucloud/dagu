@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -936,7 +936,7 @@ steps:
 	assert.False(t, step.ContinueOn.Failure)
 	assert.Equal(t, 5, step.RetryPolicy.Limit)
 	assert.Equal(t, 2*time.Second, step.RetryPolicy.Interval)
-	assert.Equal(t, core.RepeatModeUntil, step.RepeatPolicy.RepeatMode)
+	assert.Equal(t, ir.RepeatModeUntil, step.RepeatPolicy.RepeatMode)
 	require.NotNil(t, step.RepeatPolicy.Condition)
 	assert.Equal(t, "cat /tmp/status", step.RepeatPolicy.Condition.Condition)
 	assert.Equal(t, "done", step.RepeatPolicy.Condition.Expected)
@@ -1034,7 +1034,7 @@ steps:
 	assert.False(t, step.ContinueOn.Skipped)
 	assert.Equal(t, 7, step.RetryPolicy.Limit)
 	assert.Equal(t, 3*time.Second, step.RetryPolicy.Interval)
-	assert.Equal(t, core.RepeatModeUntil, step.RepeatPolicy.RepeatMode)
+	assert.Equal(t, ir.RepeatModeUntil, step.RepeatPolicy.RepeatMode)
 	require.NotNil(t, step.RepeatPolicy.Condition)
 	assert.Equal(t, "cat /tmp/call", step.RepeatPolicy.Condition.Condition)
 	assert.Equal(t, "done", step.RepeatPolicy.Condition.Expected)

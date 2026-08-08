@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -184,10 +184,10 @@ func TestJQExecutor_RawOutput(t *testing.T) {
 
 			var stdout, stderr bytes.Buffer
 
-			step := core.Step{
-				Commands: []core.CommandEntry{{CmdWithArgs: tt.query}},
+			step := ir.Step{
+				Commands: []ir.CommandEntry{{CmdWithArgs: tt.query}},
 				Script:   tt.script,
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: "jq",
 					Config: map[string]any{
 						"raw": tt.raw,
@@ -261,10 +261,10 @@ func TestJQExecutor_MultipleOutputs(t *testing.T) {
 
 			var stdout, stderr bytes.Buffer
 
-			step := core.Step{
-				Commands: []core.CommandEntry{{CmdWithArgs: tt.query}},
+			step := ir.Step{
+				Commands: []ir.CommandEntry{{CmdWithArgs: tt.query}},
 				Script:   tt.script,
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: "jq",
 					Config: map[string]any{
 						"raw": tt.raw,
@@ -292,10 +292,10 @@ func TestJQExecutor_InvalidQuery(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: "invalid jq syntax {"}},
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: "invalid jq syntax {"}},
 		Script:   `{"foo": "bar"}`,
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 			Config: map[string]any{
 				"raw": true,
@@ -317,10 +317,10 @@ func TestJQExecutor_InvalidQuery(t *testing.T) {
 func TestJQExecutor_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: ".foo"}},
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: ".foo"}},
 		Script:   `invalid json`,
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 			Config: map[string]any{
 				"raw": true,
@@ -338,10 +338,10 @@ func TestJQExecutor_NoConfig(t *testing.T) {
 
 	var stdout bytes.Buffer
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: ".foo"}},
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: ".foo"}},
 		Script:   `{"foo": "bar"}`,
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "jq",
 			Config: nil, // No config, should default to raw: false
 		},
@@ -363,10 +363,10 @@ func TestJQExecutor_NoConfig(t *testing.T) {
 func TestJQExecutor_Kill(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: ".foo"}},
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: ".foo"}},
 		Script:   `{"foo": "bar"}`,
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 		},
 	}
@@ -391,10 +391,10 @@ func TestJQExecutor_InputFromFile(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(`{"items": [{"name": "a"}, {"name": "b"}]}`), 0o600)
 	require.NoError(t, err)
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: `.items[] | .name`}},
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: `.items[] | .name`}},
 		Script:   "file://" + filePath,
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 			Config: map[string]any{
 				"raw": true,
@@ -425,9 +425,9 @@ func TestJQExecutor_ConfigInput(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(`{"items": [{"name": "a"}, {"name": "b"}]}`), 0o600)
 	require.NoError(t, err)
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: `.items[] | .name`}},
-		ExecutorConfig: core.ExecutorConfig{
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: `.items[] | .name`}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 			Config: map[string]any{
 				"raw":   true,
@@ -459,9 +459,9 @@ func TestJQExecutor_ConfigInputWithRawFalse(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(`{"items": [{"name": "a"}, {"name": "b"}]}`), 0o600)
 	require.NoError(t, err)
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: `.items[] | .name`}},
-		ExecutorConfig: core.ExecutorConfig{
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: `.items[] | .name`}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 			Config: map[string]any{
 				"raw":   false,
@@ -491,10 +491,10 @@ func TestJQExecutor_ConfigInputMutualExclusion(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(`{"foo": "bar"}`), 0o600)
 	require.NoError(t, err)
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: ".foo"}},
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: ".foo"}},
 		Script:   `{"foo": "bar"}`,
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 			Config: map[string]any{
 				"input": filePath,
@@ -511,9 +511,9 @@ func TestJQExecutor_ConfigInputMutualExclusion(t *testing.T) {
 func TestJQExecutor_ConfigInputFileNotFound(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: "."}},
-		ExecutorConfig: core.ExecutorConfig{
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: "."}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 			Config: map[string]any{
 				"input": "/nonexistent/path/input.json",
@@ -536,9 +536,9 @@ func TestJQExecutor_ConfigInputInvalidJSON(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(`not valid json`), 0o600)
 	require.NoError(t, err)
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: "."}},
-		ExecutorConfig: core.ExecutorConfig{
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: "."}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 			Config: map[string]any{
 				"input": filePath,
@@ -560,10 +560,10 @@ func TestJQExecutor_InputFromFile_InvalidJSON(t *testing.T) {
 	err := os.WriteFile(filePath, []byte(`not valid json`), 0o600)
 	require.NoError(t, err)
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: "."}},
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: "."}},
 		Script:   "file://" + filePath,
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 		},
 	}
@@ -577,10 +577,10 @@ func TestJQExecutor_InputFromFile_InvalidJSON(t *testing.T) {
 func TestJQExecutor_InputFromFile_NotFound(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: "."}},
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: "."}},
 		Script:   "file:///nonexistent/path/input.json",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 		},
 	}
@@ -594,10 +594,10 @@ func TestJQExecutor_InputFromFile_NotFound(t *testing.T) {
 func TestJQExecutor_NoInput(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
-		Commands: []core.CommandEntry{{CmdWithArgs: "."}},
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: "."}},
 		Script:   "",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "jq",
 		},
 	}

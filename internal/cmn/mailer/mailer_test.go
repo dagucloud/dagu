@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
@@ -53,8 +53,8 @@ func TestXOAUTH2Auth(t *testing.T) {
 func TestBuildConfigWithOAuth(t *testing.T) {
 	t.Parallel()
 
-	oauthConfig := &mailoauth.Config{
-		Provider:     mailoauth.ProviderMicrosoft,
+	oauthConfig := &oauthconfig.Config{
+		Provider:     oauthconfig.ProviderMicrosoft,
 		TenantID:     "tenant",
 		ClientID:     "client",
 		ClientSecret: "secret",
@@ -74,8 +74,8 @@ func TestBuildConfigWithOAuth(t *testing.T) {
 	assert.ErrorContains(t, err, "mutually exclusive")
 	_, err = BuildConfig("", "", "", "", oauthConfig)
 	assert.ErrorContains(t, err, "username is required")
-	_, err = BuildConfig("", "", "sender@example.com", "", &mailoauth.Config{
-		Provider: mailoauth.ProviderGoogleServiceAccount, ServiceAccountJSON: "{}",
+	_, err = BuildConfig("", "", "sender@example.com", "", &oauthconfig.Config{
+		Provider: oauthconfig.ProviderGoogleServiceAccount, ServiceAccountJSON: "{}",
 	})
 	assert.ErrorContains(t, err, "invalid Google service account JSON")
 }

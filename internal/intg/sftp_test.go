@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -74,7 +74,7 @@ steps:
 
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"UPLOAD_VERIFY": "sftp upload test content",
 		})
@@ -118,7 +118,7 @@ steps:
 
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		// Verify downloaded file contents
 		content, err := os.ReadFile(downloadPath)
@@ -173,7 +173,7 @@ steps:
 
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"DIR_UPLOAD_VERIFY": "content1\nnested content",
 		})
@@ -219,7 +219,7 @@ steps:
 
 		dag := th.DAG(t, dagConfig)
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		// Verify downloaded directory contents
 		content1, err := os.ReadFile(filepath.Join(downloadPath, "file1.txt"))

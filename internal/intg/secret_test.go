@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +40,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		// Get the dag-run status to find the stdout file
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
@@ -84,7 +84,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		// Get stdout file and verify masking
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
@@ -128,7 +128,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 		require.NoError(t, err)
@@ -173,7 +173,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 		require.NoError(t, err)
@@ -213,7 +213,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		// Get node and read both stdout and the main log
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
@@ -246,7 +246,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 		require.NoError(t, err)
@@ -293,7 +293,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 		require.NoError(t, err)
@@ -335,7 +335,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 		require.NoError(t, err)
@@ -390,7 +390,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 		require.NoError(t, err)
@@ -445,7 +445,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		// Get stdout file and verify masking
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)

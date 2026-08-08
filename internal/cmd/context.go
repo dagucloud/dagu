@@ -28,12 +28,16 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -42,6 +46,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -58,19 +63,19 @@ type Context struct {
 
 	EventService              *eventstore.Service
 	EventSourceInstance       string
-	DAGRunStore               exec.DAGRunStore
+	DAGRunStore               dagrun.DAGRunStore
 	DAGRunMgr                 runtime.Manager
-	ProcStore                 exec.ProcStore
-	QueueStore                exec.QueueStore
+	ProcStore                 proc.ProcStore
+	QueueStore                queue.QueueStore
 	StateStore                dagstate.Store
-	ServiceRegistry           exec.ServiceRegistry
-	DispatchTaskStore         exec.DispatchTaskStore
-	WorkerHeartbeatStore      exec.WorkerHeartbeatStore
-	DAGRunLeaseStore          exec.DAGRunLeaseStore
-	ActiveDistributedRunStore exec.ActiveDistributedRunStore
+	ServiceRegistry           serviceregistry.ServiceRegistry
+	DispatchTaskStore         dispatch.DispatchTaskStore
+	WorkerHeartbeatStore      dispatch.WorkerHeartbeatStore
+	DAGRunLeaseStore          dispatch.DAGRunLeaseStore
+	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 
-	DAGStore       exec.DAGStore
-	Proc           exec.ProcHandle
+	DAGStore       dagstore.DAGStore
+	Proc           proc.ProcHandle
 	LicenseManager *license.Manager
 	ContextStore   *clicontext.Store
 	CLIContext     *clicontext.Context
@@ -320,7 +325,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	case "server", "scheduler", "start-all", "coordinator":
 		// For long-running process, we setup file cache for better performance
 		limits := cfg.Cache.Limits()
-		hc := fileutil.NewCache[*exec.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
+		hc := fileutil.NewCache[*dagrun.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 		hc.StartEviction(ctx)
 		hrOpts = append(hrOpts, file.WithDAGRunHistoryFileCache(hc))
 	}
@@ -581,7 +586,7 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 	stores := c.runtimeStores()
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr: c.DAGRunMgr,
-		DAGStoreFactory: func(context.Context) (exec.DAGStore, error) {
+		DAGStoreFactory: func(context.Context) (dagstore.DAGStore, error) {
 			return c.dagStore(dagStoreConfig{})
 		},
 		DAGRunStore:       c.DAGRunStore,
@@ -641,13 +646,13 @@ func getWorkerID(ctx *Context) string {
 
 // dagStoreConfig contains options for creating a DAG store.
 type dagStoreConfig struct {
-	Cache                 *fileutil.Cache[*core.DAG] // Optional cache for DAG objects
-	SearchPaths           []string                   // Additional search paths for DAG files
-	SkipDirectoryCreation bool                       // Skip directory creation (for distributed worker execution)
+	Cache                 *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
+	SearchPaths           []string                 // Additional search paths for DAG files
+	SkipDirectoryCreation bool                     // Skip directory creation (for distributed worker execution)
 }
 
 // dagStore returns a new DAGRepository instance.
-func (c *Context) dagStore(cfg dagStoreConfig) (exec.DAGStore, error) {
+func (c *Context) dagStore(cfg dagStoreConfig) (dagstore.DAGStore, error) {
 	return cmdprocess.NewDAGStore(c.Config, cmdprocess.DAGStoreConfig{
 		Cache:                 cfg.Cache,
 		SearchPaths:           cfg.SearchPaths,
@@ -667,7 +672,7 @@ func (c *Context) runtimeStores() runtimeStoresResult {
 // It evaluates the log directory, validates settings, creates the log directory,
 // builds a filename using the current timestamp and dag-run ID, and then opens the file.
 func (c *Context) OpenLogFile(
-	dag *core.DAG,
+	dag *ir.DAG,
 	dagRunID string,
 ) (*os.File, error) {
 	logPath, err := c.GenLogFileName(dag, dagRunID)
@@ -678,12 +683,12 @@ func (c *Context) OpenLogFile(
 }
 
 // GenLogFileName generates a log file name based on the DAG and dag-run ID.
-func (c *Context) GenLogFileName(dag *core.DAG, dagRunID string) (string, error) {
+func (c *Context) GenLogFileName(dag *ir.DAG, dagRunID string) (string, error) {
 	return logpath.Generate(c, c.Config.Paths.LogDir, dag.LogDir, dag.Name, dagRunID)
 }
 
 // GenArtifactDir generates an artifact directory path for the DAG run when artifacts are enabled.
-func (c *Context) GenArtifactDir(dag *core.DAG, dagRunID string) (string, error) {
+func (c *Context) GenArtifactDir(dag *ir.DAG, dagRunID string) (string, error) {
 	if dag == nil || !dag.ArtifactsEnabled() {
 		return "", nil
 	}
@@ -735,12 +740,12 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 
 // genRunID creates a new auto-generated dag-run ID.
 func genRunID() (string, error) {
-	return exec.NewDAGRunID()
+	return dagrun.NewDAGRunID()
 }
 
 // validateRunID checks if the dag-run ID is valid and not empty.
 func validateRunID(dagRunID string) error {
-	return exec.ValidateDAGRunID(dagRunID)
+	return dagrun.ValidateDAGRunID(dagRunID)
 }
 
 // signalListener is an interface for types that can receive OS signals.
@@ -778,21 +783,21 @@ type LogConfig = logpath.Config
 
 // RecordEarlyFailure records a failure in the execution history before the DAG has fully started.
 // This is used for infrastructure errors like singleton conflicts or process acquisition failures.
-func (c *Context) RecordEarlyFailure(dag *core.DAG, dagRunID string, err error) error {
+func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) error {
 	if dag == nil || dagRunID == "" {
 		return fmt.Errorf("DAG and dag-run ID are required to record failure")
 	}
 
 	// 1. Check if a DAGRunAttempt already exists for the given run-id.
-	ref := exec.NewDAGRunRef(dag.Name, dagRunID)
+	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 	attempt, findErr := c.DAGRunStore.FindAttempt(c, ref)
-	if findErr != nil && !errors.Is(findErr, exec.ErrDAGRunIDNotFound) {
+	if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
 		return fmt.Errorf("failed to check for existing attempt: %w", findErr)
 	}
 
 	if attempt == nil {
 		// 2. Create the attempt if not exists
-		att, createErr := c.DAGRunStore.CreateAttempt(c, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+		att, createErr := c.DAGRunStore.CreateAttempt(c, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		if createErr != nil {
 			return fmt.Errorf("failed to create run to record failure: %w", createErr)
 		}
@@ -817,7 +822,7 @@ func (c *Context) RecordEarlyFailure(dag *core.DAG, dagRunID string, err error) 
 			tag.RunID(dagRunID),
 		)
 	}
-	status := statusBuilder.Create(dagRunID, core.Failed, 0, time.Now(),
+	status := statusBuilder.Create(dagRunID, ir.Failed, 0, time.Now(),
 		transform.WithLogFilePath(logPath),
 		transform.WithArchiveDir(artifactDir),
 		transform.WithFinishedAt(time.Now()),

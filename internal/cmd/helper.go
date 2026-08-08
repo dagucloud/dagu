@@ -12,27 +12,28 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 )
 
 // parseTriggerTypeParam parses and validates the trigger-type flag from the command context.
 // Returns TriggerTypeUnknown (zero value) if the flag is empty, otherwise validates
 // that the provided value is a known trigger type.
-func parseTriggerTypeParam(ctx *Context) (core.TriggerType, error) {
+func parseTriggerTypeParam(ctx *Context) (ir.TriggerType, error) {
 	triggerTypeStr, err := ctx.StringParam("trigger-type")
 	if err != nil {
 		logger.Debug(ctx, "Failed to read trigger-type flag", tag.Error(err))
 	}
 	if triggerTypeStr == "" {
-		return core.TriggerTypeUnknown, nil
+		return ir.TriggerTypeUnknown, nil
 	}
 
-	triggerType := core.ParseTriggerType(triggerTypeStr)
-	if triggerType == core.TriggerTypeUnknown {
-		return core.TriggerTypeUnknown, fmt.Errorf(
+	triggerType := ir.ParseTriggerType(triggerTypeStr)
+	if triggerType == ir.TriggerTypeUnknown {
+		return ir.TriggerTypeUnknown, fmt.Errorf(
 			"invalid trigger-type %q: must be one of scheduler, manual, webhook, subdag, retry, catchup",
 			triggerTypeStr,
 		)
@@ -80,10 +81,14 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 // restoreDAGFromStatus restores a DAG from a previous run's status and YAML.
 // It restores params from the status, loads dotenv, and rebuilds fields excluded
 // from JSON serialization (env, params JSON, registryAuths, etc.).
-func restoreDAGFromStatus(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {
+func restoreDAGFromStatus(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRunStatus) (*ir.DAG, error) {
 	runtimeParams := append([]string(nil), status.ParamsList...)
 	dag.Params = runtimeParams
-	if err := dagwarning.LoadDotEnv(ctx, dag); err != nil {
+	resolvedEnv, err := runtimeenv.Resolve(ctx, dag)
+	dag.Env = resolvedEnv.Env
+	dag.RuntimeResolved = true
+	dagwarning.Log(ctx, resolvedEnv.Warnings)
+	if err != nil {
 		return nil, err
 	}
 	restored, err := spec.RebuildFromYAML(ctx, dag, spec.QuoteRuntimeParams(runtimeParams, dag.ParamDefs))
@@ -94,7 +99,7 @@ func restoreDAGFromStatus(ctx context.Context, dag *core.DAG, status *exec.DAGRu
 	return restored, nil
 }
 
-func applyPersistedRunWorkingDir(dag *core.DAG, status *exec.DAGRunStatus) {
+func applyPersistedRunWorkingDir(dag *ir.DAG, status *dagrun.DAGRunStatus) {
 	if dag == nil || status == nil || status.WorkingDir == "" {
 		return
 	}

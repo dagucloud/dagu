@@ -9,10 +9,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 const (
@@ -40,14 +41,14 @@ type Catalog struct {
 // NewCatalog builds the tool catalog from a controller DAG's declared steps. A
 // step that runs a child DAG advertises that DAG's parameters, so the controller
 // can pass arguments through.
-func NewCatalog(ctx context.Context, dag *core.DAG) (*Catalog, error) {
+func NewCatalog(ctx context.Context, dag *ir.DAG) (*Catalog, error) {
 	c := &Catalog{stepByTool: make(map[string]string)}
 
 	used := map[string]struct{}{SetTaskStatusTool: {}, AskUserTool: {}}
 	for _, step := range dag.Steps {
 		// The controller and its ask_user task are scaffolding, not actions the
 		// model may pick.
-		if core.IsSynthesizedControllerStep(step.Name) {
+		if ir.IsSynthesizedControllerStep(step.Name) {
 			continue
 		}
 
@@ -55,7 +56,7 @@ func NewCatalog(ctx context.Context, dag *core.DAG) (*Catalog, error) {
 		used[name] = struct{}{}
 		c.stepByTool[name] = step.Name
 
-		var child *core.DAG
+		var child *ir.DAG
 		if step.SubDAG != nil {
 			child = resolveChildDAG(ctx, dag, step.SubDAG.Name)
 		}
@@ -157,10 +158,10 @@ func (c *Catalog) ToolNames() []string {
 }
 
 // Definitions returns the catalog in the form persisted for UI visibility.
-func (c *Catalog) Definitions() []exec.ToolDefinition {
-	defs := make([]exec.ToolDefinition, 0, len(c.tools))
+func (c *Catalog) Definitions() []dagrun.ToolDefinition {
+	defs := make([]dagrun.ToolDefinition, 0, len(c.tools))
 	for _, tool := range c.tools {
-		defs = append(defs, exec.ToolDefinition{
+		defs = append(defs, dagrun.ToolDefinition{
 			Name:        tool.Function.Name,
 			Description: tool.Function.Description,
 		})
@@ -172,7 +173,7 @@ func (c *Catalog) Definitions() []exec.ToolDefinition {
 // steps that launch a child DAG take arguments; everything else is a nullary
 // action. A parameter the step already supplies a value for is left out: the
 // author has decided it, so it is not the controller's to choose.
-func stepParameters(child *core.DAG, step core.Step) (map[string]any, error) {
+func stepParameters(child *ir.DAG, step ir.Step) (map[string]any, error) {
 	if step.SubDAG != nil {
 		if err := validateNamedSubDAGParams(step); err != nil {
 			return nil, err
@@ -188,7 +189,7 @@ func stepParameters(child *core.DAG, step core.Step) (map[string]any, error) {
 	return toolschema.Build(omitPinned(params, PinnedParams(step))), nil
 }
 
-func validateNamedSubDAGParams(step core.Step) error {
+func validateNamedSubDAGParams(step ir.Step) error {
 	values, err := step.Params.AsStringMap()
 	if err != nil {
 		return fmt.Errorf("step %q: invalid child DAG parameters: %w", step.Name, err)
@@ -200,7 +201,7 @@ func validateNamedSubDAGParams(step core.Step) error {
 }
 
 // PinnedParams lists the parameter names a step supplies itself.
-func PinnedParams(step core.Step) map[string]struct{} {
+func PinnedParams(step ir.Step) map[string]struct{} {
 	values, err := step.Params.AsStringMap()
 	if err != nil || len(values) == 0 {
 		return nil
@@ -232,7 +233,7 @@ func omitPinned(params []toolschema.Param, pinned map[string]struct{}) []toolsch
 // resolveChildDAG looks up a child DAG by name, preferring DAGs defined inline
 // in the same file. An unresolvable name yields nil: the step itself reports the
 // failure when the controller runs it.
-func resolveChildDAG(ctx context.Context, dag *core.DAG, name string) *core.DAG {
+func resolveChildDAG(ctx context.Context, dag *ir.DAG, name string) *ir.DAG {
 	if name == "" {
 		return nil
 	}
@@ -240,7 +241,7 @@ func resolveChildDAG(ctx context.Context, dag *core.DAG, name string) *core.DAG 
 		return local
 	}
 
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	if rCtx.DB == nil {
 		return nil
 	}
@@ -254,7 +255,7 @@ func resolveChildDAG(ctx context.Context, dag *core.DAG, name string) *core.DAG 
 // stepDescription tells the model what an action does. An explicit step
 // description wins; otherwise the target's own description is the next best
 // thing the author has written down.
-func stepDescription(step core.Step, child *core.DAG) string {
+func stepDescription(step ir.Step, child *ir.DAG) string {
 	if step.Description != "" {
 		return step.Description
 	}
@@ -270,7 +271,7 @@ func stepDescription(step core.Step, child *core.DAG) string {
 	return fmt.Sprintf("Run the %q step.", step.Name)
 }
 
-func toolName(step core.Step) string {
+func toolName(step ir.Step) string {
 	if step.ID != "" {
 		return step.ID
 	}

@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/moby/moby/api/pkg/authconfig"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/client"
@@ -19,11 +19,11 @@ import (
 
 // RegistryAuthManager handles authentication for container registries
 type RegistryAuthManager struct {
-	auths map[string]*core.AuthConfig
+	auths map[string]*ir.AuthConfig
 }
 
 // NewRegistryAuthManager creates a new registry authentication manager
-func NewRegistryAuthManager(auths map[string]*core.AuthConfig) *RegistryAuthManager {
+func NewRegistryAuthManager(auths map[string]*ir.AuthConfig) *RegistryAuthManager {
 	return &RegistryAuthManager{
 		auths: auths,
 	}
@@ -100,7 +100,7 @@ func (r *RegistryAuthManager) getAuthConfig(imageName string) (*registry.AuthCon
 }
 
 // convertToDockerAuth converts our AuthConfig to Docker's registry.AuthConfig
-func convertToDockerAuth(auth *core.AuthConfig, serverAddress string) (*registry.AuthConfig, error) {
+func convertToDockerAuth(auth *ir.AuthConfig, serverAddress string) (*registry.AuthConfig, error) {
 	if auth == nil {
 		return nil, nil
 	}

@@ -12,8 +12,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -51,7 +51,7 @@ steps:
 		dag.Location,
 	})
 
-	ref := exec.NewDAGRunRef(dag.Name, dagRunID)
+	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 	run := h.Run(ref, dag.ProcGroup())
 	run.RequireRunning(5 * time.Second)
 	run.RequireHeartbeatAdvance(3 * time.Second)
@@ -59,7 +59,7 @@ steps:
 	require.NoError(t, <-errCh)
 
 	status := run.ReadStatus()
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 }
 
 func TestProcHeartbeat_RetryCommand(t *testing.T) {
@@ -88,7 +88,7 @@ steps:
 		dag.Location,
 	})
 
-	ref := exec.NewDAGRunRef(dag.Name, dagRunID)
+	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
 	run := h.Run(ref, dag.ProcGroup())
 	run.RequireRunning(5 * time.Second)
 	run.RequireHeartbeatAdvance(3 * time.Second)
@@ -96,7 +96,7 @@ steps:
 	require.NoError(t, <-errCh)
 
 	status := run.ReadStatus()
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 }
 
 func runCommandAsync(ctx context.Context, command *cobra.Command, args []string) chan error {
@@ -111,10 +111,10 @@ func runCommandAsync(ctx context.Context, command *cobra.Command, args []string)
 	return errCh
 }
 
-func createFailedRun(t *testing.T, th test.Command, dag *core.DAG, dagRunID string) {
+func createFailedRun(t *testing.T, th test.Command, dag *ir.DAG, dagRunID string) {
 	t.Helper()
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(th.Config.Paths.LogDir, dag.Name, dagRunID+".log")
@@ -122,11 +122,11 @@ func createFailedRun(t *testing.T, th test.Command, dag *core.DAG, dagRunID stri
 
 	status := transform.NewStatusBuilder(dag).Create(
 		dagRunID,
-		core.Failed,
+		ir.Failed,
 		0,
 		time.Now(),
 		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(exec.NewDAGRunRef(dag.Name, dagRunID), exec.DAGRunRef{}),
+		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dag.Name, dagRunID), dagrun.DAGRunRef{}),
 		transform.WithLogFilePath(logFile),
 	)
 

@@ -246,10 +246,21 @@ function DAGHistoryTable({
   const [selectedStep, setSelectedStep] = React.useState<
     components['schemas']['Step'] | undefined
   >(undefined);
-  const [selectedDetailStep, setSelectedDetailStep] = React.useState<
-    components['schemas']['Step'] | undefined
+  // Stored by name and re-derived each render so the open drawer tracks the
+  // selected run's node data.
+  const [selectedDetailStepName, setSelectedDetailStepName] = React.useState<
+    string | undefined
   >(undefined);
   const [isStepDetailsOpen, setIsStepDetailsOpen] = React.useState(false);
+  const selectedDetailNode = React.useMemo(
+    () =>
+      selectedDetailStepName
+        ? selectedDAGRun?.nodes?.find(
+            (node) => node.step.name === selectedDetailStepName
+          )
+        : undefined,
+    [selectedDAGRun, selectedDetailStepName]
+  );
 
   const closeStepDetails = React.useCallback(() => {
     setIsStepDetailsOpen(false);
@@ -379,7 +390,7 @@ function DAGHistoryTable({
         return;
       }
 
-      setSelectedDetailStep(n.step);
+      setSelectedDetailStepName(n.step.name);
       setIsStepDetailsOpen(true);
     },
     [reversedDAGRuns, idx]
@@ -532,8 +543,43 @@ function DAGHistoryTable({
           <StepDetailsDrawer
             dagName={selectedDAGRun?.name}
             isOpen={isStepDetailsOpen}
-            step={selectedDetailStep}
+            step={selectedDetailNode?.step}
+            node={selectedDetailNode}
             onClose={closeStepDetails}
+            onViewLog={(node, stream) => {
+              if (!selectedDAGRun) {
+                return;
+              }
+              setLogViewer({
+                isOpen: true,
+                logType: 'step',
+                stepName: node.step.name,
+                dagRunId: selectedDAGRun.dagRunId,
+                stream: stream === 'stderr' ? Stream.stderr : Stream.stdout,
+              });
+            }}
+            onOpenSubRun={(node, subRunIndex) => {
+              if (!selectedDAGRun) {
+                return;
+              }
+              const subRuns = [
+                ...(node.subRuns ?? []),
+                ...(node.subRunsRepeated ?? []),
+              ];
+              const subDAGRun = subRuns[subRunIndex];
+              if (!subDAGRun?.dagRunId) {
+                return;
+              }
+              navigate(
+                buildDAGPageURL({
+                  fileName,
+                  remoteNode,
+                  rootDAGRunId: selectedDAGRun.rootDAGRunId,
+                  rootDAGRunName: selectedDAGRun.rootDAGRunName,
+                  subDAGRunId: subDAGRun.dagRunId,
+                })
+              );
+            }}
           />
         </div>
       )}

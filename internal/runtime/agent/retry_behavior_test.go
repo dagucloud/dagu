@@ -6,7 +6,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -22,7 +22,7 @@ func TestAgentCurrentAutoRetryCount(t *testing.T) {
 	t.Run("RetryTargetPreservesPersistedCount", func(t *testing.T) {
 		t.Parallel()
 		a := &Agent{
-			retryTarget: &exec.DAGRunStatus{AutoRetryCount: 1},
+			retryTarget: &dagrun.DAGRunStatus{AutoRetryCount: 1},
 		}
 		assert.Equal(t, 1, a.currentAutoRetryCount())
 	})

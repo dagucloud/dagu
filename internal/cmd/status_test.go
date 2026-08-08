@@ -13,8 +13,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -58,7 +58,7 @@ func waitForDAGRunning(t *testing.T, th test.Command, dagLocation string) {
 		if err != nil {
 			return false
 		}
-		return status.Status == core.Running
+		return status.Status == ir.Running
 	}, boundedWaitTimeout(t, time.Minute), time.Millisecond*50)
 }
 
@@ -97,7 +97,7 @@ func TestStatusCommand(t *testing.T) {
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
 
-		dagFile.AssertLatestStatus(t, core.Succeeded)
+		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		err = executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -115,23 +115,23 @@ func TestStatusCommand(t *testing.T) {
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
 		require.NoError(t, err)
 
-		status := exec.DAGRunStatus{
+		status := dagrun.DAGRunStatus{
 			Name:       dag.Name,
 			DAGRunID:   dagRunID,
-			Status:     core.Failed,
+			Status:     ir.Failed,
 			StartedAt:  time.Now().Format(time.RFC3339),
 			FinishedAt: time.Now().Format(time.RFC3339),
 			AttemptID:  attempt.ID(),
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
-					Step:   core.Step{Name: "error"},
-					Status: core.NodeFailed,
+					Step:   ir.Step{Name: "error"},
+					Status: ir.NodeFailed,
 					Error:  "exit status 1",
 				},
 			},
@@ -160,7 +160,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location, "--params=custom1 custom2"})
 		require.NoError(t, err)
 
-		dagFile.AssertLatestStatus(t, core.Succeeded)
+		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		err = executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -179,7 +179,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location, "--run-id=" + runID})
 		require.NoError(t, err)
 
-		dagFile.AssertLatestStatus(t, core.Succeeded)
+		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		err = executeCommand(th.Context, cmd.Status(), []string{dagFile.Location, "--run-id=" + runID})
 		require.NoError(t, err)
@@ -196,7 +196,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
 
-		dagFile.AssertLatestStatus(t, core.Succeeded)
+		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		err = executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -228,31 +228,31 @@ steps:
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
 		require.NoError(t, err)
 
 		now := time.Now().Format(time.RFC3339)
-		status := exec.DAGRunStatus{
+		status := dagrun.DAGRunStatus{
 			Name:       dag.Name,
 			DAGRunID:   dagRunID,
-			Status:     core.Failed,
+			Status:     ir.Failed,
 			StartedAt:  now,
 			FinishedAt: now,
 			AttemptID:  attempt.ID(),
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
-					Step:       core.Step{Name: "check"},
-					Status:     core.NodeFailed,
+					Step:       ir.Step{Name: "check"},
+					Status:     ir.NodeFailed,
 					Error:      "exit status 1",
 					StartedAt:  now,
 					FinishedAt: now,
 				},
 				{
-					Step:       core.Step{Name: "skipped"},
-					Status:     core.NodeSkipped,
+					Step:       ir.Step{Name: "skipped"},
+					Status:     ir.NodeSkipped,
 					StartedAt:  "-",
 					FinishedAt: now,
 				},
@@ -309,7 +309,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
 
-		dagFile.AssertLatestStatus(t, core.Succeeded)
+		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		err = executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -326,7 +326,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
 
-		dagFile.AssertLatestStatus(t, core.Succeeded)
+		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		err = executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -366,7 +366,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
 
-		dagFile.AssertLatestStatus(t, core.Succeeded)
+		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		ctx := context.Background()
 		dag, err := th.DAGStore.GetMetadata(ctx, dagFile.Location)
@@ -391,7 +391,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location})
 		require.NoError(t, err)
 
-		dagFile.AssertLatestStatus(t, core.Succeeded)
+		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		err = executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -409,24 +409,24 @@ steps:
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, exec.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
 		require.NoError(t, err)
 
 		now := time.Now().Format(time.RFC3339)
-		status := exec.DAGRunStatus{
+		status := dagrun.DAGRunStatus{
 			Name:       dag.Name,
 			DAGRunID:   dagRunID,
-			Status:     core.Succeeded,
+			Status:     ir.Succeeded,
 			StartedAt:  now,
 			FinishedAt: now,
 			AttemptID:  attempt.ID(),
-			Nodes: []*exec.Node{
+			Nodes: []*dagrun.Node{
 				{
-					Step:   core.Step{Name: "binary_output"},
-					Status: core.NodeSucceeded,
+					Step:   ir.Step{Name: "binary_output"},
+					Status: ir.NodeSucceeded,
 					Stdout: "/nonexistent/binary.log",
 					Stderr: "",
 				},
@@ -467,8 +467,8 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location, "--run-id=" + parentRunID})
 		require.NoError(t, err)
 
-		parentRef := exec.NewDAGRunRef(dagFile.Location, parentRunID)
-		var parentAttempt exec.DAGRunAttempt
+		parentRef := dagrun.NewDAGRunRef(dagFile.Location, parentRunID)
+		var parentAttempt dagrun.DAGRunAttempt
 		require.Eventually(t, func() bool {
 			var err error
 			parentAttempt, err = th.DAGRunStore.FindAttempt(th.Context, parentRef)
@@ -523,7 +523,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location, "--run-id=" + parentRunID})
 		require.NoError(t, err)
 
-		parentRef := exec.NewDAGRunRef(dagFile.Location, parentRunID)
+		parentRef := dagrun.NewDAGRunRef(dagFile.Location, parentRunID)
 		require.Eventually(t, func() bool {
 			attempt, err := th.DAGRunStore.FindAttempt(th.Context, parentRef)
 			if err != nil {
@@ -533,7 +533,7 @@ steps:
 			if err != nil {
 				return false
 			}
-			return status.Status != core.Running
+			return status.Status != ir.Running
 		}, 5*time.Second, 50*time.Millisecond, "DAG run should complete")
 
 		err = executeCommand(th.Context, cmd.Status(), []string{

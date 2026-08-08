@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
@@ -123,7 +123,7 @@ func writeDAGFile(t *testing.T, dir, fileName, dagName string) string {
 func newTestEntryReader(dir string, events chan DAGChangeEvent) *entryReaderImpl {
 	return &entryReaderImpl{
 		targetDir: dir,
-		registry:  make(map[string]*core.DAG),
+		registry:  make(map[string]*ir.DAG),
 		dagSource: newDAGFileSource(dir),
 		quit:      make(chan struct{}),
 		events:    events,
@@ -172,7 +172,7 @@ func TestHandleFSEvent_WriteUpdatesDAG(t *testing.T) {
 	er := newTestEntryReader(tmpDir, events)
 
 	// Pre-populate registry with existing DAG
-	er.registry["update-test.yaml"] = &core.DAG{Name: "update-test"}
+	er.registry["update-test.yaml"] = &ir.DAG{Name: "update-test"}
 
 	// Write updated file
 	writeDAGFile(t, tmpDir, "update-test.yaml", "update-test")
@@ -201,7 +201,7 @@ func TestHandleFSEvent_RemoveDeletesDAG(t *testing.T) {
 	er := newTestEntryReader(tmpDir, events)
 
 	// Pre-populate registry
-	er.registry["remove-test.yaml"] = &core.DAG{Name: "remove-test"}
+	er.registry["remove-test.yaml"] = &ir.DAG{Name: "remove-test"}
 
 	er.handleFSEvent(context.Background(), fsnotify.Event{
 		Name: filepath.Join(tmpDir, "remove-test.yaml"),
@@ -232,7 +232,7 @@ func TestHandleFSEvent_RemoveReloadsDAGWhenFileStillExists(t *testing.T) {
 	events := make(chan DAGChangeEvent, 10)
 	er := newTestEntryReader(tmpDir, events)
 
-	er.registry["replace-test.yaml"] = &core.DAG{Name: "replace-test"}
+	er.registry["replace-test.yaml"] = &ir.DAG{Name: "replace-test"}
 	writeDAGFile(t, tmpDir, "replace-test.yaml", "replace-test")
 
 	er.handleFSEvent(context.Background(), fsnotify.Event{
@@ -265,7 +265,7 @@ func TestHandleFSEvent_NameChangeEmitsDeleteThenAdd(t *testing.T) {
 	er := newTestEntryReader(tmpDir, events)
 
 	// Pre-populate registry with old name
-	er.registry["rename-test.yaml"] = &core.DAG{Name: "old-name"}
+	er.registry["rename-test.yaml"] = &ir.DAG{Name: "old-name"}
 
 	// Write file with new name
 	writeDAGFile(t, tmpDir, "rename-test.yaml", "new-name")
@@ -318,7 +318,7 @@ steps:
 	t.Cleanup(er.Stop)
 
 	require.Len(t, er.DAGs(), 1)
-	assert.Equal(t, core.OverlapPolicyLatest, er.DAGs()[0].OverlapPolicy)
+	assert.Equal(t, ir.OverlapPolicyLatest, er.DAGs()[0].OverlapPolicy)
 	assert.Contains(t, er.watchedDirs, filepath.Join(tmpDir, "team"))
 
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "other"), 0750))

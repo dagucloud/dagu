@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/stretchr/testify/assert"
@@ -116,8 +116,8 @@ func TestConfigToFlags(t *testing.T) {
 			"provider":   "gemini",
 			"model":      "gemini-2.5-pro",
 			"allow-tool": []any{"shell(git:*)"},
-		}, &core.HarnessDefinition{
-			FlagStyle:   core.HarnessFlagStyleSingleDash,
+		}, &ir.HarnessDefinition{
+			FlagStyle:   ir.HarnessFlagStyleSingleDash,
 			OptionFlags: map[string]string{"allow-tool": "--allowedTool"},
 		})
 		assert.Equal(t, []string{
@@ -176,42 +176,42 @@ func TestExtractFallbackConfigs(t *testing.T) {
 
 func TestValidateHarnessStep(t *testing.T) {
 	t.Run("missing_prompt", func(t *testing.T) {
-		err := validateHarnessStep(core.Step{
-			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{"provider": "claude"}},
+		err := validateHarnessStep(ir.Step{
+			ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{"provider": "claude"}},
 		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "prompt")
 	})
 
 	t.Run("missing_config", func(t *testing.T) {
-		err := validateHarnessStep(core.Step{
-			Commands: []core.CommandEntry{{Command: "prompt"}},
+		err := validateHarnessStep(ir.Step{
+			Commands: []ir.CommandEntry{{Command: "prompt"}},
 		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "config is required")
 	})
 
 	t.Run("missing_provider", func(t *testing.T) {
-		err := validateHarnessStep(core.Step{
-			Commands:       []core.CommandEntry{{Command: "prompt"}},
-			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{}},
+		err := validateHarnessStep(ir.Step{
+			Commands:       []ir.CommandEntry{{Command: "prompt"}},
+			ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{}},
 		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "config.provider is required")
 	})
 
 	t.Run("templated_provider_allowed", func(t *testing.T) {
-		err := validateHarnessStep(core.Step{
-			Commands:       []core.CommandEntry{{Command: "prompt"}},
-			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{"provider": "${PROVIDER}"}},
+		err := validateHarnessStep(ir.Step{
+			Commands:       []ir.CommandEntry{{Command: "prompt"}},
+			ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{"provider": "${PROVIDER}"}},
 		})
 		assert.NoError(t, err)
 	})
 
 	t.Run("templated_fallback_provider_allowed", func(t *testing.T) {
-		err := validateHarnessStep(core.Step{
-			Commands: []core.CommandEntry{{Command: "prompt"}},
-			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{
+		err := validateHarnessStep(ir.Step{
+			Commands: []ir.CommandEntry{{Command: "prompt"}},
+			ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{
 				"provider": "claude",
 				"fallback": []any{
 					map[string]any{"provider": "${FALLBACK_PROVIDER}"},
@@ -222,12 +222,12 @@ func TestValidateHarnessStep(t *testing.T) {
 	})
 
 	t.Run("multiple_commands_rejected", func(t *testing.T) {
-		err := validateHarnessStep(core.Step{
-			Commands: []core.CommandEntry{
+		err := validateHarnessStep(ir.Step{
+			Commands: []ir.CommandEntry{
 				{Command: "prompt one"},
 				{Command: "prompt two"},
 			},
-			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{"provider": "claude"}},
+			ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{"provider": "claude"}},
 		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "field 'command': action \"harness\" supports only one command")
@@ -235,9 +235,9 @@ func TestValidateHarnessStep(t *testing.T) {
 	})
 
 	t.Run("invalid_fallback_shape", func(t *testing.T) {
-		err := validateHarnessStep(core.Step{
-			Commands: []core.CommandEntry{{Command: "prompt"}},
-			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{
+		err := validateHarnessStep(ir.Step{
+			Commands: []ir.CommandEntry{{Command: "prompt"}},
+			ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{
 				"provider": "claude",
 				"fallback": []any{"codex"},
 			}},
@@ -247,9 +247,9 @@ func TestValidateHarnessStep(t *testing.T) {
 	})
 
 	t.Run("nested_fallback_rejected", func(t *testing.T) {
-		err := validateHarnessStep(core.Step{
-			Commands: []core.CommandEntry{{Command: "prompt"}},
-			ExecutorConfig: core.ExecutorConfig{Config: map[string]any{
+		err := validateHarnessStep(ir.Step{
+			Commands: []ir.CommandEntry{{Command: "prompt"}},
+			ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{
 				"provider": "claude",
 				"fallback": []any{
 					map[string]any{
@@ -279,13 +279,13 @@ func TestResolveProvider(t *testing.T) {
 	})
 
 	t.Run("custom_definition", func(t *testing.T) {
-		cfg, err := resolveProvider(map[string]any{"provider": "gemini"}, core.HarnessDefinitions{
+		cfg, err := resolveProvider(map[string]any{"provider": "gemini"}, ir.HarnessDefinitions{
 			"gemini": {
 				Binary:     "gemini",
 				PrefixArgs: []string{"run"},
-				PromptMode: core.HarnessPromptModeFlag,
+				PromptMode: ir.HarnessPromptModeFlag,
 				PromptFlag: "--prompt",
-				FlagStyle:  core.HarnessFlagStyleGNULong,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
 			},
 		})
 		require.NoError(t, err)
@@ -299,7 +299,7 @@ func TestResolveProvider(t *testing.T) {
 	})
 
 	t.Run("deleted_definition_is_unknown", func(t *testing.T) {
-		_, err := resolveProvider(map[string]any{"provider": "gemini"}, core.HarnessDefinitions{
+		_, err := resolveProvider(map[string]any{"provider": "gemini"}, ir.HarnessDefinitions{
 			"gemini": nil,
 		})
 		require.Error(t, err)
@@ -321,16 +321,16 @@ func TestBuildProviderConfigs(t *testing.T) {
 
 		primary := writeHarnessTestBinary(t, "primary", "#!/bin/sh\nexit 0\n")
 		fallback := writeHarnessTestBinary(t, "fallback", "#!/bin/sh\nexit 0\n")
-		defs := core.HarnessDefinitions{
+		defs := ir.HarnessDefinitions{
 			"primary": {
 				Binary:     primary,
-				PromptMode: core.HarnessPromptModeArg,
-				FlagStyle:  core.HarnessFlagStyleGNULong,
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
 			},
 			"fallback": {
 				Binary:     fallback,
-				PromptMode: core.HarnessPromptModeArg,
-				FlagStyle:  core.HarnessFlagStyleGNULong,
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
 			},
 		}
 
@@ -406,12 +406,12 @@ func TestProviderConfigBuildInvocation(t *testing.T) {
 	t.Run("arg_mode_before_flags", func(t *testing.T) {
 		cfg := providerConfig{
 			name: "gemini",
-			definition: &core.HarnessDefinition{
+			definition: &ir.HarnessDefinition{
 				Binary:         "gemini",
 				PrefixArgs:     []string{"run"},
-				PromptMode:     core.HarnessPromptModeArg,
-				PromptPosition: core.HarnessPromptPositionBeforeFlags,
-				FlagStyle:      core.HarnessFlagStyleGNULong,
+				PromptMode:     ir.HarnessPromptModeArg,
+				PromptPosition: ir.HarnessPromptPositionBeforeFlags,
+				FlagStyle:      ir.HarnessFlagStyleGNULong,
 			},
 			flags: map[string]any{
 				"provider": "gemini",
@@ -428,12 +428,12 @@ func TestProviderConfigBuildInvocation(t *testing.T) {
 	t.Run("arg_mode_after_flags", func(t *testing.T) {
 		cfg := providerConfig{
 			name: "aider",
-			definition: &core.HarnessDefinition{
+			definition: &ir.HarnessDefinition{
 				Binary:         "aider",
 				PrefixArgs:     []string{"exec"},
-				PromptMode:     core.HarnessPromptModeArg,
-				PromptPosition: core.HarnessPromptPositionAfterFlags,
-				FlagStyle:      core.HarnessFlagStyleSingleDash,
+				PromptMode:     ir.HarnessPromptModeArg,
+				PromptPosition: ir.HarnessPromptPositionAfterFlags,
+				FlagStyle:      ir.HarnessFlagStyleSingleDash,
 			},
 			flags: map[string]any{
 				"provider": "aider",
@@ -450,13 +450,13 @@ func TestProviderConfigBuildInvocation(t *testing.T) {
 	t.Run("flag_mode", func(t *testing.T) {
 		cfg := providerConfig{
 			name: "gemini",
-			definition: &core.HarnessDefinition{
+			definition: &ir.HarnessDefinition{
 				Binary:         "gemini",
 				PrefixArgs:     []string{"run"},
-				PromptMode:     core.HarnessPromptModeFlag,
+				PromptMode:     ir.HarnessPromptModeFlag,
 				PromptFlag:     "--prompt",
-				PromptPosition: core.HarnessPromptPositionBeforeFlags,
-				FlagStyle:      core.HarnessFlagStyleGNULong,
+				PromptPosition: ir.HarnessPromptPositionBeforeFlags,
+				FlagStyle:      ir.HarnessFlagStyleGNULong,
 				OptionFlags:    map[string]string{"allow-tool": "--allowedTool"},
 			},
 			flags: map[string]any{
@@ -480,11 +480,11 @@ func TestProviderConfigBuildInvocation(t *testing.T) {
 	t.Run("stdin_mode", func(t *testing.T) {
 		cfg := providerConfig{
 			name: "llm",
-			definition: &core.HarnessDefinition{
+			definition: &ir.HarnessDefinition{
 				Binary:     "llm",
 				PrefixArgs: []string{"run"},
-				PromptMode: core.HarnessPromptModeStdin,
-				FlagStyle:  core.HarnessFlagStyleGNULong,
+				PromptMode: ir.HarnessPromptModeStdin,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
 			},
 			flags: map[string]any{
 				"provider": "llm",
@@ -521,19 +521,19 @@ exit 0
 		configs: []providerConfig{
 			{
 				name: "primary",
-				definition: &core.HarnessDefinition{
+				definition: &ir.HarnessDefinition{
 					Binary:     primary,
-					PromptMode: core.HarnessPromptModeArg,
-					FlagStyle:  core.HarnessFlagStyleGNULong,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
 				},
 				flags: map[string]any{"provider": "primary"},
 			},
 			{
 				name: "fallback",
-				definition: &core.HarnessDefinition{
+				definition: &ir.HarnessDefinition{
 					Binary:     fallback,
-					PromptMode: core.HarnessPromptModeArg,
-					FlagStyle:  core.HarnessFlagStyleGNULong,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
 				},
 				flags: map[string]any{"provider": "fallback"},
 			},
@@ -571,10 +571,10 @@ exit 1
 		configs: []providerConfig{
 			{
 				name: "primary",
-				definition: &core.HarnessDefinition{
+				definition: &ir.HarnessDefinition{
 					Binary:     primary,
-					PromptMode: core.HarnessPromptModeArg,
-					FlagStyle:  core.HarnessFlagStyleGNULong,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
 				},
 				flags: map[string]any{"provider": "primary"},
 			},
@@ -613,19 +613,19 @@ exit 1
 		configs: []providerConfig{
 			{
 				name: "primary",
-				definition: &core.HarnessDefinition{
+				definition: &ir.HarnessDefinition{
 					Binary:     primary,
-					PromptMode: core.HarnessPromptModeArg,
-					FlagStyle:  core.HarnessFlagStyleGNULong,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
 				},
 				flags: map[string]any{"provider": "primary"},
 			},
 			{
 				name: "fallback",
-				definition: &core.HarnessDefinition{
+				definition: &ir.HarnessDefinition{
 					Binary:     fallback,
-					PromptMode: core.HarnessPromptModeArg,
-					FlagStyle:  core.HarnessFlagStyleGNULong,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
 				},
 				flags: map[string]any{"provider": "fallback"},
 			},
@@ -660,10 +660,10 @@ func TestHarnessExecutorRun_CreatesWorkingDir(t *testing.T) {
 		configs: []providerConfig{
 			{
 				name: "pwd",
-				definition: &core.HarnessDefinition{
+				definition: &ir.HarnessDefinition{
 					Binary:     bin,
-					PromptMode: core.HarnessPromptModeArg,
-					FlagStyle:  core.HarnessFlagStyleGNULong,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
 				},
 				flags: map[string]any{"provider": "pwd"},
 			},
@@ -688,21 +688,21 @@ func TestHarnessExecutorRun_UsesPATHFromRuntimeEnv(t *testing.T) {
 	binPath := filepath.Join(binDir, binName)
 	require.NoError(t, os.WriteFile(binPath, []byte("#!/bin/sh\necho \"resolved from path\"\n"), 0o755))
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "harness-path",
 		WorkingDir: t.TempDir(),
-		Harnesses: core.HarnessDefinitions{
+		Harnesses: ir.HarnessDefinitions{
 			"custom": {
 				Binary:     binName,
-				PromptMode: core.HarnessPromptModeArg,
-				FlagStyle:  core.HarnessFlagStyleGNULong,
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
 			},
 		},
 	}
-	step := core.Step{
+	step := ir.Step{
 		Name:     "step1",
-		Commands: []core.CommandEntry{{Command: "hello"}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: "hello"}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "harness",
 			Config: map[string]any{"provider": "custom"},
 		},
@@ -724,7 +724,7 @@ func TestHarnessExecutorRun_UsesPATHFromRuntimeEnv(t *testing.T) {
 }
 
 func TestBuildHarnessContainerRunConfig_PodmanImageMode(t *testing.T) {
-	ct := core.Container{
+	ct := ir.Container{
 		Image:      "localhost/reviewer:latest",
 		WorkingDir: "/work",
 		Network:    "host",
@@ -770,7 +770,7 @@ func TestBuildHarnessContainerRunConfig_DockerRuntimeUsesFromEnv(t *testing.T) {
 		nil,
 		{dockerexec.ContainerRuntimeEnv: "docker"},
 	} {
-		ct := core.Container{Image: "localhost/reviewer:latest"}
+		ct := ir.Container{Image: "localhost/reviewer:latest"}
 		cfg, _, err := buildHarnessContainerRunConfig(
 			"/work", ct, nil, "claude", []string{"-p", "hi"}, nil, envs,
 		)
@@ -780,7 +780,7 @@ func TestBuildHarnessContainerRunConfig_DockerRuntimeUsesFromEnv(t *testing.T) {
 }
 
 func TestBuildHarnessContainerRunConfig_PodmanHostOverride(t *testing.T) {
-	ct := core.Container{Image: "localhost/reviewer:latest"}
+	ct := ir.Container{Image: "localhost/reviewer:latest"}
 	envs := map[string]string{
 		dockerexec.ContainerRuntimeEnv: "podman",
 		dockerexec.PodmanDaemonHostEnv: "unix:///custom/podman.sock",
@@ -793,7 +793,7 @@ func TestBuildHarnessContainerRunConfig_PodmanHostOverride(t *testing.T) {
 }
 
 func TestBuildHarnessContainerRunConfig_InvalidRuntimeRejected(t *testing.T) {
-	ct := core.Container{Image: "localhost/reviewer:latest"}
+	ct := ir.Container{Image: "localhost/reviewer:latest"}
 	envs := map[string]string{dockerexec.ContainerRuntimeEnv: "containerd"}
 	_, _, err := buildHarnessContainerRunConfig(
 		"/work", ct, nil, "claude", []string{"-p", "hi"}, nil, envs,
@@ -802,7 +802,7 @@ func TestBuildHarnessContainerRunConfig_InvalidRuntimeRejected(t *testing.T) {
 }
 
 func TestBuildHarnessContainerRunConfig_ExecModeUsesFullCommand(t *testing.T) {
-	ct := core.Container{Exec: "existing-container"}
+	ct := ir.Container{Exec: "existing-container"}
 	envs := map[string]string{dockerexec.ContainerRuntimeEnv: "podman"}
 	cfg, runCmd, err := buildHarnessContainerRunConfig(
 		"/work", ct, nil, "missing-agent", []string{"hello"}, []string{"FOO=bar"}, envs,
@@ -818,7 +818,7 @@ func TestBuildHarnessContainerRunConfig_ExecModeUsesFullCommand(t *testing.T) {
 }
 
 func TestBuildHarnessContainerRunConfig_EmptyBinaryRejected(t *testing.T) {
-	ct := core.Container{Image: "localhost/reviewer:latest"}
+	ct := ir.Container{Image: "localhost/reviewer:latest"}
 	_, _, err := buildHarnessContainerRunConfig("/work", ct, nil, "", nil, nil, nil)
 	require.Error(t, err)
 }
@@ -831,7 +831,7 @@ func TestBuildHarnessContainerRunConfig_EmptyBinaryRejected(t *testing.T) {
 // agent binary. So image mode must reject container.name; exec mode is the
 // supported way to run inside an existing container.
 func TestBuildHarnessContainerRunConfig_ImageModeNamedContainerRejected(t *testing.T) {
-	ct := core.Container{Image: "localhost/reviewer:latest", Name: "already-running"}
+	ct := ir.Container{Image: "localhost/reviewer:latest", Name: "already-running"}
 	envs := map[string]string{dockerexec.ContainerRuntimeEnv: "podman"}
 	_, _, err := buildHarnessContainerRunConfig(
 		"/work", ct, nil, "claude", []string{"-p", "hi"}, nil, envs,
@@ -840,7 +840,7 @@ func TestBuildHarnessContainerRunConfig_ImageModeNamedContainerRejected(t *testi
 	assert.Contains(t, err.Error(), "container.name is not supported")
 
 	// Sanity: the same image WITHOUT a name still builds fine (the proven path).
-	ctNoName := core.Container{Image: "localhost/reviewer:latest"}
+	ctNoName := ir.Container{Image: "localhost/reviewer:latest"}
 	_, _, err = buildHarnessContainerRunConfig(
 		"/work", ctNoName, nil, "claude", []string{"-p", "hi"}, nil, envs,
 	)
@@ -848,7 +848,7 @@ func TestBuildHarnessContainerRunConfig_ImageModeNamedContainerRejected(t *testi
 
 	// Exec mode legitimately targets an existing container and must NOT be rejected
 	// by the image-mode guard (it returns the full [binary, args...] command).
-	ctExec := core.Container{Exec: "already-running"}
+	ctExec := ir.Container{Exec: "already-running"}
 	cfg, runCmd, err := buildHarnessContainerRunConfig(
 		"/work", ctExec, nil, "claude", []string{"-p", "hi"}, nil, envs,
 	)
@@ -877,7 +877,7 @@ func TestServiceRuntimeEnv_ReadsProcessEnvOnly(t *testing.T) {
 		_, leaked := got[dockerexec.ContainerRuntimeEnv]
 		assert.False(t, leaked, "selector must not come from anywhere but process env")
 
-		ct := core.Container{Image: "localhost/reviewer:latest"}
+		ct := ir.Container{Image: "localhost/reviewer:latest"}
 		// inheritedEnv simulates a DAG/step env: trying to redirect the runtime;
 		// the resolver must ignore it because it reads ServiceRuntimeEnv() only.
 		cfg, _, err := buildHarnessContainerRunConfig(
@@ -915,19 +915,19 @@ func osUnsetForTest(t *testing.T, key string) {
 // client is initialized.
 func TestRunContainerOnce_StdinScriptRejected(t *testing.T) {
 	exec := &harnessExecutor{
-		step: core.Step{
+		step: ir.Step{
 			Name:      "review",
-			Container: &core.Container{Image: "localhost/reviewer:latest"},
+			Container: &ir.Container{Image: "localhost/reviewer:latest"},
 		},
 		prompt: "do the thing",
 		script: "extra stdin context",
 	}
 	cfg := providerConfig{
 		name: "stdinly",
-		definition: &core.HarnessDefinition{
+		definition: &ir.HarnessDefinition{
 			Binary:     "stdinly",
-			PromptMode: core.HarnessPromptModeStdin,
-			FlagStyle:  core.HarnessFlagStyleGNULong,
+			PromptMode: ir.HarnessPromptModeStdin,
+			FlagStyle:  ir.HarnessFlagStyleGNULong,
 		},
 		flags: map[string]any{"provider": "stdinly"},
 	}
@@ -942,12 +942,12 @@ func TestRunContainerOnce_StdinScriptRejected(t *testing.T) {
 // containerized harness provider runs via Client.Run which has no stdin, so a
 // script piped to stdin on the host path cannot be delivered.
 func TestValidateHarnessStep_ScriptWithContainerRejected(t *testing.T) {
-	step := core.Step{
+	step := ir.Step{
 		Name:           "review",
-		Commands:       []core.CommandEntry{{Command: "do the thing"}},
+		Commands:       []ir.CommandEntry{{Command: "do the thing"}},
 		Script:         "extra stdin context",
-		Container:      &core.Container{Image: "localhost/reviewer:latest"},
-		ExecutorConfig: core.ExecutorConfig{Config: map[string]any{"provider": "claude"}},
+		Container:      &ir.Container{Image: "localhost/reviewer:latest"},
+		ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{"provider": "claude"}},
 	}
 	err := validateHarnessStep(step)
 	require.Error(t, err)
@@ -972,14 +972,14 @@ func TestValidateHarnessStep_ScriptWithContainerRejected(t *testing.T) {
 // HostConfig. Without that call a containerized harness.run step would run
 // unbounded by the DAG's configured limits.
 func TestBuildHarnessContainerRunConfig_AcceptsResourceLimits(t *testing.T) {
-	ct := core.Container{Image: "localhost/reviewer:latest"}
+	ct := ir.Container{Image: "localhost/reviewer:latest"}
 	envs := map[string]string{dockerexec.ContainerRuntimeEnv: "podman"}
 	cfg, _, err := buildHarnessContainerRunConfig(
 		"/work", ct, nil, "claude", []string{"-p", "hi"}, nil, envs,
 	)
 	require.NoError(t, err)
 
-	limits := &core.ResourceLimits{CPUMillis: 500, MemoryBytes: 1024 * 1024 * 1024}
+	limits := &ir.ResourceLimits{CPUMillis: 500, MemoryBytes: 1024 * 1024 * 1024}
 	applied := dockerexec.ApplyResourceLimitsToConfig(cfg, limits)
 	require.True(t, applied, "image-mode harness config must accept resource limits")
 	require.NotNil(t, cfg.Host)
@@ -1012,21 +1012,21 @@ func TestHarnessExecutorRun_ResolvesRelativeBinaryFromWorkingDir(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(binPath), 0o755))
 	require.NoError(t, os.WriteFile(binPath, []byte("#!/bin/sh\necho \"resolved from workdir\"\n"), 0o755))
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "harness-workdir",
 		WorkingDir: workDir,
-		Harnesses: core.HarnessDefinitions{
+		Harnesses: ir.HarnessDefinitions{
 			"custom": {
 				Binary:     "./bin/agent",
-				PromptMode: core.HarnessPromptModeArg,
-				FlagStyle:  core.HarnessFlagStyleGNULong,
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
 			},
 		},
 	}
-	step := core.Step{
+	step := ir.Step{
 		Name:     "step1",
-		Commands: []core.CommandEntry{{Command: "hello"}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: "hello"}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "harness",
 			Config: map[string]any{"provider": "custom"},
 		},
@@ -1054,26 +1054,26 @@ func TestHarnessExecutorRun_FallbackBinaryOptionalUntilNeeded(t *testing.T) {
 
 	primary := writeHarnessTestBinary(t, "primary", "#!/bin/sh\necho \"primary ok\"\nexit 0\n")
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "harness-fallback",
 		WorkingDir: t.TempDir(),
-		Harnesses: core.HarnessDefinitions{
+		Harnesses: ir.HarnessDefinitions{
 			"primary": {
 				Binary:     primary,
-				PromptMode: core.HarnessPromptModeArg,
-				FlagStyle:  core.HarnessFlagStyleGNULong,
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
 			},
 			"fallback": {
 				Binary:     "definitely-missing-harness-binary",
-				PromptMode: core.HarnessPromptModeArg,
-				FlagStyle:  core.HarnessFlagStyleGNULong,
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
 			},
 		},
 	}
-	step := core.Step{
+	step := ir.Step{
 		Name:     "step1",
-		Commands: []core.CommandEntry{{Command: "hello"}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: "hello"}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "harness",
 			Config: map[string]any{
 				"provider": "primary",
@@ -1100,13 +1100,13 @@ func TestHarnessExecutorRun_FallbackBinaryOptionalUntilNeeded(t *testing.T) {
 }
 
 func TestNewHarnessRejectsMultipleCommands(t *testing.T) {
-	step := core.Step{
+	step := ir.Step{
 		Name: "step1",
-		Commands: []core.CommandEntry{
+		Commands: []ir.CommandEntry{
 			{Command: "hello"},
 			{Command: "goodbye"},
 		},
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "harness",
 			Config: map[string]any{"provider": "claude"},
 		},
@@ -1121,33 +1121,33 @@ func TestNewHarnessRejectsMultipleCommands(t *testing.T) {
 
 func TestExtractPrompt(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
-		assert.Equal(t, "", extractPrompt(core.Step{}))
+		assert.Equal(t, "", extractPrompt(ir.Step{}))
 	})
 
 	t.Run("cmd_with_args", func(t *testing.T) {
-		step := core.Step{
-			Commands: []core.CommandEntry{{CmdWithArgs: "Write tests for auth"}},
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{CmdWithArgs: "Write tests for auth"}},
 		}
 		assert.Equal(t, "Write tests for auth", extractPrompt(step))
 	})
 
 	t.Run("command_only", func(t *testing.T) {
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "Refactor"}},
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "Refactor"}},
 		}
 		assert.Equal(t, "Refactor", extractPrompt(step))
 	})
 
 	t.Run("command_with_args", func(t *testing.T) {
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "analyze", Args: []string{"--deep", "src/"}}},
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "analyze", Args: []string{"--deep", "src/"}}},
 		}
 		assert.Equal(t, "analyze --deep src/", extractPrompt(step))
 	})
 }
 
 func TestGetProvider(t *testing.T) {
-	for _, name := range core.BuiltinCLIHarnessProviderNames() {
+	for _, name := range ir.BuiltinCLIHarnessProviderNames() {
 		t.Run(name, func(t *testing.T) {
 			p, err := getProvider(name)
 			require.NoError(t, err)
@@ -1163,7 +1163,7 @@ func TestBuiltinCLIProvidersStayInSyncWithCoreList(t *testing.T) {
 	}
 	sort.Strings(registered)
 
-	assert.Equal(t, core.BuiltinCLIHarnessProviderNames(), registered)
+	assert.Equal(t, ir.BuiltinCLIHarnessProviderNames(), registered)
 }
 
 func TestRegisterProviderPanicsOnDuplicate(t *testing.T) {
@@ -1227,11 +1227,11 @@ func mustFallback(t *testing.T, value any) []map[string]any {
 	}
 }
 
-func newHarnessTestContext(t *testing.T, dag *core.DAG, step core.Step, envs ...string) context.Context {
+func newHarnessTestContext(t *testing.T, dag *ir.DAG, step ir.Step, envs ...string) context.Context {
 	t.Helper()
 
 	if dag == nil {
-		dag = &core.DAG{Name: "harness-test", WorkingDir: t.TempDir()}
+		dag = &ir.DAG{Name: "harness-test", WorkingDir: t.TempDir()}
 	}
 	if dag.Name == "" {
 		dag.Name = "harness-test"

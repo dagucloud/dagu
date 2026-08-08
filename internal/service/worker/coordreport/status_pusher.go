@@ -7,10 +7,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -20,14 +21,14 @@ var _ runtime.StatusPusher = (*StatusPusher)(nil)
 type StatusPusher struct {
 	client     coordinator.Client
 	workerID   string
-	owner      exec.HostInfo
+	owner      serviceregistry.HostInfo
 	claimKey   string
 	sourceFile string
 	labels     string
 }
 
 // NewTaskStatusPusher creates a StatusPusher bound to a dispatched task.
-func NewTaskStatusPusher(client coordinator.Client, workerID string, task *coordinatorv1.Task, owner ...exec.HostInfo) *StatusPusher {
+func NewTaskStatusPusher(client coordinator.Client, workerID string, task *coordinatorv1.Task, owner ...serviceregistry.HostInfo) *StatusPusher {
 	if task == nil {
 		return NewStatusPusher(client, workerID, "", owner...)
 	}
@@ -59,8 +60,8 @@ func (e *AttemptRejectedError) AttemptRejectedReason() string {
 }
 
 // NewStatusPusher creates a StatusPusher bound to a worker claim.
-func NewStatusPusher(client coordinator.Client, workerID, claimKey string, owner ...exec.HostInfo) *StatusPusher {
-	var target exec.HostInfo
+func NewStatusPusher(client coordinator.Client, workerID, claimKey string, owner ...serviceregistry.HostInfo) *StatusPusher {
+	var target serviceregistry.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}
@@ -73,7 +74,7 @@ func NewStatusPusher(client coordinator.Client, workerID, claimKey string, owner
 }
 
 // Push sends a status update to the coordinator
-func (p *StatusPusher) Push(ctx context.Context, status exec.DAGRunStatus) error {
+func (p *StatusPusher) Push(ctx context.Context, status dagrun.DAGRunStatus) error {
 	if p.claimKey != "" {
 		status.ClaimKey = p.claimKey
 	}

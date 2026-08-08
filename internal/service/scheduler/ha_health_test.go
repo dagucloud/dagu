@@ -12,11 +12,14 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
@@ -60,9 +63,9 @@ func TestScheduler_StandbyHealthServerStartsBeforeLockAndStopsCleanly(t *testing
 
 type haSchedulerFixture struct {
 	cfg         *config.Config
-	dagRunStore exec.DAGRunStore
-	queueStore  exec.QueueStore
-	procStore   exec.ProcStore
+	dagRunStore dagrun.DAGRunStore
+	queueStore  queuedomain.QueueStore
+	procStore   procdomain.ProcStore
 	dagRunMgr   runtime.Manager
 }
 
@@ -96,9 +99,9 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 		DefaultExecMode: config.ExecutionModeLocal,
 	}
 
-	dagRunStore := dagrun.New(
+	dagRunStore := filedagrun.New(
 		cfg.Paths.DAGRunsDir,
-		dagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
+		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
 	)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	procStore := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)
@@ -259,10 +262,10 @@ func (*staticEntryReader) Start(context.Context) {}
 
 func (*staticEntryReader) Stop() {}
 
-func (*staticEntryReader) DAGs() []*core.DAG {
+func (*staticEntryReader) DAGs() []*ir.DAG {
 	return nil
 }
 
-func (*staticEntryReader) DAGStore() exec.DAGStore {
+func (*staticEntryReader) DAGStore() dagstore.DAGStore {
 	return nil
 }

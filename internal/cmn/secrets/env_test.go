@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +26,7 @@ func TestEnvResolver_Validate(t *testing.T) {
 	require.NotNil(t, resolver)
 
 	t.Run("ValidReference", func(t *testing.T) {
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "DB_PASSWORD",
 			Provider: "env",
 			Key:      "DATABASE_PASSWORD",
@@ -36,7 +36,7 @@ func TestEnvResolver_Validate(t *testing.T) {
 	})
 
 	t.Run("EmptyKey", func(t *testing.T) {
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SECRET",
 			Provider: "env",
 			Key:      "",
@@ -57,7 +57,7 @@ func TestEnvResolver_Resolve(t *testing.T) {
 	t.Run("ExistingVariable", func(t *testing.T) {
 		t.Setenv("TEST_SECRET_VAR", "secret_value")
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "DB_PASSWORD",
 			Provider: "env",
 			Key:      "TEST_SECRET_VAR",
@@ -69,7 +69,7 @@ func TestEnvResolver_Resolve(t *testing.T) {
 	})
 
 	t.Run("NonExistentVariable", func(t *testing.T) {
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MISSING_SECRET",
 			Provider: "env",
 			Key:      "NONEXISTENT_VAR_12345",
@@ -84,7 +84,7 @@ func TestEnvResolver_Resolve(t *testing.T) {
 	t.Run("EmptyButExistingVariable", func(t *testing.T) {
 		t.Setenv("EMPTY_VAR", "")
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "EMPTY_SECRET",
 			Provider: "env",
 			Key:      "EMPTY_VAR",
@@ -98,7 +98,7 @@ func TestEnvResolver_Resolve(t *testing.T) {
 	t.Run("VariableWithWhitespace", func(t *testing.T) {
 		t.Setenv("WHITESPACE_VAR", "  value with spaces  ")
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "WHITESPACE_SECRET",
 			Provider: "env",
 			Key:      "WHITESPACE_VAR",
@@ -113,7 +113,7 @@ func TestEnvResolver_Resolve(t *testing.T) {
 		multilineValue := "line1\nline2\nline3"
 		t.Setenv("MULTILINE_VAR", multilineValue)
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MULTILINE_SECRET",
 			Provider: "env",
 			Key:      "MULTILINE_VAR",
@@ -128,7 +128,7 @@ func TestEnvResolver_Resolve(t *testing.T) {
 		specialValue := "p@ssw0rd!#$%^&*()"
 		t.Setenv("SPECIAL_VAR", specialValue)
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SPECIAL_SECRET",
 			Provider: "env",
 			Key:      "SPECIAL_VAR",
@@ -149,7 +149,7 @@ func TestEnvResolver_CheckAccessibility(t *testing.T) {
 	t.Run("AccessibleVariable", func(t *testing.T) {
 		t.Setenv("ACCESSIBLE_VAR", "value")
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SECRET",
 			Provider: "env",
 			Key:      "ACCESSIBLE_VAR",
@@ -160,7 +160,7 @@ func TestEnvResolver_CheckAccessibility(t *testing.T) {
 	})
 
 	t.Run("InaccessibleVariable", func(t *testing.T) {
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MISSING",
 			Provider: "env",
 			Key:      "INACCESSIBLE_VAR_98765",
@@ -175,7 +175,7 @@ func TestEnvResolver_CheckAccessibility(t *testing.T) {
 	t.Run("EmptyVariableIsAccessible", func(t *testing.T) {
 		t.Setenv("EMPTY_BUT_SET", "")
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "EMPTY",
 			Provider: "env",
 			Key:      "EMPTY_BUT_SET",
@@ -196,7 +196,7 @@ func TestEnvResolver_PresolvedPrefix(t *testing.T) {
 		// The original var is NOT set, only the presolved transport var
 		t.Setenv("_DAGU_PRESOLVED_SECRET_SMTP_PASS", "from-parent")
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SMTP_PASSWORD",
 			Provider: "env",
 			Key:      "SMTP_PASS",
@@ -210,7 +210,7 @@ func TestEnvResolver_PresolvedPrefix(t *testing.T) {
 	t.Run("CheckAccessibilityFromPresolved", func(t *testing.T) {
 		t.Setenv("_DAGU_PRESOLVED_SECRET_CHECK_VAR", "val")
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SECRET",
 			Provider: "env",
 			Key:      "CHECK_VAR",
@@ -227,7 +227,7 @@ func TestEnvResolver_PresolvedPrefix(t *testing.T) {
 		scope := cmnvalue.NewEnvScope(nil, false).WithEntry("MY_KEY", "scope-value", cmnvalue.EnvSourceDAGEnv)
 		scopeCtx := cmnvalue.WithEnvScope(ctx, scope)
 
-		ref := core.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SECRET",
 			Provider: "env",
 			Key:      "MY_KEY",
@@ -248,7 +248,7 @@ func TestEnvResolver_OptionsIgnored(t *testing.T) {
 	t.Setenv("TEST_VAR", "value")
 
 	// Options should be ignored by env resolver
-	ref := core.SecretRef{
+	ref := secretref.Ref{
 		Name:     "SECRET",
 		Provider: "env",
 		Key:      "TEST_VAR",
@@ -272,7 +272,7 @@ func TestEnvResolver_ConcurrentAccess(t *testing.T) {
 
 	t.Setenv("CONCURRENT_VAR", "concurrent_value")
 
-	ref := core.SecretRef{
+	ref := secretref.Ref{
 		Name:     "CONCURRENT",
 		Provider: "env",
 		Key:      "CONCURRENT_VAR",

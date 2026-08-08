@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
@@ -1553,7 +1553,7 @@ func TestSearchCursorWithFilterPrefix(t *testing.T) {
 		Cursor:       firstPage.NextCursor,
 	})
 	require.Nil(t, result)
-	assert.ErrorIs(t, err, exec.ErrInvalidCursor)
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
 }
 
 func TestSearchMatchesRejectsInvalidDocID(t *testing.T) {

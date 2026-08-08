@@ -14,13 +14,15 @@ import (
 	"strconv"
 	"strings"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // CommandError wraps a command execution error with captured output.
@@ -118,7 +120,7 @@ func filteredParentEnv() []string {
 	env := os.Environ()
 	filtered := env[:0]
 	for _, entry := range env {
-		if strings.HasPrefix(entry, exec1.EnvKeyQueueDispatchRetry+"=") {
+		if strings.HasPrefix(entry, runenv.EnvKeyQueueDispatchRetry+"=") {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -127,7 +129,7 @@ func filteredParentEnv() []string {
 }
 
 // Start creates a start command spec.
-func (b *SubCmdBuilder) Start(dag *core.DAG, opts StartOptions) CmdSpec {
+func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	args := []string{"start"}
 
 	if opts.Params != "" {
@@ -174,15 +176,16 @@ func (b *SubCmdBuilder) Start(dag *core.DAG, opts StartOptions) CmdSpec {
 	args = append(args, target)
 
 	return CmdSpec{
-		Executable: b.executable,
-		Args:       args,
-		Env:        b.parentEnv(),
-		BuildEnv:   append([]string{}, dag.Env...),
+		Executable:      b.executable,
+		Args:            args,
+		Env:             b.parentEnv(),
+		BuildEnv:        append([]string{}, dag.Env...),
+		RuntimeResolved: dag.RuntimeResolved,
 	}
 }
 
 // Enqueue creates an enqueue command spec.
-func (b *SubCmdBuilder) Enqueue(dag *core.DAG, opts EnqueueOptions) CmdSpec {
+func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	args := []string{"enqueue"}
 
 	if opts.Params != "" {
@@ -224,17 +227,18 @@ func (b *SubCmdBuilder) Enqueue(dag *core.DAG, opts EnqueueOptions) CmdSpec {
 	args = append(args, dag.Location)
 
 	return CmdSpec{
-		Executable: b.executable,
-		Args:       args,
-		Env:        b.filteredEnv(),
-		BuildEnv:   append([]string{}, dag.Env...),
-		Stdout:     os.Stdout,
-		Stderr:     os.Stderr,
+		Executable:      b.executable,
+		Args:            args,
+		Env:             b.filteredEnv(),
+		BuildEnv:        append([]string{}, dag.Env...),
+		RuntimeResolved: dag.RuntimeResolved,
+		Stdout:          os.Stdout,
+		Stderr:          os.Stderr,
 	}
 }
 
 // Dequeue creates a dequeue command spec.
-func (b *SubCmdBuilder) Dequeue(dag *core.DAG, dagRun exec1.DAGRunRef) CmdSpec {
+func (b *SubCmdBuilder) Dequeue(dag *ir.DAG, dagRun dagrun.DAGRunRef) CmdSpec {
 	queueName := dag.ProcGroup()
 	args := []string{"dequeue", queueName, fmt.Sprintf("--dag-run=%s", dagRun.String())}
 
@@ -252,7 +256,7 @@ func (b *SubCmdBuilder) Dequeue(dag *core.DAG, dagRun exec1.DAGRunRef) CmdSpec {
 }
 
 // Restart creates a restart command spec.
-func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
+func (b *SubCmdBuilder) Restart(dag *ir.DAG, opts RestartOptions) CmdSpec {
 	args := []string{"restart"}
 
 	if opts.Quiet {
@@ -267,15 +271,16 @@ func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
 	args = append(args, dag.Location)
 
 	return CmdSpec{
-		Executable: b.executable,
-		Args:       args,
-		Env:        b.parentEnv(),
-		BuildEnv:   append([]string{}, dag.Env...),
+		Executable:      b.executable,
+		Args:            args,
+		Env:             b.parentEnv(),
+		BuildEnv:        append([]string{}, dag.Env...),
+		RuntimeResolved: dag.RuntimeResolved,
 	}
 }
 
 // Retry creates a retry command spec.
-func (b *SubCmdBuilder) Retry(dag *core.DAG, opts RetryOptions) CmdSpec {
+func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 	args := []string{"retry", fmt.Sprintf("--run-id=%s", opts.DAGRunID), "-q"}
 
 	if opts.Step != "" {
@@ -297,25 +302,27 @@ func (b *SubCmdBuilder) Retry(dag *core.DAG, opts RetryOptions) CmdSpec {
 	args = append(args, dag.Name)
 
 	spec := CmdSpec{
-		Executable: b.executable,
-		Args:       args,
-		Env:        b.parentEnv(),
-		BuildEnv:   append([]string{}, dag.Env...),
+		Executable:      b.executable,
+		Args:            args,
+		Env:             b.parentEnv(),
+		BuildEnv:        append([]string{}, dag.Env...),
+		RuntimeResolved: dag.RuntimeResolved,
 	}
 	if opts.QueueDispatch {
-		spec.Env = append(spec.Env, exec1.EnvKeyQueueDispatchRetry+"=1")
+		spec.Env = append(spec.Env, runenv.EnvKeyQueueDispatchRetry+"=1")
 	}
 	return spec
 }
 
 // CmdSpec describes a command to be executed with all its configuration.
 type CmdSpec struct {
-	Executable string
-	Args       []string
-	Env        []string
-	BuildEnv   []string
-	Stdout     io.Writer
-	Stderr     io.Writer
+	Executable      string
+	Args            []string
+	Env             []string
+	BuildEnv        []string
+	RuntimeResolved bool
+	Stdout          io.Writer
+	Stderr          io.Writer
 }
 
 // StartOptions contains options for initiating a dag-run.
@@ -356,8 +363,8 @@ type EnqueueOptions struct {
 type RetryOptions struct {
 	DAGRunID      string
 	Step          string
-	Root          exec1.DAGRunRef
-	RetryPath     exec1.RetryPath
+	Root          dagrun.DAGRunRef
+	RetryPath     dagrun.RetryPath
 	TriggerActor  string
 	QueueDispatch bool
 }
@@ -470,7 +477,7 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	if spec.Env != nil {
 		env = append([]string{}, spec.Env...)
 	}
-	extraEnv, cleanup, err := buildenv.Prepare(spec.BuildEnv)
+	extraEnv, cleanup, err := buildenv.Prepare(buildenv.NewSnapshot(spec.BuildEnv, spec.RuntimeResolved))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to prepare presolved build env transport: %w", err)
 	}

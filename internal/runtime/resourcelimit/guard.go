@@ -7,14 +7,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Options describes resource limits for one DAG run.
 type Options struct {
 	DAGName  string
 	DAGRunID string
-	Limits   *core.ResourceLimits
+	Limits   *ir.ResourceLimits
 }
 
 // Result describes whether the requested limits are enforced.

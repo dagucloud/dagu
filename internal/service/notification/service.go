@@ -27,16 +27,18 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 type Service struct {
 	store                   notificationmodel.Store
-	dagStore                exec.DAGStore
+	dagStore                dagstore.DAGStore
 	http                    *http.Client
 	logger                  *slog.Logger
 	retry                   DeliveryRetryConfig
@@ -114,7 +116,7 @@ func (s *Service) SetPublicURLResolver(resolver func() string) {
 	}
 }
 
-func New(store notificationmodel.Store, dagStore exec.DAGStore, opts ...Option) *Service {
+func New(store notificationmodel.Store, dagStore dagstore.DAGStore, opts ...Option) *Service {
 	svc := &Service{
 		store:                   store,
 		dagStore:                dagStore,
@@ -469,7 +471,7 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if event.Status == nil || routeKey == "" {
 		return nil
 	}
-	if _, state := eventWorkspace(event); state == exec.WorkspaceLabelInvalid {
+	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid {
 		return nil
 	}
 	ctx := context.Background()
@@ -831,7 +833,7 @@ func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarg
 func (s *Service) testEvent(ctx context.Context, dagName string, eventType eventstore.EventType) chatbridge.NotificationEvent {
 	status := testStatus(dagName, eventType)
 	if s.dagStore != nil {
-		if dag, err := s.dagStore.GetDetails(ctx, dagName, exec.DAGLoadOptions{}); err == nil && dag != nil {
+		if dag, err := s.dagStore.GetDetails(ctx, dagName, dagstore.DAGLoadOptions{}); err == nil && dag != nil {
 			if dag.Name != "" {
 				status.Name = dag.Name
 			}
@@ -872,33 +874,33 @@ func (s *Service) isSupportedEvent(eventType eventstore.EventType) bool {
 	return false
 }
 
-func testStatus(dagName string, eventType eventstore.EventType) *exec.DAGRunStatus {
+func testStatus(dagName string, eventType eventstore.EventType) *dagrun.DAGRunStatus {
 	now := time.Now().UTC()
-	status := core.Failed
+	status := ir.Failed
 	message := "This is a test notification from Dagu."
 	switch eventType {
 	case eventstore.TypeDAGRunWaiting:
-		status = core.Waiting
+		status = ir.Waiting
 		message = "This is a test waiting notification from Dagu."
 	case eventstore.TypeDAGRunSucceeded:
-		status = core.Succeeded
+		status = ir.Succeeded
 		message = ""
 	case eventstore.TypeDAGRunPartiallySucceeded:
-		status = core.PartiallySucceeded
+		status = ir.PartiallySucceeded
 		message = "This is a test partially succeeded notification from Dagu."
 	case eventstore.TypeDAGRunFailed:
 	case eventstore.TypeDAGRunAborted:
-		status = core.Aborted
+		status = ir.Aborted
 		message = "This is a test aborted notification from Dagu."
 	case eventstore.TypeDAGRunRejected:
-		status = core.Rejected
+		status = ir.Rejected
 		message = "This is a test rejected notification from Dagu."
 	case eventstore.TypeDAGRunQueued,
 		eventstore.TypeDAGRunRunning,
 		eventstore.TypeDAGRunUpdated,
 		eventstore.TypeLLMUsageRecorded:
 	}
-	return &exec.DAGRunStatus{
+	return &dagrun.DAGRunStatus{
 		Name:       dagName,
 		DAGRunID:   "notification-test",
 		AttemptID:  "notification-test",
@@ -1126,7 +1128,7 @@ func (s *Service) routeSetDestinationsForEvent(
 
 func (s *Service) effectiveRouteSetForEvent(ctx context.Context, event chatbridge.NotificationEvent) *notificationmodel.RouteSet {
 	workspaceName, state := eventWorkspace(event)
-	if state == exec.WorkspaceLabelInvalid {
+	if state == workspace.WorkspaceLabelInvalid {
 		return nil
 	}
 	if workspaceName != "" {
@@ -1211,16 +1213,16 @@ func (s *Service) matchingRouteEvents(ctx context.Context, routeSet *notificatio
 	return result
 }
 
-func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceLabelState) {
+func eventWorkspace(event chatbridge.NotificationEvent) (string, workspace.WorkspaceLabelState) {
 	if event.Status == nil {
-		return "", exec.WorkspaceLabelMissing
+		return "", workspace.WorkspaceLabelMissing
 	}
-	return exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
+	return workspace.WorkspaceLabelFromLabels(ir.NewLabels(event.Status.Labels))
 }
 
 func eventWorkspaceName(event chatbridge.NotificationEvent) string {
 	workspaceName, state := eventWorkspace(event)
-	if state == exec.WorkspaceLabelValid {
+	if state == workspace.WorkspaceLabelValid {
 		return workspaceName
 	}
 	return ""
@@ -1780,12 +1782,12 @@ func notificationTemplateValues(event chatbridge.NotificationEvent, publicURL st
 	return values
 }
 
-func notificationStepStatusValues(status *exec.DAGRunStatus) map[string]string {
-	labels := map[core.NodeStatus][]string{
-		core.NodeFailed:             nil,
-		core.NodePartiallySucceeded: nil,
-		core.NodeAborted:            nil,
-		core.NodeSucceeded:          nil,
+func notificationStepStatusValues(status *dagrun.DAGRunStatus) map[string]string {
+	labels := map[ir.NodeStatus][]string{
+		ir.NodeFailed:             nil,
+		ir.NodePartiallySucceeded: nil,
+		ir.NodeAborted:            nil,
+		ir.NodeSucceeded:          nil,
 	}
 	for _, node := range status.Nodes {
 		if node == nil {
@@ -1811,10 +1813,10 @@ func notificationStepStatusValues(status *exec.DAGRunStatus) map[string]string {
 	}
 
 	return map[string]string{
-		"run.failed_steps":              strings.Join(labels[core.NodeFailed], ", "),
-		"run.partially_succeeded_steps": strings.Join(labels[core.NodePartiallySucceeded], ", "),
-		"run.aborted_steps":             strings.Join(labels[core.NodeAborted], ", "),
-		"run.succeeded_steps":           strings.Join(labels[core.NodeSucceeded], ", "),
+		"run.failed_steps":              strings.Join(labels[ir.NodeFailed], ", "),
+		"run.partially_succeeded_steps": strings.Join(labels[ir.NodePartiallySucceeded], ", "),
+		"run.aborted_steps":             strings.Join(labels[ir.NodeAborted], ", "),
+		"run.succeeded_steps":           strings.Join(labels[ir.NodeSucceeded], ", "),
 	}
 }
 
@@ -1840,14 +1842,14 @@ func notificationTemplateTime(value string) string {
 	return parsed.Format(time.RFC3339)
 }
 
-func notificationRunPath(status *exec.DAGRunStatus) string {
+func notificationRunPath(status *dagrun.DAGRunStatus) string {
 	if status == nil || status.Name == "" || status.DAGRunID == "" {
 		return ""
 	}
 
 	root := status.Root
 	if root.Zero() {
-		root = exec.NewDAGRunRef(status.Name, status.DAGRunID)
+		root = dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
 	}
 	if root.Name == "" || root.ID == "" {
 		return ""
@@ -1876,7 +1878,7 @@ func notificationRunURL(publicURL, runPath string) string {
 	return strings.TrimRight(publicURL, "/") + "/" + strings.TrimLeft(runPath, "/")
 }
 
-func notificationRunLink(status *exec.DAGRunStatus, publicURL string) string {
+func notificationRunLink(status *dagrun.DAGRunStatus, publicURL string) string {
 	if runURL := notificationRunURL(publicURL, notificationRunPath(status)); runURL != "" {
 		return "Run: " + runURL
 	}

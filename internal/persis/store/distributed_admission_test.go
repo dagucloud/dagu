@@ -12,7 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
@@ -29,7 +30,7 @@ func TestDispatchAdmissionStore_ReserveAdmissionRejectsDuplicateAcrossStores(t *
 
 	require.Len(t, results, 2)
 	assert.Equal(t, 1, countReservedDecisions(results))
-	assert.Equal(t, 1, countRejectReason(results, exec.DispatchAdmissionRejectedDuplicate))
+	assert.Equal(t, 1, countRejectReason(results, dispatch.DispatchAdmissionRejectedDuplicate))
 }
 
 func TestDispatchAdmissionStore_ReserveAdmissionHonorsQueueCapacityAcrossStores(t *testing.T) {
@@ -53,7 +54,7 @@ func TestDispatchAdmissionStore_ReserveAdmissionHonorsQueueCapacityAcrossStores(
 	wg.Wait()
 
 	assert.Equal(t, 1, countReservedDecisions(results))
-	assert.Equal(t, 1, countRejectReason(results, exec.DispatchAdmissionRejectedNoCapacity))
+	assert.Equal(t, 1, countRejectReason(results, dispatch.DispatchAdmissionRejectedNoCapacity))
 }
 
 func TestDispatchAdmissionStore_ReserveAdmissionCountsOldHighSlotsAfterConcurrencyDecrease(t *testing.T) {
@@ -72,7 +73,7 @@ func TestDispatchAdmissionStore_ReserveAdmissionCountsOldHighSlotsAfterConcurren
 	result := reserveAdmission(ctx, s, dispatchAdmissionRequest("queue-a", "attempt-key-d", "attempt-d", 2))
 	require.NoError(t, result.err)
 	require.False(t, result.decision.Reserved)
-	assert.Equal(t, exec.DispatchAdmissionRejectedNoCapacity, result.decision.Reason)
+	assert.Equal(t, dispatch.DispatchAdmissionRejectedNoCapacity, result.decision.Reason)
 }
 
 func TestDispatchAdmissionStore_ReserveAdmissionCountsNonAdmissionOccupancy(t *testing.T) {
@@ -88,7 +89,7 @@ func TestDispatchAdmissionStore_ReserveAdmissionCountsNonAdmissionOccupancy(t *t
 
 	require.NoError(t, result.err)
 	require.False(t, result.decision.Reserved)
-	assert.Equal(t, exec.DispatchAdmissionRejectedNoCapacity, result.decision.Reason)
+	assert.Equal(t, dispatch.DispatchAdmissionRejectedNoCapacity, result.decision.Reason)
 }
 
 func TestDispatchAdmissionStore_ReserveAdmissionCountsLegacyPendingClaimAndLease(t *testing.T) {
@@ -99,10 +100,10 @@ func TestDispatchAdmissionStore_ReserveAdmissionCountsLegacyPendingClaimAndLease
 	s := stores.first
 	leaseStore := stores.leaseStore
 	require.NoError(t, s.Enqueue(ctx, dispatchAdmissionTask("queue-a", "legacy-pending-attempt", "legacy-pending")))
-	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey:      "legacy-lease-attempt",
-		DAGRun:          exec.NewDAGRunRef("dag-a", "run-legacy"),
-		Root:            exec.NewDAGRunRef("dag-a", "run-legacy"),
+		DAGRun:          dagrun.NewDAGRunRef("dag-a", "run-legacy"),
+		Root:            dagrun.NewDAGRunRef("dag-a", "run-legacy"),
 		AttemptID:       "legacy-lease",
 		QueueName:       "queue-a",
 		WorkerID:        "worker-a",
@@ -113,7 +114,7 @@ func TestDispatchAdmissionStore_ReserveAdmissionCountsLegacyPendingClaimAndLease
 
 	require.NoError(t, result.err)
 	require.False(t, result.decision.Reserved)
-	assert.Equal(t, exec.DispatchAdmissionRejectedNoCapacity, result.decision.Reason)
+	assert.Equal(t, dispatch.DispatchAdmissionRejectedNoCapacity, result.decision.Reason)
 }
 
 func TestDispatchAdmissionStore_BindAdmissionIsIdempotentForSameToken(t *testing.T) {
@@ -128,12 +129,12 @@ func TestDispatchAdmissionStore_BindAdmissionIsIdempotentForSameToken(t *testing
 	require.True(t, result.decision.Reserved)
 
 	task := dispatchAdmissionTask("queue-a", req.AttemptKey, req.AttemptID)
-	require.NoError(t, s.BindAdmission(ctx, exec.DispatchAdmissionBindRequest{
+	require.NoError(t, s.BindAdmission(ctx, dispatch.DispatchAdmissionBindRequest{
 		ReservationToken: result.decision.ReservationToken,
 		Task:             task,
 	}))
 
-	claimed, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
 		WorkerID:     "worker-a",
 		PollerID:     "poller-a",
 		ClaimTimeout: time.Minute,
@@ -141,17 +142,17 @@ func TestDispatchAdmissionStore_BindAdmissionIsIdempotentForSameToken(t *testing
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
 
-	require.NoError(t, s.BindAdmission(ctx, exec.DispatchAdmissionBindRequest{
+	require.NoError(t, s.BindAdmission(ctx, dispatch.DispatchAdmissionBindRequest{
 		ReservationToken: result.decision.ReservationToken,
 		Task:             task,
 	}))
 	require.NoError(t, s.DeleteClaim(ctx, claimed.ClaimToken))
-	require.NoError(t, s.BindAdmission(ctx, exec.DispatchAdmissionBindRequest{
+	require.NoError(t, s.BindAdmission(ctx, dispatch.DispatchAdmissionBindRequest{
 		ReservationToken: result.decision.ReservationToken,
 		Task:             task,
 	}))
 
-	claimedAgain, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{
+	claimedAgain, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
 		WorkerID:     "worker-a",
 		PollerID:     "poller-a",
 		ClaimTimeout: time.Minute,
@@ -174,7 +175,7 @@ func TestDispatchAdmissionStore_BindAndClaimConcurrently(t *testing.T) {
 	var (
 		wg       sync.WaitGroup
 		bindErr  error
-		claimed  *exec.ClaimedDispatchTask
+		claimed  *dispatch.ClaimedDispatchTask
 		claimErr error
 	)
 	start := make(chan struct{})
@@ -182,7 +183,7 @@ func TestDispatchAdmissionStore_BindAndClaimConcurrently(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		<-start
-		bindErr = s.BindAdmission(ctx, exec.DispatchAdmissionBindRequest{
+		bindErr = s.BindAdmission(ctx, dispatch.DispatchAdmissionBindRequest{
 			ReservationToken: result.decision.ReservationToken,
 			Task:             dispatchAdmissionTask("queue-a", req.AttemptKey, req.AttemptID),
 		})
@@ -190,7 +191,7 @@ func TestDispatchAdmissionStore_BindAndClaimConcurrently(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		<-start
-		claimed, claimErr = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		claimed, claimErr = s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
 			WorkerID: "worker-a",
 			PollerID: "poller-a",
 		})
@@ -202,7 +203,7 @@ func TestDispatchAdmissionStore_BindAndClaimConcurrently(t *testing.T) {
 	require.NoError(t, claimErr)
 	if claimed == nil {
 		var err error
-		claimed, err = s.ClaimNext(ctx, exec.DispatchTaskClaim{
+		claimed, err = s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
 			WorkerID: "worker-a",
 			PollerID: "poller-a",
 		})
@@ -215,7 +216,7 @@ func TestDispatchAdmissionStore_BindAndClaimConcurrently(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, outstanding)
 
-	next, err := s.ClaimNext(ctx, exec.DispatchTaskClaim{WorkerID: "worker-b", PollerID: "poller-b"})
+	next, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-b", PollerID: "poller-b"})
 	require.NoError(t, err)
 	assert.Nil(t, next)
 }
@@ -232,7 +233,7 @@ func TestDispatchAdmissionStore_BindAdmissionRequiresMatchingSlotAndToken(t *tes
 	require.True(t, result.decision.Reserved)
 	require.NoError(t, s.FinalizeAdmissionAttempt(ctx, req.AttemptKey))
 
-	err := s.BindAdmission(ctx, exec.DispatchAdmissionBindRequest{
+	err := s.BindAdmission(ctx, dispatch.DispatchAdmissionBindRequest{
 		ReservationToken: result.decision.ReservationToken,
 		Task:             dispatchAdmissionTask("queue-a", req.AttemptKey, req.AttemptID),
 	})
@@ -261,12 +262,12 @@ func TestDispatchAdmissionStore_BindAdmissionRejectsExpiredReservation(t *testin
 
 	time.Sleep(50 * time.Millisecond)
 
-	err := s.BindAdmission(ctx, exec.DispatchAdmissionBindRequest{
+	err := s.BindAdmission(ctx, dispatch.DispatchAdmissionBindRequest{
 		ReservationToken: result.decision.ReservationToken,
 		Task:             dispatchAdmissionTask("queue-a", req.AttemptKey, req.AttemptID),
 	})
 
-	require.ErrorIs(t, err, exec.ErrDispatchAdmissionNotFound)
+	require.ErrorIs(t, err, dispatch.ErrDispatchAdmissionNotFound)
 }
 
 func TestDispatchAdmissionStore_FinalizeAdmissionAttemptReleasesSlot(t *testing.T) {
@@ -299,11 +300,11 @@ func TestDispatchAdmissionStore_ReserveAdmissionRequiresLivenessStores(t *testin
 
 	_, err := s.ReserveAdmission(ctx, dispatchAdmissionRequest("queue-a", "attempt-key-a", "attempt-a", 1))
 
-	require.ErrorIs(t, err, exec.ErrDispatchAdmissionLivenessNotConfigured)
+	require.ErrorIs(t, err, dispatch.ErrDispatchAdmissionLivenessNotConfigured)
 }
 
 type admissionReserveResult struct {
-	decision *exec.DispatchAdmissionDecision
+	decision *dispatch.DispatchAdmissionDecision
 	err      error
 }
 
@@ -331,20 +332,20 @@ func newDispatchAdmissionTestStores(t *testing.T) dispatchAdmissionTestStores {
 	}
 }
 
-func dispatchAdmissionRequest(queueName, attemptKey, attemptID string, maxConcurrency int) exec.DispatchAdmissionRequest {
-	return exec.DispatchAdmissionRequest{
+func dispatchAdmissionRequest(queueName, attemptKey, attemptID string, maxConcurrency int) dispatch.DispatchAdmissionRequest {
+	return dispatch.DispatchAdmissionRequest{
 		QueueName:      queueName,
 		MaxConcurrency: maxConcurrency,
 		AttemptKey:     attemptKey,
 		AttemptID:      attemptID,
-		DAGRun:         exec.NewDAGRunRef("dag-a", "run-"+attemptID),
+		DAGRun:         dagrun.NewDAGRunRef("dag-a", "run-"+attemptID),
 		StaleThreshold: time.Minute,
 	}
 }
 
-func dispatchAdmissionTask(queueName, attemptKey, attemptID string) *exec.DispatchTask {
-	return &exec.DispatchTask{
-		Operation:  exec.DispatchOperationRetry,
+func dispatchAdmissionTask(queueName, attemptKey, attemptID string) *dispatch.DispatchTask {
+	return &dispatch.DispatchTask{
+		Operation:  dispatch.DispatchOperationRetry,
 		DAGRunID:   "run-" + attemptID,
 		Target:     "dag-a",
 		Definition: "steps:\n- command: echo ok\n",
@@ -354,17 +355,17 @@ func dispatchAdmissionTask(queueName, attemptKey, attemptID string) *exec.Dispat
 	}
 }
 
-func reserveAdmission(ctx context.Context, s exec.DispatchAdmissionStore, req exec.DispatchAdmissionRequest) admissionReserveResult {
+func reserveAdmission(ctx context.Context, s dispatch.DispatchAdmissionStore, req dispatch.DispatchAdmissionRequest) admissionReserveResult {
 	decision, err := s.ReserveAdmission(ctx, req)
 	return admissionReserveResult{decision: decision, err: err}
 }
 
-func reserveAdmissionConcurrently(ctx context.Context, req exec.DispatchAdmissionRequest, stores ...exec.DispatchAdmissionStore) []admissionReserveResult {
+func reserveAdmissionConcurrently(ctx context.Context, req dispatch.DispatchAdmissionRequest, stores ...dispatch.DispatchAdmissionStore) []admissionReserveResult {
 	results := make([]admissionReserveResult, len(stores))
 	var wg sync.WaitGroup
 	for i, s := range stores {
 		wg.Add(1)
-		go func(idx int, admissionStore exec.DispatchAdmissionStore) {
+		go func(idx int, admissionStore dispatch.DispatchAdmissionStore) {
 			defer wg.Done()
 			results[idx] = reserveAdmission(ctx, admissionStore, req)
 		}(i, s)
@@ -383,7 +384,7 @@ func countReservedDecisions(results []admissionReserveResult) int {
 	return count
 }
 
-func countRejectReason(results []admissionReserveResult, reason exec.DispatchAdmissionRejectReason) int {
+func countRejectReason(results []admissionReserveResult, reason dispatch.DispatchAdmissionRejectReason) int {
 	var count int
 	for _, result := range results {
 		if result.err == nil && result.decision != nil && !result.decision.Reserved && result.decision.Reason == reason {

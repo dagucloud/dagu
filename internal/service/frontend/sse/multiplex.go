@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/google/uuid"
 )
 
@@ -210,9 +210,9 @@ func (m *Multiplexer) WakeTopicType(topicType TopicType) {
 	}
 	m.mu.RUnlock()
 
-	var batch *exec.DAGRunListReadBatch
+	var batch *dagrun.DAGRunListReadBatch
 	if topicType == TopicTypeDAGRuns {
-		batch = exec.NewDAGRunListReadBatch()
+		batch = dagrun.NewDAGRunListReadBatch()
 	}
 	for _, topic := range topics {
 		topic.requestPoll(batch)
@@ -226,9 +226,9 @@ func (m *Multiplexer) wakeTopicKey(key string) {
 	if topic == nil {
 		return
 	}
-	var batch *exec.DAGRunListReadBatch
+	var batch *dagrun.DAGRunListReadBatch
 	if topic.topicType == TopicTypeDAGRuns {
-		batch = exec.NewDAGRunListReadBatch()
+		batch = dagrun.NewDAGRunListReadBatch()
 	}
 	topic.requestPoll(batch)
 }
@@ -803,7 +803,7 @@ func (s *streamSession) bootstrapTopics(ctx context.Context, lastEventID uint64,
 		return topic.topicType != TopicTypeDAGRuns
 	})
 	if allDAGRuns {
-		ctx = exec.WithDAGRunListReadBatch(ctx, exec.NewDAGRunListReadBatch())
+		ctx = dagrun.WithDAGRunListReadBatch(ctx, dagrun.NewDAGRunListReadBatch())
 		type snapshotResult struct {
 			payload         []byte
 			attachmentID    uint64
@@ -1089,7 +1089,7 @@ type multiplexTopic struct {
 	stopCh                   chan struct{}
 	notifyMu                 sync.Mutex
 	notifyCh                 chan struct{}
-	pendingBatch             *exec.DAGRunListReadBatch
+	pendingBatch             *dagrun.DAGRunListReadBatch
 	pollPending              bool
 	wg                       sync.WaitGroup
 	errorBackoff             backoff.Retrier
@@ -1242,7 +1242,7 @@ func (t *multiplexTopic) stop() {
 	t.wg.Wait()
 }
 
-func (t *multiplexTopic) requestPoll(batch *exec.DAGRunListReadBatch) {
+func (t *multiplexTopic) requestPoll(batch *dagrun.DAGRunListReadBatch) {
 	t.notifyMu.Lock()
 	t.pendingBatch = batch
 	if t.pollPending {
@@ -1254,7 +1254,7 @@ func (t *multiplexTopic) requestPoll(batch *exec.DAGRunListReadBatch) {
 	t.notifyCh <- struct{}{}
 }
 
-func (t *multiplexTopic) takePendingBatch() *exec.DAGRunListReadBatch {
+func (t *multiplexTopic) takePendingBatch() *dagrun.DAGRunListReadBatch {
 	t.notifyMu.Lock()
 	defer t.notifyMu.Unlock()
 	batch := t.pendingBatch
@@ -1287,7 +1287,7 @@ func (t *multiplexTopic) nextRetryDelay() (time.Duration, bool) {
 	return delay, true
 }
 
-func (t *multiplexTopic) poll(forcePublish bool, batch *exec.DAGRunListReadBatch) {
+func (t *multiplexTopic) poll(forcePublish bool, batch *dagrun.DAGRunListReadBatch) {
 	if time.Now().Before(t.backoffUntil) {
 		return
 	}
@@ -1307,7 +1307,7 @@ func (t *multiplexTopic) poll(forcePublish bool, batch *exec.DAGRunListReadBatch
 		start := time.Now()
 		fetchCtx := session.fetchCtx
 		if batch != nil {
-			fetchCtx = exec.WithDAGRunListReadBatch(fetchCtx, batch)
+			fetchCtx = dagrun.WithDAGRunListReadBatch(fetchCtx, batch)
 		}
 		payload, err := t.fetchPayload(fetchCtx)
 		fetchDuration := time.Since(start)

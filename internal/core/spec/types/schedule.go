@@ -6,7 +6,7 @@ package types
 import (
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 )
 
@@ -24,11 +24,11 @@ import (
 //	  stop: "0 18 * * *"
 //	  restart: "0 12 * * *"
 type ScheduleValue struct {
-	raw      any             // Original value for error reporting
-	isSet    bool            // Whether the field was set in YAML
-	starts   []core.Schedule // Start schedules (or simple schedule expressions)
-	stops    []core.Schedule // Stop schedules
-	restarts []core.Schedule // Restart schedules
+	raw      any           // Original value for error reporting
+	isSet    bool          // Whether the field was set in YAML
+	starts   []ir.Schedule // Start schedules (or simple schedule expressions)
+	stops    []ir.Schedule // Stop schedules
+	restarts []ir.Schedule // Restart schedules
 }
 
 // UnmarshalYAML implements BytesUnmarshaler for goccy/go-yaml.
@@ -46,16 +46,16 @@ func (s *ScheduleValue) UnmarshalYAML(data []byte) error {
 		if v == "" {
 			return nil
 		}
-		schedule, err := core.ParseScheduleValue(v, core.ScheduleParseOptions{AllowAt: true})
+		schedule, err := ir.ParseScheduleValue(v, ir.ScheduleParseOptions{AllowAt: true})
 		if err != nil {
 			return fmt.Errorf("schedule: %w", err)
 		}
-		s.starts = []core.Schedule{schedule}
+		s.starts = []ir.Schedule{schedule}
 		return nil
 
 	case []any:
 		for i, item := range v {
-			schedule, err := core.ParseScheduleValue(item, core.ScheduleParseOptions{AllowAt: true})
+			schedule, err := ir.ParseScheduleValue(item, ir.ScheduleParseOptions{AllowAt: true})
 			if err != nil {
 				return fmt.Errorf("schedule[%d]: %w", i, err)
 			}
@@ -63,12 +63,12 @@ func (s *ScheduleValue) UnmarshalYAML(data []byte) error {
 		}
 		return nil
 
-	case []core.Schedule:
+	case []ir.Schedule:
 		s.starts = v
 		return nil
 	case []string:
 		for i, item := range v {
-			schedule, err := core.ParseScheduleValue(item, core.ScheduleParseOptions{AllowAt: true})
+			schedule, err := ir.ParseScheduleValue(item, ir.ScheduleParseOptions{AllowAt: true})
 			if err != nil {
 				return fmt.Errorf("schedule[%d]: %w", i, err)
 			}
@@ -91,8 +91,8 @@ func (s *ScheduleValue) UnmarshalYAML(data []byte) error {
 func (s *ScheduleValue) parseScheduleMap(m map[string]any) error {
 	for key, v := range m {
 		var (
-			target *[]core.Schedule
-			opts   core.ScheduleParseOptions
+			target *[]ir.Schedule
+			opts   ir.ScheduleParseOptions
 		)
 		switch key {
 		case "start":
@@ -115,18 +115,18 @@ func (s *ScheduleValue) parseScheduleMap(m map[string]any) error {
 	return nil
 }
 
-func parseScheduleEntry(v any, opts core.ScheduleParseOptions) ([]core.Schedule, error) {
+func parseScheduleEntry(v any, opts ir.ScheduleParseOptions) ([]ir.Schedule, error) {
 	switch val := v.(type) {
 	case string:
-		schedule, err := core.ParseScheduleValue(val, opts)
+		schedule, err := ir.ParseScheduleValue(val, opts)
 		if err != nil {
 			return nil, err
 		}
-		return []core.Schedule{schedule}, nil
+		return []ir.Schedule{schedule}, nil
 	case []any:
-		var result []core.Schedule
+		var result []ir.Schedule
 		for i, item := range val {
-			schedule, err := core.ParseScheduleValue(item, opts)
+			schedule, err := ir.ParseScheduleValue(item, opts)
 			if err != nil {
 				return nil, fmt.Errorf("[%d]: %w", i, err)
 			}
@@ -134,9 +134,9 @@ func parseScheduleEntry(v any, opts core.ScheduleParseOptions) ([]core.Schedule,
 		}
 		return result, nil
 	case []string:
-		var result []core.Schedule
+		var result []ir.Schedule
 		for i, item := range val {
-			schedule, err := core.ParseScheduleValue(item, opts)
+			schedule, err := ir.ParseScheduleValue(item, opts)
 			if err != nil {
 				return nil, fmt.Errorf("[%d]: %w", i, err)
 			}
@@ -144,11 +144,11 @@ func parseScheduleEntry(v any, opts core.ScheduleParseOptions) ([]core.Schedule,
 		}
 		return result, nil
 	case map[string]any:
-		schedule, err := core.ParseScheduleValue(val, opts)
+		schedule, err := ir.ParseScheduleValue(val, opts)
 		if err != nil {
 			return nil, err
 		}
-		return []core.Schedule{schedule}, nil
+		return []ir.Schedule{schedule}, nil
 	default:
 		return nil, fmt.Errorf("expected string, object, or array, got %T", v)
 	}
@@ -161,13 +161,13 @@ func (s ScheduleValue) IsZero() bool { return !s.isSet }
 func (s ScheduleValue) Value() any { return s.raw }
 
 // Starts returns the start/simple schedules.
-func (s ScheduleValue) Starts() []core.Schedule { return s.starts }
+func (s ScheduleValue) Starts() []ir.Schedule { return s.starts }
 
 // Stops returns the stop schedules.
-func (s ScheduleValue) Stops() []core.Schedule { return s.stops }
+func (s ScheduleValue) Stops() []ir.Schedule { return s.stops }
 
 // Restarts returns the restart schedules.
-func (s ScheduleValue) Restarts() []core.Schedule { return s.restarts }
+func (s ScheduleValue) Restarts() []ir.Schedule { return s.restarts }
 
 // HasStopSchedule returns true if stop schedules are configured.
 func (s ScheduleValue) HasStopSchedule() bool { return len(s.stops) > 0 }

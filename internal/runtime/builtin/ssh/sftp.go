@@ -15,9 +15,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/pkg/sftp"
 )
@@ -34,7 +36,7 @@ type sftpExecutor struct {
 }
 
 // NewSFTPExecutor creates a new SFTP executor for file transfers.
-func NewSFTPExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func NewSFTPExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	client, err := resolveSSHClient(ctx, step)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set up sftp step: %w", err)
@@ -70,7 +72,7 @@ func NewSFTPExecutor(ctx context.Context, step core.Step) (executor.Executor, er
 }
 
 // resolveSSHClient resolves the SSH client from step config or context.
-func resolveSSHClient(ctx context.Context, step core.Step) (*Client, error) {
+func resolveSSHClient(ctx context.Context, step ir.Step) (*Client, error) {
 	if len(step.ExecutorConfig.Config) > 0 {
 		return FromMapConfig(ctx, step.ExecutorConfig.Config)
 	}
@@ -342,7 +344,7 @@ func (e *sftpExecutor) downloadDir(ctx context.Context, sftpClient *sftp.Client,
 }
 
 func init() {
-	caps := core.ExecutorCapabilities{
+	caps := registry.ExecutorCapabilities{
 		// SFTP executor doesn't use command/script - it uses source/destination paths
 		Command:          false,
 		MultipleCommands: false,

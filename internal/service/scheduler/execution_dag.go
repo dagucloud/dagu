@@ -7,19 +7,19 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // rehydrateExecutionDAG reloads a full DAG from source before scheduler-owned
 // execution or persistence paths use it as an execution snapshot.
 func rehydrateExecutionDAG(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	params any,
 	baseConfig string,
 	workspaceBaseConfigDir string,
-) (*core.DAG, error) {
+) (*ir.DAG, error) {
 	fresh, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig:             baseConfig,
 		WorkspaceBaseConfigDir: workspaceBaseConfigDir,

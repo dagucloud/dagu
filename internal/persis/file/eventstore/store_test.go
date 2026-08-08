@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -142,7 +142,7 @@ func TestStoreQueryClassifiesLegacyPartialSuccess(t *testing.T) {
 
 	event := testEvent("evt-partial", time.Date(2026, 3, 29, 18, 30, 0, 0, time.UTC))
 	event.Type = eventstore.TypeDAGRunSucceeded
-	event.Status = core.PartiallySucceeded.String()
+	event.Status = ir.PartiallySucceeded.String()
 	writeCommittedEvents(t, store.baseDir, event.OccurredAt, [][]byte{
 		mustMarshalEvent(t, event),
 	})

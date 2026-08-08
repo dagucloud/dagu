@@ -13,16 +13,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
 func TestExecutorRunWaitsForDuration(t *testing.T) {
 	t.Parallel()
 
-	exec, err := newExecutor(context.Background(), core.Step{
-		Commands: []core.CommandEntry{{Command: opDuration}},
-		ExecutorConfig: core.ExecutorConfig{
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Commands: []ir.CommandEntry{{Command: opDuration}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "wait",
 			Config: map[string]any{
 				"duration": "5ms",
@@ -41,9 +41,9 @@ func TestExecutorRunWaitsUntilFileExists(t *testing.T) {
 
 	dir := t.TempDir()
 	target := filepath.Join(dir, "ready.flag")
-	exec, err := newExecutor(context.Background(), core.Step{
-		Commands: []core.CommandEntry{{Command: opFile}},
-		ExecutorConfig: core.ExecutorConfig{
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Commands: []ir.CommandEntry{{Command: opFile}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "wait",
 			Config: map[string]any{
 				"path":          target,
@@ -79,9 +79,9 @@ func TestExecutorRunWaitsForHTTPStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec, err := newExecutor(context.Background(), core.Step{
-		Commands: []core.CommandEntry{{Command: opHTTP}},
-		ExecutorConfig: core.ExecutorConfig{
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Commands: []ir.CommandEntry{{Command: opHTTP}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "wait",
 			Config: map[string]any{
 				"url":           server.URL,
@@ -99,9 +99,9 @@ func TestExecutorRunWaitsForHTTPStatus(t *testing.T) {
 func TestNewExecutorRejectsNonHTTPURL(t *testing.T) {
 	t.Parallel()
 
-	_, err := newExecutor(context.Background(), core.Step{
-		Commands: []core.CommandEntry{{Command: opHTTP}},
-		ExecutorConfig: core.ExecutorConfig{
+	_, err := newExecutor(context.Background(), ir.Step{
+		Commands: []ir.CommandEntry{{Command: opHTTP}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "wait",
 			Config: map[string]any{
 				"url": "ftp://example.com/ready",
@@ -114,9 +114,9 @@ func TestNewExecutorRejectsNonHTTPURL(t *testing.T) {
 func TestExecutorRunStopsWhenContextIsCanceled(t *testing.T) {
 	t.Parallel()
 
-	exec, err := newExecutor(context.Background(), core.Step{
-		Commands: []core.CommandEntry{{Command: opDuration}},
-		ExecutorConfig: core.ExecutorConfig{
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Commands: []ir.CommandEntry{{Command: opDuration}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "wait",
 			Config: map[string]any{
 				"duration": "1h",

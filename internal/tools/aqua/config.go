@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 )
 
@@ -15,12 +15,12 @@ const (
 	providerAqua = "aqua"
 )
 
-func effectiveToolConfig(cfg *core.ToolConfig) *core.ToolConfig {
+func effectiveToolConfig(cfg *ir.ToolConfig) *ir.ToolConfig {
 	if cfg == nil {
 		return nil
 	}
 	effective := *cfg
-	effective.Packages = make([]core.ToolPackage, len(cfg.Packages))
+	effective.Packages = make([]ir.ToolPackage, len(cfg.Packages))
 	for i, pkg := range cfg.Packages {
 		pkg.Commands = append([]string{}, pkg.Commands...)
 		effective.Packages[i] = pkg
@@ -28,22 +28,22 @@ func effectiveToolConfig(cfg *core.ToolConfig) *core.ToolConfig {
 	if cfg.Registry != nil {
 		registry := *cfg.Registry
 		if emptyDefault(strings.TrimSpace(registry.Type), "standard") == "standard" && strings.TrimSpace(registry.Ref) == "" {
-			registry.Ref = core.DefaultAquaStandardRegistryRef
+			registry.Ref = ir.DefaultAquaStandardRegistryRef
 		}
 		effective.Registry = &registry
 		return &effective
 	}
-	effective.Registry = &core.ToolRegistry{
+	effective.Registry = &ir.ToolRegistry{
 		Name: "standard",
 		Type: "standard",
-		Ref:  core.DefaultAquaStandardRegistryRef,
+		Ref:  ir.DefaultAquaStandardRegistryRef,
 	}
 	return &effective
 }
 
 // effectiveToolConfigWithRef returns cfg with defaults applied and, when cfg
 // leaves the standard registry ref unpinned, the given ref injected.
-func effectiveToolConfigWithRef(cfg *core.ToolConfig, standardRef string) *core.ToolConfig {
+func effectiveToolConfigWithRef(cfg *ir.ToolConfig, standardRef string) *ir.ToolConfig {
 	effective := effectiveToolConfig(cfg)
 	if effective == nil || effective.Registry == nil || strings.TrimSpace(standardRef) == "" {
 		return effective
@@ -59,7 +59,7 @@ func effectiveToolConfigWithRef(cfg *core.ToolConfig, standardRef string) *core.
 
 // standardRefDefaulted reports whether cfg leaves the standard registry ref
 // unpinned, so the installer chooses the effective ref.
-func standardRefDefaulted(cfg *core.ToolConfig) bool {
+func standardRefDefaulted(cfg *ir.ToolConfig) bool {
 	if cfg == nil || cfg.Registry == nil {
 		return true
 	}
@@ -97,12 +97,12 @@ type packageEntry struct {
 }
 
 // RenderConfig renders a Dagu tool declaration as an aqua.yaml file.
-func RenderConfig(cfg *core.ToolConfig) ([]byte, error) {
+func RenderConfig(cfg *ir.ToolConfig) ([]byte, error) {
 	return RenderConfigForPlatform(cfg, "")
 }
 
 // RenderConfigForPlatform renders a Dagu tool declaration for a worker platform.
-func RenderConfigForPlatform(cfg *core.ToolConfig, platform string) ([]byte, error) {
+func RenderConfigForPlatform(cfg *ir.ToolConfig, platform string) ([]byte, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("tools config is required")
 	}
@@ -146,12 +146,12 @@ func RenderConfigForPlatform(cfg *core.ToolConfig, platform string) ([]byte, err
 	return yaml.Marshal(file)
 }
 
-func renderRegistry(registry *core.ToolRegistry) (registryEntry, error) {
+func renderRegistry(registry *ir.ToolRegistry) (registryEntry, error) {
 	if registry == nil {
 		return registryEntry{
 			Name: "standard",
 			Type: "standard",
-			Ref:  core.DefaultAquaStandardRegistryRef,
+			Ref:  ir.DefaultAquaStandardRegistryRef,
 		}, nil
 	}
 	typ := emptyDefault(strings.TrimSpace(registry.Type), "standard")
@@ -159,7 +159,7 @@ func renderRegistry(registry *core.ToolRegistry) (registryEntry, error) {
 	switch typ {
 	case "standard":
 		if ref == "" {
-			ref = core.DefaultAquaStandardRegistryRef
+			ref = ir.DefaultAquaStandardRegistryRef
 		}
 		return registryEntry{
 			Name: emptyDefault(strings.TrimSpace(registry.Name), "standard"),

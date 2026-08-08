@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -47,35 +49,35 @@ func TestResolveSecretReference(t *testing.T) {
 		CreatedAt: now,
 	}))
 
-	dagRunStore := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	leaseStore := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("leases"))
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:   "registry-secret-dag",
-		Labels: core.NewLabels([]string{"workspace=payments"}),
-		Secrets: []core.SecretRef{{
+		Labels: ir.NewLabels([]string{"workspace=payments"}),
+		Secrets: []secretref.Ref{{
 			Name: "MY_SECRET",
 			Ref:  "prod/my-secret",
 		}},
 	}
-	attempt, err := dagRunStore.CreateAttempt(ctx, dag, now, "run-1", exec.NewDAGRunAttemptOptions{AttemptID: "attempt-1"})
+	attempt, err := dagRunStore.CreateAttempt(ctx, dag, now, "run-1", dagrun.NewDAGRunAttemptOptions{AttemptID: "attempt-1"})
 	require.NoError(t, err)
-	attemptKey := exec.GenerateAttemptKey(dag.Name, "run-1", dag.Name, "run-1", attempt.ID())
+	attemptKey := dagrun.GenerateAttemptKey(dag.Name, "run-1", dag.Name, "run-1", attempt.ID())
 	require.NoError(t, attempt.Open(ctx))
 	t.Cleanup(func() {
 		require.NoError(t, attempt.Close(context.Background()))
 	})
-	require.NoError(t, attempt.Write(ctx, exec.DAGRunStatus{
+	require.NoError(t, attempt.Write(ctx, dagrun.DAGRunStatus{
 		Name:       dag.Name,
 		DAGRunID:   "run-1",
 		AttemptID:  attempt.ID(),
 		AttemptKey: attemptKey,
-		Status:     core.Running,
+		Status:     ir.Running,
 		Labels:     dag.Labels.Strings(),
 	}))
-	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey:      attemptKey,
-		DAGRun:          exec.DAGRunRef{Name: dag.Name, ID: "run-1"},
-		Root:            exec.DAGRunRef{Name: dag.Name, ID: "run-1"},
+		DAGRun:          dagrun.DAGRunRef{Name: dag.Name, ID: "run-1"},
+		Root:            dagrun.DAGRunRef{Name: dag.Name, ID: "run-1"},
 		AttemptID:       attempt.ID(),
 		WorkerID:        "worker-1",
 		ClaimedAt:       now.UnixMilli(),

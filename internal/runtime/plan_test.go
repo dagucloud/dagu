@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
@@ -23,23 +23,23 @@ func totalDeps(p *runtime.Plan) int {
 }
 
 // helper to quickly make a Node
-func makeNode(name string, status core.NodeStatus, depends ...string) *runtime.Node {
+func makeNode(name string, status ir.NodeStatus, depends ...string) *runtime.Node {
 	return runtime.NodeWithData(runtime.NodeData{
-		Step:  core.Step{Name: name, Depends: depends},
+		Step:  ir.Step{Name: name, Depends: depends},
 		State: runtime.NodeState{Status: status},
 	})
 }
 
 func TestPlan_Cyclic(t *testing.T) {
-	step1 := core.Step{Name: "1", Depends: []string{"2"}}
-	step2 := core.Step{Name: "2", Depends: []string{"1"}}
+	step1 := ir.Step{Name: "1", Depends: []string{"2"}}
+	step2 := ir.Step{Name: "2", Depends: []string{"1"}}
 	_, err := runtime.NewPlan(step1, step2)
 	require.Error(t, err)
 	require.ErrorIs(t, err, runtime.ErrCyclicPlan)
 }
 
 func TestPlan_NodeByName(t *testing.T) {
-	steps := []core.Step{{Name: "a"}, {Name: "b", Depends: []string{"a"}}}
+	steps := []ir.Step{{Name: "a"}, {Name: "b", Depends: []string{"a"}}}
 	p, err := runtime.NewPlan(steps...)
 	require.NoError(t, err)
 	require.NotNil(t, p.GetNodeByName("a"))
@@ -51,8 +51,8 @@ func TestPlan_ExplicitDependencyRemainsExplicit(t *testing.T) {
 	t.Parallel()
 
 	plan, err := runtime.NewPlan(
-		core.Step{Name: "producer"},
-		core.Step{Name: "consumer", Depends: []string{"producer"}},
+		ir.Step{Name: "producer"},
+		ir.Step{Name: "consumer", Depends: []string{"producer"}},
 	)
 	require.NoError(t, err)
 	require.NoError(t, plan.AddInferredDependency("producer", "consumer"))
@@ -66,17 +66,17 @@ func TestPlan_DependencyStructures(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name              string
-		steps             []core.Step
+		steps             []ir.Step
 		wantTotalDeps     int
 		wantOutgoingCount int // nodes with dependents
 		wantIncomingCount int // nodes with dependencies
 	}{
 		{
 			name: "basic",
-			steps: []core.Step{
-				{Name: "step1", Commands: []core.CommandEntry{{Command: "echo", Args: []string{"1"}}}},
-				{Name: "step2", Commands: []core.CommandEntry{{Command: "echo", Args: []string{"2"}}}, Depends: []string{"step1"}},
-				{Name: "step3", Commands: []core.CommandEntry{{Command: "echo", Args: []string{"3"}}}, Depends: []string{"step2", "step1"}},
+			steps: []ir.Step{
+				{Name: "step1", Commands: []ir.CommandEntry{{Command: "echo", Args: []string{"1"}}}},
+				{Name: "step2", Commands: []ir.CommandEntry{{Command: "echo", Args: []string{"2"}}}, Depends: []string{"step1"}},
+				{Name: "step3", Commands: []ir.CommandEntry{{Command: "echo", Args: []string{"3"}}}, Depends: []string{"step2", "step1"}},
 			},
 			wantTotalDeps:     3, // 1->2,1->3,2->3
 			wantOutgoingCount: 2, // step1 (has 2,3), step2 (has 3)
@@ -84,7 +84,7 @@ func TestPlan_DependencyStructures(t *testing.T) {
 		},
 		{
 			name: "single chain",
-			steps: []core.Step{
+			steps: []ir.Step{
 				{Name: "download"},
 				{Name: "process", Depends: []string{"download"}},
 				{Name: "cleanup", Depends: []string{"process"}},
@@ -95,7 +95,7 @@ func TestPlan_DependencyStructures(t *testing.T) {
 		},
 		{
 			name: "fan in/out",
-			steps: []core.Step{
+			steps: []ir.Step{
 				{Name: "download"},
 				{Name: "extract"},
 				{Name: "process", Depends: []string{"download", "extract"}},
@@ -131,46 +131,46 @@ func TestPlan_DependencyStructures(t *testing.T) {
 
 func TestRetryPlan(t *testing.T) {
 	ctx := context.Background()
-	dag := &core.DAG{Steps: []core.Step{
+	dag := &ir.DAG{Steps: []ir.Step{
 		{Name: "1"}, {Name: "2", Depends: []string{"1"}}, {Name: "3", Depends: []string{"2"}},
 		{Name: "4"}, {Name: "5", Depends: []string{"4"}}, {Name: "6", Depends: []string{"5"}}, {Name: "7", Depends: []string{"6"}},
 		{Name: "8"},
 	}}
 	nodes := []*runtime.Node{
-		makeNode("1", core.NodeSucceeded),
-		makeNode("2", core.NodeFailed, "1"),
-		makeNode("3", core.NodeAborted, "2"),
-		makeNode("4", core.NodeSkipped),
-		makeNode("5", core.NodeFailed, "4"),
-		makeNode("6", core.NodeSucceeded, "5"),
-		makeNode("7", core.NodeSkipped, "6"),
-		makeNode("8", core.NodeSkipped),
+		makeNode("1", ir.NodeSucceeded),
+		makeNode("2", ir.NodeFailed, "1"),
+		makeNode("3", ir.NodeAborted, "2"),
+		makeNode("4", ir.NodeSkipped),
+		makeNode("5", ir.NodeFailed, "4"),
+		makeNode("6", ir.NodeSucceeded, "5"),
+		makeNode("7", ir.NodeSkipped, "6"),
+		makeNode("8", ir.NodeSkipped),
 	}
 	p, err := runtime.CreateRetryPlan(ctx, dag, nodes...)
 	require.NoError(t, err)
 	require.NotNil(t, p)
 	// expectations based on upstream failures and aborted states triggering retry propagation
-	require.Equal(t, core.NodeSucceeded, nodes[0].State().Status)
-	require.Equal(t, core.NodeNotStarted, nodes[1].State().Status)
-	require.Equal(t, core.NodeNotStarted, nodes[2].State().Status)
-	require.Equal(t, core.NodeSkipped, nodes[3].State().Status)
-	require.Equal(t, core.NodeNotStarted, nodes[4].State().Status)
-	require.Equal(t, core.NodeNotStarted, nodes[5].State().Status)
-	require.Equal(t, core.NodeNotStarted, nodes[6].State().Status)
-	require.Equal(t, core.NodeSkipped, nodes[7].State().Status)
+	require.Equal(t, ir.NodeSucceeded, nodes[0].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[1].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[2].State().Status)
+	require.Equal(t, ir.NodeSkipped, nodes[3].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[4].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[5].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[6].State().Status)
+	require.Equal(t, ir.NodeSkipped, nodes[7].State().Status)
 }
 
 func TestRetryPlanWithRejectedNode(t *testing.T) {
 	ctx := context.Background()
-	dag := &core.DAG{Steps: []core.Step{
+	dag := &ir.DAG{Steps: []ir.Step{
 		{Name: "1"}, {Name: "2", Depends: []string{"1"}}, {Name: "3", Depends: []string{"2"}},
 	}}
 
 	// Create rejected node with metadata
 	rejectedNode := runtime.NodeWithData(runtime.NodeData{
-		Step: core.Step{Name: "2", Depends: []string{"1"}},
+		Step: ir.Step{Name: "2", Depends: []string{"1"}},
 		State: runtime.NodeState{
-			Status:          core.NodeRejected,
+			Status:          ir.NodeRejected,
 			RejectedAt:      "2024-01-15T10:00:00Z",
 			RejectedBy:      "test-user",
 			RejectedByID:    "user-1",
@@ -179,18 +179,18 @@ func TestRetryPlanWithRejectedNode(t *testing.T) {
 	})
 
 	nodes := []*runtime.Node{
-		makeNode("1", core.NodeSucceeded),
+		makeNode("1", ir.NodeSucceeded),
 		rejectedNode,
-		makeNode("3", core.NodeAborted, "2"),
+		makeNode("3", ir.NodeAborted, "2"),
 	}
 	p, err := runtime.CreateRetryPlan(ctx, dag, nodes...)
 	require.NoError(t, err)
 	require.NotNil(t, p)
 
 	// Rejected node should be cleared and retried
-	require.Equal(t, core.NodeSucceeded, nodes[0].State().Status)
-	require.Equal(t, core.NodeNotStarted, nodes[1].State().Status)
-	require.Equal(t, core.NodeNotStarted, nodes[2].State().Status)
+	require.Equal(t, ir.NodeSucceeded, nodes[0].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[1].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[2].State().Status)
 
 	// Rejection metadata should be cleared
 	require.Empty(t, rejectedNode.State().RejectedAt)
@@ -203,29 +203,29 @@ func TestRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dag := &core.DAG{Steps: []core.Step{
+	dag := &ir.DAG{Steps: []ir.Step{
 		{Name: "approve"},
 		{
 			Name:    "container-step",
 			Depends: []string{"approve"},
 			Env:     []string{"STEP_ENV=from-step"},
-			Container: &core.Container{
+			Container: &ir.Container{
 				Image: "alpine:3",
 				Env:   []string{"CONTAINER_ENV=from-container"},
 			},
 		},
 	}}
 	nodes := []*runtime.Node{
-		makeNode("approve", core.NodeSucceeded),
+		makeNode("approve", ir.NodeSucceeded),
 		runtime.NodeWithData(runtime.NodeData{
-			Step: core.Step{
+			Step: ir.Step{
 				Name:    "container-step",
 				Depends: []string{"approve"},
-				Container: &core.Container{
+				Container: &ir.Container{
 					Image: "alpine:3",
 				},
 			},
-			State: runtime.NodeState{Status: core.NodeNotStarted},
+			State: runtime.NodeState{Status: ir.NodeNotStarted},
 		}),
 	}
 
@@ -234,7 +234,7 @@ func TestRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 	require.NotNil(t, p)
 
 	rebound := nodes[1].Step()
-	require.Equal(t, core.NodeNotStarted, nodes[1].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[1].State().Status)
 	require.Equal(t, []string{"STEP_ENV=from-step"}, rebound.Env)
 	require.NotNil(t, rebound.Container)
 	require.Equal(t, []string{"CONTAINER_ENV=from-container"}, rebound.Container.Env)
@@ -243,11 +243,11 @@ func TestRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 func TestStepRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{Steps: []core.Step{
+	dag := &ir.DAG{Steps: []ir.Step{
 		{
 			Name: "container-step",
 			Env:  []string{"STEP_ENV=from-step"},
-			Container: &core.Container{
+			Container: &ir.Container{
 				Image: "alpine:3",
 				Env:   []string{"CONTAINER_ENV=from-container"},
 			},
@@ -255,13 +255,13 @@ func TestStepRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 	}}
 	nodes := []*runtime.Node{
 		runtime.NodeWithData(runtime.NodeData{
-			Step: core.Step{
+			Step: ir.Step{
 				Name: "container-step",
-				Container: &core.Container{
+				Container: &ir.Container{
 					Image: "alpine:3",
 				},
 			},
-			State: runtime.NodeState{Status: core.NodeSucceeded},
+			State: runtime.NodeState{Status: ir.NodeSucceeded},
 		}),
 	}
 
@@ -270,7 +270,7 @@ func TestStepRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 	require.NotNil(t, p)
 
 	rebound := nodes[0].Step()
-	require.Equal(t, core.NodeNotStarted, nodes[0].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[0].State().Status)
 	require.Equal(t, []string{"STEP_ENV=from-step"}, rebound.Env)
 	require.NotNil(t, rebound.Container)
 	require.Equal(t, []string{"CONTAINER_ENV=from-container"}, rebound.Container.Env)
@@ -279,62 +279,62 @@ func TestStepRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 func TestRetryPlan_ReplacesPersistedRuntimeMutatedStepSnapshot(t *testing.T) {
 	t.Parallel()
 
-	sourceStep := core.Step{
+	sourceStep := ir.Step{
 		Name:   "target",
 		Dir:    "${STEP_DIR}",
 		Script: "echo source",
-		Commands: []core.CommandEntry{
+		Commands: []ir.CommandEntry{
 			{Command: "echo", Args: []string{"source"}, CmdWithArgs: "echo source"},
 		},
 		Stdout: "/source/stdout",
 		Stderr: "/source/stderr",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "command",
 			Config: map[string]any{
 				"shell": "bash",
 			},
 		},
-		RetryPolicy: core.RetryPolicy{
+		RetryPolicy: ir.RetryPolicy{
 			LimitStr:       "${RETRY_LIMIT}",
 			IntervalSecStr: "${RETRY_INTERVAL}",
 		},
-		RepeatPolicy: core.RepeatPolicy{
-			RepeatMode:  core.RepeatModeUntil,
+		RepeatPolicy: ir.RepeatPolicy{
+			RepeatMode:  ir.RepeatModeUntil,
 			LimitStr:    "${REPEAT_LIMIT}",
 			IntervalStr: "${REPEAT_INTERVAL}",
 		},
 	}
-	dag := &core.DAG{
-		Steps: []core.Step{sourceStep},
+	dag := &ir.DAG{
+		Steps: []ir.Step{sourceStep},
 	}
 	node := runtime.NodeWithData(runtime.NodeData{
-		Step: core.Step{
+		Step: ir.Step{
 			Name:   "target",
 			Dir:    "/stale/effective/work/dir",
 			Script: "echo evaluated",
-			Commands: []core.CommandEntry{
+			Commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"evaluated"}, CmdWithArgs: "echo evaluated"},
 			},
 			Stdout: "/stale/stdout",
 			Stderr: "/stale/stderr",
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "command",
 				Config: map[string]any{
 					"shell": "sh",
 				},
 			},
-			RetryPolicy: core.RetryPolicy{
+			RetryPolicy: ir.RetryPolicy{
 				Limit:    3,
 				Interval: time.Second,
 			},
-			RepeatPolicy: core.RepeatPolicy{
-				RepeatMode: core.RepeatModeWhile,
+			RepeatPolicy: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeWhile,
 				Limit:      4,
 				Interval:   time.Second,
 			},
 		},
 		State: runtime.NodeState{
-			Status:     core.NodeFailed,
+			Status:     ir.NodeFailed,
 			WorkingDir: "/stale/effective/work/dir",
 		},
 	})
@@ -345,79 +345,79 @@ func TestRetryPlan_ReplacesPersistedRuntimeMutatedStepSnapshot(t *testing.T) {
 	target := plan.GetNodeByName("target")
 	require.NotNil(t, target)
 	require.Equal(t, sourceStep, target.Step())
-	require.Equal(t, core.NodeNotStarted, target.State().Status)
+	require.Equal(t, ir.NodeNotStarted, target.State().Status)
 	require.Empty(t, target.State().WorkingDir)
 }
 
 func TestStepRetryPlan(t *testing.T) {
-	dag := &core.DAG{Steps: []core.Step{
+	dag := &ir.DAG{Steps: []ir.Step{
 		{Name: "1"}, {Name: "2", Depends: []string{"1"}}, {Name: "3", Depends: []string{"2"}},
 		{Name: "4"}, {Name: "5", Depends: []string{"4"}}, {Name: "6", Depends: []string{"5"}}, {Name: "7", Depends: []string{"6"}},
 	}}
 	baseNodes := []*runtime.Node{
-		makeNode("1", core.NodeSucceeded),
-		makeNode("2", core.NodeFailed, "1"),
-		makeNode("3", core.NodeAborted, "2"),
-		makeNode("4", core.NodeSkipped),
-		makeNode("5", core.NodeFailed, "4"),
-		makeNode("6", core.NodeSucceeded, "5"),
-		makeNode("7", core.NodeSkipped, "6"),
+		makeNode("1", ir.NodeSucceeded),
+		makeNode("2", ir.NodeFailed, "1"),
+		makeNode("3", ir.NodeAborted, "2"),
+		makeNode("4", ir.NodeSkipped),
+		makeNode("5", ir.NodeFailed, "4"),
+		makeNode("6", ir.NodeSucceeded, "5"),
+		makeNode("7", ir.NodeSkipped, "6"),
 	}
 	tests := []struct {
 		name       string
 		step       string
-		wantStatus map[string]core.NodeStatus
+		wantStatus map[string]ir.NodeStatus
 	}{
 		{
 			name: "retry failed step",
 			step: "2",
-			wantStatus: map[string]core.NodeStatus{
-				"1": core.NodeSucceeded,
-				"2": core.NodeNotStarted,
-				"3": core.NodeAborted,
-				"4": core.NodeSkipped,
-				"5": core.NodeFailed,
-				"6": core.NodeSucceeded,
-				"7": core.NodeSkipped,
+			wantStatus: map[string]ir.NodeStatus{
+				"1": ir.NodeSucceeded,
+				"2": ir.NodeNotStarted,
+				"3": ir.NodeAborted,
+				"4": ir.NodeSkipped,
+				"5": ir.NodeFailed,
+				"6": ir.NodeSucceeded,
+				"7": ir.NodeSkipped,
 			},
 		},
 		{
 			name: "retry succeeded first",
 			step: "1",
-			wantStatus: map[string]core.NodeStatus{
-				"1": core.NodeNotStarted,
-				"2": core.NodeFailed,
-				"3": core.NodeAborted,
-				"4": core.NodeSkipped,
-				"5": core.NodeFailed,
-				"6": core.NodeSucceeded,
-				"7": core.NodeSkipped,
+			wantStatus: map[string]ir.NodeStatus{
+				"1": ir.NodeNotStarted,
+				"2": ir.NodeFailed,
+				"3": ir.NodeAborted,
+				"4": ir.NodeSkipped,
+				"5": ir.NodeFailed,
+				"6": ir.NodeSucceeded,
+				"7": ir.NodeSkipped,
 			},
 		},
 		{
 			name: "retry succeeded middle",
 			step: "6",
-			wantStatus: map[string]core.NodeStatus{
-				"1": core.NodeSucceeded,
-				"2": core.NodeFailed,
-				"3": core.NodeAborted,
-				"4": core.NodeSkipped,
-				"5": core.NodeFailed,
-				"6": core.NodeNotStarted,
-				"7": core.NodeSkipped,
+			wantStatus: map[string]ir.NodeStatus{
+				"1": ir.NodeSucceeded,
+				"2": ir.NodeFailed,
+				"3": ir.NodeAborted,
+				"4": ir.NodeSkipped,
+				"5": ir.NodeFailed,
+				"6": ir.NodeNotStarted,
+				"7": ir.NodeSkipped,
 			},
 		},
 		{
 			name: "retry succeeded last",
 			step: "7",
-			wantStatus: map[string]core.NodeStatus{
-				"1": core.NodeSucceeded,
-				"2": core.NodeFailed,
-				"3": core.NodeAborted,
-				"4": core.NodeSkipped,
-				"5": core.NodeFailed,
-				"6": core.NodeSucceeded,
-				"7": core.NodeNotStarted,
+			wantStatus: map[string]ir.NodeStatus{
+				"1": ir.NodeSucceeded,
+				"2": ir.NodeFailed,
+				"3": ir.NodeAborted,
+				"4": ir.NodeSkipped,
+				"5": ir.NodeFailed,
+				"6": ir.NodeSucceeded,
+				"7": ir.NodeNotStarted,
 			},
 		},
 	}
@@ -439,14 +439,14 @@ func TestStepRetryPlan(t *testing.T) {
 }
 
 func TestStepRetryPlan_PreservesRetryCountForRetryingStep(t *testing.T) {
-	dag := &core.DAG{Steps: []core.Step{
-		{Name: "retrying-step", RetryPolicy: core.RetryPolicy{Limit: 1}},
+	dag := &ir.DAG{Steps: []ir.Step{
+		{Name: "retrying-step", RetryPolicy: ir.RetryPolicy{Limit: 1}},
 	}}
 	nodes := []*runtime.Node{
 		runtime.NodeWithData(runtime.NodeData{
 			Step: dag.Steps[0],
 			State: runtime.NodeState{
-				Status:     core.NodeRetrying,
+				Status:     ir.NodeRetrying,
 				RetryCount: 1,
 			},
 		}),
@@ -455,12 +455,12 @@ func TestStepRetryPlan_PreservesRetryCountForRetryingStep(t *testing.T) {
 	p, err := runtime.CreateStepRetryPlan(dag, nodes, "retrying-step")
 	require.NoError(t, err)
 	require.NotNil(t, p)
-	require.Equal(t, core.NodeNotStarted, nodes[0].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[0].State().Status)
 	require.Equal(t, 1, nodes[0].State().RetryCount)
 }
 
 func TestPlan_Timing(t *testing.T) {
-	steps := []core.Step{{Name: "a"}}
+	steps := []ir.Step{{Name: "a"}}
 	p, err := runtime.NewPlan(steps...)
 	require.NoError(t, err)
 	require.True(t, p.IsStarted())
@@ -485,23 +485,23 @@ func TestPlan_NodeStates(t *testing.T) {
 		{
 			name: "all succeeded",
 			nodes: []*runtime.Node{
-				makeNode("a", core.NodeSucceeded),
-				makeNode("b", core.NodeSucceeded, "a"),
+				makeNode("a", ir.NodeSucceeded),
+				makeNode("b", ir.NodeSucceeded, "a"),
 			},
 		},
 		{
 			name: "one running",
 			nodes: []*runtime.Node{
-				makeNode("a", core.NodeSucceeded),
-				makeNode("b", core.NodeRunning, "a"),
+				makeNode("a", ir.NodeSucceeded),
+				makeNode("b", ir.NodeRunning, "a"),
 			},
 			wantHasRunning: true,
 		},
 		{
 			name: "one waiting with blocked dependents",
 			nodes: []*runtime.Node{
-				makeNode("a", core.NodeWaiting),
-				makeNode("b", core.NodeNotStarted, "a"),
+				makeNode("a", ir.NodeWaiting),
+				makeNode("b", ir.NodeNotStarted, "a"),
 			},
 			wantHasWaiting:    true,
 			wantHasNotStarted: true,
@@ -509,8 +509,8 @@ func TestPlan_NodeStates(t *testing.T) {
 		{
 			name: "one rejected",
 			nodes: []*runtime.Node{
-				makeNode("a", core.NodeRejected),
-				makeNode("b", core.NodeNotStarted, "a"),
+				makeNode("a", ir.NodeRejected),
+				makeNode("b", ir.NodeNotStarted, "a"),
 			},
 			wantHasRejected:   true,
 			wantHasNotStarted: true,
@@ -518,8 +518,8 @@ func TestPlan_NodeStates(t *testing.T) {
 		{
 			name: "rejected and waiting together",
 			nodes: []*runtime.Node{
-				makeNode("a", core.NodeRejected),
-				makeNode("b", core.NodeWaiting),
+				makeNode("a", ir.NodeRejected),
+				makeNode("b", ir.NodeWaiting),
 			},
 			wantHasRejected: true,
 			wantHasWaiting:  true,
@@ -527,10 +527,10 @@ func TestPlan_NodeStates(t *testing.T) {
 		{
 			name: "mix of all states",
 			nodes: []*runtime.Node{
-				makeNode("a", core.NodeRunning),
-				makeNode("b", core.NodeWaiting),
-				makeNode("c", core.NodeNotStarted, "b"),
-				makeNode("d", core.NodeSucceeded),
+				makeNode("a", ir.NodeRunning),
+				makeNode("b", ir.NodeWaiting),
+				makeNode("c", ir.NodeNotStarted, "b"),
+				makeNode("d", ir.NodeSucceeded),
 			},
 			wantHasRunning:    true,
 			wantHasWaiting:    true,
@@ -562,23 +562,23 @@ func TestPlan_WaitingStepNames(t *testing.T) {
 		{
 			name: "no waiting",
 			nodes: []*runtime.Node{
-				makeNode("a", core.NodeSucceeded),
+				makeNode("a", ir.NodeSucceeded),
 			},
 			wantNames: nil,
 		},
 		{
 			name: "one waiting",
 			nodes: []*runtime.Node{
-				makeNode("wait-step", core.NodeWaiting),
+				makeNode("wait-step", ir.NodeWaiting),
 			},
 			wantNames: []string{"wait-step"},
 		},
 		{
 			name: "multiple waiting",
 			nodes: []*runtime.Node{
-				makeNode("wait-1", core.NodeWaiting),
-				makeNode("wait-2", core.NodeWaiting),
-				makeNode("not-waiting", core.NodeSucceeded),
+				makeNode("wait-1", ir.NodeWaiting),
+				makeNode("wait-2", ir.NodeWaiting),
+				makeNode("not-waiting", ir.NodeSucceeded),
 			},
 			wantNames: []string{"wait-1", "wait-2"},
 		},
@@ -635,16 +635,16 @@ func TestCreateRetryPlan_PreservesExplicitStepWorkingDirOnly(t *testing.T) {
 				wantEnvDir = dagStepDir
 			}
 
-			dag := &core.DAG{
+			dag := &ir.DAG{
 				Name: "retry-work-dir",
-				Steps: []core.Step{
+				Steps: []ir.Step{
 					{Name: "target", Dir: dagStepDir},
 				},
 			}
 			node := runtime.NodeWithData(runtime.NodeData{
-				Step: core.Step{Name: "target"},
+				Step: ir.Step{Name: "target"},
 				State: runtime.NodeState{
-					Status:     core.NodeFailed,
+					Status:     ir.NodeFailed,
 					WorkingDir: tt.stateWorkDir,
 				},
 			})
@@ -677,19 +677,19 @@ func TestCreateRetryPlan_ExplicitVariableStepDirUsesRestoredSourceDefinition(t *
 	t.Parallel()
 
 	restoredStepWorkDir := t.TempDir()
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "retry-variable-work-dir",
 		Env: []string{
 			"STEP_WORK_DIR=" + restoredStepWorkDir,
 		},
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "target", Dir: "${STEP_WORK_DIR}"},
 		},
 	}
 	node := runtime.NodeWithData(runtime.NodeData{
-		Step: core.Step{Name: "target", Dir: restoredStepWorkDir},
+		Step: ir.Step{Name: "target", Dir: restoredStepWorkDir},
 		State: runtime.NodeState{
-			Status:     core.NodeFailed,
+			Status:     ir.NodeFailed,
 			WorkingDir: "/stale/effective/work/dir",
 		},
 	})
@@ -711,9 +711,9 @@ func TestCreateRetryPlan_CommandStepUsesNewRunWorkDirAfterRetry(t *testing.T) {
 
 	staleRunWorkDir := "/var/lib/dagu/data/dag-runs/abc_build-c3c5/dag-runs/2026/06/04/dag-run_20260604_134911Z_019e92e5-2799-762b-9e13-6bb7eac6e62f/work"
 	freshRunWorkDir := t.TempDir()
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "command-retry-work-dir",
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{
 				Name:   "build",
 				Script: "echo ok",
@@ -721,12 +721,12 @@ func TestCreateRetryPlan_CommandStepUsesNewRunWorkDirAfterRetry(t *testing.T) {
 		},
 	}
 	node := runtime.NodeWithData(runtime.NodeData{
-		Step: core.Step{
+		Step: ir.Step{
 			Name:   "build",
 			Script: "echo ok",
 		},
 		State: runtime.NodeState{
-			Status:     core.NodeFailed,
+			Status:     ir.NodeFailed,
 			WorkingDir: staleRunWorkDir,
 		},
 	})

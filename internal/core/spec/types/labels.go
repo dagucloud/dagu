@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 )
 
@@ -175,9 +175,9 @@ func (t *LabelsValue) parseMapEntries(index int, m map[string]any) error {
 	return nil
 }
 
-// validateLabelEntry validates a label key-value pair using core.ValidateLabel.
+// validateLabelEntry validates a label key-value pair using ir.ValidateLabel.
 func validateLabelEntry(key, value string) error {
-	return core.ValidateLabel(core.Label{Key: key, Value: value})
+	return ir.ValidateLabel(ir.Label{Key: key, Value: value})
 }
 
 // parseLabelEntry parses a single label string into LabelEntry with validation.

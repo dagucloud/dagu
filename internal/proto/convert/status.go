@@ -8,12 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 // DAGRunStatusToProto converts execution.DAGRunStatus to proto.
-func DAGRunStatusToProto(s *exec.DAGRunStatus) (*coordinatorv1.DAGRunStatusProto, error) {
+func DAGRunStatusToProto(s *dagrun.DAGRunStatus) (*coordinatorv1.DAGRunStatusProto, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -25,11 +25,11 @@ func DAGRunStatusToProto(s *exec.DAGRunStatus) (*coordinatorv1.DAGRunStatusProto
 }
 
 // ProtoToDAGRunStatus converts proto to execution.DAGRunStatus.
-func ProtoToDAGRunStatus(p *coordinatorv1.DAGRunStatusProto) (*exec.DAGRunStatus, error) {
+func ProtoToDAGRunStatus(p *coordinatorv1.DAGRunStatusProto) (*dagrun.DAGRunStatus, error) {
 	if p == nil || p.JsonData == "" {
 		return nil, nil
 	}
-	var s exec.DAGRunStatus
+	var s dagrun.DAGRunStatus
 	if err := json.Unmarshal([]byte(p.JsonData), &s); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal DAGRunStatus: %w", err)
 	}

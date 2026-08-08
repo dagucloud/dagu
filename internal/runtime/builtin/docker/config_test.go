@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,7 +52,7 @@ func TestDockerConfigSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := core.ValidateExecutorConfig("docker", tt.config)
+			err := registry.ValidateExecutorConfig("docker", tt.config)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -64,15 +65,15 @@ func TestDockerConfigSchema(t *testing.T) {
 func TestDockerConfig_Healthcheck(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    core.Container
+		input    ir.Container
 		wantTest []string
 		wantNil  bool
 	}{
 		{
 			name: "with CMD healthcheck",
-			input: core.Container{
+			input: ir.Container{
 				Image: "postgres:alpine",
-				Healthcheck: &core.Healthcheck{
+				Healthcheck: &ir.Healthcheck{
 					Test:        []string{"CMD", "pg_isready"},
 					Interval:    5 * time.Second,
 					Timeout:     3 * time.Second,
@@ -84,9 +85,9 @@ func TestDockerConfig_Healthcheck(t *testing.T) {
 		},
 		{
 			name: "with CMD-SHELL healthcheck",
-			input: core.Container{
+			input: ir.Container{
 				Image: "mysql:8",
-				Healthcheck: &core.Healthcheck{
+				Healthcheck: &ir.Healthcheck{
 					Test:     []string{"CMD-SHELL", "mysqladmin ping -h localhost"},
 					Interval: 2 * time.Second,
 					Retries:  3,
@@ -96,7 +97,7 @@ func TestDockerConfig_Healthcheck(t *testing.T) {
 		},
 		{
 			name: "without healthcheck",
-			input: core.Container{
+			input: ir.Container{
 				Image: "alpine:3",
 			},
 			wantNil: true,
@@ -119,9 +120,9 @@ func TestDockerConfig_Healthcheck(t *testing.T) {
 }
 
 func TestDockerConfig_Healthcheck_DurationsPreserved(t *testing.T) {
-	input := core.Container{
+	input := ir.Container{
 		Image: "postgres:alpine",
-		Healthcheck: &core.Healthcheck{
+		Healthcheck: &ir.Healthcheck{
 			Test:        []string{"CMD", "pg_isready"},
 			Interval:    5 * time.Second,
 			Timeout:     3 * time.Second,
@@ -141,10 +142,10 @@ func TestDockerConfig_Healthcheck_DurationsPreserved(t *testing.T) {
 }
 
 func TestApplyResourceLimits(t *testing.T) {
-	limits, err := core.NewResourceLimits("1500m", "512Mi")
+	limits, err := ir.NewResourceLimits("1500m", "512Mi")
 	require.NoError(t, err)
 
-	cfg, err := LoadConfig("", core.Container{Image: "alpine"}, nil)
+	cfg, err := LoadConfig("", ir.Container{Image: "alpine"}, nil)
 	require.NoError(t, err)
 
 	ApplyResourceLimits(cfg.Host, limits)

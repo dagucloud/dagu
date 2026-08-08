@@ -15,10 +15,11 @@ import (
 	"strings"
 
 	"dario.cat/mergo"
+	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/go-viper/mapstructure/v2"
 
@@ -33,14 +34,14 @@ var (
 
 // LoadResult contains a loaded DAG and transient value-reference notices produced by that load operation.
 type LoadResult struct {
-	DAG                   *core.DAG
+	DAG                   *ir.DAG
 	ValueReferenceNotices []cmnvalue.ValueReferenceNotice
 }
 
 // LoadOption is a function type for setting load options.
 type LoadOption func(*buildOpts)
 
-// WithBaseConfig sets the base core.DAG configuration file.
+// WithBaseConfig sets the base ir.DAG configuration file.
 func WithBaseConfig(baseDAG string) LoadOption {
 	return func(o *buildOpts) {
 		o.Base = baseDAG
@@ -100,10 +101,10 @@ func WithName(name string) LoadOption {
 	}
 }
 
-// WithDAGsDir sets the directory containing the core.DAG files.
-// This directory is used as the base path for resolving relative core.DAG file paths.
-// When a core.DAG is loaded by name rather than absolute path, the system will look
-// for the core.DAG file in this directory. If not specified, the current working
+// WithDAGsDir sets the directory containing the ir.DAG files.
+// This directory is used as the base path for resolving relative ir.DAG file paths.
+// When a ir.DAG is loaded by name rather than absolute path, the system will look
+// for the ir.DAG file in this directory. If not specified, the current working
 // directory is used as the default.
 func WithDAGsDir(dagsDir string) LoadOption {
 	return func(o *buildOpts) {
@@ -111,10 +112,10 @@ func WithDAGsDir(dagsDir string) LoadOption {
 	}
 }
 
-// WithAllowBuildErrors allows build errors to be ignored during core.DAG loading.
+// WithAllowBuildErrors allows build errors to be ignored during ir.DAG loading.
 // This is required for loading DAGs that may have errors in their definitions,
 // such as missing steps or invalid configurations. When this option is set,
-// the loader will return a core.DAG with the errors included in the DAG's `BuildErrors` field,
+// the loader will return a ir.DAG with the errors included in the DAG's `BuildErrors` field,
 // and will not fail the loading process.
 func WithAllowBuildErrors() LoadOption {
 	return func(o *buildOpts) {
@@ -159,17 +160,15 @@ func WithSourceFile(sourceFile string) LoadOption {
 	}
 }
 
-// WithBuildEnv provides additional environment variables for the build.
-// These are added to the envScope before building, allowing YAML to
-// reference them via ${VAR}. This is used for retry scenarios where
-// dotenv values need to be available during rebuild from YamlData.
-func WithBuildEnv(env map[string]string) LoadOption {
+// WithBuildEnvSnapshot provides transported build values and their resolution state.
+func WithBuildEnvSnapshot(snapshot buildenv.Snapshot) LoadOption {
 	return func(o *buildOpts) {
-		o.BuildEnv = env
+		o.BuildEnv = snapshot.Env
+		o.RuntimeResolved = snapshot.RuntimeResolved
 	}
 }
 
-// Load loads a Directed Acyclic Graph (core.DAG) from a file path or name with the given options.
+// Load loads a Directed Acyclic Graph (ir.DAG) from a file path or name with the given options.
 //
 // The function handles different input formats:
 //
@@ -182,9 +181,9 @@ func WithBuildEnv(env map[string]string) LoadOption {
 //   - If DAGsDir is not provided, the current working directory is used
 //   - For YAML files, the extension is optional
 //
-// This approach provides a flexible way to load core.DAG definitions from multiple sources
+// This approach provides a flexible way to load ir.DAG definitions from multiple sources
 // while supporting customization through the LoadOptions.
-func Load(ctx context.Context, nameOrPath string, opts ...LoadOption) (*core.DAG, error) {
+func Load(ctx context.Context, nameOrPath string, opts ...LoadOption) (*ir.DAG, error) {
 	if nameOrPath == "" {
 		return nil, ErrNameOrPathRequired
 	}
@@ -204,7 +203,7 @@ func LoadWithResult(ctx context.Context, nameOrPath string, opts ...LoadOption) 
 	if err != nil {
 		return nil, err
 	}
-	core.ReportValueReferenceNotices(dag, &collector)
+	ReportValueReferenceNotices(dag, &collector)
 	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
 }
 
@@ -215,8 +214,8 @@ func loadBuildContext(ctx context.Context, opts ...LoadOption) buildContext {
 	}
 }
 
-// LoadYAML loads the core.DAG from the given YAML data with the specified options.
-func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*core.DAG, error) {
+// LoadYAML loads the ir.DAG from the given YAML data with the specified options.
+func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*ir.DAG, error) {
 	return loadYAMLWithOptsAndNotices(ctx, data, newBuildOpts(opts...), nil)
 }
 
@@ -227,7 +226,7 @@ func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*
 	if err != nil {
 		return nil, err
 	}
-	core.ReportValueReferenceNotices(dag, &collector)
+	ReportValueReferenceNotices(dag, &collector)
 	return &LoadResult{DAG: dag, ValueReferenceNotices: collector.Notices()}, nil
 }
 
@@ -244,7 +243,7 @@ func loadYAMLWithOptsAndNotices(
 	data []byte,
 	opts buildOpts,
 	valueReferenceNotices *cmnvalue.ValueReferenceNoticeCollector,
-) (*core.DAG, error) {
+) (*ir.DAG, error) {
 	baseDef, baseRaw, err := loadBaseDefinition(opts)
 	if err != nil {
 		return loadYAMLFailure(opts, err)
@@ -273,11 +272,11 @@ func loadYAMLWithOptsAndNotices(
 	return mainDAG, nil
 }
 
-func validateBuildPathBase(dag *core.DAG) error {
+func validateBuildPathBase(dag *ir.DAG) error {
 	return validateBuildPathBaseFrom(dag, "")
 }
 
-func validateBuildPathBaseFrom(dag *core.DAG, inheritedWorkingDir string) error {
+func validateBuildPathBaseFrom(dag *ir.DAG, inheritedWorkingDir string) error {
 	if dag == nil {
 		return nil
 	}
@@ -285,9 +284,9 @@ func validateBuildPathBaseFrom(dag *core.DAG, inheritedWorkingDir string) error 
 	if effectiveWorkingDir == "" {
 		effectiveWorkingDir = inheritedWorkingDir
 	}
-	if dag.Type == core.TypeBuild && hasRelativeBuildPath(dag) {
+	if dag.Type == ir.TypeBuild && hasRelativeBuildPath(dag) {
 		if effectiveWorkingDir == "" {
-			return core.NewValidationError("working_dir", dag.WorkingDir,
+			return ir.NewValidationError("working_dir", dag.WorkingDir,
 				fmt.Errorf("relative build paths require an authored or caller-supplied working_dir"))
 		}
 		if dag.WorkingDir == "" {
@@ -302,9 +301,9 @@ func validateBuildPathBaseFrom(dag *core.DAG, inheritedWorkingDir string) error 
 	return nil
 }
 
-func hasRelativeBuildPath(dag *core.DAG) bool {
-	var visit func(core.Step) bool
-	visit = func(step core.Step) bool {
+func hasRelativeBuildPath(dag *ir.DAG) bool {
+	var visit func(ir.Step) bool
+	visit = func(step ir.Step) bool {
 		for _, input := range step.Inputs {
 			if !filepath.IsAbs(input.Path) {
 				return true
@@ -325,7 +324,7 @@ func hasRelativeBuildPath(dag *core.DAG) bool {
 	if slices.ContainsFunc(dag.Steps, visit) {
 		return true
 	}
-	for _, handler := range []*core.Step{
+	for _, handler := range []*ir.Step{
 		dag.HandlerOn.Init,
 		dag.HandlerOn.Failure,
 		dag.HandlerOn.Success,
@@ -341,15 +340,15 @@ func hasRelativeBuildPath(dag *core.DAG) bool {
 }
 
 // loadYAMLFailure returns a placeholder DAG when YAML loading is allowed to fail.
-func loadYAMLFailure(opts buildOpts, err error) (*core.DAG, error) {
+func loadYAMLFailure(opts buildOpts, err error) (*ir.DAG, error) {
 	if dag := buildLoadErrorDAG(opts, "", err); dag != nil {
 		return dag, nil
 	}
-	return nil, core.ErrorList{err}
+	return nil, ir.ErrorList{err}
 }
 
 // buildLoadErrorDAG creates a placeholder DAG when build errors are allowed.
-func buildLoadErrorDAG(opts buildOpts, filePath string, err error) *core.DAG {
+func buildLoadErrorDAG(opts buildOpts, filePath string, err error) *ir.DAG {
 	if !opts.Has(buildFlagAllowBuildErrors) {
 		return nil
 	}
@@ -359,7 +358,7 @@ func buildLoadErrorDAG(opts buildOpts, filePath string, err error) *core.DAG {
 		name = defaultName(filePath)
 	}
 
-	return &core.DAG{
+	return &ir.DAG{
 		Name:        name,
 		Location:    filePath,
 		SourceFile:  filePath,
@@ -367,8 +366,8 @@ func buildLoadErrorDAG(opts buildOpts, filePath string, err error) *core.DAG {
 	}
 }
 
-// loadDAG loads the core.DAG from the given file.
-func loadDAG(ctx buildContext, nameOrPath string) (*core.DAG, error) {
+// loadDAG loads the ir.DAG from the given file.
+func loadDAG(ctx buildContext, nameOrPath string) (*ir.DAG, error) {
 	filePath, err := resolveYamlFilePath(ctx, nameOrPath)
 	if err != nil {
 		return nil, err
@@ -391,14 +390,14 @@ func loadDAG(ctx buildContext, nameOrPath string) (*core.DAG, error) {
 		return loadDAGFailure(ctx, filePath, err)
 	}
 
-	core.InitializeDefaults(mainDAG)
+	ir.InitializeDefaults(mainDAG)
 	applyWorkingDirFallback(mainDAG, filePath)
 
 	return mainDAG, nil
 }
 
 // loadDAGFailure returns a placeholder DAG when file loading is allowed to fail.
-func loadDAGFailure(ctx buildContext, filePath string, err error) (*core.DAG, error) {
+func loadDAGFailure(ctx buildContext, filePath string, err error) (*ir.DAG, error) {
 	if dag := buildLoadErrorDAG(ctx.opts, filePath, err); dag != nil {
 		return dag, nil
 	}
@@ -406,7 +405,7 @@ func loadDAGFailure(ctx buildContext, filePath string, err error) (*core.DAG, er
 }
 
 // assembleLoadedDAGs returns the first DAG and attaches later documents as locals.
-func assembleLoadedDAGs(dags []*core.DAG, emptyErr error) (*core.DAG, error) {
+func assembleLoadedDAGs(dags []*ir.DAG, emptyErr error) (*ir.DAG, error) {
 	if len(dags) == 0 {
 		return nil, emptyErr
 	}
@@ -420,16 +419,16 @@ func assembleLoadedDAGs(dags []*core.DAG, emptyErr error) (*core.DAG, error) {
 }
 
 // attachLocalDAGs registers secondary documents as named local DAGs.
-func attachLocalDAGs(mainDAG *core.DAG, localDAGs []*core.DAG) error {
+func attachLocalDAGs(mainDAG *ir.DAG, localDAGs []*ir.DAG) error {
 	if len(localDAGs) == 0 {
 		return nil
 	}
 
-	mainDAG.LocalDAGs = make(map[string]*core.DAG, len(localDAGs))
+	mainDAG.LocalDAGs = make(map[string]*ir.DAG, len(localDAGs))
 	for i, dag := range localDAGs {
 		index := i + 1
 		if dag.Name == "" {
-			return fmt.Errorf("child core.DAG at index %d must have a name", index)
+			return fmt.Errorf("child ir.DAG at index %d must have a name", index)
 		}
 		mainDAG.LocalDAGs[dag.Name] = dag
 	}
@@ -439,7 +438,7 @@ func attachLocalDAGs(mainDAG *core.DAG, localDAGs []*core.DAG) error {
 // applyWorkingDirFallback marks configured working directories as explicit,
 // then defaults the DAG working directory to the manifest's directory when the
 // manifest omits one. filePath must be non-empty.
-func applyWorkingDirFallback(dag *core.DAG, filePath string) {
+func applyWorkingDirFallback(dag *ir.DAG, filePath string) {
 	markConfiguredWorkingDirsExplicit(dag)
 
 	if dag.WorkingDir != "" {
@@ -451,7 +450,7 @@ func applyWorkingDirFallback(dag *core.DAG, filePath string) {
 
 // markConfiguredWorkingDirsExplicit preserves configured working directories
 // without synthesizing fallback values for YAML-only loads.
-func markConfiguredWorkingDirsExplicit(dag *core.DAG) {
+func markConfiguredWorkingDirsExplicit(dag *ir.DAG) {
 	if dag == nil {
 		return
 	}
@@ -464,7 +463,7 @@ func markConfiguredWorkingDirsExplicit(dag *core.DAG) {
 }
 
 // loadDAGsFromFile loads all DAGs from a multi-document YAML file.
-func loadDAGsFromFile(ctx buildContext, filePath string, baseDef *dag, baseRaw []byte) ([]*core.DAG, error) {
+func loadDAGsFromFile(ctx buildContext, filePath string, baseDef *dag, baseRaw []byte) ([]*ir.DAG, error) {
 	data, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %q: %w", filePath, err)
@@ -478,7 +477,7 @@ type dagDocument struct {
 }
 
 // loadDAGsFromData builds DAGs from every non-empty YAML document in the input.
-func loadDAGsFromData(ctx buildContext, data []byte, filePath string, baseDef *dag, baseRaw []byte) ([]*core.DAG, error) {
+func loadDAGsFromData(ctx buildContext, data []byte, filePath string, baseDef *dag, baseRaw []byte) ([]*ir.DAG, error) {
 	docs, err := decodeDocuments(data)
 	if err != nil {
 		return nil, err
@@ -492,7 +491,7 @@ func loadDAGsFromData(ctx buildContext, data []byte, filePath string, baseDef *d
 		}
 	}
 
-	dags := make([]*core.DAG, 0, len(docs))
+	dags := make([]*ir.DAG, 0, len(docs))
 	for _, doc := range docs {
 		docBaseDef, docBaseRaw := fileBaseDef, fileBaseRaw
 		if doc.index == 0 || workspaceNameFromDocument(doc.data) != "" {
@@ -615,7 +614,7 @@ func processDAGDocument(
 	baseRaw []byte,
 	filePath string,
 	fullData []byte,
-) (*core.DAG, error) {
+) (*ir.DAG, error) {
 	spec, err := decode(doc)
 	if err != nil {
 		return nil, err
@@ -845,7 +844,7 @@ func buildDocumentContext(ctx buildContext, index int) buildContext {
 }
 
 // prepareDocumentContext builds the inherited context and destination DAG.
-func prepareDocumentContext(ctx buildContext, baseDef, spec *dag) (buildContext, *core.DAG, error) {
+func prepareDocumentContext(ctx buildContext, baseDef, spec *dag) (buildContext, *ir.DAG, error) {
 	customStepTypes, err := buildCustomStepActionRegistry(
 		stepTypesOf(baseDef),
 		stepTypesOf(spec),
@@ -858,7 +857,7 @@ func prepareDocumentContext(ctx buildContext, baseDef, spec *dag) (buildContext,
 	ctx = ctx.WithCustomStepTypes(customStepTypes)
 
 	if baseDef == nil {
-		return ctx, new(core.DAG), nil
+		return ctx, new(ir.DAG), nil
 	}
 
 	baseDAG, baseDefaults, err := buildDocumentBase(ctx, baseDef)
@@ -871,7 +870,7 @@ func prepareDocumentContext(ctx buildContext, baseDef, spec *dag) (buildContext,
 }
 
 // buildDocumentBase builds the reusable base DAG and decoded defaults.
-func buildDocumentBase(ctx buildContext, baseDef *dag) (*core.DAG, *defaults, error) {
+func buildDocumentBase(ctx buildContext, baseDef *dag) (*ir.DAG, *defaults, error) {
 	baseDAG, err := buildBaseDAG(ctx, baseDef)
 	if err != nil {
 		return nil, nil, err
@@ -894,7 +893,7 @@ func documentYAML(index int, doc map[string]any, fullData []byte) ([]byte, error
 }
 
 // buildBaseDAG builds a new base DAG from the base definition.
-func buildBaseDAG(ctx buildContext, baseDef *dag) (*core.DAG, error) {
+func buildBaseDAG(ctx buildContext, baseDef *dag) (*ir.DAG, error) {
 	buildOpts := ctx.opts
 	buildOpts.Parameters = ""
 	buildOpts.ParametersList = nil
@@ -907,13 +906,13 @@ func buildBaseDAG(ctx buildContext, baseDef *dag) (*core.DAG, error) {
 
 	baseDAG, err := baseDef.build(ctx.WithOpts(buildOpts).WithCustomStepTypes(customStepTypes))
 	if err != nil {
-		return nil, fmt.Errorf("failed to build base core.DAG: %w", err)
+		return nil, fmt.Errorf("failed to build base ir.DAG: %w", err)
 	}
 
 	// Skip handlers from base config for sub-DAG runs to prevent inheritance.
 	// Sub-DAGs should define their own handlers explicitly if needed.
 	if ctx.opts.Has(buildFlagSkipBaseHandlers) {
-		baseDAG.HandlerOn = core.HandlerOn{}
+		baseDAG.HandlerOn = ir.HandlerOn{}
 	}
 
 	return baseDAG, nil
@@ -947,7 +946,7 @@ func shouldInheritType(doc map[string]any, baseDef, spec *dag) bool {
 }
 
 // validateUniqueNames ensures all DAGs in a multi-DAG file have unique names.
-func validateUniqueNames(dags []*core.DAG) error {
+func validateUniqueNames(dags []*ir.DAG) error {
 	if len(dags) < 2 {
 		return nil
 	}
@@ -1034,7 +1033,7 @@ func (*mergeTransformer) Transformer(
 	typ reflect.Type,
 ) func(dst, src reflect.Value) error {
 	// mergo does not override a value with zero value for a pointer.
-	if typ == reflect.TypeFor[core.MailOn]() {
+	if typ == reflect.TypeFor[ir.MailOn]() {
 		// We need to explicitly override the value for a pointer with a zero
 		// value.
 		return func(dst, src reflect.Value) error {
@@ -1046,7 +1045,7 @@ func (*mergeTransformer) Transformer(
 		}
 	}
 
-	if typ == reflect.TypeFor[core.DAGRetryPolicy]() {
+	if typ == reflect.TypeFor[ir.DAGRetryPolicy]() {
 		// DAG retry policies are configured as a single root object. Replace the
 		// inherited policy wholesale so limit: 0 can intentionally disable retries.
 		return func(dst, src reflect.Value) error {
@@ -1058,7 +1057,7 @@ func (*mergeTransformer) Transformer(
 		}
 	}
 
-	if typ == reflect.TypeFor[core.WebhookConfig]() {
+	if typ == reflect.TypeFor[ir.WebhookConfig]() {
 		// Webhook forwarding config is a single DAG-level object. Replace the
 		// inherited object wholesale so child DAGs can override or clear the
 		// header allowlist deterministically.
@@ -1071,45 +1070,45 @@ func (*mergeTransformer) Transformer(
 		}
 	}
 
-	if typ == reflect.TypeFor[core.KubernetesConfig]() {
+	if typ == reflect.TypeFor[ir.KubernetesConfig]() {
 		return func(dst, src reflect.Value) error {
 			if !dst.CanSet() || !src.IsValid() || src.IsNil() {
 				return nil
 			}
 
-			srcCfg := src.Interface().(core.KubernetesConfig)
+			srcCfg := src.Interface().(ir.KubernetesConfig)
 			if len(srcCfg) == 0 {
-				dst.Set(reflect.ValueOf(core.KubernetesConfig{}))
+				dst.Set(reflect.ValueOf(ir.KubernetesConfig{}))
 				return nil
 			}
 
 			var dstCfg map[string]any
 			if !dst.IsNil() {
-				dstCfg = map[string]any(dst.Interface().(core.KubernetesConfig))
+				dstCfg = map[string]any(dst.Interface().(ir.KubernetesConfig))
 			}
 
 			merged := mergeKubernetesConfigMaps(dstCfg, map[string]any(srcCfg))
-			dst.Set(reflect.ValueOf(core.KubernetesConfig(merged)))
+			dst.Set(reflect.ValueOf(ir.KubernetesConfig(merged)))
 			return nil
 		}
 	}
 
-	if typ == reflect.TypeFor[core.HarnessDefinitions]() {
+	if typ == reflect.TypeFor[ir.HarnessDefinitions]() {
 		return func(dst, src reflect.Value) error {
 			if !dst.CanSet() || !src.IsValid() || src.IsNil() {
 				return nil
 			}
 
-			srcDefs := src.Interface().(core.HarnessDefinitions)
+			srcDefs := src.Interface().(ir.HarnessDefinitions)
 			if len(srcDefs) == 0 {
 				return nil
 			}
 
-			cloneDef := func(def *core.HarnessDefinition) *core.HarnessDefinition {
+			cloneDef := func(def *ir.HarnessDefinition) *ir.HarnessDefinition {
 				if def == nil {
 					return nil
 				}
-				return &core.HarnessDefinition{
+				return &ir.HarnessDefinition{
 					Binary:         def.Binary,
 					PrefixArgs:     append([]string(nil), def.PrefixArgs...),
 					PromptMode:     def.PromptMode,
@@ -1120,22 +1119,22 @@ func (*mergeTransformer) Transformer(
 				}
 			}
 
-			cloneDefs := func(defs core.HarnessDefinitions) core.HarnessDefinitions {
+			cloneDefs := func(defs ir.HarnessDefinitions) ir.HarnessDefinitions {
 				if defs == nil {
 					return nil
 				}
-				cloned := make(core.HarnessDefinitions, len(defs))
+				cloned := make(ir.HarnessDefinitions, len(defs))
 				for name, def := range defs {
 					cloned[name] = cloneDef(def)
 				}
 				return cloned
 			}
 
-			var merged core.HarnessDefinitions
+			var merged ir.HarnessDefinitions
 			if !dst.IsNil() {
-				merged = cloneDefs(dst.Interface().(core.HarnessDefinitions))
+				merged = cloneDefs(dst.Interface().(ir.HarnessDefinitions))
 			} else {
-				merged = make(core.HarnessDefinitions)
+				merged = make(ir.HarnessDefinitions)
 			}
 
 			for name, def := range srcDefs {
@@ -1305,8 +1304,8 @@ func decodeViaYAML[T any](data any) (T, error) {
 	return result, nil
 }
 
-// merge merges the source core.DAG into the destination DAG.
-func merge(dst, src *core.DAG) error {
+// merge merges the source ir.DAG into the destination DAG.
+func merge(dst, src *ir.DAG) error {
 	return mergo.Merge(dst, src, mergo.WithOverride,
 		mergo.WithTransformers(&mergeTransformer{}))
 }

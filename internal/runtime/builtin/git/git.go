@@ -15,7 +15,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	gogit "github.com/go-git/go-git/v5"
@@ -72,10 +73,10 @@ type checkoutResult struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, core.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
 }
 
-func newExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	op := stepOperation(step)
 	cfg := config{}
 	worktreeCfg := worktreeConfig{}
@@ -117,7 +118,7 @@ func newExecutor(ctx context.Context, step core.Step) (executor.Executor, error)
 	}, nil
 }
 
-func validateStep(step core.Step) error {
+func validateStep(step ir.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
 	}
@@ -133,7 +134,7 @@ func validateStep(step core.Step) error {
 	return validateConfig(op, cfg)
 }
 
-func stepOperation(step core.Step) string {
+func stepOperation(step ir.Step) string {
 	if len(step.Commands) == 0 {
 		return ""
 	}

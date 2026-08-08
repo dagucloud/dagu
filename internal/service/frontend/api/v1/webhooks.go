@@ -8,16 +8,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -87,8 +90,8 @@ func (a *API) CreateDAGWebhook(ctx context.Context, request api.CreateDAGWebhook
 	}
 
 	// Check if DAG exists
-	if _, err := a.dagStore.GetDetails(ctx, string(request.FileName), exec.DAGLoadOptions{}); err != nil {
-		if errors.Is(err, exec.ErrDAGNotFound) {
+	if _, err := a.dagStore.GetDetails(ctx, string(request.FileName), dagstore.DAGLoadOptions{}); err != nil {
+		if errors.Is(err, dagstore.ErrDAGNotFound) {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,
@@ -604,7 +607,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	}
 
 	// Load the DAG (we need it for enqueuing)
-	dag, err := a.dagStore.GetDetails(ctx, string(request.FileName), exec.DAGLoadOptions{})
+	dag, err := a.dagStore.GetDetails(ctx, string(request.FileName), dagstore.DAGLoadOptions{})
 	if err != nil {
 		logger.Warn(ctx, "Webhook: DAG not found",
 			tag.Name(request.FileName),
@@ -632,7 +635,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	if request.Body != nil && request.Body.DagRunId != nil && *request.Body.DagRunId != "" {
 		dagRunID = *request.Body.DagRunId
 		// Check if a dag-run with this ID already exists
-		statuses, err := a.dagRunStore.ListStatuses(ctx, exec.WithDAGRunID(dagRunID))
+		statuses, err := a.dagRunStore.ListStatuses(ctx, dagrun.WithDAGRunID(dagRunID))
 		if err == nil && len(statuses) > 0 {
 			// DAG run already exists - return 409 Conflict
 			logger.Info(ctx, "Webhook: DAG run already exists (idempotency)",
@@ -651,7 +654,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 
 	// Enqueue directly from the API layer so accepted webhook payloads do not
 	// need to fit in a subprocess command line.
-	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, core.TriggerTypeWebhook, profileName, false); err != nil {
+	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, ir.TriggerTypeWebhook, profileName, false); err != nil {
 		logger.Error(ctx, "Webhook: failed to enqueue DAG run",
 			tag.DAG(dag.Name),
 			tag.Error(err),
@@ -677,7 +680,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 }
 
 func requestedWebhookProfile(ctx context.Context, raw *api.RuntimeProfileName) (string, *Error) {
-	values := requestHeadersFromContext(ctx)[core.NormalizeWebhookForwardHeader("X-Dagu-Profile")]
+	values := requestHeadersFromContext(ctx)[ir.NormalizeWebhookForwardHeader("X-Dagu-Profile")]
 	if len(values) > 1 {
 		return "", invalidWebhookProfileHeader()
 	}
@@ -722,7 +725,7 @@ func (a *API) webhookRunProfile(
 
 func buildWebhookRequestRuntimeParams(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	body *api.TriggerWebhookJSONRequestBody,
 	maxPayloadSize int,
 ) (string, *Error) {
@@ -769,7 +772,7 @@ func buildWebhookRequestRuntimeParams(
 		}
 	}
 
-	return buildWebhookRuntimeParams(payload, headers), nil
+	return buildWebhookRuntimeParams(payload, headers, nil), nil
 }
 
 // requireWebhookManagement checks if webhook management is enabled and
@@ -902,8 +905,8 @@ func marshalWebhookHeaders(ctx context.Context, allowList []string) (string, err
 	}
 
 	for _, raw := range allowList {
-		headerName := core.NormalizeWebhookForwardHeader(raw)
-		if headerName == "" || core.IsDeniedWebhookForwardHeader(headerName) {
+		headerName := ir.NormalizeWebhookForwardHeader(raw)
+		if headerName == "" || ir.IsDeniedWebhookForwardHeader(headerName) {
 			continue
 		}
 		values := headers[headerName]
@@ -920,6 +923,17 @@ func marshalWebhookHeaders(ctx context.Context, allowList []string) (string, err
 	return string(encoded), nil
 }
 
-func buildWebhookRuntimeParams(payload, headers string) string {
-	return core.BuildWebhookRuntimeParams(payload, headers, nil)
+func buildWebhookRuntimeParams(payload, headers string, extras map[string]string) string {
+	parts := []string{
+		fmt.Sprintf("WEBHOOK_PAYLOAD=%s", strconv.Quote(payload)),
+		fmt.Sprintf("WEBHOOK_HEADERS=%s", strconv.Quote(headers)),
+	}
+
+	for _, key := range slices.Sorted(maps.Keys(extras)) {
+		if value := extras[key]; value != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s", key, strconv.Quote(value)))
+		}
+	}
+
+	return strings.Join(parts, " ")
 }

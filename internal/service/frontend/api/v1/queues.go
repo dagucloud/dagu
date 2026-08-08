@@ -15,8 +15,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
 
 const (
@@ -99,7 +101,7 @@ func (a *API) GetQueue(ctx context.Context, req api.GetQueueRequestObject) (api.
 }
 
 // fetchDAGRunSummary fetches the status and converts it to a summary for a given DAG-run reference.
-func (a *API) fetchDAGRunSummary(ctx context.Context, dagRun exec.DAGRunRef) (api.DAGRunSummary, error) {
+func (a *API) fetchDAGRunSummary(ctx context.Context, dagRun dagrun.DAGRunRef) (api.DAGRunSummary, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return api.DAGRunSummary{}, err
@@ -121,7 +123,7 @@ func (a *API) ListQueueItems(ctx context.Context, req api.ListQueueItemsRequestO
 
 	items, nextCursor, err := a.listVisibleQueuedItems(ctx, req.Name, limit, cursor)
 	if err != nil {
-		if errors.Is(err, exec.ErrInvalidCursor) {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
 			return nil, &Error{
 				Code:       api.ErrorCodeBadRequest,
 				Message:    "Invalid queue cursor",
@@ -214,7 +216,7 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 		}
 	}
 
-	runningByGroup := map[string][]exec.DAGRunRef{}
+	runningByGroup := map[string][]dagrun.DAGRunRef{}
 	if a.procStore != nil {
 		var err error
 		runningByGroup, err = a.procStore.ListAllAlive(ctx)
@@ -423,7 +425,7 @@ func (a *API) effectiveLeaseStaleThreshold() time.Duration {
 	if a.leaseStaleThreshold > 0 {
 		return a.leaseStaleThreshold
 	}
-	return exec.DefaultStaleLeaseThreshold
+	return dagrun.DefaultStaleLeaseThreshold
 }
 
 func (a *API) activeDistributedRunningSummaries(ctx context.Context, queueName string, excludeRunIDs map[string]struct{}) map[string][]api.DAGRunSummary {
@@ -463,7 +465,7 @@ func (a *API) activeDistributedRunningSummaries(ctx context.Context, queueName s
 	return result
 }
 
-func (a *API) runningSummaryFromLease(ctx context.Context, lease exec.DAGRunLease) (api.DAGRunSummary, bool) {
+func (a *API) runningSummaryFromLease(ctx context.Context, lease dispatch.DAGRunLease) (api.DAGRunSummary, bool) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, lease.DAGRun)
 	if err != nil {
 		return api.DAGRunSummary{}, false
@@ -479,9 +481,9 @@ func (a *API) runningSummaryFromLease(ctx context.Context, lease exec.DAGRunLeas
 		return api.DAGRunSummary{}, false
 	}
 	switch status.Status {
-	case core.Running:
+	case ir.Running:
 		return toDAGRunSummary(*status), true
-	case core.NotStarted, core.Queued:
+	case ir.NotStarted, ir.Queued:
 		// A fresh lease means the worker owns the queue slot, even if the
 		// persisted status has not caught up to running yet.
 		summary := toDAGRunSummary(*status)
@@ -489,8 +491,8 @@ func (a *API) runningSummaryFromLease(ctx context.Context, lease exec.DAGRunLeas
 		summary.StatusLabel = api.StatusLabelRunning
 		summary.Conditions = nil
 		return summary, true
-	case core.Failed, core.Aborted, core.Succeeded,
-		core.PartiallySucceeded, core.Waiting, core.Rejected:
+	case ir.Failed, ir.Aborted, ir.Succeeded,
+		ir.PartiallySucceeded, ir.Waiting, ir.Rejected:
 		return api.DAGRunSummary{}, false
 	}
 

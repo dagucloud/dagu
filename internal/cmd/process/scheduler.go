@@ -15,28 +15,33 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // SchedulerConfig contains the wiring needed to construct the scheduler process role.
 type SchedulerConfig struct {
 	Context           context.Context
 	Config            *config.Config
-	QueueStore        exec.QueueStore
-	ProcStore         exec.ProcStore
-	ServiceRegistry   exec.ServiceRegistry
-	DispatchTaskStore exec.DispatchTaskStore
-	DAGRunLeaseStore  exec.DAGRunLeaseStore
+	QueueStore        queue.QueueStore
+	ProcStore         proc.ProcStore
+	ServiceRegistry   serviceregistry.ServiceRegistry
+	DispatchTaskStore dispatch.DispatchTaskStore
+	DAGRunLeaseStore  dispatch.DAGRunLeaseStore
 	EventService      *eventstore.Service
 	LicenseManager    *license.Manager
 }
@@ -49,7 +54,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	}
 
 	limits := cfg.Config.Cache.Limits()
-	dagCache := fileutil.NewCache[*core.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
+	dagCache := fileutil.NewCache[*ir.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
 	dagCache.StartEviction(ctx)
 
 	dagStore, err := NewDAGStore(cfg.Config, DAGStoreConfig{Cache: dagCache})
@@ -67,7 +72,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		file.NewCollection(filepath.Join(cfg.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
 	)
 
-	statusCache := fileutil.NewCache[*exec.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
+	statusCache := fileutil.NewCache[*dagrun.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 	statusCache.StartEviction(ctx)
 	schedulerRunStore := file.NewDAGRunStore(
 		cfg.Config,
@@ -124,7 +129,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 func newNotificationMonitor(
 	ctx context.Context,
 	cfg *config.Config,
-	dagStore exec.DAGStore,
+	dagStore dagstore.DAGStore,
 	eventService *eventstore.Service,
 ) *chatbridge.NotificationMonitor {
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
@@ -156,7 +161,7 @@ func newNotificationMonitor(
 func newSchedulerNotificationService(
 	cfg *config.Config,
 	store notificationmodel.Store,
-	dagStore exec.DAGStore,
+	dagStore dagstore.DAGStore,
 	opts ...notificationservice.Option,
 ) *notificationservice.Service {
 	opts = append([]notificationservice.Option{

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 	"github.com/stretchr/testify/assert"
@@ -21,10 +21,10 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
 )
 
-func testDAG() *core.DAG {
-	return &core.DAG{
-		Type: core.TypeController,
-		Tasks: []core.ControllerTask{
+func testDAG() *ir.DAG {
+	return &ir.DAG{
+		Type: ir.TypeController,
+		Tasks: []ir.ControllerTask{
 			{Name: "first", Description: "one"},
 			{Name: "second", Description: "two"},
 		},
@@ -91,7 +91,7 @@ func TestLoadState_PreservesProgressAcrossAttempts(t *testing.T) {
 	raw, err := state.Marshal()
 	require.NoError(t, err)
 
-	messages := []exec.LLMMessage{{Role: exec.RoleAssistant, Content: "hello"}}
+	messages := []dagrun.LLMMessage{{Role: dagrun.RoleAssistant, Content: "hello"}}
 	restored, err := controller.LoadState(raw, messages, testDAG())
 	require.NoError(t, err)
 
@@ -111,9 +111,9 @@ func TestLoadState_ReconcilesAnEditedTaskList(t *testing.T) {
 	raw, err := state.Marshal()
 	require.NoError(t, err)
 
-	edited := &core.DAG{
-		Type: core.TypeController,
-		Tasks: []core.ControllerTask{
+	edited := &ir.DAG{
+		Type: ir.TypeController,
+		Tasks: []ir.ControllerTask{
 			{Name: "first", Description: "one"},
 			{Name: "third", Description: "new goal"},
 		},
@@ -141,18 +141,18 @@ func TestNewCatalog(t *testing.T) {
 	t.Parallel()
 
 	dag := testDAG()
-	dag.LocalDAGs = map[string]*core.DAG{
+	dag.LocalDAGs = map[string]*ir.DAG{
 		"child": {
 			Name:        "child",
 			Description: "the child workflow",
-			ParamDefs:   []core.ParamDef{{Name: "target", Type: core.ParamDefTypeString, Required: true}},
+			ParamDefs:   []ir.ParamDef{{Name: "target", Type: ir.ParamDefTypeString, Required: true}},
 		},
 	}
-	dag.Steps = []core.Step{
-		{Name: "run child", SubDAG: &core.SubDAG{Name: "child"}},
-		{Name: "review", HumanTask: &core.HumanTaskConfig{Prompt: "ok?"}},
+	dag.Steps = []ir.Step{
+		{Name: "run child", SubDAG: &ir.SubDAG{Name: "child"}},
+		{Name: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "ok?"}},
 		{Name: "run child"}, // same identifier, so the tool name must be disambiguated
-		core.NewControllerStep(dag),
+		ir.NewControllerStep(dag),
 	}
 
 	catalog, err := controller.NewCatalog(t.Context(), dag)
@@ -165,7 +165,7 @@ func TestNewCatalog(t *testing.T) {
 	}, names)
 
 	// The controller step is not one of the actions the model may pick.
-	_, ok := catalog.StepFor(core.ControllerStepName)
+	_, ok := catalog.StepFor(ir.ControllerStepName)
 	assert.False(t, ok)
 
 	step, ok := catalog.StepFor("run_child_2")
@@ -187,22 +187,22 @@ func TestNewCatalog_HidesParametersTheStepPins(t *testing.T) {
 	t.Parallel()
 
 	dag := testDAG()
-	dag.LocalDAGs = map[string]*core.DAG{
+	dag.LocalDAGs = map[string]*ir.DAG{
 		"check": {
 			Name: "check",
-			ParamDefs: []core.ParamDef{
-				{Name: "aspect", Type: core.ParamDefTypeString, Required: true},
-				{Name: "strict", Type: core.ParamDefTypeString},
+			ParamDefs: []ir.ParamDef{
+				{Name: "aspect", Type: ir.ParamDefTypeString, Required: true},
+				{Name: "strict", Type: ir.ParamDefTypeString},
 			},
 		},
 	}
-	dag.Steps = []core.Step{
+	dag.Steps = []ir.Step{
 		{
 			Name:   "check vocabulary",
-			SubDAG: &core.SubDAG{Name: "check", Params: `aspect="vocabulary"`},
-			Params: core.NewSimpleParams(map[string]string{"aspect": "vocabulary"}),
+			SubDAG: &ir.SubDAG{Name: "check", Params: `aspect="vocabulary"`},
+			Params: ir.NewSimpleParams(map[string]string{"aspect": "vocabulary"}),
 		},
-		core.NewControllerStep(dag),
+		ir.NewControllerStep(dag),
 	}
 
 	catalog, err := controller.NewCatalog(t.Context(), dag)
@@ -440,14 +440,14 @@ func TestPlanner_MasksTheOutboundCopy(t *testing.T) {
 	t.Parallel()
 
 	provider := &stubProvider{}
-	catalog, err := controller.NewCatalog(t.Context(), &core.DAG{
-		Type:  core.TypeController,
-		Steps: []core.Step{{Name: "alpha"}},
+	catalog, err := controller.NewCatalog(t.Context(), &ir.DAG{
+		Type:  ir.TypeController,
+		Steps: []ir.Step{{Name: "alpha"}},
 	})
 	require.NoError(t, err)
 
-	mask := func(msgs []exec.LLMMessage) []exec.LLMMessage {
-		out := make([]exec.LLMMessage, len(msgs))
+	mask := func(msgs []dagrun.LLMMessage) []dagrun.LLMMessage {
+		out := make([]dagrun.LLMMessage, len(msgs))
 		for i, m := range msgs {
 			out[i] = m
 			out[i].Content = strings.ReplaceAll(m.Content, "super-secret", "***")
@@ -455,11 +455,11 @@ func TestPlanner_MasksTheOutboundCopy(t *testing.T) {
 		return out
 	}
 
-	planner := controller.NewPlanner(provider, &core.LLMConfig{Model: "m"}, catalog,
+	planner := controller.NewPlanner(provider, &ir.LLMConfig{Model: "m"}, catalog,
 		"Authenticate with super-secret.", mask)
 
-	state := controller.NewState(&core.DAG{Tasks: []core.ControllerTask{{Name: "t", Description: "d"}}})
-	state.Append(exec.LLMMessage{Role: exec.RoleUser, Content: "token is super-secret"})
+	state := controller.NewState(&ir.DAG{Tasks: []ir.ControllerTask{{Name: "t", Description: "d"}}})
+	state.Append(dagrun.LLMMessage{Role: dagrun.RoleUser, Content: "token is super-secret"})
 
 	_, err = planner.Next(t.Context(), state)
 	require.NoError(t, err)

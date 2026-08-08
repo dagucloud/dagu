@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,7 +85,7 @@ func TestToolRegistry_GetDAGByToolName(t *testing.T) {
 	t.Run("Found", func(t *testing.T) {
 		t.Parallel()
 
-		testDAG := &core.DAG{Name: "test-dag"}
+		testDAG := &ir.DAG{Name: "test-dag"}
 		r := &ToolRegistry{
 			tools: map[string]*toolInfo{
 				"test": {
@@ -164,21 +164,21 @@ func TestNewToolRegistry_LocalDAGs(t *testing.T) {
 		t.Parallel()
 
 		// Create a parent DAG with LocalDAGs
-		localDAG := &core.DAG{
+		localDAG := &ir.DAG{
 			Name:          "search_tool",
 			Description:   "Search the web",
 			DefaultParams: "query",
 		}
 
-		parentDAG := &core.DAG{
+		parentDAG := &ir.DAG{
 			Name: "parent",
-			LocalDAGs: map[string]*core.DAG{
+			LocalDAGs: map[string]*ir.DAG{
 				"search_tool": localDAG,
 			},
 		}
 
 		// Create context with parent DAG
-		ctx := exec.NewContext(context.Background(), parentDAG, "run-1", "/tmp/log")
+		ctx := runctx.NewContext(context.Background(), parentDAG, "run-1", "/tmp/log")
 
 		registry, err := NewToolRegistry(ctx, []string{"search_tool"})
 		require.NoError(t, err)

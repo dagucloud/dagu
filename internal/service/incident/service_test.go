@@ -19,9 +19,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -153,7 +153,7 @@ func TestServicePagerDutyTriggerAndResolvePayloads(t *testing.T) {
 	recovery := failure
 	recovery.Type = eventstore.TypeDAGRunPartiallySucceeded
 	recovery.Status = cloneStatus(failure.Status)
-	recovery.Status.Status = core.PartiallySucceeded
+	recovery.Status.Status = ir.PartiallySucceeded
 	recovery.Status.Error = ""
 	ok = svc.FlushNotificationBatch(context.Background(), policyDestinationID(policySet, policySet.Policies[0].ID), chatbridge.NotificationBatch{
 		Events: []chatbridge.NotificationEvent{recovery},
@@ -224,7 +224,7 @@ func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 	success := failure
 	success.Type = eventstore.TypeDAGRunSucceeded
 	success.Status = cloneStatus(failure.Status)
-	success.Status.Status = core.Succeeded
+	success.Status.Status = ir.Succeeded
 	success.Status.Error = ""
 
 	destinations = svc.NotificationDestinationsForEvent(success)
@@ -279,7 +279,7 @@ func TestMonitorKeepsIncidentRecoveryWithinWorkspace(t *testing.T) {
 	svc := New(store, WithHTTPClient(client))
 	success := failedEvent("daily", "run-1")
 	success.Type = eventstore.TypeDAGRunSucceeded
-	success.Status.Status = core.Succeeded
+	success.Status.Status = ir.Succeeded
 	success.Status.Error = ""
 	success.Status.Labels = []string{"workspace=engineering"}
 	success.DAGFile = "daily-file"
@@ -374,7 +374,7 @@ func TestServiceReopenedIncidentUsesFreshOpenedAt(t *testing.T) {
 	success := failure
 	success.Type = eventstore.TypeDAGRunSucceeded
 	success.Status = cloneStatus(failure.Status)
-	success.Status.Status = core.Succeeded
+	success.Status.Status = ir.Succeeded
 	success.Status.Error = ""
 	require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
 		Events: []chatbridge.NotificationEvent{success},
@@ -445,7 +445,7 @@ func TestServiceSolarWindsTriggerAndResolvePayloads(t *testing.T) {
 	success := failure
 	success.Type = eventstore.TypeDAGRunSucceeded
 	success.Status = cloneStatus(failure.Status)
-	success.Status.Status = core.Succeeded
+	success.Status.Status = ir.Succeeded
 	success.Status.Error = ""
 	ok = svc.FlushNotificationBatch(context.Background(), policyDestinationID(policySet, policySet.Policies[0].ID), chatbridge.NotificationBatch{
 		Events: []chatbridge.NotificationEvent{success},
@@ -471,11 +471,11 @@ func failedEvent(dagName, runID string) chatbridge.NotificationEvent {
 		Key:        "key:" + dagName + ":" + runID,
 		Type:       eventstore.TypeDAGRunFailed,
 		ObservedAt: now,
-		Status: &exec.DAGRunStatus{
+		Status: &dagrun.DAGRunStatus{
 			Name:       dagName,
 			DAGRunID:   runID,
 			AttemptID:  runID,
-			Status:     core.Failed,
+			Status:     ir.Failed,
 			Error:      "boom",
 			StartedAt:  stringutilFormat(now.Add(-time.Minute)),
 			FinishedAt: stringutilFormat(now),
@@ -483,7 +483,7 @@ func failedEvent(dagName, runID string) chatbridge.NotificationEvent {
 	}
 }
 
-func cloneStatus(status *exec.DAGRunStatus) *exec.DAGRunStatus {
+func cloneStatus(status *dagrun.DAGRunStatus) *dagrun.DAGRunStatus {
 	if status == nil {
 		return nil
 	}

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 )
 
 // RuntimeDispatcherConfigForTest exposes the coordinator client config for external tests.
-func RuntimeDispatcherConfigForTest(dispatcher exec.Dispatcher) (*Config, bool) {
+func RuntimeDispatcherConfigForTest(dispatcher dispatch.Dispatcher) (*Config, bool) {
 	client, ok := dispatcher.(*clientImpl)
 	if !ok {
 		return nil, false

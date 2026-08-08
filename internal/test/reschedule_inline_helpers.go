@@ -14,8 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -77,7 +77,7 @@ steps:
 		ProcessQueuedInlineRun(t, server, dagName)
 		require.Eventually(t, func() bool {
 			status, err := latestStoredAttemptStatus(server, dagName, dagRunID)
-			return err == nil && status.Status == core.Succeeded
+			return err == nil && status.Status == ir.Succeeded
 		}, rescheduleEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 	}
 
@@ -104,7 +104,7 @@ func AssertInlineRescheduledRunParams(t *testing.T, server Server, dagName, dagR
 		if err != nil {
 			return false
 		}
-		return status.Status == core.Succeeded
+		return status.Status == ir.Succeeded
 	}, rescheduleEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
 	status, err := latestStoredAttemptStatus(server, dagName, dagRunID)
@@ -112,10 +112,10 @@ func AssertInlineRescheduledRunParams(t *testing.T, server Server, dagName, dagR
 	require.Equal(t, []string{"KEY=hello world", "COUNT=3"}, status.ParamsList)
 }
 
-func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*exec.DAGRunStatus, error) {
+func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*dagrun.DAGRunStatus, error) {
 	store := file.NewDAGRunStore(server.Config)
 
-	attempt, err := store.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, dagRunID))
+	attempt, err := store.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, dagRunID))
 	if err != nil {
 		return nil, err
 	}
@@ -123,27 +123,27 @@ func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*exec.D
 	return attempt.ReadStatus(server.Context)
 }
 
-func WaitForAttemptSnapshot(t *testing.T, server Server, dagName, dagRunID string) exec.DAGRunAttempt {
+func WaitForAttemptSnapshot(t *testing.T, server Server, dagName, dagRunID string) dagrun.DAGRunAttempt {
 	t.Helper()
 
 	store := file.NewDAGRunStore(server.Config)
 
-	var attempt exec.DAGRunAttempt
+	var attempt dagrun.DAGRunAttempt
 	require.Eventually(t, func() bool {
 		var err error
-		attempt, err = store.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, dagRunID))
+		attempt, err = store.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, dagRunID))
 		return err == nil
 	}, rescheduleEventuallyTimeout(10*time.Second), 100*time.Millisecond)
 
 	return attempt
 }
 
-func WaitForAttemptSnapshotWithDAG(t *testing.T, server Server, dagName, dagRunID string) (exec.DAGRunAttempt, *core.DAG) {
+func WaitForAttemptSnapshotWithDAG(t *testing.T, server Server, dagName, dagRunID string) (dagrun.DAGRunAttempt, *ir.DAG) {
 	t.Helper()
 
 	attempt := WaitForAttemptSnapshot(t, server, dagName, dagRunID)
 
-	var dag *core.DAG
+	var dag *ir.DAG
 	require.Eventually(t, func() bool {
 		var err error
 		dag, err = attempt.ReadDAG(server.Context)

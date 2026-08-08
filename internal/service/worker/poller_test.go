@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -378,11 +380,11 @@ var _ coordinator.Client = (*mockCoordinatorCli)(nil)
 // mockCoordinatorCli is a mock implementation of coordinator.Client
 type mockCoordinatorCli struct {
 	PollFunc         func(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error)
-	DispatchFunc     func(ctx context.Context, task *exec.DispatchTask) error
+	DispatchFunc     func(ctx context.Context, task *dispatch.DispatchTask) error
 	MetricsFunc      func() coordinator.Metrics
 	CleanupFunc      func(ctx context.Context) error
 	HeartbeatFunc    func(ctx context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
-	RunHeartbeatFunc func(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)
+	RunHeartbeatFunc func(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)
 
 	// Internal state tracking
 	mu               sync.Mutex
@@ -410,7 +412,7 @@ func (m *mockCoordinatorCli) Poll(ctx context.Context, policy backoff.RetryPolic
 	return nil, nil
 }
 
-func (m *mockCoordinatorCli) Dispatch(ctx context.Context, req exec.DispatchRequest) error {
+func (m *mockCoordinatorCli) Dispatch(ctx context.Context, req dispatch.DispatchRequest) error {
 	m.mu.Lock()
 	dispatchFunc := m.DispatchFunc
 	m.mu.Unlock()
@@ -465,11 +467,11 @@ func (m *mockCoordinatorCli) Heartbeat(ctx context.Context, req *coordinatorv1.H
 	return &coordinatorv1.HeartbeatResponse{}, nil
 }
 
-func (m *mockCoordinatorCli) AckTaskClaimTo(_ context.Context, _ exec.HostInfo, _ *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+func (m *mockCoordinatorCli) AckTaskClaimTo(_ context.Context, _ serviceregistry.HostInfo, _ *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 }
 
-func (m *mockCoordinatorCli) RunHeartbeatTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+func (m *mockCoordinatorCli) RunHeartbeatTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 	m.mu.Lock()
 	runHeartbeatFunc := m.RunHeartbeatFunc
 	m.mu.Unlock()
@@ -484,7 +486,7 @@ func (m *mockCoordinatorCli) ReportStatus(_ context.Context, _ *coordinatorv1.Re
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 }
 
-func (m *mockCoordinatorCli) ReportStatusTo(ctx context.Context, _ exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+func (m *mockCoordinatorCli) ReportStatusTo(ctx context.Context, _ serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	return m.ReportStatus(ctx, req)
 }
 
@@ -492,7 +494,7 @@ func (m *mockCoordinatorCli) StreamLogs(_ context.Context) (coordinatorv1.Coordi
 	return nil, nil
 }
 
-func (m *mockCoordinatorCli) StreamLogsTo(ctx context.Context, _ exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+func (m *mockCoordinatorCli) StreamLogsTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 	return m.StreamLogs(ctx)
 }
 
@@ -500,19 +502,19 @@ func (m *mockCoordinatorCli) StreamArtifacts(_ context.Context) (coordinatorv1.C
 	return nil, nil
 }
 
-func (m *mockCoordinatorCli) StreamArtifactsTo(ctx context.Context, _ exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+func (m *mockCoordinatorCli) StreamArtifactsTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 	return m.StreamArtifacts(ctx)
 }
 
-func (m *mockCoordinatorCli) GetDAGRunStatus(_ context.Context, _, _ string, _ *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
-	return &exec.DAGRunStatusResult{Found: false}, nil
+func (m *mockCoordinatorCli) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+	return &dispatch.DAGRunStatusResult{Found: false}, nil
 }
 
 func (m *mockCoordinatorCli) GetDAG(_ context.Context, _ string) (string, error) {
 	return "", nil
 }
 
-func (m *mockCoordinatorCli) RequestCancel(_ context.Context, _, _ string, _ *exec.DAGRunRef) error {
+func (m *mockCoordinatorCli) RequestCancel(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) error {
 	return nil
 }
 

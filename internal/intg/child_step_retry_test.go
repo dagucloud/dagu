@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -54,15 +54,15 @@ steps:
 
 	rootStatus := dagAgent.Status(th.Context)
 	require.Len(t, rootStatus.Nodes, 1)
-	require.Equal(t, core.NodeFailed, rootStatus.Nodes[0].Status)
+	require.Equal(t, ir.NodeFailed, rootStatus.Nodes[0].Status)
 	require.Len(t, rootStatus.Nodes[0].SubRuns, 2)
 
-	rootRef := exec.NewDAGRunRef(dag.Name, rootStatus.DAGRunID)
+	rootRef := dagrun.NewDAGRunRef(dag.Name, rootStatus.DAGRunID)
 	var target, sibling string
 	var targetAttempt, siblingAttempt string
 	for _, subRun := range rootStatus.Nodes[0].SubRuns {
 		status, attemptID := readChildRun(t, th, rootRef, subRun.DAGRunID)
-		if status == core.Failed {
+		if status == ir.Failed {
 			target, targetAttempt = subRun.DAGRunID, attemptID
 		} else {
 			sibling, siblingAttempt = subRun.DAGRunID, attemptID
@@ -71,7 +71,7 @@ steps:
 	require.NotEmpty(t, target, "no failed child DAG run")
 	require.NotEmpty(t, sibling, "no succeeded child DAG run")
 
-	path, _, err := exec.ResolveRetryPath(th.Context, th.DAGRunStore, rootRef, target, "work")
+	path, _, err := dagrun.ResolveRetryPath(th.Context, th.DAGRunStore, rootRef, target, "work")
 	require.NoError(t, err)
 	require.Equal(t, "parallel_2", path.RootStep())
 	require.Equal(t, "work", path.Step)
@@ -86,7 +86,7 @@ steps:
 	require.NoError(t, retryAgent.Run(th.Context))
 
 	retriedStatus := retryAgent.Status(th.Context)
-	require.Equal(t, core.Succeeded, retriedStatus.Status)
+	require.Equal(t, ir.Succeeded, retriedStatus.Status)
 	require.Len(t, retriedStatus.Nodes, 1)
 
 	retriedIDs := make([]string, 0, len(retriedStatus.Nodes[0].SubRuns))
@@ -96,7 +96,7 @@ steps:
 	require.ElementsMatch(t, []string{target, sibling}, retriedIDs)
 
 	targetStatus, retriedTargetAttempt := readChildRun(t, th, rootRef, target)
-	require.Equal(t, core.Succeeded, targetStatus)
+	require.Equal(t, ir.Succeeded, targetStatus)
 	require.NotEqual(t, targetAttempt, retriedTargetAttempt, "targeted child DAG run was not re-executed")
 
 	_, retriedSiblingAttempt := readChildRun(t, th, rootRef, sibling)
@@ -104,7 +104,7 @@ steps:
 }
 
 // readChildRun returns the status and latest attempt ID of a child DAG run.
-func readChildRun(t *testing.T, th test.Helper, root exec.DAGRunRef, runID string) (core.Status, string) {
+func readChildRun(t *testing.T, th test.Helper, root dagrun.DAGRunRef, runID string) (ir.Status, string) {
 	t.Helper()
 	attempt, err := th.DAGRunStore.FindSubAttempt(th.Context, root, runID)
 	require.NoError(t, err)

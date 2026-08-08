@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/spf13/cobra"
 )
 
@@ -66,7 +66,7 @@ func runPs(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to list processes: %w", err)
 	}
 
-	var matched []exec.ProcEntry
+	var matched []proc.ProcEntry
 	for _, entry := range entries {
 		if !entry.Fresh {
 			continue
@@ -92,7 +92,7 @@ func runPs(ctx *Context, args []string) error {
 	return renderPsTable(ctx.Command.OutOrStdout(), matched)
 }
 
-func renderPsTable(out io.Writer, entries []exec.ProcEntry) error {
+func renderPsTable(out io.Writer, entries []proc.ProcEntry) error {
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if _, err := fmt.Fprintln(w, "DAG\tRUN_ID\tATTEMPT\tSTARTED\tGROUP\tFRESH"); err != nil {
 		return err

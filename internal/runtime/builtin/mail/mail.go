@@ -11,7 +11,8 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/go-viper/mapstructure/v2"
@@ -34,7 +35,7 @@ type mailConfig struct {
 	Attachments []string `mapstructure:"attachments"`
 }
 
-func newMail(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newMail(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	var cfg mailConfig
 	if err := decodeMailConfig(step.ExecutorConfig.Config, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to decode mail config: %w", err)
@@ -125,5 +126,5 @@ func decodeMailConfig(dat map[string]any, cfg *mailConfig) error {
 }
 
 func init() {
-	executor.RegisterExecutor("mail", newMail, nil, core.ExecutorCapabilities{})
+	executor.RegisterExecutor("mail", newMail, nil, registry.ExecutorCapabilities{})
 }

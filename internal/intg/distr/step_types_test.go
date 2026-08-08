@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,8 +56,8 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(30 * time.Second)
 
-	status := f.waitForStatus(core.Succeeded, 20*time.Second)
-	require.Equal(t, core.Succeeded, status.Status)
+	status := f.waitForStatus(ir.Succeeded, 20*time.Second)
+	require.Equal(t, ir.Succeeded, status.Status)
 	assertLogContains(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "use-custom-step", "embedded-custom")
 }
 
@@ -108,7 +108,7 @@ steps:
 	defer f.cleanup()
 
 	f.dagWrapper.Agent().RunSuccess(t)
-	f.dagWrapper.AssertLatestStatus(t, core.Succeeded)
+	f.dagWrapper.AssertLatestStatus(t, ir.Succeeded)
 }
 
 func TestCustomStepTypes_WorkerWithoutLocalBaseConfig_DefaultPrecedence(t *testing.T) {
@@ -161,7 +161,7 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(30 * time.Second)
 
-	status := f.waitForStatus(core.Succeeded, 20*time.Second)
-	require.Equal(t, core.Succeeded, status.Status)
+	status := f.waitForStatus(ir.Succeeded, 20*time.Second)
+	require.Equal(t, ir.Succeeded, status.Status)
 	assertLogContains(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "show-layered-env", "call|default-only|template-only")
 }

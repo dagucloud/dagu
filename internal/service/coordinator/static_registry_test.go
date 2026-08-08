@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,14 +23,14 @@ func TestNewStaticRegistry(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, registry)
 
-		members, err := registry.GetServiceMembers(context.Background(), exec.ServiceNameCoordinator)
+		members, err := registry.GetServiceMembers(context.Background(), serviceregistry.ServiceNameCoordinator)
 		require.NoError(t, err)
 		require.Len(t, members, 2)
 
 		assert.Equal(t, "coord-0", members[0].ID)
 		assert.Equal(t, "coordinator-1", members[0].Host)
 		assert.Equal(t, 50055, members[0].Port)
-		assert.Equal(t, exec.ServiceStatusActive, members[0].Status)
+		assert.Equal(t, serviceregistry.ServiceStatusActive, members[0].Status)
 
 		assert.Equal(t, "coord-1", members[1].ID)
 		assert.Equal(t, "coordinator-2", members[1].Host)
@@ -43,7 +43,7 @@ func TestNewStaticRegistry(t *testing.T) {
 		registry, err := NewStaticRegistry(addresses)
 		require.NoError(t, err)
 
-		members, err := registry.GetServiceMembers(context.Background(), exec.ServiceNameCoordinator)
+		members, err := registry.GetServiceMembers(context.Background(), serviceregistry.ServiceNameCoordinator)
 		require.NoError(t, err)
 		require.Len(t, members, 1)
 
@@ -57,7 +57,7 @@ func TestNewStaticRegistry(t *testing.T) {
 		registry, err := NewStaticRegistry(addresses)
 		require.NoError(t, err)
 
-		members, err := registry.GetServiceMembers(context.Background(), exec.ServiceNameCoordinator)
+		members, err := registry.GetServiceMembers(context.Background(), serviceregistry.ServiceNameCoordinator)
 		require.NoError(t, err)
 		require.Len(t, members, 1)
 
@@ -87,7 +87,7 @@ func TestNewStaticRegistry(t *testing.T) {
 		registry, err := NewStaticRegistry(addresses)
 		require.NoError(t, err)
 
-		members, err := registry.GetServiceMembers(context.Background(), exec.ServiceNameCoordinator)
+		members, err := registry.GetServiceMembers(context.Background(), serviceregistry.ServiceNameCoordinator)
 		require.NoError(t, err)
 		require.Len(t, members, 1)
 
@@ -141,14 +141,14 @@ func TestStaticRegistry_GetServiceMembers(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("coordinator service", func(t *testing.T) {
-		members, err := registry.GetServiceMembers(context.Background(), exec.ServiceNameCoordinator)
+		members, err := registry.GetServiceMembers(context.Background(), serviceregistry.ServiceNameCoordinator)
 		require.NoError(t, err)
 		require.Len(t, members, 1)
 		assert.Equal(t, "coordinator-1", members[0].Host)
 	})
 
 	t.Run("other services return empty", func(t *testing.T) {
-		members, err := registry.GetServiceMembers(context.Background(), exec.ServiceNameScheduler)
+		members, err := registry.GetServiceMembers(context.Background(), serviceregistry.ServiceNameScheduler)
 		require.NoError(t, err)
 		assert.Empty(t, members)
 	})
@@ -160,7 +160,7 @@ func TestStaticRegistry_NoOps(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("register is no-op", func(t *testing.T) {
-		err := registry.Register(context.Background(), exec.ServiceNameCoordinator, exec.HostInfo{})
+		err := registry.Register(context.Background(), serviceregistry.ServiceNameCoordinator, serviceregistry.HostInfo{})
 		assert.NoError(t, err)
 	})
 
@@ -170,7 +170,7 @@ func TestStaticRegistry_NoOps(t *testing.T) {
 	})
 
 	t.Run("update status is no-op", func(t *testing.T) {
-		err := registry.UpdateStatus(context.Background(), exec.ServiceNameCoordinator, exec.ServiceStatusActive)
+		err := registry.UpdateStatus(context.Background(), serviceregistry.ServiceNameCoordinator, serviceregistry.ServiceStatusActive)
 		assert.NoError(t, err)
 	})
 }

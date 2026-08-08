@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +17,7 @@ import (
 func TestState_CompactsOldObservationsFromDecisionTimeline(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{Tasks: []core.ControllerTask{{Name: "done"}}}
+	dag := &ir.DAG{Tasks: []ir.ControllerTask{{Name: "done"}}}
 	state := controller.NewState(dag)
 	state.Events = []controller.Event{
 		{Turn: 1, Kind: controller.EventAction, Name: "run_tests", Status: "failed", Reason: "exit status 1"},
@@ -37,7 +37,7 @@ func TestState_CompactsOldObservationsFromDecisionTimeline(t *testing.T) {
 	)
 
 	state.EnableObservationAging()
-	assert.Equal(t, 2, state.CompactObservations(2, core.DefaultControllerObservationMaxBytes))
+	assert.Equal(t, 2, state.CompactObservations(2, ir.DefaultControllerObservationMaxBytes))
 
 	messages := state.Messages()
 	assert.Equal(t, "turn 1: run_tests → failed (exit status 1)", messages[1].Content)
@@ -46,7 +46,7 @@ func TestState_CompactsOldObservationsFromDecisionTimeline(t *testing.T) {
 	assert.Equal(t, "status: succeeded\noutput: newest output", messages[7].Content)
 	assert.Equal(t, "call_1", messages[1].ToolCallID)
 	assert.Equal(t, "call_2", messages[3].ToolCallID)
-	assert.Zero(t, state.CompactObservations(2, core.DefaultControllerObservationMaxBytes),
+	assert.Zero(t, state.CompactObservations(2, ir.DefaultControllerObservationMaxBytes),
 		"compaction is idempotent")
 
 	raw, err := state.Marshal()
@@ -60,7 +60,7 @@ func TestState_CompactsOldObservationsFromDecisionTimeline(t *testing.T) {
 func TestState_CompactsObservationWithoutTimelineEvent(t *testing.T) {
 	t.Parallel()
 
-	state := controller.NewState(&core.DAG{})
+	state := controller.NewState(&ir.DAG{})
 	state.Append(
 		assistantToolCall("call_1", controller.SetTaskStatusTool),
 		toolMessage("call_1", "Error: task is already open\nmore detail"),
@@ -68,10 +68,10 @@ func TestState_CompactsObservationWithoutTimelineEvent(t *testing.T) {
 		toolMessage("call_2", "status: succeeded"),
 	)
 
-	assert.Equal(t, 1, state.CompactObservations(1, core.DefaultControllerObservationMaxBytes))
+	assert.Equal(t, 1, state.CompactObservations(1, ir.DefaultControllerObservationMaxBytes))
 	assert.Equal(t, "turn 1: set_task_status → rejected (task is already open)",
 		state.Messages()[1].Content)
-	assert.Zero(t, state.CompactObservations(1, core.DefaultControllerObservationMaxBytes),
+	assert.Zero(t, state.CompactObservations(1, ir.DefaultControllerObservationMaxBytes),
 		"compaction is idempotent without a timeline event")
 	assert.Equal(t, "turn 1: set_task_status → rejected (task is already open)",
 		state.Messages()[1].Content)
@@ -80,7 +80,7 @@ func TestState_CompactsObservationWithoutTimelineEvent(t *testing.T) {
 func TestState_ObservationAgingCanBeDisabled(t *testing.T) {
 	t.Parallel()
 
-	state := controller.NewState(&core.DAG{})
+	state := controller.NewState(&ir.DAG{})
 	state.Append(
 		assistantToolCall("call_1", "first"),
 		toolMessage("call_1", "full first result"),
@@ -88,14 +88,14 @@ func TestState_ObservationAgingCanBeDisabled(t *testing.T) {
 		toolMessage("call_2", "full second result"),
 	)
 
-	assert.Zero(t, state.CompactObservations(0, core.DefaultControllerObservationMaxBytes))
+	assert.Zero(t, state.CompactObservations(0, ir.DefaultControllerObservationMaxBytes))
 	assert.Equal(t, "full first result", state.Messages()[1].Content)
 }
 
 func TestState_CompactionSizeLimitCanBeDisabled(t *testing.T) {
 	t.Parallel()
 
-	state := controller.NewState(&core.DAG{})
+	state := controller.NewState(&ir.DAG{})
 	state.Events = []controller.Event{
 		{Turn: 1, Kind: controller.EventAction, Name: "first", Status: "succeeded"},
 	}
@@ -113,24 +113,24 @@ func TestState_CompactionSizeLimitCanBeDisabled(t *testing.T) {
 func TestState_FallbackSummaryCountsProseDecisionsAsTurns(t *testing.T) {
 	t.Parallel()
 
-	state := controller.NewState(&core.DAG{})
+	state := controller.NewState(&ir.DAG{})
 	state.Append(
-		exec.LLMMessage{Role: exec.RoleAssistant, Content: "I need another reminder."},
-		exec.LLMMessage{Role: exec.RoleUser, Content: "Choose an action."},
+		dagrun.LLMMessage{Role: dagrun.RoleAssistant, Content: "I need another reminder."},
+		dagrun.LLMMessage{Role: dagrun.RoleUser, Content: "Choose an action."},
 		assistantToolCall("call_2", "second"),
 		toolMessage("call_2", "status: succeeded\nlarge output"),
 		assistantToolCall("call_3", "third"),
 		toolMessage("call_3", "recent output"),
 	)
 
-	assert.Equal(t, 1, state.CompactObservations(1, core.DefaultControllerObservationMaxBytes))
+	assert.Equal(t, 1, state.CompactObservations(1, ir.DefaultControllerObservationMaxBytes))
 	assert.Equal(t, "turn 2: second → succeeded", state.Messages()[3].Content)
 }
 
 func TestState_CompactsAllUsefulObservationsForOverflow(t *testing.T) {
 	t.Parallel()
 
-	state := controller.NewState(&core.DAG{})
+	state := controller.NewState(&ir.DAG{})
 	state.Events = []controller.Event{
 		{Turn: 1, Kind: controller.EventAction, Name: "first", Status: "succeeded"},
 		{Turn: 2, Kind: controller.EventAction, Name: "second", Status: "succeeded"},
@@ -142,7 +142,7 @@ func TestState_CompactsAllUsefulObservationsForOverflow(t *testing.T) {
 		toolMessage("call_2", "ok"),
 	)
 
-	assert.Equal(t, 1, state.CompactAllObservations(core.DefaultControllerObservationMaxBytes))
+	assert.Equal(t, 1, state.CompactAllObservations(ir.DefaultControllerObservationMaxBytes))
 	assert.Equal(t, "turn 1: first → succeeded", state.Messages()[1].Content)
 	assert.Equal(t, "ok", state.Messages()[3].Content)
 }
@@ -150,30 +150,30 @@ func TestState_CompactsAllUsefulObservationsForOverflow(t *testing.T) {
 func TestState_LatestPromptTokens(t *testing.T) {
 	t.Parallel()
 
-	state := controller.NewState(&core.DAG{})
+	state := controller.NewState(&ir.DAG{})
 	state.Append(
-		exec.LLMMessage{Role: exec.RoleAssistant, Metadata: &exec.LLMMessageMetadata{PromptTokens: 20}},
-		exec.LLMMessage{Role: exec.RoleTool, Content: "result"},
-		exec.LLMMessage{Role: exec.RoleAssistant, Metadata: &exec.LLMMessageMetadata{PromptTokens: 35}},
-		exec.LLMMessage{Role: exec.RoleTool, Content: "new result"},
-		exec.LLMMessage{Role: exec.RoleAssistant, Metadata: &exec.LLMMessageMetadata{}},
+		dagrun.LLMMessage{Role: dagrun.RoleAssistant, Metadata: &dagrun.LLMMessageMetadata{PromptTokens: 20}},
+		dagrun.LLMMessage{Role: dagrun.RoleTool, Content: "result"},
+		dagrun.LLMMessage{Role: dagrun.RoleAssistant, Metadata: &dagrun.LLMMessageMetadata{PromptTokens: 35}},
+		dagrun.LLMMessage{Role: dagrun.RoleTool, Content: "new result"},
+		dagrun.LLMMessage{Role: dagrun.RoleAssistant, Metadata: &dagrun.LLMMessageMetadata{}},
 	)
 	assert.Equal(t, 35, state.LatestPromptTokens())
 }
 
-func assistantToolCall(id, name string) exec.LLMMessage {
-	return exec.LLMMessage{
-		Role: exec.RoleAssistant,
-		ToolCalls: []exec.ToolCall{{
+func assistantToolCall(id, name string) dagrun.LLMMessage {
+	return dagrun.LLMMessage{
+		Role: dagrun.RoleAssistant,
+		ToolCalls: []dagrun.ToolCall{{
 			ID:   id,
 			Type: "function",
-			Function: exec.ToolCallFunction{
+			Function: dagrun.ToolCallFunction{
 				Name: name,
 			},
 		}},
 	}
 }
 
-func toolMessage(id, content string) exec.LLMMessage {
-	return exec.LLMMessage{Role: exec.RoleTool, ToolCallID: id, Content: content}
+func toolMessage(id, content string) dagrun.LLMMessage {
+	return dagrun.LLMMessage{Role: dagrun.RoleTool, ToolCallID: id, Content: content}
 }

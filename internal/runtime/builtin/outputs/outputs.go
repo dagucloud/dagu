@@ -13,7 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -41,11 +42,11 @@ type executorImpl struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, core.ExecutorCapabilities{Command: true})
-	core.RegisterExecutorConfigSchema(executorType, configSchema)
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
+	registry.RegisterExecutorConfigSchema(executorType, configSchema)
 }
 
-func newExecutor(_ context.Context, step core.Step) (executor.Executor, error) {
+func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 	op := stepOperation(step)
 	values, err := parseConfig(step.ExecutorConfig.Config)
 	if err != nil {
@@ -62,7 +63,7 @@ func newExecutor(_ context.Context, step core.Step) (executor.Executor, error) {
 	}, nil
 }
 
-func validateStep(step core.Step) error {
+func validateStep(step ir.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
 	}
@@ -73,7 +74,7 @@ func validateStep(step core.Step) error {
 	return validateConfig(stepOperation(step), values)
 }
 
-func stepOperation(step core.Step) string {
+func stepOperation(step ir.Step) string {
 	if len(step.Commands) == 0 {
 		return ""
 	}

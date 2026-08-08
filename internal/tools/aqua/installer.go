@@ -32,7 +32,7 @@ import (
 	aquaruntime "github.com/aquaproj/aqua/v2/pkg/runtime"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/spf13/afero"
 )
@@ -89,7 +89,7 @@ func New(opts ...Option) *Installer {
 // The standard registry resolves to the latest aqua-registry release, cached
 // on disk for a day, unless the DAG pins tools.registry.ref. When the latest
 // release cannot be resolved, the most recent cached release is used.
-func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tools.InstallOptions) (*tools.Manifest, error) {
+func (i *Installer) Install(ctx context.Context, cfg *ir.ToolConfig, opts tools.InstallOptions) (*tools.Manifest, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("tools config is required")
 	}
@@ -135,7 +135,7 @@ func (i *Installer) Install(ctx context.Context, cfg *core.ToolConfig, opts tool
 	return manifest, nil
 }
 
-func (i *Installer) installResolved(ctx context.Context, cfg *core.ToolConfig, opts tools.InstallOptions) (*tools.Manifest, error) {
+func (i *Installer) installResolved(ctx context.Context, cfg *ir.ToolConfig, opts tools.InstallOptions) (*tools.Manifest, error) {
 	rt := aquaruntime.NewR(ctx)
 	platform := opts.Platform
 	if platform == "" {
@@ -342,7 +342,7 @@ func isPathWithin(dir, path string) bool {
 	return rel == "." || (rel != "" && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-func (i *Installer) packageCommands(ctx context.Context, cfg *core.ToolConfig, param *aquaparam.Param, paths tools.CacheLayout, rt *aquaruntime.Runtime) ([][]string, error) {
+func (i *Installer) packageCommands(ctx context.Context, cfg *ir.ToolConfig, param *aquaparam.Param, paths tools.CacheLayout, rt *aquaruntime.Runtime) ([][]string, error) {
 	commandSets := make([][]string, len(cfg.Packages))
 	needsInference := false
 	for idx, pkg := range cfg.Packages {
@@ -411,7 +411,7 @@ func (i *Installer) packageCommands(ctx context.Context, cfg *core.ToolConfig, p
 // recorded for this install, and aqua skips downloading packages that already
 // exist under the root; a shared root could therefore hold bytes the recorded
 // checksums do not describe.
-func applyDigestIsolation(paths tools.CacheLayout, cfg *core.ToolConfig) tools.CacheLayout {
+func applyDigestIsolation(paths tools.CacheLayout, cfg *ir.ToolConfig) tools.CacheLayout {
 	if !hasPackageDigests(cfg) {
 		return paths
 	}
@@ -419,7 +419,7 @@ func applyDigestIsolation(paths tools.CacheLayout, cfg *core.ToolConfig) tools.C
 	return paths
 }
 
-func hasPackageDigests(cfg *core.ToolConfig) bool {
+func hasPackageDigests(cfg *ir.ToolConfig) bool {
 	for _, pkg := range cfg.Packages {
 		if strings.TrimSpace(pkg.Digest) != "" {
 			return true
@@ -431,7 +431,7 @@ func hasPackageDigests(cfg *core.ToolConfig) bool {
 // packageChecksumIDs resolves the aqua checksum-file ID for every package that
 // declares a digest, keyed by package index. The ID identifies the artifact
 // aqua verified for the run platform.
-func (i *Installer) packageChecksumIDs(ctx context.Context, cfg *core.ToolConfig, param *aquaparam.Param, paths tools.CacheLayout, rt *aquaruntime.Runtime) (map[int]string, error) {
+func (i *Installer) packageChecksumIDs(ctx context.Context, cfg *ir.ToolConfig, param *aquaparam.Param, paths tools.CacheLayout, rt *aquaruntime.Runtime) (map[int]string, error) {
 	aquaCfg, err := i.readRenderedConfig(param, paths.ConfigFile)
 	if err != nil {
 		return nil, err
@@ -625,11 +625,11 @@ func (i *Installer) lockColdProxyInstall(ctx context.Context, paths tools.CacheL
 	return unlock, nil
 }
 
-func (i *Installer) lockPackages(ctx context.Context, paths tools.CacheLayout, cfg *core.ToolConfig, platform string) (func(), error) {
+func (i *Installer) lockPackages(ctx context.Context, paths tools.CacheLayout, cfg *ir.ToolConfig, platform string) (func(), error) {
 	return i.lockResources(ctx, paths, "package", packageLockKeys(cfg, platform))
 }
 
-func packageLockKeys(cfg *core.ToolConfig, platform string) []string {
+func packageLockKeys(cfg *ir.ToolConfig, platform string) []string {
 	keys := make([]string, 0, len(cfg.Packages))
 	seen := map[string]struct{}{}
 	for _, pkg := range cfg.Packages {
@@ -727,7 +727,7 @@ func isRegistryResolutionError(err error) bool {
 	return errors.As(err, &resolutionErr)
 }
 
-func describeInstallError(cfg *core.ToolConfig, err error) error {
+func describeInstallError(cfg *ir.ToolConfig, err error) error {
 	packages := make([]string, 0, len(cfg.Packages))
 	for _, pkg := range cfg.Packages {
 		packages = append(packages, pkg.Package+"@"+pkg.Version)
@@ -736,7 +736,7 @@ func describeInstallError(cfg *core.ToolConfig, err error) error {
 		describeRegistry(cfg.Registry), strings.Join(packages, ", "), err)
 }
 
-func describeRegistry(registry *core.ToolRegistry) string {
+func describeRegistry(registry *ir.ToolRegistry) string {
 	if registry == nil {
 		return "standard"
 	}

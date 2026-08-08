@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,8 +27,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
 			statusDecisionOptions{},
 		)
 
@@ -40,8 +41,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-2", AttemptKey: "attempt-key-2", Status: core.Running},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-2", AttemptKey: "attempt-key-2", Status: ir.Running},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
 			statusDecisionOptions{},
 		)
 
@@ -60,8 +61,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 		})
 
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
 			statusDecisionOptions{},
 		)
 
@@ -74,8 +75,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Succeeded},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Succeeded},
 			statusDecisionOptions{},
 		)
 
@@ -88,8 +89,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Aborted},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Aborted},
 			statusDecisionOptions{},
 		)
 
@@ -102,8 +103,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Aborted},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
+			&dagrun.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Aborted},
 			statusDecisionOptions{CancellationRequested: true},
 		)
 
@@ -123,33 +124,33 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	oldTime := time.Unix(90, 0).UTC()
 	now := time.Unix(100, 0).UTC()
 	ownership := newAttemptOwnership(attemptOwnershipConfig{
-		Owner:               exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		Owner:               dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		LeaseStore:          leaseStore,
 		ActiveRunStore:      activeStore,
 		StaleLeaseThreshold: time.Minute,
 		Now:                 func() time.Time { return now },
 	})
 
-	run := exec.NewDAGRunRef("test-dag", "run-1")
-	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+	run := dagrun.NewDAGRunRef("test-dag", "run-1")
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey:      "attempt-key-1",
 		DAGRun:          run,
 		Root:            run,
 		AttemptID:       "attempt-1",
 		QueueName:       "existing-queue",
 		WorkerID:        "worker-1",
-		Owner:           exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		ClaimedAt:       oldTime.UnixMilli(),
 		LastHeartbeatAt: oldTime.UnixMilli(),
 	}))
 
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:       run.Name,
 		DAGRunID:   run.ID,
 		Root:       run,
 		AttemptID:  "attempt-1",
 		AttemptKey: "attempt-key-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 		WorkerID:   "worker-1",
 	}
 	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
@@ -170,11 +171,11 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, run, record.Root)
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
-	assert.Equal(t, core.Running, record.Status)
+	assert.Equal(t, ir.Running, record.Status)
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
-	status.Status = core.Queued
+	status.Status = ir.Queued
 	activeUpdatedLowerBound = time.Now().UTC().UnixMilli()
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
 	activeUpdatedUpperBound = time.Now().UTC().UnixMilli()
@@ -184,17 +185,17 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, now.UnixMilli(), lease.LastHeartbeatAt)
 	record, err = activeStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
-	assert.Equal(t, core.Queued, record.Status)
+	assert.Equal(t, ir.Queued, record.Status)
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
-	status.Status = core.Succeeded
+	status.Status = ir.Succeeded
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
 
 	_, err = leaseStore.Get(ctx, "attempt-key-1")
-	assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
+	assert.ErrorIs(t, err, dispatch.ErrDAGRunLeaseNotFound)
 	_, err = activeStore.Get(ctx, "attempt-key-1")
-	assert.ErrorIs(t, err, exec.ErrActiveRunNotFound)
+	assert.ErrorIs(t, err, dispatch.ErrActiveRunNotFound)
 }
 
 func TestInlineRunSharesClaimLease(t *testing.T) {
@@ -209,19 +210,19 @@ func TestInlineRunSharesClaimLease(t *testing.T) {
 		ActiveRunStore: activeStore,
 	})
 
-	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey:      "claim-key",
 		WorkerID:        "worker-1",
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 	}))
-	status := &exec.DAGRunStatus{
+	status := &dagrun.DAGRunStatus{
 		Name:       "child",
 		DAGRunID:   "child-run",
 		AttemptID:  "child-attempt",
 		AttemptKey: "child-key",
 		ClaimKey:   "claim-key",
 		WorkerID:   "worker-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 	}
 
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
@@ -244,7 +245,7 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 
 	ownership := newAttemptOwnership(attemptOwnershipConfig{
-		Owner:          exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		Owner:          dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		LeaseStore:     leaseStore,
 		ActiveRunStore: activeStore,
 		Now: func() time.Time {
@@ -267,8 +268,8 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	lease, err := leaseStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
 	assert.Equal(t, "attempt-key-1", lease.AttemptKey)
-	assert.Equal(t, exec.NewDAGRunRef("test-dag", "run-1"), lease.DAGRun)
-	assert.Equal(t, exec.NewDAGRunRef("test-dag", "run-1"), lease.Root)
+	assert.Equal(t, dagrun.NewDAGRunRef("test-dag", "run-1"), lease.DAGRun)
+	assert.Equal(t, dagrun.NewDAGRunRef("test-dag", "run-1"), lease.Root)
 	assert.Equal(t, "test-dag", lease.QueueName)
 	assert.Equal(t, "worker-1", lease.WorkerID)
 	assert.Equal(t, "coord-a", lease.Owner.ID)
@@ -277,11 +278,11 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 
 	record, err := activeStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
-	assert.Equal(t, exec.NewDAGRunRef("test-dag", "run-1"), record.DAGRun)
-	assert.Equal(t, exec.NewDAGRunRef("test-dag", "run-1"), record.Root)
+	assert.Equal(t, dagrun.NewDAGRunRef("test-dag", "run-1"), record.DAGRun)
+	assert.Equal(t, dagrun.NewDAGRunRef("test-dag", "run-1"), record.Root)
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
-	assert.Equal(t, core.Queued, record.Status)
+	assert.Equal(t, ir.Queued, record.Status)
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 }

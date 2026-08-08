@@ -12,8 +12,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -54,13 +54,13 @@ steps:
 		ExpectedOut: []string{"DAG run finished"},
 	})
 
-	ref := exec.NewDAGRunRef("harness_codex_defaults", dagRunID)
+	ref := dagrun.NewDAGRunRef("harness_codex_defaults", dagRunID)
 	attempt, err := th.DAGRunStore.FindAttempt(context.Background(), ref)
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 	require.Len(t, status.Nodes, 1)
 
 	stdout, err := os.ReadFile(status.Nodes[0].Stdout)
@@ -96,13 +96,13 @@ steps:
 		ExpectedOut: []string{"DAG run finished"},
 	})
 
-	ref := exec.NewDAGRunRef("harness_multiline_prompt", dagRunID)
+	ref := dagrun.NewDAGRunRef("harness_multiline_prompt", dagRunID)
 	attempt, err := th.DAGRunStore.FindAttempt(context.Background(), ref)
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 	require.Len(t, status.Nodes, 1)
 	require.Equal(t, "harness", status.Nodes[0].Step.ExecutorConfig.Type)
 
@@ -148,13 +148,13 @@ steps:
 	})
 
 	ctx := context.Background()
-	ref := exec.NewDAGRunRef("harness_retry", dagRunID)
+	ref := dagrun.NewDAGRunRef("harness_retry", dagRunID)
 	attempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 	require.Len(t, status.Nodes, 1)
 	require.Equal(t, "harness", status.Nodes[0].Step.ExecutorConfig.Type)
 	require.Equal(t, "passthrough", status.Nodes[0].Step.ExecutorConfig.Config["provider"])
@@ -164,7 +164,7 @@ steps:
 	require.Contains(t, string(stdout), "Review the repository")
 	require.Contains(t, string(stdout), "summarize the current branch")
 
-	status.Nodes[0].Status = core.NodeFailed
+	status.Nodes[0].Status = ir.NodeFailed
 	require.NoError(t, th.DAGRunMgr.UpdateStatus(ctx, ref, *status))
 
 	th.RunCommand(t, cmd.Retry(), test.CmdTest{
@@ -177,9 +177,9 @@ steps:
 
 	retriedStatus, err := retriedAttempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, retriedStatus.Status)
+	require.Equal(t, ir.Succeeded, retriedStatus.Status)
 	require.Len(t, retriedStatus.Nodes, 1)
-	require.Equal(t, core.NodeSucceeded, retriedStatus.Nodes[0].Status)
+	require.Equal(t, ir.NodeSucceeded, retriedStatus.Nodes[0].Status)
 
 	retriedStdout, err := os.ReadFile(retriedStatus.Nodes[0].Stdout)
 	require.NoError(t, err)

@@ -13,9 +13,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -23,7 +24,7 @@ import (
 )
 
 const (
-	executorType = core.ExecutorTypeAction
+	executorType = ir.ExecutorTypeAction
 )
 
 var _ runtimeexec.Executor = (*Executor)(nil)
@@ -46,10 +47,10 @@ type Executor struct {
 	dag     *runtimeexec.SubDAGExecutor
 	outputs map[string]any
 
-	subRuns []coreexec.SubDAGRun
+	subRuns []dagrun.SubDAGRun
 }
 
-func newAction(_ context.Context, step core.Step) (runtimeexec.Executor, error) {
+func newAction(_ context.Context, step ir.Step) (runtimeexec.Executor, error) {
 	cfg, err := parseConfig(step.ExecutorConfig.Config)
 	if err != nil {
 		return nil, err
@@ -201,7 +202,7 @@ func (e *Executor) runActionDAG(ctx context.Context, bundle *actionBundle, m *ma
 	}
 	run.Params = params
 	run.DAGName = dag.Name
-	e.setSubRuns([]coreexec.SubDAGRun{{
+	e.setSubRuns([]dagrun.SubDAGRun{{
 		DAGRunID: run.RunID,
 		Params:   params,
 		DAGName:  dag.Name,
@@ -219,7 +220,7 @@ func (e *Executor) runActionDAG(ctx context.Context, bundle *actionBundle, m *ma
 	return execErr
 }
 
-func actionOutputsFromRunStatus(result *coreexec.RunStatus) map[string]any {
+func actionOutputsFromRunStatus(result *dagrun.RunStatus) map[string]any {
 	if result == nil {
 		return nil
 	}
@@ -249,7 +250,7 @@ func actionInputParams(input map[string]any) (string, error) {
 	return string(data), nil
 }
 
-func validateActionDAG(dag *core.DAG) error {
+func validateActionDAG(dag *ir.DAG) error {
 	if dag == nil {
 		return fmt.Errorf("action DAG is required")
 	}
@@ -282,16 +283,16 @@ func (e *Executor) setSubDAGExecutor(child *runtimeexec.SubDAGExecutor) {
 	e.dag = child
 }
 
-func (e *Executor) GetSubRuns() []coreexec.SubDAGRun {
+func (e *Executor) GetSubRuns() []dagrun.SubDAGRun {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return append([]coreexec.SubDAGRun(nil), e.subRuns...)
+	return append([]dagrun.SubDAGRun(nil), e.subRuns...)
 }
 
-func (e *Executor) setSubRuns(subRuns []coreexec.SubDAGRun) {
+func (e *Executor) setSubRuns(subRuns []dagrun.SubDAGRun) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.subRuns = append([]coreexec.SubDAGRun(nil), subRuns...)
+	e.subRuns = append([]dagrun.SubDAGRun(nil), subRuns...)
 }
 
 func (e *Executor) setOutputs(outputs map[string]any) {
@@ -358,13 +359,13 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema(executorType, configSchema)
-	runtimeexec.RegisterExecutor(executorType, newAction, validateStep, core.ExecutorCapabilities{
+	registry.RegisterExecutorConfigSchema(executorType, configSchema)
+	runtimeexec.RegisterExecutor(executorType, newAction, validateStep, registry.ExecutorCapabilities{
 		SubDAG: true,
 	})
 }
 
-func validateStep(step core.Step) error {
+func validateStep(step ir.Step) error {
 	_, err := parseConfig(step.ExecutorConfig.Config)
 	return err
 }

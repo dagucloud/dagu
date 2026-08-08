@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 type checksumFileEntry struct {
@@ -27,7 +27,7 @@ type checksumFileContent struct {
 // to the aqua checksum-file ID resolved for the run platform; every package
 // that declares a digest must have an entry. Packages without a digest are
 // skipped.
-func verifyPackageDigests(checksumFile string, packages []core.ToolPackage, checksumIDs map[int]string) error {
+func verifyPackageDigests(checksumFile string, packages []ir.ToolPackage, checksumIDs map[int]string) error {
 	declared := false
 	for _, pkg := range packages {
 		if strings.TrimSpace(pkg.Digest) != "" {
@@ -64,7 +64,7 @@ func verifyPackageDigests(checksumFile string, packages []core.ToolPackage, chec
 	return nil
 }
 
-func verifyPackageDigest(entries []checksumFileEntry, pkg core.ToolPackage, digest, id string) error {
+func verifyPackageDigest(entries []checksumFileEntry, pkg ir.ToolPackage, digest, id string) error {
 	want, _ := strings.CutPrefix(digest, "sha256:")
 	for _, entry := range entries {
 		if entry.ID != id {

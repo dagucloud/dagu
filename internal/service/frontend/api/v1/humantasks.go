@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 )
@@ -159,10 +159,10 @@ func (a *API) authorizeHumanTaskMutation(
 	ctx context.Context,
 	dagName string,
 	dagRunID string,
-) (*exec.DAGRunStatus, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dagName, dagRunID))
+) (*dagrun.DAGRunStatus, error) {
+	attempt, err := a.dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dagName, dagRunID))
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,

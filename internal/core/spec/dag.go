@@ -19,10 +19,12 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -42,7 +44,7 @@ var dagRunArtifactsDirReferencePattern = regexp.MustCompile(
 )
 
 // dag is the intermediate representation of a DAG specification.
-// It mirrors the YAML structure and gets validated/transformed into core.DAG.
+// It mirrors the YAML structure and gets validated/transformed into ir.DAG.
 type dag struct {
 	// Name is the name of the DAG.
 	Name string `yaml:"name,omitempty"`
@@ -214,7 +216,7 @@ type handlerOn struct {
 	Wait    *step `yaml:"wait,omitempty"`    // Step to execute when DAG enters wait status (approval)
 }
 
-func (d *dag) rawHandler(name core.HandlerType) map[string]any {
+func (d *dag) rawHandler(name ir.HandlerType) map[string]any {
 	if d == nil || d.handlerOnRaw == nil {
 		return nil
 	}
@@ -226,19 +228,19 @@ func (d *dag) rawHandler(name core.HandlerType) map[string]any {
 	return d.handlerOnRaw[key]
 }
 
-func handlerFieldName(name core.HandlerType) string {
+func handlerFieldName(name ir.HandlerType) string {
 	switch name {
-	case core.HandlerOnInit:
+	case ir.HandlerOnInit:
 		return "init"
-	case core.HandlerOnSuccess:
+	case ir.HandlerOnSuccess:
 		return "success"
-	case core.HandlerOnFailure:
+	case ir.HandlerOnFailure:
 		return "failure"
-	case core.HandlerOnAbort:
+	case ir.HandlerOnAbort:
 		return "abort"
-	case core.HandlerOnExit:
+	case ir.HandlerOnExit:
 		return "exit"
-	case core.HandlerOnWait:
+	case ir.HandlerOnWait:
 		return "wait"
 	default:
 		return ""
@@ -247,11 +249,11 @@ func handlerFieldName(name core.HandlerType) string {
 
 // smtpConfig defines the SMTP configuration.
 type smtpConfig struct {
-	Host     string            `yaml:"host,omitempty"`     // SMTP host
-	Port     types.PortValue   `yaml:"port,omitempty"`     // SMTP port (can be string or number)
-	Username string            `yaml:"username,omitempty"` // SMTP username
-	Password string            `yaml:"password,omitempty"` // SMTP password
-	OAuth    *mailoauth.Config `yaml:"oauth,omitempty"`    // SMTP OAuth credentials
+	Host     string              `yaml:"host,omitempty"`     // SMTP host
+	Port     types.PortValue     `yaml:"port,omitempty"`     // SMTP port (can be string or number)
+	Username string              `yaml:"username,omitempty"` // SMTP username
+	Password string              `yaml:"password,omitempty"` // SMTP password
+	OAuth    *oauthconfig.Config `yaml:"oauth,omitempty"`    // SMTP OAuth credentials
 }
 
 // IsZero returns true if all fields are empty/default.
@@ -494,7 +496,7 @@ type toolPackage struct {
 // identifies the spec field in build errors.
 type transform struct {
 	name  string
-	apply func(ctx buildContext, in *dag, out *core.DAG) error
+	apply func(ctx buildContext, in *dag, out *ir.DAG) error
 }
 
 // dagField describes a spec field whose built value is assigned to a single
@@ -502,11 +504,11 @@ type transform struct {
 func dagField[T any](
 	name string,
 	build func(buildContext, *dag) (T, error),
-	assign func(*core.DAG, T),
+	assign func(*ir.DAG, T),
 ) transform {
 	return transform{
 		name: name,
-		apply: func(ctx buildContext, in *dag, out *core.DAG) error {
+		apply: func(ctx buildContext, in *dag, out *ir.DAG) error {
 			v, err := build(ctx, in)
 			if err != nil {
 				return err
@@ -521,46 +523,46 @@ type transformStage []transform
 
 // Metadata stages are always run (for listing, scheduling, etc.).
 var metadataIdentityStage = transformStage{
-	dagField("name", buildName, func(out *core.DAG, v string) { out.Name = v }),
-	dagField("group", buildGroup, func(out *core.DAG, v string) { out.Group = v }),
-	dagField("description", buildDescription, func(out *core.DAG, v string) { out.Description = v }),
-	dagField("type", buildType, func(out *core.DAG, v string) { out.Type = v }),
-	dagField("labels", buildLabels, func(out *core.DAG, v core.Labels) { out.Labels = v }),
+	dagField("name", buildName, func(out *ir.DAG, v string) { out.Name = v }),
+	dagField("group", buildGroup, func(out *ir.DAG, v string) { out.Group = v }),
+	dagField("description", buildDescription, func(out *ir.DAG, v string) { out.Description = v }),
+	dagField("type", buildType, func(out *ir.DAG, v string) { out.Type = v }),
+	dagField("labels", buildLabels, func(out *ir.DAG, v ir.Labels) { out.Labels = v }),
 }
 
 var metadataConstsStage = transformStage{
-	dagField("consts", buildConsts, func(out *core.DAG, v map[string]any) { out.Consts = v }),
+	dagField("consts", buildConsts, func(out *ir.DAG, v map[string]any) { out.Consts = v }),
 }
 
 // Params must run before env so that env: values can reference ${param_name}.
 var metadataParamsEnvStage = transformStage{
-	dagField("params", buildParams, func(out *core.DAG, v []string) { out.Params = v }),
-	dagField("default_params", buildDefaultParams, func(out *core.DAG, v string) { out.DefaultParams = v }),
-	dagField("param_defs", buildParamDefs, func(out *core.DAG, v []core.ParamDef) { out.ParamDefs = v }),
-	dagField("param_schema", buildParamSchema, func(out *core.DAG, v json.RawMessage) { out.ParamSchema = v }),
-	dagField("params_json", buildParamsJSON, func(out *core.DAG, v string) { out.ParamsJSON = v }),
-	dagField("env", buildEnvs, func(out *core.DAG, v []string) { out.Env = v }),
+	dagField("params", buildParams, func(out *ir.DAG, v []string) { out.Params = v }),
+	dagField("default_params", buildDefaultParams, func(out *ir.DAG, v string) { out.DefaultParams = v }),
+	dagField("param_defs", buildParamDefs, func(out *ir.DAG, v []ir.ParamDef) { out.ParamDefs = v }),
+	dagField("param_schema", buildParamSchema, func(out *ir.DAG, v json.RawMessage) { out.ParamSchema = v }),
+	dagField("params_json", buildParamsJSON, func(out *ir.DAG, v string) { out.ParamsJSON = v }),
+	dagField("env", buildEnvs, func(out *ir.DAG, v []string) { out.Env = v }),
 }
 
 var metadataScheduleStage = transformStage{
-	dagField("schedule", buildSchedule, func(out *core.DAG, v []core.Schedule) { out.Schedule = v }),
-	dagField("stop_schedule", buildStopSchedule, func(out *core.DAG, v []core.Schedule) { out.StopSchedule = v }),
-	dagField("restart_schedule", buildRestartSchedule, func(out *core.DAG, v []core.Schedule) { out.RestartSchedule = v }),
+	dagField("schedule", buildSchedule, func(out *ir.DAG, v []ir.Schedule) { out.Schedule = v }),
+	dagField("stop_schedule", buildStopSchedule, func(out *ir.DAG, v []ir.Schedule) { out.StopSchedule = v }),
+	dagField("restart_schedule", buildRestartSchedule, func(out *ir.DAG, v []ir.Schedule) { out.RestartSchedule = v }),
 }
 
 var metadataExecutionPlacementStage = transformStage{
 	{"worker_selector", applyWorkerSelector},
-	dagField("timeout", buildTimeout, func(out *core.DAG, v time.Duration) { out.Timeout = v }),
-	dagField("delay", buildDelay, func(out *core.DAG, v time.Duration) { out.Delay = v }),
-	dagField("restart_wait", buildRestartWait, func(out *core.DAG, v time.Duration) { out.RestartWait = v }),
-	dagField("max_active_runs", buildMaxActiveRuns, func(out *core.DAG, v int) { out.MaxActiveRuns = v }),
-	dagField("max_active_steps", buildMaxActiveSteps, func(out *core.DAG, v int) { out.MaxActiveSteps = v }),
-	dagField("queue", buildQueue, func(out *core.DAG, v string) { out.Queue = v }),
-	dagField("retry_policy", buildDAGRetryPolicy, func(out *core.DAG, v *core.DAGRetryPolicy) { out.RetryPolicy = v }),
-	dagField("max_output_size", buildMaxOutputSize, func(out *core.DAG, v int) { out.MaxOutputSize = v }),
-	dagField("skip_if_successful", buildSkipIfSuccessful, func(out *core.DAG, v bool) { out.SkipIfSuccessful = v }),
-	dagField("catchup_window", buildCatchupWindow, func(out *core.DAG, v time.Duration) { out.CatchupWindow = v }),
-	dagField("overlap_policy", buildOverlapPolicy, func(out *core.DAG, v core.OverlapPolicy) { out.OverlapPolicy = v }),
+	dagField("timeout", buildTimeout, func(out *ir.DAG, v time.Duration) { out.Timeout = v }),
+	dagField("delay", buildDelay, func(out *ir.DAG, v time.Duration) { out.Delay = v }),
+	dagField("restart_wait", buildRestartWait, func(out *ir.DAG, v time.Duration) { out.RestartWait = v }),
+	dagField("max_active_runs", buildMaxActiveRuns, func(out *ir.DAG, v int) { out.MaxActiveRuns = v }),
+	dagField("max_active_steps", buildMaxActiveSteps, func(out *ir.DAG, v int) { out.MaxActiveSteps = v }),
+	dagField("queue", buildQueue, func(out *ir.DAG, v string) { out.Queue = v }),
+	dagField("retry_policy", buildDAGRetryPolicy, func(out *ir.DAG, v *ir.DAGRetryPolicy) { out.RetryPolicy = v }),
+	dagField("max_output_size", buildMaxOutputSize, func(out *ir.DAG, v int) { out.MaxOutputSize = v }),
+	dagField("skip_if_successful", buildSkipIfSuccessful, func(out *ir.DAG, v bool) { out.SkipIfSuccessful = v }),
+	dagField("catchup_window", buildCatchupWindow, func(out *ir.DAG, v time.Duration) { out.CatchupWindow = v }),
+	dagField("overlap_policy", buildOverlapPolicy, func(out *ir.DAG, v ir.OverlapPolicy) { out.OverlapPolicy = v }),
 }
 
 var metadataTransformStages = []transformStage{
@@ -573,53 +575,53 @@ var metadataTransformStages = []transformStage{
 
 // Full stages are only run when building the full DAG (not metadata-only).
 var fullRunOutputStage = transformStage{
-	dagField("log_dir", buildLogDir, func(out *core.DAG, v string) { out.LogDir = v }),
-	dagField("artifacts", buildArtifacts, func(out *core.DAG, v *core.ArtifactsConfig) { out.Artifacts = v }),
-	dagField("log_output", buildLogOutput, func(out *core.DAG, v core.LogOutputMode) { out.LogOutput = v }),
+	dagField("log_dir", buildLogDir, func(out *ir.DAG, v string) { out.LogDir = v }),
+	dagField("artifacts", buildArtifacts, func(out *ir.DAG, v *ir.ArtifactsConfig) { out.Artifacts = v }),
+	dagField("log_output", buildLogOutput, func(out *ir.DAG, v ir.LogOutputMode) { out.LogOutput = v }),
 }
 
 var fullInteractionStage = transformStage{
-	dagField("mail_on", buildMailOn, func(out *core.DAG, v *core.MailOn) { out.MailOn = v }),
-	dagField("run_config", buildRunConfig, func(out *core.DAG, v *core.RunConfig) { out.RunConfig = v }),
-	dagField("resources", buildResources, func(out *core.DAG, v *core.Resources) { out.Resources = v }),
-	dagField("webhook", buildWebhookConfig, func(out *core.DAG, v *core.WebhookConfig) { out.Webhook = v }),
+	dagField("mail_on", buildMailOn, func(out *ir.DAG, v *ir.MailOn) { out.MailOn = v }),
+	dagField("run_config", buildRunConfig, func(out *ir.DAG, v *ir.RunConfig) { out.RunConfig = v }),
+	dagField("resources", buildResources, func(out *ir.DAG, v *ir.Resources) { out.Resources = v }),
+	dagField("webhook", buildWebhookConfig, func(out *ir.DAG, v *ir.WebhookConfig) { out.Webhook = v }),
 }
 
 var fullRetentionStage = transformStage{
-	dagField("hist_retention_days", buildHistRetentionDays, func(out *core.DAG, v int) { out.HistRetentionDays = v }),
-	dagField("hist_retention_runs", buildHistRetentionRuns, func(out *core.DAG, v int) { out.HistRetentionRuns = v }),
-	dagField("max_clean_up_time_sec", buildMaxCleanUpTime, func(out *core.DAG, v time.Duration) { out.MaxCleanUpTime = v }),
+	dagField("hist_retention_days", buildHistRetentionDays, func(out *ir.DAG, v int) { out.HistRetentionDays = v }),
+	dagField("hist_retention_runs", buildHistRetentionRuns, func(out *ir.DAG, v int) { out.HistRetentionRuns = v }),
+	dagField("max_clean_up_time_sec", buildMaxCleanUpTime, func(out *ir.DAG, v time.Duration) { out.MaxCleanUpTime = v }),
 }
 
 var fullExecutionDefaultsStage = transformStage{
-	dagField("shell", buildShell, func(out *core.DAG, v string) { out.Shell = v }),
-	dagField("shell_args", buildShellArgs, func(out *core.DAG, v []string) { out.ShellArgs = v }),
-	dagField("working_dir", buildWorkingDir, func(out *core.DAG, v string) { out.WorkingDir = v }),
-	dagField("container", buildContainer, func(out *core.DAG, v *core.Container) { out.Container = v }),
-	dagField("registry_auths", buildRegistryAuths, func(out *core.DAG, v map[string]*core.AuthConfig) { out.RegistryAuths = v }),
-	dagField("ssh", buildSSH, func(out *core.DAG, v *core.SSHConfig) { out.SSH = v }),
-	dagField("s3", buildS3, func(out *core.DAG, v *core.S3Config) { out.S3 = v }),
-	dagField("llm", buildLLM, func(out *core.DAG, v *core.LLMConfig) { out.LLM = v }),
-	dagField("redis", buildRedis, func(out *core.DAG, v *core.RedisConfig) { out.Redis = v }),
-	dagField("harnesses", buildHarnesses, func(out *core.DAG, v core.HarnessDefinitions) { out.Harnesses = v }),
-	dagField("harness", buildHarness, func(out *core.DAG, v *core.HarnessConfig) { out.Harness = v }),
-	dagField("kubernetes", buildKubernetes, func(out *core.DAG, v core.KubernetesConfig) { out.Kubernetes = v }),
-	dagField("secrets", buildSecrets, func(out *core.DAG, v []core.SecretRef) { out.Secrets = v }),
-	dagField("tools", buildTools, func(out *core.DAG, v *core.ToolConfig) { out.Tools = v }),
-	dagField("dotenv", buildDotenv, func(out *core.DAG, v []string) { out.Dotenv = v }),
+	dagField("shell", buildShell, func(out *ir.DAG, v string) { out.Shell = v }),
+	dagField("shell_args", buildShellArgs, func(out *ir.DAG, v []string) { out.ShellArgs = v }),
+	dagField("working_dir", buildWorkingDir, func(out *ir.DAG, v string) { out.WorkingDir = v }),
+	dagField("container", buildContainer, func(out *ir.DAG, v *ir.Container) { out.Container = v }),
+	dagField("registry_auths", buildRegistryAuths, func(out *ir.DAG, v map[string]*ir.AuthConfig) { out.RegistryAuths = v }),
+	dagField("ssh", buildSSH, func(out *ir.DAG, v *ir.SSHConfig) { out.SSH = v }),
+	dagField("s3", buildS3, func(out *ir.DAG, v *ir.S3Config) { out.S3 = v }),
+	dagField("llm", buildLLM, func(out *ir.DAG, v *ir.LLMConfig) { out.LLM = v }),
+	dagField("redis", buildRedis, func(out *ir.DAG, v *ir.RedisConfig) { out.Redis = v }),
+	dagField("harnesses", buildHarnesses, func(out *ir.DAG, v ir.HarnessDefinitions) { out.Harnesses = v }),
+	dagField("harness", buildHarness, func(out *ir.DAG, v *ir.HarnessConfig) { out.Harness = v }),
+	dagField("kubernetes", buildKubernetes, func(out *ir.DAG, v ir.KubernetesConfig) { out.Kubernetes = v }),
+	dagField("secrets", buildSecrets, func(out *ir.DAG, v []secretref.Ref) { out.Secrets = v }),
+	dagField("tools", buildTools, func(out *ir.DAG, v *ir.ToolConfig) { out.Tools = v }),
+	dagField("dotenv", buildDotenv, func(out *ir.DAG, v []string) { out.Dotenv = v }),
 }
 
 var fullNotificationStage = transformStage{
-	dagField("smtp", buildSMTPConfig, func(out *core.DAG, v *core.SMTPConfig) { out.SMTP = v }),
-	dagField("error_mail", buildErrMailConfig, func(out *core.DAG, v *core.MailConfig) { out.ErrorMail = v }),
-	dagField("info_mail", buildInfoMailConfig, func(out *core.DAG, v *core.MailConfig) { out.InfoMail = v }),
-	dagField("wait_mail", buildWaitMailConfig, func(out *core.DAG, v *core.MailConfig) { out.WaitMail = v }),
-	dagField("preconditions", buildPreconditions, func(out *core.DAG, v []*core.Condition) { out.Preconditions = v }),
-	dagField("otel", buildOTel, func(out *core.DAG, v *core.OTelConfig) { out.OTel = v }),
+	dagField("smtp", buildSMTPConfig, func(out *ir.DAG, v *ir.SMTPConfig) { out.SMTP = v }),
+	dagField("error_mail", buildErrMailConfig, func(out *ir.DAG, v *ir.MailConfig) { out.ErrorMail = v }),
+	dagField("info_mail", buildInfoMailConfig, func(out *ir.DAG, v *ir.MailConfig) { out.InfoMail = v }),
+	dagField("wait_mail", buildWaitMailConfig, func(out *ir.DAG, v *ir.MailConfig) { out.WaitMail = v }),
+	dagField("preconditions", buildPreconditions, func(out *ir.DAG, v []*ir.Condition) { out.Preconditions = v }),
+	dagField("otel", buildOTel, func(out *ir.DAG, v *ir.OTelConfig) { out.OTel = v }),
 }
 
 var fullControllerStage = transformStage{
-	dagField("tasks", buildTasks, func(out *core.DAG, v []core.ControllerTask) { out.Tasks = v }),
+	dagField("tasks", buildTasks, func(out *ir.DAG, v []ir.ControllerTask) { out.Tasks = v }),
 }
 
 var fullTransformStages = []transformStage{
@@ -632,8 +634,8 @@ var fullTransformStages = []transformStage{
 }
 
 // runTransformers executes all transformers in the pipeline
-func runTransformers(ctx buildContext, spec *dag, result *core.DAG) core.ErrorList {
-	var errs core.ErrorList
+func runTransformers(ctx buildContext, spec *dag, result *ir.DAG) ir.ErrorList {
+	var errs ir.ErrorList
 
 	errs = append(errs, runTransformerStages(ctx, spec, result, metadataTransformStages)...)
 
@@ -645,8 +647,8 @@ func runTransformers(ctx buildContext, spec *dag, result *core.DAG) core.ErrorLi
 	return errs
 }
 
-func runTransformerStages(ctx buildContext, spec *dag, out *core.DAG, stages []transformStage) core.ErrorList {
-	var errs core.ErrorList
+func runTransformerStages(ctx buildContext, spec *dag, out *ir.DAG, stages []transformStage) ir.ErrorList {
+	var errs ir.ErrorList
 	for _, stage := range stages {
 		for _, t := range stage {
 			if err := t.apply(ctx, spec, out); err != nil {
@@ -659,22 +661,22 @@ func runTransformerStages(ctx buildContext, spec *dag, out *core.DAG, stages []t
 
 // wrapTransformError wraps an error with the transformer name if it's not already a ValidationError
 func wrapTransformError(name string, err error) error {
-	var ve *core.ValidationError
+	var ve *ir.ValidationError
 	if errors.As(err, &ve) {
 		return err
 	}
-	return core.NewValidationError(name, nil, err)
+	return ir.NewValidationError(name, nil, err)
 }
 
 type dagBuildState struct {
 	ctx    buildContext
 	spec   *dag
-	result *core.DAG
-	errs   core.ErrorList
+	result *ir.DAG
+	errs   ir.ErrorList
 }
 
 func newDAGBuildState(ctx buildContext, spec *dag) *dagBuildState {
-	result := &core.DAG{
+	result := &ir.DAG{
 		Location: ctx.file,
 	}
 	return &dagBuildState{
@@ -773,23 +775,23 @@ func (s *dagBuildState) resolveWorkerSelector() {
 	for k, v := range s.result.WorkerSelector {
 		resolvedKey, err := resolver.String(evalCtx, k, field)
 		if err != nil {
-			s.errs = append(s.errs, core.NewValidationError("worker_selector", k, err))
+			s.errs = append(s.errs, ir.NewValidationError("worker_selector", k, err))
 			return
 		}
 		resolvedVal, err := resolver.String(evalCtx, v, field)
 		if err != nil {
-			s.errs = append(s.errs, core.NewValidationError("worker_selector", v, err))
+			s.errs = append(s.errs, ir.NewValidationError("worker_selector", v, err))
 			return
 		}
 		key := strings.TrimSpace(resolvedKey)
 		if key == "" {
 			err := fmt.Errorf("key %q resolved to an empty key", k)
-			s.errs = append(s.errs, core.NewValidationError("worker_selector", k, err))
+			s.errs = append(s.errs, ir.NewValidationError("worker_selector", k, err))
 			return
 		}
 		if _, ok := resolved[key]; ok {
 			err := fmt.Errorf("keys resolve to duplicate key %q", key)
-			s.errs = append(s.errs, core.NewValidationError("worker_selector", k, err))
+			s.errs = append(s.errs, ir.NewValidationError("worker_selector", k, err))
 			return
 		}
 		resolved[key] = strings.TrimSpace(resolvedVal)
@@ -826,18 +828,18 @@ func (s *dagBuildState) buildActionGraph() {
 	}
 
 	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.result); err != nil {
-		s.errs = append(s.errs, core.NewValidationError("handlers", nil, err))
+		s.errs = append(s.errs, ir.NewValidationError("handlers", nil, err))
 	} else {
 		composed, err := composeHandlerOn(s.result.HandlerOn, handlerOn)
 		if err != nil {
-			s.errs = append(s.errs, core.NewValidationError("handlers", nil, err))
+			s.errs = append(s.errs, ir.NewValidationError("handlers", nil, err))
 		} else {
 			s.result.HandlerOn = composed
 		}
 	}
 
 	if steps, err := buildSteps(s.ctx, s.spec, s.result); err != nil {
-		s.errs = append(s.errs, core.NewValidationError("steps", nil, err))
+		s.errs = append(s.errs, ir.NewValidationError("steps", nil, err))
 	} else {
 		s.result.Steps = composeSteps(s.result.Steps, steps)
 	}
@@ -849,26 +851,26 @@ func (s *dagBuildState) buildActionGraph() {
 
 func (s *dagBuildState) validateResult() {
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
-		if err := core.ValidateSteps(s.result); err != nil {
+		if err := ValidateSteps(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
 
 		if len(s.result.WorkerSelector) > 0 && s.result.HasApprovalSteps() {
-			s.errs = append(s.errs, core.NewValidationError(
+			s.errs = append(s.errs, ir.NewValidationError(
 				"worker_selector",
 				s.result.WorkerSelector,
 				fmt.Errorf("DAG with approval steps cannot be dispatched to workers"),
 			))
 		}
 
-		if err := core.ValidateController(s.result); err != nil {
+		if err := validateController(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
 	}
 
 	if s.result.Name != "" {
-		if err := core.ValidateDAGName(s.result.Name); err != nil {
-			s.errs = append(s.errs, core.NewValidationError("name", s.result.Name, err))
+		if err := ir.ValidateDAGName(s.result.Name); err != nil {
+			s.errs = append(s.errs, ir.NewValidationError("name", s.result.Name, err))
 		}
 	}
 }
@@ -884,9 +886,10 @@ func (s *dagBuildState) capturePresolvedBuildEnv() {
 
 func (s *dagBuildState) markEnvEvaluated() {
 	s.result.EnvEvaluated = !s.ctx.opts.Has(buildFlagNoEval)
+	s.result.RuntimeResolved = s.ctx.opts.RuntimeResolved || (s.result.EnvEvaluated && len(s.result.Dotenv) == 0)
 }
 
-func (s *dagBuildState) finish() (*core.DAG, error) {
+func (s *dagBuildState) finish() (*ir.DAG, error) {
 	// Field builders sharing one memoized result (params) surface the same
 	// error instance once per consumer; collapse identical instances so the
 	// reported list has one entry per distinct failure.
@@ -901,8 +904,8 @@ func (s *dagBuildState) finish() (*core.DAG, error) {
 	return s.result, nil
 }
 
-// build transforms the dag specification into a core.DAG.
-func (d *dag) build(ctx buildContext) (*core.DAG, error) {
+// build transforms the dag specification into a ir.DAG.
+func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state := newDAGBuildState(ctx, d)
 	state.validateSpecShape()
 	state.prepareParamEnvStage()
@@ -917,7 +920,7 @@ func (d *dag) build(ctx buildContext) (*core.DAG, error) {
 	return state.finish()
 }
 
-func composeBuildDAGContext(base, current *core.DAG, currentSpec *dag) (*core.DAG, error) {
+func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, error) {
 	if base == nil {
 		return current, nil
 	}
@@ -935,7 +938,7 @@ func composeBuildDAGContext(base, current *core.DAG, currentSpec *dag) (*core.DA
 	return effective, nil
 }
 
-func applyHistoryRetentionOverride(effective *core.DAG, authoredDays, authoredRuns bool) {
+func applyHistoryRetentionOverride(effective *ir.DAG, authoredDays, authoredRuns bool) {
 	if authoredRuns {
 		effective.HistRetentionDays = 0
 	}
@@ -949,13 +952,13 @@ func applyHistoryRetentionOverride(effective *core.DAG, authoredDays, authoredRu
 func buildType(_ buildContext, d *dag) (string, error) {
 	t := strings.TrimSpace(d.Type)
 	if t == "" {
-		return core.TypeGraph, nil
+		return ir.TypeGraph, nil
 	}
 	switch t {
-	case core.TypeGraph, core.TypeChain, core.TypeController, core.TypeBuild:
+	case ir.TypeGraph, ir.TypeChain, ir.TypeController, ir.TypeBuild:
 		return t, nil
 	default:
-		return "", core.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, controller, build)", t))
+		return "", ir.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, controller, build)", t))
 	}
 }
 
@@ -996,7 +999,7 @@ func buildRestartWait(_ buildContext, d *dag) (time.Duration, error) {
 	return time.Second * time.Duration(d.RestartWaitSec), nil
 }
 
-func buildLabels(_ buildContext, d *dag) (core.Labels, error) {
+func buildLabels(_ buildContext, d *dag) (ir.Labels, error) {
 	labelsValue := d.Labels
 	if labelsValue.IsZero() {
 		labelsValue = d.DeprecatedTags
@@ -1004,13 +1007,13 @@ func buildLabels(_ buildContext, d *dag) (core.Labels, error) {
 	if labelsValue.IsZero() {
 		return nil, nil
 	}
-	var labels core.Labels
+	var labels ir.Labels
 	for _, entry := range labelsValue.Entries() {
 		key := strings.ToLower(strings.TrimSpace(entry.Key()))
 		if key == "" {
 			continue
 		}
-		labels = append(labels, core.Label{
+		labels = append(labels, ir.Label{
 			Key:   key,
 			Value: strings.ToLower(strings.TrimSpace(entry.Value())),
 		})
@@ -1033,7 +1036,7 @@ func buildQueue(_ buildContext, d *dag) (string, error) {
 	return strings.TrimSpace(d.Queue), nil
 }
 
-func buildDAGRetryPolicy(_ buildContext, d *dag) (*core.DAGRetryPolicy, error) {
+func buildDAGRetryPolicy(_ buildContext, d *dag) (*ir.DAGRetryPolicy, error) {
 	if d.RetryPolicy == nil {
 		return nil, nil
 	}
@@ -1061,7 +1064,7 @@ func buildDAGRetryPolicy(_ buildContext, d *dag) (*core.DAGRetryPolicy, error) {
 		return nil, err
 	}
 
-	return &core.DAGRetryPolicy{
+	return &ir.DAGRetryPolicy{
 		Limit:          limit,
 		Interval:       interval,
 		IntervalSecStr: intervalStr,
@@ -1082,31 +1085,31 @@ func buildCatchupWindow(_ buildContext, d *dag) (time.Duration, error) {
 	if d.CatchupWindow == "" {
 		return 0, nil
 	}
-	return core.ParseDuration(d.CatchupWindow)
+	return ParseDuration(d.CatchupWindow)
 }
 
-func buildOverlapPolicy(_ buildContext, d *dag) (core.OverlapPolicy, error) {
-	return core.ParseOverlapPolicy(d.OverlapPolicy)
+func buildOverlapPolicy(_ buildContext, d *dag) (ir.OverlapPolicy, error) {
+	return ir.ParseOverlapPolicy(d.OverlapPolicy)
 }
 
 func buildLogDir(_ buildContext, d *dag) (string, error) {
 	return d.LogDir, nil
 }
 
-func buildArtifacts(_ buildContext, d *dag) (*core.ArtifactsConfig, error) {
+func buildArtifacts(_ buildContext, d *dag) (*ir.ArtifactsConfig, error) {
 	usesArtifactAction := dagUsesBuiltinArtifactAction(d)
 	usesArtifactOutput := dagUsesArtifactOutput(d)
 	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput
 
 	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			"artifacts.enabled",
 			*d.Artifacts.Enabled,
 			fmt.Errorf("artifact actions require artifacts.enabled to be true"),
 		)
 	}
 	if usesArtifactOutput && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			"artifacts.enabled",
 			*d.Artifacts.Enabled,
 			fmt.Errorf("artifact outputs require artifacts.enabled to be true"),
@@ -1115,12 +1118,12 @@ func buildArtifacts(_ buildContext, d *dag) (*core.ArtifactsConfig, error) {
 
 	if d.Artifacts == nil {
 		if autoEnable {
-			return &core.ArtifactsConfig{Enabled: true}, nil
+			return &ir.ArtifactsConfig{Enabled: true}, nil
 		}
 		return nil, nil
 	}
 
-	cfg := &core.ArtifactsConfig{
+	cfg := &ir.ArtifactsConfig{
 		Dir: d.Artifacts.Dir,
 	}
 	if d.Artifacts.Enabled != nil {
@@ -1503,74 +1506,74 @@ func reflectString(v reflect.Value) (string, bool) {
 	return strings.TrimSpace(v.String()), true
 }
 
-func buildLogOutput(_ buildContext, d *dag) (core.LogOutputMode, error) {
+func buildLogOutput(_ buildContext, d *dag) (ir.LogOutputMode, error) {
 	if d.LogOutput.IsZero() {
 		// Return empty to allow inheritance from base config.
-		// Default is applied in core.InitializeDefaults.
+		// Default is applied in ir.InitializeDefaults.
 		return "", nil
 	}
 	return d.LogOutput.Mode(), nil
 }
 
-func buildMailOn(_ buildContext, d *dag) (*core.MailOn, error) {
+func buildMailOn(_ buildContext, d *dag) (*ir.MailOn, error) {
 	if d.MailOn == nil {
 		return nil, nil
 	}
-	return &core.MailOn{
+	return &ir.MailOn{
 		Failure: d.MailOn.Failure,
 		Success: d.MailOn.Success,
 		Wait:    d.MailOn.Wait,
 	}, nil
 }
 
-func buildRunConfig(_ buildContext, d *dag) (*core.RunConfig, error) {
+func buildRunConfig(_ buildContext, d *dag) (*ir.RunConfig, error) {
 	if d.RunConfig == nil {
 		return nil, nil
 	}
-	return &core.RunConfig{
+	return &ir.RunConfig{
 		DisableParamEdit: d.RunConfig.DisableParamEdit,
 		DisableRunIdEdit: d.RunConfig.DisableRunIdEdit,
 	}, nil
 }
 
-func buildResources(_ buildContext, d *dag) (*core.Resources, error) {
+func buildResources(_ buildContext, d *dag) (*ir.Resources, error) {
 	if d.Resources == nil || d.Resources.Limits == nil {
 		return nil, nil
 	}
-	limits, err := core.NewResourceLimits(d.Resources.Limits.CPU, d.Resources.Limits.Memory)
+	limits, err := ir.NewResourceLimits(d.Resources.Limits.CPU, d.Resources.Limits.Memory)
 	if err != nil {
 		return nil, err
 	}
 	if limits == nil {
 		return nil, nil
 	}
-	return &core.Resources{Limits: limits}, nil
+	return &ir.Resources{Limits: limits}, nil
 }
 
-func buildWebhookConfig(_ buildContext, d *dag) (*core.WebhookConfig, error) {
+func buildWebhookConfig(_ buildContext, d *dag) (*ir.WebhookConfig, error) {
 	if d.Webhook == nil {
 		return nil, nil
 	}
 
 	headers := make([]string, 0, len(d.Webhook.ForwardHeaders))
 	for i, raw := range d.Webhook.ForwardHeaders {
-		header := core.NormalizeWebhookForwardHeader(raw)
+		header := ir.NormalizeWebhookForwardHeader(raw)
 		if header == "" {
-			return nil, core.NewValidationError(
+			return nil, ir.NewValidationError(
 				fmt.Sprintf("webhook.forward_headers[%d]", i),
 				raw,
 				fmt.Errorf("header name cannot be empty"),
 			)
 		}
-		if !core.IsValidWebhookHeaderToken(header) {
-			return nil, core.NewValidationError(
+		if !ir.IsValidWebhookHeaderToken(header) {
+			return nil, ir.NewValidationError(
 				fmt.Sprintf("webhook.forward_headers[%d]", i),
 				raw,
 				fmt.Errorf("invalid HTTP header name"),
 			)
 		}
-		if core.IsDeniedWebhookForwardHeader(header) {
-			return nil, core.NewValidationError(
+		if ir.IsDeniedWebhookForwardHeader(header) {
+			return nil, ir.NewValidationError(
 				fmt.Sprintf("webhook.forward_headers[%d]", i),
 				raw,
 				fmt.Errorf("authorization header cannot be forwarded"),
@@ -1579,7 +1582,7 @@ func buildWebhookConfig(_ buildContext, d *dag) (*core.WebhookConfig, error) {
 		headers = append(headers, header)
 	}
 
-	return &core.WebhookConfig{ForwardHeaders: headers}, nil
+	return &ir.WebhookConfig{ForwardHeaders: headers}, nil
 }
 
 func buildHistRetentionDays(_ buildContext, d *dag) (int, error) {
@@ -1606,7 +1609,7 @@ func validateHistoryRetentionConfig(d *dag) error {
 	if d.HistRetentionDays == nil || d.HistRetentionRuns == nil {
 		return nil
 	}
-	return core.NewValidationError(
+	return ir.NewValidationError(
 		"hist_retention_runs",
 		*d.HistRetentionRuns,
 		fmt.Errorf("hist_retention_days and hist_retention_runs cannot both be specified"),
@@ -1640,21 +1643,21 @@ func buildEnvs(ctx buildContext, d *dag) ([]string, error) {
 	return envs, nil
 }
 
-func buildSchedule(_ buildContext, d *dag) ([]core.Schedule, error) {
+func buildSchedule(_ buildContext, d *dag) ([]ir.Schedule, error) {
 	if d.Schedule.IsZero() {
 		return nil, nil
 	}
 	return slices.Clone(d.Schedule.Starts()), nil
 }
 
-func buildStopSchedule(_ buildContext, d *dag) ([]core.Schedule, error) {
+func buildStopSchedule(_ buildContext, d *dag) ([]ir.Schedule, error) {
 	if d.Schedule.IsZero() {
 		return nil, nil
 	}
 	return slices.Clone(d.Schedule.Stops()), nil
 }
 
-func buildRestartSchedule(_ buildContext, d *dag) ([]core.Schedule, error) {
+func buildRestartSchedule(_ buildContext, d *dag) ([]ir.Schedule, error) {
 	if d.Schedule.IsZero() {
 		return nil, nil
 	}
@@ -1665,7 +1668,7 @@ func buildRestartSchedule(_ buildContext, d *dag) ([]core.Schedule, error) {
 type paramsResult struct {
 	Params        []string
 	DefaultParams string
-	ParamDefs     []core.ParamDef
+	ParamDefs     []ir.ParamDef
 	ParamSchema   json.RawMessage
 	ParamsJSON    string // JSON representation of resolved params (original payload when provided as JSON)
 }
@@ -1734,7 +1737,7 @@ func buildDefaultParams(ctx buildContext, d *dag) (string, error) {
 	return result.DefaultParams, nil
 }
 
-func buildParamDefs(ctx buildContext, d *dag) ([]core.ParamDef, error) {
+func buildParamDefs(ctx buildContext, d *dag) ([]ir.ParamDef, error) {
 	result, err := parseParamsInternal(ctx, d)
 	if err != nil {
 		return nil, err
@@ -1795,7 +1798,7 @@ func parseDAGRetryInterval(v any) (time.Duration, string, error) {
 func parseDAGRetryBackoff(v any) (float64, error) {
 	backoff, err := parseBackoffValue(v, "retry_policy.backoff")
 	if err != nil {
-		return 0, core.NewValidationError("retry_policy.backoff", v, err)
+		return 0, ir.NewValidationError("retry_policy.backoff", v, err)
 	}
 	return backoff, nil
 }
@@ -1813,7 +1816,7 @@ func parseDAGRetryMaxInterval(v any) (time.Duration, error) {
 
 func parseDAGRetryLimit(v any) (int, error) {
 	if v == nil {
-		return 0, core.NewValidationError("retry_policy.limit", nil, fmt.Errorf("limit is required when retry_policy is specified"))
+		return 0, ir.NewValidationError("retry_policy.limit", nil, fmt.Errorf("limit is required when retry_policy is specified"))
 	}
 	limit, _, err := parseConcreteDAGRetryInt("retry_policy.limit", v, true)
 	if err != nil {
@@ -1828,7 +1831,7 @@ func parseConcreteDAGRetryInt(fieldName string, val any, allowZero bool) (int, s
 		if allowZero {
 			operator = ">= 0"
 		}
-		return 0, "", core.NewValidationError(fieldName, value, fmt.Errorf("%s must be %s", retryFieldLabel(fieldName), operator))
+		return 0, "", ir.NewValidationError(fieldName, value, fmt.Errorf("%s must be %s", retryFieldLabel(fieldName), operator))
 	}
 
 	switch v := val.(type) {
@@ -1842,7 +1845,7 @@ func parseConcreteDAGRetryInt(fieldName string, val any, allowZero bool) (int, s
 			return invalidPositiveValue(v)
 		}
 		if v > math.MaxInt {
-			return 0, "", core.NewValidationError(fieldName, v, fmt.Errorf("value %d exceeds maximum int", v))
+			return 0, "", ir.NewValidationError(fieldName, v, fmt.Errorf("value %d exceeds maximum int", v))
 		}
 		return int(v), "", nil
 	case uint64:
@@ -1850,20 +1853,20 @@ func parseConcreteDAGRetryInt(fieldName string, val any, allowZero bool) (int, s
 			return invalidPositiveValue(v)
 		}
 		if v > math.MaxInt {
-			return 0, "", core.NewValidationError(fieldName, v, fmt.Errorf("value %d exceeds maximum int", v))
+			return 0, "", ir.NewValidationError(fieldName, v, fmt.Errorf("value %d exceeds maximum int", v))
 		}
 		return int(v), "", nil
 	case string:
 		parsed, err := strconv.Atoi(v)
 		if err != nil {
-			return 0, "", core.NewValidationError(fieldName, v, fmt.Errorf("%s must be an integer or numeric string", retryFieldLabel(fieldName)))
+			return 0, "", ir.NewValidationError(fieldName, v, fmt.Errorf("%s must be an integer or numeric string", retryFieldLabel(fieldName)))
 		}
 		if parsed < 0 || (!allowZero && parsed == 0) {
 			return invalidPositiveValue(v)
 		}
 		return parsed, v, nil
 	default:
-		return 0, "", core.NewValidationError(fieldName, val, fmt.Errorf("invalid type: %T", val))
+		return 0, "", ir.NewValidationError(fieldName, val, fmt.Errorf("invalid type: %T", val))
 	}
 }
 
@@ -1916,7 +1919,7 @@ func parseParamsInternal(ctx buildContext, d *dag) (*paramsResult, error) {
 
 // applyWorkerSelector sets both WorkerSelector and ForceLocal, leaving each
 // field untouched when the spec does not select a value for it.
-func applyWorkerSelector(ctx buildContext, in *dag, out *core.DAG) error {
+func applyWorkerSelector(ctx buildContext, in *dag, out *ir.DAG) error {
 	ws, forceLocal, err := buildWorkerSelector(ctx, in)
 	if err != nil {
 		return err
@@ -2016,7 +2019,7 @@ func parseShellInternal(_ buildContext, d *dag) (*shellResult, error) {
 	// Shell expansion is deferred to runtime - see runtime/env.go Shell()
 	shell, args, err := cmdutil.SplitCommand(command)
 	if err != nil {
-		return nil, core.NewValidationError("shell", d.Shell.Value(), fmt.Errorf("failed to parse shell command: %w", err))
+		return nil, ir.NewValidationError("shell", d.Shell.Value(), fmt.Errorf("failed to parse shell command: %w", err))
 	}
 	return &shellResult{Shell: strings.TrimSpace(shell), Args: args}, nil
 }
@@ -2073,14 +2076,14 @@ func resolveWorkingDirPath(wd, dagFile string) (string, error) {
 	return wd, nil
 }
 
-func buildContainer(ctx buildContext, d *dag) (*core.Container, error) {
+func buildContainer(ctx buildContext, d *dag) (*ir.Container, error) {
 	return buildContainerField(ctx, d.Container)
 }
 
 // buildContainerField handles both string and object forms of container field.
 // String form: "container-name" -> exec into existing container
 // Object form: {image: "...", ...} or {exec: "...", ...} -> create new or exec into existing
-func buildContainerField(ctx buildContext, raw any) (*core.Container, error) {
+func buildContainerField(ctx buildContext, raw any) (*ir.Container, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -2090,10 +2093,10 @@ func buildContainerField(ctx buildContext, raw any) (*core.Container, error) {
 		// String mode: exec into existing container with defaults
 		name := strings.TrimSpace(v)
 		if name == "" {
-			return nil, core.NewValidationError("container", nil,
+			return nil, ir.NewValidationError("container", nil,
 				fmt.Errorf("container name cannot be empty"))
 		}
-		return &core.Container{
+		return &ir.Container{
 			Exec: name,
 		}, nil
 
@@ -2107,11 +2110,11 @@ func buildContainerField(ctx buildContext, raw any) (*core.Container, error) {
 			TagName:          "yaml",
 		})
 		if err != nil {
-			return nil, core.NewValidationError("container", nil,
+			return nil, ir.NewValidationError("container", nil,
 				fmt.Errorf("failed to create decoder: %w", err))
 		}
 		if err := decoder.Decode(v); err != nil {
-			return nil, core.NewValidationError("container", nil,
+			return nil, ir.NewValidationError("container", nil,
 				fmt.Errorf("failed to decode container: %w", withLegacyKeyHint(err)))
 		}
 		return buildContainerFromSpec(ctx, &c)
@@ -2124,23 +2127,23 @@ func buildContainerField(ctx buildContext, raw any) (*core.Container, error) {
 		return buildContainerFromSpec(ctx, v)
 
 	default:
-		return nil, core.NewValidationError("container", nil,
+		return nil, ir.NewValidationError("container", nil,
 			fmt.Errorf("container must be a string or object, got %T", raw))
 	}
 }
 
-// buildContainerFromSpec is a shared function that builds a core.Container from a container spec.
+// buildContainerFromSpec is a shared function that builds a ir.Container from a container spec.
 // It is used by both DAG-level and step-level container configuration.
-func buildContainerFromSpec(_ buildContext, c *container) (*core.Container, error) {
+func buildContainerFromSpec(_ buildContext, c *container) (*ir.Container, error) {
 	// Validate mutual exclusivity
 	if c.Exec != "" && c.Image != "" {
-		return nil, core.NewValidationError("container", nil,
+		return nil, ir.NewValidationError("container", nil,
 			fmt.Errorf("'exec' and 'image' are mutually exclusive"))
 	}
 
 	// Require one of exec or image
 	if c.Exec == "" && c.Image == "" {
-		return nil, core.NewValidationError("container", nil,
+		return nil, ir.NewValidationError("container", nil,
 			fmt.Errorf("either 'exec' or 'image' must be specified"))
 	}
 
@@ -2189,7 +2192,7 @@ func buildContainerFromSpec(_ buildContext, c *container) (*core.Container, erro
 		}
 
 		if len(invalidFields) > 0 {
-			return nil, core.NewValidationError("container", nil,
+			return nil, ir.NewValidationError("container", nil,
 				fmt.Errorf("fields %v cannot be used with 'exec'", invalidFields))
 		}
 
@@ -2197,11 +2200,11 @@ func buildContainerFromSpec(_ buildContext, c *container) (*core.Container, erro
 		// to runtime so that DAG-level env, params, and step outputs are in scope.
 		envs, err := collectRawPairs(c.Env)
 		if err != nil {
-			return nil, core.NewValidationError("container.env", c.Env, err)
+			return nil, ir.NewValidationError("container.env", c.Env, err)
 		}
 
 		// Build exec-mode container
-		return &core.Container{
+		return &ir.Container{
 			Exec:       strings.TrimSpace(c.Exec),
 			User:       c.User,
 			WorkingDir: c.WorkingDir,
@@ -2211,29 +2214,29 @@ func buildContainerFromSpec(_ buildContext, c *container) (*core.Container, erro
 	}
 
 	// Handle image mode (existing behavior)
-	pullPolicy, err := core.ParsePullPolicy(c.PullPolicy)
+	pullPolicy, err := ir.ParsePullPolicy(c.PullPolicy)
 	if err != nil {
-		return nil, core.NewValidationError("container.pull_policy", c.PullPolicy, err)
+		return nil, ir.NewValidationError("container.pull_policy", c.PullPolicy, err)
 	}
 
 	// Collect raw env pairs without evaluation — evaluation is deferred
 	// to runtime so that DAG-level env, params, and step outputs are in scope.
 	envs, err := collectRawPairs(c.Env)
 	if err != nil {
-		return nil, core.NewValidationError("container.env", c.Env, err)
+		return nil, ir.NewValidationError("container.env", c.Env, err)
 	}
 
 	// Parse healthcheck if provided
-	var hc *core.Healthcheck
+	var hc *ir.Healthcheck
 	if c.Healthcheck != nil {
 		var err error
 		hc, err = parseHealthcheck(c.Healthcheck)
 		if err != nil {
-			return nil, core.NewValidationError("container.healthcheck", c.Healthcheck, err)
+			return nil, ir.NewValidationError("container.healthcheck", c.Healthcheck, err)
 		}
 	}
 
-	return &core.Container{
+	return &ir.Container{
 		Name:          strings.TrimSpace(c.Name),
 		Image:         c.Image,
 		PullPolicy:    pullPolicy,
@@ -2245,9 +2248,9 @@ func buildContainerFromSpec(_ buildContext, c *container) (*core.Container, erro
 		Ports:         c.Ports,
 		Network:       c.Network,
 		KeepContainer: c.KeepContainer,
-		Startup:       core.ContainerStartup(strings.ToLower(strings.TrimSpace(c.Startup))),
+		Startup:       ir.ContainerStartup(strings.ToLower(strings.TrimSpace(c.Startup))),
 		Command:       c.Command,
-		WaitFor:       core.ContainerWaitFor(strings.ToLower(strings.TrimSpace(c.WaitFor))),
+		WaitFor:       ir.ContainerWaitFor(strings.ToLower(strings.TrimSpace(c.WaitFor))),
 		LogPattern:    c.LogPattern,
 		RestartPolicy: strings.TrimSpace(c.RestartPolicy),
 		Healthcheck:   hc,
@@ -2255,8 +2258,8 @@ func buildContainerFromSpec(_ buildContext, c *container) (*core.Container, erro
 	}, nil
 }
 
-// parseHealthcheck converts a spec healthcheck to a core.Healthcheck with validation.
-func parseHealthcheck(h *healthcheck) (*core.Healthcheck, error) {
+// parseHealthcheck converts a spec healthcheck to a ir.Healthcheck with validation.
+func parseHealthcheck(h *healthcheck) (*ir.Healthcheck, error) {
 	if h == nil {
 		return nil, nil
 	}
@@ -2291,7 +2294,7 @@ func parseHealthcheck(h *healthcheck) (*core.Healthcheck, error) {
 		return nil, fmt.Errorf("retries must be non-negative, got %d", h.Retries)
 	}
 
-	hc := &core.Healthcheck{
+	hc := &ir.Healthcheck{
 		Test:    h.Test,
 		Retries: h.Retries,
 	}
@@ -2324,7 +2327,7 @@ func parseHealthcheck(h *healthcheck) (*core.Healthcheck, error) {
 	return hc, nil
 }
 
-func buildRegistryAuths(_ buildContext, d *dag) (map[string]*core.AuthConfig, error) {
+func buildRegistryAuths(_ buildContext, d *dag) (map[string]*ir.AuthConfig, error) {
 	if d.RegistryAuths == nil {
 		return nil, nil
 	}
@@ -2333,8 +2336,8 @@ func buildRegistryAuths(_ buildContext, d *dag) (map[string]*core.AuthConfig, er
 	// See runtime/agent/agent.go where RegistryAuths are evaluated before use.
 
 	// parseAuthConfig parses auth config from a map with string keys.
-	parseAuthConfig := func(m map[string]any) *core.AuthConfig {
-		cfg := &core.AuthConfig{}
+	parseAuthConfig := func(m map[string]any) *ir.AuthConfig {
+		cfg := &ir.AuthConfig{}
 		if v, ok := m["username"].(string); ok {
 			cfg.Username = v
 		}
@@ -2348,10 +2351,10 @@ func buildRegistryAuths(_ buildContext, d *dag) (map[string]*core.AuthConfig, er
 	}
 
 	// parseAuthData parses auth data which can be a string or a map.
-	parseAuthData := func(authData any) *core.AuthConfig {
+	parseAuthData := func(authData any) *ir.AuthConfig {
 		switch auth := authData.(type) {
 		case string:
-			return &core.AuthConfig{Auth: auth}
+			return &ir.AuthConfig{Auth: auth}
 		case map[string]any:
 			return parseAuthConfig(auth)
 		case map[any]any:
@@ -2364,15 +2367,15 @@ func buildRegistryAuths(_ buildContext, d *dag) (map[string]*core.AuthConfig, er
 			}
 			return parseAuthConfig(m)
 		default:
-			return &core.AuthConfig{}
+			return &ir.AuthConfig{}
 		}
 	}
 
-	registryAuths := make(map[string]*core.AuthConfig)
+	registryAuths := make(map[string]*ir.AuthConfig)
 
 	switch v := d.RegistryAuths.(type) {
 	case string:
-		registryAuths["_json"] = &core.AuthConfig{Auth: v}
+		registryAuths["_json"] = &ir.AuthConfig{Auth: v}
 
 	case map[string]any:
 		for registry, authData := range v {
@@ -2387,13 +2390,13 @@ func buildRegistryAuths(_ buildContext, d *dag) (map[string]*core.AuthConfig, er
 		}
 
 	default:
-		return nil, core.NewValidationError("registry_auths", d.RegistryAuths, fmt.Errorf("invalid type: %T", d.RegistryAuths))
+		return nil, ir.NewValidationError("registry_auths", d.RegistryAuths, fmt.Errorf("invalid type: %T", d.RegistryAuths))
 	}
 
 	return registryAuths, nil
 }
 
-func buildSSH(_ buildContext, d *dag) (*core.SSHConfig, error) {
+func buildSSH(_ buildContext, d *dag) (*ir.SSHConfig, error) {
 	if d.SSH == nil {
 		return nil, nil
 	}
@@ -2403,7 +2406,7 @@ func buildSSH(_ buildContext, d *dag) (*core.SSHConfig, error) {
 		return nil, err
 	}
 
-	return &core.SSHConfig{
+	return &ir.SSHConfig{
 		User:          d.SSH.User,
 		Host:          d.SSH.Host,
 		Port:          defaultPort(d.SSH.Port.String(), "22"),
@@ -2435,17 +2438,17 @@ func parseSSHShell(shellVal types.ShellValue) (string, []string, error) {
 
 	parsed, args, err := cmdutil.SplitCommand(command)
 	if err != nil {
-		return "", nil, core.NewValidationError("ssh.shell", shellVal.Value(), fmt.Errorf("failed to parse shell command: %w", err))
+		return "", nil, ir.NewValidationError("ssh.shell", shellVal.Value(), fmt.Errorf("failed to parse shell command: %w", err))
 	}
 	return strings.TrimSpace(parsed), args, nil
 }
 
 // buildBastionConfig builds bastion configuration from spec.
-func buildBastionConfig(bastion *bastion) *core.BastionConfig {
+func buildBastionConfig(bastion *bastion) *ir.BastionConfig {
 	if bastion == nil {
 		return nil
 	}
-	return &core.BastionConfig{
+	return &ir.BastionConfig{
 		Host:     bastion.Host,
 		Port:     defaultPort(bastion.Port.String(), "22"),
 		User:     bastion.User,
@@ -2462,12 +2465,12 @@ func defaultPort(port, defaultVal string) string {
 	return port
 }
 
-func buildS3(_ buildContext, d *dag) (*core.S3Config, error) {
+func buildS3(_ buildContext, d *dag) (*ir.S3Config, error) {
 	if d.S3 == nil {
 		return nil, nil
 	}
 
-	return &core.S3Config{
+	return &ir.S3Config{
 		Region:          d.S3.Region,
 		Endpoint:        d.S3.Endpoint,
 		AccessKeyID:     d.S3.AccessKeyID,
@@ -2480,7 +2483,7 @@ func buildS3(_ buildContext, d *dag) (*core.S3Config, error) {
 	}, nil
 }
 
-func buildLLM(_ buildContext, d *dag) (*core.LLMConfig, error) {
+func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 	if d.LLM == nil {
 		return nil, nil
 	}
@@ -2489,12 +2492,12 @@ func buildLLM(_ buildContext, d *dag) (*core.LLMConfig, error) {
 
 	// Validate provider if specified (optional at DAG level)
 	if err := validateLLMProvider(cfg.Provider); err != nil {
-		return nil, core.NewValidationError("llm.provider", cfg.Provider, err)
+		return nil, ir.NewValidationError("llm.provider", cfg.Provider, err)
 	}
 
 	// Get model string or entries (optional at DAG level)
 	var modelString string
-	var models []core.ModelEntry
+	var models []ir.ModelEntry
 
 	if !cfg.Model.IsZero() {
 		if cfg.Model.IsArray() {
@@ -2511,7 +2514,7 @@ func buildLLM(_ buildContext, d *dag) (*core.LLMConfig, error) {
 	// Validate temperature range if specified
 	if cfg.Temperature != nil {
 		if *cfg.Temperature < 0.0 || *cfg.Temperature > 2.0 {
-			return nil, core.NewValidationError("llm.temperature", *cfg.Temperature,
+			return nil, ir.NewValidationError("llm.temperature", *cfg.Temperature,
 				fmt.Errorf("temperature must be between 0.0 and 2.0"))
 		}
 	}
@@ -2519,7 +2522,7 @@ func buildLLM(_ buildContext, d *dag) (*core.LLMConfig, error) {
 	// Validate top_p range if specified
 	if cfg.TopP != nil {
 		if *cfg.TopP < 0.0 || *cfg.TopP > 1.0 {
-			return nil, core.NewValidationError("llm.top_p", *cfg.TopP,
+			return nil, ir.NewValidationError("llm.top_p", *cfg.TopP,
 				fmt.Errorf("top_p must be between 0.0 and 1.0"))
 		}
 	}
@@ -2527,11 +2530,11 @@ func buildLLM(_ buildContext, d *dag) (*core.LLMConfig, error) {
 	// Validate max_tokens if specified
 	if cfg.MaxTokens != nil {
 		if *cfg.MaxTokens < 1 {
-			return nil, core.NewValidationError("llm.max_tokens", *cfg.MaxTokens,
+			return nil, ir.NewValidationError("llm.max_tokens", *cfg.MaxTokens,
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
-	if err := validateControllerLLMLimits(cfg, strings.TrimSpace(d.Type) == core.TypeController); err != nil {
+	if err := validateControllerLLMLimits(cfg, strings.TrimSpace(d.Type) == ir.TypeController); err != nil {
 		return nil, err
 	}
 
@@ -2540,7 +2543,7 @@ func buildLLM(_ buildContext, d *dag) (*core.LLMConfig, error) {
 		return nil, err
 	}
 
-	return &core.LLMConfig{
+	return &ir.LLMConfig{
 		Provider:    cfg.Provider,
 		Model:       modelString,
 		Models:      models,
@@ -2562,12 +2565,12 @@ func buildLLM(_ buildContext, d *dag) (*core.LLMConfig, error) {
 	}, nil
 }
 
-func buildRedis(_ buildContext, d *dag) (*core.RedisConfig, error) {
+func buildRedis(_ buildContext, d *dag) (*ir.RedisConfig, error) {
 	if d.Redis == nil {
 		return nil, nil
 	}
 
-	return &core.RedisConfig{
+	return &ir.RedisConfig{
 		URL:            d.Redis.URL,
 		Host:           d.Redis.Host,
 		Port:           d.Redis.Port,
@@ -2584,7 +2587,7 @@ func buildRedis(_ buildContext, d *dag) (*core.RedisConfig, error) {
 	}, nil
 }
 
-func buildHarnesses(_ buildContext, d *dag) (core.HarnessDefinitions, error) {
+func buildHarnesses(_ buildContext, d *dag) (ir.HarnessDefinitions, error) {
 	defs, err := parseHarnessDefinitions(d.Harnesses)
 	if err != nil {
 		return nil, err
@@ -2592,19 +2595,19 @@ func buildHarnesses(_ buildContext, d *dag) (core.HarnessDefinitions, error) {
 	return defs, nil
 }
 
-func parseHarnessDefinitions(raw map[string]any) (core.HarnessDefinitions, error) {
+func parseHarnessDefinitions(raw map[string]any) (ir.HarnessDefinitions, error) {
 	if raw == nil {
 		return nil, nil
 	}
 
-	defs := make(core.HarnessDefinitions, len(raw))
+	defs := make(ir.HarnessDefinitions, len(raw))
 	for name, value := range raw {
 		trimmedName := strings.TrimSpace(name)
 		if trimmedName == "" {
-			return nil, core.NewValidationError("harnesses", name, fmt.Errorf("harness name is required"))
+			return nil, ir.NewValidationError("harnesses", name, fmt.Errorf("harness name is required"))
 		}
-		if core.IsBuiltinHarnessProvider(trimmedName) {
-			return nil, core.NewValidationError(
+		if ir.IsBuiltinCLIHarnessProvider(trimmedName) {
+			return nil, ir.NewValidationError(
 				fmt.Sprintf("harnesses.%s", trimmedName),
 				value,
 				fmt.Errorf("custom harness name %q conflicts with built-in provider", trimmedName),
@@ -2617,7 +2620,7 @@ func parseHarnessDefinitions(raw map[string]any) (core.HarnessDefinitions, error
 
 		specMap, ok := value.(map[string]any)
 		if !ok {
-			return nil, core.NewValidationError(
+			return nil, ir.NewValidationError(
 				fmt.Sprintf("harnesses.%s", trimmedName),
 				value,
 				fmt.Errorf("harness definition must be an object or null"),
@@ -2634,11 +2637,11 @@ func parseHarnessDefinitions(raw map[string]any) (core.HarnessDefinitions, error
 	return defs, nil
 }
 
-func parseHarnessDefinition(name string, raw map[string]any) (*core.HarnessDefinition, error) {
-	def := &core.HarnessDefinition{
-		PromptMode:     core.HarnessPromptModeArg,
-		PromptPosition: core.HarnessPromptPositionBeforeFlags,
-		FlagStyle:      core.HarnessFlagStyleGNULong,
+func parseHarnessDefinition(name string, raw map[string]any) (*ir.HarnessDefinition, error) {
+	def := &ir.HarnessDefinition{
+		PromptMode:     ir.HarnessPromptModeArg,
+		PromptPosition: ir.HarnessPromptPositionBeforeFlags,
+		FlagStyle:      ir.HarnessFlagStyleGNULong,
 	}
 
 	for key, value := range raw {
@@ -2646,7 +2649,7 @@ func parseHarnessDefinition(name string, raw map[string]any) (*core.HarnessDefin
 		case "binary":
 			binary, ok := value.(string)
 			if !ok {
-				return nil, core.NewValidationError(
+				return nil, ir.NewValidationError(
 					fmt.Sprintf("harnesses.%s.binary", name),
 					value,
 					fmt.Errorf("binary must be a string"),
@@ -2656,23 +2659,23 @@ func parseHarnessDefinition(name string, raw map[string]any) (*core.HarnessDefin
 		case "prefix_args":
 			prefixArgs, err := harnessStringSlice(value)
 			if err != nil {
-				return nil, core.NewValidationError(fmt.Sprintf("harnesses.%s.prefix_args", name), value, err)
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.prefix_args", name), value, err)
 			}
 			def.PrefixArgs = prefixArgs
 		case "prompt_mode":
 			mode, ok := value.(string)
 			if !ok {
-				return nil, core.NewValidationError(
+				return nil, ir.NewValidationError(
 					fmt.Sprintf("harnesses.%s.prompt_mode", name),
 					value,
 					fmt.Errorf("prompt_mode must be a string"),
 				)
 			}
-			def.PromptMode = core.HarnessPromptMode(strings.TrimSpace(mode))
+			def.PromptMode = ir.HarnessPromptMode(strings.TrimSpace(mode))
 		case "prompt_flag":
 			promptFlag, ok := value.(string)
 			if !ok {
-				return nil, core.NewValidationError(
+				return nil, ir.NewValidationError(
 					fmt.Sprintf("harnesses.%s.prompt_flag", name),
 					value,
 					fmt.Errorf("prompt_flag must be a string"),
@@ -2682,31 +2685,31 @@ func parseHarnessDefinition(name string, raw map[string]any) (*core.HarnessDefin
 		case "prompt_position":
 			position, ok := value.(string)
 			if !ok {
-				return nil, core.NewValidationError(
+				return nil, ir.NewValidationError(
 					fmt.Sprintf("harnesses.%s.prompt_position", name),
 					value,
 					fmt.Errorf("prompt_position must be a string"),
 				)
 			}
-			def.PromptPosition = core.HarnessPromptPosition(strings.TrimSpace(position))
+			def.PromptPosition = ir.HarnessPromptPosition(strings.TrimSpace(position))
 		case "flag_style":
 			flagStyle, ok := value.(string)
 			if !ok {
-				return nil, core.NewValidationError(
+				return nil, ir.NewValidationError(
 					fmt.Sprintf("harnesses.%s.flag_style", name),
 					value,
 					fmt.Errorf("flag_style must be a string"),
 				)
 			}
-			def.FlagStyle = core.HarnessFlagStyle(strings.TrimSpace(flagStyle))
+			def.FlagStyle = ir.HarnessFlagStyle(strings.TrimSpace(flagStyle))
 		case "option_flags":
 			optionFlags, err := harnessStringMap(value)
 			if err != nil {
-				return nil, core.NewValidationError(fmt.Sprintf("harnesses.%s.option_flags", name), value, err)
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.option_flags", name), value, err)
 			}
 			def.OptionFlags = optionFlags
 		default:
-			return nil, core.NewValidationError(
+			return nil, ir.NewValidationError(
 				fmt.Sprintf("harnesses.%s.%s", name, key),
 				value,
 				fmt.Errorf("unknown harness definition key %q", key),
@@ -2715,7 +2718,7 @@ func parseHarnessDefinition(name string, raw map[string]any) (*core.HarnessDefin
 	}
 
 	if def.Binary == "" {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("harnesses.%s.binary", name),
 			raw["binary"],
 			fmt.Errorf("binary is required"),
@@ -2723,9 +2726,9 @@ func parseHarnessDefinition(name string, raw map[string]any) (*core.HarnessDefin
 	}
 
 	switch def.PromptMode {
-	case core.HarnessPromptModeArg, core.HarnessPromptModeFlag, core.HarnessPromptModeStdin:
+	case ir.HarnessPromptModeArg, ir.HarnessPromptModeFlag, ir.HarnessPromptModeStdin:
 	default:
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("harnesses.%s.prompt_mode", name),
 			def.PromptMode,
 			fmt.Errorf("prompt_mode must be one of: arg, flag, stdin"),
@@ -2733,9 +2736,9 @@ func parseHarnessDefinition(name string, raw map[string]any) (*core.HarnessDefin
 	}
 
 	switch def.PromptPosition {
-	case core.HarnessPromptPositionBeforeFlags, core.HarnessPromptPositionAfterFlags:
+	case ir.HarnessPromptPositionBeforeFlags, ir.HarnessPromptPositionAfterFlags:
 	default:
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("harnesses.%s.prompt_position", name),
 			def.PromptPosition,
 			fmt.Errorf("prompt_position must be one of: before_flags, after_flags"),
@@ -2743,25 +2746,25 @@ func parseHarnessDefinition(name string, raw map[string]any) (*core.HarnessDefin
 	}
 
 	switch def.FlagStyle {
-	case core.HarnessFlagStyleGNULong, core.HarnessFlagStyleSingleDash:
+	case ir.HarnessFlagStyleGNULong, ir.HarnessFlagStyleSingleDash:
 	default:
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("harnesses.%s.flag_style", name),
 			def.FlagStyle,
 			fmt.Errorf("flag_style must be one of: gnu_long, single_dash"),
 		)
 	}
 
-	if def.PromptMode == core.HarnessPromptModeFlag && def.PromptFlag == "" {
-		return nil, core.NewValidationError(
+	if def.PromptMode == ir.HarnessPromptModeFlag && def.PromptFlag == "" {
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("harnesses.%s.prompt_flag", name),
 			raw["prompt_flag"],
 			fmt.Errorf("prompt_flag is required when prompt_mode is flag"),
 		)
 	}
 
-	if def.PromptMode != core.HarnessPromptModeFlag && def.PromptFlag != "" {
-		return nil, core.NewValidationError(
+	if def.PromptMode != ir.HarnessPromptModeFlag && def.PromptFlag != "" {
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("harnesses.%s.prompt_flag", name),
 			def.PromptFlag,
 			fmt.Errorf("prompt_flag is only valid when prompt_mode is flag"),
@@ -2813,7 +2816,7 @@ func harnessStringMap(raw any) (map[string]string, error) {
 	}
 }
 
-func buildHarness(ctx buildContext, d *dag) (*core.HarnessConfig, error) {
+func buildHarness(ctx buildContext, d *dag) (*ir.HarnessConfig, error) {
 	if d.Harness == nil {
 		return nil, nil
 	}
@@ -2821,11 +2824,11 @@ func buildHarness(ctx buildContext, d *dag) (*core.HarnessConfig, error) {
 	config := cloneMap(d.Harness)
 	fallbacks, err := extractHarnessFallback(config)
 	if err != nil {
-		return nil, core.NewValidationError("harness", d.Harness, err)
+		return nil, ir.NewValidationError("harness", d.Harness, err)
 	}
 
-	if err := core.ValidateExecutorConfig("harness", config); err != nil {
-		return nil, core.NewValidationError("harness", d.Harness, err)
+	if err := registry.ValidateExecutorConfig("harness", config); err != nil {
+		return nil, ir.NewValidationError("harness", d.Harness, err)
 	}
 	defs, err := parseHarnessDefinitions(d.Harnesses)
 	if err != nil {
@@ -2834,38 +2837,38 @@ func buildHarness(ctx buildContext, d *dag) (*core.HarnessConfig, error) {
 	if ctx.baseDAG != nil && ctx.baseDAG.Harnesses != nil {
 		effective := ctx.baseDAG.Clone()
 		if defs != nil {
-			if err := merge(effective, &core.DAG{Harnesses: defs}); err != nil {
+			if err := merge(effective, &ir.DAG{Harnesses: defs}); err != nil {
 				return nil, err
 			}
 		}
 		defs = effective.Harnesses
 	}
 	if err := validateHarnessProviderConfig(defs, config); err != nil {
-		return nil, core.NewValidationError("harness", d.Harness, err)
+		return nil, ir.NewValidationError("harness", d.Harness, err)
 	}
 	for i := range fallbacks {
-		if err := core.ValidateExecutorConfig("harness", fallbacks[i]); err != nil {
-			return nil, core.NewValidationError(fmt.Sprintf("harness.fallback[%d]", i), fallbacks[i], err)
+		if err := registry.ValidateExecutorConfig("harness", fallbacks[i]); err != nil {
+			return nil, ir.NewValidationError(fmt.Sprintf("harness.fallback[%d]", i), fallbacks[i], err)
 		}
 		if err := validateHarnessProviderConfig(defs, fallbacks[i]); err != nil {
-			return nil, core.NewValidationError(fmt.Sprintf("harness.fallback[%d]", i), fallbacks[i], err)
+			return nil, ir.NewValidationError(fmt.Sprintf("harness.fallback[%d]", i), fallbacks[i], err)
 		}
 	}
 
-	return &core.HarnessConfig{
+	return &ir.HarnessConfig{
 		Config:   config,
 		Fallback: fallbacks,
 	}, nil
 }
 
-func buildSecrets(ctx buildContext, d *dag) ([]core.SecretRef, error) {
+func buildSecrets(ctx buildContext, d *dag) ([]secretref.Ref, error) {
 	if len(d.Secrets) == 0 {
 		return nil, nil
 	}
 	return parseSecretRefs(ctx, d)
 }
 
-func buildTools(_ buildContext, d *dag) (*core.ToolConfig, error) {
+func buildTools(_ buildContext, d *dag) (*ir.ToolConfig, error) {
 	if d.Tools == nil {
 		return nil, nil
 	}
@@ -2881,9 +2884,9 @@ func buildTools(_ buildContext, d *dag) (*core.ToolConfig, error) {
 		return nil, fmt.Errorf("packages is required")
 	}
 
-	cfg := &core.ToolConfig{
+	cfg := &ir.ToolConfig{
 		Provider: provider,
-		Packages: make([]core.ToolPackage, 0, len(d.Tools.Packages)),
+		Packages: make([]ir.ToolPackage, 0, len(d.Tools.Packages)),
 	}
 	registry, err := buildToolRegistry(d.Tools.Registry)
 	if err != nil {
@@ -2902,7 +2905,7 @@ func buildTools(_ buildContext, d *dag) (*core.ToolConfig, error) {
 	return cfg, nil
 }
 
-func buildToolRegistry(registry *toolRegistry) (*core.ToolRegistry, error) {
+func buildToolRegistry(registry *toolRegistry) (*ir.ToolRegistry, error) {
 	if registry == nil {
 		return nil, nil
 	}
@@ -2921,7 +2924,7 @@ func buildToolRegistry(registry *toolRegistry) (*core.ToolRegistry, error) {
 	case "standard":
 		// The ref stays empty when the DAG does not pin one; the installer
 		// resolves the effective standard registry ref at install time.
-		return &core.ToolRegistry{
+		return &ir.ToolRegistry{
 			Name: name,
 			Type: typ,
 			Ref:  ref,
@@ -2942,7 +2945,7 @@ func buildToolRegistry(registry *toolRegistry) (*core.ToolRegistry, error) {
 		if path == "" {
 			return nil, fmt.Errorf("registry.path is required")
 		}
-		return &core.ToolRegistry{
+		return &ir.ToolRegistry{
 			Name:      name,
 			Type:      typ,
 			RepoOwner: repoOwner,
@@ -2955,31 +2958,31 @@ func buildToolRegistry(registry *toolRegistry) (*core.ToolRegistry, error) {
 	}
 }
 
-func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (core.ToolPackage, error) {
+func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (ir.ToolPackage, error) {
 	name := strings.TrimSpace(pkg.Name)
 	packageName := strings.TrimSpace(pkg.Package)
 	version := strings.TrimSpace(pkg.Version)
 	registry := strings.TrimSpace(pkg.Registry)
 	if packageName == "" {
-		return core.ToolPackage{}, fmt.Errorf("package is required")
+		return ir.ToolPackage{}, fmt.Errorf("package is required")
 	}
 	if version == "" {
-		return core.ToolPackage{}, fmt.Errorf("version is required")
+		return ir.ToolPackage{}, fmt.Errorf("version is required")
 	}
 	if strings.EqualFold(version, "latest") {
-		return core.ToolPackage{}, fmt.Errorf("version must be pinned, got %q", version)
+		return ir.ToolPackage{}, fmt.Errorf("version must be pinned, got %q", version)
 	}
 	commands := make([]string, 0, len(pkg.Commands))
 	for _, command := range pkg.Commands {
 		command = strings.TrimSpace(command)
 		if command == "" {
-			return core.ToolPackage{}, fmt.Errorf("commands cannot contain an empty value")
+			return ir.ToolPackage{}, fmt.Errorf("commands cannot contain an empty value")
 		}
 		if !isToolCommandName(command) {
-			return core.ToolPackage{}, fmt.Errorf("command %q must be an executable name, not a path or shell fragment", command)
+			return ir.ToolPackage{}, fmt.Errorf("command %q must be an executable name, not a path or shell fragment", command)
 		}
 		if _, ok := seenCommands[command]; ok {
-			return core.ToolPackage{}, fmt.Errorf("duplicate command %q", command)
+			return ir.ToolPackage{}, fmt.Errorf("duplicate command %q", command)
 		}
 		seenCommands[command] = struct{}{}
 		commands = append(commands, command)
@@ -2989,16 +2992,15 @@ func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (core.T
 	}
 	digest, err := normalizeToolDigest(pkg.Digest)
 	if err != nil {
-		return core.ToolPackage{}, err
+		return ir.ToolPackage{}, err
 	}
-	return core.ToolPackage{
-		Name:     name,
-		Package:  packageName,
-		Version:  version,
-		Commands: commands,
-		Registry: registry,
-		Digest:   digest,
-	}, nil
+	pkg.Name = name
+	pkg.Package = packageName
+	pkg.Version = version
+	pkg.Commands = commands
+	pkg.Registry = registry
+	pkg.Digest = digest
+	return ir.ToolPackage(pkg), nil
 }
 
 func normalizeToolDigest(digest string) (string, error) {
@@ -3075,7 +3077,7 @@ func extractHarnessFallback(config map[string]any) ([]map[string]any, error) {
 	}
 }
 
-func validateHarnessProviderConfig(defs core.HarnessDefinitions, cfg map[string]any) error {
+func validateHarnessProviderConfig(defs ir.HarnessDefinitions, cfg map[string]any) error {
 	if cfg == nil {
 		return fmt.Errorf("harness: config is required")
 	}
@@ -3093,7 +3095,7 @@ func validateHarnessProviderConfig(defs core.HarnessDefinitions, cfg map[string]
 	if strings.Contains(providerName, "${") {
 		return nil
 	}
-	if core.IsBuiltinCLIHarnessProvider(providerName) {
+	if ir.IsBuiltinCLIHarnessProvider(providerName) {
 		return nil
 	}
 	if defs != nil {
@@ -3111,18 +3113,18 @@ func buildDotenv(_ buildContext, d *dag) ([]string, error) {
 	return d.Dotenv.Values(), nil
 }
 
-func composeSteps(inherited, current []core.Step) []core.Step {
+func composeSteps(inherited, current []ir.Step) []ir.Step {
 	if current == nil {
 		return inherited
 	}
 	return current
 }
 
-func composeHandlerOn(inherited, current core.HandlerOn) (core.HandlerOn, error) {
-	dest := &core.DAG{
+func composeHandlerOn(inherited, current ir.HandlerOn) (ir.HandlerOn, error) {
+	dest := &ir.DAG{
 		HandlerOn: cloneHandlerOn(inherited),
 	}
-	src := &core.DAG{
+	src := &ir.DAG{
 		HandlerOn: current,
 	}
 	if err := merge(dest, src); err != nil {
@@ -3131,8 +3133,8 @@ func composeHandlerOn(inherited, current core.HandlerOn) (core.HandlerOn, error)
 	return dest.HandlerOn, nil
 }
 
-func cloneHandlerOn(handlerOn core.HandlerOn) core.HandlerOn {
-	return core.HandlerOn{
+func cloneHandlerOn(handlerOn ir.HandlerOn) ir.HandlerOn {
+	return ir.HandlerOn{
 		Init:    cloneStepPointer(handlerOn.Init),
 		Failure: cloneStepPointer(handlerOn.Failure),
 		Success: cloneStepPointer(handlerOn.Success),
@@ -3142,7 +3144,7 @@ func cloneHandlerOn(handlerOn core.HandlerOn) core.HandlerOn {
 	}
 }
 
-func cloneStepPointer(step *core.Step) *core.Step {
+func cloneStepPointer(step *ir.Step) *ir.Step {
 	if step == nil {
 		return nil
 	}
@@ -3150,9 +3152,9 @@ func cloneStepPointer(step *core.Step) *core.Step {
 	return &cloned
 }
 
-func buildHandlers(ctx buildContext, d *dag, result *core.DAG) (core.HandlerOn, error) {
+func buildHandlers(ctx buildContext, d *dag, result *ir.DAG) (ir.HandlerOn, error) {
 	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
-	var handlerOn core.HandlerOn
+	var handlerOn ir.HandlerOn
 
 	localDefs, err := decodeDefaults(d.Defaults)
 	if err != nil {
@@ -3161,7 +3163,7 @@ func buildHandlers(ctx buildContext, d *dag, result *core.DAG) (core.HandlerOn, 
 	defs := mergeDefaults(ctx.baseDefaults, localDefs, d.defaultsRaw)
 
 	// buildHandler is a helper that builds a single handler step.
-	buildHandler := func(s *step, name core.HandlerType) (*core.Step, error) {
+	buildHandler := func(s *step, name ir.HandlerType) (*ir.Step, error) {
 		if s == nil {
 			return nil, nil
 		}
@@ -3179,31 +3181,31 @@ func buildHandlers(ctx buildContext, d *dag, result *core.DAG) (core.HandlerOn, 
 		return handler, nil
 	}
 
-	if handlerOn.Init, err = buildHandler(d.HandlerOn.Init, core.HandlerOnInit); err != nil {
+	if handlerOn.Init, err = buildHandler(d.HandlerOn.Init, ir.HandlerOnInit); err != nil {
 		return handlerOn, err
 	}
-	if handlerOn.Exit, err = buildHandler(d.HandlerOn.Exit, core.HandlerOnExit); err != nil {
+	if handlerOn.Exit, err = buildHandler(d.HandlerOn.Exit, ir.HandlerOnExit); err != nil {
 		return handlerOn, err
 	}
-	if handlerOn.Success, err = buildHandler(d.HandlerOn.Success, core.HandlerOnSuccess); err != nil {
+	if handlerOn.Success, err = buildHandler(d.HandlerOn.Success, ir.HandlerOnSuccess); err != nil {
 		return handlerOn, err
 	}
-	if handlerOn.Failure, err = buildHandler(d.HandlerOn.Failure, core.HandlerOnFailure); err != nil {
-		return handlerOn, err
-	}
-
-	if handlerOn.Abort, err = buildHandler(d.HandlerOn.Abort, core.HandlerOnAbort); err != nil {
+	if handlerOn.Failure, err = buildHandler(d.HandlerOn.Failure, ir.HandlerOnFailure); err != nil {
 		return handlerOn, err
 	}
 
-	if handlerOn.Wait, err = buildHandler(d.HandlerOn.Wait, core.HandlerOnWait); err != nil {
+	if handlerOn.Abort, err = buildHandler(d.HandlerOn.Abort, ir.HandlerOnAbort); err != nil {
+		return handlerOn, err
+	}
+
+	if handlerOn.Wait, err = buildHandler(d.HandlerOn.Wait, ir.HandlerOnWait); err != nil {
 		return handlerOn, err
 	}
 
 	return handlerOn, nil
 }
 
-func buildSMTPConfig(_ buildContext, d *dag) (*core.SMTPConfig, error) {
+func buildSMTPConfig(_ buildContext, d *dag) (*ir.SMTPConfig, error) {
 	if d.SMTP.IsZero() {
 		return nil, nil
 	}
@@ -3215,12 +3217,12 @@ func buildSMTPConfig(_ buildContext, d *dag) (*core.SMTPConfig, error) {
 		if strings.TrimSpace(d.SMTP.Username) == "" {
 			return nil, errors.New("smtp username is required with oauth")
 		}
-		if err := mailoauth.ValidateStructure(d.SMTP.OAuth); err != nil {
+		if err := oauthconfig.ValidateStructure(d.SMTP.OAuth); err != nil {
 			return nil, err
 		}
 	}
 
-	return &core.SMTPConfig{
+	return &ir.SMTPConfig{
 		Host:     d.SMTP.Host,
 		Port:     d.SMTP.Port.String(),
 		Username: d.SMTP.Username,
@@ -3229,30 +3231,30 @@ func buildSMTPConfig(_ buildContext, d *dag) (*core.SMTPConfig, error) {
 	}, nil
 }
 
-func buildErrMailConfig(_ buildContext, d *dag) (*core.MailConfig, error) {
+func buildErrMailConfig(_ buildContext, d *dag) (*ir.MailConfig, error) {
 	return buildMailConfigInternal(d.ErrorMail)
 }
 
-func buildInfoMailConfig(_ buildContext, d *dag) (*core.MailConfig, error) {
+func buildInfoMailConfig(_ buildContext, d *dag) (*ir.MailConfig, error) {
 	return buildMailConfigInternal(d.InfoMail)
 }
 
-func buildWaitMailConfig(_ buildContext, d *dag) (*core.MailConfig, error) {
+func buildWaitMailConfig(_ buildContext, d *dag) (*ir.MailConfig, error) {
 	return buildMailConfigInternal(d.WaitMail)
 }
 
-func buildPreconditions(ctx buildContext, d *dag) ([]*core.Condition, error) {
+func buildPreconditions(ctx buildContext, d *dag) ([]*ir.Condition, error) {
 	return parsePrecondition(ctx, d.Preconditions)
 }
 
-func buildOTel(_ buildContext, d *dag) (*core.OTelConfig, error) {
+func buildOTel(_ buildContext, d *dag) (*ir.OTelConfig, error) {
 	if d.OTel == nil {
 		return nil, nil
 	}
 
 	switch v := d.OTel.(type) {
 	case map[string]any:
-		config := &core.OTelConfig{}
+		config := &ir.OTelConfig{}
 
 		if enabled, ok := v["enabled"].(bool); ok {
 			config.Enabled = enabled
@@ -3274,7 +3276,7 @@ func buildOTel(_ buildContext, d *dag) (*core.OTelConfig, error) {
 		if timeout, ok := v["timeout"].(string); ok {
 			duration, err := time.ParseDuration(timeout)
 			if err != nil {
-				return nil, core.NewValidationError("otel.timeout", timeout, err)
+				return nil, ir.NewValidationError("otel.timeout", timeout, err)
 			}
 			config.Timeout = duration
 		}
@@ -3285,11 +3287,11 @@ func buildOTel(_ buildContext, d *dag) (*core.OTelConfig, error) {
 		return config, nil
 
 	default:
-		return nil, core.NewValidationError("otel", v, fmt.Errorf("otel must be a map"))
+		return nil, ir.NewValidationError("otel", v, fmt.Errorf("otel must be a map"))
 	}
 }
 
-func buildSteps(ctx buildContext, d *dag, result *core.DAG) ([]core.Step, error) {
+func buildSteps(ctx buildContext, d *dag, result *ir.DAG) ([]ir.Step, error) {
 	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
 	names := make(map[string]struct{})
 
@@ -3318,13 +3320,13 @@ func buildSteps(ctx buildContext, d *dag, result *core.DAG) ([]core.Step, error)
 		return finishBuiltSteps(steps)
 
 	default:
-		return nil, core.NewValidationError("steps", v, ErrStepsMustBeArrayOrMap)
+		return nil, ir.NewValidationError("steps", v, ErrStepsMustBeArrayOrMap)
 	}
 }
 
 // validateBuiltStepForDAG applies the post-build rules a step must satisfy
 // whichever syntax declared it.
-func validateBuiltStepForDAG(result *core.DAG, st *core.Step) error {
+func validateBuiltStepForDAG(result *ir.DAG, st *ir.Step) error {
 	if err := validateNoDependsForChainType(result, st); err != nil {
 		return err
 	}
@@ -3332,7 +3334,7 @@ func validateBuiltStepForDAG(result *core.DAG, st *core.Step) error {
 }
 
 // finishBuiltSteps applies the transformations that close out a step list.
-func finishBuiltSteps(steps []core.Step) ([]core.Step, error) {
+func finishBuiltSteps(steps []ir.Step) ([]ir.Step, error) {
 	// Transform router steps: inject preconditions into targets
 	if err := transformRouterSteps(steps); err != nil {
 		return nil, err
@@ -3347,12 +3349,12 @@ func buildStepsFromArray(
 	buildCtx stepBuildContext,
 	ctx buildContext,
 	entries []any,
-	result *core.DAG,
+	result *ir.DAG,
 	names map[string]struct{},
 	defs *defaults,
-) ([]core.Step, error) {
-	var builtSteps []*core.Step
-	var prevSteps []*core.Step
+) ([]ir.Step, error) {
+	var builtSteps []*ir.Step
+	var prevSteps []*ir.Step
 
 	for i, raw := range normalizeStepData(ctx, entries) {
 		group, err := stepGroupFromRaw(ctx, raw)
@@ -3360,7 +3362,7 @@ func buildStepsFromArray(
 			return nil, err
 		}
 
-		var current []*core.Step
+		var current []*ir.Step
 		for _, item := range group {
 			st, err := buildStepFromRaw(buildCtx, i, item, names, defs)
 			if err != nil {
@@ -3377,7 +3379,7 @@ func buildStepsFromArray(
 		prevSteps = current
 	}
 
-	var steps []core.Step
+	var steps []ir.Step
 	for _, st := range builtSteps {
 		steps = append(steps, *st)
 	}
@@ -3397,14 +3399,14 @@ func stepGroupFromRaw(ctx buildContext, raw any) ([]map[string]any, error) {
 		for _, item := range nested {
 			step, ok := item.(map[string]any)
 			if !ok {
-				return nil, core.NewValidationError("steps", raw, ErrInvalidStepData)
+				return nil, ir.NewValidationError("steps", raw, ErrInvalidStepData)
 			}
 			group = append(group, step)
 		}
 		return group, nil
 
 	default:
-		return nil, core.NewValidationError("steps", raw, ErrInvalidStepData)
+		return nil, ir.NewValidationError("steps", raw, ErrInvalidStepData)
 	}
 }
 
@@ -3412,10 +3414,10 @@ func stepGroupFromRaw(ctx buildContext, raw any) ([]map[string]any, error) {
 func buildStepsFromMap(
 	buildCtx stepBuildContext,
 	entries map[string]any,
-	result *core.DAG,
+	result *ir.DAG,
 	names map[string]struct{},
 	defs *defaults,
-) ([]core.Step, error) {
+) ([]ir.Step, error) {
 	stepsMap := make(map[string]step)
 	md, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		ErrorUnused: true,
@@ -3423,10 +3425,10 @@ func buildStepsFromMap(
 		DecodeHook:  typedUnionDecodeHook(),
 	})
 	if err := md.Decode(entries); err != nil {
-		return nil, core.NewValidationError("steps", entries, err)
+		return nil, ir.NewValidationError("steps", entries, err)
 	}
 
-	var steps []core.Step
+	var steps []ir.Step
 	for name, st := range stepsMap {
 		rawStep, _ := entries[name].(map[string]any)
 		if err := validateHarnessPromptCommand(buildCtx, rawStep); err != nil {
@@ -3446,14 +3448,14 @@ func buildStepsFromMap(
 	// Sort steps by name for deterministic output when built from a map.
 	// Go map iteration is non-deterministic, which causes the SSE watcher's
 	// JSON hash to change on every poll, triggering unnecessary broadcasts.
-	slices.SortFunc(steps, func(a, b core.Step) int {
+	slices.SortFunc(steps, func(a, b ir.Step) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 	return steps, nil
 }
 
-// buildMailConfigInternal builds a core.MailConfig from the mail configuration.
-func buildMailConfigInternal(def mailConfig) (*core.MailConfig, error) {
+// buildMailConfigInternal builds a ir.MailConfig from the mail configuration.
+func buildMailConfigInternal(def mailConfig) (*ir.MailConfig, error) {
 	if def.IsZero() {
 		return nil, nil
 	}
@@ -3470,7 +3472,7 @@ func buildMailConfigInternal(def mailConfig) (*core.MailConfig, error) {
 		}
 	}
 
-	return &core.MailConfig{
+	return &ir.MailConfig{
 		From:       strings.TrimSpace(def.From),
 		To:         toAddresses,
 		Prefix:     strings.TrimSpace(def.Prefix),
@@ -3480,24 +3482,24 @@ func buildMailConfigInternal(def mailConfig) (*core.MailConfig, error) {
 
 // validateNoDependsForChainType ensures that steps in chain type DAGs do not have explicit depends.
 // Chain type DAGs should have fully automatic sequential execution with no manual dependency control.
-func validateNoDependsForChainType(dag *core.DAG, step *core.Step) error {
-	if dag.Type != core.TypeChain {
+func validateNoDependsForChainType(dag *ir.DAG, step *ir.Step) error {
+	if dag.Type != ir.TypeChain {
 		return nil
 	}
 	if len(step.Depends) > 0 || step.ExplicitlyNoDeps {
-		return core.NewValidationError("depends", step.Depends,
-			fmt.Errorf("step '%s': %w", step.Name, core.ErrDependsNotAllowedInChainType))
+		return ir.NewValidationError("depends", step.Depends,
+			fmt.Errorf("step '%s': %w", step.Name, ir.ErrDependsNotAllowedInChainType))
 	}
 	return nil
 }
 
 // validateNoRouterForChainType returns an error if a router step is used in chain mode
-func validateNoRouterForChainType(dag *core.DAG, step *core.Step) error {
-	if dag.Type != core.TypeChain {
+func validateNoRouterForChainType(dag *ir.DAG, step *ir.Step) error {
+	if dag.Type != ir.TypeChain {
 		return nil
 	}
 	if step.Router != nil {
-		return core.NewValidationError("type", step.Name,
+		return ir.NewValidationError("type", step.Name,
 			fmt.Errorf("step '%s': router steps require type 'graph'; change DAG type from 'chain' to 'graph' to use router steps", step.Name))
 	}
 	return nil
@@ -3505,9 +3507,9 @@ func validateNoRouterForChainType(dag *core.DAG, step *core.Step) error {
 
 // transformRouterSteps processes router-type steps and injects preconditions
 // into their target steps. It modifies the steps slice in place.
-func transformRouterSteps(steps []core.Step) error {
+func transformRouterSteps(steps []ir.Step) error {
 	// Build step index for lookup (using pointers to modify in place)
-	stepIndex := make(map[string]*core.Step)
+	stepIndex := make(map[string]*ir.Step)
 	for i := range steps {
 		stepIndex[steps[i].Name] = &steps[i]
 	}
@@ -3528,7 +3530,7 @@ func transformRouterSteps(steps []core.Step) error {
 			for _, targetName := range route.Targets {
 				// Check for duplicate target
 				if firstPattern, exists := seenTargets[targetName]; exists {
-					return core.NewValidationError("routes", targetName,
+					return ir.NewValidationError("routes", targetName,
 						fmt.Errorf("router %q: step %q is targeted by multiple routes (%q and %q); each step can only be a target of one route",
 							routerName, targetName, firstPattern, route.Pattern))
 				}
@@ -3536,12 +3538,12 @@ func transformRouterSteps(steps []core.Step) error {
 
 				target, ok := stepIndex[targetName]
 				if !ok {
-					return core.NewValidationError("routes", targetName,
+					return ir.NewValidationError("routes", targetName,
 						fmt.Errorf("router %q references non-existent step %q", routerName, targetName))
 				}
 
 				// Inject precondition: check if value matches pattern
-				condition := &core.Condition{
+				condition := &ir.Condition{
 					Condition: router.Value,
 					Expected:  route.Pattern,
 				}

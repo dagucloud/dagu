@@ -12,13 +12,13 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-var _ exec.ActiveDistributedRunStore = (*ActiveDistributedRunStore)(nil)
+var _ dispatch.ActiveDistributedRunStore = (*ActiveDistributedRunStore)(nil)
 
-// ActiveDistributedRunStore implements [exec.ActiveDistributedRunStore] on top
+// ActiveDistributedRunStore implements [dispatch.ActiveDistributedRunStore] on top
 // of a [persis.Collection]. Record IDs intentionally match the file-backed
 // distributed store SHA-256 key.
 type ActiveDistributedRunStore struct {
@@ -37,7 +37,7 @@ func NewActiveDistributedRunStore(col persis.Collection, opts ...DistributedStor
 
 // Upsert writes the active-run record. Get → Create if absent /
 // CompareAndSwap if present, retrying on conflict.
-func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record exec.ActiveDistributedRun) error {
+func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record dispatch.ActiveDistributedRun) error {
 	if record.AttemptKey == "" {
 		return fmt.Errorf("attempt key is required")
 	}
@@ -91,22 +91,22 @@ func (s *ActiveDistributedRunStore) Delete(ctx context.Context, attemptKey strin
 	return nil
 }
 
-func (s *ActiveDistributedRunStore) Get(ctx context.Context, attemptKey string) (*exec.ActiveDistributedRun, error) {
+func (s *ActiveDistributedRunStore) Get(ctx context.Context, attemptKey string) (*dispatch.ActiveDistributedRun, error) {
 	rec, err := s.col.Get(ctx, distributedRecordKey(attemptKey))
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
-			return nil, exec.ErrActiveRunNotFound
+			return nil, dispatch.ErrActiveRunNotFound
 		}
 		return nil, err
 	}
-	var record exec.ActiveDistributedRun
+	var record dispatch.ActiveDistributedRun
 	if err := persis.Decode(rec, &record); err != nil {
 		return nil, fmt.Errorf("active distributed run store: decode %q: %w", attemptKey, err)
 	}
 	return &record, nil
 }
 
-func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveDistributedRun, error) {
+func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]dispatch.ActiveDistributedRun, error) {
 	recs, err := listAllStrictWithReadError(ctx, s.col, persis.ListQuery{}, func(id string, readErr error) (bool, error) {
 		if !errors.Is(readErr, persis.ErrCorrupt) {
 			logSkippedActiveDistributedRun(ctx, id, readErr)
@@ -140,9 +140,9 @@ func (s *ActiveDistributedRunStore) ListAll(ctx context.Context) ([]exec.ActiveD
 	if err != nil {
 		return nil, err
 	}
-	records := make([]exec.ActiveDistributedRun, 0, len(recs))
+	records := make([]dispatch.ActiveDistributedRun, 0, len(recs))
 	for _, rec := range recs {
-		var record exec.ActiveDistributedRun
+		var record dispatch.ActiveDistributedRun
 		if err := persis.Decode(rec, &record); err != nil {
 			logSkippedActiveDistributedRun(ctx, rec.ID, err)
 			continue

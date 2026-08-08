@@ -12,15 +12,15 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/stretchr/testify/require"
 )
 
 func TestReporter(t *testing.T) {
 	for scenario, fn := range map[string]func(
-		t *testing.T, rp *reporter, mock *mockSender, dag *core.DAG, nodes []*exec.Node,
+		t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node,
 	){
 		"create error mail":   testErrorMail,
 		"no error mail":       testNoErrorMail,
@@ -32,27 +32,27 @@ func TestReporter(t *testing.T) {
 	} {
 		t.Run(scenario, func(t *testing.T) {
 
-			d := &core.DAG{
+			d := &ir.DAG{
 				Name: "test DAG",
-				MailOn: &core.MailOn{
+				MailOn: &ir.MailOn{
 					Failure: true,
 				},
-				ErrorMail: &core.MailConfig{
+				ErrorMail: &ir.MailConfig{
 					Prefix: "Error: ",
 					From:   "from@mailer.com",
 					To:     []string{"to@mailer.com"},
 				},
-				InfoMail: &core.MailConfig{
+				InfoMail: &ir.MailConfig{
 					Prefix: "Success: ",
 					From:   "from@mailer.com",
 					To:     []string{"to@mailer.com"},
 				},
-				WaitMail: &core.MailConfig{
+				WaitMail: &ir.MailConfig{
 					Prefix: "Waiting: ",
 					From:   "from@mailer.com",
 					To:     []string{"to@mailer.com"},
 				},
-				Steps: []core.Step{
+				Steps: []ir.Step{
 					{
 						Name:    "test-step",
 						Command: "true",
@@ -60,13 +60,13 @@ func TestReporter(t *testing.T) {
 				},
 			}
 
-			nodes := []*exec.Node{
+			nodes := []*dagrun.Node{
 				{
-					Step: core.Step{
+					Step: ir.Step{
 						Name:     "test-step",
-						Commands: []core.CommandEntry{{Command: "true", Args: []string{"param-x"}}},
+						Commands: []ir.CommandEntry{{Command: "true", Args: []string{"param-x"}}},
 					},
-					Status:     core.NodeRunning,
+					Status:     ir.NodeRunning,
 					StartedAt:  stringutil.FormatTime(time.Now()),
 					FinishedAt: stringutil.FormatTime(time.Now().Add(time.Minute * 10)),
 				},
@@ -86,38 +86,38 @@ func TestReporter(t *testing.T) {
 
 func TestRenderHTMLWithDAGInfo(t *testing.T) {
 	// Create a test DAGRunStatus
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:       "test-workflow",
 		DAGRunID:   "01975986-c13d-7b6d-b75e-abf4380a03fc",
-		Status:     core.Succeeded,
+		Status:     ir.Succeeded,
 		StartedAt:  "2025-01-15T10:30:00Z",
 		FinishedAt: "2025-01-15T10:35:00Z",
 		Params:     "env=production batch_size=1000",
-		Nodes: []*exec.Node{
+		Nodes: []*dagrun.Node{
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					Name: "setup-database",
-					Commands: []core.CommandEntry{{
+					Commands: []ir.CommandEntry{{
 						Command:     "psql",
 						Args:        []string{"-h", "localhost", "-U", "admin", "-d", "mydb", "-f", "schema.sql"},
 						CmdWithArgs: "psql -h localhost -U admin -d mydb -f schema.sql",
 					}},
 				},
-				Status:     core.NodeSucceeded,
+				Status:     ir.NodeSucceeded,
 				StartedAt:  "2025-01-15T10:30:00Z",
 				FinishedAt: "2025-01-15T10:30:45Z",
 				Error:      "",
 			},
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					Name: "run-migrations",
-					Commands: []core.CommandEntry{{
+					Commands: []ir.CommandEntry{{
 						Command:     "migrate",
 						Args:        []string{"up"},
 						CmdWithArgs: "migrate up",
 					}},
 				},
-				Status:     core.NodeFailed,
+				Status:     ir.NodeFailed,
 				StartedAt:  "2025-01-15T10:31:00Z",
 				FinishedAt: "2025-01-15T10:31:15Z",
 				Error:      "Migration failed: Table 'users' already exists",
@@ -192,12 +192,12 @@ func TestRenderHTMLWithDAGInfo(t *testing.T) {
 	})
 }
 
-func testErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *core.DAG, nodes []*exec.Node) {
+func testErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
 	dag.MailOn.Failure = true
 	dag.MailOn.Success = false
 
-	_ = rp.send(context.Background(), dag, exec.DAGRunStatus{
-		Status: core.Failed,
+	_ = rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+		Status: ir.Failed,
 		Nodes:  nodes,
 	}, fmt.Errorf("Error"))
 
@@ -206,24 +206,24 @@ func testErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *core.DAG, 
 	require.Equal(t, 1, mock.count)
 }
 
-func testNoErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *core.DAG, nodes []*exec.Node) {
+func testNoErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
 	dag.MailOn.Failure = false
 	dag.MailOn.Success = true
 
-	err := rp.send(context.Background(), dag, exec.DAGRunStatus{
-		Status: core.Failed,
+	err := rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+		Status: ir.Failed,
 		Nodes:  nodes,
 	}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, mock.count)
 }
 
-func testSuccessMail(t *testing.T, rp *reporter, mock *mockSender, dag *core.DAG, nodes []*exec.Node) {
+func testSuccessMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
 	dag.MailOn.Failure = true
 	dag.MailOn.Success = true
 
-	err := rp.send(context.Background(), dag, exec.DAGRunStatus{
-		Status: core.Succeeded,
+	err := rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+		Status: ir.Succeeded,
 		Nodes:  nodes,
 	}, nil)
 	require.NoError(t, err)
@@ -233,13 +233,13 @@ func testSuccessMail(t *testing.T, rp *reporter, mock *mockSender, dag *core.DAG
 	require.Equal(t, 1, mock.count)
 }
 
-func testWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *core.DAG, nodes []*exec.Node) {
+func testWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
 	dag.MailOn.Failure = false
 	dag.MailOn.Success = false
 	dag.MailOn.Wait = true
 
-	err := rp.send(context.Background(), dag, exec.DAGRunStatus{
-		Status: core.Waiting,
+	err := rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+		Status: ir.Waiting,
 		Nodes:  nodes,
 	}, nil)
 	require.NoError(t, err)
@@ -249,27 +249,27 @@ func testWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *core.DAG, n
 	require.Equal(t, 1, mock.count)
 }
 
-func testNoWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *core.DAG, nodes []*exec.Node) {
+func testNoWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
 	dag.MailOn.Failure = false
 	dag.MailOn.Success = false
 	dag.MailOn.Wait = false
 
-	err := rp.send(context.Background(), dag, exec.DAGRunStatus{
-		Status: core.Waiting,
+	err := rp.send(context.Background(), dag, dagrun.DAGRunStatus{
+		Status: ir.Waiting,
 		Nodes:  nodes,
 	}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, mock.count)
 }
 
-func testRenderSummary(t *testing.T, _ *reporter, _ *mockSender, dag *core.DAG, _ []*exec.Node) {
-	status := transform.NewStatusBuilder(dag).Create("run-id", core.Failed, 0, time.Now())
+func testRenderSummary(t *testing.T, _ *reporter, _ *mockSender, dag *ir.DAG, _ []*dagrun.Node) {
+	status := transform.NewStatusBuilder(dag).Create("run-id", ir.Failed, 0, time.Now())
 	summary := renderDAGSummary(status, errors.New("test error"))
 	require.Contains(t, summary, "test error")
 	require.Contains(t, summary, dag.Name)
 }
 
-func testRenderTable(t *testing.T, _ *reporter, _ *mockSender, _ *core.DAG, nodes []*exec.Node) {
+func testRenderTable(t *testing.T, _ *reporter, _ *mockSender, _ *ir.DAG, nodes []*dagrun.Node) {
 	summary := renderStepSummary(nodes)
 	require.Contains(t, summary, nodes[0].Step.Name)
 	require.Len(t, nodes[0].Step.Commands, 1)
@@ -299,67 +299,67 @@ func (m *mockSender) Send(_ context.Context, from string, to []string, subject, 
 // to ensure the format is correct and prevent regressions
 func TestRenderHTMLComprehensive(t *testing.T) {
 	// Create comprehensive test data with various scenarios
-	nodes := []*exec.Node{
+	nodes := []*dagrun.Node{
 		{
-			Step: core.Step{
+			Step: ir.Step{
 				Name:     "setup-database",
-				Commands: []core.CommandEntry{{Command: "docker", Args: []string{"run", "-d", "--name", "test-db", "postgres:13"}}},
+				Commands: []ir.CommandEntry{{Command: "docker", Args: []string{"run", "-d", "--name", "test-db", "postgres:13"}}},
 			},
-			Status:     core.NodeSucceeded,
+			Status:     ir.NodeSucceeded,
 			StartedAt:  "2025-01-15T10:30:00Z",
 			FinishedAt: "2025-01-15T10:30:45Z",
 			Error:      "",
 		},
 		{
-			Step: core.Step{
+			Step: ir.Step{
 				Name:     "run-migrations",
-				Commands: []core.CommandEntry{{Command: "python", Args: []string{"manage.py", "migrate", "--settings=production"}}},
+				Commands: []ir.CommandEntry{{Command: "python", Args: []string{"manage.py", "migrate", "--settings=production"}}},
 			},
-			Status:     core.NodeFailed,
+			Status:     ir.NodeFailed,
 			StartedAt:  "2025-01-15T10:30:45Z",
 			FinishedAt: "2025-01-15T10:31:20Z",
 			Error:      "Migration failed: Table 'users' already exists",
 		},
 		{
-			Step: core.Step{
+			Step: ir.Step{
 				Name:     "deploy-app",
-				Commands: []core.CommandEntry{{Command: "kubectl", Args: []string{"apply", "-f", "deployment.yaml"}}},
+				Commands: []ir.CommandEntry{{Command: "kubectl", Args: []string{"apply", "-f", "deployment.yaml"}}},
 			},
-			Status:     core.NodeSkipped,
+			Status:     ir.NodeSkipped,
 			StartedAt:  "",
 			FinishedAt: "",
 			Error:      "",
 		},
 		{
-			Step: core.Step{
+			Step: ir.Step{
 				Name:     "send-notification",
-				Commands: []core.CommandEntry{{Command: "curl", Args: []string{"-X", "POST", "https://api.slack.com/webhook", "-d", `{"text":"Deployment complete"}`}}},
+				Commands: []ir.CommandEntry{{Command: "curl", Args: []string{"-X", "POST", "https://api.slack.com/webhook", "-d", `{"text":"Deployment complete"}`}}},
 			},
-			Status:     core.NodeRunning,
+			Status:     ir.NodeRunning,
 			StartedAt:  "2025-01-15T10:32:00Z",
 			FinishedAt: "",
 			Error:      "",
 		},
 		{
-			Step: core.Step{
+			Step: ir.Step{
 				Name:     "cleanup-temp-files",
-				Commands: []core.CommandEntry{{Command: "bash", Args: nil}}, // Test nil args
+				Commands: []ir.CommandEntry{{Command: "bash", Args: nil}}, // Test nil args
 			},
-			Status:     core.NodeSucceeded,
+			Status:     ir.NodeSucceeded,
 			StartedAt:  "2025-01-15T10:32:30Z",
 			FinishedAt: "2025-01-15T10:32:35Z",
 			Error:      "",
 		},
 		{
-			Step: core.Step{
+			Step: ir.Step{
 				Name: "special-chars-test",
-				Commands: []core.CommandEntry{{
+				Commands: []ir.CommandEntry{{
 					Command:     "echo",
 					Args:        []string{"<script>alert('xss')</script>", "&", "\"quotes\""},
 					CmdWithArgs: "echo <script>alert('xss')</script> & \"quotes\"",
 				}},
 			},
-			Status:     core.NodeFailed,
+			Status:     ir.NodeFailed,
 			StartedAt:  "2025-01-15T10:33:00Z",
 			FinishedAt: "2025-01-15T10:33:05Z",
 			Error:      "Command failed with exit code 1: <error> & \"special chars\"",

@@ -9,18 +9,19 @@ import (
 	"path/filepath"
 	"strings"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/build"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func prepareBuildPlan(ctx context.Context, plan *Plan) error {
 	dag := GetDAGContext(ctx).DAG
-	if dag == nil || dag.Type != core.TypeBuild {
+	if dag == nil || dag.Type != ir.TypeBuild {
 		return nil
 	}
-	baseEnv, err := NewEnvWithError(ctx, core.Step{})
+	baseEnv, err := NewEnvWithError(ctx, ir.Step{})
 	if err != nil {
 		return err
 	}
@@ -103,7 +104,7 @@ func prepareBuildPlan(ctx context.Context, plan *Plan) error {
 	return nil
 }
 
-func buildDeclaredPathBase(dag *core.DAG, runtimeWorkingDir string) string {
+func buildDeclaredPathBase(dag *ir.DAG, runtimeWorkingDir string) string {
 	if dag.WorkingDirExplicit {
 		return runtimeWorkingDir
 	}
@@ -118,7 +119,7 @@ type buildRedirect struct {
 
 func validateBuildRuntimeRedirectAliases(ctx context.Context, plan *Plan, node *Node) error {
 	dag := GetDAGContext(ctx).DAG
-	if dag == nil || dag.Type != core.TypeBuild {
+	if dag == nil || dag.Type != ir.TypeBuild {
 		return nil
 	}
 	step := node.Step()
@@ -156,7 +157,7 @@ func validateBuildRuntimeRedirectAliases(ctx context.Context, plan *Plan, node *
 
 func validateBuildRedirectAliases(
 	ctx context.Context,
-	step core.Step,
+	step ir.Step,
 	env Env,
 	base string,
 	declaredPaths map[string]string,
@@ -196,10 +197,10 @@ func validateBuildRedirectAliases(
 			}
 			artifactDir := ""
 			if env.Scope != nil {
-				artifactDir, _ = env.Scope.Get(coreexec.EnvKeyDAGRunArtifactsDir)
+				artifactDir, _ = env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
 			}
 			if strings.TrimSpace(artifactDir) == "" {
-				return fmt.Errorf("step %s %s: %s is not set; enable artifacts for this DAG", step.Name, redirect.field, coreexec.EnvKeyDAGRunArtifactsDir)
+				return fmt.Errorf("step %s %s: %s is not set; enable artifacts for this DAG", step.Name, redirect.field, runenv.EnvKeyDAGRunArtifactsDir)
 			}
 			artifactDir, err = filepath.Abs(artifactDir)
 			if err != nil {

@@ -9,7 +9,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/spf13/cobra"
 )
 
@@ -43,7 +44,7 @@ func runDequeue(ctx *Context, args []string) error {
 		return dequeueFirst(ctx, requestedQueueName)
 	}
 
-	dagRun, err := exec.ParseDAGRunRef(dagRunRef)
+	dagRun, err := dagrun.ParseDAGRunRef(dagRunRef)
 	if err != nil {
 		return fmt.Errorf("failed to parse dag-run reference %s: %w", dagRunRef, err)
 	}
@@ -79,7 +80,7 @@ func dequeueFirst(ctx *Context, queueName string) error {
 		}
 
 		err = withQueueProcLock(ctx, queueName, func() error {
-			if err := exec.AbortQueuedDAGRun(ctx.Context, ctx.DAGRunStore, *data); err != nil {
+			if err := queue.AbortQueuedDAGRun(ctx.Context, ctx.DAGRunStore, *data); err != nil {
 				return err
 			}
 			if _, err := ctx.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); err != nil {
@@ -108,7 +109,7 @@ func dequeueFirst(ctx *Context, queueName string) error {
 }
 
 // dequeueQueuedDAGRun aborts a queued dag-run and removes its queue entries.
-func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DAGRunRef) error {
+func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun dagrun.DAGRunRef) error {
 	// Check if queues are enabled
 	if !ctx.Config.Queues.Enabled {
 		return fmt.Errorf("queues are disabled in configuration")
@@ -134,11 +135,11 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DA
 	}
 
 	err = withQueueProcLock(ctx, actualQueueName, func() error {
-		if err := exec.AbortQueuedDAGRun(ctx.Context, ctx.DAGRunStore, dagRun); err != nil {
+		if err := queue.AbortQueuedDAGRun(ctx.Context, ctx.DAGRunStore, dagRun); err != nil {
 			return err
 		}
 		if _, err := ctx.QueueStore.DequeueByDAGRunID(ctx.Context, actualQueueName, dagRun); err != nil {
-			if errors.Is(err, exec.ErrQueueItemNotFound) && actualQueueName == requestedQueueName {
+			if errors.Is(err, queue.ErrQueueItemNotFound) && actualQueueName == requestedQueueName {
 				return nil
 			}
 			return fmt.Errorf("failed to dequeue dag-run %s from queue %s: %w", dagRun.ID, actualQueueName, err)
@@ -158,12 +159,12 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun exec.DA
 	return nil
 }
 
-func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun exec.DAGRunRef) (bool, error) {
+func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun dagrun.DAGRunRef) (bool, error) {
 	var removed bool
 	err := withQueueProcLock(ctx, queueName, func() error {
 		items, err := ctx.QueueStore.DequeueByDAGRunID(ctx.Context, queueName, dagRun)
 		if err != nil {
-			if errors.Is(err, exec.ErrQueueItemNotFound) {
+			if errors.Is(err, queue.ErrQueueItemNotFound) {
 				return nil
 			}
 			return fmt.Errorf("failed to dequeue dag-run %s from queue %s: %w", dagRun.ID, queueName, err)
@@ -177,7 +178,7 @@ func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun exec.D
 	return removed, nil
 }
 
-func queueNameForDAGRun(ctx *Context, dagRun exec.DAGRunRef) (string, error) {
+func queueNameForDAGRun(ctx *Context, dagRun dagrun.DAGRunRef) (string, error) {
 	attempt, err := ctx.DAGRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
@@ -200,12 +201,12 @@ func withQueueProcLock(ctx *Context, queueName string, fn func() error) error {
 	return fn()
 }
 
-func mapAbortQueuedDAGRunError(dagRun exec.DAGRunRef, err error) error {
-	if errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, exec.ErrNoStatusData) {
+func mapAbortQueuedDAGRunError(dagRun dagrun.DAGRunRef, err error) error {
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
 		return fmt.Errorf("failed to find the record for dag-run ID %s: %w", dagRun.ID, err)
 	}
 
-	var notQueuedErr *exec.DAGRunNotQueuedError
+	var notQueuedErr *queue.DAGRunNotQueuedError
 	if errors.As(err, &notQueuedErr) {
 		if notQueuedErr.HasStatus {
 			return fmt.Errorf("dag-run %s is not in queued status but %s", dagRun.ID, notQueuedErr.Status)
@@ -220,15 +221,15 @@ func isQueueAbortSkippable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, exec.ErrNoStatusData) || errors.Is(err, exec.ErrCorruptedStatusFile) {
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
 		return true
 	}
-	var notQueuedErr *exec.DAGRunNotQueuedError
+	var notQueuedErr *queue.DAGRunNotQueuedError
 	return errors.As(err, &notQueuedErr)
 }
 
 func isQueueLookupFallbackAllowed(err error) bool {
-	return errors.Is(err, exec.ErrDAGRunIDNotFound) ||
-		errors.Is(err, exec.ErrNoStatusData) ||
-		errors.Is(err, exec.ErrCorruptedStatusFile)
+	return errors.Is(err, dagrun.ErrDAGRunIDNotFound) ||
+		errors.Is(err, dagrun.ErrNoStatusData) ||
+		errors.Is(err, dagrun.ErrCorruptedStatusFile)
 }

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,18 +52,18 @@ steps:
 
 	agent := f.dagWrapper.Agent()
 	agent.RunSuccess(t)
-	f.dagWrapper.AssertLatestStatus(t, core.Succeeded)
+	f.dagWrapper.AssertLatestStatus(t, ir.Succeeded)
 
 	rootStatus, err := f.latestStatus()
 	require.NoError(t, err)
 	require.Len(t, rootStatus.Nodes, 1)
 	require.Len(t, rootStatus.Nodes[0].SubRuns, 1)
 
-	rootRef := exec1.NewDAGRunRef(rootStatus.Name, rootStatus.DAGRunID)
+	rootRef := dagrun.NewDAGRunRef(rootStatus.Name, rootStatus.DAGRunID)
 	subRunID := rootStatus.Nodes[0].SubRuns[0].DAGRunID
 	subStatus := readDistributedSubAttemptStatus(t, f, rootRef, subRunID)
 
-	require.Equal(t, core.Succeeded, subStatus.Status)
+	require.Equal(t, ir.Succeeded, subStatus.Status)
 	assert.Equal(t, []string{"region=us-west-2", "count=5", "debug=true"}, subStatus.ParamsList)
 	require.Len(t, subStatus.Nodes, 2)
 	assert.Equal(t, "region=us-west-2 count=5 debug=true", nodeOutputValue(t, subStatus.Nodes[0], "SHELL_VALUES"))
@@ -103,13 +103,13 @@ steps:
 	err := agent.Run(agent.Context)
 	require.Error(t, err)
 
-	f.dagWrapper.AssertLatestStatus(t, core.Failed)
+	f.dagWrapper.AssertLatestStatus(t, ir.Failed)
 
 	rootStatus, statusErr := f.latestStatus()
 	require.NoError(t, statusErr)
-	require.Equal(t, core.Failed, rootStatus.Status)
+	require.Equal(t, ir.Failed, rootStatus.Status)
 	require.Len(t, rootStatus.Nodes, 1)
-	require.Equal(t, core.NodeFailed, rootStatus.Nodes[0].Status)
+	require.Equal(t, ir.NodeFailed, rootStatus.Nodes[0].Status)
 	require.True(t, statusErrorsContain(rootStatus.Errors(), "count"), "expected parent status errors to mention count")
 }
 
@@ -137,11 +137,11 @@ steps:
 
 	queuedStatus, err := f.latestStatus()
 	require.NoError(t, err)
-	require.Equal(t, core.Queued, queuedStatus.Status)
+	require.Equal(t, ir.Queued, queuedStatus.Status)
 	require.Equal(t, []string{"content_hash=sha256:abc123"}, queuedStatus.ParamsList)
 
 	f.startScheduler(30 * time.Second)
-	status := f.waitForStatus(core.Succeeded, executionStatusTimeout())
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
 
 	require.Equal(t, []string{"content_hash=sha256:abc123"}, status.ParamsList)
 	require.Len(t, status.Nodes, 2)
@@ -149,7 +149,7 @@ steps:
 	assert.JSONEq(t, `{"content_hash":"sha256:abc123"}`, nodeOutputValue(t, status.Nodes[1], "PARAMS_JSON"))
 }
 
-func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef exec1.DAGRunRef, subRunID string) *exec1.DAGRunStatus {
+func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef dagrun.DAGRunRef, subRunID string) *dagrun.DAGRunStatus {
 	t.Helper()
 
 	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)
@@ -161,7 +161,7 @@ func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef exec1
 	return status
 }
 
-func nodeOutputValue(t *testing.T, node *exec1.Node, key string) string {
+func nodeOutputValue(t *testing.T, node *dagrun.Node, key string) string {
 	t.Helper()
 
 	require.NotNil(t, node.OutputVariables, "node %s should have output variables", node.Step.Name)

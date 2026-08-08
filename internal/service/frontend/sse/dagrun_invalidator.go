@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
 
@@ -82,7 +82,7 @@ func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event) {
 		return
 	}
 
-	affectedStatuses := make(map[core.Status]struct{})
+	affectedStatuses := make(map[ir.Status]struct{})
 	for _, event := range events {
 		for _, status := range wakeTopicsForDAGRunEvent(mux, event) {
 			affectedStatuses[status] = struct{}{}
@@ -92,7 +92,7 @@ func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event) {
 	wakeDAGRunListTopics(mux, affectedStatuses)
 }
 
-func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []core.Status {
+func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []ir.Status {
 	if event == nil {
 		return nil
 	}
@@ -134,25 +134,25 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []core.
 	return affectedStatuses
 }
 
-func affectedDAGRunListStatuses(eventType eventstore.EventType, current core.Status) []core.Status {
+func affectedDAGRunListStatuses(eventType eventstore.EventType, current ir.Status) []ir.Status {
 	switch eventType {
 	case eventstore.TypeDAGRunQueued:
-		return []core.Status{
-			core.NotStarted, core.Queued, core.Waiting,
-			core.Succeeded, core.PartiallySucceeded, core.Failed, core.Aborted, core.Rejected,
+		return []ir.Status{
+			ir.NotStarted, ir.Queued, ir.Waiting,
+			ir.Succeeded, ir.PartiallySucceeded, ir.Failed, ir.Aborted, ir.Rejected,
 		}
 	case eventstore.TypeDAGRunRunning:
-		return []core.Status{core.NotStarted, core.Queued, core.Running, core.Waiting}
+		return []ir.Status{ir.NotStarted, ir.Queued, ir.Running, ir.Waiting}
 	case eventstore.TypeDAGRunWaiting:
-		return []core.Status{core.Running, core.Waiting}
+		return []ir.Status{ir.Running, ir.Waiting}
 	case eventstore.TypeDAGRunSucceeded, eventstore.TypeDAGRunPartiallySucceeded:
-		return []core.Status{core.Running, core.Waiting, current}
+		return []ir.Status{ir.Running, ir.Waiting, current}
 	case eventstore.TypeDAGRunFailed:
-		return []core.Status{core.NotStarted, core.Queued, core.Running, core.Waiting, current}
+		return []ir.Status{ir.NotStarted, ir.Queued, ir.Running, ir.Waiting, current}
 	case eventstore.TypeDAGRunAborted:
-		return []core.Status{core.NotStarted, core.Queued, core.Running, core.Waiting, core.Failed, current}
+		return []ir.Status{ir.NotStarted, ir.Queued, ir.Running, ir.Waiting, ir.Failed, current}
 	case eventstore.TypeDAGRunRejected:
-		return []core.Status{core.Waiting, current}
+		return []ir.Status{ir.Waiting, current}
 	case eventstore.TypeDAGRunUpdated, eventstore.TypeLLMUsageRecorded:
 		return nil
 	default:
@@ -160,7 +160,7 @@ func affectedDAGRunListStatuses(eventType eventstore.EventType, current core.Sta
 	}
 }
 
-func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[core.Status]struct{}) {
+func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[ir.Status]struct{}) {
 	if len(affectedStatuses) == 0 {
 		return
 	}
@@ -174,13 +174,13 @@ func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[core.Status]str
 	}
 	mux.mu.RUnlock()
 
-	batch := exec.NewDAGRunListReadBatch()
+	batch := dagrun.NewDAGRunListReadBatch()
 	for _, topic := range topics {
 		topic.requestPoll(batch)
 	}
 }
 
-func dagRunListTopicMatchesStatuses(identifier string, affectedStatuses map[core.Status]struct{}) bool {
+func dagRunListTopicMatchesStatuses(identifier string, affectedStatuses map[ir.Status]struct{}) bool {
 	values, err := url.ParseQuery(identifier)
 	if err != nil {
 		return true
@@ -202,8 +202,8 @@ func dagRunListTopicMatchesStatuses(identifier string, affectedStatuses map[core
 			if err != nil {
 				return true
 			}
-			status := core.Status(value)
-			if status < core.NotStarted || status > core.Rejected {
+			status := ir.Status(value)
+			if status < ir.NotStarted || status > ir.Rejected {
 				return true
 			}
 			if _, ok := affectedStatuses[status]; ok {

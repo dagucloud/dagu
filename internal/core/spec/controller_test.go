@@ -6,8 +6,8 @@ package spec_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -48,7 +48,7 @@ steps:
 
 		ctrl := dag.ControllerStep()
 		require.NotNil(t, ctrl, "a controller DAG carries a synthesized controller step")
-		assert.Equal(t, core.ExecutorTypeController, ctrl.ExecutorConfig.Type)
+		assert.Equal(t, ir.ExecutorTypeController, ctrl.ExecutorConfig.Type)
 		assert.Same(t, dag.LLM, ctrl.LLM)
 	})
 
@@ -59,7 +59,7 @@ steps:
 		require.NoError(t, err)
 
 		for _, step := range dag.Steps {
-			if core.IsSynthesizedControllerStep(step.Name) {
+			if ir.IsSynthesizedControllerStep(step.Name) {
 				continue
 			}
 			assert.True(t, step.ContinueOn.Failure, "step %q should not abort the run", step.Name)
@@ -379,7 +379,7 @@ steps:
 func TestControllerObservationDefaults(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{LLM: &core.LLMConfig{}}
+	dag := &ir.DAG{LLM: &ir.LLMConfig{}}
 	assert.Equal(t, 200000, dag.ControllerMaxContextTokens())
 	assert.Equal(t, 512*1024, dag.ControllerObservationMaxBytes())
 	assert.Equal(t, 20, dag.ControllerObservationKeepRecent())
@@ -391,7 +391,7 @@ func TestControllerObservationDefaults(t *testing.T) {
 func TestReservedControllerNamesAreRejectedInGraphDAGs(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{core.ControllerStepName, core.AskUserStepName} {
+	for _, name := range []string{ir.ControllerStepName, ir.AskUserStepName} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 

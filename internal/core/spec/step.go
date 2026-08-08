@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 )
 
@@ -207,7 +207,7 @@ func validateStepConfigAliasRaw(raw map[string]any) error {
 }
 
 func newStepConfigAliasError(value any) error {
-	return core.NewValidationError(
+	return ir.NewValidationError(
 		"with",
 		value,
 		fmt.Errorf("fields %q and %q cannot be used together; use %q", "with", "config", "with"),
@@ -337,7 +337,7 @@ type llmMessage struct {
 // identifies the spec field in build errors.
 type stepTransform struct {
 	name  string
-	apply func(ctx stepBuildContext, in *step, out *core.Step) error
+	apply func(ctx stepBuildContext, in *step, out *ir.Step) error
 }
 
 // stepField describes a spec field whose built value is assigned to a single
@@ -345,11 +345,11 @@ type stepTransform struct {
 func stepField[T any](
 	name string,
 	build func(stepBuildContext, *step) (T, error),
-	assign func(*core.Step, T),
+	assign func(*ir.Step, T),
 ) stepTransform {
 	return stepTransform{
 		name: name,
-		apply: func(ctx stepBuildContext, in *step, out *core.Step) error {
+		apply: func(ctx stepBuildContext, in *step, out *ir.Step) error {
 			v, err := build(ctx, in)
 			if err != nil {
 				return err
@@ -367,11 +367,11 @@ func stepOutputRedirectField(
 	name string,
 	raw func(*step) any,
 	allowOutputs bool,
-	assign func(*core.Step, stepOutputRedirect),
+	assign func(*ir.Step, stepOutputRedirect),
 ) stepTransform {
 	return stepTransform{
 		name: name,
-		apply: func(_ stepBuildContext, in *step, out *core.Step) error {
+		apply: func(_ stepBuildContext, in *step, out *ir.Step) error {
 			redirect, err := buildStepOutputRedirect(name, raw(in), allowOutputs)
 			if err != nil {
 				return err
@@ -387,7 +387,7 @@ func stepOutputRedirectField(
 func stepShellField() stepTransform {
 	return stepTransform{
 		name: "shell",
-		apply: func(ctx stepBuildContext, in *step, out *core.Step) error {
+		apply: func(ctx stepBuildContext, in *step, out *ir.Step) error {
 			result, err := parseStepShellInternal(ctx, in)
 			if err != nil {
 				return err
@@ -406,56 +406,56 @@ func stepShellField() stepTransform {
 type stepTransformStage []stepTransform
 
 var stepIdentityStage = stepTransformStage{
-	stepField("name", buildStepName, func(out *core.Step, v string) { out.Name = v }),
-	stepField("id", buildStepID, func(out *core.Step, v string) { out.ID = v }),
-	stepField("description", buildStepDescription, func(out *core.Step, v string) { out.Description = v }),
+	stepField("name", buildStepName, func(out *ir.Step, v string) { out.Name = v }),
+	stepField("id", buildStepID, func(out *ir.Step, v string) { out.ID = v }),
+	stepField("description", buildStepDescription, func(out *ir.Step, v string) { out.Description = v }),
 }
 
 var stepScriptStage = stepTransformStage{
-	stepField("shell_packages", buildStepShellPackages, func(out *core.Step, v []string) { out.ShellPackages = v }),
-	stepField("script", buildStepScript, func(out *core.Step, v string) { out.Script = v }),
+	stepField("shell_packages", buildStepShellPackages, func(out *ir.Step, v []string) { out.ShellPackages = v }),
+	stepField("script", buildStepScript, func(out *ir.Step, v string) { out.Script = v }),
 }
 
 var stepLogOutputStage = stepTransformStage{
 	stepOutputRedirectField("stdout", func(s *step) any { return s.Stdout }, true,
-		func(out *core.Step, v stepOutputRedirect) {
+		func(out *ir.Step, v stepOutputRedirect) {
 			out.Stdout = v.filePath
 			out.StdoutArtifact = v.artifactPath
 			out.StdoutOutputs = v.outputs
 		}),
 	stepOutputRedirectField("stderr", func(s *step) any { return s.Stderr }, false,
-		func(out *core.Step, v stepOutputRedirect) {
+		func(out *ir.Step, v stepOutputRedirect) {
 			out.Stderr = v.filePath
 			out.StderrArtifact = v.artifactPath
 		}),
-	stepField("log_output", buildStepLogOutput, func(out *core.Step, v core.LogOutputMode) { out.LogOutput = v }),
+	stepField("log_output", buildStepLogOutput, func(out *ir.Step, v ir.LogOutputMode) { out.LogOutput = v }),
 }
 
 var stepExecutionPlacementStage = stepTransformStage{
-	stepField("mail_on_error", buildStepMailOnError, func(out *core.Step, v bool) { out.MailOnError = v }),
-	stepField("worker_selector", buildStepWorkerSelector, func(out *core.Step, v map[string]string) { out.WorkerSelector = v }),
-	stepField("working_dir", buildStepWorkingDir, func(out *core.Step, v string) { out.Dir = v }),
+	stepField("mail_on_error", buildStepMailOnError, func(out *ir.Step, v bool) { out.MailOnError = v }),
+	stepField("worker_selector", buildStepWorkerSelector, func(out *ir.Step, v map[string]string) { out.WorkerSelector = v }),
+	stepField("working_dir", buildStepWorkingDir, func(out *ir.Step, v string) { out.Dir = v }),
 	stepShellField(),
-	stepField("timeout", buildStepTimeout, func(out *core.Step, v time.Duration) { out.Timeout = v }),
-	stepField("depends", buildStepDepends, func(out *core.Step, v []string) { out.Depends = v }),
-	stepField("explicitly_no_deps", buildStepExplicitlyNoDeps, func(out *core.Step, v bool) { out.ExplicitlyNoDeps = v }),
-	stepField("continue_on", buildStepContinueOn, func(out *core.Step, v core.ContinueOn) { out.ContinueOn = v }),
-	stepField("retry_policy", buildStepRetryPolicy, func(out *core.Step, v core.RetryPolicy) { out.RetryPolicy = v }),
-	stepField("repeat_policy", buildStepRepeatPolicy, func(out *core.Step, v core.RepeatPolicy) { out.RepeatPolicy = v }),
-	stepField("signal_on_stop", buildStepSignalOnStop, func(out *core.Step, v string) { out.SignalOnStop = v }),
+	stepField("timeout", buildStepTimeout, func(out *ir.Step, v time.Duration) { out.Timeout = v }),
+	stepField("depends", buildStepDepends, func(out *ir.Step, v []string) { out.Depends = v }),
+	stepField("explicitly_no_deps", buildStepExplicitlyNoDeps, func(out *ir.Step, v bool) { out.ExplicitlyNoDeps = v }),
+	stepField("continue_on", buildStepContinueOn, func(out *ir.Step, v ir.ContinueOn) { out.ContinueOn = v }),
+	stepField("retry_policy", buildStepRetryPolicy, func(out *ir.Step, v ir.RetryPolicy) { out.RetryPolicy = v }),
+	stepField("repeat_policy", buildStepRepeatPolicy, func(out *ir.Step, v ir.RepeatPolicy) { out.RepeatPolicy = v }),
+	stepField("signal_on_stop", buildStepSignalOnStop, func(out *ir.Step, v string) { out.SignalOnStop = v }),
 }
 
 var stepStructuredOutputStage = stepTransformStage{
-	stepField("output", buildStepOutput, func(out *core.Step, v string) { out.Output = v }),
-	stepField("structured_output", buildStepStructuredOutput, func(out *core.Step, v map[string]core.StepOutputEntry) { out.StructuredOutput = v }),
-	stepField("output_schema", buildStepOutputSchema, func(out *core.Step, v map[string]any) { out.OutputSchema = v }),
-	stepField("outputs", buildStepDeclaredOutputs, func(out *core.Step, v []core.StepOutputDeclaration) { out.Outputs = v }),
-	stepField("inputs", buildStepDeclaredInputs, func(out *core.Step, v []core.StepInputDeclaration) { out.Inputs = v }),
+	stepField("output", buildStepOutput, func(out *ir.Step, v string) { out.Output = v }),
+	stepField("structured_output", buildStepStructuredOutput, func(out *ir.Step, v map[string]ir.StepOutputEntry) { out.StructuredOutput = v }),
+	stepField("output_schema", buildStepOutputSchema, func(out *ir.Step, v map[string]any) { out.OutputSchema = v }),
+	stepField("outputs", buildStepDeclaredOutputs, func(out *ir.Step, v []ir.StepOutputDeclaration) { out.Outputs = v }),
+	stepField("inputs", buildStepDeclaredInputs, func(out *ir.Step, v []ir.StepInputDeclaration) { out.Inputs = v }),
 }
 
 var stepEnvConditionStage = stepTransformStage{
-	stepField("env", buildStepEnvs, func(out *core.Step, v []string) { out.Env = v }),
-	stepField("preconditions", buildStepPreconditions, func(out *core.Step, v []*core.Condition) { out.Preconditions = v }),
+	stepField("env", buildStepEnvs, func(out *ir.Step, v []string) { out.Env = v }),
+	stepField("preconditions", buildStepPreconditions, func(out *ir.Step, v []*ir.Condition) { out.Preconditions = v }),
 }
 
 var stepTransformStages = []stepTransformStage{
@@ -468,8 +468,8 @@ var stepTransformStages = []stepTransformStage{
 }
 
 // runStepTransformers executes all step transformers
-func runStepTransformers(ctx stepBuildContext, spec *step, result *core.Step) core.ErrorList {
-	var errs core.ErrorList
+func runStepTransformers(ctx stepBuildContext, spec *step, result *ir.Step) ir.ErrorList {
+	var errs ir.ErrorList
 
 	for _, stage := range stepTransformStages {
 		for _, t := range stage {
@@ -484,7 +484,7 @@ func runStepTransformers(ctx stepBuildContext, spec *step, result *core.Step) co
 
 type stepActionBuilder struct {
 	name                     string
-	build                    func(stepBuildContext, *step, *core.Step) error
+	build                    func(stepBuildContext, *step, *ir.Step) error
 	stopOnStepTypeValidation bool
 }
 
@@ -511,7 +511,7 @@ func init() {
 var stepInteractionActionStage = stepActionStage{
 	// LLM must be after executor so we know if type supports LLM.
 	{"llm", buildStepLLM, false},
-	{"messages", func(_ stepBuildContext, s *step, result *core.Step) error {
+	{"messages", func(_ stepBuildContext, s *step, result *ir.Step) error {
 		return buildStepMessages(s, result)
 	}, false},
 	{"router", buildStepRouter, false},
@@ -529,8 +529,8 @@ var stepActionStages = []stepActionStage{
 	stepCommandActionStage,
 }
 
-func runStepActionStages(ctx stepBuildContext, spec *step, result *core.Step) (core.ErrorList, bool) {
-	var errs core.ErrorList
+func runStepActionStages(ctx stepBuildContext, spec *step, result *ir.Step) (ir.ErrorList, bool) {
+	var errs ir.ErrorList
 	for _, stage := range stepActionStages {
 		for _, builder := range stage {
 			if err := builder.build(ctx, spec, result); err != nil {
@@ -546,7 +546,7 @@ func runStepActionStages(ctx stepBuildContext, spec *step, result *core.Step) (c
 
 type stepValidation struct {
 	name     string
-	validate func(*core.Step) error
+	validate func(*ir.Step) error
 }
 
 type stepValidationStage []stepValidation
@@ -575,8 +575,8 @@ var stepValidationStages = []stepValidationStage{
 	stepInteractionValidationStage,
 }
 
-func runStepValidationStages(result *core.Step) core.ErrorList {
-	var errs core.ErrorList
+func runStepValidationStages(result *ir.Step) ir.ErrorList {
+	var errs ir.ErrorList
 	for _, stage := range stepValidationStages {
 		for _, validation := range stage {
 			if err := validation.validate(result); err != nil {
@@ -587,14 +587,14 @@ func runStepValidationStages(result *core.Step) core.ErrorList {
 	return errs
 }
 
-// build transforms the step specification into a core.Step.
-func (s *step) build(ctx stepBuildContext) (*core.Step, error) {
+// build transforms the step specification into a ir.Step.
+func (s *step) build(ctx stepBuildContext) (*ir.Step, error) {
 	if err := validateStepConfigAliasStruct(s); err != nil {
 		return nil, err
 	}
 
-	result := &core.Step{
-		ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)},
+	result := &ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)},
 	}
 
 	// Run the transformer pipeline
@@ -613,7 +613,7 @@ func (s *step) build(ctx stepBuildContext) (*core.Step, error) {
 	// Validate executor config against registered schema
 	// Only validate when config has actual values (not just initialized as empty map)
 	if len(result.ExecutorConfig.Config) > 0 {
-		if err := core.ValidateExecutorConfig(result.ExecutorConfig.Type, result.ExecutorConfig.Config); err != nil {
+		if err := registry.ValidateExecutorConfig(result.ExecutorConfig.Type, result.ExecutorConfig.Config); err != nil {
 			errs = append(errs, wrapTransformError(s.executorConfigFieldName(), err))
 		}
 	}
@@ -632,7 +632,7 @@ func (s *step) build(ctx stepBuildContext) (*core.Step, error) {
 
 // validateStdoutStderr checks that stdout and stderr don't point to the same file.
 // If both are specified and point to the same file, use log_output: merged instead.
-func validateStdoutStderr(s *core.Step) error {
+func validateStdoutStderr(s *ir.Step) error {
 	if s.Stdout != "" && s.Stderr != "" && s.Stdout == s.Stderr {
 		return fmt.Errorf("stdout and stderr cannot point to the same file %q; use 'log_output: merged' instead", s.Stdout)
 	}
@@ -667,7 +667,7 @@ func buildStepScript(_ stepBuildContext, s *step) (string, error) {
 type stepOutputRedirect struct {
 	filePath     string
 	artifactPath string
-	outputs      *core.StepOutputsConfig
+	outputs      *ir.StepOutputsConfig
 }
 
 func buildStepOutputRedirect(
@@ -706,7 +706,7 @@ func parseStepObjectOutputRedirect(
 		return stepOutputRedirect{}, fmt.Errorf("%s object must not be empty", field)
 	}
 	var artifactPath string
-	var outputs *core.StepOutputsConfig
+	var outputs *ir.StepOutputsConfig
 	for key, value := range raw {
 		switch key {
 		case "artifact":
@@ -777,7 +777,7 @@ func hasWindowsDrive(value string) bool {
 	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
 }
 
-func buildStepLogOutput(_ stepBuildContext, s *step) (core.LogOutputMode, error) {
+func buildStepLogOutput(_ stepBuildContext, s *step) (ir.LogOutputMode, error) {
 	if s.LogOutput.IsZero() {
 		// Return empty string to indicate "inherit from DAG"
 		return "", nil
@@ -823,7 +823,7 @@ func parseStepShellInternal(_ stepBuildContext, s *step) (*stepShellResult, erro
 
 	shell, args, err := cmdutil.SplitCommand(command)
 	if err != nil {
-		return nil, core.NewValidationError("shell", s.Shell.Value(), fmt.Errorf("failed to parse shell command: %w", err))
+		return nil, ir.NewValidationError("shell", s.Shell.Value(), fmt.Errorf("failed to parse shell command: %w", err))
 	}
 	return &stepShellResult{
 		Shell: strings.TrimSpace(shell),
@@ -833,7 +833,7 @@ func parseStepShellInternal(_ stepBuildContext, s *step) (*stepShellResult, erro
 
 func buildStepTimeout(_ stepBuildContext, s *step) (time.Duration, error) {
 	if s.TimeoutSec < 0 {
-		return 0, core.NewValidationError("timeout_sec", s.TimeoutSec, ErrTimeoutSecMustBeNonNegative)
+		return 0, ir.NewValidationError("timeout_sec", s.TimeoutSec, ErrTimeoutSecMustBeNonNegative)
 	}
 	return time.Second * time.Duration(s.TimeoutSec), nil
 }
@@ -846,12 +846,12 @@ func buildStepExplicitlyNoDeps(_ stepBuildContext, s *step) (bool, error) {
 	return !s.Depends.IsZero() && s.Depends.IsEmpty(), nil
 }
 
-func buildStepContinueOn(_ stepBuildContext, s *step) (core.ContinueOn, error) {
+func buildStepContinueOn(_ stepBuildContext, s *step) (ir.ContinueOn, error) {
 	if s.ContinueOn.IsZero() {
-		return core.ContinueOn{}, nil
+		return ir.ContinueOn{}, nil
 	}
 
-	return core.ContinueOn{
+	return ir.ContinueOn{
 		Skipped:     s.ContinueOn.Skipped(),
 		Failure:     s.ContinueOn.Failed(),
 		MarkSuccess: s.ContinueOn.MarkSuccess(),
@@ -860,23 +860,23 @@ func buildStepContinueOn(_ stepBuildContext, s *step) (core.ContinueOn, error) {
 	}, nil
 }
 
-func buildStepRetryPolicy(_ stepBuildContext, s *step) (core.RetryPolicy, error) {
+func buildStepRetryPolicy(_ stepBuildContext, s *step) (ir.RetryPolicy, error) {
 	if s.RetryPolicy == nil {
-		return core.RetryPolicy{}, nil
+		return ir.RetryPolicy{}, nil
 	}
 
-	var result core.RetryPolicy
+	var result ir.RetryPolicy
 	var err error
 
 	// Step retry keeps string values so they can be resolved later at runtime.
 	result.Limit, result.LimitStr, err = parseStepRetryLimit(s.RetryPolicy.Limit)
 	if err != nil {
-		return core.RetryPolicy{}, err
+		return ir.RetryPolicy{}, err
 	}
 
 	result.Interval, result.IntervalSecStr, err = parseStepRetryInterval(s.RetryPolicy.IntervalSec)
 	if err != nil {
-		return core.RetryPolicy{}, err
+		return ir.RetryPolicy{}, err
 	}
 
 	if s.RetryPolicy.ExitCode != nil {
@@ -886,7 +886,7 @@ func buildStepRetryPolicy(_ stepBuildContext, s *step) (core.RetryPolicy, error)
 	// Parse backoff field
 	backoff, err := parseBackoffValue(s.RetryPolicy.Backoff, "retry_policy.backoff")
 	if err != nil {
-		return core.RetryPolicy{}, core.NewValidationError("retry_policy.backoff", s.RetryPolicy.Backoff, err)
+		return ir.RetryPolicy{}, ir.NewValidationError("retry_policy.backoff", s.RetryPolicy.Backoff, err)
 	}
 	result.Backoff = backoff
 
@@ -906,15 +906,15 @@ func parseStepRetryLimit(val any) (int, string, error) {
 		return int(v), "", nil
 	case uint64:
 		if v > math.MaxInt {
-			return 0, "", core.NewValidationError("retry_policy.limit", v, fmt.Errorf("value %d exceeds maximum int", v))
+			return 0, "", ir.NewValidationError("retry_policy.limit", v, fmt.Errorf("value %d exceeds maximum int", v))
 		}
 		return int(v), "", nil
 	case string:
 		return 0, v, nil
 	case nil:
-		return 0, "", core.NewValidationError("retry_policy.limit", nil, fmt.Errorf("limit is required when retry_policy is specified"))
+		return 0, "", ir.NewValidationError("retry_policy.limit", nil, fmt.Errorf("limit is required when retry_policy is specified"))
 	default:
-		return 0, "", core.NewValidationError("retry_policy.limit", v, fmt.Errorf("invalid type: %T", v))
+		return 0, "", ir.NewValidationError("retry_policy.limit", v, fmt.Errorf("invalid type: %T", v))
 	}
 }
 
@@ -926,15 +926,15 @@ func parseStepRetryInterval(val any) (time.Duration, string, error) {
 		return time.Second * time.Duration(v), "", nil
 	case uint64:
 		if v > math.MaxInt64 {
-			return 0, "", core.NewValidationError("retry_policy.interval_sec", v, fmt.Errorf("value %d exceeds maximum int64", v))
+			return 0, "", ir.NewValidationError("retry_policy.interval_sec", v, fmt.Errorf("value %d exceeds maximum int64", v))
 		}
 		return time.Second * time.Duration(v), "", nil
 	case string:
 		return 0, v, nil
 	case nil:
-		return 0, "", core.NewValidationError("retry_policy.interval_sec", nil, fmt.Errorf("interval_sec is required when retry_policy is specified"))
+		return 0, "", ir.NewValidationError("retry_policy.interval_sec", nil, fmt.Errorf("interval_sec is required when retry_policy is specified"))
 	default:
-		return 0, "", core.NewValidationError("retry_policy.interval_sec", v, fmt.Errorf("invalid type: %T", v))
+		return 0, "", ir.NewValidationError("retry_policy.interval_sec", v, fmt.Errorf("invalid type: %T", v))
 	}
 }
 
@@ -969,35 +969,35 @@ func parseBackoffValue(val any, fieldName string) (float64, error) {
 	return backoff, nil
 }
 
-func buildStepRepeatPolicy(_ stepBuildContext, s *step) (core.RepeatPolicy, error) {
+func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error) {
 	if s.RepeatPolicy == nil {
-		return core.RepeatPolicy{}, nil
+		return ir.RepeatPolicy{}, nil
 	}
 	rp := s.RepeatPolicy
 
 	// Determine repeat mode from typed RepeatMode field
-	var mode core.RepeatMode
+	var mode ir.RepeatMode
 	if rp.Repeat.IsSet() {
 		switch rp.Repeat.String() {
 		case "while":
-			mode = core.RepeatModeWhile
+			mode = ir.RepeatModeWhile
 		case "until":
-			mode = core.RepeatModeUntil
+			mode = ir.RepeatModeUntil
 		}
 	}
 
 	// Backward compatibility: infer mode if not set
 	if mode == "" {
 		if rp.Condition != "" && rp.Expected != "" {
-			mode = core.RepeatModeUntil
+			mode = ir.RepeatModeUntil
 		} else if rp.Condition != "" || len(rp.ExitCode) > 0 {
-			mode = core.RepeatModeWhile
+			mode = ir.RepeatModeWhile
 		}
 	}
 
 	// No repeat if mode is not determined
 	if mode == "" {
-		return core.RepeatPolicy{}, nil
+		return ir.RepeatPolicy{}, nil
 	}
 
 	// Validate that explicit string while/until modes have appropriate conditions
@@ -1005,11 +1005,11 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (core.RepeatPolicy, erro
 	if rp.Repeat.IsSet() && !rp.Repeat.IsBool() {
 		m := rp.Repeat.String()
 		if (m == "while" || m == "until") && rp.Condition == "" && len(rp.ExitCode) == 0 {
-			return core.RepeatPolicy{}, fmt.Errorf("repeat mode '%s' requires either 'condition' or 'exit_code' to be specified", m)
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat mode '%s' requires either 'condition' or 'exit_code' to be specified", m)
 		}
 	}
 
-	var result core.RepeatPolicy
+	var result ir.RepeatPolicy
 	result.RepeatMode = mode
 
 	// Read interval_sec from typed field
@@ -1023,7 +1023,7 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (core.RepeatPolicy, erro
 	result.LimitStr = rp.Limit.Str()
 
 	if rp.Condition != "" {
-		result.Condition = &core.Condition{
+		result.Condition = &ir.Condition{
 			Condition: rp.Condition,
 			Expected:  rp.Expected,
 		}
@@ -1057,7 +1057,7 @@ func buildStepSignalOnStop(_ stepBuildContext, s *step) (string, error) {
 // outputConfig holds the parsed output configuration
 type outputConfig struct {
 	Name             string
-	StructuredOutput map[string]core.StepOutputEntry
+	StructuredOutput map[string]ir.StepOutputEntry
 }
 
 // parseOutputConfig parses the output field which can be string or object
@@ -1113,7 +1113,7 @@ var declaredOutputFields = map[string]struct{}{
 	"path": {},
 }
 
-func parseDeclaredOutputs(raw any) ([]core.StepOutputDeclaration, error) {
+func parseDeclaredOutputs(raw any) ([]ir.StepOutputDeclaration, error) {
 	if raw == nil {
 		return nil, fmt.Errorf("outputs must be a non-empty sequence")
 	}
@@ -1126,7 +1126,7 @@ func parseDeclaredOutputs(raw any) ([]core.StepOutputDeclaration, error) {
 		return nil, fmt.Errorf("outputs must be a non-empty sequence")
 	}
 
-	result := make([]core.StepOutputDeclaration, 0, len(items))
+	result := make([]ir.StepOutputDeclaration, 0, len(items))
 	seen := make(map[string]struct{}, len(items))
 	for idx, item := range items {
 		obj, err := declaredOutputItemMap(item)
@@ -1168,7 +1168,7 @@ func parseDeclaredOutputs(raw any) ([]core.StepOutputDeclaration, error) {
 			}
 		}
 
-		outputType := core.StepDeclaredOutputTypeString
+		outputType := ir.StepDeclaredOutputTypeString
 		if rawType, ok := obj["type"]; ok {
 			if outputPath != "" {
 				return nil, fmt.Errorf("outputs[%d]: type and path cannot be used together", idx)
@@ -1179,17 +1179,17 @@ func parseDeclaredOutputs(raw any) ([]core.StepOutputDeclaration, error) {
 			}
 			outputType = strings.TrimSpace(str)
 			switch outputType {
-			case core.StepDeclaredOutputTypeString, core.StepDeclaredOutputTypeJSON:
+			case ir.StepDeclaredOutputTypeString, ir.StepDeclaredOutputTypeJSON:
 			default:
 				return nil, fmt.Errorf("outputs[%d]: type must be %q or %q",
-					idx, core.StepDeclaredOutputTypeString, core.StepDeclaredOutputTypeJSON)
+					idx, ir.StepDeclaredOutputTypeString, ir.StepDeclaredOutputTypeJSON)
 			}
 		}
 		if outputPath != "" {
 			outputType = ""
 		}
 
-		result = append(result, core.StepOutputDeclaration{
+		result = append(result, ir.StepOutputDeclaration{
 			Name: name,
 			Type: outputType,
 			Path: outputPath,
@@ -1198,7 +1198,7 @@ func parseDeclaredOutputs(raw any) ([]core.StepOutputDeclaration, error) {
 	return result, nil
 }
 
-func buildStepDeclaredInputs(_ stepBuildContext, s *step) ([]core.StepInputDeclaration, error) {
+func buildStepDeclaredInputs(_ stepBuildContext, s *step) ([]ir.StepInputDeclaration, error) {
 	if !s.inputsSet {
 		return nil, nil
 	}
@@ -1209,7 +1209,7 @@ func buildStepDeclaredInputs(_ stepBuildContext, s *step) ([]core.StepInputDecla
 	if !ok || len(items) == 0 {
 		return nil, fmt.Errorf("inputs must be a non-empty sequence")
 	}
-	result := make([]core.StepInputDeclaration, 0, len(items))
+	result := make([]ir.StepInputDeclaration, 0, len(items))
 	seen := make(map[string]struct{}, len(items))
 	for idx, item := range items {
 		obj, err := declaredOutputItemMap(item)
@@ -1249,7 +1249,7 @@ func buildStepDeclaredInputs(_ stepBuildContext, s *step) ([]core.StepInputDecla
 			return nil, fmt.Errorf("inputs[%d]: path must not be empty", idx)
 		}
 		seen[name] = struct{}{}
-		result = append(result, core.StepInputDeclaration{Name: name, Path: pathValue})
+		result = append(result, ir.StepInputDeclaration{Name: name, Path: pathValue})
 	}
 	return result, nil
 }
@@ -1279,7 +1279,7 @@ func declaredOutputItemMap(raw any) (map[string]any, error) {
 	}
 }
 
-func parseStdoutOutputsConfig(raw any) (*core.StepOutputsConfig, error) {
+func parseStdoutOutputsConfig(raw any) (*ir.StepOutputsConfig, error) {
 	switch v := raw.(type) {
 	case nil:
 		return nil, fmt.Errorf("must not be null")
@@ -1288,7 +1288,7 @@ func parseStdoutOutputsConfig(raw any) (*core.StepOutputsConfig, error) {
 		if field == "" {
 			return nil, fmt.Errorf("field must not be empty")
 		}
-		return &core.StepOutputsConfig{Field: field}, nil
+		return &ir.StepOutputsConfig{Field: field}, nil
 	case map[string]any:
 		return parseStdoutOutputsConfigMap(v)
 	case map[any]any:
@@ -1306,7 +1306,7 @@ func parseStdoutOutputsConfig(raw any) (*core.StepOutputsConfig, error) {
 	}
 }
 
-func parseStdoutOutputsConfigMap(raw map[string]any) (*core.StepOutputsConfig, error) {
+func parseStdoutOutputsConfigMap(raw map[string]any) (*ir.StepOutputsConfig, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("object must not be empty")
 	}
@@ -1316,7 +1316,7 @@ func parseStdoutOutputsConfigMap(raw map[string]any) (*core.StepOutputsConfig, e
 		}
 	}
 
-	var cfg core.StepOutputsConfig
+	var cfg ir.StepOutputsConfig
 	if field, ok := raw["field"]; ok {
 		str, ok := field.(string)
 		if !ok || strings.TrimSpace(str) == "" {
@@ -1350,22 +1350,22 @@ func parseStdoutOutputsConfigMap(raw map[string]any) (*core.StepOutputsConfig, e
 		return nil, fmt.Errorf("fields cannot be used with field, decode, or select")
 	}
 	if cfg.Decode == "" && cfg.Select != "" {
-		cfg.Decode = core.StepOutputDecodeJSON
+		cfg.Decode = ir.StepOutputDecodeJSON
 	}
 	switch cfg.Decode {
-	case "", core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML:
+	case "", ir.StepOutputDecodeText, ir.StepOutputDecodeJSON, ir.StepOutputDecodeYAML:
 	default:
 		return nil, fmt.Errorf("decode must be one of %q, %q, or %q",
-			core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+			ir.StepOutputDecodeText, ir.StepOutputDecodeJSON, ir.StepOutputDecodeYAML)
 	}
-	if cfg.Select != "" && cfg.Decode != core.StepOutputDecodeJSON && cfg.Decode != core.StepOutputDecodeYAML {
+	if cfg.Select != "" && cfg.Decode != ir.StepOutputDecodeJSON && cfg.Decode != ir.StepOutputDecodeYAML {
 		return nil, fmt.Errorf("select requires decode to be %q or %q",
-			core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+			ir.StepOutputDecodeJSON, ir.StepOutputDecodeYAML)
 	}
 	return &cfg, nil
 }
 
-func parseStdoutOutputsFields(raw any) (map[string]core.StepOutputEntry, error) {
+func parseStdoutOutputsFields(raw any) (map[string]ir.StepOutputEntry, error) {
 	obj, ok := raw.(map[string]any)
 	if !ok {
 		if anyMap, ok := raw.(map[any]any); ok {
@@ -1384,7 +1384,7 @@ func parseStdoutOutputsFields(raw any) (map[string]core.StepOutputEntry, error) 
 	if len(obj) == 0 {
 		return nil, fmt.Errorf("fields must not be empty")
 	}
-	fields := make(map[string]core.StepOutputEntry, len(obj))
+	fields := make(map[string]ir.StepOutputEntry, len(obj))
 	for key, value := range obj {
 		name := strings.TrimSpace(key)
 		if name == "" {
@@ -1399,7 +1399,7 @@ func parseStdoutOutputsFields(raw any) (map[string]core.StepOutputEntry, error) 
 	return fields, nil
 }
 
-func parseStdoutOutputsFieldEntry(raw any) (core.StepOutputEntry, error) {
+func parseStdoutOutputsFieldEntry(raw any) (ir.StepOutputEntry, error) {
 	obj, ok := raw.(map[string]any)
 	if !ok {
 		if anyMap, ok := raw.(map[any]any); ok {
@@ -1407,21 +1407,21 @@ func parseStdoutOutputsFieldEntry(raw any) (core.StepOutputEntry, error) {
 			for key, value := range anyMap {
 				keyString, ok := key.(string)
 				if !ok {
-					return core.StepOutputEntry{}, fmt.Errorf("object keys must be strings")
+					return ir.StepOutputEntry{}, fmt.Errorf("object keys must be strings")
 				}
 				obj[keyString] = value
 			}
 		} else {
-			return core.StepOutputEntry{HasValue: true, Value: raw}, nil
+			return ir.StepOutputEntry{HasValue: true, Value: raw}, nil
 		}
 	}
 	if _, hasFrom := obj["from"]; hasFrom {
 		entry, err := parseStructuredOutputEntry(obj)
 		if err != nil {
-			return core.StepOutputEntry{}, err
+			return ir.StepOutputEntry{}, err
 		}
-		if entry.From != core.StepOutputSourceStdout {
-			return core.StepOutputEntry{}, fmt.Errorf("from must be %q", core.StepOutputSourceStdout)
+		if entry.From != ir.StepOutputSourceStdout {
+			return ir.StepOutputEntry{}, fmt.Errorf("from must be %q", ir.StepOutputSourceStdout)
 		}
 		return entry, nil
 	}
@@ -1429,47 +1429,47 @@ func parseStdoutOutputsFieldEntry(raw any) (core.StepOutputEntry, error) {
 		return parseStructuredOutputEntry(obj)
 	}
 
-	entry := core.StepOutputEntry{From: core.StepOutputSourceStdout}
+	entry := ir.StepOutputEntry{From: ir.StepOutputSourceStdout}
 	for key, value := range obj {
 		switch key {
 		case "decode":
 			str, ok := value.(string)
 			if !ok {
-				return core.StepOutputEntry{}, fmt.Errorf("decode must be a string")
+				return ir.StepOutputEntry{}, fmt.Errorf("decode must be a string")
 			}
 			entry.Decode = strings.TrimSpace(str)
 		case "select":
 			str, ok := value.(string)
 			if !ok {
-				return core.StepOutputEntry{}, fmt.Errorf("select must be a string")
+				return ir.StepOutputEntry{}, fmt.Errorf("select must be a string")
 			}
 			entry.Select = strings.TrimSpace(str)
 		default:
-			return core.StepOutputEntry{}, fmt.Errorf("unknown field %q", key)
+			return ir.StepOutputEntry{}, fmt.Errorf("unknown field %q", key)
 		}
 	}
 	if entry.Decode == "" && entry.Select != "" {
-		entry.Decode = core.StepOutputDecodeJSON
+		entry.Decode = ir.StepOutputDecodeJSON
 	}
 	switch entry.Decode {
-	case "", core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML:
+	case "", ir.StepOutputDecodeText, ir.StepOutputDecodeJSON, ir.StepOutputDecodeYAML:
 	default:
-		return core.StepOutputEntry{}, fmt.Errorf("decode must be one of %q, %q, or %q",
-			core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+		return ir.StepOutputEntry{}, fmt.Errorf("decode must be one of %q, %q, or %q",
+			ir.StepOutputDecodeText, ir.StepOutputDecodeJSON, ir.StepOutputDecodeYAML)
 	}
-	if entry.Select != "" && entry.Decode != core.StepOutputDecodeJSON && entry.Decode != core.StepOutputDecodeYAML {
-		return core.StepOutputEntry{}, fmt.Errorf("select requires decode to be %q or %q",
-			core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+	if entry.Select != "" && entry.Decode != ir.StepOutputDecodeJSON && entry.Decode != ir.StepOutputDecodeYAML {
+		return ir.StepOutputEntry{}, fmt.Errorf("select requires decode to be %q or %q",
+			ir.StepOutputDecodeJSON, ir.StepOutputDecodeYAML)
 	}
 	return entry, nil
 }
 
-func parseStructuredOutput(raw map[string]any) (map[string]core.StepOutputEntry, error) {
+func parseStructuredOutput(raw map[string]any) (map[string]ir.StepOutputEntry, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
 
-	entries := make(map[string]core.StepOutputEntry, len(raw))
+	entries := make(map[string]ir.StepOutputEntry, len(raw))
 	for key, value := range raw {
 		entry, err := parseStructuredOutputEntry(value)
 		if err != nil {
@@ -1480,10 +1480,10 @@ func parseStructuredOutput(raw map[string]any) (map[string]core.StepOutputEntry,
 	return entries, nil
 }
 
-func parseStructuredOutputEntry(raw any) (core.StepOutputEntry, error) {
+func parseStructuredOutputEntry(raw any) (ir.StepOutputEntry, error) {
 	obj, ok := raw.(map[string]any)
 	if !ok {
-		return core.StepOutputEntry{
+		return ir.StepOutputEntry{
 			HasValue: true,
 			Value:    raw,
 		}, nil
@@ -1497,13 +1497,13 @@ func parseStructuredOutputEntry(raw any) (core.StepOutputEntry, error) {
 		}
 	}
 	if !hasReservedField {
-		return core.StepOutputEntry{
+		return ir.StepOutputEntry{
 			HasValue: true,
 			Value:    obj,
 		}, nil
 	}
 
-	var entry core.StepOutputEntry
+	var entry ir.StepOutputEntry
 	for key, value := range obj {
 		switch key {
 		case "value":
@@ -1512,69 +1512,69 @@ func parseStructuredOutputEntry(raw any) (core.StepOutputEntry, error) {
 		case "from":
 			str, ok := value.(string)
 			if !ok {
-				return core.StepOutputEntry{}, fmt.Errorf("from must be a string")
+				return ir.StepOutputEntry{}, fmt.Errorf("from must be a string")
 			}
 			entry.From = strings.TrimSpace(str)
 		case "path":
 			str, ok := value.(string)
 			if !ok {
-				return core.StepOutputEntry{}, fmt.Errorf("path must be a string")
+				return ir.StepOutputEntry{}, fmt.Errorf("path must be a string")
 			}
 			entry.Path = strings.TrimSpace(str)
 		case "decode":
 			str, ok := value.(string)
 			if !ok {
-				return core.StepOutputEntry{}, fmt.Errorf("decode must be a string")
+				return ir.StepOutputEntry{}, fmt.Errorf("decode must be a string")
 			}
 			entry.Decode = strings.TrimSpace(str)
 		case "select":
 			str, ok := value.(string)
 			if !ok {
-				return core.StepOutputEntry{}, fmt.Errorf("select must be a string")
+				return ir.StepOutputEntry{}, fmt.Errorf("select must be a string")
 			}
 			entry.Select = strings.TrimSpace(str)
 		default:
-			return core.StepOutputEntry{}, fmt.Errorf("unknown field %q", key)
+			return ir.StepOutputEntry{}, fmt.Errorf("unknown field %q", key)
 		}
 	}
 
 	if entry.HasValue && entry.From != "" {
-		return core.StepOutputEntry{}, fmt.Errorf("value and from cannot be used together")
+		return ir.StepOutputEntry{}, fmt.Errorf("value and from cannot be used together")
 	}
 	if !entry.HasValue && entry.From == "" {
-		return core.StepOutputEntry{}, fmt.Errorf("entry must specify either a literal value or from")
+		return ir.StepOutputEntry{}, fmt.Errorf("entry must specify either a literal value or from")
 	}
 	if entry.HasValue {
 		if entry.Path != "" || entry.Decode != "" || entry.Select != "" {
-			return core.StepOutputEntry{}, fmt.Errorf("path, decode, and select are only valid with from")
+			return ir.StepOutputEntry{}, fmt.Errorf("path, decode, and select are only valid with from")
 		}
 		return entry, nil
 	}
 
 	switch entry.From {
-	case core.StepOutputSourceStdout, core.StepOutputSourceStderr:
+	case ir.StepOutputSourceStdout, ir.StepOutputSourceStderr:
 		if entry.Path != "" {
-			return core.StepOutputEntry{}, fmt.Errorf("path is only valid when from is file")
+			return ir.StepOutputEntry{}, fmt.Errorf("path is only valid when from is file")
 		}
-	case core.StepOutputSourceFile:
+	case ir.StepOutputSourceFile:
 		if entry.Path == "" {
-			return core.StepOutputEntry{}, fmt.Errorf("path is required when from is file")
+			return ir.StepOutputEntry{}, fmt.Errorf("path is required when from is file")
 		}
 	default:
-		return core.StepOutputEntry{}, fmt.Errorf("from must be one of %q, %q, or %q",
-			core.StepOutputSourceStdout, core.StepOutputSourceStderr, core.StepOutputSourceFile)
+		return ir.StepOutputEntry{}, fmt.Errorf("from must be one of %q, %q, or %q",
+			ir.StepOutputSourceStdout, ir.StepOutputSourceStderr, ir.StepOutputSourceFile)
 	}
 
 	switch entry.Decode {
-	case "", core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML:
+	case "", ir.StepOutputDecodeText, ir.StepOutputDecodeJSON, ir.StepOutputDecodeYAML:
 	default:
-		return core.StepOutputEntry{}, fmt.Errorf("decode must be one of %q, %q, or %q",
-			core.StepOutputDecodeText, core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+		return ir.StepOutputEntry{}, fmt.Errorf("decode must be one of %q, %q, or %q",
+			ir.StepOutputDecodeText, ir.StepOutputDecodeJSON, ir.StepOutputDecodeYAML)
 	}
 
-	if entry.Select != "" && entry.Decode != core.StepOutputDecodeJSON && entry.Decode != core.StepOutputDecodeYAML {
-		return core.StepOutputEntry{}, fmt.Errorf("select requires decode to be %q or %q",
-			core.StepOutputDecodeJSON, core.StepOutputDecodeYAML)
+	if entry.Select != "" && entry.Decode != ir.StepOutputDecodeJSON && entry.Decode != ir.StepOutputDecodeYAML {
+		return ir.StepOutputEntry{}, fmt.Errorf("select requires decode to be %q or %q",
+			ir.StepOutputDecodeJSON, ir.StepOutputDecodeYAML)
 	}
 
 	return entry, nil
@@ -1591,7 +1591,7 @@ func buildStepOutput(_ stepBuildContext, s *step) (string, error) {
 	return cfg.Name, nil
 }
 
-func buildStepStructuredOutput(_ stepBuildContext, s *step) (map[string]core.StepOutputEntry, error) {
+func buildStepStructuredOutput(_ stepBuildContext, s *step) (map[string]ir.StepOutputEntry, error) {
 	cfg, err := s.parsedOutputConfig()
 	if err != nil {
 		return nil, err
@@ -1613,7 +1613,7 @@ func buildStepOutputSchema(_ stepBuildContext, s *step) (map[string]any, error) 
 	return schemaMap, nil
 }
 
-func buildStepDeclaredOutputs(_ stepBuildContext, s *step) ([]core.StepOutputDeclaration, error) {
+func buildStepDeclaredOutputs(_ stepBuildContext, s *step) ([]ir.StepOutputDeclaration, error) {
 	if !s.outputsSet {
 		return nil, nil
 	}
@@ -1630,7 +1630,7 @@ func buildStepEnvs(_ stepBuildContext, s *step) ([]string, error) {
 	var envs []string
 	for i, entry := range s.Env.Entries() {
 		if !cmnvalue.ValidEnvName(entry.Key) {
-			return nil, core.NewValidationError(
+			return nil, ir.NewValidationError(
 				"env",
 				entry.Key,
 				fmt.Errorf("%w: invalid environment variable name %q at env[%d]", ErrInvalidEnvValue, entry.Key, i),
@@ -1641,27 +1641,27 @@ func buildStepEnvs(_ stepBuildContext, s *step) ([]string, error) {
 	return envs, nil
 }
 
-func buildStepPreconditions(ctx stepBuildContext, s *step) ([]*core.Condition, error) {
+func buildStepPreconditions(ctx stepBuildContext, s *step) ([]*ir.Condition, error) {
 	return parsePrecondition(ctx.buildContext, s.Preconditions)
 }
 
 // buildStepCommand parses the command field in the step definition.
-func buildStepCommand(_ stepBuildContext, s *step, result *core.Step) error {
+func buildStepCommand(_ stepBuildContext, s *step, result *ir.Step) error {
 	if s.Exec != nil {
 		if s.Command != nil {
-			return core.NewValidationError("exec", s.Exec, fmt.Errorf("exec cannot be used together with command"))
+			return ir.NewValidationError("exec", s.Exec, fmt.Errorf("exec cannot be used together with command"))
 		}
 		if strings.TrimSpace(s.Script) != "" {
-			return core.NewValidationError("exec", s.Exec, fmt.Errorf("exec cannot be used together with script"))
+			return ir.NewValidationError("exec", s.Exec, fmt.Errorf("exec cannot be used together with script"))
 		}
 		if !s.Shell.IsZero() {
-			return core.NewValidationError("exec", s.Exec, fmt.Errorf("exec cannot be used together with shell"))
+			return ir.NewValidationError("exec", s.Exec, fmt.Errorf("exec cannot be used together with shell"))
 		}
 		if len(s.ShellPackages) > 0 {
-			return core.NewValidationError("exec", s.Exec, fmt.Errorf("exec cannot be used together with shell_packages"))
+			return ir.NewValidationError("exec", s.Exec, fmt.Errorf("exec cannot be used together with shell_packages"))
 		}
 		if result.ExecutorConfig.Type != "" && result.ExecutorConfig.Type != "command" && result.ExecutorConfig.Type != "shell" {
-			return core.NewValidationError("exec", s.Exec, fmt.Errorf("exec is only supported for direct command execution"))
+			return ir.NewValidationError("exec", s.Exec, fmt.Errorf("exec is only supported for direct command execution"))
 		}
 		return buildExecCommand(s.Exec, result)
 	}
@@ -1683,18 +1683,18 @@ func buildStepCommand(_ stepBuildContext, s *step, result *core.Step) error {
 		return buildMultipleCommands(val, result)
 
 	default:
-		return core.NewValidationError("command", val, ErrStepCommandMustBeArrayOrString)
+		return ir.NewValidationError("command", val, ErrStepCommandMustBeArrayOrString)
 	}
 }
 
-func buildExecCommand(spec *execSpec, result *core.Step) error {
+func buildExecCommand(spec *execSpec, result *ir.Step) error {
 	if spec == nil {
 		return nil
 	}
 
 	command := strings.TrimSpace(spec.Command)
 	if command == "" {
-		return core.NewValidationError("exec.command", spec.Command, ErrStepCommandIsEmpty)
+		return ir.NewValidationError("exec.command", spec.Command, ErrStepCommandIsEmpty)
 	}
 
 	args := make([]string, 0, len(spec.Args))
@@ -1705,7 +1705,7 @@ func buildExecCommand(spec *execSpec, result *core.Step) error {
 		case int, int64, uint64, float64, bool:
 			args = append(args, fmt.Sprintf("%v", v))
 		default:
-			return core.NewValidationError(
+			return ir.NewValidationError(
 				fmt.Sprintf("exec.args[%d]", i),
 				arg,
 				fmt.Errorf("exec args must be strings or primitive values, got %T", arg),
@@ -1715,7 +1715,7 @@ func buildExecCommand(spec *execSpec, result *core.Step) error {
 
 	result.Shell = "direct"
 	result.ShellArgs = nil
-	result.Commands = []core.CommandEntry{{
+	result.Commands = []ir.CommandEntry{{
 		Command:     command,
 		Args:        args,
 		CmdWithArgs: command + buildDisplayArgsSuffix(args),
@@ -1731,17 +1731,17 @@ func buildDisplayArgsSuffix(args []string) string {
 }
 
 // buildSingleCommand parses a single command string and populates the Step fields.
-func buildSingleCommand(val string, result *core.Step) error {
+func buildSingleCommand(val string, result *ir.Step) error {
 	raw := val
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return core.NewValidationError("command", raw, ErrStepCommandIsEmpty)
+		return ir.NewValidationError("command", raw, ErrStepCommandIsEmpty)
 	}
 
 	// Harness uses command as a prompt, so preserve multiline text as a single
 	// command entry instead of reclassifying it as an inline script.
 	if strings.Contains(raw, "\n") && result.ExecutorConfig.Type == "harness" {
-		result.Commands = []core.CommandEntry{
+		result.Commands = []ir.CommandEntry{
 			{
 				CmdWithArgs: raw,
 			},
@@ -1760,12 +1760,12 @@ func buildSingleCommand(val string, result *core.Step) error {
 	// We need to split the command into command and args.
 	cmd, args, err := cmdutil.SplitCommand(val)
 	if err != nil {
-		return core.NewValidationError("command", val, fmt.Errorf("failed to parse command: %w", err))
+		return ir.NewValidationError("command", val, fmt.Errorf("failed to parse command: %w", err))
 	}
 
 	cmd = strings.TrimSpace(cmd)
 
-	result.Commands = []core.CommandEntry{
+	result.Commands = []ir.CommandEntry{
 		{
 			Command:     cmd,
 			Args:        args,
@@ -1778,12 +1778,12 @@ func buildSingleCommand(val string, result *core.Step) error {
 
 // buildMultipleCommands parses an array of commands and populates the Step.Commands field.
 // Each array element is treated as a separate command to be executed sequentially.
-func buildMultipleCommands(val []any, result *core.Step) error {
+func buildMultipleCommands(val []any, result *ir.Step) error {
 	if len(val) == 0 {
-		return core.NewValidationError("command", val, ErrStepCommandIsEmpty)
+		return ir.NewValidationError("command", val, ErrStepCommandIsEmpty)
 	}
 
-	var commands []core.CommandEntry
+	var commands []ir.CommandEntry
 
 	for i, v := range val {
 		var strVal string
@@ -1800,7 +1800,7 @@ func buildMultipleCommands(val []any, result *core.Step) error {
 						strVal = fmt.Sprintf("%s: %v", k, v2)
 					default:
 						// Nested maps or arrays are too complex, fall through to error
-						return core.NewValidationError(
+						return ir.NewValidationError(
 							fmt.Sprintf("command[%d]", i),
 							v,
 							fmt.Errorf("command array elements must be strings. If this contains a colon, wrap it in quotes. Got nested %T", v2),
@@ -1808,14 +1808,14 @@ func buildMultipleCommands(val []any, result *core.Step) error {
 					}
 				}
 			} else {
-				return core.NewValidationError(
+				return ir.NewValidationError(
 					fmt.Sprintf("command[%d]", i),
 					v,
 					fmt.Errorf("command array elements must be strings. If this contains a colon, wrap it in quotes"),
 				)
 			}
 		default:
-			return core.NewValidationError(
+			return ir.NewValidationError(
 				fmt.Sprintf("command[%d]", i),
 				v,
 				fmt.Errorf("command array elements must be strings or primitive types, got %T", v),
@@ -1830,14 +1830,14 @@ func buildMultipleCommands(val []any, result *core.Step) error {
 		// Parse the command string to extract command and args
 		cmd, args, err := cmdutil.SplitCommand(strVal)
 		if err != nil {
-			return core.NewValidationError(
+			return ir.NewValidationError(
 				fmt.Sprintf("command[%d]", i),
 				strVal,
 				fmt.Errorf("failed to parse command: %w", err),
 			)
 		}
 
-		commands = append(commands, core.CommandEntry{
+		commands = append(commands, ir.CommandEntry{
 			Command:     strings.TrimSpace(cmd),
 			Args:        args,
 			CmdWithArgs: strVal,
@@ -1845,7 +1845,7 @@ func buildMultipleCommands(val []any, result *core.Step) error {
 	}
 
 	if len(commands) == 0 {
-		return core.NewValidationError("command", val, ErrStepCommandIsEmpty)
+		return ir.NewValidationError("command", val, ErrStepCommandIsEmpty)
 	}
 
 	result.Commands = commands
@@ -1854,12 +1854,12 @@ func buildMultipleCommands(val []any, result *core.Step) error {
 }
 
 // validateCommand checks if the executor type supports the command field.
-func validateCommand(result *core.Step) error {
+func validateCommand(result *ir.Step) error {
 	if len(result.Commands) == 0 {
 		return nil
 	}
-	if !core.SupportsCommand(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Command {
+		return ir.NewValidationError(
 			"command",
 			result.Commands,
 			fmt.Errorf("action %q does not support command field", result.ExecutorConfig.Type),
@@ -1870,12 +1870,12 @@ func validateCommand(result *core.Step) error {
 
 // validateMultipleCommands checks if the executor type supports multiple commands.
 // Returns an error if multiple commands are specified for an executor that doesn't support them.
-func validateMultipleCommands(result *core.Step) error {
+func validateMultipleCommands(result *ir.Step) error {
 	if len(result.Commands) <= 1 {
 		return nil
 	}
-	if !core.SupportsMultipleCommands(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).MultipleCommands {
+		return ir.NewValidationError(
 			"command",
 			result.Commands,
 			multipleCommandsUnsupportedError{action: result.ExecutorConfig.Type},
@@ -1897,17 +1897,17 @@ func (e multipleCommandsUnsupportedError) Unwrap() error {
 }
 
 func isStepTypeValidationError(err error) bool {
-	var validationErr *core.ValidationError
+	var validationErr *ir.ValidationError
 	return errors.As(err, &validationErr) && validationErr.Field == "type"
 }
 
 // validateScript checks if the executor type supports the script field.
-func validateScript(result *core.Step) error {
+func validateScript(result *ir.Step) error {
 	if result.Script == "" {
 		return nil
 	}
-	if !core.SupportsScript(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Script {
+		return ir.NewValidationError(
 			"script",
 			result.Script,
 			fmt.Errorf("action %q does not support script field", result.ExecutorConfig.Type),
@@ -1917,12 +1917,12 @@ func validateScript(result *core.Step) error {
 }
 
 // validateShell checks if the executor type supports shell configuration.
-func validateShell(result *core.Step) error {
+func validateShell(result *ir.Step) error {
 	if result.Shell == "" && len(result.ShellArgs) == 0 && len(result.ShellPackages) == 0 {
 		return nil
 	}
-	if !core.SupportsShell(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Shell {
+		return ir.NewValidationError(
 			"shell",
 			result.Shell,
 			fmt.Errorf("action %q does not support shell configuration", result.ExecutorConfig.Type),
@@ -1932,12 +1932,12 @@ func validateShell(result *core.Step) error {
 }
 
 // validateContainer checks if the executor type supports the container field.
-func validateContainer(result *core.Step) error {
+func validateContainer(result *ir.Step) error {
 	if result.Container == nil {
 		return nil
 	}
-	if !core.SupportsContainer(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Container {
+		return ir.NewValidationError(
 			"container",
 			result.Container,
 			fmt.Errorf("action %q does not support container field", result.ExecutorConfig.Type),
@@ -1947,12 +1947,12 @@ func validateContainer(result *core.Step) error {
 }
 
 // validateSubDAG checks if the executor type supports sub-DAG execution.
-func validateSubDAG(result *core.Step) error {
+func validateSubDAG(result *ir.Step) error {
 	if result.SubDAG == nil {
 		return nil
 	}
-	if !core.SupportsSubDAG(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).SubDAG {
+		return ir.NewValidationError(
 			"call",
 			result.SubDAG,
 			fmt.Errorf("action %q does not support call field", result.ExecutorConfig.Type),
@@ -1962,12 +1962,12 @@ func validateSubDAG(result *core.Step) error {
 }
 
 // validateWorkerSelector checks if the executor type supports worker selection.
-func validateWorkerSelector(result *core.Step) error {
+func validateWorkerSelector(result *ir.Step) error {
 	if len(result.WorkerSelector) == 0 {
 		return nil
 	}
-	if !core.SupportsWorkerSelector(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).WorkerSelector {
+		return ir.NewValidationError(
 			"worker_selector",
 			result.WorkerSelector,
 			fmt.Errorf("action %q does not support worker_selector field", result.ExecutorConfig.Type),
@@ -1977,12 +1977,12 @@ func validateWorkerSelector(result *core.Step) error {
 }
 
 // validateLLM checks if the executor type supports the llm field.
-func validateLLM(result *core.Step) error {
+func validateLLM(result *ir.Step) error {
 	if result.LLM == nil {
 		return nil
 	}
-	if !core.SupportsLLM(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).LLM {
+		return ir.NewValidationError(
 			"llm",
 			result.LLM,
 			fmt.Errorf("action %q does not support llm field; use action: chat with llm configuration", result.ExecutorConfig.Type),
@@ -1995,14 +1995,14 @@ func validateLLM(result *core.Step) error {
 	if !hasModels {
 		// Single model config (legacy): require both provider and model
 		if result.LLM.Provider == "" {
-			return core.NewValidationError(
+			return ir.NewValidationError(
 				"llm.provider",
 				result.LLM.Provider,
 				fmt.Errorf("provider is required (set at DAG or step level)"),
 			)
 		}
 		if result.LLM.Model == "" {
-			return core.NewValidationError(
+			return ir.NewValidationError(
 				"llm.model",
 				result.LLM.Model,
 				fmt.Errorf("model is required (set at DAG or step level)"),
@@ -2012,7 +2012,7 @@ func validateLLM(result *core.Step) error {
 
 	// Messages are required (at step level)
 	if len(result.Messages) == 0 {
-		return core.NewValidationError(
+		return ir.NewValidationError(
 			"messages",
 			result.Messages,
 			fmt.Errorf("at least one message is required"),
@@ -2022,12 +2022,12 @@ func validateLLM(result *core.Step) error {
 }
 
 // validateMessages checks if the executor type supports the messages field.
-func validateMessages(result *core.Step) error {
+func validateMessages(result *ir.Step) error {
 	if len(result.Messages) == 0 {
 		return nil
 	}
-	if !core.SupportsLLM(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).LLM {
+		return ir.NewValidationError(
 			"messages",
 			result.Messages,
 			fmt.Errorf("action %q does not support messages field; use action: chat", result.ExecutorConfig.Type),
@@ -2036,7 +2036,7 @@ func validateMessages(result *core.Step) error {
 	return nil
 }
 
-func buildStepParamsField(ctx stepBuildContext, s *step, result *core.Step) error {
+func buildStepParamsField(ctx stepBuildContext, s *step, result *ir.Step) error {
 	if s.Params == nil {
 		return nil
 	}
@@ -2044,7 +2044,7 @@ func buildStepParamsField(ctx stepBuildContext, s *step, result *core.Step) erro
 	// Parse params using existing parseParamValue function
 	paramPairs, err := parseParamValue(ctx.buildContext, s.Params)
 	if err != nil {
-		return core.NewValidationError("params", s.Params, err)
+		return ir.NewValidationError("params", s.Params, err)
 	}
 
 	// Convert to map[string]string
@@ -2053,12 +2053,12 @@ func buildStepParamsField(ctx stepBuildContext, s *step, result *core.Step) erro
 		paramsData[pair.Name] = pair.Value
 	}
 
-	result.Params = core.NewSimpleParams(paramsData)
+	result.Params = ir.NewSimpleParams(paramsData)
 	return nil
 }
 
 // buildStepExecutor parses the executor configuration from step fields.
-func buildStepExecutor(ctx stepBuildContext, s *step, result *core.Step) error {
+func buildStepExecutor(ctx stepBuildContext, s *step, result *ir.Step) error {
 	if err := validateStepConfigAliasStruct(s); err != nil {
 		return err
 	}
@@ -2111,14 +2111,14 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *core.Step) error {
 		result.ExecutorConfig.Config = mergeKubernetesExecutorConfig(ctx.dag.Kubernetes, result.ExecutorConfig.Config)
 	}
 	if result.ExecutorConfig.Type != "" && !isBuiltinStepTypeName(result.ExecutorConfig.Type) {
-		return core.NewValidationError(
+		return ir.NewValidationError(
 			"type",
 			result.ExecutorConfig.Type,
 			fmt.Errorf("unknown action %q", result.ExecutorConfig.Type),
 		)
 	}
 	if result.ExecutorConfig.Type == "harness" {
-		var defs core.HarnessDefinitions
+		var defs ir.HarnessDefinitions
 		if ctx.dag != nil {
 			defs = ctx.dag.Harnesses
 		}
@@ -2139,12 +2139,12 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *core.Step) error {
 	return nil
 }
 
-func shouldInferNoopStep(s *step, result *core.Step) bool {
+func shouldInferNoopStep(s *step, result *ir.Step) bool {
 	if result.ExecutorConfig.Type != "" || !result.HasStructuredOutput() {
 		return false
 	}
-	if result.UsesStructuredOutputSource(core.StepOutputSourceStdout) ||
-		result.UsesStructuredOutputSource(core.StepOutputSourceStderr) {
+	if result.UsesStructuredOutputSource(ir.StepOutputSourceStdout) ||
+		result.UsesStructuredOutputSource(ir.StepOutputSourceStderr) {
 		return false
 	}
 	if result.Container != nil || result.SubDAG != nil || result.Parallel != nil {
@@ -2158,7 +2158,7 @@ func shouldInferNoopStep(s *step, result *core.Step) bool {
 
 // mergeRedisConfig merges DAG-level Redis defaults into step config.
 // Step-level values take precedence over DAG-level defaults.
-func mergeRedisConfig(dagRedis *core.RedisConfig, stepConfig map[string]any) {
+func mergeRedisConfig(dagRedis *ir.RedisConfig, stepConfig map[string]any) {
 	setIfMissing := func(key string, value any) {
 		if _, exists := stepConfig[key]; !exists && !isRedisZeroValue(value) {
 			stepConfig[key] = value
@@ -2180,13 +2180,13 @@ func mergeRedisConfig(dagRedis *core.RedisConfig, stepConfig map[string]any) {
 	setIfMissing("max_retries", dagRedis.MaxRetries)
 }
 
-func mergeHarnessConfig(dagHarness *core.HarnessConfig, stepConfig map[string]any) map[string]any {
+func mergeHarnessConfig(dagHarness *ir.HarnessConfig, stepConfig map[string]any) map[string]any {
 	effectiveProvider := harnessProviderName(stepConfig)
 	if effectiveProvider == "" && dagHarness != nil {
 		effectiveProvider = harnessProviderName(dagHarness.Config)
 	}
-	if core.IsBuiltinCLIHarnessProvider(effectiveProvider) {
-		stepConfig = core.NormalizeBuiltinHarnessFlagKeys(stepConfig)
+	if ir.IsBuiltinCLIHarnessProvider(effectiveProvider) {
+		stepConfig = ir.NormalizeBuiltinHarnessFlagKeys(stepConfig)
 	}
 
 	merged := cloneMap(stepConfig)
@@ -2199,8 +2199,8 @@ func mergeHarnessConfig(dagHarness *core.HarnessConfig, stepConfig map[string]an
 	}
 
 	dagConfig := dagHarness.Config
-	if core.IsBuiltinCLIHarnessProvider(effectiveProvider) {
-		dagConfig = core.NormalizeBuiltinHarnessFlagKeys(dagConfig)
+	if ir.IsBuiltinCLIHarnessProvider(effectiveProvider) {
+		dagConfig = ir.NormalizeBuiltinHarnessFlagKeys(dagConfig)
 	}
 
 	for key, value := range dagConfig {
@@ -2246,13 +2246,13 @@ func isRedisZeroValue(v any) bool {
 }
 
 // buildStepParallel parses the parallel field in the step definition.
-func buildStepParallel(_ stepBuildContext, s *step, result *core.Step) error {
+func buildStepParallel(_ stepBuildContext, s *step, result *ir.Step) error {
 	if s.Parallel == nil {
 		return nil
 	}
 
-	result.Parallel = &core.ParallelConfig{
-		MaxConcurrent: core.DefaultMaxConcurrent,
+	result.Parallel = &ir.ParallelConfig{
+		MaxConcurrent: ir.DefaultMaxConcurrent,
 	}
 
 	switch v := s.Parallel.(type) {
@@ -2264,7 +2264,7 @@ func buildStepParallel(_ stepBuildContext, s *step, result *core.Step) error {
 		// Static array: parallel: [item1, item2]
 		items, err := parseParallelItems(v)
 		if err != nil {
-			return core.NewValidationError("parallel", v, err)
+			return ir.NewValidationError("parallel", v, err)
 		}
 		result.Parallel.Items = items
 
@@ -2279,11 +2279,11 @@ func buildStepParallel(_ stepBuildContext, s *step, result *core.Step) error {
 				case []any:
 					items, err := parseParallelItems(itemsVal)
 					if err != nil {
-						return core.NewValidationError("parallel.items", itemsVal, err)
+						return ir.NewValidationError("parallel.items", itemsVal, err)
 					}
 					result.Parallel.Items = items
 				default:
-					return core.NewValidationError("parallel.items", val, fmt.Errorf("parallel.items must be string or array, got %T", val))
+					return ir.NewValidationError("parallel.items", val, fmt.Errorf("parallel.items must be string or array, got %T", val))
 				}
 
 			case "max_concurrent":
@@ -2292,24 +2292,24 @@ func buildStepParallel(_ stepBuildContext, s *step, result *core.Step) error {
 					result.Parallel.MaxConcurrent = mc
 				case int64:
 					if mc > math.MaxInt || mc < math.MinInt {
-						return core.NewValidationError("parallel.max_concurrent", mc, fmt.Errorf("value %d exceeds integer range", mc))
+						return ir.NewValidationError("parallel.max_concurrent", mc, fmt.Errorf("value %d exceeds integer range", mc))
 					}
 					result.Parallel.MaxConcurrent = int(mc)
 				case uint64:
 					if mc > math.MaxInt {
-						return core.NewValidationError("parallel.max_concurrent", mc, fmt.Errorf("value %d exceeds maximum int", mc))
+						return ir.NewValidationError("parallel.max_concurrent", mc, fmt.Errorf("value %d exceeds maximum int", mc))
 					}
 					result.Parallel.MaxConcurrent = int(mc)
 				default:
-					return core.NewValidationError("parallel.max_concurrent", val, fmt.Errorf("parallel.max_concurrent must be an integer, got %T", val))
+					return ir.NewValidationError("parallel.max_concurrent", val, fmt.Errorf("parallel.max_concurrent must be an integer, got %T", val))
 				}
 			default:
-				return core.NewValidationError("parallel", v, fmt.Errorf("unknown parallel field %q", key))
+				return ir.NewValidationError("parallel", v, fmt.Errorf("unknown parallel field %q", key))
 			}
 		}
 
 	default:
-		return core.NewValidationError("parallel", v, fmt.Errorf("parallel must be string, array, or object, got %T", v))
+		return ir.NewValidationError("parallel", v, fmt.Errorf("parallel must be string, array, or object, got %T", v))
 	}
 
 	return nil
@@ -2318,7 +2318,7 @@ func buildStepParallel(_ stepBuildContext, s *step, result *core.Step) error {
 var foreachIdentifierPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 // buildStepForeach parses the foreach field in the step definition.
-func buildStepForeach(ctx stepBuildContext, s *step, result *core.Step) error {
+func buildStepForeach(ctx stepBuildContext, s *step, result *ir.Step) error {
 	if s.Foreach == nil {
 		return nil
 	}
@@ -2333,7 +2333,7 @@ func buildStepForeach(ctx stepBuildContext, s *step, result *core.Step) error {
 	}
 
 	result.Foreach = cfg
-	result.ExecutorConfig.Type = core.ExecutorTypeForeach
+	result.ExecutorConfig.Type = ir.ExecutorTypeForeach
 	return nil
 }
 
@@ -2350,23 +2350,23 @@ func validateForeachExecutionTarget(s *step) error {
 	}
 	for name, present := range targets {
 		if present {
-			return core.NewValidationError("foreach", s.Foreach,
+			return ir.NewValidationError("foreach", s.Foreach,
 				fmt.Errorf("foreach cannot be combined with %q on the same step", name))
 		}
 	}
 	return nil
 }
 
-func parseForeachConfig(ctx stepBuildContext, raw any) (*core.ForeachConfig, error) {
+func parseForeachConfig(ctx stepBuildContext, raw any) (*ir.ForeachConfig, error) {
 	obj, ok := raw.(map[string]any)
 	if !ok {
-		return nil, core.NewValidationError("foreach", raw,
+		return nil, ir.NewValidationError("foreach", raw,
 			fmt.Errorf("foreach must be an object, got %T", raw))
 	}
 
-	cfg := &core.ForeachConfig{
+	cfg := &ir.ForeachConfig{
 		As:            "item",
-		MaxConcurrent: core.DefaultMaxConcurrent,
+		MaxConcurrent: ir.DefaultMaxConcurrent,
 	}
 
 	for key, value := range obj {
@@ -2378,21 +2378,21 @@ func parseForeachConfig(ctx stepBuildContext, raw any) (*core.ForeachConfig, err
 		case "as":
 			alias, ok := value.(string)
 			if !ok {
-				return nil, core.NewValidationError("foreach.as", value,
+				return nil, ir.NewValidationError("foreach.as", value,
 					fmt.Errorf("foreach.as must be a string, got %T", value))
 			}
 			if err := validateForeachIdentifier("foreach.as", alias); err != nil {
-				return nil, core.NewValidationError("foreach.as", alias, err)
+				return nil, ir.NewValidationError("foreach.as", alias, err)
 			}
 			if alias == "index" || alias == "key" {
-				return nil, core.NewValidationError("foreach.as", alias,
+				return nil, ir.NewValidationError("foreach.as", alias,
 					fmt.Errorf("foreach.as %q is reserved", alias))
 			}
 			cfg.As = alias
 		case "key":
 			keyExpr, ok := value.(string)
 			if !ok {
-				return nil, core.NewValidationError("foreach.key", value,
+				return nil, ir.NewValidationError("foreach.key", value,
 					fmt.Errorf("foreach.key must be a string, got %T", value))
 			}
 			cfg.Key = keyExpr
@@ -2415,30 +2415,30 @@ func parseForeachConfig(ctx stepBuildContext, raw any) (*core.ForeachConfig, err
 			}
 			cfg.Collect = collect
 		default:
-			return nil, core.NewValidationError("foreach", raw,
+			return nil, ir.NewValidationError("foreach", raw,
 				fmt.Errorf("unknown foreach field %q", key))
 		}
 	}
 
 	if cfg.ItemsExpr == "" && cfg.Items == nil {
-		return nil, core.NewValidationError("foreach.items", nil,
+		return nil, ir.NewValidationError("foreach.items", nil,
 			fmt.Errorf("foreach.items is required"))
 	}
 	if len(cfg.Steps) == 0 {
-		return nil, core.NewValidationError("foreach.steps", nil,
+		return nil, ir.NewValidationError("foreach.steps", nil,
 			fmt.Errorf("foreach.steps must contain at least one step"))
 	}
 	return cfg, nil
 }
 
-func parseForeachItems(value any, cfg *core.ForeachConfig) error {
+func parseForeachItems(value any, cfg *ir.ForeachConfig) error {
 	switch items := value.(type) {
 	case string:
 		cfg.ItemsExpr = items
 	case []any:
 		cfg.Items = slices.Clone(items)
 	default:
-		return core.NewValidationError("foreach.items", value,
+		return ir.NewValidationError("foreach.items", value,
 			fmt.Errorf("foreach.items must be string or array, got %T", value))
 	}
 	return nil
@@ -2451,49 +2451,49 @@ func parseForeachMaxConcurrent(value any) (int, error) {
 		maxConcurrent = mc
 	case int64:
 		if mc > math.MaxInt || mc < math.MinInt {
-			return 0, core.NewValidationError("foreach.max_concurrent", mc,
+			return 0, ir.NewValidationError("foreach.max_concurrent", mc,
 				fmt.Errorf("value %d exceeds integer range", mc))
 		}
 		maxConcurrent = int(mc)
 	case uint64:
 		if mc > math.MaxInt {
-			return 0, core.NewValidationError("foreach.max_concurrent", mc,
+			return 0, ir.NewValidationError("foreach.max_concurrent", mc,
 				fmt.Errorf("value %d exceeds maximum int", mc))
 		}
 		maxConcurrent = int(mc)
 	default:
-		return 0, core.NewValidationError("foreach.max_concurrent", value,
+		return 0, ir.NewValidationError("foreach.max_concurrent", value,
 			fmt.Errorf("foreach.max_concurrent must be an integer, got %T", value))
 	}
-	if maxConcurrent < 1 || maxConcurrent > core.MaxExpansionConcurrency {
-		return 0, core.NewValidationError("foreach.max_concurrent", value,
-			fmt.Errorf("max_concurrent must be an integer from 1 through %d", core.MaxExpansionConcurrency))
+	if maxConcurrent < 1 || maxConcurrent > ir.MaxExpansionConcurrency {
+		return 0, ir.NewValidationError("foreach.max_concurrent", value,
+			fmt.Errorf("max_concurrent must be an integer from 1 through %d", ir.MaxExpansionConcurrency))
 	}
 	return maxConcurrent, nil
 }
 
-func parseForeachSteps(ctx stepBuildContext, value any) ([]core.Step, error) {
+func parseForeachSteps(ctx stepBuildContext, value any) ([]ir.Step, error) {
 	rawSteps, ok := value.([]any)
 	if !ok {
-		return nil, core.NewValidationError("foreach.steps", value,
+		return nil, ir.NewValidationError("foreach.steps", value,
 			fmt.Errorf("foreach.steps must be an array, got %T", value))
 	}
 	if len(rawSteps) == 0 {
-		return nil, core.NewValidationError("foreach.steps", value,
+		return nil, ir.NewValidationError("foreach.steps", value,
 			fmt.Errorf("foreach.steps must contain at least one step"))
 	}
 
-	steps := make([]core.Step, 0, len(rawSteps))
+	steps := make([]ir.Step, 0, len(rawSteps))
 	names := map[string]struct{}{}
 	for idx, rawStep := range rawSteps {
 		stepMap, ok := rawStep.(map[string]any)
 		if !ok {
-			return nil, core.NewValidationError("foreach.steps", rawStep,
+			return nil, ir.NewValidationError("foreach.steps", rawStep,
 				fmt.Errorf("foreach.steps[%d] must be an object, got %T", idx, rawStep))
 		}
 		builtStep, err := buildStepFromRaw(ctx, idx, stepMap, names, nil)
 		if err != nil {
-			return nil, core.NewValidationError("foreach.steps", rawStep, err)
+			return nil, ir.NewValidationError("foreach.steps", rawStep, err)
 		}
 		steps = append(steps, *builtStep)
 	}
@@ -2503,18 +2503,18 @@ func parseForeachSteps(ctx stepBuildContext, value any) ([]core.Step, error) {
 func parseForeachCollect(value any) (map[string]string, error) {
 	rawCollect, ok := value.(map[string]any)
 	if !ok {
-		return nil, core.NewValidationError("foreach.collect", value,
+		return nil, ir.NewValidationError("foreach.collect", value,
 			fmt.Errorf("foreach.collect must be an object, got %T", value))
 	}
 
 	collect := make(map[string]string, len(rawCollect))
 	for name, rawExpr := range rawCollect {
 		if err := validateForeachIdentifier("foreach.collect", name); err != nil {
-			return nil, core.NewValidationError("foreach.collect", name, err)
+			return nil, ir.NewValidationError("foreach.collect", name, err)
 		}
 		expr, ok := rawExpr.(string)
 		if !ok {
-			return nil, core.NewValidationError("foreach.collect", rawExpr,
+			return nil, ir.NewValidationError("foreach.collect", rawExpr,
 				fmt.Errorf("foreach.collect.%s must be a string, got %T", name, rawExpr))
 		}
 		collect[name] = expr
@@ -2530,7 +2530,7 @@ func validateForeachIdentifier(fieldName, value string) error {
 }
 
 // buildStepContainer parses the container field in the step definition.
-func buildStepContainer(ctx stepBuildContext, s *step, result *core.Step) error {
+func buildStepContainer(ctx stepBuildContext, s *step, result *ir.Step) error {
 	if s.Container == nil {
 		return nil
 	}
@@ -2549,9 +2549,9 @@ func buildStepContainer(ctx stepBuildContext, s *step, result *core.Step) error 
 // via type: chat in YAML (no auto-detection).
 // If step has no llm: config but DAG has one, the DAG config is inherited.
 // If step has llm: config, it completely overrides DAG-level (full override pattern).
-func buildStepLLM(ctx stepBuildContext, s *step, result *core.Step) error {
+func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 	// Only process LLM for executors that support it
-	if !core.SupportsLLM(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).LLM {
 		return nil
 	}
 
@@ -2568,18 +2568,18 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *core.Step) error {
 
 	// Validate provider if specified (for single model config)
 	if err := validateLLMProvider(cfg.Provider); err != nil {
-		return core.NewValidationError("llm.provider", cfg.Provider, err)
+		return ir.NewValidationError("llm.provider", cfg.Provider, err)
 	}
 
 	// Model is required when llm config is provided
 	if cfg.Model.IsZero() {
-		return core.NewValidationError("llm.model", nil,
+		return ir.NewValidationError("llm.model", nil,
 			fmt.Errorf("model must be specified when llm config is provided"))
 	}
 
 	// Get model string or entries from the parsed value
 	var modelString string
-	var models []core.ModelEntry
+	var models []ir.ModelEntry
 
 	if cfg.Model.IsArray() {
 		var err error
@@ -2590,7 +2590,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *core.Step) error {
 	} else {
 		modelString = cfg.Model.String()
 		if modelString == "" {
-			return core.NewValidationError("llm.model", cfg.Model.Value(),
+			return ir.NewValidationError("llm.model", cfg.Model.Value(),
 				fmt.Errorf("model must be specified when llm config is provided"))
 		}
 	}
@@ -2598,7 +2598,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *core.Step) error {
 	// Validate temperature range
 	if cfg.Temperature != nil {
 		if *cfg.Temperature < 0.0 || *cfg.Temperature > 2.0 {
-			return core.NewValidationError("llm.temperature", *cfg.Temperature,
+			return ir.NewValidationError("llm.temperature", *cfg.Temperature,
 				fmt.Errorf("temperature must be between 0.0 and 2.0"))
 		}
 	}
@@ -2606,7 +2606,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *core.Step) error {
 	// Validate max_tokens if specified
 	if cfg.MaxTokens != nil {
 		if *cfg.MaxTokens < 1 {
-			return core.NewValidationError("llm.max_tokens", *cfg.MaxTokens,
+			return ir.NewValidationError("llm.max_tokens", *cfg.MaxTokens,
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
@@ -2617,7 +2617,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *core.Step) error {
 	// Validate top_p range
 	if cfg.TopP != nil {
 		if *cfg.TopP < 0.0 || *cfg.TopP > 1.0 {
-			return core.NewValidationError("llm.top_p", *cfg.TopP,
+			return ir.NewValidationError("llm.top_p", *cfg.TopP,
 				fmt.Errorf("top_p must be between 0.0 and 1.0"))
 		}
 	}
@@ -2627,7 +2627,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *core.Step) error {
 		return err
 	}
 
-	result.LLM = &core.LLMConfig{
+	result.LLM = &ir.LLMConfig{
 		Provider:          cfg.Provider,
 		Model:             modelString,
 		Models:            models,
@@ -2661,30 +2661,30 @@ func validateControllerLLMLimits(cfg *llmConfig, controllerRoot bool) error {
 			continue
 		}
 		if !controllerRoot {
-			return core.NewValidationError(limit.path, *limit.value,
+			return ir.NewValidationError(limit.path, *limit.value,
 				fmt.Errorf("field is only valid in a controller DAG's root llm configuration"))
 		}
 		if *limit.value < 0 {
-			return core.NewValidationError(limit.path, *limit.value,
+			return ir.NewValidationError(limit.path, *limit.value,
 				fmt.Errorf("value must be non-negative"))
 		}
 	}
 	return nil
 }
 
-// buildWebSearchConfig converts webSearchConfig to core.WebSearchConfig.
-func buildWebSearchConfig(cfg *webSearchConfig) *core.WebSearchConfig {
+// buildWebSearchConfig converts webSearchConfig to ir.WebSearchConfig.
+func buildWebSearchConfig(cfg *webSearchConfig) *ir.WebSearchConfig {
 	if cfg == nil {
 		return nil
 	}
-	result := &core.WebSearchConfig{
+	result := &ir.WebSearchConfig{
 		Enabled:        cfg.Enabled,
 		MaxUses:        cfg.MaxUses,
 		AllowedDomains: cfg.AllowedDomains,
 		BlockedDomains: cfg.BlockedDomains,
 	}
 	if cfg.UserLocation != nil {
-		result.UserLocation = &core.WebSearchUserLocation{
+		result.UserLocation = &ir.WebSearchUserLocation{
 			City:     cfg.UserLocation.City,
 			Region:   cfg.UserLocation.Region,
 			Country:  cfg.UserLocation.Country,
@@ -2705,14 +2705,14 @@ func validateLLMProvider(provider string) error {
 	return err
 }
 
-// convertModelEntries converts types.ModelEntry slice to core.ModelEntry slice with validation.
-func convertModelEntries(entries []types.ModelEntry) ([]core.ModelEntry, error) {
-	models := make([]core.ModelEntry, len(entries))
+// convertModelEntries converts types.ModelEntry slice to ir.ModelEntry slice with validation.
+func convertModelEntries(entries []types.ModelEntry) ([]ir.ModelEntry, error) {
+	models := make([]ir.ModelEntry, len(entries))
 	for i, e := range entries {
 		if err := validateLLMProvider(e.Provider); err != nil {
-			return nil, core.NewValidationError(fmt.Sprintf("llm.model[%d].provider", i), e.Provider, err)
+			return nil, ir.NewValidationError(fmt.Sprintf("llm.model[%d].provider", i), e.Provider, err)
 		}
-		models[i] = core.ModelEntry{
+		models[i] = ir.ModelEntry{
 			Provider:    e.Provider,
 			Name:        e.Name,
 			Temperature: e.Temperature,
@@ -2725,16 +2725,16 @@ func convertModelEntries(entries []types.ModelEntry) ([]core.ModelEntry, error) 
 	return models, nil
 }
 
-// buildThinkingConfig converts thinkingConfig to core.ThinkingConfig.
-func buildThinkingConfig(cfg *thinkingConfig) (*core.ThinkingConfig, error) {
+// buildThinkingConfig converts thinkingConfig to ir.ThinkingConfig.
+func buildThinkingConfig(cfg *thinkingConfig) (*ir.ThinkingConfig, error) {
 	if cfg == nil {
 		return nil, nil
 	}
-	effort, err := core.ParseThinkingEffort(cfg.Effort)
+	effort, err := ir.ParseThinkingEffort(cfg.Effort)
 	if err != nil {
-		return nil, core.NewValidationError("thinking.effort", cfg.Effort, err)
+		return nil, ir.NewValidationError("thinking.effort", cfg.Effort, err)
 	}
-	return &core.ThinkingConfig{
+	return &ir.ThinkingConfig{
 		Enabled:         cfg.Enabled,
 		Effort:          effort,
 		BudgetTokens:    cfg.BudgetTokens,
@@ -2743,29 +2743,29 @@ func buildThinkingConfig(cfg *thinkingConfig) (*core.ThinkingConfig, error) {
 }
 
 // buildStepMessages parses the messages field for chat steps.
-func buildStepMessages(s *step, result *core.Step) error {
+func buildStepMessages(s *step, result *ir.Step) error {
 	if len(s.Messages) == 0 {
 		return nil
 	}
 
-	result.Messages = make([]core.LLMMessage, len(s.Messages))
+	result.Messages = make([]ir.LLMMessage, len(s.Messages))
 	for i, msg := range s.Messages {
 		if msg.Role == "" {
-			return core.NewValidationError(
+			return ir.NewValidationError(
 				fmt.Sprintf("messages[%d].role", i), msg.Role,
 				fmt.Errorf("role is required"))
 		}
-		role, err := core.ParseLLMRole(msg.Role)
+		role, err := ir.ParseLLMRole(msg.Role)
 		if err != nil {
-			return core.NewValidationError(
+			return ir.NewValidationError(
 				fmt.Sprintf("messages[%d].role", i), msg.Role, err)
 		}
 		if msg.Content == "" {
-			return core.NewValidationError(
+			return ir.NewValidationError(
 				fmt.Sprintf("messages[%d].content", i), msg.Content,
 				fmt.Errorf("content is required"))
 		}
-		result.Messages[i] = core.LLMMessage{
+		result.Messages[i] = ir.LLMMessage{
 			Role:    role,
 			Content: msg.Content,
 		}
@@ -2775,7 +2775,7 @@ func buildStepMessages(s *step, result *core.Step) error {
 }
 
 // buildStepRouter parses the router configuration from step fields.
-func buildStepRouter(_ stepBuildContext, s *step, result *core.Step) error {
+func buildStepRouter(_ stepBuildContext, s *step, result *ir.Step) error {
 	if s.Type != "router" {
 		return nil
 	}
@@ -2783,26 +2783,26 @@ func buildStepRouter(_ stepBuildContext, s *step, result *core.Step) error {
 	// Trim and validate value
 	s.Value = strings.TrimSpace(s.Value)
 	if s.Value == "" {
-		return core.NewValidationError("value", nil,
+		return ir.NewValidationError("value", nil,
 			fmt.Errorf("router step requires 'value' field"))
 	}
 	if len(s.Routes) == 0 {
-		return core.NewValidationError("routes", nil,
+		return ir.NewValidationError("routes", nil,
 			fmt.Errorf("router step requires at least one route"))
 	}
 
 	// Convert map to ordered entries
-	var routes []core.RouteEntry
+	var routes []ir.RouteEntry
 	for pattern, targets := range s.Routes {
 		// Trim and validate pattern
 		pattern = strings.TrimSpace(pattern)
 		if pattern == "" {
-			return core.NewValidationError("routes", nil,
+			return ir.NewValidationError("routes", nil,
 				fmt.Errorf("route pattern cannot be empty"))
 		}
 
 		if len(targets) == 0 {
-			return core.NewValidationError("routes", pattern,
+			return ir.NewValidationError("routes", pattern,
 				fmt.Errorf("route pattern %q has no targets", pattern))
 		}
 
@@ -2811,13 +2811,13 @@ func buildStepRouter(_ stepBuildContext, s *step, result *core.Step) error {
 		for _, target := range targets {
 			target = strings.TrimSpace(target)
 			if target == "" {
-				return core.NewValidationError("routes", pattern,
+				return ir.NewValidationError("routes", pattern,
 					fmt.Errorf("route pattern %q has empty target", pattern))
 			}
 			trimmedTargets = append(trimmedTargets, target)
 		}
 
-		routes = append(routes, core.RouteEntry{
+		routes = append(routes, ir.RouteEntry{
 			Pattern: pattern,
 			Targets: trimmedTargets,
 		})
@@ -2840,26 +2840,23 @@ func buildStepRouter(_ stepBuildContext, s *step, result *core.Step) error {
 		return routes[i].Pattern < routes[j].Pattern
 	})
 
-	result.Router = &core.RouterConfig{
+	result.Router = &ir.RouterConfig{
 		Value:  s.Value,
 		Routes: routes,
 	}
-	result.ExecutorConfig.Type = core.ExecutorTypeRouter
+	result.ExecutorConfig.Type = ir.ExecutorTypeRouter
 
 	return nil
 }
 
 // buildStepApproval parses the approval configuration for a step.
-func buildStepApproval(_ stepBuildContext, s *step, result *core.Step) error {
+func buildStepApproval(_ stepBuildContext, s *step, result *ir.Step) error {
 	if s.Approval == nil {
 		return nil
 	}
-	result.Approval = &core.ApprovalConfig{
-		Prompt:   s.Approval.Prompt,
-		Input:    s.Approval.Input,
-		Required: s.Approval.Required,
-		RewindTo: strings.TrimSpace(s.Approval.RewindTo),
-	}
+	approval := ir.ApprovalConfig(*s.Approval)
+	approval.RewindTo = strings.TrimSpace(approval.RewindTo)
+	result.Approval = &approval
 	// Validate required fields are subset of input
 	for _, req := range result.Approval.Required {
 		if !slices.Contains(result.Approval.Input, req) {
@@ -2869,8 +2866,8 @@ func buildStepApproval(_ stepBuildContext, s *step, result *core.Step) error {
 	return nil
 }
 
-// buildStepSubDAG parses the child core.DAG definition and sets up the step to run a sub DAG.
-func buildStepSubDAG(ctx stepBuildContext, s *step, result *core.Step) error {
+// buildStepSubDAG parses the child ir.DAG definition and sets up the step to run a sub DAG.
+func buildStepSubDAG(ctx stepBuildContext, s *step, result *ir.Step) error {
 	name := strings.TrimSpace(s.Call)
 
 	// if the call field is not set, return nil.
@@ -2878,7 +2875,7 @@ func buildStepSubDAG(ctx stepBuildContext, s *step, result *core.Step) error {
 		return nil
 	}
 
-	// Parse params similar to how core.DAG params are parsed
+	// Parse params similar to how ir.DAG params are parsed
 	var paramsStr string
 	if s.Params != nil {
 		// Parse the params to convert them to string format
@@ -2886,7 +2883,7 @@ func buildStepSubDAG(ctx stepBuildContext, s *step, result *core.Step) error {
 		ctxCopy.opts.Flags |= buildFlagNoEval // Disable evaluation for params parsing
 		paramPairs, err := parseParamValue(ctxCopy.buildContext, s.Params)
 		if err != nil {
-			return core.NewValidationError("params", s.Params, err)
+			return ir.NewValidationError("params", s.Params, err)
 		}
 
 		// Convert to string format "key=value key=value ..."
@@ -2907,32 +2904,32 @@ func buildStepSubDAG(ctx stepBuildContext, s *step, result *core.Step) error {
 		paramsStr = strings.Join(paramsToJoin, " ")
 	}
 
-	result.SubDAG = &core.SubDAG{Name: name, Params: paramsStr}
+	result.SubDAG = &ir.SubDAG{Name: name, Params: paramsStr}
 
 	// Set executor type based on whether parallel execution is configured
 	if result.Parallel != nil {
-		result.ExecutorConfig.Type = core.ExecutorTypeParallel
+		result.ExecutorConfig.Type = ir.ExecutorTypeParallel
 	} else {
-		result.ExecutorConfig.Type = core.ExecutorTypeDAG
+		result.ExecutorConfig.Type = ir.ExecutorTypeDAG
 	}
 
 	return nil
 }
 
-// parseParallelItems converts an array of any type to core.ParallelItem slice
-func parseParallelItems(items []any) ([]core.ParallelItem, error) {
-	var result []core.ParallelItem
+// parseParallelItems converts an array of any type to ir.ParallelItem slice
+func parseParallelItems(items []any) ([]ir.ParallelItem, error) {
+	var result []ir.ParallelItem
 
 	for _, item := range items {
 		switch v := item.(type) {
 		case string:
-			result = append(result, core.ParallelItem{Value: v})
+			result = append(result, ir.ParallelItem{Value: v})
 
 		case int, int64, uint64, float64:
-			result = append(result, core.ParallelItem{Value: fmt.Sprintf("%v", v)})
+			result = append(result, ir.ParallelItem{Value: fmt.Sprintf("%v", v)})
 
 		case map[string]any:
-			params := make(collections.DeterministicMap)
+			params := make(map[string]string)
 			for key, val := range v {
 				var strVal string
 				switch pv := val.(type) {
@@ -2953,7 +2950,7 @@ func parseParallelItems(items []any) ([]core.ParallelItem, error) {
 				}
 				params[key] = strVal
 			}
-			result = append(result, core.ParallelItem{Params: params})
+			result = append(result, ir.ParallelItem{Params: params})
 
 		default:
 			return nil, fmt.Errorf("parallel items must be strings, numbers, or objects, got %T", v)

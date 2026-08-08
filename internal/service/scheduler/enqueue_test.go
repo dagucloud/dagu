@@ -11,9 +11,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -44,20 +45,20 @@ steps:
 		"",
 		dag.DAG,
 		runID,
-		core.TriggerTypeCatchUp,
+		ir.TriggerTypeCatchUp,
 		scheduleTime,
 		"prod",
 	)
 	require.NoError(t, err)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dag.Name, runID))
+	attempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(th.Context)
 	require.NoError(t, err)
 
-	require.Equal(t, core.Queued, status.Status)
-	require.Equal(t, core.TriggerTypeCatchUp, status.TriggerType)
+	require.Equal(t, ir.Queued, status.Status)
+	require.Equal(t, ir.TriggerTypeCatchUp, status.TriggerType)
 	require.Equal(t, stringutil.FormatTime(scheduleTime), status.ScheduleTime)
 	require.Equal(t, "prod", status.ProfileName)
 	require.NotEmpty(t, status.Log)
@@ -69,7 +70,7 @@ steps:
 
 	ref, err := items[0].Data()
 	require.NoError(t, err)
-	assert.Equal(t, exec.NewDAGRunRef(dag.Name, runID), *ref)
+	assert.Equal(t, dagrun.NewDAGRunRef(dag.Name, runID), *ref)
 }
 
 func TestEnqueueCatchupRun_RehydratesFullDAGBeforePersisting(t *testing.T) {
@@ -111,19 +112,19 @@ steps:
 		"",
 		metadataOnly,
 		runID,
-		core.TriggerTypeCatchUp,
+		ir.TriggerTypeCatchUp,
 		scheduleTime,
 		"",
 	)
 	require.NoError(t, err)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dag.Name, runID))
+	attempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 
 	persisted, err := attempt.ReadDAG(th.Context)
 	require.NoError(t, err)
 	require.Len(t, persisted.Secrets, 1)
-	assert.Equal(t, core.SecretRef{
+	assert.Equal(t, secretref.Ref{
 		Name:     "EXPORTED_SECRET",
 		Provider: "env",
 		Key:      "SECRET_SOURCE",
@@ -181,20 +182,20 @@ steps:
 		workspaceBaseConfigDir,
 		metadataOnly,
 		runID,
-		core.TriggerTypeCatchUp,
+		ir.TriggerTypeCatchUp,
 		time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
 		"",
 	)
 	require.NoError(t, err)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, exec.NewDAGRunRef(dag.Name, runID))
+	attempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 	persisted, err := attempt.ReadDAG(th.Context)
 	require.NoError(t, err)
 
-	resolvedEnv, err := spec.ResolveEnv(th.Context, persisted, nil, spec.ResolveEnvOptions{})
+	resolvedEnv, err := spec.ResolveRuntimeEnv(th.Context, persisted, nil, spec.ResolveEnvOptions{})
 	require.NoError(t, err)
-	env := buildenv.ToMap(resolvedEnv)
+	env := buildenv.ToMap(resolvedEnv.Env)
 	require.Equal(t, "from-workspace", env["GREETING"])
 	require.Equal(t, "only-in-workspace", env["OPS_ONLY"])
 }

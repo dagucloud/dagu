@@ -10,20 +10,20 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
 type historyStoreOption func(*historyStore)
 
 // WithPreparedAttempt reuses an attempt that was opened by Dagu before runtime execution.
-func WithPreparedAttempt(attempt exec.DAGRunAttempt) historyStoreOption {
+func WithPreparedAttempt(attempt dagrun.DAGRunAttempt) historyStoreOption {
 	return func(s *historyStore) {
 		s.preparedAttempt = attempt
 	}
 }
 
 // NewHistoryStore uses Dagu's run history store as the runtime run-state store.
-func NewHistoryStore(store exec.DAGRunStore, opts ...historyStoreOption) Store {
+func NewHistoryStore(store dagrun.DAGRunStore, opts ...historyStoreOption) Store {
 	s := &historyStore{store: store}
 	for _, opt := range opts {
 		opt(s)
@@ -32,13 +32,13 @@ func NewHistoryStore(store exec.DAGRunStore, opts ...historyStoreOption) Store {
 }
 
 type historyStore struct {
-	store           exec.DAGRunStore
-	preparedAttempt exec.DAGRunAttempt
+	store           dagrun.DAGRunStore
+	preparedAttempt dagrun.DAGRunAttempt
 }
 
 func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest) (Attempt, error) {
 	if s.store == nil {
-		return wrapDAGRunAttempt(exec.NewNoopDAGRunAttempt(noopAttemptID(req), req.DAG)), nil
+		return wrapDAGRunAttempt(dagrun.NewNoopDAGRunAttempt(noopAttemptID(req), req.DAG)), nil
 	}
 
 	if req.DAG != nil && req.DAG.HistRetentionRuns == 0 {
@@ -47,7 +47,7 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 		}
 	}
 
-	var attempt exec.DAGRunAttempt
+	var attempt dagrun.DAGRunAttempt
 	if s.preparedAttempt != nil {
 		if req.AttemptID != "" && s.preparedAttempt.ID() != req.AttemptID {
 			return nil, fmt.Errorf(
@@ -67,7 +67,7 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 	}
 
 	if req.DAG != nil && req.DAG.HistRetentionRuns > 0 {
-		if _, err := s.store.RemoveOldDAGRuns(ctx, req.DAG.Name, 0, exec.WithRetentionRuns(req.DAG.HistRetentionRuns)); err != nil {
+		if _, err := s.store.RemoveOldDAGRuns(ctx, req.DAG.Name, 0, dagrun.WithRetentionRuns(req.DAG.HistRetentionRuns)); err != nil {
 			logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
 		}
 	}
@@ -75,9 +75,9 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 	return wrapDAGRunAttempt(attempt), nil
 }
 
-func (s *historyStore) OpenAttempt(ctx context.Context, ref exec.DAGRunRef) (Attempt, error) {
+func (s *historyStore) OpenAttempt(ctx context.Context, ref dagrun.DAGRunRef) (Attempt, error) {
 	if s.store == nil {
-		return nil, exec.ErrNoopAttemptNotSupported
+		return nil, dagrun.ErrNoopAttemptNotSupported
 	}
 	attempt, err := s.store.FindAttempt(ctx, ref)
 	if err != nil {
@@ -86,9 +86,9 @@ func (s *historyStore) OpenAttempt(ctx context.Context, ref exec.DAGRunRef) (Att
 	return wrapDAGRunAttempt(attempt), nil
 }
 
-func (s *historyStore) OpenChildAttempt(ctx context.Context, root exec.DAGRunRef, childRunID string) (Attempt, error) {
+func (s *historyStore) OpenChildAttempt(ctx context.Context, root dagrun.DAGRunRef, childRunID string) (Attempt, error) {
 	if s.store == nil {
-		return nil, exec.ErrNoopAttemptNotSupported
+		return nil, dagrun.ErrNoopAttemptNotSupported
 	}
 	attempt, err := s.store.FindSubAttempt(ctx, root, childRunID)
 	if err != nil {
@@ -97,8 +97,8 @@ func (s *historyStore) OpenChildAttempt(ctx context.Context, root exec.DAGRunRef
 	return wrapDAGRunAttempt(attempt), nil
 }
 
-func dagRunAttemptOptions(req BeginAttemptRequest) exec.NewDAGRunAttemptOptions {
-	opts := exec.NewDAGRunAttemptOptions{
+func dagRunAttemptOptions(req BeginAttemptRequest) dagrun.NewDAGRunAttemptOptions {
+	opts := dagrun.NewDAGRunAttemptOptions{
 		Retry:     req.Retry,
 		AttemptID: req.AttemptID,
 	}

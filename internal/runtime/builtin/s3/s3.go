@@ -11,7 +11,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/minio/minio-go/v7"
 )
@@ -32,10 +34,10 @@ var (
 )
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, core.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
 }
 
-func validateStep(step core.Step) error {
+func validateStep(step ir.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
 	}
@@ -45,7 +47,7 @@ func validateStep(step core.Step) error {
 		command = step.Commands[0].Command
 	}
 	if strings.TrimSpace(command) == "" {
-		return core.NewValidationError("command", nil, fmt.Errorf("%w: command is required (upload, download, list, delete)", ErrConfig))
+		return ir.NewValidationError("command", nil, fmt.Errorf("%w: command is required (upload, download, list, delete)", ErrConfig))
 	}
 	return nil
 }
@@ -64,7 +66,7 @@ type executorImpl struct {
 	closed    bool
 }
 
-func newExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	cfg := DefaultConfig()
 
 	// Get DAG-level S3 config from context and apply as defaults

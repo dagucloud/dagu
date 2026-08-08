@@ -11,13 +11,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-var _ exec.WorkerHeartbeatStore = (*WorkerHeartbeatStore)(nil)
+var _ dispatch.WorkerHeartbeatStore = (*WorkerHeartbeatStore)(nil)
 
-// WorkerHeartbeatStore implements [exec.WorkerHeartbeatStore].
+// WorkerHeartbeatStore implements [dispatch.WorkerHeartbeatStore].
 // No secondary indices are needed; workerID is the primary key.
 type WorkerHeartbeatStore struct {
 	col persis.Collection
@@ -29,7 +29,7 @@ func NewWorkerHeartbeatStore(col persis.Collection) *WorkerHeartbeatStore {
 }
 
 // Upsert inserts or overwrites the heartbeat record for a worker.
-func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record exec.WorkerHeartbeatRecord) error {
+func (s *WorkerHeartbeatStore) Upsert(ctx context.Context, record dispatch.WorkerHeartbeatRecord) error {
 	if record.WorkerID == "" {
 		return fmt.Errorf("worker heartbeat store: workerID is required")
 	}
@@ -55,40 +55,40 @@ func workerHeartbeatKey(workerID string) string {
 }
 
 // Get retrieves the heartbeat record for a specific worker.
-func (s *WorkerHeartbeatStore) Get(ctx context.Context, workerID string) (*exec.WorkerHeartbeatRecord, error) {
+func (s *WorkerHeartbeatStore) Get(ctx context.Context, workerID string) (*dispatch.WorkerHeartbeatRecord, error) {
 	if workerID == "" {
-		return nil, exec.ErrWorkerHeartbeatNotFound
+		return nil, dispatch.ErrWorkerHeartbeatNotFound
 	}
 	return s.getByCollectionID(ctx, workerHeartbeatKey(workerID))
 }
 
-func (s *WorkerHeartbeatStore) getByCollectionID(ctx context.Context, collectionID string) (*exec.WorkerHeartbeatRecord, error) {
+func (s *WorkerHeartbeatStore) getByCollectionID(ctx context.Context, collectionID string) (*dispatch.WorkerHeartbeatRecord, error) {
 	rec, err := s.col.Get(ctx, collectionID)
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
-			return nil, exec.ErrWorkerHeartbeatNotFound
+			return nil, dispatch.ErrWorkerHeartbeatNotFound
 		}
 		return nil, err
 	}
-	var r exec.WorkerHeartbeatRecord
+	var r dispatch.WorkerHeartbeatRecord
 	if err := persis.Decode(rec, &r); err != nil {
 		return nil, fmt.Errorf("worker heartbeat store: decode %q: %w", collectionID, err)
 	}
 	if r.WorkerID == "" {
-		return nil, exec.ErrWorkerHeartbeatNotFound
+		return nil, dispatch.ErrWorkerHeartbeatNotFound
 	}
 	return &r, nil
 }
 
 // List returns all heartbeat records.
-func (s *WorkerHeartbeatStore) List(ctx context.Context) ([]exec.WorkerHeartbeatRecord, error) {
+func (s *WorkerHeartbeatStore) List(ctx context.Context) ([]dispatch.WorkerHeartbeatRecord, error) {
 	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]exec.WorkerHeartbeatRecord, 0, len(recs))
+	out := make([]dispatch.WorkerHeartbeatRecord, 0, len(recs))
 	for _, rec := range recs {
-		var r exec.WorkerHeartbeatRecord
+		var r dispatch.WorkerHeartbeatRecord
 		if err := persis.Decode(rec, &r); err != nil || r.WorkerID == "" {
 			continue
 		}
@@ -106,7 +106,7 @@ func (s *WorkerHeartbeatStore) DeleteStale(ctx context.Context, before time.Time
 	}
 	removed := 0
 	for _, rec := range recs {
-		var r exec.WorkerHeartbeatRecord
+		var r dispatch.WorkerHeartbeatRecord
 		if err := persis.Decode(rec, &r); err != nil || r.WorkerID == "" {
 			continue
 		}
@@ -121,7 +121,7 @@ func (s *WorkerHeartbeatStore) DeleteStale(ctx context.Context, before time.Time
 			}
 			return removed, err
 		}
-		var currentR exec.WorkerHeartbeatRecord
+		var currentR dispatch.WorkerHeartbeatRecord
 		if err := persis.Decode(current, &currentR); err != nil {
 			continue
 		}

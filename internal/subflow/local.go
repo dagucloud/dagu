@@ -10,19 +10,25 @@ import (
 	"path/filepath"
 	"sync"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -31,16 +37,16 @@ import (
 // Local runs child workflows in the current process through the runtime agent.
 type Local struct {
 	dagRunMgr                runtime.Manager
-	dagStore                 exec.DAGStore
-	dagRunStore              exec.DAGRunStore
+	dagStore                 dagstore.DAGStore
+	dagRunStore              dagrun.DAGRunStore
 	runStateStore            runstate.Store
-	queueStore               exec.QueueStore
+	queueStore               queue.QueueStore
 	stateStore               dagstate.Store
 	secretStore              secretpkg.Store
 	profileStore             profilepkg.Store
-	serviceRegistry          exec.ServiceRegistry
+	serviceRegistry          serviceregistry.ServiceRegistry
 	statusPusher             runtime.StatusPusher
-	logWriterFactory         exec.LogWriterFactory
+	logWriterFactory         runctx.LogWriterFactory
 	artifactFinalizer        runtime.ArtifactFinalizer
 	subWorkflowRunnerFactory rtagent.SubWorkflowRunnerFactory
 	workerID                 string
@@ -65,7 +71,7 @@ func WithLocalToolInstaller(installer dagutools.Installer) LocalOption {
 }
 
 // WithLocalDAGRunStore sets the dag-run store used by child workflow agents.
-func WithLocalDAGRunStore(store exec.DAGRunStore) LocalOption {
+func WithLocalDAGRunStore(store dagrun.DAGRunStore) LocalOption {
 	return func(r *Local) {
 		r.dagRunStore = store
 	}
@@ -79,7 +85,7 @@ func WithLocalRunStateStore(store runstate.Store) LocalOption {
 }
 
 // WithLocalQueueStore sets the queue store used by child workflow agents.
-func WithLocalQueueStore(store exec.QueueStore) LocalOption {
+func WithLocalQueueStore(store queue.QueueStore) LocalOption {
 	return func(r *Local) {
 		r.queueStore = store
 	}
@@ -107,7 +113,7 @@ func WithLocalProfileStore(store profilepkg.Store) LocalOption {
 }
 
 // WithLocalServiceRegistry sets the service registry used by child workflow agents.
-func WithLocalServiceRegistry(registry exec.ServiceRegistry) LocalOption {
+func WithLocalServiceRegistry(registry serviceregistry.ServiceRegistry) LocalOption {
 	return func(r *Local) {
 		r.serviceRegistry = registry
 	}
@@ -121,7 +127,7 @@ func WithLocalStatusPusher(pusher runtime.StatusPusher) LocalOption {
 }
 
 // WithLocalLogWriterFactory sets the log writer factory used by child workflow agents.
-func WithLocalLogWriterFactory(factory exec.LogWriterFactory) LocalOption {
+func WithLocalLogWriterFactory(factory runctx.LogWriterFactory) LocalOption {
 	return func(r *Local) {
 		r.logWriterFactory = factory
 	}
@@ -157,7 +163,7 @@ func WithLocalDAGRunDirs(logDir, artifactDir string) LocalOption {
 }
 
 // NewLocal creates an in-process child workflow runner.
-func NewLocal(dagRunMgr runtime.Manager, dagStore exec.DAGStore, opts ...LocalOption) *Local {
+func NewLocal(dagRunMgr runtime.Manager, dagStore dagstore.DAGStore, opts ...LocalOption) *Local {
 	r := &Local{
 		dagRunMgr: dagRunMgr,
 		dagStore:  dagStore,
@@ -185,7 +191,7 @@ func (r *Local) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) bo
 }
 
 // Run executes a child workflow in the current process.
-func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec.RunStatus, error) {
+func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
 	if err := validateInProcessRequest(req); err != nil {
 		return nil, err
 	}
@@ -205,7 +211,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 		result.PendingStepRetries = nil
 		return result, nil
 	}
-	if req.ExternalStepRetry && retryTarget != nil && retryTarget.Status == core.Succeeded {
+	if req.ExternalStepRetry && retryTarget != nil && retryTarget.Status == ir.Succeeded {
 		return statusToRunStatus(retryTarget, req.RunID), nil
 	}
 
@@ -216,7 +222,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 	defer cleanup()
 
 	opts := rtagent.Options{
-		TriggerType: core.TriggerTypeSubDAG,
+		TriggerType: ir.TriggerTypeSubDAG,
 	}
 	if retryTarget != nil {
 		opts.RetryTarget = retryTarget
@@ -231,7 +237,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 }
 
 // Retry retries a child workflow step in the current process.
-func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
+func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
 	if err := validateInProcessRequest(req.SubWorkflowRequest); err != nil {
 		return nil, err
 	}
@@ -264,8 +270,8 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 	return r.runAgent(ctx, req.RunID, child)
 }
 
-func (r *Local) validateBuildDAG(dag *core.DAG) error {
-	if dag.Type == core.TypeBuild && exec.IsRemoteWorkerID(r.workerID) {
+func (r *Local) validateBuildDAG(dag *ir.DAG) error {
+	if dag.Type == ir.TypeBuild && dispatch.IsRemoteWorkerID(r.workerID) {
 		return dispatch.ErrBuildRequiresLocal
 	}
 	return nil
@@ -274,10 +280,10 @@ func (r *Local) validateBuildDAG(dag *core.DAG) error {
 func (r *Local) existingChildRetryTarget(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*exec.DAGRunStatus, error) {
+) (*dagrun.DAGRunStatus, error) {
 	retryTarget, err := r.existingChildStatus(ctx, req)
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) || errors.Is(err, errNoRunDatabase) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, errNoRunDatabase) {
 			return nil, nil
 		}
 		return nil, err
@@ -288,7 +294,7 @@ func (r *Local) existingChildRetryTarget(
 func (r *Local) existingChildStatus(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*exec.DAGRunStatus, error) {
+) (*dagrun.DAGRunStatus, error) {
 	if req.RootDAGRun.ID != "" && req.RunID != "" {
 		status, err := r.dagRunMgr.FindSubDAGRunStatus(ctx, req.RootDAGRun, req.RunID)
 		if err == nil {
@@ -297,7 +303,7 @@ func (r *Local) existingChildStatus(
 			}
 			return status, nil
 		}
-		if !errors.Is(err, exec.ErrNoStatusData) && !errors.Is(err, exec.ErrDAGRunIDNotFound) {
+		if !errors.Is(err, dagrun.ErrNoStatusData) && !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, fmt.Errorf("failed to find child workflow attempt: %w", err)
 		}
 	}
@@ -339,7 +345,7 @@ func (r *Local) Cancel(ctx context.Context, req executor.SubWorkflowCancelReques
 	}
 	attempt, err := runStateStore.OpenChildAttempt(ctx, req.RootDAGRun, req.RunID)
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunIDNotFound) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil
 		}
 		return fmt.Errorf("failed to find child workflow attempt: %w", err)
@@ -350,10 +356,10 @@ func (r *Local) Cancel(ctx context.Context, req executor.SubWorkflowCancelReques
 func (r *Local) newAgent(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-	dag *core.DAG,
+	dag *ir.DAG,
 	opts rtagent.Options,
 ) (*rtagent.Agent, error) {
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	logDir := r.dagRunLogDir
 	if logDir == "" {
 		logDir = rCtx.DAGRunLogDir
@@ -419,7 +425,7 @@ func (r *Local) newAgent(
 	), nil
 }
 
-func (r *Local) prepareDAGTools(ctx context.Context, rCtx exec.Context, dag *core.DAG) ([]string, error) {
+func (r *Local) prepareDAGTools(ctx context.Context, rCtx runctx.Context, dag *ir.DAG) ([]string, error) {
 	cfg := config.GetConfig(ctx)
 	workDir := ""
 	if dag != nil {
@@ -432,7 +438,7 @@ func (r *Local) prepareDAGTools(ctx context.Context, rCtx exec.Context, dag *cor
 	}, toolsBasePath(rCtx))
 }
 
-func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent) (*exec.RunStatus, error) {
+func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent) (*dagrun.RunStatus, error) {
 	r.mu.Lock()
 	r.active[runID] = child
 	r.mu.Unlock()
@@ -451,15 +457,15 @@ func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent
 	return result, nil
 }
 
-func (r *Local) dagStoreFromContext(_ context.Context) exec.DAGStore {
+func (r *Local) dagStoreFromContext(_ context.Context) dagstore.DAGStore {
 	return r.dagStore
 }
 
-func (r *Local) dagRunStoreFromContext(ctx context.Context) exec.DAGRunStore {
+func (r *Local) dagRunStoreFromContext(ctx context.Context) dagrun.DAGRunStore {
 	if r.dagRunStore != nil {
 		return r.dagRunStore
 	}
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	if rCtx.DAGRunStore != nil {
 		return rCtx.DAGRunStore
 	}
@@ -476,18 +482,18 @@ func (r *Local) runStateStoreFromContext(ctx context.Context) runstate.Store {
 	return nil
 }
 
-func (r *Local) queueStoreFromContext(ctx context.Context) exec.QueueStore {
+func (r *Local) queueStoreFromContext(ctx context.Context) queue.QueueStore {
 	if r.queueStore != nil {
 		return r.queueStore
 	}
-	return exec.GetContext(ctx).QueueStore
+	return runctx.GetContext(ctx).QueueStore
 }
 
 func (r *Local) stateStoreFromContext(ctx context.Context) dagstate.Store {
 	if r.stateStore != nil {
 		return r.stateStore
 	}
-	return exec.GetContext(ctx).StateStore
+	return runctx.GetContext(ctx).StateStore
 }
 
 func validateInProcessRequest(req executor.SubWorkflowRequest) error {
@@ -506,7 +512,7 @@ func validateInProcessRequest(req executor.SubWorkflowRequest) error {
 func loadInProcessDAG(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*core.DAG, func(), error) {
+) (*ir.DAG, func(), error) {
 	cleanup := func() {}
 	workDir := req.WorkDir
 	target := req.DAG.Location
@@ -522,7 +528,7 @@ func loadInProcessDAG(
 
 	loadOpts := inProcessLoadOptions(ctx, req, workDir)
 	var (
-		dag *core.DAG
+		dag *ir.DAG
 		err error
 	)
 	switch {
@@ -539,7 +545,7 @@ func loadInProcessDAG(
 	}
 	// Build paths remain anchored to the authored definition when a local
 	// child is reloaded from a temporary copy.
-	if req.DAG.Type == core.TypeBuild &&
+	if req.DAG.Type == ir.TypeBuild &&
 		!req.DAG.WorkingDirExplicit &&
 		!dag.WorkingDirExplicit &&
 		req.DAG.WorkingDir != "" {
@@ -586,15 +592,15 @@ func inProcessLoadOptions(
 	return loadOpts
 }
 
-func inProcessExtraEnvs(rCtx exec.Context, req executor.SubWorkflowRequest) []string {
+func inProcessExtraEnvs(rCtx runctx.Context, req executor.SubWorkflowRequest) []string {
 	envs := inheritedEnvForLocalRunner(rCtx.AllEnvs())
 	if req.ExternalStepRetry {
-		envs = append(envs, exec.EnvKeyExternalStepRetry+"=1")
+		envs = append(envs, runenv.EnvKeyExternalStepRetry+"=1")
 	}
 	return envs
 }
 
-func inProcessArtifactDir(ctx context.Context, dag *core.DAG, baseDir, runID string, retryTarget *exec.DAGRunStatus) (string, error) {
+func inProcessArtifactDir(ctx context.Context, dag *ir.DAG, baseDir, runID string, retryTarget *dagrun.DAGRunStatus) (string, error) {
 	if retryTarget != nil && retryTarget.ArchiveDir != "" {
 		return retryTarget.ArchiveDir, nil
 	}
@@ -614,10 +620,10 @@ func inProcessArtifactDir(ctx context.Context, dag *core.DAG, baseDir, runID str
 	return dir, nil
 }
 
-func inProcessRetryTriggerType(status *exec.DAGRunStatus) core.TriggerType {
-	triggerType := exec.PreservedQueueTriggerType(status)
-	if triggerType != core.TriggerTypeUnknown {
+func inProcessRetryTriggerType(status *dagrun.DAGRunStatus) ir.TriggerType {
+	triggerType := queue.PreservedQueueTriggerType(status)
+	if triggerType != ir.TriggerTypeUnknown {
 		return triggerType
 	}
-	return core.TriggerTypeRetry
+	return ir.TriggerTypeRetry
 }

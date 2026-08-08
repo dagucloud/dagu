@@ -17,8 +17,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Data is a thread-safe wrapper around NodeData.
@@ -29,13 +29,13 @@ type Data struct {
 
 // NodeData represents the data of a node.
 type NodeData struct {
-	Step  core.Step
+	Step  ir.Step
 	State NodeState
 }
 
 type NodeState struct {
 	// Status represents the state of the node.
-	Status core.NodeStatus
+	Status ir.NodeStatus
 	// Stdout is the log file path from the node.
 	Stdout string
 	// Stderr is the log file path for the error log (stderr).
@@ -63,10 +63,12 @@ type NodeState struct {
 	SkippedByRetry bool
 	// Error is the error that the executor encountered.
 	Error error
+	// PreconditionResults records the latest precondition evaluation.
+	PreconditionResults []dagrun.ConditionResult
 	// StatusDetails tracks independently executed items within the node.
-	StatusDetails []exec.NodeStatusDetail
+	StatusDetails []dagrun.NodeStatusDetail
 	// Build explains the materialization decision for this node.
-	Build *exec.BuildExecution
+	Build *dagrun.BuildExecution
 	// ExitCode is the exit code that the command exited with.
 	// It only makes sense when the node is a command executor.
 	ExitCode int
@@ -98,10 +100,10 @@ type NodeState struct {
 	// HumanTaskCompletedByID is the ID of the subject that completed the human task.
 	HumanTaskCompletedByID string
 	// ChatMessages stores the chat session messages for message passing between steps.
-	ChatMessages []exec.LLMMessage
+	ChatMessages []dagrun.LLMMessage
 	// ToolDefinitions stores the tool definitions that were available to the LLM during execution.
 	// This provides visibility into what tools/functions the LLM could call.
-	ToolDefinitions []exec.ToolDefinition
+	ToolDefinitions []dagrun.ToolDefinition
 	// ApprovalInputs stores key-value parameters provided during approval.
 	// These are available as environment variables in subsequent steps.
 	ApprovalInputs map[string]string
@@ -124,7 +126,7 @@ type NodeState struct {
 	// PushBackInputs stores inputs from the last push-back for env var injection.
 	PushBackInputs map[string]string
 	// PushBackHistory stores the chronological push-back feedback for this step.
-	PushBackHistory []exec.PushBackEntry
+	PushBackHistory []dagrun.PushBackEntry
 	// PushBackPreviousStdout stores the stdout log path from the execution that
 	// was reset by the latest push-back.
 	PushBackPreviousStdout string
@@ -142,8 +144,8 @@ type Parallel struct {
 // It combines the item data with a unique identifier for tracking.
 type ParallelItem struct {
 	// Item contains the actual data for this parallel execution.
-	// It can be either a simple value or a map of parameters from core.ParallelItem.
-	Item core.ParallelItem
+	// It can be either a simple value or a map of parameters from ir.ParallelItem.
+	Item ir.ParallelItem
 }
 
 // SubDAGRun represents a sub DAG execution within a parent DAG.
@@ -187,14 +189,14 @@ func (d *Data) ResetError() {
 	d.inner.State.ExitCode = 0
 }
 
-func (d *Data) SetExecutorConfig(cfg core.ExecutorConfig) {
+func (d *Data) SetExecutorConfig(cfg ir.ExecutorConfig) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	d.inner.Step.ExecutorConfig = cfg
 }
 
-func (d *Data) SetSubDAG(subDAG core.SubDAG) {
+func (d *Data) SetSubDAG(subDAG ir.SubDAG) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -218,12 +220,12 @@ func (d *Data) SetArgs(args []string) {
 	defer d.mu.Unlock()
 
 	if len(d.inner.Step.Commands) == 0 {
-		d.inner.Step.Commands = []core.CommandEntry{{}}
+		d.inner.Step.Commands = []ir.CommandEntry{{}}
 	}
 	d.inner.Step.Commands[0].Args = args
 }
 
-func (d *Data) Step() core.Step {
+func (d *Data) Step() ir.Step {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -237,7 +239,7 @@ func (d *Data) SetScript(script string) {
 	d.inner.Step.Script = script
 }
 
-func (s *Data) SetStep(step core.Step) {
+func (s *Data) SetStep(step ir.Step) {
 	// TODO: refactor to avoid modifying the step
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -263,11 +265,18 @@ func (d *Data) SetSubRuns(subRuns []SubDAGRun) {
 }
 
 // SetStatusDetails replaces the independently tracked execution statuses.
-func (d *Data) SetStatusDetails(details []exec.NodeStatusDetail) {
+func (d *Data) SetStatusDetails(details []dagrun.NodeStatusDetail) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.inner.State.StatusDetails = append([]exec.NodeStatusDetail(nil), details...)
+	d.inner.State.StatusDetails = append([]dagrun.NodeStatusDetail(nil), details...)
+}
+
+// SetPreconditionResults replaces the latest precondition evaluation results.
+func (d *Data) SetPreconditionResults(results []dagrun.ConditionResult) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.PreconditionResults = dagrun.CloneConditionResults(results)
 }
 
 // AddSubRunsRepeated appends repeated sub DAG runs to the node.
@@ -284,10 +293,10 @@ func (d *Data) Setup(ctx context.Context, logFile string, startedAt time.Time) e
 
 	// Determine effective log output mode using the DAG and step settings
 	rCtx := GetDAGContext(ctx)
-	logOutputMode := core.EffectiveLogOutput(rCtx.DAG, &d.inner.Step)
+	logOutputMode := ir.EffectiveLogOutput(rCtx.DAG, &d.inner.Step)
 
 	// Set log file paths based on the log output mode
-	if logOutputMode == core.LogOutputMerged {
+	if logOutputMode == ir.LogOutputMerged {
 		// Merged mode: both stdout and stderr go to the same .log file
 		d.inner.State.Stdout = logFile + ".log"
 		d.inner.State.Stderr = logFile + ".log"
@@ -344,21 +353,21 @@ func (d *Data) State() NodeState {
 	return d.inner.State
 }
 
-func (d *Data) Status() core.NodeStatus {
+func (d *Data) Status() ir.NodeStatus {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
 	return d.inner.State.Status
 }
 
-func (d *Data) SetStatus(s core.NodeStatus) {
+func (d *Data) SetStatus(s ir.NodeStatus) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	d.inner.State.Status = s
 }
 
-func (d *Data) setBuild(value exec.BuildExecution) {
+func (d *Data) setBuild(value dagrun.BuildExecution) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	copy := value
@@ -373,7 +382,7 @@ func (d *Data) OpenHumanTask(prompt string, startedAt time.Time) {
 	d.setHumanTaskPrompt(prompt)
 	d.inner.State.StartedAt = startedAt
 	d.inner.State.DoneCount++
-	d.inner.State.Status = core.NodeWaiting
+	d.inner.State.Status = ir.NodeWaiting
 }
 
 // CompleteHumanTaskDryRun records the resolved prompt and completes a dry-run task.
@@ -383,7 +392,7 @@ func (d *Data) CompleteHumanTaskDryRun(prompt string) {
 
 	d.setHumanTaskPrompt(prompt)
 	d.inner.State.DoneCount++
-	d.inner.State.Status = core.NodeSucceeded
+	d.inner.State.Status = ir.NodeSucceeded
 }
 
 func (d *Data) setHumanTaskPrompt(prompt string) {
@@ -511,7 +520,7 @@ func legacyOutputVariableValue(outputKey string, vars *collections.SyncMap) (str
 	return "", false
 }
 
-func (d *Data) ContinueOn() core.ContinueOn {
+func (d *Data) ContinueOn() ir.ContinueOn {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -759,7 +768,7 @@ func (d *Data) SetWorkingDir(workingDir string) {
 	d.inner.State.WorkingDir = workingDir
 }
 
-func (d *Data) ClearState(s core.Step) {
+func (d *Data) ClearState(s ir.Step) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -774,7 +783,7 @@ func (d *Data) MarkError(err error) {
 	defer d.mu.Unlock()
 
 	d.inner.State.Error = err
-	d.inner.State.Status = core.NodeFailed
+	d.inner.State.Status = ir.NodeFailed
 }
 
 // SetControllerState stores the controller's goal progress on the node.
@@ -785,28 +794,28 @@ func (d *Data) SetControllerState(raw json.RawMessage) {
 }
 
 // SetChatMessages sets the chat session messages for the node.
-func (d *Data) SetChatMessages(messages []exec.LLMMessage) {
+func (d *Data) SetChatMessages(messages []dagrun.LLMMessage) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.inner.State.ChatMessages = messages
 }
 
 // GetChatMessages returns the chat session messages for the node.
-func (d *Data) GetChatMessages() []exec.LLMMessage {
+func (d *Data) GetChatMessages() []dagrun.LLMMessage {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.inner.State.ChatMessages
 }
 
 // SetToolDefinitions sets the tool definitions that were available to the LLM.
-func (d *Data) SetToolDefinitions(tools []exec.ToolDefinition) {
+func (d *Data) SetToolDefinitions(tools []dagrun.ToolDefinition) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.inner.State.ToolDefinitions = tools
 }
 
 // GetToolDefinitions returns the tool definitions that were available to the LLM.
-func (d *Data) GetToolDefinitions() []exec.ToolDefinition {
+func (d *Data) GetToolDefinitions() []dagrun.ToolDefinition {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.inner.State.ToolDefinitions

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/stretchr/testify/assert"
@@ -337,7 +337,7 @@ steps:
 			require.NoError(t, err)
 			require.NotNil(t, dag.SMTP)
 			require.NotNil(t, dag.SMTP.OAuth)
-			assert.Equal(t, mailoauth.ProviderMicrosoft, dag.SMTP.OAuth.Provider)
+			assert.Equal(t, oauthconfig.ProviderMicrosoft, dag.SMTP.OAuth.Provider)
 		})
 
 		t.Run("ChildPasswordReplacesOAuth", func(t *testing.T) {
@@ -396,7 +396,7 @@ steps:
 		require.NoError(t, err)
 		require.NotNil(t, dag.SMTP)
 		require.NotNil(t, dag.SMTP.OAuth)
-		assert.Equal(t, mailoauth.ProviderGoogleRefresh, dag.SMTP.OAuth.Provider)
+		assert.Equal(t, oauthconfig.ProviderGoogleRefresh, dag.SMTP.OAuth.Provider)
 		assert.Empty(t, dag.SMTP.Host)
 		assert.Empty(t, dag.SMTP.Password)
 	})
@@ -563,7 +563,7 @@ steps:
 		require.NotNil(t, def)
 		assert.Equal(t, "aider", def.Binary)
 		assert.Nil(t, def.PrefixArgs)
-		assert.Equal(t, core.HarnessPromptModeStdin, def.PromptMode)
+		assert.Equal(t, ir.HarnessPromptModeStdin, def.PromptMode)
 		assert.Empty(t, def.PromptFlag)
 		assert.Nil(t, def.OptionFlags)
 	})
@@ -767,7 +767,7 @@ steps:
 		assert.Equal(t, "/base/logs", dag.LogDir)
 
 		// LogOutput inherited from base
-		assert.Equal(t, core.LogOutputMerged, dag.LogOutput)
+		assert.Equal(t, ir.LogOutputMerged, dag.LogOutput)
 
 		// HistRetentionDays inherited from base
 		assert.Equal(t, 90, dag.HistRetentionDays)
@@ -1142,7 +1142,7 @@ steps:
 		assert.Equal(t, "/override/logs", dag.LogDir)
 
 		// LogOutput overridden
-		assert.Equal(t, core.LogOutputSeparate, dag.LogOutput)
+		assert.Equal(t, ir.LogOutputSeparate, dag.LogOutput)
 
 		// HistRetentionDays overridden
 		assert.Equal(t, 7, dag.HistRetentionDays)
@@ -1545,7 +1545,7 @@ steps:
     run: echo hello
 `))
 		require.NoError(t, err)
-		assert.Equal(t, core.LogOutputMode(""), dag.LogOutput)
+		assert.Equal(t, ir.LogOutputMode(""), dag.LogOutput)
 	})
 
 	t.Run("DoesNotSynthesizeWorkingDirWithoutContext", func(t *testing.T) {
@@ -1572,7 +1572,7 @@ steps:
     run: echo two
 `))
 		require.NoError(t, err)
-		assert.Equal(t, core.TypeGraph, dag.Type)
+		assert.Equal(t, ir.TypeGraph, dag.Type)
 		require.Len(t, dag.Steps, 2)
 		assert.Empty(t, dag.Steps[1].Depends)
 	})
@@ -1595,7 +1595,7 @@ steps:
 
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
 		require.NoError(t, err)
-		assert.Equal(t, core.TypeGraph, dag.Type)
+		assert.Equal(t, ir.TypeGraph, dag.Type)
 		require.Len(t, dag.Steps, 2)
 		assert.Empty(t, dag.Steps[1].Depends)
 	})
@@ -1615,7 +1615,7 @@ steps:
 
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
 		require.NoError(t, err)
-		assert.Equal(t, core.TypeChain, dag.Type)
+		assert.Equal(t, ir.TypeChain, dag.Type)
 		require.Len(t, dag.Steps, 2)
 		assert.Equal(t, []string{"first"}, dag.Steps[1].Depends)
 	})
@@ -1634,7 +1634,7 @@ steps:
 
 		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
 		require.NoError(t, err)
-		assert.Equal(t, core.TypeChain, dag.Type)
+		assert.Equal(t, ir.TypeChain, dag.Type)
 		require.Len(t, dag.Steps, 2)
 		assert.Equal(t, []string{"first"}, dag.Steps[1].Depends)
 	})
@@ -1685,7 +1685,7 @@ steps:
 	assert.Equal(t, "child-task", childDAG.Name)
 	require.Len(t, childDAG.Steps, 1)
 	assert.Equal(t, "work", childDAG.Steps[0].Name)
-	assert.Equal(t, core.TypeGraph, childDAG.Type)
+	assert.Equal(t, ir.TypeGraph, childDAG.Type)
 }
 
 func TestLoadYAMLBuildLocalDAGUsesParentWorkingDirAsStableBase(t *testing.T) {
@@ -1870,13 +1870,13 @@ steps:
 `), spec.WithName("parent-task"), spec.WithBaseConfig(base))
 		require.NoError(t, err)
 
-		assert.Equal(t, core.TypeGraph, dag.Type)
+		assert.Equal(t, ir.TypeGraph, dag.Type)
 		require.Len(t, dag.Steps, 2)
 		assert.Empty(t, dag.Steps[1].Depends)
 
 		childDAG, ok := dag.LocalDAGs["child-task"]
 		require.True(t, ok)
-		assert.Equal(t, core.TypeGraph, childDAG.Type)
+		assert.Equal(t, ir.TypeGraph, childDAG.Type)
 		require.Len(t, childDAG.Steps, 2)
 		assert.Empty(t, childDAG.Steps[1].Depends)
 	})
@@ -1903,11 +1903,11 @@ steps:
 `), spec.WithName("parent-task"), spec.WithBaseConfig(base))
 		require.NoError(t, err)
 
-		assert.Equal(t, core.TypeGraph, dag.Type)
+		assert.Equal(t, ir.TypeGraph, dag.Type)
 
 		childDAG, ok := dag.LocalDAGs["child-task"]
 		require.True(t, ok)
-		assert.Equal(t, core.TypeChain, childDAG.Type)
+		assert.Equal(t, ir.TypeChain, childDAG.Type)
 		require.Len(t, childDAG.Steps, 2)
 		assert.Equal(t, []string{"work"}, childDAG.Steps[1].Depends)
 	})
@@ -2841,7 +2841,7 @@ steps:
 		tests := []struct {
 			name        string
 			spec        string
-			wantPolicy  *core.DAGRetryPolicy
+			wantPolicy  *ir.DAGRetryPolicy
 			errContains string
 		}{
 			{
@@ -2856,7 +2856,7 @@ retry_policy:
 steps:
   - run: echo hi
 `,
-				wantPolicy: &core.DAGRetryPolicy{
+				wantPolicy: &ir.DAGRetryPolicy{
 					Limit:          3,
 					Interval:       60 * time.Second,
 					IntervalSecStr: "60",
@@ -2873,7 +2873,7 @@ retry_policy:
 steps:
   - run: echo hi
 `,
-				wantPolicy: &core.DAGRetryPolicy{
+				wantPolicy: &ir.DAGRetryPolicy{
 					Limit:       0,
 					Interval:    60 * time.Second,
 					Backoff:     0,
@@ -2889,7 +2889,7 @@ retry_policy:
 steps:
   - run: echo hi
 `,
-				wantPolicy: &core.DAGRetryPolicy{
+				wantPolicy: &ir.DAGRetryPolicy{
 					Limit:       0,
 					Interval:    60 * time.Second,
 					Backoff:     0,
@@ -2907,7 +2907,7 @@ retry_policy:
 steps:
   - run: echo hi
 `,
-				wantPolicy: &core.DAGRetryPolicy{
+				wantPolicy: &ir.DAGRetryPolicy{
 					Limit:          2,
 					Interval:       5 * time.Second,
 					IntervalSecStr: "5",

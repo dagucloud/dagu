@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 )
 
@@ -85,7 +85,7 @@ func (e *Event) Normalize() {
 	}
 	if e.Kind == KindDAGRun &&
 		e.Type == TypeDAGRunSucceeded &&
-		e.Status == core.PartiallySucceeded.String() {
+		e.Status == ir.PartiallySucceeded.String() {
 		e.Type = TypeDAGRunPartiallySucceeded
 	}
 	if !e.RecordedAt.IsZero() {
@@ -233,7 +233,7 @@ func LLMUsageEventID(sessionID, messageID string) string {
 	return "llm_" + stableID(string(TypeLLMUsageRecorded), sessionID, messageID)
 }
 
-func NewDAGRunEvent(source Source, eventType EventType, status *exec.DAGRunStatus, data map[string]any) *Event {
+func NewDAGRunEvent(source Source, eventType EventType, status *dagrun.DAGRunStatus, data map[string]any) *Event {
 	if status == nil {
 		return nil
 	}
@@ -319,25 +319,25 @@ func NewLLMUsageEvent(
 	return event
 }
 
-func PersistedDAGRunEventTypeForStatus(status core.Status) (EventType, bool) {
+func PersistedDAGRunEventTypeForStatus(status ir.Status) (EventType, bool) {
 	switch status {
-	case core.NotStarted:
+	case ir.NotStarted:
 		return "", false
-	case core.Queued:
+	case ir.Queued:
 		return TypeDAGRunQueued, true
-	case core.Running:
+	case ir.Running:
 		return TypeDAGRunRunning, true
-	case core.Waiting:
+	case ir.Waiting:
 		return TypeDAGRunWaiting, true
-	case core.Succeeded:
+	case ir.Succeeded:
 		return TypeDAGRunSucceeded, true
-	case core.PartiallySucceeded:
+	case ir.PartiallySucceeded:
 		return TypeDAGRunPartiallySucceeded, true
-	case core.Failed:
+	case ir.Failed:
 		return TypeDAGRunFailed, true
-	case core.Aborted:
+	case ir.Aborted:
 		return TypeDAGRunAborted, true
-	case core.Rejected:
+	case ir.Rejected:
 		return TypeDAGRunRejected, true
 	default:
 		return "", false
@@ -354,7 +354,7 @@ func normalizeSource(source Source) Source {
 	return source
 }
 
-func dagRunOccurredAt(status *exec.DAGRunStatus, eventType EventType) time.Time {
+func dagRunOccurredAt(status *dagrun.DAGRunStatus, eventType EventType) time.Time {
 	if status == nil {
 		return time.Now().UTC()
 	}

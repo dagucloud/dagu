@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/hashicorp/vault/api"
 )
 
@@ -50,7 +50,7 @@ func (r *vaultResolver) Name() string {
 }
 
 // Validate checks if the secret reference is valid for Vault.
-func (r *vaultResolver) Validate(ref core.SecretRef) error {
+func (r *vaultResolver) Validate(ref secretref.Ref) error {
 	if strings.TrimSpace(ref.Key) == "" {
 		return fmt.Errorf("key (vault secret path) is required")
 	}
@@ -59,12 +59,12 @@ func (r *vaultResolver) Validate(ref core.SecretRef) error {
 
 // CheckCapability reports that the current Vault check implementation must
 // read the secret to verify field-level access.
-func (r *vaultResolver) CheckCapability(core.SecretRef) CheckCapability {
+func (r *vaultResolver) CheckCapability(secretref.Ref) CheckCapability {
 	return CheckCapabilityRequiresValueRead
 }
 
 // Resolve fetches the secret value from HashiCorp Vault.
-func (r *vaultResolver) Resolve(ctx context.Context, ref core.SecretRef) (string, error) {
+func (r *vaultResolver) Resolve(ctx context.Context, ref secretref.Ref) (string, error) {
 	client, err := r.getClient(ctx, ref)
 	if err != nil {
 		return "", err
@@ -103,7 +103,7 @@ func (r *vaultResolver) Resolve(ctx context.Context, ref core.SecretRef) (string
 }
 
 // CheckAccessibility verifies the secret is accessible without fetching its value.
-func (r *vaultResolver) CheckAccessibility(ctx context.Context, ref core.SecretRef) error {
+func (r *vaultResolver) CheckAccessibility(ctx context.Context, ref secretref.Ref) error {
 	client, err := r.getClient(ctx, ref)
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func (r *vaultResolver) CheckAccessibility(ctx context.Context, ref core.SecretR
 	return err
 }
 
-func (r *vaultResolver) getClient(ctx context.Context, ref core.SecretRef) (vaultClient, error) {
+func (r *vaultResolver) getClient(ctx context.Context, ref secretref.Ref) (vaultClient, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -145,7 +145,7 @@ func (r *vaultResolver) getClient(ctx context.Context, ref core.SecretRef) (vaul
 	return client, nil
 }
 
-func (r *vaultResolver) resolveClientSettings(ctx context.Context, ref core.SecretRef) vaultClientSettings {
+func (r *vaultResolver) resolveClientSettings(ctx context.Context, ref secretref.Ref) vaultClientSettings {
 	settings := vaultClientSettings{
 		address: api.DefaultAddress,
 	}
@@ -216,7 +216,7 @@ func (r *vaultResolver) newClient(settings vaultClientSettings) (vaultClient, er
 	return &realVaultClient{client: client}, nil
 }
 
-func (r *vaultResolver) parseKey(ref core.SecretRef) (string, string) {
+func (r *vaultResolver) parseKey(ref secretref.Ref) (string, string) {
 	if f, ok := ref.Options["field"]; ok && f != "" {
 		return ref.Key, f
 	}

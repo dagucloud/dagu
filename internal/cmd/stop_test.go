@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
@@ -36,7 +36,7 @@ func TestStopCommand(t *testing.T) {
 		}()
 
 		// Wait for the dag-run running.
-		dag.AssertLatestStatus(t, core.Running)
+		dag.AssertLatestStatus(t, ir.Running)
 
 		// Stop the dag-run.
 		th.RunCommand(t, cmd.Stop(), test.CmdTest{
@@ -44,7 +44,7 @@ func TestStopCommand(t *testing.T) {
 			ExpectedOut: []string{"stop/cancel completed"}})
 
 		// Check the dag-run is stopped.
-		dag.AssertLatestStatus(t, core.Aborted)
+		dag.AssertLatestStatus(t, ir.Aborted)
 		require.NoError(t, <-done)
 	})
 	t.Run("StopDAGRunWithRunID", func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestStopCommand(t *testing.T) {
 		}()
 
 		// Wait for the dag-run running
-		dag.AssertLatestStatus(t, core.Running)
+		dag.AssertLatestStatus(t, ir.Running)
 
 		// Stop the dag-run with a specific run ID.
 		th.RunCommand(t, cmd.Stop(), test.CmdTest{
@@ -74,7 +74,7 @@ func TestStopCommand(t *testing.T) {
 			ExpectedOut: []string{"stop/cancel completed"}})
 
 		// Check the dag-run is stopped.
-		dag.AssertLatestStatus(t, core.Aborted)
+		dag.AssertLatestStatus(t, ir.Aborted)
 		require.NoError(t, <-done)
 	})
 	t.Run("CancelFailedAutoRetryPendingDAGRunWithRunID", func(t *testing.T) {
@@ -98,7 +98,7 @@ steps:
 			ExpectedOut: []string{"stop/cancel completed"},
 		})
 
-		dag.AssertLatestStatus(t, core.Aborted)
+		dag.AssertLatestStatus(t, ir.Aborted)
 	})
 	t.Run("StopWithoutRunIDDoesNotCancelFailedAutoRetryPendingDAGRun", func(t *testing.T) {
 		t.Parallel()
@@ -121,7 +121,7 @@ steps:
 			ExpectedOut: []string{"No running DAG runs found"},
 		})
 
-		dag.AssertLatestStatus(t, core.Failed)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 }
 
@@ -133,13 +133,13 @@ func seedFailedAutoRetryPendingRun(t *testing.T, th test.Command, dag test.DAG, 
 		dag.DAG,
 		time.Now(),
 		dagRunID,
-		exec.NewDAGRunAttemptOptions{},
+		dagrun.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
 
 	status := transform.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
-		core.Failed,
+		ir.Failed,
 		0,
 		time.Now().Add(-time.Minute),
 		transform.WithAttemptID(attempt.ID()),

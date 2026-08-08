@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,14 +43,14 @@ func TestResolver_Members_WithInstances(t *testing.T) {
 			Host:   "host1",
 			Port:   8080,
 			PID:    1234,
-			Status: exec.ServiceStatusActive,
+			Status: serviceregistry.ServiceStatusActive,
 		},
 		{
 			ID:     "instance-2",
 			Host:   "host2",
 			Port:   8081,
 			PID:    1235,
-			Status: exec.ServiceStatusActive,
+			Status: serviceregistry.ServiceStatusActive,
 		},
 	}
 
@@ -93,14 +93,14 @@ func TestResolver_Members_FiltersStaleInstances(t *testing.T) {
 		Host:   "freshhost",
 		Port:   8080,
 		PID:    1234,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 	}
 	staleInstance := instanceInfo{
 		ID:     "stale",
 		Host:   "stalehost",
 		Port:   8081,
 		PID:    1235,
-		Status: exec.ServiceStatusInactive,
+		Status: serviceregistry.ServiceStatusInactive,
 	}
 
 	filename := instanceFilePath(tmpDir, "test-service", freshInstance.ID)
@@ -159,7 +159,7 @@ func TestResolver_Members_IgnoresInvalidFiles(t *testing.T) {
 		Host:   "validhost",
 		Port:   8080,
 		PID:    1234,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 	}
 	filename := instanceFilePath(tmpDir, "test-service", validInstance.ID)
 	err = writeInstanceFile(filename, &validInstance)
@@ -208,7 +208,7 @@ func TestResolver_Members_ContextCancellation(t *testing.T) {
 			Host:   "host",
 			Port:   8080 + i,
 			PID:    1000 + i,
-			Status: exec.ServiceStatusActive,
+			Status: serviceregistry.ServiceStatusActive,
 		}
 		filename := instanceFilePath(tmpDir, "test-service", inst.ID)
 		err := writeInstanceFile(filename, &inst)
@@ -241,7 +241,7 @@ func TestQuarantineStaleFileCreatesUniqueCopy(t *testing.T) {
 		Host:   "host",
 		Port:   8080,
 		PID:    42,
-		Status: exec.ServiceStatusInactive,
+		Status: serviceregistry.ServiceStatusInactive,
 	}
 	original := filepath.Join(serviceDir, "stale-node.json")
 	err = writeInstanceFile(original, &instance)
@@ -281,7 +281,7 @@ func TestQuarantineSkipsRecentlyTouchedFile(t *testing.T) {
 		Host:   "host",
 		Port:   8080,
 		PID:    42,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 	}
 	filename := filepath.Join(serviceDir, "fresh-node.json")
 	err = writeInstanceFile(filename, &instance)
@@ -314,7 +314,7 @@ func TestResolver_RealWorldScenario(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Simulate coordinator service registry
-	coordinatorFinder := newFinder(tmpDir, exec.ServiceNameCoordinator, true)
+	coordinatorFinder := newFinder(tmpDir, serviceregistry.ServiceNameCoordinator, true)
 	// Disable caching for this test to ensure we see updates immediately
 	coordinatorFinder.cacheDuration = 0
 
@@ -331,9 +331,9 @@ func TestResolver_RealWorldScenario(t *testing.T) {
 		Host:   "coord1.example.com",
 		Port:   9090,
 		PID:    2000,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 	}
-	filename := instanceFilePath(tmpDir, string(exec.ServiceNameCoordinator), coordinator1.ID)
+	filename := instanceFilePath(tmpDir, string(serviceregistry.ServiceNameCoordinator), coordinator1.ID)
 	err = writeInstanceFile(filename, &coordinator1)
 	require.NoError(t, err)
 
@@ -349,10 +349,10 @@ func TestResolver_RealWorldScenario(t *testing.T) {
 		ID:     "coordinator-secondary",
 		Host:   "coord2.example.com",
 		Port:   9090,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    2001,
 	}
-	filename = instanceFilePath(tmpDir, string(exec.ServiceNameCoordinator), coordinator2.ID)
+	filename = instanceFilePath(tmpDir, string(serviceregistry.ServiceNameCoordinator), coordinator2.ID)
 	err = writeInstanceFile(filename, &coordinator2)
 	require.NoError(t, err)
 
@@ -373,7 +373,7 @@ func TestResolver_Members_Caching(t *testing.T) {
 		ID:     "instance-1",
 		Host:   "host1",
 		Port:   8080,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1234,
 	}
 	filename := instanceFilePath(tmpDir, "test-service", instance1.ID)
@@ -394,7 +394,7 @@ func TestResolver_Members_Caching(t *testing.T) {
 		ID:     "instance-2",
 		Host:   "host2",
 		Port:   8081,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1235,
 	}
 	filename = instanceFilePath(tmpDir, "test-service", instance2.ID)
@@ -423,7 +423,7 @@ func TestResolver_Members_CacheExpiration(t *testing.T) {
 		ID:     "instance-1",
 		Host:   "host1",
 		Port:   8080,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1234,
 	}
 	filename := instanceFilePath(tmpDir, "test-service", instance1.ID)
@@ -445,7 +445,7 @@ func TestResolver_Members_CacheExpiration(t *testing.T) {
 		ID:     "instance-2",
 		Host:   "host2",
 		Port:   8081,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1235,
 	}
 	filename = instanceFilePath(tmpDir, "test-service", instance2.ID)
@@ -478,7 +478,7 @@ func TestResolver_Members_NoCacheForEmptyMembers(t *testing.T) {
 		ID:     "instance-1",
 		Host:   "host1",
 		Port:   8080,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1234,
 	}
 	filename := instanceFilePath(tmpDir, "test-service", instance.ID)
@@ -505,7 +505,7 @@ func TestResolver_Members_CacheConcurrency(t *testing.T) {
 			Host:   fmt.Sprintf("host%d", i),
 			Port:   8080 + i,
 			PID:    1234 + i,
-			Status: exec.ServiceStatusActive,
+			Status: serviceregistry.ServiceStatusActive,
 		}
 		filename := instanceFilePath(tmpDir, "test-service", inst.ID)
 		err := writeInstanceFile(filename, &inst)
@@ -517,7 +517,7 @@ func TestResolver_Members_CacheConcurrency(t *testing.T) {
 
 	// Run concurrent reads
 	const numGoroutines = 10
-	results := make(chan []exec.HostInfo, numGoroutines)
+	results := make(chan []serviceregistry.HostInfo, numGoroutines)
 	errors := make(chan error, numGoroutines)
 
 	for range numGoroutines {
@@ -553,7 +553,7 @@ func TestResolver_Members_CacheInvalidation(t *testing.T) {
 		ID:     "instance-1",
 		Host:   "host1",
 		Port:   8080,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1234,
 	}
 	filename := instanceFilePath(tmpDir, "test-service", instance1.ID)

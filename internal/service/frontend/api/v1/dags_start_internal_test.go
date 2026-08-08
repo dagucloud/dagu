@@ -16,9 +16,9 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/require"
@@ -61,7 +61,7 @@ func TestWaitForLocalDAGStartReturnsNilWhenStarterProcessStillAlive(t *testing.T
 	done := make(chan error)
 	started := currentProcessStartResult(t, done)
 
-	err := api.waitForLocalDAGStart(context.Background(), &core.DAG{Name: "pending"}, "run-1", started, time.Nanosecond)
+	err := api.waitForLocalDAGStart(context.Background(), &ir.DAG{Name: "pending"}, "run-1", started, time.Nanosecond)
 	require.NoError(t, err)
 }
 
@@ -75,7 +75,7 @@ func TestWaitForLocalDAGStartReturnsCanceledWhenContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := api.waitForLocalDAGStart(ctx, &core.DAG{Name: "pending"}, "run-1", started, time.Second)
+	err := api.waitForLocalDAGStart(ctx, &ir.DAG{Name: "pending"}, "run-1", started, time.Second)
 	require.Error(t, err)
 
 	var apiErr *Error
@@ -93,7 +93,7 @@ func TestWaitForLocalDAGStartReturnsErrorWhenStarterExitedWithoutStatus(t *testi
 	done <- errors.New("exit status 1")
 	close(done)
 
-	err := api.waitForLocalDAGStart(context.Background(), &core.DAG{Name: "pending"}, "run-1", &launcher.StartResult{
+	err := api.waitForLocalDAGStart(context.Background(), &ir.DAG{Name: "pending"}, "run-1", &launcher.StartResult{
 		PID:  1,
 		Done: done,
 	}, time.Nanosecond)
@@ -111,7 +111,7 @@ func newLocalStartTestAPI(t *testing.T) *API {
 	t.Helper()
 
 	tmpDir := t.TempDir()
-	dagRunStore := dagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 	return &API{
 		dagRunMgr: runtime.NewManager(dagRunStore, procStore, &config.Config{}),

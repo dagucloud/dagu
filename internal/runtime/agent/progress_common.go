@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"golang.org/x/term"
 )
 
@@ -32,13 +32,13 @@ func newProgressWriter() progressWriter {
 // statusIcon maps a run's final status to the mark shown on the closing line.
 // Success is explicit rather than the default, so a status outside the known
 // terminal set is never dressed up as one.
-func statusIcon(status core.Status) string {
+func statusIcon(status ir.Status) string {
 	switch status {
-	case core.Succeeded, core.PartiallySucceeded:
+	case ir.Succeeded, ir.PartiallySucceeded:
 		return "✓"
-	case core.Failed, core.Aborted:
+	case ir.Failed, ir.Aborted:
 		return "✗"
-	case core.Waiting:
+	case ir.Waiting:
 		return "⏸"
 	default:
 		return "●"
@@ -54,7 +54,7 @@ func (w *progressWriter) gray(s string) string {
 }
 
 // printHeader prints the run header line naming the DAG, run ID, and params.
-func (w *progressWriter) printHeader(dag *core.DAG, dagRunID, params string) {
+func (w *progressWriter) printHeader(dag *ir.DAG, dagRunID, params string) {
 	dagName := "unknown"
 	if dag != nil {
 		dagName = dag.Name

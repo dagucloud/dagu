@@ -12,10 +12,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
-var ErrInvalidQueryCursor = exec.ErrInvalidQueryCursor
+var ErrInvalidQueryCursor = dagrun.ErrInvalidQueryCursor
 
 // queryCursorVersion 2 reflects the filter hash JSON key migration from tags to labels.
 const queryCursorVersion = 2
@@ -28,7 +28,7 @@ type queryCursorPayload struct {
 	DAGRunID   string `json:"r"`
 }
 
-func encodeQueryCursor(opts exec.ListDAGRunStatusesOptions, key dagRunListKey) (string, error) {
+func encodeQueryCursor(opts dagrun.ListDAGRunStatusesOptions, key dagRunListKey) (string, error) {
 	payload := queryCursorPayload{
 		Version:    queryCursorVersion,
 		FilterHash: queryFilterHash(opts),
@@ -43,7 +43,7 @@ func encodeQueryCursor(opts exec.ListDAGRunStatusesOptions, key dagRunListKey) (
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
-func decodeQueryCursor(cursor string, opts exec.ListDAGRunStatusesOptions) (dagRunListKey, error) {
+func decodeQueryCursor(cursor string, opts dagrun.ListDAGRunStatusesOptions) (dagRunListKey, error) {
 	if cursor == "" {
 		return dagRunListKey{}, nil
 	}
@@ -79,7 +79,7 @@ func decodeQueryCursor(cursor string, opts exec.ListDAGRunStatusesOptions) (dagR
 	}, nil
 }
 
-func queryFilterHash(opts exec.ListDAGRunStatusesOptions) string {
+func queryFilterHash(opts dagrun.ListDAGRunStatusesOptions) string {
 	statuses := make([]int, 0, len(opts.Statuses))
 	for _, status := range opts.Statuses {
 		statuses = append(statuses, int(status))

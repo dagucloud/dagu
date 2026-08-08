@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,10 +16,10 @@ import (
 func TestMailerConfigFromSMTP(t *testing.T) {
 	t.Parallel()
 
-	config, err := mailerConfigFromSMTP(&core.SMTPConfig{
+	config, err := mailerConfigFromSMTP(&ir.SMTPConfig{
 		Username: "sender@example.com",
-		OAuth: &mailoauth.Config{
-			Provider: mailoauth.ProviderMicrosoft, TenantID: "tenant",
+		OAuth: &oauthconfig.Config{
+			Provider: oauthconfig.ProviderMicrosoft, TenantID: "tenant",
 			ClientID: "client", ClientSecret: "secret",
 		},
 	})

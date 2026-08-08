@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -144,9 +144,9 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, executionStatusTimeout())
+		status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.Len(t, status.Nodes, 2)
 		f.assertWorkerID(status, "worker-1")
 		f.assertAllNodesSucceeded(status)
@@ -170,9 +170,9 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, executionStatusTimeout())
+		status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assertLogContains(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "echo-step", expectedOutput)
 	})
 }
@@ -208,9 +208,9 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(30 * time.Second)
 
-	status := f.waitForStatus(core.Succeeded, executionStatusTimeout())
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
 
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 	f.assertAllNodesSucceeded(status)
 
 	expectedStepLogs := []struct {
@@ -264,8 +264,8 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(30 * time.Second)
 
-	running := f.waitForStatus(core.Running, executionStatusTimeout())
-	require.Equal(t, core.Running, running.Status)
+	running := f.waitForStatus(ir.Running, executionStatusTimeout())
+	require.Equal(t, ir.Running, running.Status)
 	require.NotEmpty(t, running.Log)
 
 	f.requireEventuallyNoSchedulerError(
@@ -274,7 +274,7 @@ steps:
 		100*time.Millisecond,
 		func() bool {
 			current, err := f.latestStoredStatus()
-			if err != nil || current.Status != core.Running {
+			if err != nil || current.Status != ir.Running {
 				return false
 			}
 
@@ -300,7 +300,7 @@ steps:
 	)
 
 	require.NoError(t, releaseStep())
-	status := f.waitForStatus(core.Succeeded, executionStatusTimeout())
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
 	f.assertAllNodesSucceeded(status)
 
 	stdoutFiles := findLogFiles(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "gated-step", "stdout")
@@ -341,9 +341,9 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(60 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, 45*time.Second)
+		status := f.waitForStatus(ir.Succeeded, 45*time.Second)
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 
 		logPath := assertLogExists(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "big-output")
 
@@ -379,9 +379,9 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, artifactExecutionStatusTimeout())
+		status := f.waitForStatus(ir.Succeeded, artifactExecutionStatusTimeout())
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.NotEmpty(t, status.ArchiveDir)
 		require.DirExists(t, status.ArchiveDir)
 		assert.True(t, strings.HasPrefix(status.ArchiveDir, filepath.Join(f.artifactDir(), f.dagWrapper.Name)+string(os.PathSeparator)))
@@ -406,9 +406,9 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Failed, artifactExecutionStatusTimeout())
+		status := f.waitForStatus(ir.Failed, artifactExecutionStatusTimeout())
 
-		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, ir.Failed, status.Status)
 		require.NotEmpty(t, status.ArchiveDir)
 		require.DirExists(t, status.ArchiveDir)
 		assert.True(t, strings.HasPrefix(status.ArchiveDir, filepath.Join(f.artifactDir(), f.dagWrapper.Name)+string(os.PathSeparator)))
@@ -433,9 +433,9 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, artifactExecutionStatusTimeout())
+		status := f.waitForStatus(ir.Succeeded, artifactExecutionStatusTimeout())
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.NotEmpty(t, status.ArchiveDir)
 		require.DirExists(t, status.ArchiveDir)
 		assert.True(t, strings.HasPrefix(status.ArchiveDir, filepath.Join(f.artifactDir(), f.dagWrapper.Name)+string(os.PathSeparator)))
@@ -463,8 +463,8 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, artifactExecutionStatusTimeout())
-		require.Equal(t, core.Succeeded, status.Status)
+		status := f.waitForStatus(ir.Succeeded, artifactExecutionStatusTimeout())
+		require.Equal(t, ir.Succeeded, status.Status)
 
 		stream, err := f.coordinatorClient.StreamArtifacts(f.coord.Context)
 		require.NoError(t, err)
@@ -508,9 +508,9 @@ steps:
 
 		require.NoError(t, f.start())
 
-		status := f.waitForStatus(core.Succeeded, directStartStatusTimeout())
+		status := f.waitForStatus(ir.Succeeded, directStartStatusTimeout())
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.Len(t, status.Nodes, 2)
 		f.assertAllNodesSucceeded(status)
 	})
@@ -533,9 +533,9 @@ steps:
 
 		require.NoError(t, f.start())
 
-		status := f.waitForStatus(core.Succeeded, directStartStatusTimeout())
+		status := f.waitForStatus(ir.Succeeded, directStartStatusTimeout())
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.Len(t, status.Nodes, 2)
 		f.assertAllNodesSucceeded(status)
 	})
@@ -558,9 +558,9 @@ steps:
 
 		require.NoError(t, f.startWithLabels("env=prod,team=backend"))
 
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
+		status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.Contains(t, status.Labels, "env=prod")
 		require.Contains(t, status.Labels, "team=backend")
 	})
@@ -587,9 +587,9 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
+		status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		f.assertAllNodesSucceeded(status)
 		assertLogContains(t, f.logDir(), f.dagWrapper.Name, status.DAGRunID, "read-from-workdir", "hello")
 	})
@@ -614,7 +614,7 @@ steps:
 
 		require.Eventually(t, func() bool {
 			status, err := f.latestStatus()
-			if err != nil || status.Status != core.Succeeded {
+			if err != nil || status.Status != ir.Succeeded {
 				return false
 			}
 
@@ -643,13 +643,13 @@ steps:
 
 		latest, err := f.latestStatus()
 		require.NoError(t, err)
-		require.Equal(t, core.Queued, latest.Status, "DAG should be in queued state before scheduler starts")
+		require.Equal(t, ir.Queued, latest.Status, "DAG should be in queued state before scheduler starts")
 
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
+		status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.Len(t, status.Nodes, 2)
 		f.assertAllNodesSucceeded(status)
 	})
@@ -676,10 +676,10 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
+		status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 
 		require.Equal(t, runID, status.DAGRunID)
-		require.Equal(t, core.TriggerTypeCatchUp, status.TriggerType)
+		require.Equal(t, ir.TriggerTypeCatchUp, status.TriggerType)
 		require.Equal(t, stringutil.FormatTime(scheduleTime), status.ScheduleTime)
 		require.NotEmpty(t, status.Log)
 		f.assertWorkerID(status, "worker-1")

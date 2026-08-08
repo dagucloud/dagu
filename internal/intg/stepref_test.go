@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +19,7 @@ func TestStepIDPropertyAccess(t *testing.T) {
 	tests := []struct {
 		name           string
 		yaml           string
-		expectedStatus core.Status
+		expectedStatus ir.Status
 		expectedOutput map[string]any
 	}{
 		{
@@ -44,7 +44,7 @@ steps:
 				test.Output("stdout_file=${gen.stdout}"),
 				test.Output("stderr_file=${gen.stderr}"),
 			), 6)),
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"GEN_OUTPUT": "Test output data",
 				// FILE_PATHS will contain file paths which include .out and .err
@@ -75,7 +75,7 @@ steps:
       echo "failure_code=${failure.exitCode}"
     output: EXIT_CODES
 `,
-			expectedStatus: core.PartiallySucceeded,
+			expectedStatus: ir.PartiallySucceeded,
 			expectedOutput: map[string]any{
 				"EXIT_CODES": "success_code=0\nfailure_code=42",
 			},
@@ -99,7 +99,7 @@ steps:
 				test.Output("unknown=${unknown_step.stdout}"),
 				test.Output("invalid=${first_step.unknown_property}"),
 			), 6)),
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"FIRST_OUT": "Hello",
 				"RESULT": []test.Contains{
@@ -126,7 +126,7 @@ steps:
       echo "stdout=${check.stdout}"
     output: PRECEDENCE_TEST
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"check": `{"status":"from-step"}`,
 				"PRECEDENCE_TEST": []test.Contains{
@@ -151,7 +151,7 @@ steps:
 			agent := testDAG.Agent()
 			err := agent.Run(agent.Context)
 
-			if tc.expectedStatus == core.Succeeded {
+			if tc.expectedStatus == ir.Succeeded {
 				require.NoError(t, err)
 			}
 
@@ -197,7 +197,7 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 
 		// Note: When multiple steps output to the same variable name,
 		// the final value depends on the order of execution which may not be deterministic
@@ -239,7 +239,7 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 		testDAG.AssertOutputs(t, map[string]any{
 			"NUM":          "10",
 			"NUM2":         "15",
@@ -269,7 +269,7 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 
 		testDAG.AssertOutputs(t, map[string]any{
 			"CONFIG": `{"env":"test","timeout":30}`,
@@ -287,7 +287,7 @@ func TestStepScopedOutputAccess(t *testing.T) {
 	tests := []struct {
 		name               string
 		yaml               string
-		expectedStatus     core.Status
+		expectedStatus     ir.Status
 		expectedOutput     map[string]any
 		expectedStepOutput map[string]string
 	}{
@@ -312,7 +312,7 @@ steps:
       printf 'Title: %s\nSummary: %s' "${extract_title.output}" "${extract_summary.output}"
     output: REPORT
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"REPORT": "Title: Quarterly Revenue\nSummary: Revenue grew 18 percent year over year.",
 			},
@@ -333,7 +333,7 @@ steps:
       printf 'got:[%s]' "${empty_step.output}"
     output: CONSUMED
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"CONSUMED": "got:[]",
 			},
@@ -354,7 +354,7 @@ steps:
       printf 'output=%s\nstdout=%s' "${producer.output}" "${producer.stdout}"
     output: RESULT
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"CAPTURED": "captured value",
 				"RESULT": []test.Contains{
@@ -378,7 +378,7 @@ steps:
     run: %q
     output: RESULT
 `, test.Output("ref=${no_output.output}")),
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"RESULT": "ref=${no_output.output}",
 			},
@@ -397,7 +397,7 @@ steps:
     run: %q
     output: RESULT
 `, test.Output(`{"output":"from-json"}`), test.Output("value=${check.output}")),
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"check":  `{"output":"from-json"}`,
 				"RESULT": `value={"output":"from-json"}`,
@@ -419,7 +419,7 @@ steps:
       printf 'sliced=%s' "${producer.output:0:5}"
     output: RESULT
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"DATA":   "hello world",
 				"RESULT": "sliced=hello",
@@ -441,7 +441,7 @@ steps:
       printf 'version=%s\nartifact=%s' "${build.output.version}" "${build.output.artifact.url}"
     output: RESULT
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"BUILD_JSON": `{"version":"v1.2.3","artifact":{"url":"https://example.test/release.tgz"}}`,
 				"RESULT":     "version=v1.2.3\nartifact=https://example.test/release.tgz",
@@ -471,7 +471,7 @@ steps:
       printf 'version=%s\nartifact=%s' "${analyze.output.version}" "${analyze.output.artifact.url}"
     output: RESULT
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"RESULT": "version=v1.2.3\nartifact=https://example.test/release.tgz",
 			},
@@ -503,7 +503,7 @@ steps:
       printf 'version=%s\nlabel=%s\nartifact=%s' "${publish.output.version}" "${publish.output.versionLabel}" "${publish.output.artifact.url}"
     output: RESULT
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"BUILD_JSON": `{"version":"v1.2.3","artifact":{"url":"https://example.test/release.tgz"}}`,
 				"RESULT":     "version=v1.2.3\nlabel=ver - v1.2.3\nartifact=https://example.test/release.tgz",
@@ -546,7 +546,7 @@ steps:
 				`printf 'artifact=%s\nwarning=%s' "${producer.output.artifactPath}" "${producer.output.warning}"`,
 				`Write-Output ("artifact={0}{1}warning={2}" -f "${producer.output.artifactPath}", [Environment]::NewLine, "${producer.output.warning}")`,
 			), 6)),
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 			expectedOutput: map[string]any{
 				"RESULT": "artifact=build/report.md\nwarning=retry required",
 			},
@@ -563,7 +563,7 @@ steps:
 			agent := testDAG.Agent()
 			err := agent.Run(agent.Context)
 
-			if tc.expectedStatus == core.Succeeded {
+			if tc.expectedStatus == ir.Succeeded {
 				require.NoError(t, err)
 			}
 
@@ -587,7 +587,7 @@ steps:
 	}
 }
 
-func findNodeByStepID(t *testing.T, nodes []*exec1.Node, stepID string) *exec1.Node {
+func findNodeByStepID(t *testing.T, nodes []*dagrun.Node, stepID string) *dagrun.Node {
 	t.Helper()
 
 	for _, node := range nodes {
@@ -625,7 +625,7 @@ steps:
 		require.NoError(t, agent.Run(agent.Context))
 
 		// Should succeed but the invalid path should remain as-is
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 		testDAG.AssertOutputs(t, map[string]any{
 			"DATA":   "not json",
 			"RESULT": "data=not json",

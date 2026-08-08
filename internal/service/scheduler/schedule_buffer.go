@@ -6,7 +6,7 @@ package scheduler
 import (
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // DefaultMaxBufferItems is the default maximum number of items a ScheduleBuffer
@@ -15,25 +15,25 @@ const DefaultMaxBufferItems = 1000
 
 // QueueItem represents a scheduled or catch-up run to be dispatched.
 type QueueItem struct {
-	DAG           *core.DAG
+	DAG           *ir.DAG
 	ScheduledTime time.Time
-	TriggerType   core.TriggerType
+	TriggerType   ir.TriggerType
 	ScheduleType  ScheduleType
-	Schedule      core.Schedule
+	Schedule      ir.Schedule
 }
 
 // ScheduleBuffer is a per-DAG in-memory FIFO queue for catch-up runs.
 // It holds no concurrency primitives — all access happens from the cronLoop goroutine.
 type ScheduleBuffer struct {
 	items         []QueueItem
-	overlapPolicy core.OverlapPolicy
+	overlapPolicy ir.OverlapPolicy
 	dagName       string // retained for debugging and log context
 	maxItems      int
 }
 
 // NewScheduleBuffer creates a per-DAG queue with the given overlap policy
 // and a default max capacity of DefaultMaxBufferItems.
-func NewScheduleBuffer(dagName string, policy core.OverlapPolicy) *ScheduleBuffer {
+func NewScheduleBuffer(dagName string, policy ir.OverlapPolicy) *ScheduleBuffer {
 	return &ScheduleBuffer{
 		overlapPolicy: policy,
 		dagName:       dagName,

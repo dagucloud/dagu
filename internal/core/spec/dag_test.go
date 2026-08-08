@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -481,27 +482,27 @@ func TestBuildType(t *testing.T) {
 		{
 			name:     "EmptyDefaultsToGraph",
 			input:    "",
-			expected: core.TypeGraph,
+			expected: ir.TypeGraph,
 		},
 		{
 			name:     "WhitespaceDefaultsToGraph",
 			input:    "  ",
-			expected: core.TypeGraph,
+			expected: ir.TypeGraph,
 		},
 		{
 			name:     "GraphType",
 			input:    "graph",
-			expected: core.TypeGraph,
+			expected: ir.TypeGraph,
 		},
 		{
 			name:     "ChainType",
 			input:    "chain",
-			expected: core.TypeChain,
+			expected: ir.TypeChain,
 		},
 		{
 			name:     "ControllerType",
 			input:    "controller",
-			expected: core.TypeController,
+			expected: ir.TypeController,
 		},
 		{
 			name:    "InvalidType",
@@ -693,7 +694,7 @@ func TestBuildLabels(t *testing.T) {
 	tests := []struct {
 		name     string
 		labels   types.LabelsValue
-		expected core.Labels
+		expected ir.Labels
 	}{
 		{
 			name:     "NilLabels",
@@ -703,27 +704,27 @@ func TestBuildLabels(t *testing.T) {
 		{
 			name:     "CommaSeparated",
 			labels:   labelsValue("daily,weekly"),
-			expected: core.Labels{{Key: "daily"}, {Key: "weekly"}},
+			expected: ir.Labels{{Key: "daily"}, {Key: "weekly"}},
 		},
 		{
 			name:     "NormalizedToLowercase",
 			labels:   labelsValue("Daily,WEEKLY"),
-			expected: core.Labels{{Key: "daily"}, {Key: "weekly"}},
+			expected: ir.Labels{{Key: "daily"}, {Key: "weekly"}},
 		},
 		{
 			name:     "TrimmedWhitespace",
 			labels:   labelsValue("label1, label2"),
-			expected: core.Labels{{Key: "label1"}, {Key: "label2"}},
+			expected: ir.Labels{{Key: "label1"}, {Key: "label2"}},
 		},
 		{
 			name:     "KeyValueLabels",
 			labels:   labelsValue("env=prod team=platform"),
-			expected: core.Labels{{Key: "env", Value: "prod"}, {Key: "team", Value: "platform"}},
+			expected: ir.Labels{{Key: "env", Value: "prod"}, {Key: "team", Value: "platform"}},
 		},
 		{
 			name:     "MixedLabels",
 			labels:   labelsValue("env=prod,critical"),
-			expected: core.Labels{{Key: "env", Value: "prod"}, {Key: "critical"}},
+			expected: ir.Labels{{Key: "env", Value: "prod"}, {Key: "critical"}},
 		},
 	}
 
@@ -883,7 +884,7 @@ func TestBuildMailOn(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    *mailOn
-		expected *core.MailOn
+		expected *ir.MailOn
 	}{
 		{
 			name:     "Nil",
@@ -893,22 +894,22 @@ func TestBuildMailOn(t *testing.T) {
 		{
 			name:     "BothTrue",
 			input:    &mailOn{Failure: true, Success: true},
-			expected: &core.MailOn{Failure: true, Success: true},
+			expected: &ir.MailOn{Failure: true, Success: true},
 		},
 		{
 			name:     "FailureOnly",
 			input:    &mailOn{Failure: true, Success: false},
-			expected: &core.MailOn{Failure: true, Success: false},
+			expected: &ir.MailOn{Failure: true, Success: false},
 		},
 		{
 			name:     "WaitOnly",
 			input:    &mailOn{Wait: true},
-			expected: &core.MailOn{Wait: true},
+			expected: &ir.MailOn{Wait: true},
 		},
 		{
 			name:     "AllTrue",
 			input:    &mailOn{Failure: true, Success: true, Wait: true},
-			expected: &core.MailOn{Failure: true, Success: true, Wait: true},
+			expected: &ir.MailOn{Failure: true, Success: true, Wait: true},
 		},
 	}
 
@@ -928,7 +929,7 @@ func TestBuildRunConfig(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    *runConfig
-		expected *core.RunConfig
+		expected *ir.RunConfig
 	}{
 		{
 			name:     "Nil",
@@ -938,7 +939,7 @@ func TestBuildRunConfig(t *testing.T) {
 		{
 			name:     "BothDisabled",
 			input:    &runConfig{DisableParamEdit: true, DisableRunIdEdit: true},
-			expected: &core.RunConfig{DisableParamEdit: true, DisableRunIdEdit: true},
+			expected: &ir.RunConfig{DisableParamEdit: true, DisableRunIdEdit: true},
 		},
 	}
 
@@ -1292,7 +1293,7 @@ func TestBuildWebhookConfig(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    *webhookConfig
-		expected *core.WebhookConfig
+		expected *ir.WebhookConfig
 		wantErr  string
 	}{
 		{
@@ -1305,7 +1306,7 @@ func TestBuildWebhookConfig(t *testing.T) {
 			input: &webhookConfig{
 				ForwardHeaders: []string{" X-GitHub-Event ", "Stripe-Idempotency-Key"},
 			},
-			expected: &core.WebhookConfig{
+			expected: &ir.WebhookConfig{
 				ForwardHeaders: []string{"x-github-event", "stripe-idempotency-key"},
 			},
 		},
@@ -1357,7 +1358,7 @@ func TestBuildSSH(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     *ssh
-		expected  *core.SSHConfig
+		expected  *ir.SSHConfig
 		expectErr bool
 	}{
 		{
@@ -1372,7 +1373,7 @@ func TestBuildSSH(t *testing.T) {
 				Host: "server.example.com",
 				Key:  "/path/to/key",
 			},
-			expected: &core.SSHConfig{
+			expected: &ir.SSHConfig{
 				User:          "admin",
 				Host:          "server.example.com",
 				Port:          "22",
@@ -1387,7 +1388,7 @@ func TestBuildSSH(t *testing.T) {
 				Host: "server.example.com",
 				Port: portValue("2222"),
 			},
-			expected: &core.SSHConfig{
+			expected: &ir.SSHConfig{
 				User:          "admin",
 				Host:          "server.example.com",
 				Port:          "2222",
@@ -1401,7 +1402,7 @@ func TestBuildSSH(t *testing.T) {
 				Host:          "server.example.com",
 				StrictHostKey: new(false),
 			},
-			expected: &core.SSHConfig{
+			expected: &ir.SSHConfig{
 				User:          "admin",
 				Host:          "server.example.com",
 				Port:          "22",
@@ -1415,7 +1416,7 @@ func TestBuildSSH(t *testing.T) {
 				Host:  "server.example.com",
 				Shell: shellValue("/bin/bash -e"),
 			},
-			expected: &core.SSHConfig{
+			expected: &ir.SSHConfig{
 				User:          "admin",
 				Host:          "server.example.com",
 				Port:          "22",
@@ -1431,7 +1432,7 @@ func TestBuildSSH(t *testing.T) {
 				Host:  "server.example.com",
 				Shell: shellValueArray([]string{"/bin/bash", "-e", "-o", "pipefail"}),
 			},
-			expected: &core.SSHConfig{
+			expected: &ir.SSHConfig{
 				User:          "admin",
 				Host:          "server.example.com",
 				Port:          "22",
@@ -1462,7 +1463,7 @@ func TestBuildS3(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    *s3Config
-		expected *core.S3Config
+		expected *ir.S3Config
 	}{
 		{
 			name:     "Nil",
@@ -1475,7 +1476,7 @@ func TestBuildS3(t *testing.T) {
 				Region: "us-east-1",
 				Bucket: "my-bucket",
 			},
-			expected: &core.S3Config{
+			expected: &ir.S3Config{
 				Region: "us-east-1",
 				Bucket: "my-bucket",
 			},
@@ -1493,7 +1494,7 @@ func TestBuildS3(t *testing.T) {
 				ForcePathStyle:  true,
 				DisableSSL:      true,
 			},
-			expected: &core.S3Config{
+			expected: &ir.S3Config{
 				Region:          "us-west-2",
 				Endpoint:        "http://localhost:9000",
 				AccessKeyID:     "test-key",
@@ -1514,7 +1515,7 @@ func TestBuildS3(t *testing.T) {
 				Bucket:          "data",
 				ForcePathStyle:  true,
 			},
-			expected: &core.S3Config{
+			expected: &ir.S3Config{
 				Endpoint:        "http://minio:9000",
 				AccessKeyID:     "minioadmin",
 				SecretAccessKey: "minioadmin",
@@ -1541,7 +1542,7 @@ func TestBuildRedis(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     *redisConfig
-		expected  *core.RedisConfig
+		expected  *ir.RedisConfig
 		expectErr bool
 	}{
 		{
@@ -1554,7 +1555,7 @@ func TestBuildRedis(t *testing.T) {
 			input: &redisConfig{
 				URL: "redis://localhost:6379/0",
 			},
-			expected: &core.RedisConfig{
+			expected: &ir.RedisConfig{
 				URL: "redis://localhost:6379/0",
 			},
 		},
@@ -1565,7 +1566,7 @@ func TestBuildRedis(t *testing.T) {
 				Port:     6379,
 				Password: "secret",
 			},
-			expected: &core.RedisConfig{
+			expected: &ir.RedisConfig{
 				Host:     "localhost",
 				Port:     6379,
 				Password: "secret",
@@ -1585,7 +1586,7 @@ func TestBuildRedis(t *testing.T) {
 				Mode:          "standalone",
 				MaxRetries:    5,
 			},
-			expected: &core.RedisConfig{
+			expected: &ir.RedisConfig{
 				URL:           "redis://user:pass@host:6380/1",
 				Host:          "redis.example.com",
 				Port:          6380,
@@ -1605,7 +1606,7 @@ func TestBuildRedis(t *testing.T) {
 				SentinelMaster: "mymaster",
 				SentinelAddrs:  []string{"sentinel1:26379", "sentinel2:26379"},
 			},
-			expected: &core.RedisConfig{
+			expected: &ir.RedisConfig{
 				Mode:           "sentinel",
 				SentinelMaster: "mymaster",
 				SentinelAddrs:  []string{"sentinel1:26379", "sentinel2:26379"},
@@ -1617,7 +1618,7 @@ func TestBuildRedis(t *testing.T) {
 				Mode:         "cluster",
 				ClusterAddrs: []string{"node1:6379", "node2:6379", "node3:6379"},
 			},
-			expected: &core.RedisConfig{
+			expected: &ir.RedisConfig{
 				Mode:         "cluster",
 				ClusterAddrs: []string{"node1:6379", "node2:6379", "node3:6379"},
 			},
@@ -1674,7 +1675,7 @@ func TestBuildSMTPConfig(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       smtpConfig
-		expected    *core.SMTPConfig
+		expected    *ir.SMTPConfig
 		errContains string
 	}{
 		{
@@ -1690,7 +1691,7 @@ func TestBuildSMTPConfig(t *testing.T) {
 				Username: "user",
 				Password: "pass",
 			},
-			expected: &core.SMTPConfig{
+			expected: &ir.SMTPConfig{
 				Host:     "smtp.example.com",
 				Port:     "587",
 				Username: "user",
@@ -1701,15 +1702,15 @@ func TestBuildSMTPConfig(t *testing.T) {
 			name: "OAuth",
 			input: smtpConfig{
 				Username: "sender@example.com",
-				OAuth: &mailoauth.Config{
-					Provider: mailoauth.ProviderMicrosoft, TenantID: "${TENANT_ID}",
+				OAuth: &oauthconfig.Config{
+					Provider: oauthconfig.ProviderMicrosoft, TenantID: "${TENANT_ID}",
 					ClientID: "${CLIENT_ID}", ClientSecret: "${CLIENT_SECRET}",
 				},
 			},
-			expected: &core.SMTPConfig{
+			expected: &ir.SMTPConfig{
 				Username: "sender@example.com",
-				OAuth: &mailoauth.Config{
-					Provider: mailoauth.ProviderMicrosoft, TenantID: "${TENANT_ID}",
+				OAuth: &oauthconfig.Config{
+					Provider: oauthconfig.ProviderMicrosoft, TenantID: "${TENANT_ID}",
 					ClientID: "${CLIENT_ID}", ClientSecret: "${CLIENT_SECRET}",
 				},
 			},
@@ -1719,8 +1720,8 @@ func TestBuildSMTPConfig(t *testing.T) {
 			input: smtpConfig{
 				Username: "sender@example.com",
 				Password: "password",
-				OAuth: &mailoauth.Config{
-					Provider: mailoauth.ProviderMicrosoft, TenantID: "tenant",
+				OAuth: &oauthconfig.Config{
+					Provider: oauthconfig.ProviderMicrosoft, TenantID: "tenant",
 					ClientID: "client", ClientSecret: "secret",
 				},
 			},
@@ -1748,7 +1749,7 @@ func TestBuildContainer(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    *container
-		expected *core.Container
+		expected *ir.Container
 		wantErr  bool
 	}{
 		{
@@ -1766,9 +1767,9 @@ func TestBuildContainer(t *testing.T) {
 			input: &container{
 				Image: "alpine:latest",
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Image:      "alpine:latest",
-				PullPolicy: core.PullPolicyMissing,
+				PullPolicy: ir.PullPolicyMissing,
 			},
 		},
 		{
@@ -1790,10 +1791,10 @@ func TestBuildContainer(t *testing.T) {
 				LogPattern:    "ready",
 				RestartPolicy: "always",
 			},
-			expected: &core.Container{
+			expected: &ir.Container{
 				Name:          "my-container",
 				Image:         "nginx:latest",
-				PullPolicy:    core.PullPolicyAlways,
+				PullPolicy:    ir.PullPolicyAlways,
 				Volumes:       []string{"/host:/container"},
 				User:          "nginx",
 				WorkingDir:    "/app",
@@ -1801,9 +1802,9 @@ func TestBuildContainer(t *testing.T) {
 				Ports:         []string{"8080:80"},
 				Network:       "bridge",
 				KeepContainer: true,
-				Startup:       core.StartupCommand,
+				Startup:       ir.StartupCommand,
 				Command:       []string{"nginx", "-g", "daemon off;"},
-				WaitFor:       core.WaitForHealthy,
+				WaitFor:       ir.WaitForHealthy,
 				LogPattern:    "ready",
 				RestartPolicy: "always",
 			},
@@ -1832,7 +1833,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    any
-		expected map[string]*core.AuthConfig
+		expected map[string]*ir.AuthConfig
 		wantErr  bool
 	}{
 		{
@@ -1843,7 +1844,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 		{
 			name:  "JSONString",
 			input: `{"auths":{"registry.example.com":{"auth":"base64encoded"}}}`,
-			expected: map[string]*core.AuthConfig{
+			expected: map[string]*ir.AuthConfig{
 				"_json": {Auth: `{"auths":{"registry.example.com":{"auth":"base64encoded"}}}`},
 			},
 		},
@@ -1852,7 +1853,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 			input: map[string]any{
 				"registry.example.com": "base64encoded",
 			},
-			expected: map[string]*core.AuthConfig{
+			expected: map[string]*ir.AuthConfig{
 				"registry.example.com": {Auth: "base64encoded"},
 			},
 		},
@@ -1864,7 +1865,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 					"password": "pass",
 				},
 			},
-			expected: map[string]*core.AuthConfig{
+			expected: map[string]*ir.AuthConfig{
 				"registry.example.com": {Username: "user", Password: "pass"},
 			},
 		},
@@ -1880,7 +1881,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 					"auth": "base64authstring",
 				},
 			},
-			expected: map[string]*core.AuthConfig{
+			expected: map[string]*ir.AuthConfig{
 				"registry.example.com": {Auth: "base64authstring"},
 			},
 		},
@@ -1893,7 +1894,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 					"auth":     "authtoken",
 				},
 			},
-			expected: map[string]*core.AuthConfig{
+			expected: map[string]*ir.AuthConfig{
 				"registry.example.com": {Username: "user", Password: "pass", Auth: "authtoken"},
 			},
 		},
@@ -1905,7 +1906,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 					"password": "pass",
 				},
 			},
-			expected: map[string]*core.AuthConfig{
+			expected: map[string]*ir.AuthConfig{
 				"registry.example.com": {Username: "user", Password: "pass"},
 			},
 		},
@@ -1914,7 +1915,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 			input: map[any]any{
 				"registry.example.com": "base64encoded",
 			},
-			expected: map[string]*core.AuthConfig{
+			expected: map[string]*ir.AuthConfig{
 				"registry.example.com": {Auth: "base64encoded"},
 			},
 		},
@@ -1927,7 +1928,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 					"password": "pass2",
 				},
 			},
-			expected: map[string]*core.AuthConfig{
+			expected: map[string]*ir.AuthConfig{
 				"registry1.example.com": {Auth: "auth1"},
 				"registry2.example.com": {Username: "user2", Password: "pass2"},
 			},
@@ -1937,7 +1938,7 @@ func TestBuildRegistryAuths(t *testing.T) {
 			input: map[string]any{
 				"registry.example.com": 12345, // neither string nor map
 			},
-			expected: map[string]*core.AuthConfig{
+			expected: map[string]*ir.AuthConfig{
 				"registry.example.com": {}, // empty AuthConfig
 			},
 		},
@@ -1979,7 +1980,7 @@ func TestBuildRegistryAuths_NoExpansion(t *testing.T) {
 	require.NoError(t, err)
 
 	// Expects unexpanded values (expansion deferred to runtime)
-	expected := map[string]*core.AuthConfig{
+	expected := map[string]*ir.AuthConfig{
 		"registry.example.com": {Username: "$TEST_USER", Password: "$TEST_PASS"},
 	}
 	assert.Equal(t, expected, result)
@@ -2312,7 +2313,7 @@ func TestBuildSteps(t *testing.T) {
 	t.Run("NilSteps", func(t *testing.T) {
 		t.Parallel()
 		d := &dag{Steps: nil}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		steps, err := buildSteps(testBuildContext(), d, result)
 		require.NoError(t, err)
 		assert.Nil(t, steps)
@@ -2326,7 +2327,7 @@ func TestBuildSteps(t *testing.T) {
 				map[string]any{"name": "step2", "command": "echo 2"},
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		steps, err := buildSteps(testBuildContext(), d, result)
 		require.NoError(t, err)
 		assert.Len(t, steps, 2)
@@ -2342,7 +2343,7 @@ func TestBuildSteps(t *testing.T) {
 				"step2": map[string]any{"command": "echo 2"},
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		steps, err := buildSteps(testBuildContext(), d, result)
 		require.NoError(t, err)
 		assert.Len(t, steps, 2)
@@ -2358,7 +2359,7 @@ func TestBuildSteps(t *testing.T) {
 				},
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		steps, err := buildSteps(testBuildContext(), d, result)
 		require.NoError(t, err)
 		assert.Len(t, steps, 2)
@@ -2371,7 +2372,7 @@ func TestBuildSteps(t *testing.T) {
 				123, // Numbers are invalid step types (strings get normalized to maps)
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		_, err := buildSteps(testBuildContext(), d, result)
 		require.Error(t, err)
 	})
@@ -2383,7 +2384,7 @@ func TestBuildSteps(t *testing.T) {
 				[]any{456}, // Numbers are invalid even when nested
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		_, err := buildSteps(testBuildContext(), d, result)
 		require.Error(t, err)
 	})
@@ -2395,7 +2396,7 @@ func TestBuildOTel(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    any
-		expected *core.OTelConfig
+		expected *ir.OTelConfig
 		wantErr  bool
 	}{
 		{
@@ -2418,7 +2419,7 @@ func TestBuildOTel(t *testing.T) {
 					"service.version": "1.0.0",
 				},
 			},
-			expected: &core.OTelConfig{
+			expected: &ir.OTelConfig{
 				Enabled:  true,
 				Endpoint: "http://localhost:4317",
 				Headers: map[string]string{
@@ -2469,7 +2470,7 @@ func TestBuildSecrets(t *testing.T) {
 		tests := []struct {
 			name     string
 			input    []secretRef
-			expected []core.SecretRef
+			expected []secretref.Ref
 		}{
 			{
 				name:     "Nil",
@@ -2486,7 +2487,7 @@ func TestBuildSecrets(t *testing.T) {
 				input: []secretRef{
 					{Name: "API_KEY", Provider: "env", Key: "MY_API_KEY"},
 				},
-				expected: []core.SecretRef{
+				expected: []secretref.Ref{
 					{Name: "API_KEY", Provider: "env", Key: "MY_API_KEY"},
 				},
 			},
@@ -2496,7 +2497,7 @@ func TestBuildSecrets(t *testing.T) {
 					{Name: "DB_PASSWORD", Provider: "vault", Key: "secret/data/prod/db"},
 					{Name: "API_KEY", Provider: "env", Key: "API_KEY"},
 				},
-				expected: []core.SecretRef{
+				expected: []secretref.Ref{
 					{Name: "DB_PASSWORD", Provider: "vault", Key: "secret/data/prod/db"},
 					{Name: "API_KEY", Provider: "env", Key: "API_KEY"},
 				},
@@ -2514,7 +2515,7 @@ func TestBuildSecrets(t *testing.T) {
 						},
 					},
 				},
-				expected: []core.SecretRef{
+				expected: []secretref.Ref{
 					{
 						Name:     "DB_PASSWORD",
 						Provider: "vault",
@@ -2531,7 +2532,7 @@ func TestBuildSecrets(t *testing.T) {
 				input: []secretRef{
 					{Name: "DB_PASSWORD", Ref: "prod/db-password"},
 				},
-				expected: []core.SecretRef{
+				expected: []secretref.Ref{
 					{Name: "DB_PASSWORD", Ref: "prod/db-password"},
 				},
 			},
@@ -2704,7 +2705,7 @@ func TestBuildMailConfigInternal(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    mailConfig
-		expected *core.MailConfig
+		expected *ir.MailConfig
 	}{
 		{
 			name:     "Empty",
@@ -2719,7 +2720,7 @@ func TestBuildMailConfigInternal(t *testing.T) {
 				Prefix:     "[DAG]",
 				AttachLogs: true,
 			},
-			expected: &core.MailConfig{
+			expected: &ir.MailConfig{
 				From:       "sender@example.com",
 				To:         []string{"recipient@example.com"},
 				Prefix:     "[DAG]",
@@ -2732,7 +2733,7 @@ func TestBuildMailConfigInternal(t *testing.T) {
 				From: "sender@example.com",
 				To:   stringOrArrayList([]string{"a@example.com", "b@example.com"}),
 			},
-			expected: &core.MailConfig{
+			expected: &ir.MailConfig{
 				From: "sender@example.com",
 				To:   []string{"a@example.com", "b@example.com"},
 			},
@@ -2763,7 +2764,7 @@ func TestBuildHandlers(t *testing.T) {
 				Wait:    &step{Command: "echo wait"},
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		handlerOn, err := buildHandlers(testBuildContext(), d, result)
 		require.NoError(t, err)
 		require.NotNil(t, handlerOn.Init)
@@ -2789,7 +2790,7 @@ func TestBuildHandlers(t *testing.T) {
 	t.Run("NoHandlers", func(t *testing.T) {
 		t.Parallel()
 		d := &dag{}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		handlerOn, err := buildHandlers(testBuildContext(), d, result)
 		require.NoError(t, err)
 		assert.Nil(t, handlerOn.Init)
@@ -2807,7 +2808,7 @@ func TestBuildHandlers(t *testing.T) {
 				Init: &step{Command: "   "}, // Empty command after trim causes error
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		_, err := buildHandlers(testBuildContext(), d, result)
 		require.Error(t, err)
 	})
@@ -2819,7 +2820,7 @@ func TestBuildHandlers(t *testing.T) {
 				Exit: &step{Command: "   "}, // Empty command after trim causes error
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		_, err := buildHandlers(testBuildContext(), d, result)
 		require.Error(t, err)
 	})
@@ -2831,7 +2832,7 @@ func TestBuildHandlers(t *testing.T) {
 				Success: &step{Command: "   "}, // Empty command after trim causes error
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		_, err := buildHandlers(testBuildContext(), d, result)
 		require.Error(t, err)
 	})
@@ -2843,7 +2844,7 @@ func TestBuildHandlers(t *testing.T) {
 				Failure: &step{Command: "   "}, // Empty command after trim causes error
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		_, err := buildHandlers(testBuildContext(), d, result)
 		require.Error(t, err)
 	})
@@ -2855,7 +2856,7 @@ func TestBuildHandlers(t *testing.T) {
 				Abort: &step{Command: "   "}, // Empty command after trim causes error
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		_, err := buildHandlers(testBuildContext(), d, result)
 		require.Error(t, err)
 	})
@@ -2867,7 +2868,7 @@ func TestBuildHandlers(t *testing.T) {
 				Wait: &step{Command: "echo wait"},
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		handlerOn, err := buildHandlers(testBuildContext(), d, result)
 		require.NoError(t, err)
 		require.NotNil(t, handlerOn.Wait)
@@ -2883,7 +2884,7 @@ func TestBuildHandlers(t *testing.T) {
 				Wait: &step{Command: "   "}, // Empty command after trim causes error
 			},
 		}
-		result := &core.DAG{}
+		result := &ir.DAG{}
 		_, err := buildHandlers(testBuildContext(), d, result)
 		require.Error(t, err)
 	})
@@ -2895,7 +2896,7 @@ func TestBuildLogOutput(t *testing.T) {
 	tests := []struct {
 		name        string
 		yaml        string
-		expected    core.LogOutputMode
+		expected    ir.LogOutputMode
 		wantErr     bool
 		errContains string
 	}{
@@ -2907,17 +2908,17 @@ func TestBuildLogOutput(t *testing.T) {
 		{
 			name:     "ExplicitSeparate",
 			yaml:     "log_output: separate",
-			expected: core.LogOutputSeparate,
+			expected: ir.LogOutputSeparate,
 		},
 		{
 			name:     "Merged",
 			yaml:     "log_output: merged",
-			expected: core.LogOutputMerged,
+			expected: ir.LogOutputMerged,
 		},
 		{
 			name:     "MergedUppercase",
 			yaml:     "log_output: MERGED",
-			expected: core.LogOutputMerged,
+			expected: ir.LogOutputMerged,
 		},
 		{
 			name:        "InvalidValue",
@@ -2961,7 +2962,7 @@ func TestBuildArtifacts(t *testing.T) {
 	tests := []struct {
 		name     string
 		yaml     string
-		expected *core.ArtifactsConfig
+		expected *ir.ArtifactsConfig
 	}{
 		{
 			name:     "Default_Empty",
@@ -2974,7 +2975,7 @@ func TestBuildArtifacts(t *testing.T) {
 artifacts:
   enabled: true
 `,
-			expected: &core.ArtifactsConfig{Enabled: true},
+			expected: &ir.ArtifactsConfig{Enabled: true},
 		},
 		{
 			name: "DisabledExplicit",
@@ -2982,7 +2983,7 @@ artifacts:
 artifacts:
   enabled: false
 `,
-			expected: &core.ArtifactsConfig{Enabled: false},
+			expected: &ir.ArtifactsConfig{Enabled: false},
 		},
 		{
 			name: "DirOnly",
@@ -2990,7 +2991,7 @@ artifacts:
 artifacts:
   dir: /var/lib/dagu/artifacts
 `,
-			expected: &core.ArtifactsConfig{Dir: "/var/lib/dagu/artifacts"},
+			expected: &ir.ArtifactsConfig{Dir: "/var/lib/dagu/artifacts"},
 		},
 		{
 			name: "EnabledAndDir",
@@ -2999,7 +3000,7 @@ artifacts:
   enabled: true
   dir: /var/lib/dagu/artifacts
 `,
-			expected: &core.ArtifactsConfig{
+			expected: &ir.ArtifactsConfig{
 				Enabled: true,
 				Dir:     "/var/lib/dagu/artifacts",
 			},
@@ -3011,7 +3012,7 @@ steps:
   - name: write
     run: printf 'artifact' > "$DAG_RUN_ARTIFACTS_DIR/out.txt"
 `,
-			expected: &core.ArtifactsConfig{Enabled: true},
+			expected: &ir.ArtifactsConfig{Enabled: true},
 		},
 		{
 			name: "AutoEnableWhenNestedExecutorConfigReferencesContextArtifactsDir",
@@ -3026,7 +3027,7 @@ steps:
       template: |
         Hello, {{ .name }}!
 `,
-			expected: &core.ArtifactsConfig{Enabled: true},
+			expected: &ir.ArtifactsConfig{Enabled: true},
 		},
 		{
 			name: "AutoEnableWhenEnvReferencesArtifactsDir",
@@ -3036,7 +3037,7 @@ env:
 steps:
   - run: ./generate-report
 `,
-			expected: &core.ArtifactsConfig{Enabled: true},
+			expected: &ir.ArtifactsConfig{Enabled: true},
 		},
 		{
 			name: "AutoEnableWhenStdoutArtifactIsUsed",
@@ -3047,7 +3048,7 @@ steps:
     stdout:
       artifact: reports/report.md
 `,
-			expected: &core.ArtifactsConfig{Enabled: true},
+			expected: &ir.ArtifactsConfig{Enabled: true},
 		},
 		{
 			name: "ParamsArtifactShapeDoesNotAutoEnable",
@@ -3067,7 +3068,7 @@ params:
   stdout:
     artifact: reports/report.md
 `,
-			expected: &core.ArtifactsConfig{Enabled: false},
+			expected: &ir.ArtifactsConfig{Enabled: false},
 		},
 		{
 			name: "AutoEnableWhenPowerShellEnvReferenceArtifactsDir",
@@ -3076,7 +3077,7 @@ steps:
   - name: write
     run: Write-Output $env:DAG_RUN_ARTIFACTS_DIR
 `,
-			expected: &core.ArtifactsConfig{Enabled: true},
+			expected: &ir.ArtifactsConfig{Enabled: true},
 		},
 		{
 			name: "AutoEnableWhenArtifactActionIsUsed",
@@ -3088,7 +3089,7 @@ steps:
       path: out.txt
       content: artifact
 `,
-			expected: &core.ArtifactsConfig{Enabled: true},
+			expected: &ir.ArtifactsConfig{Enabled: true},
 		},
 		{
 			name: "LiteralMentionWithoutEnvReferenceDoesNotAutoEnable",
@@ -3108,7 +3109,7 @@ steps:
   - name: write
     run: printf 'artifact' > "$DAG_RUN_ARTIFACTS_DIR/out.txt"
 `,
-			expected: &core.ArtifactsConfig{Enabled: false},
+			expected: &ir.ArtifactsConfig{Enabled: false},
 		},
 	}
 
@@ -3463,7 +3464,7 @@ func TestBuildContainerFromSpec_HealthcheckInImageMode(t *testing.T) {
 	assert.Equal(t, 5*time.Second, result.Healthcheck.Timeout)
 	assert.Equal(t, 10*time.Second, result.Healthcheck.StartPeriod)
 	assert.Equal(t, 5, result.Healthcheck.Retries)
-	assert.Equal(t, core.WaitForHealthy, result.WaitFor)
+	assert.Equal(t, ir.WaitForHealthy, result.WaitFor)
 }
 
 func TestChainTypeDependsValidation(t *testing.T) {

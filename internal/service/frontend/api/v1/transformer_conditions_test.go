@@ -7,20 +7,20 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestToDAGRunSummaryIncludesConditions(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
-		Status:   core.Queued,
-		Conditions: []exec.DAGRunCondition{
+		Status:   ir.Queued,
+		Conditions: []dagrun.DAGRunCondition{
 			{
 				Type:      "Runnable",
 				Status:    "False",
@@ -55,11 +55,11 @@ func TestToDAGRunSummaryIncludesConditions(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesConditions(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
-		Status:   core.Queued,
-		Conditions: []exec.DAGRunCondition{
+		Status:   ir.Queued,
+		Conditions: []dagrun.DAGRunCondition{
 			{
 				Type:      "WorkerReady",
 				Status:    "Unknown",
@@ -82,11 +82,11 @@ func TestToDAGRunDetailsIncludesConditions(t *testing.T) {
 }
 
 func TestToDAGRunSummarySkipsOnlyConditionsWithInvalidCheckedAt(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
-		Status:   core.Queued,
-		Conditions: []exec.DAGRunCondition{
+		Status:   ir.Queued,
+		Conditions: []dagrun.DAGRunCondition{
 			{
 				Type:      "Runnable",
 				Status:    "False",
@@ -113,11 +113,11 @@ func TestToDAGRunSummarySkipsOnlyConditionsWithInvalidCheckedAt(t *testing.T) {
 }
 
 func TestToDAGRunSummarySkipsConditionsWithInvalidStatus(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
-		Status:   core.Queued,
-		Conditions: []exec.DAGRunCondition{
+		Status:   ir.Queued,
+		Conditions: []dagrun.DAGRunCondition{
 			{
 				Type:      "Runnable",
 				Status:    "False",
@@ -144,11 +144,11 @@ func TestToDAGRunSummarySkipsConditionsWithInvalidStatus(t *testing.T) {
 }
 
 func TestToDAGRunSummarySkipsConditionsWhenStatusIsNotQueued(t *testing.T) {
-	status := exec.DAGRunStatus{
+	status := dagrun.DAGRunStatus{
 		Name:     "running-dag",
 		DAGRunID: "run-1",
-		Status:   core.Running,
-		Conditions: []exec.DAGRunCondition{
+		Status:   ir.Running,
+		Conditions: []dagrun.DAGRunCondition{
 			{
 				Type:      "Runnable",
 				Status:    "False",

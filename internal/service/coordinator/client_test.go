@@ -14,9 +14,12 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -77,14 +80,14 @@ func TestClientDispatch(t *testing.T) {
 
 		host, port := parseHostPort(addr)
 		monitor := &mockServiceMonitor{
-			members: []exec.HostInfo{
-				{ID: "coord-1", Host: host, Port: port, Status: exec.ServiceStatusActive},
+			members: []serviceregistry.HostInfo{
+				{ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive},
 			},
 		}
 
 		client := coordinator.New(monitor, config)
 
-		task := &exec.DispatchTask{
+		task := &dispatch.DispatchTask{
 			DAGRunID: "test-dag-run",
 			Target:   "test.yaml",
 		}
@@ -92,7 +95,7 @@ func TestClientDispatch(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
-		err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+		err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 		require.NoError(t, err)
 	})
 
@@ -114,8 +117,8 @@ func TestClientDispatch(t *testing.T) {
 
 		host, port := parseHostPort(addr)
 		monitor := &mockServiceMonitor{
-			members: []exec.HostInfo{
-				{ID: "coord-1", Host: host, Port: port, Status: exec.ServiceStatusActive},
+			members: []serviceregistry.HostInfo{
+				{ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive},
 			},
 		}
 
@@ -124,8 +127,8 @@ func TestClientDispatch(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
-		err := client.Dispatch(ctx, exec.DispatchRequest{
-			Task: &exec.DispatchTask{
+		err := client.Dispatch(ctx, dispatch.DispatchRequest{
+			Task: &dispatch.DispatchTask{
 				DAGRunID: "test-dag-run",
 				Target:   "test.yaml",
 			},
@@ -142,12 +145,12 @@ func TestClientDispatch(t *testing.T) {
 		config.RequestTimeout = 100 * time.Millisecond
 
 		monitor := &mockServiceMonitor{
-			members: []exec.HostInfo{}, // No coordinators
+			members: []serviceregistry.HostInfo{}, // No coordinators
 		}
 
 		client := coordinator.New(monitor, config)
 
-		task := &exec.DispatchTask{
+		task := &dispatch.DispatchTask{
 			DAGRunID: "test-dag-run",
 			Target:   "test.yaml",
 		}
@@ -155,7 +158,7 @@ func TestClientDispatch(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
-		err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+		err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 		require.Error(t, err)
 		// Could be either error depending on timing
 		assert.True(t, strings.Contains(err.Error(), "no coordinators available") ||
@@ -171,7 +174,7 @@ func TestClientDispatch(t *testing.T) {
 
 		mockCoord := &mockCoordinatorService{
 			dispatchFunc: func(_ context.Context, _ *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
-				return nil, status.Error(codes.FailedPrecondition, (&exec.StaleQueueDispatchError{
+				return nil, status.Error(codes.FailedPrecondition, (&queue.StaleQueueDispatchError{
 					Reason: "queued attempt was superseded",
 				}).Error())
 			},
@@ -182,15 +185,15 @@ func TestClientDispatch(t *testing.T) {
 
 		host, port := parseHostPort(addr)
 		monitor := &mockServiceMonitor{
-			members: []exec.HostInfo{
-				{ID: "coord-1", Host: host, Port: port, Status: exec.ServiceStatusActive},
+			members: []serviceregistry.HostInfo{
+				{ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive},
 			},
 		}
 
 		client := coordinator.New(monitor, config)
 
-		err := client.Dispatch(context.Background(), exec.DispatchRequest{
-			Task: &exec.DispatchTask{
+		err := client.Dispatch(context.Background(), dispatch.DispatchRequest{
+			Task: &dispatch.DispatchTask{
 				DAGRunID: "run-123",
 				Target:   "test-dag",
 			},
@@ -198,7 +201,7 @@ func TestClientDispatch(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorIs(t, err, backoff.ErrPermanent)
 
-		var staleErr *exec.StaleQueueDispatchError
+		var staleErr *queue.StaleQueueDispatchError
 		require.ErrorAs(t, err, &staleErr)
 		require.Equal(t, "queued attempt was superseded", staleErr.Reason)
 	})
@@ -228,7 +231,7 @@ func TestClientPoll(t *testing.T) {
 
 	host, port := parseHostPort(addr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+		members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 
 	client := coordinator.New(monitor, config)
@@ -276,7 +279,7 @@ func TestClientGetWorkers(t *testing.T) {
 
 	host, port := parseHostPort(addr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+		members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 
 	client := coordinator.New(monitor, config)
@@ -354,9 +357,9 @@ func TestClientGetWorkers_DeduplicatesAndSorts(t *testing.T) {
 	host1, port1 := parseHostPort(addr1)
 	host2, port2 := parseHostPort(addr2)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-2", Host: host2, Port: port2, Status: exec.ServiceStatusActive},
-			{ID: "coord-1", Host: host1, Port: port1, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-2", Host: host2, Port: port2, Status: serviceregistry.ServiceStatusActive},
+			{ID: "coord-1", Host: host1, Port: port1, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 
@@ -426,9 +429,9 @@ func TestClientGetWorkers_TieBreaksByStableCoordinatorOrder(t *testing.T) {
 	hostA, portA := parseHostPort(addrA)
 	hostB, portB := parseHostPort(addrB)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-b", Host: hostB, Port: portB, Status: exec.ServiceStatusActive},
-			{ID: "coord-a", Host: hostA, Port: portA, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-b", Host: hostB, Port: portB, Status: serviceregistry.ServiceStatusActive},
+			{ID: "coord-a", Host: hostA, Port: portA, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 
@@ -477,9 +480,9 @@ func TestClientGetWorkers_PartialFailureStillReturnsWorkers(t *testing.T) {
 	failingHost, failingPort := parseHostPort(failingAddr)
 	successHost, successPort := parseHostPort(successAddr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-fail", Host: failingHost, Port: failingPort, Status: exec.ServiceStatusActive},
-			{ID: "coord-ok", Host: successHost, Port: successPort, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-fail", Host: failingHost, Port: failingPort, Status: serviceregistry.ServiceStatusActive},
+			{ID: "coord-ok", Host: successHost, Port: successPort, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 
@@ -528,9 +531,9 @@ func TestClientStateMutationDoesNotRetryAfterRPCError(t *testing.T) {
 		firstHost, firstPort := parseHostPort(firstAddr)
 		secondHost, secondPort := parseHostPort(secondAddr)
 		monitor := &mockServiceMonitor{
-			members: []exec.HostInfo{
-				{ID: "coord-b", Host: secondHost, Port: secondPort, Status: exec.ServiceStatusActive},
-				{ID: "coord-a", Host: firstHost, Port: firstPort, Status: exec.ServiceStatusActive},
+			members: []serviceregistry.HostInfo{
+				{ID: "coord-b", Host: secondHost, Port: secondPort, Status: serviceregistry.ServiceStatusActive},
+				{ID: "coord-a", Host: firstHost, Port: firstPort, Status: serviceregistry.ServiceStatusActive},
 			},
 		}
 
@@ -577,9 +580,9 @@ func TestClientStateMutationDoesNotRetryAfterRPCError(t *testing.T) {
 		firstHost, firstPort := parseHostPort(firstAddr)
 		secondHost, secondPort := parseHostPort(secondAddr)
 		monitor := &mockServiceMonitor{
-			members: []exec.HostInfo{
-				{ID: "coord-b", Host: secondHost, Port: secondPort, Status: exec.ServiceStatusActive},
-				{ID: "coord-a", Host: firstHost, Port: firstPort, Status: exec.ServiceStatusActive},
+			members: []serviceregistry.HostInfo{
+				{ID: "coord-b", Host: secondHost, Port: secondPort, Status: serviceregistry.ServiceStatusActive},
+				{ID: "coord-a", Host: firstHost, Port: firstPort, Status: serviceregistry.ServiceStatusActive},
 			},
 		}
 
@@ -656,9 +659,9 @@ func TestClientStateOperationsUsePinnedCoordinator(t *testing.T) {
 	firstHost, firstPort := parseHostPort(firstAddr)
 	secondHost, secondPort := parseHostPort(secondAddr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: exec.ServiceStatusActive},
-			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: serviceregistry.ServiceStatusActive},
+			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 
@@ -715,9 +718,9 @@ func TestClientStateCoordinatorPinIsDeterministicByNamespaceAcrossClients(t *tes
 	firstHost, firstPort := parseHostPort(firstAddr)
 	secondHost, secondPort := parseHostPort(secondAddr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: exec.ServiceStatusActive},
-			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: serviceregistry.ServiceStatusActive},
+			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 
@@ -776,9 +779,9 @@ func TestClientStatePinnedCoordinatorDoesNotFailOverAfterUnavailable(t *testing.
 	firstHost, firstPort := parseHostPort(firstAddr)
 	secondHost, secondPort := parseHostPort(secondAddr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: exec.ServiceStatusActive},
-			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: serviceregistry.ServiceStatusActive},
+			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 
@@ -835,8 +838,8 @@ func TestClientStatePinnedCoordinatorRefreshesSameCoordinatorEndpoint(t *testing
 	oldHost, oldPort := parseHostPort(oldAddr)
 	newHost, newPort := parseHostPort(newAddr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-a", Host: oldHost, Port: oldPort, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 
@@ -849,8 +852,8 @@ func TestClientStatePinnedCoordinatorRefreshesSameCoordinatorEndpoint(t *testing
 	_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
 
-	monitor.members = []exec.HostInfo{
-		{ID: "coord-a", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive},
+	monitor.members = []serviceregistry.HostInfo{
+		{ID: "coord-a", Host: newHost, Port: newPort, Status: serviceregistry.ServiceStatusActive},
 	}
 	oldServer.Stop()
 	oldServerStopped = true
@@ -897,8 +900,8 @@ func TestClientStatePinnedCoordinatorRefreshesSameCoordinatorEndpointAfterDeadli
 	oldHost, oldPort := parseHostPort(oldAddr)
 	newHost, newPort := parseHostPort(newAddr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-a", Host: oldHost, Port: oldPort, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 
@@ -911,8 +914,8 @@ func TestClientStatePinnedCoordinatorRefreshesSameCoordinatorEndpointAfterDeadli
 	_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
 
-	monitor.members = []exec.HostInfo{
-		{ID: "coord-a", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive},
+	monitor.members = []serviceregistry.HostInfo{
+		{ID: "coord-a", Host: newHost, Port: newPort, Status: serviceregistry.ServiceStatusActive},
 	}
 
 	_, err = stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`2`)})
@@ -958,8 +961,8 @@ func TestClientStatePinnedCoordinatorReselectsWhenCoordinatorIDDisappears(t *tes
 	oldHost, oldPort := parseHostPort(oldAddr)
 	newHost, newPort := parseHostPort(newAddr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-a", Host: oldHost, Port: oldPort, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 
@@ -972,8 +975,8 @@ func TestClientStatePinnedCoordinatorReselectsWhenCoordinatorIDDisappears(t *tes
 	_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
 
-	monitor.members = []exec.HostInfo{
-		{ID: "coord-b", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive},
+	monitor.members = []serviceregistry.HostInfo{
+		{ID: "coord-b", Host: newHost, Port: newPort, Status: serviceregistry.ServiceStatusActive},
 	}
 
 	_, err = stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`2`)})
@@ -1004,7 +1007,7 @@ func TestClientHeartbeat(t *testing.T) {
 
 	host, port := parseHostPort(addr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+		members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 
 	client := coordinator.New(monitor, config)
@@ -1050,7 +1053,7 @@ func TestClientHeartbeatWithSkipTLSVerify(t *testing.T) {
 
 	host, port := parseHostPort(addr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+		members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -1113,10 +1116,10 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 	oldHost, oldPort := parseHostPort(oldAddr)
 	newHost, newPort := parseHostPort(newAddr)
 	oldStartedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	oldMember := exec.HostInfo{ID: "coord-a", Host: oldHost, Port: oldPort, Status: exec.ServiceStatusActive, StartedAt: oldStartedAt}
-	newMember := exec.HostInfo{ID: "coord-a", Host: newHost, Port: newPort, Status: exec.ServiceStatusActive, StartedAt: oldStartedAt.Add(time.Minute)}
+	oldMember := serviceregistry.HostInfo{ID: "coord-a", Host: oldHost, Port: oldPort, Status: serviceregistry.ServiceStatusActive, StartedAt: oldStartedAt}
+	newMember := serviceregistry.HostInfo{ID: "coord-a", Host: newHost, Port: newPort, Status: serviceregistry.ServiceStatusActive, StartedAt: oldStartedAt.Add(time.Minute)}
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{oldMember},
+		members: []serviceregistry.HostInfo{oldMember},
 	}
 	client := coordinator.New(monitor, config)
 
@@ -1131,7 +1134,7 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	monitor.members = []exec.HostInfo{newMember}
+	monitor.members = []serviceregistry.HostInfo{newMember}
 	_, err = stateClient.PutState(context.Background(), &coordinatorv1.PutStateRequest{
 		Ref: &coordinatorv1.StateRef{Scope: "dag", Namespace: "new", Key: "state"},
 	})
@@ -1152,7 +1155,7 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 	assert.Equal(t, int32(1), oldPuts.Load())
 	assert.Equal(t, int32(2), newPuts.Load())
 
-	monitor.members = []exec.HostInfo{oldMember}
+	monitor.members = []serviceregistry.HostInfo{oldMember}
 	_, err = client.Heartbeat(context.Background(), request)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), oldHeartbeats.Load())
@@ -1194,9 +1197,9 @@ func TestClientHeartbeatFailsOverWithinConfiguredTimeout(t *testing.T) {
 	firstHost, firstPort := parseHostPort(firstAddr)
 	secondHost, secondPort := parseHostPort(secondAddr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: exec.ServiceStatusActive},
-			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: serviceregistry.ServiceStatusActive},
+			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 	client := coordinator.New(monitor, config)
@@ -1230,9 +1233,9 @@ func TestClientHeartbeatFailsOverAfterHealthCheckStalls(t *testing.T) {
 	firstHost, firstPort := parseHostPort(firstAddr)
 	secondHost, secondPort := parseHostPort(secondAddr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{
-			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: exec.ServiceStatusActive},
-			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: exec.ServiceStatusActive},
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: serviceregistry.ServiceStatusActive},
+			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: serviceregistry.ServiceStatusActive},
 		},
 	}
 	client := coordinator.New(monitor, config)
@@ -1288,7 +1291,7 @@ func TestClientRPCFailuresPreserveActiveLogStream(t *testing.T) {
 
 	host, port := parseHostPort(addr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: exec.ServiceStatusActive}},
+		members: []serviceregistry.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 	client := coordinator.New(monitor, config)
 
@@ -1352,7 +1355,7 @@ func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {
 
 	host, port := parseHostPort(addr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: exec.ServiceStatusActive}},
+		members: []serviceregistry.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 	client := coordinator.New(monitor, config)
 
@@ -1391,7 +1394,7 @@ func TestClientHeartbeatHonorsCallerDeadline(t *testing.T) {
 
 	host, port := parseHostPort(addr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: exec.ServiceStatusActive}},
+		members: []serviceregistry.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 	client := coordinator.New(monitor, config)
 
@@ -1433,12 +1436,12 @@ func TestClientReportStatus(t *testing.T) {
 
 		host, port := parseHostPort(addr)
 		monitor := &mockServiceMonitor{
-			members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+			members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 		}
 
 		client := coordinator.New(monitor, config)
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			DAGRunID:  "test-run-123",
 			Status:    1, // Running status
 			StartedAt: "2024-01-01T00:00:00Z",
@@ -1485,12 +1488,12 @@ func TestClientReportStatus(t *testing.T) {
 
 		host, port := parseHostPort(addr)
 		monitor := &mockServiceMonitor{
-			members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+			members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 		}
 
 		client := coordinator.New(monitor, config)
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			DAGRunID: "test-run-456",
 			Status:   2, // Success status
 		})
@@ -1528,12 +1531,12 @@ func TestClientReportStatus(t *testing.T) {
 
 		host, port := parseHostPort(addr)
 		monitor := &mockServiceMonitor{
-			members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+			members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 		}
 
 		client := coordinator.New(monitor, config)
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			DAGRunID: "test-run-789",
 			Status:   3, // Failed status
 		})
@@ -1573,7 +1576,7 @@ func TestClientMetrics(t *testing.T) {
 
 	host, port := parseHostPort(addr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+		members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 
 	client := coordinator.New(monitor, config)
@@ -1583,13 +1586,13 @@ func TestClientMetrics(t *testing.T) {
 	assert.True(t, metrics.IsConnected)
 	assert.Equal(t, 0, metrics.ConsecutiveFails)
 
-	task := &exec.DispatchTask{DAGRunID: "test"}
+	task := &dispatch.DispatchTask{DAGRunID: "test"}
 
 	// Attempt dispatch - should fail
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+	err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 	require.Error(t, err)
 
 	// Check failure metrics
@@ -1616,18 +1619,18 @@ func TestClientCleanup(t *testing.T) {
 
 	host, port := parseHostPort(addr)
 	monitor := &mockServiceMonitor{
-		members: []exec.HostInfo{{Host: host, Port: port, Status: exec.ServiceStatusActive}},
+		members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 
 	client := coordinator.New(monitor, config)
 
 	// Make a call to establish connection
-	task := &exec.DispatchTask{DAGRunID: "test"}
+	task := &dispatch.DispatchTask{DAGRunID: "test"}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+	err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 	require.NoError(t, err)
 
 	// Cleanup should close all connections
@@ -1638,7 +1641,7 @@ func TestClientCleanup(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel2()
 
-	err = client.Dispatch(ctx2, exec.DispatchRequest{Task: task})
+	err = client.Dispatch(ctx2, dispatch.DispatchRequest{Task: task})
 	require.NoError(t, err)
 }
 
@@ -1649,18 +1652,18 @@ func TestClientDispatch_NoCoordinators(t *testing.T) {
 	monitor := &mockServiceMonitor{}
 	client := coordinator.New(monitor, config)
 
-	task := &exec.DispatchTask{
+	task := &dispatch.DispatchTask{
 		DAGRunID: "test-dag-run",
 		Target:   "test.yaml",
 	}
 
 	// Should fail gracefully with no coordinators
-	monitor.members = []exec.HostInfo{}
+	monitor.members = []serviceregistry.HostInfo{}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+	err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 	require.Error(t, err)
 	// Could be either error depending on timing
 	assert.True(t, strings.Contains(err.Error(), "no coordinators available") ||
@@ -1669,19 +1672,19 @@ func TestClientDispatch_NoCoordinators(t *testing.T) {
 
 // Mock implementations
 
-var _ exec.ServiceRegistry = (*mockServiceMonitor)(nil)
+var _ serviceregistry.ServiceRegistry = (*mockServiceMonitor)(nil)
 
 type mockServiceMonitor struct {
-	members   []exec.HostInfo
+	members   []serviceregistry.HostInfo
 	err       error
 	onMembers func()
 }
 
-func (m *mockServiceMonitor) Register(_ context.Context, _ exec.ServiceName, _ exec.HostInfo) error {
+func (m *mockServiceMonitor) Register(_ context.Context, _ serviceregistry.ServiceName, _ serviceregistry.HostInfo) error {
 	return nil
 }
 
-func (m *mockServiceMonitor) GetServiceMembers(_ context.Context, _ exec.ServiceName) ([]exec.HostInfo, error) {
+func (m *mockServiceMonitor) GetServiceMembers(_ context.Context, _ serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
 	if m.onMembers != nil {
 		m.onMembers()
 	}
@@ -1695,7 +1698,7 @@ func (m *mockServiceMonitor) Unregister(_ context.Context) {
 	// No-op
 }
 
-func (m *mockServiceMonitor) UpdateStatus(_ context.Context, _ exec.ServiceName, _ exec.ServiceStatus) error {
+func (m *mockServiceMonitor) UpdateStatus(_ context.Context, _ serviceregistry.ServiceName, _ serviceregistry.ServiceStatus) error {
 	return nil
 }
 

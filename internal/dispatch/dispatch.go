@@ -11,7 +11,7 @@ import (
 	"errors"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // ErrBuildRequiresLocal reports that distributed materialization fencing is unavailable.
@@ -19,7 +19,7 @@ var ErrBuildRequiresLocal = errors.New("build workflows require local execution;
 
 // ShouldDispatchToCoordinator decides whether a DAG should be dispatched
 // to the coordinator for distributed execution.
-func ShouldDispatchToCoordinator(dag *core.DAG, hasCoordinator bool, defaultMode config.ExecutionMode) bool {
+func ShouldDispatchToCoordinator(dag *ir.DAG, hasCoordinator bool, defaultMode config.ExecutionMode) bool {
 	if dag.ForceLocal {
 		return false
 	}

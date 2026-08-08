@@ -15,9 +15,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -42,7 +44,7 @@ func isLogStreamingNotConfigured(err error) bool {
 		strings.Contains(st.Message(), "log streaming not configured")
 }
 
-var _ exec.LogWriterFactory = (*LogStreamer)(nil)
+var _ runctx.LogWriterFactory = (*LogStreamer)(nil)
 var _ runtime.SchedulerLogStreamer = (*LogStreamer)(nil)
 
 // LogStreamer streams logs to coordinator via gRPC
@@ -52,8 +54,8 @@ type LogStreamer struct {
 	dagRunID  string
 	dagName   string
 	attemptID string
-	rootRef   exec.DAGRunRef
-	owner     exec.HostInfo
+	rootRef   dagrun.DAGRunRef
+	owner     serviceregistry.HostInfo
 	mu        sync.RWMutex
 
 	schedulerMu     sync.RWMutex
@@ -67,10 +69,10 @@ func NewLogStreamer(
 	dagRunID string,
 	dagName string,
 	attemptID string,
-	rootRef exec.DAGRunRef,
-	owner ...exec.HostInfo,
+	rootRef dagrun.DAGRunRef,
+	owner ...serviceregistry.HostInfo,
 ) *LogStreamer {
-	var target exec.HostInfo
+	var target serviceregistry.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}
@@ -512,9 +514,9 @@ func (w *stepLogWriter) Close() error {
 // toProtoStreamType converts streamType int to proto LogStreamType
 func toProtoStreamType(streamType int) coordinatorv1.LogStreamType {
 	switch streamType {
-	case exec.StreamTypeStdout:
+	case runctx.StreamTypeStdout:
 		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT
-	case exec.StreamTypeStderr:
+	case runctx.StreamTypeStderr:
 		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR
 	default:
 		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED

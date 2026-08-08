@@ -18,19 +18,11 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 	"golang.org/x/oauth2/google"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 )
 
-type Provider = string
-
 const (
-	ProviderMicrosoft            Provider = "microsoft"
-	ProviderGoogleServiceAccount Provider = "google_service_account"
-	ProviderGoogleRefresh        Provider = "google_refresh"
-
-	microsoftSMTPHost = "smtp.office365.com"
-	googleSMTPHost    = "smtp.gmail.com"
-	smtpPort          = "587"
-
 	microsoftScope  = "https://outlook.office365.com/.default"
 	googleMailScope = "https://mail.google.com/"
 	googleTokenURL  = "https://oauth2.googleapis.com/token" //nolint:gosec // Fixed provider endpoint, not a credential.
@@ -41,111 +33,11 @@ const (
 
 var tokenHTTPClient = &http.Client{Timeout: tokenRequestTimeout}
 
-// Config contains the provider credentials needed to acquire SMTP access tokens.
-type Config struct {
-	Provider           Provider `json:"provider,omitempty" yaml:"provider,omitempty"`
-	TenantID           string   `json:"tenantId,omitempty" yaml:"tenant_id,omitempty"`
-	ClientID           string   `json:"clientId,omitempty" yaml:"client_id,omitempty"`
-	ClientSecret       string   `json:"clientSecret,omitempty" yaml:"client_secret,omitempty"`
-	ServiceAccountJSON string   `json:"serviceAccountJson,omitempty" yaml:"service_account_json,omitempty"`
-	RefreshToken       string   `json:"refreshToken,omitempty" yaml:"refresh_token,omitempty"`
-}
-
-// Destination is the provider's SMTP submission endpoint.
-type Destination struct {
-	Host string
-	Port string
-}
-
 // TokenFunc returns an access token using the supplied operation context.
 type TokenFunc func(context.Context) (*oauth2.Token, error)
 
-type configField struct {
-	name  string
-	value string
-}
-
-// SMTPDestination returns the fixed SMTP endpoint for a provider.
-func SMTPDestination(provider Provider) (Destination, error) {
-	switch provider {
-	case ProviderMicrosoft:
-		return Destination{Host: microsoftSMTPHost, Port: smtpPort}, nil
-	case ProviderGoogleServiceAccount, ProviderGoogleRefresh:
-		return Destination{Host: googleSMTPHost, Port: smtpPort}, nil
-	default:
-		return Destination{}, fmt.Errorf("unsupported SMTP OAuth provider %q", provider)
-	}
-}
-
-// ValidateStructure validates provider selection and credential field ownership.
-func ValidateStructure(cfg *Config) error {
-	if cfg == nil {
-		return nil
-	}
-	provider := strings.TrimSpace(cfg.Provider)
-	if _, err := SMTPDestination(provider); err != nil {
-		return err
-	}
-
-	require := func(fields ...configField) error {
-		for _, field := range fields {
-			if strings.TrimSpace(field.value) == "" {
-				return fmt.Errorf("%s is required for SMTP OAuth provider %q", field.name, provider)
-			}
-		}
-		return nil
-	}
-	reject := func(fields ...configField) error {
-		for _, field := range fields {
-			if strings.TrimSpace(field.value) != "" {
-				return fmt.Errorf("%s is not valid for SMTP OAuth provider %q", field.name, provider)
-			}
-		}
-		return nil
-	}
-
-	switch provider {
-	case ProviderMicrosoft:
-		if err := require(
-			configField{"tenant_id", cfg.TenantID},
-			configField{"client_id", cfg.ClientID},
-			configField{"client_secret", cfg.ClientSecret},
-		); err != nil {
-			return err
-		}
-		return reject(
-			configField{"service_account_json", cfg.ServiceAccountJSON},
-			configField{"refresh_token", cfg.RefreshToken},
-		)
-	case ProviderGoogleServiceAccount:
-		if err := require(configField{"service_account_json", cfg.ServiceAccountJSON}); err != nil {
-			return err
-		}
-		return reject(
-			configField{"tenant_id", cfg.TenantID},
-			configField{"client_id", cfg.ClientID},
-			configField{"client_secret", cfg.ClientSecret},
-			configField{"refresh_token", cfg.RefreshToken},
-		)
-	case ProviderGoogleRefresh:
-		if err := require(
-			configField{"client_id", cfg.ClientID},
-			configField{"client_secret", cfg.ClientSecret},
-			configField{"refresh_token", cfg.RefreshToken},
-		); err != nil {
-			return err
-		}
-		return reject(
-			configField{"tenant_id", cfg.TenantID},
-			configField{"service_account_json", cfg.ServiceAccountJSON},
-		)
-	default:
-		return errors.New("SMTP OAuth provider is required")
-	}
-}
-
 // NewTokenFunc validates resolved credentials and returns a process-cached token function.
-func NewTokenFunc(username string, cfg *Config) (TokenFunc, error) {
+func NewTokenFunc(username string, cfg *oauthconfig.Config) (TokenFunc, error) {
 	if cfg == nil {
 		return nil, errors.New("SMTP OAuth configuration is required")
 	}
@@ -154,7 +46,7 @@ func NewTokenFunc(username string, cfg *Config) (TokenFunc, error) {
 	if username == "" {
 		return nil, errors.New("SMTP username is required with OAuth")
 	}
-	if err := ValidateStructure(&cfgCopy); err != nil {
+	if err := oauthconfig.ValidateStructure(&cfgCopy); err != nil {
 		return nil, err
 	}
 
@@ -169,7 +61,7 @@ func NewTokenFunc(username string, cfg *Config) (TokenFunc, error) {
 	return cachedTokenFunc(key, refresh), nil
 }
 
-func normalizedConfig(cfg Config) Config {
+func normalizedConfig(cfg oauthconfig.Config) oauthconfig.Config {
 	cfg.Provider = strings.TrimSpace(cfg.Provider)
 	cfg.TenantID = strings.TrimSpace(cfg.TenantID)
 	cfg.ClientID = strings.TrimSpace(cfg.ClientID)
@@ -178,9 +70,9 @@ func normalizedConfig(cfg Config) Config {
 
 type refreshFunc func(context.Context, *oauth2.Token) (*oauth2.Token, error)
 
-func providerRefresh(username string, cfg Config) (refreshFunc, error) {
+func providerRefresh(username string, cfg oauthconfig.Config) (refreshFunc, error) {
 	switch cfg.Provider {
-	case ProviderMicrosoft:
+	case oauthconfig.ProviderMicrosoft:
 		tokenURL := "https://login.microsoftonline.com/" + url.PathEscape(cfg.TenantID) + "/oauth2/v2.0/token"
 		return func(ctx context.Context, _ *oauth2.Token) (*oauth2.Token, error) {
 			ctx = tokenHTTPContext(ctx)
@@ -191,7 +83,7 @@ func providerRefresh(username string, cfg Config) (refreshFunc, error) {
 				Scopes:       []string{microsoftScope},
 			}).TokenSource(ctx).Token()
 		}, nil
-	case ProviderGoogleServiceAccount:
+	case oauthconfig.ProviderGoogleServiceAccount:
 		jwtConfig, err := google.JWTConfigFromJSON([]byte(cfg.ServiceAccountJSON), googleMailScope)
 		if err != nil {
 			return nil, fmt.Errorf("invalid Google service account JSON: %w", err)
@@ -204,7 +96,7 @@ func providerRefresh(username string, cfg Config) (refreshFunc, error) {
 		return func(ctx context.Context, _ *oauth2.Token) (*oauth2.Token, error) {
 			return jwtConfig.TokenSource(tokenHTTPContext(ctx)).Token()
 		}, nil
-	case ProviderGoogleRefresh:
+	case oauthconfig.ProviderGoogleRefresh:
 		oauthConfig := oauth2.Config{
 			ClientID:     cfg.ClientID,
 			ClientSecret: cfg.ClientSecret,
@@ -232,10 +124,10 @@ func tokenHTTPContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, oauth2.HTTPClient, tokenHTTPClient)
 }
 
-func cacheKey(username string, cfg Config) ([sha256.Size]byte, error) {
+func cacheKey(username string, cfg oauthconfig.Config) ([sha256.Size]byte, error) {
 	data, err := json.Marshal(struct {
 		Username string `json:"username"`
-		Config
+		oauthconfig.Config
 	}{Username: username, Config: cfg})
 	if err != nil {
 		return [sha256.Size]byte{}, fmt.Errorf("encode SMTP OAuth cache key: %w", err)

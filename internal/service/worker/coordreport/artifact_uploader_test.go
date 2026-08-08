@@ -11,9 +11,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +24,7 @@ import (
 type artifactUploaderMockClient struct {
 	coordinator.Client
 	streamArtifactsFunc   func(context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
-	streamArtifactsToFunc func(context.Context, exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
+	streamArtifactsToFunc func(context.Context, serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
 }
 
 func (m *artifactUploaderMockClient) StreamArtifacts(ctx context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
@@ -33,7 +34,7 @@ func (m *artifactUploaderMockClient) StreamArtifacts(ctx context.Context) (coord
 	return nil, errors.New("StreamArtifacts not configured")
 }
 
-func (m *artifactUploaderMockClient) StreamArtifactsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+func (m *artifactUploaderMockClient) StreamArtifactsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 	if m.streamArtifactsToFunc != nil {
 		return m.streamArtifactsToFunc(ctx, owner)
 	}
@@ -117,7 +118,7 @@ func TestArtifactUploaderUploadDirIncludesEmptyFiles(t *testing.T) {
 		},
 	}
 
-	uploader := coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", exec.DAGRunRef{})
+	uploader := coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", dagrun.DAGRunRef{})
 	err := uploader.UploadDir(context.Background(), dir)
 	require.NoError(t, err)
 
@@ -157,7 +158,7 @@ func TestArtifactUploaderUploadDirUsesSingleAttemptIDSnapshot(t *testing.T) {
 		},
 	}
 
-	uploader = coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", exec.DAGRunRef{})
+	uploader = coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", dagrun.DAGRunRef{})
 	err := uploader.UploadDir(context.Background(), dir)
 	require.NoError(t, err)
 

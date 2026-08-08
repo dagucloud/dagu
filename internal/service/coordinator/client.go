@@ -24,9 +24,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -39,7 +42,7 @@ import (
 // Client abstracts handling communication with the coordinator service using
 // service registry and gRPC.
 type Client interface {
-	exec.Dispatcher
+	dispatch.Dispatcher
 
 	// Poll retrieves a task from the coordinator.
 	Poll(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error)
@@ -52,32 +55,32 @@ type Client interface {
 	Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
 
 	// AckTaskClaim confirms a claimed task with its owner coordinator.
-	AckTaskClaimTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error)
+	AckTaskClaimTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error)
 
 	// RunHeartbeat refreshes leases for tasks owned by a specific coordinator.
-	RunHeartbeatTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)
+	RunHeartbeatTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)
 
 	// ReportStatus sends a worker status update to the coordinator.
 	ReportStatus(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
 
 	// ReportStatusTo sends a status update to a specific owner coordinator.
-	ReportStatusTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
+	ReportStatusTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
 
 	// StreamLogs returns a log streaming client for sending logs to the coordinator
 	StreamLogs(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
 
 	// StreamLogsTo opens a log stream to a specific owner coordinator.
-	StreamLogsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
+	StreamLogsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
 
 	// StreamArtifacts returns an artifact streaming client for sending artifacts to the coordinator.
 	StreamArtifacts(ctx context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
 
 	// StreamArtifactsTo opens an artifact stream to a specific owner coordinator.
-	StreamArtifactsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
+	StreamArtifactsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
 
 	// RequestCancel requests cancellation of a DAG run through the coordinator.
 	// Used by worker sub-DAG cancellation.
-	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) error
+	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) error
 
 	// GetDAGRunStatus is inherited from execution.Dispatcher
 
@@ -112,13 +115,13 @@ type Metrics struct {
 var (
 	_ Client                = (*clientImpl)(nil)
 	_ SecretReferenceClient = (*clientImpl)(nil)
-	_ exec.Dispatcher       = (*clientImpl)(nil)
+	_ dispatch.Dispatcher   = (*clientImpl)(nil)
 )
 
 // clientImpl is the concrete implementation
 type clientImpl struct {
 	config   *Config
-	registry exec.ServiceRegistry
+	registry serviceregistry.ServiceRegistry
 
 	clientsMu sync.RWMutex
 	clients   map[string]*client // Cache of gRPC clients by coordinator ID
@@ -131,7 +134,7 @@ type clientImpl struct {
 }
 
 type pinnedStateCoordinator struct {
-	member    exec.HostInfo
+	member    serviceregistry.HostInfo
 	memberKey string
 	lastUsed  time.Time
 }
@@ -159,7 +162,7 @@ var (
 )
 
 // New creates a new coordinator client with the given configuration
-func New(registry exec.ServiceRegistry, config *Config) Client {
+func New(registry serviceregistry.ServiceRegistry, config *Config) Client {
 	return &clientImpl{
 		config:            config,
 		registry:          registry,
@@ -172,7 +175,7 @@ func New(registry exec.ServiceRegistry, config *Config) Client {
 }
 
 // Dispatch sends a task to the coordinator.
-func (cli *clientImpl) Dispatch(ctx context.Context, req exec.DispatchRequest) error {
+func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchRequest) error {
 	task := req.Task
 	if task == nil {
 		return fmt.Errorf("dispatch task is nil")
@@ -206,7 +209,7 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req exec.DispatchRequest) e
 			return err
 		}
 
-		return cli.attemptCall(ctx, members, func(ctx context.Context, member exec.HostInfo, client *client) error {
+		return cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
 			// Create request
 			protoReq := &coordinatorv1.DispatchRequest{
 				Task:                      protoTask,
@@ -231,7 +234,7 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req exec.DispatchRequest) e
 				// FailedPrecondition means permanent misconfiguration (e.g. selector mismatch).
 				// Stop retrying across coordinators and across the outer backoff loop.
 				if st, ok := status.FromError(err); ok && st.Code() == codes.FailedPrecondition {
-					if staleErr, ok := exec.ParseStaleQueueDispatchError(st.Message()); ok {
+					if staleErr, ok := queue.ParseStaleQueueDispatchError(st.Message()); ok {
 						return backoff.PermanentError(fmt.Errorf("failed to dispatch task to coordinator %s: %w", member.ID, staleErr))
 					}
 					return backoff.PermanentError(wrapped)
@@ -262,7 +265,7 @@ func (cli *clientImpl) Poll(ctx context.Context, policy backoff.RetryPolicy, req
 			return err
 		}
 
-		return cli.attemptCall(ctx, members, func(ctx context.Context, member exec.HostInfo, client *client) error {
+		return cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
 			resp, err := client.client.Poll(ctx, req)
 			if err != nil {
 				return fmt.Errorf("failed to poll task from coordinator %s: %w", member.ID, err)
@@ -294,7 +297,7 @@ func (cli *clientImpl) Metrics() Metrics {
 	return *cli.state
 }
 
-func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo, callback func(ctx context.Context, member exec.HostInfo, client *client) error) error {
+func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistry.HostInfo, callback func(ctx context.Context, member serviceregistry.HostInfo, client *client) error) error {
 	// Shuffle members to distribute load evenly
 	rand.Shuffle(len(members), func(i, j int) {
 		members[i], members[j] = members[j], members[i]
@@ -358,7 +361,7 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []exec.HostInfo,
 
 // callPinnedStateCoordinator keeps all state RPCs on one coordinator for this
 // client because file-backed state can be local to each coordinator.
-func (cli *clientImpl) callPinnedStateCoordinator(ctx context.Context, routingKey string, callback func(ctx context.Context, member exec.HostInfo, client *client) error) error {
+func (cli *clientImpl) callPinnedStateCoordinator(ctx context.Context, routingKey string, callback func(ctx context.Context, member serviceregistry.HostInfo, client *client) error) error {
 	member, err := cli.pinnedStateCoordinator(ctx, routingKey)
 	if err != nil {
 		return err
@@ -382,22 +385,22 @@ func shouldRefreshPinnedStateCoordinator(err error) bool {
 	return code == codes.Unavailable || code == codes.DeadlineExceeded
 }
 
-func (cli *clientImpl) pinnedStateCoordinator(ctx context.Context, routingKey string) (exec.HostInfo, error) {
+func (cli *clientImpl) pinnedStateCoordinator(ctx context.Context, routingKey string) (serviceregistry.HostInfo, error) {
 	if member, ok := cli.cachedPinnedStateCoordinator(routingKey); ok {
 		return member, nil
 	}
 
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
-		return exec.HostInfo{}, err
+		return serviceregistry.HostInfo{}, err
 	}
 
 	member, err := selectStateCoordinatorOwner(members, routingKey)
 	if err != nil {
-		return exec.HostInfo{}, err
+		return serviceregistry.HostInfo{}, err
 	}
 	if _, err := cli.getOrCreateDiscoveredClient(member); err != nil {
-		return exec.HostInfo{}, err
+		return serviceregistry.HostInfo{}, err
 	}
 
 	cli.stateCoordinatorMu.Lock()
@@ -413,7 +416,7 @@ func (cli *clientImpl) pinnedStateCoordinator(ctx context.Context, routingKey st
 	return member, nil
 }
 
-func (cli *clientImpl) cachedPinnedStateCoordinator(routingKey string) (exec.HostInfo, bool) {
+func (cli *clientImpl) cachedPinnedStateCoordinator(routingKey string) (serviceregistry.HostInfo, bool) {
 	cli.stateCoordinatorMu.Lock()
 	defer cli.stateCoordinatorMu.Unlock()
 
@@ -425,10 +428,10 @@ func (cli *clientImpl) cachedPinnedStateCoordinator(routingKey string) (exec.Hos
 		cli.stateCoordinators[routingKey] = pinned
 		return pinned.member, true
 	}
-	return exec.HostInfo{}, false
+	return serviceregistry.HostInfo{}, false
 }
 
-func (cli *clientImpl) rememberPinnedStateCoordinatorLocked(routingKey string, member exec.HostInfo) {
+func (cli *clientImpl) rememberPinnedStateCoordinatorLocked(routingKey string, member serviceregistry.HostInfo) {
 	if cli.stateCoordinators == nil {
 		cli.stateCoordinators = make(map[string]pinnedStateCoordinator)
 	}
@@ -457,7 +460,7 @@ func (cli *clientImpl) evictOldestPinnedStateCoordinatorLocked() {
 	}
 }
 
-func (cli *clientImpl) refreshPinnedStateCoordinator(ctx context.Context, routingKey string, failed exec.HostInfo) {
+func (cli *clientImpl) refreshPinnedStateCoordinator(ctx context.Context, routingKey string, failed serviceregistry.HostInfo) {
 	failedKey := coordinatorMemberKey(failed)
 
 	cli.stateCoordinatorMu.Lock()
@@ -478,7 +481,7 @@ func (cli *clientImpl) refreshPinnedStateCoordinator(ctx context.Context, routin
 		return
 	}
 
-	var replacement *exec.HostInfo
+	var replacement *serviceregistry.HostInfo
 	for _, member := range members {
 		if coordinatorMemberKey(member) == failedKey {
 			member := member
@@ -511,7 +514,7 @@ func (cli *clientImpl) refreshPinnedStateCoordinator(ctx context.Context, routin
 	delete(cli.stateCoordinators, routingKey)
 }
 
-func (cli *clientImpl) callMember(ctx context.Context, member exec.HostInfo, callback func(context.Context, *client) error) error {
+func (cli *clientImpl) callMember(ctx context.Context, member serviceregistry.HostInfo, callback func(context.Context, *client) error) error {
 	client, err := cli.getOrCreateClient(member)
 	if err != nil {
 		cli.recordFailure(err)
@@ -525,7 +528,7 @@ func (cli *clientImpl) callMember(ctx context.Context, member exec.HostInfo, cal
 	return nil
 }
 
-func (cli *clientImpl) callMemberWithTimeout(ctx context.Context, member exec.HostInfo, callback func(context.Context, *client) error) error {
+func (cli *clientImpl) callMemberWithTimeout(ctx context.Context, member serviceregistry.HostInfo, callback func(context.Context, *client) error) error {
 	if cli.config.RequestTimeout <= 0 {
 		return cli.callMember(ctx, member, callback)
 	}
@@ -554,16 +557,16 @@ func (cli *clientImpl) isHealthy(ctx context.Context, client *client) error {
 }
 
 // getOrCreateClient gets a client for the member without changing the cached address.
-func (cli *clientImpl) getOrCreateClient(member exec.HostInfo) (*client, error) {
+func (cli *clientImpl) getOrCreateClient(member serviceregistry.HostInfo) (*client, error) {
 	return cli.getOrCreateClientWithAddressRefresh(member, false)
 }
 
 // getOrCreateDiscoveredClient treats the discovered address as authoritative.
-func (cli *clientImpl) getOrCreateDiscoveredClient(member exec.HostInfo) (*client, error) {
+func (cli *clientImpl) getOrCreateDiscoveredClient(member serviceregistry.HostInfo) (*client, error) {
 	return cli.getOrCreateClientWithAddressRefresh(member, true)
 }
 
-func (cli *clientImpl) getOrCreateClientWithAddressRefresh(member exec.HostInfo, refreshAddress bool) (*client, error) {
+func (cli *clientImpl) getOrCreateClientWithAddressRefresh(member serviceregistry.HostInfo, refreshAddress bool) (*client, error) {
 	key := coordinatorMemberKey(member)
 	address := coordinatorAddress(member)
 
@@ -618,7 +621,7 @@ func isOlderCoordinatorIncarnation(candidate, current time.Time) bool {
 }
 
 // createClient creates a new gRPC client for the given coordinator
-func (cli *clientImpl) createClient(member exec.HostInfo) (*client, error) {
+func (cli *clientImpl) createClient(member serviceregistry.HostInfo) (*client, error) {
 	// Get dial options based on TLS configuration
 	dialOpts, err := getDialOptions(cli.config)
 	if err != nil {
@@ -694,8 +697,8 @@ func (cli *clientImpl) recordSuccess(ctx context.Context) {
 
 // getCoordinatorMembers discovers available coordinators from the service registry.
 // Returns an error if discovery fails or no coordinators are available.
-func (cli *clientImpl) getCoordinatorMembers(ctx context.Context) ([]exec.HostInfo, error) {
-	members, err := cli.registry.GetServiceMembers(ctx, exec.ServiceNameCoordinator)
+func (cli *clientImpl) getCoordinatorMembers(ctx context.Context) ([]serviceregistry.HostInfo, error) {
+	members, err := cli.registry.GetServiceMembers(ctx, serviceregistry.ServiceNameCoordinator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover coordinators: %w", err)
 	}
@@ -773,16 +776,16 @@ func (cli *clientImpl) GetWorkers(ctx context.Context) ([]*coordinatorv1.WorkerI
 	return allWorkers, nil
 }
 
-func sortCoordinatorMembers(members []exec.HostInfo) []exec.HostInfo {
-	sorted := append([]exec.HostInfo(nil), members...)
+func sortCoordinatorMembers(members []serviceregistry.HostInfo) []serviceregistry.HostInfo {
+	sorted := append([]serviceregistry.HostInfo(nil), members...)
 	sort.Slice(sorted, func(i, j int) bool {
 		return coordinatorMemberKey(sorted[i]) < coordinatorMemberKey(sorted[j])
 	})
 	return sorted
 }
 
-func orderStateCoordinatorMembers(members []exec.HostInfo, routingKey string) []exec.HostInfo {
-	ordered := append([]exec.HostInfo(nil), members...)
+func orderStateCoordinatorMembers(members []serviceregistry.HostInfo, routingKey string) []serviceregistry.HostInfo {
+	ordered := append([]serviceregistry.HostInfo(nil), members...)
 	if len(ordered) < 2 {
 		return ordered
 	}
@@ -798,26 +801,26 @@ func orderStateCoordinatorMembers(members []exec.HostInfo, routingKey string) []
 	return ordered
 }
 
-func selectStateCoordinatorOwner(members []exec.HostInfo, routingKey string) (exec.HostInfo, error) {
+func selectStateCoordinatorOwner(members []serviceregistry.HostInfo, routingKey string) (serviceregistry.HostInfo, error) {
 	ordered := orderStateCoordinatorMembers(members, routingKey)
 	if len(ordered) == 0 {
-		return exec.HostInfo{}, fmt.Errorf("no coordinators available")
+		return serviceregistry.HostInfo{}, fmt.Errorf("no coordinators available")
 	}
 	return ordered[0], nil
 }
 
-func stateCoordinatorMemberScore(routingKey string, member exec.HostInfo) [sha256.Size]byte {
+func stateCoordinatorMemberScore(routingKey string, member serviceregistry.HostInfo) [sha256.Size]byte {
 	return sha256.Sum256([]byte(routingKey + "\x00" + coordinatorMemberKey(member)))
 }
 
-func coordinatorMemberKey(member exec.HostInfo) string {
+func coordinatorMemberKey(member serviceregistry.HostInfo) string {
 	if member.ID != "" {
 		return member.ID
 	}
 	return fmt.Sprintf("%s:%d", member.Host, member.Port)
 }
 
-func coordinatorAddress(member exec.HostInfo) string {
+func coordinatorAddress(member serviceregistry.HostInfo) string {
 	return net.JoinHostPort(member.Host, strconv.Itoa(member.Port))
 }
 
@@ -848,7 +851,7 @@ func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.Heartbe
 	}
 
 	var resp *coordinatorv1.HeartbeatResponse
-	call := func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	call := func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		callResp, callErr := client.client.Heartbeat(ctx, req)
 		if callErr != nil {
 			return fmt.Errorf("heartbeat failed: %w", callErr)
@@ -885,7 +888,7 @@ func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.Heartbe
 	return nil, lastErr
 }
 
-func (cli *clientImpl) AckTaskClaimTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+func (cli *clientImpl) AckTaskClaimTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	var resp *coordinatorv1.AckTaskClaimResponse
 	err := cli.callMemberWithTimeout(ctx, owner, func(ctx context.Context, client *client) error {
 		var callErr error
@@ -898,7 +901,7 @@ func (cli *clientImpl) AckTaskClaimTo(ctx context.Context, owner exec.HostInfo, 
 	return resp, err
 }
 
-func (cli *clientImpl) RunHeartbeatTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+func (cli *clientImpl) RunHeartbeatTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 	var resp *coordinatorv1.RunHeartbeatResponse
 	err := cli.callMemberWithTimeout(ctx, owner, func(ctx context.Context, client *client) error {
 		var callErr error
@@ -919,7 +922,7 @@ func (cli *clientImpl) ReportStatus(ctx context.Context, req *coordinatorv1.Repo
 	}
 
 	var resp *coordinatorv1.ReportStatusResponse
-	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.ReportStatus(ctx, req)
 		if callErr != nil {
@@ -930,7 +933,7 @@ func (cli *clientImpl) ReportStatus(ctx context.Context, req *coordinatorv1.Repo
 	return resp, err
 }
 
-func (cli *clientImpl) ReportStatusTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+func (cli *clientImpl) ReportStatusTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	var resp *coordinatorv1.ReportStatusResponse
 	err := cli.callMemberWithTimeout(ctx, owner, func(ctx context.Context, client *client) error {
 		var callErr error
@@ -951,7 +954,7 @@ func (cli *clientImpl) StreamLogs(ctx context.Context) (coordinatorv1.Coordinato
 	})
 }
 
-func (cli *clientImpl) StreamLogsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+func (cli *clientImpl) StreamLogsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 	var stream coordinatorv1.CoordinatorService_StreamLogsClient
 	err := cli.callMember(ctx, owner, func(ctx context.Context, client *client) error {
 		var callErr error
@@ -1024,7 +1027,7 @@ func openStreamWithFailover[T any](
 }
 
 // GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
-func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return nil, err
@@ -1042,7 +1045,7 @@ func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID st
 	}
 
 	var resp *coordinatorv1.GetDAGRunStatusResponse
-	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.GetDAGRunStatus(ctx, req)
 		if callErr != nil {
@@ -1057,7 +1060,7 @@ func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID st
 		return nil, fmt.Errorf("coordinator returned empty DAG run status response")
 	}
 
-	result := &exec.DAGRunStatusResult{Found: resp.Found}
+	result := &dispatch.DAGRunStatusResult{Found: resp.Found}
 	if resp.Status != nil {
 		status, convErr := convert.ProtoToDAGRunStatus(resp.Status)
 		if convErr != nil {
@@ -1080,7 +1083,7 @@ func (cli *clientImpl) GetDAG(ctx context.Context, name string) (string, error) 
 	}
 
 	var resp *coordinatorv1.GetDAGResponse
-	err = cli.attemptCall(ctx, members, func(ctx context.Context, member exec.HostInfo, client *client) error {
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.GetDAG(ctx, req)
 		if callErr != nil {
@@ -1101,7 +1104,7 @@ func (cli *clientImpl) GetDAG(ctx context.Context, name string) (string, error) 
 }
 
 // RequestCancel requests cancellation of a DAG run through the coordinator
-func (cli *clientImpl) RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *exec.DAGRunRef) error {
+func (cli *clientImpl) RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) error {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return err
@@ -1118,7 +1121,7 @@ func (cli *clientImpl) RequestCancel(ctx context.Context, dagName, dagRunID stri
 		req.RootDagRunId = rootRef.ID
 	}
 
-	return cli.attemptCall(ctx, members, func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	return cli.attemptCall(ctx, members, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		resp, callErr := client.client.RequestCancel(ctx, req)
 		if callErr != nil {
 			return fmt.Errorf("request cancel failed: %w", callErr)
@@ -1130,7 +1133,7 @@ func (cli *clientImpl) RequestCancel(ctx context.Context, dagName, dagRunID stri
 	})
 }
 
-func (cli *clientImpl) StreamArtifactsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+func (cli *clientImpl) StreamArtifactsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 	var stream coordinatorv1.CoordinatorService_StreamArtifactsClient
 	err := cli.callMember(ctx, owner, func(ctx context.Context, client *client) error {
 		var callErr error
@@ -1253,7 +1256,7 @@ func (cli *clientImpl) GetWorkspaceBundle(ctx context.Context, digest string) ([
 		return nil, err
 	}
 	var data []byte
-	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ exec.HostInfo, client *client) error {
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		data, callErr = getWorkspaceBundleFromMember(ctx, client, digest)
 		return callErr

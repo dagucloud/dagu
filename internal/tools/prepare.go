@@ -9,11 +9,11 @@ import (
 	"log/slog"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // PrepareDAG validates, installs, and exposes the tools declared by a DAG.
-func PrepareDAG(ctx context.Context, dag *core.DAG, installer Installer, opts InstallOptions, basePath string) ([]string, error) {
+func PrepareDAG(ctx context.Context, dag *ir.DAG, installer Installer, opts InstallOptions, basePath string) ([]string, error) {
 	if dag == nil || dag.Tools == nil {
 		return nil, nil
 	}
@@ -38,7 +38,7 @@ func PrepareDAG(ctx context.Context, dag *core.DAG, installer Installer, opts In
 
 // ValidateDAGSupported returns an error when DAG tools are declared for an
 // execution mode that cannot receive the host-local tool environment.
-func ValidateDAGSupported(dag *core.DAG) error {
+func ValidateDAGSupported(dag *ir.DAG) error {
 	if dag == nil || dag.Tools == nil {
 		return nil
 	}

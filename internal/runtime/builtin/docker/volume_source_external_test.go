@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	dockerruntime "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/stretchr/testify/require"
@@ -18,7 +18,7 @@ func TestLoadConfigExpandsHostEnvInVolumeSource(t *testing.T) {
 	codexHome := filepath.Join(t.TempDir(), ".codex")
 	t.Setenv("DAGU_TEST_CODEX_HOME", codexHome)
 
-	cfg, err := dockerruntime.LoadConfig("", core.Container{
+	cfg, err := dockerruntime.LoadConfig("", ir.Container{
 		Image:   "dagu-codex-runner:local",
 		Volumes: []string{"${DAGU_TEST_CODEX_HOME}:/codex-home:ro"},
 	}, nil)
@@ -28,7 +28,7 @@ func TestLoadConfigExpandsHostEnvInVolumeSource(t *testing.T) {
 }
 
 func TestLoadConfigFailsClearlyForMissingHostEnvInVolumeSource(t *testing.T) {
-	_, err := dockerruntime.LoadConfig("", core.Container{
+	_, err := dockerruntime.LoadConfig("", ir.Container{
 		Image:   "dagu-codex-runner:local",
 		Volumes: []string{"${DAGU_TEST_MISSING_CODEX_HOME}:/codex-home"},
 	}, nil)
@@ -41,7 +41,7 @@ func TestLoadConfigFailsClearlyForMissingHostEnvInVolumeSource(t *testing.T) {
 func TestLoadConfigPreservesExpandedNamedVolume(t *testing.T) {
 	t.Setenv("DAGU_TEST_VOLUME_NAME", "dagu-cache")
 
-	cfg, err := dockerruntime.LoadConfig("", core.Container{
+	cfg, err := dockerruntime.LoadConfig("", ir.Container{
 		Image:   "alpine",
 		Volumes: []string{"${DAGU_TEST_VOLUME_NAME}:/cache"},
 	}, nil)
@@ -59,7 +59,7 @@ func TestLoadConfigResolvesExpandedRelativeBindSourceFromWorkDir(t *testing.T) {
 	workDir := t.TempDir()
 	t.Setenv("DAGU_TEST_REL_CODEX_HOME", "./.codex")
 
-	cfg, err := dockerruntime.LoadConfig(workDir, core.Container{
+	cfg, err := dockerruntime.LoadConfig(workDir, ir.Container{
 		Image:   "dagu-codex-runner:local",
 		Volumes: []string{"${DAGU_TEST_REL_CODEX_HOME}:/codex-home"},
 	}, nil)

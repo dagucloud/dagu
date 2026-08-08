@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -172,7 +173,7 @@ func TestBuild_BasicDAGs(t *testing.T) {
 	}
 
 	// Register executor capabilities for testing.
-	core.RegisterExecutorCapabilities("", core.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Script: true, Shell: true,
 	})
 
@@ -250,7 +251,7 @@ func TestRoundTrip(t *testing.T) {
 	oneOffContent := []byte("name: roundtrip-one-off\nschedule:\n  - at: \"2026-03-29T02:10:00+01:00\"\nsteps:\n  - name: s1\n    command: echo ok\n")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "rt-one-off.yaml"), oneOffContent, 0600))
 
-	core.RegisterExecutorCapabilities("", core.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Script: true, Shell: true,
 	})
 
@@ -278,14 +279,14 @@ func TestRoundTrip(t *testing.T) {
 	assert.Equal(t, "roundtrip", cronDAG.Name)
 	assert.Contains(t, cronDAG.Labels.Strings(), "team=backend")
 	require.Len(t, cronDAG.Schedule, 1)
-	assert.Equal(t, core.ScheduleKindCron, cronDAG.Schedule[0].GetKind())
+	assert.Equal(t, ir.ScheduleKindCron, cronDAG.Schedule[0].GetKind())
 	assert.Equal(t, "0 * * * *", cronDAG.Schedule[0].Expression)
 	assert.NotNil(t, cronDAG.Schedule[0].Parsed)
 
 	oneOffDAG := DAGFromEntry(entries[1], dir)
 	assert.Equal(t, "roundtrip-one-off", oneOffDAG.Name)
 	require.Len(t, oneOffDAG.Schedule, 1)
-	assert.Equal(t, core.ScheduleKindAt, oneOffDAG.Schedule[0].GetKind())
+	assert.Equal(t, ir.ScheduleKindAt, oneOffDAG.Schedule[0].GetKind())
 	assert.Equal(t, "2026-03-29T02:10:00+01:00", oneOffDAG.Schedule[0].At)
 	oneOffTime, ok := oneOffDAG.Schedule[0].OneOffTime()
 	require.True(t, ok)
@@ -337,7 +338,7 @@ func TestBuild_WithSuspendFlags(t *testing.T) {
 	dagContent := []byte("name: flagged-dag\nsteps:\n  - name: step1\n    command: echo hello\n")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "flagged.yaml"), dagContent, 0600))
 
-	core.RegisterExecutorCapabilities("", core.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Script: true, Shell: true,
 	})
 
@@ -357,7 +358,7 @@ func TestBuild_WithSuspendFlags(t *testing.T) {
 func TestBuild_ContextCancellation(t *testing.T) {
 	dir := t.TempDir()
 
-	core.RegisterExecutorCapabilities("", core.ExecutorCapabilities{
+	registry.RegisterExecutorCapabilities("", registry.ExecutorCapabilities{
 		Command: true, MultipleCommands: true, Script: true, Shell: true,
 	})
 

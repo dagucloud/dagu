@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,8 +16,8 @@ import (
 func TestOutputsWritePublishesValues(t *testing.T) {
 	t.Parallel()
 
-	exec, err := newExecutor(context.Background(), core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	exec, err := newExecutor(context.Background(), ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "outputs",
 			Config: map[string]any{
 				"values": map[string]any{
@@ -26,7 +26,7 @@ func TestOutputsWritePublishesValues(t *testing.T) {
 				},
 			},
 		},
-		Commands: []core.CommandEntry{{Command: "write"}},
+		Commands: []ir.CommandEntry{{Command: "write"}},
 	})
 	require.NoError(t, err)
 	require.NoError(t, exec.Run(context.Background()))
@@ -42,12 +42,12 @@ func TestOutputsWritePublishesValues(t *testing.T) {
 func TestOutputsWriteRejectsInvalidConfig(t *testing.T) {
 	t.Parallel()
 
-	_, err := newExecutor(context.Background(), core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	_, err := newExecutor(context.Background(), ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "outputs",
 			Config: map[string]any{"values": map[string]any{}},
 		},
-		Commands: []core.CommandEntry{{Command: "write"}},
+		Commands: []ir.CommandEntry{{Command: "write"}},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "values must not be empty")

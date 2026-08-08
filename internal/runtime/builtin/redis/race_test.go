@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/require"
 
@@ -36,9 +36,9 @@ func TestRace_ConcurrentExecutors(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 
-			step := core.Step{
+			step := ir.Step{
 				Name: "test-concurrent",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: "redis",
 					Config: map[string]any{
 						"host":    host,
@@ -199,9 +199,9 @@ func TestRace_ExecutorKill(t *testing.T) {
 	numIterations := 5
 
 	for range numIterations {
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-kill-race",
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "redis",
 				Config: map[string]any{
 					"host":    host,
@@ -244,9 +244,9 @@ func TestRace_ExecutorClose(t *testing.T) {
 	numIterations := 5
 
 	for range numIterations {
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-close-race",
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "redis",
 				Config: map[string]any{
 					"host":    host,

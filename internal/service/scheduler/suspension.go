@@ -6,21 +6,21 @@ package scheduler
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-func isSchedulerManagedTriggerType(triggerType core.TriggerType) bool {
+func isSchedulerManagedTriggerType(triggerType ir.TriggerType) bool {
 	switch triggerType {
-	case core.TriggerTypeScheduler, core.TriggerTypeCatchUp, core.TriggerTypeRetry:
+	case ir.TriggerTypeScheduler, ir.TriggerTypeCatchUp, ir.TriggerTypeRetry:
 		return true
-	case core.TriggerTypeUnknown, core.TriggerTypeManual, core.TriggerTypeWebhook, core.TriggerTypeSubDAG:
+	case ir.TriggerTypeUnknown, ir.TriggerTypeManual, ir.TriggerTypeWebhook, ir.TriggerTypeSubDAG:
 		return false
 	}
 	return false
 }
 
-func suspendFlagName(status *exec.DAGRunStatus, dag *core.DAG) string {
+func suspendFlagName(status *dagrun.DAGRunStatus, dag *ir.DAG) string {
 	if status != nil && status.SuspendFlagName != "" {
 		return status.SuspendFlagName
 	}
@@ -38,8 +38,8 @@ func suspendFlagName(status *exec.DAGRunStatus, dag *core.DAG) string {
 func isSuspendedDAG(
 	ctx context.Context,
 	isSuspended IsSuspendedFunc,
-	status *exec.DAGRunStatus,
-	dag *core.DAG,
+	status *dagrun.DAGRunStatus,
+	dag *ir.DAG,
 ) bool {
 	if isSuspended == nil {
 		return false
