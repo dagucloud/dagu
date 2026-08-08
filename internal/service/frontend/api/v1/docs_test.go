@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	workspacepkg "github.com/dagucloud/dagu/v2/internal/workspace"
@@ -378,7 +379,7 @@ func mockRelativeDocID(id, prefix string) (string, bool) {
 	return rel, rel != ""
 }
 
-func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptions) (*exec.CursorResult[docs.DocSearchResult], error) {
+func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptions) (*pagination.CursorResult[docs.DocSearchResult], error) {
 	allResults, err := m.Search(context.Background(), opts.Query)
 	if err != nil {
 		return nil, err
@@ -398,7 +399,7 @@ func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptio
 		if len(cp.Matches) > matchLimit {
 			cp.Matches = cp.Matches[:matchLimit]
 			cp.HasMoreMatches = true
-			cp.NextMatchesCursor = exec.EncodeSearchCursor(mockDocMatchCursor{
+			cp.NextMatchesCursor = pagination.EncodeSearchCursor(mockDocMatchCursor{
 				Version:    1,
 				Query:      opts.Query,
 				PathPrefix: opts.PathPrefix,
@@ -412,14 +413,14 @@ func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptio
 	offset := 0
 	if opts.Cursor != "" {
 		var cursor mockDocSearchCursor
-		if err := exec.DecodeSearchCursor(opts.Cursor, &cursor); err != nil {
+		if err := pagination.DecodeSearchCursor(opts.Cursor, &cursor); err != nil {
 			return nil, err
 		}
 		if cursor.Version != 1 ||
 			cursor.Query != opts.Query ||
 			cursor.PathPrefix != opts.PathPrefix ||
 			cursor.FilterPrefix != opts.FilterPrefix {
-			return nil, exec.ErrInvalidCursor
+			return nil, pagination.ErrInvalidCursor
 		}
 		for i, item := range results {
 			if item.ID <= cursor.ID {
@@ -434,12 +435,12 @@ func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptio
 	for _, item := range results[offset:end] {
 		pageItems = append(pageItems, *item)
 	}
-	result := &exec.CursorResult[docs.DocSearchResult]{
+	result := &pagination.CursorResult[docs.DocSearchResult]{
 		Items:   pageItems,
 		HasMore: end < len(results),
 	}
 	if result.HasMore && len(pageItems) > 0 {
-		result.NextCursor = exec.EncodeSearchCursor(mockDocSearchCursor{
+		result.NextCursor = pagination.EncodeSearchCursor(mockDocSearchCursor{
 			Version:      1,
 			Query:        opts.Query,
 			PathPrefix:   opts.PathPrefix,
@@ -450,7 +451,7 @@ func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptio
 	return result, nil
 }
 
-func (m *mockDocStore) SearchMatches(_ context.Context, id string, opts docs.SearchDocMatchesOptions) (*exec.CursorResult[*exec.Match], error) {
+func (m *mockDocStore) SearchMatches(_ context.Context, id string, opts docs.SearchDocMatchesOptions) (*pagination.CursorResult[*exec.Match], error) {
 	if err := docs.ValidateDocID(id); err != nil {
 		return nil, docs.ErrInvalidDocID
 	}
@@ -481,7 +482,7 @@ func (m *mockDocStore) SearchMatches(_ context.Context, id string, opts docs.Sea
 	offset := 0
 	if opts.Cursor != "" {
 		var cursor mockDocMatchCursor
-		if err := exec.DecodeSearchCursor(opts.Cursor, &cursor); err != nil {
+		if err := pagination.DecodeSearchCursor(opts.Cursor, &cursor); err != nil {
 			return nil, err
 		}
 		if cursor.Version != 1 ||
@@ -489,7 +490,7 @@ func (m *mockDocStore) SearchMatches(_ context.Context, id string, opts docs.Sea
 			cursor.PathPrefix != opts.PathPrefix ||
 			cursor.ID != id ||
 			cursor.Offset < 0 {
-			return nil, exec.ErrInvalidCursor
+			return nil, pagination.ErrInvalidCursor
 		}
 		offset = cursor.Offset
 	}
@@ -497,12 +498,12 @@ func (m *mockDocStore) SearchMatches(_ context.Context, id string, opts docs.Sea
 	offset = max(offset, 0)
 	offset = min(offset, len(matches))
 	end := min(offset+limit, len(matches))
-	cursorResult := &exec.CursorResult[*exec.Match]{
+	cursorResult := &pagination.CursorResult[*exec.Match]{
 		Items:   matches[offset:end],
 		HasMore: end < len(matches),
 	}
 	if cursorResult.HasMore {
-		cursorResult.NextCursor = exec.EncodeSearchCursor(mockDocMatchCursor{
+		cursorResult.NextCursor = pagination.EncodeSearchCursor(mockDocMatchCursor{
 			Version:    1,
 			Query:      opts.Query,
 			PathPrefix: opts.PathPrefix,
@@ -522,7 +523,7 @@ func docPathHasPrefixForTest(id, prefix string) bool {
 	return prefix == "" || id == prefix || strings.HasPrefix(id, prefix+"/")
 }
 
-func (m *mockDocStore) List(_ context.Context, opts docs.ListDocsOptions) (*exec.PaginatedResult[*docs.DocTreeNode], error) {
+func (m *mockDocStore) List(_ context.Context, opts docs.ListDocsOptions) (*pagination.PaginatedResult[*docs.DocTreeNode], error) {
 	m.lastListOpts = opts
 	if m.failAll {
 		return nil, errForced
@@ -545,14 +546,14 @@ func (m *mockDocStore) List(_ context.Context, opts docs.ListDocsOptions) (*exec
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
 
-	pg := exec.NewPaginator(opts.Page, opts.PerPage)
+	pg := pagination.NewPaginator(opts.Page, opts.PerPage)
 	start := min(pg.Offset(), len(nodes))
 	end := min(start+pg.Limit(), len(nodes))
-	result := exec.NewPaginatedResult(nodes[start:end], len(nodes), pg)
+	result := pagination.NewPaginatedResult(nodes[start:end], len(nodes), pg)
 	return &result, nil
 }
 
-func (m *mockDocStore) ListFlat(_ context.Context, opts docs.ListDocsOptions) (*exec.PaginatedResult[docs.DocMetadata], error) {
+func (m *mockDocStore) ListFlat(_ context.Context, opts docs.ListDocsOptions) (*pagination.PaginatedResult[docs.DocMetadata], error) {
 	m.lastListOpts = opts
 	if m.failAll {
 		return nil, errForced
@@ -575,10 +576,10 @@ func (m *mockDocStore) ListFlat(_ context.Context, opts docs.ListDocsOptions) (*
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 
-	pg := exec.NewPaginator(opts.Page, opts.PerPage)
+	pg := pagination.NewPaginator(opts.Page, opts.PerPage)
 	start := min(pg.Offset(), len(items))
 	end := min(start+pg.Limit(), len(items))
-	result := exec.NewPaginatedResult(items[start:end], len(items), pg)
+	result := pagination.NewPaginatedResult(items[start:end], len(items), pg)
 	return &result, nil
 }
 
@@ -1419,7 +1420,7 @@ type mockDocStoreWithTree struct {
 	*mockDocStore
 }
 
-func (m *mockDocStoreWithTree) List(_ context.Context, opts docs.ListDocsOptions) (*exec.PaginatedResult[*docs.DocTreeNode], error) {
+func (m *mockDocStoreWithTree) List(_ context.Context, opts docs.ListDocsOptions) (*pagination.PaginatedResult[*docs.DocTreeNode], error) {
 	nodes := []*docs.DocTreeNode{
 		{
 			ID:   "parent",
@@ -1437,10 +1438,10 @@ func (m *mockDocStoreWithTree) List(_ context.Context, opts docs.ListDocsOptions
 			filtered = append(filtered, node)
 		}
 	}
-	pg := exec.NewPaginator(opts.Page, opts.PerPage)
+	pg := pagination.NewPaginator(opts.Page, opts.PerPage)
 	start := min(pg.Offset(), len(filtered))
 	end := min(start+pg.Limit(), len(filtered))
-	result := exec.NewPaginatedResult(filtered[start:end], len(filtered), pg)
+	result := pagination.NewPaginatedResult(filtered[start:end], len(filtered), pg)
 	return &result, nil
 }
 

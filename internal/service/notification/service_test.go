@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/assert"
@@ -203,8 +204,8 @@ func (s testDAGStore) Delete(context.Context, string) error {
 	return nil
 }
 
-func (s testDAGStore) List(context.Context, exec.ListDAGsOptions) (exec.PaginatedResult[*ir.DAG], []string, error) {
-	return exec.PaginatedResult[*ir.DAG]{}, nil, nil
+func (s testDAGStore) List(context.Context, exec.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
+	return pagination.PaginatedResult[*ir.DAG]{}, nil, nil
 }
 
 func (s testDAGStore) GetMetadata(context.Context, string) (*ir.DAG, error) {
@@ -219,12 +220,12 @@ func (s testDAGStore) Grep(context.Context, string) ([]*exec.GrepDAGsResult, []s
 	return nil, nil, nil
 }
 
-func (s testDAGStore) SearchCursor(context.Context, exec.SearchDAGsOptions) (*exec.CursorResult[exec.SearchDAGResult], []string, error) {
-	return &exec.CursorResult[exec.SearchDAGResult]{}, nil, nil
+func (s testDAGStore) SearchCursor(context.Context, exec.SearchDAGsOptions) (*pagination.CursorResult[exec.SearchDAGResult], []string, error) {
+	return &pagination.CursorResult[exec.SearchDAGResult]{}, nil, nil
 }
 
-func (s testDAGStore) SearchMatches(context.Context, string, exec.SearchDAGMatchesOptions) (*exec.CursorResult[*exec.Match], error) {
-	return &exec.CursorResult[*exec.Match]{}, nil
+func (s testDAGStore) SearchMatches(context.Context, string, exec.SearchDAGMatchesOptions) (*pagination.CursorResult[*exec.Match], error) {
+	return &pagination.CursorResult[*exec.Match]{}, nil
 }
 
 func (s testDAGStore) Rename(context.Context, string, string) error {

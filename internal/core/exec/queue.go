@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -30,7 +31,7 @@ type QueueStore interface {
 	// List returns all items in the queue with the given name
 	List(ctx context.Context, name string) ([]QueuedItemData, error)
 	// ListCursor returns one forward-only page of queued items for a specific queue.
-	ListCursor(ctx context.Context, name, cursor string, limit int) (CursorResult[QueuedItemData], error)
+	ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[QueuedItemData], error)
 	// All returns all items in the queue
 	All(ctx context.Context) ([]QueuedItemData, error)
 	// ListByDAGName returns all items that has a specific DAG name
@@ -103,12 +104,12 @@ func (m *MockQueueStore) List(ctx context.Context, name string) ([]QueuedItemDat
 	return args.Get(0).([]QueuedItemData), args.Error(1)
 }
 
-func (m *MockQueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (CursorResult[QueuedItemData], error) {
+func (m *MockQueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[QueuedItemData], error) {
 	args := m.Called(ctx, name, cursor, limit)
 	if args.Get(0) == nil {
-		return CursorResult[QueuedItemData]{}, args.Error(1)
+		return pagination.CursorResult[QueuedItemData]{}, args.Error(1)
 	}
-	return args.Get(0).(CursorResult[QueuedItemData]), args.Error(1)
+	return args.Get(0).(pagination.CursorResult[QueuedItemData]), args.Error(1)
 }
 
 func (m *MockQueueStore) All(ctx context.Context) ([]QueuedItemData, error) {

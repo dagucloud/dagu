@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -125,11 +126,11 @@ func (idx *queueReadIndex) itemIDAt(offset int) (string, bool) {
 
 func (idx *queueReadIndex) resolveStart(cursor queueReadCursor) (int, error) {
 	if cursor.Offset < 0 {
-		return 0, exec.ErrInvalidCursor
+		return 0, pagination.ErrInvalidCursor
 	}
 	if cursor.AfterItemID == "" {
 		if cursor.Offset != 0 {
-			return 0, exec.ErrInvalidCursor
+			return 0, pagination.ErrInvalidCursor
 		}
 		return 0, nil
 	}
@@ -142,7 +143,7 @@ func (idx *queueReadIndex) resolveStart(cursor queueReadCursor) (int, error) {
 	if offset := idx.findItemOffset(cursor.AfterItemID); offset >= 0 {
 		return offset + 1, nil
 	}
-	return 0, exec.ErrInvalidCursor
+	return 0, pagination.ErrInvalidCursor
 }
 
 func (idx *queueReadIndex) slice(start, limit int) []string {
@@ -404,27 +405,27 @@ func (s *QueueStore) removeQueueIndexItemsLocked(ctx context.Context, name strin
 	}
 }
 
-func (s *QueueStore) listCursorLocked(ctx context.Context, name string, cursor queueReadCursor, limit int) (exec.CursorResult[exec.QueuedItemData], error) {
+func (s *QueueStore) listCursorLocked(ctx context.Context, name string, cursor queueReadCursor, limit int) (pagination.CursorResult[exec.QueuedItemData], error) {
 	idx, err := s.loadOrRebuildQueueIndexLocked(ctx, name)
 	if err != nil {
-		return exec.CursorResult[exec.QueuedItemData]{}, err
+		return pagination.CursorResult[exec.QueuedItemData]{}, err
 	}
 
 	for attempt := range 2 {
 		start, err := idx.resolveStart(cursor)
 		if err != nil {
-			return exec.CursorResult[exec.QueuedItemData]{}, err
+			return pagination.CursorResult[exec.QueuedItemData]{}, err
 		}
 
 		itemIDs := idx.slice(start, limit)
 		items, missing, err := s.queueItemsByID(ctx, name, itemIDs)
 		if err != nil {
-			return exec.CursorResult[exec.QueuedItemData]{}, err
+			return pagination.CursorResult[exec.QueuedItemData]{}, err
 		}
 		if missing && attempt == 0 {
 			idx, err = s.rebuildQueueIndexLocked(ctx, name)
 			if err != nil {
-				return exec.CursorResult[exec.QueuedItemData]{}, err
+				return pagination.CursorResult[exec.QueuedItemData]{}, err
 			}
 			continue
 		}
@@ -434,14 +435,14 @@ func (s *QueueStore) listCursorLocked(ctx context.Context, name string, cursor q
 		if hasMore && len(itemIDs) > 0 {
 			nextCursor = encodeQueueCursor(name, start+len(itemIDs), itemIDs[len(itemIDs)-1])
 		}
-		return exec.CursorResult[exec.QueuedItemData]{
+		return pagination.CursorResult[exec.QueuedItemData]{
 			Items:      items,
 			HasMore:    hasMore,
 			NextCursor: nextCursor,
 		}, nil
 	}
 
-	return exec.CursorResult[exec.QueuedItemData]{Items: []exec.QueuedItemData{}}, nil
+	return pagination.CursorResult[exec.QueuedItemData]{Items: []exec.QueuedItemData{}}, nil
 }
 
 func (s *QueueStore) queueItemsByID(ctx context.Context, name string, itemIDs []string) ([]exec.QueuedItemData, bool, error) {

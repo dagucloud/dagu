@@ -3,7 +3,7 @@
 
 package store
 
-import "github.com/dagucloud/dagu/v2/internal/core/exec"
+import "github.com/dagucloud/dagu/v2/internal/pagination"
 
 type queueReadCursor struct {
 	Version     int    `json:"version"`
@@ -16,7 +16,7 @@ func encodeQueueCursor(name string, offset int, itemID string) string {
 	if itemID == "" {
 		return ""
 	}
-	return exec.EncodeSearchCursor(queueReadCursor{
+	return pagination.EncodeSearchCursor(queueReadCursor{
 		Version:     queueCursorVersion,
 		Queue:       name,
 		Offset:      offset,
@@ -29,22 +29,22 @@ func decodeQueueCursor(name, raw string) (queueReadCursor, error) {
 		return queueReadCursor{Version: queueCursorVersion, Queue: name}, nil
 	}
 	var cursor queueReadCursor
-	if err := exec.DecodeSearchCursor(raw, &cursor); err != nil {
+	if err := pagination.DecodeSearchCursor(raw, &cursor); err != nil {
 		return queueReadCursor{}, err
 	}
 	if cursor.Version != queueCursorVersion || cursor.Queue != name {
-		return queueReadCursor{}, exec.ErrInvalidCursor
+		return queueReadCursor{}, pagination.ErrInvalidCursor
 	}
 	return cursor, nil
 }
 
 func resolveQueueCursorStart(items []*queueItem, cursor queueReadCursor) (int, error) {
 	if cursor.Offset < 0 {
-		return 0, exec.ErrInvalidCursor
+		return 0, pagination.ErrInvalidCursor
 	}
 	if cursor.AfterItemID == "" {
 		if cursor.Offset != 0 {
-			return 0, exec.ErrInvalidCursor
+			return 0, pagination.ErrInvalidCursor
 		}
 		return 0, nil
 	}
@@ -56,5 +56,5 @@ func resolveQueueCursorStart(items []*queueItem, cursor queueReadCursor) (int, e
 			return i + 1, nil
 		}
 	}
-	return 0, exec.ErrInvalidCursor
+	return 0, pagination.ErrInvalidCursor
 }

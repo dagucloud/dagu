@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -110,7 +111,7 @@ func TestQueueStore_ListCursor(t *testing.T) {
 	assert.Equal(t, queueRef("dag-low-2", "run-low-2"), requireQueuedRef(t, secondPage.Items[0]))
 
 	_, err = s.ListCursor(ctx, "cursor-q", "not-a-valid-cursor", 10)
-	assert.ErrorIs(t, err, exec.ErrInvalidCursor)
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
 }
 
 func TestQueueStore_ListCursorDecodesOnlyPageItems(t *testing.T) {

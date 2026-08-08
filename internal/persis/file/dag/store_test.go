@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 
@@ -649,7 +650,7 @@ steps:
     run: echo prod
 `)))
 
-	firstPage := exec.NewPaginator(1, 1)
+	firstPage := pagination.NewPaginator(1, 1)
 	result, errs, err := store.List(ctx, exec.ListDAGsOptions{
 		Paginator: &firstPage,
 		WorkspaceFilter: &exec.WorkspaceFilter{
@@ -665,7 +666,7 @@ steps:
 	require.Len(t, result.Items, 1)
 	assert.Equal(t, "aaa-global", result.Items[0].Name)
 
-	secondPage := exec.NewPaginator(2, 1)
+	secondPage := pagination.NewPaginator(2, 1)
 	result, errs, err = store.List(ctx, exec.ListDAGsOptions{
 		Paginator: &secondPage,
 		WorkspaceFilter: &exec.WorkspaceFilter{
@@ -681,7 +682,7 @@ steps:
 	require.Len(t, result.Items, 1)
 	assert.Equal(t, "bbb-ops", result.Items[0].Name)
 
-	workspaceOnly := exec.NewPaginator(1, 10)
+	workspaceOnly := pagination.NewPaginator(1, 10)
 	result, errs, err = store.List(ctx, exec.ListDAGsOptions{
 		Paginator: &workspaceOnly,
 		WorkspaceFilter: &exec.WorkspaceFilter{
@@ -814,7 +815,7 @@ steps:
 		Labels: []string{"workspace=prod"},
 		Cursor: result.NextCursor,
 	})
-	assert.ErrorIs(t, err, exec.ErrInvalidCursor)
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
 }
 
 func TestUpdateSpec(t *testing.T) {
@@ -1352,7 +1353,7 @@ steps:
 	}
 
 	// Test pagination
-	paginator := exec.NewPaginator(2, 2)
+	paginator := pagination.NewPaginator(2, 2)
 	opts := exec.ListDAGsOptions{Paginator: &paginator}
 	result, errList, err := store.List(ctx, opts)
 	require.NoError(t, err)
@@ -1508,7 +1509,7 @@ steps:
 	}
 	require.NoError(t, store.ToggleSuspend(ctx, "active-suspended", true))
 
-	paginator := exec.NewPaginator(1, 1)
+	paginator := pagination.NewPaginator(1, 1)
 	result, errList, err = store.List(ctx, exec.ListDAGsOptions{
 		Paginator:  &paginator,
 		ActiveOnly: true,
@@ -1521,7 +1522,7 @@ steps:
 	require.Len(t, result.Items, 1)
 	assert.Equal(t, "active-alpha", result.Items[0].Name)
 
-	paginator = exec.NewPaginator(2, 1)
+	paginator = pagination.NewPaginator(2, 1)
 	result, errList, err = store.List(ctx, exec.ListDAGsOptions{
 		Paginator:  &paginator,
 		ActiveOnly: true,
@@ -1754,7 +1755,7 @@ steps:
 
 	// Test 1: Name sort ascending with pagination
 	// Page 1
-	paginator := exec.NewPaginator(1, 5) // page=1, perPage=5
+	paginator := pagination.NewPaginator(1, 5) // page=1, perPage=5
 	opts := exec.ListDAGsOptions{
 		Paginator: &paginator,
 		Sort:      "name",
@@ -1775,7 +1776,7 @@ steps:
 	}
 
 	// Page 2
-	paginator = exec.NewPaginator(2, 5) // page=2, perPage=5
+	paginator = pagination.NewPaginator(2, 5) // page=2, perPage=5
 	opts.Paginator = &paginator
 	result, errList, err = store.List(ctx, opts)
 	require.NoError(t, err)
@@ -1791,7 +1792,7 @@ steps:
 	}
 
 	// Page 3
-	paginator = exec.NewPaginator(3, 5) // page=3, perPage=5
+	paginator = pagination.NewPaginator(3, 5) // page=3, perPage=5
 	opts.Paginator = &paginator
 	result, errList, err = store.List(ctx, opts)
 	require.NoError(t, err)
@@ -1805,7 +1806,7 @@ steps:
 	assert.Equal(t, "zulu-dag", result.Items[1].Name)
 
 	// Test 2: Name sort descending with pagination
-	paginator = exec.NewPaginator(1, 5) // page=1, perPage=5
+	paginator = pagination.NewPaginator(1, 5) // page=1, perPage=5
 	opts = exec.ListDAGsOptions{
 		Paginator: &paginator,
 		Sort:      "name",
@@ -1823,7 +1824,7 @@ steps:
 	}
 
 	// Test 3: Non-name sort fields fall back to name sorting in storage layer
-	paginator = exec.NewPaginator(1, 5) // page=1, perPage=5
+	paginator = pagination.NewPaginator(1, 5) // page=1, perPage=5
 	opts = exec.ListDAGsOptions{
 		Paginator: &paginator,
 		Sort:      "updated_at",

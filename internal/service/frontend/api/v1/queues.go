@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
 
 const (
@@ -121,7 +122,7 @@ func (a *API) ListQueueItems(ctx context.Context, req api.ListQueueItemsRequestO
 
 	items, nextCursor, err := a.listVisibleQueuedItems(ctx, req.Name, limit, cursor)
 	if err != nil {
-		if errors.Is(err, exec.ErrInvalidCursor) {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
 			return nil, &Error{
 				Code:       api.ErrorCodeBadRequest,
 				Message:    "Invalid queue cursor",

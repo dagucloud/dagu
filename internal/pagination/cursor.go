@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec
+package pagination
 
 import (
 	"encoding/base64"
@@ -9,9 +9,7 @@ import (
 	"errors"
 )
 
-var (
-	ErrInvalidCursor = errors.New("invalid cursor")
-)
+var ErrInvalidCursor = errors.New("invalid cursor")
 
 // EncodeSearchCursor serializes an opaque search cursor as base64url JSON.
 func EncodeSearchCursor(payload any) string {

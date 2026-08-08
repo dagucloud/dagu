@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -240,16 +241,16 @@ func (s *QueueStore) List(ctx context.Context, name string) ([]exec.QueuedItemDa
 }
 
 // ListCursor returns one forward-only page of queued items.
-func (s *QueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (exec.CursorResult[exec.QueuedItemData], error) {
+func (s *QueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[exec.QueuedItemData], error) {
 	if limit <= 0 {
 		limit = 1
 	}
 	decoded, err := decodeQueueCursor(name, cursor)
 	if err != nil {
-		return exec.CursorResult[exec.QueuedItemData]{}, err
+		return pagination.CursorResult[exec.QueuedItemData]{}, err
 	}
 
-	var result exec.CursorResult[exec.QueuedItemData]
+	var result pagination.CursorResult[exec.QueuedItemData]
 	err = s.withQueueLock(ctx, name, func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()

@@ -15,6 +15,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/spf13/cobra"
@@ -86,7 +87,7 @@ func runLs(ctx *Context, args []string) error {
 	}
 
 	now := time.Now()
-	pg := exec.NewPaginator(1, math.MaxInt)
+	pg := pagination.NewPaginator(1, math.MaxInt)
 	listOpts := exec.ListDAGsOptions{
 		Paginator: &pg,
 		Name:      pattern,

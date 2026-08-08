@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
 
 // DAGLoadOptions selects the loading behaviour a DAGStore caller can choose.
@@ -33,7 +34,7 @@ type DAGStore interface {
 	// Delete removes a DAG definition by name
 	Delete(ctx context.Context, fileName string) error
 	// List returns a paginated list of DAG definitions with filtering options
-	List(ctx context.Context, params ListDAGsOptions) (PaginatedResult[*ir.DAG], []string, error)
+	List(ctx context.Context, params ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error)
 	// GetMetadata retrieves only the metadata of a DAG definition (faster than full load)
 	GetMetadata(ctx context.Context, fileName string) (*ir.DAG, error)
 	// GetDetails retrieves the complete DAG definition including all fields
@@ -41,9 +42,9 @@ type DAGStore interface {
 	// Grep searches for a pattern in all DAG definitions and returns matching results
 	Grep(ctx context.Context, pattern string) (ret []*GrepDAGsResult, errs []string, err error)
 	// SearchCursor returns lightweight, cursor-based search hits for DAG definitions.
-	SearchCursor(ctx context.Context, opts SearchDAGsOptions) (*CursorResult[SearchDAGResult], []string, error)
+	SearchCursor(ctx context.Context, opts SearchDAGsOptions) (*pagination.CursorResult[SearchDAGResult], []string, error)
 	// SearchMatches returns cursor-based match snippets for a specific DAG definition.
-	SearchMatches(ctx context.Context, fileName string, opts SearchDAGMatchesOptions) (*CursorResult[*Match], error)
+	SearchMatches(ctx context.Context, fileName string, opts SearchDAGMatchesOptions) (*pagination.CursorResult[*Match], error)
 	// Rename changes a DAG's identifier from oldID to newID
 	Rename(ctx context.Context, oldID, newID string) error
 	// GetSpec retrieves the raw YAML specification of a DAG
@@ -62,7 +63,7 @@ type DAGStore interface {
 
 // ListDAGsOptions contains parameters for paginated DAG listing
 type ListDAGsOptions struct {
-	Paginator         *Paginator
+	Paginator         *pagination.Paginator
 	Name              string                             // Optional search filter for DAG name or file name
 	Labels            []string                           // Optional labels filter (AND logic - all labels must match)
 	ActiveOnly        bool                               // Include only scheduled DAGs that are not suspended

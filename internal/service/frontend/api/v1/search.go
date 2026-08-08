@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
 
 const (
@@ -76,7 +77,7 @@ func toSearchMatchItems(matches []*exec.Match) []api.SearchMatchItem {
 	return items
 }
 
-func mapCursorItems[TIn any, TOut any](result *exec.CursorResult[TIn], mapItem func(TIn) TOut) ([]TOut, bool, *string) {
+func mapCursorItems[TIn any, TOut any](result *pagination.CursorResult[TIn], mapItem func(TIn) TOut) ([]TOut, bool, *string) {
 	items := make([]TOut, 0, len(result.Items))
 	for _, item := range result.Items {
 		items = append(items, mapItem(item))
@@ -100,7 +101,7 @@ func toDAGSearchPageItem(item exec.SearchDAGResult) api.DAGSearchPageItem {
 	}
 }
 
-func toDAGSearchFeedResponse(result *exec.CursorResult[exec.SearchDAGResult]) api.DAGSearchFeedResponse {
+func toDAGSearchFeedResponse(result *pagination.CursorResult[exec.SearchDAGResult]) api.DAGSearchFeedResponse {
 	items, hasMore, nextCursor := mapCursorItems(result, toDAGSearchPageItem)
 	return api.DAGSearchFeedResponse{
 		Results:    items,
@@ -130,7 +131,7 @@ func toDocSearchPageItem(
 }
 
 func toDocSearchFeedResponse(
-	result *exec.CursorResult[docs.DocSearchResult],
+	result *pagination.CursorResult[docs.DocSearchResult],
 	workspaceName string,
 	visibility docWorkspaceVisibility,
 ) api.DocSearchFeedResponse {
@@ -144,7 +145,7 @@ func toDocSearchFeedResponse(
 	}
 }
 
-func toSearchMatchesResponse(result *exec.CursorResult[*exec.Match]) api.SearchMatchesResponse {
+func toSearchMatchesResponse(result *pagination.CursorResult[*exec.Match]) api.SearchMatchesResponse {
 	return api.SearchMatchesResponse{
 		Matches:    toSearchMatchItems(result.Items),
 		HasMore:    result.HasMore,
@@ -173,7 +174,7 @@ func (a *API) SearchDAGFeed(ctx context.Context, request api.SearchDAGFeedReques
 		WorkspaceFilter: workspaceFilter,
 	})
 	if err != nil {
-		if errors.Is(err, exec.ErrInvalidCursor) {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
 			return nil, invalidSearchCursorError()
 		}
 		logger.Error(ctx, "Failed to search DAGs", tag.Error(err))
@@ -219,7 +220,7 @@ func (a *API) SearchDocFeed(ctx context.Context, request api.SearchDocFeedReques
 		ExcludePathRoots: visibility.excludedPathRoots(),
 	})
 	if err != nil {
-		if errors.Is(err, exec.ErrInvalidCursor) {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
 			return nil, invalidSearchCursorError()
 		}
 		logger.Error(ctx, "Failed to search docs", tag.Error(err))
@@ -265,7 +266,7 @@ func (a *API) SearchDagMatches(ctx context.Context, request api.SearchDagMatches
 				Message:    "DAG not found",
 				HTTPStatus: http.StatusNotFound,
 			}
-		case errors.Is(err, exec.ErrInvalidCursor):
+		case errors.Is(err, pagination.ErrInvalidCursor):
 			return nil, invalidSearchCursorError()
 		default:
 			logger.Error(ctx, "Failed to search DAG matches", tag.Name(request.FileName), tag.Error(err))
@@ -309,7 +310,7 @@ func (a *API) SearchDocMatches(ctx context.Context, request api.SearchDocMatches
 		PathPrefix: workspaceName,
 	}
 	result, err := a.docStore.SearchMatches(ctx, request.Params.Path, matchOpts)
-	if err != nil && errors.Is(err, exec.ErrInvalidCursor) && workspaceName != "" && cursor != "" {
+	if err != nil && errors.Is(err, pagination.ErrInvalidCursor) && workspaceName != "" && cursor != "" {
 		// Aggregate-search cursors encode an empty path prefix. Replaying the
 		// workspace-qualified ID preserves the authorized document scope.
 		aggregatePath, scopeErr := scopedDocPath(workspaceName, request.Params.Path)
@@ -325,7 +326,7 @@ func (a *API) SearchDocMatches(ctx context.Context, request api.SearchDocMatches
 		switch {
 		case errors.Is(err, docs.ErrDocNotFound):
 			return nil, errDocNotFound
-		case errors.Is(err, exec.ErrInvalidCursor):
+		case errors.Is(err, pagination.ErrInvalidCursor):
 			return nil, invalidSearchCursorError()
 		default:
 			logger.Error(ctx, "Failed to search doc matches", tag.Name(request.Params.Path), tag.Error(err))

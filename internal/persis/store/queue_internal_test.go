@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
@@ -28,20 +29,20 @@ func TestQueueCursorHelpersRejectInvalidState(t *testing.T) {
 
 	raw := encodeQueueCursor("queue-a", 1, "item-a")
 	_, err := decodeQueueCursor("queue-b", raw)
-	assert.ErrorIs(t, err, exec.ErrInvalidCursor)
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
 
 	start, err := resolveQueueCursorStart(items, queueReadCursor{Offset: 99, AfterItemID: "item-a"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, start)
 
 	_, err = resolveQueueCursorStart(items, queueReadCursor{Offset: -1})
-	assert.ErrorIs(t, err, exec.ErrInvalidCursor)
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
 
 	_, err = resolveQueueCursorStart(items, queueReadCursor{Offset: 1})
-	assert.ErrorIs(t, err, exec.ErrInvalidCursor)
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
 
 	_, err = resolveQueueCursorStart(items, queueReadCursor{Offset: 2, AfterItemID: "missing"})
-	assert.ErrorIs(t, err, exec.ErrInvalidCursor)
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
 }
 
 func TestQueueItemHelpersHandleInvalidRecords(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
@@ -38,9 +39,9 @@ func (m *mockDAGStore) Delete(ctx context.Context, fileName string) error {
 	return args.Error(0)
 }
 
-func (m *mockDAGStore) List(ctx context.Context, params exec.ListDAGsOptions) (exec.PaginatedResult[*ir.DAG], []string, error) {
+func (m *mockDAGStore) List(ctx context.Context, params exec.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
 	args := m.Called(ctx, params)
-	return args.Get(0).(exec.PaginatedResult[*ir.DAG]), args.Get(1).([]string), args.Error(2)
+	return args.Get(0).(pagination.PaginatedResult[*ir.DAG]), args.Get(1).([]string), args.Error(2)
 }
 
 func (m *mockDAGStore) GetMetadata(ctx context.Context, fileName string) (*ir.DAG, error) {
@@ -64,20 +65,20 @@ func (m *mockDAGStore) Grep(ctx context.Context, pattern string) ([]*exec.GrepDA
 	return args.Get(0).([]*exec.GrepDAGsResult), args.Get(1).([]string), args.Error(2)
 }
 
-func (m *mockDAGStore) SearchCursor(ctx context.Context, opts exec.SearchDAGsOptions) (*exec.CursorResult[exec.SearchDAGResult], []string, error) {
+func (m *mockDAGStore) SearchCursor(ctx context.Context, opts exec.SearchDAGsOptions) (*pagination.CursorResult[exec.SearchDAGResult], []string, error) {
 	args := m.Called(ctx, opts)
 	if args.Get(0) == nil {
 		return nil, args.Get(1).([]string), args.Error(2)
 	}
-	return args.Get(0).(*exec.CursorResult[exec.SearchDAGResult]), args.Get(1).([]string), args.Error(2)
+	return args.Get(0).(*pagination.CursorResult[exec.SearchDAGResult]), args.Get(1).([]string), args.Error(2)
 }
 
-func (m *mockDAGStore) SearchMatches(ctx context.Context, fileName string, opts exec.SearchDAGMatchesOptions) (*exec.CursorResult[*exec.Match], error) {
+func (m *mockDAGStore) SearchMatches(ctx context.Context, fileName string, opts exec.SearchDAGMatchesOptions) (*pagination.CursorResult[*exec.Match], error) {
 	args := m.Called(ctx, fileName, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*exec.CursorResult[*exec.Match]), args.Error(1)
+	return args.Get(0).(*pagination.CursorResult[*exec.Match]), args.Error(1)
 }
 
 func (m *mockDAGStore) Rename(ctx context.Context, oldID, newID string) error {
@@ -261,9 +262,9 @@ func (m *mockQueueStore) List(ctx context.Context, name string) ([]exec.QueuedIt
 	return args.Get(0).([]exec.QueuedItemData), args.Error(1)
 }
 
-func (m *mockQueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (exec.CursorResult[exec.QueuedItemData], error) {
+func (m *mockQueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[exec.QueuedItemData], error) {
 	args := m.Called(ctx, name, cursor, limit)
-	return args.Get(0).(exec.CursorResult[exec.QueuedItemData]), args.Error(1)
+	return args.Get(0).(pagination.CursorResult[exec.QueuedItemData]), args.Error(1)
 }
 
 func (m *mockQueueStore) All(ctx context.Context) ([]exec.QueuedItemData, error) {
@@ -376,7 +377,7 @@ func TestCollector_Collect_BasicMetrics(t *testing.T) {
 	queueStore := &mockQueueStore{}
 
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*ir.DAG]{},
+		pagination.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		nil,
 	)
@@ -412,7 +413,7 @@ func TestCollector_Collect_WithDAGRuns(t *testing.T) {
 
 	// Mock DAG store response
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*ir.DAG]{
+		pagination.PaginatedResult[*ir.DAG]{
 			Items:      []*ir.DAG{{}, {}, {}},
 			TotalCount: 3,
 		},
@@ -510,7 +511,7 @@ func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
 	queueStore := &mockQueueStore{}
 
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*ir.DAG]{},
+		pagination.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		nil,
 	)
@@ -596,7 +597,7 @@ func TestCollector_Collect_WithWorkerInfoLabels(t *testing.T) {
 	queueStore := &mockQueueStore{}
 
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*ir.DAG]{},
+		pagination.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		nil,
 	)
@@ -655,7 +656,7 @@ func TestCollector_Collect_WithErrors(t *testing.T) {
 	queueStore := &mockQueueStore{}
 
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*ir.DAG]{},
+		pagination.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		assert.AnError,
 	)
@@ -688,7 +689,7 @@ func TestNewRegistry(t *testing.T) {
 
 	// Setup mocks
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*ir.DAG]{},
+		pagination.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		nil,
 	)
@@ -726,7 +727,7 @@ func TestCollector_SchedulerStatus(t *testing.T) {
 
 	// Set up default mock responses
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*ir.DAG]{Items: []*ir.DAG{}, TotalCount: 0},
+		pagination.PaginatedResult[*ir.DAG]{Items: []*ir.DAG{}, TotalCount: 0},
 		[]string{},
 		nil,
 	)

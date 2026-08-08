@@ -1,7 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec
+// Package pagination defines page- and cursor-based result metadata.
+package pagination
 
 const (
 	defaultPerPage = 50
@@ -26,11 +27,9 @@ func NewPaginator(page, perPage int) Paginator {
 	if perPage == 0 {
 		perPage = defaultPerPage
 	}
-	limit := perPage
-	offset := (page - 1) * perPage
 	return Paginator{
-		limit:       limit,
-		offset:      offset,
+		limit:       perPage,
+		offset:      (page - 1) * perPage,
 		currentPage: page,
 		perPage:     perPage,
 		initialized: true,
@@ -68,10 +67,7 @@ func NewPaginatedResult[T any](items []T, total int, pg Paginator) PaginatedResu
 	if !pg.initialized {
 		pg = DefaultPaginator()
 	}
-	totalPages := (total-1)/(pg.perPage) + 1
-
-	nextPage := min(pg.currentPage+1, totalPages)
-	prevPage := max(pg.currentPage-1, 1)
+	totalPages := (total-1)/pg.perPage + 1
 
 	return PaginatedResult[T]{
 		Items:       items,
@@ -81,8 +77,8 @@ func NewPaginatedResult[T any](items []T, total int, pg Paginator) PaginatedResu
 		Offset:      pg.offset,
 		HasNextPage: pg.currentPage < totalPages,
 		HasPrevPage: pg.currentPage > 1,
-		NextPage:    nextPage,
-		PrevPage:    prevPage,
+		NextPage:    min(pg.currentPage+1, totalPages),
+		PrevPage:    max(pg.currentPage-1, 1),
 	}
 }
 

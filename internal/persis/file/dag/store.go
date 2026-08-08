@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/grep"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -475,24 +476,24 @@ func (store *Storage) invalidateIndex() {
 }
 
 // List lists DAGs with pagination support.
-func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (exec.PaginatedResult[*ir.DAG], []string, error) {
+func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
 	var allDags []*ir.DAG
 	var errList []string
 
 	if opts.Paginator == nil {
-		p := exec.DefaultPaginator()
+		p := pagination.DefaultPaginator()
 		opts.Paginator = &p
 	}
 
 	catalog, err := store.loadCatalog(ctx)
 	if err != nil {
 		errList = append(errList, fmt.Sprintf("failed to discover DAGs in %s: %s", store.baseDir, err))
-		return exec.NewPaginatedResult([]*ir.DAG{}, 0, *opts.Paginator), errList, err
+		return pagination.NewPaginatedResult([]*ir.DAG{}, 0, *opts.Paginator), errList, err
 	}
 	errList = append(errList, catalog.errors...)
 	for _, entry := range catalog.entries {
 		if ctx.Err() != nil {
-			return exec.NewPaginatedResult([]*ir.DAG{}, 0, *opts.Paginator), errList, ctx.Err()
+			return pagination.NewPaginatedResult([]*ir.DAG{}, 0, *opts.Paginator), errList, ctx.Err()
 		}
 		if opts.ActiveOnly && (entry.Schedule == "" || entry.Suspended) {
 			continue
@@ -592,7 +593,7 @@ func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (exec
 		paginatedDags = allDags[start:end]
 	}
 
-	result := exec.NewPaginatedResult(
+	result := pagination.NewPaginatedResult(
 		paginatedDags, totalCount, *opts.Paginator,
 	)
 
@@ -650,11 +651,11 @@ func decodeDAGSearchCursor(raw, query, labels string) (dagSearchCursor, error) {
 		return dagSearchCursor{}, nil
 	}
 	var cursor dagSearchCursor
-	if err := exec.DecodeSearchCursor(raw, &cursor); err != nil {
+	if err := pagination.DecodeSearchCursor(raw, &cursor); err != nil {
 		return dagSearchCursor{}, err
 	}
 	if cursor.Version != dagSearchCursorVersion || cursor.Query != query || cursor.Labels != labels {
-		return dagSearchCursor{}, exec.ErrInvalidCursor
+		return dagSearchCursor{}, pagination.ErrInvalidCursor
 	}
 	return cursor, nil
 }
@@ -664,11 +665,11 @@ func decodeDAGMatchCursor(raw, query, labels, fileName string) (dagMatchCursor, 
 		return dagMatchCursor{FileName: fileName}, nil
 	}
 	var cursor dagMatchCursor
-	if err := exec.DecodeSearchCursor(raw, &cursor); err != nil {
+	if err := pagination.DecodeSearchCursor(raw, &cursor); err != nil {
 		return dagMatchCursor{}, err
 	}
 	if cursor.Version != dagSearchCursorVersion || cursor.Query != query || cursor.Labels != labels || cursor.FileName != fileName || cursor.Offset < 0 {
-		return dagMatchCursor{}, exec.ErrInvalidCursor
+		return dagMatchCursor{}, pagination.ErrInvalidCursor
 	}
 	return cursor, nil
 }
@@ -731,10 +732,10 @@ func (store *Storage) Grep(ctx context.Context, pattern string) (
 
 // SearchCursor returns lightweight, cursor-based DAG search hits.
 func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOptions) (
-	*exec.CursorResult[exec.SearchDAGResult], []string, error,
+	*pagination.CursorResult[exec.SearchDAGResult], []string, error,
 ) {
 	if opts.Query == "" {
-		return &exec.CursorResult[exec.SearchDAGResult]{Items: []exec.SearchDAGResult{}}, nil, nil
+		return &pagination.CursorResult[exec.SearchDAGResult]{Items: []exec.SearchDAGResult{}}, nil, nil
 	}
 	if err := store.ensureDirExist(); err != nil {
 		return nil, nil, fmt.Errorf("failed to create DAGs directory %s: %w", store.baseDir, err)
@@ -830,7 +831,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 
 		if len(results) == limit {
 			hasMore = true
-			nextCursor = exec.EncodeSearchCursor(dagSearchCursor{
+			nextCursor = pagination.EncodeSearchCursor(dagSearchCursor{
 				Version:  dagSearchCursorVersion,
 				Query:    opts.Query,
 				Labels:   labelsKey,
@@ -847,7 +848,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 			HasMoreMatches: window.HasMore,
 		}
 		if window.HasMore {
-			item.NextMatchesCursor = exec.EncodeSearchCursor(dagMatchCursor{
+			item.NextMatchesCursor = pagination.EncodeSearchCursor(dagMatchCursor{
 				Version:  dagSearchCursorVersion,
 				Query:    opts.Query,
 				Labels:   labelsKey,
@@ -858,7 +859,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 		results = append(results, item)
 	}
 
-	return &exec.CursorResult[exec.SearchDAGResult]{
+	return &pagination.CursorResult[exec.SearchDAGResult]{
 		Items:      results,
 		HasMore:    hasMore,
 		NextCursor: nextCursor,
@@ -867,10 +868,10 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 
 // SearchMatches returns cursor-based snippets for one DAG definition.
 func (store *Storage) SearchMatches(ctx context.Context, fileName string, opts exec.SearchDAGMatchesOptions) (
-	*exec.CursorResult[*exec.Match], error,
+	*pagination.CursorResult[*exec.Match], error,
 ) {
 	if opts.Query == "" {
-		return &exec.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+		return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
 	}
 
 	labelsKey := dagSearchScopeKey(opts.Labels, opts.WorkspaceFilter)
@@ -902,10 +903,10 @@ func (store *Storage) SearchMatches(ctx context.Context, fileName string, opts e
 			return nil, err
 		}
 		if !containsAllLabels(dag.Labels, opts.Labels) {
-			return &exec.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+			return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
 		}
 		if !opts.WorkspaceFilter.MatchesLabels(dag.Labels) {
-			return &exec.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+			return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
 		}
 	}
 
@@ -918,17 +919,17 @@ func (store *Storage) SearchMatches(ctx context.Context, fileName string, opts e
 	})
 	if err != nil {
 		if errors.Is(err, grep.ErrNoMatch) {
-			return &exec.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+			return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
 		}
 		return nil, err
 	}
 
-	result := &exec.CursorResult[*exec.Match]{
+	result := &pagination.CursorResult[*exec.Match]{
 		Items:   window.Matches,
 		HasMore: window.HasMore,
 	}
 	if window.HasMore {
-		result.NextCursor = exec.EncodeSearchCursor(dagMatchCursor{
+		result.NextCursor = pagination.EncodeSearchCursor(dagMatchCursor{
 			Version:  dagSearchCursorVersion,
 			Query:    opts.Query,
 			Labels:   labelsKey,

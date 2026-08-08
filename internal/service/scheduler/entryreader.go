@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler/filenotify"
 
 	"github.com/fsnotify/fsnotify"
@@ -433,7 +434,7 @@ func (er *entryReaderImpl) syncWatches(ctx context.Context, dirs []string) {
 }
 
 func (er *entryReaderImpl) loadRegistry(ctx context.Context) (registryState, error) {
-	paginator := exec.NewPaginator(1, math.MaxInt)
+	paginator := pagination.NewPaginator(1, math.MaxInt)
 	result, issues, err := er.dagStore.List(ctx, exec.ListDAGsOptions{Paginator: &paginator})
 	if err != nil {
 		return registryState{}, err

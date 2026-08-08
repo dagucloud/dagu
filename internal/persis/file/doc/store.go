@@ -20,7 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/goccy/go-yaml"
 )
 
@@ -758,7 +758,7 @@ func titleFromID(id string) string {
 }
 
 // List returns a paginated tree of doc nodes.
-func (s *Store) List(ctx context.Context, opts docs.ListDocsOptions) (*exec.PaginatedResult[*docs.DocTreeNode], error) {
+func (s *Store) List(ctx context.Context, opts docs.ListDocsOptions) (*pagination.PaginatedResult[*docs.DocTreeNode], error) {
 	sortField, sortOrder := normalizeSortParams(opts.Sort, opts.Order)
 	pathPrefix, err := cleanDocPathPrefix(opts.PathPrefix)
 	if err != nil {
@@ -772,13 +772,13 @@ func (s *Store) List(ctx context.Context, opts docs.ListDocsOptions) (*exec.Pagi
 	tree := s.buildTreeFromIndexLocked(pathPrefix, sortField, sortOrder, opts.ExcludePathRoots)
 	s.mu.RUnlock()
 
-	pg := exec.NewPaginator(opts.Page, opts.PerPage)
+	pg := pagination.NewPaginator(opts.Page, opts.PerPage)
 	total := len(tree)
 	offset := min(pg.Offset(), total)
 	end := min(offset+pg.Limit(), total)
 	pageItems := tree[offset:end]
 
-	result := exec.NewPaginatedResult(pageItems, total, pg)
+	result := pagination.NewPaginatedResult(pageItems, total, pg)
 	return &result, nil
 }
 
@@ -788,7 +788,7 @@ type flatDocItem struct {
 }
 
 // ListFlat returns a paginated flat list of doc metadata.
-func (s *Store) ListFlat(ctx context.Context, opts docs.ListDocsOptions) (*exec.PaginatedResult[docs.DocMetadata], error) {
+func (s *Store) ListFlat(ctx context.Context, opts docs.ListDocsOptions) (*pagination.PaginatedResult[docs.DocMetadata], error) {
 	sortField, sortOrder := normalizeSortParams(opts.Sort, opts.Order)
 	pathPrefix, err := cleanDocPathPrefix(opts.PathPrefix)
 	if err != nil {
@@ -850,13 +850,13 @@ func (s *Store) ListFlat(ctx context.Context, opts docs.ListDocsOptions) (*exec.
 		metadata[i] = item.meta
 	}
 
-	pg := exec.NewPaginator(opts.Page, opts.PerPage)
+	pg := pagination.NewPaginator(opts.Page, opts.PerPage)
 	total := len(metadata)
 	offset := min(pg.Offset(), total)
 	end := min(offset+pg.Limit(), total)
 	pageItems := metadata[offset:end]
 
-	result := exec.NewPaginatedResult(pageItems, total, pg)
+	result := pagination.NewPaginatedResult(pageItems, total, pg)
 	return &result, nil
 }
 

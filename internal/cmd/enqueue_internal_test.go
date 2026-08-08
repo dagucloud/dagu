@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -235,8 +236,8 @@ func (s *enqueueObservingQueueStore) List(context.Context, string) ([]exec.Queue
 	return nil, nil
 }
 
-func (s *enqueueObservingQueueStore) ListCursor(context.Context, string, string, int) (exec.CursorResult[exec.QueuedItemData], error) {
-	return exec.CursorResult[exec.QueuedItemData]{}, nil
+func (s *enqueueObservingQueueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[exec.QueuedItemData], error) {
+	return pagination.CursorResult[exec.QueuedItemData]{}, nil
 }
 
 func (s *enqueueObservingQueueStore) All(context.Context) ([]exec.QueuedItemData, error) {

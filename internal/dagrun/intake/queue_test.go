@@ -12,6 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -279,8 +280,8 @@ func (s *queueStore) Len(context.Context, string) (int, error) { return 0, nil }
 func (s *queueStore) List(context.Context, string) ([]exec.QueuedItemData, error) {
 	return nil, nil
 }
-func (s *queueStore) ListCursor(context.Context, string, string, int) (exec.CursorResult[exec.QueuedItemData], error) {
-	return exec.CursorResult[exec.QueuedItemData]{}, nil
+func (s *queueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[exec.QueuedItemData], error) {
+	return pagination.CursorResult[exec.QueuedItemData]{}, nil
 }
 func (s *queueStore) All(context.Context) ([]exec.QueuedItemData, error) { return nil, nil }
 func (s *queueStore) ListByDAGName(context.Context, string, string) ([]exec.QueuedItemData, error) {

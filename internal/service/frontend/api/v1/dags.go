@@ -30,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -794,7 +795,7 @@ func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (
 	if err != nil {
 		return nil, err
 	}
-	pg := exec.NewPaginator(valueOf(request.Params.Page), valueOf(request.Params.PerPage))
+	pg := pagination.NewPaginator(valueOf(request.Params.Page), valueOf(request.Params.PerPage))
 	labels := parseCommaSeparatedLabels(labelsParam)
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
@@ -819,7 +820,7 @@ func (a *API) GetAllDAGLabels(ctx context.Context, request api.GetAllDAGLabelsRe
 	if filter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace); err != nil {
 		return nil, err
 	} else if filter != nil {
-		pg := exec.NewPaginator(1, int(^uint(0)>>1))
+		pg := pagination.NewPaginator(1, int(^uint(0)>>1))
 		result, errs, err := a.dagStore.List(ctx, exec.ListDAGsOptions{
 			Paginator:       &pg,
 			WorkspaceFilter: filter,
@@ -858,7 +859,7 @@ func (a *API) GetAllDAGTags(ctx context.Context, request api.GetAllDAGTagsReques
 	if filter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace); err != nil {
 		return nil, err
 	} else if filter != nil {
-		pg := exec.NewPaginator(1, int(^uint(0)>>1))
+		pg := pagination.NewPaginator(1, int(^uint(0)>>1))
 		result, errs, err := a.dagStore.List(ctx, exec.ListDAGsOptions{
 			Paginator:       &pg,
 			WorkspaceFilter: filter,
@@ -1996,7 +1997,7 @@ func (a *API) GetDAGsListData(ctx context.Context, queryString string) (any, err
 		}
 		labels := parseCommaSeparatedLabels(labelQueryParam)
 
-		pg := exec.NewPaginator(page, perPage)
+		pg := pagination.NewPaginator(page, perPage)
 		workspaceParam := workspaceParamFromValues(params)
 		workspaceFilter, err := a.workspaceFilterForParams(readCtx, workspaceParam)
 		if err != nil {
