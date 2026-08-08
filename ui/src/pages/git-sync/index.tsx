@@ -1108,6 +1108,9 @@ export default function GitSyncPage() {
         onOpenChange={(open) => setDiffModal({ open })}
         dagId={diffModal.itemId || ''}
         status={diffData?.status}
+        binary={diffData?.binary}
+        localSize={diffData?.localSize}
+        remoteSize={diffData?.remoteSize}
         localContent={diffData?.localContent}
         remoteContent={diffData?.remoteContent}
         remoteCommit={diffData?.remoteCommit}
