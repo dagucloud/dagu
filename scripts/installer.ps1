@@ -3,6 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
+# Keep installer parameters and state isolated from the calling session.
+& {
 [CmdletBinding()]
 param(
     [string]$Version = "",
@@ -1252,3 +1254,4 @@ Verify-Bootstrap
 Install-AISkill
 Show-Summary
 Open-BrowserIfRequested
+} @args

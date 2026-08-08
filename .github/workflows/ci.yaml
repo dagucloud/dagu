@@ -363,11 +363,15 @@ jobs:
             [Text.Encoding]::UTF8
           )
 
-          $Service = "caller-value"
-          & ([scriptblock]::Create($source)) -NoPrompt -DryRun
-          if ($Service -ne "caller-value") {
-            throw "The installer changed the caller Service variable."
-          }
+          & {
+            param([string]$InstallerSource)
+            $Service = "caller-value"
+            $args = @("-NoPrompt", "-DryRun")
+            $InstallerSource | Invoke-Expression
+            if ($Service -ne "caller-value") {
+              throw "The installer changed the caller Service variable."
+            }
+          } $source
 
           $stagedInstaller = Join-Path $env:RUNNER_TEMP "dagu-validation-installer.ps1"
           [IO.File]::WriteAllText($stagedInstaller, $source, [Text.Encoding]::UTF8)
