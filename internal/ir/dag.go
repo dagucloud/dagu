@@ -687,11 +687,11 @@ func (d *DAG) ParamsMap() map[string]string {
 }
 
 // ParamDeclarations returns named parameters that can be referenced through ${params.name}.
-func (d *DAG) ParamDeclarations() cmnvalue.Values {
+func (d *DAG) ParamDeclarations() map[string]any {
 	if d == nil || len(d.ParamDefs) == 0 {
 		return nil
 	}
-	params := make(cmnvalue.Values, len(d.ParamDefs))
+	params := make(map[string]any, len(d.ParamDefs))
 	for _, def := range d.ParamDefs {
 		name := strings.TrimSpace(def.Name)
 		if !isNamedValueParam(name) {
@@ -706,7 +706,7 @@ func (d *DAG) ParamDeclarations() cmnvalue.Values {
 }
 
 // ParamValues returns named runtime parameter values for ${params.name}.
-func (d *DAG) ParamValues() cmnvalue.Values {
+func (d *DAG) ParamValues() map[string]any {
 	if d == nil {
 		return nil
 	}
@@ -714,7 +714,7 @@ func (d *DAG) ParamValues() cmnvalue.Values {
 	if len(paramsMap) == 0 {
 		return nil
 	}
-	params := make(cmnvalue.Values, len(paramsMap))
+	params := make(map[string]any, len(paramsMap))
 	for name, value := range paramsMap {
 		if !isNamedValueParam(name) {
 			continue
