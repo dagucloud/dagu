@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
@@ -264,6 +265,6 @@ func (*staticEntryReader) DAGs() []*ir.DAG {
 	return nil
 }
 
-func (*staticEntryReader) DAGStore() exec.DAGStore {
+func (*staticEntryReader) DAGStore() dagstore.DAGStore {
 	return nil
 }

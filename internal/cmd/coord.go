@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
@@ -148,7 +149,7 @@ func newCoordinator(
 	workerHeartbeatStore exec.WorkerHeartbeatStore,
 	dagRunLeaseStore exec.DAGRunLeaseStore,
 	activeDistributedRunStore exec.ActiveDistributedRunStore,
-	dagStore exec.DAGStore,
+	dagStore dagstore.DAGStore,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	// Generate instance ID
 	hostname, err := os.Hostname()

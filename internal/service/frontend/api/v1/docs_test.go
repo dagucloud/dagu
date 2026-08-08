@@ -17,7 +17,7 @@ import (
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -328,10 +328,10 @@ func (m *mockDocStore) Search(_ context.Context, query string) ([]*docs.DocSearc
 	for _, doc := range m.docs {
 		if strings.Contains(doc.Content, query) {
 			// Build matches from content lines containing the query.
-			var matches []*exec.Match
+			var matches []*dagstore.Match
 			for i, line := range strings.Split(doc.Content, "\n") {
 				if strings.Contains(line, query) {
-					matches = append(matches, &exec.Match{
+					matches = append(matches, &dagstore.Match{
 						Line:       line,
 						LineNumber: i + 1,
 						StartLine:  i + 1,
@@ -451,7 +451,7 @@ func (m *mockDocStore) SearchCursor(_ context.Context, opts docs.SearchDocsOptio
 	return result, nil
 }
 
-func (m *mockDocStore) SearchMatches(_ context.Context, id string, opts docs.SearchDocMatchesOptions) (*pagination.CursorResult[*exec.Match], error) {
+func (m *mockDocStore) SearchMatches(_ context.Context, id string, opts docs.SearchDocMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error) {
 	if err := docs.ValidateDocID(id); err != nil {
 		return nil, docs.ErrInvalidDocID
 	}
@@ -465,11 +465,11 @@ func (m *mockDocStore) SearchMatches(_ context.Context, id string, opts docs.Sea
 		return nil, docs.ErrDocNotFound
 	}
 
-	var matches []*exec.Match
+	var matches []*dagstore.Match
 	if opts.Query != "" {
 		for i, line := range strings.Split(doc.Content, "\n") {
 			if strings.Contains(line, opts.Query) {
-				matches = append(matches, &exec.Match{
+				matches = append(matches, &dagstore.Match{
 					Line:       line,
 					LineNumber: i + 1,
 					StartLine:  i + 1,
@@ -498,7 +498,7 @@ func (m *mockDocStore) SearchMatches(_ context.Context, id string, opts docs.Sea
 	offset = max(offset, 0)
 	offset = min(offset, len(matches))
 	end := min(offset+limit, len(matches))
-	cursorResult := &pagination.CursorResult[*exec.Match]{
+	cursorResult := &pagination.CursorResult[*dagstore.Match]{
 		Items:   matches[offset:end],
 		HasMore: end < len(matches),
 	}

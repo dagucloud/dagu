@@ -12,7 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
@@ -420,8 +420,8 @@ func (a *API) resolveNotificationRouteWorkspace(ctx context.Context, name string
 }
 
 func (a *API) ensureDAGExists(ctx context.Context, dagName string) error {
-	if _, err := a.dagStore.GetDetails(ctx, dagName, exec.DAGLoadOptions{}); err != nil {
-		if errors.Is(err, exec.ErrDAGNotFound) {
+	if _, err := a.dagStore.GetDetails(ctx, dagName, dagstore.DAGLoadOptions{}); err != nil {
+		if errors.Is(err, dagstore.ErrDAGNotFound) {
 			return &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,

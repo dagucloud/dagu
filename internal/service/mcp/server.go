@@ -16,8 +16,8 @@ import (
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -928,7 +928,7 @@ func requireRun(name, dagRunID string) error {
 }
 
 func isDAGNotFound(err error) bool {
-	if errors.Is(err, exec.ErrDAGNotFound) {
+	if errors.Is(err, dagstore.ErrDAGNotFound) {
 		return true
 	}
 	var apiErr *frontendapi.Error

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	iengine "github.com/dagucloud/dagu/v2/internal/engine"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -452,7 +452,7 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 	}, nil
 }
 
-func fileEngineDAGStore(_ context.Context, cfg *config.Config, opts iengine.DAGStoreFactoryOptions) (coreexec.DAGStore, error) {
+func fileEngineDAGStore(_ context.Context, cfg *config.Config, opts iengine.DAGStoreFactoryOptions) (dagstore.DAGStore, error) {
 	var fileOpts []file.DAGStoreOption
 	if len(opts.SearchPaths) > 0 {
 		fileOpts = append(fileOpts, file.WithDAGSearchPaths(opts.SearchPaths))

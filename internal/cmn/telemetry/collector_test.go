@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,14 +22,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
-var _ exec.DAGStore = (*mockDAGStore)(nil)
+var _ dagstore.DAGStore = (*mockDAGStore)(nil)
 
 // Mock implementations
 type mockDAGStore struct {
 	mock.Mock
 }
 
-var _ exec.DAGStore = (*mockDAGStore)(nil)
+var _ dagstore.DAGStore = (*mockDAGStore)(nil)
 
 func (m *mockDAGStore) Create(ctx context.Context, fileName string, spec []byte) error {
 	args := m.Called(ctx, fileName, spec)
@@ -40,7 +41,7 @@ func (m *mockDAGStore) Delete(ctx context.Context, fileName string) error {
 	return args.Error(0)
 }
 
-func (m *mockDAGStore) List(ctx context.Context, params exec.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
+func (m *mockDAGStore) List(ctx context.Context, params dagstore.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
 	args := m.Called(ctx, params)
 	return args.Get(0).(pagination.PaginatedResult[*ir.DAG]), args.Get(1).([]string), args.Error(2)
 }
@@ -53,7 +54,7 @@ func (m *mockDAGStore) GetMetadata(ctx context.Context, fileName string) (*ir.DA
 	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-func (m *mockDAGStore) GetDetails(ctx context.Context, fileName string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
+func (m *mockDAGStore) GetDetails(ctx context.Context, fileName string, opts dagstore.DAGLoadOptions) (*ir.DAG, error) {
 	args := m.Called(ctx, fileName, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -61,25 +62,25 @@ func (m *mockDAGStore) GetDetails(ctx context.Context, fileName string, opts exe
 	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-func (m *mockDAGStore) Grep(ctx context.Context, pattern string) ([]*exec.GrepDAGsResult, []string, error) {
+func (m *mockDAGStore) Grep(ctx context.Context, pattern string) ([]*dagstore.GrepDAGsResult, []string, error) {
 	args := m.Called(ctx, pattern)
-	return args.Get(0).([]*exec.GrepDAGsResult), args.Get(1).([]string), args.Error(2)
+	return args.Get(0).([]*dagstore.GrepDAGsResult), args.Get(1).([]string), args.Error(2)
 }
 
-func (m *mockDAGStore) SearchCursor(ctx context.Context, opts exec.SearchDAGsOptions) (*pagination.CursorResult[exec.SearchDAGResult], []string, error) {
+func (m *mockDAGStore) SearchCursor(ctx context.Context, opts dagstore.SearchDAGsOptions) (*pagination.CursorResult[dagstore.SearchDAGResult], []string, error) {
 	args := m.Called(ctx, opts)
 	if args.Get(0) == nil {
 		return nil, args.Get(1).([]string), args.Error(2)
 	}
-	return args.Get(0).(*pagination.CursorResult[exec.SearchDAGResult]), args.Get(1).([]string), args.Error(2)
+	return args.Get(0).(*pagination.CursorResult[dagstore.SearchDAGResult]), args.Get(1).([]string), args.Error(2)
 }
 
-func (m *mockDAGStore) SearchMatches(ctx context.Context, fileName string, opts exec.SearchDAGMatchesOptions) (*pagination.CursorResult[*exec.Match], error) {
+func (m *mockDAGStore) SearchMatches(ctx context.Context, fileName string, opts dagstore.SearchDAGMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error) {
 	args := m.Called(ctx, fileName, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*pagination.CursorResult[*exec.Match]), args.Error(1)
+	return args.Get(0).(*pagination.CursorResult[*dagstore.Match]), args.Error(1)
 }
 
 func (m *mockDAGStore) Rename(ctx context.Context, oldID, newID string) error {
@@ -97,7 +98,7 @@ func (m *mockDAGStore) UpdateSpec(ctx context.Context, fileName string, spec []b
 	return args.Error(0)
 }
 
-func (m *mockDAGStore) LoadSpec(ctx context.Context, source []byte, _ string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
+func (m *mockDAGStore) LoadSpec(ctx context.Context, source []byte, _ string, opts dagstore.DAGLoadOptions) (*ir.DAG, error) {
 	args := m.Called(ctx, source, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -37,7 +38,7 @@ var _ prometheus.Collector = (*Collector)(nil)
 type Collector struct {
 	startTime            time.Time
 	version              string
-	dagStore             exec.DAGStore
+	dagStore             dagstore.DAGStore
 	dagRunStore          dagrun.DAGRunStore
 	queueStore           exec.QueueStore
 	serviceRegistry      exec.ServiceRegistry
@@ -79,7 +80,7 @@ type Collector struct {
 // NewCollector creates a new metrics collector
 func NewCollector(
 	version string,
-	dagStore exec.DAGStore,
+	dagStore dagstore.DAGStore,
 	dagRunStore dagrun.DAGRunStore,
 	queueStore exec.QueueStore,
 	serviceRegistry exec.ServiceRegistry,
@@ -441,7 +442,7 @@ func (c *Collector) collectDAGRunMetrics(ctx context.Context, ch chan<- promethe
 
 func (c *Collector) collectDAGMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
 	// Get all DAGs using List with empty options to get all
-	result, _, err := c.dagStore.List(ctx, exec.ListDAGsOptions{})
+	result, _, err := c.dagStore.List(ctx, dagstore.ListDAGsOptions{})
 	if err != nil {
 		return
 	}

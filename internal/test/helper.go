@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -514,7 +515,7 @@ type Helper struct {
 	Config                    *config.Config
 	ChildEnv                  []string
 	LoggingOutput             *SyncBuffer
-	DAGStore                  exec1.DAGStore
+	DAGStore                  dagstore.DAGStore
 	DAGRunStore               dagrun.DAGRunStore
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 exec1.ProcStore

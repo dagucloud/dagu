@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -70,7 +71,7 @@ type Context struct {
 	DAGRunLeaseStore          exec.DAGRunLeaseStore
 	ActiveDistributedRunStore exec.ActiveDistributedRunStore
 
-	DAGStore       exec.DAGStore
+	DAGStore       dagstore.DAGStore
 	Proc           exec.ProcHandle
 	LicenseManager *license.Manager
 	ContextStore   *clicontext.Store
@@ -582,7 +583,7 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 	stores := c.runtimeStores()
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr: c.DAGRunMgr,
-		DAGStoreFactory: func(context.Context) (exec.DAGStore, error) {
+		DAGStoreFactory: func(context.Context) (dagstore.DAGStore, error) {
 			return c.dagStore(dagStoreConfig{})
 		},
 		DAGRunStore:       c.DAGRunStore,
@@ -648,7 +649,7 @@ type dagStoreConfig struct {
 }
 
 // dagStore returns a new DAGRepository instance.
-func (c *Context) dagStore(cfg dagStoreConfig) (exec.DAGStore, error) {
+func (c *Context) dagStore(cfg dagStoreConfig) (dagstore.DAGStore, error) {
 	return cmdprocess.NewDAGStore(c.Config, cmdprocess.DAGStoreConfig{
 		Cache:                 cfg.Cache,
 		SearchPaths:           cfg.SearchPaths,

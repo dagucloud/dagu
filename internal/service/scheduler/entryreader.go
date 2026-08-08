@@ -19,8 +19,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler/filenotify"
@@ -41,7 +41,7 @@ type EntryReader interface {
 	// DAGs returns a snapshot of all currently loaded DAG definitions.
 	DAGs() []*ir.DAG
 	// DAGStore returns the backing store used for loading DAG details and suspension state.
-	DAGStore() exec.DAGStore
+	DAGStore() dagstore.DAGStore
 }
 
 var _ EntryReader = (*entryReaderImpl)(nil)
@@ -64,7 +64,7 @@ type entryReaderImpl struct {
 	stamps      map[string]dagFileStamp
 	watchedDirs map[string]struct{}
 	lock        sync.Mutex
-	dagStore    exec.DAGStore
+	dagStore    dagstore.DAGStore
 	dagSource   *dagFileSource
 	watcher     filenotify.FileWatcher
 	recursive   bool
@@ -74,7 +74,7 @@ type entryReaderImpl struct {
 }
 
 // NewEntryReader creates a new DAG manager with the given configuration.
-func NewEntryReader(dir string, dagCli exec.DAGStore, recursive bool) EntryReader {
+func NewEntryReader(dir string, dagCli dagstore.DAGStore, recursive bool) EntryReader {
 	return &entryReaderImpl{
 		targetDir:   dir,
 		registry:    make(map[string]*ir.DAG),
@@ -348,7 +348,7 @@ func (er *entryReaderImpl) DAGs() []*ir.DAG {
 }
 
 // DAGStore returns the backing DAG store for full DAG details.
-func (er *entryReaderImpl) DAGStore() exec.DAGStore {
+func (er *entryReaderImpl) DAGStore() dagstore.DAGStore {
 	return er.dagStore
 }
 
@@ -435,7 +435,7 @@ func (er *entryReaderImpl) syncWatches(ctx context.Context, dirs []string) {
 
 func (er *entryReaderImpl) loadRegistry(ctx context.Context) (registryState, error) {
 	paginator := pagination.NewPaginator(1, math.MaxInt)
-	result, issues, err := er.dagStore.List(ctx, exec.ListDAGsOptions{Paginator: &paginator})
+	result, issues, err := er.dagStore.List(ctx, dagstore.ListDAGsOptions{Paginator: &paginator})
 	if err != nil {
 		return registryState{}, err
 	}

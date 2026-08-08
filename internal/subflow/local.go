@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
@@ -32,7 +33,7 @@ import (
 // Local runs child workflows in the current process through the runtime agent.
 type Local struct {
 	dagRunMgr                runtime.Manager
-	dagStore                 exec.DAGStore
+	dagStore                 dagstore.DAGStore
 	dagRunStore              dagrun.DAGRunStore
 	runStateStore            runstate.Store
 	queueStore               exec.QueueStore
@@ -158,7 +159,7 @@ func WithLocalDAGRunDirs(logDir, artifactDir string) LocalOption {
 }
 
 // NewLocal creates an in-process child workflow runner.
-func NewLocal(dagRunMgr runtime.Manager, dagStore exec.DAGStore, opts ...LocalOption) *Local {
+func NewLocal(dagRunMgr runtime.Manager, dagStore dagstore.DAGStore, opts ...LocalOption) *Local {
 	r := &Local{
 		dagRunMgr: dagRunMgr,
 		dagStore:  dagStore,
@@ -452,7 +453,7 @@ func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent
 	return result, nil
 }
 
-func (r *Local) dagStoreFromContext(_ context.Context) exec.DAGStore {
+func (r *Local) dagStoreFromContext(_ context.Context) dagstore.DAGStore {
 	return r.dagStore
 }
 

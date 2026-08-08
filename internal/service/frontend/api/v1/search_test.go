@@ -11,7 +11,7 @@ import (
 
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -22,10 +22,10 @@ import (
 
 type searchTestSetup struct {
 	api      *apiv1.API
-	dagStore exec.DAGStore
+	dagStore dagstore.DAGStore
 }
 
-func newSearchAPI(dagStore exec.DAGStore, extraOptions ...apiv1.APIOption) *apiv1.API {
+func newSearchAPI(dagStore dagstore.DAGStore, extraOptions ...apiv1.APIOption) *apiv1.API {
 	cfg := &config.Config{}
 
 	options := append([]apiv1.APIOption{}, extraOptions...)

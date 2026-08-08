@@ -27,8 +27,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
@@ -38,7 +38,7 @@ import (
 
 type Service struct {
 	store                   notificationmodel.Store
-	dagStore                exec.DAGStore
+	dagStore                dagstore.DAGStore
 	http                    *http.Client
 	logger                  *slog.Logger
 	retry                   DeliveryRetryConfig
@@ -116,7 +116,7 @@ func (s *Service) SetPublicURLResolver(resolver func() string) {
 	}
 }
 
-func New(store notificationmodel.Store, dagStore exec.DAGStore, opts ...Option) *Service {
+func New(store notificationmodel.Store, dagStore dagstore.DAGStore, opts ...Option) *Service {
 	svc := &Service{
 		store:                   store,
 		dagStore:                dagStore,
@@ -833,7 +833,7 @@ func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarg
 func (s *Service) testEvent(ctx context.Context, dagName string, eventType eventstore.EventType) chatbridge.NotificationEvent {
 	status := testStatus(dagName, eventType)
 	if s.dagStore != nil {
-		if dag, err := s.dagStore.GetDetails(ctx, dagName, exec.DAGLoadOptions{}); err == nil && dag != nil {
+		if dag, err := s.dagStore.GetDetails(ctx, dagName, dagstore.DAGLoadOptions{}); err == nil && dag != nil {
 			if dag.Name != "" {
 				status.Name = dag.Name
 			}

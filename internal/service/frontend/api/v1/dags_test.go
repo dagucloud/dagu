@@ -17,8 +17,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -958,15 +958,15 @@ func (stubSchedulerStateStore) Save(context.Context, *scheduler.SchedulerState) 
 var errLoadSpecFatal = errors.New("load spec fatal")
 
 type loadSpecErrorDAGStore struct {
-	exec.DAGStore
+	dagstore.DAGStore
 	updateCalled bool
 }
 
-func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, exec.DAGLoadOptions) (*ir.DAG, error) {
+func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
 	return &ir.DAG{Name: "load-spec-error"}, nil
 }
 
-func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, string, exec.DAGLoadOptions) (*ir.DAG, error) {
+func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
 	return nil, errLoadSpecFatal
 }
 

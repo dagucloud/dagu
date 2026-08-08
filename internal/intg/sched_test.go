@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -105,7 +105,7 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	writeSpec("0 10 * * *")
 
 	th := test.SetupScheduler(t, test.WithDAGsDir(dagsDir))
-	dag, err := th.DAGStore.GetDetails(th.Context, dagName, exec.DAGLoadOptions{})
+	dag, err := th.DAGStore.GetDetails(th.Context, dagName, dagstore.DAGLoadOptions{})
 	require.NoError(t, err)
 
 	require.NoError(t, os.MkdirAll(th.Config.Paths.SuspendFlagsDir, 0o755))

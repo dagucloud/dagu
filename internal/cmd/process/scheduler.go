@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
@@ -125,7 +126,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 func newNotificationMonitor(
 	ctx context.Context,
 	cfg *config.Config,
-	dagStore exec.DAGStore,
+	dagStore dagstore.DAGStore,
 	eventService *eventstore.Service,
 ) *chatbridge.NotificationMonitor {
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
@@ -157,7 +158,7 @@ func newNotificationMonitor(
 func newSchedulerNotificationService(
 	cfg *config.Config,
 	store notificationmodel.Store,
-	dagStore exec.DAGStore,
+	dagStore dagstore.DAGStore,
 	opts ...notificationservice.Option,
 ) *notificationservice.Service {
 	opts = append([]notificationservice.Option{

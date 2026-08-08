@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
@@ -48,6 +48,6 @@ func (s staticEntryReader) DAGs() []*ir.DAG {
 	return s.dags
 }
 
-func (s staticEntryReader) DAGStore() exec.DAGStore {
+func (s staticEntryReader) DAGStore() dagstore.DAGStore {
 	return nil
 }

@@ -13,7 +13,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -88,7 +88,7 @@ func runLs(ctx *Context, args []string) error {
 
 	now := time.Now()
 	pg := pagination.NewPaginator(1, math.MaxInt)
-	listOpts := exec.ListDAGsOptions{
+	listOpts := dagstore.ListDAGsOptions{
 		Paginator: &pg,
 		Name:      pattern,
 		Sort:      "name",

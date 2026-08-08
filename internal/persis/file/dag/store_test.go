@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -96,7 +96,7 @@ steps:
 	require.NoError(t, err)
 
 	// List all DAGs
-	opts := exec.ListDAGsOptions{}
+	opts := dagstore.ListDAGsOptions{}
 	result, errList, err := store.List(ctx, opts)
 	require.NoError(t, err)
 	require.Empty(t, errList)
@@ -140,7 +140,7 @@ steps:
 	store := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
 	ctx := context.Background()
 
-	result, errs, err := store.List(ctx, exec.ListDAGsOptions{})
+	result, errs, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, errs)
 	require.Len(t, result.Items, 2)
@@ -153,7 +153,7 @@ steps:
 	require.NoError(t, err)
 	assert.Contains(t, nestedSpec, "nested-effective-name")
 
-	search, errs, err := store.SearchCursor(ctx, exec.SearchDAGsOptions{
+	search, errs, err := store.SearchCursor(ctx, dagstore.SearchDAGsOptions{
 		Query:      "needle",
 		Limit:      10,
 		MatchLimit: 10,
@@ -207,7 +207,7 @@ steps:
 	}
 
 	store := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
-	opts := exec.SearchDAGsOptions{Query: "needle", Limit: 1, MatchLimit: 1}
+	opts := dagstore.SearchDAGsOptions{Query: "needle", Limit: 1, MatchLimit: 1}
 
 	first, errs, err := store.SearchCursor(context.Background(), opts)
 	require.NoError(t, err)
@@ -255,7 +255,7 @@ steps:
 	store := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
 	ctx := context.Background()
 
-	result, errs, err := store.List(ctx, exec.ListDAGsOptions{})
+	result, errs, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Len(t, result.Items, 1)
 	assert.Equal(t, "safe", result.Items[0].Name)
@@ -265,17 +265,17 @@ steps:
 	}, errs)
 
 	_, err = store.GetSpec(ctx, "shared")
-	assert.ErrorIs(t, err, exec.ErrDAGNotFound)
+	assert.ErrorIs(t, err, dagstore.ErrDAGNotFound)
 	_, err = store.GetSpec(ctx, "a/shared")
 	require.NoError(t, err)
 
 	err = store.Create(ctx, "shared", []byte("steps: []\n"))
-	assert.ErrorIs(t, err, exec.ErrDAGAlreadyExists)
+	assert.ErrorIs(t, err, dagstore.ErrDAGAlreadyExists)
 
 	require.NoError(t, store.Delete(ctx, "b/shared"))
 	require.NoError(t, store.Delete(ctx, "c/unique"))
 
-	result, errs, err = store.List(ctx, exec.ListDAGsOptions{})
+	result, errs, err = store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, errs)
 	require.Len(t, result.Items, 2)
@@ -364,7 +364,7 @@ steps:
 	err := os.WriteFile(filepath.Join(tmpDir, "detailed-dag.yaml"), []byte(dagContent), 0600)
 	require.NoError(t, err)
 
-	dag, err := store.GetDetails(ctx, "detailed-dag", exec.DAGLoadOptions{})
+	dag, err := store.GetDetails(ctx, "detailed-dag", dagstore.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, dag)
 	assert.Equal(t, "detailed-dag", dag.Name)
@@ -372,7 +372,7 @@ steps:
 	assert.Equal(t, "0 1 * * *", dag.Schedule[0].Expression)
 
 	// Test DAG not found
-	_, err = store.GetDetails(ctx, "non-existent", exec.DAGLoadOptions{})
+	_, err = store.GetDetails(ctx, "non-existent", dagstore.DAGLoadOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to locate DAG non-existent")
 
@@ -386,10 +386,10 @@ steps:
 	err = os.WriteFile(filepath.Join(tmpDir, "build-error-dag.yaml"), []byte(buildErrContent), 0600)
 	require.NoError(t, err)
 
-	_, err = store.GetDetails(ctx, "build-error-dag", exec.DAGLoadOptions{})
+	_, err = store.GetDetails(ctx, "build-error-dag", dagstore.DAGLoadOptions{})
 	require.Error(t, err)
 
-	dag, err = store.GetDetails(ctx, "build-error-dag", exec.DAGLoadOptions{AllowBuildErrors: true})
+	dag, err = store.GetDetails(ctx, "build-error-dag", dagstore.DAGLoadOptions{AllowBuildErrors: true})
 	require.NoError(t, err)
 	require.NotNil(t, dag)
 	assert.Equal(t, "build-error-dag", dag.Name)
@@ -406,12 +406,12 @@ steps:
 	require.NoError(t, err)
 
 	recursiveStore := New(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true))
-	dag, err = recursiveStore.GetDetails(ctx, "dagu.update-cloud-image", exec.DAGLoadOptions{})
+	dag, err = recursiveStore.GetDetails(ctx, "dagu.update-cloud-image", dagstore.DAGLoadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "dagu.update-cloud-image", dag.Name)
 
 	err = recursiveStore.Create(ctx, "dagu.update-cloud-image", []byte(dottedDAGContent))
-	require.ErrorIs(t, err, exec.ErrDAGAlreadyExists)
+	require.ErrorIs(t, err, dagstore.ErrDAGAlreadyExists)
 }
 
 func TestGetSpec(t *testing.T) {
@@ -438,7 +438,7 @@ steps:
 	// Test DAG not found
 	_, err = store.GetSpec(ctx, "non-existent")
 	require.Error(t, err)
-	assert.Equal(t, exec.ErrDAGNotFound, err)
+	assert.Equal(t, dagstore.ErrDAGNotFound, err)
 }
 
 func TestGetSpecAllowsNestedPathsWithinConfiguredDirectories(t *testing.T) {
@@ -468,7 +468,7 @@ func TestGetSpecRejectsPathsOutsideConfiguredDirectories(t *testing.T) {
 
 	for _, path := range []string{outsidePath, relativePath} {
 		_, err := store.GetSpec(context.Background(), path)
-		assert.ErrorIs(t, err, exec.ErrDAGNotFound)
+		assert.ErrorIs(t, err, dagstore.ErrDAGNotFound)
 	}
 }
 
@@ -487,7 +487,7 @@ func TestGetSpecRejectsSymlinkOutsideConfiguredDirectories(t *testing.T) {
 	store := New(baseDir, WithSkipExamples(true))
 	_, err := store.GetSpec(context.Background(), "linked/outside.yaml")
 
-	assert.ErrorIs(t, err, exec.ErrDAGNotFound)
+	assert.ErrorIs(t, err, dagstore.ErrDAGNotFound)
 }
 
 func TestGetSpecAllowsExplicitSearchPaths(t *testing.T) {
@@ -533,7 +533,7 @@ steps:
 	// Test creating duplicate DAG
 	err = store.Create(ctx, "new-dag", []byte(dagContent))
 	require.Error(t, err)
-	assert.Equal(t, exec.ErrDAGAlreadyExists, err)
+	assert.Equal(t, dagstore.ErrDAGAlreadyExists, err)
 }
 
 func TestGenerateFilePathPreventsTraversal(t *testing.T) {
@@ -568,7 +568,7 @@ func TestSearchCursorFailsWhenBaseDirIsNotReadableDirectory(t *testing.T) {
 
 	store := New(basePath, WithSkipExamples(true))
 
-	result, errs, err := store.SearchCursor(context.Background(), exec.SearchDAGsOptions{
+	result, errs, err := store.SearchCursor(context.Background(), dagstore.SearchDAGsOptions{
 		Query:      "needle",
 		Limit:      1,
 		MatchLimit: 1,
@@ -610,7 +610,7 @@ steps:
     run: echo needle
 `)))
 
-	result, errs, err := store.SearchCursor(ctx, exec.SearchDAGsOptions{
+	result, errs, err := store.SearchCursor(ctx, dagstore.SearchDAGsOptions{
 		Query:      "needle",
 		Limit:      10,
 		MatchLimit: 1,
@@ -652,7 +652,7 @@ steps:
 `)))
 
 	firstPage := pagination.NewPaginator(1, 1)
-	result, errs, err := store.List(ctx, exec.ListDAGsOptions{
+	result, errs, err := store.List(ctx, dagstore.ListDAGsOptions{
 		Paginator: &firstPage,
 		WorkspaceFilter: &workspace.WorkspaceFilter{
 			Enabled:           true,
@@ -668,7 +668,7 @@ steps:
 	assert.Equal(t, "aaa-global", result.Items[0].Name)
 
 	secondPage := pagination.NewPaginator(2, 1)
-	result, errs, err = store.List(ctx, exec.ListDAGsOptions{
+	result, errs, err = store.List(ctx, dagstore.ListDAGsOptions{
 		Paginator: &secondPage,
 		WorkspaceFilter: &workspace.WorkspaceFilter{
 			Enabled:           true,
@@ -684,7 +684,7 @@ steps:
 	assert.Equal(t, "bbb-ops", result.Items[0].Name)
 
 	workspaceOnly := pagination.NewPaginator(1, 10)
-	result, errs, err = store.List(ctx, exec.ListDAGsOptions{
+	result, errs, err = store.List(ctx, dagstore.ListDAGsOptions{
 		Paginator: &workspaceOnly,
 		WorkspaceFilter: &workspace.WorkspaceFilter{
 			Enabled:    true,
@@ -727,7 +727,7 @@ steps:
     run: echo needle
 `)))
 
-	result, errs, err := store.SearchCursor(ctx, exec.SearchDAGsOptions{
+	result, errs, err := store.SearchCursor(ctx, dagstore.SearchDAGsOptions{
 		Query:      "needle",
 		Limit:      10,
 		MatchLimit: 1,
@@ -749,7 +749,7 @@ steps:
 		result.Items[1].Workspace,
 	})
 
-	result, errs, err = store.SearchCursor(ctx, exec.SearchDAGsOptions{
+	result, errs, err = store.SearchCursor(ctx, dagstore.SearchDAGsOptions{
 		Query:      "needle",
 		Limit:      10,
 		MatchLimit: 1,
@@ -784,7 +784,7 @@ steps:
     run: echo needle
 `)))
 
-	result, err := store.SearchMatches(ctx, "ops-dag", exec.SearchDAGMatchesOptions{
+	result, err := store.SearchMatches(ctx, "ops-dag", dagstore.SearchDAGMatchesOptions{
 		Query:  "needle",
 		Limit:  1,
 		Labels: []string{"workspace=ops"},
@@ -793,7 +793,7 @@ steps:
 	require.Len(t, result.Items, 1)
 	require.True(t, result.HasMore)
 
-	next, err := store.SearchMatches(ctx, "ops-dag", exec.SearchDAGMatchesOptions{
+	next, err := store.SearchMatches(ctx, "ops-dag", dagstore.SearchDAGMatchesOptions{
 		Query:  "needle",
 		Limit:  1,
 		Labels: []string{"workspace=ops"},
@@ -802,7 +802,7 @@ steps:
 	require.NoError(t, err)
 	require.Len(t, next.Items, 1)
 
-	filtered, err := store.SearchMatches(ctx, "ops-dag", exec.SearchDAGMatchesOptions{
+	filtered, err := store.SearchMatches(ctx, "ops-dag", dagstore.SearchDAGMatchesOptions{
 		Query:  "needle",
 		Limit:  1,
 		Labels: []string{"workspace=prod"},
@@ -810,7 +810,7 @@ steps:
 	require.NoError(t, err)
 	require.Empty(t, filtered.Items)
 
-	_, err = store.SearchMatches(ctx, "ops-dag", exec.SearchDAGMatchesOptions{
+	_, err = store.SearchMatches(ctx, "ops-dag", dagstore.SearchDAGMatchesOptions{
 		Query:  "needle",
 		Limit:  1,
 		Labels: []string{"workspace=prod"},
@@ -937,7 +937,7 @@ steps:
 	require.NoError(t, err)
 	err = store.Rename(ctx, "new-name", "another-dag")
 	require.Error(t, err)
-	assert.Equal(t, exec.ErrDAGAlreadyExists, err)
+	assert.Equal(t, dagstore.ErrDAGAlreadyExists, err)
 }
 
 func TestGrep(t *testing.T) {
@@ -1065,18 +1065,18 @@ func TestLoadSpec(t *testing.T) {
 steps:
   - name: step1
     run: echo "load spec"`
-	dag, err := store.LoadSpec(ctx, []byte(validSpec), "", exec.DAGLoadOptions{})
+	dag, err := store.LoadSpec(ctx, []byte(validSpec), "", dagstore.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, dag)
 	assert.Equal(t, "load-spec-dag", dag.Name)
 
 	// Test invalid spec
 	invalidSpec := `invalid: yaml: content: [unclosed`
-	_, err = store.LoadSpec(ctx, []byte(invalidSpec), "", exec.DAGLoadOptions{})
+	_, err = store.LoadSpec(ctx, []byte(invalidSpec), "", dagstore.DAGLoadOptions{})
 	require.Error(t, err)
 
 	// An explicit name takes precedence over the one the spec declares.
-	dag, err = store.LoadSpec(ctx, []byte(validSpec), "explicit-name", exec.DAGLoadOptions{})
+	dag, err = store.LoadSpec(ctx, []byte(validSpec), "explicit-name", dagstore.DAGLoadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "explicit-name", dag.Name)
 
@@ -1086,10 +1086,10 @@ steps:
   - name: step1
     run: echo "load spec"
     depends: [missing-step]`
-	_, err = store.LoadSpec(ctx, []byte(buildErrSpec), "build-error-dag", exec.DAGLoadOptions{})
+	_, err = store.LoadSpec(ctx, []byte(buildErrSpec), "build-error-dag", dagstore.DAGLoadOptions{})
 	require.Error(t, err)
 
-	dag, err = store.LoadSpec(ctx, []byte(buildErrSpec), "build-error-dag", exec.DAGLoadOptions{AllowBuildErrors: true})
+	dag, err = store.LoadSpec(ctx, []byte(buildErrSpec), "build-error-dag", dagstore.DAGLoadOptions{AllowBuildErrors: true})
 	require.NoError(t, err)
 	require.NotNil(t, dag)
 	assert.Equal(t, "build-error-dag", dag.Name)
@@ -1115,7 +1115,7 @@ steps:
   - name: test
     run: echo test
     depends: [build]
-`), "", exec.DAGLoadOptions{})
+`), "", dagstore.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.Equal(t, ir.TypeGraph, dag.Type)
 	require.Len(t, dag.Steps, 2)
@@ -1156,7 +1156,7 @@ labels:
 steps:
   - name: step1
     run: echo "hello"
-`), "", exec.DAGLoadOptions{})
+`), "", dagstore.DAGLoadOptions{})
 	require.NoError(t, err)
 	assert.Contains(t, dag.Env, "GLOBAL_ONLY=1")
 	assert.Contains(t, dag.Env, "WORKSPACE_ONLY=1")
@@ -1262,7 +1262,7 @@ steps:
     run: echo "hello"
 `), 0600))
 
-	result, errList, err := store.List(ctx, exec.ListDAGsOptions{})
+	result, errList, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, errList)
 	require.Len(t, result.Items, 1)
@@ -1274,7 +1274,7 @@ steps:
 	time.Sleep(10 * time.Millisecond)
 	require.NoError(t, os.WriteFile(baseConfig, []byte("type: chain\n"), 0600))
 
-	result, errList, err = store.List(ctx, exec.ListDAGsOptions{})
+	result, errList, err = store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, errList)
 	require.Len(t, result.Items, 1)
@@ -1312,7 +1312,7 @@ steps:
     run: echo "hello"
 `), 0600))
 
-	result, errList, err := store.List(ctx, exec.ListDAGsOptions{})
+	result, errList, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, errList)
 	require.Len(t, result.Items, 1)
@@ -1324,7 +1324,7 @@ steps:
 	time.Sleep(10 * time.Millisecond)
 	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 2\n"), 0600))
 
-	result, errList, err = store.List(ctx, exec.ListDAGsOptions{})
+	result, errList, err = store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, errList)
 	require.Len(t, result.Items, 1)
@@ -1355,7 +1355,7 @@ steps:
 
 	// Test pagination
 	paginator := pagination.NewPaginator(2, 2)
-	opts := exec.ListDAGsOptions{Paginator: &paginator}
+	opts := dagstore.ListDAGsOptions{Paginator: &paginator}
 	result, errList, err := store.List(ctx, opts)
 	require.NoError(t, err)
 	require.Empty(t, errList)
@@ -1397,7 +1397,7 @@ steps:
 	}
 
 	// List all DAGs
-	opts := exec.ListDAGsOptions{}
+	opts := dagstore.ListDAGsOptions{}
 	result, errList, err := store.List(ctx, opts)
 	require.NoError(t, err)
 	require.Empty(t, errList)
@@ -1446,7 +1446,7 @@ steps:
 	require.NoError(t, err)
 
 	// Test name filtering
-	opts := exec.ListDAGsOptions{Name: "web"}
+	opts := dagstore.ListDAGsOptions{Name: "web"}
 	result, errList, err := store.List(ctx, opts)
 	require.NoError(t, err)
 	require.Empty(t, errList)
@@ -1461,7 +1461,7 @@ steps:
 	err = store.Create(ctx, "file-name-only-match", []byte(fileNameOnlyContent))
 	require.NoError(t, err)
 
-	opts = exec.ListDAGsOptions{Name: "file-name-only-match"}
+	opts = dagstore.ListDAGsOptions{Name: "file-name-only-match"}
 	result, errList, err = store.List(ctx, opts)
 	require.NoError(t, err)
 	require.Empty(t, errList)
@@ -1470,7 +1470,7 @@ steps:
 	assert.Equal(t, "file-name-only-match", result.Items[0].FileName())
 
 	// Test label filtering
-	opts = exec.ListDAGsOptions{Labels: []string{"frontend"}}
+	opts = dagstore.ListDAGsOptions{Labels: []string{"frontend"}}
 	result, errList, err = store.List(ctx, opts)
 	require.NoError(t, err)
 	require.Empty(t, errList)
@@ -1478,7 +1478,7 @@ steps:
 	assert.Equal(t, "filter-web-dag", result.Items[0].Name)
 
 	// Test case-insensitive label filtering
-	opts = exec.ListDAGsOptions{Labels: []string{"FRONTEND"}}
+	opts = dagstore.ListDAGsOptions{Labels: []string{"FRONTEND"}}
 	result, errList, err = store.List(ctx, opts)
 	require.NoError(t, err)
 	require.Empty(t, errList)
@@ -1486,7 +1486,7 @@ steps:
 	assert.Equal(t, "filter-web-dag", result.Items[0].Name)
 
 	// Test multi-label AND filtering (all labels must match)
-	opts = exec.ListDAGsOptions{Labels: []string{"web", "frontend"}}
+	opts = dagstore.ListDAGsOptions{Labels: []string{"web", "frontend"}}
 	result, errList, err = store.List(ctx, opts)
 	require.NoError(t, err)
 	require.Empty(t, errList)
@@ -1494,7 +1494,7 @@ steps:
 	assert.Equal(t, "filter-web-dag", result.Items[0].Name)
 
 	// Negative case: missing one label should return nothing
-	opts = exec.ListDAGsOptions{Labels: []string{"web", "backend"}}
+	opts = dagstore.ListDAGsOptions{Labels: []string{"web", "backend"}}
 	result, errList, err = store.List(ctx, opts)
 	require.NoError(t, err)
 	require.Empty(t, errList)
@@ -1511,7 +1511,7 @@ steps:
 	require.NoError(t, store.ToggleSuspend(ctx, "active-suspended", true))
 
 	paginator := pagination.NewPaginator(1, 1)
-	result, errList, err = store.List(ctx, exec.ListDAGsOptions{
+	result, errList, err = store.List(ctx, dagstore.ListDAGsOptions{
 		Paginator:  &paginator,
 		ActiveOnly: true,
 		Sort:       "name",
@@ -1524,7 +1524,7 @@ steps:
 	assert.Equal(t, "active-alpha", result.Items[0].Name)
 
 	paginator = pagination.NewPaginator(2, 1)
-	result, errList, err = store.List(ctx, exec.ListDAGsOptions{
+	result, errList, err = store.List(ctx, dagstore.ListDAGsOptions{
 		Paginator:  &paginator,
 		ActiveOnly: true,
 		Sort:       "name",
@@ -1567,7 +1567,7 @@ steps:
 	}
 
 	// Test 1: Sort by name ascending (default)
-	opts := exec.ListDAGsOptions{
+	opts := dagstore.ListDAGsOptions{
 		Sort:  "name",
 		Order: "asc",
 	}
@@ -1582,7 +1582,7 @@ steps:
 	assert.Equal(t, "zebra-dag", result.Items[3].Name)
 
 	// Test 2: Sort by name descending
-	opts = exec.ListDAGsOptions{
+	opts = dagstore.ListDAGsOptions{
 		Sort:  "name",
 		Order: "desc",
 	}
@@ -1597,7 +1597,7 @@ steps:
 	assert.Equal(t, "alpha-dag", result.Items[3].Name)
 
 	// Test 3: Sort by updated_at should fall back to name sorting in storage layer
-	opts = exec.ListDAGsOptions{
+	opts = dagstore.ListDAGsOptions{
 		Sort:  "updated_at",
 		Order: "asc",
 	}
@@ -1613,7 +1613,7 @@ steps:
 	assert.Equal(t, "zebra-dag", result.Items[3].Name)
 
 	// Test 4: Sort by updated_at desc should also fall back to name
-	opts = exec.ListDAGsOptions{
+	opts = dagstore.ListDAGsOptions{
 		Sort:  "updated_at",
 		Order: "desc",
 	}
@@ -1629,7 +1629,7 @@ steps:
 	assert.Equal(t, "alpha-dag", result.Items[3].Name)
 
 	// Test 5: Default sort (empty sort field) should sort by name
-	opts = exec.ListDAGsOptions{
+	opts = dagstore.ListDAGsOptions{
 		Sort:  "",
 		Order: "asc",
 	}
@@ -1644,7 +1644,7 @@ steps:
 	assert.Equal(t, "zebra-dag", result.Items[3].Name)
 
 	// Test 6: Unknown sort field falls back to name
-	opts = exec.ListDAGsOptions{
+	opts = dagstore.ListDAGsOptions{
 		Sort:  "unknown",
 		Order: "asc",
 	}
@@ -1687,7 +1687,7 @@ steps:
     run: echo "cron"`
 	require.NoError(t, store.Create(ctx, "future-cron", []byte(cronContent)))
 
-	defaultResult, errList, err := store.List(ctx, exec.ListDAGsOptions{
+	defaultResult, errList, err := store.List(ctx, dagstore.ListDAGsOptions{
 		Sort:  "nextRun",
 		Order: "asc",
 		Time:  &now,
@@ -1714,7 +1714,7 @@ steps:
 		},
 	}
 
-	result, errList, err := store.List(ctx, exec.ListDAGsOptions{
+	result, errList, err := store.List(ctx, dagstore.ListDAGsOptions{
 		Sort:  "nextRun",
 		Order: "asc",
 		Time:  &now,
@@ -1757,7 +1757,7 @@ steps:
 	// Test 1: Name sort ascending with pagination
 	// Page 1
 	paginator := pagination.NewPaginator(1, 5) // page=1, perPage=5
-	opts := exec.ListDAGsOptions{
+	opts := dagstore.ListDAGsOptions{
 		Paginator: &paginator,
 		Sort:      "name",
 		Order:     "asc",
@@ -1808,7 +1808,7 @@ steps:
 
 	// Test 2: Name sort descending with pagination
 	paginator = pagination.NewPaginator(1, 5) // page=1, perPage=5
-	opts = exec.ListDAGsOptions{
+	opts = dagstore.ListDAGsOptions{
 		Paginator: &paginator,
 		Sort:      "name",
 		Order:     "desc",
@@ -1826,7 +1826,7 @@ steps:
 
 	// Test 3: Non-name sort fields fall back to name sorting in storage layer
 	paginator = pagination.NewPaginator(1, 5) // page=1, perPage=5
-	opts = exec.ListDAGsOptions{
+	opts = dagstore.ListDAGsOptions{
 		Paginator: &paginator,
 		Sort:      "updated_at",
 		Order:     "desc", // This will fall back to name desc
@@ -1868,7 +1868,7 @@ steps:
 	require.NoError(t, err)
 
 	// List all DAGs
-	result, errList, err := store.List(ctx, exec.ListDAGsOptions{})
+	result, errList, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 
 	// Should include both DAGs
@@ -1924,7 +1924,7 @@ func TestListWithNextRunSorting(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 1, 30, 0, 0, time.UTC)
 
 	// Test ascending order
-	result, _, err := store.List(ctx, exec.ListDAGsOptions{
+	result, _, err := store.List(ctx, dagstore.ListDAGsOptions{
 		Sort:  "nextRun",
 		Order: "asc",
 		Time:  &fixedTime,
@@ -1938,7 +1938,7 @@ func TestListWithNextRunSorting(t *testing.T) {
 	assert.Equal(t, "no-schedule", result.Items[2].Name)
 
 	// Test descending order
-	result, _, err = store.List(ctx, exec.ListDAGsOptions{
+	result, _, err = store.List(ctx, dagstore.ListDAGsOptions{
 		Sort:  "nextRun",
 		Order: "desc",
 		Time:  &fixedTime,
@@ -1977,7 +1977,7 @@ steps:
 
 	fixedTime := time.Date(2024, 1, 15, 1, 30, 0, 0, time.UTC)
 
-	result, _, err := store.List(ctx, exec.ListDAGsOptions{
+	result, _, err := store.List(ctx, dagstore.ListDAGsOptions{
 		Sort:  "nextRun",
 		Order: "asc",
 		Time:  &fixedTime,
@@ -2005,7 +2005,7 @@ func TestConcurrentList(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 10 {
 		wg.Go(func() {
-			result, _, err := store.List(ctx, exec.ListDAGsOptions{})
+			result, _, err := store.List(ctx, dagstore.ListDAGsOptions{})
 			assert.NoError(t, err)
 			assert.Equal(t, 5, result.TotalCount)
 		})
@@ -2028,7 +2028,7 @@ steps:
 	require.NoError(t, store.Create(ctx, "mutation-dag", []byte(content)))
 
 	// List to build index.
-	_, _, err := store.List(ctx, exec.ListDAGsOptions{})
+	_, _, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	assert.True(t, fileExists(indexPath), "index should exist after List")
 
@@ -2037,7 +2037,7 @@ steps:
 	assert.False(t, fileExists(indexPath), "index should be invalidated after Create")
 
 	// Rebuild index.
-	_, _, err = store.List(ctx, exec.ListDAGsOptions{})
+	_, _, err = store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	assert.True(t, fileExists(indexPath))
 
@@ -2046,7 +2046,7 @@ steps:
 	assert.False(t, fileExists(indexPath), "index should be invalidated after Delete")
 
 	// Rebuild index.
-	_, _, err = store.List(ctx, exec.ListDAGsOptions{})
+	_, _, err = store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	assert.True(t, fileExists(indexPath))
 
@@ -2055,7 +2055,7 @@ steps:
 	assert.False(t, fileExists(indexPath), "index should be invalidated after ToggleSuspend")
 
 	// Rebuild index.
-	_, _, err = store.List(ctx, exec.ListDAGsOptions{})
+	_, _, err = store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	assert.True(t, fileExists(indexPath))
 
@@ -2068,7 +2068,7 @@ steps:
 	assert.False(t, fileExists(indexPath), "index should be invalidated after UpdateSpec")
 
 	// Rebuild index.
-	_, _, err = store.List(ctx, exec.ListDAGsOptions{})
+	_, _, err = store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	assert.True(t, fileExists(indexPath))
 
@@ -2089,7 +2089,7 @@ func TestListUsesIndex(t *testing.T) {
 	}
 
 	// First List builds index.
-	result1, errList1, err := store.List(ctx, exec.ListDAGsOptions{})
+	result1, errList1, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, errList1)
 	assert.Equal(t, 3, result1.TotalCount)
@@ -2099,13 +2099,13 @@ func TestListUsesIndex(t *testing.T) {
 	assert.True(t, fileExists(indexPath))
 
 	// Second List should use index and return same results.
-	result2, errList2, err := store.List(ctx, exec.ListDAGsOptions{})
+	result2, errList2, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, errList2)
 	assert.Equal(t, 3, result2.TotalCount)
 
 	// Verify filtering works with index.
-	result3, _, err := store.List(ctx, exec.ListDAGsOptions{Labels: []string{"env=prod"}})
+	result3, _, err := store.List(ctx, dagstore.ListDAGsOptions{Labels: []string{"env=prod"}})
 	require.NoError(t, err)
 	assert.Equal(t, 3, result3.TotalCount)
 }
@@ -2113,7 +2113,7 @@ func TestListUsesIndex(t *testing.T) {
 func TestList_NonExistentDir(t *testing.T) {
 	store := New("/nonexistent/path/that/does/not/exist", WithSkipExamples(true))
 	ctx := context.Background()
-	_, _, err := store.List(ctx, exec.ListDAGsOptions{})
+	_, _, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.Error(t, err)
 }
 
@@ -2132,7 +2132,7 @@ steps:
 	store.flagsBaseDir = filepath.Join(tmpDir, "nonexistent-flags-dir")
 
 	ctx := context.Background()
-	result, errs, err := store.List(ctx, exec.ListDAGsOptions{})
+	result, errs, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, errs)
 	assert.Equal(t, 1, result.TotalCount)
@@ -2150,7 +2150,7 @@ steps:
     run: echo ok`
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "inv-test.yaml"), []byte(dagContent), 0600))
 
-	_, _, err := store.List(ctx, exec.ListDAGsOptions{})
+	_, _, err := store.List(ctx, dagstore.ListDAGsOptions{})
 	require.NoError(t, err)
 	indexPath := filepath.Join(tmpDir, ".dag.index")
 	assert.True(t, fileExists(indexPath), "index should exist after build")

@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -205,7 +205,7 @@ func (s testDAGStore) Delete(context.Context, string) error {
 	return nil
 }
 
-func (s testDAGStore) List(context.Context, exec.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
+func (s testDAGStore) List(context.Context, dagstore.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
 	return pagination.PaginatedResult[*ir.DAG]{}, nil, nil
 }
 
@@ -213,20 +213,20 @@ func (s testDAGStore) GetMetadata(context.Context, string) (*ir.DAG, error) {
 	return s.dag, nil
 }
 
-func (s testDAGStore) GetDetails(context.Context, string, exec.DAGLoadOptions) (*ir.DAG, error) {
+func (s testDAGStore) GetDetails(context.Context, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
 	return s.dag, nil
 }
 
-func (s testDAGStore) Grep(context.Context, string) ([]*exec.GrepDAGsResult, []string, error) {
+func (s testDAGStore) Grep(context.Context, string) ([]*dagstore.GrepDAGsResult, []string, error) {
 	return nil, nil, nil
 }
 
-func (s testDAGStore) SearchCursor(context.Context, exec.SearchDAGsOptions) (*pagination.CursorResult[exec.SearchDAGResult], []string, error) {
-	return &pagination.CursorResult[exec.SearchDAGResult]{}, nil, nil
+func (s testDAGStore) SearchCursor(context.Context, dagstore.SearchDAGsOptions) (*pagination.CursorResult[dagstore.SearchDAGResult], []string, error) {
+	return &pagination.CursorResult[dagstore.SearchDAGResult]{}, nil, nil
 }
 
-func (s testDAGStore) SearchMatches(context.Context, string, exec.SearchDAGMatchesOptions) (*pagination.CursorResult[*exec.Match], error) {
-	return &pagination.CursorResult[*exec.Match]{}, nil
+func (s testDAGStore) SearchMatches(context.Context, string, dagstore.SearchDAGMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error) {
+	return &pagination.CursorResult[*dagstore.Match]{}, nil
 }
 
 func (s testDAGStore) Rename(context.Context, string, string) error {
@@ -241,7 +241,7 @@ func (s testDAGStore) UpdateSpec(context.Context, string, []byte) error {
 	return nil
 }
 
-func (s testDAGStore) LoadSpec(context.Context, []byte, string, exec.DAGLoadOptions) (*ir.DAG, error) {
+func (s testDAGStore) LoadSpec(context.Context, []byte, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
 	return s.dag, nil
 }
 

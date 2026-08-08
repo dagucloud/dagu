@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/stretchr/testify/assert"
@@ -18,10 +18,10 @@ import (
 )
 
 type warningDAGStore struct {
-	exec.DAGStore
+	dagstore.DAGStore
 }
 
-func (warningDAGStore) List(_ context.Context, opts exec.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
+func (warningDAGStore) List(_ context.Context, opts dagstore.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
 	return pagination.NewPaginatedResult([]*ir.DAG{}, 0, *opts.Paginator), []string{"catalog warning"}, nil
 }
 

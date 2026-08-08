@@ -18,7 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/grep"
 )
@@ -291,12 +291,12 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 }
 
 // SearchMatches returns cursor-based snippets for one document.
-func (s *Store) SearchMatches(_ context.Context, id string, opts docs.SearchDocMatchesOptions) (*pagination.CursorResult[*exec.Match], error) {
+func (s *Store) SearchMatches(_ context.Context, id string, opts docs.SearchDocMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error) {
 	if err := docs.ValidateDocID(id); err != nil {
 		return nil, err
 	}
 	if opts.Query == "" {
-		return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+		return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
 	}
 	pathPrefix, err := cleanDocPathPrefix(opts.PathPrefix)
 	if err != nil {
@@ -336,12 +336,12 @@ func (s *Store) SearchMatches(_ context.Context, id string, opts docs.SearchDocM
 	})
 	if err != nil {
 		if errors.Is(err, grep.ErrNoMatch) {
-			return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+			return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
 		}
 		return nil, err
 	}
 
-	result := &pagination.CursorResult[*exec.Match]{
+	result := &pagination.CursorResult[*dagstore.Match]{
 		Items:   window.Matches,
 		HasMore: window.HasMore,
 	}

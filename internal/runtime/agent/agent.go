@@ -41,6 +41,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
@@ -83,7 +84,7 @@ type Agent struct {
 	retryTarget *dagrun.DAGRunStatus
 
 	// dagStore is the database to store the DAG definitions.
-	dagStore exec.DAGStore
+	dagStore dagstore.DAGStore
 
 	// dagRunStore is the database to store the run history.
 	dagRunStore dagrun.DAGRunStore
@@ -383,7 +384,7 @@ func New(
 	logDir string,
 	logFile string,
 	drm runtime.Manager,
-	ds exec.DAGStore,
+	ds dagstore.DAGStore,
 	opts Options,
 ) *Agent {
 	runStateStore := opts.RunStateStore

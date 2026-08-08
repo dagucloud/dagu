@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
@@ -124,7 +125,7 @@ type Handler struct {
 	workerHeartbeatStore      exec.WorkerHeartbeatStore      // Shared worker presence
 	dagRunLeaseStore          exec.DAGRunLeaseStore          // Shared distributed run leases
 	activeDistributedRunStore exec.ActiveDistributedRunStore // Shared active distributed attempt index
-	dagStore                  exec.DAGStore                  // DAG definitions for the GetDAG RPC
+	dagStore                  dagstore.DAGStore              // DAG definitions for the GetDAG RPC
 	secretStore               secretpkg.Store                // Secret registry for workers
 
 	// Open attempts cache for status persistence
@@ -192,7 +193,7 @@ type HandlerConfig struct {
 
 	// DAGStore serves DAG definitions for the GetDAG RPC.
 	// Optional - when nil, GetDAG returns Unimplemented.
-	DAGStore exec.DAGStore
+	DAGStore dagstore.DAGStore
 
 	// SecretStore resolves Dagu-managed secret registry refs for workers.
 	// Optional - when nil, ResolveSecretReference returns FailedPrecondition.

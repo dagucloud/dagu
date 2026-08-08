@@ -19,9 +19,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
@@ -30,7 +30,7 @@ import (
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 )
 
-var _ exec.DAGStore = (*Storage)(nil)
+var _ dagstore.DAGStore = (*Storage)(nil)
 
 const dagSearchCursorVersion = 1
 
@@ -109,7 +109,7 @@ func WithSkipDirectoryCreation(skip bool) Option {
 }
 
 // New creates a new DAG store implementation using the local filesystem
-func New(baseDir string, opts ...Option) exec.DAGStore {
+func New(baseDir string, opts ...Option) dagstore.DAGStore {
 	options := &Options{}
 	for _, opt := range opts {
 		opt(options)
@@ -298,7 +298,7 @@ func (store *Storage) GetMetadata(ctx context.Context, name string) (*ir.DAG, er
 }
 
 // specLoadOptions translates the store-facing load options into loader options.
-func specLoadOptions(opts exec.DAGLoadOptions) []spec.LoadOption {
+func specLoadOptions(opts dagstore.DAGLoadOptions) []spec.LoadOption {
 	if !opts.AllowBuildErrors {
 		return nil
 	}
@@ -306,7 +306,7 @@ func specLoadOptions(opts exec.DAGLoadOptions) []spec.LoadOption {
 }
 
 // GetDetails retrieves the details of a DAG by its name.
-func (store *Storage) GetDetails(ctx context.Context, name string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
+func (store *Storage) GetDetails(ctx context.Context, name string, opts dagstore.DAGLoadOptions) (*ir.DAG, error) {
 	filePath, err := store.locateDAG(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate DAG %s: %w", name, err)
@@ -325,7 +325,7 @@ func (store *Storage) GetDetails(ctx context.Context, name string, opts exec.DAG
 func (store *Storage) GetSpec(ctx context.Context, name string) (string, error) {
 	filePath, err := store.locateDAG(ctx, name)
 	if err != nil {
-		return "", exec.ErrDAGNotFound
+		return "", dagstore.ErrDAGNotFound
 	}
 	dat, err := fileutil.ReadFile(filePath)
 	if err != nil {
@@ -337,7 +337,7 @@ func (store *Storage) GetSpec(ctx context.Context, name string) (string, error) 
 // FileMode used for newly created DAG files
 const defaultPerm os.FileMode = 0600
 
-func (store *Storage) LoadSpec(ctx context.Context, source []byte, name string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
+func (store *Storage) LoadSpec(ctx context.Context, source []byte, name string, opts dagstore.DAGLoadOptions) (*ir.DAG, error) {
 	// Validate the spec before saving it.
 	loadOpts := store.defaultLoadOptions(specLoadOptions(opts)...)
 	loadOpts = append(loadOpts, spec.WithName(name), spec.WithoutEval())
@@ -378,7 +378,7 @@ func (store *Storage) Create(_ context.Context, name string, spec []byte) error 
 	}
 	filePath := store.generateFilePath(name)
 	if fileExists(filePath) || store.recursive && store.stemExists(name, "") {
-		return exec.ErrDAGAlreadyExists
+		return dagstore.ErrDAGAlreadyExists
 	}
 	if err := fileutil.WriteFileAtomic(filePath, spec, defaultPerm); err != nil {
 		return fmt.Errorf("failed to write DAG %s: %w", name, err)
@@ -476,7 +476,7 @@ func (store *Storage) invalidateIndex() {
 }
 
 // List lists DAGs with pagination support.
-func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
+func (store *Storage) List(ctx context.Context, opts dagstore.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
 	var allDags []*ir.DAG
 	var errList []string
 
@@ -676,7 +676,7 @@ func decodeDAGMatchCursor(raw, query, labels, fileName string) (dagMatchCursor, 
 
 // Grep searches for a pattern in all DAGs.
 func (store *Storage) Grep(ctx context.Context, pattern string) (
-	ret []*exec.GrepDAGsResult, errs []string, err error,
+	ret []*dagstore.GrepDAGsResult, errs []string, err error,
 ) {
 	if pattern == "" {
 		// return empty result if pattern is empty
@@ -721,7 +721,7 @@ func (store *Storage) Grep(ctx context.Context, pattern string) (
 			errs = append(errs, fmt.Sprintf("check %s failed: %s", entry.FilePath, err))
 			continue
 		}
-		ret = append(ret, &exec.GrepDAGsResult{
+		ret = append(ret, &dagstore.GrepDAGsResult{
 			Name:    entryStem(entry),
 			DAG:     dag,
 			Matches: matches,
@@ -731,11 +731,11 @@ func (store *Storage) Grep(ctx context.Context, pattern string) (
 }
 
 // SearchCursor returns lightweight, cursor-based DAG search hits.
-func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOptions) (
-	*pagination.CursorResult[exec.SearchDAGResult], []string, error,
+func (store *Storage) SearchCursor(ctx context.Context, opts dagstore.SearchDAGsOptions) (
+	*pagination.CursorResult[dagstore.SearchDAGResult], []string, error,
 ) {
 	if opts.Query == "" {
-		return &pagination.CursorResult[exec.SearchDAGResult]{Items: []exec.SearchDAGResult{}}, nil, nil
+		return &pagination.CursorResult[dagstore.SearchDAGResult]{Items: []dagstore.SearchDAGResult{}}, nil, nil
 	}
 	if err := store.ensureDirExist(); err != nil {
 		return nil, nil, fmt.Errorf("failed to create DAGs directory %s: %w", store.baseDir, err)
@@ -754,7 +754,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 
 	limit := max(opts.Limit, 1)
 	matchLimit := max(opts.MatchLimit, 1)
-	results := make([]exec.SearchDAGResult, 0, limit)
+	results := make([]dagstore.SearchDAGResult, 0, limit)
 	pattern := dagSearchPattern(opts.Query)
 	errs := append([]string(nil), catalog.errors...)
 	var hasMore bool
@@ -840,7 +840,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 			break
 		}
 
-		item := exec.SearchDAGResult{
+		item := dagstore.SearchDAGResult{
 			Name:           fileName,
 			FileName:       fileName,
 			Workspace:      workspaceName,
@@ -859,7 +859,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 		results = append(results, item)
 	}
 
-	return &pagination.CursorResult[exec.SearchDAGResult]{
+	return &pagination.CursorResult[dagstore.SearchDAGResult]{
 		Items:      results,
 		HasMore:    hasMore,
 		NextCursor: nextCursor,
@@ -867,11 +867,11 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 }
 
 // SearchMatches returns cursor-based snippets for one DAG definition.
-func (store *Storage) SearchMatches(ctx context.Context, fileName string, opts exec.SearchDAGMatchesOptions) (
-	*pagination.CursorResult[*exec.Match], error,
+func (store *Storage) SearchMatches(ctx context.Context, fileName string, opts dagstore.SearchDAGMatchesOptions) (
+	*pagination.CursorResult[*dagstore.Match], error,
 ) {
 	if opts.Query == "" {
-		return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+		return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
 	}
 
 	labelsKey := dagSearchScopeKey(opts.Labels, opts.WorkspaceFilter)
@@ -882,13 +882,13 @@ func (store *Storage) SearchMatches(ctx context.Context, fileName string, opts e
 
 	filePath, err := store.locateDAG(ctx, fileName)
 	if err != nil {
-		return nil, exec.ErrDAGNotFound
+		return nil, dagstore.ErrDAGNotFound
 	}
 
 	dat, err := fileutil.ReadFile(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, exec.ErrDAGNotFound
+			return nil, dagstore.ErrDAGNotFound
 		}
 		return nil, err
 	}
@@ -903,10 +903,10 @@ func (store *Storage) SearchMatches(ctx context.Context, fileName string, opts e
 			return nil, err
 		}
 		if !containsAllLabels(dag.Labels, opts.Labels) {
-			return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+			return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
 		}
 		if !opts.WorkspaceFilter.MatchesLabels(dag.Labels) {
-			return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+			return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
 		}
 	}
 
@@ -919,12 +919,12 @@ func (store *Storage) SearchMatches(ctx context.Context, fileName string, opts e
 	})
 	if err != nil {
 		if errors.Is(err, grep.ErrNoMatch) {
-			return &pagination.CursorResult[*exec.Match]{Items: []*exec.Match{}}, nil
+			return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
 		}
 		return nil, err
 	}
 
-	result := &pagination.CursorResult[*exec.Match]{
+	result := &pagination.CursorResult[*dagstore.Match]{
 		Items:   window.Matches,
 		HasMore: window.HasMore,
 	}
@@ -978,7 +978,7 @@ func (store *Storage) Rename(ctx context.Context, oldID, newID string) error {
 		}
 	}
 	if fileExists(newFilePath) || store.recursive && store.stemExists(newID, exceptPath) {
-		return exec.ErrDAGAlreadyExists
+		return dagstore.ErrDAGAlreadyExists
 	}
 	if err := fileutil.Rename(oldFilePath, newFilePath); err != nil {
 		return err

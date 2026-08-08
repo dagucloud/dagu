@@ -6,7 +6,7 @@ package scheduler_test
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 )
@@ -35,6 +35,6 @@ func (er *mockJobManager) DAGs() []*ir.DAG {
 	return er.LoadedDAGs
 }
 
-func (*mockJobManager) DAGStore() exec.DAGStore {
+func (*mockJobManager) DAGStore() dagstore.DAGStore {
 	return nil
 }

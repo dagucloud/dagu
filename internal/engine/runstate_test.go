@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/engine"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -187,7 +187,7 @@ func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceF
 			ProcStore:       store.NewProcStore(backend.Collection("proc")),
 			StateStore:      store.NewDAGStateStore(backend.Collection("dag_state")),
 			ServiceRegistry: file.NewServiceRegistry(cfg),
-			DAGStoreFactory: func(_ context.Context, cfg *config.Config, opts engine.DAGStoreFactoryOptions) (coreexec.DAGStore, error) {
+			DAGStoreFactory: func(_ context.Context, cfg *config.Config, opts engine.DAGStoreFactoryOptions) (dagstore.DAGStore, error) {
 				fileOpts := []file.DAGStoreOption{file.WithDAGSkipExamples(true)}
 				if len(opts.SearchPaths) > 0 {
 					fileOpts = append(fileOpts, file.WithDAGSearchPaths(opts.SearchPaths))

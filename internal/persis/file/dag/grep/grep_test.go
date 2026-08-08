@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,14 +21,14 @@ func TestGrep(t *testing.T) {
 		File    string
 		Pattern string
 		Opts    GrepOptions
-		Want    []*exec.Match
+		Want    []*dagstore.Match
 		IsErr   bool
 	}{
 		{
 			Name:    "simple",
 			File:    filepath.Join(dir, "test.txt"),
 			Pattern: "b",
-			Want: []*exec.Match{
+			Want: []*dagstore.Match{
 				{
 					LineNumber: 2,
 					StartLine:  2,
@@ -42,7 +42,7 @@ func TestGrep(t *testing.T) {
 			Opts: GrepOptions{
 				IsRegexp: true,
 			},
-			Want: []*exec.Match{
+			Want: []*dagstore.Match{
 				{
 					LineNumber: 2,
 					StartLine:  2,
@@ -56,7 +56,7 @@ func TestGrep(t *testing.T) {
 			Opts: GrepOptions{
 				Before: 1,
 			},
-			Want: []*exec.Match{
+			Want: []*dagstore.Match{
 				{
 					LineNumber: 2,
 					StartLine:  1,
@@ -71,7 +71,7 @@ func TestGrep(t *testing.T) {
 				Before: 2,
 				After:  2,
 			},
-			Want: []*exec.Match{
+			Want: []*dagstore.Match{
 				{
 					LineNumber: 3,
 					StartLine:  1,
@@ -86,7 +86,7 @@ func TestGrep(t *testing.T) {
 				Before: 1,
 				After:  1,
 			},
-			Want: []*exec.Match{
+			Want: []*dagstore.Match{
 				{
 					LineNumber: 1,
 					StartLine:  1,
@@ -101,7 +101,7 @@ func TestGrep(t *testing.T) {
 				Before: 1,
 				After:  1,
 			},
-			Want: []*exec.Match{
+			Want: []*dagstore.Match{
 				{
 					LineNumber: 5,
 					StartLine:  4,

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
 
@@ -99,13 +99,13 @@ type SearchDocMatchesOptions struct {
 
 // DocSearchResult holds a doc ID/title and its grep matches.
 type DocSearchResult struct {
-	ID                string        `json:"id"`
-	Title             string        `json:"title"`
-	Description       string        `json:"description,omitempty"`
-	ModTime           time.Time     `json:"modTime"`
-	Matches           []*exec.Match `json:"matches"`
-	HasMoreMatches    bool          `json:"hasMoreMatches"`
-	NextMatchesCursor string        `json:"nextMatchesCursor,omitempty"`
+	ID                string            `json:"id"`
+	Title             string            `json:"title"`
+	Description       string            `json:"description,omitempty"`
+	ModTime           time.Time         `json:"modTime"`
+	Matches           []*dagstore.Match `json:"matches"`
+	HasMoreMatches    bool              `json:"hasMoreMatches"`
+	NextMatchesCursor string            `json:"nextMatchesCursor,omitempty"`
 }
 
 // DeleteError represents a single item failure in a batch delete operation.
@@ -126,7 +126,7 @@ type DocStore interface {
 	Rename(ctx context.Context, oldID, newID string) error
 	Search(ctx context.Context, query string) ([]*DocSearchResult, error)
 	SearchCursor(ctx context.Context, opts SearchDocsOptions) (*pagination.CursorResult[DocSearchResult], error)
-	SearchMatches(ctx context.Context, id string, opts SearchDocMatchesOptions) (*pagination.CursorResult[*exec.Match], error)
+	SearchMatches(ctx context.Context, id string, opts SearchDocMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error)
 }
 
 // validDocIDRegexp matches a valid doc ID: segments separated by slashes.

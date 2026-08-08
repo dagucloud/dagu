@@ -8,7 +8,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -54,7 +54,7 @@ func WithDAGSkipDirectoryCreation(skip bool) DAGStoreOption {
 }
 
 // NewDAGStore wires the file-backed DAG definition store from application config.
-func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (exec.DAGStore, error) {
+func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (dagstore.DAGStore, error) {
 	options := DAGStoreOptions{}
 	for _, opt := range opts {
 		if opt != nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -19,12 +20,12 @@ import (
 )
 
 // DAGStoreFactory creates the DAG definition store used by local child workflows.
-type DAGStoreFactory func(context.Context) (exec.DAGStore, error)
+type DAGStoreFactory func(context.Context) (dagstore.DAGStore, error)
 
 // SubWorkflowRunnerConfig contains dependencies for child workflow execution.
 type SubWorkflowRunnerConfig struct {
 	DAGRunMgr         runtime.Manager
-	DAGStore          exec.DAGStore
+	DAGStore          dagstore.DAGStore
 	DAGStoreFactory   DAGStoreFactory
 	DAGRunStore       dagrun.DAGRunStore
 	RunStateStore     runstate.Store
@@ -79,7 +80,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 	return factory
 }
 
-func subWorkflowDAGStore(ctx context.Context, cfg SubWorkflowRunnerConfig) (exec.DAGStore, error) {
+func subWorkflowDAGStore(ctx context.Context, cfg SubWorkflowRunnerConfig) (dagstore.DAGStore, error) {
 	if cfg.DAGStoreFactory != nil {
 		return cfg.DAGStoreFactory(ctx)
 	}

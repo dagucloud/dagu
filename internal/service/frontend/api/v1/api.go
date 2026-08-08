@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
@@ -60,7 +61,7 @@ import (
 var _ api.StrictServerInterface = (*API)(nil)
 
 type API struct {
-	dagStore             exec.DAGStore
+	dagStore             dagstore.DAGStore
 	dagRunStore          dagrun.DAGRunStore
 	dagRunMgr            runtime.Manager
 	queueStore           exec.QueueStore
@@ -358,7 +359,7 @@ func WithLeaseStaleThreshold(threshold time.Duration) APIOption {
 // and resource service. It builds the remote node map and base path, then
 // applies any supplied APIOption functions to customize the instance.
 func New(
-	dr exec.DAGStore,
+	dr dagstore.DAGStore,
 	drs dagrun.DAGRunStore,
 	qs exec.QueueStore,
 	ps exec.ProcStore,
@@ -756,13 +757,13 @@ func (a *API) resolveError(err error) (api.ErrorCode, string, int) {
 		return apiErr.Code, apiErr.Message, apiErr.HTTPStatus
 	}
 
-	if errors.Is(err, exec.ErrDAGNotFound) {
+	if errors.Is(err, dagstore.ErrDAGNotFound) {
 		return api.ErrorCodeNotFound, "DAG not found", http.StatusNotFound
 	}
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return api.ErrorCodeNotFound, "dag-run ID not found", http.StatusNotFound
 	}
-	if errors.Is(err, exec.ErrDAGAlreadyExists) {
+	if errors.Is(err, dagstore.ErrDAGAlreadyExists) {
 		return api.ErrorCodeAlreadyExists, "DAG already exists", http.StatusConflict
 	}
 

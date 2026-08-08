@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
@@ -100,14 +101,14 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 
 	// If not found as local DAG, look it up in the database
 	if rCtx.DB == nil {
-		return nil, fmt.Errorf("cannot resolve sub-DAG %q: no local DAG store available (hint: parent DAG was dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, exec.ErrDAGNotFound)
+		return nil, fmt.Errorf("cannot resolve sub-DAG %q: no local DAG store available (hint: parent DAG was dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, dagstore.ErrDAGNotFound)
 	}
 	dag, err := rCtx.DB.GetDAG(ctx, childName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find DAG %q: %w", childName, err)
 	}
 	if dag == nil {
-		return nil, fmt.Errorf("sub-DAG %q resolved to nil (hint: parent DAG may have been dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, exec.ErrDAGNotFound)
+		return nil, fmt.Errorf("sub-DAG %q resolved to nil (hint: parent DAG may have been dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, dagstore.ErrDAGNotFound)
 	}
 
 	return newSubDAGExecutor(ctx, rCtx, dag, ""), nil

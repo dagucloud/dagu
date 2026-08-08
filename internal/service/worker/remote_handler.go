@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/profile"
@@ -50,7 +51,7 @@ type RemoteTaskHandlerConfig struct {
 	// CoordinatorClient is the coordinator client with load balancing support
 	CoordinatorClient coordinator.Client
 	// DAGStore is the store for DAG definitions
-	DAGStore exec.DAGStore
+	DAGStore dagstore.DAGStore
 	// DAGRunMgr is the manager for DAG runs
 	DAGRunMgr runtime.Manager
 	// StateStore is the persistent state store shared across DAG runs.
@@ -103,7 +104,7 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 type remoteTaskHandler struct {
 	workerID          string
 	coordinatorClient coordinator.Client
-	dagStore          exec.DAGStore
+	dagStore          dagstore.DAGStore
 	dagRunMgr         runtime.Manager
 	stateStore        dagstate.Store
 	serviceRegistry   exec.ServiceRegistry
