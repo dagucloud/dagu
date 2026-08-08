@@ -11,7 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
-	"github.com/dagucloud/dagu/v2/internal/subflow"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator/subflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -51,14 +51,14 @@ The module root is package `dagu` — an experimental embedded API (`engine.go`,
 - **`persis/`** — Storage layer behind a generic `Backend` → `Collection` → `Record` abstraction (`backend.go`). Only production backend is `persis/file` (local filesystem). `persis/store` holds collection-backed adapters (queue, user, API key, profile, secret, workspace, view, webhook, license, worker-heartbeat, etc.).
 - **`service/frontend/`** — HTTP server (chi router). REST API v1 handlers in `api/v1/` (~150 paths), SSE, terminal, static assets; also mounts the MCP server at `/mcp`.
 - **`service/scheduler/`** — Cron scheduling with timezones, catchup, zombie detection, queue processing, file watching.
-- **`service/coordinator/`** — gRPC server for distributed execution (`proto/coordinator/v1`: dispatch, heartbeats, log/artifact streaming, workspace bundles, shared state).
+- **`service/coordinator/`** — gRPC server for distributed execution (`proto/coordinator/v1`: dispatch, heartbeats, log/artifact streaming, workspace bundles, shared state). Its `subflow/` package owns local and distributed child-workflow routing.
 - **`service/worker/`** — Polls coordinator for tasks, executes DAGs locally, reports status.
 - **`service/mcp/`** — Model Context Protocol server (read/change/execute tools, run-inspector MCP App).
 - **`auth/`** — RBAC roles (admin, manager, developer, operator, viewer), users, API keys, webhook auth. Basic, OIDC, and built-in JWT auth.
 - **`llm/`** — Provider-agnostic LLM abstraction (anthropic, openai, openrouter, gemini, zai, local) used by `chat` executor and controller DAGs.
 - **`engine/`** — Internal implementation behind the root `dagu` package.
 - **`cmd/`** — Cobra CLI implementations; entry point `cmd/main.go` at repo root registers 27 commands: `start`, `exec`, `enqueue`, `stop`, `restart`, `retry`, `dry`, `validate`, `status`, `server`, `scheduler`, `coordinator`, `worker`, `start-all` (server+scheduler+coordinator in one process), `sync`, `context`, `profile`, `license`, `human-task`, etc.
-- Domain feature packages, one concern each: `gitsync` (git-backed DAG sync), `humantask`, `incident`, `notification`, `dagstate` (cross-run persistent state), `dagsettings`, `profile`, `secret` (managed secrets and provider backends), `telemetry` (metrics and tracing), `workspace`, `remotenode`, `view`, `tunnel` (Tailscale), `license`, `upgrade`, `clicontext` (named remote CLI contexts), `dispatch` (local-vs-coordinator policy), and `subflow`.
+- Domain feature packages, one concern each: `gitsync` (git-backed DAG sync), `humantask`, `incident`, `notification`, `dagstate` (cross-run persistent state), `dagsettings`, `profile`, `secret` (managed secrets and provider backends), `telemetry` (metrics and tracing), `workspace`, `remotenode`, `view`, `tunnel` (Tailscale), `license`, `upgrade`, `clicontext` (named remote CLI contexts), and `dispatch` (local-vs-coordinator policy).
 - **`cmn/`** — Low-level shared utilities for configuration, logging, files, backoff, values, and similar cross-domain primitives. Domain imports are prohibited except for the documented configuration exception.
 
 ### Frontend (`ui/`)
