@@ -79,7 +79,7 @@ func TestHistoryStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T)
 		RunID:      "run-2",
 		AttemptID:  "attempt-2",
 		Retry:      true,
-		RootDAGRun: dagrun.NewDAGRunRef("root", "root-run"),
+		RootDAGRun: ir.NewDAGRunRef("root", "root-run"),
 	})
 
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestHistoryStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T)
 	require.True(t, store.createOpts.Retry)
 	require.Equal(t, "attempt-2", store.createOpts.AttemptID)
 	require.NotNil(t, store.createOpts.RootDAGRun)
-	require.Equal(t, dagrun.NewDAGRunRef("root", "root-run"), *store.createOpts.RootDAGRun)
+	require.Equal(t, ir.NewDAGRunRef("root", "root-run"), *store.createOpts.RootDAGRun)
 	require.Len(t, store.removeOldCalls, 1)
 	require.Equal(t, 0, store.removeOldCalls[0].retentionDays)
 	require.NotNil(t, store.removeOldCalls[0].opts.RetentionRuns)
@@ -106,7 +106,7 @@ func TestHistoryStoreBeginAttemptOmitsRootDAGRunForRootAttempt(t *testing.T) {
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:        &ir.DAG{Name: "parent"},
 		RunID:      "root-run",
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-run"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-run"),
 	})
 
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
 	}
 
 	stateStore := runstate.NewHistoryStore(store)
-	child, err := stateStore.OpenChildAttempt(ctx, dagrun.NewDAGRunRef("root", "root-run"), "child-run")
+	child, err := stateStore.OpenChildAttempt(ctx, ir.NewDAGRunRef("root", "root-run"), "child-run")
 	require.NoError(t, err)
 
 	got, err := child.ReadStatus(ctx)
@@ -233,22 +233,22 @@ func (s *recordingDAGRunStore) ListStatusesPage(context.Context, ...dagrun.ListD
 	return dagrun.DAGRunStatusPage{}, nil
 }
 
-func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, dagrun.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
+func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
-func (s *recordingDAGRunStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *recordingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *recordingDAGRunStore) FindSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (s *recordingDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	if s.subAttempt == nil {
 		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return s.subAttempt, nil
 }
 
-func (s *recordingDAGRunStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (s *recordingDAGRunStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, nil
 }
 
@@ -261,7 +261,7 @@ func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, ret
 	return nil, s.removeOldErr
 }
 
-func (s *recordingDAGRunStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
+func (s *recordingDAGRunStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	return nil
 }
 

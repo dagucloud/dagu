@@ -8,6 +8,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -25,7 +26,7 @@ func TestAttemptKeyForStatus(t *testing.T) {
 
 		assert.Equal(
 			t,
-			dagrun.GenerateAttemptKey("root-dag", "run-123", "root-dag", "run-123", "attempt-1"),
+			ir.GenerateAttemptKey("root-dag", "run-123", "root-dag", "run-123", "attempt-1"),
 			dispatch.AttemptKeyForStatus(status, ""),
 		)
 	})
@@ -36,7 +37,7 @@ func TestAttemptKeyForStatus(t *testing.T) {
 		status := &dagrun.DAGRunStatus{
 			Name:      "child-dag",
 			DAGRunID:  "child-run-123",
-			Parent:    dagrun.NewDAGRunRef("root-dag", "run-123"),
+			Parent:    ir.NewDAGRunRef("root-dag", "run-123"),
 			AttemptID: "attempt-1",
 		}
 

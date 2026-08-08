@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var (
@@ -97,7 +99,7 @@ func ParseRetryPath(value string) (RetryPath, error) {
 func ResolveRetryPath(
 	ctx context.Context,
 	store DAGRunStore,
-	root DAGRunRef,
+	root ir.DAGRunRef,
 	targetRunID string,
 	stepName string,
 ) (RetryPath, *DAGRunStatus, error) {

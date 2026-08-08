@@ -555,7 +555,7 @@ func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 				Decision:    "reuse",
 				Phase:       "complete",
 				Reason:      "matched",
-				ProducerRun: dagrun.NewDAGRunRef("build-dag", "run-1"),
+				ProducerRun: ir.NewDAGRunRef("build-dag", "run-1"),
 			},
 		}},
 	}

@@ -139,7 +139,7 @@ func TestRunHumanTaskCompletePersistsCanonicalInputAndQueuesRetry(t *testing.T) 
 	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
 	require.NoError(t, err)
 	assert.Equal(t, ir.Queued, fixture.status.Status)
-	assert.Equal(t, []dagrun.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
+	assert.Equal(t, []ir.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
 
 	node := fixture.status.Nodes[0]
 	assert.Equal(t, ir.NodeSucceeded, node.Status)
@@ -405,11 +405,11 @@ type humanTaskCompletionProcStore struct {
 	proc.ProcStore
 }
 
-func (humanTaskCompletionProcStore) IsRunAlive(context.Context, string, dagrun.DAGRunRef) (bool, error) {
+func (humanTaskCompletionProcStore) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
 	return false, nil
 }
 
-func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, dagrun.DAGRunRef, string) (bool, error) {
+func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
 	return false, nil
 }
 
@@ -420,13 +420,13 @@ type humanTaskCompletionStore struct {
 	beforeMutate func()
 }
 
-func (s *humanTaskCompletionStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *humanTaskCompletionStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	return s.attempt, nil
 }
 
 func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	_ dagrun.DAGRunRef,
+	_ ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
 	mutate func(*dagrun.DAGRunStatus) error,
@@ -450,7 +450,7 @@ func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 
 type humanTaskCompletionQueueStore struct {
 	queue.QueueStore
-	enqueued      []dagrun.DAGRunRef
+	enqueued      []ir.DAGRunRef
 	enqueueErrors []error
 }
 
@@ -458,7 +458,7 @@ func (s *humanTaskCompletionQueueStore) Enqueue(
 	_ context.Context,
 	_ string,
 	_ queue.QueuePriority,
-	ref dagrun.DAGRunRef,
+	ref ir.DAGRunRef,
 ) error {
 	if len(s.enqueueErrors) > 0 {
 		err := s.enqueueErrors[0]

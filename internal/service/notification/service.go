@@ -1849,7 +1849,7 @@ func notificationRunPath(status *dagrun.DAGRunStatus) string {
 
 	root := status.Root
 	if root.Zero() {
-		root = dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
+		root = ir.NewDAGRunRef(status.Name, status.DAGRunID)
 	}
 	if root.Name == "" || root.ID == "" {
 		return ""

@@ -234,10 +234,10 @@ func (d *capturingDispatcher) Cleanup(context.Context) error {
 	return nil
 }
 
-func (d *capturingDispatcher) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+func (d *capturingDispatcher) GetDAGRunStatus(context.Context, string, string, *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	return nil, nil
 }
 
-func (d *capturingDispatcher) RequestCancel(context.Context, string, string, *dagrun.DAGRunRef) error {
+func (d *capturingDispatcher) RequestCancel(context.Context, string, string, *ir.DAGRunRef) error {
 	return nil
 }

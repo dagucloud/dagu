@@ -82,18 +82,18 @@ type DAGRunRefSnapshot struct {
 	DAGRunID string `json:"dag_run_id,omitempty"`
 }
 
-func newDAGRunRefSnapshot(ref dagrun.DAGRunRef) DAGRunRefSnapshot {
+func newDAGRunRefSnapshot(ref ir.DAGRunRef) DAGRunRefSnapshot {
 	return DAGRunRefSnapshot{
 		Name:     ref.Name,
 		DAGRunID: ref.ID,
 	}
 }
 
-func (s DAGRunRefSnapshot) DAGRunRef() dagrun.DAGRunRef {
+func (s DAGRunRefSnapshot) DAGRunRef() ir.DAGRunRef {
 	if s.Name == "" || s.DAGRunID == "" {
-		return dagrun.DAGRunRef{}
+		return ir.DAGRunRef{}
 	}
-	return dagrun.NewDAGRunRef(s.Name, s.DAGRunID)
+	return ir.NewDAGRunRef(s.Name, s.DAGRunID)
 }
 
 type DAGRunStatusSnapshot struct {

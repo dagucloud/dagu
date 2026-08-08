@@ -196,7 +196,7 @@ steps:
 
 	runID := f.runIDs[0]
 
-	ref := dagrun.NewDAGRunRef(f.dag.Name, runID)
+	ref := ir.NewDAGRunRef(f.dag.Name, runID)
 	att, err := f.th.DAGRunStore.FindAttempt(f.th.Context, ref)
 	require.NoError(t, err)
 	status, err := att.ReadStatus(f.th.Context)

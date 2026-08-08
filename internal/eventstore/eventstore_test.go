@@ -90,8 +90,8 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	t.Parallel()
 
 	status := &dagrun.DAGRunStatus{
-		Root:           dagrun.NewDAGRunRef("root-briefing", "root-run"),
-		Parent:         dagrun.NewDAGRunRef("root-briefing", "parent-run"),
+		Root:           ir.NewDAGRunRef("root-briefing", "root-run"),
+		Parent:         ir.NewDAGRunRef("root-briefing", "parent-run"),
 		Name:           "briefing",
 		Labels:         []string{"workspace=ops", "team=platform"},
 		DAGRunID:       "run-1",

@@ -242,7 +242,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		queueName = queueOverride
 	}
 
-	dagRun := dagrun.NewDAGRunRef(dagCopy.Name, runParams.RunID)
+	dagRun := ir.NewDAGRunRef(dagCopy.Name, runParams.RunID)
 	if existing, err := rCtx.DAGRunStore.FindAttempt(ctx, dagRun); err == nil {
 		return e.outputFromExisting(ctx, existing, dagCopy.Name, runParams, queueName), nil
 	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {

@@ -27,7 +27,7 @@ func TestRunnerShouldRun(t *testing.T) {
 	dispatcher := &mockDispatcher{}
 	validReq := runtimeexec.SubWorkflowRequest{
 		DAG:        &ir.DAG{Name: "child"},
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 	}
 
@@ -52,7 +52,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			name:   "missing child DAG",
 			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
 			req: runtimeexec.SubWorkflowRequest{
-				RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
+				RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
 				RunID:      "child-1",
 			},
 			want: false,
@@ -62,7 +62,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
 			req: runtimeexec.SubWorkflowRequest{
 				DAG:        &ir.DAG{Name: "child"},
-				RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
+				RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
 			},
 			want: false,
 		},
@@ -80,7 +80,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
 			req: runtimeexec.SubWorkflowRequest{
 				DAG:            &ir.DAG{Name: "child", ForceLocal: true},
-				RootDAGRun:     dagrun.NewDAGRunRef("parent", "root-1"),
+				RootDAGRun:     ir.NewDAGRunRef("parent", "root-1"),
 				RunID:          "child-1",
 				WorkerSelector: map[string]string{"role": "gpu"},
 			},
@@ -91,7 +91,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			runner: subflow.New(dispatcher, config.ExecutionModeLocal),
 			req: runtimeexec.SubWorkflowRequest{
 				DAG:            &ir.DAG{Name: "child"},
-				RootDAGRun:     dagrun.NewDAGRunRef("parent", "root-1"),
+				RootDAGRun:     ir.NewDAGRunRef("parent", "root-1"),
 				RunID:          "child-1",
 				WorkerSelector: map[string]string{"role": "gpu"},
 			},
@@ -159,8 +159,8 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 			Name:           "parent",
 			BaseConfigData: []byte("parent-base"),
 		},
-		RootDAGRun:        dagrun.NewDAGRunRef("parent", "root-1"),
-		ParentDAGRun:      dagrun.NewDAGRunRef("parent", "parent-1"),
+		RootDAGRun:        ir.NewDAGRunRef("parent", "root-1"),
+		ParentDAGRun:      ir.NewDAGRunRef("parent", "parent-1"),
 		RunID:             "child-1",
 		Params:            "ITEM=1",
 		WorkerSelector:    map[string]string{"role": "gpu"},
@@ -197,7 +197,7 @@ func TestRunnerRunRejectsBuildWorkflow(t *testing.T) {
 	runner := newFastRunner(dispatcher)
 	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
 		DAG:        &ir.DAG{Name: "child", Type: ir.TypeBuild},
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 	})
 
@@ -245,8 +245,8 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 			Name:     "child",
 			YamlData: []byte("name: child"),
 		},
-		RootDAGRun:   dagrun.NewDAGRunRef("parent", "root-1"),
-		ParentDAGRun: dagrun.NewDAGRunRef("parent", "parent-1"),
+		RootDAGRun:   ir.NewDAGRunRef("parent", "root-1"),
+		ParentDAGRun: ir.NewDAGRunRef("parent", "parent-1"),
 		RunID:        "child-1",
 	})
 	require.NoError(t, err)
@@ -286,8 +286,8 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 			Name:     "child",
 			YamlData: []byte("name: child"),
 		},
-		RootDAGRun:        dagrun.NewDAGRunRef("parent", "root-1"),
-		ParentDAGRun:      dagrun.NewDAGRunRef("parent", "parent-1"),
+		RootDAGRun:        ir.NewDAGRunRef("parent", "root-1"),
+		ParentDAGRun:      ir.NewDAGRunRef("parent", "parent-1"),
 		RunID:             "child-1",
 		ExternalStepRetry: true,
 	})
@@ -309,7 +309,7 @@ func TestRunnerRunReuseRequiresPersistedChild(t *testing.T) {
 
 	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
 		DAG:        &ir.DAG{Name: "child", YamlData: []byte("name: child")},
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 		Reuse:      true,
 	})
@@ -349,8 +349,8 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 				Name:     "child",
 				YamlData: []byte("name: child"),
 			},
-			RootDAGRun:   dagrun.NewDAGRunRef("parent", "root-1"),
-			ParentDAGRun: dagrun.NewDAGRunRef("parent", "parent-1"),
+			RootDAGRun:   ir.NewDAGRunRef("parent", "root-1"),
+			ParentDAGRun: ir.NewDAGRunRef("parent", "parent-1"),
 			RunID:        "child-1",
 		},
 		StepName: "flaky",
@@ -379,7 +379,7 @@ func TestRunnerRetryRejectsEmptyStepName(t *testing.T) {
 				Name:     "child",
 				YamlData: []byte("name: child"),
 			},
-			RootDAGRun: dagrun.NewDAGRunRef("parent", "root-1"),
+			RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
 			RunID:      "child-1",
 		},
 	})
@@ -395,7 +395,7 @@ func TestRunnerCancelRequestsDispatcherCancel(t *testing.T) {
 
 	dispatcher := &mockDispatcher{}
 	runner := newFastRunner(dispatcher)
-	root := dagrun.NewDAGRunRef("parent", "root-1")
+	root := ir.NewDAGRunRef("parent", "root-1")
 
 	err := runner.Cancel(context.Background(), runtimeexec.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -430,7 +430,7 @@ type mockDispatcher struct {
 type cancelRequest struct {
 	name string
 	id   string
-	root *dagrun.DAGRunRef
+	root *ir.DAGRunRef
 }
 
 func (m *mockDispatcher) Dispatch(_ context.Context, req dispatch.DispatchRequest) error {
@@ -446,7 +446,7 @@ func (m *mockDispatcher) GetDAGRunStatus(
 	_ context.Context,
 	_ string,
 	_ string,
-	_ *dagrun.DAGRunRef,
+	_ *ir.DAGRunRef,
 ) (*dispatch.DAGRunStatusResult, error) {
 	if len(m.statuses) == 0 {
 		return &dispatch.DAGRunStatusResult{Found: false}, nil
@@ -456,7 +456,7 @@ func (m *mockDispatcher) GetDAGRunStatus(
 	return status, nil
 }
 
-func (m *mockDispatcher) RequestCancel(_ context.Context, name, id string, root *dagrun.DAGRunRef) error {
+func (m *mockDispatcher) RequestCancel(_ context.Context, name, id string, root *ir.DAGRunRef) error {
 	m.cancels = append(m.cancels, cancelRequest{name: name, id: id, root: root})
 	return nil
 }

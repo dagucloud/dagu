@@ -60,7 +60,7 @@ func (m *mockLeaseStore) ListAll(context.Context) ([]dispatch.DAGRunLease, error
 func TestQueueDispatcher_CheckStartupStatus_WithinGraceSkipsAttemptLookup(t *testing.T) {
 	dagRunStore := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
 	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Once()
 
@@ -82,7 +82,7 @@ func TestQueueDispatcher_CheckStartupStatus_WithinGraceSkipsAttemptLookup(t *tes
 func TestQueueDispatcher_CheckStartupStatus_HeartbeatSkipsAttemptLookup(t *testing.T) {
 	dagRunStore := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
 	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(true, nil).Once()
 
@@ -104,7 +104,7 @@ func TestQueueDispatcher_CheckStartupStatus_HeartbeatSkipsAttemptLookup(t *testi
 func TestQueueDispatcher_CheckStartupStatus_PreStartExecutionErrorIsPermanent(t *testing.T) {
 	dagRunStore := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	execErrCh := make(chan error, 1)
 	execErrCh <- errors.New("dispatch failed")
 
@@ -126,7 +126,7 @@ func TestQueueDispatcher_CheckStartupStatus_PreStartExecutionErrorIsPermanent(t 
 func TestQueueDispatcher_WaitForStartupKeepsLocalLaunchInFlightUntilDone(t *testing.T) {
 	dagRunStore := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	attempt := &testutil.MockDAGRunAttempt{
 		Status: &dagrun.DAGRunStatus{Status: ir.Queued},
 	}
@@ -163,7 +163,7 @@ func TestQueueDispatcher_WaitForStartupKeepsLocalLaunchInFlightUntilDone(t *test
 func TestQueueDispatcher_WaitForStartupBoundsLocalObservationErrors(t *testing.T) {
 	dagRunStore := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	storeErr := errors.New("status store unavailable")
 
 	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Twice()
@@ -207,7 +207,7 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGraceFallsBackToStatus(t *testi
 		t.Run(tc.name, func(t *testing.T) {
 			dagRunStore := &mockDAGRunStore{}
 			procStore := &mockProcStore{}
-			runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+			runRef := ir.NewDAGRunRef("test-dag", "run-1")
 			attempt := &testutil.MockDAGRunAttempt{
 				Status: &dagrun.DAGRunStatus{Status: tc.status},
 			}
@@ -245,7 +245,7 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGracePropagatesLeaseLookupError
 			return nil, errors.New("lease store unavailable")
 		},
 	}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	attempt := &testutil.MockDAGRunAttempt{
 		Status: &dagrun.DAGRunStatus{
 			Status:    ir.Queued,
@@ -321,18 +321,18 @@ func (m *mockDispatcher) LastRequest() dispatch.DispatchRequest {
 
 func (m *mockDispatcher) Cleanup(_ context.Context) error { return nil }
 
-func (m *mockDispatcher) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+func (m *mockDispatcher) GetDAGRunStatus(_ context.Context, _, _ string, _ *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	return nil, nil
 }
 
-func (m *mockDispatcher) RequestCancel(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) error {
+func (m *mockDispatcher) RequestCancel(_ context.Context, _, _ string, _ *ir.DAGRunRef) error {
 	return nil
 }
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *testing.T) {
 	dagRunStore := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
 	// Dispatcher fails twice with a transient error, then succeeds.
 	disp := &mockDispatcher{
@@ -384,7 +384,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded
 	dagExec := NewDAGExecutor(disp, nil, config.ExecutionModeDistributed, "")
 	dag := &ir.DAG{Name: "test-dag"}
 	status := &dagrun.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
 		dagRunStore: dagRunStore,
@@ -417,7 +417,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 	dagExec := NewDAGExecutor(disp, nil, config.ExecutionModeDistributed, "")
 	dag := &ir.DAG{Name: "test-dag"}
 	status := &dagrun.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
 		dagRunStore: dagRunStore,
@@ -458,7 +458,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 		Status:      ir.Queued,
 		TriggerType: ir.TriggerTypeScheduler,
 	}
-	runRef := dagrun.NewDAGRunRef("test-dag", "run-1")
+	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	dagRunStore.On("FindAttempt", mock.Anything, runRef).Return(attempt, nil).Once()
 	attempt.On("Hidden").Return(false).Once()
 	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Once()

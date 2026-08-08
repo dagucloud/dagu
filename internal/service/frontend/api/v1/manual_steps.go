@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var (
@@ -49,7 +50,7 @@ func manualActionSubject(ctx context.Context) (name, id string) {
 
 func (a *API) compareAndSwapManualStatus(
 	ctx context.Context,
-	mutationRef dagrun.DAGRunRef,
+	mutationRef ir.DAGRunRef,
 	status *dagrun.DAGRunStatus,
 	mutate func(*dagrun.DAGRunStatus) error,
 ) (*dagrun.DAGRunStatus, bool, error) {
@@ -94,7 +95,7 @@ func cloneManualStatus(status *dagrun.DAGRunStatus) (*dagrun.DAGRunStatus, error
 
 func (a *API) rollbackPushBack(
 	ctx context.Context,
-	mutationRef dagrun.DAGRunRef,
+	mutationRef ir.DAGRunRef,
 	applied *dagrun.DAGRunStatus,
 	original *dagrun.DAGRunStatus,
 ) error {

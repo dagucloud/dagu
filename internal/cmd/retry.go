@@ -111,10 +111,10 @@ func runRetry(ctx *Context, args []string) error {
 		return err
 	}
 
-	var rootRun dagrun.DAGRunRef
+	var rootRun ir.DAGRunRef
 	if rootRefStr != "" {
 		var err error
-		rootRun, err = dagrun.ParseDAGRunRef(rootRefStr)
+		rootRun, err = ir.ParseDAGRunRef(rootRefStr)
 		if err != nil {
 			return fmt.Errorf("failed to parse root dag-run reference: %w", err)
 		}
@@ -125,7 +125,7 @@ func runRetry(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to extract DAG name: %w", err)
 	}
 
-	ref := dagrun.NewDAGRunRef(name, dagRunID)
+	ref := ir.NewDAGRunRef(name, dagRunID)
 	queueDispatchRetry := queueDispatchRetryRequested()
 	attempt, err := findRetryAttempt(ctx, ctx.DAGRunStore, ref, rootRun)
 	if queueDispatchRetry {
@@ -367,8 +367,8 @@ func queueDispatchRetryRequested() bool {
 func ensureQueueDispatchRetryTarget(
 	ctx context.Context,
 	dagRunStore dagrun.DAGRunStore,
-	ref dagrun.DAGRunRef,
-	rootRun dagrun.DAGRunRef,
+	ref ir.DAGRunRef,
+	rootRun ir.DAGRunRef,
 ) error {
 	_, err := queueDispatchRetryAttempt(ctx, dagRunStore, ref, rootRun, "")
 	return err
@@ -377,8 +377,8 @@ func ensureQueueDispatchRetryTarget(
 func queueDispatchRetryAttempt(
 	ctx context.Context,
 	dagRunStore dagrun.DAGRunStore,
-	ref dagrun.DAGRunRef,
-	rootRun dagrun.DAGRunRef,
+	ref ir.DAGRunRef,
+	rootRun ir.DAGRunRef,
 	expectedAttemptID string,
 ) (dagrun.DAGRunAttempt, error) {
 	attempt, _, err := queueDispatchRetryTarget(ctx, dagRunStore, ref, rootRun, expectedAttemptID)
@@ -388,8 +388,8 @@ func queueDispatchRetryAttempt(
 func queueDispatchRetryTarget(
 	ctx context.Context,
 	dagRunStore dagrun.DAGRunStore,
-	ref dagrun.DAGRunRef,
-	rootRun dagrun.DAGRunRef,
+	ref ir.DAGRunRef,
+	rootRun ir.DAGRunRef,
 	expectedAttemptID string,
 ) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, error) {
 	if dagRunStore == nil {
@@ -434,8 +434,8 @@ func normalizeQueueDispatchRetryLookupError(err error) error {
 func findRetryAttempt(
 	ctx context.Context,
 	dagRunStore dagrun.DAGRunStore,
-	ref dagrun.DAGRunRef,
-	rootRun dagrun.DAGRunRef,
+	ref ir.DAGRunRef,
+	rootRun ir.DAGRunRef,
 ) (dagrun.DAGRunAttempt, error) {
 	if rootRun.Zero() || rootRun.ID == ref.ID {
 		return dagRunStore.FindAttempt(ctx, ref)
@@ -573,7 +573,7 @@ func retrySourceAlive(
 	procStore proc.ProcStore,
 	dag *ir.DAG,
 	status *dagrun.DAGRunStatus,
-	run dagrun.DAGRunRef,
+	run ir.DAGRunRef,
 ) (bool, error) {
 	heartbeat, err := procStore.LatestHeartbeat(ctx, dag.ProcGroup(), run)
 	if err != nil {

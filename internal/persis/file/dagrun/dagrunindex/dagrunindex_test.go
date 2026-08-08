@@ -149,7 +149,7 @@ func TestTryLoadForDay_PreservesRetryMetadata(t *testing.T) {
 		Status:               ir.Failed,
 		StartedAt:            "2024-01-15T12:00:00Z",
 		FinishedAt:           "2024-01-15T12:01:00Z",
-		Parent:               dagrun.NewDAGRunRef("parent-dag", "parent-run"),
+		Parent:               ir.NewDAGRunRef("parent-dag", "parent-run"),
 		AutoRetryCount:       1,
 		AutoRetryLimit:       3,
 		AutoRetryInterval:    2 * time.Minute,

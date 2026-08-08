@@ -141,8 +141,8 @@ func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task
 }
 
 func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1.Task, queuedRun bool) error {
-	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
-	parent := dagrun.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
+	root := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	parent := ir.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
 	owner, err := taskOwner(task)
 	if err != nil {
 		return fmt.Errorf("invalid task owner coordinator metadata: %w", err)
@@ -175,8 +175,8 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 }
 
 func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1.Task) error {
-	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
-	parent := dagrun.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
+	root := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	parent := ir.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
 	owner, err := taskOwner(task)
 	if err != nil {
 		return fmt.Errorf("invalid task owner coordinator metadata: %w", err)
@@ -353,8 +353,8 @@ type runHandlers struct {
 
 type remoteRun struct {
 	task        *coordinatorv1.Task
-	root        dagrun.DAGRunRef
-	parent      dagrun.DAGRunRef
+	root        ir.DAGRunRef
+	parent      ir.DAGRunRef
 	owner       serviceregistry.HostInfo
 	handlers    runHandlers
 	queued      bool

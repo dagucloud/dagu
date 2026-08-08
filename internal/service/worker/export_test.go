@@ -42,7 +42,7 @@ func (p *captureStatusPusherForTest) Push(_ context.Context, status dagrun.DAGRu
 }
 
 // ReportTaskLoadFailureStatusForTest returns the status emitted for a task load failure.
-func ReportTaskLoadFailureStatusForTest(ctx context.Context, task *coordinatorv1.Task, root, parent dagrun.DAGRunRef, loadErr error, profileName string) (*dagrun.DAGRunStatus, error) {
+func ReportTaskLoadFailureStatusForTest(ctx context.Context, task *coordinatorv1.Task, root, parent ir.DAGRunRef, loadErr error, profileName string) (*dagrun.DAGRunStatus, error) {
 	client := &captureCoordinatorClientForTest{}
 	handler := &remoteTaskHandler{
 		workerID:          "worker-test",
@@ -64,7 +64,7 @@ func ReportTaskLoadFailureStatusForTest(ctx context.Context, task *coordinatorv1
 }
 
 // ReportTaskInitFailureStatusForTest returns the status emitted for a task init failure.
-func ReportTaskInitFailureStatusForTest(ctx context.Context, task *coordinatorv1.Task, root, parent dagrun.DAGRunRef, initErr error, profileName string) (*dagrun.DAGRunStatus, error) {
+func ReportTaskInitFailureStatusForTest(ctx context.Context, task *coordinatorv1.Task, root, parent ir.DAGRunRef, initErr error, profileName string) (*dagrun.DAGRunStatus, error) {
 	pusher := &captureStatusPusherForTest{}
 	handler := &remoteTaskHandler{}
 	handler.reportTaskInitFailure(ctx, remoteRun{

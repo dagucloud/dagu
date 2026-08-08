@@ -104,7 +104,7 @@ steps:
 	require.NoError(t, cmdutil.TerminateProcessGroup(workerCmd, cmdutil.ForceTermination()))
 
 	expectedReason := dispatch.DistributedLeaseExpiredReason("crash-worker")
-	rootRef := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
+	rootRef := ir.NewDAGRunRef(status.Name, status.DAGRunID)
 	childStatus := waitForSubDAGRunStatus(t, f, rootRef, subRuns[0].DAGRunID, ir.Failed, failureTimeout)
 	require.Equal(t, expectedReason, childStatus.Error)
 
@@ -663,8 +663,8 @@ steps:
 	require.NotEmpty(t, task.RootDagRunId)
 	require.NotEmpty(t, task.DagRunId)
 
-	rootRef := dagrun.NewDAGRunRef(task.RootDagRunName, task.RootDagRunId)
-	subRunRef := dagrun.NewDAGRunRef(task.Target, task.DagRunId)
+	rootRef := ir.NewDAGRunRef(task.RootDagRunName, task.RootDagRunId)
+	subRunRef := ir.NewDAGRunRef(task.Target, task.DagRunId)
 	lease := waitForLease(t, f, task.AttemptKey, 5*time.Second)
 	require.Equal(t, subRunRef, lease.DAGRun)
 	require.Equal(t, rootRef, lease.Root)
@@ -788,7 +788,7 @@ func readRunningInlineSubDAGs(f *testFixture, expected int) (dagrun.DAGRunStatus
 		return dagrun.DAGRunStatus{}, nil, false
 	}
 
-	rootRef := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
+	rootRef := ir.NewDAGRunRef(status.Name, status.DAGRunID)
 	subRuns := make([]dagrun.DAGRunStatus, 0, expected)
 	for _, node := range status.Nodes {
 		if node == nil || node.Status != ir.NodeRunning || len(node.SubRuns) != 1 {
@@ -808,7 +808,7 @@ func readRunningInlineSubDAGs(f *testFixture, expected int) (dagrun.DAGRunStatus
 func waitForSubDAGRunStatus(
 	t *testing.T,
 	f *testFixture,
-	rootRef dagrun.DAGRunRef,
+	rootRef ir.DAGRunRef,
 	subRunID string,
 	expected ir.Status,
 	timeout time.Duration,
@@ -835,7 +835,7 @@ func waitForSubDAGRunStatus(
 
 func readSubDAGRunStatus(
 	f *testFixture,
-	rootRef dagrun.DAGRunRef,
+	rootRef ir.DAGRunRef,
 	subRunID string,
 ) (*dagrun.DAGRunStatus, error) {
 	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)

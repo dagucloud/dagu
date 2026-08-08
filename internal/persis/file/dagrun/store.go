@@ -171,7 +171,7 @@ func (store *Store) resolveStatus(
 		// Passed filters — construct status directly from index.
 		s := dagRun.summary
 		return &dagrun.DAGRunStatus{
-			Parent:               dagrun.NewDAGRunRef(s.ParentName, s.ParentID),
+			Parent:               ir.NewDAGRunRef(s.ParentName, s.ParentID),
 			Name:                 s.Name,
 			DAGRunID:             s.DagRunID,
 			AttemptID:            s.AttemptID,
@@ -234,7 +234,7 @@ func (store *Store) resolveStatus(
 
 func (store *Store) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	dagRun dagrun.DAGRunRef,
+	dagRun ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
 	mutate func(*dagrun.DAGRunStatus) error,
@@ -492,7 +492,7 @@ func (store *Store) LatestAttempt(ctx context.Context, dagName string) (dagrun.D
 }
 
 // FindAttempt finds a history record by dag-run ID.
-func (store *Store) FindAttempt(ctx context.Context, ref dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (store *Store) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	if ref.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -508,7 +508,7 @@ func (store *Store) FindAttempt(ctx context.Context, ref dagrun.DAGRunRef) (dagr
 
 // FindSubAttempt finds a sub dag-run by its ID.
 // It returns the latest record for the specified sub dag-run ID.
-func (store *Store) FindSubAttempt(ctx context.Context, ref dagrun.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
+func (store *Store) FindSubAttempt(ctx context.Context, ref ir.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	if ref.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -529,7 +529,7 @@ func (store *Store) FindSubAttempt(ctx context.Context, ref dagrun.DAGRunRef, su
 // CreateSubAttempt creates a new sub dag-run attempt under the root dag-run.
 // This is used for distributed sub-DAG execution where the coordinator needs
 // to create the attempt directory before the worker reports status.
-func (store *Store) CreateSubAttempt(ctx context.Context, rootRef dagrun.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
+func (store *Store) CreateSubAttempt(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	if rootRef.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -606,7 +606,7 @@ func (store *Store) RemoveOldDAGRuns(ctx context.Context, dagName string, retent
 }
 
 // RemoveDAGRun implements models.DAGRunStore.
-func (store *Store) RemoveDAGRun(ctx context.Context, dagRun dagrun.DAGRunRef, opts ...dagrun.RemoveDAGRunOption) error {
+func (store *Store) RemoveDAGRun(ctx context.Context, dagRun ir.DAGRunRef, opts ...dagrun.RemoveDAGRunOption) error {
 	if dagRun.ID == "" {
 		return ErrDAGRunIDEmpty
 	}

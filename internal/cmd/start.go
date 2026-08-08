@@ -161,7 +161,7 @@ func runStart(ctx *Context, args []string) error {
 			return fmt.Errorf("failed to resolve DAG name: %w", err)
 		}
 
-		attempt, err := ctx.DAGRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dagName, fromRunID))
+		attempt, err := ctx.DAGRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dagName, fromRunID))
 		if err != nil {
 			return fmt.Errorf("failed to find historic dag-run %s for DAG %s: %w", fromRunID, dagName, err)
 		}
@@ -242,7 +242,7 @@ func runStart(ctx *Context, args []string) error {
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
 
 	if isSubDAGRun {
-		parent, err := dagrun.ParseDAGRunRef(parentRef)
+		parent, err := ir.ParseDAGRunRef(parentRef)
 		if err != nil {
 			return fmt.Errorf("failed to parse parent dag-run reference: %w", err)
 		}
@@ -415,15 +415,15 @@ func parseAndAppendLabels(ctx *Context, dag *ir.DAG) error {
 }
 
 // determineRootDAGRun creates or parses the root execution reference.
-func determineRootDAGRun(isSubDAGRun bool, rootDAGRun string, dag *ir.DAG, dagRunID string) (dagrun.DAGRunRef, error) {
+func determineRootDAGRun(isSubDAGRun bool, rootDAGRun string, dag *ir.DAG, dagRunID string) (ir.DAGRunRef, error) {
 	if isSubDAGRun {
-		ref, err := dagrun.ParseDAGRunRef(rootDAGRun)
+		ref, err := ir.ParseDAGRunRef(rootDAGRun)
 		if err != nil {
-			return dagrun.DAGRunRef{}, fmt.Errorf("failed to parse root exec ref: %w", err)
+			return ir.DAGRunRef{}, fmt.Errorf("failed to parse root exec ref: %w", err)
 		}
 		return ref, nil
 	}
-	return dagrun.NewDAGRunRef(dag.Name, dagRunID), nil
+	return ir.NewDAGRunRef(dag.Name, dagRunID), nil
 }
 
 // handleSubDAGRun processes a sub dag-run, checking for previous runs.

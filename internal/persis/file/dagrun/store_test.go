@@ -56,7 +56,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	}))
 	require.NoError(t, parentAttempt.Close(ctx))
 
-	rootRef := dagrun.NewDAGRunRef(parentDAG.Name, parentStatus.DAGRunID)
+	rootRef := ir.NewDAGRunRef(parentDAG.Name, parentStatus.DAGRunID)
 	childDAG := &ir.DAG{
 		Name:     "child-dag",
 		Location: filepath.Join(baseDir, "child-dag.yaml"),
@@ -158,7 +158,7 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	legacyChildDir := filepath.Join(runDir, LegacySubDAGRunsDir, LegacySubDAGRunDirPrefix+"child-run")
 	require.NoError(t, os.MkdirAll(legacyChildDir, 0750))
 
-	rootRef := dagrun.NewDAGRunRef(parentDAG.Name, "run-compat")
+	rootRef := ir.NewDAGRunRef(parentDAG.Name, "run-compat")
 	childDAG := &ir.DAG{
 		Name:     "child-dag",
 		Location: filepath.Join(baseDir, "child-dag.yaml"),
@@ -253,7 +253,7 @@ func TestJSONDB(t *testing.T) {
 		th.CreateAttempt(t, ts3, "dagrun-id-3", ir.Succeeded)
 
 		// Find the record with dag-run ID "dagrun-id-2"
-		ref := dagrun.NewDAGRunRef("test_DAG", "dagrun-id-2")
+		ref := ir.NewDAGRunRef("test_DAG", "dagrun-id-2")
 		attempt, err := th.Store.FindAttempt(th.Context, ref)
 		require.NoError(t, err)
 
@@ -263,7 +263,7 @@ func TestJSONDB(t *testing.T) {
 		assert.Equal(t, "dagrun-id-2", dagRunStatus.DAGRunID)
 
 		// Verify an error is returned if the dag-run ID does not exist
-		refNonExist := dagrun.NewDAGRunRef("test_DAG", "nonexistent-id")
+		refNonExist := ir.NewDAGRunRef("test_DAG", "nonexistent-id")
 		_, err = th.Store.FindAttempt(th.Context, refNonExist)
 		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 	})
@@ -351,7 +351,7 @@ func TestJSONDB(t *testing.T) {
 	t.Run("RemoveDAGRunRejectsActiveWhenRequested", func(t *testing.T) {
 		th := setupTestStore(t)
 		ts := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
-		ref := dagrun.NewDAGRunRef("test_DAG", "active-id")
+		ref := ir.NewDAGRunRef("test_DAG", "active-id")
 
 		th.CreateAttempt(t, ts, ref.ID, ir.Running)
 
@@ -395,7 +395,7 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, parentAttempt.Write(th.Context, parentStatus))
 		require.NoError(t, parentAttempt.Close(th.Context))
 
-		rootRef := dagrun.NewDAGRunRef("test_DAG", "parent-id")
+		rootRef := ir.NewDAGRunRef("test_DAG", "parent-id")
 		subDAG := th.DAG("child")
 		subAttempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, "sub-id", dagrun.NewDAGRunAttemptOptions{
 			RootDAGRun: &rootRef,
@@ -442,7 +442,7 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, attempt.Write(th.Context, status))
 		require.NoError(t, attempt.Close(th.Context))
 
-		rootRef := dagrun.NewDAGRunRef("test_DAG", "outside-id")
+		rootRef := ir.NewDAGRunRef("test_DAG", "outside-id")
 		require.DirExists(t, outsideArtifactDir)
 
 		err = th.Store.RemoveDAGRun(th.Context, rootRef)
@@ -462,7 +462,7 @@ func TestJSONDB(t *testing.T) {
 		_ = th.CreateAttempt(t, ts, "parent-id", ir.Running)
 
 		// Create a child attempt
-		rootDAGRun := dagrun.NewDAGRunRef("test_DAG", "parent-id")
+		rootDAGRun := ir.NewDAGRunRef("test_DAG", "parent-id")
 		subDAG := th.DAG("child")
 		subAttempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, "sub-id", dagrun.NewDAGRunAttemptOptions{
 			RootDAGRun: &rootDAGRun,
@@ -482,7 +482,7 @@ func TestJSONDB(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify record is created
-		dagRunRef := dagrun.NewDAGRunRef("test_DAG", "parent-id")
+		dagRunRef := ir.NewDAGRunRef("test_DAG", "parent-id")
 		existingAttempt, err := th.Store.FindSubAttempt(th.Context, dagRunRef, "sub-id")
 		require.NoError(t, err)
 
@@ -503,7 +503,7 @@ func TestJSONDB(t *testing.T) {
 		const subDAGRunID = "sub-dagrun-id"
 		const parentDAGRunID = "parent-id"
 
-		rootDAGRun := dagrun.NewDAGRunRef("test_DAG", parentDAGRunID)
+		rootDAGRun := ir.NewDAGRunRef("test_DAG", parentDAGRunID)
 		subDAG := th.DAG("child")
 		attempt, err := th.Store.CreateAttempt(th.Context, subDAG.DAG, ts, subDAGRunID, dagrun.NewDAGRunAttemptOptions{
 			RootDAGRun: &rootDAGRun,
@@ -525,7 +525,7 @@ func TestJSONDB(t *testing.T) {
 
 		// Find the sub dag-run record
 		ts = time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)
-		dagRunRef := dagrun.NewDAGRunRef("test_DAG", parentDAGRunID)
+		dagRunRef := ir.NewDAGRunRef("test_DAG", parentDAGRunID)
 		existingAttempt, err := th.Store.FindSubAttempt(th.Context, dagRunRef, subDAGRunID)
 		require.NoError(t, err)
 		existingAttemptStatus, err := existingAttempt.ReadStatus(th.Context)
@@ -560,7 +560,7 @@ func TestJSONDB(t *testing.T) {
 		th.CreateAttempt(t, ts, "parent-id", ir.Running)
 
 		// Create sub-attempt using CreateSubAttempt
-		rootRef := dagrun.NewDAGRunRef("test_DAG", "parent-id")
+		rootRef := ir.NewDAGRunRef("test_DAG", "parent-id")
 		subAttempt, err := th.Store.CreateSubAttempt(th.Context, rootRef, "sub-id")
 		require.NoError(t, err)
 
@@ -590,8 +590,8 @@ func TestJSONDB(t *testing.T) {
 		ts := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 		th.CreateAttempt(t, ts, "parent-id", ir.Running)
 
-		rootRef := dagrun.NewDAGRunRef("test_DAG", "parent-id")
-		subRef := dagrun.NewDAGRunRef("child", "parent-id")
+		rootRef := ir.NewDAGRunRef("test_DAG", "parent-id")
+		subRef := ir.NewDAGRunRef("child", "parent-id")
 		subAttempt, err := th.Store.CreateSubAttempt(th.Context, rootRef, subRef.ID)
 		require.NoError(t, err)
 
@@ -602,7 +602,7 @@ func TestJSONDB(t *testing.T) {
 		statusToWrite.DAGRunID = subRef.ID
 		statusToWrite.Root = rootRef
 		statusToWrite.AttemptID = subAttempt.ID()
-		statusToWrite.AttemptKey = dagrun.GenerateAttemptKey(rootRef.Name, rootRef.ID, subRef.Name, subRef.ID, subAttempt.ID())
+		statusToWrite.AttemptKey = ir.GenerateAttemptKey(rootRef.Name, rootRef.ID, subRef.Name, subRef.ID, subAttempt.ID())
 		statusToWrite.Status = ir.Running
 		statusToWrite.Nodes = []*dagrun.Node{{Status: ir.NodeRunning}}
 		require.NoError(t, subAttempt.Write(th.Context, statusToWrite))
@@ -638,7 +638,7 @@ func TestJSONDB(t *testing.T) {
 		th := setupTestStore(t)
 
 		// Try to create sub-attempt with empty root ID
-		rootRef := dagrun.NewDAGRunRef("test_DAG", "")
+		rootRef := ir.NewDAGRunRef("test_DAG", "")
 		_, err := th.Store.CreateSubAttempt(th.Context, rootRef, "sub-id")
 		require.ErrorIs(t, err, ErrDAGRunIDEmpty)
 	})

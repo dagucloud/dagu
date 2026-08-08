@@ -23,9 +23,9 @@ type Store struct {
 	mu sync.RWMutex
 
 	attempts map[attemptKey]*attemptState
-	latest   map[dagrun.DAGRunRef]attemptKey
+	latest   map[ir.DAGRunRef]attemptKey
 	children map[childKey]attemptKey
-	counters map[dagrun.DAGRunRef]int
+	counters map[ir.DAGRunRef]int
 }
 
 var _ runstate.Store = (*Store)(nil)
@@ -34,9 +34,9 @@ var _ runstate.Store = (*Store)(nil)
 func New() *Store {
 	return &Store{
 		attempts: make(map[attemptKey]*attemptState),
-		latest:   make(map[dagrun.DAGRunRef]attemptKey),
+		latest:   make(map[ir.DAGRunRef]attemptKey),
 		children: make(map[childKey]attemptKey),
-		counters: make(map[dagrun.DAGRunRef]int),
+		counters: make(map[ir.DAGRunRef]int),
 	}
 }
 
@@ -51,11 +51,11 @@ func (s *Store) BeginAttempt(_ context.Context, req runstate.BeginAttemptRequest
 	if req.RunID == "" {
 		return nil, fmt.Errorf("dag-run ID is required")
 	}
-	if err := dagrun.ValidateDAGRunID(req.RunID); err != nil {
+	if err := ir.ValidateDAGRunID(req.RunID); err != nil {
 		return nil, err
 	}
 
-	ref := dagrun.NewDAGRunRef(req.DAG.Name, req.RunID)
+	ref := ir.NewDAGRunRef(req.DAG.Name, req.RunID)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,7 +83,7 @@ func (s *Store) BeginAttempt(_ context.Context, req runstate.BeginAttemptRequest
 }
 
 // OpenAttempt opens the latest attempt for a DAG run.
-func (s *Store) OpenAttempt(_ context.Context, ref dagrun.DAGRunRef) (runstate.Attempt, error) {
+func (s *Store) OpenAttempt(_ context.Context, ref ir.DAGRunRef) (runstate.Attempt, error) {
 	s.mu.RLock()
 	key, ok := s.latest[ref]
 	s.mu.RUnlock()
@@ -94,7 +94,7 @@ func (s *Store) OpenAttempt(_ context.Context, ref dagrun.DAGRunRef) (runstate.A
 }
 
 // OpenChildAttempt opens the latest child attempt under a root DAG run.
-func (s *Store) OpenChildAttempt(_ context.Context, root dagrun.DAGRunRef, childRunID string) (runstate.Attempt, error) {
+func (s *Store) OpenChildAttempt(_ context.Context, root ir.DAGRunRef, childRunID string) (runstate.Attempt, error) {
 	s.mu.RLock()
 	key, ok := s.children[childKey{root: root, runID: childRunID}]
 	s.mu.RUnlock()
@@ -105,12 +105,12 @@ func (s *Store) OpenChildAttempt(_ context.Context, root dagrun.DAGRunRef, child
 }
 
 type attemptKey struct {
-	ref dagrun.DAGRunRef
+	ref ir.DAGRunRef
 	id  string
 }
 
 type childKey struct {
-	root  dagrun.DAGRunRef
+	root  ir.DAGRunRef
 	runID string
 }
 

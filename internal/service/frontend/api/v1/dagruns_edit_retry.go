@@ -641,7 +641,7 @@ func (a *API) seedEditRetryAttempt(
 		if committed {
 			return
 		}
-		if rmErr := a.dagRunStore.RemoveDAGRun(ctx, dagrun.NewDAGRunRef(dag.Name, dagRunID)); rmErr != nil {
+		if rmErr := a.dagRunStore.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, dagRunID)); rmErr != nil {
 			logger.Error(ctx, "Failed to rollback edit retry attempt",
 				tag.DAG(dag.Name),
 				tag.RunID(dagRunID),
@@ -667,8 +667,8 @@ func (a *API) seedEditRetryAttempt(
 		dagrun.WithQueuedAt(stringutil.FormatTime(now)),
 		dagrun.WithPreconditions(dag.Preconditions),
 		dagrun.WithHierarchyRefs(
-			dagrun.NewDAGRunRef(dag.Name, dagRunID),
-			dagrun.DAGRunRef{},
+			ir.NewDAGRunRef(dag.Name, dagRunID),
+			ir.DAGRunRef{},
 		),
 		dagrun.WithTriggerType(ir.TriggerTypeRetry),
 		dagrun.WithTriggerActor(triggerActorFromContext(ctx)),

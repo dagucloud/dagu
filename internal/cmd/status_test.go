@@ -467,7 +467,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location, "--run-id=" + parentRunID})
 		require.NoError(t, err)
 
-		parentRef := dagrun.NewDAGRunRef(dagFile.Location, parentRunID)
+		parentRef := ir.NewDAGRunRef(dagFile.Location, parentRunID)
 		var parentAttempt dagrun.DAGRunAttempt
 		require.Eventually(t, func() bool {
 			var err error
@@ -523,7 +523,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location, "--run-id=" + parentRunID})
 		require.NoError(t, err)
 
-		parentRef := dagrun.NewDAGRunRef(dagFile.Location, parentRunID)
+		parentRef := ir.NewDAGRunRef(dagFile.Location, parentRunID)
 		require.Eventually(t, func() bool {
 			attempt, err := th.DAGRunStore.FindAttempt(th.Context, parentRef)
 			if err != nil {

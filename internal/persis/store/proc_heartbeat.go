@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
@@ -26,7 +26,7 @@ func procHeartbeatFromEntry(entry proc.ProcEntry, observedAt time.Time) proc.Pro
 func (s *ProcStore) latestCollectionHeartbeat(
 	ctx context.Context,
 	groupName string,
-	dagRun dagrun.DAGRunRef,
+	dagRun ir.DAGRunRef,
 ) (*proc.ProcHeartbeat, error) {
 	recs, err := s.listCollectionRecords(ctx, procGroupPrefix(groupName))
 	if err != nil {

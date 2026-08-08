@@ -31,7 +31,7 @@ func EnqueueWebhookRun(
 	params string,
 	now time.Time,
 ) error {
-	dagRun := dagrun.NewDAGRunRef(dag.Name, runID)
+	dagRun := ir.NewDAGRunRef(dag.Name, runID)
 
 	if _, err := dagRunStore.FindAttempt(ctx, dagRun); err == nil {
 		logger.Info(ctx, "Webhook run already exists; skipping",

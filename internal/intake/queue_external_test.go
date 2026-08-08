@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -39,7 +38,7 @@ func TestEnqueueRunDoesNotSeedQueuedCondition(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	attempt, err := dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, "run-1"))
+	attempt, err := dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "run-1"))
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)

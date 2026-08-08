@@ -38,9 +38,9 @@ func toExecStatus(detail *api.DAGRunDetails) (*dagrun.DAGRunStatus, error) {
 		Labels:       labelsFromAPI(detail.Labels, detail.Tags),
 		Nodes:        make([]*dagrun.Node, 0, len(detail.Nodes)),
 	}
-	status.Root = dagrun.NewDAGRunRef(detail.RootDAGRunName, detail.RootDAGRunId)
+	status.Root = ir.NewDAGRunRef(detail.RootDAGRunName, detail.RootDAGRunId)
 	if detail.ParentDAGRunName != nil && detail.ParentDAGRunId != nil {
-		status.Parent = dagrun.NewDAGRunRef(*detail.ParentDAGRunName, *detail.ParentDAGRunId)
+		status.Parent = ir.NewDAGRunRef(*detail.ParentDAGRunName, *detail.ParentDAGRunId)
 	}
 	for _, node := range detail.Nodes {
 		status.Nodes = append(status.Nodes, mapAPINode(node))
@@ -85,7 +85,7 @@ func mapAPINode(node api.Node) *dagrun.Node {
 			ProducerAttemptID:  derefString(node.Build.ProducerAttemptId),
 		}
 		if node.Build.ProducerRun != nil {
-			mapped.Build.ProducerRun = dagrun.NewDAGRunRef(
+			mapped.Build.ProducerRun = ir.NewDAGRunRef(
 				derefString(node.Build.ProducerRun.Name),
 				derefString(node.Build.ProducerRun.Id),
 			)
@@ -476,7 +476,7 @@ func remoteRunDequeue(ctx *Context, args []string) error {
 	queueName := args[0]
 	dagRunRef, _ := ctx.StringParam("dag-run")
 	if dagRunRef != "" {
-		ref, err := dagrun.ParseDAGRunRef(dagRunRef)
+		ref, err := ir.ParseDAGRunRef(dagRunRef)
 		if err != nil {
 			return err
 		}

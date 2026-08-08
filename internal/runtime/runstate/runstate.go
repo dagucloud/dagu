@@ -14,8 +14,8 @@ import (
 // Store opens execution state for workflow runs.
 type Store interface {
 	BeginAttempt(ctx context.Context, req BeginAttemptRequest) (Attempt, error)
-	OpenAttempt(ctx context.Context, ref dagrun.DAGRunRef) (Attempt, error)
-	OpenChildAttempt(ctx context.Context, root dagrun.DAGRunRef, childRunID string) (Attempt, error)
+	OpenAttempt(ctx context.Context, ref ir.DAGRunRef) (Attempt, error)
+	OpenChildAttempt(ctx context.Context, root ir.DAGRunRef, childRunID string) (Attempt, error)
 }
 
 // BeginAttemptRequest describes the workflow run attempt to open for execution.
@@ -24,7 +24,7 @@ type BeginAttemptRequest struct {
 	RunID      string
 	AttemptID  string
 	Retry      bool
-	RootDAGRun dagrun.DAGRunRef
+	RootDAGRun ir.DAGRunRef
 }
 
 // Attempt records and reads state for a single workflow execution attempt.

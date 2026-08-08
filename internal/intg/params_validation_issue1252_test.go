@@ -56,7 +56,7 @@ steps:
 		})
 		require.Error(t, err)
 
-		_, lookupErr := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef("issue1252-enum", runID))
+		_, lookupErr := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef("issue1252-enum", runID))
 		require.ErrorIs(t, lookupErr, dagrun.ErrDAGRunIDNotFound)
 	})
 

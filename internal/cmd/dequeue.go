@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/spf13/cobra"
 )
@@ -44,7 +45,7 @@ func runDequeue(ctx *Context, args []string) error {
 		return dequeueFirst(ctx, requestedQueueName)
 	}
 
-	dagRun, err := dagrun.ParseDAGRunRef(dagRunRef)
+	dagRun, err := ir.ParseDAGRunRef(dagRunRef)
 	if err != nil {
 		return fmt.Errorf("failed to parse dag-run reference %s: %w", dagRunRef, err)
 	}
@@ -109,7 +110,7 @@ func dequeueFirst(ctx *Context, queueName string) error {
 }
 
 // dequeueQueuedDAGRun aborts a queued dag-run and removes its queue entries.
-func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun dagrun.DAGRunRef) error {
+func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun ir.DAGRunRef) error {
 	// Check if queues are enabled
 	if !ctx.Config.Queues.Enabled {
 		return fmt.Errorf("queues are disabled in configuration")
@@ -159,7 +160,7 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun dagrun.
 	return nil
 }
 
-func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun dagrun.DAGRunRef) (bool, error) {
+func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun ir.DAGRunRef) (bool, error) {
 	var removed bool
 	err := withQueueProcLock(ctx, queueName, func() error {
 		items, err := ctx.QueueStore.DequeueByDAGRunID(ctx.Context, queueName, dagRun)
@@ -178,7 +179,7 @@ func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun dagrun
 	return removed, nil
 }
 
-func queueNameForDAGRun(ctx *Context, dagRun dagrun.DAGRunRef) (string, error) {
+func queueNameForDAGRun(ctx *Context, dagRun ir.DAGRunRef) (string, error) {
 	attempt, err := ctx.DAGRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
@@ -201,7 +202,7 @@ func withQueueProcLock(ctx *Context, queueName string, fn func() error) error {
 	return fn()
 }
 
-func mapAbortQueuedDAGRunError(dagRun dagrun.DAGRunRef, err error) error {
+func mapAbortQueuedDAGRunError(dagRun ir.DAGRunRef, err error) error {
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
 		return fmt.Errorf("failed to find the record for dag-run ID %s: %w", dagRun.ID, err)
 	}

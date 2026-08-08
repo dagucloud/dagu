@@ -739,12 +739,12 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 
 // genRunID creates a new auto-generated dag-run ID.
 func genRunID() (string, error) {
-	return dagrun.NewDAGRunID()
+	return ir.NewDAGRunID()
 }
 
 // validateRunID checks if the dag-run ID is valid and not empty.
 func validateRunID(dagRunID string) error {
-	return dagrun.ValidateDAGRunID(dagRunID)
+	return ir.ValidateDAGRunID(dagRunID)
 }
 
 // signalListener is an interface for types that can receive OS signals.
@@ -788,7 +788,7 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 	}
 
 	// 1. Check if a DAGRunAttempt already exists for the given run-id.
-	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 	attempt, findErr := c.DAGRunStore.FindAttempt(c, ref)
 	if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
 		return fmt.Errorf("failed to check for existing attempt: %w", findErr)

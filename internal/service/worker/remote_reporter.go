@@ -32,7 +32,7 @@ type remoteRunMetadata struct {
 	dagRunID  string
 	dagName   string
 	attemptID string
-	root      dagrun.DAGRunRef
+	root      ir.DAGRunRef
 }
 
 func (m remoteRunMetadata) key() string {
@@ -41,12 +41,12 @@ func (m remoteRunMetadata) key() string {
 
 func (m remoteRunMetadata) normalize() remoteRunMetadata {
 	if m.root.Zero() && m.dagName != "" && m.dagRunID != "" {
-		m.root = dagrun.NewDAGRunRef(m.dagName, m.dagRunID)
+		m.root = ir.NewDAGRunRef(m.dagName, m.dagRunID)
 	}
 	return m
 }
 
-func (m remoteRunMetadata) withRun(dagRunID, dagName, attemptID string, root dagrun.DAGRunRef) remoteRunMetadata {
+func (m remoteRunMetadata) withRun(dagRunID, dagName, attemptID string, root ir.DAGRunRef) remoteRunMetadata {
 	if dagRunID != "" {
 		m.dagRunID = dagRunID
 	}

@@ -182,8 +182,8 @@ func TestAgent_Run(t *testing.T) {
       prompt: Review the deployment
 `)
 		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
-			RootDAGRun:   dagrun.NewDAGRunRef("root", "root-run"),
-			ParentDAGRun: dagrun.NewDAGRunRef("parent", "parent-run"),
+			RootDAGRun:   ir.NewDAGRunRef("root", "root-run"),
+			ParentDAGRun: ir.NewDAGRunRef("parent", "parent-run"),
 		}))
 
 		err := dagAgent.Run(th.Context)
@@ -381,7 +381,7 @@ steps:
 		}()
 
 		waitForTestFile(t, startedFile, 2*time.Minute)
-		runRef := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+		runRef := ir.NewDAGRunRef(dag.Name, dagRunID)
 		require.Eventually(t, func() bool {
 			_, err := th.DAGRunStore.FindAttempt(th.Context, runRef)
 			return err == nil
@@ -1458,7 +1458,7 @@ steps:
 	subRun := status.Nodes[0].SubRuns[0]
 	attempt, err := th.DAGRunStore.FindSubAttempt(
 		th.Context,
-		dagrun.NewDAGRunRef(parent.Name, parentRunID),
+		ir.NewDAGRunRef(parent.Name, parentRunID),
 		subRun.DAGRunID,
 	)
 	require.NoError(t, err)
@@ -1513,7 +1513,7 @@ steps:
 	subRun := status.Nodes[0].SubRuns[0]
 	attempt, err := th.DAGRunStore.FindSubAttempt(
 		th.Context,
-		dagrun.NewDAGRunRef(parent.Name, parentRunID),
+		ir.NewDAGRunRef(parent.Name, parentRunID),
 		subRun.DAGRunID,
 	)
 	require.NoError(t, err)
@@ -1574,7 +1574,7 @@ steps:
 
 	ref, err := items[0].Data()
 	require.NoError(t, err)
-	require.Equal(t, dagrun.NewDAGRunRef("child-enqueued", subRun.DAGRunID), *ref)
+	require.Equal(t, ir.NewDAGRunRef("child-enqueued", subRun.DAGRunID), *ref)
 
 	attempt, err := th.DAGRunStore.FindAttempt(th.Context, *ref)
 	require.NoError(t, err)
@@ -1636,7 +1636,7 @@ steps:
 	require.Len(t, status.Nodes, 1)
 	require.Len(t, status.Nodes[0].SubRuns, 1)
 	subRun := status.Nodes[0].SubRuns[0]
-	ref := dagrun.NewDAGRunRef("child-queue-exec", subRun.DAGRunID)
+	ref := ir.NewDAGRunRef("child-queue-exec", subRun.DAGRunID)
 
 	dagExecutor := scheduler.NewDAGExecutor(
 		nil,

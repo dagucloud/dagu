@@ -25,7 +25,7 @@ func TestAbortQueuedDAGRun_PreservesPreviousVisibleAttempt(t *testing.T) {
 	ctx := context.Background()
 	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	dag := testQueueAbortDAG()
-	runRef := dagrun.NewDAGRunRef(dag.Name, "run-1")
+	runRef := ir.NewDAGRunRef(dag.Name, "run-1")
 
 	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Succeeded, dagrun.NewDAGRunAttemptOptions{}, time.Now().Add(-time.Minute))
 	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Queued, dagrun.NewDAGRunAttemptOptions{Retry: true}, time.Now())
@@ -45,7 +45,7 @@ func TestAbortQueuedDAGRun_RemovesRunWhenQueuedAttemptIsOnlyVisibleAttempt(t *te
 	ctx := context.Background()
 	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	dag := testQueueAbortDAG()
-	runRef := dagrun.NewDAGRunRef(dag.Name, "run-2")
+	runRef := ir.NewDAGRunRef(dag.Name, "run-2")
 
 	writeAttemptStatus(t, ctx, store, dag, "run-2", ir.Queued, dagrun.NewDAGRunAttemptOptions{}, time.Now())
 
@@ -62,7 +62,7 @@ func TestAbortQueuedDAGRun_RejectsNonQueuedStatus(t *testing.T) {
 	ctx := context.Background()
 	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	dag := testQueueAbortDAG()
-	runRef := dagrun.NewDAGRunRef(dag.Name, "run-3")
+	runRef := ir.NewDAGRunRef(dag.Name, "run-3")
 
 	writeAttemptStatus(t, ctx, store, dag, "run-3", ir.Running, dagrun.NewDAGRunAttemptOptions{}, time.Now())
 

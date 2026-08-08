@@ -62,7 +62,7 @@ steps:
 	defer f.Stop()
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
-	ref := dagrun.NewDAGRunRef(f.dag.Name, dagRunID)
+	ref := ir.NewDAGRunRef(f.dag.Name, dagRunID)
 	attempt, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
@@ -72,7 +72,7 @@ steps:
 		0,
 		time.Now().Add(-2*time.Second),
 		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
+		dagrun.WithHierarchyRefs(ref, ir.DAGRunRef{}),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeRunning
@@ -114,7 +114,7 @@ steps:
 	defer f.Stop()
 
 	fakeRunID := uuid.Must(uuid.NewV7()).String()
-	fakeRef := dagrun.NewDAGRunRef(f.dag.Name, fakeRunID)
+	fakeRef := ir.NewDAGRunRef(f.dag.Name, fakeRunID)
 	staleStartedAt := time.Now().Add(-30 * time.Second)
 	procFile := test.CreateStaleLegacyProcFile(
 		t,

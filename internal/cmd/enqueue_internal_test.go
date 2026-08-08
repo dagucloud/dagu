@@ -100,19 +100,19 @@ func (s *enqueueTrackingDAGRunStore) ListStatusesPage(context.Context, ...dagrun
 	return dagrun.DAGRunStatusPage{}, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, dagrun.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
+func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *enqueueTrackingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *enqueueTrackingDAGRunStore) FindSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (s *enqueueTrackingDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (s *enqueueTrackingDAGRunStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (s *enqueueTrackingDAGRunStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -120,7 +120,7 @@ func (s *enqueueTrackingDAGRunStore) RemoveOldDAGRuns(context.Context, string, i
 	return nil, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
+func (s *enqueueTrackingDAGRunStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	return nil
 }
 
@@ -210,7 +210,7 @@ type enqueueObservingQueueStore struct {
 	enqueued bool
 }
 
-func (s *enqueueObservingQueueStore) Enqueue(context.Context, string, queue.QueuePriority, dagrun.DAGRunRef) error {
+func (s *enqueueObservingQueueStore) Enqueue(context.Context, string, queue.QueuePriority, ir.DAGRunRef) error {
 	if !s.attempt.closed {
 		return errors.New("status attempt was not closed before queue enqueue")
 	}
@@ -221,7 +221,7 @@ func (s *enqueueObservingQueueStore) Enqueue(context.Context, string, queue.Queu
 	return nil
 }
 
-func (s *enqueueObservingQueueStore) DequeueByDAGRunID(context.Context, string, dagrun.DAGRunRef) ([]queue.QueuedItemData, error) {
+func (s *enqueueObservingQueueStore) DequeueByDAGRunID(context.Context, string, ir.DAGRunRef) ([]queue.QueuedItemData, error) {
 	return nil, queue.ErrQueueItemNotFound
 }
 

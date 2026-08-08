@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // MaterializationSchemaVersion identifies the persisted manifest format.
@@ -50,18 +50,18 @@ type FileSnapshot struct {
 
 // Materialization records one committed build output.
 type Materialization struct {
-	SchemaVersion      int              `json:"schemaVersion"`
-	MaterializationKey string           `json:"materializationKey"`
-	CommitID           string           `json:"commitId"`
-	DAGName            string           `json:"dagName"`
-	StepID             string           `json:"stepId"`
-	RecipeDigest       string           `json:"recipeDigest"`
-	Fingerprint        string           `json:"fingerprint"`
-	Inputs             []FileSnapshot   `json:"inputs,omitempty"`
-	Output             FileSnapshot     `json:"output"`
-	ProducerRun        dagrun.DAGRunRef `json:"producerRun"`
-	ProducerAttemptID  string           `json:"producerAttemptId,omitempty"`
-	CompletedAt        time.Time        `json:"completedAt"`
+	SchemaVersion      int            `json:"schemaVersion"`
+	MaterializationKey string         `json:"materializationKey"`
+	CommitID           string         `json:"commitId"`
+	DAGName            string         `json:"dagName"`
+	StepID             string         `json:"stepId"`
+	RecipeDigest       string         `json:"recipeDigest"`
+	Fingerprint        string         `json:"fingerprint"`
+	Inputs             []FileSnapshot `json:"inputs,omitempty"`
+	Output             FileSnapshot   `json:"output"`
+	ProducerRun        ir.DAGRunRef   `json:"producerRun"`
+	ProducerAttemptID  string         `json:"producerAttemptId,omitempty"`
+	CompletedAt        time.Time      `json:"completedAt"`
 }
 
 // MaterializationCommit describes publication of a staged output and its manifest state.

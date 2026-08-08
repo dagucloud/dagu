@@ -25,7 +25,7 @@ func TestParallelRetryPathReusesSiblings(t *testing.T) {
 	parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
 	runner := &retryRecorder{}
 	baseCtx := executor.WithSubWorkflowRunner(context.Background(), runner)
-	rootRef := dagrun.NewDAGRunRef(parent.Name, "root-run")
+	rootRef := ir.NewDAGRunRef(parent.Name, "root-run")
 	path := dagrun.RetryPath{
 		Step: "target",
 		Hops: []dagrun.RetryHop{{
@@ -78,7 +78,7 @@ func TestSubDAGRetryPathRejectsUnknownTarget(t *testing.T) {
 	parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
 	runner := &retryRecorder{}
 	baseCtx := executor.WithSubWorkflowRunner(context.Background(), runner)
-	rootRef := dagrun.NewDAGRunRef(parent.Name, "root-run")
+	rootRef := ir.NewDAGRunRef(parent.Name, "root-run")
 	ctx := runtime.NewContext(
 		baseCtx,
 		parent,

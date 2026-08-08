@@ -21,7 +21,7 @@ func TestPrepareLocalExecutionAcquiresProcWithPreparedAttempt(t *testing.T) {
 	attempt := &queueAttempt{id: "attempt-1"}
 	procStore := &localProcStore{handle: &localProcHandle{}}
 	dag := newLocalDAG()
-	root := dagrun.NewDAGRunRef("root-dag", "root-run")
+	root := ir.NewDAGRunRef("root-dag", "root-run")
 
 	prepared, err := PrepareLocalExecution(context.Background(), LocalRequest{
 		ProcStore:   procStore,

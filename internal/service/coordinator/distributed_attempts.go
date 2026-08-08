@@ -190,7 +190,7 @@ func (o *attemptOwnership) upsertLeaseFromStatus(
 	now := o.now()
 	lease := dispatch.DAGRunLease{
 		AttemptKey: attemptKey,
-		DAGRun: dagrun.DAGRunRef{
+		DAGRun: ir.DAGRunRef{
 			Name: status.Name,
 			ID:   status.DAGRunID,
 		},
@@ -335,14 +335,14 @@ func (o *attemptOwnership) upsertActiveFromTask(
 		return
 	}
 
-	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	root := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	if root.Zero() {
-		root = dagrun.DAGRunRef{Name: task.Target, ID: task.DagRunId}
+		root = ir.DAGRunRef{Name: task.Target, ID: task.DagRunId}
 	}
 
 	record := dispatch.ActiveDistributedRun{
 		AttemptKey: task.AttemptKey,
-		DAGRun: dagrun.DAGRunRef{
+		DAGRun: ir.DAGRunRef{
 			Name: task.Target,
 			ID:   task.DagRunId,
 		},
@@ -366,9 +366,9 @@ func (o *attemptOwnership) leaseFromTask(
 	workerID string,
 	now time.Time,
 ) dispatch.DAGRunLease {
-	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	root := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	if root.Zero() {
-		root = dagrun.DAGRunRef{Name: task.Target, ID: task.DagRunId}
+		root = ir.DAGRunRef{Name: task.Target, ID: task.DagRunId}
 	}
 	queueName := task.QueueName
 	if queueName == "" {
@@ -376,7 +376,7 @@ func (o *attemptOwnership) leaseFromTask(
 	}
 	return dispatch.DAGRunLease{
 		AttemptKey: task.AttemptKey,
-		DAGRun: dagrun.DAGRunRef{
+		DAGRun: ir.DAGRunRef{
 			Name: task.Target,
 			ID:   task.DagRunId,
 		},
@@ -393,7 +393,7 @@ func (o *attemptOwnership) leaseFromTask(
 func (o *attemptOwnership) deleteTracking(
 	ctx context.Context,
 	storeCtx context.Context,
-	dagRun dagrun.DAGRunRef,
+	dagRun ir.DAGRunRef,
 	attemptKey string,
 	leaseMessage string,
 	activeRunMessage string,
@@ -405,7 +405,7 @@ func (o *attemptOwnership) deleteTracking(
 func (o *attemptOwnership) deleteLease(
 	ctx context.Context,
 	storeCtx context.Context,
-	dagRun dagrun.DAGRunRef,
+	dagRun ir.DAGRunRef,
 	attemptKey string,
 	message string,
 ) {
@@ -424,7 +424,7 @@ func (o *attemptOwnership) deleteLease(
 func (o *attemptOwnership) deleteActiveRun(
 	ctx context.Context,
 	storeCtx context.Context,
-	dagRun dagrun.DAGRunRef,
+	dagRun ir.DAGRunRef,
 	attemptKey string,
 	message string,
 ) {

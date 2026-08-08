@@ -84,7 +84,7 @@ func TestRenderDAGStatus_BuildDecision(t *testing.T) {
 					Decision:    "reuse",
 					Reason:      "matched",
 					Detail:      "recipe, inputs, and output match the committed manifest",
-					ProducerRun: dagrun.NewDAGRunRef("build-dag", "run-1"),
+					ProducerRun: ir.NewDAGRunRef("build-dag", "run-1"),
 				},
 			},
 			{

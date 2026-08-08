@@ -436,7 +436,7 @@ func (f *testFixture) enqueueDirect() error {
 		time.Time{},
 		dagrun.WithLogFilePath(logFile),
 		dagrun.WithAttemptID(att.ID()),
-		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(dagCopy.Name, runID), dagrun.DAGRunRef{}),
+		dagrun.WithHierarchyRefs(ir.NewDAGRunRef(dagCopy.Name, runID), ir.DAGRunRef{}),
 		dagrun.WithTriggerType(ir.TriggerTypeManual),
 	)
 
@@ -455,7 +455,7 @@ func (f *testFixture) enqueueDirect() error {
 		f.coord.Context,
 		dagCopy.ProcGroup(),
 		queue.QueuePriorityLow,
-		dagrun.NewDAGRunRef(dagCopy.Name, runID),
+		ir.NewDAGRunRef(dagCopy.Name, runID),
 	)
 }
 

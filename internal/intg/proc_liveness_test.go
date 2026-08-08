@@ -50,7 +50,7 @@ steps:
 		dag.Location,
 	})
 
-	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 	run := h.Run(ref, dag.ProcGroup())
 	run.RequireRunning(5 * time.Second)
 	run.RequireHeartbeatAdvance(3 * time.Second)
@@ -87,7 +87,7 @@ steps:
 		dag.Location,
 	})
 
-	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 	run := h.Run(ref, dag.ProcGroup())
 	run.RequireRunning(5 * time.Second)
 	run.RequireHeartbeatAdvance(3 * time.Second)
@@ -125,7 +125,7 @@ func createFailedRun(t *testing.T, th test.Command, dag *ir.DAG, dagRunID string
 		0,
 		time.Now(),
 		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(dag.Name, dagRunID), dagrun.DAGRunRef{}),
+		dagrun.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, dagRunID), ir.DAGRunRef{}),
 		dagrun.WithLogFilePath(logFile),
 	)
 

@@ -80,7 +80,7 @@ type BuildExecution struct {
 	Detail             string        `json:"detail,omitempty"`
 	Fingerprint        string        `json:"fingerprint,omitempty"`
 	MaterializationKey string        `json:"materializationKey,omitempty"`
-	ProducerRun        DAGRunRef     `json:"producerRun,omitzero"`
+	ProducerRun        ir.DAGRunRef  `json:"producerRun,omitzero"`
 	ProducerAttemptID  string        `json:"producerAttemptId,omitempty"`
 }
 

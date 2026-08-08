@@ -135,7 +135,7 @@ func runExec(ctx *Context, args []string) error {
 		return err
 	}
 
-	dagRunRef := dagrun.NewDAGRunRef(dag.Name, runID)
+	dagRunRef := ir.NewDAGRunRef(dag.Name, runID)
 
 	attempt, err := ctx.DAGRunStore.FindAttempt(ctx, dagRunRef)
 	if err != nil && !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {

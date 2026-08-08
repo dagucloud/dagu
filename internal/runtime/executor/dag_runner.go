@@ -280,7 +280,7 @@ func validateSubWorkflowRequest(req SubWorkflowRequest) error {
 
 func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunParams, workDir string) SubWorkflowRequest {
 	rCtx := runctx.GetContext(ctx)
-	var parent dagrun.DAGRunRef
+	var parent ir.DAGRunRef
 	if rCtx.DAG != nil {
 		parent = rCtx.DAGRunRef()
 	}

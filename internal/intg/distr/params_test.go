@@ -59,7 +59,7 @@ steps:
 	require.Len(t, rootStatus.Nodes, 1)
 	require.Len(t, rootStatus.Nodes[0].SubRuns, 1)
 
-	rootRef := dagrun.NewDAGRunRef(rootStatus.Name, rootStatus.DAGRunID)
+	rootRef := ir.NewDAGRunRef(rootStatus.Name, rootStatus.DAGRunID)
 	subRunID := rootStatus.Nodes[0].SubRuns[0].DAGRunID
 	subStatus := readDistributedSubAttemptStatus(t, f, rootRef, subRunID)
 
@@ -149,7 +149,7 @@ steps:
 	assert.JSONEq(t, `{"content_hash":"sha256:abc123"}`, nodeOutputValue(t, status.Nodes[1], "PARAMS_JSON"))
 }
 
-func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef dagrun.DAGRunRef, subRunID string) *dagrun.DAGRunStatus {
+func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef ir.DAGRunRef, subRunID string) *dagrun.DAGRunStatus {
 	t.Helper()
 
 	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)

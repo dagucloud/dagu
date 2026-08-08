@@ -97,7 +97,7 @@ func waitForStoredDAGRunStatus(
 ) *dagrun.DAGRunStatus {
 	t.Helper()
 
-	ref := dagrun.NewDAGRunRef(dagName, dagRunID)
+	ref := ir.NewDAGRunRef(dagName, dagRunID)
 	var status *dagrun.DAGRunStatus
 	require.Eventually(t, func() bool {
 		// Create the store inside the poll so attempt discovery can observe a
@@ -125,7 +125,7 @@ func waitForStoredDAGRunStatus(
 func waitForStoredSubDAGRunStatus(
 	t *testing.T,
 	server test.Server,
-	root dagrun.DAGRunRef,
+	root ir.DAGRunRef,
 	subDAGRunID string,
 	timeout time.Duration,
 	predicate func(*dagrun.DAGRunStatus) bool,
@@ -960,7 +960,7 @@ steps:
 			hasNodeWithStatus(status, "parent-long", ir.NodeRunning) &&
 			subDAGRunID != ""
 	})
-	rootRef := dagrun.NewDAGRunRef(dagName, startBody.DagRunId)
+	rootRef := ir.NewDAGRunRef(dagName, startBody.DagRunId)
 
 	waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *dagrun.DAGRunStatus) bool {
 		return status.Status == ir.Waiting &&
@@ -1683,7 +1683,7 @@ steps:
 		api.RetryDAGRunJSONRequestBody{DagRunId: "queued-run"},
 	).ExpectStatus(http.StatusOK).Send(t)
 
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dag.Name, "queued-run"))
+	attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dag.Name, "queued-run"))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(server.Context)
@@ -1783,7 +1783,7 @@ func TestUpdateSubDAGRunStepStatusHandlesTopLevelDagEnqueueRun(t *testing.T) {
 	)
 	require.Equal(t, ir.Failed, status.Status)
 
-	_, err := server.DAGRunStore.FindSubAttempt(server.Context, dagrun.NewDAGRunRef(parent.Name, parentRunID), childRunID)
+	_, err := server.DAGRunStore.FindSubAttempt(server.Context, ir.NewDAGRunRef(parent.Name, parentRunID), childRunID)
 	require.Error(t, err)
 }
 
@@ -1915,7 +1915,7 @@ steps:
 	require.NotEmpty(t, sourceWorkDir)
 
 	staleWorkDir := filepath.Join(t.TempDir(), "stale-work")
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef("single_retry_local_dag", startBody.DagRunId))
+	attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef("single_retry_local_dag", startBody.DagRunId))
 	require.NoError(t, err)
 	persistedStatus, err := attempt.ReadStatus(server.Context)
 	require.NoError(t, err)
@@ -2133,7 +2133,7 @@ func TestExecuteDAGSyncWithWaitingStatus(t *testing.T) {
 type seedDAGRunStatusOptions struct {
 	autoRetryCount int
 	errorText      string
-	parentRef      dagrun.DAGRunRef
+	parentRef      ir.DAGRunRef
 	paramsList     []string
 	profileName    string
 	triggerActor   string
@@ -2148,7 +2148,7 @@ func seedLatestDAGRunStatus(
 	dagRunID string,
 	status ir.Status,
 	opts seedDAGRunStatusOptions,
-) dagrun.DAGRunRef {
+) ir.DAGRunRef {
 	t.Helper()
 
 	attempt, err := server.DAGRunStore.CreateAttempt(
@@ -2160,7 +2160,7 @@ func seedLatestDAGRunStatus(
 	)
 	require.NoError(t, err)
 
-	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 	statusOptions := []dagrun.StatusOption{
 		dagrun.WithAttemptID(attempt.ID()),
 		dagrun.WithHierarchyRefs(ref, opts.parentRef),

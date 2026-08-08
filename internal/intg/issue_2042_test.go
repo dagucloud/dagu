@@ -44,7 +44,7 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 			0,
 			scheduleTime,
 			dagrun.WithAttemptID(attempt.ID()),
-			dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(dag.Name, runID), dagrun.DAGRunRef{}),
+			dagrun.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, runID), ir.DAGRunRef{}),
 			dagrun.WithFinishedAt(scheduleTime.Add(time.Second)),
 			dagrun.WithScheduleTime(dagrun.FormatTime(scheduleTime)),
 			dagrun.WithTriggerType(trigger),

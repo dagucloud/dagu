@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 type humanTaskInputContextKey struct{}
@@ -160,7 +161,7 @@ func (a *API) authorizeHumanTaskMutation(
 	dagName string,
 	dagRunID string,
 ) (*dagrun.DAGRunStatus, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dagName, dagRunID))
+	attempt, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, &Error{

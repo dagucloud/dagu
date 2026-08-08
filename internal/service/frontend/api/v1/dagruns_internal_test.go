@@ -289,7 +289,7 @@ type manualStepProcStore struct {
 	err   error
 }
 
-func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, dagrun.DAGRunRef, string) (bool, error) {
+func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
 	return s.alive, s.err
 }
 
@@ -300,7 +300,7 @@ type failingManualCASStore struct {
 
 func (s *failingManualCASStore) CompareAndSwapLatestAttemptStatus(
 	context.Context,
-	dagrun.DAGRunRef,
+	ir.DAGRunRef,
 	string,
 	ir.Status,
 	func(*dagrun.DAGRunStatus) error,
@@ -311,7 +311,7 @@ func (s *failingManualCASStore) CompareAndSwapLatestAttemptStatus(
 
 func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	_ dagrun.DAGRunRef,
+	_ ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
 	mutate func(*dagrun.DAGRunStatus) error,
@@ -776,19 +776,19 @@ func (blockingDAGRunStore) ListStatusesPage(ctx context.Context, _ ...dagrun.Lis
 	return dagrun.DAGRunStatusPage{}, ctx.Err()
 }
 
-func (blockingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, dagrun.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
+func (blockingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
 	panic("not implemented")
 }
 
-func (blockingDAGRunStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (blockingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	panic("not implemented")
 }
 
-func (blockingDAGRunStore) FindSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (blockingDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	panic("not implemented")
 }
 
-func (blockingDAGRunStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (blockingDAGRunStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	panic("not implemented")
 }
 
@@ -796,7 +796,7 @@ func (blockingDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dag
 	panic("not implemented")
 }
 
-func (blockingDAGRunStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
+func (blockingDAGRunStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	panic("not implemented")
 }
 

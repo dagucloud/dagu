@@ -966,8 +966,8 @@ func TestNotificationTemplateRunPathSupportsSubDAGRun(t *testing.T) {
 	event := chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,
 		Status: &dagrun.DAGRunStatus{
-			Root:     dagrun.NewDAGRunRef("root dag", "root run"),
-			Parent:   dagrun.NewDAGRunRef("root dag", "root run"),
+			Root:     ir.NewDAGRunRef("root dag", "root run"),
+			Parent:   ir.NewDAGRunRef("root dag", "root run"),
 			Name:     "child dag",
 			DAGRunID: "child run",
 			Status:   ir.Failed,

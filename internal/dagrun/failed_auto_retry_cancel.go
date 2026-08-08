@@ -66,7 +66,7 @@ func CanCancelFailedAutoRetryPendingRun(status *DAGRunStatus) bool {
 type latestAttemptStatusSwapper interface {
 	CompareAndSwapLatestAttemptStatus(
 		ctx context.Context,
-		dagRun DAGRunRef,
+		dagRun ir.DAGRunRef,
 		expectedAttemptID string,
 		expectedStatus ir.Status,
 		mutate func(*DAGRunStatus) error,

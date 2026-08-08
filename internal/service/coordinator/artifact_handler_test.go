@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +55,7 @@ func TestArtifactHandlerHandleStreamCreatesEmptyFileOnFinalChunk(t *testing.T) {
 
 	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
-	store.addAttempt(dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
+	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
 		Name:       "test-dag",
 		DAGRunID:   "run-123",
 		AttemptID:  "attempt-1",
@@ -90,7 +91,7 @@ func TestArtifactHandlerHandleStreamWritesFinalChunkPayload(t *testing.T) {
 
 	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
-	store.addAttempt(dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
+	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
 		Name:       "test-dag",
 		DAGRunID:   "run-123",
 		AttemptID:  "attempt-1",
@@ -127,7 +128,7 @@ func TestArtifactHandlerHandleStreamRejectsMismatchedAttempt(t *testing.T) {
 
 	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
-	store.addAttempt(dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
+	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
 		Name:       "test-dag",
 		DAGRunID:   "run-123",
 		AttemptID:  "attempt-2",
@@ -162,7 +163,7 @@ func TestArtifactHandlerHandleStreamClosesWritersOnRecvError(t *testing.T) {
 
 	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
-	store.addAttempt(dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
+	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
 		Name:       "test-dag",
 		DAGRunID:   "run-123",
 		AttemptID:  "attempt-1",
@@ -194,7 +195,7 @@ func TestArtifactHandlerGetOrCreateWriterRevalidatesCachedAttempt(t *testing.T) 
 
 	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
-	attempt := store.addAttempt(dagrun.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
+	attempt := store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &dagrun.DAGRunStatus{
 		Name:       "test-dag",
 		DAGRunID:   "run-123",
 		AttemptID:  "attempt-1",

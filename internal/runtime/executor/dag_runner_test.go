@@ -44,7 +44,7 @@ func TestNewSubDAGExecutor_LocalDAG(t *testing.T) {
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         mockDB,
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
@@ -90,7 +90,7 @@ func TestNewSubDAGExecutor_RegularDAG(t *testing.T) {
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         mockDB,
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
@@ -137,7 +137,7 @@ func TestNewSubDAGExecutor_NotFound(t *testing.T) {
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         mockDB,
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
@@ -169,7 +169,7 @@ func TestNewSubDAGExecutor_NilDB(t *testing.T) {
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         nil,
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
@@ -195,7 +195,7 @@ func TestNewSubDAGExecutor_NilDAGReturn(t *testing.T) {
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         mockDB,
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
@@ -222,7 +222,7 @@ func TestExecute_NoRunID(t *testing.T) {
 	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
 		DB:         mockDB,
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
@@ -276,7 +276,7 @@ func TestExecute_UsesInjectedSubWorkflowRunner(t *testing.T) {
 	ctx := context.Background()
 	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
@@ -311,8 +311,8 @@ func TestExecute_UsesInjectedSubWorkflowRunner(t *testing.T) {
 	assert.Equal(t, "child-789", req.RunID)
 	assert.Equal(t, "ITEM=1", req.Params)
 	assert.Equal(t, "/work/dir", req.WorkDir)
-	assert.Equal(t, dagrun.NewDAGRunRef("parent", "root-123"), req.RootDAGRun)
-	assert.Equal(t, dagrun.NewDAGRunRef("parent", "parent-456"), req.ParentDAGRun)
+	assert.Equal(t, ir.NewDAGRunRef("parent", "root-123"), req.RootDAGRun)
+	assert.Equal(t, ir.NewDAGRunRef("parent", "parent-456"), req.ParentDAGRun)
 	assert.Equal(t, map[string]string{"role": "worker"}, req.WorkerSelector)
 	assert.True(t, req.ExternalStepRetry)
 	assert.NotContains(t, executor.activeRuns, "child-789")
@@ -324,7 +324,7 @@ func TestRetry_Distributed(t *testing.T) {
 	ctx := context.Background()
 	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
@@ -372,7 +372,7 @@ func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
 	ctx := context.Background()
 	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
@@ -404,7 +404,7 @@ func TestSubDAGExecutor_ReuseCanBeKilled(t *testing.T) {
 
 	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
-		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx := runctx.WithContext(context.Background(), dagCtx)
@@ -515,7 +515,7 @@ func TestSubDAGExecutor_Kill_ActiveRunner(t *testing.T) {
 	t.Parallel()
 
 	dagCtx := runctx.Context{
-		RootDAGRun: dagrun.NewDAGRunRef("root-dag", "root-run-id"),
+		RootDAGRun: ir.NewDAGRunRef("root-dag", "root-run-id"),
 		DAGRunID:   "parent-run-id",
 	}
 	subDAG := &ir.DAG{
@@ -547,7 +547,7 @@ func TestSubDAGExecutor_Kill_FallbackDB(t *testing.T) {
 	mockDB := new(mockDatabase)
 	dagCtx := runctx.Context{
 		DB:         mockDB,
-		RootDAGRun: dagrun.NewDAGRunRef("root-dag", "root-run-id"),
+		RootDAGRun: ir.NewDAGRunRef("root-dag", "root-run-id"),
 		DAGRunID:   "parent-run-id",
 	}
 	subDAG := &ir.DAG{
@@ -580,7 +580,7 @@ func TestSubDAGExecutor_Kill_Empty(t *testing.T) {
 	// Create a DAG context
 	dagCtx := runctx.Context{
 		DB:         mockDB,
-		RootDAGRun: dagrun.NewDAGRunRef("root-dag", "root-run-id"),
+		RootDAGRun: ir.NewDAGRunRef("root-dag", "root-run-id"),
 		DAGRunID:   "parent-run-id",
 	}
 
@@ -656,7 +656,7 @@ func (m *mockDatabase) GetDAG(ctx context.Context, name string) (*ir.DAG, error)
 }
 
 // RequestChildCancel implements ir.Database.
-func (m *mockDatabase) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun dagrun.DAGRunRef) error {
+func (m *mockDatabase) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun ir.DAGRunRef) error {
 	args := m.Called(ctx, dagRunID, rootDAGRun)
 	return args.Error(0)
 }

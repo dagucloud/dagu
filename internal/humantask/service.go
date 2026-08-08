@@ -108,7 +108,7 @@ type Result struct {
 type target struct {
 	dag    *ir.DAG
 	status *dagrun.DAGRunStatus
-	ref    dagrun.DAGRunRef
+	ref    ir.DAGRunRef
 	stepID string
 }
 
@@ -128,7 +128,7 @@ func (s *Service) defaults() {
 }
 
 func (s *Service) loadTarget(ctx context.Context, dagName, dagRunID, stepID string) (*target, error) {
-	ref := dagrun.NewDAGRunRef(dagName, dagRunID)
+	ref := ir.NewDAGRunRef(dagName, dagRunID)
 	attempt, err := s.DAGRunStore.FindAttempt(ctx, ref)
 	if err != nil {
 		kind := ErrorInternal

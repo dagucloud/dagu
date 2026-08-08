@@ -18,7 +18,7 @@ import (
 func TestResolveRetryPathNestedRun(t *testing.T) {
 	ctx := context.Background()
 	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
-	rootRef := dagrun.NewDAGRunRef("root", "root-run")
+	rootRef := ir.NewDAGRunRef("root", "root-run")
 
 	rootStep := ir.Step{Name: "run-middle", SubDAG: &ir.SubDAG{Name: "middle"}, Parallel: &ir.ParallelConfig{}}
 	middleStep := ir.Step{Name: "run-leaf", SubDAG: &ir.SubDAG{Name: "leaf"}}
@@ -56,7 +56,7 @@ func TestResolveRetryPathNestedRun(t *testing.T) {
 	leafDAG := &ir.DAG{Name: "leaf", Steps: []ir.Step{targetStep}}
 	createRetryTestAttempt(t, ctx, store, leafDAG, "leaf-target", &rootRef, dagrun.DAGRunStatus{
 		Root:     rootRef,
-		Parent:   dagrun.NewDAGRunRef(middleDAG.Name, "middle-target"),
+		Parent:   ir.NewDAGRunRef(middleDAG.Name, "middle-target"),
 		Name:     leafDAG.Name,
 		DAGRunID: "leaf-target",
 		Status:   ir.Succeeded,
@@ -119,7 +119,7 @@ func resolveRetryPathForChild(
 	t.Helper()
 	ctx := context.Background()
 	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
-	rootRef := dagrun.NewDAGRunRef("root", "root-run")
+	rootRef := ir.NewDAGRunRef("root", "root-run")
 	targetStep := ir.Step{Name: "target-step"}
 
 	rootDAG := &ir.DAG{Name: rootRef.Name, Steps: []ir.Step{rootStep}}
@@ -149,7 +149,7 @@ func createRetryTestAttempt(
 	store dagrun.DAGRunStore,
 	dag *ir.DAG,
 	runID string,
-	root *dagrun.DAGRunRef,
+	root *ir.DAGRunRef,
 	status dagrun.DAGRunStatus,
 ) dagrun.DAGRunAttempt {
 	t.Helper()

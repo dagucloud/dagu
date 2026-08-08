@@ -776,7 +776,7 @@ steps:
 		resp.Unmarshal(t, &body)
 		require.NotEmpty(t, body.DagRunId)
 
-		ref := dagrun.NewDAGRunRef(dagName, body.DagRunId)
+		ref := ir.NewDAGRunRef(dagName, body.DagRunId)
 		require.Eventually(t, func() bool {
 			attempt, err := server.DAGRunStore.FindAttempt(server.Context, ref)
 			if err != nil {
@@ -825,7 +825,7 @@ steps:
 		resp.Unmarshal(t, &body)
 		require.NotEmpty(t, body.DagRunId)
 
-		attempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, body.DagRunId))
+		attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
 		require.NoError(t, err)
 
 		status, err := attempt.ReadStatus(server.Context)
@@ -852,7 +852,7 @@ steps:
 		queueProcessor.ProcessQueueItems(server.Context, dagName)
 
 		require.Eventually(t, func() bool {
-			latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, body.DagRunId))
+			latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
 			if err != nil {
 				return false
 			}
@@ -863,7 +863,7 @@ steps:
 			return latestStatus.Status == ir.Succeeded
 		}, dagRunEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
-		latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, body.DagRunId))
+		latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
 		require.NoError(t, err)
 		latestStatus, err := latestAttempt.ReadStatus(server.Context)
 		require.NoError(t, err)

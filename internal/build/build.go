@@ -336,7 +336,7 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 		Fingerprint:        s.fingerprint,
 		Inputs:             s.inputs,
 		Output:             output,
-		ProducerRun:        dagrun.NewDAGRunRef(s.request.DAG.Name, s.request.DAGRunID),
+		ProducerRun:        ir.NewDAGRunRef(s.request.DAG.Name, s.request.DAGRunID),
 		ProducerAttemptID:  s.request.AttemptID,
 		CompletedAt:        time.Now().UTC(),
 	}

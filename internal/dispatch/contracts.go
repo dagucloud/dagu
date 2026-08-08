@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // DispatchOperation identifies the operation requested for a distributed DAG run.
@@ -91,6 +92,6 @@ type DispatchRequest struct {
 type Dispatcher interface {
 	Dispatch(ctx context.Context, req DispatchRequest) error
 	Cleanup(ctx context.Context) error
-	GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) (*DAGRunStatusResult, error)
-	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) error
+	GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) (*DAGRunStatusResult, error)
+	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) error
 }

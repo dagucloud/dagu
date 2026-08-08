@@ -5,12 +5,7 @@ package dagrun
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
-	"fmt"
-	"hash/fnv"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -26,29 +21,6 @@ var (
 	ErrCorruptedStatusFile = errors.New("corrupted status file") // Status file exists but contains no valid data or is corrupted
 	ErrInvalidQueryCursor  = errors.New("dagrun: invalid query cursor")
 )
-
-// reDAGRunID validates dag-run IDs: alphanumeric, hyphens, and underscores only.
-var reDAGRunID = regexp.MustCompile(`^[-a-zA-Z0-9_]+$`)
-
-// maxDAGRunIDLen is the maximum allowed length of a dag-run ID.
-const maxDAGRunIDLen = 64
-
-// ValidateDAGRunID checks that the dag-run ID contains only safe characters
-// (alphanumeric, hyphens, underscores) and does not exceed the max length.
-// Returns nil if the ID is valid. Returns an error if the ID is empty, contains
-// invalid characters, or is too long.
-func ValidateDAGRunID(dagRunID string) error {
-	if dagRunID == "" {
-		return fmt.Errorf("dag-run ID must not be empty")
-	}
-	if !reDAGRunID.MatchString(dagRunID) {
-		return fmt.Errorf("dag-run ID must only contain alphanumeric characters, dashes, and underscores")
-	}
-	if len(dagRunID) > maxDAGRunIDLen {
-		return fmt.Errorf("dag-run ID length must be less than %d characters", maxDAGRunIDLen)
-	}
-	return nil
-}
 
 // DAGRunStore provides an interface for interacting with the underlying database
 // for storing and retrieving dag-run data.
@@ -69,20 +41,20 @@ type DAGRunStore interface {
 	// when both the latest attempt ID and status still match the expected values.
 	CompareAndSwapLatestAttemptStatus(
 		ctx context.Context,
-		dagRun DAGRunRef,
+		dagRun ir.DAGRunRef,
 		expectedAttemptID string,
 		expectedStatus ir.Status,
 		mutate func(*DAGRunStatus) error,
 		opts ...CompareAndSwapStatusOption,
 	) (*DAGRunStatus, bool, error)
 	// FindAttempt finds the latest attempt for the dag-run.
-	FindAttempt(ctx context.Context, dagRun DAGRunRef) (DAGRunAttempt, error)
+	FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (DAGRunAttempt, error)
 	// FindSubAttempt finds a sub dag-run record by dag-run ID.
-	FindSubAttempt(ctx context.Context, dagRun DAGRunRef, subDAGRunID string) (DAGRunAttempt, error)
+	FindSubAttempt(ctx context.Context, dagRun ir.DAGRunRef, subDAGRunID string) (DAGRunAttempt, error)
 	// CreateSubAttempt creates a new sub dag-run attempt under the root dag-run.
 	// This is used for distributed sub-DAG execution where the coordinator needs
 	// to create the attempt directory before the worker reports status.
-	CreateSubAttempt(ctx context.Context, rootRef DAGRunRef, subDAGRunID string) (DAGRunAttempt, error)
+	CreateSubAttempt(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (DAGRunAttempt, error)
 	// RemoveOldDAGRuns deletes dag-run records older than retentionDays, by absolute
 	// cutoff (WithOlderThan), or by run count (WithRetentionRuns).
 	// If retentionDays is negative and OlderThan is not set, it won't delete any records.
@@ -91,7 +63,7 @@ type DAGRunStore interface {
 	// Returns a list of dag-run IDs that were removed (or would be removed in dry-run mode).
 	RemoveOldDAGRuns(ctx context.Context, name string, retentionDays int, opts ...RemoveOldDAGRunsOption) ([]string, error)
 	// RemoveDAGRun removes a dag-run record by its reference.
-	RemoveDAGRun(ctx context.Context, dagRun DAGRunRef, opts ...RemoveDAGRunOption) error
+	RemoveDAGRun(ctx context.Context, dagRun ir.DAGRunRef, opts ...RemoveDAGRunOption) error
 }
 
 // ListDAGRunStatusesOptions contains options for listing runs
@@ -259,40 +231,10 @@ func WithOlderThan(t time.Time) RemoveOldDAGRunsOption {
 	}
 }
 
-// Errors for RunRef parsing
-var (
-	ErrInvalidRunRefFormat = errors.New("invalid dag-run reference format")
-)
-
-// DAGRunRef represents a reference to a dag-run
-type DAGRunRef struct {
-	Name string `json:"name,omitempty"`
-	ID   string `json:"id,omitempty"`
-}
-
-// NewDAGRunRef creates a new reference to dag-run with the given DAG name and run ID.
-// It is used to identify a specific dag-run.
-func NewDAGRunRef(name, runID string) DAGRunRef {
-	return DAGRunRef{
-		Name: name,
-		ID:   runID,
-	}
-}
-
-// String returns a string representation of the dag-run reference.
-func (e DAGRunRef) String() string {
-	return e.Name + ":" + e.ID
-}
-
-// Zero checks if the DAGRunRef is a zero value.
-func (e DAGRunRef) Zero() bool {
-	return e == zeroRef
-}
-
 // CompareAndSwapStatusOptions configures additional identity guards for
 // CompareAndSwapLatestAttemptStatus.
 type CompareAndSwapStatusOptions struct {
-	RootDAGRun         DAGRunRef
+	RootDAGRun         ir.DAGRunRef
 	ExpectedAttemptKey string
 }
 
@@ -301,7 +243,7 @@ type CompareAndSwapStatusOption func(*CompareAndSwapStatusOptions)
 
 // WithCompareAndSwapRootDAGRun routes CompareAndSwapLatestAttemptStatus
 // through a root dag-run when the target dag-run is stored as a sub-DAG attempt.
-func WithCompareAndSwapRootDAGRun(root DAGRunRef) CompareAndSwapStatusOption {
+func WithCompareAndSwapRootDAGRun(root ir.DAGRunRef) CompareAndSwapStatusOption {
 	return func(opts *CompareAndSwapStatusOptions) {
 		opts.RootDAGRun = root
 	}
@@ -324,34 +266,4 @@ func NewCompareAndSwapStatusOptions(opts ...CompareAndSwapStatusOption) CompareA
 		}
 	}
 	return cfg
-}
-
-// ParseDAGRunRef parses a string into a DAGRunRef.
-// The expected format is "name:runId", where the run ID satisfies
-// ValidateDAGRunID. Malformed input returns an error wrapping
-// ErrInvalidRunRefFormat. The name is only required to be non-empty, since
-// file-backed references may carry a DAG path.
-func ParseDAGRunRef(s string) (DAGRunRef, error) {
-	name, dagRunID, found := strings.Cut(s, ":")
-	if !found {
-		return DAGRunRef{}, ErrInvalidRunRefFormat
-	}
-	if name == "" {
-		return DAGRunRef{}, fmt.Errorf("%w: DAG name must not be empty", ErrInvalidRunRefFormat)
-	}
-	if err := ValidateDAGRunID(dagRunID); err != nil {
-		return DAGRunRef{}, fmt.Errorf("%w: %w", ErrInvalidRunRefFormat, err)
-	}
-	return NewDAGRunRef(name, dagRunID), nil
-}
-
-// zeroRef is a zero value for DAGRunRef.
-var zeroRef DAGRunRef
-
-// GenerateAttemptKey creates a globally unique attempt identifier for cancellation tracking.
-// Format: FNV1a64 hash of hierarchy + ":" + attemptId (e.g., "a1b2c3d4e5f67890:abc123").
-func GenerateAttemptKey(rootName, rootID, dagName, dagRunID, attemptID string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(rootName + "\x00" + rootID + "\x00" + dagName + "\x00" + dagRunID))
-	return hex.EncodeToString(h.Sum(nil)) + ":" + attemptID
 }

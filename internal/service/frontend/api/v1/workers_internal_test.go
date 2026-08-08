@@ -10,8 +10,8 @@ import (
 
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -35,11 +35,11 @@ func (s *stubCoordinatorClient) Cleanup(context.Context) error {
 	return nil
 }
 
-func (s *stubCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+func (s *stubCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	return nil, nil
 }
 
-func (s *stubCoordinatorClient) RequestCancel(context.Context, string, string, *dagrun.DAGRunRef) error {
+func (s *stubCoordinatorClient) RequestCancel(context.Context, string, string, *ir.DAGRunRef) error {
 	return nil
 }
 

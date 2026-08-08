@@ -8,7 +8,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -64,7 +63,7 @@ func runStop(ctx *Context, args []string) error {
 	var dag *ir.DAG
 	if dagRunID != "" {
 		// Retrieve the previous run's history record for the specified dag-run ID.
-		ref := dagrun.NewDAGRunRef(name, dagRunID)
+		ref := ir.NewDAGRunRef(name, dagRunID)
 		rec, err := ctx.DAGRunStore.FindAttempt(ctx, ref)
 		if err != nil {
 			return fmt.Errorf("failed to find the record for dag-run ID %s: %w", dagRunID, err)

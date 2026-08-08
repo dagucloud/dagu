@@ -342,7 +342,7 @@ steps:
 
 func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	ctx := context.Background()
-	rootRef := dagrun.NewDAGRunRef("root_retry_dag", "root-run")
+	rootRef := ir.NewDAGRunRef("root_retry_dag", "root-run")
 	rootStep := ir.Step{
 		Name:           "parallel-children",
 		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeParallel},

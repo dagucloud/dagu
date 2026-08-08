@@ -7,7 +7,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -155,8 +154,8 @@ func validSubWorkflowRequest() executor.SubWorkflowRequest {
 			Name:     "child",
 			Location: "/tmp/child.yaml",
 		},
-		RootDAGRun:   dagrun.NewDAGRunRef("root", "root-run"),
-		ParentDAGRun: dagrun.NewDAGRunRef("parent", "parent-run"),
+		RootDAGRun:   ir.NewDAGRunRef("root", "root-run"),
+		ParentDAGRun: ir.NewDAGRunRef("parent", "parent-run"),
 		RunID:        "child-run",
 	}
 }

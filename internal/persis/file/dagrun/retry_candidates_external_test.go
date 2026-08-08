@@ -145,7 +145,7 @@ func TestStoreListRetryCandidatesRemovesCandidateWhenRunIsGone(t *testing.T) {
 	attempt, _ := writeRetryCandidateStatus(t, ctx, store, dag, now, "failed-run", ir.Failed)
 	require.NoError(t, attempt.Close(ctx))
 
-	require.NoError(t, store.RemoveDAGRun(ctx, dagrun.NewDAGRunRef(dag.Name, "failed-run")))
+	require.NoError(t, store.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, "failed-run")))
 
 	candidates, err := lister.ListRetryCandidates(ctx, dagrun.NewUTC(now.Add(-time.Hour)))
 	require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestStoreListRetryCandidatesIgnoresChildAttemptStatusFiles(t *testing.T) {
 	parentAttempt, _ := writeRetryCandidateStatus(t, ctx, store, parentDAG, now, "parent-run", ir.Running)
 	defer func() { require.NoError(t, parentAttempt.Close(ctx)) }()
 
-	rootRef := dagrun.NewDAGRunRef(parentDAG.Name, "parent-run")
+	rootRef := ir.NewDAGRunRef(parentDAG.Name, "parent-run")
 	childDAG := retryCandidateDAG()
 	childDAG.Name = "child-retry-dag"
 	childAttempt, err := store.CreateAttempt(ctx, childDAG, now.Add(time.Second), "child-run", dagrun.NewDAGRunAttemptOptions{

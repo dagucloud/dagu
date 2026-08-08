@@ -43,7 +43,7 @@ func EnqueueCatchupRun(
 	scheduleTime time.Time,
 	profileName string,
 ) error {
-	dagRun := dagrun.NewDAGRunRef(dag.Name, runID)
+	dagRun := ir.NewDAGRunRef(dag.Name, runID)
 
 	// Idempotency: skip if a run with this ID already exists.
 	if _, err := dagRunStore.FindAttempt(ctx, dagRun); err == nil {

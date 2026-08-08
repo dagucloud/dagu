@@ -55,7 +55,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 	})
 
 	// Wait for it to complete
-	attempt, err := th.DAGRunStore.FindAttempt(ctx, dagrun.DAGRunRef{
+	attempt, err := th.DAGRunStore.FindAttempt(ctx, ir.DAGRunRef{
 		Name: dag.Name,
 		ID:   "success-run",
 	})
@@ -79,7 +79,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 	})
 
 	// Verify the previous successful run remains intact after the queued run is hidden.
-	successAttempt, err := th.DAGRunStore.FindAttempt(ctx, dagrun.DAGRunRef{
+	successAttempt, err := th.DAGRunStore.FindAttempt(ctx, ir.DAGRunRef{
 		Name: dag.Name,
 		ID:   "success-run",
 	})
@@ -89,7 +89,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ir.Succeeded, successStatus.Status, "Dequeuing should not alter the prior successful run")
 
-	queuedAttempt, err := th.DAGRunStore.FindAttempt(ctx, dagrun.DAGRunRef{
+	queuedAttempt, err := th.DAGRunStore.FindAttempt(ctx, ir.DAGRunRef{
 		Name: dag.Name,
 		ID:   "queued-run",
 	})
@@ -169,7 +169,7 @@ steps:
 		th.Context,
 		dag.ProcGroup(),
 		queue.QueuePriorityLow,
-		dagrun.NewDAGRunRef(dag.Name, "stale-run"),
+		ir.NewDAGRunRef(dag.Name, "stale-run"),
 	))
 
 	th.RunCommand(t, cmd.Enqueue(), test.CmdTest{
@@ -187,7 +187,7 @@ steps:
 	require.NoError(t, err)
 	assert.Equal(t, 0, length)
 
-	_, err = th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, "valid-run"))
+	_, err = th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, "valid-run"))
 	assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 }
 
@@ -200,7 +200,7 @@ steps:
     run: "true"
 `)
 
-	runRef := dagrun.NewDAGRunRef(dag.Name, "orphaned-run")
+	runRef := ir.NewDAGRunRef(dag.Name, "orphaned-run")
 	require.NoError(t, th.QueueStore.Enqueue(
 		th.Context,
 		dag.ProcGroup(),

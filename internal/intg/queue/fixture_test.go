@@ -106,7 +106,7 @@ func newFixture(t *testing.T, dagYAML string, opts ...func(*fixture)) *fixture {
 }
 
 func (f *fixture) Run(runID string) intgharness.RunProbe {
-	return f.h.Run(dagrun.NewDAGRunRef(f.dag.Name, runID), f.queue)
+	return f.h.Run(ir.NewDAGRunRef(f.dag.Name, runID), f.queue)
 }
 
 func (f *fixture) Marker(path string) intgharness.Marker {
@@ -197,12 +197,12 @@ func (f *fixture) enqueueWithPriority(priority queue.QueuePriority) string {
 	st := dagrun.NewStatusBuilder(f.dag).Create(id, ir.Queued, 0, time.Time{},
 		dagrun.WithLogFilePath(logFile),
 		dagrun.WithAttemptID(att.ID()),
-		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(f.dag.Name, id), dagrun.DAGRunRef{}),
+		dagrun.WithHierarchyRefs(ir.NewDAGRunRef(f.dag.Name, id), ir.DAGRunRef{}),
 	)
 	require.NoError(f.t, att.Open(f.th.Context))
 	require.NoError(f.t, att.Write(f.th.Context, st))
 	require.NoError(f.t, att.Close(f.th.Context))
-	require.NoError(f.t, f.th.QueueStore.Enqueue(f.th.Context, f.queue, priority, dagrun.NewDAGRunRef(f.dag.Name, id)))
+	require.NoError(f.t, f.th.QueueStore.Enqueue(f.th.Context, f.queue, priority, ir.NewDAGRunRef(f.dag.Name, id)))
 	return id
 }
 
@@ -291,7 +291,7 @@ func (f *fixture) WaitForAllStopped(timeout time.Duration) *fixture {
 	timeout = queueTestTimeout(timeout)
 	f.h.Wait.EventuallyEveryWithin("timed out waiting for queued runs to stop", timeout, 50*time.Millisecond, func() bool {
 		for _, runID := range f.runIDs {
-			alive, err := f.th.ProcStore.IsRunAlive(f.th.Context, f.queue, dagrun.NewDAGRunRef(f.dag.Name, runID))
+			alive, err := f.th.ProcStore.IsRunAlive(f.th.Context, f.queue, ir.NewDAGRunRef(f.dag.Name, runID))
 			if err != nil || alive {
 				return false
 			}
@@ -364,7 +364,7 @@ func (f *fixture) Status(runID string) (*dagrun.DAGRunStatus, error) {
 	}
 	defer cancel()
 
-	ref := dagrun.NewDAGRunRef(f.dag.Name, runID)
+	ref := ir.NewDAGRunRef(f.dag.Name, runID)
 	store := file.NewDAGRunStore(f.th.Config)
 	attempt, err := store.FindAttempt(ctx, ref)
 	if err != nil {
@@ -480,7 +480,7 @@ func (f *fixture) writeRunStatus(status ir.Status, opts runStatusOptions) string
 	statusOpts := []dagrun.StatusOption{
 		dagrun.WithLogFilePath(logFile),
 		dagrun.WithAttemptID(att.ID()),
-		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(f.dag.Name, runID), dagrun.DAGRunRef{}),
+		dagrun.WithHierarchyRefs(ir.NewDAGRunRef(f.dag.Name, runID), ir.DAGRunRef{}),
 		dagrun.WithAutoRetryCount(opts.AutoRetryCount),
 	}
 	if !opts.CreatedAt.IsZero() {

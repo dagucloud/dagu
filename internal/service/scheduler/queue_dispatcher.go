@@ -315,7 +315,7 @@ type queuedConditionStage struct {
 	dispatcher   *queueDispatcher
 	queueName    string
 	itemID       string
-	runRef       dagrun.DAGRunRef
+	runRef       ir.DAGRunRef
 	attemptID    string
 	observations []dagrun.DAGRunCondition
 	flushed      bool
@@ -342,7 +342,7 @@ func (d *queueDispatcher) queuedConditionItemsForRefresh(
 }
 
 func (d *queueDispatcher) newQueuedConditionStage(
-	runRef dagrun.DAGRunRef,
+	runRef ir.DAGRunRef,
 	queueName string,
 	itemID string,
 	attempt dagrun.DAGRunAttempt,
@@ -413,7 +413,7 @@ func (d *queueDispatcher) newQueuedConditionStageFromItem(
 
 func (d *queueDispatcher) readQueuedConditionStatus(
 	ctx context.Context,
-	runRef dagrun.DAGRunRef,
+	runRef ir.DAGRunRef,
 ) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, bool) {
 	attempt, err := d.dagRunStore.FindAttempt(ctx, runRef)
 	if err != nil {
@@ -753,7 +753,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 func (d *queueDispatcher) dropSuspendedQueuedRun(
 	ctx context.Context,
 	queueName string,
-	runRef dagrun.DAGRunRef,
+	runRef ir.DAGRunRef,
 	attemptID string,
 	status *dagrun.DAGRunStatus,
 ) error {
@@ -800,7 +800,7 @@ func (d *queueDispatcher) dropSuspendedQueuedRun(
 func (d *queueDispatcher) dispatchAndWaitForStartup(
 	ctx context.Context,
 	queueName string,
-	runRef dagrun.DAGRunRef,
+	runRef ir.DAGRunRef,
 	dag *ir.DAG,
 	runID string,
 	dagStatus *dagrun.DAGRunStatus,
@@ -813,7 +813,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 	ctx context.Context,
 	queueName string,
-	runRef dagrun.DAGRunRef,
+	runRef ir.DAGRunRef,
 	dag *ir.DAG,
 	runID string,
 	dagStatus *dagrun.DAGRunStatus,
@@ -895,7 +895,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 func (d *queueDispatcher) reserveDistributedAdmission(
 	ctx context.Context,
 	queueName string,
-	runRef dagrun.DAGRunRef,
+	runRef ir.DAGRunRef,
 	attempt dagrun.DAGRunAttempt,
 	input dispatchAdmissionInput,
 	conditionStage *queuedConditionStage,
@@ -971,14 +971,14 @@ func (d *queueDispatcher) releaseAdmissionToken(ctx context.Context, token strin
 	)
 }
 
-func (d *queueDispatcher) waitForStartup(ctx context.Context, queueName string, runRef dagrun.DAGRunRef, waitState startupWaitState) bool {
+func (d *queueDispatcher) waitForStartup(ctx context.Context, queueName string, runRef ir.DAGRunRef, waitState startupWaitState) bool {
 	return d.waitForStartupWithConditions(ctx, queueName, runRef, waitState, nil)
 }
 
 func (d *queueDispatcher) waitForStartupWithConditions(
 	ctx context.Context,
 	queueName string,
-	runRef dagrun.DAGRunRef,
+	runRef ir.DAGRunRef,
 	waitState startupWaitState,
 	conditionStage *queuedConditionStage,
 ) bool {
@@ -1030,7 +1030,7 @@ func (d *queueDispatcher) waitForStartupWithConditions(
 func (d *queueDispatcher) failQueuedRunBeforeStartup(
 	ctx context.Context,
 	queueName string,
-	runRef dagrun.DAGRunRef,
+	runRef ir.DAGRunRef,
 	failure error,
 	conditionStage *queuedConditionStage,
 ) error {
@@ -1129,7 +1129,7 @@ func shouldBoundLocalStartupError(waitState startupWaitState, err error) bool {
 		!errors.Is(err, backoff.ErrPermanent)
 }
 
-func (d *queueDispatcher) checkStartupStatus(ctx context.Context, queueName string, runRef dagrun.DAGRunRef, waitState startupWaitState) (bool, error) {
+func (d *queueDispatcher) checkStartupStatus(ctx context.Context, queueName string, runRef ir.DAGRunRef, waitState startupWaitState) (bool, error) {
 	if err := d.checkContextAndQuit(ctx); err != nil {
 		return false, err
 	}
@@ -1520,7 +1520,7 @@ func queuedConditionByType(conditions []dagrun.DAGRunCondition, conditionType st
 	return dagrun.DAGRunCondition{}, false
 }
 
-func (d *queueDispatcher) hasOutstandingDispatchReservation(ctx context.Context, runRef dagrun.DAGRunRef) (bool, error) {
+func (d *queueDispatcher) hasOutstandingDispatchReservation(ctx context.Context, runRef ir.DAGRunRef) (bool, error) {
 	if d.dispatchTaskStore == nil {
 		return false, nil
 	}
@@ -1589,7 +1589,7 @@ func (d *queueDispatcher) countOutstandingDispatchReservations(ctx context.Conte
 func (d *queueDispatcher) hasFreshDistributedLease(
 	ctx context.Context,
 	queueName string,
-	runRef dagrun.DAGRunRef,
+	runRef ir.DAGRunRef,
 	attempt dagrun.DAGRunAttempt,
 	status *dagrun.DAGRunStatus,
 ) (bool, error) {

@@ -24,8 +24,8 @@ type SubWorkflowRunner interface {
 type SubWorkflowRequest struct {
 	DAG               *ir.DAG
 	ParentDAG         *ir.DAG
-	RootDAGRun        dagrun.DAGRunRef
-	ParentDAGRun      dagrun.DAGRunRef
+	RootDAGRun        ir.DAGRunRef
+	ParentDAGRun      ir.DAGRunRef
 	RunID             string
 	Params            string
 	ProfileName       string
@@ -63,7 +63,7 @@ type SubWorkflowCancelIntent struct {
 // SubWorkflowCancelRequest describes a child workflow cancellation.
 type SubWorkflowCancelRequest struct {
 	DAG        *ir.DAG
-	RootDAGRun dagrun.DAGRunRef
+	RootDAGRun ir.DAGRunRef
 	RunID      string
 	Intent     SubWorkflowCancelIntent
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -174,12 +175,12 @@ func (h *artifactHandler) archiveDir(ctx context.Context, chunk *coordinatorv1.A
 		err     error
 	)
 	if chunk.RootDagRunId != "" && chunk.RootDagRunId != chunk.DagRunId {
-		attempt, err = h.dagRunStore.FindSubAttempt(ctx, dagrun.DAGRunRef{
+		attempt, err = h.dagRunStore.FindSubAttempt(ctx, ir.DAGRunRef{
 			Name: chunk.RootDagRunName,
 			ID:   chunk.RootDagRunId,
 		}, chunk.DagRunId)
 	} else {
-		attempt, err = h.dagRunStore.FindAttempt(ctx, dagrun.DAGRunRef{
+		attempt, err = h.dagRunStore.FindAttempt(ctx, ir.DAGRunRef{
 			Name: chunk.DagName,
 			ID:   chunk.DagRunId,
 		})

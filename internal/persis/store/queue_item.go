@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -21,9 +21,9 @@ var (
 )
 
 type queueItemPayload struct {
-	FileName string           `json:"fileName"`
-	DAGRun   dagrun.DAGRunRef `json:"dagRun"`
-	QueuedAt time.Time        `json:"queuedAt"`
+	FileName string       `json:"fileName"`
+	DAGRun   ir.DAGRunRef `json:"dagRun"`
+	QueuedAt time.Time    `json:"queuedAt"`
 }
 
 type queueItem struct {
@@ -31,7 +31,7 @@ type queueItem struct {
 	queue    string
 	priority queue.QueuePriority
 	queuedAt time.Time
-	dagRun   dagrun.DAGRunRef
+	dagRun   ir.DAGRunRef
 	recordID string
 	dataErr  error
 }
@@ -45,7 +45,7 @@ func (i *queueItem) ID() string {
 	return i.id
 }
 
-func (i *queueItem) Data() (*dagrun.DAGRunRef, error) {
+func (i *queueItem) Data() (*ir.DAGRunRef, error) {
 	if i == nil {
 		return nil, fmt.Errorf("queue item is nil")
 	}

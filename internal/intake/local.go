@@ -40,8 +40,8 @@ type LocalRequest struct {
 	DAG       *ir.DAG
 	DAGRunID  string
 
-	Root         dagrun.DAGRunRef
-	Parent       dagrun.DAGRunRef
+	Root         ir.DAGRunRef
+	Parent       ir.DAGRunRef
 	TriggerType  ir.TriggerType
 	TriggerActor string
 
@@ -68,7 +68,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 		return nil, err
 	}
 	if req.Root.Zero() {
-		req.Root = dagrun.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
+		req.Root = ir.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
 	}
 
 	if err := req.ProcStore.Lock(ctx, req.DAG.ProcGroup()); err != nil {

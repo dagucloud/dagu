@@ -12,7 +12,7 @@ import (
 // NewDAGRunAttemptOptions contains options for creating a new run record
 type NewDAGRunAttemptOptions struct {
 	// RootDAGRun is the root dag-run reference for this attempt.
-	RootDAGRun *DAGRunRef
+	RootDAGRun *ir.DAGRunRef
 	// Retry indicates whether this is a retry of a previous run.
 	Retry bool
 	// AttemptID is an optional attempt ID. If set, this ID is used instead of generating a new one.

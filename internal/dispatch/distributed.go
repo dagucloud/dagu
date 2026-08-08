@@ -59,7 +59,7 @@ type DispatchAdmissionRequest struct {
 	NonAdmissionOccupancy int
 	AttemptKey            string
 	AttemptID             string
-	DAGRun                dagrun.DAGRunRef
+	DAGRun                ir.DAGRunRef
 	StaleThreshold        time.Duration
 }
 
@@ -150,8 +150,8 @@ type WorkerHeartbeatStore interface {
 // DAGRunLease is the shared liveness record for an accepted worker claim.
 type DAGRunLease struct {
 	AttemptKey      string              `json:"attemptKey"`
-	DAGRun          dagrun.DAGRunRef    `json:"dagRun"`
-	Root            dagrun.DAGRunRef    `json:"root,omitzero"`
+	DAGRun          ir.DAGRunRef        `json:"dagRun"`
+	Root            ir.DAGRunRef        `json:"root,omitzero"`
 	AttemptID       string              `json:"attemptId"`
 	QueueName       string              `json:"queueName"`
 	WorkerID        string              `json:"workerId"`
@@ -198,13 +198,13 @@ type DAGRunLeaseStore interface {
 
 // ActiveDistributedRun is the durable active-set record for a remote attempt.
 type ActiveDistributedRun struct {
-	AttemptKey string           `json:"attemptKey"`
-	DAGRun     dagrun.DAGRunRef `json:"dagRun"`
-	Root       dagrun.DAGRunRef `json:"root,omitzero"`
-	AttemptID  string           `json:"attemptId"`
-	WorkerID   string           `json:"workerId"`
-	Status     ir.Status        `json:"status"`
-	UpdatedAt  int64            `json:"updatedAt"`
+	AttemptKey string       `json:"attemptKey"`
+	DAGRun     ir.DAGRunRef `json:"dagRun"`
+	Root       ir.DAGRunRef `json:"root,omitzero"`
+	AttemptID  string       `json:"attemptId"`
+	WorkerID   string       `json:"workerId"`
+	Status     ir.Status    `json:"status"`
+	UpdatedAt  int64        `json:"updatedAt"`
 }
 
 // ActiveDistributedRunStore persists the coordinator-owned active distributed
@@ -252,7 +252,7 @@ func AttemptKeyForStatus(status *dagrun.DAGRunStatus, fallbackAttemptID string) 
 		root = status.DAGRun()
 	}
 
-	return dagrun.GenerateAttemptKey(root.Name, root.ID, status.Name, status.DAGRunID, attemptID)
+	return ir.GenerateAttemptKey(root.Name, root.ID, status.Name, status.DAGRunID, attemptID)
 }
 
 // LeaseMatchesStatus reports whether the lease still authoritatively belongs to

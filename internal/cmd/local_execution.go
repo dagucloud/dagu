@@ -14,8 +14,8 @@ import (
 )
 
 type runOptions struct {
-	root            dagrun.DAGRunRef
-	parent          dagrun.DAGRunRef
+	root            ir.DAGRunRef
+	parent          ir.DAGRunRef
 	workerID        string
 	attemptID       string
 	triggerType     ir.TriggerType

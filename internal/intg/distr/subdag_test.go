@@ -152,7 +152,7 @@ steps:
 	subRunID := parentStatus.Nodes[0].SubRuns[0].DAGRunID
 	subAttempt, err := f.coord.DAGRunStore.FindSubAttempt(
 		f.coord.Context,
-		dagrun.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
+		ir.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
 		subRunID,
 	)
 	require.NoError(t, err)
@@ -192,7 +192,7 @@ steps:
 		subRunID := parentStatus.Nodes[0].SubRuns[0].DAGRunID
 		subAttempt, err := f.coord.DAGRunStore.FindSubAttempt(
 			f.coord.Context,
-			dagrun.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
+			ir.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
 			subRunID,
 		)
 		require.NoError(t, err)

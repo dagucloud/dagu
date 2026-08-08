@@ -138,7 +138,7 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 
 	updated, swapped, err := store.CompareAndSwapLatestAttemptStatus(
 		ctx,
-		dagrun.NewDAGRunRef(dag.Name, "run-conditions"),
+		ir.NewDAGRunRef(dag.Name, "run-conditions"),
 		attempt.ID(),
 		ir.Queued,
 		func(latest *dagrun.DAGRunStatus) error {

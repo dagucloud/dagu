@@ -446,7 +446,7 @@ func waitForApprovalStepWaitingStatus(
 	t.Helper()
 
 	h := intgharness.New(t, server.Helper)
-	return h.Run(dagrun.NewDAGRunRef(dagName, dagRunID), "").RequireStatusMatchWithin("approval step should reach waiting status", intgTestTimeout(15*time.Second), func(status *dagrun.DAGRunStatus) bool {
+	return h.Run(ir.NewDAGRunRef(dagName, dagRunID), "").RequireStatusMatchWithin("approval step should reach waiting status", intgTestTimeout(15*time.Second), func(status *dagrun.DAGRunStatus) bool {
 		if status.Status != ir.Waiting {
 			return false
 		}
@@ -470,7 +470,7 @@ func waitForDAGRunStatus(
 	t.Helper()
 
 	h := intgharness.New(t, server.Helper)
-	return h.Run(dagrun.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
+	return h.Run(ir.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
 }
 
 func nodeByName(t *testing.T, status *dagrun.DAGRunStatus, stepName string) *dagrun.Node {

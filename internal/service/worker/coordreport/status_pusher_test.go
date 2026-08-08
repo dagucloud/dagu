@@ -96,7 +96,7 @@ func (m *mockCoordinatorClient) Cleanup(_ context.Context) error {
 	return nil
 }
 
-func (m *mockCoordinatorClient) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+func (m *mockCoordinatorClient) GetDAGRunStatus(_ context.Context, _, _ string, _ *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	panic("GetDAGRunStatus not implemented in mock")
 }
 
@@ -104,7 +104,7 @@ func (m *mockCoordinatorClient) GetDAG(_ context.Context, _ string) (string, err
 	panic("GetDAG not implemented in mock")
 }
 
-func (m *mockCoordinatorClient) RequestCancel(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) error {
+func (m *mockCoordinatorClient) RequestCancel(_ context.Context, _, _ string, _ *ir.DAGRunRef) error {
 	panic("RequestCancel not implemented in mock")
 }
 
@@ -280,8 +280,8 @@ func TestPush(t *testing.T) {
 			StartedAt:  "2024-01-01T00:00:00Z",
 			FinishedAt: "2024-01-01T00:05:00Z",
 			Params:     "key=value",
-			Root:       dagrun.DAGRunRef{Name: "root", ID: "root-id"},
-			Parent:     dagrun.DAGRunRef{Name: "parent", ID: "parent-id"},
+			Root:       ir.DAGRunRef{Name: "root", ID: "root-id"},
+			Parent:     ir.DAGRunRef{Name: "parent", ID: "parent-id"},
 			Nodes: []*dagrun.Node{
 				{
 					Step:   ir.Step{Name: "step-1"},

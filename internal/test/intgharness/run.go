@@ -16,12 +16,12 @@ import (
 // RunProbe observes a DAG-run through the same stores used by production code.
 type RunProbe struct {
 	h         Harness
-	ref       dagrun.DAGRunRef
+	ref       ir.DAGRunRef
 	procGroup string
 }
 
 // Run returns a semantic probe for a DAG-run.
-func (h Harness) Run(ref dagrun.DAGRunRef, procGroup string) RunProbe {
+func (h Harness) Run(ref ir.DAGRunRef, procGroup string) RunProbe {
 	return RunProbe{
 		h:         h,
 		ref:       ref,

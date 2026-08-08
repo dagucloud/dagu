@@ -162,7 +162,7 @@ steps:
 	sourceStatus.Params = "one two three"
 	sourceStatus.ParamsList = []string{"problem=one two three"}
 
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, dagrun.NewDAGRunRef(dagName, sourceRunID))
+	attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, sourceRunID))
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(server.Context))
 	require.NoError(t, attempt.Write(server.Context, *sourceStatus))
@@ -199,7 +199,7 @@ func waitForEditRetryStoredStatus(t *testing.T, server test.Server, dagName, dag
 	t.Helper()
 
 	h := intgharness.New(t, server.Helper)
-	return h.Run(dagrun.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
+	return h.Run(ir.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
 }
 
 func indentStepField(value string) string {

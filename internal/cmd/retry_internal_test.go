@@ -26,8 +26,8 @@ func TestEnsureQueueDispatchRetryTarget_MissingRunReturnsNotQueued(t *testing.T)
 	err := ensureQueueDispatchRetryTarget(
 		context.Background(),
 		store,
-		dagrun.NewDAGRunRef("retry-test", "missing-run"),
-		dagrun.DAGRunRef{},
+		ir.NewDAGRunRef("retry-test", "missing-run"),
+		ir.DAGRunRef{},
 	)
 	require.Error(t, err)
 
@@ -61,8 +61,8 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 	err = ensureQueueDispatchRetryTarget(
 		ctx,
 		store,
-		dagrun.NewDAGRunRef(dag.Name, "run-1"),
-		dagrun.DAGRunRef{},
+		ir.NewDAGRunRef(dag.Name, "run-1"),
+		ir.DAGRunRef{},
 	)
 	require.Error(t, err)
 
@@ -138,7 +138,7 @@ func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, store.calls, 3)
 	assert.Equal(t, dag.ProcGroup(), store.groupName)
-	assert.Equal(t, dagrun.NewDAGRunRef(dag.Name, "run-1"), store.dagRun)
+	assert.Equal(t, ir.NewDAGRunRef(dag.Name, "run-1"), store.dagRun)
 }
 
 func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
@@ -225,10 +225,10 @@ type retryReleaseProcStore struct {
 	alwaysHeartbeat *proc.ProcHeartbeat
 	calls           int
 	groupName       string
-	dagRun          dagrun.DAGRunRef
+	dagRun          ir.DAGRunRef
 }
 
-func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName string, dagRun dagrun.DAGRunRef) (*proc.ProcHeartbeat, error) {
+func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName string, dagRun ir.DAGRunRef) (*proc.ProcHeartbeat, error) {
 	s.calls++
 	s.groupName = groupName
 	s.dagRun = dagRun
@@ -250,7 +250,7 @@ func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName str
 
 func retryReleaseHeartbeat(dagName, runID, attemptID string, fresh bool) *proc.ProcHeartbeat {
 	return &proc.ProcHeartbeat{
-		DAGRun:    dagrun.NewDAGRunRef(dagName, runID),
+		DAGRun:    ir.NewDAGRunRef(dagName, runID),
 		AttemptID: attemptID,
 		Fresh:     fresh,
 	}

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -27,8 +26,8 @@ func TestReportTaskLoadFailurePreservesProfileName(t *testing.T) {
 			AttemptId: "attempt-1",
 			Params:    "ENV=prod",
 		},
-		dagrun.NewDAGRunRef("root", "root-run"),
-		dagrun.NewDAGRunRef("parent", "parent-run"),
+		ir.NewDAGRunRef("root", "root-run"),
+		ir.NewDAGRunRef("parent", "parent-run"),
 		errors.New("load failed"),
 		"prod",
 	)
@@ -36,8 +35,8 @@ func TestReportTaskLoadFailurePreservesProfileName(t *testing.T) {
 
 	assert.Equal(t, ir.Failed, status.Status)
 	assert.Equal(t, "prod", status.ProfileName)
-	assert.Equal(t, dagrun.NewDAGRunRef("root", "root-run"), status.Root)
-	assert.Equal(t, dagrun.NewDAGRunRef("parent", "parent-run"), status.Parent)
+	assert.Equal(t, ir.NewDAGRunRef("root", "root-run"), status.Root)
+	assert.Equal(t, ir.NewDAGRunRef("parent", "parent-run"), status.Parent)
 }
 
 func TestReportTaskInitFailurePreservesProfileName(t *testing.T) {
@@ -51,8 +50,8 @@ func TestReportTaskInitFailurePreservesProfileName(t *testing.T) {
 			AttemptId: "attempt-1",
 			Params:    "ENV=prod",
 		},
-		dagrun.NewDAGRunRef("root", "root-run"),
-		dagrun.NewDAGRunRef("parent", "parent-run"),
+		ir.NewDAGRunRef("root", "root-run"),
+		ir.NewDAGRunRef("parent", "parent-run"),
 		errors.New("init failed"),
 		"prod",
 	)
@@ -60,6 +59,6 @@ func TestReportTaskInitFailurePreservesProfileName(t *testing.T) {
 
 	assert.Equal(t, ir.Failed, status.Status)
 	assert.Equal(t, "prod", status.ProfileName)
-	assert.Equal(t, dagrun.NewDAGRunRef("root", "root-run"), status.Root)
-	assert.Equal(t, dagrun.NewDAGRunRef("parent", "parent-run"), status.Parent)
+	assert.Equal(t, ir.NewDAGRunRef("root", "root-run"), status.Root)
+	assert.Equal(t, ir.NewDAGRunRef("parent", "parent-run"), status.Parent)
 }

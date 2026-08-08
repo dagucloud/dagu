@@ -61,7 +61,7 @@ func TestResolveSecretReference(t *testing.T) {
 	}
 	attempt, err := dagRunStore.CreateAttempt(ctx, dag, now, "run-1", dagrun.NewDAGRunAttemptOptions{AttemptID: "attempt-1"})
 	require.NoError(t, err)
-	attemptKey := dagrun.GenerateAttemptKey(dag.Name, "run-1", dag.Name, "run-1", attempt.ID())
+	attemptKey := ir.GenerateAttemptKey(dag.Name, "run-1", dag.Name, "run-1", attempt.ID())
 	require.NoError(t, attempt.Open(ctx))
 	t.Cleanup(func() {
 		require.NoError(t, attempt.Close(context.Background()))
@@ -76,8 +76,8 @@ func TestResolveSecretReference(t *testing.T) {
 	}))
 	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey:      attemptKey,
-		DAGRun:          dagrun.DAGRunRef{Name: dag.Name, ID: "run-1"},
-		Root:            dagrun.DAGRunRef{Name: dag.Name, ID: "run-1"},
+		DAGRun:          ir.DAGRunRef{Name: dag.Name, ID: "run-1"},
+		Root:            ir.DAGRunRef{Name: dag.Name, ID: "run-1"},
 		AttemptID:       attempt.ID(),
 		WorkerID:        "worker-1",
 		ClaimedAt:       now.UnixMilli(),

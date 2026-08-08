@@ -156,8 +156,8 @@ func sortDAGRunConditions(conditions []DAGRunCondition) {
 
 // DAGRunStatus represents the complete execution state of a dag-run.
 type DAGRunStatus struct {
-	Root           DAGRunRef         `json:"root,omitzero"`
-	Parent         DAGRunRef         `json:"parent,omitzero"`
+	Root           ir.DAGRunRef      `json:"root,omitzero"`
+	Parent         ir.DAGRunRef      `json:"parent,omitzero"`
 	Name           string            `json:"name"`
 	DAGRunID       string            `json:"dagRunId"`
 	AttemptID      string            `json:"attemptId"`
@@ -245,8 +245,8 @@ func NormalizeDAGRunConditions(status *DAGRunStatus) {
 }
 
 // DAGRun returns a reference to the dag-run associated with this status
-func (st *DAGRunStatus) DAGRun() DAGRunRef {
-	return NewDAGRunRef(st.Name, st.DAGRunID)
+func (st *DAGRunStatus) DAGRun() ir.DAGRunRef {
+	return ir.NewDAGRunRef(st.Name, st.DAGRunID)
 }
 
 // NodesInRunOrder returns the run's step nodes together with the lifecycle

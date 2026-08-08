@@ -6,7 +6,7 @@ package testutil
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/mock"
@@ -19,11 +19,11 @@ type MockQueueStore struct {
 	mock.Mock
 }
 
-func (m *MockQueueStore) Enqueue(ctx context.Context, name string, priority queue.QueuePriority, run dagrun.DAGRunRef) error {
+func (m *MockQueueStore) Enqueue(ctx context.Context, name string, priority queue.QueuePriority, run ir.DAGRunRef) error {
 	return m.Called(ctx, name, priority, run).Error(0)
 }
 
-func (m *MockQueueStore) DequeueByDAGRunID(ctx context.Context, name string, run dagrun.DAGRunRef) ([]queue.QueuedItemData, error) {
+func (m *MockQueueStore) DequeueByDAGRunID(ctx context.Context, name string, run ir.DAGRunRef) ([]queue.QueuedItemData, error) {
 	args := m.Called(ctx, name, run)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

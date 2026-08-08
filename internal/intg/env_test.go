@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
@@ -317,7 +316,7 @@ steps:
 		ExpectedOut: []string{"DAG run finished"},
 	})
 
-	rootRef := dagrun.NewDAGRunRef("subdag-env-parent", runID)
+	rootRef := ir.NewDAGRunRef("subdag-env-parent", runID)
 	parentAttempt, err := th.DAGRunStore.FindAttempt(th.Context, rootRef)
 	require.NoError(t, err)
 

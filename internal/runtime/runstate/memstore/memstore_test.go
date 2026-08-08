@@ -18,7 +18,7 @@ import (
 func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 	ctx := context.Background()
 	store := memstore.New()
-	rootRef := dagrun.NewDAGRunRef("root", "root-run")
+	rootRef := ir.NewDAGRunRef("root", "root-run")
 
 	root, err := store.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:   &ir.DAG{Name: "root"},

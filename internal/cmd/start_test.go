@@ -326,7 +326,7 @@ steps:
 	require.Error(t, err)
 	require.ErrorContains(t, err, "already exists")
 
-	latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, runID))
+	latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 	require.Equal(t, attempt.ID(), latestAttempt.ID())
 

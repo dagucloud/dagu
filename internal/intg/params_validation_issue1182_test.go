@@ -78,7 +78,7 @@ steps:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "start_date")
 
-	_, lookupErr := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef("issue1182-required", runID))
+	_, lookupErr := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef("issue1182-required", runID))
 	require.ErrorIs(t, lookupErr, dagrun.ErrDAGRunIDNotFound)
 }
 

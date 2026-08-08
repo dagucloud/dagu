@@ -61,7 +61,7 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 
 	assert.True(t, second.Reused())
 	assert.Equal(t, dagrun.BuildReasonMatched, second.Metadata().Reason)
-	assert.Equal(t, dagrun.NewDAGRunRef("build-test", "run-1"), second.Metadata().ProducerRun)
+	assert.Equal(t, ir.NewDAGRunRef("build-test", "run-1"), second.Metadata().ProducerRun)
 	assert.Equal(t, outputPath, second.PublishedOutputs()["artifact"])
 	content, err := os.ReadFile(outputPath)
 	require.NoError(t, err)

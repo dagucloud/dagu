@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +17,7 @@ import (
 
 type testQueuedItem struct {
 	id  string
-	ref *dagrun.DAGRunRef
+	ref *ir.DAGRunRef
 	err error
 }
 
@@ -25,7 +25,7 @@ func (i testQueuedItem) ID() string {
 	return i.id
 }
 
-func (i testQueuedItem) Data() (*dagrun.DAGRunRef, error) {
+func (i testQueuedItem) Data() (*ir.DAGRunRef, error) {
 	if i.err != nil {
 		return nil, i.err
 	}
@@ -39,7 +39,7 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsOutstandingReservations(t 
 
 	f.enqueueRuns(2)
 
-	reservedRef := dagrun.NewDAGRunRef(f.dag.Name, "run-1")
+	reservedRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
 	reservedAttempt, err := f.dagRunStore.FindAttempt(f.ctx, reservedRef)
 	require.NoError(t, err)
 	reservedStatus, err := reservedAttempt.ReadStatus(f.ctx)
@@ -72,7 +72,7 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsOutstandingReservations(t 
 
 func TestQueueDispatcher_SelectRunnableQueueItemsSkipsInvalidItems(t *testing.T) {
 	dispatcher := newQueueDispatcher(queueDispatchDeps{})
-	validRef := dagrun.NewDAGRunRef("dag", "run-ok")
+	validRef := ir.NewDAGRunRef("dag", "run-ok")
 
 	runnable, err := dispatcher.selectRunnableQueueItems(t.Context(), []queuedomain.QueuedItemData{
 		testQueuedItem{id: "bad", err: fmt.Errorf("invalid queued item")},

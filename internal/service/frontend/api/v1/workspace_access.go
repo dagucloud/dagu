@@ -380,7 +380,7 @@ func (a *API) requireExecuteForWorkspace(ctx context.Context, workspaceName stri
 	return nil
 }
 
-func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun dagrun.DAGRunRef) (string, error) {
+func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun ir.DAGRunRef) (string, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
@@ -405,7 +405,7 @@ func workspaceNameForAttempt(ctx context.Context, attempt dagrun.DAGRunAttempt) 
 	return dagWorkspaceName(dag), nil
 }
 
-func (a *API) requireDAGRunVisible(ctx context.Context, dagRun dagrun.DAGRunRef) error {
+func (a *API) requireDAGRunVisible(ctx context.Context, dagRun ir.DAGRunRef) error {
 	if a.authService == nil {
 		return nil
 	}

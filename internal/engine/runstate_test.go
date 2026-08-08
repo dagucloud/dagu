@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/engine"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -51,7 +52,7 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"result": "memory-state"}, outputs)
 
-	opened, err := runStateStore.OpenAttempt(ctx, dagrun.NewDAGRunRef("embedded-memory-state", "memory-run"))
+	opened, err := runStateStore.OpenAttempt(ctx, ir.NewDAGRunRef("embedded-memory-state", "memory-run"))
 	require.NoError(t, err)
 	persisted, err := opened.ReadStatus(ctx)
 	require.NoError(t, err)
@@ -130,7 +131,7 @@ steps:
 		require.NoError(t, hybridEngine.Close(context.Background()))
 	})
 
-	_, err = runStateStore.OpenAttempt(ctx, dagrun.NewDAGRunRef("embedded-history-state", "history-run"))
+	_, err = runStateStore.OpenAttempt(ctx, ir.NewDAGRunRef("embedded-history-state", "history-run"))
 	require.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 
 	status, err = hybridEngine.Status(ctx, ref)

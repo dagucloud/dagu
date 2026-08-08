@@ -31,8 +31,8 @@ type QueueRequest struct {
 	LogBaseDir      string
 	ArtifactBaseDir string
 
-	Root         dagrun.DAGRunRef
-	Parent       dagrun.DAGRunRef
+	Root         ir.DAGRunRef
+	Parent       ir.DAGRunRef
 	TriggerType  ir.TriggerType
 	TriggerActor string
 	ScheduleTime string
@@ -50,7 +50,7 @@ type QueueRequest struct {
 
 // QueuedRun is the result of successful DAG-run queue intake.
 type QueuedRun struct {
-	DAGRun      dagrun.DAGRunRef
+	DAGRun      ir.DAGRunRef
 	Attempt     dagrun.DAGRunAttempt
 	Status      dagrun.DAGRunStatus
 	QueueName   string
@@ -70,7 +70,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 	}
 
 	now := req.now()
-	dagRun := dagrun.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
+	dagRun := ir.NewDAGRunRef(req.DAG.Name, req.DAGRunID)
 	queueName := req.queueName()
 
 	logFile, err := logpath.Generate(ctx, req.LogBaseDir, req.DAG.LogDir, req.DAG.Name, req.DAGRunID)
@@ -169,7 +169,7 @@ func artifactDir(ctx context.Context, req QueueRequest) (string, error) {
 	return dir, nil
 }
 
-func queuedStatus(req QueueRequest, dagRun dagrun.DAGRunRef, attemptID, logFile, archiveDir string, now time.Time) dagrun.DAGRunStatus {
+func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, archiveDir string, now time.Time) dagrun.DAGRunStatus {
 	root := req.Root
 	if root.Zero() {
 		root = dagRun

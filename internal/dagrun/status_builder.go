@@ -23,7 +23,7 @@ func NewStatusBuilder(dag *ir.DAG) *StatusBuilder {
 type StatusOption func(*DAGRunStatus)
 
 // WithHierarchyRefs sets the root and parent DAG-run references.
-func WithHierarchyRefs(root, parent DAGRunRef) StatusOption {
+func WithHierarchyRefs(root, parent ir.DAGRunRef) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.Root = root
 		status.Parent = parent
@@ -216,7 +216,7 @@ func (builder *StatusBuilder) Create(
 			rootName = result.Name
 			rootID = result.DAGRunID
 		}
-		result.AttemptKey = GenerateAttemptKey(
+		result.AttemptKey = ir.GenerateAttemptKey(
 			rootName,
 			rootID,
 			result.Name,

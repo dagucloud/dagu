@@ -406,7 +406,7 @@ steps:
 			return false
 		}
 
-		rootRun := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
+		rootRun := ir.NewDAGRunRef(status.Name, status.DAGRunID)
 		started := 0
 		for _, subRun := range status.Nodes[0].SubRuns {
 			if _, subErr := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID); subErr == nil {
@@ -422,7 +422,7 @@ steps:
 			return false
 		}
 
-		rootRun := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
+		rootRun := ir.NewDAGRunRef(status.Name, status.DAGRunID)
 		started := 0
 		for _, subRun := range status.Nodes[0].SubRuns {
 			if _, subErr := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID); subErr == nil {
@@ -504,7 +504,7 @@ steps:
 		return
 	}
 
-	rootRun := dagrun.NewDAGRunRef(finalStatus.Name, finalStatus.DAGRunID)
+	rootRun := ir.NewDAGRunRef(finalStatus.Name, finalStatus.DAGRunID)
 	startedRunID := ""
 	for _, subRun := range parallelNode.SubRuns {
 		if _, subErr := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID); subErr != nil {
@@ -561,7 +561,7 @@ steps:
 	}, intgTestTimeout(45*time.Second), 50*time.Millisecond, "expected first attempt to create marker file before abort")
 
 	startedRunID := ""
-	rootRun := dagrun.DAGRunRef{}
+	rootRun := ir.DAGRunRef{}
 	require.Eventually(t, func() bool {
 		attempt, err := dag.DAGRunStore.LatestAttempt(dag.Context, dag.Name)
 		if err != nil {
@@ -576,7 +576,7 @@ steps:
 			return false
 		}
 
-		rootRun = dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
+		rootRun = ir.NewDAGRunRef(status.Name, status.DAGRunID)
 		startedRunID = status.Nodes[0].SubRuns[0].DAGRunID
 		_, err = dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, startedRunID)
 		return err == nil
@@ -598,7 +598,7 @@ steps:
 	require.Len(t, finalStatus.Nodes, 1)
 	require.Equal(t, ir.NodeAborted, finalStatus.Nodes[0].Status)
 
-	rootRun = dagrun.NewDAGRunRef(finalStatus.Name, finalStatus.DAGRunID)
+	rootRun = ir.NewDAGRunRef(finalStatus.Name, finalStatus.DAGRunID)
 	startedRunID = ""
 	for _, subRun := range finalStatus.Nodes[0].SubRuns {
 		if _, subErr := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID); subErr != nil {
@@ -1771,7 +1771,7 @@ steps:
 	require.Len(t, parallelNode.SubRuns, 2)
 
 	gotNames := make(map[string]struct{}, len(parallelNode.SubRuns))
-	rootRun := dagrun.NewDAGRunRef(dag.Name, dagStatus.DAGRunID)
+	rootRun := ir.NewDAGRunRef(dag.Name, dagStatus.DAGRunID)
 	for _, subRun := range parallelNode.SubRuns {
 		subStatus, err := dag.DAGRunMgr.FindSubDAGRunStatus(dag.Context, rootRun, subRun.DAGRunID)
 		require.NoError(t, err)

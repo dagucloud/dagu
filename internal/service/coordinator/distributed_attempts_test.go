@@ -131,7 +131,7 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 		Now:                 func() time.Time { return now },
 	})
 
-	run := dagrun.NewDAGRunRef("test-dag", "run-1")
+	run := ir.NewDAGRunRef("test-dag", "run-1")
 	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey:      "attempt-key-1",
 		DAGRun:          run,
@@ -268,8 +268,8 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	lease, err := leaseStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
 	assert.Equal(t, "attempt-key-1", lease.AttemptKey)
-	assert.Equal(t, dagrun.NewDAGRunRef("test-dag", "run-1"), lease.DAGRun)
-	assert.Equal(t, dagrun.NewDAGRunRef("test-dag", "run-1"), lease.Root)
+	assert.Equal(t, ir.NewDAGRunRef("test-dag", "run-1"), lease.DAGRun)
+	assert.Equal(t, ir.NewDAGRunRef("test-dag", "run-1"), lease.Root)
 	assert.Equal(t, "test-dag", lease.QueueName)
 	assert.Equal(t, "worker-1", lease.WorkerID)
 	assert.Equal(t, "coord-a", lease.Owner.ID)
@@ -278,8 +278,8 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 
 	record, err := activeStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
-	assert.Equal(t, dagrun.NewDAGRunRef("test-dag", "run-1"), record.DAGRun)
-	assert.Equal(t, dagrun.NewDAGRunRef("test-dag", "run-1"), record.Root)
+	assert.Equal(t, ir.NewDAGRunRef("test-dag", "run-1"), record.DAGRun)
+	assert.Equal(t, ir.NewDAGRunRef("test-dag", "run-1"), record.Root)
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
 	assert.Equal(t, ir.Queued, record.Status)

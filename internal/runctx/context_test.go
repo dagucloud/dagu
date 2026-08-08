@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/stretchr/testify/assert"
@@ -334,7 +333,7 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 
 	ctx := runctx.NewContext(context.Background(), dag, "run-1", logFile,
 		runctx.WithAttemptID("attempt-1"),
-		runctx.WithRootDAGRun(dagrun.NewDAGRunRef("root", "root-run-1")),
+		runctx.WithRootDAGRun(ir.NewDAGRunRef("root", "root-run-1")),
 		runctx.WithTriggerType(ir.TriggerTypeScheduler),
 		runctx.WithTriggerActor("alice"),
 		runctx.WithRunStartedAt(startedAt),
@@ -373,7 +372,7 @@ func TestNewContext_DAGEnvDoesNotExposeRootFieldsForRootRun(t *testing.T) {
 	}
 
 	ctx := runctx.NewContext(context.Background(), dag, "run-1", "dag.log",
-		runctx.WithRootDAGRun(dagrun.NewDAGRunRef("root", "run-1")),
+		runctx.WithRootDAGRun(ir.NewDAGRunRef("root", "run-1")),
 	)
 
 	envs := runctx.GetContext(ctx).UserEnvsMap()

@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -63,7 +63,7 @@ func TestQueueItemHelpersHandleInvalidRecords(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
 	data, err := persis.Encode(queueItemPayload{
 		FileName: "bad-name.json",
-		DAGRun:   dagrun.DAGRunRef{},
+		DAGRun:   ir.DAGRunRef{},
 		QueuedAt: now,
 	})
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestQueueStoreNextQueueItemIDSkipsExistingTimestamp(t *testing.T) {
 
 	ctx := context.Background()
 	queueName := "main"
-	dagRun := dagrun.NewDAGRunRef("dag", "run-same")
+	dagRun := ir.NewDAGRunRef("dag", "run-same")
 	priority := queue.QueuePriorityLow
 	start := time.Date(2026, 1, 1, 0, 0, 0, 1, time.UTC)
 

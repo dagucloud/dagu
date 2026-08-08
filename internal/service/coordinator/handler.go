@@ -635,7 +635,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	labels := labelsForInitialStatus(task, dag)
 	task.Labels = strings.Join(labels, ",")
 
-	ref := dagrun.DAGRunRef{Name: dag.Name, ID: task.DagRunId}
+	ref := ir.DAGRunRef{Name: dag.Name, ID: task.DagRunId}
 	queueDispatchStatus, err := queueDispatchStatusForTask(task)
 	if err != nil {
 		return nil, err
@@ -712,7 +712,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		return nil, fmt.Errorf("failed to open attempt: %w", err)
 	}
 
-	if err := h.writeInitialStatus(ctx, attempt, task, dag.Name, dagrun.DAGRunRef{}, labels); err != nil {
+	if err := h.writeInitialStatus(ctx, attempt, task, dag.Name, ir.DAGRunRef{}, labels); err != nil {
 		return nil, fmt.Errorf("failed to write initial status: %w", err)
 	}
 
@@ -732,7 +732,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 
 // generateRootAttemptKey creates an AttemptKey for root-level tasks (self-referential hierarchy).
 func generateRootAttemptKey(task *coordinatorv1.Task) string {
-	return dagrun.GenerateAttemptKey(task.Target, task.DagRunId, task.Target, task.DagRunId, task.AttemptId)
+	return ir.GenerateAttemptKey(task.Target, task.DagRunId, task.Target, task.DagRunId, task.AttemptId)
 }
 
 func (h *Handler) ensureTaskAttemptMetadata(task *coordinatorv1.Task) {
@@ -753,7 +753,7 @@ func (h *Handler) ensureTaskAttemptMetadata(task *coordinatorv1.Task) {
 		return
 	}
 
-	task.AttemptKey = dagrun.GenerateAttemptKey(
+	task.AttemptKey = ir.GenerateAttemptKey(
 		task.RootDagRunName,
 		task.RootDagRunId,
 		task.Target,
@@ -770,7 +770,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 		return nil, nil
 	}
 
-	rootRef := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	rootRef := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 
 	attempt, err := h.dagRunStore.CreateSubAttempt(ctx, rootRef, task.DagRunId)
 	if err != nil {
@@ -791,7 +791,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 	attempt.SetDAG(dag)
 
 	task.AttemptId = attempt.ID()
-	task.AttemptKey = dagrun.GenerateAttemptKey(
+	task.AttemptKey = ir.GenerateAttemptKey(
 		task.RootDagRunName, task.RootDagRunId,
 		task.Target, task.DagRunId, attempt.ID(),
 	)
@@ -820,7 +820,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 
 // writeInitialStatus writes an initial NotStarted status to the attempt.
 // This ensures the status file is not empty when read before the worker reports its first status.
-func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, task *coordinatorv1.Task, dagName string, root dagrun.DAGRunRef, labels []string) error {
+func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, task *coordinatorv1.Task, dagName string, root ir.DAGRunRef, labels []string) error {
 	initialStatus := dagrun.DAGRunStatus{
 		Name:         dagName,
 		DAGRunID:     task.DagRunId,
@@ -1440,7 +1440,7 @@ func (h *Handler) getOrOpenAttemptForRunningTask(ctx context.Context, task *coor
 		if task.RootDagRunName == "" {
 			return nil, fmt.Errorf("missing root dag run name for sub-dag %s", task.DagRunId)
 		}
-		return h.getOrOpenSubAttempt(ctx, dagrun.DAGRunRef{
+		return h.getOrOpenSubAttempt(ctx, ir.DAGRunRef{
 			Name: task.RootDagRunName,
 			ID:   task.RootDagRunId,
 		}, task.DagRunId)
@@ -1876,7 +1876,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 		attemptID = attempt.ID()
 		runStatus.AttemptID = attemptID
 	}
-	runStatus.AttemptKey = dagrun.GenerateAttemptKey(
+	runStatus.AttemptKey = ir.GenerateAttemptKey(
 		rootRef.Name,
 		rootRef.ID,
 		runStatus.Name,
@@ -2112,7 +2112,7 @@ func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.DAGRun
 // getOrOpenAttempt retrieves an open attempt from cache or opens a new one.
 // Uses double-check locking to avoid holding the mutex during blocking I/O.
 func (h *Handler) getOrOpenAttempt(ctx context.Context, dagName, dagRunID string) (dagrun.DAGRunAttempt, error) {
-	ref := dagrun.DAGRunRef{Name: dagName, ID: dagRunID}
+	ref := ir.DAGRunRef{Name: dagName, ID: dagRunID}
 	return h.getOrOpenAttemptWithFinder(ctx, dagRunID, func() (dagrun.DAGRunAttempt, error) {
 		return h.dagRunStore.FindAttempt(ctx, ref)
 	})
@@ -2121,7 +2121,7 @@ func (h *Handler) getOrOpenAttempt(ctx context.Context, dagName, dagRunID string
 func (h *Handler) resolveLatestAttempt(
 	ctx context.Context,
 	dagName, dagRunID string,
-	rootRef dagrun.DAGRunRef,
+	rootRef ir.DAGRunRef,
 ) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, error) {
 	if h.dagRunStore == nil {
 		return nil, nil, dagrun.ErrDAGRunIDNotFound
@@ -2137,7 +2137,7 @@ func (h *Handler) resolveLatestAttempt(
 		}
 		attempt, err = h.dagRunStore.FindSubAttempt(ctx, rootRef, dagRunID)
 	} else {
-		attempt, err = h.dagRunStore.FindAttempt(ctx, dagrun.DAGRunRef{Name: dagName, ID: dagRunID})
+		attempt, err = h.dagRunStore.FindAttempt(ctx, ir.DAGRunRef{Name: dagName, ID: dagRunID})
 	}
 	if err != nil {
 		return nil, nil, err
@@ -2151,7 +2151,7 @@ func (h *Handler) resolveLatestAttempt(
 }
 
 func (h *Handler) resolveLatestAttemptForRunningTask(ctx context.Context, task *coordinatorv1.RunningTask) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus, error) {
-	rootRef := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	rootRef := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	return h.resolveLatestAttempt(ctx, task.DagName, task.DagRunId, rootRef)
 }
 
@@ -2194,7 +2194,7 @@ func (h *Handler) replaceOpenAttempt(
 
 // getOrOpenSubAttempt retrieves an open sub-attempt from cache or opens a new one.
 // This is used for sub-DAG status reporting in distributed execution.
-func (h *Handler) getOrOpenSubAttempt(ctx context.Context, rootRef dagrun.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
+func (h *Handler) getOrOpenSubAttempt(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	return h.getOrOpenAttemptWithFinder(ctx, subDAGRunID, func() (dagrun.DAGRunAttempt, error) {
 		return h.dagRunStore.FindSubAttempt(ctx, rootRef, subDAGRunID)
 	})
@@ -2297,11 +2297,11 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 	// writes to the coordinator-owned attempt before this status query reads it.
 	if req.RootDagRunName != "" && req.RootDagRunId != "" {
 		// Look up as a sub-DAG
-		rootRef := dagrun.DAGRunRef{Name: req.RootDagRunName, ID: req.RootDagRunId}
+		rootRef := ir.DAGRunRef{Name: req.RootDagRunName, ID: req.RootDagRunId}
 		attempt, err = h.dagRunStore.FindSubAttempt(ctx, rootRef, req.DagRunId)
 	} else {
 		// Look up as a top-level DAG run
-		ref := dagrun.DAGRunRef{Name: req.DagName, ID: req.DagRunId}
+		ref := ir.DAGRunRef{Name: req.DagName, ID: req.DagRunId}
 		attempt, err = h.dagRunStore.FindAttempt(ctx, ref)
 	}
 
@@ -2873,8 +2873,8 @@ func (h *Handler) resolveAttemptIDForStatus(ctx context.Context, status *dagrun.
 
 func (h *Handler) failCurrentRemoteAttempt(
 	ctx context.Context,
-	dagRun dagrun.DAGRunRef,
-	root dagrun.DAGRunRef,
+	dagRun ir.DAGRunRef,
+	root ir.DAGRunRef,
 	attemptID string,
 	attemptKey string,
 	reason string,
@@ -3032,7 +3032,7 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 		attempt = cachedAttempt
 		needsOpen = false
 	} else {
-		ref := dagrun.DAGRunRef{Name: dagName, ID: dagRunID}
+		ref := ir.DAGRunRef{Name: dagName, ID: dagRunID}
 		foundAttempt, err := h.dagRunStore.FindAttempt(storeCtx, ref)
 		if err != nil {
 			logger.Error(ctx, "Failed to find attempt for zombie cleanup",
@@ -3131,13 +3131,13 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 
 	isSubDAG := req.RootDagRunId != "" && req.RootDagRunId != req.DagRunId
 	if isSubDAG {
-		rootRef := dagrun.DAGRunRef{Name: req.RootDagRunName, ID: req.RootDagRunId}
+		rootRef := ir.DAGRunRef{Name: req.RootDagRunName, ID: req.RootDagRunId}
 		attempt, err = h.dagRunStore.FindSubAttempt(ctx, rootRef, req.DagRunId)
 		logger.Info(ctx, "Looking up sub-DAG attempt for cancellation",
 			slog.String("root-dag-run-id", req.RootDagRunId),
 		)
 	} else {
-		ref := dagrun.DAGRunRef{Name: req.DagName, ID: req.DagRunId}
+		ref := ir.DAGRunRef{Name: req.DagName, ID: req.DagRunId}
 		attempt, err = h.dagRunStore.FindAttempt(ctx, ref)
 		logger.Info(ctx, "Looking up DAG attempt for cancellation")
 	}

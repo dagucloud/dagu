@@ -38,7 +38,7 @@ type staleLocalRunFixture struct {
 	server   test.Server
 	dag      test.DAG
 	dagRunID string
-	ref      dagrun.DAGRunRef
+	ref      ir.DAGRunRef
 }
 
 func TestServerProcHeartbeat_StartAPI(t *testing.T) {
@@ -67,7 +67,7 @@ steps:
 	resp.Unmarshal(t, &execResp)
 	require.NotEmpty(t, execResp.DagRunId)
 
-	ref := dagrun.NewDAGRunRef(dagName, execResp.DagRunId)
+	ref := ir.NewDAGRunRef(dagName, execResp.DagRunId)
 	require.Eventually(t, func() bool {
 		statusResp := server.Client().Get(fmt.Sprintf("/api/v1/dags/%s/dag-runs/%s", dagName, execResp.DagRunId)).
 			ExpectStatus(http.StatusOK).
@@ -151,7 +151,7 @@ steps:
 `, dagName))
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
-	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
@@ -164,7 +164,7 @@ steps:
 		0,
 		time.Now().Add(-2*time.Second),
 		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
+		dagrun.WithHierarchyRefs(ref, ir.DAGRunRef{}),
 		dagrun.WithLogFilePath(logFile),
 	)
 	require.NotEmpty(t, status.Nodes)
@@ -192,7 +192,7 @@ steps:
 	}
 }
 
-func requireFailedStaleLocalRun(t *testing.T, server test.Server, ref dagrun.DAGRunRef) {
+func requireFailedStaleLocalRun(t *testing.T, server test.Server, ref ir.DAGRunRef) {
 	t.Helper()
 
 	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunStore, ref)
@@ -213,7 +213,7 @@ steps:
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
-	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
@@ -226,11 +226,11 @@ steps:
 		0,
 		time.Now().Add(-2*time.Second),
 		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
+		dagrun.WithHierarchyRefs(ref, ir.DAGRunRef{}),
 		dagrun.WithLogFilePath(logFile),
 	)
 	status.AttemptID = attempt.ID()
-	status.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())
+	status.AttemptKey = ir.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())
 	status.WorkerID = "worker-1"
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeRunning
@@ -284,7 +284,7 @@ steps:
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
-	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
@@ -297,11 +297,11 @@ steps:
 		0,
 		time.Now().Add(-2*time.Second),
 		dagrun.WithAttemptID(attempt.ID()),
-		dagrun.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
+		dagrun.WithHierarchyRefs(ref, ir.DAGRunRef{}),
 		dagrun.WithLogFilePath(logFile),
 	)
 	status.AttemptID = attempt.ID()
-	status.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())
+	status.AttemptKey = ir.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeRunning
 

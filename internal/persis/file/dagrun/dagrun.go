@@ -156,7 +156,7 @@ func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fi
 
 // CreateSubDAGRun creates a new sub dag-run with the given timestamp and dag-run ID.
 func (dr DAGRun) CreateSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, error) {
-	if err := dagrun.ValidateDAGRunID(dagRunID); err != nil {
+	if err := ir.ValidateDAGRunID(dagRunID); err != nil {
 		return nil, fmt.Errorf("invalid sub dag-run ID: %w", err)
 	}
 	dir := filepath.Join(dr.baseDir, SubDAGRunsDir, dagRunID)
@@ -168,7 +168,7 @@ func (dr DAGRun) CreateSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, e
 
 // FindSubDAGRun searches for a sub dag-run by its run ID.
 func (dr DAGRun) FindSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, error) {
-	if err := dagrun.ValidateDAGRunID(dagRunID); err != nil {
+	if err := ir.ValidateDAGRunID(dagRunID); err != nil {
 		return nil, fmt.Errorf("invalid sub dag-run ID: %w", err)
 	}
 	for _, dir := range []string{

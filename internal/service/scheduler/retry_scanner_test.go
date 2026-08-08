@@ -734,7 +734,7 @@ func (s *retryScannerStore) ListStatusesPage(ctx context.Context, opts ...dagrun
 
 func (s *retryScannerStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	dagRun dagrun.DAGRunRef,
+	dagRun ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
 	mutate func(*dagrun.DAGRunStatus) error,
@@ -755,7 +755,7 @@ func (s *retryScannerStore) CompareAndSwapLatestAttemptStatus(
 	return cloneRetryStatus(attempt.status), true, nil
 }
 
-func (s *retryScannerStore) FindAttempt(_ context.Context, dagRun dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *retryScannerStore) FindAttempt(_ context.Context, dagRun ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	s.findAttemptCalls++
 	attempt, ok := s.attempts[dagRun.String()]
 	if !ok {
@@ -764,11 +764,11 @@ func (s *retryScannerStore) FindAttempt(_ context.Context, dagRun dagrun.DAGRunR
 	return attempt, nil
 }
 
-func (s *retryScannerStore) FindSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (s *retryScannerStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected FindSubAttempt call")
 }
 
-func (s *retryScannerStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (s *retryScannerStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	return nil, errors.New("unexpected CreateSubAttempt call")
 }
 
@@ -776,11 +776,11 @@ func (s *retryScannerStore) RemoveOldDAGRuns(context.Context, string, int, ...da
 	return nil, nil
 }
 
-func (s *retryScannerStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
+func (s *retryScannerStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	return nil
 }
 
-func (s *retryScannerStore) mustStatus(ref dagrun.DAGRunRef) *dagrun.DAGRunStatus {
+func (s *retryScannerStore) mustStatus(ref ir.DAGRunRef) *dagrun.DAGRunStatus {
 	attempt, ok := s.attempts[ref.String()]
 	if !ok {
 		return nil

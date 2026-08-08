@@ -60,7 +60,7 @@ func runRestart(ctx *Context, args []string) error {
 	var attempt dagrun.DAGRunAttempt
 	if dagRunID != "" {
 		// Retrieve the previous run for the specified dag-run ID.
-		dagRunRef := dagrun.NewDAGRunRef(name, dagRunID)
+		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
 		attempt, err = ctx.DAGRunStore.FindAttempt(ctx, dagRunRef)
 		if err != nil {
 			return fmt.Errorf("failed to find the run for dag-run ID %s: %w", dagRunID, err)
@@ -117,7 +117,7 @@ func handleRestartProcess(ctx *Context, d *ir.DAG, oldDagRunID string, scheduleT
 		d,
 		newDagRunID,
 		runOptions{
-			root:         dagrun.NewDAGRunRef(d.Name, newDagRunID),
+			root:         ir.NewDAGRunRef(d.Name, newDagRunID),
 			triggerType:  ir.TriggerTypeUnknown,
 			scheduleTime: scheduleTime,
 			noReuse:      noReuse,
@@ -185,7 +185,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunI
 			ProfileStore:             as.ProfileStore,
 			ServiceRegistry:          ctx.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
-			RootDAGRun:               dagrun.NewDAGRunRef(dag.Name, dagRunID),
+			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             scheduleTime,

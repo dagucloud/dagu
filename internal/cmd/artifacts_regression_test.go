@@ -59,7 +59,7 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 
 	require.DirExists(t, archiveDir)
 
-	err = ctx.DAGRunStore.RemoveDAGRun(ctx.Context, dagrun.NewDAGRunRef(dag.Name, dagRunID))
+	err = ctx.DAGRunStore.RemoveDAGRun(ctx.Context, ir.NewDAGRunRef(dag.Name, dagRunID))
 	require.NoError(t, err)
 	assert.NoDirExists(t, archiveDir)
 }

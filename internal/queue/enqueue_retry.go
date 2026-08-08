@@ -113,7 +113,7 @@ func EnqueueRetry(
 func rollbackQueuedRetry(
 	ctx context.Context,
 	dagRunStore dagrun.DAGRunStore,
-	dagRun dagrun.DAGRunRef,
+	dagRun ir.DAGRunRef,
 	queued *dagrun.DAGRunStatus,
 	original *dagrun.DAGRunStatus,
 ) error {

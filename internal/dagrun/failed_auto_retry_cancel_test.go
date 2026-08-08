@@ -16,7 +16,7 @@ import (
 type failedAutoRetryCancelStoreStub struct {
 	compareAndSwap func(
 		ctx context.Context,
-		dagRun DAGRunRef,
+		dagRun ir.DAGRunRef,
 		expectedAttemptID string,
 		expectedStatus ir.Status,
 		mutate func(*DAGRunStatus) error,
@@ -25,7 +25,7 @@ type failedAutoRetryCancelStoreStub struct {
 
 func (s *failedAutoRetryCancelStoreStub) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	dagRun DAGRunRef,
+	dagRun ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
 	mutate func(*DAGRunStatus) error,
@@ -61,7 +61,7 @@ func TestFailedAutoRetryCancelEligibilityOf(t *testing.T) {
 	t.Run("NotRoot", func(t *testing.T) {
 		t.Parallel()
 		status := *base
-		status.Parent = NewDAGRunRef("retry-dag", "parent-run")
+		status.Parent = ir.NewDAGRunRef("retry-dag", "parent-run")
 		assert.Equal(t, FailedAutoRetryCancelNotRoot, FailedAutoRetryCancelEligibilityOf(&status))
 	})
 
@@ -110,7 +110,7 @@ func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 			&failedAutoRetryCancelStoreStub{
 				compareAndSwap: func(
 					_ context.Context,
-					dagRun DAGRunRef,
+					dagRun ir.DAGRunRef,
 					expectedAttemptID string,
 					expectedStatus ir.Status,
 					mutate func(*DAGRunStatus) error,
@@ -138,7 +138,7 @@ func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 			&failedAutoRetryCancelStoreStub{
 				compareAndSwap: func(
 					_ context.Context,
-					_ DAGRunRef,
+					_ ir.DAGRunRef,
 					_ string,
 					_ ir.Status,
 					_ func(*DAGRunStatus) error,
@@ -175,7 +175,7 @@ func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 			&failedAutoRetryCancelStoreStub{
 				compareAndSwap: func(
 					_ context.Context,
-					_ DAGRunRef,
+					_ ir.DAGRunRef,
 					_ string,
 					_ ir.Status,
 					_ func(*DAGRunStatus) error,
@@ -200,7 +200,7 @@ func TestCancelFailedAutoRetryPendingRun(t *testing.T) {
 			&failedAutoRetryCancelStoreStub{
 				compareAndSwap: func(
 					_ context.Context,
-					_ DAGRunRef,
+					_ ir.DAGRunRef,
 					_ string,
 					_ ir.Status,
 					_ func(*DAGRunStatus) error,
