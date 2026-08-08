@@ -95,7 +95,14 @@ describe('DAGRunTable', () => {
     );
 
     expect(screen.getByText('Scheduled At')).toBeInTheDocument();
-    expect(screen.getByText('2026-03-13T10:00:00Z')).toBeInTheDocument();
+    expect(screen.getByText('2026-03-13 10:00:00')).toHaveAttribute(
+      'title',
+      '2026-03-13T10:00:00Z'
+    );
+    expect(screen.getByRole('link', { name: 'scheduled-dag' })).toHaveAttribute(
+      'href',
+      '/dag-runs/scheduled-dag/run-1'
+    );
     // Queued At renders as relative time with the absolute time in the tooltip
     expect(screen.getByTitle('2026-03-13T10:00:30Z')).toBeInTheDocument();
     expect(screen.getByText('1/3 auto retries')).toBeInTheDocument();

@@ -92,4 +92,20 @@ describe('DAGDetailsContent', () => {
       'true'
     );
   });
+
+  it('keeps compact navigation labels visible', () => {
+    renderContent();
+
+    for (const label of [
+      'Latest Run',
+      'Incidents',
+      'Spec',
+      'Webhook',
+      'Settings',
+      'Notifications',
+      'History',
+    ]) {
+      expect(screen.getAllByText(label)).toHaveLength(2);
+    }
+  });
 });

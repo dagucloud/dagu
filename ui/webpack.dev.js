@@ -9,11 +9,15 @@ module.exports = merge(common, {
   devtool: 'eval-source-map',
   profile: true,
   devServer: {
-    historyApiFallback: true,
+    historyApiFallback: { disableDotRule: true },
     port: 8081,
     proxy: [
       {
-        context: ['/api', '/assets/dag.schema.json', '/assets/config.schema.json'],
+        context: [
+          '/api',
+          '/assets/dag.schema.json',
+          '/assets/config.schema.json',
+        ],
         target: 'http://localhost:8080',
         changeOrigin: true,
         ws: true,

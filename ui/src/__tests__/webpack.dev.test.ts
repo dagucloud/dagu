@@ -11,10 +11,18 @@ function proxyContexts(config: {
     }>;
   };
 }): string[] {
-  return (config.devServer?.proxy ?? []).flatMap((entry) => entry.context ?? []);
+  return (config.devServer?.proxy ?? []).flatMap(
+    (entry) => entry.context ?? []
+  );
 }
 
 describe('webpack dev server proxy', () => {
+  it('serves the SPA for dotted client-side routes', () => {
+    expect(webpackDevConfig.devServer.historyApiFallback).toEqual({
+      disableDotRule: true,
+    });
+  });
+
   it('proxies schema asset requests to the backend server', () => {
     expect(proxyContexts(webpackDevConfig)).toEqual(
       expect.arrayContaining([

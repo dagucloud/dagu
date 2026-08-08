@@ -310,7 +310,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
             <div className="flex min-w-max space-x-1">
               {isModal ? (
                 <ModalLinkTab
-                  label=""
+                  label="Latest Run"
                   value="status"
                   isActive={activeTab === 'status'}
                   icon={PlayCircle}
@@ -320,7 +320,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               ) : (
                 <LinkTab
-                  label=""
+                  label="Latest Run"
                   value={scopedUrl(baseUrl)}
                   isActive={activeTab === 'status'}
                   icon={PlayCircle}
@@ -331,7 +331,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal ? (
                 <ModalLinkTab
-                  label=""
+                  label="Incidents"
                   value="incidents"
                   isActive={activeTab === 'incidents'}
                   icon={AlertTriangle}
@@ -341,7 +341,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               ) : (
                 <LinkTab
-                  label=""
+                  label="Incidents"
                   value={scopedUrl(`${baseUrl}/incidents`)}
                   isActive={activeTab === 'incidents'}
                   icon={AlertTriangle}
@@ -352,7 +352,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal ? (
                 <ModalLinkTab
-                  label=""
+                  label="Spec"
                   value="spec"
                   isActive={activeTab === 'spec'}
                   icon={FileCode}
@@ -362,7 +362,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               ) : (
                 <LinkTab
-                  label=""
+                  label="Spec"
                   value={scopedUrl(`${baseUrl}/spec`)}
                   isActive={activeTab === 'spec'}
                   icon={FileCode}
@@ -373,7 +373,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal ? (
                 <ModalLinkTab
-                  label=""
+                  label="Webhook"
                   value="webhook"
                   isActive={activeTab === 'webhook'}
                   icon={Webhook}
@@ -383,7 +383,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               ) : (
                 <LinkTab
-                  label=""
+                  label="Webhook"
                   value={scopedUrl(`${baseUrl}/webhook`)}
                   isActive={activeTab === 'webhook'}
                   icon={Webhook}
@@ -394,7 +394,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal ? (
                 <ModalLinkTab
-                  label=""
+                  label="Settings"
                   value="settings"
                   isActive={activeTab === 'settings'}
                   icon={SettingsIcon}
@@ -404,7 +404,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               ) : (
                 <LinkTab
-                  label=""
+                  label="Settings"
                   value={scopedUrl(`${baseUrl}/settings`)}
                   isActive={activeTab === 'settings'}
                   icon={SettingsIcon}
@@ -415,7 +415,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal ? (
                 <ModalLinkTab
-                  label=""
+                  label="Notifications"
                   value="notifications"
                   isActive={activeTab === 'notifications'}
                   icon={Bell}
@@ -425,7 +425,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               ) : (
                 <LinkTab
-                  label=""
+                  label="Notifications"
                   value={scopedUrl(`${baseUrl}/notifications`)}
                   isActive={activeTab === 'notifications'}
                   icon={Bell}
@@ -436,7 +436,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal ? (
                 <ModalLinkTab
-                  label=""
+                  label="History"
                   value="history"
                   isActive={activeTab === 'history'}
                   icon={History}
@@ -446,7 +446,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               ) : (
                 <LinkTab
-                  label=""
+                  label="History"
                   value={scopedUrl(`${baseUrl}/history`)}
                   isActive={activeTab === 'history'}
                   icon={History}
@@ -458,7 +458,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
               {(activeTab === 'log' || activeTab === 'dagRun-log') &&
                 (isModal ? (
                   <ModalLinkTab
-                    label=""
+                    label="Log"
                     value={activeTab}
                     isActive={true}
                     icon={ScrollText}
@@ -468,7 +468,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   />
                 ) : (
                   <LinkTab
-                    label=""
+                    label="Log"
                     value={scopedUrl(baseUrl)}
                     isActive={true}
                     icon={ScrollText}

@@ -290,7 +290,29 @@ function DAGsContent() {
     (view) => view.isDefault
   )?.id;
   const previousWorkspaceKeyRef = React.useRef(workspaceKey);
-  const [selectedDAG, setSelectedDAG] = React.useState<string | null>(null);
+  const [selectedDAG, setSelectedDAG] = React.useState<string | null>(() =>
+    query.get('selectedDAG')
+  );
+  const updateSelectedDAG = React.useCallback(
+    (fileName: string | null, replace = false) => {
+      setSelectedDAG(fileName);
+      const params = new URLSearchParams(location.search);
+      if (fileName) {
+        params.set('selectedDAG', fileName);
+      } else {
+        params.delete('selectedDAG');
+      }
+      const search = params.toString();
+      navigate(
+        {
+          pathname: location.pathname,
+          search: search ? `?${search}` : '',
+        },
+        { replace }
+      );
+    },
+    [location.pathname, location.search, navigate]
+  );
   const [olderDAGFiles, setOlderDAGFiles] = React.useState<
     components['schemas']['DAGFile'][]
   >([]);
@@ -333,12 +355,16 @@ function DAGsContent() {
   );
 
   React.useEffect(() => {
+    setSelectedDAG(query.get('selectedDAG'));
+  }, [query]);
+
+  React.useEffect(() => {
     if (previousWorkspaceKeyRef.current === workspaceKey) {
       return;
     }
     previousWorkspaceKeyRef.current = workspaceKey;
-    setSelectedDAG(null);
-  }, [workspaceKey]);
+    updateSelectedDAG(null, true);
+  }, [updateSelectedDAG, workspaceKey]);
 
   const resetLoadedPages = React.useCallback(() => {
     paginationGenerationRef.current += 1;
@@ -716,7 +742,7 @@ function DAGsContent() {
 
       if (deletedFileNames.length > 0) {
         if (selectedDAG && deletedFileNames.includes(selectedDAG)) {
-          setSelectedDAG(null);
+          updateSelectedDAG(null, true);
         }
         resetLoadedPages();
         await mutate();
@@ -724,7 +750,14 @@ function DAGsContent() {
 
       return results;
     },
-    [client, mutate, remoteNode, resetLoadedPages, selectedDAG]
+    [
+      client,
+      mutate,
+      remoteNode,
+      resetLoadedPages,
+      selectedDAG,
+      updateSelectedDAG,
+    ]
   );
 
   const handleRenameDAG = React.useCallback(
@@ -741,17 +774,25 @@ function DAGsContent() {
       }
 
       if (selectedDAG === fileName) {
-        setSelectedDAG(newFileName);
+        updateSelectedDAG(newFileName, true);
       }
       resetLoadedPages();
       await mutate();
     },
-    [client, mutate, remoteNode, resetLoadedPages, selectedDAG]
+    [
+      client,
+      mutate,
+      remoteNode,
+      resetLoadedPages,
+      selectedDAG,
+      updateSelectedDAG,
+    ]
   );
 
-  const handleSelectDAG = React.useCallback((fileName: string) => {
-    setSelectedDAG(fileName);
-  }, []);
+  const handleSelectDAG = React.useCallback(
+    (fileName: string) => updateSelectedDAG(fileName),
+    [updateSelectedDAG]
+  );
 
   React.useEffect(() => {
     appBarContext.setTitle('Workflows');
@@ -1156,7 +1197,7 @@ function DAGsContent() {
         <DAGDetailsModal
           fileName={selectedDAG}
           isOpen={!!selectedDAG}
-          onClose={() => setSelectedDAG(null)}
+          onClose={() => updateSelectedDAG(null, true)}
         />
       )}
     </div>

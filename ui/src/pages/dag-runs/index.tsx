@@ -4,7 +4,7 @@
 import dayjs from 'dayjs';
 import { Layers, List, Search } from 'lucide-react';
 import React from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Status } from '../../api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -126,6 +126,7 @@ function supportsIntersectionObserver(): boolean {
 
 function DAGRuns() {
   const location = useLocation();
+  const navigate = useNavigate();
   const appBarContext = React.useContext(AppBarContext);
   const config = useConfig();
   const { preferences, updatePreference } = useUserPreferences();
@@ -254,22 +255,73 @@ function DAGRuns() {
   const [selectedDAGRun, setSelectedDAGRun] = React.useState<{
     name: string;
     dagRunId: string;
-  } | null>(null);
+  } | null>(() => {
+    const params = new URLSearchParams(location.search);
+    const name = params.get('selectedRunName');
+    const dagRunId = params.get('selectedRunId');
+    return name && dagRunId ? { name, dagRunId } : null;
+  });
   const [selectedDAGRunInitialTab, setSelectedDAGRunInitialTab] =
-    React.useState<StatusTab>('status');
+    React.useState<StatusTab>(() =>
+      new URLSearchParams(location.search).get('selectedRunTab') === 'artifacts'
+        ? 'artifacts'
+        : 'status'
+    );
+  const updateSelectedDAGRun = React.useCallback(
+    (
+      dagRun: { name: string; dagRunId: string } | null,
+      initialTab: StatusTab = 'status',
+      replace = false
+    ) => {
+      setSelectedDAGRun(dagRun);
+      setSelectedDAGRunInitialTab(initialTab);
+      const params = new URLSearchParams(location.search);
+      if (dagRun) {
+        params.set('selectedRunName', dagRun.name);
+        params.set('selectedRunId', dagRun.dagRunId);
+        if (initialTab === 'status') {
+          params.delete('selectedRunTab');
+        } else {
+          params.set('selectedRunTab', initialTab);
+        }
+      } else {
+        params.delete('selectedRunName');
+        params.delete('selectedRunId');
+        params.delete('selectedRunTab');
+      }
+      const search = params.toString();
+      navigate(
+        {
+          pathname: location.pathname,
+          search: search ? `?${search}` : '',
+        },
+        { replace }
+      );
+    },
+    [location.pathname, location.search, navigate]
+  );
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const name = params.get('selectedRunName');
+    const dagRunId = params.get('selectedRunId');
+    setSelectedDAGRun(name && dagRunId ? { name, dagRunId } : null);
+    setSelectedDAGRunInitialTab(
+      params.get('selectedRunTab') === 'artifacts' ? 'artifacts' : 'status'
+    );
+  }, [location.search]);
+
   const selectDAGRun = React.useCallback(
     (dagRun: { name: string; dagRunId: string } | null) => {
-      setSelectedDAGRunInitialTab('status');
-      setSelectedDAGRun(dagRun);
+      updateSelectedDAGRun(dagRun);
     },
-    []
+    [updateSelectedDAGRun]
   );
   const viewDAGRunArtifacts = React.useCallback(
     (dagRun: { name: string; dagRunId: string }) => {
-      setSelectedDAGRunInitialTab('artifacts');
-      setSelectedDAGRun(dagRun);
+      updateSelectedDAGRun(dagRun, 'artifacts');
     },
-    []
+    [updateSelectedDAGRun]
   );
   const loadMoreSentinelRef = React.useRef<HTMLDivElement>(null);
   const autoLoadPendingRef = React.useRef(false);
@@ -857,10 +909,7 @@ function DAGRuns() {
               placeholder="Filter by labels..."
               className="h-9 min-w-[170px] max-w-[220px]"
             />
-            <Button
-              onClick={() => handleSearch()}
-              className="px-4 font-medium"
-            >
+            <Button onClick={() => handleSearch()} className="px-4 font-medium">
               <Search className="mr-1.5 h-4 w-4" />
               Search
             </Button>
@@ -1039,7 +1088,7 @@ function DAGRuns() {
           name={selectedDAGRun.name}
           dagRunId={selectedDAGRun.dagRunId}
           isOpen={!!selectedDAGRun}
-          onClose={() => setSelectedDAGRun(null)}
+          onClose={() => updateSelectedDAGRun(null, 'status', true)}
           initialTab={selectedDAGRunInitialTab}
         />
       )}

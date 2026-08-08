@@ -311,8 +311,7 @@ function NavGroup({
   children,
 }: NavGroupProps): React.ReactElement {
   const location = useLocation();
-  const isChildActive =
-    !suppressActive && isBasePathActive(location, basePath);
+  const isChildActive = !suppressActive && isBasePathActive(location, basePath);
   const isGroupTargetActive =
     !suppressActive && to ? isNavTargetActive(location, to) : false;
 
@@ -415,7 +414,11 @@ function NavGroup({
               to={to}
               onClick={onClick}
               className="flex h-full min-w-0 flex-1 items-center gap-3 px-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
-              aria-current={isGroupTargetActive ? 'page' : undefined}
+              aria-current={
+                isGroupTargetActive || (isChildActive && !effectivelyExpanded)
+                  ? 'page'
+                  : undefined
+              }
             >
               {labelNode}
             </Link>
@@ -449,6 +452,8 @@ function NavGroup({
         )}
       </div>
       <div
+        aria-hidden={!effectivelyExpanded}
+        inert={!effectivelyExpanded ? true : undefined}
         style={{
           transition:
             'max-height 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms cubic-bezier(0.4, 0, 0.2, 1)',

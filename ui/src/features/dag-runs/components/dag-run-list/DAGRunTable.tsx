@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { SlidersHorizontal } from 'lucide-react';
 import { components, Status } from '../../../../api/v1/schema';
 import {
@@ -255,6 +255,14 @@ function DAGRunTable({
   };
 
   const timezoneInfo = getTimezoneInfo();
+  const formatScheduleTime = (scheduleTime: string): string => {
+    const value = dayjs(scheduleTime);
+    const configuredTime =
+      config.tzOffsetInSec === undefined
+        ? value
+        : value.utcOffset(config.tzOffsetInSec / 60);
+    return configuredTime.format('YYYY-MM-DD HH:mm:ss');
+  };
   const showScheduleColumn = dagRuns.some((dagRun) =>
     Boolean(dagRun.scheduleTime)
   );
@@ -335,7 +343,13 @@ function DAGRunTable({
                     />
                   </div>
                 )}
-                <div className="font-normal text-sm">{dagRun.name}</div>
+                <Link
+                  to={`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`}
+                  className="font-normal text-sm hover:underline"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {dagRun.name}
+                </Link>
               </div>
               <div className="flex items-start gap-2">
                 {onViewArtifacts && (
@@ -377,7 +391,9 @@ function DAGRunTable({
                 <div className="flex justify-between items-center">
                   <div className="whitespace-normal break-words">
                     <span className="text-muted-foreground">Scheduled: </span>
-                    {dagRun.scheduleTime}
+                    <span title={dagRun.scheduleTime}>
+                      {formatScheduleTime(dagRun.scheduleTime)}
+                    </span>
                   </div>
                 </div>
               )}
@@ -539,7 +555,13 @@ function DAGRunTable({
               )}
               <TableCell className="py-1 px-2 font-normal">
                 <div className="flex items-center gap-2">
-                  <span className="min-w-0 truncate">{dagRun.name}</span>
+                  <Link
+                    to={`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`}
+                    className="min-w-0 truncate hover:underline"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {dagRun.name}
+                  </Link>
                   {onViewArtifacts && (
                     <DAGRunArtifactsButton
                       dagRun={dagRun}
@@ -589,7 +611,13 @@ function DAGRunTable({
               )}
               {showScheduleColumn && (
                 <TableCell className="py-1 px-2 text-left whitespace-normal break-words">
-                  {dagRun.scheduleTime || '-'}
+                  {dagRun.scheduleTime ? (
+                    <span title={dagRun.scheduleTime}>
+                      {formatScheduleTime(dagRun.scheduleTime)}
+                    </span>
+                  ) : (
+                    '-'
+                  )}
                 </TableCell>
               )}
               <TableCell className="py-1 px-2 text-left">

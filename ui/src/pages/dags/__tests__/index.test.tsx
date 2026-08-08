@@ -75,8 +75,19 @@ vi.mock('@/hooks/useViews', () => ({
 }));
 
 vi.mock('@/features/dags/components/dag-details', () => ({
-  DAGDetailsModal: ({ fileName }: { fileName: string }) => (
-    <div role="dialog">Workflow modal for {fileName}</div>
+  DAGDetailsModal: ({
+    fileName,
+    onClose,
+  }: {
+    fileName: string;
+    onClose: () => void;
+  }) => (
+    <div role="dialog">
+      Workflow modal for {fileName}
+      <button type="button" onClick={onClose}>
+        Close workflow
+      </button>
+    </div>
   ),
 }));
 
@@ -1040,6 +1051,20 @@ describe('DagsPage', () => {
     expect(
       screen.getByRole('button', { name: 'Open demo workflow' })
     ).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?selectedDAG=demo.yaml'
+    );
+  });
+
+  it('restores and closes workflow details from the URL', () => {
+    renderPage(vi.fn(), '/dags?selectedDAG=demo.yaml');
+
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'Workflow modal for demo.yaml'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close workflow' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location-search')).toHaveTextContent('');
   });
 
   it('loads and appends the next workflow page from the footer control', async () => {

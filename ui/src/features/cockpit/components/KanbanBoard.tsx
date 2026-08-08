@@ -29,6 +29,21 @@ export function KanbanBoard({
     () => normalizeViewColumns(visibleColumns),
     [visibleColumns]
   );
+  const displayedColumns = useMemo(
+    () =>
+      visibleColumns?.length
+        ? columnOrder
+        : columnOrder.filter((column) => {
+            const data = columns[column];
+            return (
+              data.runs.length > 0 ||
+              data.hasMore ||
+              data.isInitialLoading ||
+              Boolean(data.error)
+            );
+          }),
+    [columnOrder, columns, visibleColumns]
+  );
 
   if (isMobile) {
     return (
@@ -42,8 +57,8 @@ export function KanbanBoard({
   }
 
   return (
-    <div className="flex gap-3 min-h-0 overflow-x-auto p-1 max-h-[50vh]">
-      {columnOrder.map((column) => (
+    <div className="flex gap-3 min-h-0 overflow-x-auto p-1 max-h-[50vh] [&>section]:min-w-[260px] [&>section]:max-w-[420px]">
+      {displayedColumns.map((column) => (
         <KanbanColumn
           key={column}
           title={VIEW_COLUMN_LABELS[column]}

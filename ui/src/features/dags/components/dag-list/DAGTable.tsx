@@ -221,9 +221,13 @@ function DAGCard({
               />
             </div>
           )}
-          <div className="font-medium text-xs truncate flex-1 min-w-0">
+          <Link
+            to={`/dags/${fileName}`}
+            className="font-medium text-xs truncate flex-1 min-w-0 hover:underline"
+            onClick={(event) => event.stopPropagation()}
+          >
             {title}
-          </div>
+          </Link>
         </div>
         <StatusChip status={status} size="xs">
           {statusLabel}
@@ -600,9 +604,13 @@ const defaultColumns = [
             style={{ paddingLeft: `${row.depth * 1.5}rem` }}
             className="space-y-0.5 min-w-0"
           >
-            <div className="font-medium text-foreground tracking-tight text-xs truncate">
+            <Link
+              to={`/dags/${data.dag.fileName}`}
+              className="block font-medium text-foreground tracking-tight text-xs truncate hover:underline"
+              onClick={(event) => event.stopPropagation()}
+            >
               {getValue()}
-            </div>
+            </Link>
 
             {description && (
               <div className="text-xs text-muted-foreground whitespace-normal leading-tight line-clamp-2">

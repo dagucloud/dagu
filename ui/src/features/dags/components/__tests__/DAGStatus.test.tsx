@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -226,6 +232,32 @@ afterEach(() => {
 });
 
 describe('DAGStatus', () => {
+  it('surfaces the failed step and error before the graph details', () => {
+    const failedRun = {
+      ...dagRun,
+      nodes: [
+        {
+          ...dagRun.nodes[0],
+          status: NodeStatus.Failed,
+          statusLabel: NodeStatusLabel.failed,
+          error: 'connection refused',
+        },
+      ],
+    } as components['schemas']['DAGRunDetails'];
+
+    render(dagStatusView(failedRun));
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Failed at step');
+    expect(alert).toHaveTextContent('connection refused');
+    expect(
+      within(alert).getByRole('button', { name: 'View stderr' })
+    ).toBeInTheDocument();
+    expect(
+      within(alert).getByRole('button', { name: 'Inspect step' })
+    ).toBeInTheDocument();
+  });
+
   it('passes its workflow filename to the step table', () => {
     vi.mocked(useClient).mockReturnValue({
       PATCH: patchMock,

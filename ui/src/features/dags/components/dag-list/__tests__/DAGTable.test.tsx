@@ -145,6 +145,14 @@ describe('DAGTable', () => {
     vi.unstubAllGlobals();
   });
 
+  it('links workflow names to their canonical detail pages', () => {
+    renderTable();
+
+    for (const link of screen.getAllByRole('link', { name: 'example' })) {
+      expect(link).toHaveAttribute('href', '/dags/example.yaml');
+    }
+  });
+
   it('uses the same control surface sizing as the executions page', () => {
     renderTable();
 
