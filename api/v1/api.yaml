@@ -14588,6 +14588,7 @@ components:
       enum:
         - dag
         - doc
+        - doc-asset
 
     SyncItem:
       type: object
@@ -14735,12 +14736,25 @@ components:
           description: "Relative file path with extension"
         status:
           $ref: "#/components/schemas/SyncStatus"
+        kind:
+          $ref: "#/components/schemas/SyncItemKind"
+        binary:
+          type: boolean
+          description: "True for binary items; content fields are omitted and sizes are reported instead"
         localContent:
           type: string
-          description: "Current local file content"
+          description: "Current local file content. Omitted for binary items."
         remoteContent:
           type: string
-          description: "Content from remote repository"
+          description: "Content from remote repository. Omitted for binary items."
+        localSize:
+          type: integer
+          format: int64
+          description: "Local file size in bytes. Only set for binary items."
+        remoteSize:
+          type: integer
+          format: int64
+          description: "Remote file size in bytes. Only set for binary items."
         remoteCommit:
           type: string
           description: "Commit hash being compared against"
@@ -14754,7 +14768,6 @@ components:
         - itemId
         - filePath
         - status
-        - localContent
 
     SyncResultResponse:
       type: object

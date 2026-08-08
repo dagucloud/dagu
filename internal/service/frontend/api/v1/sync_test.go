@@ -773,20 +773,30 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 			FileExtension: ".MD",
 			ModifiedAt:    &now,
 		},
+		"docs/.attachments/guides/deploy/logo.png": {
+			Status:     gitsync.StatusSynced,
+			Kind:       gitsync.SyncItemKindDocAsset,
+			ModifiedAt: &now,
+		},
 	}
 
 	apiItems := toAPISyncItems(states)
-	require.Len(t, apiItems, 3)
+	require.Len(t, apiItems, 4)
 
 	assert.Equal(t, "alpha", apiItems[0].ItemId)
 	assert.Equal(t, "alpha.yml", apiItems[0].FilePath)
 	assert.Equal(t, "alpha.yml", apiItems[0].DisplayName)
 
-	assert.Equal(t, "docs/operations/deploy", apiItems[1].ItemId)
-	assert.Equal(t, "docs/operations/deploy.MD", apiItems[1].FilePath)
-	assert.Equal(t, apigen.SyncItemKindDoc, apiItems[1].Kind)
+	// Asset IDs already carry their extension; the path passes through.
+	assert.Equal(t, "docs/.attachments/guides/deploy/logo.png", apiItems[1].ItemId)
+	assert.Equal(t, "docs/.attachments/guides/deploy/logo.png", apiItems[1].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDocAsset, apiItems[1].Kind)
 
-	assert.Equal(t, "reports/monthly", apiItems[2].ItemId)
-	assert.Equal(t, "reports/monthly.yaml", apiItems[2].FilePath)
-	assert.Equal(t, apigen.SyncItemKindDag, apiItems[2].Kind)
+	assert.Equal(t, "docs/operations/deploy", apiItems[2].ItemId)
+	assert.Equal(t, "docs/operations/deploy.MD", apiItems[2].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDoc, apiItems[2].Kind)
+
+	assert.Equal(t, "reports/monthly", apiItems[3].ItemId)
+	assert.Equal(t, "reports/monthly.yaml", apiItems[3].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDag, apiItems[3].Kind)
 }
