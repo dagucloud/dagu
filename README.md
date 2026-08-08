@@ -116,7 +116,7 @@ npm install -g --ignore-scripts=false @dagucloud/dagu
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/dagucloud/dagu/main/scripts/installer.ps1 | iex
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/dagucloud/dagu/main/scripts/installer.ps1)))
 ```
 
 **Docker:**

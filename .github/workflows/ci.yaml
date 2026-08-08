@@ -362,6 +362,9 @@ jobs:
             [Text.Encoding]::UTF8
           )
 
+          $Service = ""
+          & ([scriptblock]::Create($source)) -NoPrompt -DryRun
+
           & ([scriptblock]::Create($source)) `
             -NoPrompt -DryRun -Service no -OpenBrowser no `
             -InstallDir "$env:RUNNER_TEMP\dagu-user-install"

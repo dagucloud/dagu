@@ -26,12 +26,43 @@ param(
     [switch]$VerboseMode
 )
 
+# Installer state requires a script-file scope.
+if ([string]::IsNullOrWhiteSpace($MyInvocation.MyCommand.Path)) {
+    $stagedInstaller = Join-Path ([IO.Path]::GetTempPath()) ("dagu-installer-" + [guid]::NewGuid().ToString("N") + ".ps1")
+    $forwardArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $stagedInstaller)
+    foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+        if ($entry.Value -is [System.Management.Automation.SwitchParameter]) {
+            if ($entry.Value.IsPresent) {
+                $forwardArgs += "-$($entry.Key)"
+            }
+            continue
+        }
+        foreach ($value in @($entry.Value)) {
+            $forwardArgs += @("-$($entry.Key)", [string]$value)
+        }
+    }
+
+    $exitCode = 0
+    try {
+        [IO.File]::WriteAllText($stagedInstaller, $MyInvocation.MyCommand.Definition, [Text.Encoding]::UTF8)
+        & powershell.exe @forwardArgs
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        Remove-Item -LiteralPath $stagedInstaller -Force -ErrorAction SilentlyContinue
+    }
+    if ($exitCode -ne 0) {
+        throw "The Dagu installer exited with code $exitCode."
+    }
+    return
+}
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Script:InstallerSource = $MyInvocation.MyCommand.Definition
+$Script:InstallerSource = [IO.File]::ReadAllText($MyInvocation.MyCommand.Path, [Text.Encoding]::UTF8)
 $Script:ReleaseBase = "https://github.com/dagucloud/dagu/releases"
 $Script:ReleaseApi = "https://api.github.com/repos/dagucloud/dagu/releases/latest"
 $Script:WinSWVersion = "v2.12.0"
