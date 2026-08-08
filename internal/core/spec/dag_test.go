@@ -14,6 +14,7 @@ import (
 	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2469,7 +2470,7 @@ func TestBuildSecrets(t *testing.T) {
 		tests := []struct {
 			name     string
 			input    []secretRef
-			expected []ir.SecretRef
+			expected []secretref.Ref
 		}{
 			{
 				name:     "Nil",
@@ -2486,7 +2487,7 @@ func TestBuildSecrets(t *testing.T) {
 				input: []secretRef{
 					{Name: "API_KEY", Provider: "env", Key: "MY_API_KEY"},
 				},
-				expected: []ir.SecretRef{
+				expected: []secretref.Ref{
 					{Name: "API_KEY", Provider: "env", Key: "MY_API_KEY"},
 				},
 			},
@@ -2496,7 +2497,7 @@ func TestBuildSecrets(t *testing.T) {
 					{Name: "DB_PASSWORD", Provider: "vault", Key: "secret/data/prod/db"},
 					{Name: "API_KEY", Provider: "env", Key: "API_KEY"},
 				},
-				expected: []ir.SecretRef{
+				expected: []secretref.Ref{
 					{Name: "DB_PASSWORD", Provider: "vault", Key: "secret/data/prod/db"},
 					{Name: "API_KEY", Provider: "env", Key: "API_KEY"},
 				},
@@ -2514,7 +2515,7 @@ func TestBuildSecrets(t *testing.T) {
 						},
 					},
 				},
-				expected: []ir.SecretRef{
+				expected: []secretref.Ref{
 					{
 						Name:     "DB_PASSWORD",
 						Provider: "vault",
@@ -2531,7 +2532,7 @@ func TestBuildSecrets(t *testing.T) {
 				input: []secretRef{
 					{Name: "DB_PASSWORD", Ref: "prod/db-password"},
 				},
-				expected: []ir.SecretRef{
+				expected: []secretref.Ref{
 					{Name: "DB_PASSWORD", Ref: "prod/db-password"},
 				},
 			},

@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,19 +55,19 @@ func (r *kubernetesResolver) Name() string {
 }
 
 // Validate checks if the secret reference is valid for Kubernetes Secret access.
-func (r *kubernetesResolver) Validate(ref ir.SecretRef) error {
+func (r *kubernetesResolver) Validate(ref secretref.Ref) error {
 	_, err := r.parseReference(context.Background(), ref)
 	return err
 }
 
 // CheckCapability reports that the current Kubernetes check implementation
 // must read Secret data to verify the requested data key.
-func (r *kubernetesResolver) CheckCapability(ir.SecretRef) CheckCapability {
+func (r *kubernetesResolver) CheckCapability(secretref.Ref) CheckCapability {
 	return CheckCapabilityRequiresValueRead
 }
 
 // Resolve fetches the value from a Kubernetes Secret data key.
-func (r *kubernetesResolver) Resolve(ctx context.Context, ref ir.SecretRef) (string, error) {
+func (r *kubernetesResolver) Resolve(ctx context.Context, ref secretref.Ref) (string, error) {
 	parsed, err := r.parseReference(ctx, ref)
 	if err != nil {
 		return "", err
@@ -101,12 +101,12 @@ func (r *kubernetesResolver) Resolve(ctx context.Context, ref ir.SecretRef) (str
 }
 
 // CheckAccessibility verifies the Kubernetes Secret and data key can be read.
-func (r *kubernetesResolver) CheckAccessibility(ctx context.Context, ref ir.SecretRef) error {
+func (r *kubernetesResolver) CheckAccessibility(ctx context.Context, ref secretref.Ref) error {
 	_, err := r.Resolve(ctx, ref)
 	return err
 }
 
-func (r *kubernetesResolver) getClient(ctx context.Context, ref ir.SecretRef) (kubernetesSecretClient, error) {
+func (r *kubernetesResolver) getClient(ctx context.Context, ref secretref.Ref) (kubernetesSecretClient, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -130,7 +130,7 @@ func (r *kubernetesResolver) getClient(ctx context.Context, ref ir.SecretRef) (k
 	return client, nil
 }
 
-func (r *kubernetesResolver) resolveClientSettings(ctx context.Context, ref ir.SecretRef) kubernetesClientSettings {
+func (r *kubernetesResolver) resolveClientSettings(ctx context.Context, ref secretref.Ref) kubernetesClientSettings {
 	settings := kubernetesClientSettings{}
 
 	cfg := config.GetConfig(ctx)
@@ -168,7 +168,7 @@ func (r *kubernetesResolver) newClient(settings kubernetesClientSettings) (kuber
 	return &realKubernetesSecretClient{clientset: clientset}, nil
 }
 
-func (r *kubernetesResolver) parseReference(ctx context.Context, ref ir.SecretRef) (kubernetesSecretRef, error) {
+func (r *kubernetesResolver) parseReference(ctx context.Context, ref secretref.Ref) (kubernetesSecretRef, error) {
 	if strings.TrimSpace(ref.Key) == "" {
 		return kubernetesSecretRef{}, fmt.Errorf("key (kubernetes secret reference) is required")
 	}
@@ -230,7 +230,7 @@ func newKubernetesSecretRef(namespace, secretName, dataKey string) (kubernetesSe
 	return ref, nil
 }
 
-func (r *kubernetesResolver) resolveNamespace(ctx context.Context, ref ir.SecretRef) string {
+func (r *kubernetesResolver) resolveNamespace(ctx context.Context, ref secretref.Ref) string {
 	if namespace := strings.TrimSpace(ref.Options["namespace"]); namespace != "" {
 		return namespace
 	}

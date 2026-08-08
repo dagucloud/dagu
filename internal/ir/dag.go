@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 )
@@ -262,7 +263,7 @@ type DAG struct {
 	// Excluded from JSON: may contain secret references.
 	Kubernetes KubernetesConfig `json:"-"`
 	// Secrets contains references to external secrets to be resolved at runtime.
-	Secrets []SecretRef `json:"secrets,omitempty"`
+	Secrets []secretref.Ref `json:"secrets,omitempty"`
 	// Tools declares external CLI tools that must be installed before the DAG runs.
 	Tools *ToolConfig `json:"tools,omitempty"`
 	// dotenvOnce ensures LoadDotEnv is called only once, even with concurrent calls.
@@ -318,21 +319,6 @@ type DAGRetryPolicy struct {
 	Backoff float64 `json:"backoff,omitempty"`
 	// MaxInterval caps the computed retry delay.
 	MaxInterval time.Duration `json:"maxInterval,omitempty"`
-}
-
-// SecretRef represents a reference to an external secret.
-// Secrets are resolved at DAG execution time and never persisted to disk.
-type SecretRef struct {
-	// Name is the environment variable name to set (required).
-	Name string `json:"name"`
-	// Ref is the workspace-local registry reference for a team-managed secret.
-	Ref string `json:"ref,omitempty"`
-	// Provider specifies the secret backend (e.g., "env", "file", "vault", "kubernetes").
-	Provider string `json:"provider,omitempty"`
-	// Key is the provider-specific identifier for a direct provider reference.
-	Key string `json:"key,omitempty"`
-	// Options contains provider-specific configuration (optional).
-	Options map[string]string `json:"options,omitempty"`
 }
 
 // UnmarshalJSON deserializes DAGs written by both the canonical labels field

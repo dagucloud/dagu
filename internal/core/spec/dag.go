@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -605,7 +606,7 @@ var fullExecutionDefaultsStage = transformStage{
 	dagField("harnesses", buildHarnesses, func(out *ir.DAG, v ir.HarnessDefinitions) { out.Harnesses = v }),
 	dagField("harness", buildHarness, func(out *ir.DAG, v *ir.HarnessConfig) { out.Harness = v }),
 	dagField("kubernetes", buildKubernetes, func(out *ir.DAG, v ir.KubernetesConfig) { out.Kubernetes = v }),
-	dagField("secrets", buildSecrets, func(out *ir.DAG, v []ir.SecretRef) { out.Secrets = v }),
+	dagField("secrets", buildSecrets, func(out *ir.DAG, v []secretref.Ref) { out.Secrets = v }),
 	dagField("tools", buildTools, func(out *ir.DAG, v *ir.ToolConfig) { out.Tools = v }),
 	dagField("dotenv", buildDotenv, func(out *ir.DAG, v []string) { out.Dotenv = v }),
 }
@@ -2859,7 +2860,7 @@ func buildHarness(ctx buildContext, d *dag) (*ir.HarnessConfig, error) {
 	}, nil
 }
 
-func buildSecrets(ctx buildContext, d *dag) ([]ir.SecretRef, error) {
+func buildSecrets(ctx buildContext, d *dag) ([]secretref.Ref, error) {
 	if len(d.Secrets) == 0 {
 		return nil, nil
 	}

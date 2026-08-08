@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -52,7 +53,7 @@ func TestResolveSecretReference(t *testing.T) {
 	dag := &ir.DAG{
 		Name:   "registry-secret-dag",
 		Labels: ir.NewLabels([]string{"workspace=payments"}),
-		Secrets: []ir.SecretRef{{
+		Secrets: []secretref.Ref{{
 			Name: "MY_SECRET",
 			Ref:  "prod/my-secret",
 		}},

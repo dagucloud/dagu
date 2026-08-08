@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -123,7 +124,7 @@ steps:
 	persisted, err := attempt.ReadDAG(th.Context)
 	require.NoError(t, err)
 	require.Len(t, persisted.Secrets, 1)
-	assert.Equal(t, ir.SecretRef{
+	assert.Equal(t, secretref.Ref{
 		Name:     "EXPORTED_SECRET",
 		Provider: "env",
 		Key:      "SECRET_SOURCE",

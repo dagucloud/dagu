@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 )
 
 // CheckCapability describes whether a provider can check access without
@@ -51,15 +51,15 @@ type Resolver interface {
 
 	// Resolve fetches the secret value for the given reference.
 	// Returns an error if the secret cannot be retrieved.
-	Resolve(ctx context.Context, ref ir.SecretRef) (string, error)
+	Resolve(ctx context.Context, ref secretref.Ref) (string, error)
 
 	// Validate checks if the secret reference is structurally valid for this provider.
 	// This is called at parse time and should not make network calls.
-	Validate(ref ir.SecretRef) error
+	Validate(ref secretref.Ref) error
 
 	// CheckCapability reports whether CheckAccessibility can run without
 	// fetching plaintext secret values.
-	CheckCapability(ref ir.SecretRef) CheckCapability
+	CheckCapability(ref secretref.Ref) CheckCapability
 
 	// CheckAccessibility verifies the secret is accessible. Providers may use
 	// plaintext reads only when CheckCapability reports RequiresValueRead.
@@ -69,15 +69,15 @@ type Resolver interface {
 	//   - Credentials are valid
 	//   - Secret exists
 	//   - Caller has permission
-	CheckAccessibility(ctx context.Context, ref ir.SecretRef) error
+	CheckAccessibility(ctx context.Context, ref secretref.Ref) error
 }
 
 // ReferenceResolver resolves workspace-local team secret registry references.
 // Implementations are responsible for authorization, provenance, and avoiding
 // plaintext persistence according to their deployment mode.
 type ReferenceResolver interface {
-	ResolveReference(ctx context.Context, ref ir.SecretRef) (string, error)
-	CheckReferenceAccessibility(ctx context.Context, ref ir.SecretRef) error
+	ResolveReference(ctx context.Context, ref secretref.Ref) (string, error)
+	CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error
 }
 
 // Registry manages all secret resolvers.
@@ -153,7 +153,7 @@ func (r *Registry) Get(provider string) Resolver {
 
 // Resolve fetches a single secret value.
 // Returns an error if the provider is unknown or resolution fails.
-func (r *Registry) Resolve(ctx context.Context, ref ir.SecretRef) (string, error) {
+func (r *Registry) Resolve(ctx context.Context, ref secretref.Ref) (string, error) {
 	if ref.Ref != "" {
 		if ref.Provider != "" || ref.Key != "" || len(ref.Options) > 0 {
 			return "", fmt.Errorf("secret %q registry ref cannot include provider, key, or options", ref.Name)
@@ -192,7 +192,7 @@ func (r *Registry) Resolve(ctx context.Context, ref ir.SecretRef) (string, error
 // ResolveAll fetches all secrets and returns them as environment variable strings.
 // Format: "NAME=value"
 // Returns an error if any secret fails to resolve.
-func (r *Registry) ResolveAll(ctx context.Context, refs []ir.SecretRef) ([]string, error) {
+func (r *Registry) ResolveAll(ctx context.Context, refs []secretref.Ref) ([]string, error) {
 	if len(refs) == 0 {
 		return nil, nil
 	}
@@ -213,7 +213,7 @@ func (r *Registry) ResolveAll(ctx context.Context, refs []ir.SecretRef) ([]strin
 // CheckAccessibility validates that all secrets are accessible through no-fetch
 // or metadata-only provider checks. Providers that require value reads are
 // rejected with CheckCapabilityError instead of being called.
-func (r *Registry) CheckAccessibility(ctx context.Context, refs []ir.SecretRef) error {
+func (r *Registry) CheckAccessibility(ctx context.Context, refs []secretref.Ref) error {
 	if len(refs) == 0 {
 		return nil
 	}

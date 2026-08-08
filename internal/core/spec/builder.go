@@ -11,6 +11,7 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -277,11 +278,11 @@ var reservedSecretEnvNames = []string{
 }
 
 // parseSecretRefs parses secret references from the YAML definition.
-func parseSecretRefs(ctx buildContext, d *dag) ([]ir.SecretRef, error) {
+func parseSecretRefs(ctx buildContext, d *dag) ([]secretref.Ref, error) {
 	secretRefs := d.Secrets
 
-	// Convert secretRef to ir.SecretRef and validate
-	secrets := make([]ir.SecretRef, 0, len(secretRefs))
+	// Convert secretRef to secretref.Ref and validate
+	secrets := make([]secretref.Ref, 0, len(secretRefs))
 	names := make(map[string]bool)
 	conflicts := reservedSecretNameConflicts()
 
@@ -322,7 +323,7 @@ func parseSecretRefs(ctx buildContext, d *dag) ([]ir.SecretRef, error) {
 			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: registry ref must be a slash-separated lowercase slug path", def.Name))
 		}
 
-		secrets = append(secrets, ir.SecretRef{
+		secrets = append(secrets, secretref.Ref{
 			Name:     def.Name,
 			Ref:      def.Ref,
 			Provider: def.Provider,

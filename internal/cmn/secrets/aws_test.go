@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +45,7 @@ func TestAWSSecretsManagerResolverValidate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := resolver.Validate(ir.SecretRef{Key: tc.key, Options: tc.options})
+			err := resolver.Validate(secretref.Ref{Key: tc.key, Options: tc.options})
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				return
@@ -84,7 +84,7 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 		Secrets: config.SecretsConfig{AWS: config.AWSSecretsConfig{Region: " us-west-2 "}},
 	})
 
-	got, err := resolver.Resolve(ctx, ir.SecretRef{
+	got, err := resolver.Resolve(ctx, secretref.Ref{
 		Key: " database-password ",
 		Options: map[string]string{
 			"version_id":    " 0123456789abcdef0123456789abcdef ",
@@ -95,7 +95,7 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "resolved", got)
 
-	got, err = resolver.Resolve(ctx, ir.SecretRef{
+	got, err = resolver.Resolve(ctx, secretref.Ref{
 		Key:     "database-password",
 		Options: map[string]string{"region": " eu-west-1 ", "field": "enabled"},
 	})
@@ -103,7 +103,7 @@ func TestAWSSecretsManagerResolverResolve(t *testing.T) {
 	assert.Equal(t, "true", got)
 
 	arn := "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:database-password-AbCdEf"
-	got, err = resolver.Resolve(ctx, ir.SecretRef{Key: arn})
+	got, err = resolver.Resolve(ctx, secretref.Ref{Key: arn})
 	require.NoError(t, err)
 	assert.Equal(t, value, got)
 
@@ -125,7 +125,7 @@ func TestAWSSecretsManagerResolverBinaryValue(t *testing.T) {
 		},
 	}
 
-	got, err := resolver.Resolve(context.Background(), ir.SecretRef{Key: "name"})
+	got, err := resolver.Resolve(context.Background(), secretref.Ref{Key: "name"})
 	require.NoError(t, err)
 	assert.Equal(t, "/wAB", got)
 }
@@ -151,7 +151,7 @@ func TestAWSSecretsManagerResolverErrors(t *testing.T) {
 					}}, nil
 				},
 			}
-			_, err := resolver.Resolve(context.Background(), ir.SecretRef{Key: "name"})
+			_, err := resolver.Resolve(context.Background(), secretref.Ref{Key: "name"})
 			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
@@ -169,7 +169,7 @@ func TestAWSSecretsManagerResolverCachesClient(t *testing.T) {
 	}
 
 	for range 2 {
-		_, err := resolver.Resolve(context.Background(), ir.SecretRef{Key: "name"})
+		_, err := resolver.Resolve(context.Background(), secretref.Ref{Key: "name"})
 		require.NoError(t, err)
 	}
 	assert.Equal(t, 1, factoryCalls)

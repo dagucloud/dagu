@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 )
 
 type ReferenceResolver struct {
@@ -23,7 +23,7 @@ func NewReferenceResolver(store Store, workspace string) *ReferenceResolver {
 	}
 }
 
-func (r *ReferenceResolver) ResolveReference(ctx context.Context, ref ir.SecretRef) (string, error) {
+func (r *ReferenceResolver) ResolveReference(ctx context.Context, ref secretref.Ref) (string, error) {
 	if r == nil || r.store == nil {
 		return "", fmt.Errorf("secret store is not configured")
 	}
@@ -38,7 +38,7 @@ func (r *ReferenceResolver) ResolveReference(ctx context.Context, ref ir.SecretR
 	return value, err
 }
 
-func (r *ReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref ir.SecretRef) error {
+func (r *ReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error {
 	if r == nil || r.store == nil {
 		return fmt.Errorf("secret store is not configured")
 	}

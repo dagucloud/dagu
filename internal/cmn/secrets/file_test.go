@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +28,7 @@ func TestFileResolver_Validate(t *testing.T) {
 	require.NotNil(t, resolver)
 
 	t.Run("ValidReference", func(t *testing.T) {
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "API_KEY",
 			Provider: "file",
 			Key:      "/secrets/api_key",
@@ -38,7 +38,7 @@ func TestFileResolver_Validate(t *testing.T) {
 	})
 
 	t.Run("EmptyKey", func(t *testing.T) {
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SECRET",
 			Provider: "file",
 			Key:      "",
@@ -62,7 +62,7 @@ func TestFileResolver_Resolve(t *testing.T) {
 		secretValue := "my_secret_value"
 		require.NoError(t, os.WriteFile(secretFile, []byte(secretValue), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "API_KEY",
 			Provider: "file",
 			Key:      secretFile,
@@ -77,7 +77,7 @@ func TestFileResolver_Resolve(t *testing.T) {
 		secretValue := "relative_secret"
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "relative.txt"), []byte(secretValue), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "RELATIVE_SECRET",
 			Provider: "file",
 			Key:      "relative.txt",
@@ -89,7 +89,7 @@ func TestFileResolver_Resolve(t *testing.T) {
 	})
 
 	t.Run("FileNotFound", func(t *testing.T) {
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MISSING",
 			Provider: "file",
 			Key:      "/nonexistent/path/secret.txt",
@@ -108,7 +108,7 @@ func TestFileResolver_Resolve(t *testing.T) {
 		secretValue := "production_secret"
 		require.NoError(t, os.WriteFile(secretFile, []byte(secretValue), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "PROD_API_KEY",
 			Provider: "file",
 			Key:      secretFile,
@@ -123,7 +123,7 @@ func TestFileResolver_Resolve(t *testing.T) {
 		emptyFile := filepath.Join(tmpDir, "empty.txt")
 		require.NoError(t, os.WriteFile(emptyFile, []byte(""), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "EMPTY",
 			Provider: "file",
 			Key:      emptyFile,
@@ -139,7 +139,7 @@ func TestFileResolver_Resolve(t *testing.T) {
 		content := "  secret with spaces  \n"
 		require.NoError(t, os.WriteFile(whitespaceFile, []byte(content), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "WHITESPACE_SECRET",
 			Provider: "file",
 			Key:      whitespaceFile,
@@ -155,7 +155,7 @@ func TestFileResolver_Resolve(t *testing.T) {
 		content := "line1\nline2\nline3\n"
 		require.NoError(t, os.WriteFile(multilineFile, []byte(content), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MULTILINE",
 			Provider: "file",
 			Key:      multilineFile,
@@ -171,7 +171,7 @@ func TestFileResolver_Resolve(t *testing.T) {
 		binaryData := []byte{0x00, 0x01, 0x02, 0xFF, 0xFE}
 		require.NoError(t, os.WriteFile(binaryFile, binaryData, 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "BINARY",
 			Provider: "file",
 			Key:      binaryFile,
@@ -187,7 +187,7 @@ func TestFileResolver_Resolve(t *testing.T) {
 		largeContent := string(make([]byte, 1024*1024)) // 1MB
 		require.NoError(t, os.WriteFile(largeFile, []byte(largeContent), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "LARGE",
 			Provider: "file",
 			Key:      largeFile,
@@ -215,7 +215,7 @@ func TestFileResolver_Resolve_PermissionErrors(t *testing.T) {
 		unreadableFile := filepath.Join(tmpDir, "unreadable.txt")
 		require.NoError(t, os.WriteFile(unreadableFile, []byte("secret"), 0000))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "UNREADABLE",
 			Provider: "file",
 			Key:      unreadableFile,
@@ -238,7 +238,7 @@ func TestFileResolver_CheckAccessibility(t *testing.T) {
 		accessibleFile := filepath.Join(tmpDir, "accessible.txt")
 		require.NoError(t, os.WriteFile(accessibleFile, []byte("value"), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "ACCESSIBLE",
 			Provider: "file",
 			Key:      accessibleFile,
@@ -249,7 +249,7 @@ func TestFileResolver_CheckAccessibility(t *testing.T) {
 	})
 
 	t.Run("FileNotFound", func(t *testing.T) {
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "MISSING",
 			Provider: "file",
 			Key:      "/nonexistent/file.txt",
@@ -264,7 +264,7 @@ func TestFileResolver_CheckAccessibility(t *testing.T) {
 		dirPath := filepath.Join(tmpDir, "directory")
 		require.NoError(t, os.Mkdir(dirPath, 0700))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "DIR",
 			Provider: "file",
 			Key:      dirPath,
@@ -279,7 +279,7 @@ func TestFileResolver_CheckAccessibility(t *testing.T) {
 		relativeFile := "relative_accessible.txt"
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, relativeFile), []byte("value"), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "RELATIVE",
 			Provider: "file",
 			Key:      relativeFile,
@@ -293,7 +293,7 @@ func TestFileResolver_CheckAccessibility(t *testing.T) {
 		emptyFile := filepath.Join(tmpDir, "empty_accessible.txt")
 		require.NoError(t, os.WriteFile(emptyFile, []byte(""), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "EMPTY",
 			Provider: "file",
 			Key:      emptyFile,
@@ -320,7 +320,7 @@ func TestFileResolver_CheckAccessibility_PermissionErrors(t *testing.T) {
 		unreadableFile := filepath.Join(tmpDir, "unreadable_check.txt")
 		require.NoError(t, os.WriteFile(unreadableFile, []byte("secret"), 0000))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "UNREADABLE",
 			Provider: "file",
 			Key:      unreadableFile,
@@ -345,7 +345,7 @@ func TestFileResolver_PathResolution(t *testing.T) {
 		secretValue := "absolute_value"
 		require.NoError(t, os.WriteFile(absoluteFile, []byte(secretValue), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "ABSOLUTE",
 			Provider: "file",
 			Key:      absoluteFile,
@@ -365,7 +365,7 @@ func TestFileResolver_PathResolution(t *testing.T) {
 		secretValue := "relative_value"
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "relative.txt"), []byte(secretValue), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "RELATIVE",
 			Provider: "file",
 			Key:      "relative.txt",
@@ -381,7 +381,7 @@ func TestFileResolver_PathResolution(t *testing.T) {
 		resolver := registry.Get("file")
 		require.NotNil(t, resolver)
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "RELATIVE",
 			Provider: "file",
 			Key:      "nonexistent.txt",
@@ -404,7 +404,7 @@ func TestFileResolver_PathResolution(t *testing.T) {
 		secretValue := "subdir_secret"
 		require.NoError(t, os.WriteFile(secretFile, []byte(secretValue), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SUBDIR",
 			Provider: "file",
 			Key:      "secrets/key.txt",
@@ -428,7 +428,7 @@ func TestFileResolver_OptionsHandling(t *testing.T) {
 		secretValue := "value"
 		require.NoError(t, os.WriteFile(secretFile, []byte(secretValue), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SECRET",
 			Provider: "file",
 			Key:      secretFile,
@@ -448,7 +448,7 @@ func TestFileResolver_OptionsHandling(t *testing.T) {
 		secretValue := "value"
 		require.NoError(t, os.WriteFile(secretFile, []byte(secretValue), 0600))
 
-		ref := ir.SecretRef{
+		ref := secretref.Ref{
 			Name:     "SECRET",
 			Provider: "file",
 			Key:      secretFile,
@@ -472,7 +472,7 @@ func TestFileResolver_ConcurrentAccess(t *testing.T) {
 	secretValue := "concurrent_value"
 	require.NoError(t, os.WriteFile(secretFile, []byte(secretValue), 0600))
 
-	ref := ir.SecretRef{
+	ref := secretref.Ref{
 		Name:     "CONCURRENT",
 		Provider: "file",
 		Key:      secretFile,

@@ -17,7 +17,7 @@ import (
 	"github.com/alibabacloud-go/tea/dara"
 	"github.com/aliyun/credentials-go/credentials"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 )
 
 const alibabaKMSProvider = "alibaba"
@@ -56,12 +56,12 @@ func (r *alibabaKMSResolver) Name() string {
 	return alibabaKMSProvider
 }
 
-func (r *alibabaKMSResolver) Validate(ref ir.SecretRef) error {
+func (r *alibabaKMSResolver) Validate(ref secretref.Ref) error {
 	_, err := parseAlibabaSecretReference(ref)
 	return err
 }
 
-func parseAlibabaSecretReference(ref ir.SecretRef) (alibabaSecretReference, error) {
+func parseAlibabaSecretReference(ref secretref.Ref) (alibabaSecretReference, error) {
 	key := strings.TrimSpace(ref.Key)
 	if key == "" {
 		return alibabaSecretReference{}, fmt.Errorf("key (Alibaba Cloud KMS secret name or ARN) is required")
@@ -110,11 +110,11 @@ func parseAlibabaKMSARN(key string) (region string, isARN bool, err error) {
 	return parts[2], true, nil
 }
 
-func (r *alibabaKMSResolver) CheckCapability(ir.SecretRef) CheckCapability {
+func (r *alibabaKMSResolver) CheckCapability(secretref.Ref) CheckCapability {
 	return CheckCapabilityRequiresValueRead
 }
 
-func (r *alibabaKMSResolver) Resolve(ctx context.Context, ref ir.SecretRef) (string, error) {
+func (r *alibabaKMSResolver) Resolve(ctx context.Context, ref secretref.Ref) (string, error) {
 	parsed, err := parseAlibabaSecretReference(ref)
 	if err != nil {
 		return "", err
@@ -170,7 +170,7 @@ func (r *alibabaKMSResolver) Resolve(ctx context.Context, ref ir.SecretRef) (str
 	return selectJSONField(*response.Body.SecretData, ref.Options["field"])
 }
 
-func (r *alibabaKMSResolver) CheckAccessibility(ctx context.Context, ref ir.SecretRef) error {
+func (r *alibabaKMSResolver) CheckAccessibility(ctx context.Context, ref secretref.Ref) error {
 	_, err := r.Resolve(ctx, ref)
 	return err
 }

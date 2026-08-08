@@ -13,13 +13,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type SecretReferenceClient interface {
-	ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref ir.SecretRef, workspace string, checkOnly bool, run SecretReferenceRun) (string, error)
+	ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error)
 }
 
 type SecretReferenceRun struct {
@@ -47,20 +48,20 @@ func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, 
 	}
 }
 
-func (r *secretReferenceResolver) ResolveReference(ctx context.Context, ref ir.SecretRef) (string, error) {
+func (r *secretReferenceResolver) ResolveReference(ctx context.Context, ref secretref.Ref) (string, error) {
 	return r.resolve(ctx, ref, false)
 }
 
-func (r *secretReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref ir.SecretRef) error {
+func (r *secretReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error {
 	_, err := r.resolve(ctx, ref, true)
 	return err
 }
 
-func (r *secretReferenceResolver) resolve(ctx context.Context, ref ir.SecretRef, checkOnly bool) (string, error) {
+func (r *secretReferenceResolver) resolve(ctx context.Context, ref secretref.Ref, checkOnly bool) (string, error) {
 	return r.client.ResolveSecretReference(ctx, r.owner, ref, r.workspace, checkOnly, r.run)
 }
 
-func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref ir.SecretRef, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
+func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
 	if !emptySecretReferenceOwner(owner) && !completeSecretReferenceOwner(owner) {
 		return "", fmt.Errorf("secret reference owner coordinator endpoint is incomplete")
 	}
@@ -122,7 +123,7 @@ func completeSecretReferenceOwner(owner exec.HostInfo) bool {
 	return owner.ID != "" && owner.Host != "" && owner.Port != 0
 }
 
-func secretReferenceRequest(ref ir.SecretRef, workspace string, checkOnly bool, run SecretReferenceRun) *coordinatorv1.ResolveSecretReferenceRequest {
+func secretReferenceRequest(ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) *coordinatorv1.ResolveSecretReferenceRequest {
 	return &coordinatorv1.ResolveSecretReferenceRequest{
 		Name:       ref.Name,
 		Ref:        ref.Ref,
@@ -141,7 +142,7 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "secret reference request is required")
 	}
-	ref := ir.SecretRef{
+	ref := secretref.Ref{
 		Name: req.GetName(),
 		Ref:  req.GetRef(),
 	}
@@ -173,7 +174,7 @@ func (h *Handler) ResolveSecretReference(ctx context.Context, req *coordinatorv1
 	return &coordinatorv1.ResolveSecretReferenceResponse{Value: value}, nil
 }
 
-func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinatorv1.ResolveSecretReferenceRequest, ref ir.SecretRef) error {
+func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinatorv1.ResolveSecretReferenceRequest, ref secretref.Ref) error {
 	if req.GetWorkerId() == "" {
 		return status.Error(codes.InvalidArgument, "worker_id is required")
 	}
@@ -261,7 +262,7 @@ func secretReferenceWorkspace(dag *ir.DAG) string {
 	return secretpkg.GlobalWorkspace
 }
 
-func secretReferenceDeclared(dag *ir.DAG, ref ir.SecretRef) bool {
+func secretReferenceDeclared(dag *ir.DAG, ref secretref.Ref) bool {
 	if dag == nil {
 		return false
 	}

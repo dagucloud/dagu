@@ -9,7 +9,7 @@ import (
 	"os"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 )
 
 // PresolvedEnvPrefix is the env var prefix used to transport pre-resolved
@@ -37,7 +37,7 @@ func (r *envResolver) Name() string {
 }
 
 // Validate checks if the secret reference is valid for environment variables.
-func (r *envResolver) Validate(ref ir.SecretRef) error {
+func (r *envResolver) Validate(ref secretref.Ref) error {
 	if ref.Key == "" {
 		return fmt.Errorf("key (environment variable name) is required")
 	}
@@ -46,14 +46,14 @@ func (r *envResolver) Validate(ref ir.SecretRef) error {
 
 // CheckCapability reports that environment lookup can check existence without
 // returning the value to callers.
-func (r *envResolver) CheckCapability(ir.SecretRef) CheckCapability {
+func (r *envResolver) CheckCapability(secretref.Ref) CheckCapability {
 	return CheckCapabilityNoFetch
 }
 
 // Resolve fetches the secret value from the environment.
 // It first checks the context-provided EnvScope (for DAG-level env vars),
 // then falls back to the global OS environment.
-func (r *envResolver) Resolve(ctx context.Context, ref ir.SecretRef) (string, error) {
+func (r *envResolver) Resolve(ctx context.Context, ref secretref.Ref) (string, error) {
 	// First check context-provided env vars (DAG env: field, .env files)
 	if scope := cmnvalue.GetEnvScope(ctx); scope != nil {
 		if value, exists := scope.Get(ref.Key); exists {
@@ -76,7 +76,7 @@ func (r *envResolver) Resolve(ctx context.Context, ref ir.SecretRef) (string, er
 
 // CheckAccessibility verifies the environment variable exists without reading its value.
 // It first checks the context-provided EnvScope, then falls back to the global OS environment.
-func (r *envResolver) CheckAccessibility(ctx context.Context, ref ir.SecretRef) error {
+func (r *envResolver) CheckAccessibility(ctx context.Context, ref secretref.Ref) error {
 	// First check context-provided env vars (DAG env: field, .env files)
 	if scope := cmnvalue.GetEnvScope(ctx); scope != nil {
 		if _, exists := scope.Get(ref.Key); exists {

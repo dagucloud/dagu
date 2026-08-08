@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +33,7 @@ func TestReferenceResolver_ResolvesDaguManagedValue(t *testing.T) {
 	}))
 
 	resolver := NewReferenceResolver(store, "payments")
-	value, err := resolver.ResolveReference(ctx, ir.SecretRef{
+	value, err := resolver.ResolveReference(ctx, secretref.Ref{
 		Name: "DB_PASSWORD",
 		Ref:  "prod/db-password",
 	})
@@ -61,7 +61,7 @@ func TestReferenceResolver_DoesNotResolveAcrossWorkspaces(t *testing.T) {
 	}))
 
 	resolver := NewReferenceResolver(store, "payments")
-	_, err = resolver.ResolveReference(ctx, ir.SecretRef{
+	_, err = resolver.ResolveReference(ctx, secretref.Ref{
 		Name: "DB_PASSWORD",
 		Ref:  "prod/db-password",
 	})
@@ -88,7 +88,7 @@ func TestReferenceResolver_ResolvesGlobalFallbackForNamedWorkspace(t *testing.T)
 	}))
 
 	resolver := NewReferenceResolver(store, "payments")
-	value, err := resolver.ResolveReference(ctx, ir.SecretRef{
+	value, err := resolver.ResolveReference(ctx, secretref.Ref{
 		Name: "DB_PASSWORD",
 		Ref:  "prod/db-password",
 	})
@@ -130,7 +130,7 @@ func TestReferenceResolver_WorkspaceSecretOverridesGlobalSecret(t *testing.T) {
 	}))
 
 	resolver := NewReferenceResolver(store, "payments")
-	value, err := resolver.ResolveReference(ctx, ir.SecretRef{
+	value, err := resolver.ResolveReference(ctx, secretref.Ref{
 		Name: "DB_PASSWORD",
 		Ref:  "prod/db-password",
 	})
@@ -158,7 +158,7 @@ func TestReferenceResolver_UnlabelledDAGUsesGlobalScope(t *testing.T) {
 	}))
 
 	resolver := NewReferenceResolver(store, "")
-	value, err := resolver.ResolveReference(ctx, ir.SecretRef{
+	value, err := resolver.ResolveReference(ctx, secretref.Ref{
 		Name: "DB_PASSWORD",
 		Ref:  "prod/db-password",
 	})
@@ -201,7 +201,7 @@ func TestReferenceResolver_DisabledWorkspaceSecretBlocksGlobalFallback(t *testin
 	}))
 
 	resolver := NewReferenceResolver(store, "payments")
-	_, err = resolver.ResolveReference(ctx, ir.SecretRef{
+	_, err = resolver.ResolveReference(ctx, secretref.Ref{
 		Name: "DB_PASSWORD",
 		Ref:  "prod/db-password",
 	})
@@ -229,7 +229,7 @@ func TestReferenceResolver_FailsClosedForDisabledSecret(t *testing.T) {
 	}))
 
 	resolver := NewReferenceResolver(store, "payments")
-	_, err = resolver.ResolveReference(ctx, ir.SecretRef{
+	_, err = resolver.ResolveReference(ctx, secretref.Ref{
 		Name: "DB_PASSWORD",
 		Ref:  "prod/db-password",
 	})
