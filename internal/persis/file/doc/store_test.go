@@ -1238,7 +1238,7 @@ func TestListFlatEmpty(t *testing.T) {
 	assert.Empty(t, result.Items)
 }
 
-func TestSearchIsCaseSensitive(t *testing.T) {
+func TestSearchIsCaseInsensitive(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
@@ -1246,7 +1246,8 @@ func TestSearchIsCaseSensitive(t *testing.T) {
 
 	results, err := store.Search(ctx, "hello")
 	require.NoError(t, err)
-	assert.Empty(t, results)
+	require.Len(t, results, 1)
+	assert.Equal(t, "doc1", results[0].ID)
 }
 
 func TestSearchWithFrontmatter(t *testing.T) {
