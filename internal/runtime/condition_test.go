@@ -205,6 +205,23 @@ func TestEvalConditions_ValueMatchPreservesCommandSubstitution(t *testing.T) {
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
 }
 
+func TestEvalConditionsClearsErrorsWhenReevaluationSucceeds(t *testing.T) {
+	ctx := newTestContext()
+	conditions := []*ir.Condition{
+		{Condition: "ready", Expected: "waiting"},
+		{Condition: "ready", Expected: "ready"},
+	}
+
+	require.ErrorIs(t, runtime.EvalConditions(ctx, nil, conditions), runtime.ErrConditionNotMet)
+	require.NotEmpty(t, conditions[0].GetErrorMessage())
+	require.Equal(t, runtime.ErrMsgOtherConditionNotMet, conditions[1].GetErrorMessage())
+
+	conditions[0].Expected = "ready"
+	require.NoError(t, runtime.EvalConditions(ctx, nil, conditions))
+	require.Empty(t, conditions[0].GetErrorMessage())
+	require.Empty(t, conditions[1].GetErrorMessage())
+}
+
 func TestEvalConditions_ValueMatchEvalRunsCommandSubstitution(t *testing.T) {
 	ctx := newTestContext()
 	err := runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{

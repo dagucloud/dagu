@@ -30,6 +30,7 @@ func EvalConditions(ctx context.Context, shell []string, cond []*ir.Condition) e
 	var lastErr error
 
 	for i := range cond {
+		cond[i].SetErrorMessage("")
 		if err := EvalCondition(ctx, shell, cond[i]); err != nil {
 			cond[i].SetErrorMessage(err.Error())
 			lastErr = err
