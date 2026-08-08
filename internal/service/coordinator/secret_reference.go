@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -39,7 +39,7 @@ type secretReferenceResolver struct {
 	run       SecretReferenceRun
 }
 
-func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, owner serviceregistry.HostInfo, run SecretReferenceRun) secrets.ReferenceResolver {
+func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, owner serviceregistry.HostInfo, run SecretReferenceRun) providers.ReferenceResolver {
 	if client == nil {
 		return nil
 	}

@@ -34,7 +34,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -58,6 +57,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -240,7 +240,7 @@ type Agent struct {
 	// profileEntries records non-secret injected key metadata for status/history.
 	profileEntries []dagrun.RuntimeProfileEntry
 	// secretReferenceResolver resolves registry refs without requiring local store access.
-	secretReferenceResolver secrets.ReferenceResolver
+	secretReferenceResolver providers.ReferenceResolver
 	// secretMasker redacts resolved secret values from status/history snapshots.
 	secretMasker *masking.Masker
 
@@ -345,7 +345,7 @@ type Options struct {
 	SecretStore secretpkg.Store
 	// SecretReferenceResolver resolves DAG-level registry refs.
 	// When nil, SecretStore supplies the local resolver.
-	SecretReferenceResolver secrets.ReferenceResolver
+	SecretReferenceResolver providers.ReferenceResolver
 	// ProfileStore resolves named runtime profiles.
 	ProfileStore profilepkg.Store
 	// ProfileName selects the runtime profile for this DAG run.
@@ -459,7 +459,7 @@ func New(
 	return a
 }
 
-func secretReferenceResolverForDAG(dag *ir.DAG, opts Options) secrets.ReferenceResolver {
+func secretReferenceResolverForDAG(dag *ir.DAG, opts Options) providers.ReferenceResolver {
 	if opts.SecretReferenceResolver != nil {
 		return opts.SecretReferenceResolver
 	}
@@ -1902,7 +1902,7 @@ func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
 	secretCtx := cmnvalue.WithEnvScope(ctx, envScope)
 
 	baseDirs := a.buildSecretBaseDirs(envScope)
-	secretRegistry := secrets.NewRegistryWithReferenceResolver(a.secretReferenceResolver, baseDirs...)
+	secretRegistry := providers.NewRegistryWithReferenceResolver(a.secretReferenceResolver, baseDirs...)
 	defer func() {
 		if err := secretRegistry.Close(); err != nil {
 			logger.Warn(ctx, "Failed to close secret providers", tag.Error(err))

@@ -57,7 +57,8 @@ The module root is package `dagu` — an experimental embedded API (`engine.go`,
 - **`llm/`** — Provider-agnostic LLM abstraction (anthropic, openai, openrouter, gemini, zai, local) used by `chat` executor and controller DAGs.
 - **`engine/`** — Internal implementation behind the root `dagu` package.
 - **`cmd/`** — Cobra CLI implementations; entry point `cmd/main.go` at repo root registers 27 commands: `start`, `exec`, `enqueue`, `stop`, `restart`, `retry`, `dry`, `validate`, `status`, `server`, `scheduler`, `coordinator`, `worker`, `start-all` (server+scheduler+coordinator in one process), `sync`, `context`, `profile`, `license`, `human-task`, etc.
-- Domain feature packages, one concern each: `gitsync` (git-backed DAG sync), `humantask`, `incident`, `notification`, `dagstate` (cross-run persistent state), `dagsettings`, `profile`, `secret`, `workspace`, `remotenode`, `view`, `tunnel` (Tailscale), `license`, `upgrade`, `clicontext` (named remote CLI contexts), `dispatch` (local-vs-coordinator policy), `subflow`, `cmn` (config, logging, telemetry, backoff, secrets, etc.).
+- Domain feature packages, one concern each: `gitsync` (git-backed DAG sync), `humantask`, `incident`, `notification`, `dagstate` (cross-run persistent state), `dagsettings`, `profile`, `secret` (managed secrets and provider backends), `telemetry` (metrics and tracing), `workspace`, `remotenode`, `view`, `tunnel` (Tailscale), `license`, `upgrade`, `clicontext` (named remote CLI contexts), `dispatch` (local-vs-coordinator policy), and `subflow`.
+- **`cmn/`** — Low-level shared utilities for configuration, logging, files, backoff, values, and similar cross-domain primitives. Domain imports are prohibited except for the documented configuration exception.
 
 ### Frontend (`ui/`)
 
@@ -97,6 +98,12 @@ Distributed mode: Scheduler → Queue → dispatch policy → Coordinator (gRPC)
 
   ```sh
   go list -f '{{range .Imports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .TestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .XTestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}' ./internal/persis/... | awk '$2 ~ /\/internal\/service\// { key=$1 "\t" $2; if (!seen[key]++) print key; bad=1 } END { exit bad }'
+  ```
+
+- Packages under `cmn/` must not directly import other internal domain packages. `cmn/config` is the sole deferred exception and may import only `auth` and `workspace`. The following check covers production, test, and external-test imports and must produce no output and exit successfully:
+
+  ```sh
+  go list -f '{{range .Imports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .TestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .XTestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}' ./internal/cmn/... | awk '$2 ~ /^github\.com\/dagucloud\/dagu\/v2\/internal\// && $2 !~ /^github\.com\/dagucloud\/dagu\/v2\/internal\/cmn(\/|$)/ { if ($1 == "github.com/dagucloud/dagu/v2/internal/cmn/config" && ($2 == "github.com/dagucloud/dagu/v2/internal/auth" || $2 == "github.com/dagucloud/dagu/v2/internal/workspace")) next; key=$1 "\t" $2; if (!seen[key]++) print key; bad=1 } END { exit bad }'
   ```
 
 - Executors follow the factory pattern — registered globally, instantiated dynamically by type name.

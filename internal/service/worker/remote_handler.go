@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
@@ -35,6 +34,7 @@ import (
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -755,7 +755,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	return nil
 }
 
-func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) secrets.ReferenceResolver {
+func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) providers.ReferenceResolver {
 	client, ok := h.coordinatorClient.(coordinator.SecretReferenceClient)
 	if !ok {
 		return nil
