@@ -63,22 +63,9 @@ func InitialStatus(dag *DAG) DAGRunStatus {
 		CreatedAt:            time.Now().UnixMilli(),
 		StartedAt:            stringutil.FormatTime(time.Time{}),
 		FinishedAt:           stringutil.FormatTime(time.Time{}),
-		Preconditions:        snapshotConditionResults(dag.Preconditions),
+		Preconditions:        conditionResults(dag.Preconditions),
 		Labels:               dag.Labels.Strings(),
 	}
-}
-
-func snapshotConditionResults(conditions []*Condition) []ConditionResult {
-	if len(conditions) == 0 {
-		return nil
-	}
-	results := make([]ConditionResult, len(conditions))
-	for i, condition := range conditions {
-		if condition != nil {
-			results[i].Condition = *condition
-		}
-	}
-	return results
 }
 
 // DAGRunCondition describes an observed runtime condition for a DAG-run.

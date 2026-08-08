@@ -38,13 +38,6 @@ func WithAttemptID(attemptID string) StatusOption {
 	}
 }
 
-// WithAttemptKey sets the globally unique attempt key.
-func WithAttemptKey(attemptKey string) StatusOption {
-	return func(status *DAGRunStatus) {
-		status.AttemptKey = attemptKey
-	}
-}
-
 // WithQueuedAt sets the time at which the run was queued.
 func WithQueuedAt(formattedTime string) StatusOption {
 	return func(status *DAGRunStatus) {
@@ -107,7 +100,7 @@ func WithError(err string) StatusOption {
 // WithPreconditions initializes DAG-level precondition results.
 func WithPreconditions(conditions []*Condition) StatusOption {
 	return func(status *DAGRunStatus) {
-		status.Preconditions = snapshotConditionResults(conditions)
+		status.Preconditions = conditionResults(conditions)
 	}
 }
 
