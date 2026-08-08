@@ -171,9 +171,13 @@ func (c *appEventCoalescer) flush() {
 }
 
 type directoryWatcher struct {
-	root           string
-	createRoot     bool
-	scope          watchScope
+	root       string
+	createRoot bool
+	scope      watchScope
+	// skipDirName excludes directories with this base name (and their
+	// subtrees) from watch registration; their events are unwanted and the
+	// per-directory watches would consume kernel resources.
+	skipDirName    string
 	newFileWatcher fileWatcherFactory
 	watcher        filenotify.FileWatcher
 	onEvent        func(root, relPath string, op fsnotify.Op)
@@ -250,7 +254,7 @@ func (w *directoryWatcher) Start(ctx context.Context) error {
 	}
 
 	if w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive {
-		paths, err := watchPathsForScope(w.root, w.scope)
+		paths, err := watchPathsForScope(w.root, w.scope, w.skipDirName)
 		if err != nil {
 			_ = w.watcher.Close()
 			return err
@@ -333,6 +337,9 @@ func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil
 	}
+	if w.skipDirName != "" && filepath.Base(path) == w.skipDirName {
+		return nil
+	}
 	parent := filepath.Clean(filepath.Dir(path))
 	if w.scope == watchScopeOneLevel && parent != filepath.Clean(w.root) {
 		return nil
@@ -349,6 +356,9 @@ func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 		}
 		if !entry.IsDir() {
 			return nil
+		}
+		if w.skipDirName != "" && entry.Name() == w.skipDirName {
+			return filepath.SkipDir
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -380,6 +390,7 @@ func (w *docsDirectoryWatcher) Start(ctx context.Context) error {
 
 	eventWatcher := newRecursiveDirectoryWatcher(w.root, false, w.onEvent, w.onReset)
 	eventWatcher.newFileWatcher = filenotify.NewEventWatcher
+	eventWatcher.skipDirName = docAttachmentsDirName
 	eventErr := eventWatcher.Start(ctx)
 	if eventErr == nil {
 		w.active = eventWatcher
@@ -545,9 +556,9 @@ func snapshotMarkdownFiles(root string) (map[string]markdownFileState, error) {
 	return files, err
 }
 
-func watchPathsForScope(root string, scope watchScope) ([]string, error) {
+func watchPathsForScope(root string, scope watchScope, skipDirName string) ([]string, error) {
 	if scope == watchScopeRecursive {
-		return recursiveWatchPaths(root)
+		return recursiveWatchPaths(root, skipDirName)
 	}
 	return oneLevelWatchPaths(root)
 }
@@ -566,7 +577,7 @@ func oneLevelWatchPaths(root string) ([]string, error) {
 	return paths, nil
 }
 
-func recursiveWatchPaths(root string) ([]string, error) {
+func recursiveWatchPaths(root string, skipDirName string) ([]string, error) {
 	paths := []string{}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -574,6 +585,9 @@ func recursiveWatchPaths(root string) ([]string, error) {
 		}
 		if !entry.IsDir() {
 			return nil
+		}
+		if skipDirName != "" && entry.Name() == skipDirName && path != root {
+			return filepath.SkipDir
 		}
 		info, err := entry.Info()
 		if err != nil {

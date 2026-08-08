@@ -313,6 +313,13 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		}
 
 		dagState := state.Items[dagID]
+		// Unchanged fast path: the item was synced against this exact commit
+		// and refreshLocalHashes above found no local drift, so neither side
+		// needs to be read. This keeps pulls from re-reading every file
+		// (binary attachments in particular) on each auto-sync cycle.
+		if dagState != nil && dagState.Status == StatusSynced && dagState.BaseCommit == pullResult.CurrentCommit {
+			continue
+		}
 		localExtension := s.syncItemFileExtension(dagID, dagState)
 		localFileExtension := fileExtension
 		if isDocAssetFile(dagID) {
