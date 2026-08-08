@@ -513,7 +513,7 @@ export async function enqueueRunFromUI(page: Page, fileName: string): Promise<st
       response.url().includes(`/api/v1/dags/${encodeURIComponent(fileName)}/enqueue`)
   );
 
-  await page.getByRole('button', { name: 'Enqueue' }).first().click();
+  await page.getByRole('button', { name: 'Start' }).first().click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
