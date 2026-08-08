@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -193,7 +194,7 @@ steps:
 	persisted, err := attempt.ReadDAG(th.Context)
 	require.NoError(t, err)
 
-	resolvedEnv, err := spec.ResolveRuntimeEnv(th.Context, persisted, nil, spec.ResolveEnvOptions{})
+	resolvedEnv, err := runtimeenvtransport.Resolve(th.Context, persisted, nil, runtimeenvtransport.Options{})
 	require.NoError(t, err)
 	env := buildenv.ToMap(resolvedEnv.Env)
 	require.Equal(t, "from-workspace", env["GREETING"])

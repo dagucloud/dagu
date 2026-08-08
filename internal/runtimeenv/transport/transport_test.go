@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package spec
+package transport
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ steps:
 `)
 	require.NoError(t, os.WriteFile(dagPath, originalYAML, 0o600))
 
-	dag, err := Load(context.Background(), dagPath)
+	dag, err := spec.Load(context.Background(), dagPath)
 	require.NoError(t, err)
 	require.NotEmpty(t, dag.Location)
 	require.NotEmpty(t, dag.YamlData)
@@ -45,7 +46,7 @@ steps:
 
 	dag.Env = nil
 
-	result, err := ResolveRuntimeEnv(context.Background(), dag, nil, ResolveEnvOptions{})
+	result, err := Resolve(context.Background(), dag, nil, Options{})
 	require.NoError(t, err)
 	assert.Contains(t, result.Env, "SOURCE=from-snapshot")
 	assert.NotContains(t, result.Env, "SOURCE=from-disk")

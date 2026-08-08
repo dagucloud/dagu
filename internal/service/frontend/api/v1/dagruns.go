@@ -41,6 +41,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
+	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	spectypes "github.com/dagucloud/dagu/v2/internal/spec/types"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -3891,13 +3892,13 @@ func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *ir.DAG, sta
 		return dag, nil
 	}
 
-	result, err := spec.ResolveRuntimeEnv(ctx, dag, status.ParamsList, spec.ResolveEnvOptions{
+	result, err := runtimeenvtransport.Resolve(ctx, dag, status.ParamsList, runtimeenvtransport.Options{
 		BaseConfig: a.config.Paths.BaseConfig,
 	})
 	if err != nil {
 		return nil, err
 	}
-	dagwarning.Log(ctx, result.BuildWarnings)
+	dagwarning.Log(ctx, result.Warnings)
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env

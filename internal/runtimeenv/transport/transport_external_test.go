@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package spec_test
+package transport_test
 
 import (
 	"context"
@@ -13,6 +13,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/require"
 )
@@ -42,7 +45,7 @@ steps:
 	require.NoError(t, err)
 
 	dag.Env = nil
-	result, err := spec.ResolveRuntimeEnv(context.Background(), dag, spec.QuoteRuntimeParams(nil, dag.ParamDefs), spec.ResolveEnvOptions{
+	result, err := transport.Resolve(context.Background(), dag, spec.QuoteRuntimeParams(nil, dag.ParamDefs), transport.Options{
 		BaseConfig: baseConfig,
 	})
 	require.NoError(t, err)
@@ -104,11 +107,11 @@ steps:
 `, root), spec.WithoutEval())
 	require.NoError(t, err)
 
-	result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+	result, err := transport.Resolve(context.Background(), dag, nil, transport.Options{})
 	require.NoError(t, err)
 	require.Empty(t, result.Env)
-	require.Len(t, result.BuildWarnings, 1)
-	require.Contains(t, result.BuildWarnings[0], "failed to load .env file")
+	require.Len(t, result.Warnings, 1)
+	require.Contains(t, result.Warnings[0], "failed to load .env file")
 }
 
 func TestResolveRuntimeEnvLoadsDotenvWithRuntimeParams(t *testing.T) {
@@ -140,7 +143,7 @@ steps:
 	persisted := dag.Clone()
 	persisted.Env = nil
 	persisted.Params = nil
-	result, err := spec.ResolveRuntimeEnv(context.Background(), persisted, []string{"COL=foo"}, spec.ResolveEnvOptions{})
+	result, err := transport.Resolve(context.Background(), persisted, []string{"COL=foo"}, transport.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "foo", runtimeEnvSliceMap(result.Env)["TARGET_TABLE"])
 }
@@ -175,7 +178,7 @@ steps:
 	persisted := dag.Clone()
 	persisted.Env = nil
 	persisted.Params = nil
-	result, err := spec.ResolveRuntimeEnv(context.Background(), persisted, []string{"ENVIRONMENT=prod"}, spec.ResolveEnvOptions{})
+	result, err := transport.Resolve(context.Background(), persisted, []string{"ENVIRONMENT=prod"}, transport.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "prod", runtimeEnvSliceMap(result.Env)["TARGET_TABLE"])
 }
@@ -209,7 +212,7 @@ steps:
 	require.NoError(t, err)
 	persisted.Env = nil
 	persisted.EnvEvaluated = false
-	result, err := spec.ResolveRuntimeEnv(context.Background(), persisted, nil, spec.ResolveEnvOptions{})
+	result, err := transport.Resolve(context.Background(), persisted, nil, transport.Options{})
 	require.NoError(t, err)
 	require.Empty(t, result.Env)
 }
@@ -233,7 +236,7 @@ steps:
 
 		dag.Env = make([]string, 0, 1)
 
-		result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+		result, err := transport.Resolve(context.Background(), dag, nil, transport.Options{})
 		require.NoError(t, err)
 		require.Contains(t, result.Env, "DOTENV_VALUE=ready")
 		require.Empty(t, dag.Env)
@@ -257,9 +260,9 @@ steps:
 		dag.BuildWarnings = make([]string, 1, 2)
 		dag.BuildWarnings[0] = "existing warning"
 
-		result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+		result, err := transport.Resolve(context.Background(), dag, nil, transport.Options{})
 		require.NoError(t, err)
-		require.Len(t, result.BuildWarnings, 1)
+		require.Len(t, result.Warnings, 1)
 		require.Len(t, dag.BuildWarnings, 1)
 		require.Empty(t, dag.BuildWarnings[:cap(dag.BuildWarnings)][1])
 	})
@@ -291,7 +294,7 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
 
-	result, err := spec.ResolveRuntimeEnv(ctx, metadata, nil, spec.ResolveEnvOptions{})
+	result, err := transport.Resolve(ctx, metadata, nil, transport.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "secret123", runtimeEnvSliceMap(result.Env)["TOKEN"])
 	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
@@ -327,7 +330,7 @@ steps:
 	metadata.Location = ""
 	metadata.YamlData = nil
 
-	result, err := spec.ResolveRuntimeEnv(ctx, metadata, nil, spec.ResolveEnvOptions{})
+	result, err := transport.Resolve(ctx, metadata, nil, transport.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "secret123", runtimeEnvSliceMap(result.Env)["TOKEN"])
 	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(metadata.Env)["TOKEN"])
@@ -365,7 +368,7 @@ steps:
 
 	t.Setenv("ISSUE_2268_TOKEN", "new-value")
 
-	result, err := spec.ResolveRuntimeEnv(ctx, dag, nil, spec.ResolveEnvOptions{})
+	result, err := transport.Resolve(ctx, dag, nil, transport.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "old-value", runtimeEnvSliceMap(result.Env)["TOKEN"])
 }
@@ -379,7 +382,7 @@ func TestResolveRuntimeEnvReusesResolvedEmptySourceEnv(t *testing.T) {
 		YamlData:        []byte("invalid: ["),
 	}
 
-	result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+	result, err := transport.Resolve(context.Background(), dag, nil, transport.Options{})
 	require.NoError(t, err)
 	require.Empty(t, result.Env)
 }
@@ -390,9 +393,18 @@ func TestResolveRuntimeEnvKeepsProgrammaticEnvWithoutSource(t *testing.T) {
 		Env:  []string{"TOKEN=${ISSUE_2268_TOKEN}"},
 	}
 
-	result, err := spec.ResolveRuntimeEnv(context.Background(), dag, nil, spec.ResolveEnvOptions{})
+	result, err := transport.Resolve(context.Background(), dag, nil, transport.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "${ISSUE_2268_TOKEN}", runtimeEnvSliceMap(result.Env)["TOKEN"])
+}
+
+func resolveDAGRuntimeEnv(t *testing.T, dag *ir.DAG) runtimeenv.Result {
+	t.Helper()
+	result, err := runtimeenv.Resolve(context.Background(), dag)
+	require.NoError(t, err)
+	dag.Env = result.Env
+	dag.RuntimeResolved = true
+	return result
 }
 
 func runtimeEnvSliceMap(envs []string) map[string]string {

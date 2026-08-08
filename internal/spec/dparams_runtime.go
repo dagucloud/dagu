@@ -25,6 +25,25 @@ type ResolveRuntimeParamsOptions struct {
 	WorkspaceBaseConfigDir string
 }
 
+// QuoteRuntimeParams quotes persisted params so values containing spaces survive
+// re-parsing when a DAG is rebuilt from status metadata.
+func QuoteRuntimeParams(params []string, paramDefs []ir.ParamDef) []string {
+	positionalKeys := positionalParamKeys(paramDefs)
+	quoted := make([]string, len(params))
+	for i, p := range params {
+		if k, v, ok := strings.Cut(p, "="); ok {
+			if _, isPositional := positionalKeys[k]; isPositional {
+				quoted[i] = strconv.Quote(v)
+				continue
+			}
+			quoted[i] = k + "=" + strconv.Quote(v)
+		} else {
+			quoted[i] = strconv.Quote(p)
+		}
+	}
+	return quoted
+}
+
 // ResolveRuntimeParams reloads a DAG from its source with runtime params applied.
 // It is intended for entry points that need the same coercion and validation path
 // as execution without duplicating loader setup.
@@ -45,6 +64,38 @@ func ResolveRuntimeParams(ctx context.Context, dag *ir.DAG, params any, opts Res
 		return LoadYAML(ctx, dag.YamlData, loadOpts...)
 	default:
 		return nil, fmt.Errorf("DAG source is required to resolve runtime params")
+	}
+}
+
+// ReloadRuntimeSnapshot reloads a DAG from its captured source with runtime
+// parameters and additional compiler options applied. Captured YAML is
+// authoritative when available.
+func ReloadRuntimeSnapshot(
+	ctx context.Context,
+	dag *ir.DAG,
+	params any,
+	opts ResolveRuntimeParamsOptions,
+	additional ...LoadOption,
+) (*ir.DAG, error) {
+	if dag == nil {
+		return nil, nil
+	}
+
+	loadOpts, err := runtimeParamLoadOptions(dag, params, opts)
+	if err != nil {
+		return nil, err
+	}
+	loadOpts = append(loadOpts, additional...)
+
+	switch {
+	case len(dag.YamlData) > 0:
+		return LoadYAML(ctx, dag.YamlData, loadOpts...)
+	case dag.Location != "":
+		return Load(ctx, dag.Location, loadOpts...)
+	case dag.SourceFile != "":
+		return Load(ctx, dag.SourceFile, loadOpts...)
+	default:
+		return nil, fmt.Errorf("DAG source is required to reload runtime snapshot")
 	}
 }
 
@@ -76,6 +127,24 @@ func runtimeParamLoadOptions(dag *ir.DAG, params any, opts ResolveRuntimeParamsO
 	}
 
 	return loadOpts, nil
+}
+
+func positionalParamKeys(paramDefs []ir.ParamDef) map[string]struct{} {
+	if len(paramDefs) == 0 {
+		return nil
+	}
+
+	keys := make(map[string]struct{})
+	position := 1
+	for _, def := range paramDefs {
+		if def.Name != "" {
+			continue
+		}
+		keys[strconv.Itoa(position)] = struct{}{}
+		position++
+	}
+
+	return keys
 }
 
 func resolveLegacyRuntimePairs(entries []dagParamEntry, rawParams string, paramsList []string) ([]paramPair, error) {

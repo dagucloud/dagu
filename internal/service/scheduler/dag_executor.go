@@ -19,7 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
-	"github.com/dagucloud/dagu/v2/internal/spec"
+	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 )
 
 // DAGExecutor handles both local and distributed DAG execution.
@@ -402,14 +402,14 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, 
 		return nil, nil
 	}
 
-	result, err := spec.ResolveRuntimeEnv(ctx, dag, params, spec.ResolveEnvOptions{
+	result, err := runtimeenvtransport.Resolve(ctx, dag, params, runtimeenvtransport.Options{
 		BaseConfig:             e.baseConfigPath,
 		WorkspaceBaseConfigDir: e.workspaceBaseConfigDir,
 	})
 	if err != nil {
 		return nil, err
 	}
-	dagwarning.Log(ctx, result.BuildWarnings)
+	dagwarning.Log(ctx, result.Warnings)
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env
