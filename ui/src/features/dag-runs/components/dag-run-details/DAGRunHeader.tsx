@@ -3,7 +3,9 @@
 
 import {
   Calendar,
+  Check,
   FileText,
+  Link2,
   RefreshCw,
   Server,
   SlidersHorizontal,
@@ -13,7 +15,9 @@ import {
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { components, Status } from '../../../../api/v1/schema';
+import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import dayjs from '../../../../lib/dayjs';
 import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
@@ -33,7 +37,22 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
 }) => {
   const navigate = useNavigate();
   const remoteNode = useRemoteNode();
+  const config = useConfig();
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const { copied: linkCopied, copy: copyLink } = useCopyFeedback();
+
+  const copyRunLink = () => {
+    const basePrefix =
+      config.basePath === '/' ? '' : (config.basePath ?? '');
+    const runPath = buildDAGRunPageURL({
+      rootDAGRunName: dagRun.rootDAGRunName,
+      rootDAGRunId: dagRun.rootDAGRunId,
+      remoteNode,
+      subDAGRunId:
+        dagRun.dagRunId !== dagRun.rootDAGRunId ? dagRun.dagRunId : undefined,
+    });
+    void copyLink(`${window.location.origin}${basePrefix}${runPath}`);
+  };
 
   function formatDuration(startDate: string, endDate: string): string {
     if (!startDate || !endDate) return '--';
@@ -199,6 +218,23 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
                 <span>Definition</span>
               </a>
             )}
+            <button
+              type="button"
+              onClick={copyRunLink}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+              title={linkCopied ? 'Link copied' : 'Copy link to this run'}
+              aria-label={linkCopied ? 'Link copied' : 'Copy link to this run'}
+            >
+              {linkCopied ? (
+                <Check className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <Link2 className="h-3.5 w-3.5" />
+              )}
+              <span>{linkCopied ? 'Copied' : 'Copy link'}</span>
+            </button>
+            <span className="sr-only" aria-live="polite">
+              {linkCopied ? 'Run link copied to clipboard' : ''}
+            </span>
           </div>
         </div>
       </div>

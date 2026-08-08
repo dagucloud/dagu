@@ -7,11 +7,19 @@
  * @module features/dags/components/dag-editor
  */
 import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { StepDetailsDrawer } from '@/features/dags/components/step-details';
 import { toMermaidNodeId } from '@/lib/utils';
 import { workspaceNameFromLabels } from '@/lib/workspace';
 import BorderedBox from '@/components/ui/bordered-box';
-import { AlertTriangle, MousePointerClick, Save, Undo2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  MousePointerClick,
+  Save,
+  Undo2,
+} from 'lucide-react';
 import React, { useEffect } from 'react';
 import { useCookies } from 'react-cookie';
 import { components } from '../../../../api/v1/schema';
@@ -185,6 +193,8 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     key: `${fileName}:${remoteNode}`,
     serverContent: serverSpec,
   });
+
+  const { copied: specCopied, copy: copySpec } = useCopyFeedback();
 
   const [lastGoodLegacyDefinitions, setLastGoodLegacyDefinitions] =
     React.useState(
@@ -543,8 +553,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       {(props) => {
         // Update refresh callback ref directly (safe in render)
         refreshCallbackRef.current = props.refresh;
-        const editorHeaderActions =
-          valueReferenceNotices.length > 0 || editable ? (
+        const editorHeaderActions = (
             <div className="flex items-center gap-2">
               {valueReferenceNotices.length > 0 && (
                 <ValueReferenceNoticesButton
@@ -552,6 +561,19 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   description="Value-reference notices produced while loading this spec."
                 />
               )}
+              <Button
+                variant="ghost"
+                title="Copy YAML"
+                aria-label={specCopied ? 'YAML copied' : 'Copy YAML'}
+                onClick={() => copySpec(currentValue ?? serverSpec ?? '')}
+              >
+                {specCopied ? (
+                  <Check className="h-4 w-4 text-green-500" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                Copy
+              </Button>
               {editable && (
                 <>
                   {localHasUnsavedChanges && (
@@ -579,7 +601,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 </>
               )}
             </div>
-          ) : undefined;
+          );
 
         return (
           data?.dag && (

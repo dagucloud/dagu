@@ -6,7 +6,7 @@ import React, { useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { components, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
-import { copyText } from '@/lib/clipboard';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../../../dag-runs/components/common/AutoRetryBadge';
 import { RootDAGRunContext } from '../../contexts/RootDAGRunContext';
@@ -36,8 +36,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
   const rootDAGRunContext = React.useContext(RootDAGRunContext);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [currentDuration, setCurrentDuration] = React.useState<string>('--');
-  const [copiedName, setCopiedName] = React.useState<string | null>(null);
-  const copiedNameResetRef = React.useRef<ReturnType<typeof setTimeout>>(null);
+  const { copied: nameCopied, copy: copyName } = useCopyFeedback();
 
   const scopedUrl = useCallback(
     (path: string) => (buildScopedUrl ? buildScopedUrl(path) : path),
@@ -48,26 +47,6 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
   const dagRunToDisplay = rootDAGRunContext.data || currentDAGRun;
 
   const displayName = dagRunToDisplay?.name || dag.name;
-  const nameCopied = copiedName !== null && copiedName === displayName;
-
-  const copyName = useCallback(async () => {
-    if (!displayName) return;
-    if (!(await copyText(displayName))) return;
-    setCopiedName(displayName);
-    if (copiedNameResetRef.current) {
-      clearTimeout(copiedNameResetRef.current);
-    }
-    copiedNameResetRef.current = setTimeout(() => setCopiedName(null), 2000);
-  }, [displayName]);
-
-  useEffect(
-    () => () => {
-      if (copiedNameResetRef.current) {
-        clearTimeout(copiedNameResetRef.current);
-      }
-    },
-    []
-  );
 
   // Calculate duration between start and end times
   const calculateDuration = React.useCallback(() => {
@@ -238,7 +217,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
             </h1>
             {displayName && (
               <button
-                onClick={copyName}
+                onClick={() => copyName(displayName)}
                 className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
                 title={nameCopied ? 'Name copied' : `Copy name: ${displayName}`}
                 aria-label={nameCopied ? 'Name copied' : 'Copy name'}
