@@ -630,9 +630,9 @@ function DAGRuns() {
       fromDate,
       toDate,
       dateMode: dateRangeMode,
-      preset: datePreset,
-      specificValue,
-      specificPeriod,
+      preset: dateRangeMode === 'preset' ? datePreset : undefined,
+      specificValue: dateRangeMode === 'specific' ? specificValue : undefined,
+      specificPeriod: dateRangeMode === 'specific' ? specificPeriod : undefined,
     });
   };
 

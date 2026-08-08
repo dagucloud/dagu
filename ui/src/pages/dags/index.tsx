@@ -363,8 +363,8 @@ function DAGsContent() {
       return;
     }
     previousWorkspaceKeyRef.current = workspaceKey;
-    setSelectedDAG(null);
-  }, [workspaceKey]);
+    updateSelectedDAG(null, true);
+  }, [updateSelectedDAG, workspaceKey]);
 
   const resetLoadedPages = React.useCallback(() => {
     paginationGenerationRef.current += 1;

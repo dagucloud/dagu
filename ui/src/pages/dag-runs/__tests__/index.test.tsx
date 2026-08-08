@@ -146,6 +146,12 @@ function LocationProbe(): React.JSX.Element {
   return <output data-testid="location-search">{location.search}</output>;
 }
 
+function locationSearchParams(): URLSearchParams {
+  return new URLSearchParams(
+    screen.getByTestId('location-search').textContent ?? ''
+  );
+}
+
 function renderPage(setTitle = vi.fn(), initialEntry = '/dag-runs'): void {
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
@@ -248,16 +254,55 @@ describe('DAGRuns page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => {
-      const search = screen.getByTestId('location-search').textContent ?? '';
-      expect(new URLSearchParams(search).get('name')).toBe('deploy');
+      expect(locationSearchParams().get('name')).toBe('deploy');
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Open run' }));
 
-    const search = screen.getByTestId('location-search').textContent ?? '';
-    expect(new URLSearchParams(search).get('name')).toBe('deploy');
-    expect(new URLSearchParams(search).get('selectedRunName')).toBe('demo');
-    expect(new URLSearchParams(search).get('selectedRunId')).toBe('run-1');
+    expect(locationSearchParams().get('name')).toBe('deploy');
+    expect(locationSearchParams().get('selectedRunName')).toBe('demo');
+    expect(locationSearchParams().get('selectedRunId')).toBe('run-1');
+  });
+
+  it('keeps only active date-mode parameters after Search', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => {
+      const params = locationSearchParams();
+      expect(params.get('dateMode')).toBe('preset');
+      expect(params.get('preset')).toBe('today');
+      expect(params.has('specificValue')).toBe(false);
+      expect(params.has('specificPeriod')).toBe(false);
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Specific date/month/year' })
+    );
+    await waitFor(() => {
+      const params = locationSearchParams();
+      expect(params.get('dateMode')).toBe('specific');
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => {
+      const params = locationSearchParams();
+      expect(params.has('preset')).toBe(false);
+      expect(params.get('specificValue')).not.toBeNull();
+      expect(params.get('specificPeriod')).toBe('date');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom range' }));
+    await waitFor(() => {
+      const params = locationSearchParams();
+      expect(params.get('dateMode')).toBe('custom');
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => {
+      const params = locationSearchParams();
+      expect(params.has('preset')).toBe(false);
+      expect(params.has('specificValue')).toBe(false);
+      expect(params.has('specificPeriod')).toBe(false);
+    });
   });
 
   it('restores the run and artifact tab from the URL', () => {
