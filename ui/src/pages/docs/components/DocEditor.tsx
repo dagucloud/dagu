@@ -99,7 +99,7 @@ function DocEditor({
   const canEditRef = useRef(canEdit);
   canEditRef.current = canEdit;
   const { showToast } = useSimpleToast();
-  const { markTabUnsaved, markTabSaved } = useDocTabContext();
+  const { markTabUnsaved, markTabSaved, openDoc } = useDocTabContext();
 
   const docSSE = useDocSSE(docPath, !!docPath, workspaceQuery, remoteNode);
 
@@ -527,7 +527,12 @@ function DocEditor({
             <DocLiveProvider workspace={workspace ?? null}>
               <DocMarkdownPreview
                 content={currentValue}
-                linkContext={{ workspace: workspace ?? null, docPath }}
+                linkContext={{
+                  workspace: workspace ?? null,
+                  docPath,
+                  onOpenDoc: (path, ws) =>
+                    openDoc(path, path.split('/').pop() || path, ws),
+                }}
               />
             </DocLiveProvider>
           </div>

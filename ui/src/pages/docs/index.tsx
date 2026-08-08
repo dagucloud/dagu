@@ -222,7 +222,13 @@ function DocsContent() {
     selectedWorkspace,
   ]);
 
-  // Tab → URL (skip on initial mount — URL takes precedence)
+  // Tab → URL (skip on initial mount — URL takes precedence).
+  // Deliberately triggered by tab changes only: reacting to location changes
+  // here races the URL → Tab effect above (an external navigation lands
+  // before the tab state catches up) and the two effects then navigate
+  // against each other. The latest location is read through a ref instead.
+  const locationRef = useRef(location);
+  locationRef.current = location;
   useEffect(() => {
     if (isInitialMountRef.current) {
       isInitialMountRef.current = false;
@@ -233,7 +239,8 @@ function DocsContent() {
       ? tabs.find((t) => t.id === activeTabId)
       : null;
     const docPath = activeTab?.docPath;
-    const currentPath = location.pathname.replace(/^\/docs\/?/, '');
+    const currentLocation = locationRef.current;
+    const currentPath = currentLocation.pathname.replace(/^\/docs\/?/, '');
     const targetSearch = activeTab
       ? workspaceSearchForDocTab(activeTab.workspace)
       : '';
@@ -244,20 +251,20 @@ function DocsContent() {
       requestAnimationFrame(() => {
         isNavigatingRef.current = false;
       });
-    } else if (docPath && location.search !== targetSearch) {
+    } else if (docPath && currentLocation.search !== targetSearch) {
       isNavigatingRef.current = true;
       navigate(`/docs/${encodedDocPath}${targetSearch}`, { replace: true });
       requestAnimationFrame(() => {
         isNavigatingRef.current = false;
       });
-    } else if (!docPath && location.pathname !== '/docs') {
+    } else if (!docPath && currentLocation.pathname !== '/docs') {
       isNavigatingRef.current = true;
       navigate('/docs', { replace: true });
       requestAnimationFrame(() => {
         isNavigatingRef.current = false;
       });
     }
-  }, [activeTabId, tabs, navigate, location.pathname, location.search]);
+  }, [activeTabId, tabs, navigate]);
 
   // File selection handler
   const handleSelectFile = useCallback(
