@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/queue"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -195,10 +194,10 @@ func (f *fixture) enqueueWithPriority(priority queue.QueuePriority) string {
 	require.NoError(f.t, err)
 	logFile := filepath.Join(f.th.Config.Paths.LogDir, f.dag.Name, id+".log")
 	require.NoError(f.t, os.MkdirAll(filepath.Dir(logFile), 0755))
-	st := transform.NewStatusBuilder(f.dag).Create(id, ir.Queued, 0, time.Time{},
-		transform.WithLogFilePath(logFile),
-		transform.WithAttemptID(att.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(f.dag.Name, id), dagrun.DAGRunRef{}),
+	st := dagrun.NewStatusBuilder(f.dag).Create(id, ir.Queued, 0, time.Time{},
+		dagrun.WithLogFilePath(logFile),
+		dagrun.WithAttemptID(att.ID()),
+		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(f.dag.Name, id), dagrun.DAGRunRef{}),
 	)
 	require.NoError(f.t, att.Open(f.th.Context))
 	require.NoError(f.t, att.Write(f.th.Context, st))
@@ -478,29 +477,29 @@ func (f *fixture) writeRunStatus(status ir.Status, opts runStatusOptions) string
 		startedAt = time.Now()
 	}
 
-	statusOpts := []transform.StatusOption{
-		transform.WithLogFilePath(logFile),
-		transform.WithAttemptID(att.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(f.dag.Name, runID), dagrun.DAGRunRef{}),
-		transform.WithAutoRetryCount(opts.AutoRetryCount),
+	statusOpts := []dagrun.StatusOption{
+		dagrun.WithLogFilePath(logFile),
+		dagrun.WithAttemptID(att.ID()),
+		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(f.dag.Name, runID), dagrun.DAGRunRef{}),
+		dagrun.WithAutoRetryCount(opts.AutoRetryCount),
 	}
 	if !opts.CreatedAt.IsZero() {
-		statusOpts = append(statusOpts, transform.WithCreatedAt(opts.CreatedAt.UnixMilli()))
+		statusOpts = append(statusOpts, dagrun.WithCreatedAt(opts.CreatedAt.UnixMilli()))
 	}
 	if !opts.FinishedAt.IsZero() {
-		statusOpts = append(statusOpts, transform.WithFinishedAt(opts.FinishedAt))
+		statusOpts = append(statusOpts, dagrun.WithFinishedAt(opts.FinishedAt))
 	}
 	if !opts.QueuedAt.IsZero() {
-		statusOpts = append(statusOpts, transform.WithQueuedAt(dagrun.FormatTime(opts.QueuedAt)))
+		statusOpts = append(statusOpts, dagrun.WithQueuedAt(dagrun.FormatTime(opts.QueuedAt)))
 	}
 	if !opts.ScheduleTime.IsZero() {
-		statusOpts = append(statusOpts, transform.WithScheduleTime(dagrun.FormatTime(opts.ScheduleTime)))
+		statusOpts = append(statusOpts, dagrun.WithScheduleTime(dagrun.FormatTime(opts.ScheduleTime)))
 	}
 	if opts.TriggerType != ir.TriggerTypeUnknown {
-		statusOpts = append(statusOpts, transform.WithTriggerType(opts.TriggerType))
+		statusOpts = append(statusOpts, dagrun.WithTriggerType(opts.TriggerType))
 	}
 
-	st := transform.NewStatusBuilder(f.dag).Create(runID, status, 0, startedAt, statusOpts...)
+	st := dagrun.NewStatusBuilder(f.dag).Create(runID, status, 0, startedAt, statusOpts...)
 	require.NoError(f.t, att.Open(f.th.Context))
 	require.NoError(f.t, att.Write(f.th.Context, st))
 	require.NoError(f.t, att.Close(f.th.Context))

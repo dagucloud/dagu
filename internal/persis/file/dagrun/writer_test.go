@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	dagrunmodel "github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +26,7 @@ func TestWriter(t *testing.T) {
 	t.Run("WriteStatusToNewFile", func(t *testing.T) {
 		dag := th.DAG("test_write_status")
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		dagRunStatus := transform.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Running, 1, time.Now())
+		dagRunStatus := dagrunmodel.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Running, 1, time.Now())
 		writer := dag.Writer(t, dagRunID, time.Now())
 		writer.Write(t, dagRunStatus)
 
@@ -40,7 +40,7 @@ func TestWriter(t *testing.T) {
 
 		writer := dag.Writer(t, dagRunID, startedAt)
 
-		dagRunStatus := transform.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Aborted, 1, time.Now())
+		dagRunStatus := dagrunmodel.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Aborted, 1, time.Now())
 
 		// Write initial status
 		writer.Write(t, dagRunStatus)
@@ -91,7 +91,7 @@ func TestWriterErrorHandling(t *testing.T) {
 
 		dag := th.DAG("test_write_to_closed_writer")
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		dagRunStatus := transform.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Running, 1, time.Now())
+		dagRunStatus := dagrunmodel.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Running, 1, time.Now())
 		assert.Error(t, writer.write(dagRunStatus))
 	})
 
@@ -118,7 +118,7 @@ func TestWriterErrorHandling(t *testing.T) {
 
 		dag := th.DAG("test_newline_delimited_json")
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		dagRunStatus := transform.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Running, 1, time.Now())
+		dagRunStatus := dagrunmodel.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Running, 1, time.Now())
 
 		require.NoError(t, writer.write(dagRunStatus))
 		require.NoError(t, writer.close())

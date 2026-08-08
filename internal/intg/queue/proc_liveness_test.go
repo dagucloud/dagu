@@ -12,7 +12,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/google/uuid"
@@ -67,13 +66,13 @@ steps:
 	attempt, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	status := transform.NewStatusBuilder(f.dag).Create(
+	status := dagrun.NewStatusBuilder(f.dag).Create(
 		dagRunID,
 		ir.Running,
 		0,
 		time.Now().Add(-2*time.Second),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeRunning

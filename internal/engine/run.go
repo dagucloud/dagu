@@ -28,7 +28,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -647,19 +646,19 @@ func (e *Engine) recordPreparedFailure(
 	if artifactErr != nil {
 		logger.Warn(ctx, "Failed to generate artifact path for prepared local execution failure", tag.Error(artifactErr))
 	}
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		runID,
 		ir.Failed,
 		0,
 		time.Now(),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(root, dagrun.DAGRunRef{}),
-		transform.WithLogFilePath(logFile),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithFinishedAt(time.Now()),
-		transform.WithError(runErr.Error()),
-		transform.WithWorkerID("local"),
-		transform.WithTriggerType(ir.TriggerTypeManual),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(root, dagrun.DAGRunRef{}),
+		dagrun.WithLogFilePath(logFile),
+		dagrun.WithArchiveDir(artifactDir),
+		dagrun.WithFinishedAt(time.Now()),
+		dagrun.WithError(runErr.Error()),
+		dagrun.WithWorkerID("local"),
+		dagrun.WithTriggerType(ir.TriggerTypeManual),
 	)
 	if err := attempt.Open(ctx); err != nil {
 		return err

@@ -11,7 +11,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -137,14 +136,14 @@ func seedFailedAutoRetryPendingRun(t *testing.T, th test.Command, dag test.DAG, 
 	)
 	require.NoError(t, err)
 
-	status := transform.NewStatusBuilder(dag.DAG).Create(
+	status := dagrun.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
 		ir.Failed,
 		0,
 		time.Now().Add(-time.Minute),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithAutoRetryCount(autoRetryCount),
-		transform.WithError("step failed"),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithAutoRetryCount(autoRetryCount),
+		dagrun.WithError("step failed"),
 	)
 	status.FinishedAt = time.Now().Add(-30 * time.Second).UTC().Format(time.RFC3339)
 

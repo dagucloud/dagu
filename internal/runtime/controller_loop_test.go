@@ -700,7 +700,7 @@ func roundTripNodes(t *testing.T, ch *controllerHelper, complete func(*dagrun.No
 	for _, node := range ch.plan.Nodes() {
 		nodeData = append(nodeData, node.NodeData())
 	}
-	status := transform.NewStatusBuilder(ch.dag).Create(
+	status := dagrun.NewStatusBuilder(ch.dag).Create(
 		ch.cfg.DAGRunID, ir.Waiting, 0, time.Now(), transform.WithNodes(nodeData))
 
 	encoded, err := json.Marshal(status)

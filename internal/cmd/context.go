@@ -41,7 +41,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
@@ -805,7 +804,7 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 	}
 
 	// 3. Construct the "Failed" status
-	statusBuilder := transform.NewStatusBuilder(dag)
+	statusBuilder := dagrun.NewStatusBuilder(dag)
 	logPath, logPathErr := c.GenLogFileName(dag, dagRunID)
 	if logPathErr != nil {
 		logger.Warn(c, "Failed to generate log file path for early failure status",
@@ -823,10 +822,10 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 		)
 	}
 	status := statusBuilder.Create(dagRunID, ir.Failed, 0, time.Now(),
-		transform.WithLogFilePath(logPath),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithFinishedAt(time.Now()),
-		transform.WithError(err.Error()),
+		dagrun.WithLogFilePath(logPath),
+		dagrun.WithArchiveDir(artifactDir),
+		dagrun.WithFinishedAt(time.Now()),
+		dagrun.WithError(err.Error()),
 	)
 
 	// 4. Write the status

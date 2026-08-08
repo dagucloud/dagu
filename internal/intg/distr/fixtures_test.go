@@ -20,7 +20,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/queue"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
@@ -430,15 +429,15 @@ func (f *testFixture) enqueueDirect() error {
 		return err
 	}
 
-	status := transform.NewStatusBuilder(dagCopy).Create(
+	status := dagrun.NewStatusBuilder(dagCopy).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithLogFilePath(logFile),
-		transform.WithAttemptID(att.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dagCopy.Name, runID), dagrun.DAGRunRef{}),
-		transform.WithTriggerType(ir.TriggerTypeManual),
+		dagrun.WithLogFilePath(logFile),
+		dagrun.WithAttemptID(att.ID()),
+		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(dagCopy.Name, runID), dagrun.DAGRunRef{}),
+		dagrun.WithTriggerType(ir.TriggerTypeManual),
 	)
 
 	if err := att.Open(f.coord.Context); err != nil {

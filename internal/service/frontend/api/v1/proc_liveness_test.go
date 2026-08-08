@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -159,14 +158,14 @@ steps:
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 
-	status := transform.NewStatusBuilder(dag.DAG).Create(
+	status := dagrun.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
 		ir.Running,
 		0,
 		time.Now().Add(-2*time.Second),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
-		transform.WithLogFilePath(logFile),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
+		dagrun.WithLogFilePath(logFile),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeRunning
@@ -221,14 +220,14 @@ steps:
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 
-	status := transform.NewStatusBuilder(dag.DAG).Create(
+	status := dagrun.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
 		ir.Running,
 		0,
 		time.Now().Add(-2*time.Second),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
-		transform.WithLogFilePath(logFile),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
+		dagrun.WithLogFilePath(logFile),
 	)
 	status.AttemptID = attempt.ID()
 	status.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())
@@ -292,14 +291,14 @@ steps:
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 
-	status := transform.NewStatusBuilder(dag.DAG).Create(
+	status := dagrun.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
 		ir.NotStarted,
 		0,
 		time.Now().Add(-2*time.Second),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
-		transform.WithLogFilePath(logFile),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(ref, dagrun.DAGRunRef{}),
+		dagrun.WithLogFilePath(logFile),
 	)
 	status.AttemptID = attempt.ID()
 	status.AttemptKey = dagrun.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())

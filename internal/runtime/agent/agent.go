@@ -1387,30 +1387,30 @@ func (a *Agent) Status(ctx context.Context) dagrun.DAGRunStatus {
 
 	// Handle case where runner wasn't initialized (early failure in Run())
 	if a.runner == nil {
-		statusOpts := []transform.StatusOption{
-			transform.WithAttemptID(a.dagRunAttemptID),
-			transform.WithHierarchyRefs(a.rootDAGRun, a.parentDAGRun),
-			transform.WithWorkingDir(a.evaluatedWorkingDir),
-			transform.WithArchiveDir(a.artifactDir),
-			transform.WithTriggerType(a.triggerType),
-			transform.WithTriggerActor(a.triggerActor),
-			transform.WithAutoRetryCount(a.currentAutoRetryCount()),
-			transform.WithPIDStartedAt(currentPIDStartedAt()),
-			transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
-			transform.WithNoReuse(a.noReuse),
+		statusOpts := []dagrun.StatusOption{
+			dagrun.WithAttemptID(a.dagRunAttemptID),
+			dagrun.WithHierarchyRefs(a.rootDAGRun, a.parentDAGRun),
+			dagrun.WithWorkingDir(a.evaluatedWorkingDir),
+			dagrun.WithArchiveDir(a.artifactDir),
+			dagrun.WithTriggerType(a.triggerType),
+			dagrun.WithTriggerActor(a.triggerActor),
+			dagrun.WithAutoRetryCount(a.currentAutoRetryCount()),
+			dagrun.WithPIDStartedAt(currentPIDStartedAt()),
+			dagrun.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
+			dagrun.WithNoReuse(a.noReuse),
 		}
 		if source != nil {
 			statusOpts = append(statusOpts,
-				transform.WithQueuedAt(source.QueuedAt),
-				transform.WithCreatedAt(source.CreatedAt),
+				dagrun.WithQueuedAt(source.QueuedAt),
+				dagrun.WithCreatedAt(source.CreatedAt),
 			)
 			if source.ScheduleTime != "" {
-				statusOpts = append(statusOpts, transform.WithScheduleTime(source.ScheduleTime))
+				statusOpts = append(statusOpts, dagrun.WithScheduleTime(source.ScheduleTime))
 			}
 		} else if a.scheduleTime != "" {
-			statusOpts = append(statusOpts, transform.WithScheduleTime(a.scheduleTime))
+			statusOpts = append(statusOpts, dagrun.WithScheduleTime(a.scheduleTime))
 		}
-		status := transform.NewStatusBuilder(a.dag).
+		status := dagrun.NewStatusBuilder(a.dag).
 			Create(a.dagRunID, ir.Failed, os.Getpid(), time.Time{}, statusOpts...)
 		a.maskStatusSecrets(&status)
 		return status
@@ -1424,28 +1424,28 @@ func (a *Agent) Status(ctx context.Context) dagrun.DAGRunStatus {
 		runnerStatus = ir.Running
 	}
 
-	opts := []transform.StatusOption{
-		transform.WithFinishedAt(a.plan.FinishAt()),
+	opts := []dagrun.StatusOption{
+		dagrun.WithFinishedAt(a.plan.FinishAt()),
 		transform.WithNodes(a.plan.NodeData()),
-		transform.WithLogFilePath(a.logFile),
-		transform.WithWorkingDir(a.evaluatedWorkingDir),
-		transform.WithArchiveDir(a.artifactDir),
+		dagrun.WithLogFilePath(a.logFile),
+		dagrun.WithWorkingDir(a.evaluatedWorkingDir),
+		dagrun.WithArchiveDir(a.artifactDir),
 		transform.WithOnInitNode(a.runner.HandlerNode(ir.HandlerOnInit)),
 		transform.WithOnExitNode(a.runner.HandlerNode(ir.HandlerOnExit)),
 		transform.WithOnSuccessNode(a.runner.HandlerNode(ir.HandlerOnSuccess)),
 		transform.WithOnFailureNode(a.runner.HandlerNode(ir.HandlerOnFailure)),
 		transform.WithOnAbortNode(a.runner.HandlerNode(ir.HandlerOnAbort)),
 		transform.WithOnWaitNode(a.runner.HandlerNode(ir.HandlerOnWait)),
-		transform.WithAttemptID(a.dagRunAttemptID),
-		transform.WithHierarchyRefs(a.rootDAGRun, a.parentDAGRun),
-		transform.WithPreconditionResults(a.runner.PreconditionResults()),
-		transform.WithWorkerID(a.workerID),
-		transform.WithTriggerType(a.triggerType),
-		transform.WithTriggerActor(a.triggerActor),
-		transform.WithAutoRetryCount(a.currentAutoRetryCount()),
-		transform.WithPIDStartedAt(currentPIDStartedAt()),
-		transform.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
-		transform.WithNoReuse(a.noReuse),
+		dagrun.WithAttemptID(a.dagRunAttemptID),
+		dagrun.WithHierarchyRefs(a.rootDAGRun, a.parentDAGRun),
+		dagrun.WithPreconditionResults(a.runner.PreconditionResults()),
+		dagrun.WithWorkerID(a.workerID),
+		dagrun.WithTriggerType(a.triggerType),
+		dagrun.WithTriggerActor(a.triggerActor),
+		dagrun.WithAutoRetryCount(a.currentAutoRetryCount()),
+		dagrun.WithPIDStartedAt(currentPIDStartedAt()),
+		dagrun.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
+		dagrun.WithNoReuse(a.noReuse),
 	}
 
 	// If the current execution is based on a persisted target, copy timing data
@@ -1453,18 +1453,18 @@ func (a *Agent) Status(ctx context.Context) dagrun.DAGRunStatus {
 	// Otherwise, use the schedule time provided directly via CLI flag.
 	if source != nil {
 		opts = append(opts,
-			transform.WithQueuedAt(source.QueuedAt),
-			transform.WithCreatedAt(source.CreatedAt),
+			dagrun.WithQueuedAt(source.QueuedAt),
+			dagrun.WithCreatedAt(source.CreatedAt),
 		)
 		if source.ScheduleTime != "" {
-			opts = append(opts, transform.WithScheduleTime(source.ScheduleTime))
+			opts = append(opts, dagrun.WithScheduleTime(source.ScheduleTime))
 		}
 	} else if a.scheduleTime != "" {
-		opts = append(opts, transform.WithScheduleTime(a.scheduleTime))
+		opts = append(opts, dagrun.WithScheduleTime(a.scheduleTime))
 	}
 
 	// Create the status object to record the current status.
-	status := transform.NewStatusBuilder(a.dag).
+	status := dagrun.NewStatusBuilder(a.dag).
 		Create(
 			a.dagRunID,
 			runnerStatus,

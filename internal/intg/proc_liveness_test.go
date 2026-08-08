@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/google/uuid"
@@ -120,14 +119,14 @@ func createFailedRun(t *testing.T, th test.Command, dag *ir.DAG, dagRunID string
 	logFile := filepath.Join(th.Config.Paths.LogDir, dag.Name, dagRunID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
 
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		dagRunID,
 		ir.Failed,
 		0,
 		time.Now(),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dag.Name, dagRunID), dagrun.DAGRunRef{}),
-		transform.WithLogFilePath(logFile),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(dag.Name, dagRunID), dagrun.DAGRunRef{}),
+		dagrun.WithLogFilePath(logFile),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))

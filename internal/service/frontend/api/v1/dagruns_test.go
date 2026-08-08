@@ -22,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2162,23 +2161,23 @@ func seedLatestDAGRunStatus(
 	require.NoError(t, err)
 
 	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
-	statusOptions := []transform.StatusOption{
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(ref, opts.parentRef),
-		transform.WithAutoRetryCount(opts.autoRetryCount),
-		transform.WithError(opts.errorText),
+	statusOptions := []dagrun.StatusOption{
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(ref, opts.parentRef),
+		dagrun.WithAutoRetryCount(opts.autoRetryCount),
+		dagrun.WithError(opts.errorText),
 	}
 	if opts.profileName != "" {
-		statusOptions = append(statusOptions, transform.WithRuntimeProfile(opts.profileName, "", nil))
+		statusOptions = append(statusOptions, dagrun.WithRuntimeProfile(opts.profileName, "", nil))
 	}
 	if opts.triggerActor != "" {
-		statusOptions = append(statusOptions, transform.WithTriggerActor(opts.triggerActor))
+		statusOptions = append(statusOptions, dagrun.WithTriggerActor(opts.triggerActor))
 	}
 	if (!status.IsActive() && status != ir.NotStarted) || status == ir.Waiting {
-		statusOptions = append(statusOptions, transform.WithFinishedAt(time.Now().Add(-time.Minute)))
+		statusOptions = append(statusOptions, dagrun.WithFinishedAt(time.Now().Add(-time.Minute)))
 	}
 
-	dagRunStatus := transform.NewStatusBuilder(dag).Create(
+	dagRunStatus := dagrun.NewStatusBuilder(dag).Create(
 		dagRunID,
 		status,
 		0,

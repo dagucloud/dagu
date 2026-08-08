@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 )
 
 var (
@@ -153,22 +152,22 @@ func recordPreparedAttemptFailure(
 		)
 	}
 
-	opts := []transform.StatusOption{
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(req.Root, req.Parent),
-		transform.WithLogFilePath(logFile),
-		transform.WithArchiveDir(archiveDir),
-		transform.WithFinishedAt(time.Now()),
-		transform.WithError(runErr.Error()),
-		transform.WithWorkerID("local"),
-		transform.WithTriggerType(req.TriggerType),
-		transform.WithTriggerActor(req.TriggerActor),
-		transform.WithRuntimeProfile(req.ProfileName, "", nil),
+	opts := []dagrun.StatusOption{
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(req.Root, req.Parent),
+		dagrun.WithLogFilePath(logFile),
+		dagrun.WithArchiveDir(archiveDir),
+		dagrun.WithFinishedAt(time.Now()),
+		dagrun.WithError(runErr.Error()),
+		dagrun.WithWorkerID("local"),
+		dagrun.WithTriggerType(req.TriggerType),
+		dagrun.WithTriggerActor(req.TriggerActor),
+		dagrun.WithRuntimeProfile(req.ProfileName, "", nil),
 	}
 	if req.ScheduleTime != "" {
-		opts = append(opts, transform.WithScheduleTime(req.ScheduleTime))
+		opts = append(opts, dagrun.WithScheduleTime(req.ScheduleTime))
 	}
-	status := transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Failed, 0, time.Now(), opts...)
+	status := dagrun.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Failed, 0, time.Now(), opts...)
 
 	if err := attempt.Open(ctx); err != nil {
 		return fmt.Errorf("failed to open attempt for failure recording: %w", err)

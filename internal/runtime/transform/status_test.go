@@ -37,7 +37,7 @@ func TestStatusSerialization(t *testing.T) {
 		SMTP:      &ir.SMTPConfig{},
 	}
 	dagRunID := uuid.Must(uuid.NewV7()).String()
-	statusToPersist := transform.NewStatusBuilder(dag).Create(dagRunID, ir.Succeeded, 0, startedAt, transform.WithFinishedAt(finishedAt))
+	statusToPersist := dagrun.NewStatusBuilder(dag).Create(dagRunID, ir.Succeeded, 0, startedAt, dagrun.WithFinishedAt(finishedAt))
 
 	rawJSON, err := json.Marshal(statusToPersist)
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ func TestStatusBuilder(t *testing.T) {
 		},
 	}
 
-	builder := transform.NewStatusBuilder(dag)
+	builder := dagrun.NewStatusBuilder(dag)
 	dagRunID := "test-run-123"
 	s := ir.Running
 	pid := 12345
@@ -101,7 +101,7 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 		},
 	}
 
-	builder := transform.NewStatusBuilder(dag)
+	builder := dagrun.NewStatusBuilder(dag)
 	dagRunID := "test-run-456"
 	s := ir.Succeeded
 	pid := 54321
@@ -134,21 +134,21 @@ func TestStatusBuilderWithOptions(t *testing.T) {
 		s,
 		pid,
 		startedAt,
-		transform.WithFinishedAt(finishedAt),
+		dagrun.WithFinishedAt(finishedAt),
 		transform.WithNodes(nodes),
 		transform.WithOnExitNode(exitNode),
 		transform.WithOnSuccessNode(successNode),
 		transform.WithOnFailureNode(failureNode),
 		transform.WithOnAbortNode(abortNode),
-		transform.WithLogFilePath("/tmp/log.txt"),
-		transform.WithWorkingDir("/tmp/work"),
-		transform.WithPreconditions([]*ir.Condition{{Condition: "test", Expected: "true"}}),
-		transform.WithHierarchyRefs(rootRef, parentRef),
-		transform.WithAttemptID("attempt-789"),
-		transform.WithQueuedAt("2024-01-01 12:00:00"),
-		transform.WithCreatedAt(1234567890),
-		transform.WithWorkerID("worker-abc"),
-		transform.WithPIDStartedAt(9876543210),
+		dagrun.WithLogFilePath("/tmp/log.txt"),
+		dagrun.WithWorkingDir("/tmp/work"),
+		dagrun.WithPreconditions([]*ir.Condition{{Condition: "test", Expected: "true"}}),
+		dagrun.WithHierarchyRefs(rootRef, parentRef),
+		dagrun.WithAttemptID("attempt-789"),
+		dagrun.WithQueuedAt("2024-01-01 12:00:00"),
+		dagrun.WithCreatedAt(1234567890),
+		dagrun.WithWorkerID("worker-abc"),
+		dagrun.WithPIDStartedAt(9876543210),
 	)
 
 	assert.Equal(t, stringutil.FormatTime(finishedAt), result.FinishedAt)
@@ -196,12 +196,12 @@ func TestStatusBuilderWithConditions(t *testing.T) {
 		checkedAt.Add(time.Minute),
 	)
 
-	result := transform.NewStatusBuilder(dag).Create(
+	result := dagrun.NewStatusBuilder(dag).Create(
 		"queued-run",
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithConditions([]dagrun.DAGRunCondition{
+		dagrun.WithConditions([]dagrun.DAGRunCondition{
 			concurrencyReadyOlder,
 			runnable,
 			concurrencyReadyNewer,
@@ -220,12 +220,12 @@ func TestStatusBuilderWithConditionsClearsConditionsForNonQueuedStatus(t *testin
 	dag := &ir.DAG{Name: "running-dag"}
 	checkedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
-	result := transform.NewStatusBuilder(dag).Create(
+	result := dagrun.NewStatusBuilder(dag).Create(
 		"running-run",
 		ir.Running,
 		0,
 		time.Time{},
-		transform.WithConditions([]dagrun.DAGRunCondition{
+		dagrun.WithConditions([]dagrun.DAGRunCondition{
 			dagrun.NewDAGRunCondition(
 				"Runnable",
 				"False",
@@ -247,7 +247,7 @@ func TestStatusBuilderPopulatesPendingStepRetriesFromNodes(t *testing.T) {
 		},
 	}
 
-	builder := transform.NewStatusBuilder(dag)
+	builder := dagrun.NewStatusBuilder(dag)
 	result := builder.Create(
 		"retry-run",
 		ir.Queued,
@@ -282,7 +282,7 @@ func TestStatusBuilderPendingStepRetriesOptionOverridesAutoDerivation(t *testing
 		},
 	}
 
-	builder := transform.NewStatusBuilder(dag)
+	builder := dagrun.NewStatusBuilder(dag)
 	result := builder.Create(
 		"retry-run",
 		ir.Queued,
@@ -302,7 +302,7 @@ func TestStatusBuilderPendingStepRetriesOptionOverridesAutoDerivation(t *testing
 				},
 			},
 		}),
-		transform.WithPendingStepRetries([]dagrun.PendingStepRetry{}),
+		dagrun.WithPendingStepRetries([]dagrun.PendingStepRetry{}),
 	)
 
 	assert.NotNil(t, result.PendingStepRetries)
@@ -330,7 +330,7 @@ func TestStatusBuilderPopulatesPendingStepRetriesFromHandlerNodes(t *testing.T) 
 		},
 	)
 
-	builder := transform.NewStatusBuilder(dag)
+	builder := dagrun.NewStatusBuilder(dag)
 	result := builder.Create(
 		"retry-run",
 		ir.Queued,
@@ -515,7 +515,7 @@ func TestWithCreatedAtDefaultTime(t *testing.T) {
 
 	// Test WithCreatedAt with 0 - should use current time
 	beforeTime := time.Now().UnixMilli()
-	transform.WithCreatedAt(0)(&dagRunStatus)
+	dagrun.WithCreatedAt(0)(&dagRunStatus)
 	afterTime := time.Now().UnixMilli()
 
 	assert.GreaterOrEqual(t, dagRunStatus.CreatedAt, beforeTime)

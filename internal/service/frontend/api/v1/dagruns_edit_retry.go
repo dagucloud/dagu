@@ -659,22 +659,22 @@ func (a *API) seedEditRetryAttempt(
 		return nil, err
 	}
 
-	opts := []transform.StatusOption{
+	opts := []dagrun.StatusOption{
 		transform.WithNodes(nodes),
-		transform.WithLogFilePath(logFile),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithQueuedAt(stringutil.FormatTime(now)),
-		transform.WithPreconditions(dag.Preconditions),
-		transform.WithHierarchyRefs(
+		dagrun.WithLogFilePath(logFile),
+		dagrun.WithArchiveDir(artifactDir),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithQueuedAt(stringutil.FormatTime(now)),
+		dagrun.WithPreconditions(dag.Preconditions),
+		dagrun.WithHierarchyRefs(
 			dagrun.NewDAGRunRef(dag.Name, dagRunID),
 			dagrun.DAGRunRef{},
 		),
-		transform.WithTriggerType(ir.TriggerTypeRetry),
-		transform.WithTriggerActor(triggerActorFromContext(ctx)),
-		transform.WithRuntimeProfile(profileName, "", nil),
+		dagrun.WithTriggerType(ir.TriggerTypeRetry),
+		dagrun.WithTriggerActor(triggerActorFromContext(ctx)),
+		dagrun.WithRuntimeProfile(profileName, "", nil),
 	}
-	status := transform.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
+	status := dagrun.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
 	status.Params = params
 	status.ParamsList = dag.Params
 

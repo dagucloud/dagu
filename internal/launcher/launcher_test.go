@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -111,15 +110,15 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, "built-exec-retry.log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := transform.NewStatusBuilder(dagFile.DAG).Create(
+	status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithTriggerType(ir.TriggerTypeRetry),
-		transform.WithQueuedAt(stringutil.FormatTime(time.Now())),
-		transform.WithLogFilePath(logPath),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithTriggerType(ir.TriggerTypeRetry),
+		dagrun.WithQueuedAt(stringutil.FormatTime(time.Now())),
+		dagrun.WithLogFilePath(logPath),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -147,14 +146,14 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := transform.NewStatusBuilder(dagFile.DAG).Create(
+	status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithLogFilePath(logPath),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dagFile.Name, runID), dagrun.DAGRunRef{}),
+		dagrun.WithLogFilePath(logPath),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(dagFile.Name, runID), dagrun.DAGRunRef{}),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -182,14 +181,14 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := transform.NewStatusBuilder(dagFile.DAG).Create(
+	status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithLogFilePath(logPath),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dagFile.Name, runID), dagrun.DAGRunRef{}),
+		dagrun.WithLogFilePath(logPath),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(dagFile.Name, runID), dagrun.DAGRunRef{}),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -217,14 +216,14 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := transform.NewStatusBuilder(dagFile.DAG).Create(
+	status := dagrun.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithLogFilePath(logPath),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dagFile.Name, runID), dagrun.DAGRunRef{}),
+		dagrun.WithLogFilePath(logPath),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithHierarchyRefs(dagrun.NewDAGRunRef(dagFile.Name, runID), dagrun.DAGRunRef{}),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))

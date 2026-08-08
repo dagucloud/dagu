@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/stretchr/testify/require"
 )
 
@@ -263,7 +262,7 @@ func testNoWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, n
 }
 
 func testRenderSummary(t *testing.T, _ *reporter, _ *mockSender, dag *ir.DAG, _ []*dagrun.Node) {
-	status := transform.NewStatusBuilder(dag).Create("run-id", ir.Failed, 0, time.Now())
+	status := dagrun.NewStatusBuilder(dag).Create("run-id", ir.Failed, 0, time.Now())
 	summary := renderDAGSummary(status, errors.New("test error"))
 	require.Contains(t, summary, "test error")
 	require.Contains(t, summary, dag.Name)

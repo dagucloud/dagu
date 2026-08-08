@@ -41,7 +41,7 @@ func TestManager(t *testing.T) {
 		socketServer, _ := sock.NewServer(
 			procctrl.DAGSocketAddr(dag.DAG, dagRunID),
 			func(w http.ResponseWriter, _ *http.Request) {
-				status := transform.NewStatusBuilder(dag.DAG).Create(
+				status := dagrun.NewStatusBuilder(dag.DAG).Create(
 					dagRunID, ir.Running, 0, time.Now(),
 				)
 				jsonData, err := json.Marshal(status)
@@ -417,7 +417,7 @@ steps:
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
 
-		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, transform.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, dagrun.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Running, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -660,7 +660,7 @@ steps:
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
-		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, transform.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, dagrun.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Failed, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -690,7 +690,7 @@ steps:
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
-		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, transform.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, dagrun.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Failed, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -840,7 +840,7 @@ steps:
 // testNewStatus builds a minimal persisted DAG run status for manager tests.
 func testNewStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) dagrun.DAGRunStatus {
 	nodes := []runtime.NodeData{{State: runtime.NodeState{Status: nodeStatus}}}
-	return transform.NewStatusBuilder(dag).Create(dagRunID, dagStatus, 0, time.Now(), transform.WithNodes(nodes))
+	return dagrun.NewStatusBuilder(dag).Create(dagRunID, dagStatus, 0, time.Now(), transform.WithNodes(nodes))
 }
 
 func createRunningSubAttempt(

@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/require"
@@ -64,14 +63,14 @@ steps:
 	)
 	require.NoError(t, err)
 
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		"distributed-run",
 		ir.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithFinishedAt(time.Now().Add(-time.Minute)),
-		transform.WithError("step failed"),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithFinishedAt(time.Now().Add(-time.Minute)),
+		dagrun.WithError("step failed"),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeFailed
@@ -142,14 +141,14 @@ steps:
 		dagrun.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		"build-run",
 		ir.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithFinishedAt(time.Now().Add(-time.Minute)),
-		transform.WithError("step failed"),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithFinishedAt(time.Now().Add(-time.Minute)),
+		dagrun.WithError("step failed"),
 	)
 	require.NotEmpty(t, status.Nodes)
 	status.Nodes[0].Status = ir.NodeFailed
@@ -227,12 +226,12 @@ func TestRetryDAGRun_RejectsWaitingDAGAndStepRetry(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		"waiting-run",
 		ir.Waiting,
 		0,
 		time.Now().Add(-time.Minute),
-		transform.WithAttemptID(attempt.ID()),
+		dagrun.WithAttemptID(attempt.ID()),
 	)
 	require.Len(t, status.Nodes, 1)
 	status.Nodes[0].Status = ir.NodeSucceeded
@@ -302,14 +301,14 @@ steps:
 	)
 	require.NoError(t, err)
 
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		"latest-run",
 		ir.Failed,
 		0,
 		time.Now().Add(-time.Minute),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithFinishedAt(time.Now().Add(-30*time.Second)),
-		transform.WithError("step failed"),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithFinishedAt(time.Now().Add(-30*time.Second)),
+		dagrun.WithError("step failed"),
 	)
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, status))

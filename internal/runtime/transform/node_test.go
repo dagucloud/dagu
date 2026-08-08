@@ -63,7 +63,7 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 	assert.Equal(t, ir.NodeFailed, state.StatusDetails[0].Status)
 
 	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
-	status := transform.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+	status := dagrun.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]
@@ -118,7 +118,7 @@ func TestNodeChatMessagesRoundTrip(t *testing.T) {
 
 	// Verify round-trip through status builder
 	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
-	status := transform.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+	status := dagrun.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]
@@ -152,7 +152,7 @@ func TestNodeEmptyChatMessages(t *testing.T) {
 	assert.Nil(t, state.ChatMessages)
 
 	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
-	status := transform.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+	status := dagrun.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]

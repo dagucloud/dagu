@@ -22,7 +22,6 @@ import (
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/require"
 )
@@ -280,14 +279,14 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 	sourceWorkDir := attempt.WorkDir()
 	sourceOutputPath := filepath.Join(sourceWorkDir, "result.txt")
 
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		"source-run",
 		ir.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithFinishedAt(time.Now().Add(-time.Minute)),
-		transform.WithError("consume failed"),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithFinishedAt(time.Now().Add(-time.Minute)),
+		dagrun.WithError("consume failed"),
 	)
 	require.Len(t, status.Nodes, 2)
 	status.Nodes[0].Status = ir.NodeSucceeded
@@ -470,15 +469,15 @@ func seedEditRetrySourceAttemptWithProfileName(
 	attempt, err := store.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	opts := []transform.StatusOption{
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithFinishedAt(time.Now().Add(-time.Minute)),
-		transform.WithError("consume failed"),
+	opts := []dagrun.StatusOption{
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithFinishedAt(time.Now().Add(-time.Minute)),
+		dagrun.WithError("consume failed"),
 	}
 	if profileName != "" {
-		opts = append(opts, transform.WithRuntimeProfile(profileName, "", nil))
+		opts = append(opts, dagrun.WithRuntimeProfile(profileName, "", nil))
 	}
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		dagRunID,
 		ir.Failed,
 		0,
@@ -516,14 +515,14 @@ func seedEditRetrySkippedSourceAttempt(
 	attempt, err := store.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		dagRunID,
 		ir.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithFinishedAt(time.Now().Add(-time.Minute)),
-		transform.WithError("consume failed"),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithFinishedAt(time.Now().Add(-time.Minute)),
+		dagrun.WithError("consume failed"),
 	)
 	require.Len(t, status.Nodes, 2)
 	status.Nodes[0].Status = ir.NodeSkipped
@@ -554,14 +553,14 @@ func seedEditRetrySourceAttemptWithParams(
 	attempt, err := store.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 
-	status := transform.NewStatusBuilder(dag).Create(
+	status := dagrun.NewStatusBuilder(dag).Create(
 		dagRunID,
 		ir.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithFinishedAt(time.Now().Add(-time.Minute)),
-		transform.WithError("consume failed"),
+		dagrun.WithAttemptID(attempt.ID()),
+		dagrun.WithFinishedAt(time.Now().Add(-time.Minute)),
+		dagrun.WithError("consume failed"),
 	)
 	status.Params = "one two three"
 	status.ParamsList = []string{"problem=one two three"}

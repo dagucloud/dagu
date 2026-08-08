@@ -29,7 +29,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	dagruntime "github.com/dagucloud/dagu/v2/internal/runtime"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -1001,15 +1000,15 @@ steps:
 `)
 
 		runID := "remote-catchup-run"
-		status := transform.NewStatusBuilder(dag.DAG).Create(
+		status := dagrun.NewStatusBuilder(dag.DAG).Create(
 			runID,
 			ir.Queued,
 			0,
 			time.Time{},
-			transform.WithAttemptID("queued-attempt"),
-			transform.WithTriggerType(ir.TriggerTypeCatchUp),
-			transform.WithQueuedAt(stringutil.FormatTime(time.Now())),
-			transform.WithScheduleTime(stringutil.FormatTime(time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))),
+			dagrun.WithAttemptID("queued-attempt"),
+			dagrun.WithTriggerType(ir.TriggerTypeCatchUp),
+			dagrun.WithQueuedAt(stringutil.FormatTime(time.Now())),
+			dagrun.WithScheduleTime(stringutil.FormatTime(time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))),
 		)
 
 		previousStatus, convErr := convert.DAGRunStatusToProto(&status)
