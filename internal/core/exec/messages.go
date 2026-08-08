@@ -5,7 +5,7 @@ package exec
 
 import "github.com/dagucloud/dagu/v2/internal/ir"
 
-// LLM message role constants - aliases for core package constants.
+// LLM message role constants are aliases for the canonical IR constants.
 const (
 	RoleSystem    = ir.LLMRoleSystem
 	RoleUser      = ir.LLMRoleUser
