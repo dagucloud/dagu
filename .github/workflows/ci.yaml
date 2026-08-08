@@ -373,10 +373,20 @@ jobs:
             if (-not [Console]::IsInputRedirected) {
               throw "The test requires a non-interactive PowerShell host."
             }
-            $Service = "caller-value"
-            irm $installerUrl | iex
-            if ($Service -ne "caller-value") {
-              throw "The installer changed the caller Service variable."
+            $script:Service = "caller-script-service"
+            $script:DaguHome = "caller-script-home"
+            & {
+              $Service = "caller-local-service"
+              irm $installerUrl | iex
+              if ($Service -ne "caller-local-service") {
+                throw "The installer changed the caller Service variable."
+              }
+            }
+            if ($script:Service -ne "caller-script-service") {
+              throw "The installer changed the caller script Service variable."
+            }
+            if ($script:DaguHome -ne "caller-script-home") {
+              throw "The installer changed the caller script DaguHome variable."
             }
 
             if (-not (Test-Path $daguExe)) {
@@ -395,17 +405,10 @@ jobs:
             throw "The expression-based installer did not clean up dagu.exe."
           }
 
-          $stagedInstaller = Join-Path $env:RUNNER_TEMP "dagu-validation-installer.ps1"
-          [IO.File]::WriteAllText($stagedInstaller, $source, [Text.Encoding]::UTF8)
-          try {
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $stagedInstaller `
-              -NoPrompt -DryRun -Uninstall -Version latest
-            if ($LASTEXITCODE -eq 0) {
-              throw "The installer accepted install-only flags during uninstall."
-            }
-          }
-          finally {
-            Remove-Item -LiteralPath $stagedInstaller -Force -ErrorAction SilentlyContinue
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
+            -NoPrompt -DryRun -Uninstall -Version latest
+          if ($LASTEXITCODE -eq 0) {
+            throw "The installer accepted install-only flags during uninstall."
           }
 
           & ([scriptblock]::Create($source)) `
