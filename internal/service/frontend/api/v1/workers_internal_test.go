@@ -10,10 +10,10 @@ import (
 
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -55,11 +55,11 @@ func (s *stubCoordinatorClient) Heartbeat(context.Context, *coordinatorv1.Heartb
 	return nil, nil
 }
 
-func (s *stubCoordinatorClient) AckTaskClaimTo(context.Context, exec.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+func (s *stubCoordinatorClient) AckTaskClaimTo(context.Context, serviceregistry.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 }
 
-func (s *stubCoordinatorClient) RunHeartbeatTo(context.Context, exec.HostInfo, *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+func (s *stubCoordinatorClient) RunHeartbeatTo(context.Context, serviceregistry.HostInfo, *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 	return &coordinatorv1.RunHeartbeatResponse{}, nil
 }
 
@@ -67,7 +67,7 @@ func (s *stubCoordinatorClient) ReportStatus(context.Context, *coordinatorv1.Rep
 	return nil, nil
 }
 
-func (s *stubCoordinatorClient) ReportStatusTo(ctx context.Context, _ exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+func (s *stubCoordinatorClient) ReportStatusTo(ctx context.Context, _ serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	return s.ReportStatus(ctx, req)
 }
 
@@ -75,7 +75,7 @@ func (s *stubCoordinatorClient) StreamLogs(context.Context) (coordinatorv1.Coord
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubCoordinatorClient) StreamLogsTo(ctx context.Context, _ exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+func (s *stubCoordinatorClient) StreamLogsTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 	return s.StreamLogs(ctx)
 }
 
@@ -83,7 +83,7 @@ func (s *stubCoordinatorClient) StreamArtifacts(context.Context) (coordinatorv1.
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubCoordinatorClient) StreamArtifactsTo(ctx context.Context, _ exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+func (s *stubCoordinatorClient) StreamArtifactsTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 	return s.StreamArtifacts(ctx)
 }
 

@@ -15,13 +15,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 var _ dagstore.DAGStore = (*mockDAGStore)(nil)
@@ -279,15 +278,15 @@ func (m *mockQueueStore) All(ctx context.Context) ([]queue.QueuedItemData, error
 	return args.Get(0).([]queue.QueuedItemData), args.Error(1)
 }
 
-var _ exec.ServiceRegistry = (*mockServiceRegistry)(nil)
+var _ serviceregistry.ServiceRegistry = (*mockServiceRegistry)(nil)
 
 type mockServiceRegistry struct {
 	mock.Mock
 }
 
-var _ exec.ServiceRegistry = (*mockServiceRegistry)(nil)
+var _ serviceregistry.ServiceRegistry = (*mockServiceRegistry)(nil)
 
-func (m *mockServiceRegistry) Register(ctx context.Context, serviceName exec.ServiceName, hostInfo exec.HostInfo) error {
+func (m *mockServiceRegistry) Register(ctx context.Context, serviceName serviceregistry.ServiceName, hostInfo serviceregistry.HostInfo) error {
 	args := m.Called(ctx, serviceName, hostInfo)
 	return args.Error(0)
 }
@@ -296,15 +295,15 @@ func (m *mockServiceRegistry) Unregister(ctx context.Context) {
 	m.Called(ctx)
 }
 
-func (m *mockServiceRegistry) GetServiceMembers(ctx context.Context, serviceName exec.ServiceName) ([]exec.HostInfo, error) {
+func (m *mockServiceRegistry) GetServiceMembers(ctx context.Context, serviceName serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
 	args := m.Called(ctx, serviceName)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]exec.HostInfo), args.Error(1)
+	return args.Get(0).([]serviceregistry.HostInfo), args.Error(1)
 }
 
-func (m *mockServiceRegistry) UpdateStatus(ctx context.Context, serviceName exec.ServiceName, status exec.ServiceStatus) error {
+func (m *mockServiceRegistry) UpdateStatus(ctx context.Context, serviceName serviceregistry.ServiceName, status serviceregistry.ServiceStatus) error {
 	args := m.Called(ctx, serviceName, status)
 	return args.Error(0)
 }
@@ -339,7 +338,7 @@ func (m *mockWorkerHeartbeatStore) DeleteStale(context.Context, time.Time) (int,
 
 func TestNewCollector(t *testing.T) {
 	serviceRegistry := &mockServiceRegistry{}
-	serviceRegistry.On("GetServiceMembers", mock.Anything, exec.ServiceNameScheduler).Return([]exec.HostInfo{{Host: "localhost", Status: exec.ServiceStatusActive}}, nil)
+	serviceRegistry.On("GetServiceMembers", mock.Anything, serviceregistry.ServiceNameScheduler).Return([]serviceregistry.HostInfo{{Host: "localhost", Status: serviceregistry.ServiceStatusActive}}, nil)
 
 	collector := NewCollector(
 		"1.0.0",
@@ -389,7 +388,7 @@ func TestCollector_Collect_BasicMetrics(t *testing.T) {
 	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
 
 	serviceRegistry := &mockServiceRegistry{}
-	serviceRegistry.On("GetServiceMembers", mock.Anything, exec.ServiceNameScheduler).Return([]exec.HostInfo{{Host: "localhost", Status: exec.ServiceStatusActive}}, nil).Maybe()
+	serviceRegistry.On("GetServiceMembers", mock.Anything, serviceregistry.ServiceNameScheduler).Return([]serviceregistry.HostInfo{{Host: "localhost", Status: serviceregistry.ServiceStatusActive}}, nil).Maybe()
 
 	collector := NewCollector(
 		"1.0.0",
@@ -440,7 +439,7 @@ func TestCollector_Collect_WithDAGRuns(t *testing.T) {
 	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{nil, nil}, nil)
 
 	serviceRegistry := &mockServiceRegistry{}
-	serviceRegistry.On("GetServiceMembers", mock.Anything, exec.ServiceNameScheduler).Return([]exec.HostInfo{{Host: "localhost", Status: exec.ServiceStatusActive}}, nil).Maybe()
+	serviceRegistry.On("GetServiceMembers", mock.Anything, serviceregistry.ServiceNameScheduler).Return([]serviceregistry.HostInfo{{Host: "localhost", Status: serviceregistry.ServiceStatusActive}}, nil).Maybe()
 
 	collector := NewCollector(
 		"1.0.0",
@@ -740,8 +739,8 @@ func TestCollector_SchedulerStatus(t *testing.T) {
 
 	t.Run("ActiveScheduler", func(t *testing.T) {
 		serviceRegistry := &mockServiceRegistry{}
-		serviceRegistry.On("GetServiceMembers", mock.Anything, exec.ServiceNameScheduler).Return(
-			[]exec.HostInfo{{Host: "localhost", Status: exec.ServiceStatusActive}},
+		serviceRegistry.On("GetServiceMembers", mock.Anything, serviceregistry.ServiceNameScheduler).Return(
+			[]serviceregistry.HostInfo{{Host: "localhost", Status: serviceregistry.ServiceStatusActive}},
 			nil,
 		).Maybe()
 
@@ -766,8 +765,8 @@ func TestCollector_SchedulerStatus(t *testing.T) {
 
 	t.Run("InactiveScheduler", func(t *testing.T) {
 		serviceRegistry := &mockServiceRegistry{}
-		serviceRegistry.On("GetServiceMembers", mock.Anything, exec.ServiceNameScheduler).Return(
-			[]exec.HostInfo{{Host: "localhost", Status: exec.ServiceStatusInactive}},
+		serviceRegistry.On("GetServiceMembers", mock.Anything, serviceregistry.ServiceNameScheduler).Return(
+			[]serviceregistry.HostInfo{{Host: "localhost", Status: serviceregistry.ServiceStatusInactive}},
 			nil,
 		).Maybe()
 
@@ -792,8 +791,8 @@ func TestCollector_SchedulerStatus(t *testing.T) {
 
 	t.Run("NoSchedulerInstances", func(t *testing.T) {
 		serviceRegistry := &mockServiceRegistry{}
-		serviceRegistry.On("GetServiceMembers", mock.Anything, exec.ServiceNameScheduler).Return(
-			[]exec.HostInfo{},
+		serviceRegistry.On("GetServiceMembers", mock.Anything, serviceregistry.ServiceNameScheduler).Return(
+			[]serviceregistry.HostInfo{},
 			nil,
 		).Maybe()
 

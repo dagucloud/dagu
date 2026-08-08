@@ -10,7 +10,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/telemetry"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -23,6 +22,7 @@ import (
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // ServerConfig contains the wiring needed to construct the frontend process role.
@@ -33,7 +33,7 @@ type ServerConfig struct {
 	QueueStore           queue.QueueStore
 	ProcStore            proc.ProcStore
 	DAGRunManager        runtime.Manager
-	ServiceRegistry      exec.ServiceRegistry
+	ServiceRegistry      serviceregistry.ServiceRegistry
 	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
 	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
 	LicenseManager       *license.Manager

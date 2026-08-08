@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -24,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -143,7 +143,7 @@ func runCoordinator(ctx *Context, _ []string) error {
 func newCoordinator(
 	ctx *Context,
 	cfg *config.Config,
-	registry exec.ServiceRegistry,
+	registry serviceregistry.ServiceRegistry,
 	dagRunStore dagrun.DAGRunStore,
 	stateStore dagstate.Store,
 	dispatchTaskStore dispatch.DispatchTaskStore,

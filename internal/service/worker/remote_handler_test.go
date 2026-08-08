@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -73,7 +74,7 @@ func TestTaskOwner(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		assert.Equal(t, exec.HostInfo{}, owner)
+		assert.Equal(t, serviceregistry.HostInfo{}, owner)
 	})
 
 	t.Run("AcceptsCompleteMetadata", func(t *testing.T) {
@@ -86,7 +87,7 @@ func TestTaskOwner(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		assert.Equal(t, exec.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}, owner)
+		assert.Equal(t, serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}, owner)
 	})
 }
 
@@ -95,7 +96,7 @@ func TestPollerAckTaskClaimRejectsPartialOwnerMetadata(t *testing.T) {
 
 	called := false
 	client := newMockRemoteCoordinatorClient()
-	client.AckTaskClaimFunc = func(context.Context, exec.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+	client.AckTaskClaimFunc = func(context.Context, serviceregistry.HostInfo, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 		called = true
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 	}
@@ -422,14 +423,14 @@ func hasArtifactChunk(streams []*mockStreamArtifactsClient, dagRunID, dagName, a
 }
 
 type mockRemoteCoordinatorClient struct {
-	AckTaskClaimFunc      func(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error)
-	RunHeartbeatFunc      func(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)
+	AckTaskClaimFunc      func(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error)
+	RunHeartbeatFunc      func(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error)
 	ReportStatusFunc      func(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
-	ReportStatusToFunc    func(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
+	ReportStatusToFunc    func(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
 	StreamLogsFunc        func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
-	StreamLogsToFunc      func(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
+	StreamLogsToFunc      func(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
 	StreamArtifactsFunc   func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
-	StreamArtifactsToFunc func(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
+	StreamArtifactsToFunc func(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error)
 	GetDAGRunStatusFunc   func(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error)
 	GetDAGFunc            func(ctx context.Context, name string) (string, error)
 	DispatchFunc          func(ctx context.Context, task *dispatch.DispatchTask) error
@@ -468,21 +469,21 @@ func (m *mockRemoteCoordinatorClient) ReportStatus(ctx context.Context, req *coo
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 }
 
-func (m *mockRemoteCoordinatorClient) AckTaskClaimTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+func (m *mockRemoteCoordinatorClient) AckTaskClaimTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	if m.AckTaskClaimFunc != nil {
 		return m.AckTaskClaimFunc(ctx, owner, req)
 	}
 	return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 }
 
-func (m *mockRemoteCoordinatorClient) RunHeartbeatTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+func (m *mockRemoteCoordinatorClient) RunHeartbeatTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 	if m.RunHeartbeatFunc != nil {
 		return m.RunHeartbeatFunc(ctx, owner, req)
 	}
 	return &coordinatorv1.RunHeartbeatResponse{}, nil
 }
 
-func (m *mockRemoteCoordinatorClient) ReportStatusTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+func (m *mockRemoteCoordinatorClient) ReportStatusTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	if m.ReportStatusToFunc != nil {
 		return m.ReportStatusToFunc(ctx, owner, req)
 	}
@@ -496,7 +497,7 @@ func (m *mockRemoteCoordinatorClient) StreamLogs(ctx context.Context) (coordinat
 	return newMockStreamLogsClient(), nil
 }
 
-func (m *mockRemoteCoordinatorClient) StreamLogsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+func (m *mockRemoteCoordinatorClient) StreamLogsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 	if m.StreamLogsToFunc != nil {
 		return m.StreamLogsToFunc(ctx, owner)
 	}
@@ -510,7 +511,7 @@ func (m *mockRemoteCoordinatorClient) StreamArtifacts(ctx context.Context) (coor
 	return newMockStreamArtifactsClient(), nil
 }
 
-func (m *mockRemoteCoordinatorClient) StreamArtifactsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+func (m *mockRemoteCoordinatorClient) StreamArtifactsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 	if m.StreamArtifactsToFunc != nil {
 		return m.StreamArtifactsToFunc(ctx, owner)
 	}
@@ -1782,7 +1783,7 @@ func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testi
 		dagName:   dagName,
 		attemptID: attemptID,
 		root:      dagrun.NewDAGRunRef(dagName, dagRunID),
-	}, exec.HostInfo{})
+	}, serviceregistry.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(logFilePath))
 
 	schedulerWriter := reporter.NewSchedulerLogWriter(context.Background(), logFile)
@@ -1977,7 +1978,7 @@ func TestRemoteRunReporter_SchedulerWriterCloseUsesLiveStream(t *testing.T) {
 		dagName:   dagName,
 		attemptID: attemptID,
 		root:      dagrun.NewDAGRunRef(dagName, dagRunID),
-	}, exec.HostInfo{})
+	}, serviceregistry.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(logFilePath))
 
 	schedulerWriter := reporter.NewSchedulerLogWriter(context.Background(), logFile)
@@ -2043,7 +2044,7 @@ func TestRemoteRunReporter_MirrorsStepOutputIntoFinalSchedulerLog(t *testing.T) 
 		dagName:   dagName,
 		attemptID: attemptID,
 		root:      dagrun.NewDAGRunRef(dagName, dagRunID),
-	}, exec.HostInfo{})
+	}, serviceregistry.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(logFilePath))
 
 	schedulerWriter := reporter.NewSchedulerLogWriter(context.Background(), logFile)
@@ -2126,7 +2127,7 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 		dagName:   rootName,
 		attemptID: rootAttempt,
 		root:      rootRef,
-	}, exec.HostInfo{})
+	}, serviceregistry.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(filepath.Join(t.TempDir(), "scheduler.log")))
 
 	rootWriter := reporter.NewStepWriter(context.Background(), "root-step", exec.StreamTypeStdout)

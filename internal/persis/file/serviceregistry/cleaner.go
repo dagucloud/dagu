@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 var quarantineSeq uint64
@@ -35,14 +35,14 @@ const (
 // Uses randomized intervals to avoid conflicts when many processes clean simultaneously.
 type cleaner struct {
 	baseDir     string
-	serviceName exec.ServiceName
+	serviceName serviceregistry.ServiceName
 	stopCh      chan struct{}
 	stopOnce    sync.Once
 }
 
 // newCleaner creates a new cleaner that runs with randomized intervals
 // to avoid conflicts between multiple coordinator processes
-func newCleaner(baseDir string, serviceName exec.ServiceName) *cleaner {
+func newCleaner(baseDir string, serviceName serviceregistry.ServiceName) *cleaner {
 	c := &cleaner{
 		baseDir:     baseDir,
 		serviceName: serviceName,

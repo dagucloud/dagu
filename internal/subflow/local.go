@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -42,7 +43,7 @@ type Local struct {
 	stateStore               dagstate.Store
 	secretStore              secretpkg.Store
 	profileStore             profilepkg.Store
-	serviceRegistry          exec.ServiceRegistry
+	serviceRegistry          serviceregistry.ServiceRegistry
 	statusPusher             runtime.StatusPusher
 	logWriterFactory         exec.LogWriterFactory
 	artifactFinalizer        runtime.ArtifactFinalizer
@@ -111,7 +112,7 @@ func WithLocalProfileStore(store profilepkg.Store) LocalOption {
 }
 
 // WithLocalServiceRegistry sets the service registry used by child workflow agents.
-func WithLocalServiceRegistry(registry exec.ServiceRegistry) LocalOption {
+func WithLocalServiceRegistry(registry serviceregistry.ServiceRegistry) LocalOption {
 	return func(r *Local) {
 		r.serviceRegistry = registry
 	}

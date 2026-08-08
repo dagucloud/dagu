@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -316,7 +316,7 @@ func TestCleaner_RandomInterval(t *testing.T) {
 
 	c := &cleaner{
 		baseDir:     "/tmp",
-		serviceName: exec.ServiceNameCoordinator,
+		serviceName: serviceregistry.ServiceNameCoordinator,
 		stopCh:      make(chan struct{}),
 	}
 

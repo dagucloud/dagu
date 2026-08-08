@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
@@ -23,7 +23,7 @@ import (
 )
 
 type SecretReferenceClient interface {
-	ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error)
+	ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error)
 }
 
 type SecretReferenceRun struct {
@@ -35,11 +35,11 @@ type SecretReferenceRun struct {
 type secretReferenceResolver struct {
 	client    SecretReferenceClient
 	workspace string
-	owner     exec.HostInfo
+	owner     serviceregistry.HostInfo
 	run       SecretReferenceRun
 }
 
-func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, owner exec.HostInfo, run SecretReferenceRun) secrets.ReferenceResolver {
+func NewSecretReferenceResolver(client SecretReferenceClient, workspace string, owner serviceregistry.HostInfo, run SecretReferenceRun) secrets.ReferenceResolver {
 	if client == nil {
 		return nil
 	}
@@ -64,7 +64,7 @@ func (r *secretReferenceResolver) resolve(ctx context.Context, ref secretref.Ref
 	return r.client.ResolveSecretReference(ctx, r.owner, ref, r.workspace, checkOnly, r.run)
 }
 
-func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
+func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
 	if !emptySecretReferenceOwner(owner) && !completeSecretReferenceOwner(owner) {
 		return "", fmt.Errorf("secret reference owner coordinator endpoint is incomplete")
 	}
@@ -83,7 +83,7 @@ func (cli *clientImpl) resolveSecretReference(ctx context.Context, req *coordina
 	}
 
 	var resp *coordinatorv1.ResolveSecretReferenceResponse
-	err = cli.attemptCall(ctx, members, func(ctx context.Context, member exec.HostInfo, client *client) error {
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = resolveSecretReferenceRPC(ctx, member.ID, client, req)
 		return callErr
@@ -94,7 +94,7 @@ func (cli *clientImpl) resolveSecretReference(ctx context.Context, req *coordina
 	return resp.GetValue(), nil
 }
 
-func (cli *clientImpl) resolveSecretReferenceTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.ResolveSecretReferenceRequest) (string, error) {
+func (cli *clientImpl) resolveSecretReferenceTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ResolveSecretReferenceRequest) (string, error) {
 	var resp *coordinatorv1.ResolveSecretReferenceResponse
 	err := cli.callMemberWithTimeout(ctx, owner, func(ctx context.Context, client *client) error {
 		var callErr error
@@ -107,7 +107,7 @@ func (cli *clientImpl) resolveSecretReferenceTo(ctx context.Context, owner exec.
 	return resp.GetValue(), nil
 }
 
-func emptySecretReferenceOwner(owner exec.HostInfo) bool {
+func emptySecretReferenceOwner(owner serviceregistry.HostInfo) bool {
 	return owner.ID == "" && owner.Host == "" && owner.Port == 0
 }
 
@@ -122,7 +122,7 @@ func resolveSecretReferenceRPC(ctx context.Context, coordinatorID string, client
 	return resp, nil
 }
 
-func completeSecretReferenceOwner(owner exec.HostInfo) bool {
+func completeSecretReferenceOwner(owner serviceregistry.HostInfo) bool {
 	return owner.ID != "" && owner.Host != "" && owner.Port != 0
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -54,7 +55,7 @@ type LogStreamer struct {
 	dagName   string
 	attemptID string
 	rootRef   dagrun.DAGRunRef
-	owner     exec.HostInfo
+	owner     serviceregistry.HostInfo
 	mu        sync.RWMutex
 
 	schedulerMu     sync.RWMutex
@@ -69,9 +70,9 @@ func NewLogStreamer(
 	dagName string,
 	attemptID string,
 	rootRef dagrun.DAGRunRef,
-	owner ...exec.HostInfo,
+	owner ...serviceregistry.HostInfo,
 ) *LogStreamer {
-	var target exec.HostInfo
+	var target serviceregistry.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}

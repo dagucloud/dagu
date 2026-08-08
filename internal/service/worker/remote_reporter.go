@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 const (
@@ -71,7 +72,7 @@ func (m remoteRunMetadata) withAttemptID(attemptID string) remoteRunMetadata {
 type remoteRunReporter struct {
 	client    coordinator.Client
 	workerID  string
-	owner     exec.HostInfo
+	owner     serviceregistry.HostInfo
 	mu        sync.Mutex
 	defaults  remoteRunMetadata
 	logs      map[string]*coordreport.LogStreamer
@@ -83,7 +84,7 @@ func newRemoteRunReporter(
 	client coordinator.Client,
 	workerID string,
 	defaults remoteRunMetadata,
-	owner exec.HostInfo,
+	owner serviceregistry.HostInfo,
 ) *remoteRunReporter {
 	return &remoteRunReporter{
 		client:    client,

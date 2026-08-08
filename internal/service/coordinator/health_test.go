@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -113,7 +113,7 @@ type blockingFailingRegistry struct {
 	proceed chan struct{}
 }
 
-func (r *blockingFailingRegistry) Register(context.Context, exec.ServiceName, exec.HostInfo) error {
+func (r *blockingFailingRegistry) Register(context.Context, serviceregistry.ServiceName, serviceregistry.HostInfo) error {
 	select {
 	case r.started <- struct{}{}:
 	default:
@@ -124,11 +124,11 @@ func (r *blockingFailingRegistry) Register(context.Context, exec.ServiceName, ex
 
 func (*blockingFailingRegistry) Unregister(context.Context) {}
 
-func (*blockingFailingRegistry) GetServiceMembers(context.Context, exec.ServiceName) ([]exec.HostInfo, error) {
+func (*blockingFailingRegistry) GetServiceMembers(context.Context, serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
 	return nil, nil
 }
 
-func (*blockingFailingRegistry) UpdateStatus(context.Context, exec.ServiceName, exec.ServiceStatus) error {
+func (*blockingFailingRegistry) UpdateStatus(context.Context, serviceregistry.ServiceName, serviceregistry.ServiceStatus) error {
 	return nil
 }
 

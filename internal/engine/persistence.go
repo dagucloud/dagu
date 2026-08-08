@@ -9,7 +9,6 @@ import (
 	"fmt"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -17,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // PersistenceFactory wires backend-specific stores after configuration is loaded.
@@ -29,7 +29,7 @@ type Persistence struct {
 	RunStateStore        runstate.Store
 	ProcStore            proc.ProcStore
 	StateStore           dagstate.Store
-	ServiceRegistry      exec.ServiceRegistry
+	ServiceRegistry      serviceregistry.ServiceRegistry
 	DAGStoreFactory      DAGStoreFactory
 	RuntimeStoresFactory RuntimeStoresFactory
 }

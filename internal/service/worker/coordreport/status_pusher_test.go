@@ -9,13 +9,13 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +28,7 @@ var _ coordinator.Client = (*mockCoordinatorClient)(nil)
 // Only ReportStatus is used by StatusPusher; other methods panic if called.
 type mockCoordinatorClient struct {
 	reportStatusFunc     func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
-	reportStatusToFunc   func(context.Context, exec.HostInfo, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
+	reportStatusToFunc   func(context.Context, serviceregistry.HostInfo, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
 	reportStatusToCalled bool
 }
 
@@ -56,11 +56,11 @@ func (m *mockCoordinatorClient) Heartbeat(_ context.Context, _ *coordinatorv1.He
 	panic("Heartbeat not implemented in mock")
 }
 
-func (m *mockCoordinatorClient) AckTaskClaimTo(_ context.Context, _ exec.HostInfo, _ *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+func (m *mockCoordinatorClient) AckTaskClaimTo(_ context.Context, _ serviceregistry.HostInfo, _ *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	panic("AckTaskClaimTo not implemented in mock")
 }
 
-func (m *mockCoordinatorClient) RunHeartbeatTo(_ context.Context, _ exec.HostInfo, _ *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+func (m *mockCoordinatorClient) RunHeartbeatTo(_ context.Context, _ serviceregistry.HostInfo, _ *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 	panic("RunHeartbeatTo not implemented in mock")
 }
 
@@ -68,7 +68,7 @@ func (m *mockCoordinatorClient) StreamLogs(_ context.Context) (coordinatorv1.Coo
 	panic("StreamLogs not implemented in mock")
 }
 
-func (m *mockCoordinatorClient) ReportStatusTo(ctx context.Context, owner exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+func (m *mockCoordinatorClient) ReportStatusTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	m.reportStatusToCalled = true
 	if m.reportStatusToFunc != nil {
 		return m.reportStatusToFunc(ctx, owner, req)
@@ -76,7 +76,7 @@ func (m *mockCoordinatorClient) ReportStatusTo(ctx context.Context, owner exec.H
 	return m.ReportStatus(ctx, req)
 }
 
-func (m *mockCoordinatorClient) StreamLogsTo(ctx context.Context, _ exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+func (m *mockCoordinatorClient) StreamLogsTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 	return m.StreamLogs(ctx)
 }
 
@@ -84,7 +84,7 @@ func (m *mockCoordinatorClient) StreamArtifacts(_ context.Context) (coordinatorv
 	panic("StreamArtifacts not implemented in mock")
 }
 
-func (m *mockCoordinatorClient) StreamArtifactsTo(ctx context.Context, _ exec.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+func (m *mockCoordinatorClient) StreamArtifactsTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 	return m.StreamArtifacts(ctx)
 }
 
@@ -313,14 +313,14 @@ func TestPush(t *testing.T) {
 		t.Parallel()
 
 		client := &mockCoordinatorClient{
-			reportStatusToFunc: func(_ context.Context, owner exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
-				assert.Equal(t, exec.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}, owner)
+			reportStatusToFunc: func(_ context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+				assert.Equal(t, serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}, owner)
 				assert.Equal(t, "coord-1", req.OwnerCoordinatorId)
 				return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 			},
 		}
 
-		pusher := coordreport.NewStatusPusher(client, "worker-1", "owner-attempt-key", exec.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321})
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "owner-attempt-key", serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321})
 		err := pusher.Push(context.Background(), dagrun.DAGRunStatus{Name: "test-dag", DAGRunID: "run-owner"})
 
 		require.NoError(t, err)

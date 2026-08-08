@@ -13,7 +13,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -23,6 +22,7 @@ import (
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/spf13/viper"
 )
 
@@ -32,7 +32,7 @@ type Engine struct {
 	runStateStore   runstate.Store
 	stateStore      dagstate.Store
 	procStore       proc.ProcStore
-	serviceRegistry coreexec.ServiceRegistry
+	serviceRegistry serviceregistry.ServiceRegistry
 	dagStore        dagstore.DAGStore
 	dagRunMgr       runtime.Manager
 	defaultMode     ExecutionMode

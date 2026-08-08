@@ -58,6 +58,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
@@ -110,7 +111,7 @@ type Agent struct {
 	profileStore profilepkg.Store
 
 	// registry is the service registry to find the coordinator service.
-	registry exec.ServiceRegistry
+	registry serviceregistry.ServiceRegistry
 
 	// peerConfig is the configuration for the peer connections.
 	peerConfig config.Peer
@@ -349,7 +350,7 @@ type Options struct {
 	// ProfileName selects the runtime profile for this DAG run.
 	ProfileName string
 	// ServiceRegistry is the registry for service discovery.
-	ServiceRegistry exec.ServiceRegistry
+	ServiceRegistry serviceregistry.ServiceRegistry
 	// RootDAGRun is the root dag-run reference for sub-DAG runs.
 	RootDAGRun dagrun.DAGRunRef
 	// PeerConfig is the configuration for peer communication.

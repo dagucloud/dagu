@@ -8,11 +8,11 @@ import (
 	"errors"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -27,7 +27,7 @@ func (c *captureCoordinatorClientForTest) ReportStatus(_ context.Context, req *c
 	return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 }
 
-func (c *captureCoordinatorClientForTest) ReportStatusTo(ctx context.Context, _ exec.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+func (c *captureCoordinatorClientForTest) ReportStatusTo(ctx context.Context, _ serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	return c.ReportStatus(ctx, req)
 }
 

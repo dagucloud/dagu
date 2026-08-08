@@ -9,12 +9,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // NewCoordinatorClient creates a coordinator client for a command process role.
-func NewCoordinatorClient(ctx context.Context, cfg *config.Config, registry exec.ServiceRegistry) coordinator.Client {
+func NewCoordinatorClient(ctx context.Context, cfg *config.Config, registry serviceregistry.ServiceRegistry) coordinator.Client {
 	if !cfg.Coordinator.Enabled {
 		return nil
 	}

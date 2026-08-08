@@ -17,11 +17,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -56,7 +56,7 @@ type Worker struct {
 
 type runningTaskState struct {
 	task                 *coordinatorv1.RunningTask
-	owner                exec.HostInfo
+	owner                serviceregistry.HostInfo
 	lastOwnerHeartbeatAt time.Time
 }
 
@@ -387,7 +387,7 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 	return t.handler.Handle(taskCtx, task)
 }
 
-func (w *Worker) validateClaimedTask(ctx context.Context, owner exec.HostInfo, task *coordinatorv1.RunningTask) (bool, error) {
+func (w *Worker) validateClaimedTask(ctx context.Context, owner serviceregistry.HostInfo, task *coordinatorv1.RunningTask) (bool, error) {
 	if task == nil || task.AttemptKey == "" || owner.Host == "" {
 		return false, nil
 	}
@@ -487,7 +487,7 @@ func (w *Worker) sendRunHeartbeats(ctx context.Context) {
 
 func (w *Worker) sendOwnerRunHeartbeats(ctx context.Context) {
 	type ownerGroup struct {
-		owner exec.HostInfo
+		owner serviceregistry.HostInfo
 		tasks []*coordinatorv1.RunningTask
 	}
 
@@ -544,7 +544,7 @@ func (w *Worker) markOwnerHeartbeatSuccess(tasks []*coordinatorv1.RunningTask, o
 	}
 }
 
-func (w *Worker) cancelTasksForOwnerTimeout(ctx context.Context, owner exec.HostInfo, tasks []*coordinatorv1.RunningTask, lastSeen map[string]time.Time) {
+func (w *Worker) cancelTasksForOwnerTimeout(ctx context.Context, owner serviceregistry.HostInfo, tasks []*coordinatorv1.RunningTask, lastSeen map[string]time.Time) {
 	now := time.Now().UTC()
 	var timedOut []*coordinatorv1.CancelledRun
 	for _, task := range tasks {

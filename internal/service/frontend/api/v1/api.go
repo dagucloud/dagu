@@ -23,7 +23,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -50,6 +49,7 @@ import (
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 	"github.com/dagucloud/dagu/v2/internal/view"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -77,7 +77,7 @@ type API struct {
 	config               *config.Config
 	metricsRegistry      *prometheus.Registry
 	coordinatorCli       coordinator.Client
-	serviceRegistry      exec.ServiceRegistry
+	serviceRegistry      serviceregistry.ServiceRegistry
 	subCmdBuilder        *launcher.SubCmdBuilder
 	resourceService      *resource.Service
 	authService          AuthService
@@ -369,7 +369,7 @@ func New(
 	drm runtime.Manager,
 	cfg *config.Config,
 	cc coordinator.Client,
-	sr exec.ServiceRegistry,
+	sr serviceregistry.ServiceRegistry,
 	mr *prometheus.Registry,
 	rs *resource.Service,
 	opts ...APIOption,

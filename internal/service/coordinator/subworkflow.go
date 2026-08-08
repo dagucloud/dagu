@@ -17,6 +17,7 @@ import (
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
 )
 
@@ -34,7 +35,7 @@ type SubWorkflowRunnerConfig struct {
 	StateStore        dagstate.Store
 	SecretStore       secret.Store
 	ProfileStore      profile.Store
-	ServiceRegistry   exec.ServiceRegistry
+	ServiceRegistry   serviceregistry.ServiceRegistry
 	PeerConfig        config.Peer
 	DefaultExecMode   config.ExecutionMode
 	StatusPusher      runtime.StatusPusher

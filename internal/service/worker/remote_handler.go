@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
@@ -38,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -59,7 +59,7 @@ type RemoteTaskHandlerConfig struct {
 	// StateStore is the persistent state store shared across DAG runs.
 	StateStore dagstate.Store
 	// ServiceRegistry is the service registry
-	ServiceRegistry exec.ServiceRegistry
+	ServiceRegistry serviceregistry.ServiceRegistry
 	// PeerConfig is the peer configuration
 	PeerConfig config.Peer
 	// Config is the main application configuration
@@ -109,7 +109,7 @@ type remoteTaskHandler struct {
 	dagStore          dagstore.DAGStore
 	dagRunMgr         runtime.Manager
 	stateStore        dagstate.Store
-	serviceRegistry   exec.ServiceRegistry
+	serviceRegistry   serviceregistry.ServiceRegistry
 	peerConfig        config.Peer
 	config            *config.Config
 	runtimeStores     runtimeStores
@@ -354,7 +354,7 @@ type remoteRun struct {
 	task        *coordinatorv1.Task
 	root        dagrun.DAGRunRef
 	parent      dagrun.DAGRunRef
-	owner       exec.HostInfo
+	owner       serviceregistry.HostInfo
 	handlers    runHandlers
 	queued      bool
 	retry       *retryConfig
@@ -754,7 +754,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	return nil
 }
 
-func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner exec.HostInfo, run coordinator.SecretReferenceRun) secrets.ReferenceResolver {
+func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) secrets.ReferenceResolver {
 	client, ok := h.coordinatorClient.(coordinator.SecretReferenceClient)
 	if !ok {
 		return nil

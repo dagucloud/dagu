@@ -17,12 +17,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // Histogram bucket definitions
@@ -43,7 +43,7 @@ type Collector struct {
 	dagStore             dagstore.DAGStore
 	dagRunStore          dagrun.DAGRunStore
 	queueStore           queue.QueueStore
-	serviceRegistry      exec.ServiceRegistry
+	serviceRegistry      serviceregistry.ServiceRegistry
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore
 	caches               []fileutil.CacheMetrics
 	now                  func() time.Time
@@ -85,7 +85,7 @@ func NewCollector(
 	dagStore dagstore.DAGStore,
 	dagRunStore dagrun.DAGRunStore,
 	queueStore queue.QueueStore,
-	serviceRegistry exec.ServiceRegistry,
+	serviceRegistry serviceregistry.ServiceRegistry,
 ) *Collector {
 	return &Collector{
 		startTime:       time.Now(),
@@ -306,11 +306,11 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	// Scheduler status
 	schedulerRunning := float64(0)
 	if c.serviceRegistry != nil {
-		members, err := c.serviceRegistry.GetServiceMembers(ctx, exec.ServiceNameScheduler)
+		members, err := c.serviceRegistry.GetServiceMembers(ctx, serviceregistry.ServiceNameScheduler)
 		if err == nil {
 			// Check if any scheduler instance is active
 			for _, member := range members {
-				if member.Status == exec.ServiceStatusActive {
+				if member.Status == serviceregistry.ServiceStatusActive {
 					schedulerRunning = 1
 					break
 				}

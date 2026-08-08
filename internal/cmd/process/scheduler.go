@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -31,6 +30,7 @@ import (
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // SchedulerConfig contains the wiring needed to construct the scheduler process role.
@@ -39,7 +39,7 @@ type SchedulerConfig struct {
 	Config            *config.Config
 	QueueStore        queue.QueueStore
 	ProcStore         proc.ProcStore
-	ServiceRegistry   exec.ServiceRegistry
+	ServiceRegistry   serviceregistry.ServiceRegistry
 	DispatchTaskStore dispatch.DispatchTaskStore
 	DAGRunLeaseStore  dispatch.DAGRunLeaseStore
 	EventService      *eventstore.Service

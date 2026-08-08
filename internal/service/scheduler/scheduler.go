@@ -20,7 +20,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -28,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -46,7 +46,7 @@ type Scheduler struct {
 	dirLock             dirlock.DirLock // File-based lock to prevent multiple scheduler instances
 	dagExecutor         *DAGExecutor
 	healthServer        *HealthServer // Health check server for monitoring
-	serviceRegistry     exec.ServiceRegistry
+	serviceRegistry     serviceregistry.ServiceRegistry
 	disableHealthServer bool            // Disable health server when running from start-all
 	zombieDetector      *ZombieDetector // Zombie DAG run detector
 	instanceID          string          // Unique instance identifier for service registry
@@ -108,7 +108,7 @@ func New(
 	dagRunStore dagrun.DAGRunStore,
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
-	reg exec.ServiceRegistry,
+	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
 	opts ...Option,
@@ -129,7 +129,7 @@ func newScheduler(
 	dagRunStore dagrun.DAGRunStore,
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
-	reg exec.ServiceRegistry,
+	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
 	hooks schedulerHooks,
@@ -449,11 +449,11 @@ func (s *Scheduler) cleanupFailedStartup(state startupState) {
 	}
 }
 
-func (s *Scheduler) updateServiceStatus(ctx context.Context, status exec.ServiceStatus, failureMsg, successMsg string) {
+func (s *Scheduler) updateServiceStatus(ctx context.Context, status serviceregistry.ServiceStatus, failureMsg, successMsg string) {
 	if s.serviceRegistry == nil {
 		return
 	}
-	if err := s.serviceRegistry.UpdateStatus(ctx, exec.ServiceNameScheduler, status); err != nil {
+	if err := s.serviceRegistry.UpdateStatus(ctx, serviceregistry.ServiceNameScheduler, status); err != nil {
 		logger.Error(ctx, failureMsg, tag.Error(err))
 		return
 	}
@@ -526,14 +526,14 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	if s.serviceRegistry != nil {
 		hostname, _ := os.Hostname()
-		hostInfo := exec.HostInfo{
+		hostInfo := serviceregistry.HostInfo{
 			ID:        s.instanceID,
 			Host:      hostname,
 			Port:      s.config.Scheduler.Port, // Health check port (0 if disabled)
-			Status:    exec.ServiceStatusInactive,
+			Status:    serviceregistry.ServiceStatusInactive,
 			StartedAt: time.Now(),
 		}
-		if err := s.serviceRegistry.Register(ctx, exec.ServiceNameScheduler, hostInfo); err != nil {
+		if err := s.serviceRegistry.Register(ctx, serviceregistry.ServiceNameScheduler, hostInfo); err != nil {
 			logger.Error(ctx, "Failed to register with service registry", tag.Error(err))
 			// Continue anyway - service registry is not critical
 		} else {
@@ -572,7 +572,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return nil
 	}
 
-	s.updateServiceStatus(ctx, exec.ServiceStatusActive, "Failed to update status to active", "Updated scheduler status to active")
+	s.updateServiceStatus(ctx, serviceregistry.ServiceStatusActive, "Failed to update status to active", "Updated scheduler status to active")
 
 	sig := make(chan os.Signal, 1)
 
@@ -872,7 +872,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 }
 
 func (s *Scheduler) stopCron(ctx context.Context) {
-	s.updateServiceStatus(ctx, exec.ServiceStatusInactive, "Failed to update status to inactive", "")
+	s.updateServiceStatus(ctx, serviceregistry.ServiceStatusInactive, "Failed to update status to inactive", "")
 	s.stopHealthServer(ctx, "Failed to stop health check server")
 	s.closeDAGExecutor(ctx)
 	s.unregisterService(ctx)

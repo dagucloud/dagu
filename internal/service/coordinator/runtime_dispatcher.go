@@ -7,12 +7,12 @@ import (
 	"fmt"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // NewRuntimeDispatcher creates a coordinator-backed dispatcher for runtime DAG execution.
-func NewRuntimeDispatcher(registry exec.ServiceRegistry, peerConfig config.Peer) (dispatch.Dispatcher, error) {
+func NewRuntimeDispatcher(registry serviceregistry.ServiceRegistry, peerConfig config.Peer) (dispatch.Dispatcher, error) {
 	if registry == nil {
 		return nil, nil
 	}

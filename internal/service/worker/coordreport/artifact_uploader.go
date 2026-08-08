@@ -12,10 +12,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -29,7 +29,7 @@ type ArtifactUploader struct {
 	dagName   string
 	attemptID string
 	rootRef   dagrun.DAGRunRef
-	owner     exec.HostInfo
+	owner     serviceregistry.HostInfo
 	mu        sync.RWMutex
 }
 
@@ -41,9 +41,9 @@ func NewArtifactUploader(
 	dagName string,
 	attemptID string,
 	rootRef dagrun.DAGRunRef,
-	owner ...exec.HostInfo,
+	owner ...serviceregistry.HostInfo,
 ) *ArtifactUploader {
-	var target exec.HostInfo
+	var target serviceregistry.HostInfo
 	if len(owner) > 0 {
 		target = owner[0]
 	}

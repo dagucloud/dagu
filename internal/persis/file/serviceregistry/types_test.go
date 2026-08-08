@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +20,7 @@ func TestWriteReadInstanceFile(t *testing.T) {
 		ID:     "test-instance",
 		Host:   "testhost",
 		Port:   8080,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1234,
 	}
 
@@ -49,7 +49,7 @@ func TestWriteInstanceFile_CreatesDirectory(t *testing.T) {
 		ID:     "test",
 		Host:   "host",
 		Port:   8080,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1234,
 	}
 
@@ -70,7 +70,7 @@ func TestWriteInstanceFile_Atomic(t *testing.T) {
 		ID:     "atomic-test",
 		Host:   "host",
 		Port:   8080,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1234,
 	}
 
@@ -117,7 +117,7 @@ func TestRemoveInstanceFile(t *testing.T) {
 		ID:     "to-remove",
 		Host:   "host",
 		Port:   8080,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1234,
 	}
 
@@ -147,7 +147,7 @@ func TestInstanceInfo_Serialization(t *testing.T) {
 		ID:     "test-serialization",
 		Host:   "host1",
 		Port:   8080,
-		Status: exec.ServiceStatusActive,
+		Status: serviceregistry.ServiceStatusActive,
 		PID:    1234,
 	}
 

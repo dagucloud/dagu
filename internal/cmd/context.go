@@ -28,7 +28,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -47,6 +46,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -68,7 +68,7 @@ type Context struct {
 	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore
 	StateStore                dagstate.Store
-	ServiceRegistry           exec.ServiceRegistry
+	ServiceRegistry           serviceregistry.ServiceRegistry
 	DispatchTaskStore         dispatch.DispatchTaskStore
 	WorkerHeartbeatStore      dispatch.WorkerHeartbeatStore
 	DAGRunLeaseStore          dispatch.DAGRunLeaseStore

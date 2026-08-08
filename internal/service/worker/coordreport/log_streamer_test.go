@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,7 @@ import (
 type logStreamerMockClient struct {
 	coordinator.Client // Embed to satisfy interface (unused methods will panic)
 	streamLogsFunc     func(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
-	streamLogsToFunc   func(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
+	streamLogsToFunc   func(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error)
 }
 
 func (m *logStreamerMockClient) StreamLogs(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
@@ -40,7 +41,7 @@ func (m *logStreamerMockClient) StreamLogs(ctx context.Context) (coordinatorv1.C
 	return nil, errors.New("StreamLogs not configured")
 }
 
-func (m *logStreamerMockClient) StreamLogsTo(ctx context.Context, owner exec.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+func (m *logStreamerMockClient) StreamLogsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 	if m.streamLogsToFunc != nil {
 		return m.streamLogsToFunc(ctx, owner)
 	}
@@ -159,7 +160,7 @@ func TestLogStreamer_FinalChunksIncludeOwnerCoordinatorID(t *testing.T) {
 			return stepStream, nil
 		},
 	}
-	owner := exec.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}
+	owner := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}
 	streamer := coordreport.NewLogStreamer(stepClient, "worker-1", "run-123", "test-dag", "attempt-1", dagrun.DAGRunRef{}, owner)
 
 	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
