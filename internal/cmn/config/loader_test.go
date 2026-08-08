@@ -668,7 +668,7 @@ scheduler:
 			APIBasePath:       "/api/v1",
 			Headless:          true,
 			CheckUpdates:      false,
-			AccessLog:         AccessLogAll,
+			AccessLog:         AccessLogNone,
 			LatestStatusToday: true,
 			Auth: Auth{
 				Mode:  AuthModeBasic, // Explicit basic mode from YAML
@@ -1915,7 +1915,7 @@ access_log_mode: "none"
 
 	t.Run("AccessLogDefault", func(t *testing.T) {
 		cfg := loadFromYAML(t, "# empty")
-		assert.Equal(t, AccessLogAll, cfg.Server.AccessLog)
+		assert.Equal(t, AccessLogNone, cfg.Server.AccessLog)
 	})
 
 	t.Run("AccessLogFromEnv", func(t *testing.T) {
@@ -1931,7 +1931,7 @@ auth:
   mode: none
 access_log_mode: "invalid"
 `)
-		assert.Equal(t, AccessLogAll, cfg.Server.AccessLog)
+		assert.Equal(t, AccessLogNone, cfg.Server.AccessLog)
 		require.Len(t, cfg.Warnings, 1)
 		assert.Contains(t, cfg.Warnings[0], "Invalid access_log_mode value")
 		assert.Contains(t, cfg.Warnings[0], "invalid")
