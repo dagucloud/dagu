@@ -17,10 +17,11 @@ import (
 
 // Sentinel errors for doc store operations.
 var (
-	ErrDocNotFound      = errors.New("doc not found")
-	ErrDocAlreadyExists = errors.New("doc already exists")
-	ErrDocPathConflict  = errors.New("doc path conflicts with another node")
-	ErrInvalidDocID     = errors.New("invalid doc ID")
+	ErrDocNotFound         = errors.New("doc not found")
+	ErrDocAlreadyExists    = errors.New("doc already exists")
+	ErrDocPathConflict     = errors.New("doc path conflicts with another node")
+	ErrInvalidDocID        = errors.New("invalid doc ID")
+	ErrDocRevisionNotFound = errors.New("doc revision not found")
 )
 
 // Doc is the domain entity for a markdown document.
@@ -114,6 +115,14 @@ type DocSearchResult struct {
 	NextMatchesCursor string            `json:"nextMatchesCursor,omitempty"`
 }
 
+// DocRevision is a stored prior version of a document.
+type DocRevision struct {
+	Rev     string    `json:"rev"`
+	SavedAt time.Time `json:"savedAt"`
+	Size    int64     `json:"size"`
+	Content string    `json:"content,omitempty"`
+}
+
 // DeleteError represents a single item failure in a batch delete operation.
 type DeleteError struct {
 	ID    string
@@ -135,6 +144,12 @@ type DocStore interface {
 	// "dag:name". A relative link held by a document under pathPrefix also
 	// matches when pathPrefix + "/" + link equals target.
 	Backlinks(ctx context.Context, target, pathPrefix string) ([]DocMetadata, error)
+	// ListRevisions returns stored prior versions of a document, newest
+	// first, without content. Stores without revision support return an
+	// empty list.
+	ListRevisions(ctx context.Context, id string) ([]DocRevision, error)
+	// GetRevision returns one stored revision including its content.
+	GetRevision(ctx context.Context, id, rev string) (*DocRevision, error)
 	Search(ctx context.Context, query string) ([]*DocSearchResult, error)
 	SearchCursor(ctx context.Context, opts SearchDocsOptions) (*pagination.CursorResult[DocSearchResult], error)
 	SearchMatches(ctx context.Context, id string, opts SearchDocMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error)

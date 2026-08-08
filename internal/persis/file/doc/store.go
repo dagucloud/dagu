@@ -89,9 +89,10 @@ func normalizeDocTags(tags []string) []string {
 
 // Store implements a file-based doc store.
 // Docs are stored as files: {baseDir}/{id}.md
-// Each file contains optional YAML frontmatter (title, description) and a Markdown body.
+// Each file contains optional YAML frontmatter (title, description, tags) and a Markdown body.
 type Store struct {
 	baseDir string
+	dataDir string
 
 	mutationMu         sync.Mutex
 	mu                 sync.RWMutex
@@ -100,6 +101,18 @@ type Store struct {
 	indexCheckInterval time.Duration
 	docs               map[string]docIndexEntry
 	dirs               map[string]docDirIndexEntry
+}
+
+// Option configures a Store.
+type Option func(*Store)
+
+// WithDataDir sets the directory holding store sidecar data such as document
+// revisions. Without it, revision snapshots are skipped and revision queries
+// return empty results.
+func WithDataDir(dir string) Option {
+	return func(s *Store) {
+		s.dataDir = filepath.Clean(dir)
+	}
 }
 
 type docIndexEntry struct {
@@ -144,17 +157,21 @@ type docDirIndexEntry struct {
 }
 
 // New creates a new file-based doc store.
-func New(baseDir string) (*Store, error) {
+func New(baseDir string, opts ...Option) (*Store, error) {
 	baseDir = filepath.Clean(baseDir)
 	if err := os.MkdirAll(baseDir, docDirPermissions); err != nil {
 		return nil, fmt.Errorf("filedoc: create base directory %s: %w", baseDir, err)
 	}
-	return &Store{
+	store := &Store{
 		baseDir:            baseDir,
 		indexCheckInterval: docIndexCheckInterval,
 		docs:               make(map[string]docIndexEntry),
 		dirs:               make(map[string]docDirIndexEntry),
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(store)
+	}
+	return store, nil
 }
 
 // safePath validates that the given path stays within baseDir (preventing
@@ -1105,6 +1122,11 @@ func (s *Store) Update(ctx context.Context, id, content string) error {
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		data = append(data, '\n')
 	}
+	if prior, _, readErr := readRegularDocFile(filePath); readErr == nil {
+		if err := s.snapshotRevision(id, prior, data); err != nil {
+			logger.Warn(ctx, "Failed to snapshot doc revision", tag.File(filePath), tag.Error(err))
+		}
+	}
 	if err := fileutil.WriteFileAtomic(filePath, data, filePermissions); err != nil {
 		return fmt.Errorf("filedoc: failed to write file: %w", err)
 	}
@@ -1145,6 +1167,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		if err := s.deleteDocCreatedAt(id); err != nil {
 			logger.Warn(ctx, "Failed to remove doc metadata", tag.File(filePath), tag.Error(err))
 		}
+		if err := s.deleteRevisions(id); err != nil {
+			logger.Warn(ctx, "Failed to remove doc revisions", tag.File(filePath), tag.Error(err))
+		}
 		s.cleanEmptyParents(filepath.Dir(filePath))
 		s.removeDocIndexAfterDelete(ctx, id)
 		return nil
@@ -1163,6 +1188,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	}
 	if err := s.deleteDocCreatedAtPrefix(id); err != nil {
 		logger.Warn(ctx, "Failed to remove doc metadata", tag.File(dirPath), tag.Error(err))
+	}
+	if err := s.deleteRevisionsPrefix(id); err != nil {
+		logger.Warn(ctx, "Failed to remove doc revisions", tag.File(dirPath), tag.Error(err))
 	}
 	s.cleanEmptyParents(filepath.Dir(dirPath))
 	s.removeDirIndexAfterDelete(ctx, id)
@@ -1254,6 +1282,9 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []docs
 			if err := s.deleteDocCreatedAt(id); err != nil {
 				logger.Warn(ctx, "Failed to remove doc metadata", tag.File(filePath), tag.Error(err))
 			}
+			if err := s.deleteRevisions(id); err != nil {
+				logger.Warn(ctx, "Failed to remove doc revisions", tag.File(filePath), tag.Error(err))
+			}
 			s.cleanEmptyParents(filepath.Dir(filePath))
 			s.removeDocIndexAfterDelete(ctx, id)
 			deleted = append(deleted, id)
@@ -1281,6 +1312,9 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []docs
 		}
 		if err := s.deleteDocCreatedAtPrefix(id); err != nil {
 			logger.Warn(ctx, "Failed to remove doc metadata", tag.File(dirPath), tag.Error(err))
+		}
+		if err := s.deleteRevisionsPrefix(id); err != nil {
+			logger.Warn(ctx, "Failed to remove doc revisions", tag.File(dirPath), tag.Error(err))
 		}
 		s.cleanEmptyParents(filepath.Dir(dirPath))
 		s.removeDirIndexAfterDelete(ctx, id)
@@ -1378,6 +1412,9 @@ func (s *Store) renameFileLocked(ctx context.Context, oldID, newID, oldFilePath 
 	if err := s.renameDocCreatedAt(oldID, newID); err != nil {
 		logger.Warn(ctx, "Failed to rename doc metadata", tag.File(newFilePath), tag.Error(err))
 	}
+	if err := s.renameRevisions(oldID, newID); err != nil {
+		logger.Warn(ctx, "Failed to rename doc revisions", tag.File(newFilePath), tag.Error(err))
+	}
 	s.cleanEmptyParents(filepath.Dir(oldFilePath))
 	s.removeDocIndexAfterDelete(ctx, oldID)
 	s.upsertDocIndexAfterMutation(ctx, newID)
@@ -1431,6 +1468,9 @@ func (s *Store) renameDirectoryLocked(ctx context.Context, oldID, newID, oldDirP
 	}
 	if err := s.renameDocCreatedAtPrefix(oldID, newID); err != nil {
 		logger.Warn(ctx, "Failed to rename doc metadata", tag.File(newDirPath), tag.Error(err))
+	}
+	if err := s.renameRevisionsPrefix(oldID, newID); err != nil {
+		logger.Warn(ctx, "Failed to rename doc revisions", tag.File(newDirPath), tag.Error(err))
 	}
 	s.cleanEmptyParents(filepath.Dir(oldDirPath))
 	s.rebuildIndexAfterMutation(ctx)

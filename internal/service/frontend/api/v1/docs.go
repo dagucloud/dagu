@@ -49,6 +49,12 @@ var (
 		Message:    "Document path conflicts with an existing file or directory",
 		HTTPStatus: http.StatusConflict,
 	}
+
+	errDocRevisionNotFound = &Error{
+		Code:       api.ErrorCodeNotFound,
+		Message:    "Document revision not found",
+		HTTPStatus: http.StatusNotFound,
+	}
 )
 
 func (a *API) requireDocManagement() error {
@@ -206,6 +212,84 @@ func (a *API) GetDoc(ctx context.Context, request api.GetDocRequestObject) (api.
 	resp.Workspace = docWorkspaceValue(workspaceName, rawID, visibility, false)
 
 	return api.GetDoc200JSONResponse(resp), nil
+}
+
+// docPointReadScopedID resolves and authorizes a doc path for point reads,
+// returning the stored ID after verifying the document exists and is visible.
+func (a *API) docPointReadScopedID(ctx context.Context, workspaceParam *api.Workspace, path string) (string, error) {
+	workspaceName, visibility, err := a.docPointReadScopeForParams(ctx, workspaceParam)
+	if err != nil {
+		return "", err
+	}
+	docID, err := scopedDocPath(workspaceName, path)
+	if err != nil {
+		return "", err
+	}
+	doc, err := a.docStore.Get(ctx, docID)
+	if err != nil {
+		if errors.Is(err, docs.ErrDocNotFound) {
+			return "", errDocNotFound
+		}
+		return "", internalError(err)
+	}
+	if workspaceName == "" && !visibility.all && !visibility.visible(doc.ID) {
+		return "", errDocNotFound
+	}
+	return docID, nil
+}
+
+// ListDocRevisions returns stored prior versions of a document.
+func (a *API) ListDocRevisions(ctx context.Context, request api.ListDocRevisionsRequestObject) (api.ListDocRevisionsResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	docID, err := a.docPointReadScopedID(ctx, request.Params.Workspace, request.Params.Path)
+	if err != nil {
+		return nil, err
+	}
+	revisions, err := a.docStore.ListRevisions(ctx, docID)
+	if err != nil {
+		logger.Error(ctx, "Failed to list doc revisions", tag.Error(err))
+		return nil, internalError(err)
+	}
+	items := make([]api.DocRevisionResponse, 0, len(revisions))
+	for _, revision := range revisions {
+		items = append(items, api.DocRevisionResponse{
+			Rev:     revision.Rev,
+			SavedAt: revision.SavedAt,
+			Size:    revision.Size,
+		})
+	}
+	return api.ListDocRevisions200JSONResponse{Revisions: items}, nil
+}
+
+// GetDocRevision returns one stored revision including its content.
+func (a *API) GetDocRevision(ctx context.Context, request api.GetDocRevisionRequestObject) (api.GetDocRevisionResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	docID, err := a.docPointReadScopedID(ctx, request.Params.Workspace, request.Params.Path)
+	if err != nil {
+		return nil, err
+	}
+	revision, err := a.docStore.GetRevision(ctx, docID, request.Params.Rev)
+	if err != nil {
+		if errors.Is(err, docs.ErrDocRevisionNotFound) {
+			return nil, errDocRevisionNotFound
+		}
+		logger.Error(ctx, "Failed to get doc revision", tag.Error(err))
+		return nil, internalError(err)
+	}
+	return api.GetDocRevision200JSONResponse(api.DocRevisionResponse{
+		Rev:     revision.Rev,
+		SavedAt: revision.SavedAt,
+		Size:    revision.Size,
+		Content: ptrOf(revision.Content),
+	}), nil
 }
 
 // ListDocBacklinks returns documents whose wiki links resolve to the target.
