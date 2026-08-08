@@ -41,11 +41,9 @@ type DAGRunReader interface {
 	ReadDAGRunEvents(ctx context.Context, cursor DAGRunCursor) ([]*Event, DAGRunCursor, error)
 }
 
-type NotificationCursor = DAGRunCursor
-
 type NotificationReader interface {
-	NotificationHeadCursor(ctx context.Context) (NotificationCursor, error)
-	ReadNotificationEvents(ctx context.Context, cursor NotificationCursor) ([]*Event, NotificationCursor, error)
+	NotificationHeadCursor(ctx context.Context) (DAGRunCursor, error)
+	ReadNotificationEvents(ctx context.Context, cursor DAGRunCursor) ([]*Event, DAGRunCursor, error)
 }
 
 type DAGRunNodeSnapshot struct {
@@ -54,8 +52,6 @@ type DAGRunNodeSnapshot struct {
 	Error         string                    `json:"error,omitempty"`
 	StatusDetails []dagrun.NodeStatusDetail `json:"status_details,omitempty"`
 }
-
-type NotificationNodeSnapshot = DAGRunNodeSnapshot
 
 func newDAGRunNodeSnapshot(node *dagrun.Node) *DAGRunNodeSnapshot {
 	if node == nil {
@@ -122,8 +118,6 @@ type DAGRunStatusSnapshot struct {
 	OnExit         *DAGRunNodeSnapshot  `json:"on_exit,omitempty"`
 	OnWait         *DAGRunNodeSnapshot  `json:"on_wait,omitempty"`
 }
-
-type NotificationStatusSnapshot = DAGRunStatusSnapshot
 
 func (s *DAGRunStatusSnapshot) Validate() error {
 	if s == nil {
@@ -355,7 +349,7 @@ func (s *Service) DAGRunHeadCursor(ctx context.Context) (DAGRunCursor, error) {
 		if err != nil {
 			return DAGRunCursor{}, err
 		}
-		return DAGRunCursor(cursor).Normalize(), nil
+		return cursor.Normalize(), nil
 	}
 	return DAGRunCursor{}, errors.New("eventstore: dag-run reader is not configured")
 }
@@ -373,24 +367,24 @@ func (s *Service) ReadDAGRunEvents(ctx context.Context, cursor DAGRunCursor) ([]
 		return events, nextCursor.Normalize(), nil
 	}
 	if reader, ok := s.store.(NotificationReader); ok {
-		events, nextCursor, err := reader.ReadNotificationEvents(ctx, NotificationCursor(cursor))
+		events, nextCursor, err := reader.ReadNotificationEvents(ctx, cursor)
 		if err != nil {
 			return nil, DAGRunCursor{}, err
 		}
-		return events, DAGRunCursor(nextCursor).Normalize(), nil
+		return events, nextCursor.Normalize(), nil
 	}
 	return nil, DAGRunCursor{}, errors.New("eventstore: dag-run reader is not configured")
 }
 
-func (s *Service) NotificationHeadCursor(ctx context.Context) (NotificationCursor, error) {
+func (s *Service) NotificationHeadCursor(ctx context.Context) (DAGRunCursor, error) {
 	cursor, err := s.DAGRunHeadCursor(ctx)
-	return NotificationCursor(cursor), err
+	return cursor, err
 }
 
-func (s *Service) ReadNotificationEvents(ctx context.Context, cursor NotificationCursor) ([]*Event, NotificationCursor, error) {
-	events, nextCursor, err := s.ReadDAGRunEvents(ctx, DAGRunCursor(cursor))
+func (s *Service) ReadNotificationEvents(ctx context.Context, cursor DAGRunCursor) ([]*Event, DAGRunCursor, error) {
+	events, nextCursor, err := s.ReadDAGRunEvents(ctx, cursor)
 	if err != nil {
-		return nil, NotificationCursor{}, err
+		return nil, DAGRunCursor{}, err
 	}
 	filtered := make([]*Event, 0, len(events))
 	for _, event := range events {
@@ -399,5 +393,5 @@ func (s *Service) ReadNotificationEvents(ctx context.Context, cursor Notificatio
 		}
 		filtered = append(filtered, event)
 	}
-	return filtered, NotificationCursor(nextCursor), nil
+	return filtered, nextCursor, nil
 }

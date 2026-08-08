@@ -294,8 +294,8 @@ func TestNotificationServiceNormalizesCursorAtBoundary(t *testing.T) {
 	t.Parallel()
 
 	store := &captureStore{
-		notificationHeadCursor: NotificationCursor{},
-		notificationReadCursor: NotificationCursor{
+		notificationHeadCursor: DAGRunCursor{},
+		notificationReadCursor: DAGRunCursor{
 			LastInboxFile: "inbox-1",
 		},
 	}
@@ -305,7 +305,7 @@ func TestNotificationServiceNormalizesCursorAtBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, head.CommittedOffsets)
 
-	_, nextCursor, err := service.ReadNotificationEvents(context.Background(), NotificationCursor{})
+	_, nextCursor, err := service.ReadNotificationEvents(context.Background(), DAGRunCursor{})
 	require.NoError(t, err)
 	require.NotNil(t, store.lastNotificationReadCursor.CommittedOffsets)
 	require.NotNil(t, nextCursor.CommittedOffsets)
@@ -313,9 +313,9 @@ func TestNotificationServiceNormalizesCursorAtBoundary(t *testing.T) {
 
 type captureStore struct {
 	event                      *Event
-	notificationHeadCursor     NotificationCursor
-	notificationReadCursor     NotificationCursor
-	lastNotificationReadCursor NotificationCursor
+	notificationHeadCursor     DAGRunCursor
+	notificationReadCursor     DAGRunCursor
+	lastNotificationReadCursor DAGRunCursor
 }
 
 func (c *captureStore) Emit(_ context.Context, event *Event) error {
@@ -327,11 +327,11 @@ func (*captureStore) Query(context.Context, QueryFilter) (*QueryResult, error) {
 	return nil, nil
 }
 
-func (c *captureStore) NotificationHeadCursor(context.Context) (NotificationCursor, error) {
+func (c *captureStore) NotificationHeadCursor(context.Context) (DAGRunCursor, error) {
 	return c.notificationHeadCursor, nil
 }
 
-func (c *captureStore) ReadNotificationEvents(_ context.Context, cursor NotificationCursor) ([]*Event, NotificationCursor, error) {
+func (c *captureStore) ReadNotificationEvents(_ context.Context, cursor DAGRunCursor) ([]*Event, DAGRunCursor, error) {
 	c.lastNotificationReadCursor = cursor
 	return nil, c.notificationReadCursor, nil
 }

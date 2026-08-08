@@ -51,9 +51,9 @@ func (s *Store) DAGRunHeadCursor(_ context.Context) (eventstore.DAGRunCursor, er
 	return cursor.Normalize(), nil
 }
 
-func (s *Store) NotificationHeadCursor(ctx context.Context) (eventstore.NotificationCursor, error) {
+func (s *Store) NotificationHeadCursor(ctx context.Context) (eventstore.DAGRunCursor, error) {
 	cursor, err := s.DAGRunHeadCursor(ctx)
-	return eventstore.NotificationCursor(cursor), err
+	return cursor, err
 }
 
 func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
@@ -118,10 +118,10 @@ func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCurs
 	return events, nextCursor.Normalize(), nil
 }
 
-func (s *Store) ReadNotificationEvents(ctx context.Context, cursor eventstore.NotificationCursor) ([]*eventstore.Event, eventstore.NotificationCursor, error) {
-	events, nextCursor, err := s.ReadDAGRunEvents(ctx, eventstore.DAGRunCursor(cursor))
+func (s *Store) ReadNotificationEvents(ctx context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
+	events, nextCursor, err := s.ReadDAGRunEvents(ctx, cursor)
 	if err != nil {
-		return nil, eventstore.NotificationCursor{}, err
+		return nil, eventstore.DAGRunCursor{}, err
 	}
 	filtered := make([]*eventstore.Event, 0, len(events))
 	for _, event := range events {
@@ -130,7 +130,7 @@ func (s *Store) ReadNotificationEvents(ctx context.Context, cursor eventstore.No
 		}
 		filtered = append(filtered, event)
 	}
-	return filtered, eventstore.NotificationCursor(nextCursor), nil
+	return filtered, nextCursor, nil
 }
 
 func (s *Store) listCommittedLogNames() ([]string, error) {

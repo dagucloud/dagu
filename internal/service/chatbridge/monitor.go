@@ -857,7 +857,7 @@ func (m *NotificationMonitor) ensureBootstrapped(ctx context.Context) bool {
 	return true
 }
 
-func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinations []string, nextCursor eventstore.NotificationCursor, events []NotificationEvent) ([]queuedNotification, bool) {
+func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinations []string, nextCursor eventstore.DAGRunCursor, events []NotificationEvent) ([]queuedNotification, bool) {
 	if ctx.Err() != nil {
 		return nil, false
 	}

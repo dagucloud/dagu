@@ -57,7 +57,7 @@ func (s *monitorEventStore) Query(context.Context, eventstore.QueryFilter) (*eve
 	return &eventstore.QueryResult{}, nil
 }
 
-func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.NotificationCursor, error) {
+func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.headCalls++
@@ -65,7 +65,7 @@ func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.
 	return s.currentCursorLocked(), nil
 }
 
-func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.NotificationCursor) ([]*eventstore.Event, eventstore.NotificationCursor, error) {
+func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	s.readCalls++
 
@@ -84,8 +84,8 @@ func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eve
 	return events, nextCursor, nil
 }
 
-func (s *monitorEventStore) currentCursorLocked() eventstore.NotificationCursor {
-	return eventstore.NotificationCursor{
+func (s *monitorEventStore) currentCursorLocked() eventstore.DAGRunCursor {
+	return eventstore.DAGRunCursor{
 		CommittedOffsets: map[string]int64{"events": int64(len(s.events))},
 	}
 }

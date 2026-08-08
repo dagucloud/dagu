@@ -28,7 +28,7 @@ type notificationStateLoadResult struct {
 type notificationMonitorState struct {
 	Version      int                                      `json:"version"`
 	Bootstrapped bool                                     `json:"bootstrapped,omitempty"`
-	SourceCursor eventstore.NotificationCursor            `json:"source_cursor"`
+	SourceCursor eventstore.DAGRunCursor                  `json:"source_cursor"`
 	Destinations map[string]*notificationDestinationState `json:"destinations,omitempty"`
 }
 
@@ -40,7 +40,7 @@ type notificationDestinationState struct {
 func newNotificationMonitorState() notificationMonitorState {
 	return notificationMonitorState{
 		Version:      notificationMonitorStateVersion,
-		SourceCursor: eventstore.NotificationCursor{CommittedOffsets: make(map[string]int64)},
+		SourceCursor: eventstore.DAGRunCursor{CommittedOffsets: make(map[string]int64)},
 		Destinations: make(map[string]*notificationDestinationState),
 	}
 }

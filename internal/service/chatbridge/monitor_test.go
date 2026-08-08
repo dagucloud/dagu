@@ -88,18 +88,18 @@ func (s *stubNotificationStore) Query(context.Context, eventstore.QueryFilter) (
 	return &eventstore.QueryResult{}, nil
 }
 
-func (s *stubNotificationStore) NotificationHeadCursor(context.Context) (eventstore.NotificationCursor, error) {
+func (s *stubNotificationStore) NotificationHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.headCalls++
 	if s.failHead {
-		return eventstore.NotificationCursor{}, errors.New("head unavailable")
+		return eventstore.DAGRunCursor{}, errors.New("head unavailable")
 	}
 	return s.currentCursorLocked(), nil
 }
 
-func (s *stubNotificationStore) ReadNotificationEvents(_ context.Context, cursor eventstore.NotificationCursor) ([]*eventstore.Event, eventstore.NotificationCursor, error) {
+func (s *stubNotificationStore) ReadNotificationEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -116,8 +116,8 @@ func (s *stubNotificationStore) ReadNotificationEvents(_ context.Context, cursor
 	return events, s.currentCursorLocked(), nil
 }
 
-func (s *stubNotificationStore) currentCursorLocked() eventstore.NotificationCursor {
-	return eventstore.NotificationCursor{
+func (s *stubNotificationStore) currentCursorLocked() eventstore.DAGRunCursor {
+	return eventstore.DAGRunCursor{
 		CommittedOffsets: map[string]int64{"events": int64(len(s.events))},
 	}
 }
