@@ -32,7 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 )
 
 type editRetryOptions struct {

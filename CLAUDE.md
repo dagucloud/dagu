@@ -41,7 +41,7 @@ The module root is package `dagu` — an experimental embedded API (`engine.go`,
 
 - **`ir/`** — Canonical normalized DAG and step definitions shared by storage and execution. It owns configuration value objects, lifecycle enums, compatibility decoding, cloning, defaults, and intrinsic queries, but not mutable run results or environment loading. Three DAG execution types: `graph` (default), `chain`, `controller` (LLM-driven step ordering).
 - **`core/spec/`** — YAML decoding, building, normalization, and build-time validation. Authored YAML structs remain private to this package; loaders return `*ir.DAG`. It also normalizes the step-level `action:` shorthand (~58 built-in action names like `file.*`, `state.*`, `git.worktree.*`, `human.task`) into executor configs (`step_v2.go`).
-- **Domain contracts** — Ports live with their owning concepts: `dagrun` (run status, attempts, run stores), `dagstore` (DAG loading/storage), `queue`, `proc`, `dispatch` (distributed dispatch, worker and lease stores), `serviceregistry`, `build`, and `workspace`. Runtime condition results live in `dagrun`; `ir.Condition` remains definition-only.
+- **Domain contracts** — Ports live with their owning concepts: `audit` (audit entries and storage), `eventstore` (events, cursors, and storage), `dagrun` (run status, attempts, run stores), `dagstore` (DAG loading/storage), `queue`, `proc`, `dispatch` (distributed dispatch, worker and lease stores), `serviceregistry`, `build`, and `workspace`. Runtime condition results live in `dagrun`; `ir.Condition` remains definition-only.
 - **`executor/registry/`** — Executor capabilities, step validators, and configuration-schema registries used by spec and runtime.
 - **`runtime/`** — Execution engine. `plan.go` builds the step graph (cycle validation), `runner.go` runs a plan (concurrency, lifecycle handlers, metrics), `node.go` is the per-step state machine (retry, repeat, output capture), `manager.go` starts/stops/inspects DAG runs. `runtime/agent/` is the DAG-run process agent (unix-socket control, signal propagation, status persistence) — not an LLM agent. `runtime/controller/` implements `type: controller` DAGs.
 - **`runctx/` and `runtimeenv/`** — `runctx` owns per-run execution context and shared runtime dependencies. `runtimeenv` resolves dotenv-backed environment snapshots without mutating DAG definitions; subprocess transport records whether a snapshot is already resolved.
@@ -92,6 +92,12 @@ Distributed mode: Scheduler → Queue → dispatch policy → Coordinator (gRPC)
 ## Key Conventions
 
 - All storage is behind domain-owned interfaces and `persis.Backend`, with file-based implementations in `persis/file` and `persis/store`.
+- Packages under `persis/` must not directly import packages under `service/`, including from tests. The following check must produce no output and exit successfully:
+
+  ```sh
+  go list -f '{{range .Imports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .TestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .XTestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}' ./internal/persis/... | awk '$2 ~ /\/internal\/service\// { key=$1 "\t" $2; if (!seen[key]++) print key; bad=1 } END { exit bad }'
+  ```
+
 - Executors follow the factory pattern — registered globally, instantiated dynamically by type name.
 - DAGs compose hierarchically — steps invoke other DAGs via the `dag` executor; `action:` is shorthand normalized at spec-build time.
 - Configuration uses `DAGU_*` environment variables, with fallback to `~/.config/dagu/config.yaml`.

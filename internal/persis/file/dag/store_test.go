@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
-	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -1659,7 +1658,7 @@ steps:
 	assert.Equal(t, "zebra-dag", result.Items[3].Name)
 }
 
-func TestListSortByNextRunUsesSchedulerProjection(t *testing.T) {
+func TestListSortByNextRunUsesProjection(t *testing.T) {
 	tmpDir := fileutil.MustTempDir("test-list-next-run-projection")
 	defer func() {
 		_ = os.RemoveAll(tmpDir)
@@ -1697,29 +1696,15 @@ steps:
 	require.Len(t, defaultResult.Items, 2)
 	assert.Equal(t, "future-cron", defaultResult.Items[0].Name)
 
-	oneOffSchedule, err := ir.NewOneOffSchedule(oneOffTime.Format(time.RFC3339))
-	require.NoError(t, err)
-
-	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs: map[string]scheduler.DAGWatermark{
-			"overdue-one-off": {
-				OneOffs: map[string]scheduler.OneOffScheduleState{
-					oneOffSchedule.Fingerprint(): {
-						ScheduledTime: oneOffTime,
-						Status:        scheduler.OneOffStatusPending,
-					},
-				},
-			},
-		},
-	}
-
 	result, errList, err := store.List(ctx, dagstore.ListDAGsOptions{
 		Sort:  "nextRun",
 		Order: "asc",
 		Time:  &now,
 		NextRunProjection: func(dag *ir.DAG, at time.Time) time.Time {
-			return scheduler.NextPlannedRun(dag, at, state)
+			if dag.Name == "overdue-one-off" {
+				return oneOffTime
+			}
+			return dag.NextRun(at)
 		},
 	})
 	require.NoError(t, err)

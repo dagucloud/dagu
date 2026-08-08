@@ -13,7 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/prometheus/client_golang/prometheus"

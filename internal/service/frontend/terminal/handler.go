@@ -10,7 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/dagucloud/dagu/v2/internal/license"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
 )

@@ -11,7 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 )
 
