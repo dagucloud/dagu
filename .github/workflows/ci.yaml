@@ -362,8 +362,13 @@ jobs:
             $installerPath,
             [Text.Encoding]::UTF8
           )
-          $installerRef = "${{ github.event.pull_request.head.sha || github.sha }}"
-          $installerUrl = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$installerRef/scripts/installer.ps1"
+          $installerRepository = "${{ github.event.pull_request.head.repo.full_name }}"
+          $installerRef = "${{ github.event.pull_request.head.sha }}"
+          if (-not $installerRepository) {
+            $installerRepository = $env:GITHUB_REPOSITORY
+            $installerRef = $env:GITHUB_SHA
+          }
+          $installerUrl = "https://raw.githubusercontent.com/$installerRepository/$installerRef/scripts/installer.ps1"
           $originalLocalAppData = $env:LOCALAPPDATA
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "dagu-expression-home"
           $installDir = Join-Path $env:LOCALAPPDATA "Programs\dagu"
