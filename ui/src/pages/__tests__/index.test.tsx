@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import * as React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +20,10 @@ vi.mock('../../features/dashboard/components/DashboardTimechart', () => ({
 
 vi.mock('../../features/dag-runs/components/dag-run-details', () => ({
   DAGRunDetailsModal: () => null,
+}));
+
+vi.mock('../../features/dags/components/common', () => ({
+  CreateDAGModal: () => <button type="button">New workflow</button>,
 }));
 
 vi.mock('../../features/dag-runs/hooks/dagRunPagination', () => ({
@@ -135,6 +139,7 @@ describe('DashboardPage', () => {
           dags: [],
           pagination: {
             totalPages: 1,
+            totalRecords: 0,
           },
         },
       }),
@@ -226,5 +231,92 @@ describe('DashboardPage', () => {
         },
       })
     );
+  });
+
+  function mockDAGInventory(names: string[], totalRecords: number) {
+    clientGetMock.mockResolvedValue({
+      data: {
+        dags: names.map((name) => ({ fileName: `${name}.yaml`, dag: { name } })),
+        pagination: {
+          totalPages: 1,
+          totalRecords,
+        },
+      },
+    });
+  }
+
+  it('invites creating the first workflow when no workflows exist', async () => {
+    renderPage();
+
+    expect(
+      await screen.findByText('Create your first workflow')
+    ).toBeVisible();
+    expect(screen.getByText('New workflow')).toBeVisible();
+    expect(screen.queryByTestId('dashboard-timechart')).not.toBeInTheDocument();
+  });
+
+  it('points at the Workflows page when workflows exist but nothing ran', async () => {
+    mockDAGInventory(['etl', 'backup'], 2);
+
+    renderPage();
+
+    expect(await screen.findByText(/No runs on /)).toBeVisible();
+    expect(screen.getByText(/Start a workflow from the/)).toBeVisible();
+    expect(screen.queryByTestId('dashboard-timechart')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Create your first workflow')
+    ).not.toBeInTheDocument();
+  });
+
+  it('suggests the example workflows when only seeded examples exist', async () => {
+    mockDAGInventory(['example-01-basic-sequential'], 1);
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/Run one of the example workflows/)
+    ).toBeVisible();
+  });
+
+  it('keeps the timechart when runs exist', async () => {
+    mockDAGInventory(['etl'], 1);
+    usePaginatedDAGRunsMock.mockReturnValue({
+      dagRuns: [{ name: 'etl', status: Status.Success } as never],
+      headPage: undefined,
+      error: null,
+      isInitialLoading: false,
+      isLoadingMore: false,
+      loadMoreError: null,
+      hasMore: false,
+      refresh: vi.fn(),
+      loadMore: vi.fn(),
+    });
+
+    renderPage();
+
+    expect(await screen.findByTestId('dashboard-timechart')).toBeVisible();
+    expect(screen.queryByText(/No runs on /)).not.toBeInTheDocument();
+  });
+
+  it('shows placeholders instead of zeros while runs load', async () => {
+    mockDAGInventory(['etl'], 1);
+    usePaginatedDAGRunsMock.mockReturnValue({
+      dagRuns: [],
+      headPage: undefined,
+      error: null,
+      isInitialLoading: true,
+      isLoadingMore: false,
+      loadMoreError: null,
+      hasMore: false,
+      refresh: vi.fn(),
+      loadMore: vi.fn(),
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(4);
+    });
+    expect(screen.queryByText(/No runs on /)).not.toBeInTheDocument();
   });
 });
