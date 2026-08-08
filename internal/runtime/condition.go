@@ -25,13 +25,6 @@ var (
 // Error message for when not all conditions are met
 const ErrMsgOtherConditionNotMet = "other condition was not met"
 
-// EvalConditions evaluates a list of conditions and checks the results.
-// It returns an error if any of the conditions were not met.
-func EvalConditions(ctx context.Context, shell []string, cond []*ir.Condition) error {
-	_, err := EvaluateConditions(ctx, shell, cond)
-	return err
-}
-
 // EvaluateConditions evaluates conditions and returns their runtime results.
 func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Condition) ([]dagrun.ConditionResult, error) {
 	results := dagrun.NewConditionResults(conditions)

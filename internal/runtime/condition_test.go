@@ -22,6 +22,11 @@ func newTestContext() context.Context {
 	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, ir.Step{}))
 }
 
+func evalConditions(ctx context.Context, shell []string, conditions []*ir.Condition) error {
+	_, err := runtime.EvaluateConditions(ctx, shell, conditions)
+	return err
+}
+
 func TestEvalConditions(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -172,7 +177,7 @@ func TestEvalConditions(t *testing.T) {
 			env := runtime.GetEnv(ctx)
 			env.Scope = env.Scope.WithEntry("TEST_CONDITION", "100", cmnvalue.EnvSourceDAGEnv)
 			ctx = runtime.WithEnv(ctx, env)
-			err := runtime.EvalConditions(ctx, []string{"sh"}, tt.conditions)
+			err := evalConditions(ctx, []string{"sh"}, tt.conditions)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -193,13 +198,13 @@ func TestEvalConditions(t *testing.T) {
 
 func TestEvalConditions_ValueMatchPreservesCommandSubstitution(t *testing.T) {
 	ctx := newTestContext()
-	err := runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
+	err := evalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Condition: "`printf 100`", Expected: "`printf 100`"},
 		{Condition: "$(printf 200)", Expected: "$(printf 200)"},
 	})
 	require.NoError(t, err)
 
-	err = runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
+	err = evalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Condition: "`printf 100`", Expected: "100"},
 	})
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
@@ -226,13 +231,13 @@ func TestEvalConditionsClearsErrorsWhenReevaluationSucceeds(t *testing.T) {
 
 func TestEvalConditions_ValueMatchEvalRunsCommandSubstitution(t *testing.T) {
 	ctx := newTestContext()
-	err := runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
+	err := evalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Eval: "$(printf 100)", Expected: "100"},
 		{Eval: "`printf 200`", Expected: "200"},
 	})
 	require.NoError(t, err)
 
-	err = runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
+	err = evalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Eval: "$(printf 100)", Expected: "101"},
 	})
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
@@ -247,7 +252,7 @@ func TestEvalConditions_ValueMatchEvalUsesWorkingDir(t *testing.T) {
 	env.WorkingDir = dir
 	ctx = runtime.WithEnv(ctx, env)
 
-	err := runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
+	err := evalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Eval: "$(test -f ready.flag && printf ready)", Expected: "ready"},
 	})
 	require.NoError(t, err)
@@ -256,7 +261,7 @@ func TestEvalConditions_ValueMatchEvalUsesWorkingDir(t *testing.T) {
 func TestEvalConditions_ShellWithDuplicateCFlag(t *testing.T) {
 	ctx := newTestContext()
 	// Shell already includes -c; should not get doubled
-	err := runtime.EvalConditions(ctx, []string{"sh", "-c"}, []*ir.Condition{
+	err := evalConditions(ctx, []string{"sh", "-c"}, []*ir.Condition{
 		{Condition: "true"},
 	})
 	require.NoError(t, err)
@@ -327,7 +332,7 @@ func TestEvalConditions_NilShell(t *testing.T) {
 	ctx := newTestContext()
 	// With nil shell, OnlyReplaceVars should still be applied and
 	// the condition should run as a direct command
-	err := runtime.EvalConditions(ctx, nil, []*ir.Condition{
+	err := evalConditions(ctx, nil, []*ir.Condition{
 		{Condition: "true"},
 	})
 	require.NoError(t, err)
@@ -336,7 +341,7 @@ func TestEvalConditions_NilShell(t *testing.T) {
 func TestEvalConditions_DirectCommandPreservesBacktickSubstitution(t *testing.T) {
 	ctx := newTestContext()
 
-	err := runtime.EvalConditions(ctx, nil, []*ir.Condition{
+	err := evalConditions(ctx, nil, []*ir.Condition{
 		{Condition: "`printf true`"},
 	})
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
@@ -362,7 +367,7 @@ func TestEvalConditions_CommandFormExpandsHomeRelativeScopeVars(t *testing.T) {
 	env.Scope = env.Scope.WithEntry("TEST_FILE", "~/"+filepath.Base(tempFile.Name()), cmnvalue.EnvSourceDAGEnv)
 	ctx = runtime.WithEnv(ctx, env)
 
-	err = runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
+	err = evalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Condition: "test -f $TEST_FILE"},
 	})
 	require.NoError(t, err)

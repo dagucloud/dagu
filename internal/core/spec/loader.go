@@ -160,16 +160,6 @@ func WithSourceFile(sourceFile string) LoadOption {
 	}
 }
 
-// WithBuildEnv provides additional environment variables for the build.
-// These are added to the envScope before building, allowing YAML to
-// reference them via ${VAR}. This is used for retry scenarios where
-// dotenv values need to be available during rebuild from YamlData.
-func WithBuildEnv(env map[string]string) LoadOption {
-	return func(o *buildOpts) {
-		o.BuildEnv = env
-	}
-}
-
 // WithBuildEnvSnapshot provides transported build values and their resolution state.
 func WithBuildEnvSnapshot(snapshot buildenv.Snapshot) LoadOption {
 	return func(o *buildOpts) {
