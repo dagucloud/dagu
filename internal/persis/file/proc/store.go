@@ -361,7 +361,7 @@ func (s *Store) ListAllAlive(ctx context.Context) (map[string][]dagrun.DAGRunRef
 // Validate fails if the proc directory cannot be read. Individual proc files
 // are not decoded here, so a damaged one does not make the store unusable.
 func (s *Store) Validate(_ context.Context) error {
-	if _, err := os.ReadDir(s.root); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if _, err := fileutil.ReadDir(s.root); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("validate proc store: %w", err)
 	}
 	return nil
@@ -511,7 +511,7 @@ func removeProcFile(path string) error {
 }
 
 func removeEmptyProcDirs(dir string) {
-	entries, err := os.ReadDir(dir)
+	entries, err := fileutil.ReadDir(dir)
 	if err != nil || len(entries) > 0 {
 		return
 	}
@@ -521,7 +521,7 @@ func removeEmptyProcDirs(dir string) {
 // ListEntries returns proc entries for a group.
 func (s *Store) ListEntries(_ context.Context, groupName string) ([]proc.ProcEntry, error) {
 	groupDir := filepath.Join(s.root, groupName)
-	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
+	if _, err := fileutil.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	files, err := procFilesInGroup(groupDir)
@@ -533,7 +533,7 @@ func (s *Store) ListEntries(_ context.Context, groupName string) ([]proc.ProcEnt
 
 // ListAllEntries returns all proc entries under the store root.
 func (s *Store) ListAllEntries(_ context.Context) ([]proc.ProcEntry, error) {
-	dirEntries, err := os.ReadDir(s.root)
+	dirEntries, err := fileutil.ReadDir(s.root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -563,7 +563,7 @@ func (s *Store) ListAllEntries(_ context.Context) ([]proc.ProcEntry, error) {
 // LatestHeartbeat returns the latest heartbeat for dagRun.
 func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun dagrun.DAGRunRef) (*proc.ProcHeartbeat, error) {
 	groupDir := filepath.Join(s.root, groupName)
-	if _, err := os.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
+	if _, err := fileutil.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	files, err := procFilesInGroup(groupDir)
@@ -601,7 +601,7 @@ func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun dagr
 }
 
 func procFilesInGroup(groupDir string) ([]string, error) {
-	dagEntries, err := os.ReadDir(groupDir)
+	dagEntries, err := fileutil.ReadDir(groupDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -613,7 +613,7 @@ func procFilesInGroup(groupDir string) ([]string, error) {
 		if !dagEntry.IsDir() || dagEntry.Name() == "" || dagEntry.Name()[0] == '.' {
 			continue
 		}
-		procEntries, err := os.ReadDir(filepath.Join(groupDir, dagEntry.Name()))
+		procEntries, err := fileutil.ReadDir(filepath.Join(groupDir, dagEntry.Name()))
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
@@ -669,7 +669,7 @@ func procFileMayBelongTo(path string, dagRun dagrun.DAGRunRef) bool {
 // threshold. A damaged file that is still being written may belong to a run
 // that is alive, and reporting the group without it would undercount.
 func (s *Store) abandoned(path string, now time.Time) bool {
-	info, err := os.Stat(path)
+	info, err := fileutil.Stat(path)
 	return err == nil && now.Sub(info.ModTime()) >= s.staleTime
 }
 
@@ -721,7 +721,7 @@ func readProcEntryObserved(path, groupName string, staleTime time.Duration, now 
 		return observedProcEntry{}, err
 	}
 
-	info, err := os.Stat(path)
+	info, err := fileutil.Stat(path)
 	if err != nil {
 		return observedProcEntry{}, err
 	}
