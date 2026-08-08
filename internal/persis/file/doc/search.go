@@ -27,6 +27,9 @@ import (
 // by relevance: title and description hits outrank body-only hits, then more
 // matches outrank fewer, with the ID as a stable tiebreak.
 func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResult, error) {
+	if query == "" {
+		return nil, nil
+	}
 	var results []*docs.DocSearchResult
 	scores := map[string]int{}
 
@@ -44,7 +47,11 @@ func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResu
 			continue
 		}
 
-		matches, matchCount, err := grep.GrepWithCount(data, query, grep.DefaultGrepOptions)
+		matches, matchCount, err := grep.GrepWithCount(data, docSearchPattern(query), grep.GrepOptions{
+			IsRegexp: true,
+			Before:   grep.DefaultGrepOptions.Before,
+			After:    grep.DefaultGrepOptions.After,
+		})
 		if err != nil {
 			continue
 		}
