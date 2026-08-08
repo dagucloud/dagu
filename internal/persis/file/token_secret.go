@@ -4,7 +4,6 @@
 package file
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -24,14 +23,9 @@ const (
 	tokenSecretFilePerm   = 0o600
 )
 
-var _ auth.TokenSecretProvider = (*tokenSecretProvider)(nil)
-
-type tokenSecretProvider struct {
-	dir string
-}
-
-func (s *tokenSecretProvider) Resolve(_ context.Context) (auth.TokenSecret, error) {
-	path := filepath.Join(s.dir, tokenSecretFileName)
+// ResolveTokenSecret returns the persisted signing secret in authDir, creating one when absent.
+func ResolveTokenSecret(authDir string) (auth.TokenSecret, error) {
+	path := filepath.Join(authDir, tokenSecretFileName)
 
 	fileExists := false
 	data, err := fileutil.ReadFile(path)
@@ -55,11 +49,11 @@ func (s *tokenSecretProvider) Resolve(_ context.Context) (auth.TokenSecret, erro
 	}
 
 	// Ensure directory exists with correct permissions.
-	if err := os.MkdirAll(s.dir, tokenSecretDirPerm); err != nil {
-		return auth.TokenSecret{}, fmt.Errorf("failed to create auth directory %s: %w", s.dir, err)
+	if err := os.MkdirAll(authDir, tokenSecretDirPerm); err != nil {
+		return auth.TokenSecret{}, fmt.Errorf("failed to create auth directory %s: %w", authDir, err)
 	}
-	if err := os.Chmod(s.dir, tokenSecretDirPerm); err != nil {
-		return auth.TokenSecret{}, fmt.Errorf("failed to set auth directory permissions %s: %w", s.dir, err)
+	if err := os.Chmod(authDir, tokenSecretDirPerm); err != nil {
+		return auth.TokenSecret{}, fmt.Errorf("failed to set auth directory permissions %s: %w", authDir, err)
 	}
 
 	if fileExists {

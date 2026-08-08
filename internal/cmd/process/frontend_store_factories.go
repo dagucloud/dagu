@@ -64,7 +64,7 @@ func newAuditStore(cfg *config.Config) (frontend.AuditStore, error) {
 // newBuiltinAuthService creates the file-backed auth store and authentication service.
 // It resolves the configured JWT signing secret or creates a persistent one.
 func newBuiltinAuthService(ctx context.Context, cfg *config.Config) (*frontend.BuiltinAuthResult, bool, error) {
-	tokenSecret, err := buildTokenSecretProvider(ctx, cfg).Resolve(ctx)
+	tokenSecret, err := resolveTokenSecret(ctx, cfg)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to resolve token secret: %w", err)
 	}
@@ -148,18 +148,7 @@ func newBuiltinAuthService(ctx context.Context, cfg *config.Config) (*frontend.B
 	}, setupRequired, nil
 }
 
-type staticTokenSecretProvider struct {
-	secret authmodel.TokenSecret
-}
-
-var _ authmodel.TokenSecretProvider = (*staticTokenSecretProvider)(nil)
-
-func (p *staticTokenSecretProvider) Resolve(context.Context) (authmodel.TokenSecret, error) {
-	return p.secret, nil
-}
-
-// buildTokenSecretProvider prefers the configured secret and falls back to persistent storage.
-func buildTokenSecretProvider(ctx context.Context, cfg *config.Config) authmodel.TokenSecretProvider {
+func resolveTokenSecret(ctx context.Context, cfg *config.Config) (authmodel.TokenSecret, error) {
 	authDir := filepath.Join(cfg.Paths.DataDir, "auth")
 
 	if cfg.Server.Auth.Builtin.Token.Secret != "" {
@@ -177,9 +166,9 @@ func buildTokenSecretProvider(ctx context.Context, cfg *config.Config) authmodel
 						slog.String("file", secretPath))
 				}
 			}
-			return &staticTokenSecretProvider{secret: secret}
+			return secret, nil
 		}
 	}
 
-	return file.NewTokenSecretProvider(cfg)
+	return file.ResolveTokenSecret(authDir)
 }

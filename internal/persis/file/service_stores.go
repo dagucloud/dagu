@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
-	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/clicontext"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
@@ -207,10 +206,6 @@ func NewRemoteNodeStore(cfg *config.Config, enc *crypto.Encryptor) (remotenode.S
 		return nil, fmt.Errorf("remote-node store: create directory %s: %w", dir, err)
 	}
 	return store.NewRemoteNodeStore(NewCollection(dir, WithIndentedJSON()), enc)
-}
-
-func NewTokenSecretProvider(cfg *config.Config) authmodel.TokenSecretProvider {
-	return &tokenSecretProvider{dir: filepath.Join(cfg.Paths.DataDir, "auth")}
 }
 
 func NewUpgradeCheckStore(cfg *config.Config) (upgrade.CacheStore, error) {

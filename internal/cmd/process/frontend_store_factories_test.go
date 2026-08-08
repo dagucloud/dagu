@@ -157,7 +157,7 @@ func TestNewBuiltinAuthServiceUserCanAuthenticate(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestBuildTokenSecretProvider(t *testing.T) {
+func TestResolveTokenSecret(t *testing.T) {
 	t.Parallel()
 
 	t.Run("configured secret takes precedence", func(t *testing.T) {
@@ -168,7 +168,7 @@ func TestBuildTokenSecretProvider(t *testing.T) {
 		require.NoError(t, os.MkdirAll(authDir, 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(authDir, "token_secret"), []byte("file-secret"), 0o600))
 
-		secret, err := buildTokenSecretProvider(ctx, cfg).Resolve(ctx)
+		secret, err := resolveTokenSecret(ctx, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, []byte(cfg.Server.Auth.Builtin.Token.Secret), secret.SigningKey())
 	})
@@ -179,9 +179,9 @@ func TestBuildTokenSecretProvider(t *testing.T) {
 		ctx := frontendStoreFactoryTestContext(t)
 		cfg.Server.Auth.Builtin.Token.Secret = ""
 
-		first, err := buildTokenSecretProvider(ctx, cfg).Resolve(ctx)
+		first, err := resolveTokenSecret(ctx, cfg)
 		require.NoError(t, err)
-		second, err := buildTokenSecretProvider(ctx, cfg).Resolve(ctx)
+		second, err := resolveTokenSecret(ctx, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, first.SigningKey(), second.SigningKey())
 	})

@@ -4,7 +4,6 @@
 package file_test
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -66,13 +65,12 @@ func TestNewDocStoreReturnsDirectoryCreationError(t *testing.T) {
 	assert.Nil(t, store)
 }
 
-func TestTokenSecretProvider(t *testing.T) {
+func TestResolveTokenSecret(t *testing.T) {
 	t.Run("auto-generates when file missing", func(t *testing.T) {
 		dataDir := t.TempDir()
 		authDir := filepath.Join(dataDir, "auth")
 
-		provider := file.NewTokenSecretProvider(tokenSecretProviderConfig(dataDir))
-		secret, err := provider.Resolve(context.Background())
+		secret, err := file.ResolveTokenSecret(authDir)
 		require.NoError(t, err)
 		assert.True(t, secret.IsValid())
 
@@ -95,8 +93,7 @@ func TestTokenSecretProvider(t *testing.T) {
 		path := filepath.Join(authDir, "token_secret")
 		require.NoError(t, os.WriteFile(path, []byte("existing-secret"), 0o600))
 
-		provider := file.NewTokenSecretProvider(tokenSecretProviderConfig(dataDir))
-		secret, err := provider.Resolve(context.Background())
+		secret, err := file.ResolveTokenSecret(authDir)
 		require.NoError(t, err)
 		assert.Equal(t, []byte("existing-secret"), secret.SigningKey())
 	})
@@ -108,8 +105,7 @@ func TestTokenSecretProvider(t *testing.T) {
 		path := filepath.Join(authDir, "token_secret")
 		require.NoError(t, os.WriteFile(path, nil, 0o600))
 
-		provider := file.NewTokenSecretProvider(tokenSecretProviderConfig(dataDir))
-		secret, err := provider.Resolve(context.Background())
+		secret, err := file.ResolveTokenSecret(authDir)
 		require.NoError(t, err)
 		assert.True(t, secret.IsValid())
 
@@ -125,19 +121,18 @@ func TestTokenSecretProvider(t *testing.T) {
 		path := filepath.Join(authDir, "token_secret")
 		require.NoError(t, os.WriteFile(path, []byte("  \n\t  "), 0o600))
 
-		provider := file.NewTokenSecretProvider(tokenSecretProviderConfig(dataDir))
-		secret, err := provider.Resolve(context.Background())
+		secret, err := file.ResolveTokenSecret(authDir)
 		require.NoError(t, err)
 		assert.True(t, secret.IsValid())
 	})
 
 	t.Run("stable across calls", func(t *testing.T) {
 		dataDir := t.TempDir()
-		provider := file.NewTokenSecretProvider(tokenSecretProviderConfig(dataDir))
+		authDir := filepath.Join(dataDir, "auth")
 
-		first, err := provider.Resolve(context.Background())
+		first, err := file.ResolveTokenSecret(authDir)
 		require.NoError(t, err)
-		second, err := provider.Resolve(context.Background())
+		second, err := file.ResolveTokenSecret(authDir)
 		require.NoError(t, err)
 
 		assert.Equal(t, first.SigningKey(), second.SigningKey())
@@ -147,8 +142,7 @@ func TestTokenSecretProvider(t *testing.T) {
 		dataDir := t.TempDir()
 		authDir := filepath.Join(dataDir, "auth")
 
-		provider := file.NewTokenSecretProvider(tokenSecretProviderConfig(dataDir))
-		_, err := provider.Resolve(context.Background())
+		_, err := file.ResolveTokenSecret(authDir)
 		require.NoError(t, err)
 
 		info, err := os.Stat(authDir)
@@ -160,7 +154,7 @@ func TestTokenSecretProvider(t *testing.T) {
 
 	t.Run("concurrent resolve converges to same secret", func(t *testing.T) {
 		dataDir := t.TempDir()
-		cfg := tokenSecretProviderConfig(dataDir)
+		authDir := filepath.Join(dataDir, "auth")
 
 		const goroutines = 10
 		secrets := make([][]byte, goroutines)
@@ -171,7 +165,7 @@ func TestTokenSecretProvider(t *testing.T) {
 		for i := range goroutines {
 			go func(index int) {
 				defer waitGroup.Done()
-				secret, err := file.NewTokenSecretProvider(cfg).Resolve(context.Background())
+				secret, err := file.ResolveTokenSecret(authDir)
 				errs[index] = err
 				if err == nil {
 					secrets[index] = secret.SigningKey()
@@ -187,8 +181,4 @@ func TestTokenSecretProvider(t *testing.T) {
 			assert.Equal(t, secrets[0], secrets[i], "goroutine %d has different secret", i)
 		}
 	})
-}
-
-func tokenSecretProviderConfig(dataDir string) *config.Config {
-	return &config.Config{Paths: config.PathsConfig{DataDir: dataDir}}
 }
