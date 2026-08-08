@@ -23,9 +23,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/grep"
 )
 
-// Search searches all docs for the given query pattern.
+// Search searches all docs for the given query pattern. Results are ordered
+// by relevance: title and description hits outrank body-only hits, then more
+// matches outrank fewer, with the ID as a stable tiebreak.
 func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResult, error) {
 	var results []*docs.DocSearchResult
+	scores := map[string]int{}
 
 	candidates, err := s.listSearchCandidates(ctx, "", "", nil, nil)
 	if err != nil {
@@ -41,7 +44,7 @@ func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResu
 			continue
 		}
 
-		matches, err := grep.Grep(data, query, grep.DefaultGrepOptions)
+		matches, matchCount, err := grep.GrepWithCount(data, query, grep.DefaultGrepOptions)
 		if err != nil {
 			continue
 		}
@@ -56,6 +59,7 @@ func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResu
 			docTags = doc.Tags
 		}
 
+		scores[candidate.ID] = docSearchScore(query, title, description, matchCount)
 		results = append(results, &docs.DocSearchResult{
 			ID:          candidate.ID,
 			Title:       title,
@@ -63,14 +67,32 @@ func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResu
 			Tags:        docTags,
 			ModTime:     candidate.ModTime,
 			Matches:     matches,
+			MatchCount:  matchCount,
 		})
 	}
 
 	sort.Slice(results, func(i, j int) bool {
+		if scores[results[i].ID] != scores[results[j].ID] {
+			return scores[results[i].ID] > scores[results[j].ID]
+		}
 		return results[i].ID < results[j].ID
 	})
 
 	return results, nil
+}
+
+// docSearchScore ranks a search hit. Title and description hits use the
+// metadata already parsed from the file, so scoring adds no file I/O.
+func docSearchScore(query, title, description string, matchCount int) int {
+	score := min(matchCount, 50)
+	lowered := strings.ToLower(query)
+	if strings.Contains(strings.ToLower(title), lowered) {
+		score += 100
+	}
+	if strings.Contains(strings.ToLower(description), lowered) {
+		score += 40
+	}
+	return score
 }
 
 func docSearchPattern(query string) string {
