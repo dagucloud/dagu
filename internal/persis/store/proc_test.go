@@ -16,12 +16,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 )
 
 func newProcStore(t *testing.T, opts ...store.ProcStoreOption) *store.ProcStore {
@@ -29,8 +29,8 @@ func newProcStore(t *testing.T, opts ...store.ProcStoreOption) *store.ProcStore 
 	return store.NewProcStore(testutil.NewMemoryBackend().Collection("proc_entries"), opts...)
 }
 
-func procMeta(ref dagrun.DAGRunRef) exec.ProcMeta {
-	return exec.ProcMeta{
+func procMeta(ref dagrun.DAGRunRef) procdomain.ProcMeta {
+	return procdomain.ProcMeta{
 		StartedAt:    time.Now().UTC().Unix(),
 		Name:         ref.Name,
 		DAGRunID:     ref.ID,
@@ -153,7 +153,7 @@ func TestProcStoreRemoveIfStale(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = proc.Stop(ctx) }()
 
-	var stale exec.ProcEntry
+	var stale procdomain.ProcEntry
 	require.Eventually(t, func() bool {
 		entries, err := s.ListEntries(ctx, "queue-a")
 		require.NoError(t, err)
@@ -187,7 +187,7 @@ func TestProcStoreRemoveIfStaleKeepsRefreshedCollectionRecord(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = proc.Stop(ctx) }()
 
-	var stale exec.ProcEntry
+	var stale procdomain.ProcEntry
 	require.Eventually(t, func() bool {
 		entries, err := s.ListEntries(ctx, "queue-a")
 		require.NoError(t, err)
@@ -235,7 +235,7 @@ func TestProcStoreRemoveIfStaleIgnoresEntryWithoutStoreIdentity(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = proc.Stop(ctx) }()
 
-	var stale exec.ProcEntry
+	var stale procdomain.ProcEntry
 	require.Eventually(t, func() bool {
 		entries, err := s.ListEntries(ctx, "queue-a")
 		require.NoError(t, err)
@@ -248,11 +248,11 @@ func TestProcStoreRemoveIfStaleIgnoresEntryWithoutStoreIdentity(t *testing.T) {
 
 	for _, tc := range []struct {
 		name     string
-		identity exec.ProcEntryID
+		identity procdomain.ProcEntryID
 	}{
-		{name: "zero", identity: exec.ProcEntryID{}},
-		{name: "missing separator", identity: exec.NewProcEntryID("plain-file.proc")},
-		{name: "bad encoding", identity: exec.NewProcEntryID("collection:not base64")},
+		{name: "zero", identity: procdomain.ProcEntryID{}},
+		{name: "missing separator", identity: procdomain.NewProcEntryID("plain-file.proc")},
+		{name: "bad encoding", identity: procdomain.NewProcEntryID("collection:not base64")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			entry := stale
@@ -433,7 +433,7 @@ func TestProcStoreLatestHeartbeatSkipsCorruptCollectionRecords(t *testing.T) {
 	assert.Equal(t, ref, heartbeat.DAGRun)
 }
 
-func procRecordIDForTest(groupName string, meta exec.ProcMeta, t time.Time) string {
+func procRecordIDForTest(groupName string, meta procdomain.ProcMeta, t time.Time) string {
 	return filepath.ToSlash(filepath.Join(
 		groupName,
 		meta.Name,

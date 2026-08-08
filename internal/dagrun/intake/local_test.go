@@ -8,9 +8,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -115,12 +115,12 @@ func newLocalDAG() *ir.DAG {
 }
 
 type localProcStore struct {
-	handle     exec.ProcHandle
+	handle     proc.ProcHandle
 	acquireErr error
 	locked     bool
 	unlocked   bool
 	groupName  string
-	meta       exec.ProcMeta
+	meta       proc.ProcMeta
 }
 
 func (s *localProcStore) Lock(_ context.Context, groupName string) error {
@@ -133,7 +133,7 @@ func (s *localProcStore) Unlock(context.Context, string) {
 	s.unlocked = true
 }
 
-func (s *localProcStore) Acquire(_ context.Context, groupName string, meta exec.ProcMeta) (exec.ProcHandle, error) {
+func (s *localProcStore) Acquire(_ context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error) {
 	s.groupName = groupName
 	s.meta = meta
 	if s.acquireErr != nil {

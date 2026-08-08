@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -28,7 +29,7 @@ import (
 type queueDispatchDeps struct {
 	queueStore             queuedomain.QueueStore
 	dagRunStore            dagrun.DAGRunStore
-	procStore              exec.ProcStore
+	procStore              proc.ProcStore
 	dagRunLeaseStore       exec.DAGRunLeaseStore
 	dispatchTaskStore      exec.DispatchTaskStore
 	dispatchAdmissionStore exec.DispatchAdmissionStore
@@ -44,7 +45,7 @@ type queueDispatchDeps struct {
 type queueDispatcher struct {
 	queueStore             queuedomain.QueueStore
 	dagRunStore            dagrun.DAGRunStore
-	procStore              exec.ProcStore
+	procStore              proc.ProcStore
 	dagRunLeaseStore       exec.DAGRunLeaseStore
 	dispatchTaskStore      exec.DispatchTaskStore
 	dispatchAdmissionStore exec.DispatchAdmissionStore

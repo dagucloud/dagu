@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -217,7 +218,7 @@ steps:
 		)
 		writeStatus(t, th.Context, attempt, status)
 
-		proc, err := th.ProcStore.Acquire(th.Context, dagFile.ProcGroup(), exec.ProcMeta{
+		proc, err := th.ProcStore.Acquire(th.Context, dagFile.ProcGroup(), proc.ProcMeta{
 			StartedAt:    startedAt.Unix(),
 			Name:         dagFile.Name,
 			DAGRunID:     runID,

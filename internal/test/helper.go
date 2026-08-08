@@ -36,6 +36,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -519,7 +520,7 @@ type Helper struct {
 	DAGStore                  dagstore.DAGStore
 	DAGRunStore               dagrun.DAGRunStore
 	DAGRunMgr                 runtimepkg.Manager
-	ProcStore                 exec1.ProcStore
+	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore
 	StateStore                dagstate.Store
 	ServiceRegistry           exec1.ServiceRegistry
@@ -844,7 +845,7 @@ func (a *Agent) RunCancel(t *testing.T) {
 	t.Helper()
 
 	attemptID := newTestAttemptID(t)
-	proc, err := a.ProcStore.Acquire(a.Context, a.ProcGroup(), exec1.ProcMeta{
+	proc, err := a.ProcStore.Acquire(a.Context, a.ProcGroup(), proc.ProcMeta{
 		StartedAt:    time.Now().Unix(),
 		Name:         a.Name,
 		DAGRunID:     a.dagRunID,

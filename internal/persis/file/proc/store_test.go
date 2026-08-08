@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
-func testProcMeta(ref dagrun.DAGRunRef) exec.ProcMeta {
-	return exec.ProcMeta{
+func testProcMeta(ref dagrun.DAGRunRef) proc.ProcMeta {
+	return proc.ProcMeta{
 		StartedAt:    time.Now().UTC().Unix(),
 		Name:         ref.Name,
 		DAGRunID:     ref.ID,

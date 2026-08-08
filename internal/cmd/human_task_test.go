@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -402,7 +402,7 @@ func (a *humanTaskCompletionAttempt) ReadStatus(context.Context) (*dagrun.DAGRun
 }
 
 type humanTaskCompletionProcStore struct {
-	exec.ProcStore
+	proc.ProcStore
 }
 
 func (humanTaskCompletionProcStore) IsRunAlive(context.Context, string, dagrun.DAGRunRef) (bool, error) {

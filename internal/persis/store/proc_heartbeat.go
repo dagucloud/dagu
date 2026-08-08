@@ -7,12 +7,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
-func procHeartbeatFromEntry(entry exec.ProcEntry, observedAt time.Time) exec.ProcHeartbeat {
-	return exec.ProcHeartbeat{
+func procHeartbeatFromEntry(entry proc.ProcEntry, observedAt time.Time) proc.ProcHeartbeat {
+	return proc.ProcHeartbeat{
 		GroupName:       entry.GroupName,
 		DAGRun:          entry.Meta.DAGRun(),
 		AttemptID:       entry.Meta.AttemptID,
@@ -27,13 +27,13 @@ func (s *ProcStore) latestCollectionHeartbeat(
 	ctx context.Context,
 	groupName string,
 	dagRun dagrun.DAGRunRef,
-) (*exec.ProcHeartbeat, error) {
+) (*proc.ProcHeartbeat, error) {
 	recs, err := s.listCollectionRecords(ctx, procGroupPrefix(groupName))
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	var latest *exec.ProcHeartbeat
+	var latest *proc.ProcHeartbeat
 	for _, rec := range recs {
 		entry, err := s.entryFromRecord(rec, now)
 		if err != nil {
@@ -52,7 +52,7 @@ func (s *ProcStore) latestCollectionHeartbeat(
 	return latest, nil
 }
 
-func procHeartbeatPreferred(candidate, existing exec.ProcHeartbeat) bool {
+func procHeartbeatPreferred(candidate, existing proc.ProcHeartbeat) bool {
 	if candidate.Fresh != existing.Fresh {
 		return candidate.Fresh
 	}

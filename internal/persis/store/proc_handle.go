@@ -13,8 +13,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
 // ProcHandle is a collection-backed process heartbeat handle.
@@ -23,7 +23,7 @@ type ProcHandle struct {
 	groupName string
 	recordID  string
 	createdAt time.Time
-	meta      exec.ProcMeta
+	meta      proc.ProcMeta
 
 	started  atomic.Bool
 	canceled atomic.Bool
@@ -32,7 +32,7 @@ type ProcHandle struct {
 	wg       sync.WaitGroup
 }
 
-var _ exec.ProcHandle = (*ProcHandle)(nil)
+var _ proc.ProcHandle = (*ProcHandle)(nil)
 
 // Stop stops the heartbeat and removes the proc entry.
 func (p *ProcHandle) Stop(ctx context.Context) error {
@@ -132,7 +132,7 @@ func (p *ProcHandle) writeHeartbeat(ctx context.Context, now time.Time) error {
 type procPayload struct {
 	Version         int           `json:"version"`
 	GroupName       string        `json:"groupName"`
-	Meta            exec.ProcMeta `json:"meta"`
+	Meta            proc.ProcMeta `json:"meta"`
 	LastHeartbeatAt int64         `json:"lastHeartbeatAt"`
 	// RevisionNanos is a monotonic per-write nonce (now.UnixNano()) included
 	// so every heartbeat changes Data. The Collection contract makes

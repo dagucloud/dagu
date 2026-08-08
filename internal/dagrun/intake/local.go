@@ -12,9 +12,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 )
 
@@ -32,7 +32,7 @@ type LocalAttemptBuilder func(context.Context) (dagrun.DAGRunAttempt, error)
 type LocalProcStore interface {
 	Lock(ctx context.Context, groupName string) error
 	Unlock(ctx context.Context, groupName string)
-	Acquire(ctx context.Context, groupName string, meta exec.ProcMeta) (exec.ProcHandle, error)
+	Acquire(ctx context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error)
 }
 
 // LocalRequest describes local DAG-run intake before execution starts.
@@ -58,7 +58,7 @@ type LocalRequest struct {
 // LocalPreparation is the successfully prepared local execution ownership.
 type LocalPreparation struct {
 	Attempt dagrun.DAGRunAttempt
-	Proc    exec.ProcHandle
+	Proc    proc.ProcHandle
 }
 
 // PrepareLocalExecution creates or resolves the execution attempt, acquires the
@@ -89,7 +89,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 	}
 	attempt.SetDAG(req.DAG)
 
-	proc, err := req.ProcStore.Acquire(ctx, req.DAG.ProcGroup(), exec.ProcMeta{
+	proc, err := req.ProcStore.Acquire(ctx, req.DAG.ProcGroup(), proc.ProcMeta{
 		StartedAt:    time.Now().Unix(),
 		Name:         req.DAG.Name,
 		DAGRunID:     req.DAGRunID,

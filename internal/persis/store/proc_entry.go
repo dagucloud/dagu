@@ -13,12 +13,12 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
-func (s *ProcStore) listCollectionEntries(ctx context.Context, groupName string) ([]exec.ProcEntry, error) {
+func (s *ProcStore) listCollectionEntries(ctx context.Context, groupName string) ([]proc.ProcEntry, error) {
 	prefix := ""
 	if groupName != "" {
 		prefix = procGroupPrefix(groupName)
@@ -28,7 +28,7 @@ func (s *ProcStore) listCollectionEntries(ctx context.Context, groupName string)
 		return nil, err
 	}
 	now := time.Now().UTC()
-	entries := make([]exec.ProcEntry, 0, len(recs))
+	entries := make([]proc.ProcEntry, 0, len(recs))
 	for _, rec := range recs {
 		entry, err := s.entryFromRecord(rec, now)
 		if err != nil {
@@ -64,36 +64,36 @@ func (s *ProcStore) listCollectionRecords(ctx context.Context, prefix string) ([
 	return listAll(ctx, s.col, persis.ListQuery{Prefix: prefix})
 }
 
-func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (exec.ProcEntry, error) {
+func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (proc.ProcEntry, error) {
 	var payload procPayload
 	if err := persis.Decode(rec, &payload); err != nil {
-		return exec.ProcEntry{}, fmt.Errorf("proc store: decode %q: %w", rec.ID, err)
+		return proc.ProcEntry{}, fmt.Errorf("proc store: decode %q: %w", rec.ID, err)
 	}
 	if payload.Version != procStoreVersion {
-		return exec.ProcEntry{}, fmt.Errorf("proc store: unsupported record version %d for %q", payload.Version, rec.ID)
+		return proc.ProcEntry{}, fmt.Errorf("proc store: unsupported record version %d for %q", payload.Version, rec.ID)
 	}
 	if err := validateProcMeta(payload.Meta); err != nil {
-		return exec.ProcEntry{}, fmt.Errorf("proc store: invalid metadata in %q: %w", rec.ID, err)
+		return proc.ProcEntry{}, fmt.Errorf("proc store: invalid metadata in %q: %w", rec.ID, err)
 	}
 	recordGroupName := procGroupNameFromRecordID(rec.ID)
 	if recordGroupName == "" {
-		return exec.ProcEntry{}, fmt.Errorf("proc store: invalid record ID %q", rec.ID)
+		return proc.ProcEntry{}, fmt.Errorf("proc store: invalid record ID %q", rec.ID)
 	}
 	groupName := payload.GroupName
 	if groupName == "" {
 		groupName = recordGroupName
 	} else if groupName != recordGroupName {
-		return exec.ProcEntry{}, fmt.Errorf("proc store: record group mismatch for %q: payload %q, path %q", rec.ID, groupName, recordGroupName)
+		return proc.ProcEntry{}, fmt.Errorf("proc store: record group mismatch for %q: payload %q, path %q", rec.ID, groupName, recordGroupName)
 	}
 	heartbeatAt := time.Unix(payload.LastHeartbeatAt, 0).UTC()
 	if heartbeatAt.After(now.Add(5 * time.Minute)) {
-		return exec.ProcEntry{}, fmt.Errorf("proc store: heartbeat timestamp is in the future for %q", rec.ID)
+		return proc.ProcEntry{}, fmt.Errorf("proc store: heartbeat timestamp is in the future for %q", rec.ID)
 	}
 	fresh := now.Sub(heartbeatAt) < s.staleTime
 	if !fresh && now.Sub(rec.UpdatedAt) < s.staleTime {
 		fresh = true
 	}
-	return exec.ProcEntry{
+	return proc.ProcEntry{
 		GroupName:       groupName,
 		Identity:        collectionProcEntryID(rec.ID),
 		Meta:            payload.Meta,
@@ -102,7 +102,7 @@ func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (exec.Pro
 	}, nil
 }
 
-func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry exec.ProcEntry) error {
+func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry proc.ProcEntry) error {
 	recordID, ok := procEntryIdentityValue(entry, procEntryIdentityCollection)
 	if !ok {
 		return nil
@@ -131,7 +131,7 @@ func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry exec.Proc
 	return nil
 }
 
-func procFreshRefs(entries []exec.ProcEntry) []dagrun.DAGRunRef {
+func procFreshRefs(entries []proc.ProcEntry) []dagrun.DAGRunRef {
 	seen := make(map[string]dagrun.DAGRunRef)
 	for _, entry := range entries {
 		if !entry.Fresh {
@@ -153,8 +153,8 @@ func procFreshRefs(entries []exec.ProcEntry) []dagrun.DAGRunRef {
 	return refs
 }
 
-func dedupeAndSortProcEntries(entries []exec.ProcEntry) []exec.ProcEntry {
-	byKey := make(map[string]exec.ProcEntry)
+func dedupeAndSortProcEntries(entries []proc.ProcEntry) []proc.ProcEntry {
+	byKey := make(map[string]proc.ProcEntry)
 	for _, entry := range entries {
 		key := entry.AttemptKey()
 		if key == "" || strings.Count(key, "|") < 4 {
@@ -165,7 +165,7 @@ func dedupeAndSortProcEntries(entries []exec.ProcEntry) []exec.ProcEntry {
 			byKey[key] = entry
 		}
 	}
-	out := make([]exec.ProcEntry, 0, len(byKey))
+	out := make([]proc.ProcEntry, 0, len(byKey))
 	for _, entry := range byKey {
 		out = append(out, entry)
 	}
@@ -173,7 +173,7 @@ func dedupeAndSortProcEntries(entries []exec.ProcEntry) []exec.ProcEntry {
 	return out
 }
 
-func procEntryPreferred(candidate, existing exec.ProcEntry) bool {
+func procEntryPreferred(candidate, existing proc.ProcEntry) bool {
 	if candidate.Fresh != existing.Fresh {
 		return candidate.Fresh
 	}
@@ -183,7 +183,7 @@ func procEntryPreferred(candidate, existing exec.ProcEntry) bool {
 	return procEntrySortKey(candidate) < procEntrySortKey(existing)
 }
 
-func sortProcEntries(entries []exec.ProcEntry) {
+func sortProcEntries(entries []proc.ProcEntry) {
 	sort.Slice(entries, func(i, j int) bool {
 		left, right := entries[i], entries[j]
 		if left.GroupName != right.GroupName {
@@ -202,7 +202,7 @@ func sortProcEntries(entries []exec.ProcEntry) {
 	})
 }
 
-func sameProcEntry(a, b exec.ProcEntry) bool {
+func sameProcEntry(a, b proc.ProcEntry) bool {
 	return a.GroupName == b.GroupName &&
 		a.Identity == b.Identity &&
 		a.LastHeartbeatAt == b.LastHeartbeatAt &&

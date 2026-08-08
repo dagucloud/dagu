@@ -15,13 +15,13 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/stretchr/testify/require"
 )
 
-func newProcStore(cfg *config.Config) exec.ProcStore {
+func newProcStore(cfg *config.Config) proc.ProcStore {
 	return file.NewProcStore(cfg)
 }
 
@@ -31,7 +31,7 @@ func procGroupDir(procDir, groupName, dagName string) string {
 
 // ProcHeartbeatObserver is the proc-store surface needed by heartbeat liveness tests.
 type ProcHeartbeatObserver interface {
-	LatestHeartbeat(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef) (*exec.ProcHeartbeat, error)
+	LatestHeartbeat(ctx context.Context, groupName string, dagRun dagrun.DAGRunRef) (*proc.ProcHeartbeat, error)
 }
 
 // WaitForProcHeartbeat returns the latest heartbeat observation for dagRun once it exists.
@@ -42,10 +42,10 @@ func WaitForProcHeartbeat(
 	groupName string,
 	dagRun dagrun.DAGRunRef,
 	timeout time.Duration,
-) exec.ProcHeartbeat {
+) proc.ProcHeartbeat {
 	t.Helper()
 
-	var heartbeat *exec.ProcHeartbeat
+	var heartbeat *proc.ProcHeartbeat
 	var lastErr error
 	require.Eventually(t, func() bool {
 		heartbeat, lastErr = procStore.LatestHeartbeat(ctx, groupName, dagRun)

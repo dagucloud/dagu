@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 
 var procSafeAttemptIDPattern = regexp.MustCompile(`^[-a-zA-Z0-9_]+$`)
 
-func validateProcMeta(meta exec.ProcMeta) error {
+func validateProcMeta(meta proc.ProcMeta) error {
 	if meta.Name == "" {
 		return fmt.Errorf("proc meta name is required")
 	}
@@ -48,11 +48,11 @@ func validateProcMeta(meta exec.ProcMeta) error {
 	return nil
 }
 
-func procRecordID(groupName string, meta exec.ProcMeta, t time.Time) string {
+func procRecordID(groupName string, meta proc.ProcMeta, t time.Time) string {
 	return filepath.ToSlash(filepath.Join(groupName, meta.Name, procRecordName(meta, t)))
 }
 
-func procRecordName(meta exec.ProcMeta, t time.Time) string {
+func procRecordName(meta proc.ProcMeta, t time.Time) string {
 	return fmt.Sprintf("%s%sZ_%s_%s",
 		procRecordPrefix,
 		t.UTC().Format(procDateTimeUTC),

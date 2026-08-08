@@ -33,6 +33,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
@@ -66,7 +67,7 @@ type API struct {
 	dagRunStore          dagrun.DAGRunStore
 	dagRunMgr            runtime.Manager
 	queueStore           queue.QueueStore
-	procStore            exec.ProcStore
+	procStore            proc.ProcStore
 	dagRunLeaseStore     exec.DAGRunLeaseStore
 	workerHeartbeatStore exec.WorkerHeartbeatStore
 	remoteNodeResolver   *remotenode.Resolver
@@ -363,7 +364,7 @@ func New(
 	dr dagstore.DAGStore,
 	drs dagrun.DAGRunStore,
 	qs queue.QueueStore,
-	ps exec.ProcStore,
+	ps proc.ProcStore,
 	drm runtime.Manager,
 	cfg *config.Config,
 	cc coordinator.Client,

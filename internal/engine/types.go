@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -124,5 +124,5 @@ type Worker struct {
 
 type localPreparation struct {
 	attempt dagrun.DAGRunAttempt
-	proc    coreexec.ProcHandle
+	proc    proc.ProcHandle
 }

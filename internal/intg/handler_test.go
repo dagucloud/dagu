@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	runtimeagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -39,7 +39,7 @@ func dagAgentWithProc(t *testing.T, th test.Helper, dag test.DAG) *test.Agent {
 	}
 	attemptID := "attempt-" + compactRunID
 
-	proc, err := th.ProcStore.Acquire(th.Context, dag.ProcGroup(), exec.ProcMeta{
+	proc, err := th.ProcStore.Acquire(th.Context, dag.ProcGroup(), proc.ProcMeta{
 		StartedAt:    time.Now().Unix(),
 		Name:         dag.Name,
 		DAGRunID:     dagRunID,

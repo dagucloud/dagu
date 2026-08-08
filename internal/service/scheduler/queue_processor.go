@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -90,7 +91,7 @@ func (e startupExecutionError) Unwrap() error {
 type QueueProcessor struct {
 	queueStore             queuedomain.QueueStore
 	dagRunStore            dagrun.DAGRunStore
-	procStore              exec.ProcStore
+	procStore              proc.ProcStore
 	dagRunLeaseStore       exec.DAGRunLeaseStore
 	dispatchTaskStore      exec.DispatchTaskStore
 	dispatchAdmissionStore exec.DispatchAdmissionStore
@@ -188,7 +189,7 @@ func WithIsSuspended(isSuspended IsSuspendedFunc) QueueProcessorOption {
 func NewQueueProcessor(
 	queueStore queuedomain.QueueStore,
 	dagRunStore dagrun.DAGRunStore,
-	procStore exec.ProcStore,
+	procStore proc.ProcStore,
 	dagExecutor *DAGExecutor,
 	queuesConfig config.Queues,
 	opts ...QueueProcessorOption,

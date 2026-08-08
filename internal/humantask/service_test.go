@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -475,7 +475,7 @@ func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	return s.status, true, nil
 }
 
-type serviceProcStore struct{ exec.ProcStore }
+type serviceProcStore struct{ proc.ProcStore }
 
 func (serviceProcStore) IsRunAlive(context.Context, string, dagrun.DAGRunRef) (bool, error) {
 	return false, nil
@@ -486,7 +486,7 @@ func (serviceProcStore) IsAttemptAlive(context.Context, string, dagrun.DAGRunRef
 }
 
 type sequenceProcStore struct {
-	exec.ProcStore
+	proc.ProcStore
 	alive     []bool
 	calls     int
 	groupName string

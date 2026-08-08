@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -30,7 +31,7 @@ type Engine struct {
 	dagRunStore     dagrun.DAGRunStore
 	runStateStore   runstate.Store
 	stateStore      dagstate.Store
-	procStore       coreexec.ProcStore
+	procStore       proc.ProcStore
 	serviceRegistry coreexec.ServiceRegistry
 	dagStore        dagstore.DAGStore
 	dagRunMgr       runtime.Manager

@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -39,7 +40,7 @@ type Scheduler struct {
 	running             atomic.Bool
 	dagRunStore         dagrun.DAGRunStore
 	queueStore          queuedomain.QueueStore
-	procStore           exec.ProcStore
+	procStore           proc.ProcStore
 	config              *config.Config
 	dirLock             dirlock.DirLock // File-based lock to prevent multiple scheduler instances
 	dagExecutor         *DAGExecutor
@@ -105,7 +106,7 @@ func New(
 	drm runtime.Manager,
 	dagRunStore dagrun.DAGRunStore,
 	queueStore queuedomain.QueueStore,
-	procStore exec.ProcStore,
+	procStore proc.ProcStore,
 	reg exec.ServiceRegistry,
 	coordinatorCli exec.Dispatcher,
 	watermarkStore WatermarkStore,
@@ -126,7 +127,7 @@ func newScheduler(
 	drm runtime.Manager,
 	dagRunStore dagrun.DAGRunStore,
 	queueStore queuedomain.QueueStore,
-	procStore exec.ProcStore,
+	procStore proc.ProcStore,
 	reg exec.ServiceRegistry,
 	coordinatorCli exec.Dispatcher,
 	watermarkStore WatermarkStore,

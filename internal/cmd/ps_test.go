@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -37,7 +37,7 @@ steps:
 
 		runID := "ps-run-1"
 		startedAt := time.Date(2026, time.July, 29, 12, 34, 56, 0, time.UTC)
-		proc, err := th.ProcStore.Acquire(th.Context, dag.ProcGroup(), exec.ProcMeta{
+		proc, err := th.ProcStore.Acquire(th.Context, dag.ProcGroup(), proc.ProcMeta{
 			StartedAt:    startedAt.Unix(),
 			Name:         dag.Name,
 			DAGRunID:     runID,

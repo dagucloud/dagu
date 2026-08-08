@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -78,7 +78,7 @@ func (e *ResumeError) Unwrap() error { return e.Err }
 type Service struct {
 	DAGRunStore    dagrun.DAGRunStore
 	QueueStore     queue.QueueStore
-	ProcStore      exec.ProcStore
+	ProcStore      proc.ProcStore
 	Now            func() time.Time
 	SettleTimeout  time.Duration
 	PollInterval   time.Duration

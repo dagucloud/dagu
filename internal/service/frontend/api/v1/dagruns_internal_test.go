@@ -15,10 +15,10 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
@@ -284,7 +284,7 @@ func (a *manualStepAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, e
 }
 
 type manualStepProcStore struct {
-	exec.ProcStore
+	proc.ProcStore
 	alive bool
 	err   error
 }

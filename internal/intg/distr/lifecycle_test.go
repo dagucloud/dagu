@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	runtimeagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
@@ -151,7 +151,7 @@ steps:
 		attemptID := uuid.New().String()
 		// The parent runs in-process in this test, so register its proc heartbeat
 		// before using the runtime manager to stop it.
-		proc, err := f.coord.ProcStore.Acquire(f.coord.Context, f.dagWrapper.ProcGroup(), exec.ProcMeta{
+		proc, err := f.coord.ProcStore.Acquire(f.coord.Context, f.dagWrapper.ProcGroup(), proc.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         f.dagWrapper.Name,
 			DAGRunID:     runID,

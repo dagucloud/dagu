@@ -24,6 +24,7 @@ import (
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -58,7 +59,7 @@ type queueFixture struct {
 	dispatchStore  exec.DispatchTaskStore
 	distributedDir string
 	queueStore     *store.QueueStore
-	procStore      exec.ProcStore
+	procStore      procdomain.ProcStore
 	processor      *QueueProcessor
 	dag            *ir.DAG
 }
@@ -86,7 +87,7 @@ func newQueueFixture(t *testing.T) *queueFixture {
 	}
 }
 
-func newSchedulerTestProcStore(procDir string, cfg *config.Config) exec.ProcStore {
+func newSchedulerTestProcStore(procDir string, cfg *config.Config) procdomain.ProcStore {
 	opts := []proc.StoreOption{}
 	if cfg != nil {
 		opts = append(opts,

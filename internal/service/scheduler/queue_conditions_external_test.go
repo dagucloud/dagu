@@ -20,6 +20,7 @@ import (
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
@@ -70,7 +71,7 @@ func TestQueueProcessorSkipsQueuedConditionRefreshWhenLivenessUnavailable(t *tes
 		nil,
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
-			procStore: func(store exec.ProcStore) exec.ProcStore {
+			procStore: func(store procdomain.ProcStore) procdomain.ProcStore {
 				return &queueConditionProcStore{
 					ProcStore:     store,
 					isRunAliveErr: errors.New("liveness unavailable"),
@@ -398,7 +399,7 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
 			executable: filepath.Join(t.TempDir(), "missing-dagu"),
-			procStore: func(base exec.ProcStore) exec.ProcStore {
+			procStore: func(base procdomain.ProcStore) procdomain.ProcStore {
 				return &queueConditionProcStore{
 					ProcStore:       base,
 					isRunAliveDelay: 50 * time.Millisecond,
@@ -440,7 +441,7 @@ func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T)
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
 			executable: filepath.Join(t.TempDir(), "missing-dagu"),
-			procStore: func(base exec.ProcStore) exec.ProcStore {
+			procStore: func(base procdomain.ProcStore) procdomain.ProcStore {
 				return &queueConditionProcStore{
 					ProcStore:       base,
 					isRunAliveDelay: 50 * time.Millisecond,
@@ -510,7 +511,7 @@ func TestQueueProcessorRecordsRunLivenessUnavailableCondition(t *testing.T) {
 		nil,
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
-			procStore: func(base exec.ProcStore) exec.ProcStore {
+			procStore: func(base procdomain.ProcStore) procdomain.ProcStore {
 				return &queueConditionProcStore{
 					ProcStore:          base,
 					isRunAliveErrAfter: 1,
@@ -537,7 +538,7 @@ func TestQueueProcessorRecordsQueueStateUnavailableConditionOnCountError(t *test
 		nil,
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
-			procStore: func(base exec.ProcStore) exec.ProcStore {
+			procStore: func(base procdomain.ProcStore) procdomain.ProcStore {
 				return &queueConditionProcStore{
 					ProcStore:     base,
 					countAliveErr: errors.New("count alive failed"),
@@ -566,7 +567,7 @@ type queueConditionFixture struct {
 
 type queueConditionFixtureConfig struct {
 	executable string
-	procStore  func(exec.ProcStore) exec.ProcStore
+	procStore  func(procdomain.ProcStore) procdomain.ProcStore
 	queueStore func(queuedomain.QueueStore) queuedomain.QueueStore
 }
 
@@ -618,7 +619,7 @@ func newQueueConditionFixtureWithConfig(
 		store.WithDispatchReservationTTL(conditionTestStaleThreshold),
 	)
 	procStore := proc.New(filepath.Join(tmp, "proc"))
-	var processorProcStore exec.ProcStore = procStore
+	var processorProcStore procdomain.ProcStore = procStore
 	if fixtureConfig.procStore != nil {
 		processorProcStore = fixtureConfig.procStore(procStore)
 	}
@@ -1151,7 +1152,7 @@ func (a *queueConditionAttempt) ReadDAG(ctx context.Context) (*ir.DAG, error) {
 }
 
 type queueConditionProcStore struct {
-	exec.ProcStore
+	procdomain.ProcStore
 
 	mu                 sync.Mutex
 	countAliveErr      error

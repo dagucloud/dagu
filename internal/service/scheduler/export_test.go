@@ -9,6 +9,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
@@ -24,7 +25,7 @@ func NewWithHooksForTest(
 	drm runtime.Manager,
 	dagRunStore dagrun.DAGRunStore,
 	queueStore queuedomain.QueueStore,
-	procStore exec.ProcStore,
+	procStore procdomain.ProcStore,
 	reg exec.ServiceRegistry,
 	coordinatorCli exec.Dispatcher,
 	watermarkStore WatermarkStore,

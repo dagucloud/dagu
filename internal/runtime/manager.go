@@ -16,7 +16,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
@@ -39,7 +38,7 @@ func WithManagerClock(now func() time.Time) ManagerOption {
 
 // NewManager creates a new Manager instance.
 // The Manager is used to interact with the DAG.
-func NewManager(drs dagrun.DAGRunStore, ps exec.ProcStore, cfg *config.Config, opts ...ManagerOption) Manager {
+func NewManager(drs dagrun.DAGRunStore, ps proc.ProcStore, cfg *config.Config, opts ...ManagerOption) Manager {
 	m := Manager{
 		dagRunStore:   drs,
 		procStore:     ps,
@@ -57,7 +56,7 @@ func NewManager(drs dagrun.DAGRunStore, ps exec.ProcStore, cfg *config.Config, o
 // through a socket interface and manages dag-run data.
 type Manager struct {
 	dagRunStore   dagrun.DAGRunStore      // Store interface for persisting run data
-	procStore     exec.ProcStore          // Store interface for process management
+	procStore     proc.ProcStore          // Store interface for process management
 	subCmdBuilder *launcher.SubCmdBuilder // Command builder for constructing command specs
 	nowFunc       func() time.Time
 }
@@ -377,7 +376,7 @@ func isLocalWorkerID(workerID string) bool {
 	return workerID == "" || workerID == "local"
 }
 
-func (m *Manager) findAttemptForProcEntry(ctx context.Context, entry exec.ProcEntry) (dagrun.DAGRunAttempt, error) {
+func (m *Manager) findAttemptForProcEntry(ctx context.Context, entry proc.ProcEntry) (dagrun.DAGRunAttempt, error) {
 	if entry.IsRoot() {
 		return m.dagRunStore.FindAttempt(ctx, entry.DAGRun())
 	}

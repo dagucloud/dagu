@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -116,7 +116,7 @@ func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
 	t.Parallel()
 
 	dag := &ir.DAG{Name: "retry-test"}
-	store := &retryReleaseProcStore{heartbeats: []*exec.ProcHeartbeat{
+	store := &retryReleaseProcStore{heartbeats: []*proc.ProcHeartbeat{
 		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
 		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-1", true),
 		nil,
@@ -145,7 +145,7 @@ func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
 	t.Parallel()
 
 	store := &retryReleaseProcStore{
-		heartbeats: []*exec.ProcHeartbeat{
+		heartbeats: []*proc.ProcHeartbeat{
 			retryReleaseHeartbeat("retry-test", "run-1", "attempt-1", true),
 		},
 	}
@@ -197,7 +197,7 @@ func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
 	t.Parallel()
 
 	dag := &ir.DAG{Name: "retry-test"}
-	store := &retryReleaseProcStore{heartbeats: []*exec.ProcHeartbeat{
+	store := &retryReleaseProcStore{heartbeats: []*proc.ProcHeartbeat{
 		retryReleaseHeartbeat(dag.Name, "run-1", "attempt-2", true),
 	}}
 	status := &dagrun.DAGRunStatus{
@@ -219,16 +219,16 @@ func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
 }
 
 type retryReleaseProcStore struct {
-	exec.ProcStore
+	proc.ProcStore
 
-	heartbeats      []*exec.ProcHeartbeat
-	alwaysHeartbeat *exec.ProcHeartbeat
+	heartbeats      []*proc.ProcHeartbeat
+	alwaysHeartbeat *proc.ProcHeartbeat
 	calls           int
 	groupName       string
 	dagRun          dagrun.DAGRunRef
 }
 
-func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName string, dagRun dagrun.DAGRunRef) (*exec.ProcHeartbeat, error) {
+func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName string, dagRun dagrun.DAGRunRef) (*proc.ProcHeartbeat, error) {
 	s.calls++
 	s.groupName = groupName
 	s.dagRun = dagRun
@@ -248,8 +248,8 @@ func (s *retryReleaseProcStore) LatestHeartbeat(_ context.Context, groupName str
 	return &copy, nil
 }
 
-func retryReleaseHeartbeat(dagName, runID, attemptID string, fresh bool) *exec.ProcHeartbeat {
-	return &exec.ProcHeartbeat{
+func retryReleaseHeartbeat(dagName, runID, attemptID string, fresh bool) *proc.ProcHeartbeat {
+	return &proc.ProcHeartbeat{
 		DAGRun:    dagrun.NewDAGRunRef(dagName, runID),
 		AttemptID: attemptID,
 		Fresh:     fresh,

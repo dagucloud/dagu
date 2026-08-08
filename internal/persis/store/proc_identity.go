@@ -7,26 +7,26 @@ import (
 	"encoding/base64"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
 const (
 	procEntryIdentityCollection = "collection"
 )
 
-func collectionProcEntryID(recordID string) exec.ProcEntryID {
+func collectionProcEntryID(recordID string) proc.ProcEntryID {
 	return procEntryID(procEntryIdentityCollection, recordID)
 }
 
-func procEntryID(kind, value string) exec.ProcEntryID {
+func procEntryID(kind, value string) proc.ProcEntryID {
 	if kind == "" || value == "" {
-		return exec.ProcEntryID{}
+		return proc.ProcEntryID{}
 	}
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(value))
-	return exec.NewProcEntryID(kind + ":" + encoded)
+	return proc.NewProcEntryID(kind + ":" + encoded)
 }
 
-func procEntryIdentityValue(entry exec.ProcEntry, expectedKind string) (string, bool) {
+func procEntryIdentityValue(entry proc.ProcEntry, expectedKind string) (string, bool) {
 	kind, value, ok := splitProcEntryID(entry.Identity)
 	if !ok || kind != expectedKind {
 		return "", false
@@ -34,7 +34,7 @@ func procEntryIdentityValue(entry exec.ProcEntry, expectedKind string) (string, 
 	return value, true
 }
 
-func procEntryIdentityKind(entry exec.ProcEntry) string {
+func procEntryIdentityKind(entry proc.ProcEntry) string {
 	kind, _, ok := splitProcEntryID(entry.Identity)
 	if !ok {
 		return ""
@@ -42,7 +42,7 @@ func procEntryIdentityKind(entry exec.ProcEntry) string {
 	return kind
 }
 
-func splitProcEntryID(id exec.ProcEntryID) (kind, value string, ok bool) {
+func splitProcEntryID(id proc.ProcEntryID) (kind, value string, ok bool) {
 	if id.IsZero() {
 		return "", "", false
 	}
@@ -58,7 +58,7 @@ func splitProcEntryID(id exec.ProcEntryID) (kind, value string, ok bool) {
 	return kind, string(decoded), true
 }
 
-func procEntrySortKey(entry exec.ProcEntry) string {
+func procEntrySortKey(entry proc.ProcEntry) string {
 	if !entry.Identity.IsZero() {
 		return entry.Identity.String()
 	}

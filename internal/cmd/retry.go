@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/spf13/cobra"
@@ -568,7 +569,7 @@ func waitForRetrySourceReleaseFor(
 
 func retrySourceAlive(
 	ctx context.Context,
-	procStore exec.ProcStore,
+	procStore proc.ProcStore,
 	dag *ir.DAG,
 	status *dagrun.DAGRunStatus,
 	run dagrun.DAGRunRef,
