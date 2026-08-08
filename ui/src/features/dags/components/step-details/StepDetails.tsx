@@ -261,7 +261,7 @@ function CodeBlock({
   }
 
   return (
-    <BorderedBox className="max-h-72 overflow-auto bg-muted/20 p-3">
+    <BorderedBox className="bg-muted/20 p-3">
       <pre className="whitespace-pre-wrap break-words text-xs leading-5 text-foreground">
         {value}
       </pre>
@@ -273,7 +273,7 @@ function ShellCodeBlock({ value }: { value: string }) {
   const lines = value.split('\n');
 
   return (
-    <BorderedBox className="max-h-72 overflow-auto bg-muted/30 p-0 dark:border-slate-700 dark:bg-slate-950">
+    <BorderedBox className="overflow-x-auto bg-muted/30 p-0 dark:border-slate-700 dark:bg-slate-950">
       <pre className="m-0 min-w-max text-xs leading-5 text-foreground selection:bg-primary/20 dark:text-slate-100 dark:selection:bg-violet-500/40 dark:selection:text-white">
         {lines.map((line, index) => (
           <div
