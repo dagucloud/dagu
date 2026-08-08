@@ -298,6 +298,17 @@ describe('DashboardPage', () => {
     expect(screen.queryByText(/No runs on /)).not.toBeInTheDocument();
   });
 
+  it('does not show first-run guidance when the DAG inventory request fails', async () => {
+    clientGetMock.mockResolvedValue({});
+
+    renderPage();
+
+    expect(await screen.findByText(/No runs on /)).toBeVisible();
+    expect(
+      screen.queryByText('Create your first workflow')
+    ).not.toBeInTheDocument();
+  });
+
   it('shows placeholders instead of zeros while runs load', async () => {
     mockDAGInventory(['etl'], 1);
     usePaginatedDAGRunsMock.mockReturnValue({

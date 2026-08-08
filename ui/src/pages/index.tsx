@@ -113,6 +113,12 @@ async function fetchAllDashboardDAGNames(
     }
 
     const data = response.data;
+    // A failed response with an unparsable body yields neither data nor
+    // error; treating it as "zero DAGs" would show first-run guidance to
+    // users whose requests merely failed.
+    if (!data) {
+      throw new Error('Empty response for DAG definitions');
+    }
     totalCount ??= data?.pagination?.totalRecords;
     for (const dag of data?.dags ?? []) {
       if (dag.dag.name) {
