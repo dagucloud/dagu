@@ -3,8 +3,13 @@
 
 import { render, screen } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { DocMarkdownPreview } from '../doc-markdown-preview';
+
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 describe('DocMarkdownPreview', () => {
   it('hides YAML frontmatter from the rendered preview', () => {
@@ -44,5 +49,67 @@ title: Restart API
 
     expect(container.textContent).toContain('title: Restart API');
     expect(container.textContent).toContain('---not-a-delimiter');
+  });
+});
+
+describe('DocMarkdownPreview wikilinks', () => {
+  const linkContext = { workspace: 'ops', docPath: 'runbooks/etl' };
+
+  it('renders a doc wikilink as an internal link scoped to the workspace', () => {
+    renderWithRouter(
+      <DocMarkdownPreview
+        content="see [[guides/deploy]]"
+        linkContext={linkContext}
+      />
+    );
+
+    const link = screen.getByRole('link', { name: 'guides/deploy' });
+    expect(link).toHaveAttribute('href', '/docs/guides/deploy?workspace=ops');
+    expect(link).toHaveAttribute('data-wikilink-target', 'guides/deploy');
+  });
+
+  it('uses the label and slugifies the anchor', () => {
+    renderWithRouter(
+      <DocMarkdownPreview
+        content="see [[guides/deploy#Roll Back|rollback steps]]"
+        linkContext={{ workspace: null, docPath: 'a' }}
+      />
+    );
+
+    const link = screen.getByRole('link', { name: 'rollback steps' });
+    expect(link).toHaveAttribute('href', '/docs/guides/deploy#roll-back');
+  });
+
+  it('renders a dag wikilink as a link to the DAG page', () => {
+    renderWithRouter(
+      <DocMarkdownPreview
+        content="status [[dag:daily-etl|ETL]]"
+        linkContext={linkContext}
+      />
+    );
+
+    const link = screen.getByRole('link', { name: 'ETL' });
+    expect(link).toHaveAttribute('href', '/dags/daily-etl');
+    expect(link).toHaveAttribute('data-wikilink-target', 'dag:daily-etl');
+  });
+
+  it('renders wikilinks as inert spans without a link context', () => {
+    render(<DocMarkdownPreview content="see [[guides/deploy]]" />);
+
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.getByText('guides/deploy')).toBeInTheDocument();
+  });
+
+  it('leaves wikilinks inside code untouched', () => {
+    const { container } = renderWithRouter(
+      <DocMarkdownPreview
+        content={'use `[[inline]]`\n\n```\n[[fenced]]\n```'}
+        linkContext={linkContext}
+      />
+    );
+
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(container.textContent).toContain('[[inline]]');
+    expect(container.textContent).toContain('[[fenced]]');
   });
 });

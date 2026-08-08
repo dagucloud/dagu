@@ -41,6 +41,7 @@ import React, {
 } from 'react';
 import { Tree, TreeApi, NodeApi } from 'react-arborist';
 import DocArboristNode, { type ContextAction } from './DocArboristNode';
+import DocBacklinksPanel from './DocBacklinksPanel';
 import DocOutlinePanel from './DocOutlinePanel';
 import {
   workspaceNameForSelection,
@@ -948,6 +949,13 @@ function DocTreeSidebar({
           onHeadingClick={onHeadingClick}
         />
       )}
+
+      {/* Backlinks panel */}
+      <DocBacklinksPanel
+        docPath={activeDocPath}
+        workspace={activeDocWorkspace}
+        onSelectDoc={onSelectFile}
+      />
     </div>
   );
 }

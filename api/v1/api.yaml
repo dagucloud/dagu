@@ -7119,6 +7119,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /docs/backlinks:
+    get:
+      summary: "List document backlinks"
+      description: |
+        Returns documents whose wiki links resolve to the given target.
+        The target is a document path, or a scheme-prefixed wiki-link target
+        such as dag:name.
+      operationId: "listDocBacklinks"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: target
+          in: query
+          description: "Document path or scheme-prefixed wiki-link target (for example dag:name)"
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 300
+      responses:
+        "200":
+          description: "Documents linking to the target"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocBacklinksResponse"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /docs/doc:
     get:
       summary: "Get document"
@@ -13312,6 +13347,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DocSearchResultItem"
+
+    DocBacklinksResponse:
+      type: object
+      description: "Documents linking to a wiki-link target"
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocMetadataResponse"
 
     DocPath:
       type: string

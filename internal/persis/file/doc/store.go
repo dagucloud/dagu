@@ -109,10 +109,30 @@ type docIndexEntry struct {
 	Title       string
 	Description string
 	Tags        []string
+	OutLinks    []string
 	ModTime     time.Time
 	Size        int64
 	Mode        os.FileMode
 	Readable    bool
+}
+
+// outLinksFromContent returns the deduplicated wiki-link targets in content,
+// anchors stripped, in first-seen order.
+func outLinksFromContent(content string) []string {
+	links := docs.ExtractWikiLinks(content)
+	if len(links) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(links))
+	targets := make([]string, 0, len(links))
+	for _, link := range links {
+		if _, ok := seen[link.Target]; ok {
+			continue
+		}
+		seen[link.Target] = struct{}{}
+		targets = append(targets, link.Target)
+	}
+	return targets
 }
 
 type docDirIndexEntry struct {
@@ -610,6 +630,7 @@ func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os
 	title := titleFromID(id)
 	var description string
 	var tags []string
+	var outLinks []string
 	readable := false
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return docs.ErrDocNotFound
@@ -624,6 +645,7 @@ func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os
 		title = doc.Title
 		description = doc.Description
 		tags = doc.Tags
+		outLinks = outLinksFromContent(doc.Content)
 		readable = true
 	} else if errors.Is(err, docs.ErrDocNotFound) {
 		return err
@@ -635,6 +657,7 @@ func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os
 		Title:       title,
 		Description: description,
 		Tags:        tags,
+		OutLinks:    outLinks,
 		ModTime:     info.ModTime(),
 		Size:        info.Size(),
 		Mode:        info.Mode(),

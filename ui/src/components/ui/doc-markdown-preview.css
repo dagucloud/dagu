@@ -59,6 +59,18 @@
   opacity: 0.8;
 }
 
+/* Wikilinks */
+.doc-preview .wikilink {
+  text-decoration: none;
+  border-bottom: 1px dashed var(--color-blue-500);
+}
+
+.doc-preview .wikilink-inert {
+  color: inherit;
+  border-bottom: 1px dashed var(--border);
+  cursor: default;
+}
+
 /* Lists */
 .doc-preview ul,
 .doc-preview ol {

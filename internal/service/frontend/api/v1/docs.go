@@ -208,6 +208,57 @@ func (a *API) GetDoc(ctx context.Context, request api.GetDocRequestObject) (api.
 	return api.GetDoc200JSONResponse(resp), nil
 }
 
+// ListDocBacklinks returns documents whose wiki links resolve to the target.
+func (a *API) ListDocBacklinks(ctx context.Context, request api.ListDocBacklinksRequestObject) (api.ListDocBacklinksResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	workspaceName, visibility, err := a.docPointReadScopeForParams(ctx, request.Params.Workspace)
+	if err != nil {
+		return nil, err
+	}
+	target := strings.TrimSpace(request.Params.Target)
+	items := make([]api.DocMetadataResponse, 0)
+	if target == "" {
+		return api.ListDocBacklinks200JSONResponse{Items: items}, nil
+	}
+	// Targets without a scheme are document paths scoped to the workspace;
+	// scheme-prefixed targets (dag:name) are matched verbatim.
+	if !strings.Contains(target, ":") {
+		if err := validateDocPath(target); err != nil {
+			return nil, err
+		}
+		target, err = scopedDocPath(workspaceName, target)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	results, err := a.docStore.Backlinks(ctx, target, workspaceName)
+	if err != nil {
+		logger.Error(ctx, "Failed to list doc backlinks", tag.Error(err))
+		return nil, internalError(err)
+	}
+	for _, m := range results {
+		rawID := m.ID
+		if workspaceName != "" {
+			prefix := workspaceName + "/"
+			if !strings.HasPrefix(m.ID, prefix) {
+				continue
+			}
+			m.ID = strings.TrimPrefix(m.ID, prefix)
+		} else if !visibility.all && !visibility.visible(m.ID) {
+			continue
+		}
+		item := toDocMetadataResponse(m)
+		item.Workspace = docWorkspaceValue(workspaceName, rawID, visibility, false)
+		items = append(items, item)
+	}
+	return api.ListDocBacklinks200JSONResponse{Items: items}, nil
+}
+
 // SearchDocs searches document content.
 func (a *API) SearchDocs(ctx context.Context, request api.SearchDocsRequestObject) (api.SearchDocsResponseObject, error) {
 	if err := a.requireDocManagement(); err != nil {
