@@ -6,7 +6,6 @@ package spec_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
@@ -83,7 +82,7 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 					Items: []ir.ParallelItem{
 						{
 							Value:  "${consts.item}",
-							Params: collections.DeterministicMap{"target": "${env.TARGET}"},
+							Params: map[string]string{"target": "${env.TARGET}"},
 						},
 					},
 				},

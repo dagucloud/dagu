@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
@@ -2930,7 +2929,7 @@ func parseParallelItems(items []any) ([]ir.ParallelItem, error) {
 			result = append(result, ir.ParallelItem{Value: fmt.Sprintf("%v", v)})
 
 		case map[string]any:
-			params := make(collections.DeterministicMap)
+			params := make(map[string]string)
 			for key, val := range v {
 				var strVal string
 				switch pv := val.(type) {

@@ -3,8 +3,6 @@
 
 package ir
 
-import "github.com/dagucloud/dagu/v2/internal/cmn/collections"
-
 // ParallelConfig contains the configuration for parallel execution of a step.
 // MVP version supports basic parallel execution with max_concurrent control.
 type ParallelConfig struct {
@@ -38,6 +36,5 @@ type ParallelItem struct {
 
 	// Params is used for key-value pairs that will be passed as parameters
 	// E.g. {"SOURCE": "s3://customers", "TYPE": "csv"}
-	// Uses DeterministicMap to ensure consistent JSON marshaling for hashing
-	Params collections.DeterministicMap `json:"params,omitempty"`
+	Params map[string]string `json:"params,omitempty"`
 }

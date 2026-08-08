@@ -24,7 +24,6 @@ import (
 	"syscall"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/datapath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -1370,7 +1369,7 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 				items = append(items, value)
 			} else if len(item.Params) > 0 {
 				// evaluate each value in Params
-				m := make(collections.DeterministicMap)
+				m := make(map[string]string)
 				for key, value := range item.Params {
 					evaluatedValue, err := resolveRuntimeString(ctx, value, cmnvalue.ParallelItemParamField("parallel.items.params."+key))
 					if err != nil {
