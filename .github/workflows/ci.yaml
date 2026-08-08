@@ -364,22 +364,20 @@ jobs:
           )
           $installerRef = "${{ github.event.pull_request.head.sha || github.sha }}"
           $installerUrl = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$installerRef/scripts/installer.ps1"
-          $installDir = Join-Path $env:RUNNER_TEMP "dagu-expression-install"
+          $originalLocalAppData = $env:LOCALAPPDATA
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "dagu-expression-home"
+          $installDir = Join-Path $env:LOCALAPPDATA "Programs\dagu"
           $daguExe = Join-Path $installDir "dagu.exe"
 
           try {
-            & {
-              param([string]$InstallerUrl, [string]$InstallDir)
-              $Service = "caller-value"
-              $args = @(
-                "-NoPrompt", "-Service", "no", "-OpenBrowser", "no",
-                "-InstallDir", $InstallDir
-              )
-              irm $InstallerUrl | iex
-              if ($Service -ne "caller-value") {
-                throw "The installer changed the caller Service variable."
-              }
-            } $installerUrl $installDir
+            if (-not [Console]::IsInputRedirected) {
+              throw "The test requires a non-interactive PowerShell host."
+            }
+            $Service = "caller-value"
+            irm $installerUrl | iex
+            if ($Service -ne "caller-value") {
+              throw "The installer changed the caller Service variable."
+            }
 
             if (-not (Test-Path $daguExe)) {
               throw "The expression-based installer did not install dagu.exe."
@@ -391,6 +389,7 @@ jobs:
           }
           finally {
             & $installerPath -NoPrompt -Uninstall -InstallDir $installDir
+            $env:LOCALAPPDATA = $originalLocalAppData
           }
           if (Test-Path $daguExe) {
             throw "The expression-based installer did not clean up dagu.exe."

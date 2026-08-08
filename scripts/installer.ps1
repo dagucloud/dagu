@@ -119,7 +119,7 @@ function Show-Banner {
 }
 
 function Test-Interactive {
-    if ($NoPrompt) { return $false }
+    if ($NoPrompt -or [Console]::IsInputRedirected) { return $false }
     return ($Host.Name -ne "ServerRemoteHost")
 }
 
