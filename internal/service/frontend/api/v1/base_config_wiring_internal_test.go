@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
+	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
@@ -32,7 +32,7 @@ func TestRequireBaseConfigManagementRequiresWorkspaceFactory(t *testing.T) {
 
 	assert.ErrorIs(t, a.requireBaseConfigManagement(), ErrBaseConfigNotAvailable)
 
-	a.baseConfigFactory = func(string, string) (baseconfig.Store, error) {
+	a.baseConfigFactory = func(string, string) (dagsettings.BaseConfigStore, error) {
 		return stubBaseConfigStore{}, nil
 	}
 	require.NoError(t, a.requireBaseConfigManagement())

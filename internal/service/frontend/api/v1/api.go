@@ -22,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -89,7 +88,7 @@ type API struct {
 	tunnelService        *tunnel.Service
 	defaultExecMode      config.ExecutionMode
 	dagWritesDisabled    bool // True when git sync read-only mode is active
-	baseConfigStore      baseconfig.Store
+	baseConfigStore      dagsettings.BaseConfigStore
 	dagSettingsStore     dagsettings.Store
 	docStore             docs.DocStore
 	workspaceDocMu       sync.RWMutex
@@ -107,7 +106,7 @@ type API struct {
 	oidcRoleMapping      func() config.OIDCRoleMapping
 }
 
-type WorkspaceBaseConfigStoreFactory func(dagsDir, workspaceName string) (baseconfig.Store, error)
+type WorkspaceBaseConfigStoreFactory func(dagsDir, workspaceName string) (dagsettings.BaseConfigStore, error)
 
 type NotificationService interface {
 	GetByDAGName(ctx context.Context, dagName string) (*notificationmodel.Settings, error)
@@ -229,7 +228,7 @@ func WithTunnelService(ts *tunnel.Service) APIOption {
 }
 
 // WithBaseConfigStore returns an APIOption that sets the API's base config store.
-func WithBaseConfigStore(store baseconfig.Store) APIOption {
+func WithBaseConfigStore(store dagsettings.BaseConfigStore) APIOption {
 	return func(a *API) {
 		a.baseConfigStore = store
 	}

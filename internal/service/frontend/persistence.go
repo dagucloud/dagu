@@ -10,7 +10,6 @@ import (
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/docs"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -47,7 +46,7 @@ type StoreFactories struct {
 	ViewStoreFactory                 ViewStoreFactory
 }
 
-type BaseConfigStoreFactory func(filePath string) (baseconfig.Store, error)
+type BaseConfigStoreFactory func(filePath string) (dagsettings.BaseConfigStore, error)
 
 type SecretStoreFactory func(context.Context, *config.Config) secret.Store
 

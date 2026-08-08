@@ -16,7 +16,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/docs"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -42,7 +41,7 @@ type BaseConfigStoreOption = filebaseconfig.Option
 
 // BaseConfigStore is a file-backed base DAG configuration store.
 type BaseConfigStore interface {
-	baseconfig.Store
+	dagsettings.BaseConfigStore
 	Initialize() error
 }
 
@@ -54,7 +53,7 @@ func NewBaseConfigStore(filePath string, opts ...BaseConfigStoreOption) (BaseCon
 	return filebaseconfig.New(filePath, opts...)
 }
 
-func NewWorkspaceBaseConfigStore(dagsDir, workspaceName string) (baseconfig.Store, error) {
+func NewWorkspaceBaseConfigStore(dagsDir, workspaceName string) (dagsettings.BaseConfigStore, error) {
 	return NewBaseConfigStore(
 		workspace.BaseConfigPath(dagsDir, workspaceName),
 		WithBaseConfigSkipDefault(true),

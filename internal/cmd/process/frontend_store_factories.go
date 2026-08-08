@@ -19,7 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
+	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -54,7 +54,7 @@ func newViewStore(cfg *config.Config) (view.Store, error) {
 	return store.NewViewStore(file.NewCollection(cfg.Paths.ViewsDir, file.WithIndentedJSON()))
 }
 
-func newBaseConfigStore(filePath string) (baseconfig.Store, error) {
+func newBaseConfigStore(filePath string) (dagsettings.BaseConfigStore, error) {
 	return file.NewBaseConfigStore(filePath)
 }
 
