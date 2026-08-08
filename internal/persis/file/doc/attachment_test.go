@@ -130,6 +130,27 @@ func TestAttachmentDirectoryRenameCarries(t *testing.T) {
 	assert.Equal(t, "x", readAttachment(t, store, "renamed/deploy", "logo.png"))
 }
 
+func TestAttachmentDirectoryRenameMergesNonEmptyStaleTarget(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Stale target holding a NON-EMPTY per-doc subdirectory at the rename
+	// destination: the merge must descend rather than fail.
+	stale := attachmentDiskPath(store, "new/doc", "stale.png")
+	require.NoError(t, os.MkdirAll(filepath.Dir(stale), 0750))
+	require.NoError(t, os.WriteFile(stale, []byte("stale"), 0600))
+
+	require.NoError(t, store.Create(ctx, "old/doc", "body"))
+	_, err := store.PutAttachment(ctx, "old/doc", "fresh.png", strings.NewReader("fresh"))
+	require.NoError(t, err)
+	require.NoError(t, store.Rename(ctx, "old", "new"))
+
+	assert.Equal(t, "fresh", readAttachment(t, store, "new/doc", "fresh.png"))
+	assert.Equal(t, "stale", readAttachment(t, store, "new/doc", "stale.png"))
+	_, statErr := os.Lstat(filepath.Join(store.baseDir, docAttachmentsDirName, "old"))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
 func TestAttachmentRenameMergesStaleTarget(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
