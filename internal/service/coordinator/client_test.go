@@ -1251,14 +1251,11 @@ func TestClientRPCFailuresPreserveActiveLogStream(t *testing.T) {
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
-	config.MaxRetries = 0
-	config.HeartbeatTimeout = 100 * time.Millisecond
 
 	received := make(chan string, 2)
 	mockCoord := &mockCoordinatorService{
-		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
-			<-ctx.Done()
-			return nil, ctx.Err()
+		heartbeatFunc: func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			return nil, status.Error(codes.DeadlineExceeded, "heartbeat deadline exceeded")
 		},
 		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 			return nil, status.Error(codes.Unavailable, "report unavailable")
@@ -1338,11 +1335,8 @@ func TestClientRPCFailuresPreserveActiveLogStream(t *testing.T) {
 }
 
 func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {
-	t.Parallel()
-
 	config := coordinator.DefaultConfig()
-	config.MaxRetries = 0
-	config.HeartbeatTimeout = 50 * time.Millisecond
+	config.HeartbeatTimeout = 200 * time.Millisecond
 
 	mockCoord := &mockCoordinatorService{
 		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
@@ -1369,8 +1363,8 @@ func TestClientHeartbeatUsesConfiguredTimeout(t *testing.T) {
 
 	select {
 	case err := <-result:
-		require.Equal(t, codes.DeadlineExceeded, status.Code(err))
-	case <-time.After(500 * time.Millisecond):
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(2 * time.Second):
 		cancel()
 		t.Fatal("Heartbeat did not respect its configured timeout")
 	}
@@ -1380,21 +1374,13 @@ func TestClientHeartbeatHonorsCallerDeadline(t *testing.T) {
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
-	config.MaxRetries = 0
 	config.HeartbeatTimeout = time.Second
 
-	mockCoord := &mockCoordinatorService{
-		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+	monitor := &mockServiceMonitor{
+		getMembers: func(ctx context.Context) ([]serviceregistry.HostInfo, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
-	}
-	server, addr := startMockServer(t, mockCoord)
-	defer server.Stop()
-
-	host, port := parseHostPort(addr)
-	monitor := &mockServiceMonitor{
-		members: []serviceregistry.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
 	}
 	client := coordinator.New(monitor, config)
 
@@ -1408,9 +1394,82 @@ func TestClientHeartbeatHonorsCallerDeadline(t *testing.T) {
 
 	select {
 	case err := <-result:
-		require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Heartbeat did not respect the caller deadline")
+	}
+}
+
+func TestClientHeartbeatReturnsDeadlineAfterFailoverExhaustion(t *testing.T) {
+	config := coordinator.DefaultConfig()
+	config.HeartbeatTimeout = 400 * time.Millisecond
+
+	var heartbeatCalls atomic.Int32
+	mockCoord := &mockCoordinatorService{
+		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			heartbeatCalls.Add(1)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	firstServer, firstAddr := startMockServer(t, mockCoord)
+	defer firstServer.Stop()
+	secondServer, secondAddr := startMockServer(t, mockCoord)
+	defer secondServer.Stop()
+
+	firstHost, firstPort := parseHostPort(firstAddr)
+	secondHost, secondPort := parseHostPort(secondAddr)
+	monitor := &mockServiceMonitor{
+		members: []serviceregistry.HostInfo{
+			{ID: "coord-a", Host: firstHost, Port: firstPort, Status: serviceregistry.ServiceStatusActive},
+			{ID: "coord-b", Host: secondHost, Port: secondPort, Status: serviceregistry.ServiceStatusActive},
+		},
+	}
+	client := coordinator.New(monitor, config)
+
+	_, err := client.Heartbeat(t.Context(), &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, int32(2), heartbeatCalls.Load())
+}
+
+func TestClientHeartbeatReturnsCallerCancellation(t *testing.T) {
+	started := make(chan struct{})
+	mockCoord := &mockCoordinatorService{
+		heartbeatFunc: func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	server, addr := startMockServer(t, mockCoord)
+	defer server.Stop()
+
+	host, port := parseHostPort(addr)
+	monitor := &mockServiceMonitor{
+		members: []serviceregistry.HostInfo{{ID: "coord-a", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
+	}
+	client := coordinator.New(monitor, coordinator.DefaultConfig())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := client.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "test-worker"})
+		result <- err
+	}()
+
+	select {
+	case <-started:
+		cancel()
+	case <-time.After(2 * time.Second):
+		t.Fatal("Heartbeat RPC did not start")
+	}
+
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Heartbeat did not respect caller cancellation")
 	}
 }
 
@@ -1675,18 +1734,22 @@ func TestClientDispatch_NoCoordinators(t *testing.T) {
 var _ serviceregistry.ServiceRegistry = (*mockServiceMonitor)(nil)
 
 type mockServiceMonitor struct {
-	members   []serviceregistry.HostInfo
-	err       error
-	onMembers func()
+	members    []serviceregistry.HostInfo
+	err        error
+	onMembers  func()
+	getMembers func(context.Context) ([]serviceregistry.HostInfo, error)
 }
 
 func (m *mockServiceMonitor) Register(_ context.Context, _ serviceregistry.ServiceName, _ serviceregistry.HostInfo) error {
 	return nil
 }
 
-func (m *mockServiceMonitor) GetServiceMembers(_ context.Context, _ serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
+func (m *mockServiceMonitor) GetServiceMembers(ctx context.Context, _ serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
 	if m.onMembers != nil {
 		m.onMembers()
+	}
+	if m.getMembers != nil {
+		return m.getMembers(ctx)
 	}
 	if m.err != nil {
 		return nil, m.err

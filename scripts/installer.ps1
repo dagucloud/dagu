@@ -3,6 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
+# Keep installer parameters and state isolated from the calling session.
+& {
 [CmdletBinding()]
 param(
     [string]$Version = "",
@@ -93,7 +95,7 @@ function Write-Section {
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "· $Message" -ForegroundColor DarkGray
+    Write-Host "- $Message" -ForegroundColor DarkGray
 }
 
 function Write-WarnMessage {
@@ -103,12 +105,12 @@ function Write-WarnMessage {
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor Cyan
+    Write-Host "+ $Message" -ForegroundColor Cyan
 }
 
 function Write-ErrorMessage {
     param([string]$Message)
-    Write-Host "✗ $Message" -ForegroundColor Red
+    Write-Host "x $Message" -ForegroundColor Red
 }
 
 function Show-Banner {
@@ -117,7 +119,7 @@ function Show-Banner {
 }
 
 function Test-Interactive {
-    if ($NoPrompt) { return $false }
+    if ($NoPrompt -or [Console]::IsInputRedirected) { return $false }
     return ($Host.Name -ne "ServerRemoteHost")
 }
 
@@ -1252,3 +1254,4 @@ Verify-Bootstrap
 Install-AISkill
 Show-Summary
 Open-BrowserIfRequested
+} @args

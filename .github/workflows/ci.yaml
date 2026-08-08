@@ -349,7 +349,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.windows_installer == 'true'
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -362,29 +362,58 @@ jobs:
             $installerPath,
             [Text.Encoding]::UTF8
           )
-
-          $Service = "caller-value"
-          & ([scriptblock]::Create($source)) -NoPrompt -DryRun
-          if ($Service -ne "caller-value") {
-            throw "The installer changed the caller Service variable."
+          $installerRepository = "${{ github.event.pull_request.head.repo.full_name }}"
+          $installerRef = "${{ github.event.pull_request.head.sha }}"
+          if (-not $installerRepository) {
+            $installerRepository = $env:GITHUB_REPOSITORY
+            $installerRef = $env:GITHUB_SHA
           }
+          $installerUrl = "https://raw.githubusercontent.com/$installerRepository/$installerRef/scripts/installer.ps1"
+          $originalLocalAppData = $env:LOCALAPPDATA
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "dagu-expression-home"
+          $installDir = Join-Path $env:LOCALAPPDATA "Programs\dagu"
+          $daguExe = Join-Path $installDir "dagu.exe"
 
-          $stagedInstaller = Join-Path $env:RUNNER_TEMP "dagu-validation-installer.ps1"
-          [IO.File]::WriteAllText($stagedInstaller, $source, [Text.Encoding]::UTF8)
           try {
-            & $stagedInstaller -NoPrompt -DryRun -Uninstall -Version latest
-            throw "The installer accepted install-only flags during uninstall."
-          }
-          catch {
-            if ($_.Exception.Message -eq "The installer accepted install-only flags during uninstall.") {
-              throw
+            if (-not [Console]::IsInputRedirected) {
+              throw "The test requires a non-interactive PowerShell host."
             }
-            if ($_.Exception.Message -ne "-Version is only supported during install.") {
-              throw
+            $script:Service = "caller-script-service"
+            $script:DaguHome = "caller-script-home"
+            & {
+              $Service = "caller-local-service"
+              irm $installerUrl | iex
+              if ($Service -ne "caller-local-service") {
+                throw "The installer changed the caller Service variable."
+              }
+            }
+            if ($script:Service -ne "caller-script-service") {
+              throw "The installer changed the caller script Service variable."
+            }
+            if ($script:DaguHome -ne "caller-script-home") {
+              throw "The installer changed the caller script DaguHome variable."
+            }
+
+            if (-not (Test-Path $daguExe)) {
+              throw "The expression-based installer did not install dagu.exe."
+            }
+            & $daguExe version
+            if ($LASTEXITCODE -ne 0) {
+              throw "The installed Dagu binary failed its version check."
             }
           }
           finally {
-            Remove-Item -LiteralPath $stagedInstaller -Force -ErrorAction SilentlyContinue
+            & ([scriptblock]::Create($source)) -NoPrompt -Uninstall -InstallDir $installDir
+            $env:LOCALAPPDATA = $originalLocalAppData
+          }
+          if (Test-Path $daguExe) {
+            throw "The expression-based installer did not clean up dagu.exe."
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
+            -NoPrompt -DryRun -Uninstall -Version latest
+          if ($LASTEXITCODE -eq 0) {
+            throw "The installer accepted install-only flags during uninstall."
           }
 
           & ([scriptblock]::Create($source)) `
@@ -403,10 +432,14 @@ jobs:
         shell: cmd
         env:
           _DAGU_INSTALLER_PS1_PATH: ${{ github.workspace }}\scripts\installer.ps1
-        run: >-
-          scripts\installer.cmd
-          -NoPrompt -DryRun -Service no -OpenBrowser no
-          -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
+        run: |
+          scripts\installer.cmd -NoPrompt -Service no -OpenBrowser no -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\dagu-cmd-install\dagu.exe" version
+          if errorlevel 1 exit /b 1
+          scripts\installer.cmd -NoPrompt -Uninstall -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
+          if errorlevel 1 exit /b 1
+          if exist "%RUNNER_TEMP%\dagu-cmd-install\dagu.exe" exit /b 1
 
   test-windows:
     name: Test on windows-latest (${{ matrix.suite_index }}/${{ matrix.suite_total }})
