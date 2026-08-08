@@ -5457,6 +5457,8 @@ export interface components {
              * @description Last modification time of the document file
              */
             modifiedAt?: string;
+            /** @description Total number of query matches in the document */
+            matchCount?: number;
             matches?: components["schemas"]["SearchMatchItem"][];
         };
         /** @description Search results */

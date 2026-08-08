@@ -114,6 +114,7 @@ type DocSearchResult struct {
 	Tags              []string          `json:"tags,omitempty"`
 	ModTime           time.Time         `json:"modTime"`
 	Matches           []*dagstore.Match `json:"matches"`
+	MatchCount        int               `json:"matchCount,omitempty"`
 	HasMoreMatches    bool              `json:"hasMoreMatches"`
 	NextMatchesCursor string            `json:"nextMatchesCursor,omitempty"`
 }

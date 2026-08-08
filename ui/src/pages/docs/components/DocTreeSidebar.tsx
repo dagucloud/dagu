@@ -275,9 +275,17 @@ function DocTreeSidebar({
     [selectedIds, workspaceById]
   );
 
-  // Search state
+  // Search state; results arrive relevance-ranked from the server.
+  type RankedSearchItem = {
+    id: string;
+    title: string;
+    workspace: string | null;
+    matchCount: number;
+  };
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<string[] | null>(null);
+  const [searchResults, setSearchResults] = useState<RankedSearchItem[] | null>(
+    null
+  );
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -356,7 +364,14 @@ function DocTreeSidebar({
           setSearchError(error.message || 'Search failed');
           return;
         }
-        setSearchResults(data?.results?.map((r) => r.id) ?? []);
+        setSearchResults(
+          data?.results?.map((r) => ({
+            id: r.id,
+            title: r.title,
+            workspace: r.workspace ?? null,
+            matchCount: r.matchCount ?? 0,
+          })) ?? []
+        );
       } catch {
         if (!cancelled) {
           setSearchResults(null);
@@ -379,7 +394,7 @@ function DocTreeSidebar({
     if (!searchResults && selectedTags.length === 0) return null;
 
     let matchIds: Set<string> | null = searchResults
-      ? new Set(searchResults)
+      ? new Set(searchResults.map((r) => r.id))
       : null;
     if (selectedTags.length > 0) {
       const tagIds = collectTagMatchIds(tree, selectedTags);
@@ -397,6 +412,15 @@ function DocTreeSidebar({
     const ancestorIds = collectAncestorPaths(filterMatchIds);
     return filterTree(tree, filterMatchIds, ancestorIds);
   }, [tree, filterMatchIds]);
+
+  // While a text query is active, show the server-ranked flat result list
+  // instead of the filtered tree. An active tag filter narrows the list.
+  const rankedResults = useMemo(() => {
+    if (!searchResults || searchQuery.length < 2) return null;
+    if (selectedTags.length === 0 || !tree) return searchResults;
+    const tagIds = collectTagMatchIds(tree, selectedTags);
+    return searchResults.filter((r) => tagIds.has(r.id));
+  }, [searchResults, searchQuery, selectedTags, tree]);
 
   useEffect(() => {
     if (!filterMatchIds || !treeRef.current) return;
@@ -890,6 +914,38 @@ function DocTreeSidebar({
                 </button>
               </div>
             )}
+            {rankedResults ? (
+              <div className="overflow-y-auto" style={{ height: containerHeight }}>
+                {rankedResults.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    No matching documents
+                  </div>
+                )}
+                {rankedResults.map((item) => (
+                  <button
+                    key={`${item.workspace ?? ''}/${item.id}`}
+                    type="button"
+                    onClick={() =>
+                      onSelectFile(item.id, item.title, item.workspace)
+                    }
+                    className="w-full text-left px-3 py-1 hover:bg-accent"
+                    title={item.id}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs truncate">{item.title}</span>
+                      {item.matchCount > 0 && (
+                        <span className="ml-auto shrink-0 px-1 text-[10px] leading-4 rounded bg-muted text-muted-foreground">
+                          {item.matchCount}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground truncate">
+                      {item.id}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
             <Tree<DocTreeNodeResponse>
               ref={treeRef}
               data={treeData}
@@ -911,6 +967,7 @@ function DocTreeSidebar({
             >
               {renderNode}
             </Tree>
+            )}
           </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 p-4 text-center">

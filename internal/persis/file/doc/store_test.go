@@ -589,6 +589,39 @@ func TestSearch(t *testing.T) {
 	assert.Len(t, results, 2)
 }
 
+func TestSearchRanking(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// zz-body sorts last by ID but has the most matching lines.
+	require.NoError(t, store.Create(ctx, "zz-body", "etl\netl\netl\netl"))
+	// title-hit outranks any body-only match count.
+	require.NoError(t, store.Create(ctx, "a-title", "---\ntitle: ETL Runbook\n---\nunrelated body etl"))
+	require.NoError(t, store.Create(ctx, "m-single", "one etl mention"))
+
+	results, err := store.Search(ctx, "etl")
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	assert.Equal(t, "a-title", results[0].ID)
+	assert.Equal(t, "zz-body", results[1].ID)
+	assert.Equal(t, "m-single", results[2].ID)
+	assert.Positive(t, results[0].MatchCount)
+}
+
+func TestSearchRankingTiebreakByID(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "b", "needle"))
+	require.NoError(t, store.Create(ctx, "a", "needle"))
+
+	results, err := store.Search(ctx, "needle")
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	assert.Equal(t, "a", results[0].ID)
+	assert.Equal(t, "b", results[1].ID)
+}
+
 func TestSearchNoResults(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

@@ -503,6 +503,9 @@ func (a *API) SearchDocs(ctx context.Context, request api.SearchDocsRequestObjec
 			Tags:        docTagsValue(r.Tags),
 			Workspace:   docWorkspaceValue(workspaceName, rawID, visibility, false),
 		}
+		if r.MatchCount > 0 {
+			item.MatchCount = ptrOf(r.MatchCount)
+		}
 		if !r.ModTime.IsZero() {
 			item.ModifiedAt = ptrOf(r.ModTime)
 		}

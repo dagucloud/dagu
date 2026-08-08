@@ -13524,6 +13524,9 @@ components:
           type: string
           format: date-time
           description: "Last modification time of the document file"
+        matchCount:
+          type: integer
+          description: "Total number of query matches in the document"
         matches:
           type: array
           items:
