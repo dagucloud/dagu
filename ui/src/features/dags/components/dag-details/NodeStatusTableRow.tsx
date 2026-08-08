@@ -9,6 +9,7 @@
 import { Button } from '@/components/ui/button';
 import { CommandDisplay } from '@/components/ui/command-display';
 import { useErrorModal } from '@/components/ui/error-modal';
+import { useSimpleToast } from '@/components/ui/simple-toast';
 import { ScriptBadge } from '@/components/ui/script-dialog';
 import { TableCell } from '@/components/ui/table';
 import {
@@ -310,6 +311,7 @@ function NodeStatusTableRow({
   const dagRunContext = useContext(DAGRunContext);
   const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
+  const { showToast } = useSimpleToast();
   // State to store the current duration for running tasks
   const [currentDuration, setCurrentDuration] = useState<string>('-');
   // State for expanding/collapsing parallel executions
@@ -382,7 +384,7 @@ function NodeStatusTableRow({
     loading || dagRun.status === Status.Running || rootRunning;
   const retryTitle = rootRunning
     ? 'Retry unavailable while the root DAG run is running.'
-    : 'Retry from this step';
+    : 'Retry this step';
 
   const subDAGLogQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
@@ -618,6 +620,8 @@ function NodeStatusTableRow({
         return;
       }
       setShowDialog(false);
+      showToast('Step retry started');
+      dagContext.refresh();
     } catch (e) {
       const requestError = e as {
         data?: { message?: string };
@@ -690,7 +694,7 @@ function NodeStatusTableRow({
     <Dialog open={showDialog} onOpenChange={handleRetryDialogOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Retry from this step?</DialogTitle>
+          <DialogTitle>Retry this step?</DialogTitle>
         </DialogHeader>
         <div className="py-2 text-sm">
           This will re-execute <b>{node.step.name}</b>. Are you sure?
