@@ -39,13 +39,33 @@ describe('downloadBlob', () => {
   });
 });
 
+// A plain object instead of a real Response: constructing Response from a
+// Blob needs Blob.stream, which the CI jsdom/Node combination lacks.
+function fetchResponse({
+  ok = true,
+  statusText = 'OK',
+  disposition,
+}: {
+  ok?: boolean;
+  statusText?: string;
+  disposition?: string;
+} = {}) {
+  return {
+    ok,
+    statusText,
+    headers: {
+      get: (name: string) =>
+        name === 'Content-Disposition' ? (disposition ?? null) : null,
+    },
+    blob: async () => new Blob(['data']),
+  };
+}
+
 describe('downloadFromUrl', () => {
   it('sends the auth token and uses the Content-Disposition filename', async () => {
     localStorage.setItem(TOKEN_KEY, 'token-1');
     const fetchMock = vi.fn(async () =>
-      new Response(new Blob(['data']), {
-        headers: { 'Content-Disposition': 'attachment; filename="server.log"' },
-      })
+      fetchResponse({ disposition: 'attachment; filename="server.log"' })
     );
     vi.stubGlobal('fetch', fetchMock);
     const click = vi.fn();
@@ -65,7 +85,7 @@ describe('downloadFromUrl', () => {
   });
 
   it('falls back to the given filename without a Content-Disposition header', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Blob(['data']))));
+    vi.stubGlobal('fetch', vi.fn(async () => fetchResponse()));
     const anchor = document.createElement('a');
     anchor.click = vi.fn();
     const createElement = vi
@@ -81,7 +101,9 @@ describe('downloadFromUrl', () => {
   it('rejects on a non-OK response', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response('nope', { status: 500 }))
+      vi.fn(async () =>
+        fetchResponse({ ok: false, statusText: 'Internal Server Error' })
+      )
     );
 
     await expect(
