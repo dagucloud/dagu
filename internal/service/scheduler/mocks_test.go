@@ -6,15 +6,15 @@ package scheduler_test
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 )
 
 var _ scheduler.EntryReader = (*mockJobManager)(nil)
 
 type mockJobManager struct {
-	LoadedDAGs []*core.DAG
+	LoadedDAGs []*ir.DAG
 }
 
 func newMockJobManager() *mockJobManager {
@@ -31,7 +31,7 @@ func (er *mockJobManager) Start(_ context.Context) {
 func (er *mockJobManager) Stop() {
 }
 
-func (er *mockJobManager) DAGs() []*core.DAG {
+func (er *mockJobManager) DAGs() []*ir.DAG {
 	return er.LoadedDAGs
 }
 

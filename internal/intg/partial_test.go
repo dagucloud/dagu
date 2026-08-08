@@ -6,7 +6,7 @@ package intg_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +17,7 @@ func TestPartialSuccess(t *testing.T) {
 	tests := []struct {
 		name           string
 		yaml           string
-		expectedStatus core.Status
+		expectedStatus ir.Status
 		expectedOutput map[string]any
 	}{
 		{
@@ -32,7 +32,7 @@ steps:
   - name: success-step
     run: echo "This step should run even if the previous one fails"
 `,
-			expectedStatus: core.PartiallySucceeded,
+			expectedStatus: ir.PartiallySucceeded,
 		},
 		{
 			name: "SuccessByMarkingStepAsSuccessful",
@@ -47,7 +47,7 @@ steps:
   - name: success-step
     run: echo "This step should run even if the previous one fails"
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 		},
 		{
 			name: "SingleStepWithContinueOnFailure",
@@ -58,7 +58,7 @@ steps:
     continue_on:
       failure: true
 `,
-			expectedStatus: core.Failed,
+			expectedStatus: ir.Failed,
 		},
 		{
 			name: "SingleStepWithContinueOnMarkingAsSuccess",
@@ -70,7 +70,7 @@ steps:
       failure: true
       mark_success: true
 `,
-			expectedStatus: core.Succeeded,
+			expectedStatus: ir.Succeeded,
 		},
 	}
 
@@ -87,7 +87,7 @@ steps:
 			agent := testDAG.Agent()
 			err := agent.Run(agent.Context)
 
-			if tc.expectedStatus == core.Succeeded {
+			if tc.expectedStatus == ir.Succeeded {
 				require.NoError(t, err)
 			}
 

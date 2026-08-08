@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +32,7 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 
 	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
 	request := prepareRequest(workingDir, inputPath, outputPath)
-	request.Step.Inputs = append(request.Step.Inputs, core.StepInputDeclaration{Name: "second", Path: secondInputPath})
+	request.Step.Inputs = append(request.Step.Inputs, ir.StepInputDeclaration{Name: "second", Path: secondInputPath})
 	request.Environment[exec.EnvKeyDAGRunID] = "run-1"
 
 	first, err := incremental.Prepare(ctx, store, request)
@@ -432,17 +432,17 @@ func (*previewStore) Commit(context.Context, exec.MaterializationLock, exec.Mate
 
 func prepareRequest(workingDir, inputPath, outputPath string) incremental.PrepareRequest {
 	return incremental.PrepareRequest{
-		DAG: &core.DAG{
+		DAG: &ir.DAG{
 			Name:       "incremental-test",
-			Type:       core.TypeIncremental,
+			Type:       ir.TypeIncremental,
 			WorkingDir: workingDir,
 		},
-		Step: core.Step{
+		Step: ir.Step{
 			ID:       "build",
 			Name:     "build",
-			Commands: []core.CommandEntry{{Command: "build"}},
-			Inputs:   []core.StepInputDeclaration{{Name: "source", Path: inputPath}},
-			Outputs:  []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
+			Commands: []ir.CommandEntry{{Command: "build"}},
+			Inputs:   []ir.StepInputDeclaration{{Name: "source", Path: inputPath}},
+			Outputs:  []ir.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
 		},
 		DAGRunID:   "run-1",
 		AttemptID:  "attempt-1",

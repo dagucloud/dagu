@@ -18,8 +18,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Env holds information about the DAG and the current step to execute
@@ -37,7 +37,7 @@ type Env struct {
 	Scope *cmnvalue.EnvScope
 
 	// The current step being executed within this environment context
-	Step core.Step
+	Step ir.Step
 
 	// Maps step IDs to their execution information (stdout, stderr, exitCode)
 	// allowing steps to reference outputs from other steps using expressions
@@ -82,14 +82,14 @@ func (e Env) UserEnvsMap() map[string]string {
 // NewEnv creates a new Env configured for executing the provided step.
 // It resolves the step's working directory and sets initial per-step environment
 // variables: PWD to the resolved working directory and the DAG run step name.
-func NewEnv(ctx context.Context, step core.Step) Env {
+func NewEnv(ctx context.Context, step ir.Step) Env {
 	rCtx := GetDAGContext(ctx)
 	workingDir := resolveWorkingDir(ctx, step, rCtx)
 	return newEnv(ctx, step, rCtx, workingDir)
 }
 
 // NewEnvWithError creates an Env and returns working directory resolution errors.
-func NewEnvWithError(ctx context.Context, step core.Step) (Env, error) {
+func NewEnvWithError(ctx context.Context, step ir.Step) (Env, error) {
 	rCtx := GetDAGContext(ctx)
 	workingDir, err := resolveWorkingDirStrict(ctx, step, rCtx)
 	if err != nil {
@@ -98,7 +98,7 @@ func NewEnvWithError(ctx context.Context, step core.Step) (Env, error) {
 	return newEnv(ctx, step, rCtx, workingDir), nil
 }
 
-func newEnv(ctx context.Context, step core.Step, rCtx Context, workingDir string) Env {
+func newEnv(ctx context.Context, step ir.Step, rCtx Context, workingDir string) Env {
 	// Build step-specific env vars
 	stepEnvs := map[string]string{
 		exec.EnvKeyDAGRunStepName: step.Name,
@@ -128,7 +128,7 @@ func newEnv(ctx context.Context, step core.Step, rCtx Context, workingDir string
 	}
 }
 
-func resolveWorkingDir(ctx context.Context, step core.Step, rCtx Context) string {
+func resolveWorkingDir(ctx context.Context, step ir.Step, rCtx Context) string {
 	dag := rCtx.DAG
 
 	if step.Dir != "" {
@@ -143,7 +143,7 @@ func resolveWorkingDir(ctx context.Context, step core.Step, rCtx Context) string
 	return fallbackWorkingDir(ctx, step.Name)
 }
 
-func resolveWorkingDirStrict(ctx context.Context, step core.Step, rCtx Context) (string, error) {
+func resolveWorkingDirStrict(ctx context.Context, step ir.Step, rCtx Context) (string, error) {
 	dag := rCtx.DAG
 
 	if step.Dir != "" {
@@ -172,7 +172,7 @@ type dagValueResolutionScope struct {
 	paramDeclarations cmnvalue.Values
 }
 
-func newDAGValueResolutionScope(dag *core.DAG) dagValueResolutionScope {
+func newDAGValueResolutionScope(dag *ir.DAG) dagValueResolutionScope {
 	if dag != nil {
 		return dagValueResolutionScope{
 			consts:            cmnvalue.Values(dag.Consts),
@@ -184,7 +184,7 @@ func newDAGValueResolutionScope(dag *core.DAG) dagValueResolutionScope {
 	return dagValueResolutionScope{}
 }
 
-func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *core.DAG, scope *cmnvalue.EnvScope, step core.Step, field cmnvalue.Field) (string, error) {
+func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *ir.DAG, scope *cmnvalue.EnvScope, step ir.Step, field cmnvalue.Field) (string, error) {
 	dagScope := newDAGValueResolutionScope(dag)
 	if rCtx.DAG == nil {
 		rCtx.DAG = dag
@@ -208,7 +208,7 @@ func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *core
 }
 
 // expandStepDir expands value references and environment variables in step.Dir.
-func expandStepDir(ctx context.Context, dir string, rCtx Context, step core.Step) string {
+func expandStepDir(ctx context.Context, dir string, rCtx Context, step ir.Step) string {
 	dag := rCtx.DAG
 	expanded, err := expandRuntimeValue(ctx, dir, rCtx, dag, rCtx.EnvScope, step, cmnvalue.StepDirField("working_dir"))
 	if err != nil {
@@ -221,7 +221,7 @@ func expandStepDir(ctx context.Context, dir string, rCtx Context, step core.Step
 	return expandStepDirEnvOnly(expanded, dag)
 }
 
-func expandStepDirStrict(ctx context.Context, dir string, rCtx Context, step core.Step) (string, error) {
+func expandStepDirStrict(ctx context.Context, dir string, rCtx Context, step ir.Step) (string, error) {
 	dag := rCtx.DAG
 	expanded, err := expandRuntimeValue(ctx, dir, rCtx, dag, rCtx.EnvScope, step, cmnvalue.StepDirField("working_dir"))
 	if err != nil {
@@ -230,7 +230,7 @@ func expandStepDirStrict(ctx context.Context, dir string, rCtx Context, step cor
 	return expandStepDirEnvOnly(expanded, dag), nil
 }
 
-func expandStepDirEnvOnly(dir string, dag *core.DAG) string {
+func expandStepDirEnvOnly(dir string, dag *ir.DAG) string {
 	scope := cmnvalue.NewEnvScope(nil, true)
 	if dag != nil {
 		for _, env := range dag.Env {
@@ -243,7 +243,7 @@ func expandStepDirEnvOnly(dir string, dag *core.DAG) string {
 }
 
 // resolveExpandedDir resolves an expanded directory path to an absolute path.
-func resolveExpandedDir(ctx context.Context, expandedDir, stepName string, dag *core.DAG, rCtx Context) string {
+func resolveExpandedDir(ctx context.Context, expandedDir, stepName string, dag *ir.DAG, rCtx Context) string {
 	if filepath.IsAbs(expandedDir) || strings.HasPrefix(expandedDir, "~") {
 		dir, err := fileutil.ResolvePath(expandedDir)
 		if err != nil {
@@ -268,7 +268,7 @@ func resolveExpandedDir(ctx context.Context, expandedDir, stepName string, dag *
 	return expandedDir
 }
 
-func resolveExpandedDirStrict(ctx context.Context, expandedDir, stepName string, dag *core.DAG, rCtx Context) (string, error) {
+func resolveExpandedDirStrict(ctx context.Context, expandedDir, stepName string, dag *ir.DAG, rCtx Context) (string, error) {
 	if filepath.IsAbs(expandedDir) || strings.HasPrefix(expandedDir, "~") {
 		dir, err := fileutil.ResolvePath(expandedDir)
 		if err != nil {
@@ -288,7 +288,7 @@ func resolveExpandedDirStrict(ctx context.Context, expandedDir, stepName string,
 	return expandedDir, nil
 }
 
-func dagWorkingDir(ctx context.Context, dag *core.DAG, rCtx Context) string {
+func dagWorkingDir(ctx context.Context, dag *ir.DAG, rCtx Context) string {
 	if dag != nil && dag.WorkingDirExplicit && dag.WorkingDir != "" {
 		return expandDAGWorkingDir(ctx, dag.WorkingDir, rCtx)
 	}
@@ -301,7 +301,7 @@ func dagWorkingDir(ctx context.Context, dag *core.DAG, rCtx Context) string {
 	return ""
 }
 
-func dagWorkingDirStrict(ctx context.Context, dag *core.DAG, rCtx Context) (string, error) {
+func dagWorkingDirStrict(ctx context.Context, dag *ir.DAG, rCtx Context) (string, error) {
 	if dag != nil && dag.WorkingDirExplicit && dag.WorkingDir != "" {
 		return expandDAGWorkingDirStrict(ctx, dag.WorkingDir, rCtx)
 	}
@@ -326,7 +326,7 @@ func dagRunWorkDir(rCtx Context) string {
 }
 
 func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) string {
-	wd, err := expandRuntimeValue(ctx, workingDir, rCtx, rCtx.DAG, rCtx.EnvScope, core.Step{}, cmnvalue.DAGWorkingDirField("working_dir"))
+	wd, err := expandRuntimeValue(ctx, workingDir, rCtx, rCtx.DAG, rCtx.EnvScope, ir.Step{}, cmnvalue.DAGWorkingDirField("working_dir"))
 	if err != nil {
 		logger.Warn(ctx, "Failed to evaluate working directory",
 			tag.Dir(workingDir),
@@ -350,7 +350,7 @@ func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) s
 }
 
 func expandDAGWorkingDirStrict(ctx context.Context, workingDir string, rCtx Context) (string, error) {
-	wd, err := expandRuntimeValue(ctx, workingDir, rCtx, rCtx.DAG, rCtx.EnvScope, core.Step{}, cmnvalue.DAGWorkingDirField("working_dir"))
+	wd, err := expandRuntimeValue(ctx, workingDir, rCtx, rCtx.DAG, rCtx.EnvScope, ir.Step{}, cmnvalue.DAGWorkingDirField("working_dir"))
 	if err != nil {
 		return "", fmt.Errorf("failed to evaluate working directory %q: %w", workingDir, err)
 	}
@@ -473,11 +473,11 @@ func ResolveDAGShell(ctx context.Context) ([]string, error) {
 }
 
 // evalShellWithScope evaluates shell command and arguments using the given scope.
-func evalShellWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
+func evalShellWithScope(ctx context.Context, dag *ir.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
 	return evalShellInvocationWithScope(ctx, dag, scope, shell, shellArgs, fieldForPath, fieldForPath)
 }
 
-func evalShellInvocationWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, shellFieldForPath func(string) cmnvalue.Field, argFieldForPath func(string) cmnvalue.Field) ([]string, error) {
+func evalShellInvocationWithScope(ctx context.Context, dag *ir.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, shellFieldForPath func(string) cmnvalue.Field, argFieldForPath func(string) cmnvalue.Field) ([]string, error) {
 	dagScope := newDAGValueResolutionScope(dag)
 	resolver := cmnvalue.NewResolver(
 		cmnvalue.StaticScope{Consts: dagScope.consts, Params: dagScope.paramDeclarations},
@@ -491,7 +491,7 @@ func evalShellInvocationWithScope(ctx context.Context, dag *core.DAG, scope *cmn
 	return evalShellArgsWithResolver(ctx, []string{shellCmd}, shellArgs, argFieldForPath, resolver)
 }
 
-func evalShellArgsWithScope(ctx context.Context, dag *core.DAG, scope *cmnvalue.EnvScope, shell []string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
+func evalShellArgsWithScope(ctx context.Context, dag *ir.DAG, scope *cmnvalue.EnvScope, shell []string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
 	dagScope := newDAGValueResolutionScope(dag)
 	resolver := cmnvalue.NewResolver(
 		cmnvalue.StaticScope{Consts: dagScope.consts, Params: dagScope.paramDeclarations},
@@ -540,9 +540,9 @@ func (e Env) MailerConfig(ctx context.Context) (mailer.Config, error) {
 	if err != nil {
 		return mailer.Config{}, err
 	}
-	config, ok := got.(core.SMTPConfig)
+	config, ok := got.(ir.SMTPConfig)
 	if !ok {
-		return mailer.Config{}, fmt.Errorf("type assertion failed: expected core.SMTPConfig, got %T", got)
+		return mailer.Config{}, fmt.Errorf("type assertion failed: expected ir.SMTPConfig, got %T", got)
 	}
 	return mailer.BuildConfig(config.Host, config.Port, config.Username, config.Password, config.OAuth)
 }
@@ -594,7 +594,7 @@ func LookupEnv(ctx context.Context) (Env, bool) {
 func GetEnv(ctx context.Context) Env {
 	v, ok := LookupEnv(ctx)
 	if !ok {
-		return NewEnv(ctx, core.Step{})
+		return NewEnv(ctx, ir.Step{})
 	}
 	return v
 }

@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 )
 
@@ -62,7 +62,7 @@ type MaskFunc func([]exec.LLMMessage) []exec.LLMMessage
 
 type Planner struct {
 	provider llmpkg.Provider
-	cfg      *core.LLMConfig
+	cfg      *ir.LLMConfig
 	catalog  *Catalog
 	system   string
 	mask     MaskFunc
@@ -73,7 +73,7 @@ type Planner struct {
 // resolved, so a workflow can parameterise its instructions.
 func NewPlanner(
 	provider llmpkg.Provider,
-	cfg *core.LLMConfig,
+	cfg *ir.LLMConfig,
 	catalog *Catalog,
 	system string,
 	mask MaskFunc,

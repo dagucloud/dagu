@@ -12,42 +12,42 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestContext() context.Context {
 	ctx := context.Background()
-	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, core.Step{}))
+	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, ir.Step{}))
 }
 
 func TestEvalConditions(t *testing.T) {
 	tests := []struct {
 		name                string
-		conditions          []*core.Condition
+		conditions          []*ir.Condition
 		wantErr             bool
 		wantConditionNotMet bool // true if error should be ErrConditionNotMet
 		notConditionNotMet  bool // true if error should NOT be ErrConditionNotMet
 	}{
 		{
 			name:       "ValueMatch",
-			conditions: []*core.Condition{{Condition: "1", Expected: "1"}},
+			conditions: []*ir.Condition{{Condition: "1", Expected: "1"}},
 		},
 		{
 			name:       "EnvVar",
-			conditions: []*core.Condition{{Condition: "${env.TEST_CONDITION}", Expected: "100"}},
+			conditions: []*ir.Condition{{Condition: "${env.TEST_CONDITION}", Expected: "100"}},
 		},
 		{
 			name: "MultipleCond",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{Condition: "1", Expected: "1"},
 				{Condition: "100", Expected: "100"},
 			},
 		},
 		{
 			name: "MultipleCondOneMet",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{Condition: "1", Expected: "1"},
 				{Condition: "100", Expected: "1"},
 			},
@@ -56,34 +56,34 @@ func TestEvalConditions(t *testing.T) {
 		},
 		{
 			name:       "CommandResultMet",
-			conditions: []*core.Condition{{Condition: "true"}},
+			conditions: []*ir.Condition{{Condition: "true"}},
 		},
 		{
 			name:                "CommandResultNotMet",
-			conditions:          []*core.Condition{{Condition: "false"}},
+			conditions:          []*ir.Condition{{Condition: "false"}},
 			wantErr:             true,
 			wantConditionNotMet: true,
 		},
 		{
 			name:       "ComplexCommand",
-			conditions: []*core.Condition{{Condition: "test 1 -eq 1"}},
+			conditions: []*ir.Condition{{Condition: "test 1 -eq 1"}},
 		},
 		{
 			name:       "EvenMoreComplexCommand",
-			conditions: []*core.Condition{{Condition: "df / | awk 'NR==2 {exit $4 > 5000 ? 0 : 1}'"}},
+			conditions: []*ir.Condition{{Condition: "df / | awk 'NR==2 {exit $4 > 5000 ? 0 : 1}'"}},
 		},
 		{
 			name:       "CommandResultTest",
-			conditions: []*core.Condition{{Condition: "test 1 -eq 1"}},
+			conditions: []*ir.Condition{{Condition: "test 1 -eq 1"}},
 		},
 		{
 			name:       "RegexMatch",
-			conditions: []*core.Condition{{Condition: "test", Expected: "re:^test$"}},
+			conditions: []*ir.Condition{{Condition: "test", Expected: "re:^test$"}},
 		},
 		// Negate tests
 		{
 			name: "NegateMatchingCondition",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{Condition: "success", Expected: "success", Negate: true},
 			},
 			wantErr:             true,
@@ -91,13 +91,13 @@ func TestEvalConditions(t *testing.T) {
 		},
 		{
 			name: "NegateNonMatchingCondition",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{Condition: "failure", Expected: "success", Negate: true},
 			},
 		},
 		{
 			name: "NegateCommandSuccess",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{Condition: "true", Negate: true},
 			},
 			wantErr:             true,
@@ -105,19 +105,19 @@ func TestEvalConditions(t *testing.T) {
 		},
 		{
 			name: "NegateCommandFailure",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{Condition: "false", Negate: true},
 			},
 		},
 		{
 			name: "NegateEnvVar",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{Condition: "${env.TEST_CONDITION}", Expected: "wrong_value", Negate: true},
 			},
 		},
 		{
 			name: "NegateEnvVarMatching",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{Condition: "${env.TEST_CONDITION}", Expected: "100", Negate: true},
 			},
 			wantErr:             true,
@@ -126,7 +126,7 @@ func TestEvalConditions(t *testing.T) {
 		// Error handling tests
 		{
 			name: "UnresolvedReferencePreservedThenEvaluated",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{
 					Condition: "${consts.missing}",
 					Expected:  "anything",
@@ -136,7 +136,7 @@ func TestEvalConditions(t *testing.T) {
 		},
 		{
 			name: "CommandNotFoundInvertedToSuccess",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{
 					Condition: "/nonexistent/path/to/command_xyz_123_abc",
 					Negate:    true,
@@ -145,7 +145,7 @@ func TestEvalConditions(t *testing.T) {
 		},
 		{
 			name: "FalseCommandInvertedToSuccess",
-			conditions: []*core.Condition{
+			conditions: []*ir.Condition{
 				{
 					Condition: "false",
 					Negate:    true,
@@ -155,11 +155,11 @@ func TestEvalConditions(t *testing.T) {
 		// Environment variable passthrough tests
 		{
 			name:       "CommandWithDAGEnvVars",
-			conditions: []*core.Condition{{Condition: "test ${TEST_CONDITION} -eq 100"}},
+			conditions: []*ir.Condition{{Condition: "test ${TEST_CONDITION} -eq 100"}},
 		},
 		{
 			name:                "CommandWithDAGEnvVarsNotMet",
-			conditions:          []*core.Condition{{Condition: "test ${TEST_CONDITION} -eq 999"}},
+			conditions:          []*ir.Condition{{Condition: "test ${TEST_CONDITION} -eq 999"}},
 			wantErr:             true,
 			wantConditionNotMet: true,
 		},
@@ -193,13 +193,13 @@ func TestEvalConditions(t *testing.T) {
 
 func TestEvalConditions_ValueMatchPreservesCommandSubstitution(t *testing.T) {
 	ctx := newTestContext()
-	err := runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+	err := runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Condition: "`printf 100`", Expected: "`printf 100`"},
 		{Condition: "$(printf 200)", Expected: "$(printf 200)"},
 	})
 	require.NoError(t, err)
 
-	err = runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+	err = runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Condition: "`printf 100`", Expected: "100"},
 	})
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
@@ -207,13 +207,13 @@ func TestEvalConditions_ValueMatchPreservesCommandSubstitution(t *testing.T) {
 
 func TestEvalConditions_ValueMatchEvalRunsCommandSubstitution(t *testing.T) {
 	ctx := newTestContext()
-	err := runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+	err := runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Eval: "$(printf 100)", Expected: "100"},
 		{Eval: "`printf 200`", Expected: "200"},
 	})
 	require.NoError(t, err)
 
-	err = runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+	err = runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Eval: "$(printf 100)", Expected: "101"},
 	})
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
@@ -228,7 +228,7 @@ func TestEvalConditions_ValueMatchEvalUsesWorkingDir(t *testing.T) {
 	env.WorkingDir = dir
 	ctx = runtime.WithEnv(ctx, env)
 
-	err := runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+	err := runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Eval: "$(test -f ready.flag && printf ready)", Expected: "ready"},
 	})
 	require.NoError(t, err)
@@ -237,7 +237,7 @@ func TestEvalConditions_ValueMatchEvalUsesWorkingDir(t *testing.T) {
 func TestEvalConditions_ShellWithDuplicateCFlag(t *testing.T) {
 	ctx := newTestContext()
 	// Shell already includes -c; should not get doubled
-	err := runtime.EvalConditions(ctx, []string{"sh", "-c"}, []*core.Condition{
+	err := runtime.EvalConditions(ctx, []string{"sh", "-c"}, []*ir.Condition{
 		{Condition: "true"},
 	})
 	require.NoError(t, err)
@@ -308,7 +308,7 @@ func TestEvalConditions_NilShell(t *testing.T) {
 	ctx := newTestContext()
 	// With nil shell, OnlyReplaceVars should still be applied and
 	// the condition should run as a direct command
-	err := runtime.EvalConditions(ctx, nil, []*core.Condition{
+	err := runtime.EvalConditions(ctx, nil, []*ir.Condition{
 		{Condition: "true"},
 	})
 	require.NoError(t, err)
@@ -317,7 +317,7 @@ func TestEvalConditions_NilShell(t *testing.T) {
 func TestEvalConditions_DirectCommandPreservesBacktickSubstitution(t *testing.T) {
 	ctx := newTestContext()
 
-	err := runtime.EvalConditions(ctx, nil, []*core.Condition{
+	err := runtime.EvalConditions(ctx, nil, []*ir.Condition{
 		{Condition: "`printf true`"},
 	})
 	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
@@ -343,7 +343,7 @@ func TestEvalConditions_CommandFormExpandsHomeRelativeScopeVars(t *testing.T) {
 	env.Scope = env.Scope.WithEntry("TEST_FILE", "~/"+filepath.Base(tempFile.Name()), cmnvalue.EnvSourceDAGEnv)
 	ctx = runtime.WithEnv(ctx, env)
 
-	err = runtime.EvalConditions(ctx, []string{"sh"}, []*core.Condition{
+	err = runtime.EvalConditions(ctx, []string{"sh"}, []*ir.Condition{
 		{Condition: "test -f $TEST_FILE"},
 	})
 	require.NoError(t, err)

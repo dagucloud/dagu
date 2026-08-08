@@ -6,22 +6,22 @@ package spec
 import (
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const kubernetesDefaultsSchemaType = "kubernetes_defaults"
 
-func buildKubernetes(_ buildContext, d *dag) (core.KubernetesConfig, error) {
+func buildKubernetes(_ buildContext, d *dag) (ir.KubernetesConfig, error) {
 	if d.Kubernetes == nil {
 		return nil, nil
 	}
 
 	cfg := cloneKubernetesConfigMap(d.Kubernetes)
-	if err := core.ValidateExecutorConfig(kubernetesDefaultsSchemaType, cfg); err != nil {
-		return nil, core.NewValidationError("kubernetes", d.Kubernetes, err)
+	if err := ir.ValidateExecutorConfig(kubernetesDefaultsSchemaType, cfg); err != nil {
+		return nil, ir.NewValidationError("kubernetes", d.Kubernetes, err)
 	}
 
-	return core.KubernetesConfig(cfg), nil
+	return ir.KubernetesConfig(cfg), nil
 }
 
 func isKubernetesExecutorType(executorType string) bool {
@@ -33,7 +33,7 @@ func isKubernetesExecutorType(executorType string) bool {
 	}
 }
 
-func mergeKubernetesExecutorConfig(defaults core.KubernetesConfig, stepConfig map[string]any) map[string]any {
+func mergeKubernetesExecutorConfig(defaults ir.KubernetesConfig, stepConfig map[string]any) map[string]any {
 	if defaults == nil {
 		return cloneKubernetesConfigMap(stepConfig)
 	}
@@ -75,15 +75,15 @@ func cloneKubernetesConfigMap(cfg map[string]any) map[string]any {
 }
 
 func cloneKubernetesValue(value any) any {
-	if cfg, ok := value.(core.KubernetesConfig); ok {
-		return core.KubernetesConfig(cloneMap(map[string]any(cfg)))
+	if cfg, ok := value.(ir.KubernetesConfig); ok {
+		return ir.KubernetesConfig(cloneMap(map[string]any(cfg)))
 	}
 	return cloneAny(value)
 }
 
 func asKubernetesConfigMap(value any) (map[string]any, bool) {
 	switch v := value.(type) {
-	case core.KubernetesConfig:
+	case ir.KubernetesConfig:
 		return map[string]any(v), true
 	case map[string]any:
 		return v, true

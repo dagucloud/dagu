@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -87,7 +87,7 @@ func runStatus(ctx *Context, args []string) error {
 
 	// For running root DAGs, fetch real-time status via socket connection.
 	// Sub DAGs use stored status since they may run on different workers.
-	if dagStatus.Status == core.Running && subDAGRunID == "" {
+	if dagStatus.Status == ir.Running && subDAGRunID == "" {
 		// Use dagStatus.DAGRunID as fallback when --run-id flag is omitted
 		runIDForLookup := dagRunID
 		if runIDForLookup == "" {
@@ -107,7 +107,7 @@ func runStatus(ctx *Context, args []string) error {
 	return nil
 }
 
-func displayTreeStatus(dag *core.DAG, dagStatus *exec.DAGRunStatus) {
+func displayTreeStatus(dag *ir.DAG, dagStatus *exec.DAGRunStatus) {
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
 

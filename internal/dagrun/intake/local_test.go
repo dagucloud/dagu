@@ -8,8 +8,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +27,7 @@ func TestPrepareLocalExecutionAcquiresProcWithPreparedAttempt(t *testing.T) {
 		DAG:         dag,
 		DAGRunID:    "run-1",
 		Root:        root,
-		TriggerType: core.TriggerTypeManual,
+		TriggerType: ir.TriggerTypeManual,
 		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
 			return attempt, nil
 		},
@@ -60,7 +60,7 @@ func TestPrepareLocalExecutionRecordsFailedStatusWhenProcAcquireFails(t *testing
 		ProcStore:   procStore,
 		DAG:         dag,
 		DAGRunID:    "run-1",
-		TriggerType: core.TriggerTypeManual,
+		TriggerType: ir.TriggerTypeManual,
 		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
 			return attempt, nil
 		},
@@ -68,7 +68,7 @@ func TestPrepareLocalExecutionRecordsFailedStatusWhenProcAcquireFails(t *testing
 
 	require.ErrorIs(t, err, ErrProcAcquisitionFailed)
 	require.NotNil(t, attempt.status)
-	assert.Equal(t, core.Failed, attempt.status.Status)
+	assert.Equal(t, ir.Failed, attempt.status.Status)
 	assert.Equal(t, "attempt-1", attempt.status.AttemptID)
 	assert.Equal(t, "local", attempt.status.WorkerID)
 	assert.Contains(t, attempt.status.Error, "already running")
@@ -91,7 +91,7 @@ func TestPrepareLocalExecutionReturnsFailureRecordingErrorWhenRecordFails(t *tes
 		ProcStore:   procStore,
 		DAG:         dag,
 		DAGRunID:    "run-1",
-		TriggerType: core.TriggerTypeManual,
+		TriggerType: ir.TriggerTypeManual,
 		BuildAttempt: func(context.Context) (exec.DAGRunAttempt, error) {
 			return attempt, nil
 		},
@@ -104,12 +104,12 @@ func TestPrepareLocalExecutionReturnsFailureRecordingErrorWhenRecordFails(t *tes
 	assert.True(t, procStore.unlocked)
 }
 
-func newLocalDAG() *core.DAG {
-	dag := &core.DAG{
+func newLocalDAG() *ir.DAG {
+	dag := &ir.DAG{
 		Name:   "test-dag",
 		LogDir: "logs",
 	}
-	core.InitializeDefaults(dag)
+	ir.InitializeDefaults(dag)
 	return dag
 }
 

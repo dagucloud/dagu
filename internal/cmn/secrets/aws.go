@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const awsSecretsManagerProvider = "aws"
@@ -43,12 +43,12 @@ func (r *awsSecretsManagerResolver) Name() string {
 	return awsSecretsManagerProvider
 }
 
-func (r *awsSecretsManagerResolver) Validate(ref core.SecretRef) error {
+func (r *awsSecretsManagerResolver) Validate(ref ir.SecretRef) error {
 	_, err := parseAWSSecretReference(ref)
 	return err
 }
 
-func parseAWSSecretReference(ref core.SecretRef) (awsSecretReference, error) {
+func parseAWSSecretReference(ref ir.SecretRef) (awsSecretReference, error) {
 	key := strings.TrimSpace(ref.Key)
 	if key == "" {
 		return awsSecretReference{}, fmt.Errorf("key (AWS Secrets Manager secret name or ARN) is required")
@@ -74,11 +74,11 @@ func parseAWSSecretReference(ref core.SecretRef) (awsSecretReference, error) {
 	return awsSecretReference{key: key, region: region}, nil
 }
 
-func (r *awsSecretsManagerResolver) CheckCapability(core.SecretRef) CheckCapability {
+func (r *awsSecretsManagerResolver) CheckCapability(ir.SecretRef) CheckCapability {
 	return CheckCapabilityRequiresValueRead
 }
 
-func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.SecretRef) (string, error) {
+func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref ir.SecretRef) (string, error) {
 	parsed, err := parseAWSSecretReference(ref)
 	if err != nil {
 		return "", err
@@ -129,7 +129,7 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref core.Secret
 	return selectJSONField(value, ref.Options["field"])
 }
 
-func (r *awsSecretsManagerResolver) CheckAccessibility(ctx context.Context, ref core.SecretRef) error {
+func (r *awsSecretsManagerResolver) CheckAccessibility(ctx context.Context, ref ir.SecretRef) error {
 	_, err := r.Resolve(ctx, ref)
 	return err
 }

@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,7 +71,7 @@ steps:
 	require.Len(t, dag.Steps, 1)
 
 	step := dag.Steps[0]
-	assert.Equal(t, core.ExecutorTypeParallel, step.ExecutorConfig.Type)
+	assert.Equal(t, ir.ExecutorTypeParallel, step.ExecutorConfig.Type)
 	require.NotNil(t, step.SubDAG)
 	assert.Equal(t, "account_workflow", step.SubDAG.Name)
 	assert.Contains(t, step.SubDAG.Params, `${ITEM.id}`)
@@ -99,7 +99,7 @@ steps:
 	require.Len(t, dag.Steps, 1)
 
 	step := dag.Steps[0]
-	assert.Equal(t, core.ExecutorTypeDAGEnqueue, step.ExecutorConfig.Type)
+	assert.Equal(t, ir.ExecutorTypeDAGEnqueue, step.ExecutorConfig.Type)
 	require.NotNil(t, step.SubDAG)
 	assert.Equal(t, "account_workflow", step.SubDAG.Name)
 	assert.Contains(t, step.SubDAG.Params, `account_id="42"`)
@@ -131,7 +131,7 @@ steps:
 	require.Len(t, dag.Steps, 1)
 
 	step := dag.Steps[0]
-	assert.Equal(t, core.ExecutorTypeDAGEnqueue, step.ExecutorConfig.Type)
+	assert.Equal(t, ir.ExecutorTypeDAGEnqueue, step.ExecutorConfig.Type)
 	require.NotNil(t, step.SubDAG)
 	assert.Equal(t, "account_workflow", step.SubDAG.Name)
 	assert.Contains(t, step.SubDAG.Params, `${ITEM.id}`)
@@ -176,7 +176,7 @@ steps:
 
 	step := dag.Steps[0]
 	assert.Equal(t, "notify", step.ID)
-	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, ir.ExecutorTypeAction, step.ExecutorConfig.Type)
 	assert.Equal(t, "source:github.com/acme/dagu-actions-slack@v1", step.ExecutorConfig.Config["ref"])
 	assert.Equal(t, map[string]any{
 		"channel": "#ops",
@@ -199,7 +199,7 @@ steps:
 	require.Len(t, dag.Steps, 1)
 
 	step := dag.Steps[0]
-	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, ir.ExecutorTypeAction, step.ExecutorConfig.Type)
 	assert.Equal(t, "acme/dagu-actions-slack@v1", step.ExecutorConfig.Config["ref"])
 	assert.Equal(t, map[string]any{
 		"channel": "#ops",
@@ -222,7 +222,7 @@ steps:
 	require.Len(t, dag.Steps, 1)
 
 	step := dag.Steps[0]
-	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, ir.ExecutorTypeAction, step.ExecutorConfig.Type)
 	assert.Equal(t, "slack@v1", step.ExecutorConfig.Config["ref"])
 	assert.Equal(t, map[string]any{
 		"channel": "#ops",
@@ -309,7 +309,7 @@ steps:
 	require.Len(t, dag.Steps, 1)
 
 	step := dag.Steps[0]
-	assert.Equal(t, core.ExecutorTypeAction, step.ExecutorConfig.Type)
+	assert.Equal(t, ir.ExecutorTypeAction, step.ExecutorConfig.Type)
 	assert.Equal(t, "acme/dagu-actions-slack@v1", step.ExecutorConfig.Config["ref"])
 	assert.Equal(t, map[string]any{
 		"channel": "#ops",
@@ -981,8 +981,8 @@ steps:
 	require.NotNil(t, step.StdoutOutputs)
 	require.Contains(t, step.StdoutOutputs.Fields, "messageId")
 	messageID := step.StdoutOutputs.Fields["messageId"]
-	assert.Equal(t, core.StepOutputSourceStdout, messageID.From)
-	assert.Equal(t, core.StepOutputDecodeJSON, messageID.Decode)
+	assert.Equal(t, ir.StepOutputSourceStdout, messageID.From)
+	assert.Equal(t, ir.StepOutputDecodeJSON, messageID.Decode)
 	assert.Equal(t, ".id", messageID.Select)
 	require.Contains(t, step.StdoutOutputs.Fields, "status")
 	status := step.StdoutOutputs.Fields["status"]

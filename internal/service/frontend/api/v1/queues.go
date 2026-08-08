@@ -15,8 +15,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -479,9 +479,9 @@ func (a *API) runningSummaryFromLease(ctx context.Context, lease exec.DAGRunLeas
 		return api.DAGRunSummary{}, false
 	}
 	switch status.Status {
-	case core.Running:
+	case ir.Running:
 		return toDAGRunSummary(*status), true
-	case core.NotStarted, core.Queued:
+	case ir.NotStarted, ir.Queued:
 		// A fresh lease means the worker owns the queue slot, even if the
 		// persisted status has not caught up to running yet.
 		summary := toDAGRunSummary(*status)
@@ -489,8 +489,8 @@ func (a *API) runningSummaryFromLease(ctx context.Context, lease exec.DAGRunLeas
 		summary.StatusLabel = api.StatusLabelRunning
 		summary.Conditions = nil
 		return summary, true
-	case core.Failed, core.Aborted, core.Succeeded,
-		core.PartiallySucceeded, core.Waiting, core.Rejected:
+	case ir.Failed, ir.Aborted, ir.Succeeded,
+		ir.PartiallySucceeded, ir.Waiting, ir.Rejected:
 		return api.DAGRunSummary{}, false
 	}
 

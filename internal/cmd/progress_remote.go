@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
 	"golang.org/x/term"
 )
@@ -20,7 +20,7 @@ import (
 // It polls the coordinator for status updates and renders a progress display
 // similar to the local SimpleProgressDisplay.
 type RemoteProgressDisplay struct {
-	dag          *core.DAG
+	dag          *ir.DAG
 	dagRunID     string
 	startTime    time.Time
 	total        int
@@ -40,7 +40,7 @@ type RemoteProgressDisplay struct {
 }
 
 // NewRemoteProgressDisplay creates a new remote progress display.
-func NewRemoteProgressDisplay(dag *core.DAG, dagRunID string) *RemoteProgressDisplay {
+func NewRemoteProgressDisplay(dag *ir.DAG, dagRunID string) *RemoteProgressDisplay {
 	total := 0
 	if dag != nil {
 		total = len(dag.Steps)
@@ -155,7 +155,7 @@ func (p *RemoteProgressDisplay) SetCancelled() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.lastStatus != nil {
-		p.lastStatus.Status = core.Aborted
+		p.lastStatus.Status = ir.Aborted
 	}
 }
 
@@ -289,7 +289,7 @@ func (p *RemoteProgressDisplay) printFinal(status *exec.DAGRunStatus) {
 
 	icon := "✓"
 	statusText := "completed"
-	if status != nil && (status.Status == core.Failed || status.Status == core.Aborted) {
+	if status != nil && (status.Status == ir.Failed || status.Status == ir.Aborted) {
 		icon = "✗"
 		statusText = output.StatusText(status.Status)
 	}

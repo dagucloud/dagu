@@ -24,8 +24,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
 
@@ -62,7 +62,7 @@ type Attempt struct {
 	mu                   sync.RWMutex                        // Mutex for thread safety
 	cache                *fileutil.Cache[*exec.DAGRunStatus] // Optional cache for read operations
 	isClosing            atomic.Bool                         // Flag to prevent writes during Close/Compact
-	dag                  *core.DAG                           // DAG associated with the status file
+	dag                  *ir.DAG                             // DAG associated with the status file
 	lastEmittedEventType eventstore.EventType
 }
 
@@ -71,7 +71,7 @@ type AttemptOption func(*Attempt)
 
 // WithDAG sets the DAG associated with the Attempt.
 // This allows the Attempt to store DAG metadata alongside the status data.
-func WithDAG(dag *core.DAG) AttemptOption {
+func WithDAG(dag *ir.DAG) AttemptOption {
 	return func(att *Attempt) {
 		att.dag = dag
 	}
@@ -83,7 +83,7 @@ func (att *Attempt) ID() string {
 }
 
 // SetDAG sets the DAG for this attempt. Must be called before Open for DAG to be persisted.
-func (att *Attempt) SetDAG(dag *core.DAG) {
+func (att *Attempt) SetDAG(dag *ir.DAG) {
 	att.dag = dag
 }
 
@@ -119,7 +119,7 @@ func (att *Attempt) ModTime() (time.Time, error) {
 }
 
 // ReadDAG implements models.DAGRunAttempt.
-func (att *Attempt) ReadDAG(_ context.Context) (*core.DAG, error) {
+func (att *Attempt) ReadDAG(_ context.Context) (*ir.DAG, error) {
 	// Determine the path to the DAG definition file
 	dir := filepath.Dir(att.file)
 	dagFile := filepath.Join(dir, DAGDefinition)
@@ -139,7 +139,7 @@ func (att *Attempt) ReadDAG(_ context.Context) (*core.DAG, error) {
 	}
 
 	// Parse the JSON data
-	var dag core.DAG
+	var dag ir.DAG
 	if err := json.Unmarshal(data, &dag); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal DAG definition: %w", err)
 	}

@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"golang.org/x/crypto/ssh"
 )
@@ -41,7 +41,7 @@ func getSSHClientFromContext(ctx context.Context) *Client {
 
 type sshExecutor struct {
 	mu        sync.Mutex
-	step      core.Step
+	step      ir.Step
 	client    *Client
 	stdout    io.Writer
 	stderr    io.Writer
@@ -52,7 +52,7 @@ type sshExecutor struct {
 	shellArgs []string
 }
 
-func NewSSHExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func NewSSHExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	client, err := resolveSSHClient(ctx, step)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set up ssh step: %w", err)
@@ -209,7 +209,7 @@ func (e *sshExecutor) buildScript() string {
 // For SSH, we prefer CmdWithArgs (the original command string) so that
 // variable references like $HOME are passed through to the remote shell
 // without being single-quoted.
-func (e *sshExecutor) buildCommandString(cmd core.CommandEntry) string {
+func (e *sshExecutor) buildCommandString(cmd ir.CommandEntry) string {
 	if cmd.CmdWithArgs != "" {
 		return cmd.CmdWithArgs
 	}
@@ -225,7 +225,7 @@ func (e *sshExecutor) buildCommandString(cmd core.CommandEntry) string {
 // 2. Shell specified in the step's Shell field.
 // 3. /bin/sh as POSIX-compliant fallback.
 // Note: DAG-level shell (dag.Shell) is NOT used as it's configured for local execution.
-func resolveShell(step core.Step, client *Client) (string, []string) {
+func resolveShell(step ir.Step, client *Client) (string, []string) {
 	if client != nil && client.Shell != "" {
 		return client.Shell, slices.Clone(client.ShellArgs)
 	}
@@ -237,18 +237,18 @@ func resolveShell(step core.Step, client *Client) (string, []string) {
 }
 
 func init() {
-	caps := core.ExecutorCapabilities{
+	caps := ir.ExecutorCapabilities{
 		Command:          true,
 		MultipleCommands: true,
 		Script:           true,
 		Shell:            true,
-		CommandContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+		CommandContext: func(ctx context.Context, step ir.Step) cmnvalue.CommandContext {
 			return cmnvalue.CommandContext{
 				Target:          cmnvalue.CommandTargetSSH,
 				ShellConfigured: hasShellConfigured(ctx, step),
 			}
 		},
-		ScriptContext: func(ctx context.Context, step core.Step) cmnvalue.CommandContext {
+		ScriptContext: func(ctx context.Context, step ir.Step) cmnvalue.CommandContext {
 			return cmnvalue.CommandContext{
 				Target:          cmnvalue.CommandTargetSSH,
 				ShellConfigured: hasShellConfigured(ctx, step),
@@ -258,7 +258,7 @@ func init() {
 	executor.RegisterExecutor("ssh", NewSSHExecutor, nil, caps)
 }
 
-func hasShellConfigured(ctx context.Context, step core.Step) bool {
+func hasShellConfigured(ctx context.Context, step ir.Step) bool {
 	if len(step.ExecutorConfig.Config) > 0 {
 		return cmdutil.IsShellValueSet(step.ExecutorConfig.Config["shell"])
 	}

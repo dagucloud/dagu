@@ -4,7 +4,7 @@
 package http
 
 import (
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -35,5 +35,5 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema("http", configSchema)
+	ir.RegisterExecutorConfigSchema("http", configSchema)
 }

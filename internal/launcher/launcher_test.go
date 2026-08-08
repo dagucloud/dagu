@@ -20,8 +20,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -57,7 +57,7 @@ func TestSubCmdBuilderStartInheritsParentEnv(t *testing.T) {
 	}
 
 	builder := launcher.NewSubCmdBuilder(cfg)
-	dag := &core.DAG{Location: "/tmp/test.yaml"}
+	dag := &ir.DAG{Location: "/tmp/test.yaml"}
 	spec := builder.Start(dag, launcher.StartOptions{})
 
 	assert.Contains(t, spec.Env, "SUBCMD_PARENT_ENV=from-parent")
@@ -78,7 +78,7 @@ func TestSubCmdBuilderFilteredCommandsUseBaseEnv(t *testing.T) {
 	}
 
 	builder := launcher.NewSubCmdBuilder(cfg)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "test-dag",
 		Location: "/tmp/test.yaml",
 	}
@@ -110,11 +110,11 @@ steps:
 
 	status := transform.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
-		core.Queued,
+		ir.Queued,
 		0,
 		time.Time{},
 		transform.WithAttemptID(attempt.ID()),
-		transform.WithTriggerType(core.TriggerTypeRetry),
+		transform.WithTriggerType(ir.TriggerTypeRetry),
 		transform.WithQueuedAt(stringutil.FormatTime(time.Now())),
 		transform.WithLogFilePath(logPath),
 	)
@@ -146,7 +146,7 @@ steps:
 
 	status := transform.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
-		core.Queued,
+		ir.Queued,
 		0,
 		time.Time{},
 		transform.WithLogFilePath(logPath),
@@ -181,7 +181,7 @@ steps:
 
 	status := transform.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
-		core.Queued,
+		ir.Queued,
 		0,
 		time.Time{},
 		transform.WithLogFilePath(logPath),
@@ -216,7 +216,7 @@ steps:
 
 	status := transform.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
-		core.Queued,
+		ir.Queued,
 		0,
 		time.Time{},
 		transform.WithLogFilePath(logPath),
@@ -275,7 +275,7 @@ steps:
 			return false
 		}
 		status = latest
-		return status.Status == core.Succeeded
+		return status.Status == ir.Succeeded
 	}, statusTimeout, 100*time.Millisecond)
 	requireProcessCompletion(t, started, statusTimeout)
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, &status, "RESULT"))
@@ -312,7 +312,7 @@ steps:
 			return false
 		}
 		status = latest
-		return status.Status == core.Succeeded
+		return status.Status == ir.Succeeded
 	}, statusTimeout, 100*time.Millisecond)
 	requireProcessCompletion(t, started, statusTimeout)
 	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
@@ -332,7 +332,7 @@ func TestStart(t *testing.T) {
 	}
 
 	builder := launcher.NewSubCmdBuilder(cfg)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "test-dag",
 		Location: "/path/to/dag.yaml",
 	}
@@ -428,7 +428,7 @@ func TestEnqueue(t *testing.T) {
 	}
 
 	builder := launcher.NewSubCmdBuilder(cfg)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		Location:   "/path/to/dag.yaml",
 		WorkingDir: "/path/to",
@@ -525,7 +525,7 @@ func TestDequeue(t *testing.T) {
 	}
 
 	builder := launcher.NewSubCmdBuilder(cfg)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		Location:   "/path/to/dag.yaml",
 		WorkingDir: "/path/to",
@@ -566,7 +566,7 @@ func TestDequeue(t *testing.T) {
 
 	t.Run("DequeueWithCustomQueue", func(t *testing.T) {
 		t.Parallel()
-		dagWithQueue := &core.DAG{
+		dagWithQueue := &ir.DAG{
 			Name:       "test-dag",
 			Queue:      "custom-queue",
 			Location:   "/path/to/dag.yaml",
@@ -591,7 +591,7 @@ func TestRestart(t *testing.T) {
 	}
 
 	builder := launcher.NewSubCmdBuilder(cfg)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		Location:   "/path/to/dag.yaml",
 		WorkingDir: "/path/to",
@@ -653,7 +653,7 @@ func TestRetry(t *testing.T) {
 	}
 
 	builder := launcher.NewSubCmdBuilder(cfg)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		Location:   "/path/to/dag.yaml",
 		WorkingDir: "/path/to",

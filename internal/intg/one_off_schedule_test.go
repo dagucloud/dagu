@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -73,7 +73,7 @@ steps:
 	initialStatus := exec.InitialStatus(dag)
 	initialStatus.DAGRunID = runID
 	initialStatus.AttemptID = attempt.ID()
-	initialStatus.TriggerType = core.TriggerTypeScheduler
+	initialStatus.TriggerType = ir.TriggerTypeScheduler
 	initialStatus.ScheduleTime = scheduledAt.Format(time.RFC3339)
 	require.NoError(t, attempt.Open(th.Context))
 	require.NoError(t, attempt.Write(th.Context, initialStatus))
@@ -94,7 +94,7 @@ steps:
 	sc.SetClock(func() time.Time { return scheduledAt })
 
 	var dispatchCount atomic.Int32
-	sc.SetDispatchFunc(func(context.Context, *core.DAG, string, core.TriggerType, time.Time) error {
+	sc.SetDispatchFunc(func(context.Context, *ir.DAG, string, ir.TriggerType, time.Time) error {
 		dispatchCount.Add(1)
 		return nil
 	})
@@ -167,13 +167,13 @@ steps:
 
 	probe.RequireEventually("expected one-off env secret run to succeed", 30*time.Second, func() bool {
 		statuses := th.DAGRunMgr.ListRecentStatus(th.Context, dag.Name, 5)
-		return len(statuses) > 0 && statuses[0].Status == core.Succeeded
+		return len(statuses) > 0 && statuses[0].Status == ir.Succeeded
 	})
 
 	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, status.Status)
-	require.Equal(t, core.TriggerTypeScheduler, status.TriggerType)
+	require.Equal(t, ir.Succeeded, status.Status)
+	require.Equal(t, ir.TriggerTypeScheduler, status.TriggerType)
 	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
 
 	probe.Stop(context.Background(), cancel, 5*time.Second)

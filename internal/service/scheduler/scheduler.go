@@ -20,8 +20,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -179,14 +179,14 @@ func newScheduler(
 	var isQueued IsQueuedFunc
 	var enqueueFunc EnqueueFunc
 	if queuesEnabled {
-		isQueued = func(ctx context.Context, dag *core.DAG) (bool, error) {
+		isQueued = func(ctx context.Context, dag *ir.DAG) (bool, error) {
 			items, err := queueStore.ListByDAGName(ctx, dag.ProcGroup(), dag.Name)
 			if err != nil {
 				return false, err
 			}
 			return len(items) > 0, nil
 		}
-		enqueueFunc = func(ctx context.Context, dag *core.DAG, runID string, triggerType core.TriggerType, scheduleTime time.Time) error {
+		enqueueFunc = func(ctx context.Context, dag *ir.DAG, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			profileName, err := dagExecutor.defaultProfileName(ctx, dag)
 			if err != nil {
 				return fmt.Errorf("failed to resolve DAG profile: %w", err)
@@ -212,7 +212,7 @@ func newScheduler(
 		WatermarkStore:  watermarkStore,
 		IsSuspended:     isSuspended,
 		GetLatestStatus: drm.GetLatestStatus,
-		IsRunning: func(ctx context.Context, dag *core.DAG) (bool, error) {
+		IsRunning: func(ctx context.Context, dag *ir.DAG) (bool, error) {
 			count, err := procStore.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
 			if err != nil {
 				return false, err
@@ -220,17 +220,17 @@ func newScheduler(
 			return count > 0, nil
 		},
 		GenRunID: drm.GenDAGRunID,
-		Dispatch: func(ctx context.Context, dag *core.DAG, runID string, triggerType core.TriggerType, scheduleTime time.Time) error {
+		Dispatch: func(ctx context.Context, dag *ir.DAG, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			return dagExecutor.HandleJob(
 				ctx, dag,
 				exec.DispatchOperationStart,
 				runID, triggerType, scheduleTime,
 			)
 		},
-		Stop: func(ctx context.Context, dag *core.DAG) error {
+		Stop: func(ctx context.Context, dag *ir.DAG) error {
 			return drm.Stop(ctx, dag, "")
 		},
-		Restart: func(ctx context.Context, dag *core.DAG, scheduleTime time.Time) error {
+		Restart: func(ctx context.Context, dag *ir.DAG, scheduleTime time.Time) error {
 			return dagExecutor.Restart(ctx, dag, scheduleTime)
 		},
 		Clock:           defaultClock,
@@ -240,7 +240,7 @@ func newScheduler(
 		QueuesEnabled:   queuesEnabled,
 		Enqueue:         enqueueFunc,
 		IsQueued:        isQueued,
-		RunExists: func(ctx context.Context, dag *core.DAG, runID string) (bool, error) {
+		RunExists: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
 			_, err := dagRunStore.FindAttempt(ctx, exec.NewDAGRunRef(dag.Name, runID))
 			switch {
 			case err == nil:
@@ -881,7 +881,7 @@ func (s *Scheduler) stopCron(ctx context.Context) {
 // we need the result to decide whether to advance the watermark).
 // Non-catchup runs are dispatched in a goroutine (process spawn can be slow).
 func (s *Scheduler) dispatchRun(ctx context.Context, run PlannedRun) {
-	if run.TriggerType == core.TriggerTypeCatchUp {
+	if run.TriggerType == ir.TriggerTypeCatchUp {
 		s.dispatchPlannedRun(ctx, run)
 		return
 	}

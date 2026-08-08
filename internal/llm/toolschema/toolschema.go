@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Param is a single tool parameter.
@@ -36,7 +36,7 @@ var paramRegex = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)(?:=(.*))?`)
 // ForDAG returns the JSON Schema describing the parameters a DAG accepts when
 // invoked as a tool. Rich parameter definitions take precedence over the
 // positional default-params string.
-func ForDAG(dag *core.DAG) (map[string]any, error) {
+func ForDAG(dag *ir.DAG) (map[string]any, error) {
 	params, err := ParamsForDAG(dag)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func ForDAG(dag *core.DAG) (map[string]any, error) {
 
 // ParamsForDAG lists the parameters a DAG accepts, preferring its rich
 // definitions and falling back to its default-params string.
-func ParamsForDAG(dag *core.DAG) ([]Param, error) {
+func ParamsForDAG(dag *ir.DAG) ([]Param, error) {
 	if dag == nil {
 		return nil, nil
 	}
@@ -63,7 +63,7 @@ func ParamsForDAG(dag *core.DAG) ([]Param, error) {
 }
 
 // ParamsFromDefs converts rich parameter definitions into tool parameters.
-func ParamsFromDefs(defs []core.ParamDef) []Param {
+func ParamsFromDefs(defs []ir.ParamDef) []Param {
 	if len(defs) == 0 {
 		return nil
 	}

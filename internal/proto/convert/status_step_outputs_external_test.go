@@ -6,8 +6,8 @@ package convert_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,11 +19,11 @@ func TestDAGRunStatusProtoRoundTripPreservesStepOutputsValue(t *testing.T) {
 	original := &exec.DAGRunStatus{
 		Name:     "build",
 		DAGRunID: "run-1",
-		Status:   core.Running,
+		Status:   ir.Running,
 		Nodes: []*exec.Node{
 			{
-				Step:             core.Step{Name: "publish", ID: "publish"},
-				Status:           core.NodeSucceeded,
+				Step:             ir.Step{Name: "publish", ID: "publish"},
+				Status:           ir.NodeSucceeded,
 				StepOutputsValue: &stepOutputsValue,
 			},
 		},

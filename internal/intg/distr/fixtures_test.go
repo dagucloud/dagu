@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -431,13 +431,13 @@ func (f *testFixture) enqueueDirect() error {
 
 	status := transform.NewStatusBuilder(dagCopy).Create(
 		runID,
-		core.Queued,
+		ir.Queued,
 		0,
 		time.Time{},
 		transform.WithLogFilePath(logFile),
 		transform.WithAttemptID(att.ID()),
 		transform.WithHierarchyRefs(exec.NewDAGRunRef(dagCopy.Name, runID), exec.DAGRunRef{}),
-		transform.WithTriggerType(core.TriggerTypeManual),
+		transform.WithTriggerType(ir.TriggerTypeManual),
 	)
 
 	if err := att.Open(f.coord.Context); err != nil {
@@ -477,7 +477,7 @@ func (f *testFixture) enqueueCatchup(scheduleTime time.Time) (string, error) {
 		"",
 		f.dagWrapper.DAG,
 		runID,
-		core.TriggerTypeCatchUp,
+		ir.TriggerTypeCatchUp,
 		scheduleTime,
 		"",
 	)
@@ -515,7 +515,7 @@ func (f *testFixture) waitForQueued() {
 	})
 }
 
-func (f *testFixture) waitForStatus(expected core.Status, timeout time.Duration) exec.DAGRunStatus {
+func (f *testFixture) waitForStatus(expected ir.Status, timeout time.Duration) exec.DAGRunStatus {
 	f.t.Helper()
 	var status exec.DAGRunStatus
 	f.requireEventuallyNoSchedulerError(fmt.Sprintf("timeout waiting for status %s", expected), timeout, 100*time.Millisecond, func() bool {
@@ -529,7 +529,7 @@ func (f *testFixture) waitForStatus(expected core.Status, timeout time.Duration)
 	return status
 }
 
-func (f *testFixture) waitForStatusIn(expected []core.Status, timeout time.Duration) exec.DAGRunStatus {
+func (f *testFixture) waitForStatusIn(expected []ir.Status, timeout time.Duration) exec.DAGRunStatus {
 	f.t.Helper()
 	var status exec.DAGRunStatus
 	f.requireEventuallyNoSchedulerError(fmt.Sprintf("timeout waiting for status in %v", expected), timeout, 100*time.Millisecond, func() bool {
@@ -665,7 +665,7 @@ func (f *testFixture) stopScheduler() {
 func (f *testFixture) assertAllNodesSucceeded(status exec.DAGRunStatus) {
 	f.t.Helper()
 	for _, node := range status.Nodes {
-		require.Equal(f.t, core.NodeSucceeded, node.Status, "step %s should have succeeded", node.Step.Name)
+		require.Equal(f.t, ir.NodeSucceeded, node.Status, "step %s should have succeeded", node.Step.Name)
 	}
 }
 

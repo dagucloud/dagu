@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,7 +147,7 @@ func TestFileExecutorRejectsUnknownConfigKeys(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "dryrun")
 
-	err = core.ValidateExecutorConfig(executorType, map[string]any{
+	err = ir.ValidateExecutorConfig(executorType, map[string]any{
 		"path":   "target.txt",
 		"dryrun": true,
 	})
@@ -241,15 +241,15 @@ func runFileAction(t *testing.T, workDir, op string, cfg map[string]any) *bytes.
 func newFileExecutorForTest(t *testing.T, workDir, op string, cfg map[string]any) (*executorImpl, error) {
 	t.Helper()
 
-	step := core.Step{
+	step := ir.Step{
 		Name:     "file-step",
-		Commands: []core.CommandEntry{{Command: op}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: op}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   executorType,
 			Config: cfg,
 		},
 	}
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:               "file-test",
 		WorkingDir:         workDir,
 		WorkingDirExplicit: true,

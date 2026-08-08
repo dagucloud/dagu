@@ -7,17 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func mustParseSchedule(t *testing.T, expr string) core.Schedule {
+func mustParseSchedule(t *testing.T, expr string) ir.Schedule {
 	t.Helper()
 	parsed, err := cron.ParseStandard(expr)
 	require.NoError(t, err)
-	return core.Schedule{
+	return ir.Schedule{
 		Expression: expr,
 		Parsed:     parsed,
 	}
@@ -135,7 +135,7 @@ func TestComputeMissedIntervals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var schedules []core.Schedule
+			var schedules []ir.Schedule
 			for _, expr := range tt.schedules {
 				schedules = append(schedules, mustParseSchedule(t, expr))
 			}
@@ -161,7 +161,7 @@ func TestComputeMissedIntervals_CappedAtMax(t *testing.T) {
 	t.Parallel()
 
 	// Per-minute schedule over 30 days = 43,200 intervals, should be capped at MaxMissedRuns
-	schedules := []core.Schedule{mustParseSchedule(t, "* * * * *")}
+	schedules := []ir.Schedule{mustParseSchedule(t, "* * * * *")}
 	replayFrom := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	replayTo := time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC)
 

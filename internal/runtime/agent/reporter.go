@@ -10,14 +10,14 @@ import (
 	"html"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/jedib0t/go-pretty/v6/table"
 )
 
 // formatCommands formats a slice of CommandEntry into a display string.
-func formatCommands(commands []core.CommandEntry) string {
+func formatCommands(commands []ir.CommandEntry) string {
 	parts := make([]string, 0, len(commands))
 	for _, cmd := range commands {
 		if s := cmd.String(); s != "" {
@@ -39,16 +39,16 @@ type SenderFn func(ctx context.Context, from string, to []string, subject, body 
 // to the user.
 type reporter struct {
 	senderFn  SenderFn
-	errorMail *core.MailConfig
-	infoMail  *core.MailConfig
-	waitMail  *core.MailConfig
+	errorMail *ir.MailConfig
+	infoMail  *ir.MailConfig
+	waitMail  *ir.MailConfig
 }
 
 // reporterConfig holds the evaluated mail configurations for the reporter.
 type reporterConfig struct {
-	ErrorMail *core.MailConfig
-	InfoMail  *core.MailConfig
-	WaitMail  *core.MailConfig
+	ErrorMail *ir.MailConfig
+	InfoMail  *ir.MailConfig
+	WaitMail  *ir.MailConfig
 }
 
 func newReporter(f SenderFn, cfg reporterConfig) *reporter {
@@ -62,7 +62,7 @@ func newReporter(f SenderFn, cfg reporterConfig) *reporter {
 
 // reportStep is a function that reports the status of a step.
 func (r *reporter) reportStep(
-	ctx context.Context, dag *core.DAG, dagStatus exec.DAGRunStatus, node *runtime.Node,
+	ctx context.Context, dag *ir.DAG, dagStatus exec.DAGRunStatus, node *runtime.Node,
 ) error {
 	if r == nil {
 		return nil
@@ -70,14 +70,14 @@ func (r *reporter) reportStep(
 	if r.errorMail == nil {
 		return nil
 	}
-	if node.State().Status == core.NodeFailed && node.NodeData().Step.MailOnError {
+	if node.State().Status == ir.NodeFailed && node.NodeData().Step.MailOnError {
 		return r.sendConfiguredMail(ctx, r.errorMail, dag.Name, dagStatus)
 	}
 	return nil
 }
 
 // send is a function that sends a report mail.
-func (r *reporter) send(ctx context.Context, dag *core.DAG, dagStatus exec.DAGRunStatus, err error) error {
+func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus exec.DAGRunStatus, err error) error {
 	if r == nil {
 		return nil
 	}
@@ -89,24 +89,24 @@ func (r *reporter) send(ctx context.Context, dag *core.DAG, dagStatus exec.DAGRu
 }
 
 // selectMailConfig returns the appropriate mail config based on status, or nil if no mail should be sent.
-func (r *reporter) selectMailConfig(dag *core.DAG, dagStatus exec.DAGRunStatus, err error) *core.MailConfig {
+func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus exec.DAGRunStatus, err error) *ir.MailConfig {
 	if dag.MailOn == nil {
 		return nil
 	}
 
 	switch {
-	case (err != nil || dagStatus.Status == core.Failed) && dag.MailOn.Failure:
+	case (err != nil || dagStatus.Status == ir.Failed) && dag.MailOn.Failure:
 		return r.errorMail
-	case (dagStatus.Status == core.Succeeded || dagStatus.Status == core.PartiallySucceeded) && dag.MailOn.Success:
+	case (dagStatus.Status == ir.Succeeded || dagStatus.Status == ir.PartiallySucceeded) && dag.MailOn.Success:
 		return r.infoMail
-	case dagStatus.Status == core.Waiting && dag.MailOn.Wait:
+	case dagStatus.Status == ir.Waiting && dag.MailOn.Wait:
 		return r.waitMail
 	default:
 		return nil
 	}
 }
 
-func (r *reporter) sendConfiguredMail(ctx context.Context, mailConfig *core.MailConfig, dagName string, dagStatus exec.DAGRunStatus) error {
+func (r *reporter) sendConfiguredMail(ctx context.Context, mailConfig *ir.MailConfig, dagName string, dagStatus exec.DAGRunStatus) error {
 	return r.senderFn(
 		ctx,
 		mailConfig.From,
@@ -117,7 +117,7 @@ func (r *reporter) sendConfiguredMail(ctx context.Context, mailConfig *core.Mail
 	)
 }
 
-func buildMailSubject(prefix, dagName string, status core.Status) string {
+func buildMailSubject(prefix, dagName string, status ir.Status) string {
 	return fmt.Sprintf("%s %s (%s)", prefix, dagName, status)
 }
 

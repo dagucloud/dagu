@@ -6,28 +6,28 @@ package exec_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPreservedQueueTriggerType(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, core.TriggerTypeWebhook, exec.PreservedQueueTriggerType(&exec.DAGRunStatus{
-		Status:      core.Queued,
-		TriggerType: core.TriggerTypeWebhook,
+	require.Equal(t, ir.TriggerTypeWebhook, exec.PreservedQueueTriggerType(&exec.DAGRunStatus{
+		Status:      ir.Queued,
+		TriggerType: ir.TriggerTypeWebhook,
 	}))
-	require.Equal(t, core.TriggerTypeCatchUp, exec.PreservedQueueTriggerType(&exec.DAGRunStatus{
-		Status:      core.Queued,
-		TriggerType: core.TriggerTypeCatchUp,
+	require.Equal(t, ir.TriggerTypeCatchUp, exec.PreservedQueueTriggerType(&exec.DAGRunStatus{
+		Status:      ir.Queued,
+		TriggerType: ir.TriggerTypeCatchUp,
 	}))
-	require.Equal(t, core.TriggerTypeUnknown, exec.PreservedQueueTriggerType(&exec.DAGRunStatus{
-		Status:      core.Queued,
-		TriggerType: core.TriggerTypeRetry,
+	require.Equal(t, ir.TriggerTypeUnknown, exec.PreservedQueueTriggerType(&exec.DAGRunStatus{
+		Status:      ir.Queued,
+		TriggerType: ir.TriggerTypeRetry,
 	}))
-	require.Equal(t, core.TriggerTypeUnknown, exec.PreservedQueueTriggerType(&exec.DAGRunStatus{
-		Status:      core.Succeeded,
-		TriggerType: core.TriggerTypeWebhook,
+	require.Equal(t, ir.TriggerTypeUnknown, exec.PreservedQueueTriggerType(&exec.DAGRunStatus{
+		Status:      ir.Succeeded,
+		TriggerType: ir.TriggerTypeWebhook,
 	}))
 }

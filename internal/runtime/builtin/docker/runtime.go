@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Container runtime selection is a SERVICE-LEVEL setting, not a per-step or
@@ -42,15 +42,15 @@ func ServiceRuntimeEnv() map[string]string {
 // ResolveContainerRuntime reads the deployment's DAGU_CONTAINER_RUNTIME setting
 // and parses it into the runtime enum, defaulting to docker when unset. This is
 // the single place that decides docker vs podman; there is no per-step field.
-func ResolveContainerRuntime(envs map[string]string) (core.ContainerRuntime, error) {
+func ResolveContainerRuntime(envs map[string]string) (ir.ContainerRuntime, error) {
 	raw := ""
 	if envs != nil {
 		raw = strings.TrimSpace(envs[ContainerRuntimeEnv])
 	}
 	if raw == "" {
-		return core.ContainerRuntimeDocker, nil
+		return ir.ContainerRuntimeDocker, nil
 	}
-	rt, err := core.ParseContainerRuntime(raw)
+	rt, err := ir.ParseContainerRuntime(raw)
 	if err != nil {
 		return "", fmt.Errorf("invalid %s: %w", ContainerRuntimeEnv, err)
 	}
@@ -61,11 +61,11 @@ func ResolveContainerRuntime(envs map[string]string) (core.ContainerRuntime, err
 // the Moby SDK client should drive. docker (or empty) returns "" so the client
 // keeps upstream client.FromEnv behavior (honoring DOCKER_HOST). podman returns
 // its Docker-compatible socket, overridable via DAGU_PODMAN_HOST.
-func ContainerDaemonHost(rt core.ContainerRuntime, envs map[string]string) (string, error) {
+func ContainerDaemonHost(rt ir.ContainerRuntime, envs map[string]string) (string, error) {
 	switch rt {
-	case "", core.ContainerRuntimeDocker:
+	case "", ir.ContainerRuntimeDocker:
 		return "", nil
-	case core.ContainerRuntimePodman:
+	case ir.ContainerRuntimePodman:
 		if envs != nil {
 			if host := strings.TrimSpace(envs[PodmanDaemonHostEnv]); host != "" {
 				return host, nil

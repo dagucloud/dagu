@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewTracer(t *testing.T) {
 	t.Run("DisabledOTel", func(t *testing.T) {
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "test-dag",
 			OTel: nil, // OTel not configured
 		}
@@ -28,9 +28,9 @@ func TestNewTracer(t *testing.T) {
 	})
 
 	t.Run("OTelDisabledExplicitly", func(t *testing.T) {
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "test-dag",
-			OTel: &core.OTelConfig{
+			OTel: &ir.OTelConfig{
 				Enabled:  false,
 				Endpoint: "localhost:4317",
 			},
@@ -44,9 +44,9 @@ func TestNewTracer(t *testing.T) {
 	})
 
 	t.Run("MissingEndpoint", func(t *testing.T) {
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "test-dag",
-			OTel: &core.OTelConfig{
+			OTel: &ir.OTelConfig{
 				Enabled: true,
 				// Missing endpoint
 			},
@@ -59,9 +59,9 @@ func TestNewTracer(t *testing.T) {
 	})
 
 	t.Run("GRPCEndpointDetection", func(t *testing.T) {
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "test-dag",
-			OTel: &core.OTelConfig{
+			OTel: &ir.OTelConfig{
 				Enabled:  true,
 				Endpoint: "localhost:4317",
 			},
@@ -80,9 +80,9 @@ func TestNewTracer(t *testing.T) {
 	})
 
 	t.Run("HTTPEndpointDetection", func(t *testing.T) {
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "test-dag",
-			OTel: &core.OTelConfig{
+			OTel: &ir.OTelConfig{
 				Enabled:  true,
 				Endpoint: "localhost:4318/v1/traces",
 			},
@@ -101,9 +101,9 @@ func TestNewTracer(t *testing.T) {
 	})
 
 	t.Run("WithHeadersAndTimeout", func(t *testing.T) {
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "test-dag",
-			OTel: &core.OTelConfig{
+			OTel: &ir.OTelConfig{
 				Enabled:  true,
 				Endpoint: "localhost:4317",
 				Headers: map[string]string{
@@ -125,9 +125,9 @@ func TestNewTracer(t *testing.T) {
 	})
 
 	t.Run("WithResourceAttributes", func(t *testing.T) {
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "test-dag",
-			OTel: &core.OTelConfig{
+			OTel: &ir.OTelConfig{
 				Enabled:  true,
 				Endpoint: "localhost:4317",
 				Resource: map[string]any{
@@ -154,9 +154,9 @@ func TestNewTracer(t *testing.T) {
 
 func TestTracerStart(t *testing.T) {
 	t.Run("WithEnabledTracer", func(t *testing.T) {
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "test-dag",
-			OTel: &core.OTelConfig{
+			OTel: &ir.OTelConfig{
 				Enabled:  true,
 				Endpoint: "localhost:4317",
 			},
@@ -178,7 +178,7 @@ func TestTracerStart(t *testing.T) {
 	})
 
 	t.Run("WithDisabledTracer", func(t *testing.T) {
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "test-dag",
 			OTel: nil,
 		}

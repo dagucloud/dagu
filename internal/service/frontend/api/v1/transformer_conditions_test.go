@@ -9,8 +9,8 @@ import (
 
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +19,7 @@ func TestToDAGRunSummaryIncludesConditions(t *testing.T) {
 	status := exec.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
-		Status:   core.Queued,
+		Status:   ir.Queued,
 		Conditions: []exec.DAGRunCondition{
 			{
 				Type:      "Runnable",
@@ -58,7 +58,7 @@ func TestToDAGRunDetailsIncludesConditions(t *testing.T) {
 	status := exec.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
-		Status:   core.Queued,
+		Status:   ir.Queued,
 		Conditions: []exec.DAGRunCondition{
 			{
 				Type:      "WorkerReady",
@@ -85,7 +85,7 @@ func TestToDAGRunSummarySkipsOnlyConditionsWithInvalidCheckedAt(t *testing.T) {
 	status := exec.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
-		Status:   core.Queued,
+		Status:   ir.Queued,
 		Conditions: []exec.DAGRunCondition{
 			{
 				Type:      "Runnable",
@@ -116,7 +116,7 @@ func TestToDAGRunSummarySkipsConditionsWithInvalidStatus(t *testing.T) {
 	status := exec.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
-		Status:   core.Queued,
+		Status:   ir.Queued,
 		Conditions: []exec.DAGRunCondition{
 			{
 				Type:      "Runnable",
@@ -147,7 +147,7 @@ func TestToDAGRunSummarySkipsConditionsWhenStatusIsNotQueued(t *testing.T) {
 	status := exec.DAGRunStatus{
 		Name:     "running-dag",
 		DAGRunID: "run-1",
-		Status:   core.Running,
+		Status:   ir.Running,
 		Conditions: []exec.DAGRunCondition{
 			{
 				Type:      "Runnable",

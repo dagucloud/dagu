@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -343,7 +343,7 @@ func TestDeterministicMap_MarshalUnmarshalRoundTrip(t *testing.T) {
 
 func TestDeterministicMap_Integration_ParallelItem(t *testing.T) {
 	// Test how DeterministicMap works within ParallelItem
-	item := core.ParallelItem{
+	item := ir.ParallelItem{
 		Value: "",
 		Params: collections.DeterministicMap{
 			"REGION": "us-east-1",
@@ -361,7 +361,7 @@ func TestDeterministicMap_Integration_ParallelItem(t *testing.T) {
 	assert.Equal(t, expected, string(data))
 
 	// Unmarshal and verify
-	var restored core.ParallelItem
+	var restored ir.ParallelItem
 	err = json.Unmarshal(data, &restored)
 	require.NoError(t, err)
 	assert.Equal(t, item.Params, restored.Params)
@@ -399,7 +399,7 @@ func TestDeterministicMap_RealWorldSubDAGParams(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a ParallelItem with complex params
-			item := core.ParallelItem{
+			item := ir.ParallelItem{
 				Params: tt.params,
 			}
 

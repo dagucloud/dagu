@@ -6,7 +6,7 @@ package exec
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,9 +19,9 @@ func TestWorkspaceFilterRejectsInvalidWorkspaceLabels(t *testing.T) {
 		IncludeUnlabelled: true,
 	}
 
-	assert.False(t, filter.MatchesLabels(core.NewLabels([]string{"workspace="})))
-	assert.False(t, filter.MatchesLabels(core.NewLabels([]string{"workspace=bad/name"})))
-	assert.False(t, filter.MatchesLabels(core.NewLabels([]string{"workspace=ops", "workspace=prod"})))
-	assert.True(t, filter.MatchesLabels(core.NewLabels([]string{"team=platform"})))
-	assert.True(t, filter.MatchesLabels(core.NewLabels([]string{"workspace=ops"})))
+	assert.False(t, filter.MatchesLabels(ir.NewLabels([]string{"workspace="})))
+	assert.False(t, filter.MatchesLabels(ir.NewLabels([]string{"workspace=bad/name"})))
+	assert.False(t, filter.MatchesLabels(ir.NewLabels([]string{"workspace=ops", "workspace=prod"})))
+	assert.True(t, filter.MatchesLabels(ir.NewLabels([]string{"team=platform"})))
+	assert.True(t, filter.MatchesLabels(ir.NewLabels([]string{"workspace=ops"})))
 }

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -32,10 +32,10 @@ var (
 )
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, core.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, ir.ExecutorCapabilities{Command: true})
 }
 
-func validateStep(step core.Step) error {
+func validateStep(step ir.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
 	}
@@ -45,7 +45,7 @@ func validateStep(step core.Step) error {
 		command = step.Commands[0].Command
 	}
 	if strings.TrimSpace(command) == "" {
-		return core.NewValidationError("command", nil, fmt.Errorf("%w: command is required", ErrConfig))
+		return ir.NewValidationError("command", nil, fmt.Errorf("%w: command is required", ErrConfig))
 	}
 	return nil
 }
@@ -63,7 +63,7 @@ type executorImpl struct {
 	stepName  string
 }
 
-func newExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	cfg := defaultConfig()
 
 	if step.ExecutorConfig.Config != nil {
@@ -79,7 +79,7 @@ func newExecutor(ctx context.Context, step core.Step) (executor.Executor, error)
 	}
 	op := strings.ToLower(strings.TrimSpace(command))
 	if op == "" {
-		return nil, core.NewValidationError("command", nil, fmt.Errorf("%w: command must specify archive operation", ErrConfig))
+		return nil, ir.NewValidationError("command", nil, fmt.Errorf("%w: command must specify archive operation", ErrConfig))
 	}
 
 	switch op {

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,19 +19,19 @@ func TestPersistedDAGRunEventTypeForStatus(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		status core.Status
+		status ir.Status
 		want   EventType
 		ok     bool
 	}{
-		{name: "NotStarted", status: core.NotStarted, ok: false},
-		{name: "Queued", status: core.Queued, want: TypeDAGRunQueued, ok: true},
-		{name: "Running", status: core.Running, want: TypeDAGRunRunning, ok: true},
-		{name: "Rejected", status: core.Rejected, want: TypeDAGRunRejected, ok: true},
-		{name: "Waiting", status: core.Waiting, want: TypeDAGRunWaiting, ok: true},
-		{name: "Succeeded", status: core.Succeeded, want: TypeDAGRunSucceeded, ok: true},
-		{name: "PartiallySucceeded", status: core.PartiallySucceeded, want: TypeDAGRunPartiallySucceeded, ok: true},
-		{name: "Failed", status: core.Failed, want: TypeDAGRunFailed, ok: true},
-		{name: "Aborted", status: core.Aborted, want: TypeDAGRunAborted, ok: true},
+		{name: "NotStarted", status: ir.NotStarted, ok: false},
+		{name: "Queued", status: ir.Queued, want: TypeDAGRunQueued, ok: true},
+		{name: "Running", status: ir.Running, want: TypeDAGRunRunning, ok: true},
+		{name: "Rejected", status: ir.Rejected, want: TypeDAGRunRejected, ok: true},
+		{name: "Waiting", status: ir.Waiting, want: TypeDAGRunWaiting, ok: true},
+		{name: "Succeeded", status: ir.Succeeded, want: TypeDAGRunSucceeded, ok: true},
+		{name: "PartiallySucceeded", status: ir.PartiallySucceeded, want: TypeDAGRunPartiallySucceeded, ok: true},
+		{name: "Failed", status: ir.Failed, want: TypeDAGRunFailed, ok: true},
+		{name: "Aborted", status: ir.Aborted, want: TypeDAGRunAborted, ok: true},
 	}
 
 	for _, tt := range tests {
@@ -97,7 +97,7 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 		DAGRunID:       "run-1",
 		AttemptID:      "attempt-1",
 		ProcGroup:      "priority-high",
-		Status:         core.Failed,
+		Status:         ir.Failed,
 		Error:          "boom",
 		Log:            "/tmp/run.log",
 		QueuedAt:       "2026-04-01T09:00:00Z",
@@ -107,16 +107,16 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 		AutoRetryLimit: 3,
 		Nodes: []*exec.Node{
 			{
-				Step:   core.Step{Name: "fetch"},
-				Status: core.NodeFailed,
+				Step:   ir.Step{Name: "fetch"},
+				Status: ir.NodeFailed,
 				Error:  "node boom",
 				StatusDetails: []exec.NodeStatusDetail{
-					{Label: "customer-a", Status: core.NodeFailed},
+					{Label: "customer-a", Status: ir.NodeFailed},
 				},
 			},
 		},
 		OnFailure: &exec.Node{
-			Step:  core.Step{Name: "notify"},
+			Step:  ir.Step{Name: "notify"},
 			Error: "handler boom",
 		},
 	}
@@ -157,7 +157,7 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	assert.Equal(t, status.AutoRetryLimit, restored.AutoRetryLimit)
 	require.Len(t, restored.Nodes, 1)
 	assert.Equal(t, "fetch", restored.Nodes[0].Step.Name)
-	assert.Equal(t, core.NodeFailed, restored.Nodes[0].Status)
+	assert.Equal(t, ir.NodeFailed, restored.Nodes[0].Status)
 	assert.Equal(t, "node boom", restored.Nodes[0].Error)
 	assert.Equal(t, status.Nodes[0].StatusDetails, restored.Nodes[0].StatusDetails)
 	require.NotNil(t, restored.OnFailure)
@@ -181,7 +181,7 @@ func TestDAGRunSnapshotFromEventBackfillsLegacyDAGFile(t *testing.T) {
 				"name":       "legacy",
 				"dag_run_id": "run-1",
 				"attempt_id": "attempt-1",
-				"status":     core.Succeeded,
+				"status":     ir.Succeeded,
 			},
 			DAGFileNameDataKey: "legacy.yaml",
 		},
@@ -209,7 +209,7 @@ func TestEmitPersistedStatusTransitionFromContextEmitsUpdateForRepeatedStatus(t 
 		Name:      "briefing",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
-		Status:    core.Running,
+		Status:    ir.Running,
 		StartedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
@@ -248,7 +248,7 @@ func TestNewDAGRunEventDeepClonesData(t *testing.T) {
 		Name:      "briefing",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
-		Status:    core.Failed,
+		Status:    ir.Failed,
 	}
 	nested := map[string]any{
 		"details": map[string]any{"reason": "boom"},

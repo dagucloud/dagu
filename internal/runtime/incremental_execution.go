@@ -10,14 +10,14 @@ import (
 	"maps"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *Node) (context.Context, *incremental.Session, error) {
 	dag := GetDAGContext(ctx).DAG
-	if dag == nil || dag.Type != core.TypeIncremental {
+	if dag == nil || dag.Type != ir.TypeIncremental {
 		return ctx, nil, nil
 	}
 
@@ -115,7 +115,7 @@ func (r *Runner) evaluateIncrementalNode(
 	}
 	var err error
 	if session.Metadata().Decision != exec.IncrementalDecisionAlways {
-		var resolvedStep core.Step
+		var resolvedStep ir.Step
 		var environment map[string]string
 		resolvedStep, environment, err = resolveIncrementalRecipe(ctx, node.Step())
 		if err == nil {
@@ -129,14 +129,14 @@ func (r *Runner) evaluateIncrementalNode(
 		node.setIncremental(session.Metadata())
 		r.setLastError(err)
 		node.MarkError(err)
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		reportPreparedNode()
 		return true
 	}
 	node.setIncremental(session.Metadata())
 	if r.dry {
 		node.IncDoneCount()
-		node.SetStatus(core.NodeSucceeded)
+		node.SetStatus(ir.NodeSucceeded)
 		reportPreparedNode()
 		return true
 	}
@@ -146,17 +146,17 @@ func (r *Runner) evaluateIncrementalNode(
 	if err := publishIncrementalOutputs(ctx, node, session.PublishedOutputs()); err != nil {
 		r.setLastError(err)
 		node.MarkError(err)
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		reportPreparedNode()
 		return true
 	}
 	node.IncDoneCount()
-	node.SetStatus(core.NodeSucceeded)
+	node.SetStatus(ir.NodeSucceeded)
 	reportPreparedNode()
 	return true
 }
 
-func resolveIncrementalRecipe(ctx context.Context, step core.Step) (core.Step, map[string]string, error) {
+func resolveIncrementalRecipe(ctx context.Context, step ir.Step) (ir.Step, map[string]string, error) {
 	env := GetEnv(ctx)
 	inputs := make(map[string]string, len(step.Inputs))
 	for _, input := range step.Inputs {
@@ -173,23 +173,23 @@ func resolveIncrementalRecipe(ctx context.Context, step core.Step) (core.Step, m
 	env.Inputs = cmnvalue.ValuesFromStrings(inputs)
 	env.Outputs = cmnvalue.ValuesFromStrings(outputs)
 	if err := addResolvedEnvVars(ctx, &env, step.Env, "env.", cmnvalue.StepEnvField); err != nil {
-		return core.Step{}, nil, err
+		return ir.Step{}, nil, err
 	}
 
 	resolvedCtx := WithEnv(ctx, env)
 	resolvedStep, err := resolveStepCommandArgs(resolvedCtx, step)
 	if err != nil {
-		return core.Step{}, nil, err
+		return ir.Step{}, nil, err
 	}
 	config, err := evalExecutorConfig(resolvedCtx, resolvedStep)
 	if err != nil {
-		return core.Step{}, nil, fmt.Errorf("failed to evaluate step configuration: %w", err)
+		return ir.Step{}, nil, fmt.Errorf("failed to evaluate step configuration: %w", err)
 	}
 	resolvedStep.ExecutorConfig.Config = config
 	if resolvedStep.Script != "" {
 		resolvedStep.Script, err = resolveRuntimeString(resolvedCtx, resolvedStep.Script, scriptField(resolvedCtx, resolvedStep))
 		if err != nil {
-			return core.Step{}, nil, fmt.Errorf("failed to eval script: %w", err)
+			return ir.Step{}, nil, fmt.Errorf("failed to eval script: %w", err)
 		}
 	}
 	return resolvedStep, env.Scope.ToMap(), nil
@@ -199,7 +199,7 @@ func prepareIncrementalAttempt(
 	ctx context.Context,
 	node *Node,
 	session *incremental.Session,
-	declaredStep core.Step,
+	declaredStep ir.Step,
 ) (context.Context, string, error) {
 	if session == nil || !session.HasPathOutput() {
 		return ctx, "", nil

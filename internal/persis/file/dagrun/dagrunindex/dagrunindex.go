@@ -17,8 +17,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/proto"
@@ -54,7 +54,7 @@ type Entry struct {
 	DagRunDir            string
 	DagRunID             string
 	LatestAttemptDir     string
-	Status               core.Status
+	Status               ir.Status
 	StartedAtUnix        int64
 	FinishedAtUnix       int64
 	Labels               []string
@@ -64,7 +64,7 @@ type Entry struct {
 	Params               string
 	QueuedAt             string
 	ScheduleTime         string
-	TriggerType          core.TriggerType
+	TriggerType          ir.TriggerType
 	TriggerActor         string
 	CreatedAt            int64
 	AttemptID            string
@@ -353,7 +353,7 @@ func protoToEntries(protoEntries []*indexv1.DAGRunIndexEntry) []Entry {
 			DagRunDir:            pe.DagRunDir,
 			DagRunID:             pe.DagRunId,
 			LatestAttemptDir:     pe.LatestAttemptDir,
-			Status:               core.Status(pe.Status),
+			Status:               ir.Status(pe.Status),
 			StartedAtUnix:        pe.StartedAt,
 			FinishedAtUnix:       pe.FinishedAt,
 			Labels:               pe.Labels,
@@ -362,7 +362,7 @@ func protoToEntries(protoEntries []*indexv1.DAGRunIndexEntry) []Entry {
 			Params:               pe.Params,
 			QueuedAt:             pe.QueuedAt,
 			ScheduleTime:         pe.ScheduleTime,
-			TriggerType:          core.TriggerType(pe.TriggerType),
+			TriggerType:          ir.TriggerType(pe.TriggerType),
 			TriggerActor:         pe.TriggerActor,
 			CreatedAt:            pe.CreatedAt,
 			AttemptID:            pe.AttemptId,

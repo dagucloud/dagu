@@ -14,7 +14,7 @@ import (
 	"strconv"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var constNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
@@ -26,7 +26,7 @@ func buildConsts(ctx buildContext, d *dag) (map[string]any, error) {
 	}
 	items, ok := d.Consts.([]any)
 	if !ok {
-		return nil, core.NewValidationError("consts", d.Consts, fmt.Errorf("consts must use list form"))
+		return nil, ir.NewValidationError("consts", d.Consts, fmt.Errorf("consts must use list form"))
 	}
 
 	resolved := inherited
@@ -40,12 +40,12 @@ func buildConsts(ctx buildContext, d *dag) (map[string]any, error) {
 			return nil, err
 		}
 		if _, exists := seen[key]; exists {
-			return nil, core.NewValidationError("consts."+key, key, fmt.Errorf("consts key %q is defined more than once", key))
+			return nil, ir.NewValidationError("consts."+key, key, fmt.Errorf("consts key %q is defined more than once", key))
 		}
 		seen[key] = struct{}{}
 		resolvedValue, err := resolveConstValue(ctx, key, value, resolved)
 		if err != nil {
-			return nil, core.NewValidationError("consts."+key, value, err)
+			return nil, ir.NewValidationError("consts."+key, value, err)
 		}
 		resolved[key] = resolvedValue
 	}
@@ -68,14 +68,14 @@ func inheritedConsts(ctx buildContext) map[string]any {
 func constEntry(idx int, item any) (string, any, error) {
 	entry, ok := item.(map[string]any)
 	if !ok {
-		return "", nil, core.NewValidationError(
+		return "", nil, ir.NewValidationError(
 			fmt.Sprintf("consts[%d]", idx),
 			item,
 			fmt.Errorf("consts entries must be single-entry mappings"),
 		)
 	}
 	if len(entry) != 1 {
-		return "", nil, core.NewValidationError(
+		return "", nil, ir.NewValidationError(
 			fmt.Sprintf("consts[%d]", idx),
 			item,
 			fmt.Errorf("consts entries must contain exactly one key"),
@@ -85,13 +85,13 @@ func constEntry(idx int, item any) (string, any, error) {
 		if constNamePattern.MatchString(key) {
 			return key, value, nil
 		}
-		return "", nil, core.NewValidationError(
+		return "", nil, ir.NewValidationError(
 			fmt.Sprintf("consts[%d]", idx),
 			key,
 			fmt.Errorf("consts key %q is invalid", key),
 		)
 	}
-	return "", nil, core.NewValidationError(fmt.Sprintf("consts[%d]", idx), item, fmt.Errorf("consts entries must contain exactly one key"))
+	return "", nil, ir.NewValidationError(fmt.Sprintf("consts[%d]", idx), item, fmt.Errorf("consts entries must contain exactly one key"))
 }
 
 func resolveConstValue(ctx buildContext, key string, value any, consts map[string]any) (any, error) {

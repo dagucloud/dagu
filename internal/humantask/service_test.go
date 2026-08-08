@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,9 +68,9 @@ func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
 	assert.True(t, result.Queued)
 	assert.False(t, result.AlreadyCompleted)
 	assert.Zero(t, result.RemainingWaitingSteps)
-	assert.Equal(t, core.Queued, fixture.status.Status)
+	assert.Equal(t, ir.Queued, fixture.status.Status)
 	assert.Equal(t, []exec.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
-	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
+	assert.Equal(t, ir.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.JSONEq(t, `{"count":3,"region":"us"}`, string(fixture.status.Nodes[0].HumanTaskInput))
 	assert.Equal(t, "alice", fixture.status.Nodes[0].HumanTaskCompletedBy)
 	assert.Equal(t, "user-1", fixture.status.Nodes[0].HumanTaskCompletedByID)
@@ -108,20 +108,20 @@ func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	assert.ErrorIs(t, err, queueErr)
 	assert.Equal(t, result, resumeErr.Result)
 	assert.False(t, result.Queued)
-	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
-	assert.Equal(t, core.Waiting, fixture.status.Status)
+	assert.Equal(t, ir.NodeSucceeded, fixture.status.Nodes[0].Status)
+	assert.Equal(t, ir.Waiting, fixture.status.Status)
 	assert.True(t, ResumePending(fixture.status))
 
 	result, err = fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
 	require.NoError(t, err)
 	assert.True(t, result.Queued)
-	assert.Equal(t, core.Queued, fixture.status.Status)
+	assert.Equal(t, ir.Queued, fixture.status.Status)
 	assert.Equal(t, []exec.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
 }
 
 func TestResumeBoundsStatusVerificationAfterQueueFailure(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
-	fixture.status.Nodes[0].Status = core.NodeSucceeded
+	fixture.status.Nodes[0].Status = ir.NodeSucceeded
 	fixture.status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
 	fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
 	fixture.service.EnqueueTimeout = 10 * time.Millisecond
@@ -162,7 +162,7 @@ func TestCompleteDoesNotReportRetryableWhenQueueRollbackFails(t *testing.T) {
 	var resumeErr *ResumeError
 	assert.NotErrorAs(t, err, &resumeErr)
 	assert.Equal(t, ErrorInternal, KindOf(err))
-	assert.Equal(t, core.Queued, fixture.status.Status)
+	assert.Equal(t, ir.Queued, fixture.status.Status)
 }
 
 func TestCompleteAcceptsConcurrentRetryDispatch(t *testing.T) {
@@ -171,7 +171,7 @@ func TestCompleteAcceptsConcurrentRetryDispatch(t *testing.T) {
 	fixture.store.beforeCompareAndSwap = func() {
 		compareAndSwapCalls++
 		if compareAndSwapCalls == 2 {
-			fixture.status.Status = core.Running
+			fixture.status.Status = ir.Running
 			fixture.status.AttemptID = "attempt-2"
 			fixture.status.AttemptKey = "key-2"
 		}
@@ -183,7 +183,7 @@ func TestCompleteAcceptsConcurrentRetryDispatch(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, result.Queued)
-	assert.Equal(t, core.NodeSucceeded, fixture.status.Nodes[0].Status)
+	assert.Equal(t, ir.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.Empty(t, fixture.queue.enqueued)
 }
 
@@ -217,8 +217,8 @@ func TestCompleteClassifiesDAGRunLookupErrors(t *testing.T) {
 
 func TestResumeRejectsRunWithoutCompletedCheckpoint(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
-	fixture.status.Status = core.Succeeded
-	fixture.status.Nodes[0].Status = core.NodeSucceeded
+	fixture.status.Status = ir.Succeeded
+	fixture.status.Nodes[0].Status = ir.NodeSucceeded
 
 	_, err := fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
 
@@ -230,8 +230,8 @@ func TestResumeRejectsRunWithoutCompletedCheckpoint(t *testing.T) {
 func TestCompleteWaitsForEveryManualStepBeforeResuming(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	fixture.status.Nodes = append(fixture.status.Nodes, &exec.Node{
-		Step:   core.Step{ID: "approval", Name: "Approval", Approval: &core.ApprovalConfig{}},
-		Status: core.NodeWaiting,
+		Step:   ir.Step{ID: "approval", Name: "Approval", Approval: &ir.ApprovalConfig{}},
+		Status: ir.NodeWaiting,
 	})
 	result, err := fixture.service.Complete(t.Context(), CompleteRequest{
 		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
@@ -251,16 +251,16 @@ func TestCompleteEnqueuesRemoteResume(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, result.Queued)
-	assert.Equal(t, core.Queued, fixture.status.Status)
+	assert.Equal(t, ir.Queued, fixture.status.Status)
 	assert.Equal(t, []exec.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
 }
 
 func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
 	status := &exec.DAGRunStatus{
-		Status: core.Waiting,
+		Status: ir.Waiting,
 		Nodes: []*exec.Node{{
-			Step:   core.Step{ID: "review", Name: "Review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}},
-			Status: core.NodeWaiting,
+			Step:   ir.Step{ID: "review", Name: "Review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
+			Status: ir.NodeWaiting,
 		}},
 	}
 
@@ -272,27 +272,27 @@ func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, ErrorConflict, KindOf(err))
 
-	status.Status = core.Queued
+	status.Status = ir.Queued
 	assert.NoError(t, ValidateRetry(status, ""))
 
-	status.Status = core.Waiting
-	status.Nodes[0].Status = core.NodeSucceeded
+	status.Status = ir.Waiting
+	status.Nodes[0].Status = ir.NodeSucceeded
 	status.Nodes[0].HumanTaskInput = json.RawMessage(`{}`)
 	assert.Error(t, ValidateRetry(status, ""))
 }
 
 func TestValidateRetryAllowsRunRetryWhileWaitingForApprovalAfterCompletedHumanTask(t *testing.T) {
 	status := &exec.DAGRunStatus{
-		Status: core.Waiting,
+		Status: ir.Waiting,
 		Nodes: []*exec.Node{
 			{
-				Step:           core.Step{ID: "review", Name: "Review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}},
-				Status:         core.NodeSucceeded,
+				Step:           ir.Step{ID: "review", Name: "Review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
+				Status:         ir.NodeSucceeded,
 				HumanTaskInput: json.RawMessage(`{}`),
 			},
 			{
-				Step:   core.Step{ID: "approve", Name: "Approve", Approval: &core.ApprovalConfig{Prompt: "Approve"}},
-				Status: core.NodeWaiting,
+				Step:   ir.Step{ID: "approve", Name: "Approve", Approval: &ir.ApprovalConfig{Prompt: "Approve"}},
+				Status: ir.NodeWaiting,
 			},
 		},
 	}
@@ -364,7 +364,7 @@ func TestWaitForCompletionReadyRejectsUnknownStep(t *testing.T) {
 }
 
 type serviceFixture struct {
-	dag     *core.DAG
+	dag     *ir.DAG
 	status  *exec.DAGRunStatus
 	store   *serviceDAGRunStore
 	queue   *serviceQueueStore
@@ -373,15 +373,15 @@ type serviceFixture struct {
 
 func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 	t.Helper()
-	step := core.Step{
+	step := ir.Step{
 		ID: "review", Name: "Review",
-		HumanTask: &core.HumanTaskConfig{Prompt: "Approve the release?", Form: form},
+		HumanTask: &ir.HumanTaskConfig{Prompt: "Approve the release?", Form: form},
 	}
-	dag := &core.DAG{Name: "deploy", Steps: []core.Step{step}, MaxOutputSize: 1 << 20}
+	dag := &ir.DAG{Name: "deploy", Steps: []ir.Step{step}, MaxOutputSize: 1 << 20}
 	status := &exec.DAGRunStatus{
 		Name: dag.Name, DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1",
-		Status: core.Waiting, FinishedAt: "2026-07-21T00:00:00Z",
-		Nodes: []*exec.Node{{Step: step, Status: core.NodeWaiting}},
+		Status: ir.Waiting, FinishedAt: "2026-07-21T00:00:00Z",
+		Nodes: []*exec.Node{{Step: step, Status: ir.NodeWaiting}},
 	}
 	attempt := &serviceAttempt{dag: dag, status: status}
 	store := &serviceDAGRunStore{attempt: attempt, status: status}
@@ -400,7 +400,7 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 
 type serviceAttempt struct {
 	exec.DAGRunAttempt
-	dag    *core.DAG
+	dag    *ir.DAG
 	status *exec.DAGRunStatus
 }
 
@@ -420,8 +420,8 @@ func (a *sequenceAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus, error
 	return status, nil
 }
 
-func (a *serviceAttempt) ID() string                                 { return a.status.AttemptID }
-func (a *serviceAttempt) ReadDAG(context.Context) (*core.DAG, error) { return a.dag, nil }
+func (a *serviceAttempt) ID() string                               { return a.status.AttemptID }
+func (a *serviceAttempt) ReadDAG(context.Context) (*ir.DAG, error) { return a.dag, nil }
 func (a *serviceAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus, error) {
 	return a.status, nil
 }
@@ -450,7 +450,7 @@ func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
 	_ exec.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
+	expectedStatus ir.Status,
 	mutate func(*exec.DAGRunStatus) error,
 	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {

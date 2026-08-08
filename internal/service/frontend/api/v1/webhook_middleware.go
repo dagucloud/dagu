@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // contextKey is a private type for context keys in this package.
@@ -97,7 +97,7 @@ func withRequestHeaders(ctx context.Context, headers http.Header) context.Contex
 
 	normalized := make(http.Header, len(headers))
 	for key, values := range headers {
-		normalized[core.NormalizeWebhookForwardHeader(key)] = append([]string(nil), values...)
+		normalized[ir.NormalizeWebhookForwardHeader(key)] = append([]string(nil), values...)
 	}
 	return context.WithValue(ctx, requestHeadersContextKey, normalized)
 }

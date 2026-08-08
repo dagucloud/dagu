@@ -6,8 +6,8 @@ package chat
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -181,7 +181,7 @@ func TestFormatToolResult(t *testing.T) {
 		t.Parallel()
 
 		runStatus := &exec.RunStatus{
-			Status: core.Failed,
+			Status: ir.Failed,
 		}
 		result := formatToolResult(runStatus)
 		assert.Contains(t, result, "failed")
@@ -191,7 +191,7 @@ func TestFormatToolResult(t *testing.T) {
 		t.Parallel()
 
 		runStatus := &exec.RunStatus{
-			Status: core.Succeeded,
+			Status: ir.Succeeded,
 			Outputs: map[string]string{
 				"result": "test output",
 			},
@@ -205,7 +205,7 @@ func TestFormatToolResult(t *testing.T) {
 		t.Parallel()
 
 		runStatus := &exec.RunStatus{
-			Status:  core.Succeeded,
+			Status:  ir.Succeeded,
 			Outputs: map[string]string{},
 		}
 		result := formatToolResult(runStatus)

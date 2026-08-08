@@ -6,8 +6,8 @@ package runtime
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Type aliases for execution package types.
@@ -116,6 +116,6 @@ func NewDAGRunRef(name, runID string) exec.DAGRunRef {
 
 // NewContextForTest creates a minimal context for testing purposes.
 // This is useful when you need a context with just basic DAG metadata.
-func NewContextForTest(ctx context.Context, dag *core.DAG, dagRunID, logFile string) context.Context {
+func NewContextForTest(ctx context.Context, dag *ir.DAG, dagRunID, logFile string) context.Context {
 	return exec.NewContext(ctx, dag, dagRunID, logFile)
 }

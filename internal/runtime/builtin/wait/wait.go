@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -45,7 +45,7 @@ type executorImpl struct {
 	cancel  context.CancelFunc
 }
 
-func newExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	cfg := defaultConfig()
 	if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func newExecutor(ctx context.Context, step core.Step) (executor.Executor, error)
 	}, nil
 }
 
-func validateStep(step core.Step) error {
+func validateStep(step ir.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
 	}
@@ -82,7 +82,7 @@ func validateStep(step core.Step) error {
 	return err
 }
 
-func stepOperation(step core.Step) string {
+func stepOperation(step ir.Step) string {
 	if len(step.Commands) == 0 {
 		return ""
 	}
@@ -227,5 +227,5 @@ func poll(ctx context.Context, interval time.Duration, check func() (bool, error
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, core.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, ir.ExecutorCapabilities{Command: true})
 }

@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 )
 
@@ -85,7 +85,7 @@ func (e *Event) Normalize() {
 	}
 	if e.Kind == KindDAGRun &&
 		e.Type == TypeDAGRunSucceeded &&
-		e.Status == core.PartiallySucceeded.String() {
+		e.Status == ir.PartiallySucceeded.String() {
 		e.Type = TypeDAGRunPartiallySucceeded
 	}
 	if !e.RecordedAt.IsZero() {
@@ -319,25 +319,25 @@ func NewLLMUsageEvent(
 	return event
 }
 
-func PersistedDAGRunEventTypeForStatus(status core.Status) (EventType, bool) {
+func PersistedDAGRunEventTypeForStatus(status ir.Status) (EventType, bool) {
 	switch status {
-	case core.NotStarted:
+	case ir.NotStarted:
 		return "", false
-	case core.Queued:
+	case ir.Queued:
 		return TypeDAGRunQueued, true
-	case core.Running:
+	case ir.Running:
 		return TypeDAGRunRunning, true
-	case core.Waiting:
+	case ir.Waiting:
 		return TypeDAGRunWaiting, true
-	case core.Succeeded:
+	case ir.Succeeded:
 		return TypeDAGRunSucceeded, true
-	case core.PartiallySucceeded:
+	case ir.PartiallySucceeded:
 		return TypeDAGRunPartiallySucceeded, true
-	case core.Failed:
+	case ir.Failed:
 		return TypeDAGRunFailed, true
-	case core.Aborted:
+	case ir.Aborted:
 		return TypeDAGRunAborted, true
-	case core.Rejected:
+	case ir.Rejected:
 		return TypeDAGRunRejected, true
 	default:
 		return "", false

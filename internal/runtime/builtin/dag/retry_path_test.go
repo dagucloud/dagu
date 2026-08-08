@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -17,12 +17,12 @@ import (
 )
 
 func TestParallelRetryPathReusesSiblings(t *testing.T) {
-	child := &core.DAG{
+	child := &ir.DAG{
 		Name:     "child",
 		YamlData: []byte("name: child\nsteps:\n  - name: target\n    run: echo child\n"),
-		Steps:    []core.Step{{Name: "target"}},
+		Steps:    []ir.Step{{Name: "target"}},
 	}
-	parent := &core.DAG{Name: "root", LocalDAGs: map[string]*core.DAG{child.Name: child}}
+	parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
 	runner := &retryRecorder{}
 	baseCtx := executor.WithSubWorkflowRunner(context.Background(), runner)
 	rootRef := exec.NewDAGRunRef(parent.Name, "root-run")
@@ -41,11 +41,11 @@ func TestParallelRetryPathReusesSiblings(t *testing.T) {
 		runtime.WithRootDAGRun(rootRef),
 		runtime.WithRetryPath(path),
 	)
-	step := core.Step{
+	step := ir.Step{
 		Name:           "parallel-child",
-		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeParallel},
-		SubDAG:         &core.SubDAG{Name: child.Name},
-		Parallel:       &core.ParallelConfig{MaxConcurrent: 2},
+		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeParallel},
+		SubDAG:         &ir.SubDAG{Name: child.Name},
+		Parallel:       &ir.ParallelConfig{MaxConcurrent: 2},
 	}
 
 	impl, err := executor.NewExecutor(ctx, step)
@@ -70,12 +70,12 @@ func TestParallelRetryPathReusesSiblings(t *testing.T) {
 // TestSubDAGRetryPathRejectsUnknownTarget asserts that a retry aimed at a child
 // DAG run the step does not produce fails instead of starting a fresh child run.
 func TestSubDAGRetryPathRejectsUnknownTarget(t *testing.T) {
-	child := &core.DAG{
+	child := &ir.DAG{
 		Name:     "child",
 		YamlData: []byte("name: child\nsteps:\n  - name: target\n    run: echo child\n"),
-		Steps:    []core.Step{{Name: "target"}},
+		Steps:    []ir.Step{{Name: "target"}},
 	}
-	parent := &core.DAG{Name: "root", LocalDAGs: map[string]*core.DAG{child.Name: child}}
+	parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
 	runner := &retryRecorder{}
 	baseCtx := executor.WithSubWorkflowRunner(context.Background(), runner)
 	rootRef := exec.NewDAGRunRef(parent.Name, "root-run")
@@ -90,10 +90,10 @@ func TestSubDAGRetryPathRejectsUnknownTarget(t *testing.T) {
 			Hops: []exec.RetryHop{{Step: "run-child", RunID: "child-stale"}},
 		}),
 	)
-	step := core.Step{
+	step := ir.Step{
 		Name:           "run-child",
-		ExecutorConfig: core.ExecutorConfig{Type: core.ExecutorTypeDAG},
-		SubDAG:         &core.SubDAG{Name: child.Name},
+		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeDAG},
+		SubDAG:         &ir.SubDAG{Name: child.Name},
 	}
 
 	impl, err := executor.NewExecutor(ctx, step)
@@ -125,14 +125,14 @@ func (r *retryRecorder) Run(_ context.Context, req executor.SubWorkflowRequest) 
 	r.mu.Lock()
 	r.runs = append(r.runs, req)
 	r.mu.Unlock()
-	return &exec.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: core.Succeeded}, nil
+	return &exec.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
 }
 
 func (r *retryRecorder) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*exec.RunStatus, error) {
 	r.mu.Lock()
 	r.retries = append(r.retries, req)
 	r.mu.Unlock()
-	return &exec.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: core.Succeeded}, nil
+	return &exec.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
 }
 
 func (*retryRecorder) Cancel(context.Context, executor.SubWorkflowCancelRequest) error {

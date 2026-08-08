@@ -12,7 +12,7 @@ import (
 
 	alibabakms "github.com/alibabacloud-go/kms-20160120/v4/client"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +51,7 @@ func TestAlibabaKMSResolverValidate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := resolver.Validate(core.SecretRef{Key: tc.key, Options: tc.options})
+			err := resolver.Validate(ir.SecretRef{Key: tc.key, Options: tc.options})
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				return
@@ -86,7 +86,7 @@ func TestAlibabaKMSResolverResolve(t *testing.T) {
 		Secrets: config.SecretsConfig{Alibaba: config.AlibabaSecretsConfig{Region: " cn-hangzhou "}},
 	})
 
-	got, err := resolver.Resolve(ctx, core.SecretRef{
+	got, err := resolver.Resolve(ctx, ir.SecretRef{
 		Key: " production/database-password ",
 		Options: map[string]string{
 			"version_id":    " version-1 ",
@@ -97,7 +97,7 @@ func TestAlibabaKMSResolverResolve(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "resolved", got)
 
-	got, err = resolver.Resolve(ctx, core.SecretRef{
+	got, err = resolver.Resolve(ctx, ir.SecretRef{
 		Key:     "production/database-password",
 		Options: map[string]string{"region": " ap-southeast-1 ", "field": "enabled"},
 	})
@@ -105,7 +105,7 @@ func TestAlibabaKMSResolverResolve(t *testing.T) {
 	assert.Equal(t, "true", got)
 
 	arn := "acs:kms:us-west-1:1234567890123456:secret/production/database-password"
-	got, err = resolver.Resolve(ctx, core.SecretRef{Key: arn})
+	got, err = resolver.Resolve(ctx, ir.SecretRef{Key: arn})
 	require.NoError(t, err)
 	assert.Equal(t, value, got)
 
@@ -142,7 +142,7 @@ func TestAlibabaKMSResolverConfiguredEndpoint(t *testing.T) {
 		}},
 	})
 
-	got, err := resolver.Resolve(ctx, core.SecretRef{Key: "database-password"})
+	got, err := resolver.Resolve(ctx, ir.SecretRef{Key: "database-password"})
 	require.NoError(t, err)
 	assert.Equal(t, value, got)
 	assert.Equal(t, alibabaKMSClientSettings{
@@ -183,7 +183,7 @@ func TestAlibabaKMSResolverErrors(t *testing.T) {
 			ctx := config.WithConfig(context.Background(), &config.Config{
 				Secrets: config.SecretsConfig{Alibaba: tc.providerConfig},
 			})
-			_, err := resolver.Resolve(ctx, core.SecretRef{Key: "name", Options: tc.options})
+			_, err := resolver.Resolve(ctx, ir.SecretRef{Key: "name", Options: tc.options})
 			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
@@ -207,7 +207,7 @@ func TestAlibabaKMSResolverCachesClients(t *testing.T) {
 	})
 
 	for range 2 {
-		_, err := resolver.Resolve(ctx, core.SecretRef{Key: "name"})
+		_, err := resolver.Resolve(ctx, ir.SecretRef{Key: "name"})
 		require.NoError(t, err)
 	}
 	assert.Equal(t, 1, factoryCalls)

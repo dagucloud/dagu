@@ -16,8 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Context contains the execution metadata for a dag-run.
@@ -26,11 +26,11 @@ type Context struct {
 	RootDAGRun           DAGRunRef
 	RetryPath            RetryPath
 	AttemptID            string
-	TriggerType          core.TriggerType
+	TriggerType          ir.TriggerType
 	TriggerActor         string
 	RunStartedAt         string
 	ScheduleTime         string
-	DAG                  *core.DAG
+	DAG                  *ir.DAG
 	DB                   Database
 	BaseEnv              *config.BaseEnv
 	EnvScope             *cmnvalue.EnvScope // Unified environment scope for runtime variables
@@ -104,7 +104,7 @@ func (e Context) AllEnvs() []string {
 // This interface abstracts the underlying storage mechanism, allowing for different implementations (e.g., SQL, NoSQL, in-memory).
 type Database interface {
 	// GetDAG retrieves a DAG by its name.
-	GetDAG(ctx context.Context, name string) (*core.DAG, error)
+	GetDAG(ctx context.Context, name string) (*ir.DAG, error)
 	// RequestChildCancel requests cancellation of a sub dag-run.
 	RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun DAGRunRef) error
 }
@@ -168,7 +168,7 @@ type RunStatus struct {
 	// OutputValues contains typed outputs published through stdout.outputs or outputs.write.
 	OutputValues map[string]any
 	// Status is the execution status of the dag-run.
-	Status core.Status
+	Status ir.Status
 	// PendingStepRetries contains any step retries that are waiting to be scheduled
 	// by the parent executor.
 	PendingStepRetries []PendingStepRetry
@@ -245,7 +245,7 @@ func WithAttemptID(attemptID string) ContextOption {
 }
 
 // WithTriggerType sets the DAG-run trigger type for value resolution.
-func WithTriggerType(triggerType core.TriggerType) ContextOption {
+func WithTriggerType(triggerType ir.TriggerType) ContextOption {
 	return func(o *contextOptions) {
 		o.TriggerType = triggerType
 	}
@@ -413,7 +413,7 @@ func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) 
 // Optional: use ContextOption functions (WithDatabase, WithParams, etc.)
 func NewContext(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	dagRunID string,
 	logFile string,
 	opts ...ContextOption,
@@ -477,7 +477,7 @@ func NewContext(
 
 func evaluateDAGEnvRuntime(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	runtimeParams map[string]string,
 	base map[string]string,
 	protected map[string]string,
@@ -537,7 +537,7 @@ func evaluateDAGEnvRuntime(
 }
 
 func buildDAGRunBuiltinContext(
-	dag *core.DAG,
+	dag *ir.DAG,
 	dagRunID string,
 	managedEnvs map[string]string,
 	options *contextOptions,
@@ -565,7 +565,7 @@ func buildDAGRunBuiltinContext(
 	return cmnvalue.NewBuiltinContext(values)
 }
 
-func rootDAGRunContextAvailable(root DAGRunRef, dag *core.DAG, dagRunID string) bool {
+func rootDAGRunContextAvailable(root DAGRunRef, dag *ir.DAG, dagRunID string) bool {
 	if root.Zero() {
 		return false
 	}

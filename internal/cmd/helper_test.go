@@ -9,9 +9,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +22,7 @@ func TestQuoteParamValues(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     []string
-		paramDefs []core.ParamDef
+		paramDefs []ir.ParamDef
 		expect    []string
 	}{
 		{
@@ -63,13 +63,13 @@ func TestQuoteParamValues(t *testing.T) {
 		{
 			name:      "positional params stored with numeric placeholders",
 			input:     []string{"1=hello world", "2=42"},
-			paramDefs: []core.ParamDef{{Name: ""}, {Name: ""}},
+			paramDefs: []ir.ParamDef{{Name: ""}, {Name: ""}},
 			expect:    []string{`"hello world"`, `"42"`},
 		},
 		{
 			name:      "numeric named params stay named",
 			input:     []string{"1=hello"},
-			paramDefs: []core.ParamDef{{Name: "1"}},
+			paramDefs: []ir.ParamDef{{Name: "1"}},
 			expect:    []string{`1="hello"`},
 		},
 	}
@@ -86,7 +86,7 @@ func TestQuoteParamValues(t *testing.T) {
 func TestRestoreDAGFromStatus_ParamsWithSpaces(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "test-dag",
 		YamlData: []byte("params:\n  - topic: \"\"\nsteps:\n  - name: test\n    command: echo $topic"),
 	}
@@ -106,10 +106,10 @@ func TestRestoreDAGFromStatus_ParamsWithSpaces(t *testing.T) {
 func TestRestoreDAGFromStatus_PositionalParamsRemainOverrides(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "test-dag",
 		YamlData: []byte("params: \"default\"\nsteps:\n  - name: test\n    command: echo $1"),
-		ParamDefs: []core.ParamDef{
+		ParamDefs: []ir.ParamDef{
 			{Name: ""},
 		},
 	}
@@ -127,7 +127,7 @@ func TestRestoreDAGFromStatus_PreservesExplicitWorkingDirFromYAML(t *testing.T) 
 	t.Parallel()
 
 	workDir := t.TempDir()
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		WorkingDir: workDir,
 		YamlData: fmt.Appendf(nil, `
@@ -149,7 +149,7 @@ func TestRestoreDAGFromStatus_PreservesBaseConfigWorkingDirAsExplicit(t *testing
 	t.Parallel()
 
 	workDir := t.TempDir()
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		WorkingDir: workDir,
 		YamlData: []byte(`
@@ -171,7 +171,7 @@ func TestRestoreDAGFromStatus_PrefersPersistedRunWorkingDir(t *testing.T) {
 	t.Parallel()
 
 	persistedWorkDir := t.TempDir()
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		WorkingDir: "/changed-work-dir",
 		YamlData: []byte(`
@@ -190,7 +190,7 @@ steps:
 }
 
 func TestRestoreDAGFromStatus_RestoresRegistryAuthsFromYAML(t *testing.T) {
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		YamlData: []byte(`
 registry_auths:
@@ -212,7 +212,7 @@ steps:
 }
 
 func TestRestoreDAGFromStatus_RestoresRegistryAuthsFromBaseConfig(t *testing.T) {
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		YamlData: []byte(`
 steps:
@@ -236,7 +236,7 @@ registry_auths:
 }
 
 func TestRestoreDAGFromStatus_RestoresHarnessConfigFromBaseConfig(t *testing.T) {
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		YamlData: []byte(`
 steps:

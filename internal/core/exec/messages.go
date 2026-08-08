@@ -3,14 +3,14 @@
 
 package exec
 
-import "github.com/dagucloud/dagu/v2/internal/core"
+import "github.com/dagucloud/dagu/v2/internal/ir"
 
 // LLM message role constants - aliases for core package constants.
 const (
-	RoleSystem    = core.LLMRoleSystem
-	RoleUser      = core.LLMRoleUser
-	RoleAssistant = core.LLMRoleAssistant
-	RoleTool      = core.LLMRoleTool
+	RoleSystem    = ir.LLMRoleSystem
+	RoleUser      = ir.LLMRoleUser
+	RoleAssistant = ir.LLMRoleAssistant
+	RoleTool      = ir.LLMRoleTool
 )
 
 // ToolCall represents an LLM's request to call a tool.
@@ -35,7 +35,7 @@ type ToolCallFunction struct {
 // LLMMessage represents a single message in the session.
 type LLMMessage struct {
 	// Role is the message role (system, user, assistant, tool).
-	Role core.LLMRole `json:"role"`
+	Role ir.LLMRole `json:"role"`
 	// Content is the message content.
 	Content string `json:"content"`
 	// ToolCallID is the ID of the tool call this message is responding to.

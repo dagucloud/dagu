@@ -18,10 +18,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -33,7 +33,7 @@ var _ executor.ParallelExecutor = (*enqueueExecutor)(nil)
 var _ executor.SubRunProvider = (*enqueueExecutor)(nil)
 
 type enqueueExecutor struct {
-	step core.Step
+	step ir.Step
 
 	lock          sync.Mutex
 	stdout        io.Writer
@@ -60,7 +60,7 @@ type enqueueRunsOutput struct {
 	Runs []enqueueRunOutput `json:"runs"`
 }
 
-func newEnqueueExecutor(_ context.Context, step core.Step) (executor.Executor, error) {
+func newEnqueueExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 	if step.SubDAG == nil {
 		return nil, fmt.Errorf("sub DAG configuration is missing")
 	}
@@ -117,7 +117,7 @@ func (e *enqueueExecutor) enqueueSequential(ctx context.Context, paramsList []ex
 }
 
 func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []executor.RunParams) ([]enqueueRunOutput, error) {
-	limit := core.DefaultMaxConcurrent
+	limit := ir.DefaultMaxConcurrent
 	if e.step.Parallel != nil && e.step.Parallel.MaxConcurrent > 0 {
 		limit = e.step.Parallel.MaxConcurrent
 	}
@@ -256,7 +256,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		QueueName:       queueName,
 		LogBaseDir:      rCtx.DAGRunLogDir,
 		ArtifactBaseDir: rCtx.DAGRunArtifactDir,
-		TriggerType:     core.TriggerTypeSubDAG,
+		TriggerType:     ir.TriggerTypeSubDAG,
 		TriggerActor:    rCtx.TriggerActor,
 		ProfileName:     rCtx.ProfileName,
 	})
@@ -276,12 +276,12 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		DAGRunID: runParams.RunID,
 		Params:   runParams.Params,
 		Queue:    queueName,
-		Status:   core.Queued.String(),
+		Status:   ir.Queued.String(),
 	}, nil
 }
 
 func (e *enqueueExecutor) outputFromExisting(ctx context.Context, attempt exec1.DAGRunAttempt, dagName string, params executor.RunParams, queueName string) enqueueRunOutput {
-	statusText := core.Queued.String()
+	statusText := ir.Queued.String()
 	if status, err := attempt.ReadStatus(ctx); err == nil && status != nil {
 		statusText = status.Status.String()
 	}
@@ -315,7 +315,7 @@ func (e *enqueueExecutor) writeOutput(outputs []enqueueRunOutput, parallel bool)
 		summary := enqueueRunsOutput{Runs: outputs}
 		summary.Summary.Total = len(outputs)
 		for _, output := range outputs {
-			if output.Status == core.Queued.String() && !output.AlreadyExists {
+			if output.Status == ir.Queued.String() && !output.AlreadyExists {
 				summary.Summary.Queued++
 			}
 		}
@@ -383,9 +383,9 @@ func (e *enqueueExecutor) Kill(os.Signal) error {
 }
 
 func init() {
-	caps := core.ExecutorCapabilities{
+	caps := ir.ExecutorCapabilities{
 		SubDAG:         true,
 		WorkerSelector: true,
 	}
-	executor.RegisterExecutor(core.ExecutorTypeDAGEnqueue, newEnqueueExecutor, nil, caps)
+	executor.RegisterExecutor(ir.ExecutorTypeDAGEnqueue, newEnqueueExecutor, nil, caps)
 }

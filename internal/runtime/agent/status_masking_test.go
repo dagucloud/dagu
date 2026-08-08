@@ -6,8 +6,8 @@ package agent
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +18,7 @@ func TestMaskNodeSecretsMasksHumanTaskPrompt(t *testing.T) {
 	masker := newStatusSecretMasker([]string{"DEPLOY_TOKEN=very-secret-token"})
 	require.NotNil(t, masker)
 	node := &exec.Node{
-		Step: core.Step{HumanTask: &core.HumanTaskConfig{
+		Step: ir.Step{HumanTask: &ir.HumanTaskConfig{
 			Prompt: "Review very-secret-token",
 		}},
 	}
@@ -35,7 +35,7 @@ func TestMaskNodeSecretsMasksStatusDetailLabels(t *testing.T) {
 	masker := newStatusSecretMasker([]string{"CUSTOMER_TOKEN=very-secret-token"})
 	require.NotNil(t, masker)
 	node := &exec.Node{StatusDetails: []exec.NodeStatusDetail{
-		{Label: "customer (TOKEN=very-secret-token)", Status: core.NodeFailed},
+		{Label: "customer (TOKEN=very-secret-token)", Status: ir.NodeFailed},
 	}}
 
 	maskNodeSecrets(masker, node)
@@ -43,5 +43,5 @@ func TestMaskNodeSecretsMasksStatusDetailLabels(t *testing.T) {
 	require.Len(t, node.StatusDetails, 1)
 	assert.Contains(t, node.StatusDetails[0].Label, "customer")
 	assert.NotContains(t, node.StatusDetails[0].Label, "very-secret-token")
-	assert.Equal(t, core.NodeFailed, node.StatusDetails[0].Status)
+	assert.Equal(t, ir.NodeFailed, node.StatusDetails[0].Status)
 }

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -75,9 +75,9 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 	procStore := &mockProcStore{}
 	detector := NewZombieDetector(dagRunStore, procStore, time.Second, 1)
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "step1"},
 		},
 	}
@@ -86,10 +86,10 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
-		Status:    core.Running,
+		Status:    ir.Running,
 		Nodes:     exec.NewNodesFromSteps(dag.Steps),
 	}
-	status.Nodes[0].Status = core.NodeRunning
+	status.Nodes[0].Status = ir.NodeRunning
 	attempt := &exec.MockDAGRunAttempt{}
 
 	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
@@ -98,10 +98,10 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 	attempt.On("ReadDAG", mock.Anything).Return(dag, nil).Once()
 	attempt.On("Open", mock.Anything).Return(nil).Once()
 	attempt.On("Write", mock.Anything, mock.MatchedBy(func(s exec.DAGRunStatus) bool {
-		return s.Status == core.Failed &&
+		return s.Status == ir.Failed &&
 			s.AttemptID == status.AttemptID &&
 			len(s.Nodes) == 1 &&
-			s.Nodes[0].Status == core.NodeFailed
+			s.Nodes[0].Status == ir.NodeFailed
 	})).Return(nil).Once()
 	attempt.On("Close", mock.Anything).Return(nil).Once()
 	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
@@ -121,9 +121,9 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRep
 	procStore := &mockProcStore{}
 	detector := NewZombieDetector(dagRunStore, procStore, time.Second, 1)
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "step1"},
 		},
 	}
@@ -134,13 +134,13 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRep
 		Name:         dag.Name,
 		DAGRunID:     "run-1",
 		AttemptID:    "attempt-1",
-		Status:       core.Running,
+		Status:       ir.Running,
 		WorkerID:     "local",
 		PID:          exec.PID(os.Getpid()),
 		PIDStartedAt: pidStartedAt,
 		Nodes:        exec.NewNodesFromSteps(dag.Steps),
 	}
-	status.Nodes[0].Status = core.NodeRunning
+	status.Nodes[0].Status = ir.NodeRunning
 	attempt := &exec.MockDAGRunAttempt{}
 
 	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
@@ -185,9 +185,9 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 	procStore := &mockProcStore{}
 	detector := NewZombieDetector(dagRunStore, procStore, time.Second, 1)
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "child",
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "child-step"},
 		},
 	}
@@ -207,10 +207,10 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 		Name:      dag.Name,
 		DAGRunID:  "sub-1",
 		AttemptID: "attempt-1",
-		Status:    core.Running,
+		Status:    ir.Running,
 		Nodes:     exec.NewNodesFromSteps(dag.Steps),
 	}
-	status.Nodes[0].Status = core.NodeRunning
+	status.Nodes[0].Status = ir.NodeRunning
 	attempt := &exec.MockDAGRunAttempt{}
 
 	procStore.On("ListAllEntries", ctx).Return([]exec.ProcEntry{entry}, nil).Once()
@@ -219,7 +219,7 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 	attempt.On("ReadDAG", mock.Anything).Return(dag, nil).Once()
 	attempt.On("Open", mock.Anything).Return(nil).Once()
 	attempt.On("Write", mock.Anything, mock.MatchedBy(func(s exec.DAGRunStatus) bool {
-		return s.Status == core.Failed && s.AttemptID == status.AttemptID
+		return s.Status == ir.Failed && s.AttemptID == status.AttemptID
 	})).Return(nil).Once()
 	attempt.On("Close", mock.Anything).Return(nil).Once()
 	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
@@ -334,7 +334,7 @@ type mockDAGRunStore struct {
 	mock.Mock
 }
 
-func (m *mockDAGRunStore) CreateAttempt(ctx context.Context, dag *core.DAG, ts time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) CreateAttempt(ctx context.Context, dag *ir.DAG, ts time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	args := m.Called(ctx, dag, ts, dagRunID, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -378,7 +378,7 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
+	expectedStatus ir.Status,
 	_ func(*exec.DAGRunStatus) error,
 	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {

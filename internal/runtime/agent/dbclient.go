@@ -10,8 +10,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
@@ -27,8 +27,8 @@ func newDBClient(drs exec.DAGRunStore, ds exec.DAGStore, remoteDAGLoader RemoteD
 	return &dbClient{drs: drs, ds: ds, remoteDAGLoader: remoteDAGLoader}
 }
 
-// GetDAG implements core.DBClient.
-func (o *dbClient) GetDAG(ctx context.Context, name string) (*core.DAG, error) {
+// GetDAG implements ir.DBClient.
+func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 	// Guard against nil DAG store
 	if o.ds == nil {
 		logger.Info(ctx, "No local DAG store, trying remote fallback", tag.SubDAG(name))

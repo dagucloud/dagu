@@ -7,18 +7,18 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSchedulerProbeHasLoadedScheduleMatchesAnySchedule(t *testing.T) {
 	probe := SchedulerProbe{
 		entryReader: staticEntryReader{
-			dags: []*core.DAG{
+			dags: []*ir.DAG{
 				{
 					Name: "scheduled",
-					Schedule: []core.Schedule{
+					Schedule: []ir.Schedule{
 						{Expression: "0 10 * * *"},
 						{Expression: "5 10 * * *"},
 					},
@@ -33,7 +33,7 @@ func TestSchedulerProbeHasLoadedScheduleMatchesAnySchedule(t *testing.T) {
 }
 
 type staticEntryReader struct {
-	dags []*core.DAG
+	dags []*ir.DAG
 }
 
 func (s staticEntryReader) Init(context.Context) error {
@@ -44,7 +44,7 @@ func (s staticEntryReader) Start(context.Context) {}
 
 func (s staticEntryReader) Stop() {}
 
-func (s staticEntryReader) DAGs() []*core.DAG {
+func (s staticEntryReader) DAGs() []*ir.DAG {
 	return s.dags
 }
 

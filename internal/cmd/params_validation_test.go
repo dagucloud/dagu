@@ -6,7 +6,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
@@ -112,7 +112,7 @@ func TestValidateStartPositionalParamCount(t *testing.T) {
 			t.Parallel()
 
 			ctx, args := testValidationContext(t, tt.cliArgs)
-			dag := &core.DAG{DefaultParams: tt.defaultArgs}
+			dag := &ir.DAG{DefaultParams: tt.defaultArgs}
 			err := validateStartPositionalParamCount(ctx, args, dag)
 			if tt.wantErr == "" {
 				require.NoError(t, err)

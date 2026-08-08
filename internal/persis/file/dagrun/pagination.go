@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
 )
 
@@ -177,8 +177,8 @@ type dagRunStatusIterator struct {
 	dayIndex        int
 	dayItems        []dagRunListItem
 	dayItemIndex    int
-	labelFilters    []core.LabelFilter
-	statusesFilter  map[core.Status]struct{}
+	labelFilters    []ir.LabelFilter
+	statusesFilter  map[ir.Status]struct{}
 	hasStatusFilter bool
 }
 
@@ -188,15 +188,15 @@ func newDAGRunStatusIterator(store *Store, root DataRoot, opts exec.ListDAGRunSt
 		return nil, err
 	}
 
-	statusesFilter := make(map[core.Status]struct{}, len(opts.Statuses))
+	statusesFilter := make(map[ir.Status]struct{}, len(opts.Statuses))
 	for _, status := range opts.Statuses {
 		statusesFilter[status] = struct{}{}
 	}
 
-	labelFilters := make([]core.LabelFilter, 0, len(opts.Labels))
+	labelFilters := make([]ir.LabelFilter, 0, len(opts.Labels))
 	for _, label := range opts.Labels {
 		if trimmed := strings.TrimSpace(label); trimmed != "" {
-			labelFilters = append(labelFilters, core.ParseLabelFilter(trimmed))
+			labelFilters = append(labelFilters, ir.ParseLabelFilter(trimmed))
 		}
 	}
 
@@ -352,7 +352,7 @@ func listDayPathsInRange(root DataRoot, from, to exec.TimeInUTC) ([]string, erro
 	return dayPaths, nil
 }
 
-func loadDayRuns(ctx context.Context, dayPath string, dayEntries []os.DirEntry, statusesFilter map[core.Status]struct{}, hasStatusFilter bool) ([]*DAGRun, error) {
+func loadDayRuns(ctx context.Context, dayPath string, dayEntries []os.DirEntry, statusesFilter map[ir.Status]struct{}, hasStatusFilter bool) ([]*DAGRun, error) {
 	indexEntries, _, indexErr := dagrunindex.TryLoadForDay(ctx, dayPath, dayEntries)
 	if indexErr == nil && indexEntries != nil && len(indexEntries) == countDAGRunDirs(dayEntries) {
 		runs := make([]*DAGRun, 0, len(indexEntries))

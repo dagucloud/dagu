@@ -20,8 +20,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -49,16 +49,16 @@ type Runner struct {
 	timeout          time.Duration
 	delay            time.Duration
 	dry              bool
-	onInit           *core.Step
-	onExit           *core.Step
-	onSuccess        *core.Step
-	onFailure        *core.Step
-	onAbort          *core.Step
+	onInit           *ir.Step
+	onExit           *ir.Step
+	onSuccess        *ir.Step
+	onFailure        *ir.Step
+	onAbort          *ir.Step
 	dagRunID         string
 	messagesHandler  ChatMessagesHandler
 	stepExecutor     *StepExecutor
-	onWait           *core.Step
-	forcedStatus     *core.Status
+	onWait           *ir.Step
+	forcedStatus     *ir.Status
 	materializations exec.MaterializationStore
 	noReuse          bool
 
@@ -73,7 +73,7 @@ type Runner struct {
 	lastError error
 
 	handlerMu sync.RWMutex
-	handlers  map[core.HandlerType]*Node
+	handlers  map[ir.HandlerType]*Node
 
 	metrics struct {
 		startTime          time.Time
@@ -118,15 +118,15 @@ type Config struct {
 	Timeout              time.Duration
 	Delay                time.Duration
 	Dry                  bool
-	OnInit               *core.Step
-	OnExit               *core.Step
-	OnSuccess            *core.Step
-	OnFailure            *core.Step
-	OnAbort              *core.Step
+	OnInit               *ir.Step
+	OnExit               *ir.Step
+	OnSuccess            *ir.Step
+	OnFailure            *ir.Step
+	OnAbort              *ir.Step
 	DAGRunID             string
 	MessagesHandler      ChatMessagesHandler
-	OnWait               *core.Step
-	ForcedStatus         *core.Status
+	OnWait               *ir.Step
+	ForcedStatus         *ir.Status
 	MaterializationStore exec.MaterializationStore
 	NoReuse              bool
 
@@ -180,7 +180,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 
 	// Execute init handler after preconditions pass, before steps
 	if !r.isCanceled() {
-		if initNode := r.handlers[core.HandlerOnInit]; initNode != nil {
+		if initNode := r.handlers[ir.HandlerOnInit]; initNode != nil {
 			logger.Debug(ctx, "Init handler execution started",
 				tag.Handler(initNode.Name()),
 			)
@@ -203,20 +203,20 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	// Collect final metrics
 	r.metrics.totalExecutionTime = time.Since(r.metrics.startTime)
 
-	var eventHandlers []core.HandlerType
+	var eventHandlers []ir.HandlerType
 	finalStatus := r.Status(ctx, plan)
 	switch finalStatus {
-	case core.Succeeded:
-		eventHandlers = append(eventHandlers, core.HandlerOnSuccess)
+	case ir.Succeeded:
+		eventHandlers = append(eventHandlers, ir.HandlerOnSuccess)
 
-	case core.PartiallySucceeded:
+	case ir.PartiallySucceeded:
 		// PartialSuccess is treated as success since primary work was completed
 		// despite some non-critical failures that were allowed to continue
-		eventHandlers = append(eventHandlers, core.HandlerOnSuccess)
+		eventHandlers = append(eventHandlers, ir.HandlerOnSuccess)
 
-	case core.Failed:
+	case ir.Failed:
 		if r.shouldRunFailureHandler(finalStatus) {
-			eventHandlers = append(eventHandlers, core.HandlerOnFailure)
+			eventHandlers = append(eventHandlers, ir.HandlerOnFailure)
 		} else {
 			logger.Info(ctx, "Skipping failure handler while DAG auto-retry is pending",
 				slog.Int("autoRetryCount", r.dagRunAutoRetryCount),
@@ -224,16 +224,16 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 			)
 		}
 
-	case core.Aborted:
-		eventHandlers = append(eventHandlers, core.HandlerOnAbort)
+	case ir.Aborted:
+		eventHandlers = append(eventHandlers, ir.HandlerOnAbort)
 
-	case core.Rejected:
-		eventHandlers = append(eventHandlers, core.HandlerOnFailure)
+	case ir.Rejected:
+		eventHandlers = append(eventHandlers, ir.HandlerOnFailure)
 
-	case core.Waiting:
+	case ir.Waiting:
 		// Execute onWait handler before terminating
 		r.handlerMu.RLock()
-		handlerNode := r.handlers[core.HandlerOnWait]
+		handlerNode := r.handlers[ir.HandlerOnWait]
 		r.handlerMu.RUnlock()
 
 		if handlerNode != nil {
@@ -259,18 +259,18 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 		logger.Info(ctx, "DAG waiting for human input")
 		return r.lastError
 
-	case core.Queued:
+	case ir.Queued:
 		logger.Info(ctx, "DAG queued for pending step retry")
 		return r.lastError
 
-	case core.NotStarted, core.Running:
+	case ir.NotStarted, ir.Running:
 		// These states should not occur at this point
 		logger.Warn(ctx, "Unexpected final status",
 			tag.Status(finalStatus.String()),
 		)
 	}
 
-	eventHandlers = append(eventHandlers, core.HandlerOnExit)
+	eventHandlers = append(eventHandlers, ir.HandlerOnExit)
 
 	r.handlerMu.RLock()
 	defer r.handlerMu.RUnlock()
@@ -308,7 +308,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 
 	// Find initial ready nodes
 	for _, node := range nodes {
-		if node.State().Status == core.NodeNotStarted && isReady(ctx, plan, node) {
+		if node.State().Status == ir.NodeNotStarted && isReady(ctx, plan, node) {
 			logger.Debug(ctx, "Initial node ready", tag.Step(node.Name()))
 			readyCh <- node
 		}
@@ -356,13 +356,13 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 		case node := <-activeReadyCh:
 			logger.Debug(ctx, "Processing ready node", tag.Step(node.Name()))
 			// Double check status - must be NotStarted to proceed
-			if node.State().Status != core.NodeNotStarted {
+			if node.State().Status != ir.NodeNotStarted {
 				continue
 			}
 
 			// Immediately mark as running to prevent duplicate execution
 			// when multiple parents complete simultaneously
-			node.SetStatus(core.NodeRunning)
+			node.SetStatus(ir.NodeRunning)
 
 			running++
 			wg.Add(1)
@@ -388,7 +388,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				if err != nil {
 					r.setLastError(err)
 					n.MarkError(err)
-					n.SetStatus(core.NodeFailed)
+					n.SetStatus(ir.NodeFailed)
 					return
 				}
 				if n.Step().HumanTask != nil {
@@ -399,7 +399,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 					if err := validateIncrementalRuntimeRedirectAliases(ctx, plan, n); err != nil {
 						r.setLastError(err)
 						n.MarkError(err)
-						n.SetStatus(core.NodeFailed)
+						n.SetStatus(ir.NodeFailed)
 						return
 					}
 				}
@@ -407,7 +407,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				if err := r.prepareNode(ctx, n); err != nil {
 					r.setLastError(err)
 					n.MarkError(err)
-					n.SetStatus(core.NodeFailed)
+					n.SetStatus(ir.NodeFailed)
 					return
 				}
 
@@ -442,8 +442,8 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 	wg.Wait()
 }
 
-func (r *Runner) shouldRunFailureHandler(status core.Status) bool {
-	if status != core.Failed {
+func (r *Runner) shouldRunFailureHandler(status ir.Status) bool {
+	if status != ir.Failed {
 		return true
 	}
 	if !r.dagRunIsRoot {
@@ -469,14 +469,14 @@ func (r *Runner) processCompletedNode(ctx context.Context, plan *Plan, node *Nod
 
 		for _, childID := range plan.Dependents(curr.id) {
 			child := plan.GetNode(childID)
-			if child.State().Status == core.NodeNotStarted {
+			if child.State().Status == ir.NodeNotStarted {
 				if isReady(ctx, plan, child) {
 					logger.Debug(ctx, "Dependency satisfied, node ready",
 						tag.Step(child.Name()),
 						tag.Parent(curr.Name()),
 					)
 					readyCh <- child
-				} else if child.State().Status != core.NodeNotStarted {
+				} else if child.State().Status != ir.NodeNotStarted {
 					// Child was marked as Aborted/Skipped/Failed by isReady
 					// Add to queue to propagate to its children
 					queue = append(queue, child)
@@ -549,7 +549,7 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	if err != nil {
 		r.setLastError(err)
 		node.MarkError(err)
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		reportPreparedNode()
 		return
 	}
@@ -589,7 +589,7 @@ ExecRepeat: // repeat execution
 		if attemptErr != nil {
 			r.setLastError(attemptErr)
 			node.MarkError(attemptErr)
-			node.SetStatus(core.NodeFailed)
+			node.SetStatus(ir.NodeFailed)
 			return
 		}
 		execErr := r.execNode(attemptCtx, node, progressCh)
@@ -608,12 +608,12 @@ ExecRepeat: // repeat execution
 			}
 			continue ExecRepeat
 		}
-		if node.State().Status == core.NodeRetrying {
+		if node.State().Status == ir.NodeRetrying {
 			reportPreparedNode()
 			return
 		}
 
-		if node.State().Status != core.NodeAborted {
+		if node.State().Status != ir.NodeAborted {
 			node.IncDoneCount()
 		}
 
@@ -638,33 +638,33 @@ ExecRepeat: // repeat execution
 	// Determine final status for nodes still in running state.
 	// Repetitive tasks complete naturally (signal not sent - see runner.Signal).
 	// Only mark as aborted if: not a repetitive task AND runner was canceled.
-	if node.State().Status == core.NodeRunning {
+	if node.State().Status == ir.NodeRunning {
 		isRepetitive := node.Step().RepeatPolicy.RepeatMode != ""
 		if !isRepetitive && r.isCanceled() {
-			node.SetStatus(core.NodeAborted)
+			node.SetStatus(ir.NodeAborted)
 		} else if node.Step().Approval != nil {
 			// Step has approval config — enter waiting state for human review.
 			// Push-back is human-controlled, no iteration limit.
-			node.SetStatus(core.NodeWaiting)
+			node.SetStatus(ir.NodeWaiting)
 		} else {
-			node.SetStatus(core.NodeSucceeded)
+			node.SetStatus(ir.NodeSucceeded)
 		}
 	}
 
 	// For executors that implement NodeStatusDeterminer (e.g. call/dag, parallel),
 	// the status may have been set to NodeSucceeded by the executor.
 	// If the step has an approval config, override to NodeWaiting.
-	if node.State().Status == core.NodeSucceeded && node.Step().Approval != nil {
-		node.SetStatus(core.NodeWaiting)
+	if node.State().Status == ir.NodeSucceeded && node.Step().Approval != nil {
+		node.SetStatus(ir.NodeWaiting)
 	}
-	if node.State().Status == core.NodeSucceeded && incrementalSession != nil {
+	if node.State().Status == ir.NodeSucceeded && incrementalSession != nil {
 		metadata := incrementalSession.Metadata()
 		metadata.Phase = exec.IncrementalPhaseComplete
 		node.setIncremental(metadata)
 	}
 
 	// Save chat messages after execution (including waiting steps for push-back continuity).
-	if node.State().Status == core.NodeSucceeded || node.State().Status == core.NodeWaiting {
+	if node.State().Status == ir.NodeSucceeded || node.State().Status == ir.NodeWaiting {
 		r.saveChatMessages(ctx, node)
 	}
 
@@ -749,7 +749,7 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 		err = fmt.Errorf("failed to evaluate human task prompt: %w", err)
 		r.setLastError(err)
 		node.MarkError(err)
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		if progressCh != nil {
 			progressCh <- node
 		}
@@ -776,7 +776,7 @@ func (r *Runner) teardownNode(node *Node) error {
 func (r *Runner) teardownPreparedNode(node *Node) {
 	if err := r.teardownNode(node); err != nil {
 		r.setLastError(err)
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 	}
 }
 
@@ -869,9 +869,9 @@ func (r *Runner) setupPushBackConversation(ctx context.Context, node *Node) {
 	node.SetChatMessages(ownMessages)
 }
 
-func stepSupportsChatMessages(step core.Step) bool {
+func stepSupportsChatMessages(step ir.Step) bool {
 	executorType := step.ExecutorConfig.Type
-	return core.SupportsLLM(executorType)
+	return ir.SupportsLLM(executorType)
 }
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (context.Context, error) {
@@ -896,7 +896,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 	// Path-dependent environment values are resolved after incremental paths
 	// enter scope. Output-dependent values are refreshed for every attempt.
 	stepEnv := node.Step().Env
-	if env.DAG != nil && env.DAG.Type == core.TypeIncremental {
+	if env.DAG != nil && env.DAG.Type == ir.TypeIncremental {
 		_, hasPathOutput := node.Step().PathOutput()
 		if len(node.Step().Inputs) > 0 || hasPathOutput {
 			stepEnv = environmentWithoutAttemptPaths(stepEnv)
@@ -1094,15 +1094,15 @@ func (r *Runner) Cancel(p *Plan) {
 }
 
 // Status returns the status of the runner.
-func (r *Runner) Status(ctx context.Context, p *Plan) core.Status {
+func (r *Runner) Status(ctx context.Context, p *Plan) ir.Status {
 	if r.isFailed() {
-		return core.Failed
+		return ir.Failed
 	}
 	if r.isCanceled() && !r.isSucceed(p) {
-		return core.Aborted
+		return ir.Aborted
 	}
 	if !p.IsStarted() {
-		return core.NotStarted
+		return ir.NotStarted
 	}
 
 	// Get node states atomically, then check plan finished state.
@@ -1112,33 +1112,33 @@ func (r *Runner) Status(ctx context.Context, p *Plan) core.Status {
 	states := p.NodeStates()
 
 	if states.HasRunning {
-		return core.Running
+		return ir.Running
 	}
 	if states.HasRetrying {
-		return core.Queued
+		return ir.Queued
 	}
 	if states.HasRejected {
-		return core.Rejected
+		return ir.Rejected
 	}
 	if states.HasWaiting {
-		return core.Waiting
+		return ir.Waiting
 	}
 	if states.HasNotStarted && !p.IsFinished() {
-		return core.Running
+		return ir.Running
 	}
 	if r.forcedStatus != nil {
 		return *r.forcedStatus
 	}
 
 	if r.isPartialSuccess(ctx, p) {
-		return core.PartiallySucceeded
+		return ir.PartiallySucceeded
 	}
 
 	if r.isError() {
-		return core.Failed
+		return ir.Failed
 	}
 
-	return core.Succeeded
+	return ir.Succeeded
 }
 
 func (r *Runner) isError() bool {
@@ -1148,7 +1148,7 @@ func (r *Runner) isError() bool {
 }
 
 // HandlerNode returns the handler node with the given name.
-func (r *Runner) HandlerNode(name core.HandlerType) *Node {
+func (r *Runner) HandlerNode(name ir.HandlerType) *Node {
 	r.handlerMu.RLock()
 	defer r.handlerMu.RUnlock()
 	if v, ok := r.handlers[name]; ok {
@@ -1160,13 +1160,13 @@ func (r *Runner) HandlerNode(name core.HandlerType) *Node {
 // handlersBeforeSteps and handlersAfterSteps list the lifecycle handlers by
 // when they run relative to the DAG's steps.
 var (
-	handlersBeforeSteps = []core.HandlerType{core.HandlerOnInit}
-	handlersAfterSteps  = []core.HandlerType{
-		core.HandlerOnWait,
-		core.HandlerOnSuccess,
-		core.HandlerOnFailure,
-		core.HandlerOnAbort,
-		core.HandlerOnExit,
+	handlersBeforeSteps = []ir.HandlerType{ir.HandlerOnInit}
+	handlersAfterSteps  = []ir.HandlerType{
+		ir.HandlerOnWait,
+		ir.HandlerOnSuccess,
+		ir.HandlerOnFailure,
+		ir.HandlerOnAbort,
+		ir.HandlerOnExit,
 	}
 )
 
@@ -1213,10 +1213,10 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 		status := dep.State().Status
 
 		switch status {
-		case core.NodeSucceeded, core.NodePartiallySucceeded:
+		case ir.NodeSucceeded, ir.NodePartiallySucceeded:
 			continue
 
-		case core.NodeFailed:
+		case ir.NodeFailed:
 			if dep.ShouldContinue(ctx) {
 				logger.Debug(ctx, "Dependency failed but allowed to continue",
 					tag.Step(node.Name()), tag.Dependency(dep.Name()))
@@ -1224,11 +1224,11 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 			}
 			logger.Debug(ctx, "Dependency failed",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
-			node.SetStatus(core.NodeAborted)
+			node.SetStatus(ir.NodeAborted)
 			node.SetError(ErrUpstreamFailed)
 			return false
 
-		case core.NodeSkipped:
+		case ir.NodeSkipped:
 			if dep.State().SkippedByRetry {
 				logger.Debug(ctx, "Dependency skipped by retry",
 					tag.Step(node.Name()), tag.Dependency(dep.Name()))
@@ -1241,35 +1241,35 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 			}
 			logger.Debug(ctx, "Dependency skipped",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
-			node.SetStatus(core.NodeSkipped)
+			node.SetStatus(ir.NodeSkipped)
 			node.SetError(ErrUpstreamSkipped)
 			return false
 
-		case core.NodeAborted:
+		case ir.NodeAborted:
 			logger.Debug(ctx, "Dependency aborted",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
-			node.SetStatus(core.NodeAborted)
+			node.SetStatus(ir.NodeAborted)
 			return false
 
-		case core.NodeRejected:
+		case ir.NodeRejected:
 			logger.Debug(ctx, "Dependency rejected",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
-			node.SetStatus(core.NodeAborted)
+			node.SetStatus(ir.NodeAborted)
 			node.SetError(ErrUpstreamRejected)
 			return false
 
-		case core.NodeNotStarted, core.NodeRunning:
+		case ir.NodeNotStarted, ir.NodeRunning:
 			logger.Debug(ctx, "Dependency not finished",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()),
 				tag.Status(status.String()))
 			return false
 
-		case core.NodeRetrying:
+		case ir.NodeRetrying:
 			logger.Debug(ctx, "Dependency waiting for retry",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
 			return false
 
-		case core.NodeWaiting:
+		case ir.NodeWaiting:
 			logger.Debug(ctx, "Dependency waiting for manual completion",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
 			return false
@@ -1285,40 +1285,40 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	defer node.Finish()
 
 	if r.dry {
-		node.SetStatus(core.NodeSucceeded)
+		node.SetStatus(ir.NodeSucceeded)
 		return nil
 	}
 
 	var err error
 	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
 	if err != nil {
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		return err
 	}
 
 	if err := node.Prepare(ctx, r.logDir, r.dagRunID); err != nil {
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		return err
 	}
 	defer func() { _ = node.Teardown() }()
 
 	if err := node.evalPreconditions(ctx); err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
-			node.SetStatus(core.NodeSkipped)
+			node.SetStatus(ir.NodeSkipped)
 			return nil
 		}
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		return err
 	}
 
-	node.SetStatus(core.NodeRunning)
+	node.SetStatus(ir.NodeRunning)
 
 	if err := r.stepExecutor.Execute(ctx, node); err != nil {
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		return err
 	}
 
-	node.SetStatus(core.NodeSucceeded)
+	node.SetStatus(ir.NodeSucceeded)
 	return nil
 }
 
@@ -1333,14 +1333,14 @@ func (r *Runner) setup(ctx context.Context) (err error) {
 	r.handlerMu.Lock()
 	defer r.handlerMu.Unlock()
 
-	r.handlers = make(map[core.HandlerType]*Node)
-	handlerSteps := map[core.HandlerType]*core.Step{
-		core.HandlerOnInit:    r.onInit,
-		core.HandlerOnExit:    r.onExit,
-		core.HandlerOnSuccess: r.onSuccess,
-		core.HandlerOnFailure: r.onFailure,
-		core.HandlerOnAbort:   r.onAbort,
-		core.HandlerOnWait:    r.onWait,
+	r.handlers = make(map[ir.HandlerType]*Node)
+	handlerSteps := map[ir.HandlerType]*ir.Step{
+		ir.HandlerOnInit:    r.onInit,
+		ir.HandlerOnExit:    r.onExit,
+		ir.HandlerOnSuccess: r.onSuccess,
+		ir.HandlerOnFailure: r.onFailure,
+		ir.HandlerOnAbort:   r.onAbort,
+		ir.HandlerOnWait:    r.onWait,
 	}
 	for handlerType, step := range handlerSteps {
 		if step != nil {
@@ -1387,7 +1387,7 @@ func (r *Runner) isSucceed(p *Plan) bool {
 	defer r.mu.RUnlock()
 	for _, node := range p.Nodes() {
 		nodeStatus := node.State().Status
-		if nodeStatus == core.NodeSucceeded || nodeStatus == core.NodeSkipped || nodeStatus == core.NodePartiallySucceeded {
+		if nodeStatus == ir.NodeSucceeded || nodeStatus == ir.NodeSkipped || nodeStatus == ir.NodePartiallySucceeded {
 			continue
 		}
 		return false
@@ -1407,7 +1407,7 @@ func (r *Runner) isPartialSuccess(ctx context.Context, p *Plan) bool {
 	// First pass: check if any failed node is NOT allowed to continue
 	// If so, this is an error, not partial success
 	for _, node := range p.Nodes() {
-		if node.State().Status == core.NodeFailed {
+		if node.State().Status == ir.NodeFailed {
 			if !node.ShouldContinue(ctx) {
 				// Found a failed node that was NOT allowed to continue
 				// This disqualifies the DAG from being partial success
@@ -1419,17 +1419,17 @@ func (r *Runner) isPartialSuccess(ctx context.Context, p *Plan) bool {
 	// Second pass: check for partial success conditions
 	for _, node := range p.Nodes() {
 		switch node.State().Status {
-		case core.NodeSucceeded:
+		case ir.NodeSucceeded:
 			hasSuccessfulNodes = true
-		case core.NodeFailed:
+		case ir.NodeFailed:
 			if node.ShouldContinue(ctx) && !node.ShouldMarkSuccess(ctx) {
 				hasFailuresWithContinueOn = true
 			}
-		case core.NodePartiallySucceeded:
+		case ir.NodePartiallySucceeded:
 			// Partial success at node level contributes to overall partial success
 			hasFailuresWithContinueOn = true
 			hasSuccessfulNodes = true
-		case core.NodeNotStarted, core.NodeRunning, core.NodeRetrying, core.NodeAborted, core.NodeSkipped, core.NodeWaiting, core.NodeRejected:
+		case ir.NodeNotStarted, ir.NodeRunning, ir.NodeRetrying, ir.NodeAborted, ir.NodeSkipped, ir.NodeWaiting, ir.NodeRejected:
 			// These statuses don't affect partial success determination, but are needed for linter
 		}
 	}
@@ -1487,7 +1487,7 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 
 	if !shouldRetry {
 		// finish the node with error
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		node.MarkError(execErr)
 		r.setLastError(execErr)
 		return false
@@ -1501,10 +1501,10 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 
 	if externalStepRetryEnabled(ctx) {
 		node.IncRetryCount()
-		node.SetStatus(core.NodeRetrying)
+		node.SetStatus(ir.NodeRetrying)
 		logger.Info(ctx, "Step retry will be scheduled by the parent executor",
 			slog.Int("retry", node.GetRetryCount()),
-			slog.Duration("interval", core.CalculateBackoffInterval(
+			slog.Duration("interval", ir.CalculateBackoffInterval(
 				node.Step().RetryPolicy.Interval,
 				node.Step().RetryPolicy.Backoff,
 				node.Step().RetryPolicy.MaxInterval,
@@ -1516,7 +1516,7 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 
 	// Set the node status to running so that it can be retried inline
 	node.IncRetryCount()
-	interval := core.CalculateBackoffInterval(
+	interval := ir.CalculateBackoffInterval(
 		node.Step().RetryPolicy.Interval,
 		node.Step().RetryPolicy.Backoff,
 		node.Step().RetryPolicy.MaxInterval,
@@ -1524,7 +1524,7 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 	)
 	time.Sleep(interval)
 	node.SetRetriedAt(time.Now())
-	node.SetStatus(core.NodeRunning)
+	node.SetStatus(ir.NodeRunning)
 	return true
 }
 
@@ -1559,20 +1559,20 @@ func (r *Runner) finishNode(node *Node, wg *sync.WaitGroup) {
 	defer r.mu.Unlock()
 
 	switch node.State().Status {
-	case core.NodeSucceeded, core.NodePartiallySucceeded:
+	case ir.NodeSucceeded, ir.NodePartiallySucceeded:
 		r.metrics.completedNodes++
-	case core.NodeFailed, core.NodeRejected:
+	case ir.NodeFailed, ir.NodeRejected:
 		r.metrics.failedNodes++
-	case core.NodeSkipped:
+	case ir.NodeSkipped:
 		r.metrics.skippedNodes++
-	case core.NodeAborted:
+	case ir.NodeAborted:
 		r.metrics.canceledNodes++
-	case core.NodeWaiting, core.NodeNotStarted, core.NodeRunning, core.NodeRetrying:
+	case ir.NodeWaiting, ir.NodeNotStarted, ir.NodeRunning, ir.NodeRetrying:
 		// Waiting nodes are counted when they complete after manual input.
 		// NotStarted/Running should not happen at this point.
 	}
 
-	if node.State().Status != core.NodeWaiting || node.Step().HumanTask == nil {
+	if node.State().Status != ir.NodeWaiting || node.Step().HumanTask == nil {
 		node.Finish()
 	}
 	if wg != nil {
@@ -1597,13 +1597,13 @@ func meetsPreconditions(ctx context.Context, node *Node, progressCh chan *Node) 
 	err := node.evalPreconditions(ctx)
 	if err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
-			node.SetStatus(core.NodeSkipped)
+			node.SetStatus(ir.NodeSkipped)
 			if progressCh != nil {
 				progressCh <- node
 			}
 			return false, nil
 		}
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		node.SetError(err)
 		if progressCh != nil {
 			progressCh <- node
@@ -1621,7 +1621,7 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 
 	s := node.State().Status
 	switch {
-	case s == core.NodeSucceeded || s == core.NodeAborted || s == core.NodePartiallySucceeded:
+	case s == ir.NodeSucceeded || s == ir.NodeAborted || s == ir.NodePartiallySucceeded:
 		// do nothing
 
 	// Check for timeout errors first (both step-level and DAG-level)
@@ -1635,18 +1635,18 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 				tag.Error(execErr),
 			)
 			// Ensure status is failed (in case earlier logic differed)
-			node.SetStatus(core.NodeFailed)
+			node.SetStatus(ir.NodeFailed)
 		} else if r.isTimeout(plan.StartAt()) {
 			// DAG-level timeout -> treat as aborted (global cancellation semantics)
 			logger.Info(ctx, "Step deadline exceeded (DAG-level timeout)",
 				tag.Timeout(r.timeout),
 				tag.Error(execErr),
 			)
-			node.SetStatus(core.NodeAborted)
+			node.SetStatus(ir.NodeAborted)
 		} else {
 			// Parent context canceled or other deadline; mark aborted for safety
 			logger.Info(ctx, "Step deadline exceeded", tag.Error(execErr))
-			node.SetStatus(core.NodeAborted)
+			node.SetStatus(ir.NodeAborted)
 		}
 		r.setLastError(execErr)
 
@@ -1656,11 +1656,11 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 			tag.Timeout(r.timeout),
 			tag.Error(execErr),
 		)
-		node.SetStatus(core.NodeAborted)
+		node.SetStatus(ir.NodeAborted)
 		r.setLastError(execErr)
 
 	case r.isCanceled():
-		node.SetStatus(core.NodeAborted)
+		node.SetStatus(ir.NodeAborted)
 
 	case node.retryPolicy.Limit > node.GetRetryCount():
 		if r.shouldRetryNode(ctx, node, execErr) {
@@ -1669,11 +1669,11 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 
 	default:
 		// node execution error is unexpected and unrecoverable
-		node.SetStatus(core.NodeFailed)
+		node.SetStatus(ir.NodeFailed)
 		if node.ShouldMarkSuccess(ctx) {
 			// mark as success if the node should be force marked as success
 			// i.e. continueOn.markSuccess is set to true
-			node.SetStatus(core.NodeSucceeded)
+			node.SetStatus(ir.NodeSucceeded)
 		} else {
 			node.MarkError(execErr)
 			r.setLastError(execErr)
@@ -1697,9 +1697,9 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 	shell := GetEnv(ctx).Shell(ctx)
 
 	switch rp.RepeatMode {
-	case core.RepeatModeWhile:
+	case ir.RepeatModeWhile:
 		return r.evalWhileCondition(ctx, shell, node, rp, execErr)
-	case core.RepeatModeUntil:
+	case ir.RepeatModeUntil:
 		return r.evalUntilCondition(ctx, shell, node, rp, execErr)
 	default:
 		return false
@@ -1722,7 +1722,7 @@ func (r *Runner) reloadNodeOutputs(ctx context.Context, node *Node) context.Cont
 }
 
 // evalWhileCondition evaluates the repeat condition for a "while" loop.
-func (r *Runner) evalWhileCondition(ctx context.Context, shell []string, node *Node, rp core.RepeatPolicy, execErr error) bool {
+func (r *Runner) evalWhileCondition(ctx context.Context, shell []string, node *Node, rp ir.RepeatPolicy, execErr error) bool {
 	if rp.Condition != nil {
 		err := EvalCondition(ctx, shell, rp.Condition)
 		return err == nil // Repeat while condition is met
@@ -1735,7 +1735,7 @@ func (r *Runner) evalWhileCondition(ctx context.Context, shell []string, node *N
 }
 
 // evalUntilCondition evaluates the repeat condition for an "until" loop.
-func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *Node, rp core.RepeatPolicy, execErr error) bool {
+func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *Node, rp ir.RepeatPolicy, execErr error) bool {
 	if rp.Condition != nil {
 		err := EvalCondition(ctx, shell, rp.Condition)
 		return err != nil // Repeat until condition is met
@@ -1751,14 +1751,14 @@ func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *N
 func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressCh chan *Node) {
 	step := node.Step()
 
-	node.SetStatus(core.NodeRunning) // reset status to running for the repeat
+	node.SetStatus(ir.NodeRunning) // reset status to running for the repeat
 	if r.lastError == node.Error() {
 		r.setLastError(nil) // clear last error if we are repeating
 	}
 	logger.Info(ctx, "Step will be repeated",
 		slog.Duration("interval", step.RepeatPolicy.Interval),
 	)
-	interval := core.CalculateBackoffInterval(
+	interval := ir.CalculateBackoffInterval(
 		step.RepeatPolicy.Interval,
 		step.RepeatPolicy.Backoff,
 		step.RepeatPolicy.MaxInterval,
@@ -1773,14 +1773,14 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	}
 }
 
-func NewPlanEnv(ctx context.Context, step core.Step, plan *Plan) Env {
+func NewPlanEnv(ctx context.Context, step ir.Step, plan *Plan) Env {
 	env := NewEnv(ctx, step)
 	addInheritedStepMap(ctx, &env)
 	addPlanStepsToEnv(&env, plan)
 	return env
 }
 
-func NewPlanEnvWithError(ctx context.Context, step core.Step, plan *Plan) (Env, error) {
+func NewPlanEnvWithError(ctx context.Context, step ir.Step, plan *Plan) (Env, error) {
 	env, err := NewEnvWithError(ctx, step)
 	if err != nil {
 		return Env{}, err
@@ -1851,7 +1851,7 @@ func planPredecessorNodes(plan *Plan, node *Node) []*Node {
 	if plan.IsController() {
 		var nodes []*Node
 		for _, candidate := range plan.Nodes() {
-			if candidate.ID() == node.ID() || candidate.Name() == core.ControllerStepName {
+			if candidate.ID() == node.ID() || candidate.Name() == ir.ControllerStepName {
 				continue
 			}
 			if candidate.State().Status.IsDone() {

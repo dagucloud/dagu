@@ -14,8 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // EvalBool evaluates the given value with the variables within the execution context
@@ -69,7 +69,7 @@ func builtinContextFromEnv(env Env) cmnvalue.BuiltinContext {
 	return builtinContextFromDAGContext(env.Context, env.Scope, env.Step)
 }
 
-func builtinContextFromDAGContext(rCtx Context, scope *cmnvalue.EnvScope, step core.Step) cmnvalue.BuiltinContext {
+func builtinContextFromDAGContext(rCtx Context, scope *cmnvalue.EnvScope, step ir.Step) cmnvalue.BuiltinContext {
 	values := make(map[string]string)
 	addBuiltinContextValue(values, "context.dag.name", dagName(rCtx))
 	addBuiltinContextValue(values, "context.run.id", rCtx.DAGRunID)

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -49,10 +49,10 @@ func TestResolveSecretReference(t *testing.T) {
 
 	dagRunStore := dagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
 	leaseStore := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("leases"))
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:   "registry-secret-dag",
-		Labels: core.NewLabels([]string{"workspace=payments"}),
-		Secrets: []core.SecretRef{{
+		Labels: ir.NewLabels([]string{"workspace=payments"}),
+		Secrets: []ir.SecretRef{{
 			Name: "MY_SECRET",
 			Ref:  "prod/my-secret",
 		}},
@@ -69,7 +69,7 @@ func TestResolveSecretReference(t *testing.T) {
 		DAGRunID:   "run-1",
 		AttemptID:  attempt.ID(),
 		AttemptKey: attemptKey,
-		Status:     core.Running,
+		Status:     ir.Running,
 		Labels:     dag.Labels.Strings(),
 	}))
 	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{

@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -64,7 +64,7 @@ func malformedInlineJSONSchemaShapeError(input any) error {
 		return nil
 	}
 
-	return core.NewValidationError(
+	return ir.NewValidationError(
 		"params",
 		classification.malformedProperties,
 		fmt.Errorf("inline JSON Schema properties must be an object keyed by parameter name"),
@@ -110,7 +110,7 @@ func buildInlineSchemaParamPlan(input any, skipValidation bool) (*dagParamPlan, 
 func parseInlineSchema(input any, validate bool) (*jsonschema.Schema, *jsonschema.Resolved, error) {
 	m, ok := input.(map[string]any)
 	if !ok {
-		return nil, nil, core.NewValidationError("params", input, fmt.Errorf("%w: expected an object for inline JSON Schema", ErrInvalidParamValue))
+		return nil, nil, ir.NewValidationError("params", input, fmt.Errorf("%w: expected an object for inline JSON Schema", ErrInvalidParamValue))
 	}
 
 	stripped := make(map[string]any, len(m))

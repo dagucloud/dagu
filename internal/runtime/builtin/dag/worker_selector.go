@@ -9,14 +9,14 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
 func resolveChildRunParams(
 	ctx context.Context,
-	childDAG *core.DAG,
+	childDAG *ir.DAG,
 	runParams executor.RunParams,
 ) (executor.RunParams, error) {
 	if len(runParams.WorkerSelector) > 0 {

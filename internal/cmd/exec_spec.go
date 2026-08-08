@@ -12,8 +12,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 )
 
@@ -45,7 +45,7 @@ type execStep struct {
 	Shell   string `yaml:"shell,omitempty"`
 }
 
-func buildExecDAG(ctx *Context, opts ExecOptions) (*core.DAG, string, error) {
+func buildExecDAG(ctx *Context, opts ExecOptions) (*ir.DAG, string, error) {
 	if len(opts.CommandArgs) == 0 {
 		return nil, "", fmt.Errorf("command is required to build exec DAG")
 	}
@@ -54,7 +54,7 @@ func buildExecDAG(ctx *Context, opts ExecOptions) (*core.DAG, string, error) {
 	if name == "" {
 		name = defaultExecName(opts.CommandArgs[0])
 	}
-	if err := core.ValidateDAGName(name); err != nil {
+	if err := ir.ValidateDAGName(name); err != nil {
 		return nil, "", fmt.Errorf("invalid DAG name: %w", err)
 	}
 
@@ -63,7 +63,7 @@ func buildExecDAG(ctx *Context, opts ExecOptions) (*core.DAG, string, error) {
 
 	specDoc := execSpec{
 		Name:           name,
-		Type:           core.TypeChain,
+		Type:           ir.TypeChain,
 		WorkingDir:     opts.WorkingDir,
 		Env:            opts.Env,
 		Dotenv:         opts.DotenvFiles,
@@ -130,5 +130,5 @@ func defaultExecName(command string) string {
 		base = "command"
 	}
 	name := "exec-" + base
-	return stringutil.TruncString(name, core.DAGNameMaxLen)
+	return stringutil.TruncString(name, ir.DAGNameMaxLen)
 }

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const cgroupRoot = "/sys/fs/cgroup"
@@ -77,7 +77,7 @@ func (*cgroupGuard) Enforcer() string {
 	return "cgroup-v2"
 }
 
-func writeCgroupLimits(path string, limits *core.ResourceLimits) error {
+func writeCgroupLimits(path string, limits *ir.ResourceLimits) error {
 	if limits.CPUMillis > 0 {
 		period := int64(100_000)
 		quota := limits.CPUMillis * period / 1000

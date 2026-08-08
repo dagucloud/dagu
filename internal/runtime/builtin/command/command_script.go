@@ -13,7 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // setupScript creates a temporary executable script file containing the provided script.
@@ -163,8 +163,8 @@ func createDirectCommand(ctx context.Context, cmd string, args []string, scriptF
 
 // validateCommandStep checks that a Step has a valid command configuration.
 // It considers a step valid when it provides Commands, a Script, both, or a non-nil SubDAG.
-// Returns core.ErrStepCommandIsRequired when none of those are present.
-func validateCommandStep(step core.Step) error {
+// Returns ir.ErrStepCommandIsRequired when none of those are present.
+func validateCommandStep(step ir.Step) error {
 	hasCommands := len(step.Commands) > 0
 
 	switch {
@@ -177,7 +177,7 @@ func validateCommandStep(step core.Step) error {
 	case step.SubDAG != nil:
 		// Sub DAG - valid
 	default:
-		return core.NewValidationError("command", nil, core.ErrStepCommandIsRequired)
+		return ir.NewValidationError("command", nil, ir.ErrStepCommandIsRequired)
 	}
 
 	return nil

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/require"
 )
@@ -22,36 +22,36 @@ func TestDAGRunInvalidatorRefreshesListsOnlyForLifecycleEvents(t *testing.T) {
 	tests := []struct {
 		name              string
 		eventType         eventstore.EventType
-		currentStatus     core.Status
-		filterStatus      core.Status
+		currentStatus     ir.Status
+		filterStatus      ir.Status
 		wantListRefreshes int64
 	}{
 		{
 			name:              "progress update",
 			eventType:         eventstore.TypeDAGRunUpdated,
-			currentStatus:     core.Running,
-			filterStatus:      core.Running,
+			currentStatus:     ir.Running,
+			filterStatus:      ir.Running,
 			wantListRefreshes: 0,
 		},
 		{
 			name:              "lifecycle update",
 			eventType:         eventstore.TypeDAGRunRunning,
-			currentStatus:     core.Running,
-			filterStatus:      core.Running,
+			currentStatus:     ir.Running,
+			filterStatus:      ir.Running,
 			wantListRefreshes: 1,
 		},
 		{
 			name:              "human task resumed",
 			eventType:         eventstore.TypeDAGRunQueued,
-			currentStatus:     core.Queued,
-			filterStatus:      core.Waiting,
+			currentStatus:     ir.Queued,
+			filterStatus:      ir.Waiting,
 			wantListRefreshes: 1,
 		},
 		{
 			name:              "failed auto retry canceled",
 			eventType:         eventstore.TypeDAGRunAborted,
-			currentStatus:     core.Aborted,
-			filterStatus:      core.Failed,
+			currentStatus:     ir.Aborted,
+			filterStatus:      ir.Failed,
 			wantListRefreshes: 1,
 		},
 	}
@@ -162,7 +162,7 @@ func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) 
 				Name:      "test",
 				DAGRunID:  runID,
 				AttemptID: "attempt-1",
-				Status:    core.Running,
+				Status:    ir.Running,
 			},
 			nil,
 		))

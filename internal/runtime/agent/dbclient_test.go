@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -33,25 +33,25 @@ func (m *mockDAGStore) Delete(ctx context.Context, fileName string) error {
 	return args.Error(0)
 }
 
-func (m *mockDAGStore) List(ctx context.Context, params exec.ListDAGsOptions) (exec.PaginatedResult[*core.DAG], []string, error) {
+func (m *mockDAGStore) List(ctx context.Context, params exec.ListDAGsOptions) (exec.PaginatedResult[*ir.DAG], []string, error) {
 	args := m.Called(ctx, params)
-	return args.Get(0).(exec.PaginatedResult[*core.DAG]), args.Get(1).([]string), args.Error(2)
+	return args.Get(0).(exec.PaginatedResult[*ir.DAG]), args.Get(1).([]string), args.Error(2)
 }
 
-func (m *mockDAGStore) GetMetadata(ctx context.Context, fileName string) (*core.DAG, error) {
+func (m *mockDAGStore) GetMetadata(ctx context.Context, fileName string) (*ir.DAG, error) {
 	args := m.Called(ctx, fileName)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*core.DAG), args.Error(1)
+	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-func (m *mockDAGStore) GetDetails(ctx context.Context, fileName string, opts exec.DAGLoadOptions) (*core.DAG, error) {
+func (m *mockDAGStore) GetDetails(ctx context.Context, fileName string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
 	args := m.Called(ctx, fileName, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*core.DAG), args.Error(1)
+	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
 func (m *mockDAGStore) Grep(ctx context.Context, pattern string) ([]*exec.GrepDAGsResult, []string, error) {
@@ -90,12 +90,12 @@ func (m *mockDAGStore) UpdateSpec(ctx context.Context, fileName string, spec []b
 	return args.Error(0)
 }
 
-func (m *mockDAGStore) LoadSpec(ctx context.Context, source []byte, _ string, opts exec.DAGLoadOptions) (*core.DAG, error) {
+func (m *mockDAGStore) LoadSpec(ctx context.Context, source []byte, _ string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
 	args := m.Called(ctx, source, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*core.DAG), args.Error(1)
+	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
 func (m *mockDAGStore) LabelList(ctx context.Context) ([]string, []string, error) {
@@ -125,7 +125,7 @@ func (m *mockDAGRunStore) RemoveDAGRun(ctx context.Context, dagRun exec.DAGRunRe
 	panic("unimplemented")
 }
 
-func (m *mockDAGRunStore) CreateAttempt(ctx context.Context, dag *core.DAG, ts time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) CreateAttempt(ctx context.Context, dag *ir.DAG, ts time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	args := m.Called(ctx, dag, ts, dagRunID, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -166,7 +166,7 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
+	expectedStatus ir.Status,
 	mutate func(*exec.DAGRunStatus) error,
 	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
@@ -210,10 +210,10 @@ func (m *mockDAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, ret
 }
 
 func TestDBClient_GetDAG(t *testing.T) {
-	testDAG := &core.DAG{Name: "test-dag"}
+	testDAG := &ir.DAG{Name: "test-dag"}
 
 	// Helper to create a mock DAG store with pre-set GetDetails expectations.
-	setupMockDS := func(name string, dag *core.DAG, err error) *mockDAGStore {
+	setupMockDS := func(name string, dag *ir.DAG, err error) *mockDAGStore {
 		m := new(mockDAGStore)
 		m.On("GetDetails", mock.Anything, name, mock.Anything).Return(dag, err)
 		return m
@@ -223,7 +223,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		name              string
 		ds                exec.DAGStore   // nil means no local store
 		remoteLoader      RemoteDAGLoader // nil means no remote loader
-		expectDAG         *core.DAG
+		expectDAG         *ir.DAG
 		expectError       bool
 		expectErrContains string
 	}{
@@ -237,7 +237,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		{
 			name: "local not-found + remote hit",
 			ds:   setupMockDS("test-dag", nil, exec.ErrDAGNotFound),
-			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+			remoteLoader: func(ctx context.Context, name string) (*ir.DAG, error) {
 				return testDAG, nil
 			},
 			expectDAG:   testDAG,
@@ -246,7 +246,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		{
 			name: "local not-found + remote returns nil",
 			ds:   setupMockDS("test-dag", nil, exec.ErrDAGNotFound),
-			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+			remoteLoader: func(ctx context.Context, name string) (*ir.DAG, error) {
 				return nil, nil
 			},
 			expectError:       true,
@@ -255,7 +255,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		{
 			name: "local not-found + remote returns error",
 			ds:   setupMockDS("test-dag", nil, exec.ErrDAGNotFound),
-			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+			remoteLoader: func(ctx context.Context, name string) (*ir.DAG, error) {
 				return nil, errors.New("remote unavailable")
 			},
 			expectError:       true,
@@ -271,7 +271,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		{
 			name: "local non-not-found error propagates immediately",
 			ds:   setupMockDS("test-dag", nil, errors.New("permission denied")),
-			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+			remoteLoader: func(ctx context.Context, name string) (*ir.DAG, error) {
 				return testDAG, nil // should NOT be called
 			},
 			expectError:       true,
@@ -280,7 +280,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		{
 			name: "nil ds + remote hit",
 			ds:   nil,
-			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+			remoteLoader: func(ctx context.Context, name string) (*ir.DAG, error) {
 				return testDAG, nil
 			},
 			expectDAG:   testDAG,
@@ -289,7 +289,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		{
 			name: "nil ds + remote returns nil dag",
 			ds:   nil,
-			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+			remoteLoader: func(ctx context.Context, name string) (*ir.DAG, error) {
 				return nil, nil
 			},
 			expectError:       true,
@@ -298,7 +298,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		{
 			name: "nil ds + remote returns error",
 			ds:   nil,
-			remoteLoader: func(ctx context.Context, name string) (*core.DAG, error) {
+			remoteLoader: func(ctx context.Context, name string) (*ir.DAG, error) {
 				return nil, errors.New("remote unavailable")
 			},
 			expectError:       true,

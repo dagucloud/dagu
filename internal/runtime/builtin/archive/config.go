@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -112,5 +112,5 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema("archive", configSchema)
+	ir.RegisterExecutorConfigSchema("archive", configSchema)
 }

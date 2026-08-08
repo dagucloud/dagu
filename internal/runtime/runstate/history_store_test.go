@@ -11,14 +11,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
 
 func TestHistoryStoreBeginAttemptUsesPreparedAttempt(t *testing.T) {
 	ctx := context.Background()
-	dag := &core.DAG{Name: "parent"}
+	dag := &ir.DAG{Name: "parent"}
 	attempt := newRecordingAttempt("attempt-1")
 	store := &recordingDAGRunStore{}
 
@@ -42,7 +42,7 @@ func TestHistoryStoreBeginAttemptRejectsPreparedAttemptIDMismatch(t *testing.T) 
 
 	stateStore := runstate.NewHistoryStore(store, runstate.WithPreparedAttempt(attempt))
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
-		DAG:       &core.DAG{Name: "parent"},
+		DAG:       &ir.DAG{Name: "parent"},
 		RunID:     "run-1",
 		AttemptID: "requested-attempt",
 	})
@@ -57,7 +57,7 @@ func TestHistoryStoreBeginAttemptUsesNoopAttemptWhenStoreMissing(t *testing.T) {
 
 	stateStore := runstate.NewHistoryStore(nil)
 	attempt, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
-		DAG:       &core.DAG{Name: "parent"},
+		DAG:       &ir.DAG{Name: "parent"},
 		RunID:     "run-1",
 		AttemptID: "attempt-1",
 	})
@@ -68,7 +68,7 @@ func TestHistoryStoreBeginAttemptUsesNoopAttemptWhenStoreMissing(t *testing.T) {
 
 func TestHistoryStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T) {
 	ctx := context.Background()
-	dag := &core.DAG{Name: "parent", HistRetentionRuns: 3}
+	dag := &ir.DAG{Name: "parent", HistRetentionRuns: 3}
 	store := &recordingDAGRunStore{
 		createAttempt: newRecordingAttempt("attempt-2"),
 	}
@@ -104,7 +104,7 @@ func TestHistoryStoreBeginAttemptOmitsRootDAGRunForRootAttempt(t *testing.T) {
 
 	stateStore := runstate.NewHistoryStore(store)
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
-		DAG:        &core.DAG{Name: "parent"},
+		DAG:        &ir.DAG{Name: "parent"},
 		RunID:      "root-run",
 		RootDAGRun: exec.NewDAGRunRef("parent", "root-run"),
 	})
@@ -116,7 +116,7 @@ func TestHistoryStoreBeginAttemptOmitsRootDAGRunForRootAttempt(t *testing.T) {
 
 func TestHistoryStoreBeginAttemptIgnoresRetentionCleanupFailure(t *testing.T) {
 	ctx := context.Background()
-	dag := &core.DAG{Name: "parent", HistRetentionDays: 7}
+	dag := &ir.DAG{Name: "parent", HistRetentionDays: 7}
 	store := &recordingDAGRunStore{
 		createAttempt: newRecordingAttempt("attempt-1"),
 		removeOldErr:  errors.New("cleanup failed"),
@@ -137,7 +137,7 @@ func TestHistoryStoreBeginAttemptIgnoresRetentionCleanupFailure(t *testing.T) {
 
 func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
 	ctx := context.Background()
-	status := &exec.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: core.Succeeded}
+	status := &exec.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Succeeded}
 	attempt := newRecordingAttempt("child-attempt")
 	attempt.status = status
 	store := &recordingDAGRunStore{
@@ -164,12 +164,12 @@ func TestAttemptDelegatesStateOperations(t *testing.T) {
 	}
 	stateStore := runstate.NewHistoryStore(store)
 	stateAttempt, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
-		DAG:   &core.DAG{Name: "parent"},
+		DAG:   &ir.DAG{Name: "parent"},
 		RunID: "run-1",
 	})
 	require.NoError(t, err)
 
-	status := exec.DAGRunStatus{Name: "parent", DAGRunID: "run-1", Status: core.Running}
+	status := exec.DAGRunStatus{Name: "parent", DAGRunID: "run-1", Status: ir.Running}
 	outputs := &exec.DAGRunOutputs{Outputs: map[string]string{"result": "ok"}}
 	messages := []exec.LLMMessage{{Role: exec.RoleAssistant, Content: "done"}}
 
@@ -206,7 +206,7 @@ type removeOldCall struct {
 	opts          exec.RemoveOldDAGRunsOptions
 }
 
-func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, dag *core.DAG, _ time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, dag *ir.DAG, _ time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	s.createCalls++
 	s.createRunID = dagRunID
 	s.createOpts = opts
@@ -233,7 +233,7 @@ func (s *recordingDAGRunStore) ListStatusesPage(context.Context, ...exec.ListDAG
 	return exec.DAGRunStatusPage{}, nil
 }
 
-func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
+func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, ir.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
@@ -267,7 +267,7 @@ func (s *recordingDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRef, ...
 
 type recordingAttempt struct {
 	id             string
-	dag            *core.DAG
+	dag            *ir.DAG
 	status         *exec.DAGRunStatus
 	writtenStatus  exec.DAGRunStatus
 	writtenOutputs *exec.DAGRunOutputs
@@ -302,11 +302,11 @@ func (a *recordingAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus, erro
 	return a.status, nil
 }
 
-func (a *recordingAttempt) ReadDAG(context.Context) (*core.DAG, error) {
+func (a *recordingAttempt) ReadDAG(context.Context) (*ir.DAG, error) {
 	return a.dag, nil
 }
 
-func (a *recordingAttempt) SetDAG(dag *core.DAG) {
+func (a *recordingAttempt) SetDAG(dag *ir.DAG) {
 	a.dag = dag
 }
 

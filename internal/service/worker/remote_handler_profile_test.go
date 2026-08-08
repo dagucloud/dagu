@@ -8,8 +8,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -34,7 +34,7 @@ func TestReportTaskLoadFailurePreservesProfileName(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, core.Failed, status.Status)
+	assert.Equal(t, ir.Failed, status.Status)
 	assert.Equal(t, "prod", status.ProfileName)
 	assert.Equal(t, exec.NewDAGRunRef("root", "root-run"), status.Root)
 	assert.Equal(t, exec.NewDAGRunRef("parent", "parent-run"), status.Parent)
@@ -58,7 +58,7 @@ func TestReportTaskInitFailurePreservesProfileName(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, core.Failed, status.Status)
+	assert.Equal(t, ir.Failed, status.Status)
 	assert.Equal(t, "prod", status.ProfileName)
 	assert.Equal(t, exec.NewDAGRunRef("root", "root-run"), status.Root)
 	assert.Equal(t, exec.NewDAGRunRef("parent", "parent-run"), status.Parent)

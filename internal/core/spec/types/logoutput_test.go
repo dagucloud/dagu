@@ -6,7 +6,7 @@ package types
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +16,7 @@ func TestLogOutputValue_UnmarshalYAML(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
-		wantMode    core.LogOutputMode
+		wantMode    ir.LogOutputMode
 		wantSet     bool
 		wantErr     bool
 		errContains string
@@ -24,31 +24,31 @@ func TestLogOutputValue_UnmarshalYAML(t *testing.T) {
 		{
 			name:     "separate mode",
 			input:    "log_output: separate",
-			wantMode: core.LogOutputSeparate,
+			wantMode: ir.LogOutputSeparate,
 			wantSet:  true,
 		},
 		{
 			name:     "merged mode",
 			input:    "log_output: merged",
-			wantMode: core.LogOutputMerged,
+			wantMode: ir.LogOutputMerged,
 			wantSet:  true,
 		},
 		{
 			name:     "merged mode uppercase",
 			input:    "log_output: MERGED",
-			wantMode: core.LogOutputMerged,
+			wantMode: ir.LogOutputMerged,
 			wantSet:  true,
 		},
 		{
 			name:     "separate mode mixed case",
 			input:    "log_output: Separate",
-			wantMode: core.LogOutputSeparate,
+			wantMode: ir.LogOutputSeparate,
 			wantSet:  true,
 		},
 		{
 			name:     "empty string defaults to separate",
 			input:    "log_output: ''",
-			wantMode: core.LogOutputSeparate,
+			wantMode: ir.LogOutputSeparate,
 			wantSet:  true,
 		},
 		{
@@ -108,27 +108,27 @@ func TestLogOutputValue_DefaultValue(t *testing.T) {
 	// Should be zero
 	assert.True(t, result.LogOutput.IsZero())
 	// Default mode should be separate
-	assert.Equal(t, core.LogOutputSeparate, result.LogOutput.Mode())
+	assert.Equal(t, ir.LogOutputSeparate, result.LogOutput.Mode())
 	assert.True(t, result.LogOutput.IsSeparate())
 	assert.False(t, result.LogOutput.IsMerged())
 }
 
 func TestLogOutputValue_Methods(t *testing.T) {
 	t.Run("IsMerged", func(t *testing.T) {
-		merged := LogOutputValue{mode: core.LogOutputMerged, set: true}
+		merged := LogOutputValue{mode: ir.LogOutputMerged, set: true}
 		assert.True(t, merged.IsMerged())
 		assert.False(t, merged.IsSeparate())
 
-		separate := LogOutputValue{mode: core.LogOutputSeparate, set: true}
+		separate := LogOutputValue{mode: ir.LogOutputSeparate, set: true}
 		assert.False(t, separate.IsMerged())
 		assert.True(t, separate.IsSeparate())
 	})
 
 	t.Run("String", func(t *testing.T) {
-		merged := LogOutputValue{mode: core.LogOutputMerged, set: true}
+		merged := LogOutputValue{mode: ir.LogOutputMerged, set: true}
 		assert.Equal(t, "merged", merged.String())
 
-		separate := LogOutputValue{mode: core.LogOutputSeparate, set: true}
+		separate := LogOutputValue{mode: ir.LogOutputSeparate, set: true}
 		assert.Equal(t, "separate", separate.String())
 
 		unset := LogOutputValue{}
@@ -138,8 +138,8 @@ func TestLogOutputValue_Methods(t *testing.T) {
 
 func TestLogOutputMode_Constants(t *testing.T) {
 	// Ensure constants have expected values
-	assert.Equal(t, core.LogOutputMode("separate"), core.LogOutputSeparate)
-	assert.Equal(t, core.LogOutputMode("merged"), core.LogOutputMerged)
+	assert.Equal(t, ir.LogOutputMode("separate"), ir.LogOutputSeparate)
+	assert.Equal(t, ir.LogOutputMode("merged"), ir.LogOutputMerged)
 }
 
 func TestLogOutputValue_UnmarshalYAML_NilValue(t *testing.T) {
@@ -151,7 +151,7 @@ func TestLogOutputValue_UnmarshalYAML_NilValue(t *testing.T) {
 	err := yaml.Unmarshal([]byte("log_output: null"), &result)
 	require.NoError(t, err)
 	assert.True(t, result.LogOutput.IsZero())
-	assert.Equal(t, core.LogOutputSeparate, result.LogOutput.Mode())
+	assert.Equal(t, ir.LogOutputSeparate, result.LogOutput.Mode())
 }
 
 func TestLogOutputValue_UnmarshalYAML_MapValue(t *testing.T) {

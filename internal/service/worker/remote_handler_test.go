@@ -18,9 +18,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
@@ -998,11 +998,11 @@ steps:
 		runID := "remote-catchup-run"
 		status := transform.NewStatusBuilder(dag.DAG).Create(
 			runID,
-			core.Queued,
+			ir.Queued,
 			0,
 			time.Time{},
 			transform.WithAttemptID("queued-attempt"),
-			transform.WithTriggerType(core.TriggerTypeCatchUp),
+			transform.WithTriggerType(ir.TriggerTypeCatchUp),
 			transform.WithQueuedAt(stringutil.FormatTime(time.Now())),
 			transform.WithScheduleTime(stringutil.FormatTime(time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))),
 		)
@@ -1052,8 +1052,8 @@ steps:
 		require.NotEmpty(t, reported)
 
 		final := reported[len(reported)-1]
-		require.Equal(t, core.Succeeded, final.Status)
-		require.Equal(t, core.TriggerTypeCatchUp, final.TriggerType)
+		require.Equal(t, ir.Succeeded, final.Status)
+		require.Equal(t, ir.TriggerTypeCatchUp, final.TriggerType)
 	})
 
 	t.Run("RemoteWorkerWithEmbeddedStatus", func(t *testing.T) {
@@ -1082,7 +1082,7 @@ steps:
 		// Create a previous status proto
 		previousStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:   "retry-dag",
-			Status: core.Succeeded,
+			Status: ir.Succeeded,
 			Nodes:  []*exec.Node{},
 		})
 		require.NoError(t, convErr)
@@ -1179,7 +1179,7 @@ steps:
 
 	final := reported[len(reported)-1]
 	mu.Unlock()
-	require.Equal(t, core.Queued, final.Status)
+	require.Equal(t, ir.Queued, final.Status)
 	require.Equal(t, []exec.PendingStepRetry{
 		{StepName: "flaky", Interval: 30 * time.Second},
 	}, final.PendingStepRetries)
@@ -1413,7 +1413,7 @@ steps:
 
 	previousStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 		Name:   "exec-retry-dag",
-		Status: core.Succeeded,
+		Status: ir.Succeeded,
 		Nodes:  []*exec.Node{},
 	})
 	require.NoError(t, convErr)
@@ -1472,7 +1472,7 @@ func TestHandleRetry_LoadDAGErrorPath(t *testing.T) {
 	// Test the path where handleRetry fails at loadDAG after getting status
 	previousStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 		Name:   "loaddag-error-dag",
-		Status: core.Succeeded,
+		Status: ir.Succeeded,
 		Nodes:  []*exec.Node{},
 	})
 	require.NoError(t, convErr)
@@ -1509,7 +1509,7 @@ func TestHandleRetry_WithDefinitionAndCleanup(t *testing.T) {
 	// Test handleRetry with inline definition to trigger cleanup path
 	previousStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 		Name:   "def-cleanup-dag",
-		Status: core.Succeeded,
+		Status: ir.Succeeded,
 		Nodes:  []*exec.Node{},
 	})
 	require.NoError(t, convErr)
@@ -1696,7 +1696,7 @@ steps:
 	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
 		require.NoError(t, err)
-		if status.Status == core.Succeeded {
+		if status.Status == ir.Succeeded {
 			reportedMu.Lock()
 			finalActor = status.TriggerActor
 			reportedMu.Unlock()
@@ -1791,7 +1791,7 @@ func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testi
 		pusher: &recordingStatusPusher{
 			push: func(ctx context.Context, status exec.DAGRunStatus) error {
 				require.Equal(t, dagRunID, status.DAGRunID)
-				require.Equal(t, core.Succeeded, status.Status)
+				require.Equal(t, ir.Succeeded, status.Status)
 				require.NoError(t, ctx.Err(), "terminal status should be pushed with a live context")
 				record("terminal-status")
 				return nil
@@ -1804,7 +1804,7 @@ func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testi
 		Name:      dagName,
 		DAGRunID:  dagRunID,
 		AttemptID: attemptID,
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		Log:       logFilePath,
 	}))
 	streamsMu.Lock()
@@ -1862,7 +1862,7 @@ func TestFinalSchedulerLogStatusPusher_BoundsSchedulerLogFinalization(t *testing
 		pusher: &recordingStatusPusher{
 			push: func(ctx context.Context, status exec.DAGRunStatus) error {
 				require.Equal(t, dagRunID, status.DAGRunID)
-				require.Equal(t, core.Succeeded, status.Status)
+				require.Equal(t, ir.Succeeded, status.Status)
 				require.NoError(t, ctx.Err(), "terminal status should use a live context")
 				statusPushed <- struct{}{}
 				return nil
@@ -1875,7 +1875,7 @@ func TestFinalSchedulerLogStatusPusher_BoundsSchedulerLogFinalization(t *testing
 		Root:     exec.NewDAGRunRef(dagName, dagRunID),
 		Name:     dagName,
 		DAGRunID: dagRunID,
-		Status:   core.Succeeded,
+		Status:   ir.Succeeded,
 	}))
 	require.Less(t, time.Since(start), time.Second)
 
@@ -2131,7 +2131,7 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 	require.NoError(t, err)
 	require.NoError(t, rootWriter.Close())
 
-	childDAG := &core.DAG{Name: childName}
+	childDAG := &ir.DAG{Name: childName}
 	childCtx := dagruntime.NewContext(context.Background(), childDAG, childRunID, "", dagruntime.WithAttemptID(childAttempt), dagruntime.WithRootDAGRun(rootRef))
 	childWriter := reporter.NewStepWriter(childCtx, "child-step", exec.StreamTypeStdout)
 	_, err = childWriter.Write([]byte("child output"))
@@ -2167,7 +2167,7 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 		Name:      childName,
 		DAGRunID:  childRunID,
 		AttemptID: childAttempt,
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		Log:       childLogFile,
 	}))
 
@@ -2230,7 +2230,7 @@ steps:
 	client.ReportStatusFunc = func(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
 		require.NoError(t, err)
-		if status.Status != core.Failed {
+		if status.Status != ir.Failed {
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 		}
 		terminalStatusSeen = true
@@ -2317,7 +2317,7 @@ steps:
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
 		require.NoError(t, err)
 
-		if status.Status != core.Succeeded {
+		if status.Status != ir.Succeeded {
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 		}
 		terminalStatusSeen = true
@@ -2429,7 +2429,7 @@ steps:
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
 		require.NoError(t, err)
 
-		if status.Name != childDAGName || status.Status != core.Succeeded {
+		if status.Name != childDAGName || status.Status != ir.Succeeded {
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 		}
 
@@ -2588,7 +2588,7 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 
 	final := reported[len(reported)-1]
 	reportedMu.Unlock()
-	assert.Equal(t, core.Failed, final.Status)
+	assert.Equal(t, ir.Failed, final.Status)
 	assert.Contains(t, final.Error, "failed to upload artifacts")
 }
 
@@ -2648,6 +2648,6 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 
 	final := reported[len(reported)-1]
 	reportedMu.Unlock()
-	assert.Equal(t, core.Failed, final.Status)
+	assert.Equal(t, ir.Failed, final.Status)
 	assert.Contains(t, final.Error, "failed to upload artifacts")
 }

@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,7 +62,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 
 	dagStatus, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, core.Succeeded, dagStatus.Status)
+	assert.Equal(t, ir.Succeeded, dagStatus.Status)
 
 	// Now enqueue a new run
 	th.RunCommand(t, cmd.Enqueue(), test.CmdTest{
@@ -86,7 +86,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 
 	successStatus, err := successAttempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, core.Succeeded, successStatus.Status, "Dequeuing should not alter the prior successful run")
+	assert.Equal(t, ir.Succeeded, successStatus.Status, "Dequeuing should not alter the prior successful run")
 
 	queuedAttempt, err := th.DAGRunStore.FindAttempt(ctx, exec.DAGRunRef{
 		Name: dag.Name,
@@ -97,7 +97,7 @@ func TestDequeueCommand_PreservesState(t *testing.T) {
 
 		queuedStatus, readErr := queuedAttempt.ReadStatus(ctx)
 		require.NoError(t, readErr)
-		assert.Equal(t, core.Aborted, queuedStatus.Status, "Dequeued run should be marked aborted before it is hidden")
+		assert.Equal(t, ir.Aborted, queuedStatus.Status, "Dequeued run should be marked aborted before it is hidden")
 	} else {
 		assert.ErrorIs(t, err, exec.ErrDAGRunIDNotFound, "Dequeued run should not remain visible after it is hidden")
 	}

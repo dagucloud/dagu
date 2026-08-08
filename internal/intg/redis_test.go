@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -274,7 +274,7 @@ steps:
 			th := test.Setup(t)
 			dag := th.DAG(t, tt.dagConfigFunc(port))
 			dag.Agent().RunSuccess(t)
-			dag.AssertLatestStatus(t, core.Succeeded)
+			dag.AssertLatestStatus(t, ir.Succeeded)
 			if tt.expectedOutputs != nil {
 				dag.AssertOutputs(t, tt.expectedOutputs)
 			}

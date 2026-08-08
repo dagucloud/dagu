@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -30,7 +30,7 @@ var _ executor.Executor = (*MockExecutor)(nil)
 var _ executor.ChatMessageHandler = (*MockExecutor)(nil)
 
 // NewMockExecutor creates a new mock chat executor.
-func NewMockExecutor(_ context.Context, _ core.Step) (executor.Executor, error) {
+func NewMockExecutor(_ context.Context, _ ir.Step) (executor.Executor, error) {
 	return &MockExecutor{
 		stdout: os.Stdout,
 		stderr: os.Stderr,
@@ -60,7 +60,7 @@ var _ executor.Executor = (*MockEmptyExecutor)(nil)
 var _ executor.ChatMessageHandler = (*MockEmptyExecutor)(nil)
 
 // NewMockEmptyExecutor creates a mock chat executor that returns no messages.
-func NewMockEmptyExecutor(_ context.Context, _ core.Step) (executor.Executor, error) {
+func NewMockEmptyExecutor(_ context.Context, _ ir.Step) (executor.Executor, error) {
 	return &MockEmptyExecutor{}, nil
 }
 
@@ -75,6 +75,6 @@ func (m *MockEmptyExecutor) GetMessages() []exec.LLMMessage { return nil }
 
 // RegisterMockExecutors registers mock executors for testing.
 func RegisterMockExecutors() {
-	executor.RegisterExecutor(MockExecutorType, NewMockExecutor, nil, core.ExecutorCapabilities{LLM: true})
-	executor.RegisterExecutor(MockEmptyExecutorType, NewMockEmptyExecutor, nil, core.ExecutorCapabilities{LLM: true})
+	executor.RegisterExecutor(MockExecutorType, NewMockExecutor, nil, ir.ExecutorCapabilities{LLM: true})
+	executor.RegisterExecutor(MockEmptyExecutorType, NewMockEmptyExecutor, nil, ir.ExecutorCapabilities{LLM: true})
 }

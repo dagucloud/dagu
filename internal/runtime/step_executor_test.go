@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/require"
@@ -141,12 +141,12 @@ func TestStepExecutorPeriodicallyFlushesRemoteOutputWhileExecutorRuns(t *testing
 	}
 	defer releaseExecutor()
 
-	runtimeexec.RegisterExecutor(periodicFlushExecutorType, func(context.Context, core.Step) (runtimeexec.Executor, error) {
+	runtimeexec.RegisterExecutor(periodicFlushExecutorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 		return &periodicFlushExecutor{
 			started: started,
 			release: release,
 		}, nil
-	}, nil, core.ExecutorCapabilities{})
+	}, nil, ir.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(periodicFlushExecutorType) })
 
 	writer := &flushObservingWriter{
@@ -154,7 +154,7 @@ func TestStepExecutorPeriodicallyFlushesRemoteOutputWhileExecutorRuns(t *testing
 		observed: make(chan struct{}, 1),
 	}
 	factory := &flushObservingLogWriterFactory{stdout: writer}
-	dag := &core.DAG{Name: "periodic-flush-dag"}
+	dag := &ir.DAG{Name: "periodic-flush-dag"}
 	ctx := runtime.NewContext(
 		context.Background(),
 		dag,
@@ -162,9 +162,9 @@ func TestStepExecutorPeriodicallyFlushesRemoteOutputWhileExecutorRuns(t *testing
 		"dag.log",
 		runtime.WithLogWriterFactory(factory),
 	)
-	node := runtime.NewNode(core.Step{
+	node := runtime.NewNode(ir.Step{
 		Name: "periodic-flush-step",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: periodicFlushExecutorType,
 		},
 	}, runtime.NodeState{})
@@ -205,7 +205,7 @@ func TestStepExecutorPeriodicallyFlushesRemoteOutputWhileExecutorRuns(t *testing
 func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 	executorType := "test-step-executor-side-channels"
 	execCh := make(chan *sideChannelExecutor, 1)
-	runtimeexec.RegisterExecutor(executorType, func(context.Context, core.Step) (runtimeexec.Executor, error) {
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 		exec := &sideChannelExecutor{
 			messages: []exec.LLMMessage{
 				{Role: exec.RoleAssistant, Content: "new message"},
@@ -214,7 +214,7 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 				{DAGRunID: "new-run", DAGName: "new-dag", Params: "NEW=1"},
 			},
 			statusDetails: []exec.NodeStatusDetail{
-				{Label: "customer-a", Status: core.NodeFailed},
+				{Label: "customer-a", Status: ir.NodeFailed},
 			},
 			toolDefinitions: []exec.ToolDefinition{
 				{Name: "lookup", Description: "look up data"},
@@ -223,12 +223,12 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 		}
 		execCh <- exec
 		return exec, nil
-	}, nil, core.ExecutorCapabilities{})
+	}, nil, ir.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
-	node := runtime.NewNode(core.Step{
+	node := runtime.NewNode(ir.Step{
 		Name: "side-channel-step",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: executorType,
 		},
 	}, runtime.NodeState{
@@ -245,7 +245,7 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 	})
 
 	stepExecutor := runtime.NewStepExecutor()
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
 	require.NoError(t, stepExecutor.Execute(ctx, node))
 
 	fakeExec := <-execCh
@@ -259,7 +259,7 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 	state := node.State()
 	require.Equal(t, []runtime.SubDAGRun{{DAGRunID: "new-run", DAGName: "new-dag", Params: "NEW=1"}}, state.SubRuns)
 	require.Equal(t, []runtime.SubDAGRun{{DAGRunID: "old-run", DAGName: "old-dag", Params: "OLD=1"}}, state.SubRunsRepeated)
-	require.Equal(t, []exec.NodeStatusDetail{{Label: "customer-a", Status: core.NodeFailed}}, state.StatusDetails)
+	require.Equal(t, []exec.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}, state.StatusDetails)
 	require.Equal(t, []exec.ToolDefinition{{Name: "lookup", Description: "look up data"}}, node.GetToolDefinitions())
 	require.NotNil(t, state.OutputsValue)
 	require.JSONEq(t, `{"answer":42}`, *state.OutputsValue)

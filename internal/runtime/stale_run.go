@@ -10,8 +10,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const staleLocalRunError = "process terminated unexpectedly - stale local process detected"
@@ -21,7 +21,7 @@ const staleLocalRunError = "process terminated unexpectedly - stale local proces
 func RepairStaleLocalRun(
 	ctx context.Context,
 	attempt exec.DAGRunAttempt,
-	dag *core.DAG,
+	dag *ir.DAG,
 ) (*exec.DAGRunStatus, bool, error) {
 	fullStatus, err := attempt.ReadStatus(ctx)
 	if err != nil {
@@ -78,7 +78,7 @@ func markActiveStatusFailed(status *exec.DAGRunStatus, reason string, finishedAt
 	}
 
 	finishedAtFormatted := exec.FormatTime(finishedAt)
-	status.Status = core.Failed
+	status.Status = ir.Failed
 	status.FinishedAt = finishedAtFormatted
 	status.Error = reason
 
@@ -87,11 +87,11 @@ func markActiveStatusFailed(status *exec.DAGRunStatus, reason string, finishedAt
 			continue
 		}
 		switch node.Status {
-		case core.NodeRunning, core.NodeNotStarted, core.NodeRetrying, core.NodeWaiting:
-			node.Status = core.NodeFailed
+		case ir.NodeRunning, ir.NodeNotStarted, ir.NodeRetrying, ir.NodeWaiting:
+			node.Status = ir.NodeFailed
 			node.FinishedAt = finishedAtFormatted
 			node.Error = reason
-		case core.NodeFailed, core.NodeAborted, core.NodeSucceeded, core.NodeSkipped, core.NodePartiallySucceeded, core.NodeRejected:
+		case ir.NodeFailed, ir.NodeAborted, ir.NodeSucceeded, ir.NodeSkipped, ir.NodePartiallySucceeded, ir.NodeRejected:
 			// Leave terminal nodes unchanged when failing the enclosing run.
 		}
 	}

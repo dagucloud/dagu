@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
@@ -49,10 +49,10 @@ func TestTickPlanner_ProfileScopedSchedulesUseDAGFileName(t *testing.T) {
 	scheduledAt := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		ProfileResolver: fileNameProfileResolver{},
-		GetLatestStatus: func(context.Context, *core.DAG) (exec.DAGRunStatus, error) {
+		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{}, nil
 		},
-		IsRunning: func(context.Context, *core.DAG) (bool, error) {
+		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
 		},
 		GenRunID: func(context.Context) (string, error) {
@@ -64,15 +64,15 @@ func TestTickPlanner_ProfileScopedSchedulesUseDAGFileName(t *testing.T) {
 		Events: make(chan scheduler.DAGChangeEvent, 1),
 	})
 
-	schedule, err := core.NewCronSchedule("0 * * * *")
+	schedule, err := ir.NewCronSchedule("0 * * * *")
 	require.NoError(t, err)
 	schedule.Profile = "prod"
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "yaml-name",
 		Location: "/tmp/settings-key.yaml",
-		Schedule: []core.Schedule{schedule},
+		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*core.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Len(t, runs, 1)
@@ -85,10 +85,10 @@ func TestTickPlanner_ProfileScopedSchedulesUseWorkspaceDefaultProfile(t *testing
 	scheduledAt := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		ProfileResolver: workspaceProfileResolver{},
-		GetLatestStatus: func(context.Context, *core.DAG) (exec.DAGRunStatus, error) {
+		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{}, nil
 		},
-		IsRunning: func(context.Context, *core.DAG) (bool, error) {
+		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
 		},
 		GenRunID: func(context.Context) (string, error) {
@@ -100,16 +100,16 @@ func TestTickPlanner_ProfileScopedSchedulesUseWorkspaceDefaultProfile(t *testing
 		Events: make(chan scheduler.DAGChangeEvent, 1),
 	})
 
-	schedule, err := core.NewCronSchedule("0 * * * *")
+	schedule, err := ir.NewCronSchedule("0 * * * *")
 	require.NoError(t, err)
 	schedule.Profile = "prod"
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "yaml-name",
 		Location: "/tmp/settings-key.yaml",
-		Labels:   core.NewLabels([]string{"workspace=ops"}),
-		Schedule: []core.Schedule{schedule},
+		Labels:   ir.NewLabels([]string{"workspace=ops"}),
+		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*core.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Len(t, runs, 1)
@@ -122,10 +122,10 @@ func TestTickPlanner_ProfileScopedSchedulesRejectInvalidWorkspaceLabel(t *testin
 	scheduledAt := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		ProfileResolver: workspaceProfileResolver{},
-		GetLatestStatus: func(context.Context, *core.DAG) (exec.DAGRunStatus, error) {
+		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{}, nil
 		},
-		IsRunning: func(context.Context, *core.DAG) (bool, error) {
+		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
 		},
 		GenRunID: func(context.Context) (string, error) {
@@ -137,16 +137,16 @@ func TestTickPlanner_ProfileScopedSchedulesRejectInvalidWorkspaceLabel(t *testin
 		Events: make(chan scheduler.DAGChangeEvent, 1),
 	})
 
-	schedule, err := core.NewCronSchedule("0 * * * *")
+	schedule, err := ir.NewCronSchedule("0 * * * *")
 	require.NoError(t, err)
 	schedule.Profile = "prod"
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "yaml-name",
 		Location: "/tmp/settings-key.yaml",
-		Labels:   core.NewLabels([]string{"workspace="}),
-		Schedule: []core.Schedule{schedule},
+		Labels:   ir.NewLabels([]string{"workspace="}),
+		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*core.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Empty(t, runs)
@@ -159,10 +159,10 @@ func TestTickPlanner_UnprofiledSchedulesSkipProfileResolver(t *testing.T) {
 	resolver := &countingProfileResolver{profile: "prod"}
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		ProfileResolver: resolver,
-		GetLatestStatus: func(context.Context, *core.DAG) (exec.DAGRunStatus, error) {
+		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{}, nil
 		},
-		IsRunning: func(context.Context, *core.DAG) (bool, error) {
+		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
 		},
 		GenRunID: func(context.Context) (string, error) {
@@ -174,14 +174,14 @@ func TestTickPlanner_UnprofiledSchedulesSkipProfileResolver(t *testing.T) {
 		Events: make(chan scheduler.DAGChangeEvent, 1),
 	})
 
-	schedule, err := core.NewCronSchedule("0 * * * *")
+	schedule, err := ir.NewCronSchedule("0 * * * *")
 	require.NoError(t, err)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "unprofiled-dag",
 		Location: "/tmp/unprofiled-dag.yaml",
-		Schedule: []core.Schedule{schedule},
+		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*core.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Len(t, runs, 1)
@@ -196,10 +196,10 @@ func TestTickPlanner_InactiveProfileSchedulePersistsNoNextRunProjection(t *testi
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
 		WatermarkStore:  store,
 		ProfileResolver: &countingProfileResolver{},
-		GetLatestStatus: func(context.Context, *core.DAG) (exec.DAGRunStatus, error) {
+		GetLatestStatus: func(context.Context, *ir.DAG) (exec.DAGRunStatus, error) {
 			return exec.DAGRunStatus{}, nil
 		},
-		IsRunning: func(context.Context, *core.DAG) (bool, error) {
+		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
 		},
 		GenRunID: func(context.Context) (string, error) {
@@ -211,15 +211,15 @@ func TestTickPlanner_InactiveProfileSchedulePersistsNoNextRunProjection(t *testi
 		Events: make(chan scheduler.DAGChangeEvent, 1),
 	})
 
-	schedule, err := core.NewCronSchedule("0 * * * *")
+	schedule, err := ir.NewCronSchedule("0 * * * *")
 	require.NoError(t, err)
 	schedule.Profile = "prod"
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "inactive-profile-dag",
 		Location: "/tmp/inactive-profile-dag.yaml",
-		Schedule: []core.Schedule{schedule},
+		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*core.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Empty(t, runs)

@@ -13,7 +13,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -22,7 +22,7 @@ type controllerExecutor struct {
 	stderr io.Writer
 }
 
-func newController(_ context.Context, _ core.Step) (executor.Executor, error) {
+func newController(_ context.Context, _ ir.Step) (executor.Executor, error) {
 	return &controllerExecutor{stdout: os.Stdout, stderr: os.Stderr}, nil
 }
 
@@ -43,12 +43,12 @@ func (e *controllerExecutor) Kill(_ os.Signal) error {
 }
 
 func init() {
-	executor.RegisterExecutor(core.ExecutorTypeController, newController, nil, core.ExecutorCapabilities{
+	executor.RegisterExecutor(ir.ExecutorTypeController, newController, nil, ir.ExecutorCapabilities{
 		LLM: true,
 	})
 
-	core.RegisterStepValidator(core.ExecutorTypeController, func(step core.Step) error {
-		if step.Name != core.ControllerStepName {
+	ir.RegisterStepValidator(ir.ExecutorTypeController, func(step ir.Step) error {
+		if step.Name != ir.ControllerStepName {
 			return fmt.Errorf("controller is not a step action; set the DAG type to 'controller' instead")
 		}
 		return nil

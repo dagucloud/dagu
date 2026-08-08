@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -103,7 +103,7 @@ type Run struct {
 	doneErr   error
 
 	agent *agent.Agent
-	dag   *core.DAG
+	dag   *ir.DAG
 
 	coordinator coordinator.Client
 }

@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,9 +28,9 @@ func TestHTTPExecutor_SkipTLSVerify(t *testing.T) {
 		defer server.Close()
 
 		// Test with skip_tls_verify = true (should succeed)
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "GET", Args: []string{server.URL + "/test"}}},
-			ExecutorConfig: core.ExecutorConfig{
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "GET", Args: []string{server.URL + "/test"}}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"skip_tls_verify": true,
@@ -63,9 +63,9 @@ func TestHTTPExecutor_SkipTLSVerify(t *testing.T) {
 		defer server.Close()
 
 		// Test with skip_tls_verify = false (should fail due to certificate verification)
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "GET", Args: []string{server.URL + "/test"}}},
-			ExecutorConfig: core.ExecutorConfig{
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "GET", Args: []string{server.URL + "/test"}}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"skip_tls_verify": false,
@@ -89,8 +89,8 @@ func TestHTTPExecutor_SkipTLSVerify(t *testing.T) {
 	})
 
 	t.Run("ConfigParsingWithSkipTLSVerify", func(t *testing.T) {
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "GET", Args: []string{"https://example.com"}}},
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "GET", Args: []string{"https://example.com"}}},
 			Script: `{
 				"skip_tls_verify": true,
 				"timeout": 30,
@@ -121,9 +121,9 @@ func TestHTTPExecutor_StandardFeatures(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "GET", Args: []string{server.URL}}},
-			ExecutorConfig: core.ExecutorConfig{
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "GET", Args: []string{server.URL}}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"headers": map[string]string{
@@ -154,9 +154,9 @@ func TestHTTPExecutor_StandardFeatures(t *testing.T) {
 
 func TestHTTPExecutor_MissingMethodOrURLReturnsConfigError(t *testing.T) {
 	t.Run("MissingURL", func(t *testing.T) {
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "GET"}},
-			ExecutorConfig: core.ExecutorConfig{
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "GET"}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 			},
 		}
@@ -167,8 +167,8 @@ func TestHTTPExecutor_MissingMethodOrURLReturnsConfigError(t *testing.T) {
 	})
 
 	t.Run("MissingMethod", func(t *testing.T) {
-		step := core.Step{
-			ExecutorConfig: core.ExecutorConfig{
+		step := ir.Step{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"url": "https://example.com",
@@ -236,9 +236,9 @@ func TestHTTPExecutor_CrossPlatform(t *testing.T) {
 				}))
 				defer server.Close()
 
-				step := core.Step{
-					Commands: []core.CommandEntry{{Command: tc.method, Args: []string{server.URL}}},
-					ExecutorConfig: core.ExecutorConfig{
+				step := ir.Step{
+					Commands: []ir.CommandEntry{{Command: tc.method, Args: []string{server.URL}}},
+					ExecutorConfig: ir.ExecutorConfig{
 						Type:   "http",
 						Config: tc.config,
 					},
@@ -282,9 +282,9 @@ func TestHTTPExecutor_CrossPlatform(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "GET", Args: []string{server.URL}}},
-			ExecutorConfig: core.ExecutorConfig{
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "GET", Args: []string{server.URL}}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"format": "json",
@@ -330,9 +330,9 @@ func TestHTTPExecutor_CrossPlatform(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "GET", Args: []string{server.URL}}},
-			ExecutorConfig: core.ExecutorConfig{
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "GET", Args: []string{server.URL}}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"silent": false,
@@ -373,9 +373,9 @@ func TestHTTPExecutor_CrossPlatform(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
-			Commands: []core.CommandEntry{{Command: "GET", Args: []string{server.URL}}},
-			ExecutorConfig: core.ExecutorConfig{
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{Command: "GET", Args: []string{server.URL}}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"json": true,
@@ -413,13 +413,13 @@ func TestHTTPExecutor_CmdWithArgsExpansion(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
-			Commands: []core.CommandEntry{{
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{
 				Command:     "${METHOD}",          // unexpanded
 				Args:        []string{server.URL}, // expanded
 				CmdWithArgs: "GET " + server.URL,  // expanded (as evaluateCommandArgs does)
 			}},
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type:   "http",
 				Config: map[string]any{"silent": true},
 			},
@@ -449,12 +449,12 @@ func TestHTTPExecutor_CmdWithArgsExpansion(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
-			Commands: []core.CommandEntry{{
+		step := ir.Step{
+			Commands: []ir.CommandEntry{{
 				Command: "POST",
 				Args:    []string{server.URL},
 			}},
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type:   "http",
 				Config: map[string]any{"silent": true},
 			},
@@ -483,10 +483,10 @@ func TestHTTPExecutor_CmdWithArgsExpansion(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
+		step := ir.Step{
 			Command: "GET",
 			Args:    []string{server.URL},
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type:   "http",
 				Config: map[string]any{"silent": true},
 			},

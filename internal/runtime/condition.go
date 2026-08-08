@@ -13,7 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Errors for condition evaluation
@@ -26,7 +26,7 @@ const ErrMsgOtherConditionNotMet = "other condition was not met"
 
 // EvalConditions evaluates a list of conditions and checks the results.
 // It returns an error if any of the conditions were not met.
-func EvalConditions(ctx context.Context, shell []string, cond []*core.Condition) error {
+func EvalConditions(ctx context.Context, shell []string, cond []*ir.Condition) error {
 	var lastErr error
 
 	for i := range cond {
@@ -53,7 +53,7 @@ func EvalConditions(ctx context.Context, shell []string, cond []*core.Condition)
 // It returns an error if the evaluation failed or the condition is invalid.
 // If c.Negate is true, the result is inverted: the condition passes when it
 // would normally fail, and vice versa.
-func EvalCondition(ctx context.Context, shell []string, c *core.Condition) error {
+func EvalCondition(ctx context.Context, shell []string, c *ir.Condition) error {
 	var err error
 	switch {
 	case c.Expected != "" && (c.Condition != "" || c.Eval != ""):
@@ -83,7 +83,7 @@ func EvalCondition(ctx context.Context, shell []string, c *core.Condition) error
 
 // matchCondition evaluates the condition and checks if it matches the expected value.
 // It returns an error if the condition was not met.
-func matchCondition(ctx context.Context, shell []string, c *core.Condition) error {
+func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error {
 	raw := c.Condition
 	field := cmnvalue.ConditionRuntimeValueField("condition")
 	if c.Eval != "" {
@@ -125,7 +125,7 @@ func conditionEvalContext(ctx context.Context, shell []string) context.Context {
 	return ctx
 }
 
-func evalCommand(ctx context.Context, shell []string, c *core.Condition) error {
+func evalCommand(ctx context.Context, shell []string, c *ir.Condition) error {
 	command := cmnvalue.CommandContext{
 		Target:          cmnvalue.CommandTargetLocal,
 		Shell:           shell,
@@ -153,7 +153,7 @@ func conditionEnv(ctx context.Context) (Env, bool) {
 	if !ok || rCtx.DAG == nil {
 		return Env{}, false
 	}
-	return NewEnv(ctx, core.Step{}), true
+	return NewEnv(ctx, ir.Step{}), true
 }
 
 func runShellCommand(ctx context.Context, shell []string, commandToRun string, workingDir string) error {

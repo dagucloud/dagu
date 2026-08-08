@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -259,7 +259,7 @@ func (*staticEntryReader) Start(context.Context) {}
 
 func (*staticEntryReader) Stop() {}
 
-func (*staticEntryReader) DAGs() []*core.DAG {
+func (*staticEntryReader) DAGs() []*ir.DAG {
 	return nil
 }
 

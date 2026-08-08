@@ -38,10 +38,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/telemetry"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -146,7 +146,7 @@ type Agent struct {
 	artifactFinalizer ArtifactFinalizer
 
 	// dag is the DAG to run.
-	dag *core.DAG
+	dag *ir.DAG
 
 	// rootDAGRun indicates the root dag-run of the current dag-run.
 	// If the current dag-run is the root dag-run, it is the same as the current
@@ -188,7 +188,7 @@ type Agent struct {
 	workerID string
 
 	// triggerType indicates how this DAG run was initiated.
-	triggerType core.TriggerType
+	triggerType ir.TriggerType
 	// triggerActor identifies the attributable actor that initiated the DAG run.
 	triggerActor string
 
@@ -241,13 +241,13 @@ type Agent struct {
 
 	// Evaluated configs - these are expanded at runtime and stored separately
 	// to avoid mutating the original DAG struct.
-	evaluatedSMTP          *core.SMTPConfig
-	evaluatedErrorMail     *core.MailConfig
-	evaluatedInfoMail      *core.MailConfig
-	evaluatedWaitMail      *core.MailConfig
-	evaluatedRegistryAuths map[string]*core.AuthConfig
+	evaluatedSMTP          *ir.SMTPConfig
+	evaluatedErrorMail     *ir.MailConfig
+	evaluatedInfoMail      *ir.MailConfig
+	evaluatedWaitMail      *ir.MailConfig
+	evaluatedRegistryAuths map[string]*ir.AuthConfig
 	evaluatedWorkingDir    string
-	evaluatedS3            *core.S3Config
+	evaluatedS3            *ir.S3Config
 }
 
 // StatusPusher reports DAG run status outside the current execution process.
@@ -275,7 +275,7 @@ type SubWorkflowRunnerFactory func(ctx context.Context) (runtimeexec.SubWorkflow
 
 // RemoteDAGLoader loads a DAG definition from a remote source.
 // Returns nil, nil when the remote source does not have the DAG.
-type RemoteDAGLoader func(ctx context.Context, name string) (*core.DAG, error)
+type RemoteDAGLoader func(ctx context.Context, name string) (*ir.DAG, error)
 
 // Options is the configuration for the Agent.
 type Options struct {
@@ -349,7 +349,7 @@ type Options struct {
 	// PeerConfig is the configuration for peer communication.
 	PeerConfig config.Peer
 	// TriggerType indicates how this DAG run was initiated.
-	TriggerType core.TriggerType
+	TriggerType ir.TriggerType
 	// TriggerActor identifies the attributable actor that initiated the DAG run.
 	TriggerActor string
 	// DefaultExecMode is the server-level default execution mode.
@@ -376,7 +376,7 @@ type Options struct {
 // New creates a new Agent.
 func New(
 	dagRunID string,
-	dag *core.DAG,
+	dag *ir.DAG,
 	logDir string,
 	logFile string,
 	drm runtime.Manager,
@@ -451,7 +451,7 @@ func New(
 	return a
 }
 
-func secretReferenceResolverForDAG(dag *core.DAG, opts Options) secrets.ReferenceResolver {
+func secretReferenceResolverForDAG(dag *ir.DAG, opts Options) secrets.ReferenceResolver {
 	if opts.SecretReferenceResolver != nil {
 		return opts.SecretReferenceResolver
 	}
@@ -461,7 +461,7 @@ func secretReferenceResolverForDAG(dag *core.DAG, opts Options) secrets.Referenc
 	return secretpkg.NewReferenceResolver(opts.SecretStore, workspaceNameFromDAG(dag))
 }
 
-func workspaceNameFromDAG(dag *core.DAG) string {
+func workspaceNameFromDAG(dag *ir.DAG) string {
 	if dag == nil {
 		return ""
 	}
@@ -744,7 +744,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.initFailed.Store(true)
 			logger.Error(ctx, "Failed to initialize DAG execution", tag.Error(initErr))
 			st := a.Status(ctx)
-			st.Status = core.Failed
+			st.Status = ir.Failed
 			if st.FinishedAt == "" {
 				st.FinishedAt = exec.FormatTime(time.Now())
 			}
@@ -793,7 +793,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Update the initial persisted status.
 	st := a.Status(ctx)
-	st.Status = core.Running
+	st.Status = ir.Running
 	a.writeStatus(ctx, attempt, st)
 
 	// If there was an error resolving secrets, stop execution here
@@ -1108,7 +1108,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			)
 			uploadErr := fmt.Errorf("upload artifacts: %w", err)
 			if finishedStatus.Status.IsSuccess() {
-				finishedStatus.Status = core.Failed
+				finishedStatus.Status = ir.Failed
 			}
 			if finishedStatus.Error != "" {
 				finishedStatus.Error = fmt.Sprintf("%s; failed to upload artifacts: %v", finishedStatus.Error, err)
@@ -1176,11 +1176,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	return lastErr
 }
 
-func (a *Agent) shouldDelayTerminalStatus(status core.Status) bool {
+func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {
 	switch status {
-	case core.Waiting:
+	case ir.Waiting:
 		return true
-	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Rejected:
+	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:
 		if a.artifactFinalizer != nil && a.artifactDir != "" {
 			return true
 		}
@@ -1299,7 +1299,7 @@ func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
 
 // buildOutputs creates the full DAGRunOutputs structure with metadata.
 // Returns nil if no outputs were collected.
-func (a *Agent) buildOutputs(ctx context.Context, finalStatus core.Status) *exec.DAGRunOutputs {
+func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *exec.DAGRunOutputs {
 	outputs := a.collectOutputs(ctx)
 
 	if len(outputs) == 0 {
@@ -1352,7 +1352,7 @@ func (a *Agent) PrintSummary(ctx context.Context) {
 	status := a.Status(ctx)
 
 	// Create a minimal DAG object for the tree renderer
-	dag := &core.DAG{Name: status.Name}
+	dag := &ir.DAG{Name: status.Name}
 
 	// Enable colors if stdout is a terminal
 	config := output.DefaultConfig()
@@ -1401,17 +1401,17 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 			statusOpts = append(statusOpts, transform.WithScheduleTime(a.scheduleTime))
 		}
 		status := transform.NewStatusBuilder(a.dag).
-			Create(a.dagRunID, core.Failed, os.Getpid(), time.Time{}, statusOpts...)
+			Create(a.dagRunID, ir.Failed, os.Getpid(), time.Time{}, statusOpts...)
 		a.maskStatusSecrets(&status)
 		return status
 	}
 
 	runnerStatus := a.runner.Status(ctx, a.plan)
 	if a.initFailed.Load() {
-		runnerStatus = core.Failed
-	} else if runnerStatus == core.NotStarted && a.plan.IsStarted() {
+		runnerStatus = ir.Failed
+	} else if runnerStatus == ir.NotStarted && a.plan.IsStarted() {
 		// Match the status to the execution plan.
-		runnerStatus = core.Running
+		runnerStatus = ir.Running
 	}
 
 	opts := []transform.StatusOption{
@@ -1420,12 +1420,12 @@ func (a *Agent) Status(ctx context.Context) exec.DAGRunStatus {
 		transform.WithLogFilePath(a.logFile),
 		transform.WithWorkingDir(a.evaluatedWorkingDir),
 		transform.WithArchiveDir(a.artifactDir),
-		transform.WithOnInitNode(a.runner.HandlerNode(core.HandlerOnInit)),
-		transform.WithOnExitNode(a.runner.HandlerNode(core.HandlerOnExit)),
-		transform.WithOnSuccessNode(a.runner.HandlerNode(core.HandlerOnSuccess)),
-		transform.WithOnFailureNode(a.runner.HandlerNode(core.HandlerOnFailure)),
-		transform.WithOnAbortNode(a.runner.HandlerNode(core.HandlerOnAbort)),
-		transform.WithOnWaitNode(a.runner.HandlerNode(core.HandlerOnWait)),
+		transform.WithOnInitNode(a.runner.HandlerNode(ir.HandlerOnInit)),
+		transform.WithOnExitNode(a.runner.HandlerNode(ir.HandlerOnExit)),
+		transform.WithOnSuccessNode(a.runner.HandlerNode(ir.HandlerOnSuccess)),
+		transform.WithOnFailureNode(a.runner.HandlerNode(ir.HandlerOnFailure)),
+		transform.WithOnAbortNode(a.runner.HandlerNode(ir.HandlerOnAbort)),
+		transform.WithOnWaitNode(a.runner.HandlerNode(ir.HandlerOnWait)),
 		transform.WithAttemptID(a.dagRunAttemptID),
 		transform.WithHierarchyRefs(a.rootDAGRun, a.parentDAGRun),
 		transform.WithPreconditions(a.dag.Preconditions),
@@ -1633,7 +1633,7 @@ func (a *Agent) HandleHTTP(ctx context.Context) sock.HTTPHandlerFunc {
 		case r.Method == http.MethodGet && statusRe.MatchString(r.URL.Path):
 			// Return the current status of the dag-run.
 			dagStatus := a.Status(ctx)
-			dagStatus.Status = core.Running
+			dagStatus.Status = ir.Running
 			statusJSON, err := json.Marshal(dagStatus)
 			if err != nil {
 				encodeError(w, err)
@@ -1688,7 +1688,7 @@ func (a *Agent) setupReporter(ctx context.Context) error {
 	return nil
 }
 
-func mailerConfigFromSMTP(config *core.SMTPConfig) (mailer.Config, error) {
+func mailerConfigFromSMTP(config *ir.SMTPConfig) (mailer.Config, error) {
 	if config == nil {
 		return mailer.Config{}, nil
 	}
@@ -2010,7 +2010,7 @@ func (a *Agent) evaluateRegistryAuths(ctx context.Context) error {
 	}
 
 	vars := runtime.GetEnv(ctx).UserEnvsMap()
-	a.evaluatedRegistryAuths = make(map[string]*core.AuthConfig)
+	a.evaluatedRegistryAuths = make(map[string]*ir.AuthConfig)
 
 	for registry, auth := range a.dag.RegistryAuths {
 		evaluatedAuth, err := evalHostConfigObject(ctx, *auth, vars, "registry_auth."+registry)
@@ -2255,7 +2255,7 @@ func (a *Agent) setupFreshPlan() (*runtime.Plan, error) {
 }
 
 func (a *Agent) retryNodes() ([]*runtime.Node, error) {
-	steps := make(map[string]core.Step, len(a.dag.Steps))
+	steps := make(map[string]ir.Step, len(a.dag.Steps))
 	for _, step := range a.dag.Steps {
 		steps[step.Name] = step
 	}

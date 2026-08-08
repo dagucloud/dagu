@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,7 +47,7 @@ steps:
 		f.dagWrapper.Agent().RunSuccess(t)
 		status, err := f.latestStatus()
 		require.NoError(t, err)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 
 		callAction := requireNodeByID(t, status, "call_action")
 		require.NotNil(t, callAction.OutputsValue)
@@ -118,7 +118,7 @@ steps:
 
 		agent := f.dagWrapper.Agent()
 		agent.RunSuccess(t)
-		f.dagWrapper.AssertLatestStatus(t, core.Succeeded)
+		f.dagWrapper.AssertLatestStatus(t, ir.Succeeded)
 	})
 }
 
@@ -159,7 +159,7 @@ steps:
 
 	childStatus, err := subAttempt.ReadStatus(f.coord.Context)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, childStatus.Status)
+	require.Equal(t, ir.Succeeded, childStatus.Status)
 	require.Equal(t, "worker-1", childStatus.WorkerID)
 }
 
@@ -200,7 +200,7 @@ steps:
 		childStatus, err := subAttempt.ReadStatus(f.coord.Context)
 		require.NoError(t, err)
 		require.NotNil(t, childStatus)
-		require.Equal(t, core.Succeeded, childStatus.Status)
+		require.Equal(t, ir.Succeeded, childStatus.Status)
 		require.Equal(t, "worker-1", childStatus.WorkerID)
 	})
 }
@@ -230,7 +230,7 @@ steps:
 		err := agent.Run(agent.Context)
 		require.Error(t, err)
 
-		f.dagWrapper.AssertLatestStatus(t, core.Failed)
+		f.dagWrapper.AssertLatestStatus(t, ir.Failed)
 
 		st, statusErr := f.latestStatus()
 		require.NoError(t, statusErr)
@@ -238,7 +238,7 @@ steps:
 
 		node := st.Nodes[0]
 		require.Equal(t, "run-local-on-worker", node.Step.Name)
-		require.Equal(t, core.NodeFailed, node.Status)
+		require.Equal(t, ir.NodeFailed, node.Status)
 		require.Len(t, node.SubRuns, 1)
 	})
 }
@@ -272,7 +272,7 @@ steps:
 		require.Error(t, err)
 
 		st := agent.Status(f.coord.Context)
-		require.NotEqual(t, core.Succeeded, st.Status)
+		require.NotEqual(t, ir.Succeeded, st.Status)
 	})
 }
 
@@ -306,9 +306,9 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, 25*time.Second)
+		status := f.waitForStatus(ir.Succeeded, 25*time.Second)
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 	})
 }
 
@@ -335,9 +335,9 @@ steps:
 
 		require.NoError(t, f.start())
 
-		status := f.waitForStatus(core.Succeeded, 20*time.Second)
+		status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 	})
 }
 
@@ -374,9 +374,9 @@ steps:
 		f.waitForQueued()
 		f.startScheduler(30 * time.Second)
 
-		status := f.waitForStatus(core.Succeeded, 25*time.Second)
+		status := f.waitForStatus(ir.Succeeded, 25*time.Second)
 
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		f.assertAllNodesSucceeded(status)
 	})
 }

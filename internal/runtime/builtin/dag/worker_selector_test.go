@@ -6,13 +6,13 @@ package dag
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/require"
 )
 
-func loadRawDAG(t *testing.T, yaml string) *core.DAG {
+func loadRawDAG(t *testing.T, yaml string) *ir.DAG {
 	t.Helper()
 	dag, err := spec.LoadYAML(t.Context(), []byte(yaml), spec.WithoutEval())
 	require.NoError(t, err)

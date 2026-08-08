@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +26,7 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 		t.TempDir(),
 		t.TempDir(),
 		"",
-		&core.DAG{Name: "ci"},
+		&ir.DAG{Name: "ci"},
 		"run-1",
 		"",
 		time.Now(),

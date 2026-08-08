@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -28,8 +28,8 @@ func TestExecutor_MessageSaving(t *testing.T) {
 		t.Parallel()
 
 		executor := &Executor{
-			step: core.Step{
-				LLM: &core.LLMConfig{
+			step: ir.Step{
+				LLM: &ir.LLMConfig{
 					Provider: "openai",
 					Model:    "gpt-4o",
 				},
@@ -71,8 +71,8 @@ func TestExecutor_MessageSaving(t *testing.T) {
 		t.Parallel()
 
 		executor := &Executor{
-			step: core.Step{
-				LLM: &core.LLMConfig{
+			step: ir.Step{
+				LLM: &ir.LLMConfig{
 					Provider: "gemini",
 					Model:    "gemini-pro",
 				},
@@ -138,8 +138,8 @@ func TestExecutor_PushBackExecutionMessagesUsePreviousConversationAndFeedback(t 
 			{Role: exec.RoleUser, Content: "original prompt"},
 			{Role: exec.RoleAssistant, Content: "previous answer"},
 		},
-		step: core.Step{
-			Approval: &core.ApprovalConfig{Input: []string{"FEEDBACK"}},
+		step: ir.Step{
+			Approval: &ir.ApprovalConfig{Input: []string{"FEEDBACK"}},
 		},
 	}
 	executor.SetPushBackContext(map[string]string{
@@ -194,7 +194,7 @@ func TestNewChatExecutor(t *testing.T) {
 	t.Run("NilLLMConfig", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{Name: "test"}
+		step := ir.Step{Name: "test"}
 		_, err := newChatExecutor(context.Background(), step)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "llm configuration is required")
@@ -203,9 +203,9 @@ func TestNewChatExecutor(t *testing.T) {
 	t.Run("InvalidProvider", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			LLM:  &core.LLMConfig{Provider: "invalid-provider"},
+			LLM:  &ir.LLMConfig{Provider: "invalid-provider"},
 		}
 		_, err := newChatExecutor(context.Background(), step)
 		require.Error(t, err)
@@ -215,9 +215,9 @@ func TestNewChatExecutor(t *testing.T) {
 	t.Run("ValidConfigWithOpenAI", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			LLM: &core.LLMConfig{
+			LLM: &ir.LLMConfig{
 				Provider: "openai",
 				Model:    "gpt-4o",
 			},
@@ -230,9 +230,9 @@ func TestNewChatExecutor(t *testing.T) {
 	t.Run("WithSystemMessage", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			LLM: &core.LLMConfig{
+			LLM: &ir.LLMConfig{
 				Provider: "anthropic",
 				Model:    "claude-sonnet-4-6",
 				System:   "You are a helpful assistant",
@@ -243,22 +243,22 @@ func TestNewChatExecutor(t *testing.T) {
 
 		e := exec.(*Executor)
 		assert.Len(t, e.messages, 1)
-		assert.Equal(t, core.LLMRoleSystem, e.messages[0].Role)
+		assert.Equal(t, ir.LLMRoleSystem, e.messages[0].Role)
 		assert.Equal(t, "You are a helpful assistant", e.messages[0].Content)
 	})
 
 	t.Run("WithStepMessages", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			LLM: &core.LLMConfig{
+			LLM: &ir.LLMConfig{
 				Provider: "openai",
 				Model:    "gpt-4o",
 			},
-			Messages: []core.LLMMessage{
-				{Role: core.LLMRoleUser, Content: "Hello"},
-				{Role: core.LLMRoleAssistant, Content: "Hi there"},
+			Messages: []ir.LLMMessage{
+				{Role: ir.LLMRoleUser, Content: "Hello"},
+				{Role: ir.LLMRoleAssistant, Content: "Hi there"},
 			},
 		}
 		exec, err := newChatExecutor(context.Background(), step)
@@ -266,22 +266,22 @@ func TestNewChatExecutor(t *testing.T) {
 
 		e := exec.(*Executor)
 		assert.Len(t, e.messages, 2)
-		assert.Equal(t, core.LLMRoleUser, e.messages[0].Role)
-		assert.Equal(t, core.LLMRoleAssistant, e.messages[1].Role)
+		assert.Equal(t, ir.LLMRoleUser, e.messages[0].Role)
+		assert.Equal(t, ir.LLMRoleAssistant, e.messages[1].Role)
 	})
 
 	t.Run("WithSystemAndStepMessages", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			LLM: &core.LLMConfig{
+			LLM: &ir.LLMConfig{
 				Provider: "gemini",
 				Model:    "gemini-pro",
 				System:   "Be concise",
 			},
-			Messages: []core.LLMMessage{
-				{Role: core.LLMRoleUser, Content: "What is 2+2?"},
+			Messages: []ir.LLMMessage{
+				{Role: ir.LLMRoleUser, Content: "What is 2+2?"},
 			},
 		}
 		exec, err := newChatExecutor(context.Background(), step)
@@ -289,16 +289,16 @@ func TestNewChatExecutor(t *testing.T) {
 
 		e := exec.(*Executor)
 		assert.Len(t, e.messages, 2)
-		assert.Equal(t, core.LLMRoleSystem, e.messages[0].Role)
-		assert.Equal(t, core.LLMRoleUser, e.messages[1].Role)
+		assert.Equal(t, ir.LLMRoleSystem, e.messages[0].Role)
+		assert.Equal(t, ir.LLMRoleUser, e.messages[1].Role)
 	})
 
 	t.Run("CustomAPIKeyName", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			LLM: &core.LLMConfig{
+			LLM: &ir.LLMConfig{
 				Provider:   "openai",
 				Model:      "gpt-4o",
 				APIKeyName: "MY_CUSTOM_KEY",
@@ -314,9 +314,9 @@ func TestNewChatExecutor(t *testing.T) {
 	t.Run("ProviderReferenceIsResolvedAtRunTime", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			LLM: &core.LLMConfig{
+			LLM: &ir.LLMConfig{
 				Provider: "${params.PROVIDER}",
 				Model:    "${params.MODEL}",
 			},
@@ -334,7 +334,7 @@ func TestResolveModels(t *testing.T) {
 	t.Run("ResolvesProviderAndModelReferences", func(t *testing.T) {
 		t.Parallel()
 
-		models, err := runtime.ResolveModels(ctx, []core.ModelEntry{
+		models, err := runtime.ResolveModels(ctx, []ir.ModelEntry{
 			{Provider: "${params.PROVIDER}", Name: "${params.MODEL}", BaseURL: "https://${params.PROVIDER}.example"},
 		})
 		require.NoError(t, err)
@@ -348,14 +348,14 @@ func TestResolveModels(t *testing.T) {
 	t.Run("LeavesLiteralEntriesUnchanged", func(t *testing.T) {
 		t.Parallel()
 
-		models, err := runtime.ResolveModels(ctx, []core.ModelEntry{
+		models, err := runtime.ResolveModels(ctx, []ir.ModelEntry{
 			{Provider: "openai", Name: "gpt-4o"},
 			{Provider: "${params.PROVIDER}", Name: "${params.MODEL}"},
 		})
 		require.NoError(t, err)
 		require.Len(t, models, 2)
-		assert.Equal(t, core.ModelEntry{Provider: "openai", Name: "gpt-4o"}, models[0])
-		assert.Equal(t, core.ModelEntry{Provider: "anthropic", Name: "claude-sonnet-4-6"}, models[1])
+		assert.Equal(t, ir.ModelEntry{Provider: "openai", Name: "gpt-4o"}, models[0])
+		assert.Equal(t, ir.ModelEntry{Provider: "anthropic", Name: "claude-sonnet-4-6"}, models[1])
 	})
 }
 
@@ -366,22 +366,22 @@ func TestResolveModelsRejectsEmptyValues(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		llm     core.LLMConfig
+		llm     ir.LLMConfig
 		wantErr string
 	}{
 		{
 			name:    "string form model resolves to empty",
-			llm:     core.LLMConfig{Provider: "${params.PROVIDER}", Model: "${params.EMPTY}"},
+			llm:     ir.LLMConfig{Provider: "${params.PROVIDER}", Model: "${params.EMPTY}"},
 			wantErr: `llm model "${params.EMPTY}" resolved to an empty value`,
 		},
 		{
 			name:    "string form provider resolves to empty",
-			llm:     core.LLMConfig{Provider: "${params.EMPTY}", Model: "${params.MODEL}"},
+			llm:     ir.LLMConfig{Provider: "${params.EMPTY}", Model: "${params.MODEL}"},
 			wantErr: `llm provider "${params.EMPTY}" resolved to an empty value`,
 		},
 		{
 			name: "array form model resolves to empty",
-			llm: core.LLMConfig{Models: []core.ModelEntry{
+			llm: ir.LLMConfig{Models: []ir.ModelEntry{
 				{Provider: "openai", Name: "gpt-4o"},
 				{Provider: "${params.PROVIDER}", Name: "${params.EMPTY}"},
 			}},
@@ -389,14 +389,14 @@ func TestResolveModelsRejectsEmptyValues(t *testing.T) {
 		},
 		{
 			name: "array form provider resolves to empty",
-			llm: core.LLMConfig{Models: []core.ModelEntry{
+			llm: ir.LLMConfig{Models: []ir.ModelEntry{
 				{Provider: "${params.EMPTY}", Name: "${params.MODEL}"},
 			}},
 			wantErr: `llm provider "${params.EMPTY}" resolved to an empty value`,
 		},
 		{
 			name:    "inherited config carries no model",
-			llm:     core.LLMConfig{Provider: "openai"},
+			llm:     ir.LLMConfig{Provider: "openai"},
 			wantErr: "llm model is required",
 		},
 	}
@@ -415,13 +415,13 @@ func TestResolveModelsRejectsEmptyValues(t *testing.T) {
 func chatRuntimeContext(t *testing.T, params []string) context.Context {
 	t.Helper()
 
-	dag := &core.DAG{Name: "test", Params: params}
+	dag := &ir.DAG{Name: "test", Params: params}
 	for _, param := range params {
 		name, _, _ := strings.Cut(param, "=")
-		dag.ParamDefs = append(dag.ParamDefs, core.ParamDef{Name: name, Type: core.ParamDefTypeString})
+		dag.ParamDefs = append(dag.ParamDefs, ir.ParamDef{Name: name, Type: ir.ParamDefTypeString})
 	}
 	ctx := exec.NewContext(context.Background(), dag, "run-1", "/tmp/log")
-	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, core.Step{Name: "test"}))
+	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, ir.Step{Name: "test"}))
 }
 
 func TestExecutor_SetStdout(t *testing.T) {
@@ -549,9 +549,9 @@ func TestToThinkingRequest(t *testing.T) {
 		t.Parallel()
 
 		budget := 1024
-		cfg := &core.ThinkingConfig{
+		cfg := &ir.ThinkingConfig{
 			Enabled:         true,
-			Effort:          core.ThinkingEffortHigh,
+			Effort:          ir.ThinkingEffortHigh,
 			BudgetTokens:    &budget,
 			IncludeInOutput: true,
 		}
@@ -567,7 +567,7 @@ func TestToThinkingRequest(t *testing.T) {
 	t.Run("DefaultValues", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &core.ThinkingConfig{}
+		cfg := &ir.ThinkingConfig{}
 		result := toThinkingRequest(cfg)
 
 		require.NotNil(t, result)
@@ -600,11 +600,11 @@ func TestExecutor_RunSimpleForModel_RetriesTransientChatFailure(t *testing.T) {
 
 	var calls atomic.Int32
 	stream := false
-	cfg := &core.LLMConfig{Provider: "openai", Model: "gpt-4o", Stream: &stream}
+	cfg := &ir.LLMConfig{Provider: "openai", Model: "gpt-4o", Stream: &stream}
 	var stdout bytes.Buffer
 	executor := &Executor{
 		stdout: stdoutWriter(&stdout),
-		step:   core.Step{LLM: cfg},
+		step:   ir.Step{LLM: cfg},
 	}
 
 	provider := &mockProvider{
@@ -638,11 +638,11 @@ func TestExecutor_RunSimpleForModel_RetriesStreamBeforeFirstDelta(t *testing.T) 
 
 	var calls atomic.Int32
 	stream := true
-	cfg := &core.LLMConfig{Provider: "openai", Model: "gpt-4o", Stream: &stream}
+	cfg := &ir.LLMConfig{Provider: "openai", Model: "gpt-4o", Stream: &stream}
 	var stdout bytes.Buffer
 	executor := &Executor{
 		stdout: stdoutWriter(&stdout),
-		step:   core.Step{LLM: cfg},
+		step:   ir.Step{LLM: cfg},
 	}
 
 	provider := &mockProvider{
@@ -672,11 +672,11 @@ func TestExecutor_RunSimpleForModel_DoesNotRetryStreamAfterDelta(t *testing.T) {
 
 	var calls atomic.Int32
 	stream := true
-	cfg := &core.LLMConfig{Provider: "openai", Model: "gpt-4o", Stream: &stream}
+	cfg := &ir.LLMConfig{Provider: "openai", Model: "gpt-4o", Stream: &stream}
 	var stdout bytes.Buffer
 	executor := &Executor{
 		stdout: stdoutWriter(&stdout),
-		step:   core.Step{LLM: cfg},
+		step:   ir.Step{LLM: cfg},
 	}
 
 	provider := &mockProvider{
@@ -704,10 +704,10 @@ func TestExecutor_ExecuteToolStep_RetriesTransientChatFailure(t *testing.T) {
 
 	var calls atomic.Int32
 	var stdout bytes.Buffer
-	cfg := &core.LLMConfig{Provider: "openai", Model: "gpt-4o"}
+	cfg := &ir.LLMConfig{Provider: "openai", Model: "gpt-4o"}
 	executor := &Executor{
 		stdout: stdoutWriter(&stdout),
-		step:   core.Step{LLM: cfg},
+		step:   ir.Step{LLM: cfg},
 	}
 
 	provider := &mockProvider{
@@ -750,7 +750,7 @@ func createContextWithSecrets(secrets map[string]string) context.Context {
 	for k, v := range secrets {
 		secretEnvs = append(secretEnvs, k+"="+v)
 	}
-	return exec.NewContext(context.Background(), &core.DAG{Name: "test"}, "run-1", "/tmp/log",
+	return exec.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1", "/tmp/log",
 		exec.WithSecrets(secretEnvs))
 }
 

@@ -18,9 +18,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
@@ -144,7 +144,7 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exe
 			result.PendingStepRetries = nil
 			return result, nil
 		}
-		if req.ExternalStepRetry && previousStatus.Status == core.Succeeded {
+		if req.ExternalStepRetry && previousStatus.Status == ir.Succeeded {
 			return statusToRunStatus(previousStatus, req.RunID), nil
 		}
 		if err := r.dispatchRetryWithStatus(ctx, req, "", previousStatus); err != nil {
@@ -217,7 +217,7 @@ func (r *Runner) validate(req executor.SubWorkflowRequest) error {
 	if req.DAG == nil {
 		return errMissingChildDAG
 	}
-	if req.DAG.Type == core.TypeIncremental {
+	if req.DAG.Type == ir.TypeIncremental {
 		return dispatch.ErrIncrementalRequiresLocal
 	}
 	if req.RunID == "" {
@@ -436,7 +436,7 @@ func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowReq
 				return result, nil
 			}
 
-			if result.Status.IsActive() || result.Status == core.NotStarted {
+			if result.Status.IsActive() || result.Status == ir.NotStarted {
 				logger.Debug(waitCtx, "Child workflow run not completed yet")
 				continue
 			}
@@ -485,7 +485,7 @@ func (r *Runner) waitForCancellation(
 		}
 		lastStatus = status
 
-		if status != nil && !status.Status.IsActive() && status.Status != core.NotStarted {
+		if status != nil && !status.Status.IsActive() && status.Status != ir.NotStarted {
 			return status, nil
 		}
 

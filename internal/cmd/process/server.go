@@ -10,8 +10,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/telemetry"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -44,7 +44,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	}
 
 	limits := cfg.Config.Cache.Limits()
-	dagCache := fileutil.NewCache[*core.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
+	dagCache := fileutil.NewCache[*ir.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
 	dagCache.StartEviction(ctx)
 
 	dagStore, err := NewDAGStore(cfg.Config, DAGStoreConfig{Cache: dagCache})

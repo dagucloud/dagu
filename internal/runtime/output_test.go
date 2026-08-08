@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	executorpkg "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,9 +92,9 @@ func registerOutputTestExecutor(t *testing.T, run func(context.Context, *outputT
 	t.Helper()
 
 	executorType := fmt.Sprintf("__output_test_%d", outputTestExecutorSeq.Add(1))
-	executorpkg.RegisterExecutor(executorType, func(context.Context, core.Step) (executorpkg.Executor, error) {
+	executorpkg.RegisterExecutor(executorType, func(context.Context, ir.Step) (executorpkg.Executor, error) {
 		return &outputTestExecutor{run: run}, nil
-	}, nil, core.ExecutorCapabilities{})
+	}, nil, ir.ExecutorCapabilities{})
 	t.Cleanup(func() {
 		executorpkg.UnregisterExecutor(executorType)
 	})
@@ -188,15 +188,15 @@ func TestNode_LargeOutput(t *testing.T) {
 			executorType := registerOutputTestExecutor(t, func(ctx context.Context, exec *outputTestExecutor) error {
 				return writeRepeatedX(ctx, exec.stdout, tt.outputSize)
 			})
-			step := core.Step{
+			step := ir.Step{
 				Name:           "test",
 				Output:         "RESULT",
-				ExecutorConfig: core.ExecutorConfig{Type: executorType},
+				ExecutorConfig: ir.ExecutorConfig{Type: executorType},
 			}
 
 			node := NewNode(step, NodeState{})
 			ctx := context.Background()
-			dag := &core.DAG{Name: "test"}
+			dag := &ir.DAG{Name: "test"}
 			ctx = NewContext(ctx, dag, "test-run", "test.log")
 
 			tmpDir := t.TempDir()
@@ -219,15 +219,15 @@ func TestNode_OutputCaptureDeadlock(t *testing.T) {
 	})
 
 	// Test specifically for the pipe deadlock issue
-	step := core.Step{
+	step := ir.Step{
 		Name:           "deadlock-test",
 		Output:         "RESULT",
-		ExecutorConfig: core.ExecutorConfig{Type: executorType},
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType},
 	}
 
 	node := NewNode(step, NodeState{})
 	ctx := context.Background()
-	dag := &core.DAG{Name: "test"}
+	dag := &ir.DAG{Name: "test"}
 	ctx = NewContext(ctx, dag, "deadlock-test", "test.log")
 
 	tmpDir := t.TempDir()
@@ -247,16 +247,16 @@ func TestNode_OutputExceedsLimit(t *testing.T) {
 	})
 
 	// Test that output exceeding the limit returns an error
-	step := core.Step{
+	step := ir.Step{
 		Name:           "exceed-limit-test",
 		Output:         "RESULT",
-		ExecutorConfig: core.ExecutorConfig{Type: executorType},
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType},
 	}
 
 	node := NewNode(step, NodeState{})
 	ctx := context.Background()
 	// Set up environment context with proper DAG
-	dag := &core.DAG{Name: "test"}
+	dag := &ir.DAG{Name: "test"}
 	ctx = NewContext(ctx, dag, "exceed-limit-test", "test.log")
 
 	tmpDir := t.TempDir()
@@ -280,16 +280,16 @@ func TestNode_CustomOutputLimit(t *testing.T) {
 	})
 
 	// Test with custom output limit
-	step := core.Step{
+	step := ir.Step{
 		Name:           "custom-limit-test",
 		Output:         "RESULT",
-		ExecutorConfig: core.ExecutorConfig{Type: executorType},
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType},
 	}
 
 	node := NewNode(step, NodeState{})
 	ctx := context.Background()
 	// Set up environment context with custom limit of 50KB
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:          "test",
 		MaxOutputSize: 50 * 1024, // 50KB limit
 	}
@@ -316,16 +316,16 @@ func TestNode_ConcurrentOutputCapture(t *testing.T) {
 	})
 
 	// Test that output capture doesn't interfere with concurrent writes
-	step := core.Step{
+	step := ir.Step{
 		Name:           "concurrent-test",
-		ExecutorConfig: core.ExecutorConfig{Type: executorType},
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType},
 		Output:         "RESULT",
 	}
 
 	node := NewNode(step, NodeState{})
 	ctx := context.Background()
 	// Set up environment context with proper DAG
-	dag := &core.DAG{Name: "test"}
+	dag := &ir.DAG{Name: "test"}
 	ctx = NewContext(ctx, dag, "concurrent-test", "test.log")
 
 	tmpDir := t.TempDir()
@@ -566,7 +566,7 @@ func TestOutputCoordinator_SetupRemoteWriters(t *testing.T) {
 		ctx := context.Background()
 
 		data := NodeData{
-			Step: core.Step{Name: "test-step"},
+			Step: ir.Step{Name: "test-step"},
 			State: NodeState{
 				Stdout: "/path/to/stdout.log",
 				Stderr: "/path/to/stderr.log",
@@ -595,7 +595,7 @@ func TestOutputCoordinator_SetupRemoteWriters(t *testing.T) {
 
 		// Same path for both stdout and stderr
 		data := NodeData{
-			Step: core.Step{Name: "test-step"},
+			Step: ir.Step{Name: "test-step"},
 			State: NodeState{
 				Stdout: "/path/to/combined.log",
 				Stderr: "/path/to/combined.log",
@@ -770,10 +770,10 @@ func TestOutputCoordinator_CapturedStderr(t *testing.T) {
 
 		cmd := &outputTestExecutor{}
 		data := NodeData{
-			Step: core.Step{
+			Step: ir.Step{
 				Name: "stderr-structured-output",
-				StructuredOutput: map[string]core.StepOutputEntry{
-					"warning": {From: core.StepOutputSourceStderr},
+				StructuredOutput: map[string]ir.StepOutputEntry{
+					"warning": {From: ir.StepOutputSourceStderr},
 				},
 			},
 		}

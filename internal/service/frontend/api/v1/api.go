@@ -21,12 +21,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
 	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
@@ -616,7 +616,7 @@ func validateDAGFileNameFromRequest(request any) error {
 		return nil
 	}
 
-	if err := core.ValidateDAGName(fileName.String()); err != nil {
+	if err := ir.ValidateDAGName(fileName.String()); err != nil {
 		return &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,

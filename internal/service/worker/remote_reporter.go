@@ -14,8 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
@@ -533,11 +533,11 @@ func (p *finalSchedulerLogStatusPusher) Push(ctx context.Context, status exec.DA
 	return p.pusher.Push(ctx, status)
 }
 
-func shouldFinalizeSchedulerLogBeforeStatus(status core.Status) bool {
+func shouldFinalizeSchedulerLogBeforeStatus(status ir.Status) bool {
 	switch status {
-	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Rejected:
+	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:
 		return true
-	case core.NotStarted, core.Running, core.Queued, core.Waiting:
+	case ir.NotStarted, ir.Running, ir.Queued, ir.Waiting:
 		return false
 	}
 	return false

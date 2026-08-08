@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -226,7 +226,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			status := exec.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: dagRunTest.dagRunID,
-				Status:   core.Succeeded,
+				Status:   ir.Succeeded,
 			}
 			require.NoError(t, attempt.Write(root.Context, status))
 			require.NoError(t, attempt.Close(root.Context))
@@ -273,7 +273,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			status := exec.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: dagRunTest.dagRunID,
-				Status:   core.Succeeded,
+				Status:   ir.Succeeded,
 			}
 			require.NoError(t, attempt.Write(root.Context, status))
 			require.NoError(t, attempt.Close(root.Context))
@@ -320,7 +320,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			status := exec.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: dagRun.dagRunID,
-				Status:   core.Succeeded,
+				Status:   ir.Succeeded,
 			}
 			require.NoError(t, attempt.Write(root.Context, status))
 			require.NoError(t, attempt.Close(root.Context))
@@ -359,7 +359,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			require.NoError(t, attempt.Write(root.Context, exec.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: item.run.dagRunID,
-				Status:   core.Succeeded,
+				Status:   ir.Succeeded,
 			}))
 			require.NoError(t, attempt.Close(root.Context))
 		}
@@ -385,7 +385,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		require.NoError(t, attempt.Write(root.Context, exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: activeRun.dagRunID,
-			Status:   core.Running,
+			Status:   ir.Running,
 		}))
 		require.NoError(t, attempt.Close(root.Context))
 
@@ -395,7 +395,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		require.NoError(t, attempt.Write(root.Context, exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: newRun.dagRunID,
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		}))
 		require.NoError(t, attempt.Close(root.Context))
 
@@ -420,7 +420,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		require.NoError(t, attempt.Write(root.Context, exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: oldRun.dagRunID,
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		}))
 		require.NoError(t, attempt.Close(root.Context))
 
@@ -433,7 +433,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		require.NoError(t, attempt.Write(root.Context, exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: newRun.dagRunID,
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		}))
 		require.NoError(t, attempt.Close(root.Context))
 
@@ -462,7 +462,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			status := exec.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: dagRunTest.dagRunID,
-				Status:   core.Succeeded,
+				Status:   ir.Succeeded,
 			}
 			require.NoError(t, attempt.Write(root.Context, status))
 			require.NoError(t, attempt.Close(root.Context))
@@ -505,7 +505,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		waitingRun := root.CreateTestDAGRun(t, "waiting-run", exec.NewUTC(oldTime))
 
 		// Create attempts with different statuses
-		createAttemptWithStatusType := func(dagRunTest DAGRunTest, ts time.Time, status core.Status) *Attempt {
+		createAttemptWithStatusType := func(dagRunTest DAGRunTest, ts time.Time, status ir.Status) *Attempt {
 			attempt, err := dagRunTest.CreateAttempt(root.Context, exec.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
@@ -524,8 +524,8 @@ func TestDataRootRemoveOld(t *testing.T) {
 			return attempt
 		}
 
-		createAttemptWithStatusType(completedRun, oldTime, core.Succeeded)
-		createAttemptWithStatusType(waitingRun, oldTime, core.Waiting)
+		createAttemptWithStatusType(completedRun, oldTime, ir.Succeeded)
+		createAttemptWithStatusType(waitingRun, oldTime, ir.Waiting)
 
 		// Verify dag-runs exist
 		assert.True(t, fileutil.FileExists(completedRun.baseDir), "Completed dag-run should exist before cleanup")
@@ -559,7 +559,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		status := exec.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   dagRun.dagRunID,
-			Status:     core.Succeeded,
+			Status:     ir.Succeeded,
 			ArchiveDir: artifactDir,
 		}
 		require.NoError(t, attempt.Write(root.Context, status))
@@ -642,7 +642,7 @@ func TestSummaryFromIndexEntry(t *testing.T) {
 		DagRunDir:        "dag-run_20240115_120000Z_test",
 		DagRunID:         "test-id",
 		LatestAttemptDir: "attempt_20240115_120000_001Z_abc",
-		Status:           core.Succeeded,
+		Status:           ir.Succeeded,
 		StartedAtUnix:    1705320000,
 		FinishedAtUnix:   1705320060,
 		Labels:           []string{"env=prod"},
@@ -651,7 +651,7 @@ func TestSummaryFromIndexEntry(t *testing.T) {
 		Params:           "key=val",
 		QueuedAt:         "2024-01-15T12:00:00Z",
 		ScheduleTime:     "2024-01-15T11:55:00Z",
-		TriggerType:      core.TriggerType(1),
+		TriggerType:      ir.TriggerType(1),
 		TriggerActor:     "alice",
 		CreatedAt:        1705320000000,
 		LeaseAt:          1705320030000,
@@ -684,7 +684,7 @@ func TestListDAGRunsInRange_IndexPath(t *testing.T) {
 	for i := range 12 {
 		ts := exec.NewUTC(baseTime.Add(time.Duration(i) * time.Hour))
 		run := root.CreateTestDAGRun(t, fmt.Sprintf("idx-run-%d", i), ts)
-		run.WriteStatus(t, ts, core.Succeeded)
+		run.WriteStatus(t, ts, ir.Succeeded)
 	}
 
 	start := exec.NewUTC(baseTime)
@@ -707,7 +707,7 @@ func TestListDAGRunsInRange_FallbackPath(t *testing.T) {
 	for i := range 5 {
 		ts := exec.NewUTC(baseTime.Add(time.Duration(i) * time.Hour))
 		run := root.CreateTestDAGRun(t, fmt.Sprintf("fb-run-%d", i), ts)
-		run.WriteStatus(t, ts, core.Succeeded)
+		run.WriteStatus(t, ts, ir.Succeeded)
 	}
 
 	start := exec.NewUTC(baseTime)

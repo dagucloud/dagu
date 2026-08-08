@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +21,7 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
-	dag := &core.DAG{Name: "latest-pointer"}
+	dag := &ir.DAG{Name: "latest-pointer"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
 	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", exec.NewDAGRunAttemptOptions{})
@@ -31,7 +31,7 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: attempt.ID(),
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		StartedAt: startedAt.Format(time.RFC3339),
 	}))
 	require.NoError(t, attempt.Close(ctx))
@@ -43,7 +43,7 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	status, err := latest.ReadStatus(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "run-1", status.DAGRunID)
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 }
 
 func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
@@ -73,7 +73,7 @@ func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 	ctx := context.Background()
 	baseDir := b.TempDir()
 	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
-	dag := &core.DAG{Name: "latest-pointer-bench"}
+	dag := &ir.DAG{Name: "latest-pointer-bench"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
 	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", exec.NewDAGRunAttemptOptions{})
@@ -83,7 +83,7 @@ func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: attempt.ID(),
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 		StartedAt: startedAt.Format(time.RFC3339),
 	}))
 	require.NoError(b, attempt.Close(ctx))

@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -192,11 +192,11 @@ params:
 	require.Len(t, dag.ParamDefs, 2)
 
 	assert.Equal(t, "batch_size", dag.ParamDefs[0].Name)
-	assert.Equal(t, core.ParamDefTypeInteger, dag.ParamDefs[0].Type)
+	assert.Equal(t, ir.ParamDefTypeInteger, dag.ParamDefs[0].Type)
 	assert.Equal(t, float64(10), dag.ParamDefs[0].Default)
 
 	assert.Equal(t, "debug", dag.ParamDefs[1].Name)
-	assert.Equal(t, core.ParamDefTypeBoolean, dag.ParamDefs[1].Type)
+	assert.Equal(t, ir.ParamDefTypeBoolean, dag.ParamDefs[1].Type)
 	assert.Equal(t, false, dag.ParamDefs[1].Default)
 
 	assert.Contains(t, dag.DefaultParams, `batch_size="10"`)
@@ -227,7 +227,7 @@ params:
 	require.Len(t, dag.ParamDefs, 2)
 
 	// Find start_date paramDef
-	var startDateDef *core.ParamDef
+	var startDateDef *ir.ParamDef
 	for i := range dag.ParamDefs {
 		if dag.ParamDefs[i].Name == "start_date" {
 			startDateDef = &dag.ParamDefs[i]

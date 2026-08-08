@@ -8,11 +8,11 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // StatusText returns human-readable status text for a DAG status.
-func StatusText(status core.Status) string {
+func StatusText(status ir.Status) string {
 	// Convert snake_case to Title Case (e.g., "partially_succeeded" -> "Partially Succeeded")
 	s := status.String()
 	s = strings.ReplaceAll(s, "_", " ")

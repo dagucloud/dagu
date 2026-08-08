@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,12 +26,12 @@ func TestKubernetesResolver_Validate(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		ref         core.SecretRef
+		ref         ir.SecretRef
 		errContains string
 	}{
 		{
 			name: "SecretNameSlashDataKey",
-			ref: core.SecretRef{
+			ref: ir.SecretRef{
 				Name:     "DB_PASSWORD",
 				Provider: "kubernetes",
 				Key:      "app-secrets/db-password",
@@ -39,7 +39,7 @@ func TestKubernetesResolver_Validate(t *testing.T) {
 		},
 		{
 			name: "SecretNameOption",
-			ref: core.SecretRef{
+			ref: ir.SecretRef{
 				Name:     "DB_PASSWORD",
 				Provider: "kubernetes",
 				Key:      "db-password",
@@ -48,7 +48,7 @@ func TestKubernetesResolver_Validate(t *testing.T) {
 		},
 		{
 			name: "FieldOption",
-			ref: core.SecretRef{
+			ref: ir.SecretRef{
 				Name:     "DB_PASSWORD",
 				Provider: "kubernetes",
 				Key:      "app-secrets",
@@ -57,7 +57,7 @@ func TestKubernetesResolver_Validate(t *testing.T) {
 		},
 		{
 			name: "MissingKey",
-			ref: core.SecretRef{
+			ref: ir.SecretRef{
 				Name:     "DB_PASSWORD",
 				Provider: "kubernetes",
 			},
@@ -65,7 +65,7 @@ func TestKubernetesResolver_Validate(t *testing.T) {
 		},
 		{
 			name: "NoSecretName",
-			ref: core.SecretRef{
+			ref: ir.SecretRef{
 				Name:     "DB_PASSWORD",
 				Provider: "kubernetes",
 				Key:      "db-password",
@@ -74,7 +74,7 @@ func TestKubernetesResolver_Validate(t *testing.T) {
 		},
 		{
 			name: "TooManyPathSegments",
-			ref: core.SecretRef{
+			ref: ir.SecretRef{
 				Name:     "DB_PASSWORD",
 				Provider: "kubernetes",
 				Key:      "team/app-secrets/db-password",
@@ -83,7 +83,7 @@ func TestKubernetesResolver_Validate(t *testing.T) {
 		},
 		{
 			name: "MissingDataKey",
-			ref: core.SecretRef{
+			ref: ir.SecretRef{
 				Name:     "DB_PASSWORD",
 				Provider: "kubernetes",
 				Key:      "/",
@@ -130,7 +130,7 @@ func TestKubernetesResolver_Resolve(t *testing.T) {
 		},
 	})
 
-	value, err := resolver.Resolve(ctx, core.SecretRef{
+	value, err := resolver.Resolve(ctx, ir.SecretRef{
 		Name:     "DB_PASSWORD",
 		Provider: "kubernetes",
 		Key:      "app-secrets/db-password",
@@ -153,7 +153,7 @@ func TestKubernetesResolver_ResolveWithOptions(t *testing.T) {
 	}
 	resolver := &kubernetesResolver{client: client}
 
-	value, err := resolver.Resolve(context.Background(), core.SecretRef{
+	value, err := resolver.Resolve(context.Background(), ir.SecretRef{
 		Name:     "API_TOKEN",
 		Provider: "kubernetes",
 		Key:      "api-token",
@@ -174,7 +174,7 @@ func TestKubernetesResolver_ResolveErrors(t *testing.T) {
 		t.Parallel()
 
 		resolver := &kubernetesResolver{client: &mockKubernetesSecretClient{}}
-		_, err := resolver.Resolve(context.Background(), core.SecretRef{
+		_, err := resolver.Resolve(context.Background(), ir.SecretRef{
 			Name:     "DB_PASSWORD",
 			Provider: "kubernetes",
 			Key:      "app-secrets/db-password",
@@ -196,7 +196,7 @@ func TestKubernetesResolver_ResolveErrors(t *testing.T) {
 			},
 		}}
 
-		_, err := resolver.Resolve(context.Background(), core.SecretRef{
+		_, err := resolver.Resolve(context.Background(), ir.SecretRef{
 			Name:     "DB_PASSWORD",
 			Provider: "kubernetes",
 			Key:      "app-secrets/db-password",
@@ -213,7 +213,7 @@ func TestKubernetesResolver_ResolveErrors(t *testing.T) {
 			err: apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "app-secrets", errors.New("denied")),
 		}}
 
-		_, err := resolver.Resolve(context.Background(), core.SecretRef{
+		_, err := resolver.Resolve(context.Background(), ir.SecretRef{
 			Name:     "DB_PASSWORD",
 			Provider: "kubernetes",
 			Key:      "app-secrets/db-password",
@@ -237,7 +237,7 @@ func TestKubernetesResolver_ResolveClientSettings(t *testing.T) {
 		},
 	})
 
-	settings := resolver.resolveClientSettings(ctx, core.SecretRef{
+	settings := resolver.resolveClientSettings(ctx, ir.SecretRef{
 		Options: map[string]string{
 			"kubeconfig": "/override/kubeconfig",
 			"context":    "override-context",
@@ -269,7 +269,7 @@ func TestKubernetesResolver_ClientCache(t *testing.T) {
 			},
 		},
 	})
-	ref := core.SecretRef{
+	ref := ir.SecretRef{
 		Name:     "DB_PASSWORD",
 		Provider: "kubernetes",
 		Key:      "app-secrets/db-password",

@@ -8,8 +8,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Resume retries a pending human-task enqueue without requiring the submitted form values.
@@ -22,7 +22,7 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 	if err != nil {
 		return Result{}, err
 	}
-	if target.status.Status != core.Waiting {
+	if target.status.Status != ir.Waiting {
 		if !hasCompletedHumanTask(target.status.Nodes) {
 			return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
 		}
@@ -39,7 +39,7 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 }
 
 func (s *Service) enqueueResume(ctx context.Context, target *target, result Result) (Result, error) {
-	if target.status == nil || target.status.Status != core.Waiting || hasWaitingNodes(target.status.Nodes) {
+	if target.status == nil || target.status.Status != ir.Waiting || hasWaitingNodes(target.status.Nodes) {
 		return result, nil
 	}
 	if s.QueueStore == nil {
@@ -93,11 +93,11 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 func (s *Service) waitForCompletionReady(
 	ctx context.Context,
 	attempt exec.DAGRunAttempt,
-	dag *core.DAG,
+	dag *ir.DAG,
 	status *exec.DAGRunStatus,
 	stepID string,
 ) (*exec.DAGRunStatus, error) {
-	if status.Status != core.Waiting || status.AttemptID == "" {
+	if status.Status != ir.Waiting || status.AttemptID == "" {
 		return status, nil
 	}
 	originalAttemptID := status.AttemptID
@@ -170,7 +170,7 @@ func reloadStatus(ctx context.Context, attempt exec.DAGRunAttempt) (*exec.DAGRun
 }
 
 func attemptFinalizing(status *exec.DAGRunStatus, attemptID, stepID string) (bool, error) {
-	if status.Status != core.Waiting || status.AttemptID != attemptID || status.FinishedAt != "" {
+	if status.Status != ir.Waiting || status.AttemptID != attemptID || status.FinishedAt != "" {
 		return false, nil
 	}
 	node, err := findNodeByID(status.Nodes, stepID)
@@ -219,7 +219,7 @@ func hasWaitingNodes(nodes []*exec.Node) bool {
 func countWaitingNodes(nodes []*exec.Node) int {
 	count := 0
 	for _, node := range nodes {
-		if node != nil && node.Status == core.NodeWaiting {
+		if node != nil && node.Status == ir.NodeWaiting {
 			count++
 		}
 	}
@@ -237,7 +237,7 @@ func hasCompletedHumanTask(nodes []*exec.Node) bool {
 
 func hasWaitingHumanTask(nodes []*exec.Node) bool {
 	for _, node := range nodes {
-		if node != nil && node.Status == core.NodeWaiting && node.Step.HumanTask != nil {
+		if node != nil && node.Status == ir.NodeWaiting && node.Step.HumanTask != nil {
 			return true
 		}
 	}
@@ -251,7 +251,7 @@ func HasCompletedTask(status *exec.DAGRunStatus) bool {
 
 // ResumePending reports whether a run is waiting for its human-task retry to be queued.
 func ResumePending(status *exec.DAGRunStatus) bool {
-	return status != nil && status.Status == core.Waiting && !hasWaitingNodes(status.Nodes) && hasCompletedHumanTask(status.Nodes)
+	return status != nil && status.Status == ir.Waiting && !hasWaitingNodes(status.Nodes) && hasCompletedHumanTask(status.Nodes)
 }
 
 // ValidateRetry rejects retry operations that would bypass human-task completion state.
@@ -270,7 +270,7 @@ func ValidateRetry(status *exec.DAGRunStatus, stepName string) error {
 			break
 		}
 	}
-	if status.Status == core.Waiting && (hasWaitingHumanTask(status.Nodes) || ResumePending(status)) {
+	if status.Status == ir.Waiting && (hasWaitingHumanTask(status.Nodes) || ResumePending(status)) {
 		return errorf(ErrorConflict, "DAG-run %s is waiting on a human-task checkpoint; complete or resume it instead", status.DAGRun())
 	}
 	return nil

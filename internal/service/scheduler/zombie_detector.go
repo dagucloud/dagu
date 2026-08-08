@@ -15,8 +15,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
@@ -229,7 +229,7 @@ func (z *ZombieDetector) checkAndCleanZombie(ctx context.Context, entry exec.Pro
 	if err != nil {
 		return fmt.Errorf("read status: %w", err)
 	}
-	if status.AttemptID != entry.Meta.AttemptID || status.Status != core.Running {
+	if status.AttemptID != entry.Meta.AttemptID || status.Status != ir.Running {
 		z.clearAttemptState(attemptKey)
 		if err := z.procStore.RemoveIfStale(ctx, entry); err != nil {
 			return fmt.Errorf("remove mismatched stale proc: %w", err)

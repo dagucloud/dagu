@@ -7,15 +7,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 )
 
 // LogOutputValue represents a log output configuration that can be unmarshaled from YAML.
 // It accepts a string value that must be one of: "separate" or "merged".
-// This type uses core.LogOutputMode to avoid type duplication.
+// This type uses ir.LogOutputMode to avoid type duplication.
 type LogOutputValue struct {
-	mode core.LogOutputMode
+	mode ir.LogOutputMode
 	set  bool // whether the value was explicitly set in YAML
 }
 
@@ -33,9 +33,9 @@ func (l *LogOutputValue) UnmarshalYAML(data []byte) error {
 		value := strings.TrimSpace(strings.ToLower(v))
 		switch value {
 		case "separate", "":
-			l.mode = core.LogOutputSeparate
+			l.mode = ir.LogOutputSeparate
 		case "merged":
-			l.mode = core.LogOutputMerged
+			l.mode = ir.LogOutputMerged
 		default:
 			return fmt.Errorf("invalid log_output value: %q (must be 'separate' or 'merged')", v)
 		}
@@ -56,10 +56,10 @@ func (l LogOutputValue) IsZero() bool {
 }
 
 // Mode returns the log output mode.
-// If the value was not set, it returns core.LogOutputSeparate as the default.
-func (l LogOutputValue) Mode() core.LogOutputMode {
+// If the value was not set, it returns ir.LogOutputSeparate as the default.
+func (l LogOutputValue) Mode() ir.LogOutputMode {
 	if !l.set {
-		return core.LogOutputSeparate
+		return ir.LogOutputSeparate
 	}
 	return l.mode
 }
@@ -71,10 +71,10 @@ func (l LogOutputValue) String() string {
 
 // IsMerged returns true if the log output mode is merged.
 func (l LogOutputValue) IsMerged() bool {
-	return l.mode == core.LogOutputMerged
+	return l.mode == ir.LogOutputMerged
 }
 
 // IsSeparate returns true if the log output mode is separate.
 func (l LogOutputValue) IsSeparate() bool {
-	return !l.set || l.mode == core.LogOutputSeparate
+	return !l.set || l.mode == ir.LogOutputSeparate
 }

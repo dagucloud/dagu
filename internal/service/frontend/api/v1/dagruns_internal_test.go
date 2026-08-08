@@ -15,8 +15,8 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/goccy/go-yaml"
@@ -53,12 +53,12 @@ func TestDeriveManualDAGRunStatusRetryingIsRunning(t *testing.T) {
 
 	status := deriveManualDAGRunStatus([]*exec.Node{
 		{
-			Step:   core.Step{Name: "retrying"},
-			Status: core.NodeRetrying,
+			Step:   ir.Step{Name: "retrying"},
+			Status: ir.NodeRetrying,
 		},
-	}, core.Failed)
+	}, ir.Failed)
 
-	assert.Equal(t, core.Running, status)
+	assert.Equal(t, ir.Running, status)
 }
 
 func TestDeriveManualDAGRunStatusContinueOnMarkSuccessIsContinuable(t *testing.T) {
@@ -66,22 +66,22 @@ func TestDeriveManualDAGRunStatusContinueOnMarkSuccessIsContinuable(t *testing.T
 
 	status := deriveManualDAGRunStatus([]*exec.Node{
 		{
-			Step: core.Step{
+			Step: ir.Step{
 				Name: "failed-continuable",
-				ContinueOn: core.ContinueOn{
+				ContinueOn: ir.ContinueOn{
 					Failure:     true,
 					MarkSuccess: true,
 				},
 			},
-			Status: core.NodeFailed,
+			Status: ir.NodeFailed,
 		},
 		{
-			Step:   core.Step{Name: "succeeded"},
-			Status: core.NodeSucceeded,
+			Step:   ir.Step{Name: "succeeded"},
+			Status: ir.NodeSucceeded,
 		},
-	}, core.Running)
+	}, ir.Running)
 
-	assert.Equal(t, core.PartiallySucceeded, status)
+	assert.Equal(t, ir.PartiallySucceeded, status)
 }
 
 func TestDeriveManualDAGRunStatusMixedNotStartedAndSucceededIsNonRunning(t *testing.T) {
@@ -89,16 +89,16 @@ func TestDeriveManualDAGRunStatusMixedNotStartedAndSucceededIsNonRunning(t *test
 
 	status := deriveManualDAGRunStatus([]*exec.Node{
 		{
-			Step:   core.Step{Name: "succeeded"},
-			Status: core.NodeSucceeded,
+			Step:   ir.Step{Name: "succeeded"},
+			Status: ir.NodeSucceeded,
 		},
 		{
-			Step:   core.Step{Name: "reset"},
-			Status: core.NodeNotStarted,
+			Step:   ir.Step{Name: "reset"},
+			Status: ir.NodeNotStarted,
 		},
-	}, core.Succeeded)
+	}, ir.Succeeded)
 
-	assert.Equal(t, core.PartiallySucceeded, status)
+	assert.Equal(t, ir.PartiallySucceeded, status)
 }
 
 func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
@@ -108,49 +108,49 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 	status := &exec.DAGRunStatus{
 		Nodes: []*exec.Node{
 			{
-				Step:       core.Step{Name: "bootstrap"},
-				Status:     core.NodeSucceeded,
+				Step:       ir.Step{Name: "bootstrap"},
+				Status:     ir.NodeSucceeded,
 				StartedAt:  "started",
 				FinishedAt: "finished",
 			},
 			{
-				Step:       core.Step{Name: "prepare", Depends: []string{"bootstrap"}},
-				Status:     core.NodeSucceeded,
+				Step:       ir.Step{Name: "prepare", Depends: []string{"bootstrap"}},
+				Status:     ir.NodeSucceeded,
 				Stdout:     "/tmp/prepare-prev.out",
 				StartedAt:  "started",
 				FinishedAt: "finished",
 			},
 			{
-				Step:       core.Step{Name: "sidecar", Depends: []string{"prepare"}},
-				Status:     core.NodeSucceeded,
+				Step:       ir.Step{Name: "sidecar", Depends: []string{"prepare"}},
+				Status:     ir.NodeSucceeded,
 				Stdout:     "/tmp/sidecar-prev.out",
 				StartedAt:  "started",
 				FinishedAt: "finished",
 			},
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					Name:    "review",
 					Depends: []string{"prepare"},
-					Approval: &core.ApprovalConfig{
+					Approval: &ir.ApprovalConfig{
 						Input:    []string{"FEEDBACK"},
 						RewindTo: "prepare",
 					},
 				},
-				Status:     core.NodeWaiting,
+				Status:     ir.NodeWaiting,
 				Stdout:     "/tmp/review-prev.out",
 				StartedAt:  "started",
 				FinishedAt: "finished",
 			},
 			{
-				Step:       core.Step{Name: "deploy", Depends: []string{"review"}},
-				Status:     core.NodeNotStarted,
+				Step:       ir.Step{Name: "deploy", Depends: []string{"review"}},
+				Status:     ir.NodeNotStarted,
 				Stdout:     "",
 				StartedAt:  "-",
 				FinishedAt: "-",
 			},
 			{
-				Step:       core.Step{Name: "notify", Depends: []string{"bootstrap"}},
-				Status:     core.NodeSucceeded,
+				Step:       ir.Step{Name: "notify", Depends: []string{"bootstrap"}},
+				Status:     ir.NodeSucceeded,
 				StartedAt:  "started",
 				FinishedAt: "finished",
 			},
@@ -162,12 +162,12 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, core.NodeSucceeded, status.Nodes[0].Status)
-	assert.Equal(t, core.NodeNotStarted, status.Nodes[1].Status)
-	assert.Equal(t, core.NodeNotStarted, status.Nodes[2].Status)
-	assert.Equal(t, core.NodeNotStarted, status.Nodes[3].Status)
-	assert.Equal(t, core.NodeNotStarted, status.Nodes[4].Status)
-	assert.Equal(t, core.NodeSucceeded, status.Nodes[5].Status)
+	assert.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status)
+	assert.Equal(t, ir.NodeNotStarted, status.Nodes[1].Status)
+	assert.Equal(t, ir.NodeNotStarted, status.Nodes[2].Status)
+	assert.Equal(t, ir.NodeNotStarted, status.Nodes[3].Status)
+	assert.Equal(t, ir.NodeNotStarted, status.Nodes[4].Status)
+	assert.Equal(t, ir.NodeSucceeded, status.Nodes[5].Status)
 	assert.Equal(t, "-", status.Nodes[1].StartedAt)
 	assert.Equal(t, "-", status.Nodes[2].StartedAt)
 	assert.Equal(t, "-", status.Nodes[3].StartedAt)
@@ -228,13 +228,13 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeChanges(t *testing.T) {
 	t.Parallel()
 
-	approvalStep := core.Step{Name: "approval", Approval: &core.ApprovalConfig{}}
-	humanStep := core.Step{ID: "review", Name: "review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}}
+	approvalStep := ir.Step{Name: "approval", Approval: &ir.ApprovalConfig{}}
+	humanStep := ir.Step{ID: "review", Name: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}}
 	original := &exec.DAGRunStatus{
-		Name: "test", DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1", Status: core.Waiting,
+		Name: "test", DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1", Status: ir.Waiting,
 		Nodes: []*exec.Node{
-			{Step: approvalStep, Status: core.NodeWaiting, StartedAt: "started"},
-			{Step: humanStep, Status: core.NodeWaiting},
+			{Step: approvalStep, Status: ir.NodeWaiting, StartedAt: "started"},
+			{Step: humanStep, Status: ir.NodeWaiting},
 		},
 	}
 	applied, err := cloneManualStatus(original)
@@ -242,7 +242,7 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 	require.NoError(t, applyPushBack(context.Background(), applied.Nodes[0], applied, nil))
 	current, err := cloneManualStatus(applied)
 	require.NoError(t, err)
-	current.Nodes[1].Status = core.NodeSucceeded
+	current.Nodes[1].Status = ir.NodeSucceeded
 	current.Nodes[1].HumanTaskInput = json.RawMessage(`{"confirmed":true}`)
 
 	store := &manualCASStore{status: current}
@@ -251,9 +251,9 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 	cancel()
 	require.NoError(t, a.rollbackPushBack(ctx, current.DAGRun(), applied, original))
 
-	assert.Equal(t, core.NodeWaiting, current.Nodes[0].Status)
+	assert.Equal(t, ir.NodeWaiting, current.Nodes[0].Status)
 	assert.Equal(t, "started", current.Nodes[0].StartedAt)
-	assert.Equal(t, core.NodeSucceeded, current.Nodes[1].Status)
+	assert.Equal(t, ir.NodeSucceeded, current.Nodes[1].Status)
 	assert.JSONEq(t, `{"confirmed":true}`, string(current.Nodes[1].HumanTaskInput))
 }
 
@@ -264,12 +264,12 @@ type manualCASStore struct {
 
 type manualStepAttempt struct {
 	exec.DAGRunAttempt
-	dag      *core.DAG
+	dag      *ir.DAG
 	statuses []*exec.DAGRunStatus
 	reads    int
 }
 
-func (a *manualStepAttempt) ReadDAG(context.Context) (*core.DAG, error) {
+func (a *manualStepAttempt) ReadDAG(context.Context) (*ir.DAG, error) {
 	return a.dag, nil
 }
 
@@ -301,7 +301,7 @@ func (s *failingManualCASStore) CompareAndSwapLatestAttemptStatus(
 	context.Context,
 	exec.DAGRunRef,
 	string,
-	core.Status,
+	ir.Status,
 	func(*exec.DAGRunStatus) error,
 	...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
@@ -312,7 +312,7 @@ func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
 	_ exec.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
+	expectedStatus ir.Status,
 	mutate func(*exec.DAGRunStatus) error,
 	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
@@ -333,12 +333,12 @@ func TestWaitForManualStepMutationReadyFailsClosedOnLivenessError(t *testing.T) 
 		Name:      "manual-dag",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
-		Status:    core.Waiting,
+		Status:    ir.Waiting,
 		WorkerID:  "local",
 	}
 	livenessErr := errors.New("liveness unavailable")
 	a := &API{procStore: &manualStepProcStore{err: livenessErr}}
-	attempt := &manualStepAttempt{dag: &core.DAG{Name: status.Name}}
+	attempt := &manualStepAttempt{dag: &ir.DAG{Name: status.Name}}
 
 	updated, err := a.waitForManualStepMutationReady(t.Context(), attempt, status)
 
@@ -351,13 +351,13 @@ func TestWaitForManualStepMutationReadyHonorsCancellation(t *testing.T) {
 		Name:      "manual-dag",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
-		Status:    core.Waiting,
+		Status:    ir.Waiting,
 		WorkerID:  "local",
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	a := &API{procStore: &manualStepProcStore{alive: true}}
-	attempt := &manualStepAttempt{dag: &core.DAG{Name: status.Name}}
+	attempt := &manualStepAttempt{dag: &ir.DAG{Name: status.Name}}
 
 	updated, err := a.waitForManualStepMutationReady(ctx, attempt, status)
 
@@ -370,7 +370,7 @@ func TestWaitForManualStepMutationReadyWaitsForRemotePersistence(t *testing.T) {
 		Name:      "manual-dag",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
-		Status:    core.Waiting,
+		Status:    ir.Waiting,
 		WorkerID:  "worker-1",
 	}
 	finalized := *status
@@ -389,13 +389,13 @@ func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
 		Name:      "manual-dag",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
-		Status:    core.Waiting,
+		Status:    ir.Waiting,
 		WorkerID:  "local",
 	}
 	finalized := *status
 	finalized.FinishedAt = exec.FormatTime(time.Now())
 	attempt := &manualStepAttempt{
-		dag:      &core.DAG{Name: status.Name},
+		dag:      &ir.DAG{Name: status.Name},
 		statuses: []*exec.DAGRunStatus{status, &finalized},
 	}
 	a := &API{procStore: &manualStepProcStore{}}
@@ -410,11 +410,11 @@ func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
 func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T) {
 	ctx := t.Context()
 	store := dagrun.New(t.TempDir())
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "approval-write-failure",
-		Steps: []core.Step{{
+		Steps: []ir.Step{{
 			Name:     "approve",
-			Approval: &core.ApprovalConfig{Prompt: "Approve"},
+			Approval: &ir.ApprovalConfig{Prompt: "Approve"},
 		}},
 	}
 	attempt, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", exec.NewDAGRunAttemptOptions{})
@@ -422,9 +422,9 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 	status := exec.InitialStatus(dag)
 	status.DAGRunID = "run-1"
 	status.AttemptID = attempt.ID()
-	status.Status = core.Waiting
+	status.Status = ir.Waiting
 	status.FinishedAt = exec.FormatTime(time.Now())
-	status.Nodes[0].Status = core.NodeWaiting
+	status.Nodes[0].Status = ir.NodeWaiting
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, status))
 	require.NoError(t, attempt.Close(ctx))
@@ -464,13 +464,13 @@ func TestApplyPushBackAppendsLegacyPushBackInputsToHistory(t *testing.T) {
 	status := &exec.DAGRunStatus{
 		Nodes: []*exec.Node{
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					Name: "review",
-					Approval: &core.ApprovalConfig{
+					Approval: &ir.ApprovalConfig{
 						Input: []string{"FEEDBACK"},
 					},
 				},
-				Status:            core.NodeWaiting,
+				Status:            ir.NodeWaiting,
 				ApprovalIteration: 1,
 				PushBackInputs:    firstInputs,
 			},
@@ -517,13 +517,13 @@ func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
 	status := &exec.DAGRunStatus{
 		Nodes: []*exec.Node{
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					Name: "review",
-					Approval: &core.ApprovalConfig{
+					Approval: &ir.ApprovalConfig{
 						Input: []string{"FEEDBACK"},
 					},
 				},
-				Status: core.NodeWaiting,
+				Status: ir.NodeWaiting,
 			},
 		},
 	}
@@ -724,10 +724,10 @@ func TestDAGRunListOptionsFromQueryStringParsesMultipleStatuses(t *testing.T) {
 		opt(&applied)
 	}
 
-	require.Equal(t, []core.Status{
-		core.Status(openapiv1.StatusQueued),
-		core.Status(openapiv1.StatusRunning),
-		core.Status(openapiv1.StatusPartialSuccess),
+	require.Equal(t, []ir.Status{
+		ir.Status(openapiv1.StatusQueued),
+		ir.Status(openapiv1.StatusRunning),
+		ir.Status(openapiv1.StatusPartialSuccess),
 	}, applied.Statuses)
 	require.Equal(t, 20, applied.Limit)
 }
@@ -753,7 +753,7 @@ var _ exec.DAGRunStore = (*blockingDAGRunStore)(nil)
 
 type blockingDAGRunStore struct{}
 
-func (blockingDAGRunStore) CreateAttempt(context.Context, *core.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (blockingDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	panic("not implemented")
 }
 
@@ -775,7 +775,7 @@ func (blockingDAGRunStore) ListStatusesPage(ctx context.Context, _ ...exec.ListD
 	return exec.DAGRunStatusPage{}, ctx.Err()
 }
 
-func (blockingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
+func (blockingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, ir.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
 	panic("not implemented")
 }
 

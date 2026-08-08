@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // loadVariables loads environment variables from strVariables and returns the
@@ -28,7 +28,7 @@ func loadVariables(ctx buildContext, strVariables any) (map[string]string, error
 	switch a := strVariables.(type) {
 	case map[string]any:
 		if err := parseKeyValue(a, &pairs); err != nil {
-			return nil, core.NewValidationError("env", a, err)
+			return nil, ir.NewValidationError("env", a, err)
 		}
 
 	case []any:
@@ -36,16 +36,16 @@ func loadVariables(ctx buildContext, strVariables any) (map[string]string, error
 			switch vv := v.(type) {
 			case map[string]any:
 				if err := parseKeyValue(vv, &pairs); err != nil {
-					return nil, core.NewValidationError("env", v, err)
+					return nil, ir.NewValidationError("env", v, err)
 				}
 			case string:
 				key, val, found := strings.Cut(vv, "=")
 				if !found {
-					return nil, core.NewValidationError("env", &pairs, fmt.Errorf("%w: %s", ErrInvalidEnvValue, v))
+					return nil, ir.NewValidationError("env", &pairs, fmt.Errorf("%w: %s", ErrInvalidEnvValue, v))
 				}
 				pairs = append(pairs, pair{key: key, val: val})
 			default:
-				return nil, core.NewValidationError("env", &pairs, fmt.Errorf("%w: %s", ErrInvalidEnvValue, v))
+				return nil, ir.NewValidationError("env", &pairs, fmt.Errorf("%w: %s", ErrInvalidEnvValue, v))
 			}
 		}
 	}
@@ -143,7 +143,7 @@ func evaluatePairs(ctx buildContext, pairs []pair) ([]evaluatedEnvEntry, map[str
 			)
 			value, err = resolver.String(evalCtx, value, cmnvalue.DAGEnvField(fmt.Sprintf("env[%d]", i)))
 			if err != nil {
-				return nil, nil, core.NewValidationError("env", p.val,
+				return nil, nil, ir.NewValidationError("env", p.val,
 					fmt.Errorf("%w: %s: %w", ErrInvalidEnvValue, p.val, err))
 			}
 
@@ -162,7 +162,7 @@ func validateEnvPair(field string, idx int, p pair) error {
 	if cmnvalue.ValidEnvName(p.key) {
 		return nil
 	}
-	return core.NewValidationError(
+	return ir.NewValidationError(
 		field,
 		p.key,
 		fmt.Errorf("%w: invalid environment variable name %q at %s[%d]", ErrInvalidEnvValue, p.key, field, idx),
@@ -178,7 +178,7 @@ func collectRawPairs(strVariables any) ([]string, error) {
 	switch a := strVariables.(type) {
 	case map[string]any:
 		if err := parseKeyValue(a, &pairs); err != nil {
-			return nil, core.NewValidationError("env", a, err)
+			return nil, ir.NewValidationError("env", a, err)
 		}
 
 	case []any:
@@ -186,16 +186,16 @@ func collectRawPairs(strVariables any) ([]string, error) {
 			switch vv := v.(type) {
 			case map[string]any:
 				if err := parseKeyValue(vv, &pairs); err != nil {
-					return nil, core.NewValidationError("env", v, err)
+					return nil, ir.NewValidationError("env", v, err)
 				}
 			case string:
 				key, _, found := strings.Cut(vv, "=")
 				if !found {
-					return nil, core.NewValidationError("env", &pairs, fmt.Errorf("%w: %s", ErrInvalidEnvValue, v))
+					return nil, ir.NewValidationError("env", &pairs, fmt.Errorf("%w: %s", ErrInvalidEnvValue, v))
 				}
 				pairs = append(pairs, pair{key: key, val: vv[len(key)+1:]})
 			default:
-				return nil, core.NewValidationError("env", &pairs, fmt.Errorf("%w: %s", ErrInvalidEnvValue, v))
+				return nil, ir.NewValidationError("env", &pairs, fmt.Errorf("%w: %s", ErrInvalidEnvValue, v))
 			}
 		}
 	}

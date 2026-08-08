@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -44,13 +44,13 @@ steps:
 	}()
 
 	runID := f.runIDs[0]
-	f.WaitForStatus(runID, core.Running, 30*time.Second)
+	f.WaitForStatus(runID, ir.Running, 30*time.Second)
 
 	f.RequireRunHeartbeatAdvance(runID, 10*time.Second)
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("release"), 0o600))
 	released = true
-	f.WaitForStatus(runID, core.Succeeded, 20*time.Second)
+	f.WaitForStatus(runID, ir.Succeeded, 20*time.Second)
 }
 
 func TestSchedulerRepairsStaleLocalRunAndCleansProcFile(t *testing.T) {
@@ -69,14 +69,14 @@ steps:
 
 	status := transform.NewStatusBuilder(f.dag).Create(
 		dagRunID,
-		core.Running,
+		ir.Running,
 		0,
 		time.Now().Add(-2*time.Second),
 		transform.WithAttemptID(attempt.ID()),
 		transform.WithHierarchyRefs(ref, exec.DAGRunRef{}),
 	)
 	require.NotEmpty(t, status.Nodes)
-	status.Nodes[0].Status = core.NodeRunning
+	status.Nodes[0].Status = ir.NodeRunning
 
 	require.NoError(t, attempt.Open(f.th.Context))
 	require.NoError(t, attempt.Write(f.th.Context, status))
@@ -93,11 +93,11 @@ steps:
 	)
 
 	f.StartScheduler(10 * time.Second)
-	f.WaitForStatus(dagRunID, core.Failed, 10*time.Second)
+	f.WaitForStatus(dagRunID, ir.Failed, 10*time.Second)
 
 	repaired, err := f.Status(dagRunID)
 	require.NoError(t, err)
-	require.Equal(t, core.NodeFailed, repaired.Nodes[0].Status)
+	require.Equal(t, ir.NodeFailed, repaired.Nodes[0].Status)
 	require.Contains(t, repaired.Nodes[0].Error, "stale local process detected")
 
 	f.RequireProcFileMissing(procFile, 5*time.Second)
@@ -129,7 +129,7 @@ steps:
 	f.RequireProcEntryStale(fakeRunID, 5*time.Second)
 
 	f.StartScheduler(30 * time.Second)
-	f.WaitForStatus(f.runIDs[0], core.Succeeded, 20*time.Second)
+	f.WaitForStatus(f.runIDs[0], ir.Succeeded, 20*time.Second)
 
 	f.RequireProcFileMissing(procFile, 15*time.Second)
 }

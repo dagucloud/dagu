@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const maxJSONNestingDepth = 100
@@ -107,7 +107,7 @@ func requireJSONEOF(decoder *json.Decoder) error {
 	return nil
 }
 
-func prepareCompletion(dag *core.DAG, node *exec.Node, input Input) (*spec.HumanTaskInputResult, string, error) {
+func prepareCompletion(dag *ir.DAG, node *exec.Node, input Input) (*spec.HumanTaskInputResult, string, error) {
 	result, err := spec.ValidateHumanTaskInputs(node.Step.HumanTask.Form, input.Values, input.CoerceStrings)
 	if err != nil {
 		return nil, "", errorf(ErrorInvalid, "invalid input for human task step %q: %v", node.Step.ID, err)
@@ -119,10 +119,10 @@ func prepareCompletion(dag *core.DAG, node *exec.Node, input Input) (*spec.Human
 	return result, outputs, nil
 }
 
-func marshalOutputs(dag *core.DAG, result *spec.HumanTaskInputResult) (string, error) {
+func marshalOutputs(dag *ir.DAG, result *spec.HumanTaskInputResult) (string, error) {
 	maxSize := dag.MaxOutputSize
 	if maxSize == 0 {
-		maxSize = core.DefaultMaxOutputSize
+		maxSize = ir.DefaultMaxOutputSize
 	}
 	if len(result.Canonical) > maxSize {
 		return "", fmt.Errorf("human task input exceeded maximum size limit of %d bytes", maxSize)

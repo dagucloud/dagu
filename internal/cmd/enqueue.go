@@ -9,9 +9,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/spf13/cobra"
 )
 
@@ -104,7 +104,7 @@ func runEnqueue(ctx *Context, args []string) error {
 // enqueueDAGRun enqueues a dag-run to the queue.
 // The DAG location is cleared to allow concurrent queued runs (location is used
 // for unix pipe generation which would prevent parallel execution).
-func enqueueDAGRun(ctx *Context, dag *core.DAG, dagRunID string, opts runOptions) error {
+func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) error {
 	dag.Location = ""
 
 	if !ctx.Config.Queues.Enabled {

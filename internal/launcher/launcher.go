@@ -19,8 +19,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // CommandError wraps a command execution error with captured output.
@@ -127,7 +127,7 @@ func filteredParentEnv() []string {
 }
 
 // Start creates a start command spec.
-func (b *SubCmdBuilder) Start(dag *core.DAG, opts StartOptions) CmdSpec {
+func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	args := []string{"start"}
 
 	if opts.Params != "" {
@@ -182,7 +182,7 @@ func (b *SubCmdBuilder) Start(dag *core.DAG, opts StartOptions) CmdSpec {
 }
 
 // Enqueue creates an enqueue command spec.
-func (b *SubCmdBuilder) Enqueue(dag *core.DAG, opts EnqueueOptions) CmdSpec {
+func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	args := []string{"enqueue"}
 
 	if opts.Params != "" {
@@ -234,7 +234,7 @@ func (b *SubCmdBuilder) Enqueue(dag *core.DAG, opts EnqueueOptions) CmdSpec {
 }
 
 // Dequeue creates a dequeue command spec.
-func (b *SubCmdBuilder) Dequeue(dag *core.DAG, dagRun exec1.DAGRunRef) CmdSpec {
+func (b *SubCmdBuilder) Dequeue(dag *ir.DAG, dagRun exec1.DAGRunRef) CmdSpec {
 	queueName := dag.ProcGroup()
 	args := []string{"dequeue", queueName, fmt.Sprintf("--dag-run=%s", dagRun.String())}
 
@@ -252,7 +252,7 @@ func (b *SubCmdBuilder) Dequeue(dag *core.DAG, dagRun exec1.DAGRunRef) CmdSpec {
 }
 
 // Restart creates a restart command spec.
-func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
+func (b *SubCmdBuilder) Restart(dag *ir.DAG, opts RestartOptions) CmdSpec {
 	args := []string{"restart"}
 
 	if opts.Quiet {
@@ -275,7 +275,7 @@ func (b *SubCmdBuilder) Restart(dag *core.DAG, opts RestartOptions) CmdSpec {
 }
 
 // Retry creates a retry command spec.
-func (b *SubCmdBuilder) Retry(dag *core.DAG, opts RetryOptions) CmdSpec {
+func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 	args := []string{"retry", fmt.Sprintf("--run-id=%s", opts.DAGRunID), "-q"}
 
 	if opts.Step != "" {

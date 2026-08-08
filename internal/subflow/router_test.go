@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
@@ -24,7 +24,7 @@ func TestRouterPrefersFirstMatchingRunner(t *testing.T) {
 		result: &exec.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		},
 	}
 	local := &stubRunner{
@@ -32,7 +32,7 @@ func TestRouterPrefersFirstMatchingRunner(t *testing.T) {
 		result: &exec.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
-			Status:   core.Failed,
+			Status:   ir.Failed,
 		},
 	}
 	router := subflow.NewRouter(distributed, local)
@@ -41,7 +41,7 @@ func TestRouterPrefersFirstMatchingRunner(t *testing.T) {
 	got, err := router.Run(context.Background(), req)
 	require.NoError(t, err)
 
-	assert.Equal(t, core.Succeeded, got.Status)
+	assert.Equal(t, ir.Succeeded, got.Status)
 	assert.Equal(t, 1, distributed.runCount)
 	assert.Equal(t, 0, local.runCount)
 }
@@ -55,7 +55,7 @@ func TestRouterFallsBackToLocalRunner(t *testing.T) {
 		result: &exec.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		},
 	}
 	router := subflow.NewRouter(distributed, local)
@@ -64,7 +64,7 @@ func TestRouterFallsBackToLocalRunner(t *testing.T) {
 	got, err := router.Run(context.Background(), req)
 	require.NoError(t, err)
 
-	assert.Equal(t, core.Succeeded, got.Status)
+	assert.Equal(t, ir.Succeeded, got.Status)
 	assert.Equal(t, 0, distributed.runCount)
 	assert.Equal(t, 1, local.runCount)
 }
@@ -151,7 +151,7 @@ func TestLocalForceLocalOverridesWorkerSelector(t *testing.T) {
 
 func validSubWorkflowRequest() executor.SubWorkflowRequest {
 	return executor.SubWorkflowRequest{
-		DAG: &core.DAG{
+		DAG: &ir.DAG{
 			Name:     "child",
 			Location: "/tmp/child.yaml",
 		},
@@ -211,7 +211,7 @@ func (r *blockingRunner) Run(context.Context, executor.SubWorkflowRequest) (*exe
 	return &exec.RunStatus{
 		Name:     "child",
 		DAGRunID: "child-run",
-		Status:   core.Succeeded,
+		Status:   ir.Succeeded,
 	}, nil
 }
 

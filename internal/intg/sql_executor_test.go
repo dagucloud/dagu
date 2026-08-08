@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -43,7 +43,7 @@ steps:
 `, dbPathForYAML, dbPathForYAML))
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Verify query output contains expected rows
 	dag.AssertOutputs(t, map[string]any{
@@ -95,7 +95,7 @@ steps:
 `, dbPathForYAML, dbPathForYAML, dbPathForYAML))
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Verify balances after transfer: account 1 = 50, account 2 = 250
 	dag.AssertOutputs(t, map[string]any{
@@ -154,7 +154,7 @@ steps:
 	_ = ag.Run(ag.Context)
 	// The DAG is partially_succeeded because one step failed (even with continue_on: failure: true)
 	// The value should still be 100 because the transaction was rolled back
-	dag.AssertLatestStatus(t, core.PartiallySucceeded)
+	dag.AssertLatestStatus(t, ir.PartiallySucceeded)
 
 	// Verify rollback: value should still be 100, NOT 999
 	dag.AssertOutputs(t, map[string]any{
@@ -179,7 +179,7 @@ steps:
 `)
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Verify NULL values are represented as null in JSON and non-null values are correct
 	dag.AssertOutputs(t, map[string]any{
@@ -247,7 +247,7 @@ steps:
 `, tt.format))
 
 			dag.Agent().RunSuccess(t)
-			dag.AssertLatestStatus(t, core.Succeeded)
+			dag.AssertLatestStatus(t, ir.Succeeded)
 
 			// Verify format-specific output
 			dag.AssertOutputs(t, map[string]any{
@@ -278,7 +278,7 @@ steps:
 `)
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Verify output contains rows 1-5
 	dag.AssertOutputs(t, map[string]any{
@@ -333,7 +333,7 @@ steps:
 `, dbPathForYAML, dbPathForYAML))
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Verify only products with price >= 1.00 are returned (Apple, Orange but NOT Banana)
 	dag.AssertOutputs(t, map[string]any{
@@ -381,7 +381,7 @@ steps:
 `, dbPathForYAML, dbPathForYAML))
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Verify status was updated from 'pending' to 'completed'
 	dag.AssertOutputs(t, map[string]any{
@@ -409,7 +409,7 @@ steps:
 `)
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Verify query returns Alice and Bob
 	dag.AssertOutputs(t, map[string]any{
@@ -445,7 +445,7 @@ steps:
 `)
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Verify counter was incremented twice: 0 + 1 + 1 = 2
 	dag.AssertOutputs(t, map[string]any{

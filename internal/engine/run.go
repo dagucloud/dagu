@@ -21,10 +21,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -317,7 +317,7 @@ func (r *Run) statusWithFinalTimeout() (*Status, error) {
 	return r.Status(ctx)
 }
 
-func (e *Engine) loadFile(ctx context.Context, path string, opts RunOptions) (*core.DAG, error) {
+func (e *Engine) loadFile(ctx context.Context, path string, opts RunOptions) (*ir.DAG, error) {
 	loadOpts := e.loadOptions(opts)
 	dag, err := spec.Load(ctx, path, loadOpts...)
 	if err != nil {
@@ -330,7 +330,7 @@ func (e *Engine) loadFile(ctx context.Context, path string, opts RunOptions) (*c
 	return dag, nil
 }
 
-func (e *Engine) loadYAML(ctx context.Context, data []byte, opts RunOptions) (*core.DAG, error) {
+func (e *Engine) loadYAML(ctx context.Context, data []byte, opts RunOptions) (*ir.DAG, error) {
 	loadOpts := e.loadOptions(opts)
 	dag, err := spec.LoadYAML(ctx, data, loadOpts...)
 	if err != nil {
@@ -360,7 +360,7 @@ func (e *Engine) loadOptions(opts RunOptions) []spec.LoadOption {
 	return loadOpts
 }
 
-func applyRunOverrides(dag *core.DAG, opts RunOptions) {
+func applyRunOverrides(dag *ir.DAG, opts RunOptions) {
 	// Name, DefaultWorkingDir, and params are handled during loading; only
 	// overrides that must mutate the loaded DAG belong here.
 	if len(opts.WorkerSelector) > 0 {
@@ -371,7 +371,7 @@ func applyRunOverrides(dag *core.DAG, opts RunOptions) {
 		for _, existing := range dag.Labels {
 			seen[existing.String()] = struct{}{}
 		}
-		for _, candidate := range core.NewLabels(opts.Labels) {
+		for _, candidate := range ir.NewLabels(opts.Labels) {
 			key := candidate.String()
 			if _, ok := seen[key]; ok {
 				continue
@@ -382,7 +382,7 @@ func applyRunOverrides(dag *core.DAG, opts RunOptions) {
 	}
 }
 
-func (e *Engine) runLoaded(ctx context.Context, dag *core.DAG, opts RunOptions) (*Run, error) {
+func (e *Engine) runLoaded(ctx context.Context, dag *ir.DAG, opts RunOptions) (*Run, error) {
 	if err := dag.Validate(); err != nil {
 		return nil, err
 	}
@@ -413,7 +413,7 @@ func (e *Engine) runLoaded(ctx context.Context, dag *core.DAG, opts RunOptions) 
 	}
 }
 
-func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts RunOptions) (*Run, error) {
+func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts RunOptions) (*Run, error) {
 	logFile, err := e.openLogFile(ctx, dag, runID)
 	if err != nil {
 		return nil, err
@@ -463,7 +463,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 			SubWorkflowRunnerFactory: e.subWorkflowRunnerFactory(stores),
 			RootDAGRun:               root,
 			PeerConfig:               e.cfg.Core.Peer,
-			TriggerType:              core.TriggerTypeManual,
+			TriggerType:              ir.TriggerTypeManual,
 			DefaultExecMode:          configExecutionMode(e.defaultMode),
 			ArtifactDir:              artifactDir,
 		},
@@ -504,8 +504,8 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 	return run, nil
 }
 
-func (e *Engine) runDistributed(ctx context.Context, dag *core.DAG, runID string, opts RunOptions) (*Run, error) {
-	if dag.Type == core.TypeIncremental {
+func (e *Engine) runDistributed(ctx context.Context, dag *ir.DAG, runID string, opts RunOptions) (*Run, error) {
+	if dag.Type == ir.TypeIncremental {
 		return nil, dispatch.ErrIncrementalRequiresLocal
 	}
 	dist := e.distributed
@@ -587,7 +587,7 @@ func (r *Run) doneError() error {
 	return r.doneErr
 }
 
-func (e *Engine) prepareLocal(ctx context.Context, dag *core.DAG, runID string, root coreexec.DAGRunRef) (*localPreparation, error) {
+func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, root coreexec.DAGRunRef) (*localPreparation, error) {
 	if err := e.procStore.Lock(ctx, dag.ProcGroup()); err != nil {
 		return nil, fmt.Errorf("lock process group: %w", err)
 	}
@@ -633,7 +633,7 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *core.DAG, runID string, 
 func (e *Engine) recordPreparedFailure(
 	ctx context.Context,
 	attempt coreexec.DAGRunAttempt,
-	dag *core.DAG,
+	dag *ir.DAG,
 	runID string,
 	root coreexec.DAGRunRef,
 	runErr error,
@@ -648,7 +648,7 @@ func (e *Engine) recordPreparedFailure(
 	}
 	status := transform.NewStatusBuilder(dag).Create(
 		runID,
-		core.Failed,
+		ir.Failed,
 		0,
 		time.Now(),
 		transform.WithAttemptID(attempt.ID()),
@@ -658,7 +658,7 @@ func (e *Engine) recordPreparedFailure(
 		transform.WithFinishedAt(time.Now()),
 		transform.WithError(runErr.Error()),
 		transform.WithWorkerID("local"),
-		transform.WithTriggerType(core.TriggerTypeManual),
+		transform.WithTriggerType(ir.TriggerTypeManual),
 	)
 	if err := attempt.Open(ctx); err != nil {
 		return err
@@ -669,7 +669,7 @@ func (e *Engine) recordPreparedFailure(
 	return attempt.Write(ctx, status)
 }
 
-func (e *Engine) openLogFile(ctx context.Context, dag *core.DAG, runID string) (*os.File, error) {
+func (e *Engine) openLogFile(ctx context.Context, dag *ir.DAG, runID string) (*os.File, error) {
 	path, err := logpath.Generate(ctx, e.cfg.Paths.LogDir, dag.LogDir, dag.Name, runID)
 	if err != nil {
 		return nil, err
@@ -677,7 +677,7 @@ func (e *Engine) openLogFile(ctx context.Context, dag *core.DAG, runID string) (
 	return fileutil.OpenOrCreateFile(path)
 }
 
-func (e *Engine) artifactDir(ctx context.Context, dag *core.DAG, runID string) (string, error) {
+func (e *Engine) artifactDir(ctx context.Context, dag *ir.DAG, runID string) (string, error) {
 	if dag == nil || !dag.ArtifactsEnabled() {
 		return "", nil
 	}
@@ -736,7 +736,7 @@ func configExecutionMode(mode ExecutionMode) config.ExecutionMode {
 
 func isActiveStatus(status string) bool {
 	switch status {
-	case core.Running.String(), core.Queued.String(), core.Waiting.String(), core.NotStarted.String():
+	case ir.Running.String(), ir.Queued.String(), ir.Waiting.String(), ir.NotStarted.String():
 		return true
 	default:
 		return false

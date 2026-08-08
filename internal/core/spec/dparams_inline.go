@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -80,10 +80,10 @@ func inlineParamLegacyShapeError(item map[string]any) error {
 	return fmt.Errorf(`inline parameter definitions must use object form with "name"`)
 }
 
-func parseInlineParamDefinition(name string, raw map[string]any) (core.ParamDef, dagParamEntry, error) {
-	def := core.ParamDef{
+func parseInlineParamDefinition(name string, raw map[string]any) (ir.ParamDef, dagParamEntry, error) {
+	def := ir.ParamDef{
 		Name: name,
-		Type: core.ParamDefTypeString,
+		Type: ir.ParamDefTypeString,
 	}
 	entry := dagParamEntry{Name: name}
 
@@ -126,9 +126,9 @@ func parseInlineParamDefinition(name string, raw map[string]any) (core.ParamDef,
 		}
 		typeName = strings.TrimSpace(typeName)
 		switch typeName {
-		case "", core.ParamDefTypeString:
-			def.Type = core.ParamDefTypeString
-		case core.ParamDefTypeInteger, core.ParamDefTypeNumber, core.ParamDefTypeBoolean:
+		case "", ir.ParamDefTypeString:
+			def.Type = ir.ParamDefTypeString
+		case ir.ParamDefTypeInteger, ir.ParamDefTypeNumber, ir.ParamDefTypeBoolean:
 			def.Type = typeName
 		default:
 			return def, entry, fmt.Errorf("parameter %q has unsupported type %q", name, typeName)
@@ -250,9 +250,9 @@ func parseInlineParamDefinition(name string, raw map[string]any) (core.ParamDef,
 	return def, entry, nil
 }
 
-func validateInlineConstraintCompatibility(def core.ParamDef) error {
-	isString := def.Type == core.ParamDefTypeString
-	isNumeric := def.Type == core.ParamDefTypeInteger || def.Type == core.ParamDefTypeNumber
+func validateInlineConstraintCompatibility(def ir.ParamDef) error {
+	isString := def.Type == ir.ParamDefTypeString
+	isNumeric := def.Type == ir.ParamDefTypeInteger || def.Type == ir.ParamDefTypeNumber
 
 	if !isNumeric && (def.Minimum != nil || def.Maximum != nil) {
 		return fmt.Errorf("parameter %q uses minimum/maximum but type is %q", def.Name, def.Type)
@@ -282,7 +282,7 @@ func compileInlinePattern(name string, pattern *string) (*regexp.Regexp, error) 
 	return re, nil
 }
 
-func validateInlineDefault(def core.ParamDef, compiledPattern *regexp.Regexp) error {
+func validateInlineDefault(def ir.ParamDef, compiledPattern *regexp.Regexp) error {
 	if def.Default == nil {
 		return nil
 	}
@@ -322,7 +322,7 @@ func validateInlineDefault(def core.ParamDef, compiledPattern *regexp.Regexp) er
 	return nil
 }
 
-func compileInlineParamSchema(defs []core.ParamDef) (*compiledInlineParamSchema, error) {
+func compileInlineParamSchema(defs []ir.ParamDef) (*compiledInlineParamSchema, error) {
 	root := &jsonschema.Schema{
 		Type:                 "object",
 		Properties:           map[string]*jsonschema.Schema{},

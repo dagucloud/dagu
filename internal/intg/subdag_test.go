@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/google/uuid"
@@ -96,14 +96,14 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 2)
 		require.Equal(t, "run-local-child", dagRunStatus.Nodes[0].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
 
 		logContent, err := os.ReadFile(dagRunStatus.Nodes[1].Stdout)
 		require.NoError(t, err)
@@ -132,7 +132,7 @@ steps:
 `)
 
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
 
 	t.Run("ThreeLevelNesting", func(t *testing.T) {
@@ -169,7 +169,7 @@ steps:
 `)
 
 		dag.Agent().RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
 
 	t.Run("ThreeLevelNestingWithOutputPassing", func(t *testing.T) {
@@ -217,14 +217,14 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 1)
 		require.Equal(t, "run-middle-dag", dagRunStatus.Nodes[0].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
 		require.Len(t, dagRunStatus.Nodes[0].SubRuns, 1, "middle-dag should have one sub-run")
 	})
 
@@ -260,14 +260,14 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 1)
 		require.Equal(t, "parallel-tasks", dagRunStatus.Nodes[0].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
 		require.Len(t, dagRunStatus.Nodes[0].SubRuns, 3)
 	})
 
@@ -320,18 +320,18 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 3)
 		require.Equal(t, "check-env", dagRunStatus.Nodes[0].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
 		require.Equal(t, "run-prod-dag", dagRunStatus.Nodes[1].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[1].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[1].Status)
 		require.Equal(t, "run-dev-dag", dagRunStatus.Nodes[2].Step.Name)
-		require.Equal(t, core.NodeSkipped, dagRunStatus.Nodes[2].Status)
+		require.Equal(t, ir.NodeSkipped, dagRunStatus.Nodes[2].Status)
 	})
 
 	t.Run("OutputPassingBetweenDAGs", func(t *testing.T) {
@@ -376,16 +376,16 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 2)
 		require.Equal(t, "generate-data", dagRunStatus.Nodes[0].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
 		require.Equal(t, "process-data", dagRunStatus.Nodes[1].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[1].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[1].Status)
 	})
 
 	t.Run("NonExistentReference", func(t *testing.T) {
@@ -410,14 +410,14 @@ steps:
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "non-existent-dag")
 
-		testDAG.AssertLatestStatus(t, core.Failed)
+		testDAG.AssertLatestStatus(t, ir.Failed)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 1)
 		require.Equal(t, "run-missing-dag", dagRunStatus.Nodes[0].Step.Name)
-		require.Equal(t, core.NodeFailed, dagRunStatus.Nodes[0].Status)
+		require.Equal(t, ir.NodeFailed, dagRunStatus.Nodes[0].Status)
 	})
 
 	t.Run("ComplexDependencies", func(t *testing.T) {
@@ -467,20 +467,20 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.Succeeded)
+		testDAG.AssertLatestStatus(t, ir.Succeeded)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 4)
 		require.Equal(t, "setup", dagRunStatus.Nodes[0].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
 		require.Equal(t, "task1", dagRunStatus.Nodes[1].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[1].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[1].Status)
 		require.Equal(t, "task2", dagRunStatus.Nodes[2].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[2].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[2].Status)
 		require.Equal(t, "combine", dagRunStatus.Nodes[3].Step.Name)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[3].Status)
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[3].Status)
 
 		logContent, err := os.ReadFile(dagRunStatus.Nodes[3].Stdout)
 		require.NoError(t, err)
@@ -518,7 +518,7 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.PartiallySucceeded)
+		testDAG.AssertLatestStatus(t, ir.PartiallySucceeded)
 	})
 
 	t.Run("PartialSuccessSubDAG", func(t *testing.T) {
@@ -547,7 +547,7 @@ steps:
 		agent := testDAG.Agent()
 		require.NoError(t, agent.Run(agent.Context))
 
-		testDAG.AssertLatestStatus(t, core.PartiallySucceeded)
+		testDAG.AssertLatestStatus(t, ir.PartiallySucceeded)
 	})
 }
 
@@ -585,20 +585,20 @@ steps:
 
 		parentStatus, err := parentAttempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.NodeSucceeded.String(), parentStatus.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), parentStatus.Status.String())
 
 		subNode := parentStatus.Nodes[0]
-		require.Equal(t, core.NodeSucceeded.String(), subNode.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), subNode.Status.String())
 
 		subAttempt, err := th.DAGRunStore.FindSubAttempt(ctx, ref, subNode.SubRuns[0].DAGRunID)
 		require.NoError(t, err)
 
 		subStatus, err := subAttempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.NodeSucceeded.String(), subStatus.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), subStatus.Status.String())
 
 		basicStep := subStatus.Nodes[0]
-		require.Equal(t, core.NodeSucceeded.String(), basicStep.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), basicStep.Status.String())
 
 		require.NotNil(t, basicStep.OutputVariables, "OutputVariables should not be nil")
 		variables := basicStep.OutputVariables.Variables()
@@ -662,7 +662,7 @@ steps:
 		require.NoError(t, err)
 
 		sub1Node := parentStatus.Nodes[0]
-		sub1Node.Status = core.NodeFailed
+		sub1Node.Status = ir.NodeFailed
 		updateStatus(parentAttempt, parentStatus)
 
 		// Find and update sub_1 dag-run status
@@ -674,7 +674,7 @@ steps:
 
 		// Find and update sub_2 node status
 		sub2Node := sub1Status.Nodes[0]
-		sub2Node.Status = core.NodeFailed
+		sub2Node.Status = ir.NodeFailed
 		updateStatus(sub1Attempt, sub1Status)
 
 		// Find and update sub_2 dag-run status
@@ -683,16 +683,16 @@ steps:
 
 		sub2Status, err := sub2Attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.NodeSucceeded.String(), sub2Status.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), sub2Status.Status.String())
 
 		// Update the step in sub_2 to "failed"
-		sub2Status.Nodes[0].Status = core.NodeFailed
+		sub2Status.Nodes[0].Status = ir.NodeFailed
 		updateStatus(sub2Attempt, sub2Status)
 
 		// Verify sub_2 is now "failed"
 		sub2Status, err = sub2Attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.NodeFailed.String(), sub2Status.Nodes[0].Status.String())
+		require.Equal(t, ir.NodeFailed.String(), sub2Status.Nodes[0].Status.String())
 
 		// Retry the DAG
 		args = []string{"retry", "--run-id", dagRunID, "parent"}
@@ -706,7 +706,7 @@ steps:
 		require.NoError(t, err)
 		sub2Status, err = sub2Attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.NodeSucceeded.String(), sub2Status.Nodes[0].Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), sub2Status.Nodes[0].Status.String())
 		require.Equal(t, "parent", sub2Status.Root.Name)
 		require.Equal(t, dagRunID, sub2Status.Root.ID)
 	})
@@ -797,7 +797,7 @@ steps:
 		require.NoError(t, err)
 		parentStatus, err := parentAttempt.ReadStatus(context.Background())
 		require.NoError(t, err)
-		require.Equal(t, core.Succeeded, parentStatus.Status)
+		require.Equal(t, ir.Succeeded, parentStatus.Status)
 	})
 
 	t.Run("RetryPolicyWithOutputCapture", func(t *testing.T) {
@@ -840,20 +840,20 @@ steps:
 
 		parentStatus, err := parentAttempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.NodeSucceeded.String(), parentStatus.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), parentStatus.Status.String())
 
 		subNode := parentStatus.Nodes[0]
-		require.Equal(t, core.NodeSucceeded.String(), subNode.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), subNode.Status.String())
 
 		subAttempt, err := th.DAGRunStore.FindSubAttempt(ctx, ref, subNode.SubRuns[0].DAGRunID)
 		require.NoError(t, err)
 
 		subStatus, err := subAttempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.NodeSucceeded.String(), subStatus.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), subStatus.Status.String())
 
 		retryStep := subStatus.Nodes[0]
-		require.Equal(t, core.NodeSucceeded.String(), retryStep.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), retryStep.Status.String())
 		require.NotNil(t, retryStep.OutputVariables)
 
 		variables := retryStep.OutputVariables.Variables()
@@ -894,10 +894,10 @@ steps:
 
 		dagRunStatus, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.NodeSucceeded.String(), dagRunStatus.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), dagRunStatus.Status.String())
 
 		retryStep := dagRunStatus.Nodes[0]
-		require.Equal(t, core.NodeSucceeded.String(), retryStep.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), retryStep.Status.String())
 		require.NotNil(t, retryStep.OutputVariables)
 
 		variables := retryStep.OutputVariables.Variables()
@@ -929,10 +929,10 @@ steps:
 
 		dagRunStatus, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.NodeSucceeded.String(), dagRunStatus.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), dagRunStatus.Status.String())
 
 		successStep := dagRunStatus.Nodes[0]
-		require.Equal(t, core.NodeSucceeded.String(), successStep.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), successStep.Status.String())
 		require.NotNil(t, successStep.OutputVariables)
 
 		variables := successStep.OutputVariables.Variables()

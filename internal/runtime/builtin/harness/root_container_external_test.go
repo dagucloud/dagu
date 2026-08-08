@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
 	"github.com/stretchr/testify/assert"
@@ -17,12 +17,12 @@ import (
 
 func TestRunOnce_RootContainerWithoutSharedClientFails(t *testing.T) {
 	dag := testRootContainerDAG(t)
-	step := core.Step{Name: "review"}
+	step := ir.Step{Name: "review"}
 	ctx := testHarnessContext(t, dag, step)
 	exec := harness.NewTestExecutorForTest(step, "inspect repo", "", dag.WorkingDir)
-	cfg := harness.NewTestProviderConfigForTest("agent", core.HarnessDefinition{
+	cfg := harness.NewTestProviderConfigForTest("agent", ir.HarnessDefinition{
 		Binary:     "agent",
-		PromptMode: core.HarnessPromptModeArg,
+		PromptMode: ir.HarnessPromptModeArg,
 	}, map[string]any{"provider": "agent"})
 
 	_, err := exec.RunOnceForTest(ctx, cfg)
@@ -35,12 +35,12 @@ func TestRunOnce_RootContainerWithoutSharedClientFails(t *testing.T) {
 
 func TestRunOnce_RootContainerStdinProviderRejectedBeforeSharedClientLookup(t *testing.T) {
 	dag := testRootContainerDAG(t)
-	step := core.Step{Name: "review"}
+	step := ir.Step{Name: "review"}
 	ctx := testHarnessContext(t, dag, step)
 	exec := harness.NewTestExecutorForTest(step, "inspect repo", "stdin context", dag.WorkingDir)
-	cfg := harness.NewTestProviderConfigForTest("stdin-agent", core.HarnessDefinition{
+	cfg := harness.NewTestProviderConfigForTest("stdin-agent", ir.HarnessDefinition{
 		Binary:     "stdin-agent",
-		PromptMode: core.HarnessPromptModeStdin,
+		PromptMode: ir.HarnessPromptModeStdin,
 	}, map[string]any{"provider": "stdin-agent"})
 
 	_, err := exec.RunOnceForTest(ctx, cfg)
@@ -73,16 +73,16 @@ func TestSharedContainerHarnessEnvForTest_FiltersHostPathRuntimeVariables(t *tes
 	}, got)
 }
 
-func testRootContainerDAG(t *testing.T) *core.DAG {
+func testRootContainerDAG(t *testing.T) *ir.DAG {
 	t.Helper()
-	return &core.DAG{
+	return &ir.DAG{
 		Name:       "harness-root-container-test",
 		WorkingDir: t.TempDir(),
-		Container:  &core.Container{Image: "alpine:latest"},
+		Container:  &ir.Container{Image: "alpine:latest"},
 	}
 }
 
-func testHarnessContext(t *testing.T, dag *core.DAG, step core.Step, envs ...string) context.Context {
+func testHarnessContext(t *testing.T, dag *ir.DAG, step ir.Step, envs ...string) context.Context {
 	t.Helper()
 	ctx := runtime.NewContext(context.Background(), dag, "run-1", "", runtime.WithEnvVars(envs...))
 	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))

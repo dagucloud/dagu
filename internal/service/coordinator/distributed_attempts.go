@@ -11,8 +11,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -74,13 +74,13 @@ func (o *attemptOwnership) statusDecision(
 	if claimKey == "" {
 		claimKey = latest.EffectiveClaimKey()
 	}
-	if o.leaseInactive(ctx, claimKey) && (incoming.Status.IsActive() || incoming.Status == core.NotStarted) {
+	if o.leaseInactive(ctx, claimKey) && (incoming.Status.IsActive() || incoming.Status == ir.NotStarted) {
 		return false, remoteAttemptRejectedLeaseInactive
 	}
 	if latest.Status == incoming.Status {
 		return true, ""
 	}
-	if opts.CancellationRequested && latest.Status == core.Failed && incoming.Status == core.Aborted {
+	if opts.CancellationRequested && latest.Status == ir.Failed && incoming.Status == ir.Aborted {
 		return true, ""
 	}
 	return false, remoteAttemptRejectedTerminal
@@ -131,10 +131,10 @@ func (o *attemptOwnership) syncLeaseFromStatus(
 	}
 
 	switch status.Status {
-	case core.Running, core.NotStarted, core.Queued:
+	case ir.Running, ir.NotStarted, ir.Queued:
 		o.upsertLeaseFromStatus(ctx, workerID, status, fallbackAttemptID)
-	case core.Failed, core.Aborted, core.Succeeded,
-		core.PartiallySucceeded, core.Waiting, core.Rejected:
+	case ir.Failed, ir.Aborted, ir.Succeeded,
+		ir.PartiallySucceeded, ir.Waiting, ir.Rejected:
 		attemptKey := exec.AttemptKeyForStatus(status, fallbackAttemptID)
 		if attemptKey == "" {
 			return
@@ -226,11 +226,11 @@ func (o *attemptOwnership) restoreConfirmedFromStatus(
 	}
 
 	switch status.Status {
-	case core.Running, core.NotStarted, core.Queued:
+	case ir.Running, ir.NotStarted, ir.Queued:
 		o.upsertLeaseFromStatus(ctx, workerID, status, fallbackAttemptID)
 		o.upsertActiveFromStatus(ctx, status, workerID, fallbackAttemptID)
-	case core.Failed, core.Aborted, core.Succeeded,
-		core.PartiallySucceeded, core.Waiting, core.Rejected:
+	case ir.Failed, ir.Aborted, ir.Succeeded,
+		ir.PartiallySucceeded, ir.Waiting, ir.Rejected:
 	}
 }
 
@@ -250,10 +250,10 @@ func (o *attemptOwnership) syncActiveRunFromStatus(
 	}
 
 	switch status.Status {
-	case core.Running, core.NotStarted, core.Queued:
+	case ir.Running, ir.NotStarted, ir.Queued:
 		o.upsertActiveFromStatus(ctx, status, workerID, fallbackAttemptID)
-	case core.Failed, core.Aborted, core.Succeeded,
-		core.PartiallySucceeded, core.Waiting, core.Rejected:
+	case ir.Failed, ir.Aborted, ir.Succeeded,
+		ir.PartiallySucceeded, ir.Waiting, ir.Rejected:
 		if err := o.activeRunStore.Delete(ctx, attemptKey); err != nil {
 			logger.Warn(ctx, "Failed to delete active distributed run",
 				tag.RunID(status.DAGRunID),
@@ -348,7 +348,7 @@ func (o *attemptOwnership) upsertActiveFromTask(
 		Root:      root,
 		AttemptID: task.AttemptId,
 		WorkerID:  workerID,
-		Status:    core.Queued,
+		Status:    ir.Queued,
 		UpdatedAt: now.UnixMilli(),
 	}
 	if err := o.activeRunStore.Upsert(ctx, record); err != nil {
@@ -447,9 +447,9 @@ func (o *attemptOwnership) indexedRunMatchesStatus(
 	if _, ok := remoteWorkerID(runStatus, record.WorkerID); !ok {
 		return false
 	}
-	if runStatus.Status != core.Running &&
-		runStatus.Status != core.NotStarted &&
-		runStatus.Status != core.Queued {
+	if runStatus.Status != ir.Running &&
+		runStatus.Status != ir.NotStarted &&
+		runStatus.Status != ir.Queued {
 		return false
 	}
 
@@ -469,11 +469,11 @@ func (o *attemptOwnership) indexedRunMatchesStatus(
 	return true
 }
 
-func isTerminalRunStatus(status core.Status) bool {
-	return status != core.NotStarted && !status.IsActive()
+func isTerminalRunStatus(status ir.Status) bool {
+	return status != ir.NotStarted && !status.IsActive()
 }
 
-func isCancellableTerminalRunStatus(status core.Status) bool {
+func isCancellableTerminalRunStatus(status ir.Status) bool {
 	return isTerminalRunStatus(status) && !status.IsSuccess()
 }
 
@@ -506,7 +506,7 @@ func remoteWorkerID(status *exec.DAGRunStatus, fallbackWorkerID string) (string,
 	if status.WorkerID != "" {
 		return "", false
 	}
-	if status.Status != core.Queued && status.Status != core.NotStarted {
+	if status.Status != ir.Queued && status.Status != ir.NotStarted {
 		return "", false
 	}
 	if !exec.IsRemoteWorkerID(fallbackWorkerID) {

@@ -17,8 +17,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Histogram bucket definitions
@@ -370,7 +370,7 @@ func (c *Collector) collectDAGRunMetrics(ctx context.Context, ch chan<- promethe
 		statusCounts[statusLabel]++
 		dm.statusCounts[statusLabel]++
 
-		if st.Status == core.Running {
+		if st.Status == ir.Running {
 			currentlyRunning++
 			dm.running++
 		}
@@ -678,11 +678,11 @@ func workerStats(record exec.WorkerHeartbeatRecord, now time.Time) workerStatsSn
 }
 
 // isCompletedStatus returns true if the status represents a terminal state
-func isCompletedStatus(s core.Status) bool {
+func isCompletedStatus(s ir.Status) bool {
 	switch s {
-	case core.Succeeded, core.Failed, core.Aborted, core.PartiallySucceeded, core.Rejected:
+	case ir.Succeeded, ir.Failed, ir.Aborted, ir.PartiallySucceeded, ir.Rejected:
 		return true
-	case core.NotStarted, core.Running, core.Queued, core.Waiting:
+	case ir.NotStarted, ir.Running, ir.Queued, ir.Waiting:
 		return false
 	}
 	return false

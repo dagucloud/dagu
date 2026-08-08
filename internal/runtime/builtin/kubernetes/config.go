@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 	batchv1 "k8s.io/api/batch/v1"
@@ -1440,9 +1440,9 @@ func parseQuantity(field, value string) (resource.Quantity, error) {
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema("kubernetes", configSchema)
-	core.RegisterExecutorConfigSchema("k8s", configSchema)
-	core.RegisterExecutorConfigSchema("kubernetes_defaults", configDefaultsSchema)
+	ir.RegisterExecutorConfigSchema("kubernetes", configSchema)
+	ir.RegisterExecutorConfigSchema("k8s", configSchema)
+	ir.RegisterExecutorConfigSchema("kubernetes_defaults", configDefaultsSchema)
 }
 
 var configSchema = &jsonschema.Schema{

@@ -6,7 +6,7 @@ package intg_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +33,7 @@ steps:
 	dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 	require.NoError(t, err)
 	require.Len(t, dagRunStatus.Nodes, 1)
-	assert.Equal(t, core.NodeFailed, dagRunStatus.Nodes[0].Status)
+	assert.Equal(t, ir.NodeFailed, dagRunStatus.Nodes[0].Status)
 	assert.Equal(t, 2, dagRunStatus.Nodes[0].RetryCount, "step should inherit retry limit from defaults")
 }
 
@@ -59,8 +59,8 @@ steps:
 	require.NoError(t, err)
 	require.Len(t, dagRunStatus.Nodes, 2)
 	// Both steps should have executed
-	assert.Equal(t, core.NodeFailed, dagRunStatus.Nodes[0].Status)
-	assert.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[1].Status)
+	assert.Equal(t, ir.NodeFailed, dagRunStatus.Nodes[0].Status)
+	assert.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[1].Status)
 }
 
 func TestDefaults_StepOverridesDefault(t *testing.T) {

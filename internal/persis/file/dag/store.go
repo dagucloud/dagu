@@ -19,10 +19,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/grep"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -38,14 +38,14 @@ type Option func(*Options)
 
 // Options contains configuration options for the DAG repository
 type Options struct {
-	FlagsBaseDir           string                     // Base directory for flag store
-	FileCache              *fileutil.Cache[*core.DAG] // Optional cache for DAG objects
-	SearchPaths            []string                   // Additional search paths for DAG files
-	BaseConfigPath         string                     // Optional base config file applied when loading DAGs
-	WorkspaceBaseConfigDir string                     // Optional directory containing workspace base configs
-	SkipExamples           bool                       // Skip creating example DAGs
-	Recursive              bool                       // Discover DAG definitions in subdirectories
-	SkipDirectoryCreation  bool                       // Skip creating base directory for execution-scoped stores
+	FlagsBaseDir           string                   // Base directory for flag store
+	FileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
+	SearchPaths            []string                 // Additional search paths for DAG files
+	BaseConfigPath         string                   // Optional base config file applied when loading DAGs
+	WorkspaceBaseConfigDir string                   // Optional directory containing workspace base configs
+	SkipExamples           bool                     // Skip creating example DAGs
+	Recursive              bool                     // Discover DAG definitions in subdirectories
+	SkipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 }
 
 // WithRecursiveDiscovery controls whether DAG files are discovered recursively.
@@ -56,7 +56,7 @@ func WithRecursiveDiscovery(recursive bool) Option {
 }
 
 // WithFileCache returns a DAGRepositoryOption that sets the file cache for DAG objects
-func WithFileCache(cache *fileutil.Cache[*core.DAG]) Option {
+func WithFileCache(cache *fileutil.Cache[*ir.DAG]) Option {
 	return func(o *Options) {
 		o.FileCache = cache
 	}
@@ -143,18 +143,18 @@ func New(baseDir string, opts ...Option) exec.DAGStore {
 
 // Storage implements the DAGRepository interface using the local filesystem
 type Storage struct {
-	baseDir                string                     // Base directory for DAG storage
-	flagsBaseDir           string                     // Base directory for flag store
-	fileCache              *fileutil.Cache[*core.DAG] // Optional cache for DAG objects
-	searchPaths            []string                   // Additional search paths for DAG files
-	baseConfigPath         string                     // Optional base config file applied when loading DAGs
-	workspaceBaseConfigDir string                     // Optional directory containing workspace base configs
-	baseConfigState        string                     // Last observed base config state for cache/index invalidation
-	skipExamples           bool                       // Skip creating example DAGs
-	recursive              bool                       // Discover DAG definitions in subdirectories
-	skipDirectoryCreation  bool                       // Skip creating base directory for execution-scoped stores
-	baseConfigMu           sync.Mutex                 // Protects base config state refresh and invalidation
-	indexMu                sync.Mutex                 // Protects index load/rebuild/invalidate
+	baseDir                string                   // Base directory for DAG storage
+	flagsBaseDir           string                   // Base directory for flag store
+	fileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
+	searchPaths            []string                 // Additional search paths for DAG files
+	baseConfigPath         string                   // Optional base config file applied when loading DAGs
+	workspaceBaseConfigDir string                   // Optional directory containing workspace base configs
+	baseConfigState        string                   // Last observed base config state for cache/index invalidation
+	skipExamples           bool                     // Skip creating example DAGs
+	recursive              bool                     // Discover DAG definitions in subdirectories
+	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
+	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
+	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
 }
 
 func (store *Storage) useCachedLoads() bool {
@@ -277,7 +277,7 @@ func (store *Storage) Initialize() error {
 }
 
 // GetMetadata retrieves the metadata of a DAG by its name.
-func (store *Storage) GetMetadata(ctx context.Context, name string) (*core.DAG, error) {
+func (store *Storage) GetMetadata(ctx context.Context, name string) (*ir.DAG, error) {
 	filePath, err := store.locateDAG(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate DAG %s in search paths (%v): %w", name, store.searchPaths, err)
@@ -291,7 +291,7 @@ func (store *Storage) GetMetadata(ctx context.Context, name string) (*core.DAG, 
 	if !store.useCachedLoads() {
 		return spec.Load(ctx, filePath, loadOpts...)
 	}
-	return store.fileCache.LoadLatest(filePath, func() (*core.DAG, error) {
+	return store.fileCache.LoadLatest(filePath, func() (*ir.DAG, error) {
 		return spec.Load(ctx, filePath, loadOpts...)
 	})
 }
@@ -305,7 +305,7 @@ func specLoadOptions(opts exec.DAGLoadOptions) []spec.LoadOption {
 }
 
 // GetDetails retrieves the details of a DAG by its name.
-func (store *Storage) GetDetails(ctx context.Context, name string, opts exec.DAGLoadOptions) (*core.DAG, error) {
+func (store *Storage) GetDetails(ctx context.Context, name string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
 	filePath, err := store.locateDAG(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate DAG %s: %w", name, err)
@@ -336,7 +336,7 @@ func (store *Storage) GetSpec(ctx context.Context, name string) (string, error) 
 // FileMode used for newly created DAG files
 const defaultPerm os.FileMode = 0600
 
-func (store *Storage) LoadSpec(ctx context.Context, source []byte, name string, opts exec.DAGLoadOptions) (*core.DAG, error) {
+func (store *Storage) LoadSpec(ctx context.Context, source []byte, name string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
 	// Validate the spec before saving it.
 	loadOpts := store.defaultLoadOptions(specLoadOptions(opts)...)
 	loadOpts = append(loadOpts, spec.WithName(name), spec.WithoutEval())
@@ -475,8 +475,8 @@ func (store *Storage) invalidateIndex() {
 }
 
 // List lists DAGs with pagination support.
-func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (exec.PaginatedResult[*core.DAG], []string, error) {
-	var allDags []*core.DAG
+func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (exec.PaginatedResult[*ir.DAG], []string, error) {
+	var allDags []*ir.DAG
 	var errList []string
 
 	if opts.Paginator == nil {
@@ -487,12 +487,12 @@ func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (exec
 	catalog, err := store.loadCatalog(ctx)
 	if err != nil {
 		errList = append(errList, fmt.Sprintf("failed to discover DAGs in %s: %s", store.baseDir, err))
-		return exec.NewPaginatedResult([]*core.DAG{}, 0, *opts.Paginator), errList, err
+		return exec.NewPaginatedResult([]*ir.DAG{}, 0, *opts.Paginator), errList, err
 	}
 	errList = append(errList, catalog.errors...)
 	for _, entry := range catalog.entries {
 		if ctx.Err() != nil {
-			return exec.NewPaginatedResult([]*core.DAG{}, 0, *opts.Paginator), errList, ctx.Err()
+			return exec.NewPaginatedResult([]*ir.DAG{}, 0, *opts.Paginator), errList, ctx.Err()
 		}
 		if opts.ActiveOnly && (entry.Schedule == "" || entry.Suspended) {
 			continue
@@ -520,13 +520,13 @@ func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (exec
 		}
 		projectNextRun := opts.NextRunProjection
 		if projectNextRun == nil {
-			projectNextRun = func(dag *core.DAG, at time.Time) time.Time {
+			projectNextRun = func(dag *ir.DAG, at time.Time) time.Time {
 				return dag.NextRun(at)
 			}
 		}
 		// Pre-calculate next run times to avoid recalculating on each comparison
 		suspendFlags := store.readSuspendFlags(ctx)
-		nextRunTimes := make(map[*core.DAG]time.Time, len(allDags))
+		nextRunTimes := make(map[*ir.DAG]time.Time, len(allDags))
 		for _, dag := range allDags {
 			if _, suspended := suspendFlags[fileName(dag.FileName())]; suspended {
 				nextRunTimes[dag] = time.Time{}
@@ -581,7 +581,7 @@ func (store *Storage) List(ctx context.Context, opts exec.ListDAGsOptions) (exec
 	totalCount := len(allDags)
 
 	// Apply pagination
-	var paginatedDags []*core.DAG
+	var paginatedDags []*ir.DAG
 	start := opts.Paginator.Offset()
 	end := start + opts.Paginator.Limit()
 
@@ -770,7 +770,7 @@ func (store *Storage) SearchCursor(ctx context.Context, opts exec.SearchDAGsOpti
 		}
 
 		filePath := store.entryPath(entry)
-		var dag *core.DAG
+		var dag *ir.DAG
 		if len(opts.Labels) > 0 || opts.WorkspaceFilter != nil {
 			dag, err = spec.Load(ctx, filePath, store.defaultLoadOptions(
 				spec.OnlyMetadata(),
@@ -1175,15 +1175,15 @@ func matchesDAGListSearch(dagName, fileName, search string) bool {
 
 // containsAllLabels checks if the DAG labels match all filter labels (AND logic).
 // Supports key-only filters ("env"), exact filters ("env=prod"), and negation ("!deprecated").
-func containsAllLabels(dagLabels core.Labels, filterLabels []string) bool {
+func containsAllLabels(dagLabels ir.Labels, filterLabels []string) bool {
 	if len(filterLabels) == 0 {
 		return true
 	}
 
-	filters := make([]core.LabelFilter, 0, len(filterLabels))
+	filters := make([]ir.LabelFilter, 0, len(filterLabels))
 	for _, f := range filterLabels {
 		if trimmed := strings.TrimSpace(f); trimmed != "" {
-			filters = append(filters, core.ParseLabelFilter(trimmed))
+			filters = append(filters, ir.ParseLabelFilter(trimmed))
 		}
 	}
 

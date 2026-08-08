@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -62,7 +62,7 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 		Name:       "briefing",
 		DAGRunID:   "run-old",
 		AttemptID:  "attempt-old",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "old failure",
 		FinishedAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
 	}
@@ -106,7 +106,7 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 		Name:       "briefing",
 		DAGRunID:   "run-new",
 		AttemptID:  "attempt-new",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "new failure",
 		Labels:     []string{"workspace=ops", "team=platform"},
 		FinishedAt: time.Now().UTC().Format(time.RFC3339),
@@ -146,7 +146,7 @@ func TestNotificationMonitor_RestartRequeuesPersistedPending(t *testing.T) {
 	status := &exec.DAGRunStatus{
 		Name:      "briefing",
 		Labels:    []string{"workspace=ops"},
-		Status:    core.Failed,
+		Status:    ir.Failed,
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
 		Error:     "boom",
@@ -280,7 +280,7 @@ func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T
 		Name:       "briefing",
 		DAGRunID:   "run-first",
 		AttemptID:  "attempt-first",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "first failure",
 		FinishedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -337,7 +337,7 @@ func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T
 		Name:       "briefing",
 		DAGRunID:   "run-second",
 		AttemptID:  "attempt-second",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "second failure",
 		FinishedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -377,7 +377,7 @@ func TestNotificationMonitor_CorruptStateIsQuarantinedAndOnlyFutureEventsAreDeli
 		Name:       "briefing",
 		DAGRunID:   "run-old",
 		AttemptID:  "attempt-old",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "old failure",
 		FinishedAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
 	}
@@ -427,7 +427,7 @@ func TestNotificationMonitor_CorruptStateIsQuarantinedAndOnlyFutureEventsAreDeli
 		Name:       "briefing",
 		DAGRunID:   "run-new",
 		AttemptID:  "attempt-new",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "new failure",
 		FinishedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -518,7 +518,7 @@ func TestNotificationMonitor_SaveFailureDoesNotLoseUnreadEvents(t *testing.T) {
 		Name:       "briefing",
 		DAGRunID:   "run-save-retry",
 		AttemptID:  "attempt-save-retry",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "retry failure",
 		FinishedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -578,7 +578,7 @@ func TestNotificationMonitor_NotifyCompletionSaveFailureDoesNotMutateLiveState(t
 		Name:      "briefing",
 		DAGRunID:  "run-save-fail",
 		AttemptID: "attempt-save-fail",
-		Status:    core.Failed,
+		Status:    ir.Failed,
 		Error:     "boom",
 	}
 	require.False(t, monitor.NotifyCompletion(status))
@@ -611,7 +611,7 @@ func TestNotificationMonitor_MarkBatchDeliveredSaveFailureDoesNotMutateLiveState
 		Name:      "briefing",
 		DAGRunID:  "run-ack-save-fail",
 		AttemptID: "attempt-ack-save-fail",
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 	}
 	event := NotificationEvent{
 		Key:        NotificationSeenKey(status),
@@ -649,7 +649,7 @@ func TestNotificationMonitor_RemovedDestinationsArePurgedOnStartup(t *testing.T)
 	stateFile := filepath.Join(t.TempDir(), "state.json")
 	status := &exec.DAGRunStatus{
 		Name:      "briefing",
-		Status:    core.Failed,
+		Status:    ir.Failed,
 		DAGRunID:  "run-removed",
 		AttemptID: "attempt-removed",
 		Error:     "boom",
@@ -762,7 +762,7 @@ func TestNotificationMonitor_LockTheftSelfFencesActiveOwner(t *testing.T) {
 		Name:       "briefing",
 		DAGRunID:   "run-stolen-lock",
 		AttemptID:  "attempt-stolen-lock",
-		Status:     core.Failed,
+		Status:     ir.Failed,
 		Error:      "lock failure",
 		FinishedAt: time.Now().UTC().Format(time.RFC3339),
 	}

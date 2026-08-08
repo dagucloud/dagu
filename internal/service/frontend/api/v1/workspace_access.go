@@ -14,8 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -187,7 +187,7 @@ func workspaceParamFromValues(params url.Values) *api.Workspace {
 	return workspaceParam
 }
 
-func dagWorkspaceName(dag *core.DAG) string {
+func dagWorkspaceName(dag *ir.DAG) string {
 	if dag == nil {
 		return ""
 	}
@@ -207,7 +207,7 @@ func statusWorkspaceName(status *exec.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(status.Labels))
+	workspaceName, state := exec.WorkspaceLabelFromLabels(ir.NewLabels(status.Labels))
 	switch state {
 	case exec.WorkspaceLabelValid:
 		return workspaceName
@@ -223,7 +223,7 @@ func workspaceNameFromLabelString(labels string) string {
 	if strings.TrimSpace(labels) == "" {
 		return ""
 	}
-	workspaceName, state := exec.WorkspaceLabelFromLabels(core.NewLabels(strings.Split(labels, ",")))
+	workspaceName, state := exec.WorkspaceLabelFromLabels(ir.NewLabels(strings.Split(labels, ",")))
 	switch state {
 	case exec.WorkspaceLabelValid:
 		return workspaceName
@@ -235,7 +235,7 @@ func workspaceNameFromLabelString(labels string) string {
 	return ""
 }
 
-func runtimeWorkspaceName(dag *core.DAG, labels string) string {
+func runtimeWorkspaceName(dag *ir.DAG, labels string) string {
 	if workspaceName := workspaceNameFromLabelString(labels); workspaceName != "" {
 		return workspaceName
 	}

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/require"
 
@@ -38,9 +38,9 @@ func TestRace_ConcurrentExecutors(t *testing.T) {
 			// Use unique file-based database for each executor to avoid shared cache conflicts
 			dbPath := filepath.Join(tmpDir, fmt.Sprintf("test_%d.db", idx))
 
-			step := core.Step{
+			step := ir.Step{
 				Name: "test-concurrent",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: "sqlite",
 					Config: map[string]any{
 						"dsn": dbPath,
@@ -281,9 +281,9 @@ func TestRace_ExecutorKill(t *testing.T) {
 		// Use unique file-based database for each iteration
 		dbPath := filepath.Join(tmpDir, fmt.Sprintf("test_kill_%d.db", i))
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-kill-race",
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "sqlite",
 				Config: map[string]any{
 					"dsn": dbPath,

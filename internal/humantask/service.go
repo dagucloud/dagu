@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -104,7 +104,7 @@ type Result struct {
 }
 
 type target struct {
-	dag    *core.DAG
+	dag    *ir.DAG
 	status *exec.DAGRunStatus
 	ref    exec.DAGRunRef
 	stepID string

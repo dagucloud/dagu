@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,14 +19,14 @@ func TestDockerExecutorCommandResolution(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		step            core.Step
+		step            ir.Step
 		wantShellConfig bool
 	}{
 		{
 			name: "StepContainerShell",
-			step: core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "docker"},
-				Container: &core.Container{
+			step: ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "docker"},
+				Container: &ir.Container{
 					Image: "alpine",
 					Shell: []string{"/bin/sh", "-c"},
 				},
@@ -35,8 +35,8 @@ func TestDockerExecutorCommandResolution(t *testing.T) {
 		},
 		{
 			name: "ExecutorConfigShell",
-			step: core.Step{
-				ExecutorConfig: core.ExecutorConfig{
+			step: ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type:   "docker",
 					Config: map[string]any{"image": "alpine", "shell": "/bin/bash"},
 				},
@@ -45,8 +45,8 @@ func TestDockerExecutorCommandResolution(t *testing.T) {
 		},
 		{
 			name: "NoShell",
-			step: core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "docker"},
+			step: ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "docker"},
 			},
 		},
 	}
@@ -65,16 +65,16 @@ func TestDockerExecutorCommandResolution(t *testing.T) {
 func TestEvalContainerFieldsUsesDockerCommandSemantics(t *testing.T) {
 	t.Setenv("DOCKER_TARGET_HOME", "/host/home")
 
-	step := core.Step{
+	step := ir.Step{
 		Name:           "docker-step",
-		ExecutorConfig: core.ExecutorConfig{Type: "docker"},
+		ExecutorConfig: ir.ExecutorConfig{Type: "docker"},
 	}
-	ctx := runtime.NewContextForTest(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
+	ctx := runtime.NewContextForTest(context.Background(), &ir.DAG{Name: "test-dag"}, "run-1", "test.log")
 	env := runtime.NewEnv(ctx, step)
 	env.Scope = env.Scope.WithEntry("COMMAND_NAME", "printf", cmnvalue.EnvSourceStepEnv)
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := EvalContainerFields(ctx, core.Container{
+	got, err := EvalContainerFields(ctx, ir.Container{
 		Command: []string{"$COMMAND_NAME", "$DOCKER_TARGET_HOME"},
 		Shell:   []string{"/bin/sh", "-c", "echo \\$DOCKER_TARGET_HOME"},
 	})

@@ -15,8 +15,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -32,7 +32,7 @@ type dagExecutor struct {
 	stdout    io.Writer
 	stderr    io.Writer
 	runParams executor.RunParams
-	step      core.Step
+	step      ir.Step
 	result    *exec.RunStatus
 	outputs   map[string]any
 	cancel    context.CancelFunc
@@ -82,7 +82,7 @@ func errTargetRunMissing(runID, stepName string) error {
 	return fmt.Errorf("target child DAG run %s is not present in step %s", runID, stepName)
 }
 
-func validateSubDAG(childDAG *core.DAG, name string, workerSelector map[string]string) error {
+func validateSubDAG(childDAG *ir.DAG, name string, workerSelector map[string]string) error {
 	if len(workerSelector) > 0 && childDAG.HasApprovalSteps() {
 		return fmt.Errorf("%w: %s", ErrApprovalStepsWithWorker, name)
 	}
@@ -92,7 +92,7 @@ func validateSubDAG(childDAG *core.DAG, name string, workerSelector map[string]s
 	return nil
 }
 
-func newDAGExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newDAGExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if step.SubDAG == nil {
 		return nil, fmt.Errorf("sub DAG configuration is missing")
 	}
@@ -179,27 +179,27 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 }
 
 // DetermineNodeStatus implements NodeStatusDeterminer.
-func (e *dagExecutor) DetermineNodeStatus() (core.NodeStatus, error) {
+func (e *dagExecutor) DetermineNodeStatus() (ir.NodeStatus, error) {
 	if e.result == nil {
-		return core.NodeFailed, fmt.Errorf("sub DAG %q execution produced no result", e.child.DAG.Name)
+		return ir.NodeFailed, fmt.Errorf("sub DAG %q execution produced no result", e.child.DAG.Name)
 	}
 
 	// Check if the status is partial success or success
 	// For error cases, we return an error with the status
 	switch e.result.Status {
-	case core.Succeeded:
-		return core.NodeSucceeded, nil
-	case core.PartiallySucceeded:
-		return core.NodePartiallySucceeded, nil
-	case core.Waiting:
+	case ir.Succeeded:
+		return ir.NodeSucceeded, nil
+	case ir.PartiallySucceeded:
+		return ir.NodePartiallySucceeded, nil
+	case ir.Waiting:
 		// Sub-DAG is waiting for human approval
 		// Propagate the waiting status to the parent
-		return core.NodeWaiting, nil
-	case core.NotStarted, core.Running, core.Failed, core.Aborted, core.Queued:
-		return core.NodeFailed, fmt.Errorf("sub DAG run %s failed with status: %s", e.result.DAGRunID, e.result.Status)
+		return ir.NodeWaiting, nil
+	case ir.NotStarted, ir.Running, ir.Failed, ir.Aborted, ir.Queued:
+		return ir.NodeFailed, fmt.Errorf("sub DAG run %s failed with status: %s", e.result.DAGRunID, e.result.Status)
 	default:
 		// This should never happen, but satisfies the exhaustive check
-		return core.NodeFailed, fmt.Errorf("sub DAG run %s failed with unknown status: %s", e.result.DAGRunID, e.result.Status)
+		return ir.NodeFailed, fmt.Errorf("sub DAG run %s failed with unknown status: %s", e.result.DAGRunID, e.result.Status)
 	}
 }
 
@@ -234,7 +234,7 @@ func (e *dagExecutor) Kill(sig os.Signal) error {
 }
 
 func init() {
-	caps := core.ExecutorCapabilities{
+	caps := ir.ExecutorCapabilities{
 		SubDAG:         true,
 		WorkerSelector: true,
 	}

@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // PushBackEntry records one push-back event for a step approval cycle.
@@ -21,8 +21,8 @@ type PushBackEntry struct {
 
 // NodeStatusDetail identifies an independently tracked execution within a node.
 type NodeStatusDetail struct {
-	Label  string          `json:"label"`
-	Status core.NodeStatus `json:"status"`
+	Label  string        `json:"label"`
+	Status ir.NodeStatus `json:"status"`
 }
 
 // IncrementalDecision records how an incremental node was satisfied.
@@ -86,13 +86,13 @@ type IncrementalExecution struct {
 
 // Node represents a DAG step with its execution state for persistence
 type Node struct {
-	Step             core.Step             `json:"step,omitzero"`
+	Step             ir.Step               `json:"step,omitzero"`
 	Stdout           string                `json:"stdout"` // standard output log file path
 	Stderr           string                `json:"stderr"` // standard error log file path
 	WorkingDir       string                `json:"workingDir,omitempty"`
 	StartedAt        string                `json:"startedAt"`
 	FinishedAt       string                `json:"finishedAt"`
-	Status           core.NodeStatus       `json:"status"`
+	Status           ir.NodeStatus         `json:"status"`
 	RetriedAt        string                `json:"retriedAt,omitempty"`
 	RetryCount       int                   `json:"retryCount,omitempty"`
 	DoneCount        int                   `json:"doneCount,omitempty"`
@@ -161,7 +161,7 @@ type SubDAGRun struct {
 }
 
 // NewNodesFromSteps converts a list of DAG steps to persistence Node objects.
-func NewNodesFromSteps(steps []core.Step) []*Node {
+func NewNodesFromSteps(steps []ir.Step) []*Node {
 	var ret []*Node
 	for _, s := range steps {
 		ret = append(ret, NewNodeFromStep(s))
@@ -170,17 +170,17 @@ func NewNodesFromSteps(steps []core.Step) []*Node {
 }
 
 // NewNodeFromStep creates a new Node with default status values for the given step.
-func NewNodeFromStep(step core.Step) *Node {
+func NewNodeFromStep(step ir.Step) *Node {
 	return &Node{
 		Step:       step,
 		StartedAt:  "-",
 		FinishedAt: "-",
-		Status:     core.NodeNotStarted,
+		Status:     ir.NodeNotStarted,
 	}
 }
 
 // newNodeOrNil creates a Node from a Step or returns nil if the step is nil.
-func newNodeOrNil(s *core.Step) *Node {
+func newNodeOrNil(s *ir.Step) *Node {
 	if s == nil {
 		return nil
 	}

@@ -6,7 +6,7 @@ package kubernetes
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -294,8 +294,8 @@ func TestLoadConfigFromMapValidation(t *testing.T) {
 
 func TestValidateStep(t *testing.T) {
 	t.Run("RejectsInvalidConfig", func(t *testing.T) {
-		err := validateStep(core.Step{
-			ExecutorConfig: core.ExecutorConfig{
+		err := validateStep(ir.Step{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "kubernetes",
 				Config: map[string]any{
 					"image": "busybox",
@@ -314,9 +314,9 @@ func TestValidateStep(t *testing.T) {
 }
 
 func TestBuildCommand(t *testing.T) {
-	step := core.Step{
+	step := ir.Step{
 		Shell: "/bin/sh",
-		Commands: []core.CommandEntry{{
+		Commands: []ir.CommandEntry{{
 			Command:     "echo",
 			Args:        []string{"hello"},
 			CmdWithArgs: "echo hello",
@@ -328,14 +328,14 @@ func TestBuildCommand(t *testing.T) {
 
 func TestKubernetesDefaultsSchema(t *testing.T) {
 	t.Run("DoesNotRequireImage", func(t *testing.T) {
-		err := core.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"namespace": "dag-ns",
 		})
 		require.NoError(t, err)
 	})
 
 	t.Run("RejectsUnknownKeys", func(t *testing.T) {
-		err := core.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"unsupported_field": true,
 		})
 		require.Error(t, err)
@@ -343,7 +343,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("RejectsInvalidEnvShape", func(t *testing.T) {
-		err := core.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"env": []map[string]any{
 				{
 					"value": "missing-name",
@@ -355,7 +355,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("RejectsInvalidEnvFromShape", func(t *testing.T) {
-		err := core.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"env_from": []map[string]any{
 				{
 					"prefix": "APP_",
@@ -367,7 +367,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("RejectsInvalidSeccompSchema", func(t *testing.T) {
-		err := core.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"security_context": map[string]any{
 				"seccomp_profile": map[string]any{
 					"localhost_profile": "profiles/custom.json",
@@ -379,7 +379,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("RejectsUnsupportedPodFailureAction", func(t *testing.T) {
-		err := core.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"pod_failure_policy": map[string]any{
 				"rules": []map[string]any{
 					{
@@ -397,7 +397,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("AllowsClearingPodFailurePolicyRules", func(t *testing.T) {
-		err := core.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"pod_failure_policy": map[string]any{
 				"rules": []any{},
 			},
@@ -406,7 +406,7 @@ func TestKubernetesDefaultsSchema(t *testing.T) {
 	})
 
 	t.Run("AllowsClearingRequiredNodeSelector", func(t *testing.T) {
-		err := core.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
+		err := ir.ValidateExecutorConfig("kubernetes_defaults", map[string]any{
 			"affinity": map[string]any{
 				"node_affinity": map[string]any{
 					"required_during_scheduling_ignored_during_execution": map[string]any{},

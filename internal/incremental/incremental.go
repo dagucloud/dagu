@@ -17,16 +17,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const maxStagingBaseLength = 128
 
 // PrepareRequest contains resolved runtime information used before execution.
 type PrepareRequest struct {
-	DAG                  *core.DAG
-	Step                 core.Step
+	DAG                  *ir.DAG
+	Step                 ir.Step
 	DAGRunID             string
 	AttemptID            string
 	WorkingDir           string
@@ -49,7 +49,7 @@ type Session struct {
 	request      PrepareRequest
 	inputs       []exec.FileSnapshot
 	inputPaths   map[string]string
-	output       core.StepOutputDeclaration
+	output       ir.StepOutputDeclaration
 	outputPath   string
 	outputKey    string
 	recipeDigest string
@@ -251,7 +251,7 @@ func (s *Session) executeReason(reason exec.IncrementalReason, detail string) {
 
 // SetResolvedRecipe supplies the execution fields used by the reuse decision.
 // It must be called before Evaluate.
-func (s *Session) SetResolvedRecipe(step core.Step, environment map[string]string) {
+func (s *Session) SetResolvedRecipe(step ir.Step, environment map[string]string) {
 	s.request.Step.ExecutorConfig = step.ExecutorConfig
 	s.request.Step.Commands = step.Commands
 	s.request.Step.Script = step.Script
@@ -370,7 +370,7 @@ func (s *Session) Close(staging string) error {
 
 func eligible(request PrepareRequest) (bool, string) {
 	step := request.Step
-	if request.DAG == nil || request.DAG.Type != core.TypeIncremental {
+	if request.DAG == nil || request.DAG.Type != ir.TypeIncremental {
 		return false, "workflow is not incremental"
 	}
 	if step.ID == "" {

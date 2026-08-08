@@ -14,8 +14,8 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
@@ -74,7 +74,7 @@ steps:
 			Send(t)
 		var details api.GetDAGDAGRunDetails200JSONResponse
 		statusResp.Unmarshal(t, &details)
-		return details.DagRun.Status == api.Status(core.Running)
+		return details.DagRun.Status == api.Status(ir.Running)
 	}, apiProcEventuallyTimeout(5*time.Second), 50*time.Millisecond)
 
 	require.Eventually(t, func() bool {
@@ -90,7 +90,7 @@ steps:
 			Send(t)
 		var details api.GetDAGDAGRunDetails200JSONResponse
 		statusResp.Unmarshal(t, &details)
-		return details.DagRun.Status == api.Status(core.Succeeded)
+		return details.DagRun.Status == api.Status(ir.Succeeded)
 	}, apiProcEventuallyTimeout(15*time.Second), 50*time.Millisecond)
 }
 
@@ -103,7 +103,7 @@ func TestServerRepairsStaleLocalRunOnRead(t *testing.T) {
 
 	var details api.GetDAGRunDetails200JSONResponse
 	resp.Unmarshal(t, &details)
-	require.Equal(t, api.Status(core.Failed), details.DagRunDetails.Status)
+	require.Equal(t, api.Status(ir.Failed), details.DagRunDetails.Status)
 	requireFailedStaleLocalRun(t, fixture.server, fixture.ref)
 }
 
@@ -116,7 +116,7 @@ func TestServerRepairsStaleLocalLatestRunOnRead(t *testing.T) {
 
 	var details api.GetDAGRunDetails200JSONResponse
 	resp.Unmarshal(t, &details)
-	require.Equal(t, api.Status(core.Failed), details.DagRunDetails.Status)
+	require.Equal(t, api.Status(ir.Failed), details.DagRunDetails.Status)
 	require.Equal(t, fixture.dagRunID, details.DagRunDetails.DagRunId)
 	requireFailedStaleLocalRun(t, fixture.server, fixture.ref)
 }
@@ -130,7 +130,7 @@ func TestServerRepairsStaleLocalLatestScopedRunOnRead(t *testing.T) {
 
 	var details api.GetDAGDAGRunDetails200JSONResponse
 	resp.Unmarshal(t, &details)
-	require.Equal(t, api.Status(core.Failed), details.DagRun.Status)
+	require.Equal(t, api.Status(ir.Failed), details.DagRun.Status)
 	require.Equal(t, fixture.dagRunID, details.DagRun.DagRunId)
 	requireFailedStaleLocalRun(t, fixture.server, fixture.ref)
 }
@@ -160,7 +160,7 @@ steps:
 
 	status := transform.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
-		core.Running,
+		ir.Running,
 		0,
 		time.Now().Add(-2*time.Second),
 		transform.WithAttemptID(attempt.ID()),
@@ -168,7 +168,7 @@ steps:
 		transform.WithLogFilePath(logFile),
 	)
 	require.NotEmpty(t, status.Nodes)
-	status.Nodes[0].Status = core.NodeRunning
+	status.Nodes[0].Status = ir.NodeRunning
 
 	require.NoError(t, attempt.Open(server.Context))
 	require.NoError(t, attempt.Write(server.Context, status))
@@ -196,9 +196,9 @@ func requireFailedStaleLocalRun(t *testing.T, server test.Server, ref exec.DAGRu
 	t.Helper()
 
 	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunStore, ref)
-	require.Equal(t, core.Failed, repaired.Status)
+	require.Equal(t, ir.Failed, repaired.Status)
 	require.Len(t, repaired.Nodes, 1)
-	require.Equal(t, core.NodeFailed, repaired.Nodes[0].Status)
+	require.Equal(t, ir.NodeFailed, repaired.Nodes[0].Status)
 	require.Contains(t, repaired.Nodes[0].Error, "stale local process detected")
 }
 
@@ -222,7 +222,7 @@ steps:
 
 	status := transform.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
-		core.Running,
+		ir.Running,
 		0,
 		time.Now().Add(-2*time.Second),
 		transform.WithAttemptID(attempt.ID()),
@@ -233,7 +233,7 @@ steps:
 	status.AttemptKey = exec.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())
 	status.WorkerID = "worker-1"
 	require.NotEmpty(t, status.Nodes)
-	status.Nodes[0].Status = core.NodeRunning
+	status.Nodes[0].Status = ir.NodeRunning
 
 	require.NoError(t, attempt.Open(server.Context))
 	require.NoError(t, attempt.Write(server.Context, status))
@@ -264,12 +264,12 @@ steps:
 
 	var details api.GetDAGRunDetails200JSONResponse
 	resp.Unmarshal(t, &details)
-	require.Equal(t, api.Status(core.Failed), details.DagRunDetails.Status)
+	require.Equal(t, api.Status(ir.Failed), details.DagRunDetails.Status)
 
 	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunStore, ref)
-	require.Equal(t, core.Failed, repaired.Status)
+	require.Equal(t, ir.Failed, repaired.Status)
 	require.Len(t, repaired.Nodes, 1)
-	require.Equal(t, core.NodeFailed, repaired.Nodes[0].Status)
+	require.Equal(t, ir.NodeFailed, repaired.Nodes[0].Status)
 	require.Contains(t, repaired.Nodes[0].Error, "distributed run lease expired")
 }
 
@@ -293,7 +293,7 @@ steps:
 
 	status := transform.NewStatusBuilder(dag.DAG).Create(
 		dagRunID,
-		core.NotStarted,
+		ir.NotStarted,
 		0,
 		time.Now().Add(-2*time.Second),
 		transform.WithAttemptID(attempt.ID()),
@@ -303,7 +303,7 @@ steps:
 	status.AttemptID = attempt.ID()
 	status.AttemptKey = exec.GenerateAttemptKey(dag.Name, dagRunID, dag.Name, dagRunID, attempt.ID())
 	require.NotEmpty(t, status.Nodes)
-	status.Nodes[0].Status = core.NodeRunning
+	status.Nodes[0].Status = ir.NodeRunning
 
 	require.NoError(t, attempt.Open(server.Context))
 	require.NoError(t, attempt.Write(server.Context, status))
@@ -334,11 +334,11 @@ steps:
 
 	var details api.GetDAGRunDetails200JSONResponse
 	resp.Unmarshal(t, &details)
-	require.Equal(t, api.Status(core.Failed), details.DagRunDetails.Status)
+	require.Equal(t, api.Status(ir.Failed), details.DagRunDetails.Status)
 
 	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunStore, ref)
-	require.Equal(t, core.Failed, repaired.Status)
+	require.Equal(t, ir.Failed, repaired.Status)
 	require.Len(t, repaired.Nodes, 1)
-	require.Equal(t, core.NodeFailed, repaired.Nodes[0].Status)
+	require.Equal(t, ir.NodeFailed, repaired.Nodes[0].Status)
 	require.Contains(t, repaired.Nodes[0].Error, "distributed run lease expired")
 }

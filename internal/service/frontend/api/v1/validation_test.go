@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,14 +16,14 @@ func TestValidateRequiredInputs(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		step      core.Step
+		step      ir.Step
 		body      *api.ApproveStepRequest
 		expectErr bool
 		errMsg    string
 	}{
 		{
 			name: "no approval config - always valid",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test",
 			},
 			body:      nil,
@@ -31,9 +31,9 @@ func TestValidateRequiredInputs(t *testing.T) {
 		},
 		{
 			name: "approval with no required fields - always valid",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test",
-				Approval: &core.ApprovalConfig{
+				Approval: &ir.ApprovalConfig{
 					Input: []string{"reason", "approver"},
 				},
 			},
@@ -42,9 +42,9 @@ func TestValidateRequiredInputs(t *testing.T) {
 		},
 		{
 			name: "required fields provided",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test",
-				Approval: &core.ApprovalConfig{
+				Approval: &ir.ApprovalConfig{
 					Input:    []string{"reason", "approver"},
 					Required: []string{"reason"},
 				},
@@ -58,9 +58,9 @@ func TestValidateRequiredInputs(t *testing.T) {
 		},
 		{
 			name: "required fields missing - no body",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test",
-				Approval: &core.ApprovalConfig{
+				Approval: &ir.ApprovalConfig{
 					Required: []string{"reason"},
 				},
 			},
@@ -70,9 +70,9 @@ func TestValidateRequiredInputs(t *testing.T) {
 		},
 		{
 			name: "required fields missing - empty inputs",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test",
-				Approval: &core.ApprovalConfig{
+				Approval: &ir.ApprovalConfig{
 					Required: []string{"reason", "approver"},
 				},
 			},
@@ -84,9 +84,9 @@ func TestValidateRequiredInputs(t *testing.T) {
 		},
 		{
 			name: "partial required fields provided",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test",
-				Approval: &core.ApprovalConfig{
+				Approval: &ir.ApprovalConfig{
 					Required: []string{"reason", "approver"},
 				},
 			},
@@ -100,9 +100,9 @@ func TestValidateRequiredInputs(t *testing.T) {
 		},
 		{
 			name: "all required fields provided with extras",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test",
-				Approval: &core.ApprovalConfig{
+				Approval: &ir.ApprovalConfig{
 					Required: []string{"reason"},
 				},
 			},

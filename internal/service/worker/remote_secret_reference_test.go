@@ -14,8 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -52,7 +52,7 @@ func TestRemoteTaskHandlerResolvesRegistrySecretsViaCoordinator(t *testing.T) {
 	}))
 
 	client := &secretResolvingRemoteCoordinatorClient{
-		resolveSecret: func(ctx context.Context, ref core.SecretRef, workspace string, checkOnly bool) (string, error) {
+		resolveSecret: func(ctx context.Context, ref ir.SecretRef, workspace string, checkOnly bool) (string, error) {
 			resolver := secretpkg.NewReferenceResolver(coordinatorSecrets, workspace)
 			if checkOnly {
 				return "", resolver.CheckReferenceAccessibility(ctx, ref)
@@ -97,7 +97,7 @@ steps:
 
 	err = handler.Handle(ctx, task)
 	require.NoError(t, err)
-	require.Equal(t, []core.SecretRef{{Name: "MY_SECRET", Ref: "prod/my-secret"}}, client.resolvedRefs())
+	require.Equal(t, []ir.SecretRef{{Name: "MY_SECRET", Ref: "prod/my-secret"}}, client.resolvedRefs())
 	require.Equal(t, []exec.HostInfo{{ID: "coord-1", Host: "127.0.0.1", Port: 4521}}, client.resolvedOwners())
 	require.Equal(t, []coordinator.SecretReferenceRun{{WorkerID: workerID, AttemptKey: "attempt-key-1", AttemptID: "attempt-1"}}, client.resolvedRuns())
 
@@ -105,7 +105,7 @@ steps:
 	require.NotEmpty(t, reported)
 	status, convErr := convert.ProtoToDAGRunStatus(reported[len(reported)-1].Status)
 	require.NoError(t, convErr)
-	assert.Equal(t, core.Succeeded, status.Status)
+	assert.Equal(t, ir.Succeeded, status.Status)
 }
 
 func secretAssertionStep() string {
@@ -121,10 +121,10 @@ func secretAssertionStep() string {
 type secretResolvingRemoteCoordinatorClient struct {
 	mu            sync.Mutex
 	reported      []*coordinatorv1.ReportStatusRequest
-	resolved      []core.SecretRef
+	resolved      []ir.SecretRef
 	owners        []exec.HostInfo
 	runs          []coordinator.SecretReferenceRun
-	resolveSecret func(context.Context, core.SecretRef, string, bool) (string, error)
+	resolveSecret func(context.Context, ir.SecretRef, string, bool) (string, error)
 }
 
 var _ coordinator.Client = (*secretResolvingRemoteCoordinatorClient)(nil)
@@ -136,10 +136,10 @@ func (c *secretResolvingRemoteCoordinatorClient) reportedStatuses() []*coordinat
 	return append([]*coordinatorv1.ReportStatusRequest(nil), c.reported...)
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) resolvedRefs() []core.SecretRef {
+func (c *secretResolvingRemoteCoordinatorClient) resolvedRefs() []ir.SecretRef {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]core.SecretRef(nil), c.resolved...)
+	return append([]ir.SecretRef(nil), c.resolved...)
 }
 
 func (c *secretResolvingRemoteCoordinatorClient) resolvedOwners() []exec.HostInfo {
@@ -225,7 +225,7 @@ func (c *secretResolvingRemoteCoordinatorClient) Metrics() coordinator.Metrics {
 	return coordinator.Metrics{IsConnected: true}
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref core.SecretRef, workspace string, checkOnly bool, run coordinator.SecretReferenceRun) (string, error) {
+func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx context.Context, owner exec.HostInfo, ref ir.SecretRef, workspace string, checkOnly bool, run coordinator.SecretReferenceRun) (string, error) {
 	if owner == (exec.HostInfo{}) {
 		return "", fmt.Errorf("secret resolution for %q did not target the owner coordinator", ref.Ref)
 	}

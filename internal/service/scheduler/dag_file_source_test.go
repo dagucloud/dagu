@@ -10,7 +10,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,12 +22,12 @@ func TestDAGFileSourceSnapshotRetriesTemporaryAbsence(t *testing.T) {
 	attempts := 0
 	source := &dagFileSource{
 		dir: t.TempDir(),
-		load: func(context.Context, string) (*core.DAG, error) {
+		load: func(context.Context, string) (*ir.DAG, error) {
 			attempts++
 			if attempts == 1 {
 				return nil, fmt.Errorf("open dag.yaml: %w", os.ErrNotExist)
 			}
-			return &core.DAG{Name: "replace-test"}, nil
+			return &ir.DAG{Name: "replace-test"}, nil
 		},
 	}
 
@@ -46,7 +46,7 @@ func TestDAGFileSourceSnapshotReturnsNonAbsenceError(t *testing.T) {
 	loadErr := errors.New("invalid dag")
 	source := &dagFileSource{
 		dir: t.TempDir(),
-		load: func(context.Context, string) (*core.DAG, error) {
+		load: func(context.Context, string) (*ir.DAG, error) {
 			return nil, loadErr
 		},
 	}
@@ -64,7 +64,7 @@ func TestDAGFileSourceSnapshotHonorsContextCancellation(t *testing.T) {
 	attempts := 0
 	source := &dagFileSource{
 		dir: t.TempDir(),
-		load: func(context.Context, string) (*core.DAG, error) {
+		load: func(context.Context, string) (*ir.DAG, error) {
 			attempts++
 			return nil, os.ErrNotExist
 		},

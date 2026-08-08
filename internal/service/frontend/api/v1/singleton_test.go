@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +48,7 @@ steps:
 			statusResp := server.Client().Get(url).ExpectStatus(http.StatusOK).Send(t)
 			var dagRunStatus api.GetDAGDAGRunDetails200JSONResponse
 			statusResp.Unmarshal(t, &dagRunStatus)
-			return dagRunStatus.DagRun.Status == api.Status(core.Running)
+			return dagRunStatus.DagRun.Status == api.Status(ir.Running)
 		}, 5*time.Second, 100*time.Millisecond)
 
 		// Try to execute it again with singleton: true - should conflict
@@ -58,7 +58,7 @@ steps:
 
 		releaseHoldFile(t, release)
 		waitForDAGRunStatus(t, server, "singleton_exec_dag", execResp.DagRunId, 5*time.Second, func(status *exec.DAGRunStatus) bool {
-			return status.Status == core.Succeeded
+			return status.Status == ir.Succeeded
 		})
 
 		// Clean up (deleting the DAG will eventually stop the run)
@@ -91,7 +91,7 @@ steps:
 			statusResp := server.Client().Get(url).ExpectStatus(http.StatusOK).Send(t)
 			var dagRunStatus api.GetDAGDAGRunDetails200JSONResponse
 			statusResp.Unmarshal(t, &dagRunStatus)
-			return dagRunStatus.DagRun.Status == api.Status(core.Running)
+			return dagRunStatus.DagRun.Status == api.Status(ir.Running)
 		}, 5*time.Second, 100*time.Millisecond)
 
 		// Try to enqueue it with singleton: true - should conflict because it's running
@@ -102,7 +102,7 @@ steps:
 
 		releaseHoldFile(t, release)
 		waitForDAGRunStatus(t, server, "singleton_enq_run_dag", execResp.DagRunId, 5*time.Second, func(status *exec.DAGRunStatus) bool {
-			return status.Status == core.Succeeded
+			return status.Status == ir.Succeeded
 		})
 
 		// Clean up

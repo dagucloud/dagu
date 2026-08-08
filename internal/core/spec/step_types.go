@@ -17,8 +17,8 @@ import (
 	gotemplate "text/template"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/templatefuncs"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/goccy/go-yaml"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -236,13 +236,13 @@ func addCustomActionDefinitions(registry *customStepTypeRegistry, defs map[strin
 
 func duplicateCustomDefinitionError(field, name string, existing *customStepType, scope string) error {
 	if existing != nil && existing.Kind == customStepKindAction {
-		return core.NewValidationError(
+		return ir.NewValidationError(
 			fmt.Sprintf("%s.%s", field, name),
 			name,
 			fmt.Errorf("duplicate custom action %q conflicts with an existing custom action or legacy step_types definition in %s", name, scope),
 		)
 	}
-	return core.NewValidationError(
+	return ir.NewValidationError(
 		fmt.Sprintf("%s.%s", field, name),
 		name,
 		duplicateCustomStepTypeError(name, scope),
@@ -278,14 +278,14 @@ func expandedCustomStepExecutorType(targetType string, rendered map[string]any) 
 func validateCustomStepTypeSpec(name string, spec customStepTypeSpec) (*customStepType, error) {
 	name = strings.TrimSpace(name)
 	if !customStepTypeNameRegexp.MatchString(name) {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("step_types.%s", name),
 			name,
 			fmt.Errorf("legacy step_types definition names must match %s", customStepTypeNameRegexp.String()),
 		)
 	}
 	if isBuiltinStepTypeName(name) {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("step_types.%s", name),
 			name,
 			fmt.Errorf("legacy step_types definition name %q conflicts with a builtin action", name),
@@ -294,35 +294,35 @@ func validateCustomStepTypeSpec(name string, spec customStepTypeSpec) (*customSt
 
 	targetType := strings.TrimSpace(spec.Type)
 	if targetType == "" {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("step_types.%s.type", name),
 			spec.Type,
 			fmt.Errorf("type is required"),
 		)
 	}
 	if !isBuiltinStepTypeName(targetType) {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("step_types.%s.type", name),
 			spec.Type,
 			fmt.Errorf("unknown builtin action %q", targetType),
 		)
 	}
 	if spec.InputSchema == nil {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("step_types.%s.input_schema", name),
 			nil,
 			fmt.Errorf("input_schema is required"),
 		)
 	}
 	if len(spec.Template) == 0 {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("step_types.%s.template", name),
 			spec.Template,
 			fmt.Errorf("template is required"),
 		)
 	}
 	if _, exists := spec.Template["type"]; exists {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("step_types.%s.template.type", name),
 			spec.Template["type"],
 			fmt.Errorf("template.type is not allowed; use step_types.%s.type instead", name),
@@ -355,35 +355,35 @@ func validateCustomStepTypeSpec(name string, spec customStepTypeSpec) (*customSt
 func validateCustomActionSpec(name string, spec customStepTypeSpec) (*customStepType, error) {
 	name = strings.TrimSpace(name)
 	if !customActionNameRegexp.MatchString(name) {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("actions.%s", name),
 			name,
 			fmt.Errorf("custom action names must match %s", customActionNameRegexp.String()),
 		)
 	}
 	if isBuiltinActionName(name) {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("actions.%s", name),
 			name,
 			fmt.Errorf("custom action name %q conflicts with a builtin action", name),
 		)
 	}
 	if strings.TrimSpace(spec.Type) != "" {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("actions.%s.type", name),
 			spec.Type,
 			fmt.Errorf("type is not supported for actions; put run or action in actions.%s.template", name),
 		)
 	}
 	if spec.InputSchema == nil {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("actions.%s.input_schema", name),
 			nil,
 			fmt.Errorf("input_schema is required"),
 		)
 	}
 	if len(spec.Template) == 0 {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("actions.%s.template", name),
 			spec.Template,
 			fmt.Errorf("template is required"),
@@ -392,14 +392,14 @@ func validateCustomActionSpec(name string, spec customStepTypeSpec) (*customStep
 	_, hasRun := spec.Template["run"]
 	_, hasAction := spec.Template["action"]
 	if hasRun == hasAction {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("actions.%s.template", name),
 			spec.Template,
 			fmt.Errorf("custom action template must define exactly one of run or action"),
 		)
 	}
 	if invalidKeys := legacyExecutionKeys(spec.Template); len(invalidKeys) > 0 {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("actions.%s.template", name),
 			spec.Template,
 			fmt.Errorf("template contains deprecated execution keys: %v", invalidKeys),
@@ -450,7 +450,7 @@ func resolveCustomActionInputSchema(name string, schemaDecl any) (*jsonschema.Re
 func resolveCustomInputSchema(field string, schemaDecl any) (*jsonschema.Resolved, error) {
 	schemaMap, ok := schemaDecl.(map[string]any)
 	if !ok {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			field,
 			schemaDecl,
 			fmt.Errorf("input_schema must be an inline JSON Schema object"),
@@ -458,7 +458,7 @@ func resolveCustomInputSchema(field string, schemaDecl any) (*jsonschema.Resolve
 	}
 	resolved, err := resolveSchemaDeclaration(schemaMap, "", "")
 	if err != nil {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			field,
 			schemaDecl,
 			err,
@@ -466,7 +466,7 @@ func resolveCustomInputSchema(field string, schemaDecl any) (*jsonschema.Resolve
 	}
 	root := resolved.Schema()
 	if root == nil || !schemaDeclaresObject(root) {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			field,
 			schemaDecl,
 			fmt.Errorf("input_schema must resolve to an object schema"),
@@ -478,7 +478,7 @@ func resolveCustomInputSchema(field string, schemaDecl any) (*jsonschema.Resolve
 func resolveOutputSchemaDeclaration(fieldName string, schemaDecl any) (map[string]any, error) {
 	schemaMap, ok := schemaDecl.(map[string]any)
 	if !ok {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fieldName,
 			schemaDecl,
 			fmt.Errorf("output_schema must be an inline JSON Schema object"),
@@ -486,11 +486,11 @@ func resolveOutputSchemaDeclaration(fieldName string, schemaDecl any) (map[strin
 	}
 	resolved, err := resolveSchemaDeclaration(schemaMap, "", "")
 	if err != nil {
-		return nil, core.NewValidationError(fieldName, schemaDecl, err)
+		return nil, ir.NewValidationError(fieldName, schemaDecl, err)
 	}
 	root := resolved.Schema()
 	if root == nil || !outputSchemaDeclaresObject(root) {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fieldName,
 			schemaDecl,
 			fmt.Errorf("output_schema must resolve to an object schema"),
@@ -561,7 +561,7 @@ func validateCustomStepInput(stepTypeName string, schema *jsonschema.Resolved, f
 	working := make(map[string]any, len(input))
 	maps.Copy(working, input)
 	if err := schema.ApplyDefaults(&working); err != nil {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fieldName,
 			input,
 			fmt.Errorf("failed to apply %q input defaults: %w", stepTypeName, err),
@@ -573,7 +573,7 @@ func validateCustomStepInput(stepTypeName string, schema *jsonschema.Resolved, f
 				return working, nil
 			}
 		}
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fieldName,
 			input,
 			fmt.Errorf("invalid %q input: %w", stepTypeName, err),
@@ -682,7 +682,7 @@ func customStepRuntimePlaceholder(schema *jsonschema.Schema, value string) (any,
 	}
 
 	wholeExpression := customStepWholeRuntimeExpressionRegexp.MatchString(value)
-	if schemaType != core.ParamDefTypeString || len(schema.Enum) > 0 || schema.Const != nil {
+	if schemaType != ir.ParamDefTypeString || len(schema.Enum) > 0 || schema.Const != nil {
 		if !wholeExpression {
 			return nil, false
 		}
@@ -700,13 +700,13 @@ func customStepPlaceholderForSchema(schema *jsonschema.Schema, schemaType string
 	}
 
 	switch schemaType {
-	case core.ParamDefTypeString:
+	case ir.ParamDefTypeString:
 		return customStepStringPlaceholder(schema), true
-	case core.ParamDefTypeInteger:
+	case ir.ParamDefTypeInteger:
 		return customStepIntegerPlaceholder(schema), true
-	case core.ParamDefTypeNumber:
+	case ir.ParamDefTypeNumber:
 		return customStepNumberPlaceholder(schema), true
-	case core.ParamDefTypeBoolean:
+	case ir.ParamDefTypeBoolean:
 		return false, true
 	default:
 		return nil, false
@@ -948,7 +948,7 @@ func buildCustomStepFromSpec(
 	defs *defaults,
 	customType *customStepType,
 	forcedName bool,
-) (*core.Step, error) {
+) (*ir.Step, error) {
 	return buildCustomStepFromSpecWithStack(ctx, callSite, raw, defs, customType, forcedName, nil)
 }
 
@@ -960,9 +960,9 @@ func buildCustomStepFromSpecWithStack(
 	customType *customStepType,
 	forcedName bool,
 	stack []string,
-) (*core.Step, error) {
+) (*ir.Step, error) {
 	if customStepStackContains(stack, customType.Name) {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			"type",
 			customType.Name,
 			fmt.Errorf("recursive custom action reference: %s -> %s", strings.Join(stack, " -> "), customType.Name),
@@ -985,7 +985,7 @@ func buildCustomStepFromSpecWithStack(
 
 	rendered, err := renderCustomStepTemplate(customType.Name, customType.Template, validatedInput)
 	if err != nil {
-		return nil, core.NewValidationError(
+		return nil, ir.NewValidationError(
 			fmt.Sprintf("step_types.%s.template", customType.Name),
 			customType.Template,
 			err,
@@ -1042,7 +1042,7 @@ func buildExpandedCustomStep(
 	normalizedRaw map[string]any,
 	defs *defaults,
 	stack []string,
-) (*core.Step, error) {
+) (*ir.Step, error) {
 	if registry := ctx.customStepTypes; registry != nil {
 		if nestedType, ok := registry.Lookup(expandedSpec.Type); ok {
 			return buildCustomStepFromSpecWithStack(ctx, expandedSpec, normalizedRaw, defs, nestedType, false, stack)
@@ -1074,7 +1074,7 @@ func mergeCustomStepRaw(
 		case "env":
 			combined, err := mergeCustomStepEnvRaw(merged[key], value)
 			if err != nil {
-				return nil, core.NewValidationError("env", value, err)
+				return nil, ir.NewValidationError("env", value, err)
 			}
 			merged[key] = combined
 		case "preconditions":
@@ -1162,7 +1162,7 @@ func validateCustomStepCallSiteFields(callSite *step, raw map[string]any) error 
 				continue
 			}
 			if _, ok := customStepForbiddenCallSiteFields[key]; ok {
-				return core.NewValidationError(key, raw[key], fmt.Errorf("field %q is not allowed when using a legacy step_types definition", key))
+				return ir.NewValidationError(key, raw[key], fmt.Errorf("field %q is not allowed when using a legacy step_types definition", key))
 			}
 		}
 		return nil
@@ -1175,49 +1175,49 @@ func validateCustomStepCallSiteFields(callSite *step, raw map[string]any) error 
 		return err
 	}
 	if callSite.WorkingDir != "" {
-		return core.NewValidationError("working_dir", callSite.WorkingDir, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "working_dir"))
+		return ir.NewValidationError("working_dir", callSite.WorkingDir, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "working_dir"))
 	}
 	if callSite.Command != nil {
-		return core.NewValidationError("command", callSite.Command, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "command"))
+		return ir.NewValidationError("command", callSite.Command, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "command"))
 	}
 	if callSite.Exec != nil {
-		return core.NewValidationError("exec", callSite.Exec, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "exec"))
+		return ir.NewValidationError("exec", callSite.Exec, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "exec"))
 	}
 	if !callSite.Shell.IsZero() {
-		return core.NewValidationError("shell", callSite.Shell.Value(), fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "shell"))
+		return ir.NewValidationError("shell", callSite.Shell.Value(), fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "shell"))
 	}
 	if len(callSite.ShellArgs) > 0 {
-		return core.NewValidationError("shell_args", callSite.ShellArgs, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "shell_args"))
+		return ir.NewValidationError("shell_args", callSite.ShellArgs, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "shell_args"))
 	}
 	if len(callSite.ShellPackages) > 0 {
-		return core.NewValidationError("shell_packages", callSite.ShellPackages, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "shell_packages"))
+		return ir.NewValidationError("shell_packages", callSite.ShellPackages, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "shell_packages"))
 	}
 	if callSite.Script != "" {
-		return core.NewValidationError("script", callSite.Script, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "script"))
+		return ir.NewValidationError("script", callSite.Script, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "script"))
 	}
 	if callSite.Call != "" {
-		return core.NewValidationError("call", callSite.Call, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "call"))
+		return ir.NewValidationError("call", callSite.Call, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "call"))
 	}
 	if callSite.Params != nil {
-		return core.NewValidationError("params", callSite.Params, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "params"))
+		return ir.NewValidationError("params", callSite.Params, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "params"))
 	}
 	if callSite.Parallel != nil {
-		return core.NewValidationError("parallel", callSite.Parallel, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "parallel"))
+		return ir.NewValidationError("parallel", callSite.Parallel, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "parallel"))
 	}
 	if callSite.Container != nil {
-		return core.NewValidationError("container", callSite.Container, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "container"))
+		return ir.NewValidationError("container", callSite.Container, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "container"))
 	}
 	if callSite.LLM != nil {
-		return core.NewValidationError("llm", callSite.LLM, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "llm"))
+		return ir.NewValidationError("llm", callSite.LLM, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "llm"))
 	}
 	if len(callSite.Messages) > 0 {
-		return core.NewValidationError("messages", callSite.Messages, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "messages"))
+		return ir.NewValidationError("messages", callSite.Messages, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "messages"))
 	}
 	if len(callSite.Routes) > 0 {
-		return core.NewValidationError("routes", callSite.Routes, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "routes"))
+		return ir.NewValidationError("routes", callSite.Routes, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "routes"))
 	}
 	if strings.TrimSpace(callSite.Value) != "" {
-		return core.NewValidationError("value", callSite.Value, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "value"))
+		return ir.NewValidationError("value", callSite.Value, fmt.Errorf("field %q is not allowed when using a legacy step_types definition", "value"))
 	}
 	return nil
 }

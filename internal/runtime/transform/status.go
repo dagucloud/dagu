@@ -6,18 +6,18 @@ package transform
 import (
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 // StatusBuilder creates Status objects for a specific DAG
 type StatusBuilder struct {
-	dag *core.DAG // The DAG for which to create status objects
+	dag *ir.DAG // The DAG for which to create status objects
 }
 
 // NewStatusBuilder creates a new StatusFactory for the specified DAG
-func NewStatusBuilder(dag *core.DAG) *StatusBuilder {
+func NewStatusBuilder(dag *ir.DAG) *StatusBuilder {
 	return &StatusBuilder{dag: dag}
 }
 
@@ -168,7 +168,7 @@ func WithError(err string) StatusOption {
 }
 
 // WithPreconditions returns a StatusOption that sets the preconditions
-func WithPreconditions(conditions []*core.Condition) StatusOption {
+func WithPreconditions(conditions []*ir.Condition) StatusOption {
 	return func(s *exec.DAGRunStatus) {
 		s.Preconditions = conditions
 	}
@@ -189,7 +189,7 @@ func WithPIDStartedAt(startedAt int64) StatusOption {
 }
 
 // WithTriggerType returns a StatusOption that sets the trigger type
-func WithTriggerType(triggerType core.TriggerType) StatusOption {
+func WithTriggerType(triggerType ir.TriggerType) StatusOption {
 	return func(s *exec.DAGRunStatus) {
 		s.TriggerType = triggerType
 	}
@@ -243,7 +243,7 @@ func WithNoReuse(disabled bool) StatusOption {
 // Create builds a Status object for a dag-run with the specified parameters
 func (f *StatusBuilder) Create(
 	dagRunID string,
-	status core.Status,
+	status ir.Status,
 	pid int,
 	startedAt time.Time,
 	opts ...StatusOption,

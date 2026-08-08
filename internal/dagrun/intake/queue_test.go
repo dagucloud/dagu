@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +28,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 		DAGRunID:        "run-1",
 		LogBaseDir:      f.logDir,
 		ArtifactBaseDir: f.artifactDir,
-		TriggerType:     core.TriggerTypeManual,
+		TriggerType:     ir.TriggerTypeManual,
 		TriggerActor:    "alice",
 		ProfileName:     "prod",
 		Now:             fixedQueueNow,
@@ -39,10 +39,10 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	assert.True(t, f.queueStore.enqueued)
 	assert.Equal(t, exec.QueuePriorityLow, f.queueStore.priority)
 	require.NotNil(t, f.attempt.status)
-	assert.Equal(t, core.Queued, f.attempt.status.Status)
+	assert.Equal(t, ir.Queued, f.attempt.status.Status)
 	assert.Equal(t, "attempt-1", f.attempt.status.AttemptID)
 	assert.Equal(t, "2026-05-19T01:02:03Z", f.attempt.status.QueuedAt)
-	assert.Equal(t, core.TriggerTypeManual, f.attempt.status.TriggerType)
+	assert.Equal(t, ir.TriggerTypeManual, f.attempt.status.TriggerType)
 	assert.Equal(t, "alice", f.attempt.status.TriggerActor)
 	assert.Equal(t, "prod", f.attempt.status.ProfileName)
 	assert.Equal(t, f.attempt.status.Log, queued.LogFile)
@@ -103,7 +103,7 @@ type queueFixture struct {
 	ctx         context.Context
 	logDir      string
 	artifactDir string
-	dag         *core.DAG
+	dag         *ir.DAG
 	attempt     *queueAttempt
 	runStore    *queueRunStore
 	queueStore  *queueStore
@@ -114,15 +114,15 @@ func newQueueFixture(t *testing.T) queueFixture {
 
 	tmp := t.TempDir()
 	attempt := &queueAttempt{id: "attempt-1"}
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:   "test-dag",
 		LogDir: "logs",
-		Artifacts: &core.ArtifactsConfig{
+		Artifacts: &ir.ArtifactsConfig{
 			Enabled: true,
 			Dir:     "artifacts",
 		},
 	}
-	core.InitializeDefaults(dag)
+	ir.InitializeDefaults(dag)
 
 	return queueFixture{
 		ctx:         context.Background(),
@@ -141,7 +141,7 @@ type queueRunStore struct {
 	removedRef exec.DAGRunRef
 }
 
-func (s *queueRunStore) CreateAttempt(context.Context, *core.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (s *queueRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	return s.attempt, nil
 }
 
@@ -161,7 +161,7 @@ func (s *queueRunStore) ListStatusesPage(context.Context, ...exec.ListDAGRunStat
 	return exec.DAGRunStatusPage{}, nil
 }
 
-func (s *queueRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
+func (s *queueRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, ir.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
@@ -189,7 +189,7 @@ func (s *queueRunStore) RemoveDAGRun(_ context.Context, ref exec.DAGRunRef, _ ..
 
 type queueAttempt struct {
 	id       string
-	dag      *core.DAG
+	dag      *ir.DAG
 	open     bool
 	closed   bool
 	openErr  error
@@ -227,8 +227,8 @@ func (a *queueAttempt) Close(context.Context) error {
 }
 
 func (a *queueAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus, error) { return a.status, nil }
-func (a *queueAttempt) ReadDAG(context.Context) (*core.DAG, error)             { return a.dag, nil }
-func (a *queueAttempt) SetDAG(dag *core.DAG)                                   { a.dag = dag }
+func (a *queueAttempt) ReadDAG(context.Context) (*ir.DAG, error)               { return a.dag, nil }
+func (a *queueAttempt) SetDAG(dag *ir.DAG)                                     { a.dag = dag }
 func (a *queueAttempt) Abort(context.Context) error                            { return nil }
 func (a *queueAttempt) IsAborting(context.Context) (bool, error)               { return false, nil }
 func (a *queueAttempt) Hide(context.Context) error                             { return nil }
@@ -261,7 +261,7 @@ func (s *queueStore) Enqueue(_ context.Context, _ string, priority exec.QueuePri
 	if !s.attempt.closed {
 		return errors.New("status attempt was not closed before queue enqueue")
 	}
-	if s.attempt.status == nil || s.attempt.status.Status != core.Queued {
+	if s.attempt.status == nil || s.attempt.status.Status != ir.Queued {
 		return errors.New("queued status was not written before queue enqueue")
 	}
 	s.enqueued = true

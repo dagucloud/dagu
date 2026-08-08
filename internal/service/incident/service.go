@@ -26,9 +26,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
@@ -335,7 +335,7 @@ func (s *Service) SendProviderTest(ctx context.Context, providerID string) (*Tes
 	}
 	resolveEvent := event
 	resolveEvent.Type = eventstore.TypeDAGRunSucceeded
-	resolveEvent.Status.Status = core.Succeeded
+	resolveEvent.Status.Status = ir.Succeeded
 	resolveEvent.Status.Error = ""
 	if _, err := s.sendProviderEvent(ctx, provider, providerActionResolve, dedupKey, policy, resolveEvent); err != nil {
 		result.Error = err.Error()
@@ -726,7 +726,7 @@ func incidentEventSupported(event chatbridge.NotificationEvent) bool {
 }
 
 func isFinalFailure(status *exec.DAGRunStatus) bool {
-	if status == nil || status.Status != core.Failed {
+	if status == nil || status.Status != ir.Failed {
 		return false
 	}
 	return status.AutoRetryLimit <= 0 || status.AutoRetryCount >= status.AutoRetryLimit
@@ -744,7 +744,7 @@ func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceL
 	if event.Status == nil {
 		return "", exec.WorkspaceLabelMissing
 	}
-	return exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
+	return exec.WorkspaceLabelFromLabels(ir.NewLabels(event.Status.Labels))
 }
 
 func stateMatchesEvent(state *incidentmodel.IncidentState, event chatbridge.NotificationEvent) bool {
@@ -1149,7 +1149,7 @@ func (s *Service) testEvent() chatbridge.NotificationEvent {
 			Name:       "incident-test",
 			DAGRunID:   "incident-test-" + uuid.NewString(),
 			AttemptID:  "incident-test",
-			Status:     core.Failed,
+			Status:     ir.Failed,
 			Error:      "This is a test incident from Dagu.",
 			StartedAt:  stringutil.FormatTime(now.Add(-time.Minute)),
 			FinishedAt: stringutil.FormatTime(now),

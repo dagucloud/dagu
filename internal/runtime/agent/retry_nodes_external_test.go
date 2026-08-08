@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	agent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/stretchr/testify/require"
@@ -17,21 +17,21 @@ import (
 func TestRetryNodesUseRestoredDAGStepDefinition(t *testing.T) {
 	t.Parallel()
 
-	sourceStep := core.Step{
+	sourceStep := ir.Step{
 		Name:   "target",
 		Dir:    "${STEP_DIR}",
 		Script: "echo source",
-		Commands: []core.CommandEntry{
+		Commands: []ir.CommandEntry{
 			{Command: "echo", Args: []string{"source"}, CmdWithArgs: "echo source"},
 		},
 		Stdout: "/source/stdout",
 		Stderr: "/source/stderr",
-		RetryPolicy: core.RetryPolicy{
+		RetryPolicy: ir.RetryPolicy{
 			LimitStr:       "${RETRY_LIMIT}",
 			IntervalSecStr: "${RETRY_INTERVAL}",
 		},
-		RepeatPolicy: core.RepeatPolicy{
-			RepeatMode:  core.RepeatModeUntil,
+		RepeatPolicy: ir.RepeatPolicy{
+			RepeatMode:  ir.RepeatModeUntil,
 			LimitStr:    "${REPEAT_LIMIT}",
 			IntervalStr: "${REPEAT_INTERVAL}",
 		},
@@ -39,26 +39,26 @@ func TestRetryNodesUseRestoredDAGStepDefinition(t *testing.T) {
 	status := &exec.DAGRunStatus{
 		Nodes: []*exec.Node{
 			{
-				Step: core.Step{
+				Step: ir.Step{
 					Name:   "target",
 					Dir:    "/stale/effective/work/dir",
 					Script: "echo stale",
-					Commands: []core.CommandEntry{
+					Commands: []ir.CommandEntry{
 						{Command: "echo", Args: []string{"stale"}, CmdWithArgs: "echo stale"},
 					},
 					Stdout: "/stale/stdout",
 					Stderr: "/stale/stderr",
-					RetryPolicy: core.RetryPolicy{
+					RetryPolicy: ir.RetryPolicy{
 						Limit:    3,
 						Interval: time.Second,
 					},
-					RepeatPolicy: core.RepeatPolicy{
-						RepeatMode: core.RepeatModeWhile,
+					RepeatPolicy: ir.RepeatPolicy{
+						RepeatMode: ir.RepeatModeWhile,
 						Limit:      4,
 						Interval:   time.Second,
 					},
 				},
-				Status:     core.NodeFailed,
+				Status:     ir.NodeFailed,
 				Stdout:     "/persisted/stdout",
 				Stderr:     "/persisted/stderr",
 				WorkingDir: "/persisted/work/dir",
@@ -67,13 +67,13 @@ func TestRetryNodesUseRestoredDAGStepDefinition(t *testing.T) {
 		},
 	}
 
-	nodes, err := agent.RetryNodesForTest(&core.DAG{Steps: []core.Step{sourceStep}}, status)
+	nodes, err := agent.RetryNodesForTest(&ir.DAG{Steps: []ir.Step{sourceStep}}, status)
 	require.NoError(t, err)
 	require.Len(t, nodes, 1)
 
 	require.Equal(t, sourceStep, nodes[0].Step())
 	state := nodes[0].State()
-	require.Equal(t, core.NodeFailed, state.Status)
+	require.Equal(t, ir.NodeFailed, state.Status)
 	require.Equal(t, "/persisted/stdout", state.Stdout)
 	require.Equal(t, "/persisted/stderr", state.Stderr)
 	require.Equal(t, "/persisted/work/dir", state.WorkingDir)
@@ -85,10 +85,10 @@ func TestRetryNodesRejectMissingRestoredSourceStep(t *testing.T) {
 
 	status := &exec.DAGRunStatus{
 		Nodes: []*exec.Node{
-			{Step: core.Step{Name: "missing"}, Status: core.NodeFailed},
+			{Step: ir.Step{Name: "missing"}, Status: ir.NodeFailed},
 		},
 	}
 
-	_, err := agent.RetryNodesForTest(&core.DAG{}, status)
+	_, err := agent.RetryNodesForTest(&ir.DAG{}, status)
 	require.ErrorIs(t, err, runtime.ErrMissingNode)
 }

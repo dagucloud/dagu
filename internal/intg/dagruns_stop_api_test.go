@@ -10,7 +10,7 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
@@ -46,21 +46,21 @@ func TestAPITerminateLocalRun_DoesNotRequireCoordinator(t *testing.T) {
 	startResp.Unmarshal(t, &startBody)
 	require.NotEmpty(t, startBody.DagRunId)
 
-	waitForAPIRunStatus(t, server, dagName, startBody.DagRunId, []core.Status{core.Running}, intgTestTimeout(10*time.Second), false)
+	waitForAPIRunStatus(t, server, dagName, startBody.DagRunId, []ir.Status{ir.Running}, intgTestTimeout(10*time.Second), false)
 
 	server.Client().Post(
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/stop", dagName, startBody.DagRunId),
 		nil,
 	).ExpectStatus(http.StatusOK).Send(t)
 
-	waitForAPIRunStatus(t, server, dagName, startBody.DagRunId, []core.Status{core.Aborted, core.Failed}, intgTestTimeout(30*time.Second), true)
+	waitForAPIRunStatus(t, server, dagName, startBody.DagRunId, []ir.Status{ir.Aborted, ir.Failed}, intgTestTimeout(30*time.Second), true)
 }
 
 func waitForAPIRunStatus(
 	t *testing.T,
 	server test.Server,
 	dagName, runID string,
-	expected []core.Status,
+	expected []ir.Status,
 	timeout time.Duration,
 	allowNotFound bool,
 ) {

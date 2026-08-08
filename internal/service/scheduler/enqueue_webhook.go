@@ -11,9 +11,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // EnqueueWebhookRun enqueues a webhook-triggered run while preserving the same
@@ -25,7 +25,7 @@ func EnqueueWebhookRun(
 	baseLogDir string,
 	baseArtifactDir string,
 	baseConfig string,
-	dag *core.DAG,
+	dag *ir.DAG,
 	runID string,
 	params string,
 	now time.Time,
@@ -60,7 +60,7 @@ func EnqueueWebhookRun(
 		DAGRunID:        runID,
 		LogBaseDir:      baseLogDir,
 		ArtifactBaseDir: baseArtifactDir,
-		TriggerType:     core.TriggerTypeWebhook,
+		TriggerType:     ir.TriggerTypeWebhook,
 		Now:             func() time.Time { return now },
 	})
 	if err != nil {

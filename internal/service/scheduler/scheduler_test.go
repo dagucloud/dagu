@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/robfig/cron/v3"
@@ -48,10 +48,10 @@ func TestScheduler(t *testing.T) {
 		require.NoError(t, err)
 
 		entryReader := newMockJobManager()
-		entryReader.LoadedDAGs = []*core.DAG{
+		entryReader.LoadedDAGs = []*ir.DAG{
 			{
 				Name: "restart-dag",
-				RestartSchedule: []core.Schedule{
+				RestartSchedule: []ir.Schedule{
 					{Expression: "0 * * * *", Parsed: parsed},
 				},
 			},
@@ -65,7 +65,7 @@ func TestScheduler(t *testing.T) {
 		// Track restart calls via the planner's Restart function
 		var restartCount atomic.Int32
 		restartScheduleTimeCh := make(chan time.Time, 1)
-		sc.SetRestartFunc(func(_ context.Context, _ *core.DAG, scheduleTime time.Time) error {
+		sc.SetRestartFunc(func(_ context.Context, _ *ir.DAG, scheduleTime time.Time) error {
 			restartCount.Add(1)
 			select {
 			case restartScheduleTimeCh <- scheduleTime:
@@ -96,10 +96,10 @@ func TestScheduler(t *testing.T) {
 		require.NoError(t, err)
 
 		entryReader := newMockJobManager()
-		entryReader.LoadedDAGs = []*core.DAG{
+		entryReader.LoadedDAGs = []*ir.DAG{
 			{
 				Name: "start-dag",
-				Schedule: []core.Schedule{
+				Schedule: []ir.Schedule{
 					{Expression: "0 * * * *", Parsed: parsed},
 				},
 			},
@@ -111,7 +111,7 @@ func TestScheduler(t *testing.T) {
 		sc.SetClock(func() time.Time { return now })
 
 		var dispatchCount atomic.Int32
-		sc.SetDispatchFunc(func(_ context.Context, _ *core.DAG, _ string, _ core.TriggerType, _ time.Time) error {
+		sc.SetDispatchFunc(func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 			dispatchCount.Add(1)
 			return nil
 		})
@@ -228,10 +228,10 @@ func TestScheduler_StopSchedule(t *testing.T) {
 	require.NoError(t, err)
 
 	entryReader := newMockJobManager()
-	entryReader.LoadedDAGs = []*core.DAG{
+	entryReader.LoadedDAGs = []*ir.DAG{
 		{
 			Name: "stop-dag",
-			StopSchedule: []core.Schedule{
+			StopSchedule: []ir.Schedule{
 				{Expression: "0 * * * *", Parsed: parsed},
 			},
 		},
@@ -241,17 +241,17 @@ func TestScheduler_StopSchedule(t *testing.T) {
 	sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc.SetClock(func() time.Time { return now })
-	sc.SetDispatchFunc(func(_ context.Context, _ *core.DAG, _ string, _ core.TriggerType, _ time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 		return nil
 	})
 
 	// GetLatestStatus must return Running for the stop guard
-	sc.SetGetLatestStatusFunc(func(_ context.Context, _ *core.DAG) (exec.DAGRunStatus, error) {
-		return exec.DAGRunStatus{Status: core.Running}, nil
+	sc.SetGetLatestStatusFunc(func(_ context.Context, _ *ir.DAG) (exec.DAGRunStatus, error) {
+		return exec.DAGRunStatus{Status: ir.Running}, nil
 	})
 
 	var stopCount atomic.Int32
-	sc.SetStopFunc(func(_ context.Context, _ *core.DAG) error {
+	sc.SetStopFunc(func(_ context.Context, _ *ir.DAG) error {
 		stopCount.Add(1)
 		return nil
 	})
@@ -273,10 +273,10 @@ func TestScheduler_GracefulShutdown(t *testing.T) {
 	require.NoError(t, err)
 
 	entryReader := newMockJobManager()
-	entryReader.LoadedDAGs = []*core.DAG{
+	entryReader.LoadedDAGs = []*ir.DAG{
 		{
 			Name: "shutdown-dag",
-			Schedule: []core.Schedule{
+			Schedule: []ir.Schedule{
 				{Expression: "*/5 * * * *", Parsed: parsed},
 			},
 		},

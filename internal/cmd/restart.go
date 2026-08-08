@@ -11,8 +11,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/spf13/cobra"
@@ -76,7 +76,7 @@ func runRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read status: %w", err)
 	}
-	if dagStatus.Status != core.Running {
+	if dagStatus.Status != ir.Running {
 		return fmt.Errorf("DAG %s is not running, current status: %s", name, dagStatus.Status)
 	}
 
@@ -97,7 +97,7 @@ func runRestart(ctx *Context, args []string) error {
 	return nil
 }
 
-func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, scheduleTime string, noReuse bool) error {
+func handleRestartProcess(ctx *Context, d *ir.DAG, oldDagRunID string, scheduleTime string, noReuse bool) error {
 	if err := stopDAGIfRunning(ctx, ctx.DAGRunMgr, d, oldDagRunID); err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, schedul
 		newDagRunID,
 		runOptions{
 			root:         exec.NewDAGRunRef(d.Name, newDagRunID),
-			triggerType:  core.TriggerTypeUnknown,
+			triggerType:  ir.TriggerTypeUnknown,
 			scheduleTime: scheduleTime,
 			noReuse:      noReuse,
 		},
@@ -132,7 +132,7 @@ func handleRestartProcess(ctx *Context, d *core.DAG, oldDagRunID string, schedul
 }
 
 // executeDAGWithRunID executes a DAG with a pre-generated run ID.
-func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRunID string, scheduleTime string, noReuse bool, preparedAttempt exec.DAGRunAttempt) error {
+func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunID string, scheduleTime string, noReuse bool, preparedAttempt exec.DAGRunAttempt) error {
 	logFile, err := ctx.OpenLogFile(dag, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log file: %w", err)
@@ -206,13 +206,13 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *core.DAG, dagRu
 	return nil
 }
 
-func stopDAGIfRunning(ctx context.Context, cli runtime.Manager, dag *core.DAG, dagRunID string) error {
+func stopDAGIfRunning(ctx context.Context, cli runtime.Manager, dag *ir.DAG, dagRunID string) error {
 	dagStatus, err := cli.GetCurrentStatus(ctx, dag, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to get current status: %w", err)
 	}
 
-	if dagStatus.Status == core.Running {
+	if dagStatus.Status == ir.Running {
 		logger.Info(ctx, "Stopping DAG", tag.DAG(dag.Name))
 		if err := stopRunningDAG(ctx, cli, dag, dagRunID); err != nil {
 			return fmt.Errorf("failed to stop running DAG: %w", err)
@@ -221,7 +221,7 @@ func stopDAGIfRunning(ctx context.Context, cli runtime.Manager, dag *core.DAG, d
 	return nil
 }
 
-func stopRunningDAG(ctx context.Context, cli runtime.Manager, dag *core.DAG, dagRunID string) error {
+func stopRunningDAG(ctx context.Context, cli runtime.Manager, dag *ir.DAG, dagRunID string) error {
 	const stopPollInterval = 100 * time.Millisecond
 	for {
 		dagStatus, err := cli.GetCurrentStatus(ctx, dag, dagRunID)
@@ -229,7 +229,7 @@ func stopRunningDAG(ctx context.Context, cli runtime.Manager, dag *core.DAG, dag
 			return fmt.Errorf("failed to get current status: %w", err)
 		}
 
-		if dagStatus.Status != core.Running {
+		if dagStatus.Status != ir.Running {
 			return nil
 		}
 

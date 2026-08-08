@@ -20,8 +20,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -259,7 +259,7 @@ func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
 		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 	}))
 	require.NoError(t, s.Upsert(ctx, exec.ActiveDistributedRun{
 		AttemptKey: "attempt-key-2",
@@ -267,7 +267,7 @@ func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
 		Root:       exec.NewDAGRunRef("dag-b", "run-2"),
 		AttemptID:  "attempt-2",
 		WorkerID:   "worker-2",
-		Status:     core.NotStarted,
+		Status:     ir.NotStarted,
 	}))
 
 	record, err := s.Get(ctx, "attempt-key-1")
@@ -299,7 +299,7 @@ func TestActiveDistributedRunStore_UpsertRefreshesUpdatedAt(t *testing.T) {
 		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 		UpdatedAt:  staleUpdatedAt,
 	}))
 
@@ -324,7 +324,7 @@ func TestActiveDistributedRunStore_ConcurrentUpsertSerializes(t *testing.T) {
 		DAGRun:     exec.NewDAGRunRef("dag-a", "run-1"),
 		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 	}
 
 	const writers = 5
@@ -368,7 +368,7 @@ func TestActiveDistributedRunStore_ListAllSkipsCorruptRecord(t *testing.T) {
 		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 	}))
 	corruptPath := filepath.Join(dir, encodedKey("corrupt-active")+".json")
 	require.NoError(t, os.WriteFile(corruptPath, []byte("{"), 0o600))
@@ -396,7 +396,7 @@ func TestActiveDistributedRunStore_UpsertReplacesCorruptRecord(t *testing.T) {
 		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 	}))
 
 	record, err := s.Get(ctx, "repair-active")
@@ -514,7 +514,7 @@ func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {
 	statusData, err := json.Marshal(exec.DAGRunStatus{
 		Name:     "dag-legacy",
 		DAGRunID: "run-legacy",
-		Status:   core.Running,
+		Status:   ir.Running,
 	})
 	require.NoError(t, err)
 
@@ -591,7 +591,7 @@ func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {
 	require.NotNil(t, claimed.Task.PreviousStatus)
 	assert.Equal(t, "dag-legacy", claimed.Task.PreviousStatus.Name)
 	assert.Equal(t, "run-legacy", claimed.Task.PreviousStatus.DAGRunID)
-	assert.Equal(t, core.Running, claimed.Task.PreviousStatus.Status)
+	assert.Equal(t, ir.Running, claimed.Task.PreviousStatus.Status)
 }
 
 func TestDispatchTaskStore_ReleaseClaimReturnsTaskToPending(t *testing.T) {
@@ -1966,7 +1966,7 @@ func TestDistributedStores_ReadFileLayout(t *testing.T) {
 		Root:       exec.NewDAGRunRef("dag-a", "run-1"),
 		AttemptID:  "attempt-1",
 		WorkerID:   "worker-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 		UpdatedAt:  time.Now().UTC().UnixMilli(),
 	}
 	writeJSONFile(t, filepath.Join(distributedDir, "active-runs", encodedKey(activeKey)+".json"), fileActive)

@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -28,12 +28,12 @@ const (
 // dagFileSource resolves watched DAG files into stable metadata snapshots.
 type dagFileSource struct {
 	dir  string
-	load func(context.Context, string) (*core.DAG, error)
+	load func(context.Context, string) (*ir.DAG, error)
 }
 
 // dagFileSnapshot represents the scheduler-visible state of one DAG file.
 type dagFileSnapshot struct {
-	dag    *core.DAG
+	dag    *ir.DAG
 	exists bool
 }
 
@@ -46,7 +46,7 @@ func newDAGFileSource(dir string) *dagFileSource {
 }
 
 // loadDAGMetadata loads only scheduler metadata from a DAG spec file.
-func loadDAGMetadata(ctx context.Context, filePath string) (*core.DAG, error) {
+func loadDAGMetadata(ctx context.Context, filePath string) (*ir.DAG, error) {
 	return spec.Load(
 		ctx,
 		filePath,

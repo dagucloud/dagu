@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,11 +17,11 @@ import (
 func TestInitialStatusSnapshotsDAGRetryMetadata(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-dag",
 		Queue:    "shared-queue",
 		Location: "/tmp/retry-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       3,
 			Interval:    2 * time.Minute,
 			Backoff:     2.0,
@@ -42,11 +42,11 @@ func TestInitialStatusSnapshotsDAGRetryMetadata(t *testing.T) {
 func TestInitialStatusSnapshotsDisabledDAGRetryPolicy(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "retry-disabled-dag",
 		Queue:    "shared-queue",
 		Location: "/tmp/retry-disabled-dag.yaml",
-		RetryPolicy: &core.DAGRetryPolicy{
+		RetryPolicy: &ir.DAGRetryPolicy{
 			Limit:       0,
 			Interval:    time.Minute,
 			Backoff:     0,
@@ -74,13 +74,13 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 			},
 			Nodes: []*exec.Node{
 				{
-					Step: core.Step{
+					Step: ir.Step{
 						Name: "derived",
-						RetryPolicy: core.RetryPolicy{
+						RetryPolicy: ir.RetryPolicy{
 							Interval: 2 * time.Second,
 						},
 					},
-					Status:     core.NodeRetrying,
+					Status:     ir.NodeRetrying,
 					RetryCount: 1,
 				},
 			},
@@ -96,13 +96,13 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 		status := &exec.DAGRunStatus{
 			Nodes: []*exec.Node{
 				{
-					Step: core.Step{
+					Step: ir.Step{
 						Name: "legacy",
-						RetryPolicy: core.RetryPolicy{
+						RetryPolicy: ir.RetryPolicy{
 							Interval: 2 * time.Second,
 						},
 					},
-					Status:     core.NodeRetrying,
+					Status:     ir.NodeRetrying,
 					RetryCount: 1,
 				},
 			},
@@ -118,24 +118,24 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 		status := &exec.DAGRunStatus{
 			Nodes: []*exec.Node{
 				{
-					Step: core.Step{
+					Step: ir.Step{
 						Name: "regular",
-						RetryPolicy: core.RetryPolicy{
+						RetryPolicy: ir.RetryPolicy{
 							Interval: time.Second,
 						},
 					},
-					Status:     core.NodeRetrying,
+					Status:     ir.NodeRetrying,
 					RetryCount: 1,
 				},
 			},
 			OnFailure: &exec.Node{
-				Step: core.Step{
+				Step: ir.Step{
 					Name: "onFailure",
-					RetryPolicy: core.RetryPolicy{
+					RetryPolicy: ir.RetryPolicy{
 						Interval: 3 * time.Second,
 					},
 				},
-				Status:     core.NodeRetrying,
+				Status:     ir.NodeRetrying,
 				RetryCount: 1,
 			},
 		}
@@ -150,12 +150,12 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 	t.Run("FallsBackToHandlerIdentityWhenHandlerStepNameMissing", func(t *testing.T) {
 		status := &exec.DAGRunStatus{
 			OnFailure: &exec.Node{
-				Step: core.Step{
-					RetryPolicy: core.RetryPolicy{
+				Step: ir.Step{
+					RetryPolicy: ir.RetryPolicy{
 						Interval: 3 * time.Second,
 					},
 				},
-				Status:     core.NodeRetrying,
+				Status:     ir.NodeRetrying,
 				RetryCount: 1,
 			},
 		}
@@ -171,13 +171,13 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 			PendingStepRetries: []exec.PendingStepRetry{},
 			Nodes: []*exec.Node{
 				{
-					Step: core.Step{
+					Step: ir.Step{
 						Name: "legacy",
-						RetryPolicy: core.RetryPolicy{
+						RetryPolicy: ir.RetryPolicy{
 							Interval: 2 * time.Second,
 						},
 					},
-					Status:     core.NodeRetrying,
+					Status:     ir.NodeRetrying,
 					RetryCount: 1,
 				},
 			},
@@ -305,7 +305,7 @@ func TestNormalizeDAGRunConditions(t *testing.T) {
 	}
 
 	queued := &exec.DAGRunStatus{
-		Status: core.Queued,
+		Status: ir.Queued,
 		Conditions: append(conditions, exec.NewDAGRunCondition(
 			"Runnable",
 			"Unknown",
@@ -318,7 +318,7 @@ func TestNormalizeDAGRunConditions(t *testing.T) {
 	assert.Equal(t, conditions, queued.Conditions)
 
 	running := &exec.DAGRunStatus{
-		Status:     core.Running,
+		Status:     ir.Running,
 		Conditions: conditions,
 	}
 	exec.NormalizeDAGRunConditions(running)

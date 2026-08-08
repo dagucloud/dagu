@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +20,7 @@ import (
 // process env (ServiceRuntimeEnv), so these tests set it with t.Setenv.
 func TestNewDocker_SelectsDaemonHostFromServiceEnv(t *testing.T) {
 	withEnv := func(ctx context.Context) context.Context {
-		return runtime.WithEnv(ctx, runtime.NewEnv(ctx, core.Step{Name: "test"}))
+		return runtime.WithEnv(ctx, runtime.NewEnv(ctx, ir.Step{Name: "test"}))
 	}
 	daemonHostOf := func(t *testing.T, e any) string {
 		t.Helper()
@@ -33,7 +33,7 @@ func TestNewDocker_SelectsDaemonHostFromServiceEnv(t *testing.T) {
 	t.Run("step_container_image_mode_podman", func(t *testing.T) {
 		t.Setenv(ContainerRuntimeEnv, "podman")
 		ctx := withEnv(context.Background())
-		step := core.Step{Name: "job", Container: &core.Container{Image: "alpine:latest"}}
+		step := ir.Step{Name: "job", Container: &ir.Container{Image: "alpine:latest"}}
 		exec, err := newDocker(ctx, step)
 		require.NoError(t, err)
 		assert.Equal(t, PodmanDaemonHostDefault, daemonHostOf(t, exec))
@@ -42,7 +42,7 @@ func TestNewDocker_SelectsDaemonHostFromServiceEnv(t *testing.T) {
 	t.Run("step_container_exec_mode_podman", func(t *testing.T) {
 		t.Setenv(ContainerRuntimeEnv, "podman")
 		ctx := withEnv(context.Background())
-		step := core.Step{Name: "job", Container: &core.Container{Exec: "existing"}}
+		step := ir.Step{Name: "job", Container: &ir.Container{Exec: "existing"}}
 		exec, err := newDocker(ctx, step)
 		require.NoError(t, err)
 		assert.Equal(t, PodmanDaemonHostDefault, daemonHostOf(t, exec))
@@ -51,9 +51,9 @@ func TestNewDocker_SelectsDaemonHostFromServiceEnv(t *testing.T) {
 	t.Run("legacy_map_config_podman", func(t *testing.T) {
 		t.Setenv(ContainerRuntimeEnv, "podman")
 		ctx := withEnv(context.Background())
-		step := core.Step{
+		step := ir.Step{
 			Name: "job",
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type:   "docker",
 				Config: map[string]any{"image": "alpine:latest"},
 			},
@@ -73,7 +73,7 @@ func TestNewDocker_SelectsDaemonHostFromServiceEnv(t *testing.T) {
 				t.Setenv(ContainerRuntimeEnv, val)
 			}
 			ctx := withEnv(context.Background())
-			step := core.Step{Name: "job", Container: &core.Container{Image: "alpine:latest"}}
+			step := ir.Step{Name: "job", Container: &ir.Container{Image: "alpine:latest"}}
 			exec, err := newDocker(ctx, step)
 			require.NoError(t, err)
 			assert.Equal(t, "", daemonHostOf(t, exec), "runtime %q must leave DaemonHost empty", val)
@@ -83,7 +83,7 @@ func TestNewDocker_SelectsDaemonHostFromServiceEnv(t *testing.T) {
 	t.Run("invalid_runtime_fails_the_step", func(t *testing.T) {
 		t.Setenv(ContainerRuntimeEnv, "nerdctl")
 		ctx := withEnv(context.Background())
-		step := core.Step{Name: "job", Container: &core.Container{Image: "alpine:latest"}}
+		step := ir.Step{Name: "job", Container: &ir.Container{Image: "alpine:latest"}}
 		_, err := newDocker(ctx, step)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), ContainerRuntimeEnv)

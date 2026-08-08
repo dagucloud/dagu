@@ -10,17 +10,17 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 	dag := GetDAGContext(ctx).DAG
-	if dag == nil || dag.Type != core.TypeIncremental {
+	if dag == nil || dag.Type != ir.TypeIncremental {
 		return nil
 	}
-	baseEnv, err := NewEnvWithError(ctx, core.Step{})
+	baseEnv, err := NewEnvWithError(ctx, ir.Step{})
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
 	return nil
 }
 
-func incrementalDeclaredPathBase(dag *core.DAG, runtimeWorkingDir string) string {
+func incrementalDeclaredPathBase(dag *ir.DAG, runtimeWorkingDir string) string {
 	if dag.WorkingDirExplicit {
 		return runtimeWorkingDir
 	}
@@ -118,7 +118,7 @@ type incrementalRedirect struct {
 
 func validateIncrementalRuntimeRedirectAliases(ctx context.Context, plan *Plan, node *Node) error {
 	dag := GetDAGContext(ctx).DAG
-	if dag == nil || dag.Type != core.TypeIncremental {
+	if dag == nil || dag.Type != ir.TypeIncremental {
 		return nil
 	}
 	step := node.Step()
@@ -156,7 +156,7 @@ func validateIncrementalRuntimeRedirectAliases(ctx context.Context, plan *Plan, 
 
 func validateIncrementalRedirectAliases(
 	ctx context.Context,
-	step core.Step,
+	step ir.Step,
 	env Env,
 	base string,
 	declaredPaths map[string]string,

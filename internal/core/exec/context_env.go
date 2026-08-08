@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // buildManagedDAGRunEnvs returns the environment variables Dagu generates for a
 // dag-run. Keys whose value is unavailable are omitted rather than set empty.
 func buildManagedDAGRunEnvs(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	dagRunID string,
 	logFile string,
 	options *contextOptions,
@@ -43,7 +43,7 @@ func buildManagedDAGRunEnvs(
 
 // dagDocsDir returns the documents directory for the DAG, or an empty string
 // when no documents root is configured.
-func dagDocsDir(ctx context.Context, dag *core.DAG) string {
+func dagDocsDir(ctx context.Context, dag *ir.DAG) string {
 	cfg := config.GetConfig(ctx)
 	if cfg.Paths.DocsDir == "" {
 		return ""

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,7 +114,7 @@ steps:
 `, server.URL, childTail))
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	return model.observations()
 }

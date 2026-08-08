@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,7 +45,7 @@ func TestAttempt_OpenRejectsCorruptDAGDefinition(t *testing.T) {
 	file := filepath.Join(dir, "status.dat")
 	ctx := context.Background()
 
-	att, err := NewAttempt(file, nil, WithDAG(&core.DAG{Name: "test"}))
+	att, err := NewAttempt(file, nil, WithDAG(&ir.DAG{Name: "test"}))
 	require.NoError(t, err)
 	require.NoError(t, att.Open(ctx))
 	require.NoError(t, att.Close(ctx))
@@ -65,7 +65,7 @@ func TestAttempt_Write(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test write without open
-	testStatus := createTestStatus(core.Running)
+	testStatus := createTestStatus(ir.Running)
 	err = att.Write(context.Background(), testStatus)
 	assert.ErrorIs(t, err, ErrStatusFileNotOpen)
 
@@ -81,7 +81,7 @@ func TestAttempt_Write(t *testing.T) {
 	actual, err := att.ReadStatus(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, "test", actual.DAGRunID)
-	assert.Equal(t, core.Running, actual.Status)
+	assert.Equal(t, ir.Running, actual.Status)
 
 	// Close
 	err = att.Close(context.Background())
@@ -93,8 +93,8 @@ func TestAttempt_Read(t *testing.T) {
 	file := filepath.Join(dir, "status.dat")
 
 	// Create test file with multiple status entries
-	status1 := createTestStatus(core.Running)
-	status2 := createTestStatus(core.Succeeded)
+	status1 := createTestStatus(ir.Running)
+	status2 := createTestStatus(ir.Succeeded)
 
 	// Create file directory if it doesn't exist
 	err := os.MkdirAll(filepath.Dir(file), 0750)
@@ -124,19 +124,19 @@ func TestAttempt_Read(t *testing.T) {
 	// Read status - should get the last entry (test2)
 	dagRunStatus, err := att.ReadStatus(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, core.Succeeded.String(), dagRunStatus.Status.String())
+	assert.Equal(t, ir.Succeeded.String(), dagRunStatus.Status.String())
 
 	// Read using ReadStatus
 	latestStatus, err := att.ReadStatus(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, core.Succeeded.String(), latestStatus.Status.String())
+	assert.Equal(t, ir.Succeeded.String(), latestStatus.Status.String())
 }
 
 func TestAttempt_ReadStatusHonorsCanceledContext(t *testing.T) {
 	dir := createTempDir(t)
 	file := filepath.Join(dir, "status.dat")
 
-	writeJSONToFile(t, file, createTestStatus(core.Running))
+	writeJSONToFile(t, file, createTestStatus(ir.Running))
 
 	att, err := NewAttempt(file, nil)
 	require.NoError(t, err)
@@ -154,11 +154,11 @@ func TestAttempt_Compact(t *testing.T) {
 
 	// Create test file with multiple status entries
 	for i := range 10 {
-		testStatus := createTestStatus(core.Running)
+		testStatus := createTestStatus(ir.Running)
 
 		if i == 9 {
 			// Make some status changes to create different attempts
-			testStatus.Status = core.Succeeded
+			testStatus.Status = ir.Succeeded
 		}
 
 		if i == 0 {
@@ -202,7 +202,7 @@ func TestAttempt_Compact(t *testing.T) {
 	// Verify content is still correct
 	dagRunStatus, err := att.ReadStatus(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, core.Succeeded, dagRunStatus.Status)
+	assert.Equal(t, ir.Succeeded, dagRunStatus.Status)
 }
 
 func TestAttempt_CompactReopensWriter(t *testing.T) {
@@ -213,7 +213,7 @@ func TestAttempt_CompactReopensWriter(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, att.Open(context.Background()))
 
-	first := createTestStatus(core.Running)
+	first := createTestStatus(ir.Running)
 	require.NoError(t, att.Write(context.Background(), first))
 	require.NotNil(t, att.writer)
 	assert.True(t, att.writer.IsOpen())
@@ -222,12 +222,12 @@ func TestAttempt_CompactReopensWriter(t *testing.T) {
 	require.NotNil(t, att.writer)
 	assert.True(t, att.writer.IsOpen())
 
-	final := createTestStatus(core.Succeeded)
+	final := createTestStatus(ir.Succeeded)
 	require.NoError(t, att.Write(context.Background(), final))
 
 	status, err := att.ReadStatus(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, core.Succeeded, status.Status)
+	assert.Equal(t, ir.Succeeded, status.Status)
 
 	require.NoError(t, att.Close(context.Background()))
 }
@@ -244,7 +244,7 @@ func TestAttempt_Close(t *testing.T) {
 	require.NoError(t, err)
 
 	// Write some data
-	err = att.Write(context.Background(), createTestStatus(core.Running))
+	err = att.Write(context.Background(), createTestStatus(ir.Running))
 	require.NoError(t, err)
 
 	// Close
@@ -252,7 +252,7 @@ func TestAttempt_Close(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify we can't write after close
-	err = att.Write(context.Background(), createTestStatus(core.Succeeded))
+	err = att.Write(context.Background(), createTestStatus(ir.Succeeded))
 	assert.ErrorIs(t, err, ErrStatusFileNotOpen)
 
 	// Test double close is safe
@@ -272,7 +272,7 @@ func TestAttempt_HandleNonExistentFile(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Write to create the file
-	err = att.Write(context.Background(), createTestStatus(core.Succeeded))
+	err = att.Write(context.Background(), createTestStatus(ir.Succeeded))
 	assert.NoError(t, err)
 
 	// Verify the file was created with correct data
@@ -311,7 +311,7 @@ func TestAttempt_InvalidJSON(t *testing.T) {
 	file := filepath.Join(dir, "invalid.dat")
 
 	// Create a file with valid JSOn
-	validStatus := createTestStatus(core.Running)
+	validStatus := createTestStatus(ir.Running)
 	writeJSONToFile(t, file, validStatus)
 
 	// Append invalid JSON
@@ -326,7 +326,7 @@ func TestAttempt_InvalidJSON(t *testing.T) {
 	// Should be able to read and get the valid entry
 	dagRunStatus, err := att.ReadStatus(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, core.Running.String(), dagRunStatus.Status.String())
+	assert.Equal(t, ir.Running.String(), dagRunStatus.Status.String())
 }
 
 func TestAttempt_CorruptedStatusFile(t *testing.T) {
@@ -492,10 +492,10 @@ func createTempDir(t *testing.T) string {
 }
 
 // createTestDAG creates a sample DAG for testing
-func createTestDAG() *core.DAG {
-	return &core.DAG{
+func createTestDAG() *ir.DAG {
+	return &ir.DAG{
 		Name: "TestDAG",
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{
 				Name:    "step1",
 				Command: "echo 'step1'",
@@ -508,12 +508,12 @@ func createTestDAG() *core.DAG {
 				},
 			},
 		},
-		HandlerOn: core.HandlerOn{
-			Success: &core.Step{
+		HandlerOn: ir.HandlerOn{
+			Success: &ir.Step{
 				Name:    "on_success",
 				Command: "echo 'success'",
 			},
-			Failure: &core.Step{
+			Failure: &ir.Step{
 				Name:    "on_failure",
 				Command: "echo 'failure'",
 			},
@@ -523,7 +523,7 @@ func createTestDAG() *core.DAG {
 }
 
 // createTestStatus creates a sample status for testing using StatusFactory
-func createTestStatus(st core.Status) exec.DAGRunStatus {
+func createTestStatus(st ir.Status) exec.DAGRunStatus {
 	dag := createTestDAG()
 
 	return exec.DAGRunStatus{
@@ -923,16 +923,16 @@ func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 	service := eventstore.New(store)
 	ctx := eventstore.WithContext(context.Background(), service, eventstore.Source{Service: eventstore.SourceServiceServer})
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "TestDAG",
 		Location: filepath.Join(dir, "test-dag.yaml"),
-		Labels:   core.NewLabels([]string{"workspace=ops"}),
+		Labels:   ir.NewLabels([]string{"workspace=ops"}),
 	}
 	att, err := NewAttempt(file, nil, WithDAG(dag))
 	require.NoError(t, err)
 	require.NoError(t, att.Open(ctx))
 
-	queued := createTestStatus(core.Queued)
+	queued := createTestStatus(ir.Queued)
 	queued.AttemptID = "attempt-1"
 	queued.QueuedAt = time.Now().UTC().Format(time.RFC3339)
 	queued.Labels = dag.Labels.Strings()
@@ -940,13 +940,13 @@ func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 	require.NoError(t, att.Write(ctx, queued))
 
 	running := queued
-	running.Status = core.Running
+	running.Status = ir.Running
 	running.StartedAt = time.Now().UTC().Format(time.RFC3339)
 	require.NoError(t, att.Write(ctx, running))
 	require.NoError(t, att.Write(ctx, running))
 
 	succeeded := running
-	succeeded.Status = core.Succeeded
+	succeeded.Status = ir.Succeeded
 	succeeded.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 	require.NoError(t, att.Write(ctx, succeeded))
 	require.NoError(t, att.Write(ctx, succeeded))
@@ -965,7 +965,7 @@ func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "test-dag", snapshot.DAGFile)
 	assert.Equal(t, []string{"workspace=ops"}, snapshot.Labels)
-	assert.Equal(t, core.Queued, snapshot.Status)
+	assert.Equal(t, ir.Queued, snapshot.Status)
 }
 
 func TestAttempt_OpenRestoresLastEmittedLifecycleState(t *testing.T) {
@@ -977,12 +977,12 @@ func TestAttempt_OpenRestoresLastEmittedLifecycleState(t *testing.T) {
 	service := eventstore.New(store)
 	ctx := eventstore.WithContext(context.Background(), service, eventstore.Source{Service: eventstore.SourceServiceServer})
 
-	dag := &core.DAG{Name: "TestDAG", Location: filepath.Join(dir, "test-dag.yaml")}
+	dag := &ir.DAG{Name: "TestDAG", Location: filepath.Join(dir, "test-dag.yaml")}
 	att, err := NewAttempt(file, nil, WithDAG(dag))
 	require.NoError(t, err)
 	require.NoError(t, att.Open(ctx))
 
-	queued := createTestStatus(core.Queued)
+	queued := createTestStatus(ir.Queued)
 	queued.AttemptID = "attempt-1"
 	queued.QueuedAt = time.Now().UTC().Format(time.RFC3339)
 	require.NoError(t, att.Write(ctx, queued))
@@ -995,7 +995,7 @@ func TestAttempt_OpenRestoresLastEmittedLifecycleState(t *testing.T) {
 	require.NoError(t, reopened.Write(ctx, queued))
 
 	running := queued
-	running.Status = core.Running
+	running.Status = ir.Running
 	running.StartedAt = time.Now().UTC().Format(time.RFC3339)
 	require.NoError(t, reopened.Write(ctx, running))
 

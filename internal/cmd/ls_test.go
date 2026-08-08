@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -59,7 +59,7 @@ steps:
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
 			Args: []string{"start", dag.Location},
 		})
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		out := runLsWithStdout(t, th, cmd.Ls(), []string{"ls", "-l", "-H", "ls-enriched"})
 		assert.Contains(t, out, "LAST_STATUS")

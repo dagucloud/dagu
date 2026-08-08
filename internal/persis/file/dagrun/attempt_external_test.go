@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +22,7 @@ func TestAttemptCloseKeepsSingleStatusFile(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
-	dag := &core.DAG{Name: "single-status-close"}
+	dag := &ir.DAG{Name: "single-status-close"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
 	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", exec.NewDAGRunAttemptOptions{})
@@ -32,7 +32,7 @@ func TestAttemptCloseKeepsSingleStatusFile(t *testing.T) {
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: attempt.ID(),
-		Status:    core.Queued,
+		Status:    ir.Queued,
 		QueuedAt:  exec.FormatTime(startedAt),
 	}))
 
@@ -48,7 +48,7 @@ func TestAttemptCloseKeepsSingleStatusFile(t *testing.T) {
 
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, core.Queued, status.Status)
+	require.Equal(t, ir.Queued, status.Status)
 }
 
 func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T) {
@@ -57,7 +57,7 @@ func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
-	dag := &core.DAG{Name: "runtime-conditions"}
+	dag := &ir.DAG{Name: "runtime-conditions"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
 	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", exec.NewDAGRunAttemptOptions{})
@@ -78,7 +78,7 @@ func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T
 		Name:       dag.Name,
 		DAGRunID:   "run-1",
 		AttemptID:  attempt.ID(),
-		Status:     core.Queued,
+		Status:     ir.Queued,
 		QueuedAt:   exec.FormatTime(startedAt),
 		Conditions: []exec.DAGRunCondition{condition},
 	}
@@ -89,12 +89,12 @@ func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T
 	require.Equal(t, []exec.DAGRunCondition{condition}, persistedQueued.Conditions)
 
 	running := queued
-	running.Status = core.Running
+	running.Status = ir.Running
 	require.NoError(t, attempt.Write(ctx, running))
 
 	persistedRunning, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, core.Running, persistedRunning.Status)
+	require.Equal(t, ir.Running, persistedRunning.Status)
 	require.Empty(t, persistedRunning.Conditions)
 }
 
@@ -104,7 +104,7 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := dagrun.New(baseDir, dagrun.WithLatestStatusToday(false))
-	dag := &core.DAG{Name: "conditions-return"}
+	dag := &ir.DAG{Name: "conditions-return"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
 	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-conditions", exec.NewDAGRunAttemptOptions{})
@@ -121,7 +121,7 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 		Name:      dag.Name,
 		DAGRunID:  "run-conditions",
 		AttemptID: attempt.ID(),
-		Status:    core.Queued,
+		Status:    ir.Queued,
 		Conditions: []exec.DAGRunCondition{
 			exec.NewDAGRunCondition(
 				"Runnable",
@@ -140,16 +140,16 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 		ctx,
 		exec.NewDAGRunRef(dag.Name, "run-conditions"),
 		attempt.ID(),
-		core.Queued,
+		ir.Queued,
 		func(latest *exec.DAGRunStatus) error {
-			latest.Status = core.Failed
+			latest.Status = ir.Failed
 			return nil
 		},
 	)
 	require.NoError(t, err)
 	require.True(t, swapped)
 	require.NotNil(t, updated)
-	require.Equal(t, core.Failed, updated.Status)
+	require.Equal(t, ir.Failed, updated.Status)
 	require.Empty(t, updated.Conditions)
 }
 

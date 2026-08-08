@@ -11,12 +11,12 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // DAGRunNotQueuedError reports that the latest visible attempt is no longer queued.
 type DAGRunNotQueuedError struct {
-	Status    core.Status
+	Status    ir.Status
 	HasStatus bool
 }
 
@@ -39,7 +39,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunStore DAGRunStore, dagRun DAGR
 	if err != nil {
 		return err
 	}
-	if status == nil || status.Status != core.Queued {
+	if status == nil || status.Status != ir.Queued {
 		return newDAGRunNotQueuedError(status)
 	}
 
@@ -48,9 +48,9 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunStore DAGRunStore, dagRun DAGR
 		ctx,
 		dagRun,
 		attempt.ID(),
-		core.Queued,
+		ir.Queued,
 		func(latest *DAGRunStatus) error {
-			latest.Status = core.Aborted
+			latest.Status = ir.Aborted
 			latest.FinishedAt = finishedAt
 			latest.WorkerID = ""
 			latest.PID = 0

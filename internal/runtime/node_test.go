@@ -19,8 +19,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -103,7 +103,7 @@ func registerNodeSignalExecutor(t *testing.T) {
 	registerNodeSignalExecutorOnce.Do(func() {
 		runtimeexec.RegisterExecutor(
 			nodeSignalExecutorType,
-			func(context.Context, core.Step) (runtimeexec.Executor, error) {
+			func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 				nodeSignalExecutorFactoryMu.Lock()
 				factory := nodeSignalExecutorFactory
 				nodeSignalExecutorFactoryMu.Unlock()
@@ -113,7 +113,7 @@ func registerNodeSignalExecutor(t *testing.T) {
 				return factory(), nil
 			},
 			nil,
-			core.ExecutorCapabilities{},
+			ir.ExecutorCapabilities{},
 		)
 	})
 }
@@ -188,13 +188,13 @@ func TestNode(t *testing.T) {
 			node.Signal(node.Context, syscall.SIGTERM, false)
 		}()
 
-		node.SetStatus(core.NodeRunning)
+		node.SetStatus(ir.NodeRunning)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		err := node.Node.Execute(node.execContext(dagRunID))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signal: terminated")
-		require.Equal(t, core.NodeAborted.String(), node.State().Status.String())
+		require.Equal(t, ir.NodeAborted.String(), node.State().Status.String())
 	})
 	t.Run("SignalOnStop", func(t *testing.T) {
 		execCh, restore := withNodeSignalExecutor(t)
@@ -207,20 +207,20 @@ func TestNode(t *testing.T) {
 			node.Signal(node.Context, syscall.Signal(0), true) // allow override signal
 		}()
 
-		node.SetStatus(core.NodeRunning)
+		node.SetStatus(ir.NodeRunning)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		err := node.Node.Execute(node.execContext(dagRunID))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signal: interrupt")
-		require.Equal(t, core.NodeAborted.String(), node.State().Status.String())
+		require.Equal(t, ir.NodeAborted.String(), node.State().Status.String())
 	})
 	t.Run("SignalBeforeExecutorRunPreventsStart", func(t *testing.T) {
 		execCh, restore := withNodeSignalExecutor(t)
 		defer restore()
 
 		node := setupNode(t, withNodeExecutorType(nodeSignalExecutorType))
-		node.SetStatus(core.NodeRunning)
+		node.SetStatus(ir.NodeRunning)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		err := runtime.NewStepExecutor().Execute(node.execContext(dagRunID), node.Node, func() {
@@ -228,7 +228,7 @@ func TestNode(t *testing.T) {
 		})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "node execution aborted before start")
-		require.Equal(t, core.NodeAborted.String(), node.State().Status.String())
+		require.Equal(t, ir.NodeAborted.String(), node.State().Status.String())
 
 		exec := <-execCh
 		select {
@@ -247,7 +247,7 @@ func TestNode(t *testing.T) {
 		defer restore()
 
 		node := setupNode(t, withNodeExecutorType(nodeSignalExecutorType), withNodeSignalOnStop("SIGINT"))
-		node.SetStatus(core.NodeRunning)
+		node.SetStatus(ir.NodeRunning)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		errCh := make(chan error, 1)
@@ -265,7 +265,7 @@ func TestNode(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("timeout waiting for Kill to start")
 		}
-		require.Equal(t, core.NodeAborted.String(), node.State().Status.String())
+		require.Equal(t, ir.NodeAborted.String(), node.State().Status.String())
 
 		close(exec.killContinue)
 
@@ -295,7 +295,7 @@ func TestNode(t *testing.T) {
 			node.Signal(node.Context, syscall.SIGTERM, false)
 		}()
 
-		node.SetStatus(core.NodeRunning)
+		node.SetStatus(ir.NodeRunning)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		err := node.Node.Execute(node.execContext(dagRunID))
@@ -328,12 +328,12 @@ func TestNode(t *testing.T) {
 			node.Signal(node.Context, syscall.SIGKILL, true)
 		}()
 
-		node.SetStatus(core.NodeRunning)
+		node.SetStatus(ir.NodeRunning)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		err := node.Node.Execute(node.execContext(dagRunID))
 		require.Error(t, err)
-		require.Equal(t, core.NodeAborted.String(), node.State().Status.String())
+		require.Equal(t, ir.NodeAborted.String(), node.State().Status.String())
 
 		exec := <-seen
 		select {
@@ -349,18 +349,18 @@ func TestNode(t *testing.T) {
 
 		tests := []struct {
 			name   string
-			status core.NodeStatus
-			want   core.NodeStatus
+			status ir.NodeStatus
+			want   ir.NodeStatus
 		}{
-			{name: "Running", status: core.NodeRunning, want: core.NodeAborted},
-			{name: "Waiting", status: core.NodeWaiting, want: core.NodeAborted},
-			{name: "Succeeded", status: core.NodeSucceeded, want: core.NodeSucceeded},
-			{name: "NotStarted", status: core.NodeNotStarted, want: core.NodeNotStarted},
+			{name: "Running", status: ir.NodeRunning, want: ir.NodeAborted},
+			{name: "Waiting", status: ir.NodeWaiting, want: ir.NodeAborted},
+			{name: "Succeeded", status: ir.NodeSucceeded, want: ir.NodeSucceeded},
+			{name: "NotStarted", status: ir.NodeNotStarted, want: ir.NodeNotStarted},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				node := runtime.NewNode(core.Step{Name: tt.name}, runtime.NodeState{Status: tt.status})
+				node := runtime.NewNode(ir.Step{Name: tt.name}, runtime.NodeState{Status: tt.status})
 				node.Cancel()
 				require.Equal(t, tt.want, node.State().Status)
 			})
@@ -498,22 +498,22 @@ func TestNodeShouldMarkSuccess(t *testing.T) {
 
 	tests := []struct {
 		name               string
-		nodeStatus         core.NodeStatus
-		continueOnSettings core.ContinueOn
+		nodeStatus         ir.NodeStatus
+		continueOnSettings ir.ContinueOn
 		expectMarkSuccess  bool
 	}{
 		{
 			name:       "SuccessStatus",
-			nodeStatus: core.NodeSucceeded,
-			continueOnSettings: core.ContinueOn{
+			nodeStatus: ir.NodeSucceeded,
+			continueOnSettings: ir.ContinueOn{
 				MarkSuccess: true,
 			},
 			expectMarkSuccess: true, // shouldContinue returns true for success status, so shouldMarkSuccess follows MarkSuccess setting
 		},
 		{
 			name:       "ErrorWithContinueOnFailureAndMarkSuccess",
-			nodeStatus: core.NodeFailed,
-			continueOnSettings: core.ContinueOn{
+			nodeStatus: ir.NodeFailed,
+			continueOnSettings: ir.ContinueOn{
 				Failure:     true,
 				MarkSuccess: true,
 			},
@@ -521,8 +521,8 @@ func TestNodeShouldMarkSuccess(t *testing.T) {
 		},
 		{
 			name:       "ErrorWithContinueOnFailureButNoMarkSuccess",
-			nodeStatus: core.NodeFailed,
-			continueOnSettings: core.ContinueOn{
+			nodeStatus: ir.NodeFailed,
+			continueOnSettings: ir.ContinueOn{
 				Failure:     true,
 				MarkSuccess: false,
 			},
@@ -530,8 +530,8 @@ func TestNodeShouldMarkSuccess(t *testing.T) {
 		},
 		{
 			name:       "SkippedWithContinueOnSkippedAndMarkSuccess",
-			nodeStatus: core.NodeSkipped,
-			continueOnSettings: core.ContinueOn{
+			nodeStatus: ir.NodeSkipped,
+			continueOnSettings: ir.ContinueOn{
 				Skipped:     true,
 				MarkSuccess: true,
 			},
@@ -542,7 +542,7 @@ func TestNodeShouldMarkSuccess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			step := core.Step{
+			step := ir.Step{
 				Name:       "test-step",
 				ContinueOn: tt.continueOnSettings,
 			}
@@ -638,7 +638,7 @@ Line 5: Process completed
 			}
 
 			ctx := context.Background()
-			step := core.Step{Name: "test-step"}
+			step := ir.Step{Name: "test-step"}
 
 			// Setup node properly with log file
 			node := runtime.NewNode(step, runtime.NodeState{})
@@ -668,8 +668,8 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		parallel      *core.ParallelConfig
-		subDAG        *core.SubDAG
+		parallel      *ir.ParallelConfig
+		subDAG        *ir.SubDAG
 		setupEnv      func(ctx context.Context) context.Context
 		expectCount   int
 		expectError   bool
@@ -678,7 +678,7 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 		{
 			name:     "NonParallelExecution",
 			parallel: nil,
-			subDAG: &core.SubDAG{
+			subDAG: &ir.SubDAG{
 				Name:   "sub-dag",
 				Params: "param1=value1",
 			},
@@ -686,10 +686,10 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 		},
 		{
 			name: "ParallelWithVariableJSONArray",
-			parallel: &core.ParallelConfig{
+			parallel: &ir.ParallelConfig{
 				Variable: "${LIST_VAR}",
 			},
-			subDAG: &core.SubDAG{
+			subDAG: &ir.SubDAG{
 				Name: "sub-dag",
 			},
 			setupEnv: func(ctx context.Context) context.Context {
@@ -701,10 +701,10 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 		},
 		{
 			name: "ParallelWithVariableSpaceSeparated",
-			parallel: &core.ParallelConfig{
+			parallel: &ir.ParallelConfig{
 				Variable: "${SPACE_VAR}",
 			},
-			subDAG: &core.SubDAG{
+			subDAG: &ir.SubDAG{
 				Name: "sub-dag",
 			},
 			setupEnv: func(ctx context.Context) context.Context {
@@ -716,36 +716,36 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 		},
 		{
 			name: "ParallelWithStaticItems",
-			parallel: &core.ParallelConfig{
-				Items: []core.ParallelItem{
+			parallel: &ir.ParallelConfig{
+				Items: []ir.ParallelItem{
 					{Value: "item1"},
 					{Value: "item2"},
 				},
 			},
-			subDAG: &core.SubDAG{
+			subDAG: &ir.SubDAG{
 				Name: "sub-dag",
 			},
 			expectCount: 2,
 		},
 		{
 			name: "ParallelWithParamsItems",
-			parallel: &core.ParallelConfig{
-				Items: []core.ParallelItem{
+			parallel: &ir.ParallelConfig{
+				Items: []ir.ParallelItem{
 					{Params: map[string]string{"key1": "value1"}},
 					{Params: map[string]string{"key2": "value2"}},
 				},
 			},
-			subDAG: &core.SubDAG{
+			subDAG: &ir.SubDAG{
 				Name: "sub-dag",
 			},
 			expectCount: 2,
 		},
 		{
 			name: "ParallelWithNoItems",
-			parallel: &core.ParallelConfig{
+			parallel: &ir.ParallelConfig{
 				Variable: "${EMPTY_VAR}",
 			},
-			subDAG: &core.SubDAG{
+			subDAG: &ir.SubDAG{
 				Name: "sub-dag",
 			},
 			setupEnv: func(ctx context.Context) context.Context {
@@ -758,16 +758,16 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 		},
 		{
 			name: "ParallelWithTooManyItems",
-			parallel: &core.ParallelConfig{
-				Items: func() []core.ParallelItem {
-					items := make([]core.ParallelItem, 1001)
+			parallel: &ir.ParallelConfig{
+				Items: func() []ir.ParallelItem {
+					items := make([]ir.ParallelItem, 1001)
 					for i := range items {
-						items[i] = core.ParallelItem{Value: fmt.Sprintf("item%d", i)}
+						items[i] = ir.ParallelItem{Value: fmt.Sprintf("item%d", i)}
 					}
 					return items
 				}(),
 			},
-			subDAG: &core.SubDAG{
+			subDAG: &ir.SubDAG{
 				Name: "sub-dag",
 			},
 			expectError:   true,
@@ -775,10 +775,10 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 		},
 		{
 			name: "ParallelWithITEMVariableInParams",
-			parallel: &core.ParallelConfig{
+			parallel: &ir.ParallelConfig{
 				Variable: "${SPACE_VAR}",
 			},
-			subDAG: &core.SubDAG{
+			subDAG: &ir.SubDAG{
 				Name:   "sub-dag",
 				Params: "item=${ITEM}",
 			},
@@ -793,13 +793,13 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := runtime.NewContext(context.Background(), &core.DAG{}, "test-run", "test.log")
+			ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log")
 
 			if tt.setupEnv != nil {
 				ctx = tt.setupEnv(ctx)
 			}
 
-			step := core.Step{
+			step := ir.Step{
 				Name:     "test-step",
 				Parallel: tt.parallel,
 				SubDAG:   tt.subDAG,
@@ -824,32 +824,32 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 
 func TestStepExecutorResolvesMultiCommandExecutableToken(t *testing.T) {
 	executorType := "test-command-token-resolution"
-	created := make(chan core.Step, 1)
-	runtimeexec.RegisterExecutor(executorType, func(_ context.Context, step core.Step) (runtimeexec.Executor, error) {
+	created := make(chan ir.Step, 1)
+	runtimeexec.RegisterExecutor(executorType, func(_ context.Context, step ir.Step) (runtimeexec.Executor, error) {
 		created <- step
 		return &sideChannelExecutor{}, nil
-	}, nil, core.ExecutorCapabilities{
+	}, nil, ir.ExecutorCapabilities{
 		Command:          true,
 		MultipleCommands: true,
-		CommandContext: func(_ context.Context, _ core.Step) cmnvalue.CommandContext {
+		CommandContext: func(_ context.Context, _ ir.Step) cmnvalue.CommandContext {
 			return cmnvalue.CommandContext{Target: cmnvalue.CommandTargetLocal}
 		},
 	})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "tokenized-command",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: executorType,
 		},
-		Commands: []core.CommandEntry{
+		Commands: []ir.CommandEntry{
 			{
 				Command: "$COMMAND_NAME",
 				Args:    []string{"$COMMAND_ARG"},
 			},
 		},
 	}
-	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test-dag"}, "run-1", "dag.log")
 	env := runtime.NewEnv(ctx, step)
 	env.Scope = env.Scope.
 		WithEntry("COMMAND_NAME", "printf", cmnvalue.EnvSourceStepEnv).
@@ -866,19 +866,19 @@ func TestStepExecutorResolvesMultiCommandExecutableToken(t *testing.T) {
 }
 
 func TestNodePrepareResolvesRetryRepeatStringsFromRuntimeEnv(t *testing.T) {
-	step := core.Step{
+	step := ir.Step{
 		Name: "dynamic-policy",
-		RetryPolicy: core.RetryPolicy{
+		RetryPolicy: ir.RetryPolicy{
 			LimitStr:       "$RETRY_LIMIT",
 			IntervalSecStr: "$RETRY_INTERVAL",
 		},
-		RepeatPolicy: core.RepeatPolicy{
+		RepeatPolicy: ir.RepeatPolicy{
 			LimitStr:       "$REPEAT_LIMIT",
 			IntervalStr:    "$REPEAT_INTERVAL",
 			MaxIntervalStr: "$REPEAT_MAX_INTERVAL",
 		},
 	}
-	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test-dag"}, "run-1", "dag.log")
 	env := runtime.NewEnv(ctx, step)
 	env.Scope = env.Scope.
 		WithEntry("RETRY_LIMIT", "3", cmnvalue.EnvSourceStepEnv).
@@ -974,7 +974,7 @@ func TestNodeItemToParam(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a node to call the method on
-			step := core.Step{Name: "test-step"}
+			step := ir.Step{Name: "test-step"}
 			node := runtime.NewNode(step, runtime.NodeState{})
 
 			// Now we can test the public method directly
@@ -1061,9 +1061,9 @@ func TestNodeSetupAndTeardown(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-step",
-		Commands: []core.CommandEntry{{
+		Commands: []ir.CommandEntry{{
 			Command: "echo",
 			Args:    []string{"hello"},
 		}},
@@ -1093,7 +1093,7 @@ func TestNodeSetupAndTeardown(t *testing.T) {
 }
 
 func TestNodeInit(t *testing.T) {
-	step := core.Step{Name: "test-step"}
+	step := ir.Step{Name: "test-step"}
 
 	// Create multiple nodes to verify they get different IDs
 	node1 := runtime.NewNode(step, runtime.NodeState{})
@@ -1121,30 +1121,30 @@ func TestNodeInit(t *testing.T) {
 }
 
 func TestNodeCancel(t *testing.T) {
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-step",
-		Commands: []core.CommandEntry{{
+		Commands: []ir.CommandEntry{{
 			Command: "sleep",
 			Args:    []string{"10"},
 		}},
 	}
 
 	node := runtime.NewNode(step, runtime.NodeState{})
-	node.SetStatus(core.NodeRunning)
+	node.SetStatus(ir.NodeRunning)
 
 	// Cancel the node
 	node.Cancel()
 
 	// Check status changed to cancel
-	assert.Equal(t, core.NodeAborted, node.NodeData().State.Status)
+	assert.Equal(t, ir.NodeAborted, node.NodeData().State.Status)
 }
 
 func TestNodeSetupContextBeforeExec(t *testing.T) {
 	ctx := context.Background()
-	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 	ctx = runtime.WithEnv(ctx, env)
 
-	step := core.Step{Name: "test-step"}
+	step := ir.Step{Name: "test-step"}
 	node := runtime.NewNode(step, runtime.NodeState{
 		Stdout: "/tmp/stdout.log",
 		Stderr: "/tmp/stderr.log",
@@ -1204,14 +1204,14 @@ func TestNodeOutputCaptureWithLargeOutput(t *testing.T) {
 			tempDir := t.TempDir()
 
 			// Create DAG with output size limit
-			dag := &core.DAG{
+			dag := &ir.DAG{
 				MaxOutputSize: tt.maxOutputSize,
 			}
 
 			// Setup environment with DAG
 			ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
-			step := core.Step{
+			step := ir.Step{
 				Name:    "test-output-capture",
 				Command: tt.command,
 				Args:    tt.args,
@@ -1258,7 +1258,7 @@ func TestNodeOutputCaptureWithLargeOutput(t *testing.T) {
 		for _, size := range sizes {
 			t.Run(fmt.Sprintf("size_%d", size), func(t *testing.T) {
 				ctx := context.Background()
-				dag := &core.DAG{
+				dag := &ir.DAG{
 					MaxOutputSize: size,
 				}
 
@@ -1269,9 +1269,9 @@ func TestNodeOutputCaptureWithLargeOutput(t *testing.T) {
 				assert.Equal(t, size, env.DAG.MaxOutputSize)
 
 				// Create a node with output capture
-				step := core.Step{
+				step := ir.Step{
 					Name: "test-size-config",
-					Commands: []core.CommandEntry{{
+					Commands: []ir.CommandEntry{{
 						Command: "echo",
 						Args:    []string{"test"},
 					}},
@@ -1294,57 +1294,57 @@ func TestNodeShouldContinue(t *testing.T) {
 
 	tests := []struct {
 		name               string
-		nodeStatus         core.NodeStatus
+		nodeStatus         ir.NodeStatus
 		exitCode           int
-		continueOnSettings core.ContinueOn
+		continueOnSettings ir.ContinueOn
 		setupOutput        func(t *testing.T, node *runtime.Node)
 		expectContinue     bool
 	}{
 		{
 			name:       "ContinueOnFailure",
-			nodeStatus: core.NodeFailed,
+			nodeStatus: ir.NodeFailed,
 			exitCode:   1,
-			continueOnSettings: core.ContinueOn{
+			continueOnSettings: ir.ContinueOn{
 				Failure: true,
 			},
 			expectContinue: true,
 		},
 		{
 			name:       "ContinueOnSpecificExitCode",
-			nodeStatus: core.NodeFailed,
+			nodeStatus: ir.NodeFailed,
 			exitCode:   42,
-			continueOnSettings: core.ContinueOn{
+			continueOnSettings: ir.ContinueOn{
 				ExitCode: []int{42, 43},
 			},
 			expectContinue: true,
 		},
 		{
 			name:       "DonTContinueOnNonMatchingExitCode",
-			nodeStatus: core.NodeFailed,
+			nodeStatus: ir.NodeFailed,
 			exitCode:   44,
-			continueOnSettings: core.ContinueOn{
+			continueOnSettings: ir.ContinueOn{
 				ExitCode: []int{42, 43},
 			},
 			expectContinue: false,
 		},
 		{
 			name:       "ContinueOnSkipped",
-			nodeStatus: core.NodeSkipped,
-			continueOnSettings: core.ContinueOn{
+			nodeStatus: ir.NodeSkipped,
+			continueOnSettings: ir.ContinueOn{
 				Skipped: true,
 			},
 			expectContinue: true,
 		},
 		{
 			name:               "SuccessAlwaysContinues",
-			nodeStatus:         core.NodeSucceeded,
-			continueOnSettings: core.ContinueOn{},
+			nodeStatus:         ir.NodeSucceeded,
+			continueOnSettings: ir.ContinueOn{},
 			expectContinue:     true,
 		},
 		{
 			name:       "CancelNeverContinues",
-			nodeStatus: core.NodeAborted,
-			continueOnSettings: core.ContinueOn{
+			nodeStatus: ir.NodeAborted,
+			continueOnSettings: ir.ContinueOn{
 				Failure: true,
 				Skipped: true,
 			},
@@ -1352,8 +1352,8 @@ func TestNodeShouldContinue(t *testing.T) {
 		},
 		{
 			name:       "ContinueOnOutputMatch",
-			nodeStatus: core.NodeFailed,
-			continueOnSettings: core.ContinueOn{
+			nodeStatus: ir.NodeFailed,
+			continueOnSettings: ir.ContinueOn{
 				Output: []string{"WARNING"},
 			},
 			setupOutput: func(t *testing.T, node *runtime.Node) {
@@ -1371,8 +1371,8 @@ func TestNodeShouldContinue(t *testing.T) {
 		},
 		{
 			name:       "ContinueOnRegexOutputMatch",
-			nodeStatus: core.NodeFailed,
-			continueOnSettings: core.ContinueOn{
+			nodeStatus: ir.NodeFailed,
+			continueOnSettings: ir.ContinueOn{
 				Output: []string{"re:.*timeout.*"},
 			},
 			setupOutput: func(t *testing.T, node *runtime.Node) {
@@ -1391,9 +1391,9 @@ func TestNodeShouldContinue(t *testing.T) {
 
 		{
 			name:       "DonTContinueOnSkippedWhenContinueOnSkippedIsFalseEvenWithExitCode0InExitCode",
-			nodeStatus: core.NodeSkipped,
+			nodeStatus: ir.NodeSkipped,
 			exitCode:   0,
-			continueOnSettings: core.ContinueOn{
+			continueOnSettings: ir.ContinueOn{
 				Skipped:  false,
 				ExitCode: []int{0, 1, 2},
 			},
@@ -1404,7 +1404,7 @@ func TestNodeShouldContinue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			step := core.Step{
+			step := ir.Step{
 				Name:       "test-step",
 				ContinueOn: tt.continueOnSettings,
 			}
@@ -1439,7 +1439,7 @@ type nodeOption func(*runtime.NodeData)
 
 func withNodeCommand(command string) nodeOption {
 	return func(data *runtime.NodeData) {
-		data.Step.Commands = []core.CommandEntry{{
+		data.Step.Commands = []ir.CommandEntry{{
 			Command:     command,
 			CmdWithArgs: command,
 		}}
@@ -1487,7 +1487,7 @@ func setupNode(t *testing.T, opts ...nodeOption) nodeHelper {
 
 	th := test.Setup(t)
 
-	data := runtime.NodeData{Step: core.Step{}}
+	data := runtime.NodeData{Step: ir.Step{}}
 	for _, opt := range opts {
 		opt(&data)
 	}
@@ -1539,7 +1539,7 @@ func (n nodeHelper) AssertOutput(t *testing.T, key, value string) {
 }
 
 func (n nodeHelper) execContext(dagRunID string) context.Context {
-	return runtime.NewContext(n.Context, &core.DAG{}, dagRunID, "logFile")
+	return runtime.NewContext(n.Context, &ir.DAG{}, dagRunID, "logFile")
 }
 
 func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
@@ -1554,9 +1554,9 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 		// Absolute path for stdout
 		stdoutPath := filepath.Join(tempDir, "output.log")
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-absolute-path",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "echo",
 				Args:    []string{"hello world"},
 			}},
@@ -1568,7 +1568,7 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 
 		// Setup context with working directory
 		ctx := context.Background()
-		dag := &core.DAG{}
+		dag := &ir.DAG{}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 		env := runtime.GetEnv(ctx)
 		env.WorkingDir = workDir
@@ -1599,9 +1599,9 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 		// Relative path for stdout
 		stdoutPath := "output.log"
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-relative-path",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "echo",
 				Args:    []string{"hello from working dir"},
 			}},
@@ -1613,7 +1613,7 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 
 		// Setup context with working directory
 		ctx := context.Background()
-		dag := &core.DAG{}
+		dag := &ir.DAG{}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 		env := runtime.GetEnv(ctx)
 		env.WorkingDir = workDir
@@ -1649,9 +1649,9 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 		// Relative path for stderr
 		stderrPath := "error.log"
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-stderr-path",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "sh",
 				Args:    []string{"-c", "echo 'error message' >&2"},
 			}},
@@ -1663,7 +1663,7 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 
 		// Setup context with working directory
 		ctx := context.Background()
-		dag := &core.DAG{}
+		dag := &ir.DAG{}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 		env := runtime.GetEnv(ctx)
 		env.WorkingDir = workDir
@@ -1700,9 +1700,9 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 		// Nested relative path
 		stdoutPath := "logs/output.log"
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-nested-path",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "echo",
 				Args:    []string{"nested output"},
 			}},
@@ -1714,7 +1714,7 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 
 		// Setup context with working directory
 		ctx := context.Background()
-		dag := &core.DAG{}
+		dag := &ir.DAG{}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 		env := runtime.GetEnv(ctx)
 		env.WorkingDir = workDir
@@ -1746,9 +1746,9 @@ func TestLogOutputMode(t *testing.T) {
 
 		tempDir := t.TempDir()
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-separate",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "sh",
 				Args:    []string{"-c", "echo stdout && echo stderr >&2"},
 			}},
@@ -1759,8 +1759,8 @@ func TestLogOutputMode(t *testing.T) {
 
 		// Setup context with DAG using default (separate) log output mode
 		ctx := context.Background()
-		dag := &core.DAG{
-			LogOutput: core.LogOutputSeparate,
+		dag := &ir.DAG{
+			LogOutput: ir.LogOutputSeparate,
 		}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
@@ -1796,9 +1796,9 @@ func TestLogOutputMode(t *testing.T) {
 
 		tempDir := t.TempDir()
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-merged",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "sh",
 				Args:    []string{"-c", "echo stdout && echo stderr >&2"},
 			}},
@@ -1809,8 +1809,8 @@ func TestLogOutputMode(t *testing.T) {
 
 		// Setup context with DAG using merged log output mode
 		ctx := context.Background()
-		dag := &core.DAG{
-			LogOutput: core.LogOutputMerged,
+		dag := &ir.DAG{
+			LogOutput: ir.LogOutputMerged,
 		}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
@@ -1843,13 +1843,13 @@ func TestLogOutputMode(t *testing.T) {
 		tempDir := t.TempDir()
 
 		// Step explicitly sets merged mode, overriding DAG's separate mode
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-step-override",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "sh",
 				Args:    []string{"-c", "echo stdout && echo stderr >&2"},
 			}},
-			LogOutput: core.LogOutputMerged,
+			LogOutput: ir.LogOutputMerged,
 		}
 
 		node := runtime.NewNode(step, runtime.NodeState{})
@@ -1857,8 +1857,8 @@ func TestLogOutputMode(t *testing.T) {
 
 		// Setup context with DAG using separate mode (will be overridden by step)
 		ctx := context.Background()
-		dag := &core.DAG{
-			LogOutput: core.LogOutputSeparate,
+		dag := &ir.DAG{
+			LogOutput: ir.LogOutputSeparate,
 		}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
@@ -1890,13 +1890,13 @@ func TestLogOutputMode(t *testing.T) {
 		tempDir := t.TempDir()
 
 		// Step explicitly sets separate mode, overriding DAG's merged mode
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-step-separate-override",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "sh",
 				Args:    []string{"-c", "echo stdout && echo stderr >&2"},
 			}},
-			LogOutput: core.LogOutputSeparate,
+			LogOutput: ir.LogOutputSeparate,
 		}
 
 		node := runtime.NewNode(step, runtime.NodeState{})
@@ -1904,8 +1904,8 @@ func TestLogOutputMode(t *testing.T) {
 
 		// Setup context with DAG using merged mode (will be overridden by step)
 		ctx := context.Background()
-		dag := &core.DAG{
-			LogOutput: core.LogOutputMerged,
+		dag := &ir.DAG{
+			LogOutput: ir.LogOutputMerged,
 		}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
@@ -1932,9 +1932,9 @@ func TestLogOutputMode(t *testing.T) {
 		tempDir := t.TempDir()
 
 		// Command that interleaves stdout and stderr
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-interleaved",
-			Commands: []core.CommandEntry{{
+			Commands: []ir.CommandEntry{{
 				Command: "sh",
 				Args:    []string{"-c", "echo 'line1-stdout' && echo 'line2-stderr' >&2 && echo 'line3-stdout' && echo 'line4-stderr' >&2"},
 			}},
@@ -1945,8 +1945,8 @@ func TestLogOutputMode(t *testing.T) {
 
 		// Setup context with DAG using merged log output mode
 		ctx := context.Background()
-		dag := &core.DAG{
-			LogOutput: core.LogOutputMerged,
+		dag := &ir.DAG{
+			LogOutput: ir.LogOutputMerged,
 		}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
@@ -1979,7 +1979,7 @@ func TestNodeChatMessages(t *testing.T) {
 	t.Run("SetAndGetMessages", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{Name: "test-chat-step"}
+		step := ir.Step{Name: "test-chat-step"}
 		node := runtime.NewNode(step, runtime.NodeState{})
 
 		// Initially should be empty
@@ -2000,7 +2000,7 @@ func TestNodeChatMessages(t *testing.T) {
 	t.Run("EmptyMessages", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{Name: "test-empty-messages"}
+		step := ir.Step{Name: "test-empty-messages"}
 		node := runtime.NewNode(step, runtime.NodeState{})
 
 		// Set empty messages
@@ -2011,7 +2011,7 @@ func TestNodeChatMessages(t *testing.T) {
 	t.Run("NilMessages", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{Name: "test-nil-messages"}
+		step := ir.Step{Name: "test-nil-messages"}
 		node := runtime.NewNode(step, runtime.NodeState{})
 
 		// Set nil messages
@@ -2022,7 +2022,7 @@ func TestNodeChatMessages(t *testing.T) {
 	t.Run("ConcurrentAccess", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{Name: "test-concurrent"}
+		step := ir.Step{Name: "test-concurrent"}
 		node := runtime.NewNode(step, runtime.NodeState{})
 
 		// Test concurrent access to message methods

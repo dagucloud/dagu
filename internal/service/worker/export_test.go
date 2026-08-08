@@ -8,8 +8,8 @@ import (
 	"errors"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -80,7 +80,7 @@ func ReportTaskInitFailureStatusForTest(ctx context.Context, task *coordinatorv1
 }
 
 // LoadRemoteTaskDAGForTest loads the DAG definition for a remote task.
-func LoadRemoteTaskDAGForTest(ctx context.Context, cfg *config.Config, task *coordinatorv1.Task) (*core.DAG, func(), error) {
+func LoadRemoteTaskDAGForTest(ctx context.Context, cfg *config.Config, task *coordinatorv1.Task) (*ir.DAG, func(), error) {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}

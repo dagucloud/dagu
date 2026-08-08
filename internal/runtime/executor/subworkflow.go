@@ -7,8 +7,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
@@ -22,8 +22,8 @@ type SubWorkflowRunner interface {
 
 // SubWorkflowRequest describes a child workflow invocation.
 type SubWorkflowRequest struct {
-	DAG               *core.DAG
-	ParentDAG         *core.DAG
+	DAG               *ir.DAG
+	ParentDAG         *ir.DAG
 	RootDAGRun        exec.DAGRunRef
 	ParentDAGRun      exec.DAGRunRef
 	RunID             string
@@ -62,7 +62,7 @@ type SubWorkflowCancelIntent struct {
 
 // SubWorkflowCancelRequest describes a child workflow cancellation.
 type SubWorkflowCancelRequest struct {
-	DAG        *core.DAG
+	DAG        *ir.DAG
 	RootDAGRun exec.DAGRunRef
 	RunID      string
 	Intent     SubWorkflowCancelIntent

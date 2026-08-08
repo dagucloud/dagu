@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -210,15 +210,15 @@ func Write(indexPath string, idx *indexv1.DAGIndex) error {
 	return fileutil.WriteFileAtomic(indexPath, data, 0600)
 }
 
-// DAGFromEntry reconstructs a minimal core.DAG from an index entry.
+// DAGFromEntry reconstructs a minimal ir.DAG from an index entry.
 // The returned DAG is suitable for List/LabelList operations.
-func DAGFromEntry(entry *indexv1.DAGIndexEntry, baseDir string) *core.DAG {
-	dag := &core.DAG{
+func DAGFromEntry(entry *indexv1.DAGIndexEntry, baseDir string) *ir.DAG {
+	dag := &ir.DAG{
 		Name:        entry.Name,
 		Location:    filepath.Join(baseDir, filepath.FromSlash(entry.FilePath)),
 		Group:       entry.Group,
 		Description: entry.Description,
-		Labels:      core.NewLabels(entry.Labels),
+		Labels:      ir.NewLabels(entry.Labels),
 	}
 
 	if entry.LoadError != "" {
@@ -242,7 +242,7 @@ func entryFileName(filePath string) string {
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-func labelsToStrings(labels core.Labels) []string {
+func labelsToStrings(labels ir.Labels) []string {
 	if len(labels) == 0 {
 		return nil
 	}
@@ -253,7 +253,7 @@ func labelsToStrings(labels core.Labels) []string {
 	return strs
 }
 
-func scheduleToString(schedules []core.Schedule) string {
+func scheduleToString(schedules []ir.Schedule) string {
 	if len(schedules) == 0 {
 		return ""
 	}
@@ -264,8 +264,8 @@ func scheduleToString(schedules []core.Schedule) string {
 	return string(data)
 }
 
-func parseScheduleExpressions(s string) []core.Schedule {
-	var schedules []core.Schedule
+func parseScheduleExpressions(s string) []ir.Schedule {
+	var schedules []ir.Schedule
 	if err := json.Unmarshal([]byte(s), &schedules); err == nil {
 		return schedules
 	}
@@ -276,10 +276,10 @@ func parseScheduleExpressions(s string) []core.Schedule {
 		if expr == "" {
 			continue
 		}
-		if sched, err := core.NewCronSchedule(expr); err == nil {
+		if sched, err := ir.NewCronSchedule(expr); err == nil {
 			schedules = append(schedules, sched)
 		} else {
-			schedules = append(schedules, core.Schedule{Expression: expr})
+			schedules = append(schedules, ir.Schedule{Expression: expr})
 		}
 	}
 	return schedules

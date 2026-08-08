@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +39,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"PRICE_OUT": "$9.99",
 		})
@@ -63,7 +63,7 @@ steps:
 		agent := dag.Agent()
 		agent.RunSuccess(t)
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertOutputs(t, map[string]any{
 			"LITERAL_OUT": "'${HOME}'",
 		})

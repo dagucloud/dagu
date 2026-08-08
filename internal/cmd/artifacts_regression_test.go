@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,10 +35,10 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 	ctx, err := NewContext(command, nil)
 	require.NoError(t, err)
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:      "cleanup-artifact-test",
 		Location:  filepath.Join(home, "dags", "cleanup-artifact-test.yaml"),
-		Artifacts: &core.ArtifactsConfig{Enabled: true},
+		Artifacts: &ir.ArtifactsConfig{Enabled: true},
 	}
 	const dagRunID = "run-cleanup-1"
 
@@ -52,7 +52,7 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 
 	status := exec.InitialStatus(dag)
 	status.DAGRunID = dagRunID
-	status.Status = core.Succeeded
+	status.Status = ir.Succeeded
 	status.ArchiveDir = archiveDir
 	require.NoError(t, attempt.Write(ctx.Context, status))
 	require.NoError(t, attempt.Close(ctx.Context))

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,7 +48,7 @@ func TestRetryPolicy_WithExponentialBackoff(t *testing.T) {
 
 	// Verify the step failed after retries
 	require.Len(t, dagRunStatus.Nodes, 1)
-	assert.Equal(t, core.NodeFailed, dagRunStatus.Nodes[0].Status)
+	assert.Equal(t, ir.NodeFailed, dagRunStatus.Nodes[0].Status)
 	assert.Equal(t, "failing-step", dagRunStatus.Nodes[0].Step.Name)
 
 	// Verify it retried exactly 3 times
@@ -93,7 +93,7 @@ func TestRetryPolicy_WithBackoffBoolean(t *testing.T) {
 
 	// Verify the step failed after retries
 	require.Len(t, dagRunStatus.Nodes, 1)
-	assert.Equal(t, core.NodeFailed, dagRunStatus.Nodes[0].Status)
+	assert.Equal(t, ir.NodeFailed, dagRunStatus.Nodes[0].Status)
 	assert.Equal(t, 3, dagRunStatus.Nodes[0].RetryCount)
 
 	// Verify timing (backoff: true should use 2.0 multiplier)
@@ -130,7 +130,7 @@ func TestRepeatPolicy_WithExponentialBackoff(t *testing.T) {
 	require.NoError(t, err, "DAG should complete successfully")
 
 	// Verify successful completion
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Get the latest status
 	dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
@@ -139,7 +139,7 @@ func TestRepeatPolicy_WithExponentialBackoff(t *testing.T) {
 
 	// Verify it repeated exactly 4 times
 	require.Len(t, dagRunStatus.Nodes, 1)
-	assert.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status)
+	assert.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
 	assert.Equal(t, 4, dagRunStatus.Nodes[0].DoneCount, "Step should have executed exactly 4 times")
 
 	// Verify timing

@@ -13,11 +13,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -118,10 +118,10 @@ func NewDAGExecutor(
 // - No jobs are lost due to temporary system failures
 func (e *DAGExecutor) HandleJob(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	operation exec.DispatchOperation,
 	runID string,
-	triggerType core.TriggerType,
+	triggerType ir.TriggerType,
 	scheduleTime time.Time,
 ) error {
 	profileName := ""
@@ -135,7 +135,7 @@ func (e *DAGExecutor) HandleJob(
 
 	// For distributed execution with START operation, enqueue for persistence
 	if e.shouldUseDistributedExecution(dag) && operation == exec.DispatchOperationStart {
-		if dag.Type == core.TypeIncremental {
+		if dag.Type == ir.TypeIncremental {
 			return dispatch.ErrIncrementalRequiresLocal
 		}
 		ctx = logger.WithValues(ctx,
@@ -178,11 +178,11 @@ func (e *DAGExecutor) HandleJob(
 // which means "retry the dispatch", not "retry a failed execution".
 func (e *DAGExecutor) ExecuteDAG(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	operation exec.DispatchOperation,
 	runID string,
 	previousStatus *exec.DAGRunStatus,
-	triggerType core.TriggerType,
+	triggerType ir.TriggerType,
 	scheduleTime string,
 ) error {
 	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", "")
@@ -190,11 +190,11 @@ func (e *DAGExecutor) ExecuteDAG(
 
 func (e *DAGExecutor) ExecuteDAGWithAdmission(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	operation exec.DispatchOperation,
 	runID string,
 	previousStatus *exec.DAGRunStatus,
-	triggerType core.TriggerType,
+	triggerType ir.TriggerType,
 	scheduleTime string,
 	admissionReservationToken string,
 ) error {
@@ -203,11 +203,11 @@ func (e *DAGExecutor) ExecuteDAGWithAdmission(
 
 func (e *DAGExecutor) executeDAG(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	operation exec.DispatchOperation,
 	runID string,
 	previousStatus *exec.DAGRunStatus,
-	triggerType core.TriggerType,
+	triggerType ir.TriggerType,
 	scheduleTime string,
 	defaultProfileName string,
 	admissionReservationToken string,
@@ -222,7 +222,7 @@ func (e *DAGExecutor) executeDAG(
 	}
 
 	if e.shouldUseDistributedExecution(dag) {
-		if dag.Type == core.TypeIncremental {
+		if dag.Type == ir.TypeIncremental {
 			return dispatch.ErrIncrementalRequiresLocal
 		}
 		// Distributed execution: dispatch to coordinator
@@ -309,7 +309,7 @@ func fallbackProfileName(profileName, fallback string) string {
 	return fallback
 }
 
-func (e *DAGExecutor) defaultProfileName(ctx context.Context, dag *core.DAG) (string, error) {
+func (e *DAGExecutor) defaultProfileName(ctx context.Context, dag *ir.DAG) (string, error) {
 	if e.profileResolver == nil || dag == nil {
 		return "", nil
 	}
@@ -345,12 +345,12 @@ func validateDispatchOperation(operation exec.DispatchOperation) error {
 // shouldUseDistributedExecution checks if distributed execution should be used.
 // Delegates to dispatch.ShouldDispatchToCoordinator for consistent dispatch logic
 // across all execution paths (API, CLI, scheduler, sub-DAG).
-func (e *DAGExecutor) shouldUseDistributedExecution(dag *core.DAG) bool {
+func (e *DAGExecutor) shouldUseDistributedExecution(dag *ir.DAG) bool {
 	return dispatch.ShouldDispatchToCoordinator(dag, e.coordinatorCli != nil, e.defaultExecMode)
 }
 
 // IsDistributed returns whether the given DAG would use distributed execution.
-func (e *DAGExecutor) IsDistributed(dag *core.DAG) bool {
+func (e *DAGExecutor) IsDistributed(dag *ir.DAG) bool {
 	return e.shouldUseDistributedExecution(dag)
 }
 
@@ -385,7 +385,7 @@ func (e *DAGExecutor) dispatchToCoordinator(ctx context.Context, req exec.Dispat
 }
 
 // Restart restarts a DAG unconditionally.
-func (e *DAGExecutor) Restart(ctx context.Context, dag *core.DAG, scheduleTime time.Time) error {
+func (e *DAGExecutor) Restart(ctx context.Context, dag *ir.DAG, scheduleTime time.Time) error {
 	prepared, err := e.prepareDAGForSubprocess(ctx, dag, "")
 	if err != nil {
 		return fmt.Errorf("failed to prepare DAG env for restart: %w", err)
@@ -397,7 +397,7 @@ func (e *DAGExecutor) Restart(ctx context.Context, dag *core.DAG, scheduleTime t
 	return launcher.Start(ctx, spec)
 }
 
-func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *core.DAG, params any) (*core.DAG, error) {
+func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, params any) (*ir.DAG, error) {
 	if dag == nil {
 		return nil, nil
 	}

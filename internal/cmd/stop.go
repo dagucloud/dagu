@@ -8,9 +8,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -61,7 +61,7 @@ func runStop(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to extract DAG name: %w", err)
 	}
 
-	var dag *core.DAG
+	var dag *ir.DAG
 	if dagRunID != "" {
 		// Retrieve the previous run's history record for the specified dag-run ID.
 		ref := exec.NewDAGRunRef(name, dagRunID)

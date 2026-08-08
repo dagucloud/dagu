@@ -15,8 +15,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Error definitions for common issues
@@ -145,9 +145,9 @@ func prepareListOptions(opts []exec.ListDAGRunStatusesOption) (exec.ListDAGRunSt
 func (store *Store) resolveStatus(
 	ctx context.Context,
 	dagRun *DAGRun,
-	labelFilters []core.LabelFilter,
+	labelFilters []ir.LabelFilter,
 	workspaceFilter *exec.WorkspaceFilter,
-	statusesFilter map[core.Status]struct{},
+	statusesFilter map[ir.Status]struct{},
 	hasStatusFilter bool,
 ) *exec.DAGRunStatus {
 	// Fast path: use pre-loaded summary for filtering.
@@ -158,12 +158,12 @@ func (store *Store) resolveStatus(
 			}
 		}
 		if len(labelFilters) > 0 {
-			summaryLabels := core.NewLabels(dagRun.summary.Labels)
+			summaryLabels := ir.NewLabels(dagRun.summary.Labels)
 			if !summaryLabels.MatchesFilters(labelFilters) {
 				return nil
 			}
 		}
-		if !workspaceFilter.MatchesLabels(core.NewLabels(dagRun.summary.Labels)) {
+		if !workspaceFilter.MatchesLabels(ir.NewLabels(dagRun.summary.Labels)) {
 			return nil
 		}
 
@@ -213,12 +213,12 @@ func (store *Store) resolveStatus(
 	}
 
 	if len(labelFilters) > 0 {
-		statusLabels := core.NewLabels(status.Labels)
+		statusLabels := ir.NewLabels(status.Labels)
 		if !statusLabels.MatchesFilters(labelFilters) {
 			return nil
 		}
 	}
-	if !workspaceFilter.MatchesLabels(core.NewLabels(status.Labels)) {
+	if !workspaceFilter.MatchesLabels(ir.NewLabels(status.Labels)) {
 		return nil
 	}
 
@@ -235,7 +235,7 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
+	expectedStatus ir.Status,
 	mutate func(*exec.DAGRunStatus) error,
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
@@ -329,7 +329,7 @@ func formatUnixToRFC3339(unix int64) string {
 // CreateAttempt creates a new history record for the specified dag-run ID.
 // If opts.Root is not nil, it creates a new history record for a sub dag-run.
 // If opts.Retry is true, it creates a retry record for the specified dag-run ID.
-func (store *Store) CreateAttempt(ctx context.Context, dag *core.DAG, timestamp time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (store *Store) CreateAttempt(ctx context.Context, dag *ir.DAG, timestamp time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	if dagRunID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
@@ -383,7 +383,7 @@ func (store *Store) CreateAttempt(ctx context.Context, dag *core.DAG, timestamp 
 }
 
 // newChildRecord creates a new history record for a sub dag-run.
-func (b *Store) newChildRecord(ctx context.Context, dag *core.DAG, timestamp time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (b *Store) newChildRecord(ctx context.Context, dag *ir.DAG, timestamp time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	dataRoot := NewDataRoot(b.baseDir, opts.RootDAGRun.Name)
 	root, err := dataRoot.FindByDAGRunID(ctx, opts.RootDAGRun.ID)
 	if err != nil {

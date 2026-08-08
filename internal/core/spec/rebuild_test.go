@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,14 +20,14 @@ func TestRebuildFromYAML_PreservesJSONSerializedFields(t *testing.T) {
 	t.Parallel()
 
 	// Fields that survive dag.json, typically inherited from base.yaml.
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:           "test-dag",
 		Queue:          "Default",
 		WorkerSelector: map[string]string{"env": "prod"},
 		MaxActiveRuns:  5,
 		MaxActiveSteps: 3,
 		LogDir:         "/custom/logs",
-		Labels:         core.NewLabels([]string{"important", "production"}),
+		Labels:         ir.NewLabels([]string{"important", "production"}),
 		Location:       "/path/to/dag.yaml",
 		YamlData:       []byte("steps:\n  - name: test\n    command: echo hello"),
 	}
@@ -49,7 +49,7 @@ func TestRebuildFromYAML_PreservesJSONSerializedFields(t *testing.T) {
 func TestRebuildFromYAML_EmptyYAML(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "test-dag",
 		Queue:    "Default",
 		YamlData: nil,
@@ -67,7 +67,7 @@ func TestRebuildFromYAML_ParamsOverrideReplacesSnapshotParams(t *testing.T) {
 
 	// Both production callers pass runtime params captured from the run's status,
 	// which must win over the params the snapshot carries and over the YAML default.
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:   "params-override",
 		Params: []string{`topic="from-snapshot"`},
 		YamlData: []byte(`
@@ -88,7 +88,7 @@ steps:
 func TestRebuildFromYAML_RebuildsEnvFromYAML(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "test-dag",
 		Queue:    "Default",
 		Location: "/path/to/dag.yaml",
@@ -105,7 +105,7 @@ func TestRebuildFromYAML_RebuildsEnvFromYAML(t *testing.T) {
 func TestRebuildFromYAML_ReappliesBaseConfigContent(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		YamlData: []byte(`
 steps:
@@ -137,7 +137,7 @@ func TestRebuildFromYAML_UsesTransportedBuildEnv(t *testing.T) {
 		t.Setenv(key, value)
 	}
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		YamlData: []byte(`
 env:
@@ -170,7 +170,7 @@ func TestRebuildFromYAML_EnvPrecedenceWhenSourcesConflict(t *testing.T) {
 		t.Setenv(key, value)
 	}
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "env-precedence",
 		YamlData: []byte(`
 env:
@@ -206,7 +206,7 @@ steps:
 func TestRebuildFromYAML_RestoresHarnessConfig(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "snapshot-harness",
 		YamlData: []byte(`
 harnesses:
@@ -240,7 +240,7 @@ steps:
 	require.Contains(t, restored.Harnesses, "gemini")
 	require.NotNil(t, restored.Harnesses["gemini"])
 	assert.Equal(t, "gemini", restored.Harnesses["gemini"].Binary)
-	assert.Equal(t, core.HarnessPromptModeFlag, restored.Harnesses["gemini"].PromptMode)
+	assert.Equal(t, ir.HarnessPromptModeFlag, restored.Harnesses["gemini"].PromptMode)
 	assert.Equal(t, "--prompt", restored.Harnesses["gemini"].PromptFlag)
 }
 
@@ -253,7 +253,7 @@ func TestRebuildFromYAML_RestoresExecutorDefaults(t *testing.T) {
 	// value from the one a rebuild would produce.
 	snapshotWorkingDir := t.TempDir()
 	yamlWorkingDir := t.TempDir()
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "snapshot-executor-defaults",
 		WorkingDir: snapshotWorkingDir,
 		YamlData: fmt.Appendf(nil, `
@@ -296,7 +296,7 @@ steps:
 func TestRebuildFromYAML_PreservesPresolvedBuildEnv(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "snapshot-presolved-env",
 		YamlData: []byte(`
 env:

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -25,12 +25,12 @@ type buildContext struct {
 	// baseDAG contains the built base-config DAG for the current document.
 	// It is used while building child handlers and steps so DAG-level defaults
 	// inherited from base config are visible during executor inference.
-	baseDAG *core.DAG
+	baseDAG *ir.DAG
 	// baseDefaults contains decoded step defaults inherited from base config.
 	// They are merged with DAG-local defaults before building steps and handlers.
 	baseDefaults *defaults
 
-	// buildEnv is a temporary map used during core.DAG building to pass env vars to params
+	// buildEnv is a temporary map used during ir.DAG building to pass env vars to params
 	// This is not serialized and is cleared after build completes
 	buildEnv map[string]string
 
@@ -68,7 +68,7 @@ type paramsState struct {
 // stepBuildContext is the context for building a step.
 type stepBuildContext struct {
 	buildContext
-	dag *core.DAG
+	dag *ir.DAG
 }
 
 func (c buildContext) WithOpts(opts buildOpts) buildContext {
@@ -117,9 +117,9 @@ type buildOpts struct {
 	Parameters string
 	// ParametersList specifies the parameters to the DAG.
 	ParametersList []string
-	// Name of the core.DAG if it's not defined in the spec
+	// Name of the ir.DAG if it's not defined in the spec
 	Name string
-	// DAGsDir is the directory containing the core.DAG files.
+	// DAGsDir is the directory containing the ir.DAG files.
 	DAGsDir string
 	// DefaultWorkingDir is the default working directory for DAGs without explicit workingDir.
 	DefaultWorkingDir string
@@ -142,7 +142,7 @@ func (o buildOpts) Has(flag buildFlag) bool {
 }
 
 // parsePrecondition parses the precondition field.
-func parsePrecondition(ctx buildContext, precondition any) ([]*core.Condition, error) {
+func parsePrecondition(ctx buildContext, precondition any) ([]*ir.Condition, error) {
 	switch v := precondition.(type) {
 	case nil:
 		return nil, nil
@@ -151,7 +151,7 @@ func parsePrecondition(ctx buildContext, precondition any) ([]*core.Condition, e
 		return parsePreconditionEntry(ctx, v)
 
 	case []any:
-		var ret []*core.Condition
+		var ret []*ir.Condition
 		for _, vv := range v {
 			parsed, err := parsePreconditionEntry(ctx, vv)
 			if err != nil {
@@ -162,20 +162,20 @@ func parsePrecondition(ctx buildContext, precondition any) ([]*core.Condition, e
 		return ret, nil
 
 	default:
-		return nil, core.NewValidationError("preconditions", v, ErrPreconditionMustBeArrayOrString)
+		return nil, ir.NewValidationError("preconditions", v, ErrPreconditionMustBeArrayOrString)
 	}
 }
 
-func parsePreconditionEntry(_ buildContext, precondition any) ([]*core.Condition, error) {
+func parsePreconditionEntry(_ buildContext, precondition any) ([]*ir.Condition, error) {
 	switch v := precondition.(type) {
 	case string:
 		if strings.TrimSpace(v) == "" {
-			return nil, core.NewValidationError("preconditions", v, ErrPreconditionValueMustBeString)
+			return nil, ir.NewValidationError("preconditions", v, ErrPreconditionValueMustBeString)
 		}
-		return []*core.Condition{{Condition: v}}, nil
+		return []*ir.Condition{{Condition: v}}, nil
 
 	case map[string]any:
-		var ret core.Condition
+		var ret ir.Condition
 		hasCondition := false
 		hasEval := false
 		hasExpected := false
@@ -184,7 +184,7 @@ func parsePreconditionEntry(_ buildContext, precondition any) ([]*core.Condition
 			case "condition":
 				val, ok := vv.(string)
 				if !ok || strings.TrimSpace(val) == "" {
-					return nil, core.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
+					return nil, ir.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
 				}
 				ret.Condition = val
 				hasCondition = true
@@ -192,7 +192,7 @@ func parsePreconditionEntry(_ buildContext, precondition any) ([]*core.Condition
 			case "eval":
 				val, ok := vv.(string)
 				if !ok || strings.TrimSpace(val) == "" {
-					return nil, core.NewValidationError("preconditions", vv, fmt.Errorf("eval must be a non-empty string: %w", ErrPreconditionValueMustBeString))
+					return nil, ir.NewValidationError("preconditions", vv, fmt.Errorf("eval must be a non-empty string: %w", ErrPreconditionValueMustBeString))
 				}
 				ret.Eval = val
 				hasEval = true
@@ -200,14 +200,14 @@ func parsePreconditionEntry(_ buildContext, precondition any) ([]*core.Condition
 			case "expected":
 				val, ok := vv.(string)
 				if !ok || strings.TrimSpace(val) == "" {
-					return nil, core.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
+					return nil, ir.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
 				}
 				if after, ok0 := strings.CutPrefix(val, "re:"); ok0 {
 					if strings.TrimSpace(after) == "" {
-						return nil, core.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is empty"))
+						return nil, ir.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is empty"))
 					}
 					if _, err := regexp.Compile(after); err != nil {
-						return nil, core.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is invalid: %w", err))
+						return nil, ir.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is invalid: %w", err))
 					}
 				}
 				ret.Expected = val
@@ -216,36 +216,36 @@ func parsePreconditionEntry(_ buildContext, precondition any) ([]*core.Condition
 			case "negate":
 				val, ok := vv.(bool)
 				if !ok {
-					return nil, core.NewValidationError("preconditions", vv, ErrPreconditionNegateMustBeBool)
+					return nil, ir.NewValidationError("preconditions", vv, ErrPreconditionNegateMustBeBool)
 				}
 				ret.Negate = val
 
 			default:
-				return nil, core.NewValidationError("preconditions", key, fmt.Errorf("%w: %s", ErrPreconditionHasInvalidKey, key))
+				return nil, ir.NewValidationError("preconditions", key, fmt.Errorf("%w: %s", ErrPreconditionHasInvalidKey, key))
 
 			}
 		}
 
 		if hasCondition && hasEval {
-			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("only one of condition or eval is allowed"))
+			return nil, ir.NewValidationError("preconditions", v, fmt.Errorf("only one of condition or eval is allowed"))
 		}
 		if !hasCondition && !hasEval {
-			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("condition or eval is required"))
+			return nil, ir.NewValidationError("preconditions", v, fmt.Errorf("condition or eval is required"))
 		}
 		if hasEval && !hasExpected {
-			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("expected is required when eval is set"))
+			return nil, ir.NewValidationError("preconditions", v, fmt.Errorf("expected is required when eval is set"))
 		}
 		if hasExpected && strings.TrimSpace(ret.Expected) == "" {
-			return nil, core.NewValidationError("preconditions", v, fmt.Errorf("expected is required when set"))
+			return nil, ir.NewValidationError("preconditions", v, fmt.Errorf("expected is required when set"))
 		}
 		if err := ret.Validate(); err != nil {
-			return nil, core.NewValidationError("preconditions", v, err)
+			return nil, ir.NewValidationError("preconditions", v, err)
 		}
 
-		return []*core.Condition{&ret}, nil
+		return []*ir.Condition{&ret}, nil
 
 	default:
-		return nil, core.NewValidationError("preconditions", v, ErrPreconditionValueMustBeString)
+		return nil, ir.NewValidationError("preconditions", v, ErrPreconditionValueMustBeString)
 	}
 }
 
@@ -277,32 +277,32 @@ var reservedSecretEnvNames = []string{
 }
 
 // parseSecretRefs parses secret references from the YAML definition.
-func parseSecretRefs(ctx buildContext, d *dag) ([]core.SecretRef, error) {
+func parseSecretRefs(ctx buildContext, d *dag) ([]ir.SecretRef, error) {
 	secretRefs := d.Secrets
 
-	// Convert secretRef to core.SecretRef and validate
-	secrets := make([]core.SecretRef, 0, len(secretRefs))
+	// Convert secretRef to ir.SecretRef and validate
+	secrets := make([]ir.SecretRef, 0, len(secretRefs))
 	names := make(map[string]bool)
 	conflicts := reservedSecretNameConflicts()
 
 	for i, def := range secretRefs {
 		// Validate required fields
 		if def.Name == "" {
-			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret at index %d: 'name' field is required", i))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret at index %d: 'name' field is required", i))
 		}
 		if !secretEnvNamePattern.MatchString(def.Name) {
-			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret %q must be a valid environment variable name", def.Name))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q must be a valid environment variable name", def.Name))
 		}
 		if strings.HasPrefix(def.Name, "DAGU_") {
-			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret %q must not start with DAGU_", def.Name))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q must not start with DAGU_", def.Name))
 		}
 		if source, ok := conflicts[def.Name]; ok {
-			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret %q collides with %s", def.Name, source))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q collides with %s", def.Name, source))
 		}
 
 		// Check for duplicate names
 		if names[def.Name] {
-			return nil, core.NewValidationError("secrets", def, fmt.Errorf("duplicate secret name %q", def.Name))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("duplicate secret name %q", def.Name))
 		}
 		names[def.Name] = true
 
@@ -310,19 +310,19 @@ func parseSecretRefs(ctx buildContext, d *dag) ([]core.SecretRef, error) {
 		hasProvider := strings.TrimSpace(def.Provider) != ""
 		hasKey := strings.TrimSpace(def.Key) != ""
 		if hasRef && (hasProvider || hasKey) {
-			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret %q: exactly one of 'ref' or 'provider' plus 'key' is required", def.Name))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: exactly one of 'ref' or 'provider' plus 'key' is required", def.Name))
 		}
 		if !hasRef && (!hasProvider || !hasKey) {
-			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret %q: exactly one of 'ref' or 'provider' plus 'key' is required", def.Name))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: exactly one of 'ref' or 'provider' plus 'key' is required", def.Name))
 		}
 		if hasRef && len(def.Options) > 0 {
-			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret %q: 'options' cannot be used with registry ref", def.Name))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: 'options' cannot be used with registry ref", def.Name))
 		}
 		if hasRef && !secretRefPathPattern.MatchString(def.Ref) {
-			return nil, core.NewValidationError("secrets", def, fmt.Errorf("secret %q: registry ref must be a slash-separated lowercase slug path", def.Name))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: registry ref must be a slash-separated lowercase slug path", def.Name))
 		}
 
-		secrets = append(secrets, core.SecretRef{
+		secrets = append(secrets, ir.SecretRef{
 			Name:     def.Name,
 			Ref:      def.Ref,
 			Provider: def.Provider,
@@ -343,7 +343,7 @@ func reservedSecretNameConflicts() map[string]string {
 }
 
 // generateTypedStepName generates a type-based name for a step after it's been built
-func generateTypedStepName(existingNames map[string]struct{}, step *core.Step, index int) string {
+func generateTypedStepName(existingNames map[string]struct{}, step *ir.Step, index int) string {
 	var prefix string
 
 	// Determine prefix based on the built step's properties
@@ -422,7 +422,7 @@ func validateHarnessPromptCommand(ctx stepBuildContext, raw map[string]any) erro
 	if _, hasScript := raw["script"]; hasScript {
 		agentForm = "`action: harness.run` with `with.prompt` and `with.stdin`"
 	}
-	return core.NewValidationError("command", raw["command"],
+	return ir.NewValidationError("command", raw["command"],
 		fmt.Errorf("a DAG-level harness: block no longer sets the step type: "+
 			"use %s to send this to the agent, or `run:` to execute it locally", agentForm))
 }
@@ -440,14 +440,14 @@ func decodeStep(raw map[string]any) (*step, error) {
 		DecodeHook:  typedUnionDecodeHook(),
 	})
 	if err := md.Decode(raw); err != nil {
-		return nil, core.NewValidationError("steps", raw, withSnakeCaseKeyHint(err))
+		return nil, ir.NewValidationError("steps", raw, withSnakeCaseKeyHint(err))
 	}
 	_, st.outputsSet = raw["outputs"]
 	_, st.inputsSet = raw["inputs"]
 	return &st, nil
 }
 
-func finalizeBuiltStepName(names map[string]struct{}, builtStep *core.Step, idx int) {
+func finalizeBuiltStepName(names map[string]struct{}, builtStep *ir.Step, idx int) {
 	if builtStep.Name == "" {
 		if builtStep.ID != "" {
 			builtStep.Name = builtStep.ID
@@ -461,12 +461,12 @@ func finalizeBuiltStepName(names map[string]struct{}, builtStep *core.Step, idx 
 	names[builtStep.Name] = struct{}{}
 }
 
-func buildConcreteStep(ctx stepBuildContext, s *step) (*core.Step, error) {
+func buildConcreteStep(ctx stepBuildContext, s *step) (*ir.Step, error) {
 	return s.build(ctx)
 }
 
-// buildStepFromRaw build core.Step from give raw data (map[string]any)
-func buildStepFromRaw(ctx stepBuildContext, idx int, raw map[string]any, names map[string]struct{}, defs *defaults) (*core.Step, error) {
+// buildStepFromRaw build ir.Step from give raw data (map[string]any)
+func buildStepFromRaw(ctx stepBuildContext, idx int, raw map[string]any, names map[string]struct{}, defs *defaults) (*ir.Step, error) {
 	if err := validateHarnessPromptCommand(ctx, raw); err != nil {
 		return nil, err
 	}
@@ -493,7 +493,7 @@ func buildStepFromSpec(
 	names map[string]struct{},
 	defs *defaults,
 	forcedName string,
-) (*core.Step, error) {
+) (*ir.Step, error) {
 	if raw != nil {
 		_, hasRun := raw["run"]
 		_, hasAction := raw["action"]
@@ -520,7 +520,7 @@ func buildStepFromSpec(
 		stCopy.Name = forcedName
 	}
 
-	var builtStep *core.Step
+	var builtStep *ir.Step
 	var err error
 	if registry := ctx.customStepTypes; registry != nil {
 		if customType, ok := registry.Lookup(stCopy.Type); ok {
@@ -543,9 +543,9 @@ func buildStepFromSpec(
 
 // injectChainDependencies adds implicit dependencies for chain type execution.
 // In chain execution, each step depends on the immediately previous step(s).
-func injectChainDependencies(dag *core.DAG, prevSteps []*core.Step, step *core.Step) {
+func injectChainDependencies(dag *ir.DAG, prevSteps []*ir.Step, step *ir.Step) {
 	// Early returns for cases where we shouldn't inject dependencies
-	if dag.Type != core.TypeChain || len(prevSteps) == 0 {
+	if dag.Type != ir.TypeChain || len(prevSteps) == 0 {
 		return
 	}
 
@@ -581,7 +581,7 @@ func injectChainDependencies(dag *core.DAG, prevSteps []*core.Step, step *core.S
 }
 
 // getStepAlternateKey returns the alternate identifier for a step, or empty string if none
-func getStepAlternateKey(step *core.Step, primaryKey string) string {
+func getStepAlternateKey(step *ir.Step, primaryKey string) string {
 	if step.ID != "" && primaryKey == step.ID {
 		return step.Name
 	}

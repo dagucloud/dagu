@@ -8,8 +8,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	testutil "github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -31,18 +31,18 @@ func (h Harness) Run(ref exec.DAGRunRef, procGroup string) RunProbe {
 
 // RequireRunning waits until the run reaches running status.
 func (r RunProbe) RequireRunning(timeout time.Duration) *exec.DAGRunStatus {
-	return r.RequireStatus(core.Running, timeout)
+	return r.RequireStatus(ir.Running, timeout)
 }
 
 // RequireStatus waits until the run reaches status.
-func (r RunProbe) RequireStatus(status core.Status, timeout time.Duration) *exec.DAGRunStatus {
+func (r RunProbe) RequireStatus(status ir.Status, timeout time.Duration) *exec.DAGRunStatus {
 	r.h.t.Helper()
 
 	return r.RequireStatusWithin(status, r.h.Timeout(timeout))
 }
 
 // RequireStatusWithin waits until the run reaches status using an already scaled timeout.
-func (r RunProbe) RequireStatusWithin(status core.Status, timeout time.Duration) *exec.DAGRunStatus {
+func (r RunProbe) RequireStatusWithin(status ir.Status, timeout time.Duration) *exec.DAGRunStatus {
 	r.h.t.Helper()
 
 	return r.RequireStatusMatchWithin(fmt.Sprintf("expected %s to reach status %s", r.ref.String(), status), timeout, func(current *exec.DAGRunStatus) bool {
@@ -51,14 +51,14 @@ func (r RunProbe) RequireStatusWithin(status core.Status, timeout time.Duration)
 }
 
 // RequireStatusIn waits until the run reaches one of statuses.
-func (r RunProbe) RequireStatusIn(statuses []core.Status, timeout time.Duration) *exec.DAGRunStatus {
+func (r RunProbe) RequireStatusIn(statuses []ir.Status, timeout time.Duration) *exec.DAGRunStatus {
 	r.h.t.Helper()
 
 	return r.RequireStatusInWithin(statuses, r.h.Timeout(timeout))
 }
 
 // RequireStatusInWithin waits until the run reaches one of statuses using an already scaled timeout.
-func (r RunProbe) RequireStatusInWithin(statuses []core.Status, timeout time.Duration) *exec.DAGRunStatus {
+func (r RunProbe) RequireStatusInWithin(statuses []ir.Status, timeout time.Duration) *exec.DAGRunStatus {
 	r.h.t.Helper()
 
 	return r.RequireStatusMatchWithin(fmt.Sprintf("expected %s to reach one of statuses %v", r.ref.String(), statuses), timeout, func(current *exec.DAGRunStatus) bool {

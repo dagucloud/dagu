@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // DAGLoadOptions selects the loading behaviour a DAGStore caller can choose.
@@ -33,11 +33,11 @@ type DAGStore interface {
 	// Delete removes a DAG definition by name
 	Delete(ctx context.Context, fileName string) error
 	// List returns a paginated list of DAG definitions with filtering options
-	List(ctx context.Context, params ListDAGsOptions) (PaginatedResult[*core.DAG], []string, error)
+	List(ctx context.Context, params ListDAGsOptions) (PaginatedResult[*ir.DAG], []string, error)
 	// GetMetadata retrieves only the metadata of a DAG definition (faster than full load)
-	GetMetadata(ctx context.Context, fileName string) (*core.DAG, error)
+	GetMetadata(ctx context.Context, fileName string) (*ir.DAG, error)
 	// GetDetails retrieves the complete DAG definition including all fields
-	GetDetails(ctx context.Context, fileName string, opts DAGLoadOptions) (*core.DAG, error)
+	GetDetails(ctx context.Context, fileName string, opts DAGLoadOptions) (*ir.DAG, error)
 	// Grep searches for a pattern in all DAG definitions and returns matching results
 	Grep(ctx context.Context, pattern string) (ret []*GrepDAGsResult, errs []string, err error)
 	// SearchCursor returns lightweight, cursor-based search hits for DAG definitions.
@@ -51,7 +51,7 @@ type DAGStore interface {
 	// UpdateSpec modifies the specification of an existing DAG
 	UpdateSpec(ctx context.Context, fileName string, spec []byte) error
 	// LoadSpec builds a DAG with the given name from raw YAML without storing it
-	LoadSpec(ctx context.Context, source []byte, name string, opts DAGLoadOptions) (*core.DAG, error)
+	LoadSpec(ctx context.Context, source []byte, name string, opts DAGLoadOptions) (*ir.DAG, error)
 	// LabelList returns all unique labels across all DAGs with any errors encountered
 	LabelList(ctx context.Context) ([]string, []string, error)
 	// ToggleSuspend changes the suspension state of a DAG by ID
@@ -63,14 +63,14 @@ type DAGStore interface {
 // ListDAGsOptions contains parameters for paginated DAG listing
 type ListDAGsOptions struct {
 	Paginator         *Paginator
-	Name              string                               // Optional search filter for DAG name or file name
-	Labels            []string                             // Optional labels filter (AND logic - all labels must match)
-	ActiveOnly        bool                                 // Include only scheduled DAGs that are not suspended
-	Sort              string                               // Optional sort field (name, updated_at, created_at, nextRun)
-	Order             string                               // Optional sort order (asc, desc)
-	Time              *time.Time                           // Optional reference time for nextRun sorting/projection (defaults to time.Now())
-	NextRunProjection func(*core.DAG, time.Time) time.Time // Optional scheduler-aware nextRun projector used when Sort == "nextRun"
-	WorkspaceFilter   *WorkspaceFilter                     // Optional workspace visibility filter
+	Name              string                             // Optional search filter for DAG name or file name
+	Labels            []string                           // Optional labels filter (AND logic - all labels must match)
+	ActiveOnly        bool                               // Include only scheduled DAGs that are not suspended
+	Sort              string                             // Optional sort field (name, updated_at, created_at, nextRun)
+	Order             string                             // Optional sort order (asc, desc)
+	Time              *time.Time                         // Optional reference time for nextRun sorting/projection (defaults to time.Now())
+	NextRunProjection func(*ir.DAG, time.Time) time.Time // Optional scheduler-aware nextRun projector used when Sort == "nextRun"
+	WorkspaceFilter   *WorkspaceFilter                   // Optional workspace visibility filter
 }
 
 // SearchDAGsOptions contains parameters for cursor-based DAG search.
@@ -94,9 +94,9 @@ type SearchDAGMatchesOptions struct {
 
 // GrepDAGsResult represents the result of a pattern search within a DAG definition
 type GrepDAGsResult struct {
-	Name    string    // Name of the DAG
-	DAG     *core.DAG // The DAG object
-	Matches []*Match  // Matching lines and their context
+	Name    string   // Name of the DAG
+	DAG     *ir.DAG  // The DAG object
+	Matches []*Match // Matching lines and their context
 }
 
 // SearchDAGResult represents a lightweight DAG search hit for paginated UIs.

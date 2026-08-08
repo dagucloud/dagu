@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -334,7 +334,7 @@ func TestSpec003ConformanceStringInsertionIsOnePass(t *testing.T) {
 	assert.Equal(t, "${params.name}", got)
 }
 
-func loadSpec003DAG(t *testing.T, yaml string) *core.DAG {
+func loadSpec003DAG(t *testing.T, yaml string) *ir.DAG {
 	t.Helper()
 
 	registerSpec003ExecutorCapabilities()
@@ -353,30 +353,30 @@ var registerSpec003ExecutorCapabilitiesOnce sync.Once
 func registerSpec003ExecutorCapabilities() {
 	registerSpec003ExecutorCapabilitiesOnce.Do(func() {
 		for _, typ := range []string{"", "shell", "command"} {
-			core.RegisterExecutorCapabilities(typ, core.ExecutorCapabilities{
+			ir.RegisterExecutorCapabilities(typ, ir.ExecutorCapabilities{
 				Command: true, MultipleCommands: true, Script: true, Shell: true,
 			})
 		}
 		for _, typ := range []string{"docker", "container"} {
-			core.RegisterExecutorCapabilities(typ, core.ExecutorCapabilities{
+			ir.RegisterExecutorCapabilities(typ, ir.ExecutorCapabilities{
 				Command: true, MultipleCommands: true, Container: true,
 			})
 		}
-		for _, typ := range []string{"dag", "subworkflow", "parallel", core.ExecutorTypeDAGEnqueue} {
-			core.RegisterExecutorCapabilities(typ, core.ExecutorCapabilities{
+		for _, typ := range []string{"dag", "subworkflow", "parallel", ir.ExecutorTypeDAGEnqueue} {
+			ir.RegisterExecutorCapabilities(typ, ir.ExecutorCapabilities{
 				SubDAG: true, WorkerSelector: true,
 			})
 		}
-		core.RegisterExecutorCapabilities("chat", core.ExecutorCapabilities{LLM: true})
-		core.RegisterExecutorCapabilities("harness", core.ExecutorCapabilities{
+		ir.RegisterExecutorCapabilities("chat", ir.ExecutorCapabilities{LLM: true})
+		ir.RegisterExecutorCapabilities("harness", ir.ExecutorCapabilities{
 			Command: true, Script: true, Container: true,
 		})
-		core.RegisterExecutorCapabilities("log", core.ExecutorCapabilities{})
-		core.RegisterExecutorCapabilities("template", core.ExecutorCapabilities{Script: true})
+		ir.RegisterExecutorCapabilities("log", ir.ExecutorCapabilities{})
+		ir.RegisterExecutorCapabilities("template", ir.ExecutorCapabilities{Script: true})
 	})
 }
 
-func resolveSpec003Fields(t *testing.T, dag *core.DAG, params cmnvalue.Values) map[string]string {
+func resolveSpec003Fields(t *testing.T, dag *ir.DAG, params cmnvalue.Values) map[string]string {
 	t.Helper()
 
 	resolver := cmnvalue.NewResolver(
@@ -392,7 +392,7 @@ func resolveSpec003Fields(t *testing.T, dag *core.DAG, params cmnvalue.Values) m
 	)
 
 	resolved := make(map[string]string)
-	for _, field := range core.ReferenceFields(dag) {
+	for _, field := range ir.ReferenceFields(dag) {
 		got, err := resolver.String(context.Background(), field.Value, field.Field)
 		require.NoError(t, err, "field %s", field.Path)
 		resolved[field.Path] = got

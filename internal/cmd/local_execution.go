@@ -8,9 +8,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 type runOptions struct {
@@ -18,7 +18,7 @@ type runOptions struct {
 	parent          exec.DAGRunRef
 	workerID        string
 	attemptID       string
-	triggerType     core.TriggerType
+	triggerType     ir.TriggerType
 	triggerActor    string
 	scheduleTime    string
 	profileName     string
@@ -30,7 +30,7 @@ type runOptions struct {
 
 func withPreparedLocalExecution(
 	ctx *Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	dagRunID string,
 	opts runOptions,
 	buildAttempt func(context.Context) (exec.DAGRunAttempt, error),

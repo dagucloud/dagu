@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/stretchr/testify/assert"
@@ -20,14 +20,14 @@ import (
 func TestNodeFieldsRoundTrip(t *testing.T) {
 	outputVars := &collections.SyncMap{}
 	outputVars.Store("KEY", "KEY=value")
-	statusDetails := []exec.NodeStatusDetail{{Label: "customer-a", Status: core.NodeFailed}}
+	statusDetails := []exec.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}
 
 	original := &exec.Node{
-		Step: core.Step{
+		Step: ir.Step{
 			Name:      "test-step",
-			HumanTask: &core.HumanTaskConfig{Prompt: "Review production deployment"},
+			HumanTask: &ir.HumanTaskConfig{Prompt: "Review production deployment"},
 		},
-		Status:                 core.NodeSucceeded,
+		Status:                 ir.NodeSucceeded,
 		Stdout:                 "/tmp/stdout.log",
 		Stderr:                 "/tmp/stderr.log",
 		WorkingDir:             "/tmp/original-work",
@@ -60,10 +60,10 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 	state := runtimeNode.State()
 	require.Len(t, state.StatusDetails, 1)
 	assert.Equal(t, "customer-a", state.StatusDetails[0].Label)
-	assert.Equal(t, core.NodeFailed, state.StatusDetails[0].Status)
+	assert.Equal(t, ir.NodeFailed, state.StatusDetails[0].Status)
 
-	dag := &core.DAG{Name: "test", Steps: []core.Step{original.Step}}
-	status := transform.NewStatusBuilder(dag).Create("run-1", core.Succeeded, 0, time.Now(),
+	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
+	status := transform.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]
@@ -79,8 +79,8 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 
 func TestNodeChatMessagesRoundTrip(t *testing.T) {
 	original := &exec.Node{
-		Step:   core.Step{Name: "chat-step"},
-		Status: core.NodeSucceeded,
+		Step:   ir.Step{Name: "chat-step"},
+		Status: ir.NodeSucceeded,
 		ChatMessages: []exec.LLMMessage{
 			{Role: exec.RoleSystem, Content: "You are helpful."},
 			{Role: exec.RoleUser, Content: "Hello!"},
@@ -117,8 +117,8 @@ func TestNodeChatMessagesRoundTrip(t *testing.T) {
 	assert.Equal(t, 8, state.ChatMessages[2].Metadata.TotalTokens)
 
 	// Verify round-trip through status builder
-	dag := &core.DAG{Name: "test", Steps: []core.Step{original.Step}}
-	status := transform.NewStatusBuilder(dag).Create("run-1", core.Succeeded, 0, time.Now(),
+	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
+	status := transform.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]
@@ -140,8 +140,8 @@ func TestNodeChatMessagesRoundTrip(t *testing.T) {
 func TestNodeEmptyChatMessages(t *testing.T) {
 	// Test that nodes without ChatMessages work correctly
 	original := &exec.Node{
-		Step:   core.Step{Name: "no-chat-step"},
-		Status: core.NodeSucceeded,
+		Step:   ir.Step{Name: "no-chat-step"},
+		Status: ir.NodeSucceeded,
 		// No ChatMessages
 	}
 
@@ -151,8 +151,8 @@ func TestNodeEmptyChatMessages(t *testing.T) {
 	// Verify nil ChatMessages remain nil
 	assert.Nil(t, state.ChatMessages)
 
-	dag := &core.DAG{Name: "test", Steps: []core.Step{original.Step}}
-	status := transform.NewStatusBuilder(dag).Create("run-1", core.Succeeded, 0, time.Now(),
+	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
+	status := transform.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]

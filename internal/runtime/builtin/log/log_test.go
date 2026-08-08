@@ -9,15 +9,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
 func TestExecutorRunWritesMessageToStdout(t *testing.T) {
 	t.Parallel()
 
-	exec, err := newLog(context.Background(), core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	exec, err := newLog(context.Background(), ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "log",
 			Config: map[string]any{
 				"message": "Deploying ${ENVIRONMENT}",
@@ -36,8 +36,8 @@ func TestExecutorRunWritesMessageToStdout(t *testing.T) {
 func TestExecutorRunDoesNotDuplicateTrailingNewline(t *testing.T) {
 	t.Parallel()
 
-	exec, err := newLog(context.Background(), core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	exec, err := newLog(context.Background(), ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "log",
 			Config: map[string]any{
 				"message": "line one\nline two\n",
@@ -56,8 +56,8 @@ func TestExecutorRunDoesNotDuplicateTrailingNewline(t *testing.T) {
 func TestExecutorRunStopsWhenContextIsCanceled(t *testing.T) {
 	t.Parallel()
 
-	exec, err := newLog(context.Background(), core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	exec, err := newLog(context.Background(), ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "log",
 			Config: map[string]any{
 				"message": "Deploying ${ENVIRONMENT}",
@@ -80,8 +80,8 @@ func TestExecutorRunStopsWhenContextIsCanceled(t *testing.T) {
 func TestNewLogRequiresMessage(t *testing.T) {
 	t.Parallel()
 
-	_, err := newLog(context.Background(), core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	_, err := newLog(context.Background(), ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "log",
 			Config: map[string]any{},
 		},

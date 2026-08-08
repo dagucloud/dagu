@@ -13,8 +13,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 )
 
@@ -23,7 +23,7 @@ import (
 type QueueRequest struct {
 	DAGRunStore exec.DAGRunStore
 	QueueStore  exec.QueueStore
-	DAG         *core.DAG
+	DAG         *ir.DAG
 	DAGRunID    string
 
 	QueueName string
@@ -33,7 +33,7 @@ type QueueRequest struct {
 
 	Root         exec.DAGRunRef
 	Parent       exec.DAGRunRef
-	TriggerType  core.TriggerType
+	TriggerType  ir.TriggerType
 	TriggerActor string
 	ScheduleTime string
 	ProfileName  string
@@ -191,7 +191,7 @@ func queuedStatus(req QueueRequest, dagRun exec.DAGRunRef, attemptID, logFile, a
 		opts = append(opts, transform.WithScheduleTime(req.ScheduleTime))
 	}
 
-	return transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, core.Queued, 0, time.Time{}, opts...)
+	return transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Queued, 0, time.Time{}, opts...)
 }
 
 // queuedStatusWriteResult captures non-fatal status write side effects.

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,8 +26,8 @@ func TestAbortQueuedDAGRun_PreservesPreviousVisibleAttempt(t *testing.T) {
 	dag := testQueueAbortDAG()
 	runRef := exec.NewDAGRunRef(dag.Name, "run-1")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-1", core.Succeeded, exec.NewDAGRunAttemptOptions{}, time.Now().Add(-time.Minute))
-	writeAttemptStatus(t, ctx, store, dag, "run-1", core.Queued, exec.NewDAGRunAttemptOptions{Retry: true}, time.Now())
+	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Succeeded, exec.NewDAGRunAttemptOptions{}, time.Now().Add(-time.Minute))
+	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Queued, exec.NewDAGRunAttemptOptions{Retry: true}, time.Now())
 
 	require.NoError(t, exec.AbortQueuedDAGRun(ctx, store, runRef))
 
@@ -35,7 +35,7 @@ func TestAbortQueuedDAGRun_PreservesPreviousVisibleAttempt(t *testing.T) {
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, core.Succeeded, status.Status)
+	assert.Equal(t, ir.Succeeded, status.Status)
 }
 
 func TestAbortQueuedDAGRun_RemovesRunWhenQueuedAttemptIsOnlyVisibleAttempt(t *testing.T) {
@@ -46,7 +46,7 @@ func TestAbortQueuedDAGRun_RemovesRunWhenQueuedAttemptIsOnlyVisibleAttempt(t *te
 	dag := testQueueAbortDAG()
 	runRef := exec.NewDAGRunRef(dag.Name, "run-2")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-2", core.Queued, exec.NewDAGRunAttemptOptions{}, time.Now())
+	writeAttemptStatus(t, ctx, store, dag, "run-2", ir.Queued, exec.NewDAGRunAttemptOptions{}, time.Now())
 
 	require.NoError(t, exec.AbortQueuedDAGRun(ctx, store, runRef))
 
@@ -63,20 +63,20 @@ func TestAbortQueuedDAGRun_RejectsNonQueuedStatus(t *testing.T) {
 	dag := testQueueAbortDAG()
 	runRef := exec.NewDAGRunRef(dag.Name, "run-3")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-3", core.Running, exec.NewDAGRunAttemptOptions{}, time.Now())
+	writeAttemptStatus(t, ctx, store, dag, "run-3", ir.Running, exec.NewDAGRunAttemptOptions{}, time.Now())
 
 	err := exec.AbortQueuedDAGRun(ctx, store, runRef)
 	require.Error(t, err)
 
 	var notQueuedErr *exec.DAGRunNotQueuedError
 	require.ErrorAs(t, err, &notQueuedErr)
-	assert.Equal(t, core.Running, notQueuedErr.Status)
+	assert.Equal(t, ir.Running, notQueuedErr.Status)
 }
 
-func testQueueAbortDAG() *core.DAG {
-	return &core.DAG{
+func testQueueAbortDAG() *ir.DAG {
+	return &ir.DAG{
 		Name: "queue-abort-test",
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "step", Command: "echo hi"},
 		},
 	}
@@ -86,9 +86,9 @@ func writeAttemptStatus(
 	t *testing.T,
 	ctx context.Context,
 	store exec.DAGRunStore,
-	dag *core.DAG,
+	dag *ir.DAG,
 	runID string,
-	status core.Status,
+	status ir.Status,
 	opts exec.NewDAGRunAttemptOptions,
 	ts time.Time,
 ) {
@@ -105,10 +105,10 @@ func writeAttemptStatus(
 	logPath := filepath.Join(t.TempDir(), runID+".log")
 	require.NoError(t, os.WriteFile(logPath, []byte(""), 0o600))
 	runStatus.Log = logPath
-	if status != core.Queued {
+	if status != ir.Queued {
 		runStatus.StartedAt = ts.UTC().Format(time.RFC3339)
 	}
-	if status == core.Succeeded || status == core.Aborted || status == core.Failed {
+	if status == ir.Succeeded || status == ir.Aborted || status == ir.Failed {
 		runStatus.FinishedAt = ts.Add(time.Second).UTC().Format(time.RFC3339)
 	}
 

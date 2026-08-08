@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
 )
@@ -43,9 +43,9 @@ steps:
 		return scheduledAt
 	})
 
-	status := f.waitForStatus(core.Succeeded, 20*time.Second)
+	status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 
-	oneOffSchedule, err := core.NewOneOffSchedule(scheduledAt.Format(time.RFC3339))
+	oneOffSchedule, err := ir.NewOneOffSchedule(scheduledAt.Format(time.RFC3339))
 	require.NoError(t, err)
 
 	require.Equal(

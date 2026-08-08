@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,8 +164,8 @@ steps:
 	}
 }
 
-func referenceFieldValues(dag *core.DAG) []string {
-	fields := core.ReferenceFields(dag)
+func referenceFieldValues(dag *ir.DAG) []string {
+	fields := ir.ReferenceFields(dag)
 	values := make([]string, 0, len(fields))
 	for _, field := range fields {
 		values = append(values, field.Value)

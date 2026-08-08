@@ -9,7 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/moby/moby/api/pkg/authconfig"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/client"
@@ -82,14 +82,14 @@ func TestExtractRegistry(t *testing.T) {
 func TestConvertToDockerAuth(t *testing.T) {
 	tests := []struct {
 		name          string
-		auth          *core.AuthConfig
+		auth          *ir.AuthConfig
 		serverAddress string
 		expected      *registry.AuthConfig
 		expectError   bool
 	}{
 		{
 			name: "UsernameAndPassword",
-			auth: &core.AuthConfig{
+			auth: &ir.AuthConfig{
 				Username: "user",
 				Password: "pass",
 			},
@@ -102,7 +102,7 @@ func TestConvertToDockerAuth(t *testing.T) {
 		},
 		{
 			name: "PreEncodedAuth",
-			auth: &core.AuthConfig{
+			auth: &ir.AuthConfig{
 				Auth: base64.StdEncoding.EncodeToString([]byte("user:pass")),
 			},
 			serverAddress: "ghcr.io",
@@ -113,7 +113,7 @@ func TestConvertToDockerAuth(t *testing.T) {
 		},
 		{
 			name: "JSONStringAuth",
-			auth: &core.AuthConfig{
+			auth: &ir.AuthConfig{
 				Auth: `{"username":"user","password":"pass"}`,
 			},
 			serverAddress: "gcr.io",
@@ -219,7 +219,7 @@ func TestGetAuthFromDockerConfig(t *testing.T) {
 func TestRegistryAuthManager_GetAuthHeader(t *testing.T) {
 	// Test with DAG-level auth
 	t.Run("DAGLevelAuth", func(t *testing.T) {
-		manager := NewRegistryAuthManager(map[string]*core.AuthConfig{
+		manager := NewRegistryAuthManager(map[string]*ir.AuthConfig{
 			"docker.io": {
 				Username: "user",
 				Password: "pass",
@@ -266,7 +266,7 @@ func TestRegistryAuthManager_GetAuthHeader(t *testing.T) {
 	t.Run("JSONConfigInDAG", func(t *testing.T) {
 		dockerConfig := `{"auths":{"ghcr.io":{"auth":"dGVzdDp0ZXN0"}}}`
 
-		manager := NewRegistryAuthManager(map[string]*core.AuthConfig{
+		manager := NewRegistryAuthManager(map[string]*ir.AuthConfig{
 			"_json": {
 				Auth: dockerConfig,
 			},
@@ -311,7 +311,7 @@ func TestEncodeBasicAuth(t *testing.T) {
 }
 
 func TestRegistryAuthManager_GetPullOptions(t *testing.T) {
-	manager := NewRegistryAuthManager(map[string]*core.AuthConfig{
+	manager := NewRegistryAuthManager(map[string]*ir.AuthConfig{
 		"docker.io": {
 			Username: "user",
 			Password: "pass",
@@ -349,7 +349,7 @@ func TestRegistryAuthManager_ComplexJSONAuth(t *testing.T) {
 	authBytes, err := json.Marshal(authJSON)
 	require.NoError(t, err)
 
-	manager := NewRegistryAuthManager(map[string]*core.AuthConfig{
+	manager := NewRegistryAuthManager(map[string]*ir.AuthConfig{
 		"myregistry.com": {
 			Auth: string(authBytes),
 		},

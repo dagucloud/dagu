@@ -3,10 +3,10 @@
 
 package scheduler
 
-import "github.com/dagucloud/dagu/v2/internal/core"
+import "github.com/dagucloud/dagu/v2/internal/ir"
 
 // dagSuspendFlagName returns the filename stem used by the file-based suspend
 // flag system. This intentionally follows DAG file naming, not dag.Name.
-func dagSuspendFlagName(dag *core.DAG) string {
+func dagSuspendFlagName(dag *ir.DAG) string {
 	return dag.SuspendFlagName()
 }

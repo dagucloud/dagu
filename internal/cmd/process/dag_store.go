@@ -6,14 +6,14 @@ package process
 import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 )
 
 // DAGStoreConfig contains process wiring options for creating a DAG store.
 type DAGStoreConfig struct {
-	Cache                 *fileutil.Cache[*core.DAG]
+	Cache                 *fileutil.Cache[*ir.DAG]
 	SearchPaths           []string
 	SkipDirectoryCreation bool
 }

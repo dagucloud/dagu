@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
@@ -121,7 +121,7 @@ func runDry(ctx *Context, args []string) error {
 }
 
 // loadDAGForDryRun loads the DAG with parameters from flags or command-line arguments.
-func loadDAGForDryRun(ctx *Context, args []string) (*core.DAG, error) {
+func loadDAGForDryRun(ctx *Context, args []string) (*ir.DAG, error) {
 	loadOpts := []spec.LoadOption{
 		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
 		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),

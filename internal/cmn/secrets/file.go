@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func init() {
@@ -38,7 +38,7 @@ func (r *fileResolver) Name() string {
 }
 
 // Validate checks if the secret reference is valid for file access.
-func (r *fileResolver) Validate(ref core.SecretRef) error {
+func (r *fileResolver) Validate(ref ir.SecretRef) error {
 	if ref.Key == "" {
 		return fmt.Errorf("key (file path) is required")
 	}
@@ -47,12 +47,12 @@ func (r *fileResolver) Validate(ref core.SecretRef) error {
 
 // CheckCapability reports that file access checks use filesystem metadata and
 // open permissions without reading file contents.
-func (r *fileResolver) CheckCapability(core.SecretRef) CheckCapability {
+func (r *fileResolver) CheckCapability(ir.SecretRef) CheckCapability {
 	return CheckCapabilityNoFetch
 }
 
 // Resolve reads the secret value from a file.
-func (r *fileResolver) Resolve(_ context.Context, ref core.SecretRef) (string, error) {
+func (r *fileResolver) Resolve(_ context.Context, ref ir.SecretRef) (string, error) {
 	filePath := r.resolvePath(ref.Key)
 
 	// Read file content
@@ -72,7 +72,7 @@ func (r *fileResolver) Resolve(_ context.Context, ref core.SecretRef) (string, e
 }
 
 // CheckAccessibility verifies the file exists and is readable without fetching its content.
-func (r *fileResolver) CheckAccessibility(_ context.Context, ref core.SecretRef) error {
+func (r *fileResolver) CheckAccessibility(_ context.Context, ref ir.SecretRef) error {
 	filePath := r.resolvePath(ref.Key)
 
 	// Check if file exists and get info

@@ -10,7 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -116,7 +116,7 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 }
 
 func preRunAbortErr(ctx context.Context, node *Node) error {
-	if node.Status() == core.NodeAborted {
+	if node.Status() == ir.NodeAborted {
 		return errNodeExecutionAborted
 	}
 	return ctx.Err()

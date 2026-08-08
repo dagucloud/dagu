@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,11 +15,11 @@ func TestProgressWriter_PrintHeader(t *testing.T) {
 	var buf bytes.Buffer
 	writer := progressWriter{out: &buf}
 
-	writer.printHeader(&core.DAG{Name: "etl"}, "run-1", "REGION=eu")
+	writer.printHeader(&ir.DAG{Name: "etl"}, "run-1", "REGION=eu")
 	assert.Equal(t, "▶ etl (run-1) [REGION=eu]\n", buf.String())
 
 	buf.Reset()
-	writer.printHeader(&core.DAG{Name: "etl"}, "", "")
+	writer.printHeader(&ir.DAG{Name: "etl"}, "", "")
 	assert.Equal(t, "▶ etl (...)\n", buf.String())
 
 	buf.Reset()
@@ -28,14 +28,14 @@ func TestProgressWriter_PrintHeader(t *testing.T) {
 }
 
 func TestStatusIcon(t *testing.T) {
-	assert.Equal(t, "✓", statusIcon(core.Succeeded))
-	assert.Equal(t, "✓", statusIcon(core.PartiallySucceeded))
-	assert.Equal(t, "✗", statusIcon(core.Failed))
-	assert.Equal(t, "✗", statusIcon(core.Aborted))
-	assert.Equal(t, "⏸", statusIcon(core.Waiting))
-	assert.Equal(t, "●", statusIcon(core.Rejected))
-	assert.Equal(t, "●", statusIcon(core.Queued))
-	assert.Equal(t, "●", statusIcon(core.Running))
+	assert.Equal(t, "✓", statusIcon(ir.Succeeded))
+	assert.Equal(t, "✓", statusIcon(ir.PartiallySucceeded))
+	assert.Equal(t, "✗", statusIcon(ir.Failed))
+	assert.Equal(t, "✗", statusIcon(ir.Aborted))
+	assert.Equal(t, "⏸", statusIcon(ir.Waiting))
+	assert.Equal(t, "●", statusIcon(ir.Rejected))
+	assert.Equal(t, "●", statusIcon(ir.Queued))
+	assert.Equal(t, "●", statusIcon(ir.Running))
 }
 
 func TestProgressWriter_Gray(t *testing.T) {

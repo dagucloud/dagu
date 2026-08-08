@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Errors related to dag-run management
@@ -55,7 +55,7 @@ func ValidateDAGRunID(dagRunID string) error {
 // implementations (e.g., file-based, in-memory, etc.) to be used interchangeably.
 type DAGRunStore interface {
 	// CreateAttempt creates a new execution record for a dag-run.
-	CreateAttempt(ctx context.Context, dag *core.DAG, ts time.Time, dagRunID string, opts NewDAGRunAttemptOptions) (DAGRunAttempt, error)
+	CreateAttempt(ctx context.Context, dag *ir.DAG, ts time.Time, dagRunID string, opts NewDAGRunAttemptOptions) (DAGRunAttempt, error)
 	// RecentAttempts returns the most recent dag-run's attempt for the DAG name, limited by itemLimit
 	RecentAttempts(ctx context.Context, name string, itemLimit int) []DAGRunAttempt
 	// LatestAttempt returns the most recent dag-run's attempt for the DAG name.
@@ -70,7 +70,7 @@ type DAGRunStore interface {
 		ctx context.Context,
 		dagRun DAGRunRef,
 		expectedAttemptID string,
-		expectedStatus core.Status,
+		expectedStatus ir.Status,
 		mutate func(*DAGRunStatus) error,
 		opts ...CompareAndSwapStatusOption,
 	) (*DAGRunStatus, bool, error)
@@ -100,7 +100,7 @@ type ListDAGRunStatusesOptions struct {
 	ExactName       string
 	From            TimeInUTC
 	To              TimeInUTC
-	Statuses        []core.Status
+	Statuses        []ir.Status
 	Limit           int
 	Cursor          string
 	Labels          []string // Filter by DAG labels (AND logic - all labels must match)
@@ -127,7 +127,7 @@ func WithTo(to TimeInUTC) ListDAGRunStatusesOption {
 }
 
 // WithStatuses sets the statuses for listing dag-runs
-func WithStatuses(statuses []core.Status) ListDAGRunStatusesOption {
+func WithStatuses(statuses []ir.Status) ListDAGRunStatusesOption {
 	return func(o *ListDAGRunStatusesOptions) {
 		o.Statuses = statuses
 	}

@@ -12,8 +12,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 )
 
@@ -37,12 +37,12 @@ type LocalProcStore interface {
 // LocalRequest describes local DAG-run intake before execution starts.
 type LocalRequest struct {
 	ProcStore LocalProcStore
-	DAG       *core.DAG
+	DAG       *ir.DAG
 	DAGRunID  string
 
 	Root         exec.DAGRunRef
 	Parent       exec.DAGRunRef
-	TriggerType  core.TriggerType
+	TriggerType  ir.TriggerType
 	TriggerActor string
 
 	ScheduleTime string
@@ -167,7 +167,7 @@ func recordPreparedAttemptFailure(
 	if req.ScheduleTime != "" {
 		opts = append(opts, transform.WithScheduleTime(req.ScheduleTime))
 	}
-	status := transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, core.Failed, 0, time.Now(), opts...)
+	status := transform.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Failed, 0, time.Now(), opts...)
 
 	if err := attempt.Open(ctx); err != nil {
 		return fmt.Errorf("failed to open attempt for failure recording: %w", err)

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -181,97 +181,97 @@ func TestParseStatus(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected core.Status
+		expected ir.Status
 		wantErr  bool
 	}{
 		{
 			name:     "running",
 			input:    "running",
-			expected: core.Running,
+			expected: ir.Running,
 			wantErr:  false,
 		},
 		{
 			name:     "succeeded",
 			input:    "succeeded",
-			expected: core.Succeeded,
+			expected: ir.Succeeded,
 			wantErr:  false,
 		},
 		{
 			name:     "success (alias)",
 			input:    "success",
-			expected: core.Succeeded,
+			expected: ir.Succeeded,
 			wantErr:  false,
 		},
 		{
 			name:     "failed",
 			input:    "failed",
-			expected: core.Failed,
+			expected: ir.Failed,
 			wantErr:  false,
 		},
 		{
 			name:     "failure (alias)",
 			input:    "failure",
-			expected: core.Failed,
+			expected: ir.Failed,
 			wantErr:  false,
 		},
 		{
 			name:     "aborted",
 			input:    "aborted",
-			expected: core.Aborted,
+			expected: ir.Aborted,
 			wantErr:  false,
 		},
 		{
 			name:     "canceled (alias)",
 			input:    "canceled",
-			expected: core.Aborted,
+			expected: ir.Aborted,
 			wantErr:  false,
 		},
 		{
 			name:     "cancelled (alias)",
 			input:    "cancelled",
-			expected: core.Aborted,
+			expected: ir.Aborted,
 			wantErr:  false,
 		},
 		{
 			name:     "cancel (alias)",
 			input:    "cancel",
-			expected: core.Aborted,
+			expected: ir.Aborted,
 			wantErr:  false,
 		},
 		{
 			name:     "queued",
 			input:    "queued",
-			expected: core.Queued,
+			expected: ir.Queued,
 			wantErr:  false,
 		},
 		{
 			name:     "waiting",
 			input:    "waiting",
-			expected: core.Waiting,
+			expected: ir.Waiting,
 			wantErr:  false,
 		},
 		{
 			name:     "not_started",
 			input:    "not_started",
-			expected: core.NotStarted,
+			expected: ir.NotStarted,
 			wantErr:  false,
 		},
 		{
 			name:     "uppercase input",
 			input:    "RUNNING",
-			expected: core.Running,
+			expected: ir.Running,
 			wantErr:  false,
 		},
 		{
 			name:     "mixed case input",
 			input:    "Failed",
-			expected: core.Failed,
+			expected: ir.Failed,
 			wantErr:  false,
 		},
 		{
 			name:     "input with spaces",
 			input:    "  succeeded  ",
-			expected: core.Succeeded,
+			expected: ir.Succeeded,
 			wantErr:  false,
 		},
 		{
@@ -314,23 +314,23 @@ func TestParseStatuses(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected []core.Status
+		expected []ir.Status
 		wantErr  bool
 	}{
 		{
 			name:     "comma-separated statuses",
 			input:    "running,queued",
-			expected: []core.Status{core.Running, core.Queued},
+			expected: []ir.Status{ir.Running, ir.Queued},
 		},
 		{
 			name:     "trims spaces",
 			input:    " running, succeeded ",
-			expected: []core.Status{core.Running, core.Succeeded},
+			expected: []ir.Status{ir.Running, ir.Succeeded},
 		},
 		{
 			name:     "ignores empty entries",
 			input:    "running,,queued,",
-			expected: []core.Status{core.Running, core.Queued},
+			expected: []ir.Status{ir.Running, ir.Queued},
 		},
 		{
 			name:    "rejects empty list",
@@ -426,52 +426,52 @@ func TestFormatStatusText(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		status   core.Status
+		status   ir.Status
 		expected string
 	}{
 		{
 			name:     "NotStarted",
-			status:   core.NotStarted,
+			status:   ir.NotStarted,
 			expected: "Not Started",
 		},
 		{
 			name:     "Running",
-			status:   core.Running,
+			status:   ir.Running,
 			expected: "Running",
 		},
 		{
 			name:     "Succeeded",
-			status:   core.Succeeded,
+			status:   ir.Succeeded,
 			expected: "Succeeded",
 		},
 		{
 			name:     "Failed",
-			status:   core.Failed,
+			status:   ir.Failed,
 			expected: "Failed",
 		},
 		{
 			name:     "Aborted",
-			status:   core.Aborted,
+			status:   ir.Aborted,
 			expected: "Aborted",
 		},
 		{
 			name:     "Queued",
-			status:   core.Queued,
+			status:   ir.Queued,
 			expected: "Queued",
 		},
 		{
 			name:     "PartiallySucceeded",
-			status:   core.PartiallySucceeded,
+			status:   ir.PartiallySucceeded,
 			expected: "Partially Succeeded",
 		},
 		{
 			name:     "Waiting",
-			status:   core.Waiting,
+			status:   ir.Waiting,
 			expected: "Waiting",
 		},
 		{
 			name:     "Rejected",
-			status:   core.Rejected,
+			status:   ir.Rejected,
 			expected: "Rejected",
 		},
 	}
@@ -664,7 +664,7 @@ func TestRunIDNeverTruncated(t *testing.T) {
 		{
 			Name:      "test-dag",
 			DAGRunID:  longRunID,
-			Status:    core.Succeeded,
+			Status:    ir.Succeeded,
 			StartedAt: "2026-02-01T12:00:00Z",
 			Params:    "param1=value1",
 		},
@@ -701,14 +701,14 @@ func TestCSVOutput(t *testing.T) {
 		{
 			Name:      "test-dag",
 			DAGRunID:  "run-001",
-			Status:    core.Succeeded,
+			Status:    ir.Succeeded,
 			StartedAt: "2026-02-01T12:00:00Z",
 			Params:    "param1=value1",
 		},
 		{
 			Name:      "another-dag",
 			DAGRunID:  "run-002",
-			Status:    core.Failed,
+			Status:    ir.Failed,
 			StartedAt: "2026-02-01T13:00:00Z",
 			Params:    "",
 		},

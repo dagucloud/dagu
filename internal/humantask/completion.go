@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Complete validates and durably completes one human task, then queues the run when possible.
@@ -46,7 +46,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 		return s.queueCompletedTaskResume(ctx, target)
 	}
 
-	if target.status.Status != core.Waiting {
+	if target.status.Status != ir.Waiting {
 		return Result{}, errorf(
 			ErrorConflict,
 			"DAG-run %s is not waiting (status: %s)",
@@ -61,7 +61,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 		ctx,
 		target.ref,
 		target.status.AttemptID,
-		core.Waiting,
+		ir.Waiting,
 		func(latest *exec.DAGRunStatus) error {
 			latestNode, err := findNodeByID(latest.Nodes, request.StepID)
 			if err != nil {
@@ -74,7 +74,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 				concurrentlyCompleted = latest
 				return errCompletionAlreadyApplied
 			}
-			if latestNode.Status != core.NodeWaiting {
+			if latestNode.Status != ir.NodeWaiting {
 				return errorf(
 					ErrorConflict,
 					"human task step %q is not waiting (status: %s)",
@@ -92,7 +92,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 				latestNode.StepOutputsValue = &outputsValue
 			}
 			latestNode.FinishedAt = completedAt
-			latestNode.Status = core.NodeSucceeded
+			latestNode.Status = ir.NodeSucceeded
 			return nil
 		},
 	)

@@ -14,8 +14,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/spf13/cobra"
 )
 
@@ -398,44 +398,44 @@ func parseAbsoluteDateTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unsupported date format")
 }
 
-// parseStatus converts status string to core.Status with validation.
-func parseStatus(s string) (core.Status, error) {
+// parseStatus converts status string to ir.Status with validation.
+func parseStatus(s string) (ir.Status, error) {
 	normalized := strings.ToLower(strings.TrimSpace(s))
 
-	// Map of all accepted status values to their core.Status equivalents
-	statusMap := map[string]core.Status{
+	// Map of all accepted status values to their ir.Status equivalents
+	statusMap := map[string]ir.Status{
 		// Canonical names
-		"not_started":         core.NotStarted,
-		"running":             core.Running,
-		"succeeded":           core.Succeeded,
-		"failed":              core.Failed,
-		"aborted":             core.Aborted,
-		"queued":              core.Queued,
-		"partially_succeeded": core.PartiallySucceeded,
-		"waiting":             core.Waiting,
-		"rejected":            core.Rejected,
+		"not_started":         ir.NotStarted,
+		"running":             ir.Running,
+		"succeeded":           ir.Succeeded,
+		"failed":              ir.Failed,
+		"aborted":             ir.Aborted,
+		"queued":              ir.Queued,
+		"partially_succeeded": ir.PartiallySucceeded,
+		"waiting":             ir.Waiting,
+		"rejected":            ir.Rejected,
 
 		// Common aliases
-		"notstarted":         core.NotStarted,
-		"success":            core.Succeeded,
-		"failure":            core.Failed,
-		"canceled":           core.Aborted,
-		"cancelled":          core.Aborted,
-		"cancel":             core.Aborted,
-		"partiallysucceeded": core.PartiallySucceeded,
+		"notstarted":         ir.NotStarted,
+		"success":            ir.Succeeded,
+		"failure":            ir.Failed,
+		"canceled":           ir.Aborted,
+		"cancelled":          ir.Aborted,
+		"cancel":             ir.Aborted,
+		"partiallysucceeded": ir.PartiallySucceeded,
 	}
 
 	if status, ok := statusMap[normalized]; ok {
 		return status, nil
 	}
 
-	return core.NotStarted, fmt.Errorf("invalid status '%s'. Valid values: running, succeeded, failed, aborted, queued, waiting, rejected, not_started, partially_succeeded", s)
+	return ir.NotStarted, fmt.Errorf("invalid status '%s'. Valid values: running, succeeded, failed, aborted, queued, waiting, rejected, not_started, partially_succeeded", s)
 }
 
-// parseStatuses converts a comma-separated status string to core.Status values.
-func parseStatuses(s string) ([]core.Status, error) {
+// parseStatuses converts a comma-separated status string to ir.Status values.
+func parseStatuses(s string) ([]ir.Status, error) {
 	parts := strings.Split(s, ",")
-	statuses := make([]core.Status, 0, len(parts))
+	statuses := make([]ir.Status, 0, len(parts))
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
 		if trimmed == "" {
@@ -596,26 +596,26 @@ func renderHistoryJSON(statuses []*exec.DAGRunStatus) error {
 	return encoder.Encode(entries)
 }
 
-// formatStatusText converts core.Status to human-readable text.
-func formatStatusText(status core.Status) string {
+// formatStatusText converts ir.Status to human-readable text.
+func formatStatusText(status ir.Status) string {
 	switch status {
-	case core.NotStarted:
+	case ir.NotStarted:
 		return "Not Started"
-	case core.Running:
+	case ir.Running:
 		return "Running"
-	case core.Succeeded:
+	case ir.Succeeded:
 		return "Succeeded"
-	case core.Failed:
+	case ir.Failed:
 		return "Failed"
-	case core.Aborted:
+	case ir.Aborted:
 		return "Aborted"
-	case core.Queued:
+	case ir.Queued:
 		return "Queued"
-	case core.PartiallySucceeded:
+	case ir.PartiallySucceeded:
 		return "Partially Succeeded"
-	case core.Waiting:
+	case ir.Waiting:
 		return "Waiting"
-	case core.Rejected:
+	case ir.Rejected:
 		return "Rejected"
 	default:
 		return status.String()

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -62,7 +62,7 @@ var newJobClient = func(cfg *Config) (jobClient, error) {
 const jobCleanupTimeout = 30 * time.Second
 
 type kubernetesExecutor struct {
-	step     core.Step
+	step     ir.Step
 	stdout   io.Writer
 	stderr   io.Writer
 	cfg      *Config
@@ -261,7 +261,7 @@ func (e *kubernetesExecutor) deleteJob(ctx context.Context, client jobClient) er
 	return client.DeleteJob(cleanupCtx)
 }
 
-func newKubernetes(_ context.Context, step core.Step) (executor.Executor, error) {
+func newKubernetes(_ context.Context, step ir.Step) (executor.Executor, error) {
 	execCfg := step.ExecutorConfig
 
 	if len(execCfg.Config) == 0 {
@@ -281,18 +281,18 @@ func newKubernetes(_ context.Context, step core.Step) (executor.Executor, error)
 	}, nil
 }
 
-func validateStep(step core.Step) error {
+func validateStep(step ir.Step) error {
 	if len(step.ExecutorConfig.Config) == 0 {
-		return core.NewValidationError("with.image", nil, ErrImageRequired)
+		return ir.NewValidationError("with.image", nil, ErrImageRequired)
 	}
 	if _, err := LoadConfigFromMap(step.ExecutorConfig.Config); err != nil {
-		return core.NewValidationError("with", nil, err)
+		return ir.NewValidationError("with", nil, err)
 	}
 	return nil
 }
 
 // buildCommand constructs the command slice from the step's commands.
-func buildCommand(step core.Step) []string {
+func buildCommand(step ir.Step) []string {
 	if len(step.Commands) == 0 {
 		return nil
 	}
@@ -305,7 +305,7 @@ func buildCommand(step core.Step) []string {
 }
 
 func init() {
-	caps := core.ExecutorCapabilities{
+	caps := ir.ExecutorCapabilities{
 		Command: true,
 	}
 	executor.RegisterExecutor("kubernetes", newKubernetes, validateStep, caps)

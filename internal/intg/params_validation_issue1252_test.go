@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +45,7 @@ steps:
 			ExpectedOut: []string{"DAG run finished"},
 		})
 		status, outputs := readAttemptStatusAndOutputs(t, th, "issue1252-enum", runID)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assert.Equal(t, "env=staging", outputs.Outputs["envValue"])
 	})
 
@@ -67,7 +67,7 @@ steps:
 			ExpectedOut: []string{"DAG run finished"},
 		})
 		status, outputs := readAttemptStatusAndOutputs(t, th, "issue1252-enum", runID)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assert.Equal(t, "env=dev", outputs.Outputs["envValue"])
 	})
 }
@@ -131,7 +131,7 @@ steps:
 			ExpectedOut: []string{"DAG run finished"},
 		})
 		status, outputs := readAttemptStatusAndOutputs(t, th, "issue1252-mixed", runID)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assert.Equal(t, "env=prod replicas=5 verbose=true", outputs.Outputs["allValues"])
 	})
 
@@ -151,7 +151,7 @@ steps:
 			ExpectedOut: []string{"DAG run finished"},
 		})
 		status, outputs := readAttemptStatusAndOutputs(t, th, "issue1252-mixed", runID)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assert.Equal(t, "env=dev replicas=3 verbose=false", outputs.Outputs["allValues"])
 	})
 }
@@ -203,7 +203,7 @@ steps:
 			ExpectedOut: []string{"DAG run finished"},
 		})
 		status, outputs := readAttemptStatusAndOutputs(t, th, "issue1252-external", runID)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assert.Equal(t, "env=staging replicas=3", outputs.Outputs["values"])
 	})
 
@@ -250,7 +250,7 @@ steps:
 			ExpectedOut: []string{"DAG run finished"},
 		})
 		status, outputs := readAttemptStatusAndOutputs(t, th, "issue1252-inline-schema", runID)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		assert.Equal(t, "env=staging replicas=3", outputs.Outputs["values"])
 	})
 

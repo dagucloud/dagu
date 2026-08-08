@@ -7,8 +7,8 @@ import (
 	"context"
 	"maps"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // SetupChatMessages exports setupChatMessages for testing.
@@ -22,7 +22,7 @@ func (r *Runner) SetupPushBackConversation(ctx context.Context, node *Node) {
 }
 
 // StepSupportsChatMessages exposes stepSupportsChatMessages for testing.
-func StepSupportsChatMessages(step core.Step) bool {
+func StepSupportsChatMessages(step ir.Step) bool {
 	return stepSupportsChatMessages(step)
 }
 

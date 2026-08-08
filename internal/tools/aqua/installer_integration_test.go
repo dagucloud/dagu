@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/stretchr/testify/require"
 )
@@ -23,9 +23,9 @@ func TestInstallerInstallIntegration(t *testing.T) {
 
 	toolsDir := filepath.Join(t.TempDir(), "tools")
 	workDir := t.TempDir()
-	manifest, err := New().Install(context.Background(), &core.ToolConfig{
+	manifest, err := New().Install(context.Background(), &ir.ToolConfig{
 		Provider: "aqua",
-		Packages: []core.ToolPackage{{
+		Packages: []ir.ToolPackage{{
 			Name:    "jq",
 			Package: "jqlang/jq",
 			Version: "jq-1.7.1",
@@ -52,12 +52,12 @@ func TestInstallerDigestPinningIntegration(t *testing.T) {
 		t.Skip("set DAGU_AQUA_INTEGRATION=1 to run aqua network integration test")
 	}
 
-	jq := core.ToolPackage{Name: "jq", Package: "jqlang/jq", Version: "jq-1.7.1"}
+	jq := ir.ToolPackage{Name: "jq", Package: "jqlang/jq", Version: "jq-1.7.1"}
 
 	// First install records the artifact checksum aqua verified.
 	seedDir := filepath.Join(t.TempDir(), "tools")
-	seedManifest, err := New().Install(context.Background(), &core.ToolConfig{
-		Packages: []core.ToolPackage{jq},
+	seedManifest, err := New().Install(context.Background(), &ir.ToolConfig{
+		Packages: []ir.ToolPackage{jq},
 	}, tools.InstallOptions{ToolsDir: seedDir, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 
@@ -79,8 +79,8 @@ func TestInstallerDigestPinningIntegration(t *testing.T) {
 	pinned := jq
 	pinned.Digest = digest
 	goodDir := filepath.Join(t.TempDir(), "tools")
-	manifest, err := New().Install(context.Background(), &core.ToolConfig{
-		Packages: []core.ToolPackage{pinned},
+	manifest, err := New().Install(context.Background(), &ir.ToolConfig{
+		Packages: []ir.ToolPackage{pinned},
 	}, tools.InstallOptions{ToolsDir: goodDir, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	require.FileExists(t, manifest.Commands["jq"].Path)
@@ -89,8 +89,8 @@ func TestInstallerDigestPinningIntegration(t *testing.T) {
 	// A wrong digest must fail with a mismatch naming both hashes.
 	wrong := jq
 	wrong.Digest = "sha256:" + strings.Repeat("0", 64)
-	_, err = New().Install(context.Background(), &core.ToolConfig{
-		Packages: []core.ToolPackage{wrong},
+	_, err = New().Install(context.Background(), &ir.ToolConfig{
+		Packages: []ir.ToolPackage{wrong},
 	}, tools.InstallOptions{ToolsDir: filepath.Join(t.TempDir(), "tools"), WorkDir: t.TempDir()})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "digest mismatch for jqlang/jq@jq-1.7.1")
@@ -104,9 +104,9 @@ func TestInstallerLatestRegistryIntegration(t *testing.T) {
 	// earendil-works/pi entered the aqua registry on 2026-05-11, after the
 	// compiled-in bootstrap ref; installing it proves resolution runs against
 	// the latest registry release rather than the bootstrap snapshot.
-	manifest, err := New().Install(context.Background(), &core.ToolConfig{
+	manifest, err := New().Install(context.Background(), &ir.ToolConfig{
 		Provider: "aqua",
-		Packages: []core.ToolPackage{{
+		Packages: []ir.ToolPackage{{
 			Package: "earendil-works/pi",
 			Version: "v0.83.0",
 		}},

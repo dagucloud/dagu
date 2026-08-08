@@ -9,7 +9,7 @@ import (
 	"maps"
 	"math"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -49,7 +49,7 @@ type HumanTaskInputResult struct {
 	Outputs   map[string]string
 }
 
-func buildHumanTaskForm(raw any) (json.RawMessage, []core.StepOutputDeclaration, error) {
+func buildHumanTaskForm(raw any) (json.RawMessage, []ir.StepOutputDeclaration, error) {
 	if raw == nil {
 		return nil, nil, nil
 	}
@@ -150,14 +150,14 @@ func preserveHumanTaskOneOfConstraints(source, target *jsonschema.Schema) error 
 }
 
 func humanTaskTypesCompatible(authored, inferred string) bool {
-	return authored == inferred || authored == core.ParamDefTypeNumber && inferred == core.ParamDefTypeInteger
+	return authored == inferred || authored == ir.ParamDefTypeNumber && inferred == ir.ParamDefTypeInteger
 }
 
 var humanTaskScalarTypes = map[string]struct{}{
-	core.ParamDefTypeString:  {},
-	core.ParamDefTypeInteger: {},
-	core.ParamDefTypeNumber:  {},
-	core.ParamDefTypeBoolean: {},
+	ir.ParamDefTypeString:  {},
+	ir.ParamDefTypeInteger: {},
+	ir.ParamDefTypeNumber:  {},
+	ir.ParamDefTypeBoolean: {},
 }
 
 func validateHumanTaskFormShape(form map[string]any) error {
@@ -445,19 +445,19 @@ func humanTaskRequiredNames(raw any) ([]string, error) {
 	return result, nil
 }
 
-func deriveHumanTaskOutputs(root *jsonschema.Schema) ([]core.StepOutputDeclaration, error) {
-	outputs := make([]core.StepOutputDeclaration, 0, len(root.Properties))
+func deriveHumanTaskOutputs(root *jsonschema.Schema) ([]ir.StepOutputDeclaration, error) {
+	outputs := make([]ir.StepOutputDeclaration, 0, len(root.Properties))
 	for _, name := range topLevelSchemaOrder(root) {
 		property := root.Properties[name]
 		propertyType, ok := schemaScalarType(property)
 		if !ok {
 			return nil, fmt.Errorf("form property %q must have a scalar type", name)
 		}
-		outputType := core.StepDeclaredOutputTypeJSON
-		if propertyType == core.ParamDefTypeString {
-			outputType = core.StepDeclaredOutputTypeString
+		outputType := ir.StepDeclaredOutputTypeJSON
+		if propertyType == ir.ParamDefTypeString {
+			outputType = ir.StepDeclaredOutputTypeString
 		}
-		outputs = append(outputs, core.StepOutputDeclaration{Name: name, Type: outputType})
+		outputs = append(outputs, ir.StepOutputDeclaration{Name: name, Type: outputType})
 	}
 	return outputs, nil
 }

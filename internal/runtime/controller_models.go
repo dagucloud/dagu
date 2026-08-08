@@ -11,7 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 )
@@ -23,15 +23,15 @@ type controllerModelPlanner struct {
 }
 
 type controllerModelCandidate struct {
-	cfg      *core.LLMConfig
+	cfg      *ir.LLMConfig
 	planner  *controller.Planner
 	setupErr error
 }
 
 func newControllerModelPlanner(
 	ctx context.Context,
-	cfg *core.LLMConfig,
-	models []core.ModelEntry,
+	cfg *ir.LLMConfig,
+	models []ir.ModelEntry,
 	catalog *controller.Catalog,
 	system string,
 	mask controller.MaskFunc,

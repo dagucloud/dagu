@@ -10,8 +10,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,14 +29,14 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 	scheduledAt := "2026-03-13T10:00:00Z"
 	profileResolvedAt := "2026-03-13T09:59:00Z"
 
-	dag := &core.DAG{Name: "child"}
+	dag := &ir.DAG{Name: "child"}
 	cfg := &config.Config{}
 	cfg.Paths.DocsDir = docsDir
 	ctx := config.WithConfig(context.Background(), cfg)
 	ctx = runtime.NewContext(ctx, dag, "run-1", logFile,
 		runtime.WithAttemptID("attempt-1"),
 		runtime.WithRootDAGRun(exec.NewDAGRunRef("root", "root-run-1")),
-		runtime.WithTriggerType(core.TriggerTypeScheduler),
+		runtime.WithTriggerType(ir.TriggerTypeScheduler),
 		runtime.WithRunStartedAt(startedAt),
 		runtime.WithScheduleTime(scheduledAt),
 		runtime.WithWorkDir(workDir),
@@ -44,9 +44,9 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 		runtime.WithRuntimeProfile("prod", profileResolvedAt, nil),
 	)
 
-	env := runtime.NewEnv(ctx, core.Step{ID: "build-id", Name: "build"})
+	env := runtime.NewEnv(ctx, ir.Step{ID: "build-id", Name: "build"})
 	env.Scope = env.Scope.WithEntries(map[string]string{
-		exec.EnvKeyDAGRunStatus:                  core.Succeeded.String(),
+		exec.EnvKeyDAGRunStatus:                  ir.Succeeded.String(),
 		exec.EnvKeyDAGRunStepStdoutFile:          filepath.Join(tmpDir, "stdout.log"),
 		exec.EnvKeyDAGRunStepStderrFile:          filepath.Join(tmpDir, "stderr.log"),
 		exec.EnvKeyDAGUOutputFile:                filepath.Join(tmpDir, "output.json"),
@@ -68,10 +68,10 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 func TestResolveStringUnavailableBuiltInRunContextStaysLiteral(t *testing.T) {
 	t.Parallel()
 
-	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test"}, "run-1", "dag.log",
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1", "dag.log",
 		runtime.WithWorkDir(t.TempDir()),
 	)
-	env := runtime.NewEnv(ctx, core.Step{Name: "step"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "step"})
 	ctx = runtime.WithEnv(ctx, env)
 
 	input := "${context.run.status} ${context.run.root_name} ${context.run.root_id} ${context.trigger.actor} ${context.profile.name} ${context.pushback.iteration}"
@@ -83,12 +83,12 @@ func TestResolveStringUnavailableBuiltInRunContextStaysLiteral(t *testing.T) {
 func TestResolveStringLegacyBuiltInRunContextAliases(t *testing.T) {
 	t.Parallel()
 
-	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test"}, "run-1", "dag.log",
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1", "dag.log",
 		runtime.WithAttemptID("attempt-1"),
 		runtime.WithRunStartedAt("2026-03-13T10:00:01Z"),
 		runtime.WithWorkDir(t.TempDir()),
 	)
-	env := runtime.NewEnv(ctx, core.Step{Name: "step"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "step"})
 	ctx = runtime.WithEnv(ctx, env)
 
 	got, err := runtime.ResolveString(ctx, "${dag.name}|${run.id}|${run.started_at}|${attempt.id}|${step.name}", cmnvalue.WorkflowField("run"))

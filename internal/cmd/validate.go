@@ -14,8 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
@@ -286,7 +286,7 @@ func (e workflowValidationErrors) Error() string {
 	return b.String()
 }
 
-func collectDeprecatedSyntaxWarnings(dag *core.DAG) []string {
+func collectDeprecatedSyntaxWarnings(dag *ir.DAG) []string {
 	if dag == nil {
 		return nil
 	}
@@ -311,7 +311,7 @@ func collectDeprecatedSyntaxWarnings(dag *core.DAG) []string {
 func formatValidationErrors(file string, err error) string {
 	// Collect message strings
 	var msgs []string
-	var list core.ErrorList
+	var list ir.ErrorList
 	if errors.As(err, &list) {
 		msgs = list.ToStringList()
 	} else {

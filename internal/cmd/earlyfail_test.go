@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -49,7 +49,7 @@ steps:
 
 		status, err := attempt.ReadStatus(th.Context)
 		require.NoError(t, err)
-		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, ir.Failed, status.Status)
 		require.Contains(t, status.Error, "process acquisition failed")
 	})
 
@@ -94,7 +94,7 @@ steps:
 
 		status, err := attempt.ReadStatus(th.Context)
 		require.NoError(t, err)
-		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, ir.Failed, status.Status)
 		require.Contains(t, status.Error, "retry failed due to lock contention")
 	})
 
@@ -168,7 +168,7 @@ steps:
 
 		status, err := attempt.ReadStatus(th.Context)
 		require.NoError(t, err)
-		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, ir.Failed, status.Status)
 
 		// Verify DAG can be read back (required for retry)
 		storedDAG, err := attempt.ReadDAG(th.Context)
@@ -184,12 +184,12 @@ steps:
 		// Wait for retry to complete
 		require.Eventually(t, func() bool {
 			currentStatus, err := th.DAGRunMgr.GetCurrentStatus(th.Context, dag.DAG, dagRunID)
-			return err == nil && currentStatus != nil && currentStatus.Status == core.Succeeded
+			return err == nil && currentStatus != nil && currentStatus.Status == ir.Succeeded
 		}, 5*time.Second, 100*time.Millisecond, "Retry should succeed")
 
 		// Verify final status is succeeded
 		finalStatus, err := th.DAGRunMgr.GetCurrentStatus(th.Context, dag.DAG, dagRunID)
 		require.NoError(t, err)
-		require.Equal(t, core.Succeeded, finalStatus.Status)
+		require.Equal(t, ir.Succeeded, finalStatus.Status)
 	})
 }

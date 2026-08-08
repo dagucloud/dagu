@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,14 +38,14 @@ func setupTestStore(t *testing.T) StoreTest {
 	return th
 }
 
-func (th StoreTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID string, s core.Status) *Attempt {
+func (th StoreTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID string, s ir.Status) *Attempt {
 	t.Helper()
 
 	dag := th.DAG("test_DAG")
 	return th.CreateAttemptWithDAG(t, ts, dagRunID, s, dag.DAG)
 }
 
-func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s core.Status, dag *core.DAG) *Attempt {
+func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s ir.Status, dag *ir.DAG) *Attempt {
 	t.Helper()
 
 	attempt, err := th.Store.CreateAttempt(th.Context, dag, ts, dagRunID, exec.NewDAGRunAttemptOptions{})
@@ -71,7 +71,7 @@ func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID st
 func (th StoreTest) DAG(name string) DAGTest {
 	return DAGTest{
 		th: th,
-		DAG: &core.DAG{
+		DAG: &ir.DAG{
 			Name:     name,
 			Location: filepath.Join(th.TmpDir, name+".yaml"),
 		},
@@ -80,7 +80,7 @@ func (th StoreTest) DAG(name string) DAGTest {
 
 type DAGTest struct {
 	th StoreTest
-	*core.DAG
+	*ir.DAG
 }
 
 func (d DAGTest) Writer(t *testing.T, dagRunID string, startedAt time.Time) WriterTest {
@@ -117,7 +117,7 @@ func (w WriterTest) Write(t *testing.T, dagRunStatus exec.DAGRunStatus) {
 	require.NoError(t, err)
 }
 
-func (w WriterTest) AssertContent(t *testing.T, name, dagRunID string, st core.Status) {
+func (w WriterTest) AssertContent(t *testing.T, name, dagRunID string, st ir.Status) {
 	t.Helper()
 
 	data, err := ParseStatusFile(w.FilePath)

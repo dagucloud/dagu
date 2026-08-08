@@ -8,8 +8,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
@@ -133,7 +133,7 @@ func remoteWorkerIDForStatus(status *exec.DAGRunStatus, fallbackWorkerID string)
 	if status.WorkerID != "" {
 		return "", false
 	}
-	if status.Status != core.Queued && status.Status != core.NotStarted {
+	if status.Status != ir.Queued && status.Status != ir.NotStarted {
 		return "", false
 	}
 	if !exec.IsRemoteWorkerID(fallbackWorkerID) {
@@ -142,8 +142,8 @@ func remoteWorkerIDForStatus(status *exec.DAGRunStatus, fallbackWorkerID string)
 	return fallbackWorkerID, true
 }
 
-func statusRepairable(status core.Status) bool {
-	return status == core.Running || status == core.Queued || status == core.NotStarted
+func statusRepairable(status ir.Status) bool {
+	return status == ir.Running || status == ir.Queued || status == ir.NotStarted
 }
 
 func workerHeartbeatFresh(record *exec.WorkerHeartbeatRecord, now time.Time, threshold time.Duration) bool {

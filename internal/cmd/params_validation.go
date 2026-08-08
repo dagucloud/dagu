@@ -6,32 +6,32 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func validateStartArgumentSeparator(ctx *Context, args []string) error {
-	return core.ValidateStartArgs(ctx.Command.ArgsLenAtDash() != -1, args)
+	return ir.ValidateStartArgs(ctx.Command.ArgsLenAtDash() != -1, args)
 }
 
-func validateStartPositionalParamCount(ctx *Context, args []string, dag *core.DAG) error {
+func validateStartPositionalParamCount(ctx *Context, args []string, dag *ir.DAG) error {
 	input, err := buildStartValidationInput(ctx, args)
 	if err != nil {
 		return err
 	}
-	return core.ValidateStartParams(dag.DefaultParams, input)
+	return ir.ValidateStartParams(dag.DefaultParams, input)
 }
 
-func buildStartValidationInput(ctx *Context, args []string) (core.StartParamInput, error) {
+func buildStartValidationInput(ctx *Context, args []string) (ir.StartParamInput, error) {
 	if argsLenAtDash := ctx.Command.ArgsLenAtDash(); argsLenAtDash != -1 {
 		if argsLenAtDash >= len(args) {
-			return core.StartParamInput{}, nil
+			return ir.StartParamInput{}, nil
 		}
-		return core.StartParamInput{DashArgs: quoteStartDashArgs(args[argsLenAtDash:])}, nil
+		return ir.StartParamInput{DashArgs: quoteStartDashArgs(args[argsLenAtDash:])}, nil
 	}
 
 	raw, err := ctx.Command.Flags().GetString("params")
 	if err != nil {
-		return core.StartParamInput{}, fmt.Errorf("failed to get parameters: %w", err)
+		return ir.StartParamInput{}, fmt.Errorf("failed to get parameters: %w", err)
 	}
-	return core.StartParamInput{RawParams: raw}, nil
+	return ir.StartParamInput{RawParams: raw}, nil
 }

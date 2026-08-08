@@ -7,50 +7,50 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestShouldDispatchToCoordinator(t *testing.T) {
 	tests := []struct {
 		name           string
-		dag            *core.DAG
+		dag            *ir.DAG
 		hasCoordinator bool
 		defaultMode    config.ExecutionMode
 		want           bool
 	}{
 		{
 			name:           "ForceLocal is true, always local",
-			dag:            &core.DAG{ForceLocal: true, WorkerSelector: map[string]string{"gpu": "true"}},
+			dag:            &ir.DAG{ForceLocal: true, WorkerSelector: map[string]string{"gpu": "true"}},
 			hasCoordinator: true,
 			defaultMode:    config.ExecutionModeDistributed,
 			want:           false,
 		},
 		{
 			name:           "no coordinator, always local",
-			dag:            &core.DAG{WorkerSelector: map[string]string{"gpu": "true"}},
+			dag:            &ir.DAG{WorkerSelector: map[string]string{"gpu": "true"}},
 			hasCoordinator: false,
 			defaultMode:    config.ExecutionModeDistributed,
 			want:           false,
 		},
 		{
 			name:           "workerSelector present, dispatch",
-			dag:            &core.DAG{WorkerSelector: map[string]string{"gpu": "true"}},
+			dag:            &ir.DAG{WorkerSelector: map[string]string{"gpu": "true"}},
 			hasCoordinator: true,
 			defaultMode:    config.ExecutionModeLocal,
 			want:           true,
 		},
 		{
 			name:           "defaultMode distributed, dispatch",
-			dag:            &core.DAG{},
+			dag:            &ir.DAG{},
 			hasCoordinator: true,
 			defaultMode:    config.ExecutionModeDistributed,
 			want:           true,
 		},
 		{
 			name:           "defaultMode local, no workerSelector, local",
-			dag:            &core.DAG{},
+			dag:            &ir.DAG{},
 			hasCoordinator: true,
 			defaultMode:    config.ExecutionModeLocal,
 			want:           false,

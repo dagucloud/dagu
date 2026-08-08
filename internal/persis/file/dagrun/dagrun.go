@@ -19,8 +19,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Error definitions for directory structure validation
@@ -62,7 +62,7 @@ const JSONLStatusFile = "status.jsonl"
 // without reading status.jsonl.
 type DAGRunSummary struct {
 	LatestAttemptDir     string
-	Status               core.Status
+	Status               ir.Status
 	StartedAtUnix        int64
 	FinishedAtUnix       int64
 	Labels               []string
@@ -73,7 +73,7 @@ type DAGRunSummary struct {
 	Params               string
 	QueuedAt             string
 	ScheduleTime         string
-	TriggerType          core.TriggerType
+	TriggerType          ir.TriggerType
 	TriggerActor         string
 	CreatedAt            int64
 	AttemptID            string

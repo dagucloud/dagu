@@ -10,8 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // TaskStatus is where a goal stands. A run ends once no task is open.
@@ -137,7 +137,7 @@ type State struct {
 }
 
 // NewState builds the initial state for a controller DAG.
-func NewState(dag *core.DAG) *State {
+func NewState(dag *ir.DAG) *State {
 	tasks := make([]TaskState, 0, len(dag.Tasks))
 	for _, task := range dag.Tasks {
 		tasks = append(tasks, TaskState{
@@ -152,7 +152,7 @@ func NewState(dag *core.DAG) *State {
 // LoadState restores state persisted by an earlier attempt of the same run and
 // reconciles it with the DAG, so that editing the task list between attempts
 // neither drops progress nor resurrects removed tasks.
-func LoadState(raw json.RawMessage, messages []exec.LLMMessage, dag *core.DAG) (*State, error) {
+func LoadState(raw json.RawMessage, messages []exec.LLMMessage, dag *ir.DAG) (*State, error) {
 	fresh := NewState(dag)
 	if len(raw) == 0 {
 		fresh.messages = messages

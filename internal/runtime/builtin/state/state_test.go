@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -128,7 +128,7 @@ func TestStateExecutorRequiresStateStore(t *testing.T) {
 	t.Parallel()
 
 	step := stateStep(opSet, map[string]any{"key": "cursor", "value": "x"})
-	dag := &core.DAG{Name: "daily-agent"}
+	dag := &ir.DAG{Name: "daily-agent"}
 	ctx := runtime.NewContext(context.Background(), dag, "run-1", "")
 	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
 
@@ -140,7 +140,7 @@ func TestStateExecutorRequiresStateStore(t *testing.T) {
 func TestStateConfigAllowsExpectedVersionExpression(t *testing.T) {
 	t.Parallel()
 
-	err := core.ValidateExecutorConfig(executorType, map[string]any{
+	err := ir.ValidateExecutorConfig(executorType, map[string]any{
 		"key":              "cursors/api",
 		"value":            "next",
 		"expected_version": "${steps.load.outputs.version}",
@@ -202,7 +202,7 @@ func newStateExecutorForTest(t *testing.T, stateStore dagstate.Store, op string,
 	t.Helper()
 
 	step := stateStep(op, cfg)
-	dag := &core.DAG{Name: "daily-agent"}
+	dag := &ir.DAG{Name: "daily-agent"}
 	ctx := runtime.NewContext(context.Background(), dag, "run-1", "", runtime.WithStateStore(stateStore))
 	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
 
@@ -215,11 +215,11 @@ func newStateExecutorForTest(t *testing.T, stateStore dagstate.Store, op string,
 	return stateExec, nil
 }
 
-func stateStep(op string, cfg map[string]any) core.Step {
-	return core.Step{
+func stateStep(op string, cfg map[string]any) ir.Step {
+	return ir.Step{
 		Name:     "state-step",
-		Commands: []core.CommandEntry{{Command: op}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: op}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   executorType,
 			Config: cfg,
 		},

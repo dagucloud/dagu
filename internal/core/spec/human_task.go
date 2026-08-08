@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var humanTaskIncompatibleStepFields = []string{
@@ -31,46 +31,46 @@ var humanTaskIncompatibleStepFields = []string{
 func normalizeHumanTaskAction(normalized map[string]any, with map[string]any) error {
 	id, ok := normalized["id"].(string)
 	if !ok || strings.TrimSpace(id) == "" {
-		return core.NewValidationError("id", normalized["id"], fmt.Errorf("action human.task requires an explicit id"))
+		return ir.NewValidationError("id", normalized["id"], fmt.Errorf("action human.task requires an explicit id"))
 	}
 	if _, exists := normalized["outputs"]; exists {
-		return core.NewValidationError("outputs", normalized["outputs"], fmt.Errorf("action human.task derives outputs from its form"))
+		return ir.NewValidationError("outputs", normalized["outputs"], fmt.Errorf("action human.task derives outputs from its form"))
 	}
 	for _, field := range humanTaskIncompatibleStepFields {
 		if value, exists := normalized[field]; exists {
-			return core.NewValidationError(field, value, fmt.Errorf("action human.task does not support %s", field))
+			return ir.NewValidationError(field, value, fmt.Errorf("action human.task does not support %s", field))
 		}
 	}
 	if with == nil {
-		return core.NewValidationError("with", nil, fmt.Errorf("with.prompt is required"))
+		return ir.NewValidationError("with", nil, fmt.Errorf("with.prompt is required"))
 	}
 	for name := range with {
 		if name != "prompt" && name != "form" {
-			return core.NewValidationError("with", with, fmt.Errorf("human.task does not support with.%s", name))
+			return ir.NewValidationError("with", with, fmt.Errorf("human.task does not support with.%s", name))
 		}
 	}
 	if form, exists := with["form"]; exists && form == nil {
-		return core.NewValidationError("with.form", nil, fmt.Errorf("with.form must be an object schema"))
+		return ir.NewValidationError("with.form", nil, fmt.Errorf("with.form must be an object schema"))
 	}
 	prompt, ok := with["prompt"].(string)
 	if !ok || strings.TrimSpace(prompt) == "" {
-		return core.NewValidationError("with.prompt", with["prompt"], fmt.Errorf("with.prompt must be a non-empty string"))
+		return ir.NewValidationError("with.prompt", with["prompt"], fmt.Errorf("with.prompt must be a non-empty string"))
 	}
 	normalized["with"] = with
 	return nil
 }
 
-func buildStepHumanTask(_ stepBuildContext, s *step, result *core.Step) error {
+func buildStepHumanTask(_ stepBuildContext, s *step, result *ir.Step) error {
 	if strings.TrimSpace(s.Action) != "human.task" {
 		return nil
 	}
 
 	form, outputs, err := buildHumanTaskForm(s.With["form"])
 	if err != nil {
-		return core.NewValidationError("with.form", s.With["form"], err)
+		return ir.NewValidationError("with.form", s.With["form"], err)
 	}
 	prompt, _ := s.With["prompt"].(string)
-	result.HumanTask = &core.HumanTaskConfig{
+	result.HumanTask = &ir.HumanTaskConfig{
 		Prompt: prompt,
 		Form:   form,
 	}

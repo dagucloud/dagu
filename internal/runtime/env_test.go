@@ -12,9 +12,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +24,7 @@ import (
 func TestDAGShell(t *testing.T) {
 	t.Run("ReturnsDAGShellWhenSet", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Shell:     "/bin/bash",
 			ShellArgs: []string{"-c"},
 		}
@@ -35,7 +35,7 @@ func TestDAGShell(t *testing.T) {
 
 	t.Run("ExpandsEnvVarsInShell", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Env:   []string{"TEST_SHELL=/bin/zsh"},
 			Shell: "$TEST_SHELL",
 		}
@@ -46,7 +46,7 @@ func TestDAGShell(t *testing.T) {
 
 	t.Run("ExpandsEnvVarsInShellArgs", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Env:       []string{"TEST_SHELL_ARG=-c"},
 			Shell:     "/bin/bash",
 			ShellArgs: []string{"$TEST_SHELL_ARG"},
@@ -58,7 +58,7 @@ func TestDAGShell(t *testing.T) {
 
 	t.Run("ExpandsConstRefsInShellAndArgs", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Consts:    map[string]any{"shell": "/bin/bash", "arg": "-c"},
 			Shell:     "${consts.shell}",
 			ShellArgs: []string{"${consts.arg}"},
@@ -70,7 +70,7 @@ func TestDAGShell(t *testing.T) {
 
 	t.Run("UsesDAGEnvForExpansion", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Env:   []string{"MY_SHELL=/usr/bin/fish"},
 			Shell: "$MY_SHELL",
 		}
@@ -81,7 +81,7 @@ func TestDAGShell(t *testing.T) {
 
 	t.Run("ReturnsDefaultShellWhenDAGShellEmpty", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Shell: "", // Empty shell
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
@@ -102,12 +102,12 @@ func TestDAGShell(t *testing.T) {
 func TestResolveDAGShellResolvesParams(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Shell:     "/bin/sh",
 		ShellArgs: []string{"${params.shell_arg}"},
-		ParamDefs: []core.ParamDef{{
+		ParamDefs: []ir.ParamDef{{
 			Name: "shell_arg",
-			Type: core.ParamDefTypeString,
+			Type: ir.ParamDefTypeString,
 		}},
 		Params: []string{"shell_arg=-c"},
 	}
@@ -121,12 +121,12 @@ func TestResolveDAGShellResolvesParams(t *testing.T) {
 func TestResolveDAGShellPreservesMissingParam(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Shell:     "/bin/sh",
 		ShellArgs: []string{"${params.shell_arg}"},
-		ParamDefs: []core.ParamDef{{
+		ParamDefs: []ir.ParamDef{{
 			Name: "shell_arg",
-			Type: core.ParamDefTypeString,
+			Type: ir.ParamDefTypeString,
 		}},
 	}
 	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
@@ -140,12 +140,12 @@ func TestResolveDAGShellPreservesMissingParam(t *testing.T) {
 func TestEnvShell(t *testing.T) {
 	t.Run("StepShellTakesPrecedence", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Shell:     "/bin/bash",
 			ShellArgs: []string{"-c"},
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-		step := core.Step{
+		step := ir.Step{
 			Name:      "test-step",
 			Shell:     "/bin/zsh",
 			ShellArgs: []string{"-e"},
@@ -157,12 +157,12 @@ func TestEnvShell(t *testing.T) {
 
 	t.Run("StepShellArgsOverrideInheritedDAGShellArgs", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Shell:     "/bin/bash",
 			ShellArgs: []string{"-c"},
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-		step := core.Step{
+		step := ir.Step{
 			Name:      "test-step",
 			ShellArgs: []string{"-e", "-c"},
 		}
@@ -173,12 +173,12 @@ func TestEnvShell(t *testing.T) {
 
 	t.Run("StepShellArgsEmptyClearsInheritedDAGShellArgs", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Shell:     "/bin/bash",
 			ShellArgs: []string{"-e", "-c"},
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-		step := core.Step{
+		step := ir.Step{
 			Name:      "test-step",
 			ShellArgs: []string{},
 		}
@@ -194,9 +194,9 @@ func TestEnvShell(t *testing.T) {
 				DefaultShell: "/bin/custom",
 			},
 		})
-		dag := &core.DAG{}
+		dag := &ir.DAG{}
 		ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
-		step := core.Step{
+		step := ir.Step{
 			Name:      "test-step",
 			ShellArgs: []string{"-e", "-c"},
 		}
@@ -207,12 +207,12 @@ func TestEnvShell(t *testing.T) {
 
 	t.Run("FallsBackToDAGShell", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Shell:     "/bin/bash",
 			ShellArgs: []string{"-c"},
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-		step := core.Step{
+		step := ir.Step{
 			Name: "test-step",
 			// No step-level shell
 		}
@@ -223,11 +223,11 @@ func TestEnvShell(t *testing.T) {
 
 	t.Run("ExpandsStepShellWithEnvVars", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Env: []string{"MY_STEP_SHELL=/bin/fish"},
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-		step := core.Step{
+		step := ir.Step{
 			Name:  "test-step",
 			Shell: "$MY_STEP_SHELL",
 		}
@@ -238,11 +238,11 @@ func TestEnvShell(t *testing.T) {
 
 	t.Run("ExpandsStepShellWithConstRefs", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Consts: map[string]any{"shell": "/bin/fish", "arg": "-c"},
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-		step := core.Step{
+		step := ir.Step{
 			Name:      "test-step",
 			Shell:     "${consts.shell}",
 			ShellArgs: []string{"${consts.arg}"},
@@ -254,12 +254,12 @@ func TestEnvShell(t *testing.T) {
 
 	t.Run("ExpandsDAGShellWithEnvVars", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Env:   []string{"MY_DAG_SHELL=/bin/ksh"},
 			Shell: "$MY_DAG_SHELL",
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-		step := core.Step{Name: "test-step"}
+		step := ir.Step{Name: "test-step"}
 		env := runtime.NewEnv(ctx, step)
 		result := env.Shell(ctx)
 		assert.Equal(t, []string{"/bin/ksh"}, result)
@@ -267,12 +267,12 @@ func TestEnvShell(t *testing.T) {
 
 	t.Run("UsesDAGEnvVarsForExpansion", func(t *testing.T) {
 		t.Parallel()
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Env:   []string{"CUSTOM_SHELL=/bin/custom"},
 			Shell: "$CUSTOM_SHELL",
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-		step := core.Step{Name: "test-step"}
+		step := ir.Step{Name: "test-step"}
 		env := runtime.NewEnv(ctx, step)
 		result := env.Shell(ctx)
 		assert.Equal(t, []string{"/bin/custom"}, result)
@@ -282,17 +282,17 @@ func TestEnvShell(t *testing.T) {
 func TestEnvResolveShellResolvesParams(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Shell:     "/bin/sh",
 		ShellArgs: []string{"${params.shell_arg}"},
-		ParamDefs: []core.ParamDef{{
+		ParamDefs: []ir.ParamDef{{
 			Name: "shell_arg",
-			Type: core.ParamDefTypeString,
+			Type: ir.ParamDefTypeString,
 		}},
 		Params: []string{"shell_arg=-c"},
 	}
 	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 
 	got, err := env.ResolveShell(ctx)
 	require.NoError(t, err)
@@ -302,17 +302,17 @@ func TestEnvResolveShellResolvesParams(t *testing.T) {
 func TestEnvResolveShellResolvesStepShellArgsWithInheritedDAGShell(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Shell:     "/bin/sh",
 		ShellArgs: []string{"-c"},
-		ParamDefs: []core.ParamDef{{
+		ParamDefs: []ir.ParamDef{{
 			Name: "shell_arg",
-			Type: core.ParamDefTypeString,
+			Type: ir.ParamDefTypeString,
 		}},
 		Params: []string{"shell_arg=-ec"},
 	}
 	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-	env := runtime.NewEnv(ctx, core.Step{
+	env := runtime.NewEnv(ctx, ir.Step{
 		Name:      "test-step",
 		ShellArgs: []string{"${params.shell_arg}"},
 	})
@@ -350,16 +350,16 @@ steps:
 func TestEnvResolveShellPreservesMissingParam(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Shell:     "/bin/sh",
 		ShellArgs: []string{"${params.shell_arg}"},
-		ParamDefs: []core.ParamDef{{
+		ParamDefs: []ir.ParamDef{{
 			Name: "shell_arg",
-			Type: core.ParamDefTypeString,
+			Type: ir.ParamDefTypeString,
 		}},
 	}
 	ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
-	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 
 	got, err := env.ResolveShell(ctx)
 	require.NoError(t, err)
@@ -374,14 +374,14 @@ func TestConstResolutionInWorkingDirs(t *testing.T) {
 
 		root := t.TempDir()
 		dagDir := filepath.Join(root, "dag-root")
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Consts:             map[string]any{"root": dagDir},
 			WorkingDir:         "${consts.root}",
 			WorkingDirExplicit: true,
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
 
-		env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+		env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 		assert.Equal(t, dagDir, env.WorkingDir)
 	})
 
@@ -391,14 +391,14 @@ func TestConstResolutionInWorkingDirs(t *testing.T) {
 		root := t.TempDir()
 		dagDir := filepath.Join(root, "dag-root")
 		stepDir := filepath.Join(root, "step-root")
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Consts:             map[string]any{"step_dir": stepDir},
 			WorkingDir:         dagDir,
 			WorkingDirExplicit: true,
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
 
-		env := runtime.NewEnv(ctx, core.Step{Name: "test-step", Dir: "${consts.step_dir}"})
+		env := runtime.NewEnv(ctx, ir.Step{Name: "test-step", Dir: "${consts.step_dir}"})
 		assert.Equal(t, stepDir, env.WorkingDir)
 	})
 }
@@ -409,14 +409,14 @@ func TestNewEnvWithErrorPreservesInvalidWorkingDirReferences(t *testing.T) {
 	t.Run("DAGWorkingDir", func(t *testing.T) {
 		t.Parallel()
 
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Consts:             map[string]any{},
 			WorkingDir:         "${consts.missing}",
 			WorkingDirExplicit: true,
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
 
-		env, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step"})
+		env, err := runtime.NewEnvWithError(ctx, ir.Step{Name: "test-step"})
 		require.NoError(t, err)
 		assert.Equal(t, "${consts.missing}", env.WorkingDir)
 	})
@@ -424,14 +424,14 @@ func TestNewEnvWithErrorPreservesInvalidWorkingDirReferences(t *testing.T) {
 	t.Run("StepWorkingDir", func(t *testing.T) {
 		t.Parallel()
 
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Consts:             map[string]any{},
 			WorkingDir:         t.TempDir(),
 			WorkingDirExplicit: true,
 		}
 		ctx := runtime.NewContext(context.Background(), dag, "test-run", "test.log")
 
-		env, err := runtime.NewEnvWithError(ctx, core.Step{Name: "test-step", Dir: "${consts.missing}"})
+		env, err := runtime.NewEnvWithError(ctx, ir.Step{Name: "test-step", Dir: "${consts.missing}"})
 		require.NoError(t, err)
 		assert.Equal(t, filepath.Join(dag.WorkingDir, "${consts.missing}"), env.WorkingDir)
 	})
@@ -483,13 +483,13 @@ func TestEnv_AllEnvsMap(t *testing.T) {
 			tempDir := t.TempDir()
 
 			// Set up DAG context with WorkingDir and BaseEnv
-			dag := &core.DAG{
+			dag := &ir.DAG{
 				Name:       "test-dag",
 				WorkingDir: tempDir,
 			}
 			ctx := exec.NewContext(context.Background(), dag, "", "")
 
-			env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+			env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 			env = tt.setupEnv(env)
 
 			// Use WithEnv to set the env in context, then call AllEnvsMap
@@ -523,13 +523,13 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		step        core.Step
+		step        ir.Step
 		dagWorkDir  string // DAG's WorkingDir for context
 		expectedDir string
 	}{
 		{
 			name: "StepWithAbsoluteDirectory",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir:  tempDir,
 			},
@@ -538,7 +538,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 		},
 		{
 			name: "StepWithRelativeDirectory_ResolvesAgainstDAGWorkDir",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir:  "./subdir",
 			},
@@ -547,7 +547,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 		},
 		{
 			name: "StepWithRelativeDirectory_NoLeadingDot",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir:  "subdir",
 			},
@@ -556,7 +556,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 		},
 		{
 			name: "StepWithHomeDirectoryNotation",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir:  "~/dagu_test_workdir",
 			},
@@ -565,7 +565,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 		},
 		{
 			name: "StepWithNonExistentAbsoluteDirectory",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir: func() string {
 					if goruntime.GOOS == "windows" {
@@ -584,7 +584,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 		},
 		{
 			name: "StepWithEnvironmentVariableInPath_Absolute",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir: func() string {
 					if goruntime.GOOS == "windows" {
@@ -598,7 +598,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 		},
 		{
 			name: "StepWithNoDir_InheritsDAGWorkDir",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir:  "",
 			},
@@ -607,7 +607,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 		},
 		{
 			name: "StepWithParentRelativeDirectory",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir:  "../",
 			},
@@ -616,7 +616,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 		},
 		{
 			name: "DAGWorkDirWithTildePrefix",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir:  "", // Empty - should inherit DAG WorkingDir
 			},
@@ -625,7 +625,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 		},
 		{
 			name: "DAGWorkDirWithEnvVarExpandingToHome",
-			step: core.Step{
+			step: ir.Step{
 				Name: "test-step",
 				Dir:  "", // Empty - should inherit DAG WorkingDir
 			},
@@ -644,7 +644,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 			t.Parallel()
 
 			// Set up DAG context with WorkingDir
-			dag := &core.DAG{
+			dag := &ir.DAG{
 				Name:       "test-dag",
 				WorkingDir: tt.dagWorkDir,
 			}
@@ -678,18 +678,18 @@ func TestNewEnvForStep_ImplicitWorkingDirUsesDAGRunWorkDir(t *testing.T) {
 	staleSerializedDir := t.TempDir()
 	runWorkDir := t.TempDir()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		WorkingDir: staleSerializedDir,
 	}
 	ctx := exec.NewContext(context.Background(), dag, "run-id", "", exec.WithWorkDir(runWorkDir))
 
-	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 	assert.Equal(t, runWorkDir, env.WorkingDir)
 	pwd, _ := env.Scope.Get("PWD")
 	assert.Equal(t, runWorkDir, pwd)
 
-	env = runtime.NewEnv(ctx, core.Step{Name: "relative-step", Dir: "child"})
+	env = runtime.NewEnv(ctx, ir.Step{Name: "relative-step", Dir: "child"})
 	assert.Equal(t, filepath.Join(runWorkDir, "child"), env.WorkingDir)
 }
 
@@ -699,17 +699,17 @@ func TestNewEnvForStep_ExplicitWorkingDirIgnoresDAGRunWorkDir(t *testing.T) {
 	explicitDir := t.TempDir()
 	runWorkDir := t.TempDir()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:               "test-dag",
 		WorkingDir:         explicitDir,
 		WorkingDirExplicit: true,
 	}
 	ctx := exec.NewContext(context.Background(), dag, "run-id", "", exec.WithWorkDir(runWorkDir))
 
-	env := runtime.NewEnv(ctx, core.Step{Name: "test-step"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 	assert.Equal(t, explicitDir, env.WorkingDir)
 
-	env = runtime.NewEnv(ctx, core.Step{Name: "relative-step", Dir: "child"})
+	env = runtime.NewEnv(ctx, ir.Step{Name: "relative-step", Dir: "child"})
 	assert.Equal(t, filepath.Join(explicitDir, "child"), env.WorkingDir)
 }
 
@@ -719,7 +719,7 @@ func TestNewEnvForStep_BasicFields(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Set up DAG context with WorkingDir
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		WorkingDir: tempDir,
 	}
@@ -728,9 +728,9 @@ func TestNewEnvForStep_BasicFields(t *testing.T) {
 	}
 	ctx := runtime.WithDAGContext(context.Background(), dagCtx)
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-step",
-		Commands: []core.CommandEntry{{
+		Commands: []ir.CommandEntry{{
 			Command:     "echo",
 			Args:        []string{"hello", "arg1", "arg2"},
 			CmdWithArgs: "echo hello arg1 arg2",
@@ -762,7 +762,7 @@ func TestNewEnvUsesDAGScopeWhenContextHasInheritedEnv(t *testing.T) {
 	childScope := cmnvalue.NewEnvScope(nil, false).WithEntry("VALUE", "child", cmnvalue.EnvSourceDAGEnv)
 	parentScope := cmnvalue.NewEnvScope(nil, false).WithEntry("VALUE", "parent", cmnvalue.EnvSourceStepEnv)
 	ctx := runtime.WithDAGContext(context.Background(), exec.Context{
-		DAG:      &core.DAG{Name: "child"},
+		DAG:      &ir.DAG{Name: "child"},
 		EnvScope: childScope,
 	})
 	ctx = runtime.WithEnv(ctx, runtime.Env{
@@ -770,7 +770,7 @@ func TestNewEnvUsesDAGScopeWhenContextHasInheritedEnv(t *testing.T) {
 		Foreach: cmnvalue.Values{"item": "one"},
 	})
 
-	env := runtime.NewEnv(ctx, core.Step{Name: "child-step"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "child-step"})
 
 	got, ok := env.Scope.Get("VALUE")
 	require.True(t, ok)
@@ -786,7 +786,7 @@ func TestNewEnvForStep_WorkingDirectory_DAGEnvExpansion(t *testing.T) {
 	require.NoError(t, os.Mkdir(subDir, 0755))
 
 	// Set up DAG context with WorkingDir and env vars
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		WorkingDir: tempDir,
 		Env:        []string{"MY_SUBDIR=subdir"},
@@ -796,7 +796,7 @@ func TestNewEnvForStep_WorkingDirectory_DAGEnvExpansion(t *testing.T) {
 	}
 	ctx := runtime.WithDAGContext(context.Background(), dagCtx)
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "test-step",
 		Dir:  "./$MY_SUBDIR", // Uses DAG env var in relative path
 	}
@@ -820,9 +820,9 @@ func TestEnv_UserEnvsMap(t *testing.T) {
 		{
 			name: "IncludesOutputsFromPreviousSteps",
 			setup: func(ctx context.Context) (context.Context, runtime.Env) {
-				dag := &core.DAG{Env: []string{"DAG_VAR=dag_value"}}
+				dag := &ir.DAG{Env: []string{"DAG_VAR=dag_value"}}
 				ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				env.Scope = env.Scope.WithEntry("OUTPUT_VAR", "output_value", cmnvalue.EnvSourceOutput)
 				return ctx, env
 			},
@@ -834,13 +834,13 @@ func TestEnv_UserEnvsMap(t *testing.T) {
 		{
 			name: "StepEnvOverridesAll",
 			setup: func(ctx context.Context) (context.Context, runtime.Env) {
-				dag := &core.DAG{Env: []string{"KEY=dag"}}
+				dag := &ir.DAG{Env: []string{"KEY=dag"}}
 				secrets := []string{"KEY=secret"}
 				ctx = runtime.NewContext(ctx, dag, "test-run", "test.log",
 					runtime.WithSecrets(secrets),
 				)
 
-				step := core.Step{Name: "test"}
+				step := ir.Step{Name: "test"}
 				env := runtime.NewEnv(ctx, step)
 				// Step env has highest precedence
 				env.Scope = env.Scope.WithEntry("KEY", "step", cmnvalue.EnvSourceStepEnv)
@@ -855,9 +855,9 @@ func TestEnv_UserEnvsMap(t *testing.T) {
 		{
 			name: "ExcludesOSEnvironment",
 			setup: func(ctx context.Context) (context.Context, runtime.Env) {
-				dag := &core.DAG{Env: []string{"USER_VAR=user"}}
+				dag := &ir.DAG{Env: []string{"USER_VAR=user"}}
 				ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 				return ctx, env
 			},
 			expected: map[string]string{
@@ -898,13 +898,13 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 			name: "StepEnvOverridesOutputVariablesAndDAGEnv",
 			setup: func(ctx context.Context) (context.Context, runtime.Env) {
 				// Create DAG with env variable
-				dag := &core.DAG{
+				dag := &ir.DAG{
 					Env: []string{"FOO=from_dag"},
 				}
 				ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
 				// Create executor env
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 
 				// Set output variable
 				env.Scope = env.Scope.WithEntry("FOO", "from_output", cmnvalue.EnvSourceOutput)
@@ -921,13 +921,13 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 			name: "OutputVariablesOverrideDAGEnv",
 			setup: func(ctx context.Context) (context.Context, runtime.Env) {
 				// Create DAG with env variable
-				dag := &core.DAG{
+				dag := &ir.DAG{
 					Env: []string{"BAR=from_dag"},
 				}
 				ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
 				// Create executor env
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 
 				// Set output variable (higher precedence than DAG)
 				env.Scope = env.Scope.WithEntry("BAR", "from_output", cmnvalue.EnvSourceOutput)
@@ -941,13 +941,13 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 			name: "DAGEnvUsedWhenNoOverrideExists",
 			setup: func(ctx context.Context) (context.Context, runtime.Env) {
 				// Create DAG with env variable
-				dag := &core.DAG{
+				dag := &ir.DAG{
 					Env: []string{"BAZ=from_dag"},
 				}
 				ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
 				// Create executor env
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 
 				return ctx, env
 			},
@@ -958,13 +958,13 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 			name: "MultipleVariablesWithDifferentPrecedence",
 			setup: func(ctx context.Context) (context.Context, runtime.Env) {
 				// Create DAG with multiple env variables
-				dag := &core.DAG{
+				dag := &ir.DAG{
 					Env: []string{"VAR1=dag1", "VAR2=dag2", "VAR3=dag3"},
 				}
 				ctx = runtime.NewContext(ctx, dag, "test-run", "test.log")
 
 				// Create executor env
-				env := runtime.NewEnv(ctx, core.Step{Name: "test"})
+				env := runtime.NewEnv(ctx, ir.Step{Name: "test"})
 
 				// Set output variables (VAR1, VAR2)
 				env.Scope = env.Scope.WithEntries(map[string]string{
@@ -1000,14 +1000,14 @@ func TestEnv_EvalString_Precedence(t *testing.T) {
 func TestEnv_SpecialEnvVars_DAGParamsJSON(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		WorkingDir: t.TempDir(),
 		ParamsJSON: `{"a":"b"}`,
 	}
 	ctx := runtime.NewContext(context.Background(), dag, "run-1", "test.log")
 
-	env := runtime.NewEnv(ctx, core.Step{Name: "step1"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "step1"})
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
 
@@ -1022,10 +1022,10 @@ func TestEnv_SpecialEnvVars_DAGDocsDir(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Paths.DocsDir = docsDir
 	ctx := config.WithConfig(context.Background(), cfg)
-	dag := &core.DAG{Name: "test-dag", WorkingDir: t.TempDir()}
+	dag := &ir.DAG{Name: "test-dag", WorkingDir: t.TempDir()}
 	ctx = runtime.NewContext(ctx, dag, "run-1", "test.log")
 
-	env := runtime.NewEnv(ctx, core.Step{Name: "step1"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "step1"})
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
 
@@ -1036,13 +1036,13 @@ func TestEnv_SpecialEnvVars_DAGRunWorkDir(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dag := &core.DAG{Name: "test-dag", WorkingDir: t.TempDir()}
+	dag := &ir.DAG{Name: "test-dag", WorkingDir: t.TempDir()}
 	workDir := filepath.Join(t.TempDir(), "work")
 	ctx = runtime.NewContext(ctx, dag, "run-1", "test.log",
 		runtime.WithWorkDir(workDir),
 	)
 
-	env := runtime.NewEnv(ctx, core.Step{Name: "step1"})
+	env := runtime.NewEnv(ctx, ir.Step{Name: "step1"})
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
 	assert.Equal(t, workDir, result[exec.EnvKeyDAGRunWorkDir])
@@ -1051,8 +1051,8 @@ func TestEnv_SpecialEnvVars_DAGRunWorkDir(t *testing.T) {
 func TestEnv_DirectCommandOSExpansionDoesNotInjectHostEnv(t *testing.T) {
 	t.Setenv("DAGU_RUNTIME_HOST_ONLY", "from-os")
 
-	ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
-	env := runtime.NewEnv(ctx, core.Step{Name: "step1"})
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test-dag"}, "run-1", "test.log")
+	env := runtime.NewEnv(ctx, ir.Step{Name: "step1"})
 	ctx = runtime.WithEnv(ctx, env)
 
 	got, err := runtime.ResolveString(ctx, "$DAGU_RUNTIME_HOST_ONLY", cmnvalue.DirectCommandField("command", cmnvalue.CommandContext{}))

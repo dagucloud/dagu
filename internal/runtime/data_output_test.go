@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +23,7 @@ func TestNodeDataStringFormOutputValue(t *testing.T) {
 		vars.Store("RESULT", "RESULT=legacy")
 
 		data := NodeData{
-			Step: core.Step{Output: "RESULT"},
+			Step: ir.Step{Output: "RESULT"},
 			State: NodeState{
 				OutputValue:     &value,
 				OutputVariables: vars,
@@ -42,7 +42,7 @@ func TestNodeDataStringFormOutputValue(t *testing.T) {
 		vars.Store("RESULT", "RESULT=legacy")
 
 		data := NodeData{
-			Step: core.Step{Output: "RESULT"},
+			Step: ir.Step{Output: "RESULT"},
 			State: NodeState{
 				OutputVariables: vars,
 			},
@@ -62,7 +62,7 @@ func TestDataStepInfoUsesStringFormOutputValue(t *testing.T) {
 	vars.Store("RESULT", "RESULT=legacy")
 
 	data := newSafeData(NodeData{
-		Step: core.Step{
+		Step: ir.Step{
 			ID:     "publish",
 			Name:   "publish",
 			Output: "RESULT",
@@ -89,7 +89,7 @@ func TestDataStepInfoUsesStructuredOutputValue(t *testing.T) {
 
 	value := `{"version":"v1.2.3"}`
 	data := newSafeData(NodeData{
-		Step: core.Step{
+		Step: ir.Step{
 			ID:   "publish",
 			Name: "publish",
 		},

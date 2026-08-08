@@ -14,8 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -77,7 +77,7 @@ steps:
 		ProcessQueuedInlineRun(t, server, dagName)
 		require.Eventually(t, func() bool {
 			status, err := latestStoredAttemptStatus(server, dagName, dagRunID)
-			return err == nil && status.Status == core.Succeeded
+			return err == nil && status.Status == ir.Succeeded
 		}, rescheduleEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 	}
 
@@ -104,7 +104,7 @@ func AssertInlineRescheduledRunParams(t *testing.T, server Server, dagName, dagR
 		if err != nil {
 			return false
 		}
-		return status.Status == core.Succeeded
+		return status.Status == ir.Succeeded
 	}, rescheduleEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
 	status, err := latestStoredAttemptStatus(server, dagName, dagRunID)
@@ -138,12 +138,12 @@ func WaitForAttemptSnapshot(t *testing.T, server Server, dagName, dagRunID strin
 	return attempt
 }
 
-func WaitForAttemptSnapshotWithDAG(t *testing.T, server Server, dagName, dagRunID string) (exec.DAGRunAttempt, *core.DAG) {
+func WaitForAttemptSnapshotWithDAG(t *testing.T, server Server, dagName, dagRunID string) (exec.DAGRunAttempt, *ir.DAG) {
 	t.Helper()
 
 	attempt := WaitForAttemptSnapshot(t, server, dagName, dagRunID)
 
-	var dag *core.DAG
+	var dag *ir.DAG
 	require.Eventually(t, func() bool {
 		var err error
 		dag, err = attempt.ReadDAG(server.Context)

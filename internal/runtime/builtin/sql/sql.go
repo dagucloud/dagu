@@ -19,7 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -34,7 +34,7 @@ var (
 // sqlExecutor implements the Executor interface for SQL operations.
 type sqlExecutor struct {
 	mu              sync.Mutex
-	step            core.Step
+	step            ir.Step
 	cfg             *Config
 	driver          Driver
 	connMgr         *ConnectionManager
@@ -60,7 +60,7 @@ type ExecutionMetrics struct {
 }
 
 // newSQLExecutor creates a new SQL executor for the given driver type.
-func newSQLExecutor(ctx context.Context, step core.Step, driverName string) (executor.Executor, error) {
+func newSQLExecutor(ctx context.Context, step ir.Step, driverName string) (executor.Executor, error) {
 	driver, ok := GetDriver(driverName)
 	if !ok {
 		return nil, fmt.Errorf("sql driver %q not found", driverName)
@@ -111,12 +111,12 @@ func newSQLExecutor(ctx context.Context, step core.Step, driverName string) (exe
 }
 
 // newPostgresExecutor creates a new PostgreSQL executor.
-func newPostgresExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newPostgresExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	return newSQLExecutor(ctx, step, "postgres")
 }
 
 // newSQLiteExecutor creates a new SQLite executor.
-func newSQLiteExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newSQLiteExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	return newSQLExecutor(ctx, step, "sqlite")
 }
 
@@ -704,7 +704,7 @@ func init() {
 		"postgres",
 		newPostgresExecutor,
 		nil,
-		core.ExecutorCapabilities{Command: true, Script: true},
+		ir.ExecutorCapabilities{Command: true, Script: true},
 	)
 
 	// Register SQLite executor
@@ -712,6 +712,6 @@ func init() {
 		"sqlite",
 		newSQLiteExecutor,
 		nil,
-		core.ExecutorCapabilities{Command: true, Script: true},
+		ir.ExecutorCapabilities{Command: true, Script: true},
 	)
 }

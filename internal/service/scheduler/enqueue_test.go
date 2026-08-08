@@ -11,9 +11,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -44,7 +44,7 @@ steps:
 		"",
 		dag.DAG,
 		runID,
-		core.TriggerTypeCatchUp,
+		ir.TriggerTypeCatchUp,
 		scheduleTime,
 		"prod",
 	)
@@ -56,8 +56,8 @@ steps:
 	status, err := attempt.ReadStatus(th.Context)
 	require.NoError(t, err)
 
-	require.Equal(t, core.Queued, status.Status)
-	require.Equal(t, core.TriggerTypeCatchUp, status.TriggerType)
+	require.Equal(t, ir.Queued, status.Status)
+	require.Equal(t, ir.TriggerTypeCatchUp, status.TriggerType)
 	require.Equal(t, stringutil.FormatTime(scheduleTime), status.ScheduleTime)
 	require.Equal(t, "prod", status.ProfileName)
 	require.NotEmpty(t, status.Log)
@@ -111,7 +111,7 @@ steps:
 		"",
 		metadataOnly,
 		runID,
-		core.TriggerTypeCatchUp,
+		ir.TriggerTypeCatchUp,
 		scheduleTime,
 		"",
 	)
@@ -123,7 +123,7 @@ steps:
 	persisted, err := attempt.ReadDAG(th.Context)
 	require.NoError(t, err)
 	require.Len(t, persisted.Secrets, 1)
-	assert.Equal(t, core.SecretRef{
+	assert.Equal(t, ir.SecretRef{
 		Name:     "EXPORTED_SECRET",
 		Provider: "env",
 		Key:      "SECRET_SOURCE",
@@ -181,7 +181,7 @@ steps:
 		workspaceBaseConfigDir,
 		metadataOnly,
 		runID,
-		core.TriggerTypeCatchUp,
+		ir.TriggerTypeCatchUp,
 		time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
 		"",
 	)

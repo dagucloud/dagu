@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,7 +117,7 @@ func TestArtifactExecutorRequiresArtifactDir(t *testing.T) {
 		"path":    "out.txt",
 		"content": "hello",
 	})
-	dag := &core.DAG{Name: "artifact-test"}
+	dag := &ir.DAG{Name: "artifact-test"}
 	ctx := runtime.NewContext(context.Background(), dag, "run-1", "")
 	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
 
@@ -142,7 +142,7 @@ func newArtifactExecutorForTest(t *testing.T, artifactDir, op string, cfg map[st
 	t.Helper()
 
 	step := artifactStep(op, cfg)
-	dag := &core.DAG{Name: "artifact-test"}
+	dag := &ir.DAG{Name: "artifact-test"}
 	ctx := runtime.NewContext(context.Background(), dag, "run-1", "", runtime.WithArtifactDir(artifactDir))
 	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
 
@@ -155,11 +155,11 @@ func newArtifactExecutorForTest(t *testing.T, artifactDir, op string, cfg map[st
 	return artifactExec, nil
 }
 
-func artifactStep(op string, cfg map[string]any) core.Step {
-	return core.Step{
+func artifactStep(op string, cfg map[string]any) ir.Step {
+	return ir.Step{
 		Name:     "artifact-step",
-		Commands: []core.CommandEntry{{Command: op}},
-		ExecutorConfig: core.ExecutorConfig{
+		Commands: []ir.CommandEntry{{Command: op}},
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   executorType,
 			Config: cfg,
 		},

@@ -20,8 +20,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -35,22 +35,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func agentCommandEntry(command string) core.CommandEntry {
+func agentCommandEntry(command string) ir.CommandEntry {
 	cmd, args, err := cmdutil.SplitCommand(command)
 	if err != nil {
 		panic(fmt.Errorf("failed to parse command %q: %w", command, err))
 	}
-	return core.CommandEntry{
+	return ir.CommandEntry{
 		Command:     cmd,
 		Args:        args,
 		CmdWithArgs: command,
 	}
 }
 
-func setAllAgentStepCommands(dag *core.DAG, command string) {
+func setAllAgentStepCommands(dag *ir.DAG, command string) {
 	entry := agentCommandEntry(command)
 	for i := range dag.Steps {
-		dag.Steps[i].Commands = []core.CommandEntry{entry}
+		dag.Steps[i].Commands = []ir.CommandEntry{entry}
 	}
 }
 
@@ -124,7 +124,7 @@ func TestAgent_Run(t *testing.T) {
 `)
 		dagAgent := dag.Agent()
 
-		dag.AssertLatestStatus(t, core.NotStarted)
+		dag.AssertLatestStatus(t, ir.NotStarted)
 
 		runDone := make(chan error, 1)
 		go func() {
@@ -143,7 +143,7 @@ func TestAgent_Run(t *testing.T) {
 			t.Fatalf("timed out waiting for DAG run to finish after %s", runTimeout)
 		}
 
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
 	t.Run("RecordsTriggerActor", func(t *testing.T) {
 		th := test.Setup(t)
@@ -171,7 +171,7 @@ func TestAgent_Run(t *testing.T) {
 
 		err := dagAgent.Run(th.Context)
 		require.NoError(t, err)
-		dag.AssertLatestStatus(t, core.Waiting)
+		dag.AssertLatestStatus(t, ir.Waiting)
 	})
 	t.Run("HumanTaskRejectedInSubDAG", func(t *testing.T) {
 		th := test.Setup(t)
@@ -282,9 +282,9 @@ func TestAgent_Run(t *testing.T) {
 
 		status := dagAgent.Status(context.Background())
 		st := status.Status
-		require.Equal(t, core.Succeeded.String(), st.String(), "expected status %q, got %q", core.Succeeded, st)
+		require.Equal(t, ir.Succeeded.String(), st.String(), "expected status %q, got %q", ir.Succeeded, st)
 		for _, node := range status.Nodes {
-			if node.Status == core.NodeSkipped || node.Status == core.NodeSucceeded {
+			if node.Status == ir.NodeSkipped || node.Status == ir.NodeSucceeded {
 				continue
 			}
 			t.Errorf("expected node %q to be in success state, got %q", node.Step.Name, node.Status.String())
@@ -298,7 +298,7 @@ func TestAgent_Run(t *testing.T) {
 `, "exit 0", "exit 0"))
 
 		// Set a precondition that always fails
-		dag.Preconditions = []*core.Condition{
+		dag.Preconditions = []*ir.Condition{
 			{Condition: "1", Expected: "0"},
 		}
 
@@ -307,9 +307,9 @@ func TestAgent_Run(t *testing.T) {
 
 		// Check if all nodes are not executed
 		dagRunStatus := dagAgent.Status(th.Context)
-		require.Equal(t, core.Aborted.String(), dagRunStatus.Status.String())
-		require.Equal(t, core.NodeNotStarted.String(), dagRunStatus.Nodes[0].Status.String())
-		require.Equal(t, core.NodeNotStarted.String(), dagRunStatus.Nodes[1].Status.String())
+		require.Equal(t, ir.Aborted.String(), dagRunStatus.Status.String())
+		require.Equal(t, ir.NodeNotStarted.String(), dagRunStatus.Nodes[0].Status.String())
+		require.Equal(t, ir.NodeNotStarted.String(), dagRunStatus.Nodes[1].Status.String())
 	})
 	t.Run("FinishWithError", func(t *testing.T) {
 		th := test.Setup(t)
@@ -320,7 +320,7 @@ func TestAgent_Run(t *testing.T) {
 		dagAgent.RunError(t)
 
 		// Check if the status is saved correctly
-		require.Equal(t, core.Failed, dagAgent.Status(th.Context).Status)
+		require.Equal(t, ir.Failed, dagAgent.Status(th.Context).Status)
 	})
 	t.Run("InitFailurePersistsFinishedAt", func(t *testing.T) {
 		th := test.Setup(t)
@@ -338,7 +338,7 @@ steps:
 
 		latest, readErr := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 		require.NoError(t, readErr)
-		require.Equal(t, core.Failed, latest.Status)
+		require.Equal(t, ir.Failed, latest.Status)
 		require.NotEmpty(t, latest.FinishedAt)
 	})
 	t.Run("UnsupportedSocketTransportContinuesRun", func(t *testing.T) {
@@ -353,7 +353,7 @@ steps:
 		}))
 
 		dagAgent.RunSuccess(t)
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
 	t.Run("UnsupportedSocketTransportCanStopWithAbortFlag", func(t *testing.T) {
 		th := test.Setup(t)
@@ -395,7 +395,7 @@ steps:
 		case <-time.After(30 * time.Second):
 			require.FailNow(t, "timed out waiting for DAG run to stop via abort flag")
 		}
-		dag.AssertLatestStatus(t, core.Aborted)
+		dag.AssertLatestStatus(t, ir.Aborted)
 	})
 	t.Run("SocketStartupFailureRemainsFatal", func(t *testing.T) {
 		th := test.Setup(t)
@@ -425,9 +425,9 @@ steps:
 		dagAgent.RunError(t)
 
 		status := dagAgent.Status(th.Context)
-		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, ir.Failed, status.Status)
 		require.NotNil(t, status.OnFailure)
-		require.Equal(t, core.NodeSucceeded, status.OnFailure.Status)
+		require.Equal(t, ir.NodeSucceeded, status.OnFailure.Status)
 		require.NotEmpty(t, status.StartedAt)
 		require.NotEmpty(t, status.FinishedAt)
 
@@ -450,9 +450,9 @@ steps:
 		dagAgent.RunError(t)
 
 		status := dagAgent.Status(th.Context)
-		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, ir.Failed, status.Status)
 		require.NotNil(t, status.OnFailure)
-		require.Equal(t, core.NodeNotStarted, status.OnFailure.Status)
+		require.Equal(t, ir.NodeNotStarted, status.OnFailure.Status)
 
 		_, err := os.Stat(marker)
 		require.ErrorIs(t, err, os.ErrNotExist)
@@ -468,7 +468,7 @@ steps:
 		dagAgent.RunError(t)
 
 		// Check if the status is saved correctly
-		require.Equal(t, core.Failed, dagAgent.Status(th.Context).Status)
+		require.Equal(t, ir.Failed, dagAgent.Status(th.Context).Status)
 	})
 	t.Run("ReceiveSignal", func(t *testing.T) {
 		th := test.Setup(t)
@@ -490,7 +490,7 @@ steps:
 
 		require.Eventually(t, func() bool {
 			status, err := th.DAGRunMgr.GetCurrentStatus(context.Background(), dag.DAG, dagRunID)
-			if err != nil || status == nil || status.Status != core.Running {
+			if err != nil || status == nil || status.Status != ir.Running {
 				return false
 			}
 			return th.DAGRunMgr.IsRunning(context.Background(), dag.DAG, dagRunID)
@@ -502,7 +502,7 @@ steps:
 		waitForCancel(t, done, 30*time.Second)
 
 		// wait for the DAG to be canceled
-		dag.AssertLatestStatus(t, core.Aborted)
+		dag.AssertLatestStatus(t, ir.Aborted)
 	})
 	t.Run("ExitHandler", func(t *testing.T) {
 		th := test.Setup(t)
@@ -518,13 +518,13 @@ steps:
 
 		// Check if the DAG is executed successfully
 		dagRunStatus := dagAgent.Status(th.Context)
-		require.Equal(t, core.Succeeded.String(), dagRunStatus.Status.String())
+		require.Equal(t, ir.Succeeded.String(), dagRunStatus.Status.String())
 		for _, s := range dagRunStatus.Nodes {
-			require.Equal(t, core.NodeSucceeded.String(), s.Status.String())
+			require.Equal(t, ir.NodeSucceeded.String(), s.Status.String())
 		}
 
 		// Check if the exit handler is executed
-		require.Equal(t, core.NodeSucceeded.String(), dagRunStatus.OnExit.Status.String())
+		require.Equal(t, ir.NodeSucceeded.String(), dagRunStatus.OnExit.Status.String())
 	})
 }
 
@@ -546,7 +546,7 @@ steps:
 
 		// Verify the DAG ran successfully
 		dagRunStatus := dagAgent.Status(th.Context)
-		require.Equal(t, core.Succeeded.String(), dagRunStatus.Status.String())
+		require.Equal(t, ir.Succeeded.String(), dagRunStatus.Status.String())
 	})
 
 	t.Run("WorkingDirWithDAGEnvVar", func(t *testing.T) {
@@ -571,7 +571,7 @@ steps:
 
 		// Verify the DAG ran successfully
 		dagRunStatus := dagAgent.Status(th.Context)
-		require.Equal(t, core.Succeeded.String(), dagRunStatus.Status.String())
+		require.Equal(t, ir.Succeeded.String(), dagRunStatus.Status.String())
 	})
 
 	t.Run("WorkingDirWithTildeExpansion", func(t *testing.T) {
@@ -588,7 +588,7 @@ steps:
 
 		// Verify the DAG ran successfully
 		dagRunStatus := dagAgent.Status(th.Context)
-		require.Equal(t, core.Succeeded.String(), dagRunStatus.Status.String())
+		require.Equal(t, ir.Succeeded.String(), dagRunStatus.Status.String())
 	})
 }
 
@@ -604,7 +604,7 @@ func TestAgent_DryRun(t *testing.T) {
 		dagAgent.RunSuccess(t)
 
 		curStatus := dagAgent.Status(th.Context)
-		require.Equal(t, core.Succeeded, curStatus.Status)
+		require.Equal(t, ir.Succeeded, curStatus.Status)
 
 		// Check if the status is not saved
 		dag.AssertDAGRunCount(t, 0)
@@ -675,8 +675,8 @@ steps:
 		require.Equal(t, 0, dagAgent.Status(th.Context).AutoRetryCount)
 
 		for _, node := range dagAgent.Status(th.Context).Nodes {
-			if node.Status != core.NodeSucceeded &&
-				node.Status != core.NodeSkipped {
+			if node.Status != ir.NodeSucceeded &&
+				node.Status != ir.NodeSkipped {
 				t.Errorf("node %q is not successful: %s", node.Step.Name, node.Status)
 			}
 		}
@@ -771,7 +771,7 @@ steps:
 
 			if _, isRetried := retried[name]; isRetried {
 				// Only step '5' should be retried and successful
-				if node.Status != core.NodeSucceeded && node.Status != core.NodeSkipped {
+				if node.Status != ir.NodeSucceeded && node.Status != ir.NodeSkipped {
 					t.Errorf("step %q is not successful or skipped after step retry: %s", name, node.Status)
 				}
 				// FinishedAt should be fresher (more recent) than before, if it was set
@@ -781,7 +781,7 @@ steps:
 			} else {
 				// Assert that steps with "false" commands are still failed
 				if _, isFalseStep := falseSteps[name]; isFalseStep {
-					if node.Status != core.NodeFailed {
+					if node.Status != ir.NodeFailed {
 						t.Errorf("non-retried step %q (false command) should remain failed after step retry, got: %s", name, node.Status)
 					}
 				}
@@ -835,14 +835,14 @@ func TestAgent_HandleHTTP(t *testing.T) {
 			}
 
 			dagRunStatus, err := exec.StatusFromJSON(rw.body)
-			return err == nil && dagRunStatus.Status == core.Running
+			return err == nil && dagRunStatus.Status == ir.Running
 		}, 10*time.Second, 50*time.Millisecond)
 
 		// Stop the DAG
 		dagAgent.Abort()
 
 		waitForCancel(t, done, 30*time.Second)
-		dag.AssertLatestStatus(t, core.Aborted)
+		dag.AssertLatestStatus(t, ir.Aborted)
 	})
 	t.Run("HTTPInvalidRequest", func(t *testing.T) {
 		if runtime.GOOS != "windows" {
@@ -881,7 +881,7 @@ func TestAgent_HandleHTTP(t *testing.T) {
 		// Stop the DAG
 		dagAgent.Abort()
 		waitForCancel(t, done, 30*time.Second)
-		dag.AssertLatestStatus(t, core.Aborted)
+		dag.AssertLatestStatus(t, ir.Aborted)
 	})
 	t.Run("HTTPHandleCancel", func(t *testing.T) {
 		if runtime.GOOS != "windows" {
@@ -919,7 +919,7 @@ func TestAgent_HandleHTTP(t *testing.T) {
 
 		// Wait for the DAG to stop
 		waitForCancel(t, done, 30*time.Second)
-		dag.AssertLatestStatus(t, core.Aborted)
+		dag.AssertLatestStatus(t, ir.Aborted)
 	})
 }
 
@@ -1401,11 +1401,11 @@ steps:
 	// to status.jsonl while the subdag was running.
 	require.Eventually(t, func() bool {
 		statuses := th.DAGRunMgr.ListRecentStatus(th.Context, parent.Name, 1)
-		if len(statuses) == 0 || statuses[0].Status != core.Running {
+		if len(statuses) == 0 || statuses[0].Status != ir.Running {
 			return false
 		}
 		for _, node := range statuses[0].Nodes {
-			if node.Step.Name == "run-child" && node.Status == core.NodeRunning {
+			if node.Step.Name == "run-child" && node.Status == ir.NodeRunning {
 				return len(node.SubRuns) > 0
 			}
 		}
@@ -1465,7 +1465,7 @@ steps:
 
 	childStatus, err := attempt.ReadStatus(th.Context)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, childStatus.Status)
+	require.Equal(t, ir.Succeeded, childStatus.Status)
 	require.Equal(t, []string{"TARGET=from-parent"}, childStatus.ParamsList)
 	require.Len(t, childStatus.Nodes, 1)
 	require.NotNil(t, childStatus.Nodes[0].OutputVariables)
@@ -1520,7 +1520,7 @@ steps:
 
 	childStatus, err := attempt.ReadStatus(th.Context)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, childStatus.Status)
+	require.Equal(t, ir.Succeeded, childStatus.Status)
 	require.NotEmpty(t, childStatus.ArchiveDir)
 
 	data, err := os.ReadFile(filepath.Join(childStatus.ArchiveDir, "reports", "summary.txt"))
@@ -1580,8 +1580,8 @@ steps:
 	require.NoError(t, err)
 	childStatus, err := attempt.ReadStatus(th.Context)
 	require.NoError(t, err)
-	require.Equal(t, core.Queued, childStatus.Status)
-	require.Equal(t, core.TriggerTypeSubDAG, childStatus.TriggerType)
+	require.Equal(t, ir.Queued, childStatus.Status)
+	require.Equal(t, ir.TriggerTypeSubDAG, childStatus.TriggerType)
 	require.Equal(t, []string{"TARGET=async", "OTHER=keep"}, childStatus.ParamsList)
 	require.Equal(t, *ref, childStatus.Root)
 	require.True(t, childStatus.Parent.Zero())
@@ -1662,7 +1662,7 @@ steps:
 	waitForTestFile(t, outputFile, subDAGVisibleTimeout())
 	require.Eventually(t, func() bool {
 		childStatus, err := th.DAGRunMgr.GetSavedStatus(th.Context, ref)
-		return err == nil && childStatus.Status == core.Succeeded
+		return err == nil && childStatus.Status == ir.Succeeded
 	}, subDAGVisibleTimeout(), 100*time.Millisecond)
 
 	childStatus, err := th.DAGRunMgr.GetSavedStatus(th.Context, ref)

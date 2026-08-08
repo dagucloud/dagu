@@ -10,7 +10,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -110,9 +110,9 @@ func TestKubernetesExecutorRunCancellationUsesBackgroundCleanupContext(t *testin
 		return client, nil
 	}
 
-	exec, err := newKubernetes(context.Background(), core.Step{
+	exec, err := newKubernetes(context.Background(), ir.Step{
 		Name: "run-in-k8s",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "kubernetes",
 			Config: map[string]any{
 				"image": "busybox",
@@ -193,9 +193,9 @@ func TestKubernetesExecutorWaitForCompletionContextCancellationForcesCleanup(t *
 		return client, nil
 	}
 
-	exec, err := newKubernetes(context.Background(), core.Step{
+	exec, err := newKubernetes(context.Background(), ir.Step{
 		Name: "run-in-k8s",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "kubernetes",
 			Config: map[string]any{
 				"image": "busybox",
@@ -214,8 +214,8 @@ func TestKubernetesExecutorWaitForCompletionContextCancellationForcesCleanup(t *
 }
 
 func TestKubernetesExecutorValidateStepRequiresConfig(t *testing.T) {
-	err := validateStep(core.Step{
-		ExecutorConfig: core.ExecutorConfig{
+	err := validateStep(ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "kubernetes",
 		},
 	})
@@ -241,9 +241,9 @@ func TestKubernetesExecutorWaitForCompletionReturnsJobFailure(t *testing.T) {
 		return client, nil
 	}
 
-	exec, err := newKubernetes(context.Background(), core.Step{
+	exec, err := newKubernetes(context.Background(), ir.Step{
 		Name: "run-in-k8s",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "kubernetes",
 			Config: map[string]any{
 				"image":          "busybox",
@@ -290,9 +290,9 @@ func TestKubernetesExecutorPodSchedulingFailureRespectsCleanupPolicy(t *testing.
 				return client, nil
 			}
 
-			exec, err := newKubernetes(context.Background(), core.Step{
+			exec, err := newKubernetes(context.Background(), ir.Step{
 				Name: "run-in-k8s",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: "kubernetes",
 					Config: map[string]any{
 						"image":          "busybox",

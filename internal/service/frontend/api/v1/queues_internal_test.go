@@ -11,8 +11,8 @@ import (
 
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -91,10 +91,10 @@ func TestGetQueueCountsFreshLeaseForClaimedAttemptAsRunning(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		status core.Status
+		status ir.Status
 	}{
-		{name: "Queued", status: core.Queued},
-		{name: "NotStarted", status: core.NotStarted},
+		{name: "Queued", status: ir.Queued},
+		{name: "NotStarted", status: ir.NotStarted},
 	}
 
 	for _, tt := range tests {
@@ -145,7 +145,7 @@ func TestGetQueueCountsQueuedItemsSeparatelyFromRunningItems(t *testing.T) {
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
 	createDistributedQueueRun(t, ctx, dagRunStore, leaseStore, "mixed-q", "running-run", "mixed-q", time.Now())
-	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "mixed-q", "queued-run", core.Queued)
+	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "mixed-q", "queued-run", ir.Queued)
 
 	a := &API{
 		dagRunStore:         dagRunStore,
@@ -176,10 +176,10 @@ func TestListQueueItemsUsesCursorPaginationAndSkipsRunningEntries(t *testing.T) 
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
-	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-1", core.Queued)
-	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-2", core.Running)
-	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-3", core.Queued)
-	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-4", core.Queued)
+	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-1", ir.Queued)
+	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-2", ir.Running)
+	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-3", ir.Queued)
+	createQueuedQueueRun(t, ctx, dagRunStore, queueStore, "cursor-q", "run-4", ir.Queued)
 
 	a := &API{
 		dagRunStore: dagRunStore,
@@ -255,7 +255,7 @@ func createDistributedQueueRun(
 	lastHeartbeatAt time.Time,
 ) {
 	t.Helper()
-	createDistributedQueueRunWithStatus(t, ctx, store, leaseStore, name, dagRunID, leaseQueueName, lastHeartbeatAt, core.Running)
+	createDistributedQueueRunWithStatus(t, ctx, store, leaseStore, name, dagRunID, leaseQueueName, lastHeartbeatAt, ir.Running)
 }
 
 func createDistributedQueueRunWithStatus(
@@ -267,13 +267,13 @@ func createDistributedQueueRunWithStatus(
 	dagRunID string,
 	leaseQueueName string,
 	lastHeartbeatAt time.Time,
-	status core.Status,
+	status ir.Status,
 ) {
 	t.Helper()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: name,
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "step", Command: "echo hello"},
 		},
 	}
@@ -291,7 +291,7 @@ func createDistributedQueueRunWithStatus(
 	runStatus.AttemptID = attempt.ID()
 	runStatus.ProcGroup = name
 	runStatus.WorkerID = "worker-1"
-	if status == core.Queued {
+	if status == ir.Queued {
 		runStatus.Conditions = []exec.DAGRunCondition{
 			exec.NewDAGRunCondition(
 				"Runnable",
@@ -302,7 +302,7 @@ func createDistributedQueueRunWithStatus(
 			),
 		}
 	}
-	if status == core.Running {
+	if status == ir.Running {
 		runStatus.StartedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 	runStatus.CreatedAt = time.Now().UnixMilli()
@@ -326,13 +326,13 @@ func createQueuedQueueRun(
 	queueStore exec.QueueStore,
 	name string,
 	dagRunID string,
-	status core.Status,
+	status ir.Status,
 ) {
 	t.Helper()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: name,
-		Steps: []core.Step{
+		Steps: []ir.Step{
 			{Name: "step", Command: "echo hello"},
 		},
 	}
@@ -351,7 +351,7 @@ func createQueuedQueueRun(
 	runStatus.ProcGroup = name
 	runStatus.QueuedAt = time.Now().UTC().Format(time.RFC3339)
 	runStatus.CreatedAt = time.Now().UnixMilli()
-	if status == core.Running {
+	if status == ir.Running {
 		runStatus.StartedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 

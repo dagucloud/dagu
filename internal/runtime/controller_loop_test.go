@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
@@ -217,7 +217,7 @@ type controllerHelper struct {
 	test.Helper
 	runner *runtime.Runner
 	cfg    *runtime.Config
-	dag    *core.DAG
+	dag    *ir.DAG
 	plan   *runtime.Plan
 	model  *fakeModel
 	// runErr is what Run returned, which determines the process exit code.
@@ -269,7 +269,7 @@ func setupControllerModels(
 	}
 }
 
-func (ch *controllerHelper) run(t *testing.T) core.Status {
+func (ch *controllerHelper) run(t *testing.T) ir.Status {
 	t.Helper()
 
 	ch.dag.WorkingDir = t.TempDir()
@@ -329,13 +329,13 @@ func TestControllerLoop_CompletesEveryTask(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "beta ran"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
-	assert.Equal(t, core.NodeSucceeded, ch.node(t, "alpha").State().Status)
-	assert.Equal(t, core.NodeSucceeded, ch.node(t, "beta").State().Status)
+	require.Equal(t, ir.Succeeded, ch.run(t))
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "alpha").State().Status)
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "beta").State().Status)
 
 	// The controller never chose boom, so it is skipped rather than left pending.
-	assert.Equal(t, core.NodeSkipped, ch.node(t, "boom").State().Status)
-	assert.Equal(t, core.NodeSucceeded, ch.node(t, core.ControllerStepName).State().Status)
+	assert.Equal(t, ir.NodeSkipped, ch.node(t, "boom").State().Status)
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, ir.ControllerStepName).State().Status)
 }
 
 func TestControllerLoop_RecoversFromFailedAction(t *testing.T) {
@@ -350,15 +350,15 @@ func TestControllerLoop_RecoversFromFailedAction(t *testing.T) {
 	)
 
 	// A failing action is reported to the controller instead of aborting the run.
-	require.Equal(t, core.PartiallySucceeded, ch.run(t))
+	require.Equal(t, ir.PartiallySucceeded, ch.run(t))
 
 	// The controller absorbed the failure, so the run itself did not error and
 	// the process exits zero.
 	require.NoError(t, ch.runErr)
-	assert.Equal(t, core.NodeFailed, ch.node(t, "boom").State().Status)
-	assert.Equal(t, core.NodeSucceeded, ch.node(t, "alpha").State().Status)
+	assert.Equal(t, ir.NodeFailed, ch.node(t, "boom").State().Status)
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "alpha").State().Status)
 
-	messages := ch.node(t, core.ControllerStepName).GetChatMessages()
+	messages := ch.node(t, ir.ControllerStepName).GetChatMessages()
 	require.NotEmpty(t, messages)
 	assert.Contains(t, transcript(messages), "status: failed")
 }
@@ -373,9 +373,9 @@ func TestControllerLoop_RerunsAnActionWithFreshArguments(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "not needed"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 	alpha := ch.node(t, "alpha")
-	assert.Equal(t, core.NodeSucceeded, alpha.State().Status)
+	assert.Equal(t, ir.NodeSucceeded, alpha.State().Status)
 	assert.True(t, alpha.State().Repeated, "a re-run action is marked repeated")
 }
 
@@ -389,7 +389,7 @@ func TestControllerLoop_ObservesTheOutputOfARerunAction(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "not needed"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 
 	// The controller decides what to do next from what an action reported, so
 	// every attempt has to come back with its output. An attempt that reports
@@ -454,14 +454,14 @@ func TestControllerLoop_AgesObservationsAtPromptTokenThreshold(t *testing.T) {
 	)
 	ch.model.setPromptTokens(10)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 	observations := ch.model.observations()
 	require.Len(t, observations, 3)
 	assert.Equal(t, "turn 1: alpha → succeeded", observations[0])
 	assert.Equal(t, "turn 2: beta → succeeded", observations[1])
 	assert.Contains(t, observations[2], `Task "first" is now completed`)
 
-	ctrl := ch.node(t, core.ControllerStepName)
+	ctrl := ch.node(t, ir.ControllerStepName)
 	restored, err := controller.LoadState(ctrl.State().ControllerState, ctrl.GetChatMessages(), ch.dag)
 	require.NoError(t, err)
 	assert.True(t, restored.ObservationAging)
@@ -480,7 +480,7 @@ func TestControllerLoop_RecoversOnceFromContextOverflow(t *testing.T) {
 	)
 	ch.model.failContextOnRequests(3)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 	assert.Equal(t, 5, ch.model.requestCount())
 	observations := ch.model.observations()
 	require.Len(t, observations, 3)
@@ -496,11 +496,11 @@ func TestControllerLoop_FailsWhenCompactedRequestStillOverflows(t *testing.T) {
 	)
 	ch.model.failContextOnRequests(2, 3)
 
-	require.Equal(t, core.Failed, ch.run(t))
+	require.Equal(t, ir.Failed, ch.run(t))
 	assert.Equal(t, 3, ch.model.requestCount())
 	assert.ErrorContains(t, ch.runErr, "after aging observations")
 
-	ctrl := ch.node(t, core.ControllerStepName)
+	ctrl := ch.node(t, ir.ControllerStepName)
 	restored, err := controller.LoadState(ctrl.State().ControllerState, ctrl.GetChatMessages(), ch.dag)
 	require.NoError(t, err)
 	assert.True(t, restored.ObservationAging)
@@ -514,7 +514,7 @@ func TestControllerLoop_DoesNotRetryUnchangedOverflowRequest(t *testing.T) {
 	)
 	ch.model.failContextOnRequests(1)
 
-	require.Equal(t, core.Failed, ch.run(t))
+	require.Equal(t, ir.Failed, ch.run(t))
 	assert.Equal(t, 1, ch.model.requestCount())
 	assert.ErrorIs(t, ch.runErr, llm.ErrContextTooLong)
 }
@@ -544,7 +544,7 @@ func TestControllerLoop_ContextManagementCanBeDisabled(t *testing.T) {
 	)
 	ch.model.failContextOnRequests(1)
 
-	require.Equal(t, core.Failed, ch.run(t))
+	require.Equal(t, ir.Failed, ch.run(t))
 	assert.Equal(t, 1, ch.model.requestCount())
 	assert.ErrorIs(t, ch.runErr, llm.ErrContextTooLong)
 }
@@ -576,7 +576,7 @@ func TestControllerLoop_LimitsObservationWithoutChangingStoredOutput(t *testing.
 			"task": "produced", "status": "completed", "reason": "produced"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 	observations := ch.model.observations()
 	require.Len(t, observations, 1)
 	assert.LessOrEqual(t, len(observations[0]), 128)
@@ -600,9 +600,9 @@ func TestControllerLoop_RejectsUnknownToolAndTask(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 
-	text := transcript(ch.node(t, core.ControllerStepName).GetChatMessages())
+	text := transcript(ch.node(t, ir.ControllerStepName).GetChatMessages())
 	assert.Contains(t, text, `no such action "does_not_exist"`)
 	assert.Contains(t, text, `unknown task "nope"`)
 }
@@ -616,8 +616,8 @@ func TestControllerLoop_FailsWhenControllerStopsWithOpenTasks(t *testing.T) {
 		turn{content: "still done"},
 	)
 
-	require.Equal(t, core.Failed, ch.run(t))
-	assert.Equal(t, core.NodeFailed, ch.node(t, core.ControllerStepName).State().Status)
+	require.Equal(t, ir.Failed, ch.run(t))
+	assert.Equal(t, ir.NodeFailed, ch.node(t, ir.ControllerStepName).State().Status)
 }
 
 func transcript(messages []exec.LLMMessage) string {
@@ -663,18 +663,18 @@ func TestControllerLoop_SuspendsForHumanTaskAndResumes(t *testing.T) {
 		turn{tool: "review"},
 	)
 
-	require.Equal(t, core.Waiting, ch.run(t))
-	require.Equal(t, core.NodeWaiting, ch.node(t, "review").State().Status)
+	require.Equal(t, ir.Waiting, ch.run(t))
+	require.Equal(t, ir.NodeWaiting, ch.node(t, "review").State().Status)
 
 	// The controller itself must not be waiting, or completing the human task
 	// would not release the run.
-	require.Equal(t, core.NodeSucceeded, ch.node(t, core.ControllerStepName).State().Status)
+	require.Equal(t, ir.NodeSucceeded, ch.node(t, ir.ControllerStepName).State().Status)
 
 	// Stand in for the human task service, which records the submission on the
 	// persisted node and marks the step complete before re-queueing the run.
 	restored := roundTripNodes(t, ch, func(node *exec.Node) {
 		if node.Step.Name == "review" {
-			node.Status = core.NodeSucceeded
+			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
 		}
 	})
@@ -683,7 +683,7 @@ func TestControllerLoop_SuspendsForHumanTaskAndResumes(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "shipped", "status": "completed", "reason": "approved"}},
 	)
 
-	require.Equal(t, core.Succeeded, resumed.status)
+	require.Equal(t, ir.Succeeded, resumed.status)
 	assert.Contains(t, resumed.transcript, `{"approved":true}`,
 		"the submission is reported back to the controller")
 	assert.Contains(t, resumed.transcript, "alpha",
@@ -701,7 +701,7 @@ func roundTripNodes(t *testing.T, ch *controllerHelper, complete func(*exec.Node
 		nodeData = append(nodeData, node.NodeData())
 	}
 	status := transform.NewStatusBuilder(ch.dag).Create(
-		ch.cfg.DAGRunID, core.Waiting, 0, time.Now(), transform.WithNodes(nodeData))
+		ch.cfg.DAGRunID, ir.Waiting, 0, time.Now(), transform.WithNodes(nodeData))
 
 	encoded, err := json.Marshal(status)
 	require.NoError(t, err)
@@ -717,7 +717,7 @@ func roundTripNodes(t *testing.T, ch *controllerHelper, complete func(*exec.Node
 }
 
 type resumeResult struct {
-	status          core.Status
+	status          ir.Status
 	transcript      string
 	controllerState json.RawMessage
 }
@@ -764,7 +764,7 @@ func resumeControllerWith(
 	close(progressCh)
 	<-drained
 
-	ctrl := plan.GetNodeByName(core.ControllerStepName)
+	ctrl := plan.GetNodeByName(ir.ControllerStepName)
 	require.NotNil(t, ctrl)
 	return resumeResult{
 		status:          runner.Status(context.Background(), plan),
@@ -786,7 +786,7 @@ func TestControllerLoop_StallCounterResetsOnAction(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 }
 
 // TestControllerLoop_ReopensTaskAndRedoesWork covers the review-rejects-work
@@ -803,10 +803,10 @@ func TestControllerLoop_ReopensTaskAndRedoesWork(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 	assert.True(t, ch.node(t, "alpha").State().Repeated, "the redone action ran again")
 
-	text := transcript(ch.node(t, core.ControllerStepName).GetChatMessages())
+	text := transcript(ch.node(t, ir.ControllerStepName).GetChatMessages())
 	assert.Contains(t, text, `Task "first" is now open`)
 }
 
@@ -819,8 +819,8 @@ func TestControllerLoop_RejectsReopeningAnOpenTask(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
-	assert.Contains(t, transcript(ch.node(t, core.ControllerStepName).GetChatMessages()),
+	require.Equal(t, ir.Succeeded, ch.run(t))
+	assert.Contains(t, transcript(ch.node(t, ir.ControllerStepName).GetChatMessages()),
 		`task "first" is already open`)
 }
 
@@ -838,9 +838,9 @@ func TestControllerLoop_RecordsADecisionTimeline(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "again"}},
 	)
 
-	require.Equal(t, core.PartiallySucceeded, ch.run(t))
+	require.Equal(t, ir.PartiallySucceeded, ch.run(t))
 
-	events := controller.EventsFromState(ch.node(t, core.ControllerStepName).State().ControllerState)
+	events := controller.EventsFromState(ch.node(t, ir.ControllerStepName).State().ControllerState)
 	require.Len(t, events, 5)
 
 	type row struct {
@@ -884,11 +884,11 @@ func TestControllerLoop_PreservesChildRunLinksAcrossReruns(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "first", "status": "completed", "reason": "ok"}},
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{"task": "second", "status": "completed", "reason": "ok"}},
 	)
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 
 	// alpha is a plain command step, so it produces no child runs. The timeline
 	// still records both attempts, which is what the view lists.
-	events := controller.EventsFromState(ch.node(t, core.ControllerStepName).State().ControllerState)
+	events := controller.EventsFromState(ch.node(t, ir.ControllerStepName).State().ControllerState)
 	actions := make([]controller.Event, 0, len(events))
 	for _, e := range events {
 		if e.Kind == controller.EventAction {
@@ -913,7 +913,7 @@ func TestControllerLoop_SkippedTaskStillSucceeds(t *testing.T) {
 			"task": "second", "status": "skipped", "reason": "nothing to do"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 	require.NoError(t, ch.runErr)
 }
 
@@ -929,7 +929,7 @@ func TestControllerLoop_FailedTaskFailsTheRun(t *testing.T) {
 			"task": "second", "status": "failed", "reason": "no such environment"}},
 	)
 
-	require.Equal(t, core.Failed, ch.run(t))
+	require.Equal(t, ir.Failed, ch.run(t))
 	require.Error(t, ch.runErr)
 	assert.Contains(t, ch.runErr.Error(), "second (no such environment)")
 }
@@ -948,8 +948,8 @@ func TestControllerLoop_RejectsAnUnknownTaskStatus(t *testing.T) {
 			"task": "second", "status": "skipped", "reason": "ok"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
-	assert.Contains(t, transcript(ch.node(t, core.ControllerStepName).GetChatMessages()),
+	require.Equal(t, ir.Succeeded, ch.run(t))
+	assert.Contains(t, transcript(ch.node(t, ir.ControllerStepName).GetChatMessages()),
 		`"done-ish" is not a task status`)
 }
 
@@ -981,12 +981,12 @@ func TestControllerLoop_ResolvesPromptVariables(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
 			"task": "only", "status": "completed", "reason": "ok"}},
 	)
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 
 	// The description the controller judged against is the resolved one, and it
 	// is what gets persisted.
 	tasks := controller.TasksFromState(
-		ch.node(t, core.ControllerStepName).State().ControllerState)
+		ch.node(t, ir.ControllerStepName).State().ControllerState)
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "Finished when shipped is true.", tasks[0].Description)
 	assert.NotContains(t, tasks[0].Description, "${")
@@ -1008,22 +1008,22 @@ func TestControllerLoop_AsksTheUserAndResumesWithTheAnswer(t *testing.T) {
 			"question": "Which config should alpha use?"}},
 	)
 
-	require.Equal(t, core.Waiting, ch.run(t))
+	require.Equal(t, ir.Waiting, ch.run(t))
 
-	ask := ch.node(t, core.AskUserStepName)
-	require.Equal(t, core.NodeWaiting, ask.State().Status)
+	ask := ch.node(t, ir.AskUserStepName)
+	require.Equal(t, ir.NodeWaiting, ask.State().Status)
 
 	// The question the controller wrote is what a person is shown.
 	events := controller.EventsFromState(
-		ch.node(t, core.ControllerStepName).State().ControllerState)
+		ch.node(t, ir.ControllerStepName).State().ControllerState)
 	last := events[len(events)-1]
 	assert.Equal(t, controller.EventAskUser, last.Kind)
 	assert.Equal(t, "Which config should alpha use?", last.Reason)
 
 	// Answering it is an ordinary human task completion.
 	restored := roundTripNodes(t, ch, func(node *exec.Node) {
-		if node.Step.Name == core.AskUserStepName {
-			node.Status = core.NodeSucceeded
+		if node.Step.Name == ir.AskUserStepName {
+			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"answer":"use config-b"}`)
 		}
 	})
@@ -1036,7 +1036,7 @@ func TestControllerLoop_AsksTheUserAndResumesWithTheAnswer(t *testing.T) {
 			"task": "second", "status": "skipped", "reason": "not needed"}},
 	)
 
-	require.Equal(t, core.Succeeded, resumed.status)
+	require.Equal(t, ir.Succeeded, resumed.status)
 	assert.Contains(t, resumed.transcript, "answer: use config-b",
 		"the reply reaches the controller as prose, not as a form payload")
 }
@@ -1051,11 +1051,11 @@ func TestControllerLoop_RefusesToAskTheSameQuestionTwice(t *testing.T) {
 	ch := setupController(t, controllerDAG,
 		turn{tool: controller.AskUserTool, args: map[string]any{"question": question}},
 	)
-	require.Equal(t, core.Waiting, ch.run(t))
+	require.Equal(t, ir.Waiting, ch.run(t))
 
 	restored := roundTripNodes(t, ch, func(node *exec.Node) {
-		if node.Step.Name == core.AskUserStepName {
-			node.Status = core.NodeSucceeded
+		if node.Step.Name == ir.AskUserStepName {
+			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"answer":"staging"}`)
 		}
 	})
@@ -1070,7 +1070,7 @@ func TestControllerLoop_RefusesToAskTheSameQuestionTwice(t *testing.T) {
 	)
 
 	// The run finishes rather than suspending a second time.
-	require.Equal(t, core.Succeeded, resumed.status)
+	require.Equal(t, ir.Succeeded, resumed.status)
 	assert.Contains(t, resumed.transcript, "You already asked this and were told: staging")
 }
 
@@ -1082,11 +1082,11 @@ func TestControllerLoop_FinalizesTheSuspendedActionEvent(t *testing.T) {
 	ch := setupController(t, controllerHumanTaskDAG,
 		turn{tool: "review"},
 	)
-	require.Equal(t, core.Waiting, ch.run(t))
+	require.Equal(t, ir.Waiting, ch.run(t))
 
 	restored := roundTripNodes(t, ch, func(node *exec.Node) {
 		if node.Step.Name == "review" {
-			node.Status = core.NodeSucceeded
+			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
 			node.FinishedAt = exec.FormatTime(time.Now())
 		}
@@ -1096,7 +1096,7 @@ func TestControllerLoop_FinalizesTheSuspendedActionEvent(t *testing.T) {
 		turn{tool: controller.SetTaskStatusTool, args: map[string]any{
 			"task": "shipped", "status": "completed", "reason": "approved"}},
 	)
-	require.Equal(t, core.Succeeded, resumed.status)
+	require.Equal(t, ir.Succeeded, resumed.status)
 
 	events := controller.EventsFromState(resumed.controllerState)
 	var review *controller.Event
@@ -1106,7 +1106,7 @@ func TestControllerLoop_FinalizesTheSuspendedActionEvent(t *testing.T) {
 		}
 	}
 	require.NotNil(t, review)
-	assert.Equal(t, core.NodeSucceeded.String(), review.Status,
+	assert.Equal(t, ir.NodeSucceeded.String(), review.Status,
 		"the waiting entry is updated once the answer arrives")
 	assert.NotEmpty(t, review.FinishedAt)
 }
@@ -1140,7 +1140,7 @@ func TestControllerLoop_UsesArrayFormModel(t *testing.T) {
 			"task": "only", "status": "completed", "reason": "ok"}},
 	)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 	require.NoError(t, ch.runErr)
 }
 
@@ -1201,13 +1201,13 @@ func TestControllerLoop_FallsBackMidConversation(t *testing.T) {
 	}}
 	ch := setupControllerModels(t, controllerFallbackModelsDAG, primary, fallback)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 	require.NoError(t, ch.runErr)
 	assert.Equal(t, 2, primary.requestCount())
 	assert.Equal(t, 2, fallback.requestCount())
 
 	var models []string
-	for _, msg := range ch.node(t, core.ControllerStepName).GetChatMessages() {
+	for _, msg := range ch.node(t, ir.ControllerStepName).GetChatMessages() {
 		if msg.Role == exec.RoleAssistant && msg.Metadata != nil {
 			models = append(models, msg.Metadata.Model)
 		}
@@ -1229,7 +1229,7 @@ func TestControllerLoop_RecoversContextBeforeFallback(t *testing.T) {
 	fallback := &fakeModel{}
 	ch := setupControllerModels(t, controllerFallbackModelsDAG, primary, fallback)
 
-	require.Equal(t, core.Succeeded, ch.run(t))
+	require.Equal(t, ir.Succeeded, ch.run(t))
 	require.NoError(t, ch.runErr)
 	assert.Equal(t, 4, primary.requestCount())
 	assert.Zero(t, fallback.requestCount())
@@ -1247,7 +1247,7 @@ func TestControllerLoop_FailsAfterAllModelsAreExhausted(t *testing.T) {
 	ch := setupControllerModels(
 		t, controllerThreeModelsDAG, primary, fallbackOne, fallbackTwo)
 
-	require.Equal(t, core.Failed, ch.run(t))
+	require.Equal(t, ir.Failed, ch.run(t))
 	require.Error(t, ch.runErr)
 	var apiErr *llm.APIError
 	require.ErrorAs(t, ch.runErr, &apiErr)

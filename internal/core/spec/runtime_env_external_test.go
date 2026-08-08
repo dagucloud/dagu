@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -355,7 +355,7 @@ steps:
 }
 
 func TestResolveEnvWithWarningsReusesEvaluatedEmptySourceEnv(t *testing.T) {
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:         "evaluated-empty-source-env",
 		Env:          []string{},
 		EnvEvaluated: true,
@@ -368,7 +368,7 @@ func TestResolveEnvWithWarningsReusesEvaluatedEmptySourceEnv(t *testing.T) {
 }
 
 func TestResolveEnvWithWarningsKeepsProgrammaticEnvWithoutSource(t *testing.T) {
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "programmatic-env",
 		Env:  []string{"TOKEN=${ISSUE_2268_TOKEN}"},
 	}

@@ -14,8 +14,8 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
@@ -43,16 +43,16 @@ steps:
 		err := agent.Run(agent.Context)
 		require.NoError(t, err)
 
-		testDAG.AssertLatestStatus(t, core.Waiting)
+		testDAG.AssertLatestStatus(t, ir.Waiting)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 2)
 		require.Equal(t, "wait-step", dagRunStatus.Nodes[0].Step.Name)
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[0].Status)
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[0].Status)
 		require.Equal(t, "after-wait", dagRunStatus.Nodes[1].Step.Name)
-		require.Equal(t, core.NodeNotStarted, dagRunStatus.Nodes[1].Status)
+		require.Equal(t, ir.NodeNotStarted, dagRunStatus.Nodes[1].Status)
 	})
 
 	t.Run("WaitStepBlocksDependentNodes", func(t *testing.T) {
@@ -81,16 +81,16 @@ steps:
 		err := agent.Run(agent.Context)
 		require.NoError(t, err)
 
-		testDAG.AssertLatestStatus(t, core.Waiting)
+		testDAG.AssertLatestStatus(t, ir.Waiting)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 4)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status, "before-wait should succeed")
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[1].Status, "wait-step should be waiting")
-		require.Equal(t, core.NodeNotStarted, dagRunStatus.Nodes[2].Status, "after-wait-1 should not start")
-		require.Equal(t, core.NodeNotStarted, dagRunStatus.Nodes[3].Status, "after-wait-2 should not start")
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status, "before-wait should succeed")
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[1].Status, "wait-step should be waiting")
+		require.Equal(t, ir.NodeNotStarted, dagRunStatus.Nodes[2].Status, "after-wait-1 should not start")
+		require.Equal(t, ir.NodeNotStarted, dagRunStatus.Nodes[3].Status, "after-wait-2 should not start")
 	})
 
 	t.Run("ParallelBranchWithWaitStep", func(t *testing.T) {
@@ -118,16 +118,16 @@ steps:
 		err := agent.Run(agent.Context)
 		require.NoError(t, err)
 
-		testDAG.AssertLatestStatus(t, core.Waiting)
+		testDAG.AssertLatestStatus(t, ir.Waiting)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 4)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status, "branch-a-1 should succeed")
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[1].Status, "branch-a-2 should succeed")
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[2].Status, "wait-branch should be waiting")
-		require.Equal(t, core.NodeNotStarted, dagRunStatus.Nodes[3].Status, "after-wait should not start")
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status, "branch-a-1 should succeed")
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[1].Status, "branch-a-2 should succeed")
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[2].Status, "wait-branch should be waiting")
+		require.Equal(t, ir.NodeNotStarted, dagRunStatus.Nodes[3].Status, "after-wait should not start")
 	})
 }
 
@@ -153,16 +153,16 @@ steps:
 		err := agent.Run(agent.Context)
 		require.NoError(t, err)
 
-		testDAG.AssertLatestStatus(t, core.Waiting)
+		testDAG.AssertLatestStatus(t, ir.Waiting)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 2)
 		// The command step should have executed (produced stdout) then entered waiting
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[0].Status, "review-step should be waiting")
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[0].Status, "review-step should be waiting")
 		require.NotEmpty(t, dagRunStatus.Nodes[0].Stdout, "review-step should have stdout from command execution")
-		require.Equal(t, core.NodeNotStarted, dagRunStatus.Nodes[1].Status, "after-review should not start")
+		require.Equal(t, ir.NodeNotStarted, dagRunStatus.Nodes[1].Status, "after-review should not start")
 	})
 
 	t.Run("ApprovalFieldOnScriptStep", func(t *testing.T) {
@@ -185,13 +185,13 @@ steps:
 		err := agent.Run(agent.Context)
 		require.NoError(t, err)
 
-		testDAG.AssertLatestStatus(t, core.Waiting)
+		testDAG.AssertLatestStatus(t, ir.Waiting)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 1)
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[0].Status, "script-step should be waiting")
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[0].Status, "script-step should be waiting")
 		require.NotEmpty(t, dagRunStatus.Nodes[0].Stdout, "script-step should have stdout")
 	})
 
@@ -215,13 +215,13 @@ steps:
 		err := agent.Run(agent.Context)
 		require.NoError(t, err)
 
-		testDAG.AssertLatestStatus(t, core.Waiting)
+		testDAG.AssertLatestStatus(t, ir.Waiting)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 1)
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[0].Status)
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[0].Status)
 		require.NotNil(t, dagRunStatus.Nodes[0].Step.Approval)
 		require.Equal(t, "Please provide feedback", dagRunStatus.Nodes[0].Step.Approval.Prompt)
 		require.Equal(t, []string{"FEEDBACK", "NOTES"}, dagRunStatus.Nodes[0].Step.Approval.Input)
@@ -250,14 +250,14 @@ steps:
 		err := agent.Run(agent.Context)
 		require.NoError(t, err)
 
-		testDAG.AssertLatestStatus(t, core.Waiting)
+		testDAG.AssertLatestStatus(t, ir.Waiting)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 2)
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[0].Status, "step-a should be waiting")
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[1].Status, "step-b should be waiting")
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[0].Status, "step-a should be waiting")
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[1].Status, "step-b should be waiting")
 	})
 
 	t.Run("ApprovalStepWithDependency", func(t *testing.T) {
@@ -284,15 +284,15 @@ steps:
 		err := agent.Run(agent.Context)
 		require.NoError(t, err)
 
-		testDAG.AssertLatestStatus(t, core.Waiting)
+		testDAG.AssertLatestStatus(t, ir.Waiting)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 3)
-		require.Equal(t, core.NodeSucceeded, dagRunStatus.Nodes[0].Status, "step-a should succeed")
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[1].Status, "step-b should be waiting")
-		require.Equal(t, core.NodeNotStarted, dagRunStatus.Nodes[2].Status, "step-c should not start")
+		require.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status, "step-a should succeed")
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[1].Status, "step-b should be waiting")
+		require.Equal(t, ir.NodeNotStarted, dagRunStatus.Nodes[2].Status, "step-c should not start")
 	})
 
 	t.Run("ApprovalFieldOnCallStep", func(t *testing.T) {
@@ -326,14 +326,14 @@ steps:
 		err := agent.Run(agent.Context)
 		require.NoError(t, err)
 
-		testDAG.AssertLatestStatus(t, core.Waiting)
+		testDAG.AssertLatestStatus(t, ir.Waiting)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
 		require.NoError(t, err)
 
 		require.Len(t, dagRunStatus.Nodes, 2)
-		require.Equal(t, core.NodeWaiting, dagRunStatus.Nodes[0].Status, "call-step should be waiting after sub-DAG completes")
-		require.Equal(t, core.NodeNotStarted, dagRunStatus.Nodes[1].Status, "after-call should not start")
+		require.Equal(t, ir.NodeWaiting, dagRunStatus.Nodes[0].Status, "call-step should be waiting after sub-DAG completes")
+		require.Equal(t, ir.NodeNotStarted, dagRunStatus.Nodes[1].Status, "after-call should not start")
 	})
 }
 
@@ -410,7 +410,7 @@ steps:
 
 	status := waitForApprovalStepWaitingStatus(t, server, dagName, runID, "review", 2)
 	reviewNode := nodeByName(t, status, "review")
-	require.Equal(t, core.NodeWaiting, reviewNode.Status)
+	require.Equal(t, ir.NodeWaiting, reviewNode.Status)
 	require.Equal(t, 2, reviewNode.ApprovalIteration)
 	require.Equal(t, "second pass", reviewNode.PushBackInputs["FEEDBACK"])
 
@@ -419,7 +419,7 @@ steps:
 		api.ApproveStepRequest{},
 	).WithBasicAuth(username, password).ExpectStatus(http.StatusOK).Send(t)
 
-	status = waitForDAGRunStatus(t, server, dagName, runID, core.Succeeded)
+	status = waitForDAGRunStatus(t, server, dagName, runID, ir.Succeeded)
 
 	for _, stepName := range []string{"prepare", "draft", "review", "publish"} {
 		node := nodeByName(t, status, stepName)
@@ -447,14 +447,14 @@ func waitForApprovalStepWaitingStatus(
 
 	h := intgharness.New(t, server.Helper)
 	return h.Run(exec.NewDAGRunRef(dagName, dagRunID), "").RequireStatusMatchWithin("approval step should reach waiting status", intgTestTimeout(15*time.Second), func(status *exec.DAGRunStatus) bool {
-		if status.Status != core.Waiting {
+		if status.Status != ir.Waiting {
 			return false
 		}
 		for _, node := range status.Nodes {
 			if node.Step.Name != stepName {
 				continue
 			}
-			return node.Status == core.NodeWaiting && node.ApprovalIteration == iteration
+			return node.Status == ir.NodeWaiting && node.ApprovalIteration == iteration
 		}
 
 		return false
@@ -465,7 +465,7 @@ func waitForDAGRunStatus(
 	t *testing.T,
 	server test.Server,
 	dagName, dagRunID string,
-	expected core.Status,
+	expected ir.Status,
 ) *exec.DAGRunStatus {
 	t.Helper()
 

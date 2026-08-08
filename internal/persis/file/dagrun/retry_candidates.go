@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -304,7 +304,7 @@ func retryCandidateRunExists(dayPath string, candidate *retryCandidateFile) (boo
 }
 
 func isRetryCandidateStatus(status exec.DAGRunStatus) bool {
-	return status.Status == core.Failed &&
+	return status.Status == ir.Failed &&
 		status.Parent.Zero() &&
 		status.AutoRetryLimit > 0 &&
 		status.ProcGroup != ""

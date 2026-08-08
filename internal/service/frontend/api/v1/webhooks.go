@@ -16,8 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -651,7 +651,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 
 	// Enqueue directly from the API layer so accepted webhook payloads do not
 	// need to fit in a subprocess command line.
-	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, core.TriggerTypeWebhook, profileName, false); err != nil {
+	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, ir.TriggerTypeWebhook, profileName, false); err != nil {
 		logger.Error(ctx, "Webhook: failed to enqueue DAG run",
 			tag.DAG(dag.Name),
 			tag.Error(err),
@@ -677,7 +677,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 }
 
 func requestedWebhookProfile(ctx context.Context, raw *api.RuntimeProfileName) (string, *Error) {
-	values := requestHeadersFromContext(ctx)[core.NormalizeWebhookForwardHeader("X-Dagu-Profile")]
+	values := requestHeadersFromContext(ctx)[ir.NormalizeWebhookForwardHeader("X-Dagu-Profile")]
 	if len(values) > 1 {
 		return "", invalidWebhookProfileHeader()
 	}
@@ -722,7 +722,7 @@ func (a *API) webhookRunProfile(
 
 func buildWebhookRequestRuntimeParams(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	body *api.TriggerWebhookJSONRequestBody,
 	maxPayloadSize int,
 ) (string, *Error) {
@@ -902,8 +902,8 @@ func marshalWebhookHeaders(ctx context.Context, allowList []string) (string, err
 	}
 
 	for _, raw := range allowList {
-		headerName := core.NormalizeWebhookForwardHeader(raw)
-		if headerName == "" || core.IsDeniedWebhookForwardHeader(headerName) {
+		headerName := ir.NormalizeWebhookForwardHeader(raw)
+		if headerName == "" || ir.IsDeniedWebhookForwardHeader(headerName) {
 			continue
 		}
 		values := headers[headerName]
@@ -921,5 +921,5 @@ func marshalWebhookHeaders(ctx context.Context, allowList []string) (string, err
 }
 
 func buildWebhookRuntimeParams(payload, headers string) string {
-	return core.BuildWebhookRuntimeParams(payload, headers, nil)
+	return ir.BuildWebhookRuntimeParams(payload, headers, nil)
 }

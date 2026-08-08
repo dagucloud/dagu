@@ -4,7 +4,7 @@
 package redis
 
 import (
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -128,5 +128,5 @@ var configSchema = &jsonschema.Schema{
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema("redis", configSchema)
+	ir.RegisterExecutorConfigSchema("redis", configSchema)
 }

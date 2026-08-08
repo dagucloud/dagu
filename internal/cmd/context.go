@@ -28,9 +28,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -641,9 +641,9 @@ func getWorkerID(ctx *Context) string {
 
 // dagStoreConfig contains options for creating a DAG store.
 type dagStoreConfig struct {
-	Cache                 *fileutil.Cache[*core.DAG] // Optional cache for DAG objects
-	SearchPaths           []string                   // Additional search paths for DAG files
-	SkipDirectoryCreation bool                       // Skip directory creation (for distributed worker execution)
+	Cache                 *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
+	SearchPaths           []string                 // Additional search paths for DAG files
+	SkipDirectoryCreation bool                     // Skip directory creation (for distributed worker execution)
 }
 
 // dagStore returns a new DAGRepository instance.
@@ -667,7 +667,7 @@ func (c *Context) runtimeStores() runtimeStoresResult {
 // It evaluates the log directory, validates settings, creates the log directory,
 // builds a filename using the current timestamp and dag-run ID, and then opens the file.
 func (c *Context) OpenLogFile(
-	dag *core.DAG,
+	dag *ir.DAG,
 	dagRunID string,
 ) (*os.File, error) {
 	logPath, err := c.GenLogFileName(dag, dagRunID)
@@ -678,12 +678,12 @@ func (c *Context) OpenLogFile(
 }
 
 // GenLogFileName generates a log file name based on the DAG and dag-run ID.
-func (c *Context) GenLogFileName(dag *core.DAG, dagRunID string) (string, error) {
+func (c *Context) GenLogFileName(dag *ir.DAG, dagRunID string) (string, error) {
 	return logpath.Generate(c, c.Config.Paths.LogDir, dag.LogDir, dag.Name, dagRunID)
 }
 
 // GenArtifactDir generates an artifact directory path for the DAG run when artifacts are enabled.
-func (c *Context) GenArtifactDir(dag *core.DAG, dagRunID string) (string, error) {
+func (c *Context) GenArtifactDir(dag *ir.DAG, dagRunID string) (string, error) {
 	if dag == nil || !dag.ArtifactsEnabled() {
 		return "", nil
 	}
@@ -778,7 +778,7 @@ type LogConfig = logpath.Config
 
 // RecordEarlyFailure records a failure in the execution history before the DAG has fully started.
 // This is used for infrastructure errors like singleton conflicts or process acquisition failures.
-func (c *Context) RecordEarlyFailure(dag *core.DAG, dagRunID string, err error) error {
+func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) error {
 	if dag == nil || dagRunID == "" {
 		return fmt.Errorf("DAG and dag-run ID are required to record failure")
 	}
@@ -817,7 +817,7 @@ func (c *Context) RecordEarlyFailure(dag *core.DAG, dagRunID string, err error) 
 			tag.RunID(dagRunID),
 		)
 	}
-	status := statusBuilder.Create(dagRunID, core.Failed, 0, time.Now(),
+	status := statusBuilder.Create(dagRunID, ir.Failed, 0, time.Now(),
 		transform.WithLogFilePath(logPath),
 		transform.WithArchiveDir(artifactDir),
 		transform.WithFinishedAt(time.Now()),

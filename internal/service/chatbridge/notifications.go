@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
 
@@ -428,7 +428,7 @@ func (b *NotificationBatcher) windowForClass(class NotificationClass) time.Durat
 }
 
 // NotificationClassForEvent maps a DAG-run lifecycle event to its notification class.
-func NotificationClassForEvent(eventType eventstore.EventType, status core.Status) (NotificationClass, bool) {
+func NotificationClassForEvent(eventType eventstore.EventType, status ir.Status) (NotificationClass, bool) {
 	switch eventType {
 	case eventstore.TypeDAGRunFailed, eventstore.TypeDAGRunWaiting:
 		return NotificationClassUrgent, true
@@ -442,9 +442,9 @@ func NotificationClassForEvent(eventType eventstore.EventType, status core.Statu
 		return NotificationClassUnknown, false
 	default:
 		switch status { //nolint:exhaustive // legacy direct notifications may only pass status
-		case core.Failed, core.Waiting:
+		case ir.Failed, ir.Waiting:
 			return NotificationClassUrgent, true
-		case core.Succeeded, core.PartiallySucceeded:
+		case ir.Succeeded, ir.PartiallySucceeded:
 			return NotificationClassSuccessDigest, true
 		default:
 			return NotificationClassUnknown, false
@@ -493,7 +493,7 @@ func BuildNotificationPrompt(status *exec.DAGRunStatus) string {
 	}
 
 	var intro string
-	if status.Status == core.Waiting {
+	if status.Status == ir.Waiting {
 		intro = "A DAG run is waiting for manual action. Please write a brief, urgent notification message for the user. Let them know which steps are waiting and that action is needed. Keep it concise (2-4 sentences)."
 	} else {
 		intro = "A DAG run just completed. Please write a brief, helpful notification message for the user about this event. Keep it concise (2-4 sentences). Include the key facts and any actionable information."
@@ -568,7 +568,7 @@ func FormatNotificationBatch(batch NotificationBatch) string {
 
 type notificationGroup struct {
 	DAGName          string
-	Status           core.Status
+	Status           ir.Status
 	Count            int
 	LatestObservedAt time.Time
 	Sample           *exec.DAGRunStatus
@@ -577,7 +577,7 @@ type notificationGroup struct {
 func groupNotificationEvents(events []NotificationEvent) []notificationGroup {
 	type groupKey struct {
 		dagName string
-		status  core.Status
+		status  ir.Status
 	}
 
 	groups := make(map[groupKey]*notificationGroup)
@@ -656,23 +656,23 @@ func formatSingleNotification(status *exec.DAGRunStatus) string {
 	emoji := notificationEmoji(status.Status)
 
 	switch status.Status { //nolint:exhaustive // fixed notification policy
-	case core.Queued:
+	case ir.Queued:
 		fmt.Fprintf(&b, "%s DAG `%s` was queued.", emoji, status.Name)
-	case core.Running:
+	case ir.Running:
 		fmt.Fprintf(&b, "%s DAG `%s` started running.", emoji, status.Name)
-	case core.Waiting:
+	case ir.Waiting:
 		fmt.Fprintf(&b, "%s DAG `%s` is waiting for manual action.", emoji, status.Name)
 		if detail := waitingNotificationDetail(status); detail != "" {
 			fmt.Fprintf(&b, "\n%s", detail)
 		}
-	case core.Failed:
+	case ir.Failed:
 		fmt.Fprintf(&b, "%s DAG `%s` failed.", emoji, status.Name)
 		if detail := failureNotificationDetail(status); detail != "" {
 			fmt.Fprintf(&b, "\n%s", detail)
 		}
-	case core.Succeeded:
+	case ir.Succeeded:
 		fmt.Fprintf(&b, "%s DAG `%s` completed successfully.", emoji, status.Name)
-	case core.PartiallySucceeded:
+	case ir.PartiallySucceeded:
 		fmt.Fprintf(&b, "%s DAG `%s` completed with partial success.", emoji, status.Name)
 	default:
 		fmt.Fprintf(&b, "%s DAG `%s` status: %s.", emoji, status.Name, status.Status.String())
@@ -683,9 +683,9 @@ func formatSingleNotification(status *exec.DAGRunStatus) string {
 
 func notificationGroupDetail(group notificationGroup) string {
 	switch group.Status { //nolint:exhaustive // fixed notification policy
-	case core.Waiting:
+	case ir.Waiting:
 		return waitingNotificationDetail(group.Sample)
-	case core.Failed:
+	case ir.Failed:
 		return failureNotificationDetail(group.Sample)
 	default:
 		return ""
@@ -723,7 +723,7 @@ func waitingNotificationDetail(status *exec.DAGRunStatus) string {
 		return ""
 	}
 	for _, node := range status.Nodes {
-		if node == nil || node.Status != core.NodeWaiting {
+		if node == nil || node.Status != ir.NodeWaiting {
 			continue
 		}
 		if node.Step.Name != "" {
@@ -819,13 +819,13 @@ func pluralize(word string, count int) string {
 	return word + "s"
 }
 
-func notificationEmoji(status core.Status) string {
+func notificationEmoji(status ir.Status) string {
 	switch status { //nolint:exhaustive // only notified statuses are handled
-	case core.Succeeded, core.PartiallySucceeded:
+	case ir.Succeeded, ir.PartiallySucceeded:
 		return "\u2705"
-	case core.Failed:
+	case ir.Failed:
 		return "\u274C"
-	case core.Waiting:
+	case ir.Waiting:
 		return "\u23F3"
 	default:
 		return "\u2139\uFE0F"

@@ -12,11 +12,11 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -205,7 +205,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 		result.PendingStepRetries = nil
 		return result, nil
 	}
-	if req.ExternalStepRetry && retryTarget != nil && retryTarget.Status == core.Succeeded {
+	if req.ExternalStepRetry && retryTarget != nil && retryTarget.Status == ir.Succeeded {
 		return statusToRunStatus(retryTarget, req.RunID), nil
 	}
 
@@ -216,7 +216,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 	defer cleanup()
 
 	opts := rtagent.Options{
-		TriggerType: core.TriggerTypeSubDAG,
+		TriggerType: ir.TriggerTypeSubDAG,
 	}
 	if retryTarget != nil {
 		opts.RetryTarget = retryTarget
@@ -264,8 +264,8 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 	return r.runAgent(ctx, req.RunID, child)
 }
 
-func (r *Local) validateIncrementalDAG(dag *core.DAG) error {
-	if dag.Type == core.TypeIncremental && exec.IsRemoteWorkerID(r.workerID) {
+func (r *Local) validateIncrementalDAG(dag *ir.DAG) error {
+	if dag.Type == ir.TypeIncremental && exec.IsRemoteWorkerID(r.workerID) {
 		return dispatch.ErrIncrementalRequiresLocal
 	}
 	return nil
@@ -350,7 +350,7 @@ func (r *Local) Cancel(ctx context.Context, req executor.SubWorkflowCancelReques
 func (r *Local) newAgent(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-	dag *core.DAG,
+	dag *ir.DAG,
 	opts rtagent.Options,
 ) (*rtagent.Agent, error) {
 	rCtx := exec.GetContext(ctx)
@@ -419,7 +419,7 @@ func (r *Local) newAgent(
 	), nil
 }
 
-func (r *Local) prepareDAGTools(ctx context.Context, rCtx exec.Context, dag *core.DAG) ([]string, error) {
+func (r *Local) prepareDAGTools(ctx context.Context, rCtx exec.Context, dag *ir.DAG) ([]string, error) {
 	cfg := config.GetConfig(ctx)
 	workDir := ""
 	if dag != nil {
@@ -506,7 +506,7 @@ func validateInProcessRequest(req executor.SubWorkflowRequest) error {
 func loadInProcessDAG(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
-) (*core.DAG, func(), error) {
+) (*ir.DAG, func(), error) {
 	cleanup := func() {}
 	workDir := req.WorkDir
 	target := req.DAG.Location
@@ -522,7 +522,7 @@ func loadInProcessDAG(
 
 	loadOpts := inProcessLoadOptions(ctx, req, workDir)
 	var (
-		dag *core.DAG
+		dag *ir.DAG
 		err error
 	)
 	switch {
@@ -539,7 +539,7 @@ func loadInProcessDAG(
 	}
 	// Incremental paths remain anchored to the authored definition when a local
 	// child is reloaded from a temporary copy.
-	if req.DAG.Type == core.TypeIncremental &&
+	if req.DAG.Type == ir.TypeIncremental &&
 		!req.DAG.WorkingDirExplicit &&
 		!dag.WorkingDirExplicit &&
 		req.DAG.WorkingDir != "" {
@@ -594,7 +594,7 @@ func inProcessExtraEnvs(rCtx exec.Context, req executor.SubWorkflowRequest) []st
 	return envs
 }
 
-func inProcessArtifactDir(ctx context.Context, dag *core.DAG, baseDir, runID string, retryTarget *exec.DAGRunStatus) (string, error) {
+func inProcessArtifactDir(ctx context.Context, dag *ir.DAG, baseDir, runID string, retryTarget *exec.DAGRunStatus) (string, error) {
 	if retryTarget != nil && retryTarget.ArchiveDir != "" {
 		return retryTarget.ArchiveDir, nil
 	}
@@ -614,10 +614,10 @@ func inProcessArtifactDir(ctx context.Context, dag *core.DAG, baseDir, runID str
 	return dir, nil
 }
 
-func inProcessRetryTriggerType(status *exec.DAGRunStatus) core.TriggerType {
+func inProcessRetryTriggerType(status *exec.DAGRunStatus) ir.TriggerType {
 	triggerType := exec.PreservedQueueTriggerType(status)
-	if triggerType != core.TriggerTypeUnknown {
+	if triggerType != ir.TriggerTypeUnknown {
 		return triggerType
 	}
-	return core.TriggerTypeRetry
+	return ir.TriggerTypeRetry
 }

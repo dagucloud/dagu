@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 
@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 	// Register executor capabilities for testing.
 	// In production, this is done by runtime/builtin init functions.
 	for _, t := range []string{"", "shell", "command"} {
-		core.RegisterExecutorCapabilities(t, core.ExecutorCapabilities{
+		ir.RegisterExecutorCapabilities(t, ir.ExecutorCapabilities{
 			Command: true, MultipleCommands: true, Script: true, Shell: true,
 		})
 	}
@@ -1114,7 +1114,7 @@ steps:
     depends: [build]
 `), "", exec.DAGLoadOptions{})
 	require.NoError(t, err)
-	require.Equal(t, core.TypeGraph, dag.Type)
+	require.Equal(t, ir.TypeGraph, dag.Type)
 	require.Len(t, dag.Steps, 2)
 	require.Equal(t, []string{"build"}, dag.Steps[1].Depends)
 }
@@ -1169,7 +1169,7 @@ func TestGetMetadataRefreshesCacheWhenBaseConfigChanges(t *testing.T) {
 	baseConfig := filepath.Join(rootDir, "base.yaml")
 	require.NoError(t, os.WriteFile(baseConfig, []byte("type: graph\n"), 0600))
 
-	cache := fileutil.NewCache[*core.DAG]("dag_definition", 16, time.Hour)
+	cache := fileutil.NewCache[*ir.DAG]("dag_definition", 16, time.Hour)
 	store := New(
 		dagDir,
 		WithBaseConfig(baseConfig),
@@ -1209,7 +1209,7 @@ func TestGetMetadataRefreshesCacheWhenWorkspaceBaseConfigChanges(t *testing.T) {
 	workspaceBaseConfig := filepath.Join(workspaceConfigDir, "ops", "base.yaml")
 	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 1\n"), 0600))
 
-	cache := fileutil.NewCache[*core.DAG]("dag_definition", 16, time.Hour)
+	cache := fileutil.NewCache[*ir.DAG]("dag_definition", 16, time.Hour)
 	store := New(
 		dagDir,
 		WithBaseConfig(baseConfig),
@@ -1694,7 +1694,7 @@ steps:
 	require.Len(t, defaultResult.Items, 2)
 	assert.Equal(t, "future-cron", defaultResult.Items[0].Name)
 
-	oneOffSchedule, err := core.NewOneOffSchedule(oneOffTime.Format(time.RFC3339))
+	oneOffSchedule, err := ir.NewOneOffSchedule(oneOffTime.Format(time.RFC3339))
 	require.NoError(t, err)
 
 	state := &scheduler.SchedulerState{
@@ -1715,7 +1715,7 @@ steps:
 		Sort:  "nextRun",
 		Order: "asc",
 		Time:  &now,
-		NextRunProjection: func(dag *core.DAG, at time.Time) time.Time {
+		NextRunProjection: func(dag *ir.DAG, at time.Time) time.Time {
 			return scheduler.NextPlannedRun(dag, at, state)
 		},
 	})

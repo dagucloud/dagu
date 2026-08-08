@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var (
@@ -197,13 +197,13 @@ type DAGRunLeaseStore interface {
 
 // ActiveDistributedRun is the durable active-set record for a remote attempt.
 type ActiveDistributedRun struct {
-	AttemptKey string      `json:"attemptKey"`
-	DAGRun     DAGRunRef   `json:"dagRun"`
-	Root       DAGRunRef   `json:"root,omitzero"`
-	AttemptID  string      `json:"attemptId"`
-	WorkerID   string      `json:"workerId"`
-	Status     core.Status `json:"status"`
-	UpdatedAt  int64       `json:"updatedAt"`
+	AttemptKey string    `json:"attemptKey"`
+	DAGRun     DAGRunRef `json:"dagRun"`
+	Root       DAGRunRef `json:"root,omitzero"`
+	AttemptID  string    `json:"attemptId"`
+	WorkerID   string    `json:"workerId"`
+	Status     ir.Status `json:"status"`
+	UpdatedAt  int64     `json:"updatedAt"`
 }
 
 // ActiveDistributedRunStore persists the coordinator-owned active distributed

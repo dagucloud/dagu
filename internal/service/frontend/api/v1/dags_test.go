@@ -17,8 +17,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -359,7 +359,7 @@ steps:
 				return false
 			}
 
-			return dagRunStatus.DagRun.Status == api.Status(core.Succeeded)
+			return dagRunStatus.DagRun.Status == api.Status(ir.Succeeded)
 		}, dagRunEventuallyTimeout(5*time.Second), time.Second, "expected DAG to complete")
 
 		// Delete the created DAG
@@ -432,7 +432,7 @@ steps:
 			if !getJSONWhenAvailable(t, server, url, &dagRunDetails) {
 				return false
 			}
-			return dagRunDetails.DagRun.Status == api.Status(core.Succeeded)
+			return dagRunDetails.DagRun.Status == api.Status(ir.Succeeded)
 		}, dagRunEventuallyTimeout(10*time.Second), 500*time.Millisecond, "DAG should complete")
 
 		require.NotNil(t, dagRunDetails.DagRun.Params)
@@ -475,7 +475,7 @@ steps:
 			if !getJSONWhenAvailable(t, server, url, &dagRunDetails) {
 				return false
 			}
-			return dagRunDetails.DagRun.Status == api.Status(core.Succeeded)
+			return dagRunDetails.DagRun.Status == api.Status(ir.Succeeded)
 		}, dagRunEventuallyTimeout(10*time.Second), 500*time.Millisecond, "DAG should complete")
 
 		require.NotNil(t, dagRunDetails.DagRun.Params)
@@ -514,7 +514,7 @@ steps:
 			if !getJSONWhenAvailable(t, server, url, &dagRunStatus) {
 				return false
 			}
-			return dagRunStatus.DagRun.Status == api.Status(core.Succeeded)
+			return dagRunStatus.DagRun.Status == api.Status(ir.Succeeded)
 		}, dagRunEventuallyTimeout(5*time.Second), 500*time.Millisecond)
 
 		_ = server.Client().Delete("/api/v1/dags/" + dagName).ExpectStatus(http.StatusNoContent).Send(t)
@@ -690,7 +690,7 @@ steps:
 			}
 
 			s := dagRun.DagRunDetails.Status
-			return s == api.Status(core.Queued) || s == api.Status(core.Running) || s == api.Status(core.Succeeded)
+			return s == api.Status(ir.Queued) || s == api.Status(ir.Running) || s == api.Status(ir.Succeeded)
 		}, 5*time.Second, 250*time.Millisecond, "expected DAG-run to reach queued state")
 	})
 
@@ -727,7 +727,7 @@ steps:
 			if !getJSONWhenAvailable(t, server, fmt.Sprintf("/api/v1/dags/%s/dag-runs/%s", dagName, execResp.DagRunId), &dagRunStatus) {
 				return false
 			}
-			return dagRunStatus.DagRun.Status == api.Status(core.Succeeded)
+			return dagRunStatus.DagRun.Status == api.Status(ir.Succeeded)
 		}, dagRunEventuallyTimeout(10*time.Second), 500*time.Millisecond, "expected DAG to complete")
 
 		resp = server.Client().Get("/api/v1/dags/" + dagName + "/dag-runs").
@@ -785,7 +785,7 @@ steps:
 			if err != nil {
 				return false
 			}
-			return status.Status == core.Succeeded
+			return status.Status == ir.Succeeded
 		}, dagRunEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
 		attempt, err := server.DAGRunStore.FindAttempt(server.Context, ref)
@@ -829,7 +829,7 @@ steps:
 
 		status, err := attempt.ReadStatus(server.Context)
 		require.NoError(t, err)
-		require.Equal(t, core.Queued, status.Status)
+		require.Equal(t, ir.Queued, status.Status)
 
 		queueProcessor := scheduler.NewQueueProcessor(
 			server.QueueStore,
@@ -859,7 +859,7 @@ steps:
 			if err != nil {
 				return false
 			}
-			return latestStatus.Status == core.Succeeded
+			return latestStatus.Status == ir.Succeeded
 		}, dagRunEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
 		latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, exec.NewDAGRunRef(dagName, body.DagRunId))
@@ -938,7 +938,7 @@ steps:
 		if !getJSONWhenAvailable(t, server, url, &status) {
 			return false
 		}
-		return status.DagRun.Status == api.Status(core.Succeeded)
+		return status.DagRun.Status == api.Status(ir.Succeeded)
 	}, dagRunEventuallyTimeout(5*time.Second), 200*time.Millisecond)
 }
 
@@ -961,11 +961,11 @@ type loadSpecErrorDAGStore struct {
 	updateCalled bool
 }
 
-func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, exec.DAGLoadOptions) (*core.DAG, error) {
-	return &core.DAG{Name: "load-spec-error"}, nil
+func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, exec.DAGLoadOptions) (*ir.DAG, error) {
+	return &ir.DAG{Name: "load-spec-error"}, nil
 }
 
-func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, string, exec.DAGLoadOptions) (*core.DAG, error) {
+func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, string, exec.DAGLoadOptions) (*ir.DAG, error) {
 	return nil, errLoadSpecFatal
 }
 
@@ -1134,12 +1134,12 @@ func TestNextRunProjectionUsesConfiguredLocation(t *testing.T) {
 	est := time.FixedZone("EST", -5*3600)
 	helper.Config.Core.Location = est
 
-	schedule, err := core.NewCronSchedule("0 15 * * *")
+	schedule, err := ir.NewCronSchedule("0 15 * * *")
 	require.NoError(t, err)
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "timezone-next-run-dag",
-		Schedule: []core.Schedule{schedule},
+		Schedule: []ir.Schedule{schedule},
 	}
 
 	apiImpl := localapi.New(

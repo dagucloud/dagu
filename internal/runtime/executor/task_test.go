@@ -6,8 +6,8 @@ package executor_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 )
@@ -58,7 +58,7 @@ steps:
 	t.Run("WithRootDagRunOption", func(t *testing.T) {
 		t.Parallel()
 
-		dag := &core.DAG{
+		dag := &ir.DAG{
 			Name: "sub-dag",
 		}
 
@@ -390,10 +390,10 @@ func TestTaskOption_Functions(t *testing.T) {
 			Name:      "test-dag",
 			DAGRunID:  "run-123",
 			ProcGroup: "shared-queue",
-			Status:    core.Running,
+			Status:    ir.Running,
 			Nodes: []*exec.Node{
-				{Step: core.Step{Name: "step1"}, Status: core.NodeSucceeded},
-				{Step: core.Step{Name: "step2"}, Status: core.NodeFailed},
+				{Step: ir.Step{Name: "step1"}, Status: ir.NodeSucceeded},
+				{Step: ir.Step{Name: "step2"}, Status: ir.NodeFailed},
 			},
 		}
 

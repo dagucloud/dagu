@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,8 +26,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
 			statusDecisionOptions{},
 		)
 
@@ -40,8 +40,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-2", AttemptKey: "attempt-key-2", Status: core.Running},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			&exec.DAGRunStatus{AttemptID: "attempt-2", AttemptKey: "attempt-key-2", Status: ir.Running},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
 			statusDecisionOptions{},
 		)
 
@@ -60,8 +60,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 		})
 
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Running},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Running},
 			statusDecisionOptions{},
 		)
 
@@ -74,8 +74,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Succeeded},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Succeeded},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Succeeded},
 			statusDecisionOptions{},
 		)
 
@@ -88,8 +88,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Aborted},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Aborted},
 			statusDecisionOptions{},
 		)
 
@@ -102,8 +102,8 @@ func TestAttemptOwnershipStatusDecision(t *testing.T) {
 
 		ownership := newAttemptOwnership(attemptOwnershipConfig{})
 		accepted, reason := ownership.statusDecision(ctx,
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Failed},
-			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: core.Aborted},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Failed},
+			&exec.DAGRunStatus{AttemptID: "attempt-1", AttemptKey: "attempt-key-1", Status: ir.Aborted},
 			statusDecisionOptions{CancellationRequested: true},
 		)
 
@@ -149,7 +149,7 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 		Root:       run,
 		AttemptID:  "attempt-1",
 		AttemptKey: "attempt-key-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 		WorkerID:   "worker-1",
 	}
 	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
@@ -170,11 +170,11 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, run, record.Root)
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
-	assert.Equal(t, core.Running, record.Status)
+	assert.Equal(t, ir.Running, record.Status)
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
-	status.Status = core.Queued
+	status.Status = ir.Queued
 	activeUpdatedLowerBound = time.Now().UTC().UnixMilli()
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
 	activeUpdatedUpperBound = time.Now().UTC().UnixMilli()
@@ -184,11 +184,11 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, now.UnixMilli(), lease.LastHeartbeatAt)
 	record, err = activeStore.Get(ctx, "attempt-key-1")
 	require.NoError(t, err)
-	assert.Equal(t, core.Queued, record.Status)
+	assert.Equal(t, ir.Queued, record.Status)
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
-	status.Status = core.Succeeded
+	status.Status = ir.Succeeded
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
 
 	_, err = leaseStore.Get(ctx, "attempt-key-1")
@@ -221,7 +221,7 @@ func TestInlineRunSharesClaimLease(t *testing.T) {
 		AttemptKey: "child-key",
 		ClaimKey:   "claim-key",
 		WorkerID:   "worker-1",
-		Status:     core.Running,
+		Status:     ir.Running,
 	}
 
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
@@ -281,7 +281,7 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	assert.Equal(t, exec.NewDAGRunRef("test-dag", "run-1"), record.Root)
 	assert.Equal(t, "attempt-1", record.AttemptID)
 	assert.Equal(t, "worker-1", record.WorkerID)
-	assert.Equal(t, core.Queued, record.Status)
+	assert.Equal(t, ir.Queued, record.Status)
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 }

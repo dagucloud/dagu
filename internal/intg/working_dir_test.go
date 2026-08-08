@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +41,7 @@ steps:
 	require.NoError(t, os.WriteFile(filepath.Join(checkout, "marker.txt"), []byte("beside the author's file"), 0o600))
 
 	dag.Agent().RunSuccess(t)
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 	require.NoError(t, err)

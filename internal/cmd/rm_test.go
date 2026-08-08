@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,7 +44,7 @@ func TestRmCommand(t *testing.T) {
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
 			Args: []string{"start", dag.Location},
 		})
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertDAGRunCount(t, 1)
 
 		th.RunCommand(t, cmd.Rm(), test.CmdTest{
@@ -64,7 +64,7 @@ func TestRmCommand(t *testing.T) {
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
 			Args: []string{"start", dag.Location},
 		})
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertDAGRunCount(t, 1)
 
 		th.RunCommand(t, cmd.Rm(), test.CmdTest{
@@ -151,7 +151,7 @@ steps:
 			})
 		}()
 
-		dag.AssertLatestStatus(t, core.Running)
+		dag.AssertLatestStatus(t, ir.Running)
 
 		err := th.RunCommandWithError(t, cmd.Rm(), test.CmdTest{
 			Args: []string{"rm", "-d", "-f", dag.Name},
@@ -177,7 +177,7 @@ steps:
 			DAGRun:     exec.NewDAGRunRef(dag.Name, "distributed-run"),
 			AttemptID:  "attempt-1",
 			WorkerID:   "worker-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 		}))
 
 		err := th.RunCommandWithError(t, cmd.Rm(), test.CmdTest{
@@ -217,7 +217,7 @@ steps:
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
 			Args: []string{"start", dag.Location},
 		})
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 
 		err := th.RunCommandWithError(t, cmd.Rm(), test.CmdTest{
 			Args: []string{"rm", "-H", "-t", "2562048h", "-f", dag.Name},
@@ -238,7 +238,7 @@ steps:
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
 			Args: []string{"start", dag.Location},
 		})
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertDAGRunCount(t, 1)
 
 		th.RunCommand(t, cmd.Rm(), test.CmdTest{

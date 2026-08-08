@@ -16,8 +16,8 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -156,7 +156,7 @@ steps:
 	// Webhook triggers enqueue DAG runs; execute the queued item in this
 	// server-only integration harness before asserting the stored status.
 	test.ProcessQueuedInlineRun(t, server, dagName)
-	waitForWebhookRunStatus(t, server, dagName, runID, core.Succeeded)
+	waitForWebhookRunStatus(t, server, dagName, runID, ir.Succeeded)
 
 	expectedPayload, err := json.Marshal(payload)
 	require.NoError(t, err)
@@ -236,7 +236,7 @@ func waitForWebhookRunStatus(
 	t *testing.T,
 	server test.Server,
 	dagName, runID string,
-	expected core.Status,
+	expected ir.Status,
 ) {
 	t.Helper()
 

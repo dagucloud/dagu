@@ -13,7 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,7 +65,7 @@ params:
 	require.NoError(t, err)
 	require.Len(t, dag.ParamDefs, 3)
 	assert.Equal(t, "region", dag.ParamDefs[0].Name)
-	assert.Equal(t, core.ParamDefTypeString, dag.ParamDefs[0].Type)
+	assert.Equal(t, ir.ParamDefTypeString, dag.ParamDefs[0].Type)
 	assert.True(t, dag.ParamDefs[0].Required)
 	assert.Nil(t, dag.ParamDefs[0].Default)
 	assert.Equal(t, int64(3), dag.ParamDefs[1].Default)
@@ -111,11 +111,11 @@ params:
 	require.Len(t, dag.ParamDefs, 3)
 
 	assert.Equal(t, "environment", dag.ParamDefs[0].Name)
-	assert.Equal(t, core.ParamDefTypeString, dag.ParamDefs[0].Type)
+	assert.Equal(t, ir.ParamDefTypeString, dag.ParamDefs[0].Type)
 	assert.Equal(t, "staging", dag.ParamDefs[0].Default)
 
 	assert.Equal(t, "TAG", dag.ParamDefs[1].Name)
-	assert.Equal(t, core.ParamDefTypeString, dag.ParamDefs[1].Type)
+	assert.Equal(t, ir.ParamDefTypeString, dag.ParamDefs[1].Type)
 	assert.Equal(t, "latest", dag.ParamDefs[1].Default)
 
 	assert.Equal(t, "DRY_RUN", dag.ParamDefs[2].Name)
@@ -137,7 +137,7 @@ params:
 	require.NoError(t, err)
 	require.Len(t, dag.ParamDefs, 1)
 	assert.Equal(t, "notes", dag.ParamDefs[0].Name)
-	assert.Equal(t, core.ParamDefTypeString, dag.ParamDefs[0].Type)
+	assert.Equal(t, ir.ParamDefTypeString, dag.ParamDefs[0].Type)
 	assert.Equal(t, "Free-form operator notes", dag.ParamDefs[0].Description)
 	assert.Nil(t, dag.ParamDefs[0].Default)
 	assert.Empty(t, dag.Params)

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -23,8 +23,8 @@ func TestEnqueueRunDoesNotSeedQueuedCondition(t *testing.T) {
 
 	ctx := context.Background()
 	tmp := t.TempDir()
-	dag := &core.DAG{Name: "queued-condition"}
-	core.InitializeDefaults(dag)
+	dag := &ir.DAG{Name: "queued-condition"}
+	ir.InitializeDefaults(dag)
 	dagRunStore := dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false))
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
 	now := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
@@ -43,6 +43,6 @@ func TestEnqueueRunDoesNotSeedQueuedCondition(t *testing.T) {
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, core.Queued, status.Status)
+	require.Equal(t, ir.Queued, status.Status)
 	require.Empty(t, status.Conditions)
 }

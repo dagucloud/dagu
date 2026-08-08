@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const maxInt64AsUint = ^uint64(0) >> 1
@@ -28,7 +28,7 @@ type ResolveRuntimeParamsOptions struct {
 // ResolveRuntimeParams reloads a DAG from its source with runtime params applied.
 // It is intended for entry points that need the same coercion and validation path
 // as execution without duplicating loader setup.
-func ResolveRuntimeParams(ctx context.Context, dag *core.DAG, params any, opts ResolveRuntimeParamsOptions) (*core.DAG, error) {
+func ResolveRuntimeParams(ctx context.Context, dag *ir.DAG, params any, opts ResolveRuntimeParamsOptions) (*ir.DAG, error) {
 	if dag == nil {
 		return nil, nil
 	}
@@ -48,7 +48,7 @@ func ResolveRuntimeParams(ctx context.Context, dag *core.DAG, params any, opts R
 	}
 }
 
-func runtimeParamLoadOptions(dag *core.DAG, params any, opts ResolveRuntimeParamsOptions) ([]LoadOption, error) {
+func runtimeParamLoadOptions(dag *ir.DAG, params any, opts ResolveRuntimeParamsOptions) ([]LoadOption, error) {
 	loadOpts := make([]LoadOption, 0, 3)
 
 	switch value := params.(type) {
@@ -85,7 +85,7 @@ func resolveLegacyRuntimePairs(entries []dagParamEntry, rawParams string, params
 	if rawParams != "" {
 		overridePairs, err := parseRuntimeLegacyOverrideInput(rawParams)
 		if err != nil {
-			return nil, core.NewValidationError("params", rawParams, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+			return nil, ir.NewValidationError("params", rawParams, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 		}
 		overridePairs, internalPairs := splitInternalRuntimeOverridePairs(overridePairs, declaredNames)
 		if err := overrideParams(&finalPairs, overridePairs); err != nil {
@@ -97,7 +97,7 @@ func resolveLegacyRuntimePairs(entries []dagParamEntry, rawParams string, params
 	if len(paramsList) > 0 {
 		overridePairs, err := parseRuntimeLegacyOverrideInput(paramsList)
 		if err != nil {
-			return nil, core.NewValidationError("params", paramsList, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+			return nil, ir.NewValidationError("params", paramsList, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 		}
 		overridePairs, internalPairs := splitInternalRuntimeOverridePairs(overridePairs, declaredNames)
 		if err := overrideParams(&finalPairs, overridePairs); err != nil {
@@ -164,14 +164,14 @@ func parseOverridePairs(rawParams string, paramsList []string) ([]paramPair, err
 	if rawParams != "" {
 		parsed, err := parseParamValue(noEvalCtx, rawParams)
 		if err != nil {
-			return nil, core.NewValidationError("params", rawParams, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+			return nil, ir.NewValidationError("params", rawParams, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 		}
 		pairs = append(pairs, parsed...)
 	}
 	if len(paramsList) > 0 {
 		parsed, err := parseParamValue(noEvalCtx, paramsList)
 		if err != nil {
-			return nil, core.NewValidationError("params", paramsList, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
+			return nil, ir.NewValidationError("params", paramsList, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 		}
 		pairs = append(pairs, parsed...)
 	}
@@ -441,7 +441,7 @@ func resolveLegacyEntry(
 			addEntryToParamValues(params, *entry)
 			return nil
 		}
-		return core.NewValidationError(
+		return ir.NewValidationError(
 			"params",
 			base.Eval,
 			fmt.Errorf("%w: parameter %q eval failed: %v", ErrInvalidParamValue, paramScopeName(base, index), err),
@@ -486,10 +486,10 @@ func paramScopeName(entry dagParamEntry, index int) string {
 
 func normalizeTypedParamValue(value any, paramType string) (any, error) {
 	switch paramType {
-	case core.ParamDefTypeString:
+	case ir.ParamDefTypeString:
 		return stringifyUntypedValue(value), nil
 
-	case core.ParamDefTypeInteger:
+	case ir.ParamDefTypeInteger:
 		switch v := value.(type) {
 		case string:
 			return coerceStringToType(v, paramType)
@@ -501,7 +501,7 @@ func normalizeTypedParamValue(value any, paramType string) (any, error) {
 			return number, nil
 		}
 
-	case core.ParamDefTypeNumber:
+	case ir.ParamDefTypeNumber:
 		switch v := value.(type) {
 		case string:
 			return coerceStringToType(v, paramType)
@@ -513,7 +513,7 @@ func normalizeTypedParamValue(value any, paramType string) (any, error) {
 			return number, nil
 		}
 
-	case core.ParamDefTypeBoolean:
+	case ir.ParamDefTypeBoolean:
 		switch v := value.(type) {
 		case string:
 			return coerceStringToType(v, paramType)
@@ -530,24 +530,24 @@ func normalizeTypedParamValue(value any, paramType string) (any, error) {
 
 func coerceStringToType(value, paramType string) (any, error) {
 	switch paramType {
-	case core.ParamDefTypeString:
+	case ir.ParamDefTypeString:
 		return value, nil
 
-	case core.ParamDefTypeInteger:
+	case ir.ParamDefTypeInteger:
 		number, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("cannot coerce %q to integer", value)
 		}
 		return number, nil
 
-	case core.ParamDefTypeNumber:
+	case ir.ParamDefTypeNumber:
 		number, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 		if err != nil {
 			return nil, fmt.Errorf("cannot coerce %q to number", value)
 		}
 		return number, nil
 
-	case core.ParamDefTypeBoolean:
+	case ir.ParamDefTypeBoolean:
 		switch {
 		case strings.EqualFold(value, "true"):
 			return true, nil
@@ -671,11 +671,11 @@ func cloneParamEntries(entries []dagParamEntry) []dagParamEntry {
 	return cloned
 }
 
-func cloneParamDefs(defs []core.ParamDef) []core.ParamDef {
+func cloneParamDefs(defs []ir.ParamDef) []ir.ParamDef {
 	if len(defs) == 0 {
 		return nil
 	}
-	cloned := make([]core.ParamDef, len(defs))
+	cloned := make([]ir.ParamDef, len(defs))
 	copy(cloned, defs)
 	for i := range cloned {
 		if len(cloned[i].Enum) > 0 {

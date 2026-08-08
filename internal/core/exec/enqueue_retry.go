@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // ErrRetryStaleLatest indicates the caller tried to retry a non-latest attempt.
@@ -35,7 +35,7 @@ func EnqueueRetry(
 	ctx context.Context,
 	dagRunStore DAGRunStore,
 	queueStore QueueStore,
-	dag *core.DAG,
+	dag *ir.DAG,
 	status *DAGRunStatus,
 	opts EnqueueRetryOptions,
 ) (bool, error) {
@@ -48,7 +48,7 @@ func EnqueueRetry(
 	if status == nil {
 		return false, errors.New("enqueue retry: DAG-run status is nil")
 	}
-	if status.Status == core.Queued {
+	if status.Status == ir.Queued {
 		return false, nil
 	}
 
@@ -63,10 +63,10 @@ func EnqueueRetry(
 			snapshot := *latest
 			originalStatus = &snapshot
 			now := time.Now()
-			latest.Status = core.Queued
+			latest.Status = ir.Queued
 			latest.QueuedAt = stringutil.FormatTime(now)
 			latest.Conditions = nil
-			latest.TriggerType = core.TriggerTypeRetry
+			latest.TriggerType = ir.TriggerTypeRetry
 			if opts.TriggerActor != nil {
 				latest.TriggerActor = *opts.TriggerActor
 			}
@@ -85,7 +85,7 @@ func EnqueueRetry(
 	if !swapped {
 		if updatedStatus != nil &&
 			updatedStatus.AttemptID == status.AttemptID &&
-			updatedStatus.Status == core.Queued {
+			updatedStatus.Status == ir.Queued {
 			return false, nil
 		}
 		return false, ErrRetryStaleLatest
@@ -122,7 +122,7 @@ func rollbackQueuedRetry(
 		ctx,
 		dagRun,
 		queued.AttemptID,
-		core.Queued,
+		ir.Queued,
 		func(latest *DAGRunStatus) error {
 			latest.Status = original.Status
 			latest.QueuedAt = original.QueuedAt
@@ -143,7 +143,7 @@ func rollbackQueuedRetry(
 	return nil
 }
 
-func retryProcGroup(dag *core.DAG, status *DAGRunStatus) string {
+func retryProcGroup(dag *ir.DAG, status *DAGRunStatus) string {
 	if status != nil && status.ProcGroup != "" {
 		return status.ProcGroup
 	}

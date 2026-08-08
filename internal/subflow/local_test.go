@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -39,7 +39,7 @@ func TestLocalCancelRequestsStoredChildAttemptWhenInactive(t *testing.T) {
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
-		DAG:        &core.DAG{Name: "child"},
+		DAG:        &ir.DAG{Name: "child"},
 		RootDAGRun: root,
 		RunID:      "child-run",
 	})
@@ -59,7 +59,7 @@ func TestLocalCancelIgnoresMissingStoredChildAttemptWhenInactive(t *testing.T) {
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
-		DAG:        &core.DAG{Name: "child"},
+		DAG:        &ir.DAG{Name: "child"},
 		RootDAGRun: root,
 		RunID:      "child-run",
 	})
@@ -79,7 +79,7 @@ func TestLocalCancelReturnsStoredChildAttemptLookupError(t *testing.T) {
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(store))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
-		DAG:        &core.DAG{Name: "child"},
+		DAG:        &ir.DAG{Name: "child"},
 		RootDAGRun: root,
 		RunID:      "child-run",
 	})
@@ -99,7 +99,7 @@ func TestLocalRetryRejectsMissingRunDatabase(t *testing.T) {
 
 	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
 		SubWorkflowRequest: executor.SubWorkflowRequest{
-			DAG:        &core.DAG{Name: "child"},
+			DAG:        &ir.DAG{Name: "child"},
 			RootDAGRun: root,
 			RunID:      "child-run",
 		},
@@ -119,7 +119,7 @@ func TestLocalRunRejectsIncrementalWorkflowOnRemoteWorker(t *testing.T) {
 		subflow.WithLocalWorkerID("worker-1"),
 	)
 	result, err := runner.Run(context.Background(), executor.SubWorkflowRequest{
-		DAG:        &core.DAG{Name: "child", Type: core.TypeIncremental},
+		DAG:        &ir.DAG{Name: "child", Type: ir.TypeIncremental},
 		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-run",
 	})
@@ -141,7 +141,7 @@ func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
 
 	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
 		SubWorkflowRequest: executor.SubWorkflowRequest{
-			DAG:        &core.DAG{Name: "child"},
+			DAG:        &ir.DAG{Name: "child"},
 			RootDAGRun: root,
 			RunID:      "child-run",
 		},
@@ -175,7 +175,7 @@ steps:
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, core.Succeeded, result.Status)
+	require.Equal(t, ir.Succeeded, result.Status)
 }
 
 func TestLocalRunPreservesIncrementalPathBaseFromCopiedDefinition(t *testing.T) {
@@ -210,7 +210,7 @@ steps:
 	root := exec.NewDAGRunRef("parent", uuid.Must(uuid.NewV7()).String())
 	ctx := exec.NewContext(
 		th.Context,
-		&core.DAG{Name: root.Name},
+		&ir.DAG{Name: root.Name},
 		root.ID,
 		filepath.Join(t.TempDir(), "parent.log"),
 		exec.WithMaterializationStore(filematerialization.New(filepath.Join(t.TempDir(), "materializations"))),
@@ -225,7 +225,7 @@ steps:
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, core.Succeeded, result.Status)
+	require.Equal(t, ir.Succeeded, result.Status)
 	content, err := os.ReadFile(filepath.Join(authoredDir, "artifact.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "source", string(content))
@@ -274,7 +274,7 @@ steps:
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, core.Succeeded, result.Status)
+	require.Equal(t, ir.Succeeded, result.Status)
 }
 
 func TestLocalRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
@@ -296,7 +296,7 @@ steps:
 	)
 	var outputVars collections.SyncMap
 	outputVars.Store("RESULT", "RESULT=ok")
-	childStatus := localRunStatus(childDAG.DAG, childRunID, core.Succeeded, core.NodeSucceeded)
+	childStatus := localRunStatus(childDAG.DAG, childRunID, ir.Succeeded, ir.NodeSucceeded)
 	childStatus.Nodes[0].OutputVariables = &outputVars
 	originalAttempt := createStoredRunningChildAttempt(
 		t,
@@ -324,7 +324,7 @@ steps:
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, core.Succeeded, result.Status)
+	require.Equal(t, ir.Succeeded, result.Status)
 	require.Equal(t, "ok", result.Outputs["RESULT"])
 
 	latestAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, rootRef, childRunID)
@@ -348,7 +348,7 @@ steps:
 	rootRunID := "root-run"
 	childRunID := "child-run"
 	staleAt := time.Now().Add(-3 * time.Second)
-	childStatus := localRunStatus(childDAG.DAG, childRunID, core.Running, core.NodeRunning)
+	childStatus := localRunStatus(childDAG.DAG, childRunID, ir.Running, ir.NodeRunning)
 	childStatus.WorkerID = "local"
 	childStatus.StartedAt = exec.FormatTime(staleAt)
 	childStatus.CreatedAt = staleAt.UnixMilli()
@@ -366,14 +366,14 @@ steps:
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, core.Succeeded, result.Status)
+	require.Equal(t, ir.Succeeded, result.Status)
 
 	persisted, err := th.DAGRunMgr.FindSubDAGRunStatus(th.Context, rootRef, childRunID)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, persisted.Status)
+	require.Equal(t, ir.Succeeded, persisted.Status)
 }
 
-func localRunStatus(dag *core.DAG, dagRunID string, dagStatus core.Status, nodeStatus core.NodeStatus) exec.DAGRunStatus {
+func localRunStatus(dag *ir.DAG, dagRunID string, dagStatus ir.Status, nodeStatus ir.NodeStatus) exec.DAGRunStatus {
 	status := exec.InitialStatus(dag)
 	status.DAGRunID = dagRunID
 	status.Status = dagStatus
@@ -388,8 +388,8 @@ func localRunStatus(dag *core.DAG, dagRunID string, dagStatus core.Status, nodeS
 func createStoredRunningChildAttempt(
 	t *testing.T,
 	th test.Helper,
-	rootDAG *core.DAG,
-	childDAG *core.DAG,
+	rootDAG *ir.DAG,
+	childDAG *ir.DAG,
 	rootRunID string,
 	childRunID string,
 	status exec.DAGRunStatus,
@@ -402,7 +402,7 @@ func createStoredRunningChildAttempt(
 	rootAttempt, err := th.DAGRunStore.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, exec.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, rootAttempt.Open(ctx))
-	rootStatus := localRunStatus(rootDAG, rootRunID, core.Running, core.NodeRunning)
+	rootStatus := localRunStatus(rootDAG, rootRunID, ir.Running, ir.NodeRunning)
 	rootStatus.AttemptID = rootAttempt.ID()
 	rootStatus.AttemptKey = exec.GenerateAttemptKey(rootDAG.Name, rootRunID, rootDAG.Name, rootRunID, rootStatus.AttemptID)
 	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
@@ -435,13 +435,13 @@ type staticInstaller struct {
 
 func (i *staticInstaller) Install(
 	_ context.Context,
-	_ *core.ToolConfig,
+	_ *ir.ToolConfig,
 	_ dagutools.InstallOptions,
 ) (*dagutools.Manifest, error) {
 	return i.manifest, nil
 }
 
-func (s *localDAGRunStore) CreateAttempt(context.Context, *core.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (s *localDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	return nil, nil
 }
 
@@ -465,7 +465,7 @@ func (s *localDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	context.Context,
 	exec.DAGRunRef,
 	string,
-	core.Status,
+	ir.Status,
 	func(*exec.DAGRunStatus) error,
 	...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {

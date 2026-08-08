@@ -18,8 +18,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 )
 
@@ -34,9 +34,9 @@ const observationLogLines = 40
 func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh chan *Node) {
 	dag := GetDAGContext(ctx).DAG
 
-	ctrlNode := plan.GetNodeByName(core.ControllerStepName)
+	ctrlNode := plan.GetNodeByName(ir.ControllerStepName)
 	if ctrlNode == nil {
-		r.setLastError(fmt.Errorf("controller step %q is missing from the plan", core.ControllerStepName))
+		r.setLastError(fmt.Errorf("controller step %q is missing from the plan", ir.ControllerStepName))
 		return
 	}
 
@@ -51,7 +51,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 		r.failController(ctx, plan, ctrlNode, err, progressCh)
 		return
 	}
-	ctrlNode.SetStatus(core.NodeRunning)
+	ctrlNode.SetStatus(ir.NodeRunning)
 	if err := r.prepareNode(ctrlCtx, ctrlNode); err != nil {
 		r.failController(ctrlCtx, plan, ctrlNode, err, progressCh)
 		return
@@ -123,7 +123,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	maxTurns := dag.ControllerMaxIterations()
 	for !state.Settled() {
 		if r.isCanceled() {
-			ctrlNode.SetStatus(core.NodeAborted)
+			ctrlNode.SetStatus(ir.NodeAborted)
 			r.report(progressCh, ctrlNode)
 			return
 		}
@@ -163,7 +163,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 		// A decision can take a while to come back. If the run was stopped in the
 		// meantime, drop it rather than settling a task or opening a question.
 		if r.isCanceled() {
-			ctrlNode.SetStatus(core.NodeAborted)
+			ctrlNode.SetStatus(ir.NodeAborted)
 			r.report(progressCh, ctrlNode)
 			return
 		}
@@ -178,7 +178,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 		if suspended {
 			// The action is waiting on a person. The run reports Waiting, the
 			// process exits, and this loop resumes once the task is completed.
-			ctrlNode.SetStatus(core.NodeSucceeded)
+			ctrlNode.SetStatus(ir.NodeSucceeded)
 			r.report(progressCh, ctrlNode)
 			return
 		}
@@ -196,7 +196,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	}
 
 	r.skipUnusedActions(ctx, plan)
-	ctrlNode.SetStatus(core.NodeSucceeded)
+	ctrlNode.SetStatus(ir.NodeSucceeded)
 	r.persistController(ctrlCtx, ctrlNode, state, progressCh)
 	logger.Info(ctrlCtx, "Controller settled every task", slog.Int("turns", state.Turns))
 }
@@ -267,7 +267,7 @@ func (r *Runner) askUser(
 	decision *controller.Decision,
 	progressCh chan *Node,
 ) (suspended bool, err error) {
-	node := plan.GetNodeByName(core.AskUserStepName)
+	node := plan.GetNodeByName(ir.AskUserStepName)
 	if node == nil {
 		state.Append(toolResult(ctx, decision.ToolCallID,
 			"Error: this workflow cannot ask questions"))
@@ -297,16 +297,16 @@ func (r *Runner) askUser(
 			"You already asked this and were told: %s", prior)))
 		return false, nil
 	}
-	if state.QuestionCount() >= core.DefaultControllerMaxQuestions {
+	if state.QuestionCount() >= ir.DefaultControllerMaxQuestions {
 		state.Append(toolResult(ctx, decision.ToolCallID, fmt.Sprintf(
 			"Error: this run has already asked %d questions, which is its limit. "+
 				"Decide with what you have, or settle the task as failed.",
-			core.DefaultControllerMaxQuestions)))
+			ir.DefaultControllerMaxQuestions)))
 		return false, nil
 	}
 
 	// A later question reuses the same task, so clear the previous answer.
-	if node.State().Status != core.NodeNotStarted {
+	if node.State().Status != ir.NodeNotStarted {
 		node.ResetForRerun(node.Step())
 	}
 
@@ -314,8 +314,8 @@ func (r *Runner) askUser(
 	node.OpenHumanTask(question, time.Now())
 	state.RecordEvent(controller.Event{
 		Kind:      controller.EventAskUser,
-		Name:      core.AskUserStepName,
-		Status:    core.NodeWaiting.String(),
+		Name:      ir.AskUserStepName,
+		Status:    ir.NodeWaiting.String(),
 		Reason:    question,
 		StartedAt: stringutil.FormatTime(node.State().StartedAt),
 	})
@@ -324,7 +324,7 @@ func (r *Runner) askUser(
 	state.Pending = &controller.PendingAction{
 		ToolCallID: decision.ToolCallID,
 		ToolName:   decision.ToolName,
-		Step:       core.AskUserStepName,
+		Step:       ir.AskUserStepName,
 		Question:   question,
 	}
 	return true, nil
@@ -370,7 +370,7 @@ func (r *Runner) runControllerAction(
 	}
 
 	runs := state.StepRunCount(decision.Step)
-	if runs >= core.DefaultControllerMaxStepRuns {
+	if runs >= ir.DefaultControllerMaxStepRuns {
 		state.Append(toolResult(ctx, decision.ToolCallID, fmt.Sprintf(
 			"Error: action %q has already run %d times, which is its limit. Choose a different action.",
 			decision.Step, runs)))
@@ -380,7 +380,7 @@ func (r *Runner) runControllerAction(
 	// Reset against the declared step, not the node's current one, so arguments
 	// from an earlier invocation do not leak into this one.
 	step := declaredStep(ctx, decision.Step, node)
-	if node.State().Status != core.NodeNotStarted {
+	if node.State().Status != ir.NodeNotStarted {
 		// Re-running: clear the previous attempt and mark the node repeated so a
 		// child DAG run gets a fresh run ID instead of reusing the earlier one.
 		// Links to earlier attempts' child runs are carried across the reset, so
@@ -395,12 +395,12 @@ func (r *Runner) runControllerAction(
 	if step.SubDAG != nil {
 		params := controller.MergeParams(
 			step.SubDAG.Params, decision.Args, controller.PinnedParams(step))
-		node.SetSubDAG(core.SubDAG{Name: step.SubDAG.Name, Params: params})
+		node.SetSubDAG(ir.SubDAG{Name: step.SubDAG.Name, Params: params})
 	}
 	attempt := state.RecordStepRun(decision.Step)
 
 	logger.Info(ctx, "Controller running action", tag.Step(decision.Step))
-	node.SetStatus(core.NodeRunning)
+	node.SetStatus(ir.NodeRunning)
 
 	actionCtx, err := r.setupVariables(ctx, plan, node)
 	if err != nil {
@@ -419,7 +419,7 @@ func (r *Runner) runControllerAction(
 	// the process exit non-zero for a run the controller went on to complete.
 	r.setLastError(nil)
 
-	if node.State().Status == core.NodeWaiting {
+	if node.State().Status == ir.NodeWaiting {
 		state.Pending = &controller.PendingAction{
 			ToolCallID: decision.ToolCallID,
 			ToolName:   decision.ToolName,
@@ -473,7 +473,7 @@ func resolveTaskDescriptions(ctx context.Context, state *controller.State) error
 
 // declaredStep returns the step as written in the DAG, falling back to the
 // node's current definition.
-func declaredStep(ctx context.Context, name string, node *Node) core.Step {
+func declaredStep(ctx context.Context, name string, node *Node) ir.Step {
 	dag := GetDAGContext(ctx).DAG
 	if dag != nil {
 		for _, step := range dag.Steps {
@@ -511,11 +511,11 @@ func (r *Runner) executeControllerAction(ctx context.Context, plan *Plan, node *
 // looking finished.
 func (r *Runner) skipUnusedActions(ctx context.Context, plan *Plan) {
 	for _, node := range plan.Nodes() {
-		if node.State().Status != core.NodeNotStarted {
+		if node.State().Status != ir.NodeNotStarted {
 			continue
 		}
 		logger.Debug(ctx, "Controller never ran step", tag.Step(node.Name()))
-		node.SetStatus(core.NodeSkipped)
+		node.SetStatus(ir.NodeSkipped)
 	}
 }
 
@@ -644,7 +644,7 @@ func childRunSummary(ctx context.Context, childRunID string, outputsReported boo
 	}
 
 	for _, node := range status.Nodes {
-		if node == nil || node.Status != core.NodeFailed {
+		if node == nil || node.Status != ir.NodeFailed {
 			continue
 		}
 		fmt.Fprintf(&sb, "failed step %s: %s\n", node.Step.Name, node.Error)
@@ -676,14 +676,14 @@ func childOutputs(nodes []*exec.Node) map[string]string {
 // askUserAnswer pulls the reply out of an ask_user submission so the controller
 // reads prose rather than a form payload.
 func askUserAnswer(node *Node, input json.RawMessage) (string, bool) {
-	if node.Name() != core.AskUserStepName {
+	if node.Name() != ir.AskUserStepName {
 		return "", false
 	}
 	var fields map[string]any
 	if err := json.Unmarshal(input, &fields); err != nil {
 		return "", false
 	}
-	answer, ok := fields[core.AskUserAnswerField].(string)
+	answer, ok := fields[ir.AskUserAnswerField].(string)
 	return answer, ok
 }
 
@@ -700,7 +700,7 @@ func logTail(path string) string {
 
 func toolResult(ctx context.Context, toolCallID, content string) exec.LLMMessage {
 	dag := GetDAGContext(ctx).DAG
-	maxBytes := core.DefaultControllerObservationMaxBytes
+	maxBytes := ir.DefaultControllerObservationMaxBytes
 	if dag != nil {
 		maxBytes = dag.ControllerObservationMaxBytes()
 	}

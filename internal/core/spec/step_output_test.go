@@ -6,7 +6,7 @@ package spec
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +41,7 @@ func TestParseOutputConfig(t *testing.T) {
 				},
 			},
 			expected: &outputConfig{
-				StructuredOutput: map[string]core.StepOutputEntry{
+				StructuredOutput: map[string]ir.StepOutputEntry{
 					"meta": {
 						HasValue: true,
 						Value: map[string]any{
@@ -62,10 +62,10 @@ func TestParseOutputConfig(t *testing.T) {
 				},
 			},
 			expected: &outputConfig{
-				StructuredOutput: map[string]core.StepOutputEntry{
+				StructuredOutput: map[string]ir.StepOutputEntry{
 					"version": {
-						From:   core.StepOutputSourceStdout,
-						Decode: core.StepOutputDecodeJSON,
+						From:   ir.StepOutputSourceStdout,
+						Decode: ir.StepOutputDecodeJSON,
 						Select: ".version",
 					},
 				},
@@ -79,7 +79,7 @@ func TestParseOutputConfig(t *testing.T) {
 				},
 			},
 			expected: &outputConfig{
-				StructuredOutput: map[string]core.StepOutputEntry{
+				StructuredOutput: map[string]ir.StepOutputEntry{
 					"label": {
 						HasValue: true,
 						Value:    "ver - ${build.output.version}",
@@ -147,8 +147,8 @@ func TestBuildStepStructuredOutput(t *testing.T) {
 	result, err := buildStepStructuredOutput(testStepBuildContext(), s)
 	require.NoError(t, err)
 	require.Len(t, result, 2)
-	assert.Equal(t, core.StepOutputSourceStdout, result["meta"].From)
-	assert.Equal(t, core.StepOutputDecodeJSON, result["meta"].Decode)
+	assert.Equal(t, ir.StepOutputSourceStdout, result["meta"].From)
+	assert.Equal(t, ir.StepOutputDecodeJSON, result["meta"].Decode)
 	assert.True(t, result["label"].HasValue)
 	assert.Equal(t, "ver - ${build.output.version}", result["label"].Value)
 }
@@ -161,9 +161,9 @@ func TestBuildStepExecutorInfersNoopForStructuredOutput(t *testing.T) {
 			"versionLabel": "ver - ${build.output.version}",
 		},
 	}
-	result := &core.Step{
-		ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)},
-		StructuredOutput: map[string]core.StepOutputEntry{
+	result := &ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)},
+		StructuredOutput: map[string]ir.StepOutputEntry{
 			"versionLabel": {HasValue: true, Value: "ver - ${build.output.version}"},
 		},
 	}
@@ -182,9 +182,9 @@ func TestBuildStepExecutorInfersNoopForStructuredOutputWithWhitespaceScript(t *t
 			"versionLabel": "ver - ${build.output.version}",
 		},
 	}
-	result := &core.Step{
-		ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)},
-		StructuredOutput: map[string]core.StepOutputEntry{
+	result := &ir.Step{
+		ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)},
+		StructuredOutput: map[string]ir.StepOutputEntry{
 			"versionLabel": {HasValue: true, Value: "ver - ${build.output.version}"},
 		},
 	}
@@ -201,8 +201,8 @@ func TestBuildStepExecutorDoesNotInferNoopForStructuredStreamOutput(t *testing.T
 		name   string
 		source string
 	}{
-		{name: "Stdout", source: core.StepOutputSourceStdout},
-		{name: "Stderr", source: core.StepOutputSourceStderr},
+		{name: "Stdout", source: ir.StepOutputSourceStdout},
+		{name: "Stderr", source: ir.StepOutputSourceStderr},
 	}
 
 	for _, tt := range tests {
@@ -214,9 +214,9 @@ func TestBuildStepExecutorDoesNotInferNoopForStructuredStreamOutput(t *testing.T
 					"captured": map[string]any{"from": string(tt.source)},
 				},
 			}
-			result := &core.Step{
-				ExecutorConfig: core.ExecutorConfig{Config: make(map[string]any)},
-				StructuredOutput: map[string]core.StepOutputEntry{
+			result := &ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)},
+				StructuredOutput: map[string]ir.StepOutputEntry{
 					"captured": {From: tt.source},
 				},
 			}

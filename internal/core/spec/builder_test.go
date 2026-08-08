@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +25,7 @@ import (
 
 type DAG struct {
 	t *testing.T
-	*core.DAG
+	*ir.DAG
 }
 
 func (th *DAG) AssertEnv(t *testing.T, key, val string) {
@@ -224,7 +224,7 @@ steps:
 		dag, err := spec.LoadYAML(context.Background(), data)
 		require.NoError(t, err)
 		th := DAG{t: t, DAG: dag}
-		assert.Equal(t, core.TypeChain, th.Type)
+		assert.Equal(t, ir.TypeChain, th.Type)
 
 		assert.Len(t, th.Steps, 4)
 		assert.Empty(t, th.Steps[0].Depends)
@@ -316,7 +316,7 @@ schedule: "1"`,
 
 			_, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
 			require.Error(t, err)
-			if errs, ok := err.(*core.ErrorList); ok && len(*errs) > 0 {
+			if errs, ok := err.(*ir.ErrorList); ok && len(*errs) > 0 {
 				if tt.expectedErr == nil {
 					require.Contains(t, err.Error(), tt.errContains)
 					return
@@ -964,7 +964,7 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 	repeatPolicyTests := []struct {
 		name            string
 		yaml            string
-		wantMode        core.RepeatMode
+		wantMode        ir.RepeatMode
 		wantInterval    time.Duration
 		wantLimit       int
 		wantExitCode    []int
@@ -983,7 +983,7 @@ steps:
       repeat: true
       interval_sec: 60
 `,
-			wantMode:     core.RepeatModeWhile,
+			wantMode:     ir.RepeatModeWhile,
 			wantInterval: 60 * time.Second,
 			wantLimit:    0,
 		},
@@ -999,7 +999,7 @@ steps:
       interval_sec: 5
       limit: 3
 `,
-			wantMode:      core.RepeatModeWhile,
+			wantMode:      ir.RepeatModeWhile,
 			wantInterval:  5 * time.Second,
 			wantLimit:     3,
 			wantCondition: "echo hello",
@@ -1018,7 +1018,7 @@ steps:
       interval_sec: 10
       limit: 5
 `,
-			wantMode:      core.RepeatModeUntil,
+			wantMode:      ir.RepeatModeUntil,
 			wantInterval:  10 * time.Second,
 			wantLimit:     5,
 			wantCondition: "echo hello",
@@ -1035,7 +1035,7 @@ steps:
       exit_code: [1, 2]
       interval_sec: 15
 `,
-			wantMode:        core.RepeatModeWhile,
+			wantMode:        ir.RepeatModeWhile,
 			wantInterval:    15 * time.Second,
 			wantExitCode:    []int{1, 2},
 			wantNoCondition: true,
@@ -1051,7 +1051,7 @@ steps:
       exit_code: [0]
       interval_sec: 20
 `,
-			wantMode:        core.RepeatModeUntil,
+			wantMode:        ir.RepeatModeUntil,
 			wantInterval:    20 * time.Second,
 			wantExitCode:    []int{0},
 			wantNoCondition: true,
@@ -1067,7 +1067,7 @@ steps:
       expected: "hello"
       interval_sec: 25
 `,
-			wantMode:      core.RepeatModeUntil,
+			wantMode:      ir.RepeatModeUntil,
 			wantInterval:  25 * time.Second,
 			wantCondition: "echo hello",
 			wantExpected:  "hello",
@@ -1082,7 +1082,7 @@ steps:
       condition: "echo hello"
       interval_sec: 30
 `,
-			wantMode:      core.RepeatModeWhile,
+			wantMode:      ir.RepeatModeWhile,
 			wantInterval:  30 * time.Second,
 			wantCondition: "echo hello",
 			wantExpected:  "",
@@ -1098,7 +1098,7 @@ steps:
       expected: "hello"
       interval_sec: 1
 `,
-			wantMode:      core.RepeatModeUntil,
+			wantMode:      ir.RepeatModeUntil,
 			wantInterval:  1 * time.Second,
 			wantCondition: "echo hello",
 			wantExpected:  "hello",
@@ -1113,7 +1113,7 @@ steps:
       exit_code: [42]
       interval_sec: 2
 `,
-			wantMode:     core.RepeatModeWhile,
+			wantMode:     ir.RepeatModeWhile,
 			wantInterval: 2 * time.Second,
 			wantExitCode: []int{42},
 		},
@@ -1131,7 +1131,7 @@ steps:
       limit: 10
       exit_code: [1]
 `,
-			wantMode:        core.RepeatModeWhile,
+			wantMode:        ir.RepeatModeWhile,
 			wantInterval:    5 * time.Second,
 			wantBackoff:     1.5,
 			wantMaxInterval: 60 * time.Second,
@@ -1153,7 +1153,7 @@ steps:
       condition: "echo done"
       expected: "done"
 `,
-			wantMode:        core.RepeatModeUntil,
+			wantMode:        ir.RepeatModeUntil,
 			wantInterval:    2 * time.Second,
 			wantBackoff:     2.0,
 			wantMaxInterval: 20 * time.Second,
@@ -1357,7 +1357,7 @@ steps:
 		th := DAG{t: t, DAG: dag}
 		assert.Len(t, th.Steps, 1)
 		assert.Len(t, th.Steps[0].Preconditions, 1)
-		assert.Equal(t, &core.Condition{Condition: "test -f file.txt", Expected: "true"}, th.Steps[0].Preconditions[0])
+		assert.Equal(t, &ir.Condition{Condition: "test -f file.txt", Expected: "true"}, th.Steps[0].Preconditions[0])
 	})
 	t.Run("PreconditionEval", func(t *testing.T) {
 		t.Parallel()
@@ -1375,7 +1375,7 @@ steps:
 		th := DAG{t: t, DAG: dag}
 		assert.Len(t, th.Steps, 1)
 		assert.Len(t, th.Steps[0].Preconditions, 1)
-		assert.Equal(t, &core.Condition{Eval: "$(printf ready)", Expected: "ready"}, th.Steps[0].Preconditions[0])
+		assert.Equal(t, &ir.Condition{Eval: "$(printf ready)", Expected: "ready"}, th.Steps[0].Preconditions[0])
 	})
 	t.Run("StepPreconditionsWithNegate", func(t *testing.T) {
 		t.Parallel()
@@ -1394,7 +1394,7 @@ steps:
 		th := DAG{t: t, DAG: dag}
 		assert.Len(t, th.Steps, 1)
 		assert.Len(t, th.Steps[0].Preconditions, 1)
-		assert.Equal(t, &core.Condition{Condition: "${STATUS}", Expected: "success", Negate: true}, th.Steps[0].Preconditions[0])
+		assert.Equal(t, &ir.Condition{Condition: "${STATUS}", Expected: "success", Negate: true}, th.Steps[0].Preconditions[0])
 	})
 }
 
@@ -2392,7 +2392,7 @@ func TestContainer(t *testing.T) {
 		yaml           string
 		wantImage      string
 		wantName       string
-		wantPullPolicy core.PullPolicy
+		wantPullPolicy ir.PullPolicy
 		wantNil        bool
 		wantEnv        []string
 	}{
@@ -2407,7 +2407,7 @@ steps:
     run: python script.py
 `,
 			wantImage:      "python:3.11-slim",
-			wantPullPolicy: core.PullPolicyAlways,
+			wantPullPolicy: ir.PullPolicyAlways,
 		},
 		{
 			name: "ContainerWithName",
@@ -2472,7 +2472,7 @@ steps:
     run: echo test
 `,
 			wantImage:      "alpine",
-			wantPullPolicy: core.PullPolicyMissing,
+			wantPullPolicy: ir.PullPolicyMissing,
 		},
 		{
 			name: "NoContainer",
@@ -2514,14 +2514,14 @@ steps:
 	pullPolicyTests := []struct {
 		name       string
 		pullPolicy string
-		expected   core.PullPolicy
+		expected   ir.PullPolicy
 	}{
-		{"Always", "always", core.PullPolicyAlways},
-		{"Never", "never", core.PullPolicyNever},
-		{"Missing", "missing", core.PullPolicyMissing},
-		{"Fallback", "fallback", core.PullPolicyFallback},
-		{"TrueString", "true", core.PullPolicyAlways},
-		{"FalseString", "false", core.PullPolicyNever},
+		{"Always", "always", ir.PullPolicyAlways},
+		{"Never", "never", ir.PullPolicyNever},
+		{"Missing", "missing", ir.PullPolicyMissing},
+		{"Fallback", "fallback", ir.PullPolicyFallback},
+		{"TrueString", "true", ir.PullPolicyAlways},
+		{"FalseString", "false", ir.PullPolicyNever},
 	}
 
 	for _, tt := range pullPolicyTests {
@@ -2787,7 +2787,7 @@ steps:
 		require.NoError(t, err)
 		require.NotNil(t, dag.Container)
 		assert.Equal(t, "node:18-alpine", dag.Container.Image)
-		assert.Equal(t, core.PullPolicyMissing, dag.Container.PullPolicy)
+		assert.Equal(t, ir.PullPolicyMissing, dag.Container.PullPolicy)
 		assert.Contains(t, dag.Container.Env, "NODE_ENV=production")
 		assert.Contains(t, dag.Container.Env, "API_KEY=secret123")
 		assert.Equal(t, []string{"/data:/data:ro", "/output:/output:rw"}, dag.Container.Volumes)
@@ -4099,7 +4099,7 @@ steps:
 `)
 		dag, err := spec.LoadYAML(context.Background(), data)
 		require.NoError(t, err)
-		assert.Equal(t, core.LogOutputSeparate, dag.LogOutput)
+		assert.Equal(t, ir.LogOutputSeparate, dag.LogOutput)
 	})
 
 	t.Run("DAGLevelMerged", func(t *testing.T) {
@@ -4114,7 +4114,7 @@ steps:
 `)
 		dag, err := spec.LoadYAML(context.Background(), data)
 		require.NoError(t, err)
-		assert.Equal(t, core.LogOutputMerged, dag.LogOutput)
+		assert.Equal(t, ir.LogOutputMerged, dag.LogOutput)
 	})
 
 	t.Run("DAGLevelDefault", func(t *testing.T) {
@@ -4129,11 +4129,11 @@ steps:
 		dag, err := spec.LoadYAML(context.Background(), data)
 		require.NoError(t, err)
 		// Empty at build time - default applied in InitializeDefaults
-		assert.Equal(t, core.LogOutputMode(""), dag.LogOutput)
+		assert.Equal(t, ir.LogOutputMode(""), dag.LogOutput)
 
 		// After InitializeDefaults, should be separate
-		core.InitializeDefaults(dag)
-		assert.Equal(t, core.LogOutputSeparate, dag.LogOutput)
+		ir.InitializeDefaults(dag)
+		assert.Equal(t, ir.LogOutputSeparate, dag.LogOutput)
 	})
 
 	t.Run("StepLevelOverride", func(t *testing.T) {
@@ -4153,13 +4153,13 @@ steps:
 		require.NoError(t, err)
 
 		// DAG level is separate
-		assert.Equal(t, core.LogOutputSeparate, dag.LogOutput)
+		assert.Equal(t, ir.LogOutputSeparate, dag.LogOutput)
 
 		// Step 1 overrides to merged
-		assert.Equal(t, core.LogOutputMerged, dag.Steps[0].LogOutput)
+		assert.Equal(t, ir.LogOutputMerged, dag.Steps[0].LogOutput)
 
 		// Step 2 inherits from DAG (empty means inherit)
-		assert.Equal(t, core.LogOutputMode(""), dag.Steps[1].LogOutput)
+		assert.Equal(t, ir.LogOutputMode(""), dag.Steps[1].LogOutput)
 	})
 
 	t.Run("StepLevelExplicitSeparate", func(t *testing.T) {
@@ -4177,10 +4177,10 @@ steps:
 		require.NoError(t, err)
 
 		// DAG level is merged
-		assert.Equal(t, core.LogOutputMerged, dag.LogOutput)
+		assert.Equal(t, ir.LogOutputMerged, dag.LogOutput)
 
 		// Step 1 explicitly sets separate
-		assert.Equal(t, core.LogOutputSeparate, dag.Steps[0].LogOutput)
+		assert.Equal(t, ir.LogOutputSeparate, dag.Steps[0].LogOutput)
 	})
 
 	t.Run("CaseInsensitive", func(t *testing.T) {
@@ -4197,8 +4197,8 @@ steps:
 		dag, err := spec.LoadYAML(context.Background(), data)
 		require.NoError(t, err)
 
-		assert.Equal(t, core.LogOutputMerged, dag.LogOutput)
-		assert.Equal(t, core.LogOutputSeparate, dag.Steps[0].LogOutput)
+		assert.Equal(t, ir.LogOutputMerged, dag.LogOutput)
+		assert.Equal(t, ir.LogOutputSeparate, dag.Steps[0].LogOutput)
 	})
 
 	t.Run("InvalidValue", func(t *testing.T) {

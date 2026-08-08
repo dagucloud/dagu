@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,8 +32,8 @@ steps:
 	f.startScheduler(30 * time.Second)
 	require.NoError(t, f.start())
 
-	status := f.waitForStatus(core.Succeeded, distrTestProcSuccessTimeout)
-	require.Equal(t, core.Succeeded, status.Status)
+	status := f.waitForStatus(ir.Succeeded, distrTestProcSuccessTimeout)
+	require.Equal(t, ir.Succeeded, status.Status)
 }
 
 func TestExecution_ProcHeartbeat_QueuedDispatch(t *testing.T) {
@@ -52,6 +52,6 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(30 * time.Second)
 
-	status := f.waitForStatus(core.Succeeded, distrTestProcSuccessTimeout)
-	require.Equal(t, core.Succeeded, status.Status)
+	status := f.waitForStatus(ir.Succeeded, distrTestProcSuccessTimeout)
+	require.Equal(t, ir.Succeeded, status.Status)
 }

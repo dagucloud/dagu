@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate/memstore"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 	rootRef := exec.NewDAGRunRef("root", "root-run")
 
 	root, err := store.BeginAttempt(ctx, runstate.BeginAttemptRequest{
-		DAG:   &core.DAG{Name: "root"},
+		DAG:   &ir.DAG{Name: "root"},
 		RunID: rootRef.ID,
 	})
 	require.NoError(t, err)
@@ -32,7 +32,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 		Name:      rootRef.Name,
 		DAGRunID:  rootRef.ID,
 		AttemptID: root.ID(),
-		Status:    core.Running,
+		Status:    ir.Running,
 	}))
 	require.NoError(t, root.RecordOutputs(ctx, &exec.DAGRunOutputs{
 		Outputs: map[string]string{"result": "root-value"},
@@ -43,7 +43,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 	require.NoError(t, err)
 	rootStatus, err := openedRoot.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, core.Running, rootStatus.Status)
+	require.Equal(t, ir.Running, rootStatus.Status)
 	rootOutputs, err := openedRoot.ReadOutputs(ctx)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"result": "root-value"}, rootOutputs.Outputs)
@@ -52,7 +52,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 	require.Equal(t, []exec.LLMMessage{{Role: "assistant", Content: "done"}}, messages)
 
 	child, err := store.BeginAttempt(ctx, runstate.BeginAttemptRequest{
-		DAG:        &core.DAG{Name: "child"},
+		DAG:        &ir.DAG{Name: "child"},
 		RunID:      "child-run",
 		RootDAGRun: rootRef,
 	})
@@ -61,7 +61,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 		Name:      "child",
 		DAGRunID:  "child-run",
 		AttemptID: child.ID(),
-		Status:    core.Succeeded,
+		Status:    ir.Succeeded,
 	}))
 	require.NoError(t, child.RequestCancel(ctx))
 
@@ -69,7 +69,7 @@ func TestStoreRecordsRootAndChildAttempts(t *testing.T) {
 	require.NoError(t, err)
 	childStatus, err := openedChild.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, childStatus.Status)
+	require.Equal(t, ir.Succeeded, childStatus.Status)
 	cancelled, err := openedChild.CancelRequested(ctx)
 	require.NoError(t, err)
 	require.True(t, cancelled)
@@ -80,14 +80,14 @@ func TestStoreRejectsInvalidRunID(t *testing.T) {
 	store := memstore.New()
 
 	_, err := store.BeginAttempt(ctx, runstate.BeginAttemptRequest{
-		DAG:   &core.DAG{Name: "invalid-run-id"},
+		DAG:   &ir.DAG{Name: "invalid-run-id"},
 		RunID: "not valid",
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "dag-run ID")
 
 	_, err = store.BeginAttempt(ctx, runstate.BeginAttemptRequest{
-		DAG:   &core.DAG{Name: "too-long-run-id"},
+		DAG:   &ir.DAG{Name: "too-long-run-id"},
 		RunID: strings.Repeat("a", 65),
 	})
 	require.Error(t, err)

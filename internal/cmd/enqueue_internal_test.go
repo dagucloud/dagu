@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,27 +19,27 @@ import (
 func TestEnqueueDAGRunClosesStatusBeforeQueuePublish(t *testing.T) {
 	f := newEnqueueDAGRunFixture(t, nil)
 
-	require.NoError(t, enqueueDAGRun(f.ctx, f.dag, "run-1", runOptions{triggerType: core.TriggerTypeManual}))
+	require.NoError(t, enqueueDAGRun(f.ctx, f.dag, "run-1", runOptions{triggerType: ir.TriggerTypeManual}))
 	assert.True(t, f.queueStore.enqueued)
 	require.NotNil(t, f.attempt.status)
-	assert.Equal(t, core.Queued, f.attempt.status.Status)
+	assert.Equal(t, ir.Queued, f.attempt.status.Status)
 }
 
 func TestEnqueueDAGRunPublishesQueueWhenCloseFails(t *testing.T) {
 	f := newEnqueueDAGRunFixture(t, errors.New("sync failed"))
 
-	require.NoError(t, enqueueDAGRun(f.ctx, f.dag, "run-1", runOptions{triggerType: core.TriggerTypeManual}))
+	require.NoError(t, enqueueDAGRun(f.ctx, f.dag, "run-1", runOptions{triggerType: ir.TriggerTypeManual}))
 	assert.True(t, f.queueStore.enqueued)
 	assert.True(t, f.attempt.closed, "attempt should be closed even when Close returns an error")
 	require.NotNil(t, f.attempt.status)
-	assert.Equal(t, core.Queued, f.attempt.status.Status)
+	assert.Equal(t, ir.Queued, f.attempt.status.Status)
 }
 
 type enqueueDAGRunFixture struct {
 	attempt    *enqueueTrackingAttempt
 	queueStore *enqueueObservingQueueStore
 	ctx        *Context
-	dag        *core.DAG
+	dag        *ir.DAG
 }
 
 func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture {
@@ -78,7 +78,7 @@ type enqueueTrackingDAGRunStore struct {
 	attempt *enqueueTrackingAttempt
 }
 
-func (s *enqueueTrackingDAGRunStore) CreateAttempt(context.Context, *core.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (s *enqueueTrackingDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	return s.attempt, nil
 }
 
@@ -98,7 +98,7 @@ func (s *enqueueTrackingDAGRunStore) ListStatusesPage(context.Context, ...exec.L
 	return exec.DAGRunStatusPage{}, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, core.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
+func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, exec.DAGRunRef, string, ir.Status, func(*exec.DAGRunStatus) error, ...exec.CompareAndSwapStatusOption) (*exec.DAGRunStatus, bool, error) {
 	return nil, false, nil
 }
 
@@ -124,7 +124,7 @@ func (s *enqueueTrackingDAGRunStore) RemoveDAGRun(context.Context, exec.DAGRunRe
 
 type enqueueTrackingAttempt struct {
 	id       string
-	dag      *core.DAG
+	dag      *ir.DAG
 	open     bool
 	closed   bool
 	closeErr error
@@ -159,11 +159,11 @@ func (a *enqueueTrackingAttempt) ReadStatus(context.Context) (*exec.DAGRunStatus
 	return a.status, nil
 }
 
-func (a *enqueueTrackingAttempt) ReadDAG(context.Context) (*core.DAG, error) {
+func (a *enqueueTrackingAttempt) ReadDAG(context.Context) (*ir.DAG, error) {
 	return a.dag, nil
 }
 
-func (a *enqueueTrackingAttempt) SetDAG(dag *core.DAG) {
+func (a *enqueueTrackingAttempt) SetDAG(dag *ir.DAG) {
 	a.dag = dag
 }
 
@@ -212,7 +212,7 @@ func (s *enqueueObservingQueueStore) Enqueue(context.Context, string, exec.Queue
 	if !s.attempt.closed {
 		return errors.New("status attempt was not closed before queue enqueue")
 	}
-	if s.attempt.status == nil || s.attempt.status.Status != core.Queued {
+	if s.attempt.status == nil || s.attempt.status.Status != ir.Queued {
 		return errors.New("queued status was not written before queue enqueue")
 	}
 	s.enqueued = true

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/tools"
 )
 
@@ -77,7 +77,7 @@ func (i *Installer) resolveStandardRegistryRef(ctx context.Context, opts tools.I
 	logger.Info(ctx, "Using the bootstrap aqua registry ref; latest release resolution failed",
 		slog.Any("err", err))
 	return resolvedRegistryRef{
-		latestRegistryRef{SHA: core.DefaultAquaStandardRegistryRef},
+		latestRegistryRef{SHA: ir.DefaultAquaStandardRegistryRef},
 		registryRefSourceBootstrap,
 	}
 }

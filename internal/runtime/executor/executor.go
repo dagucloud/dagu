@@ -13,8 +13,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // CloseExecutor safely closes an executor if it implements io.Closer.
@@ -45,10 +45,10 @@ type Stopper interface {
 }
 
 // ExecutorFactory is a function type that creates an Executor based on the step configuration.
-type ExecutorFactory func(ctx context.Context, step core.Step) (Executor, error)
+type ExecutorFactory func(ctx context.Context, step ir.Step) (Executor, error)
 
 // NewExecutor creates a new Executor based on the step's executor type.
-func NewExecutor(ctx context.Context, step core.Step) (Executor, error) {
+func NewExecutor(ctx context.Context, step ir.Step) (Executor, error) {
 	executorRegistryMu.RLock()
 	factory, ok := executorRegistry[step.ExecutorConfig.Type]
 	executorRegistryMu.RUnlock()
@@ -64,14 +64,14 @@ func NewExecutor(ctx context.Context, step core.Step) (Executor, error) {
 }
 
 // RegisterExecutor registers a new executor type with its factory, validator, and capabilities.
-func RegisterExecutor(executorType string, factory ExecutorFactory, validator core.StepValidator, caps core.ExecutorCapabilities) {
+func RegisterExecutor(executorType string, factory ExecutorFactory, validator ir.StepValidator, caps ir.ExecutorCapabilities) {
 	executorRegistryMu.Lock()
 	executorRegistry[executorType] = factory
 	executorRegistryMu.Unlock()
 	if validator != nil {
-		core.RegisterStepValidator(executorType, validator)
+		ir.RegisterStepValidator(executorType, validator)
 	}
-	core.RegisterExecutorCapabilities(executorType, caps)
+	ir.RegisterExecutorCapabilities(executorType, caps)
 }
 
 // UnregisterExecutor removes a registered executor type.
@@ -92,7 +92,7 @@ type ExitCoder interface {
 
 // NodeStatusDeterminer is an interface for reporting the status of a node execution.
 type NodeStatusDeterminer interface {
-	DetermineNodeStatus() (core.NodeStatus, error)
+	DetermineNodeStatus() (ir.NodeStatus, error)
 }
 
 // DAGExecutor is an interface for sub DAG executors.

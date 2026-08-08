@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -122,7 +122,7 @@ steps:
 
 	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, &status, "RESULT"))
 }
 
@@ -168,7 +168,7 @@ steps:
 
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag)
 		require.NoError(t, err)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.Equal(t, "KEY=value", status.Params)
 	})
 }
@@ -237,7 +237,7 @@ steps:
 
 		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag)
 		require.NoError(t, err)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 		require.Contains(t, status.Params, "KEY=value")
 	})
 
@@ -276,7 +276,7 @@ steps:
 		ctx := context.Background()
 		originalStatus, err := th.DAGRunMgr.GetLatestStatus(ctx, dag.DAG)
 		require.NoError(t, err)
-		require.Equal(t, core.Succeeded, originalStatus.Status)
+		require.Equal(t, ir.Succeeded, originalStatus.Status)
 
 		newRunID := "rescheduled_run"
 		th.RunCommand(t, cmd.Start(), test.CmdTest{
@@ -290,7 +290,7 @@ steps:
 
 		require.Eventually(t, func() bool {
 			status, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, newRunID)
-			return err == nil && status != nil && status.Status == core.Succeeded
+			return err == nil && status != nil && status.Status == ir.Succeeded
 		}, 5*time.Second, 100*time.Millisecond)
 
 		newStatus, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, newRunID)
@@ -332,7 +332,7 @@ steps:
 
 	latestStatus, err := latestAttempt.ReadStatus(th.Context)
 	require.NoError(t, err)
-	require.Equal(t, core.NotStarted, latestStatus.Status)
+	require.Equal(t, ir.NotStarted, latestStatus.Status)
 	require.Empty(t, latestStatus.Error)
 }
 

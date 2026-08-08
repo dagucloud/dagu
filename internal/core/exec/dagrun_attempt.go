@@ -6,7 +6,7 @@ package exec
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -35,9 +35,9 @@ type DAGRunAttempt interface {
 	// ReadStatus retrieves the current status of the attempt
 	ReadStatus(ctx context.Context) (*DAGRunStatus, error)
 	// ReadDAG reads the DAG associated with this run attempt
-	ReadDAG(ctx context.Context) (*core.DAG, error)
+	ReadDAG(ctx context.Context) (*ir.DAG, error)
 	// SetDAG sets the DAG for this attempt (must be called before Open for DAG to be persisted)
-	SetDAG(dag *core.DAG)
+	SetDAG(dag *ir.DAG)
 	// Abort requests aborting the attempt
 	Abort(ctx context.Context) error
 	// IsAborting checks if an abort has been requested for the attempt
@@ -103,15 +103,15 @@ func (m *MockDAGRunAttempt) ReadStatus(ctx context.Context) (*DAGRunStatus, erro
 	return args.Get(0).(*DAGRunStatus), args.Error(1)
 }
 
-func (m *MockDAGRunAttempt) ReadDAG(ctx context.Context) (*core.DAG, error) {
+func (m *MockDAGRunAttempt) ReadDAG(ctx context.Context) (*ir.DAG, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*core.DAG), args.Error(1)
+	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-func (m *MockDAGRunAttempt) SetDAG(dag *core.DAG) {
+func (m *MockDAGRunAttempt) SetDAG(dag *ir.DAG) {
 	m.Called(dag)
 }
 

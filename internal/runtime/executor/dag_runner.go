@@ -16,8 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
@@ -33,7 +33,7 @@ var (
 type SubDAGExecutor struct {
 	// DAG is the sub DAG to execute.
 	// For local DAGs, this DAG's Location will be set to a temporary file.
-	DAG *core.DAG
+	DAG *ir.DAG
 
 	// tempFile holds the temporary file path for local DAGs.
 	// This will be cleaned up after execution.
@@ -113,7 +113,7 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 }
 
 // NewSubDAGExecutorForDAG creates a SubDAGExecutor for an already-loaded DAG.
-func NewSubDAGExecutorForDAG(ctx context.Context, dag *core.DAG) (*SubDAGExecutor, error) {
+func NewSubDAGExecutorForDAG(ctx context.Context, dag *ir.DAG) (*SubDAGExecutor, error) {
 	if dag == nil {
 		return nil, fmt.Errorf("sub DAG is required")
 	}
@@ -121,7 +121,7 @@ func NewSubDAGExecutorForDAG(ctx context.Context, dag *core.DAG) (*SubDAGExecuto
 	return newSubDAGExecutor(ctx, rCtx, dag, ""), nil
 }
 
-func newSubDAGExecutor(ctx context.Context, rCtx exec.Context, dag *core.DAG, tempFile string) *SubDAGExecutor {
+func newSubDAGExecutor(ctx context.Context, rCtx exec.Context, dag *ir.DAG, tempFile string) *SubDAGExecutor {
 	subWorkflowRunner, _ := SubWorkflowRunnerFromContext(ctx)
 	return &SubDAGExecutor{
 		DAG:               dag,

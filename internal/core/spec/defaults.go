@@ -6,8 +6,8 @@ package spec
 import (
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -38,10 +38,10 @@ func decodeDefaults(raw any) (*defaults, error) {
 		DecodeHook:  typedUnionDecodeHook(),
 	})
 	if err != nil {
-		return nil, core.NewValidationError("defaults", raw, err)
+		return nil, ir.NewValidationError("defaults", raw, err)
 	}
 	if err := decoder.Decode(raw); err != nil {
-		return nil, core.NewValidationError("defaults", raw, withSnakeCaseKeyHint(err))
+		return nil, ir.NewValidationError("defaults", raw, withSnakeCaseKeyHint(err))
 	}
 	return d, nil
 }

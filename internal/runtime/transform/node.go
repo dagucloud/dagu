@@ -7,8 +7,8 @@ import (
 	"errors"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
@@ -19,7 +19,7 @@ func ToNode(n *exec.Node) *runtime.Node {
 
 // ToNodeWithStep converts a persistence Node back to a runtime Node using the
 // supplied step definition.
-func ToNodeWithStep(n *exec.Node, step core.Step) *runtime.Node {
+func ToNodeWithStep(n *exec.Node, step ir.Step) *runtime.Node {
 	startedAt, _ := stringutil.ParseTime(n.StartedAt)
 	finishedAt, _ := stringutil.ParseTime(n.FinishedAt)
 	retriedAt, _ := stringutil.ParseTime(n.RetriedAt)

@@ -6,8 +6,8 @@ package dag
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 )
@@ -28,12 +28,12 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				{RunID: "run-b", DAGName: "bnsu/_intraday.yaml", Params: "SUBDAG=bnsu/_intraday.yaml RUN_MODE=test"},
 			},
 			results: map[string]*exec1.RunStatus{
-				"run-a": {Name: "intraday-bnci", DAGRunID: "run-a", Status: core.Failed},
-				"run-b": {Name: "intraday-bnsu", DAGRunID: "run-b", Status: core.Succeeded},
+				"run-a": {Name: "intraday-bnci", DAGRunID: "run-a", Status: ir.Failed},
+				"run-b": {Name: "intraday-bnsu", DAGRunID: "run-b", Status: ir.Succeeded},
 			},
 			want: []exec1.NodeStatusDetail{
-				{Label: "intraday-bnci", Status: core.NodeFailed},
-				{Label: "intraday-bnsu", Status: core.NodeSucceeded},
+				{Label: "intraday-bnci", Status: ir.NodeFailed},
+				{Label: "intraday-bnsu", Status: ir.NodeSucceeded},
 			},
 		},
 		{
@@ -43,12 +43,12 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				{RunID: "run-b", DAGName: "intraday", Params: "CUSTOMER=b"},
 			},
 			results: map[string]*exec1.RunStatus{
-				"run-a": {Name: "intraday-a", DAGRunID: "run-a", Status: core.Failed},
-				"run-b": {Name: "intraday-b", DAGRunID: "run-b", Status: core.Succeeded},
+				"run-a": {Name: "intraday-a", DAGRunID: "run-a", Status: ir.Failed},
+				"run-b": {Name: "intraday-b", DAGRunID: "run-b", Status: ir.Succeeded},
 			},
 			want: []exec1.NodeStatusDetail{
-				{Label: "intraday-a", Status: core.NodeFailed},
-				{Label: "intraday-b", Status: core.NodeSucceeded},
+				{Label: "intraday-a", Status: ir.NodeFailed},
+				{Label: "intraday-b", Status: ir.NodeSucceeded},
 			},
 		},
 		{
@@ -58,12 +58,12 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				{RunID: "run-b", DAGName: "child", Params: "CUSTOMER=b"},
 			},
 			results: map[string]*exec1.RunStatus{
-				"run-a": {Name: "child", DAGRunID: "run-a", Params: "CUSTOMER=a", Status: core.Failed},
-				"run-b": {Name: "child", DAGRunID: "run-b", Params: "CUSTOMER=b", Status: core.Succeeded},
+				"run-a": {Name: "child", DAGRunID: "run-a", Params: "CUSTOMER=a", Status: ir.Failed},
+				"run-b": {Name: "child", DAGRunID: "run-b", Params: "CUSTOMER=b", Status: ir.Succeeded},
 			},
 			want: []exec1.NodeStatusDetail{
-				{Label: "child (CUSTOMER=a)", Status: core.NodeFailed},
-				{Label: "child (CUSTOMER=b)", Status: core.NodeSucceeded},
+				{Label: "child (CUSTOMER=a)", Status: ir.NodeFailed},
+				{Label: "child (CUSTOMER=b)", Status: ir.NodeSucceeded},
 			},
 		},
 		{
@@ -73,8 +73,8 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				{RunID: "run-b"},
 			},
 			want: []exec1.NodeStatusDetail{
-				{Label: "CUSTOMER=a", Status: core.NodeFailed},
-				{Label: "run-b", Status: core.NodeFailed},
+				{Label: "CUSTOMER=a", Status: ir.NodeFailed},
+				{Label: "run-b", Status: ir.NodeFailed},
 			},
 		},
 	}

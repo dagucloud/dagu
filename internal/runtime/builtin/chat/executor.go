@@ -17,8 +17,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 
 	// Import all providers to register them
@@ -37,7 +37,7 @@ var _ executor.ToolDefinitionProvider = (*Executor)(nil)
 type Executor struct {
 	stdout            io.Writer
 	stderr            io.Writer
-	step              core.Step
+	step              ir.Step
 	providerType      llmpkg.ProviderType
 	apiKeyEnvVar      string
 	messages          []exec.LLMMessage
@@ -58,7 +58,7 @@ type Executor struct {
 }
 
 // newChatExecutor creates a new chat executor from a step configuration.
-func newChatExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if step.LLM == nil {
 		return nil, fmt.Errorf("llm configuration is required for chat step")
 	}
@@ -93,14 +93,14 @@ func newChatExecutor(ctx context.Context, step core.Step) (executor.Executor, er
 		apiKeyEnvVar = llmpkg.DefaultAPIKeyEnvVar(providerType)
 	}
 
-	// Convert messages from core.LLMMessage to execution.LLMMessage
+	// Convert messages from ir.LLMMessage to execution.LLMMessage
 	// Messages are now at step level, not inside LLM config
 	messages := make([]exec.LLMMessage, 0, len(step.Messages)+1)
 
 	// Add system message from config if specified
 	if cfg.System != "" {
 		messages = append(messages, exec.LLMMessage{
-			Role:    core.LLMRoleSystem,
+			Role:    ir.LLMRoleSystem,
 			Content: cfg.System,
 		})
 	}
@@ -230,7 +230,7 @@ func systemMessages(messages []exec.LLMMessage) []exec.LLMMessage {
 	return result
 }
 
-func formatPushBackFeedback(inputs map[string]string, iteration int, approval *core.ApprovalConfig) string {
+func formatPushBackFeedback(inputs map[string]string, iteration int, approval *ir.ApprovalConfig) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "The reviewer has requested changes to your previous work for push-back iteration %d.\n", iteration)
 
@@ -290,8 +290,8 @@ func toLLMMessages(msgs []exec.LLMMessage) []llmpkg.Message {
 	return result
 }
 
-// toThinkingRequest converts core.ThinkingConfig to llmpkg.ThinkingRequest.
-func toThinkingRequest(cfg *core.ThinkingConfig) *llmpkg.ThinkingRequest {
+// toThinkingRequest converts ir.ThinkingConfig to llmpkg.ThinkingRequest.
+func toThinkingRequest(cfg *ir.ThinkingConfig) *llmpkg.ThinkingRequest {
 	if cfg == nil {
 		return nil
 	}
@@ -303,8 +303,8 @@ func toThinkingRequest(cfg *core.ThinkingConfig) *llmpkg.ThinkingRequest {
 	}
 }
 
-// toWebSearchRequest converts core.WebSearchConfig to llmpkg.WebSearchRequest.
-func toWebSearchRequest(cfg *core.WebSearchConfig) *llmpkg.WebSearchRequest {
+// toWebSearchRequest converts ir.WebSearchConfig to llmpkg.WebSearchRequest.
+func toWebSearchRequest(cfg *ir.WebSearchConfig) *llmpkg.WebSearchRequest {
 	if cfg == nil || !cfg.Enabled {
 		return nil
 	}
@@ -401,7 +401,7 @@ func (e *Executor) Run(ctx context.Context) error {
 }
 
 // runWithModel executes a chat request with a specific model.
-func (e *Executor) runWithModel(ctx context.Context, model core.ModelEntry, allMessages []exec.LLMMessage) error {
+func (e *Executor) runWithModel(ctx context.Context, model ir.ModelEntry, allMessages []exec.LLMMessage) error {
 	// Build effective config for this model
 	effectiveCfg := e.buildEffectiveConfig(model)
 
@@ -426,17 +426,17 @@ func (e *Executor) runWithModel(ctx context.Context, model core.ModelEntry, allM
 }
 
 // buildEffectiveConfig merges model-specific overrides with shared config.
-func (e *Executor) buildEffectiveConfig(model core.ModelEntry) *core.LLMConfig {
+func (e *Executor) buildEffectiveConfig(model ir.ModelEntry) *ir.LLMConfig {
 	return runtime.EffectiveLLMConfig(e.step.LLM, model)
 }
 
 // createProviderForModel creates an LLM provider for a specific model.
-func (e *Executor) createProviderForModel(ctx context.Context, _ core.ModelEntry, cfg *core.LLMConfig) (llmpkg.Provider, error) {
+func (e *Executor) createProviderForModel(ctx context.Context, _ ir.ModelEntry, cfg *ir.LLMConfig) (llmpkg.Provider, error) {
 	return runtime.NewLLMProvider(ctx, cfg)
 }
 
 // runSimpleForModel executes a chat request without tool calling, using the given config.
-func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provider, allMessages []exec.LLMMessage, cfg *core.LLMConfig) error {
+func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provider, allMessages []exec.LLMMessage, cfg *ir.LLMConfig) error {
 	maskedForProvider := maskSecretsForProvider(ctx, allMessages)
 
 	req := &llmpkg.ChatRequest{
@@ -498,7 +498,7 @@ func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provid
 // 2. If LLM requests tool calls, execute them
 // 3. Add tool results to session
 // 4. Repeat until LLM provides final response (no more tool calls) or max iterations
-func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Provider, allMessages []exec.LLMMessage, cfg *core.LLMConfig) error {
+func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Provider, allMessages []exec.LLMMessage, cfg *ir.LLMConfig) error {
 	maxIterations := cfg.GetMaxToolIterations()
 	workDir := runtime.GetEnv(ctx).WorkingDir
 
@@ -549,7 +549,7 @@ func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Pro
 func (e *Executor) executeToolStep(
 	ctx context.Context,
 	provider llmpkg.Provider,
-	cfg *core.LLMConfig,
+	cfg *ir.LLMConfig,
 	tools []llmpkg.Tool,
 	msgs []exec.LLMMessage,
 	iteration int,
@@ -677,7 +677,7 @@ func (e *Executor) handleFinalResponse(
 	ctx context.Context,
 	msgs []exec.LLMMessage,
 	resp *llmpkg.ChatResponse,
-	cfg *core.LLMConfig,
+	cfg *ir.LLMConfig,
 	iteration int,
 ) {
 	logger.Info(ctx, "LLM provided final response (no tool calls)",
@@ -785,7 +785,7 @@ func (e *Executor) handleMaxIterationsReached(
 }
 
 // createResponseMetadata builds metadata for the assistant response.
-func (e *Executor) createResponseMetadata(cfg *core.LLMConfig, usage *llmpkg.Usage) *exec.LLMMessageMetadata {
+func (e *Executor) createResponseMetadata(cfg *ir.LLMConfig, usage *llmpkg.Usage) *exec.LLMMessageMetadata {
 	metadata := &exec.LLMMessageMetadata{
 		Provider: cfg.Provider,
 		Model:    cfg.Model,
@@ -799,7 +799,7 @@ func (e *Executor) createResponseMetadata(cfg *core.LLMConfig, usage *llmpkg.Usa
 }
 
 func init() {
-	executor.RegisterExecutor(core.ExecutorTypeChat, newChatExecutor, nil, core.ExecutorCapabilities{
+	executor.RegisterExecutor(ir.ExecutorTypeChat, newChatExecutor, nil, ir.ExecutorCapabilities{
 		LLM: true,
 		// All others false - chat doesn't support command, script, shell, container, subdag
 	})

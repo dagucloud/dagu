@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -25,7 +25,7 @@ const (
 )
 
 // InitialStatus creates an initial Status object for the given DAG
-func InitialStatus(dag *core.DAG) DAGRunStatus {
+func InitialStatus(dag *ir.DAG) DAGRunStatus {
 	var (
 		autoRetryLimit       int
 		autoRetryInterval    time.Duration
@@ -47,7 +47,7 @@ func InitialStatus(dag *core.DAG) DAGRunStatus {
 
 	return DAGRunStatus{
 		Name:                 dag.Name,
-		Status:               core.NotStarted,
+		Status:               ir.NotStarted,
 		PID:                  PID(0),
 		Nodes:                NewNodesFromSteps(dag.Steps),
 		OnInit:               newNodeOrNil(dag.HandlerOn.Init),
@@ -163,9 +163,9 @@ type DAGRunStatus struct {
 	AttemptID      string            `json:"attemptId"`
 	AttemptKey     string            `json:"attemptKey,omitempty"` // Globally unique attempt identifier
 	ClaimKey       string            `json:"claimKey,omitempty"`   // Worker claim that executes this attempt
-	Status         core.Status       `json:"status"`
+	Status         ir.Status         `json:"status"`
 	Conditions     []DAGRunCondition `json:"conditions,omitempty"`
-	TriggerType    core.TriggerType  `json:"triggerType,omitempty"`
+	TriggerType    ir.TriggerType    `json:"triggerType,omitempty"`
 	TriggerActor   string            `json:"triggerActor,omitempty"`
 	WorkerID       string            `json:"workerId,omitempty"`
 	PID            PID               `json:"pid,omitempty"`
@@ -202,7 +202,7 @@ type DAGRunStatus struct {
 	ProfileEntries       []RuntimeProfileEntry `json:"profileEntries,omitempty"`
 	NoReuse              bool                  `json:"noReuse,omitempty"`
 	PendingStepRetries   []PendingStepRetry    `json:"pendingStepRetries"`
-	Preconditions        []*core.Condition     `json:"preconditions,omitempty"`
+	Preconditions        []*ir.Condition       `json:"preconditions,omitempty"`
 	Labels               []string              `json:"labels,omitempty"`
 	LeaseAt              int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
 }
@@ -235,7 +235,7 @@ func NormalizeDAGRunConditions(status *DAGRunStatus) {
 	if status == nil {
 		return
 	}
-	if status.Status == core.Queued {
+	if status.Status == ir.Queued {
 		if len(status.Conditions) > 0 {
 			status.Conditions = MergeDAGRunConditions(nil, status.Conditions...)
 		}
@@ -435,11 +435,11 @@ func normalizeAbortHandlerNode(node *Node) {
 }
 
 func pendingStepRetryForNode(stepName string, node *Node) (PendingStepRetry, bool) {
-	if node == nil || node.Status != core.NodeRetrying || stepName == "" {
+	if node == nil || node.Status != ir.NodeRetrying || stepName == "" {
 		return PendingStepRetry{}, false
 	}
 
-	interval := core.CalculateBackoffInterval(
+	interval := ir.CalculateBackoffInterval(
 		node.Step.RetryPolicy.Interval,
 		node.Step.RetryPolicy.Backoff,
 		node.Step.RetryPolicy.MaxInterval,

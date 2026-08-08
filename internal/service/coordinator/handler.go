@@ -22,10 +22,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -564,7 +564,7 @@ func (h *Handler) releaseAdmissionToken(ctx context.Context, token string) {
 
 func (h *Handler) finalizeAdmissionForStatus(ctx context.Context, status *exec.DAGRunStatus, attemptID string) {
 	if h.dispatchAdmissionStore == nil || status == nil ||
-		(status.Status != core.Waiting && !isTerminalRunStatus(status.Status)) {
+		(status.Status != ir.Waiting && !isTerminalRunStatus(status.Status)) {
 		return
 	}
 	attemptKey := exec.AttemptKeyForStatus(status, attemptID)
@@ -602,7 +602,7 @@ func queueDispatchStatusForTask(task *coordinatorv1.Task) (*exec.DAGRunStatus, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode previous task status: %w", err)
 	}
-	if status == nil || status.Status != core.Queued {
+	if status == nil || status.Status != ir.Queued {
 		return nil, nil
 	}
 	return status, nil
@@ -661,7 +661,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		if existingAttempt.ID() != queueDispatchStatus.AttemptID {
 			return nil, staleQueueDispatchError("queued attempt was superseded")
 		}
-		if existingStatus == nil || existingStatus.Status != core.Queued {
+		if existingStatus == nil || existingStatus.Status != ir.Queued {
 			statusLabel := "unknown"
 			if existingStatus != nil {
 				statusLabel = existingStatus.Status.String()
@@ -671,7 +671,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	}
 	if findErr == nil {
 		existingStatus, readErr := existingAttempt.ReadStatus(ctx)
-		if readErr == nil && existingStatus != nil && existingStatus.Status == core.Queued {
+		if readErr == nil && existingStatus != nil && existingStatus.Status == ir.Queued {
 			task.AttemptId = existingAttempt.ID()
 			task.AttemptKey = generateRootAttemptKey(task)
 
@@ -823,7 +823,7 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt exec.DAGRunAtt
 		DAGRunID:     task.DagRunId,
 		AttemptID:    attempt.ID(),
 		AttemptKey:   task.AttemptKey,
-		Status:       core.NotStarted,
+		Status:       ir.NotStarted,
 		StartedAt:    time.Now().UTC().Format(time.RFC3339),
 		Root:         root,
 		Labels:       labels,
@@ -833,7 +833,7 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt exec.DAGRunAtt
 	return attempt.Write(ctx, initialStatus)
 }
 
-func labelsForInitialStatus(task *coordinatorv1.Task, dag *core.DAG) []string {
+func labelsForInitialStatus(task *coordinatorv1.Task, dag *ir.DAG) []string {
 	if task != nil {
 		labels := splitTaskLabels(task.Labels)
 		if len(labels) > 0 {
@@ -970,11 +970,11 @@ func (h *Handler) markPreparedAttemptDispatchFailed(ctx context.Context, task *c
 	if runStatus == nil {
 		return
 	}
-	if runStatus.Status != core.NotStarted && runStatus.Status != core.Queued {
+	if runStatus.Status != ir.NotStarted && runStatus.Status != ir.Queued {
 		return
 	}
 
-	runStatus.Status = core.Failed
+	runStatus.Status = ir.Failed
 	runStatus.FinishedAt = stringutil.FormatTime(time.Now())
 	runStatus.Error = fmt.Sprintf("failed to hand off distributed task to a worker: %v", dispatchErr)
 	if err := prepared.attempt.Write(storeCtx, *runStatus); err != nil {
@@ -1260,7 +1260,7 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 		repairCtx,
 		lease.DAGRun,
 		lease.AttemptID,
-		core.Failed,
+		ir.Failed,
 		func(status *exec.DAGRunStatus) error {
 			if !h.canRepairStaleLeaseFailureFromRunHeartbeat(workerID, task, lease, status, reason, observedAt) {
 				return errRunHeartbeatRepairSkipped
@@ -1305,7 +1305,7 @@ func (h *Handler) canRepairStaleLeaseFailureFromRunHeartbeat(
 	if workerID == "" || task == nil || lease == nil || status == nil {
 		return false
 	}
-	if status.Status != core.Failed || status.Error != reason {
+	if status.Status != ir.Failed || status.Error != reason {
 		return false
 	}
 	if task.AttemptKey == "" || lease.AttemptKey != task.AttemptKey {
@@ -1324,21 +1324,21 @@ func (h *Handler) canRepairStaleLeaseFailureFromRunHeartbeat(
 }
 
 func restoreStaleLeaseFailure(status *exec.DAGRunStatus, lease *exec.DAGRunLease, workerID, reason string) {
-	status.Status = core.Running
+	status.Status = ir.Running
 	status.Error = ""
 	status.FinishedAt = ""
 	status.WorkerID = workerID
 	status.AttemptID = lease.AttemptID
 	status.AttemptKey = lease.AttemptKey
 	for _, node := range status.Nodes {
-		if node == nil || node.Status != core.NodeFailed || node.Error != reason {
+		if node == nil || node.Status != ir.NodeFailed || node.Error != reason {
 			continue
 		}
 		if node.StartedAt != "" && node.StartedAt != "-" {
-			node.Status = core.NodeRunning
+			node.Status = ir.NodeRunning
 			node.FinishedAt = ""
 		} else {
-			node.Status = core.NodeNotStarted
+			node.Status = ir.NodeNotStarted
 			node.StartedAt = "-"
 			node.FinishedAt = "-"
 		}
@@ -1404,7 +1404,7 @@ func (h *Handler) refreshLeaseForRunningTask(ctx context.Context, workerID strin
 		return
 	}
 
-	if runStatus.Status != core.Running || runStatus.WorkerID == "" {
+	if runStatus.Status != ir.Running || runStatus.WorkerID == "" {
 		return
 	}
 	if runStatus.WorkerID != workerID {
@@ -1677,7 +1677,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	}
 
 	attempt := latestAttempt
-	if dagRunStatus.Status == core.Waiting {
+	if dagRunStatus.Status == ir.Waiting {
 		h.closeCachedAttemptForRun(ctx, context.WithoutCancel(ctx), dagRunStatus.DAGRunID, latestAttempt.ID())
 		persisted, swapped, err := h.dagRunStore.CompareAndSwapLatestAttemptStatus(
 			ctx,
@@ -1792,7 +1792,7 @@ func preservesCompletedManualActions(current, incoming *exec.DAGRunStatus) bool 
 	return true
 }
 
-func manualActionNodeKey(step core.Step) string {
+func manualActionNodeKey(step ir.Step) string {
 	if step.ID != "" {
 		return "id:" + step.ID
 	}
@@ -1811,7 +1811,7 @@ func (h *Handler) closeCachedWaitingAttempt(
 	status *exec.DAGRunStatus,
 	attempt exec.DAGRunAttempt,
 ) {
-	if status == nil || attempt == nil || status.Status != core.Waiting {
+	if status == nil || attempt == nil || status.Status != ir.Waiting {
 		return
 	}
 	h.closeCachedAttemptForRun(ctx, context.WithoutCancel(ctx), status.DAGRunID, attempt.ID())
@@ -1863,7 +1863,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 	if err != nil {
 		return nil, false, fmt.Errorf("create sub-attempt: %w", err)
 	}
-	attempt.SetDAG(&core.DAG{Name: runStatus.Name, SourceFile: sourceFile})
+	attempt.SetDAG(&ir.DAG{Name: runStatus.Name, SourceFile: sourceFile})
 	if err := attempt.Open(ctx); err != nil {
 		return nil, false, fmt.Errorf("open sub-attempt: %w", err)
 	}
@@ -1919,7 +1919,7 @@ func (h *Handler) sameAttemptCancellationRequested(
 	if attempt == nil || latest == nil || incoming == nil {
 		return false
 	}
-	if latest.Status != core.Failed || incoming.Status != core.Aborted || !sameAttemptStatus(latest, incoming) {
+	if latest.Status != ir.Failed || incoming.Status != ir.Aborted || !sameAttemptStatus(latest, incoming) {
 		return false
 	}
 	aborting, err := attempt.IsAborting(ctx)
@@ -2415,7 +2415,7 @@ func (h *Handler) detectStaleLeases(ctx context.Context) {
 		return
 	}
 	if h.dagRunLeaseStore == nil {
-		activeStatuses := []core.Status{core.Running}
+		activeStatuses := []ir.Status{ir.Running}
 		statuses, err := h.dagRunStore.ListStatuses(ctx,
 			exec.WithStatuses(activeStatuses),
 			exec.WithoutLimit(),
@@ -2516,12 +2516,12 @@ func (h *Handler) reconcileLease(ctx context.Context, lease exec.DAGRunLease, no
 	}
 
 	switch runStatus.Status {
-	case core.Running, core.NotStarted, core.Queued:
+	case ir.Running, ir.NotStarted, ir.Queued:
 		if lease.MatchesClaim(runStatus.EffectiveClaimKey(), workerID) && lease.IsFresh(now, h.staleLeaseThreshold) {
 			ownership.upsertActiveFromStatus(ctx, runStatus, workerID, attemptID)
 			return
 		}
-	case core.Failed, core.Aborted, core.Succeeded, core.PartiallySucceeded, core.Waiting, core.Rejected:
+	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Waiting, ir.Rejected:
 		ownership.deleteTracking(ctx, context.WithoutCancel(ctx), lease.DAGRun, lease.AttemptKey,
 			"Failed to delete inactive distributed lease",
 			"Failed to delete inactive active distributed run",
@@ -2565,7 +2565,7 @@ func (h *Handler) reconcileLease(ctx context.Context, lease exec.DAGRunLease, no
 	if reconciledStatus == nil {
 		return
 	}
-	if reconciledStatus.AttemptID != attemptID || (!reconciledStatus.Status.IsActive() && reconciledStatus.Status != core.NotStarted) {
+	if reconciledStatus.AttemptID != attemptID || (!reconciledStatus.Status.IsActive() && reconciledStatus.Status != ir.NotStarted) {
 		ownership.deleteTracking(ctx, context.WithoutCancel(ctx), lease.DAGRun, lease.AttemptKey,
 			"Failed to delete superseded distributed lease after reconciliation",
 			"Failed to delete superseded active distributed run after reconciliation",
@@ -2608,7 +2608,7 @@ func (h *Handler) repairStaleRun(
 func (h *Handler) reconcileRemoteStatuses(ctx context.Context, now time.Time) {
 	ownership := h.attemptOwnership()
 	statuses, err := h.dagRunStore.ListStatuses(ctx,
-		exec.WithStatuses([]core.Status{core.Running, core.NotStarted}),
+		exec.WithStatuses([]ir.Status{ir.Running, ir.NotStarted}),
 		exec.WithoutLimit(),
 	)
 	if err != nil {
@@ -2656,7 +2656,7 @@ func (h *Handler) reconcileRemoteStatuses(ctx context.Context, now time.Time) {
 		if reconciledStatus == nil {
 			continue
 		}
-		if reconciledStatus.AttemptID != leaseState.attemptID || (!reconciledStatus.Status.IsActive() && reconciledStatus.Status != core.NotStarted) {
+		if reconciledStatus.AttemptID != leaseState.attemptID || (!reconciledStatus.Status.IsActive() && reconciledStatus.Status != ir.NotStarted) {
 			ownership.deleteTracking(ctx, context.WithoutCancel(ctx), status.DAGRun(), leaseState.attemptKey,
 				"Failed to delete superseded orphaned distributed lease after reconciliation",
 				"Failed to delete superseded orphaned active distributed run after reconciliation",
@@ -2760,7 +2760,7 @@ func (h *Handler) reconcileActiveRuns(ctx context.Context, now time.Time) {
 		if reconciledStatus == nil {
 			continue
 		}
-		if reconciledStatus.AttemptID != record.AttemptID || (!reconciledStatus.Status.IsActive() && reconciledStatus.Status != core.NotStarted) {
+		if reconciledStatus.AttemptID != record.AttemptID || (!reconciledStatus.Status.IsActive() && reconciledStatus.Status != ir.NotStarted) {
 			ownership.deleteTracking(ctx, context.WithoutCancel(ctx), record.DAGRun, record.AttemptKey,
 				"Failed to delete superseded indexed distributed lease after reconciliation",
 				"Failed to delete superseded indexed active distributed run after reconciliation",
@@ -2875,7 +2875,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 	attemptID string,
 	attemptKey string,
 	reason string,
-	expectedStatuses ...core.Status,
+	expectedStatuses ...ir.Status,
 ) {
 	storeCtx := context.WithoutCancel(ctx)
 	runMu := h.getRunMutex(dagRun.ID)
@@ -2895,7 +2895,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 	mutate := func(status *exec.DAGRunStatus) error {
 		finishedAt := time.Now()
 		finishedAtStr := stringutil.FormatTime(finishedAt)
-		status.Status = core.Failed
+		status.Status = ir.Failed
 		status.FinishedAt = finishedAtStr
 		status.Error = reason
 		for i, node := range status.Nodes {
@@ -2903,11 +2903,11 @@ func (h *Handler) failCurrentRemoteAttempt(
 				continue
 			}
 			switch node.Status {
-			case core.NodeRunning, core.NodeNotStarted, core.NodeRetrying, core.NodeWaiting:
-				status.Nodes[i].Status = core.NodeFailed
+			case ir.NodeRunning, ir.NodeNotStarted, ir.NodeRetrying, ir.NodeWaiting:
+				status.Nodes[i].Status = ir.NodeFailed
 				status.Nodes[i].FinishedAt = finishedAtStr
 				status.Nodes[i].Error = reason
-			case core.NodeFailed, core.NodeAborted, core.NodeSucceeded, core.NodeSkipped, core.NodePartiallySucceeded, core.NodeRejected:
+			case ir.NodeFailed, ir.NodeAborted, ir.NodeSucceeded, ir.NodeSkipped, ir.NodePartiallySucceeded, ir.NodeRejected:
 				// Keep terminal node results intact when the run is failed due to lease loss.
 			}
 		}
@@ -2950,7 +2950,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 		)
 		return
 	}
-	if status.AttemptID != attemptID || (!status.Status.IsActive() && status.Status != core.NotStarted) {
+	if status.AttemptID != attemptID || (!status.Status.IsActive() && status.Status != ir.NotStarted) {
 		h.attemptOwnership().deleteTracking(ctx, storeCtx, dagRun, attemptKey,
 			"Failed to delete superseded distributed lease",
 			"Failed to delete superseded active distributed run",
@@ -3047,18 +3047,18 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 		return
 	}
 
-	if !dagRunStatus.Status.IsActive() && dagRunStatus.Status != core.NotStarted {
+	if !dagRunStatus.Status.IsActive() && dagRunStatus.Status != ir.NotStarted {
 		return
 	}
 
 	finishedAt := stringutil.FormatTime(time.Now())
-	dagRunStatus.Status = core.Failed
+	dagRunStatus.Status = ir.Failed
 	dagRunStatus.FinishedAt = finishedAt
 	dagRunStatus.Error = reason
 
 	for i, node := range dagRunStatus.Nodes {
-		if node.Status == core.NodeRunning || node.Status == core.NodeNotStarted || node.Status == core.NodeWaiting || node.Status == core.NodeRetrying {
-			dagRunStatus.Nodes[i].Status = core.NodeFailed
+		if node.Status == ir.NodeRunning || node.Status == ir.NodeNotStarted || node.Status == ir.NodeWaiting || node.Status == ir.NodeRetrying {
+			dagRunStatus.Nodes[i].Status = ir.NodeFailed
 			dagRunStatus.Nodes[i].FinishedAt = finishedAt
 			dagRunStatus.Nodes[i].Error = reason
 		}
@@ -3178,12 +3178,12 @@ func finalizeNotStartedCancellation(ctx context.Context, attempt exec.DAGRunAtte
 	if err != nil {
 		return fmt.Errorf("read attempt status: %w", err)
 	}
-	if status == nil || status.Status != core.NotStarted {
+	if status == nil || status.Status != ir.NotStarted {
 		return nil
 	}
 
 	finishedAt := stringutil.FormatTime(time.Now().UTC())
-	status.Status = core.Aborted
+	status.Status = ir.Aborted
 	status.FinishedAt = finishedAt
 	status.Error = context.Canceled.Error()
 	status.WorkerID = ""

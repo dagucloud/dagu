@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +17,7 @@ import (
 func TestListDAGRunStatusesOptions(t *testing.T) {
 	from := exec.NewUTC(time.Now().Add(-24 * time.Hour))
 	to := exec.NewUTC(time.Now())
-	statuses := []core.Status{core.Succeeded, core.Failed}
+	statuses := []ir.Status{ir.Succeeded, ir.Failed}
 
 	opts := exec.ListDAGRunStatusesOptions{}
 

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
@@ -38,25 +38,25 @@ func (m *mockDAGStore) Delete(ctx context.Context, fileName string) error {
 	return args.Error(0)
 }
 
-func (m *mockDAGStore) List(ctx context.Context, params exec.ListDAGsOptions) (exec.PaginatedResult[*core.DAG], []string, error) {
+func (m *mockDAGStore) List(ctx context.Context, params exec.ListDAGsOptions) (exec.PaginatedResult[*ir.DAG], []string, error) {
 	args := m.Called(ctx, params)
-	return args.Get(0).(exec.PaginatedResult[*core.DAG]), args.Get(1).([]string), args.Error(2)
+	return args.Get(0).(exec.PaginatedResult[*ir.DAG]), args.Get(1).([]string), args.Error(2)
 }
 
-func (m *mockDAGStore) GetMetadata(ctx context.Context, fileName string) (*core.DAG, error) {
+func (m *mockDAGStore) GetMetadata(ctx context.Context, fileName string) (*ir.DAG, error) {
 	args := m.Called(ctx, fileName)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*core.DAG), args.Error(1)
+	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-func (m *mockDAGStore) GetDetails(ctx context.Context, fileName string, opts exec.DAGLoadOptions) (*core.DAG, error) {
+func (m *mockDAGStore) GetDetails(ctx context.Context, fileName string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
 	args := m.Called(ctx, fileName, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*core.DAG), args.Error(1)
+	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
 func (m *mockDAGStore) Grep(ctx context.Context, pattern string) ([]*exec.GrepDAGsResult, []string, error) {
@@ -95,12 +95,12 @@ func (m *mockDAGStore) UpdateSpec(ctx context.Context, fileName string, spec []b
 	return args.Error(0)
 }
 
-func (m *mockDAGStore) LoadSpec(ctx context.Context, source []byte, _ string, opts exec.DAGLoadOptions) (*core.DAG, error) {
+func (m *mockDAGStore) LoadSpec(ctx context.Context, source []byte, _ string, opts exec.DAGLoadOptions) (*ir.DAG, error) {
 	args := m.Called(ctx, source, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*core.DAG), args.Error(1)
+	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
 func (m *mockDAGStore) LabelList(ctx context.Context) ([]string, []string, error) {
@@ -131,7 +131,7 @@ func (m *mockDAGRunStore) RemoveDAGRun(_ context.Context, _ exec.DAGRunRef, _ ..
 	panic("unimplemented")
 }
 
-func (m *mockDAGRunStore) CreateAttempt(ctx context.Context, dag *core.DAG, ts time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) CreateAttempt(ctx context.Context, dag *ir.DAG, ts time.Time, dagRunID string, opts exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	args := m.Called(ctx, dag, ts, dagRunID, opts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -172,7 +172,7 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
+	expectedStatus ir.Status,
 	mutate func(*exec.DAGRunStatus) error,
 	_ ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
@@ -376,7 +376,7 @@ func TestCollector_Collect_BasicMetrics(t *testing.T) {
 	queueStore := &mockQueueStore{}
 
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*core.DAG]{},
+		exec.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		nil,
 	)
@@ -412,8 +412,8 @@ func TestCollector_Collect_WithDAGRuns(t *testing.T) {
 
 	// Mock DAG store response
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*core.DAG]{
-			Items:      []*core.DAG{{}, {}, {}},
+		exec.PaginatedResult[*ir.DAG]{
+			Items:      []*ir.DAG{{}, {}, {}},
 			TotalCount: 3,
 		},
 		[]string{},
@@ -422,12 +422,12 @@ func TestCollector_Collect_WithDAGRuns(t *testing.T) {
 
 	// Mock DAG run store response
 	statuses := []*exec.DAGRunStatus{
-		{Status: core.Succeeded},
-		{Status: core.Succeeded},
-		{Status: core.Failed},
-		{Status: core.Running},
-		{Status: core.Queued},
-		{Status: core.Aborted},
+		{Status: ir.Succeeded},
+		{Status: ir.Succeeded},
+		{Status: ir.Failed},
+		{Status: ir.Running},
+		{Status: ir.Queued},
+		{Status: ir.Aborted},
 	}
 	dagRunStore.On("ListStatuses", mock.Anything, mock.Anything).Return(statuses, nil)
 
@@ -510,7 +510,7 @@ func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
 	queueStore := &mockQueueStore{}
 
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*core.DAG]{},
+		exec.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		nil,
 	)
@@ -596,7 +596,7 @@ func TestCollector_Collect_WithWorkerInfoLabels(t *testing.T) {
 	queueStore := &mockQueueStore{}
 
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*core.DAG]{},
+		exec.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		nil,
 	)
@@ -655,7 +655,7 @@ func TestCollector_Collect_WithErrors(t *testing.T) {
 	queueStore := &mockQueueStore{}
 
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*core.DAG]{},
+		exec.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		assert.AnError,
 	)
@@ -688,7 +688,7 @@ func TestNewRegistry(t *testing.T) {
 
 	// Setup mocks
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*core.DAG]{},
+		exec.PaginatedResult[*ir.DAG]{},
 		[]string{},
 		nil,
 	)
@@ -726,7 +726,7 @@ func TestCollector_SchedulerStatus(t *testing.T) {
 
 	// Set up default mock responses
 	dagStore.On("List", mock.Anything, mock.Anything).Return(
-		exec.PaginatedResult[*core.DAG]{Items: []*core.DAG{}, TotalCount: 0},
+		exec.PaginatedResult[*ir.DAG]{Items: []*ir.DAG{}, TotalCount: 0},
 		[]string{},
 		nil,
 	)

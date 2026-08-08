@@ -8,17 +8,17 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCommandExecutorCommandResolutionUsesShellFacts(t *testing.T) {
-	ctx := runtime.NewContextForTest(context.Background(), &core.DAG{Name: "test-dag"}, "run-1", "test.log")
-	step := core.Step{
+	ctx := runtime.NewContextForTest(context.Background(), &ir.DAG{Name: "test-dag"}, "run-1", "test.log")
+	step := ir.Step{
 		Shell:          "direct",
-		ExecutorConfig: core.ExecutorConfig{Type: "command"},
+		ExecutorConfig: ir.ExecutorConfig{Type: "command"},
 	}
 	env := runtime.NewEnv(ctx, step)
 	ctx = runtime.WithEnv(ctx, env)

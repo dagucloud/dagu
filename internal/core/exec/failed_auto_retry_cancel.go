@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // FailedAutoRetryCancelEligibility describes whether a failed DAG-run can be
@@ -46,7 +46,7 @@ func FailedAutoRetryCancelEligibilityOf(status *DAGRunStatus) FailedAutoRetryCan
 	switch {
 	case status == nil:
 		return FailedAutoRetryCancelMissingStatus
-	case status.Status != core.Failed:
+	case status.Status != ir.Failed:
 		return FailedAutoRetryCancelNotPending
 	case !status.Parent.Zero():
 		return FailedAutoRetryCancelNotRoot
@@ -68,7 +68,7 @@ type latestAttemptStatusSwapper interface {
 		ctx context.Context,
 		dagRun DAGRunRef,
 		expectedAttemptID string,
-		expectedStatus core.Status,
+		expectedStatus ir.Status,
 		mutate func(*DAGRunStatus) error,
 		opts ...CompareAndSwapStatusOption,
 	) (*DAGRunStatus, bool, error)
@@ -89,9 +89,9 @@ func CancelFailedAutoRetryPendingRun(
 		ctx,
 		status.DAGRun(),
 		status.AttemptID,
-		core.Failed,
+		ir.Failed,
 		func(latest *DAGRunStatus) error {
-			latest.Status = core.Aborted
+			latest.Status = ir.Aborted
 			return nil
 		},
 	)

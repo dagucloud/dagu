@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -97,7 +97,7 @@ func TestBaseDAGSpecialEnvVarsInHandler(t *testing.T) {
 
 	// Verify the DAG failed
 	status := a.Status(th.Context)
-	require.Equal(t, core.Failed, status.Status)
+	require.Equal(t, ir.Failed, status.Status)
 
 	// Read the output file and verify special env vars were available
 	output, err := os.ReadFile(outputFile)

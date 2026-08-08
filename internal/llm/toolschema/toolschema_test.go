@@ -6,7 +6,7 @@ package toolschema_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,10 +92,10 @@ func TestParseParams(t *testing.T) {
 func TestParamsFromDefs_PreservesRequiredWithDefault(t *testing.T) {
 	t.Parallel()
 
-	params := toolschema.ParamsFromDefs([]core.ParamDef{
+	params := toolschema.ParamsFromDefs([]ir.ParamDef{
 		{
 			Name:     "query",
-			Type:     core.ParamDefTypeString,
+			Type:     ir.ParamDefTypeString,
 			Required: true,
 			Default:  "latest",
 		},
@@ -114,10 +114,10 @@ func TestParamsFromDefs_CarriesConstraints(t *testing.T) {
 	minLength := 2
 	maxLength := 32
 	pattern := "^[a-z-]+$"
-	params := toolschema.ParamsFromDefs([]core.ParamDef{
+	params := toolschema.ParamsFromDefs([]ir.ParamDef{
 		{
 			Name:        "angle",
-			Type:        core.ParamDefTypeString,
+			Type:        ir.ParamDefTypeString,
 			Description: "Review lens for this pass.",
 			Enum:        []any{"duplication", "complexity"},
 			Minimum:     &minimum,

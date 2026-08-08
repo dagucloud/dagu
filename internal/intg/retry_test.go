@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -62,11 +62,11 @@ steps:
 
 	firstRunStatus, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, firstRunStatus.Status, core.Succeeded)
+	require.Equal(t, firstRunStatus.Status, ir.Succeeded)
 
 	// Manually update the second node status to failed
 	// This simulates a scenario where the user wants to retry from a specific point
-	firstRunStatus.Nodes[1].Status = core.NodeFailed
+	firstRunStatus.Nodes[1].Status = ir.NodeFailed
 
 	err = th.DAGRunMgr.UpdateStatus(ctx, ref, *firstRunStatus)
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ steps:
 	// Read back the status to verify it was persisted correctly
 	readStatus, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, core.NodeFailed.String(), readStatus.Nodes[1].Status.String(), "step2 should be marked as failed in persisted status")
+	require.Equal(t, ir.NodeFailed.String(), readStatus.Nodes[1].Status.String(), "step2 should be marked as failed in persisted status")
 
 	// Now retry the DAG using the retry command
 	retryArgs := []string{"retry", "--run-id", dagRunID, "test_retry"}
@@ -101,11 +101,11 @@ steps:
 	}
 
 	// The expected behavior is that the retry succeeds
-	require.Equal(t, core.Succeeded.String(), retryStatus.Status.String(), "retry should succeed")
+	require.Equal(t, ir.Succeeded.String(), retryStatus.Status.String(), "retry should succeed")
 
 	// Verify that step2 and step3 were re-executed
-	require.Equal(t, core.NodeSucceeded.String(), retryStatus.Nodes[1].Status.String(), "step2 should have succeeded after retry")
-	require.Equal(t, core.NodeSucceeded.String(), retryStatus.Nodes[2].Status.String(), "step3 should have succeeded after retry")
+	require.Equal(t, ir.NodeSucceeded.String(), retryStatus.Nodes[1].Status.String(), "step2 should have succeeded after retry")
+	require.Equal(t, ir.NodeSucceeded.String(), retryStatus.Nodes[2].Status.String(), "step3 should have succeeded after retry")
 }
 
 func TestStepRetryReusesOriginalWorkingDir(t *testing.T) {
@@ -164,7 +164,7 @@ if (-not (Test-Path marker)) {
 	require.NoError(t, err)
 	retryStatus, err := retryAttempt.ReadStatus(th.Context)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, retryStatus.Status)
+	require.Equal(t, ir.Succeeded, retryStatus.Status)
 
 	observed, err := os.ReadFile(filepath.Join(stepDir, "observed.txt"))
 	require.NoError(t, err)

@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
@@ -417,7 +417,7 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
 
 	status := f.readStatus("waiting-run")
-	require.Equal(t, core.Failed, status.Status)
+	require.Equal(t, ir.Failed, status.Status)
 	require.NotEmpty(t, status.Error)
 	require.NotEmpty(t, status.FinishedAt)
 	require.Empty(t, status.Conditions)
@@ -479,7 +479,7 @@ func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T)
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
 
 	status := f.readStatus("waiting-run")
-	require.Equal(t, core.Queued, status.Status)
+	require.Equal(t, ir.Queued, status.Status)
 	items, err = f.queueStore.List(f.ctx, f.dag.Name)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
@@ -554,7 +554,7 @@ func TestQueueProcessorRecordsQueueStateUnavailableConditionOnCountError(t *test
 
 type queueConditionFixture struct {
 	ctx           context.Context
-	dag           *core.DAG
+	dag           *ir.DAG
 	dagRunStore   *countingDAGRunStore
 	queueStore    exec.QueueStore
 	leaseStore    exec.DAGRunLeaseStore
@@ -599,12 +599,12 @@ func newQueueConditionFixtureWithConfig(
 
 	tmp := t.TempDir()
 	ctx := context.Background()
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:     "queue-condition",
 		YamlData: []byte("name: queue-condition\nsteps:\n  - name: test\n    command: echo hello\n"),
-		Steps:    []core.Step{{Name: "test", Command: "echo hello"}},
+		Steps:    []ir.Step{{Name: "test", Command: "echo hello"}},
 	}
-	core.InitializeDefaults(dag)
+	ir.InitializeDefaults(dag)
 	dagRunStore := newCountingDAGRunStore(dagrun.New(filepath.Join(tmp, "dag-runs"), dagrun.WithLatestStatusToday(false)))
 	var queueStore exec.QueueStore = store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
 	if fixtureConfig.queueStore != nil {
@@ -678,7 +678,7 @@ func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []e
 	status := exec.InitialStatus(f.dag)
 	status.DAGRunID = runID
 	status.AttemptID = attempt.ID()
-	status.Status = core.Queued
+	status.Status = ir.Queued
 	status.Conditions = conditions
 	if err := attempt.Write(f.ctx, status); err != nil {
 		panic(err)
@@ -744,7 +744,7 @@ type expectedQueuedCondition struct {
 func requireQueuedConditions(t *testing.T, status *exec.DAGRunStatus, expected ...expectedQueuedCondition) {
 	t.Helper()
 
-	require.Equal(t, core.Queued, status.Status)
+	require.Equal(t, ir.Queued, status.Status)
 	require.Len(t, status.Conditions, len(expected))
 
 	byType := make(map[string]exec.DAGRunCondition, len(status.Conditions))
@@ -1081,7 +1081,7 @@ func (s *countingDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
+	expectedStatus ir.Status,
 	mutate func(*exec.DAGRunStatus) error,
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
@@ -1141,7 +1141,7 @@ func (a *queueConditionAttempt) ID() string {
 	return a.DAGRunAttempt.ID()
 }
 
-func (a *queueConditionAttempt) ReadDAG(ctx context.Context) (*core.DAG, error) {
+func (a *queueConditionAttempt) ReadDAG(ctx context.Context) (*ir.DAG, error) {
 	if a.readDAGErr != nil {
 		return nil, a.readDAGErr
 	}

@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // ErrNoopAttemptNotSupported is returned when an operation is not supported by a no-op attempt.
@@ -18,13 +18,13 @@ var ErrNoopAttemptNotSupported = errors.New("operation not supported by no-op DA
 // operations are not needed.
 type noopDAGRunAttempt struct {
 	id  string
-	dag *core.DAG
+	dag *ir.DAG
 }
 
 var _ DAGRunAttempt = (*noopDAGRunAttempt)(nil)
 
 // NewNoopDAGRunAttempt creates a no-op attempt for remote worker execution.
-func NewNoopDAGRunAttempt(id string, dag *core.DAG) DAGRunAttempt {
+func NewNoopDAGRunAttempt(id string, dag *ir.DAG) DAGRunAttempt {
 	return &noopDAGRunAttempt{id: id, dag: dag}
 }
 
@@ -48,11 +48,11 @@ func (n *noopDAGRunAttempt) ReadStatus(_ context.Context) (*DAGRunStatus, error)
 	return nil, ErrNoopAttemptNotSupported
 }
 
-func (n *noopDAGRunAttempt) ReadDAG(_ context.Context) (*core.DAG, error) {
+func (n *noopDAGRunAttempt) ReadDAG(_ context.Context) (*ir.DAG, error) {
 	return n.dag, nil
 }
 
-func (n *noopDAGRunAttempt) SetDAG(dag *core.DAG) {
+func (n *noopDAGRunAttempt) SetDAG(dag *ir.DAG) {
 	n.dag = dag
 }
 

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,6 +92,6 @@ func TestRetryScannerFallsBackToStatusListingWithoutCandidateLister(t *testing.T
 
 	assert.Equal(t, 1, store.listCalls)
 	assert.Equal(t, now.Add(-time.Hour), store.listOptions.From.Time)
-	assert.Equal(t, []core.Status{core.Failed}, store.listOptions.Statuses)
+	assert.Equal(t, []ir.Status{ir.Failed}, store.listOptions.Statuses)
 	assert.True(t, store.listOptions.Unlimited)
 }

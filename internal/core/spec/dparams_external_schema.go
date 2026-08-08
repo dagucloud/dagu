@@ -9,11 +9,11 @@ import (
 	"maps"
 	"sort"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-func deriveExternalSchemaParamDefs(root *jsonschema.Schema, defaults map[string]any) ([]core.ParamDef, bool) {
+func deriveExternalSchemaParamDefs(root *jsonschema.Schema, defaults map[string]any) ([]ir.ParamDef, bool) {
 	if root == nil {
 		return nil, false
 	}
@@ -33,7 +33,7 @@ func deriveExternalSchemaParamDefs(root *jsonschema.Schema, defaults map[string]
 	}
 
 	order := topLevelSchemaOrder(root)
-	paramDefs := make([]core.ParamDef, 0, len(order))
+	paramDefs := make([]ir.ParamDef, 0, len(order))
 	for _, name := range order {
 		property := root.Properties[name]
 		if property == nil {
@@ -45,7 +45,7 @@ func deriveExternalSchemaParamDefs(root *jsonschema.Schema, defaults map[string]
 			return nil, false
 		}
 
-		def := core.ParamDef{
+		def := ir.ParamDef{
 			Name:        name,
 			Type:        paramType,
 			Description: property.Description,
@@ -90,9 +90,9 @@ func deriveExternalSchemaParamDefs(root *jsonschema.Schema, defaults map[string]
 	}
 	sort.Strings(extraNames)
 	for _, name := range extraNames {
-		paramDefs = append(paramDefs, core.ParamDef{
+		paramDefs = append(paramDefs, ir.ParamDef{
 			Name:    name,
-			Type:    core.ParamDefTypeString,
+			Type:    ir.ParamDefTypeString,
 			Default: stringifyUntypedValue(defaults[name]),
 		})
 	}
@@ -199,12 +199,12 @@ func schemaScalarType(schema *jsonschema.Schema) (string, bool) {
 		return "", false
 	}
 	switch schema.Type {
-	case core.ParamDefTypeString, core.ParamDefTypeInteger, core.ParamDefTypeNumber, core.ParamDefTypeBoolean:
+	case ir.ParamDefTypeString, ir.ParamDefTypeInteger, ir.ParamDefTypeNumber, ir.ParamDefTypeBoolean:
 		return schema.Type, true
 	}
 	if len(schema.Types) == 1 {
 		switch schema.Types[0] {
-		case core.ParamDefTypeString, core.ParamDefTypeInteger, core.ParamDefTypeNumber, core.ParamDefTypeBoolean:
+		case ir.ParamDefTypeString, ir.ParamDefTypeInteger, ir.ParamDefTypeNumber, ir.ParamDefTypeBoolean:
 			return schema.Types[0], true
 		}
 	}
@@ -228,15 +228,15 @@ func schemaScalarType(schema *jsonschema.Schema) (string, bool) {
 func inferScalarType(value any) (string, bool) {
 	switch value.(type) {
 	case string:
-		return core.ParamDefTypeString, true
+		return ir.ParamDefTypeString, true
 	case bool:
-		return core.ParamDefTypeBoolean, true
+		return ir.ParamDefTypeBoolean, true
 	case float32, float64:
-		return core.ParamDefTypeNumber, true
+		return ir.ParamDefTypeNumber, true
 	case int, int8, int16, int32, int64:
-		return core.ParamDefTypeInteger, true
+		return ir.ParamDefTypeInteger, true
 	case uint, uint8, uint16, uint32, uint64:
-		return core.ParamDefTypeInteger, true
+		return ir.ParamDefTypeInteger, true
 	default:
 		return "", false
 	}

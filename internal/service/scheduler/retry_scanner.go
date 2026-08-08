@@ -11,8 +11,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const retryScanInterval = 30 * time.Second
@@ -120,7 +120,7 @@ func (s *RetryScanner) listFailedRuns(ctx context.Context, from exec.TimeInUTC) 
 		return lister.ListRetryCandidates(ctx, from)
 	}
 	return s.dagRunStore.ListStatuses(ctx,
-		exec.WithStatuses([]core.Status{core.Failed}),
+		exec.WithStatuses([]ir.Status{ir.Failed}),
 		exec.WithFrom(from),
 		exec.WithoutLimit(),
 	)
@@ -209,7 +209,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 	if err != nil {
 		return err
 	}
-	if latestStatus.AttemptID != listed.AttemptID || latestStatus.Status != core.Failed {
+	if latestStatus.AttemptID != listed.AttemptID || latestStatus.Status != ir.Failed {
 		return nil
 	}
 	if !latestStatus.Parent.Zero() {
@@ -311,7 +311,7 @@ func (s *RetryScanner) evaluateRetryDecision(
 }
 
 func dagRetryDelay(interval time.Duration, backoff float64, maxInterval time.Duration, retryCount int) time.Duration {
-	return core.CalculateBackoffInterval(interval, backoff, maxInterval, retryCount)
+	return ir.CalculateBackoffInterval(interval, backoff, maxInterval, retryCount)
 }
 
 func retryReferenceTime(status *exec.DAGRunStatus) (time.Time, bool) {
@@ -353,7 +353,7 @@ func retryMetadataFromStatus(status *exec.DAGRunStatus) (dagRetryMetadata, bool)
 	}, true
 }
 
-func retryMetadataFromDAG(dag *core.DAG) (dagRetryMetadata, bool) {
+func retryMetadataFromDAG(dag *ir.DAG) (dagRetryMetadata, bool) {
 	if dag == nil || dag.RetryPolicy == nil {
 		return dagRetryMetadata{}, false
 	}

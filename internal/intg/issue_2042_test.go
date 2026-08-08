@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -33,7 +33,7 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 	h := intgharness.New(t, th.Helper)
 
 	dispatchedAt := make(chan time.Time, 4)
-	dispatchStub := func(ctx context.Context, dag *core.DAG, runID string, trigger core.TriggerType, scheduleTime time.Time) error {
+	dispatchStub := func(ctx context.Context, dag *ir.DAG, runID string, trigger ir.TriggerType, scheduleTime time.Time) error {
 		attempt, err := th.DAGRunStore.CreateAttempt(ctx, dag, scheduleTime, runID, exec.NewDAGRunAttemptOptions{})
 		if err != nil {
 			return err
@@ -41,7 +41,7 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 
 		status := transform.NewStatusBuilder(dag).Create(
 			runID,
-			core.Succeeded,
+			ir.Succeeded,
 			0,
 			scheduleTime,
 			transform.WithAttemptID(attempt.ID()),

@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/require"
@@ -45,11 +45,11 @@ func TestStepExecutorPublishesDeclaredStepOutputs(t *testing.T) {
 		)
 	})
 
-	node := newDeclaredOutputNode(t, executorType, []core.StepOutputDeclaration{
-		{Name: "image_tag", Type: core.StepDeclaredOutputTypeString},
-		{Name: "metadata", Type: core.StepDeclaredOutputTypeJSON},
+	node := newDeclaredOutputNode(t, executorType, []ir.StepOutputDeclaration{
+		{Name: "image_tag", Type: ir.StepDeclaredOutputTypeString},
+		{Name: "metadata", Type: ir.StepDeclaredOutputTypeJSON},
 	})
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
 
 	require.NoError(t, runtime.NewStepExecutor().Execute(ctx, node))
 	state := node.State()
@@ -67,10 +67,10 @@ func TestStepExecutorAllowsStringOutputValueContainingHeredocMarker(t *testing.T
 		return os.WriteFile(outputFilePathFromContext(t, ctx), []byte("token=prefix<<suffix\n"), 0o600)
 	})
 
-	node := newDeclaredOutputNode(t, executorType, []core.StepOutputDeclaration{
-		{Name: "token", Type: core.StepDeclaredOutputTypeString},
+	node := newDeclaredOutputNode(t, executorType, []ir.StepOutputDeclaration{
+		{Name: "token", Type: ir.StepDeclaredOutputTypeString},
 	})
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
 
 	require.NoError(t, runtime.NewStepExecutor().Execute(ctx, node))
 	state := node.State()
@@ -83,10 +83,10 @@ func TestStepExecutorRemovesStepOutputFileAfterSuccessfulAttempt(t *testing.T) {
 		return os.WriteFile(outputFilePathFromContext(t, ctx), []byte("image_tag=v1.2.3\n"), 0o600)
 	})
 
-	node := newDeclaredOutputNode(t, executorType, []core.StepOutputDeclaration{
-		{Name: "image_tag", Type: core.StepDeclaredOutputTypeString},
+	node := newDeclaredOutputNode(t, executorType, []ir.StepOutputDeclaration{
+		{Name: "image_tag", Type: ir.StepDeclaredOutputTypeString},
 	})
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
 	var outputPath string
 
 	require.NoError(t, runtime.NewStepExecutor().Execute(ctx, node, func() {
@@ -106,17 +106,17 @@ func TestStepExecutorRemovesStepOutputFileAfterSuccessfulAttempt(t *testing.T) {
 func TestStepExecutorRemovesStepOutputFileAfterSetupFailure(t *testing.T) {
 	var outputPath string
 	executorType := "test-declared-step-output-setup-failure-" + t.Name()
-	runtimeexec.RegisterExecutor(executorType, func(ctx context.Context, _ core.Step) (runtimeexec.Executor, error) {
+	runtimeexec.RegisterExecutor(executorType, func(ctx context.Context, _ ir.Step) (runtimeexec.Executor, error) {
 		outputPath = outputFilePathFromContext(t, ctx)
 		require.NotEmpty(t, outputPath)
 		_, err := os.Stat(outputPath)
 		require.NoError(t, err)
 		return nil, errors.New("executor factory failed")
-	}, nil, core.ExecutorCapabilities{})
+	}, nil, ir.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 
 	node := newDeclaredOutputNode(t, executorType, nil)
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
 
 	err := runtime.NewStepExecutor().Execute(ctx, node)
 	require.Error(t, err)
@@ -129,7 +129,7 @@ func TestStepExecutorRemovesStepOutputFileAfterSetupFailure(t *testing.T) {
 
 func TestStepInfoFallsBackToLegacyOutputsValue(t *testing.T) {
 	legacyOutputs := `{"messageId":"msg-123","worker":"legacy-worker"}`
-	node := runtime.NewNode(core.Step{Name: "call_action", ID: "call_action"}, runtime.NodeState{
+	node := runtime.NewNode(ir.Step{Name: "call_action", ID: "call_action"}, runtime.NodeState{
 		OutputsValue: &legacyOutputs,
 	})
 
@@ -144,10 +144,10 @@ func TestStepExecutorDoesNotReadStdoutAsDeclaredStepOutput(t *testing.T) {
 		return err
 	})
 
-	node := newDeclaredOutputNode(t, executorType, []core.StepOutputDeclaration{
-		{Name: "image_tag", Type: core.StepDeclaredOutputTypeString},
+	node := newDeclaredOutputNode(t, executorType, []ir.StepOutputDeclaration{
+		{Name: "image_tag", Type: ir.StepDeclaredOutputTypeString},
 	})
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
 
 	err := runtime.NewStepExecutor().Execute(ctx, node)
 	require.Error(t, err)
@@ -161,7 +161,7 @@ func TestStepExecutorFailsOnUndeclaredStepOutputWrite(t *testing.T) {
 	})
 
 	node := newDeclaredOutputNode(t, executorType, nil)
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
 
 	err := runtime.NewStepExecutor().Execute(ctx, node)
 	require.Error(t, err)
@@ -174,10 +174,10 @@ func TestStepExecutorFailsOnInvalidJSONStepOutput(t *testing.T) {
 		return os.WriteFile(outputFilePathFromContext(t, ctx), []byte("metadata={bad json}\n"), 0o600)
 	})
 
-	node := newDeclaredOutputNode(t, executorType, []core.StepOutputDeclaration{
-		{Name: "metadata", Type: core.StepDeclaredOutputTypeJSON},
+	node := newDeclaredOutputNode(t, executorType, []ir.StepOutputDeclaration{
+		{Name: "metadata", Type: ir.StepDeclaredOutputTypeJSON},
 	})
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
 
 	err := runtime.NewStepExecutor().Execute(ctx, node)
 	require.Error(t, err)
@@ -193,10 +193,10 @@ func TestStepExecutorDoesNotPublishDeclaredOutputsFromFailedAttempt(t *testing.T
 		return errors.New("executor failed")
 	})
 
-	node := newDeclaredOutputNode(t, executorType, []core.StepOutputDeclaration{
-		{Name: "image_tag", Type: core.StepDeclaredOutputTypeString},
+	node := newDeclaredOutputNode(t, executorType, []ir.StepOutputDeclaration{
+		{Name: "image_tag", Type: ir.StepDeclaredOutputTypeString},
 	})
-	ctx := runtime.NewContext(context.Background(), &core.DAG{}, "run-1", "dag.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
 
 	err := runtime.NewStepExecutor().Execute(ctx, node)
 	require.Error(t, err)
@@ -208,9 +208,9 @@ func TestNewPlanEnvForNodeIncludesOnlyPredecessorStepReferences(t *testing.T) {
 	t.Parallel()
 
 	plan, err := runtime.NewPlan(
-		core.Step{Name: "build", ID: "build"},
-		core.Step{Name: "sibling", ID: "sibling"},
-		core.Step{Name: "deploy", ID: "deploy", Depends: []string{"build"}},
+		ir.Step{Name: "build", ID: "build"},
+		ir.Step{Name: "sibling", ID: "sibling"},
+		ir.Step{Name: "deploy", ID: "deploy", Depends: []string{"build"}},
 	)
 	require.NoError(t, err)
 	deploy := plan.GetNodeByName("deploy")
@@ -226,9 +226,9 @@ func registerDeclaredOutputExecutor(t *testing.T, run func(context.Context, *dec
 	t.Helper()
 
 	executorType := "test-declared-step-output-" + t.Name()
-	runtimeexec.RegisterExecutor(executorType, func(context.Context, core.Step) (runtimeexec.Executor, error) {
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 		return &declaredOutputExecutor{run: run}, nil
-	}, nil, core.ExecutorCapabilities{})
+	}, nil, ir.ExecutorCapabilities{})
 	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
 	return executorType
 }
@@ -242,14 +242,14 @@ func outputFilePathFromContext(t *testing.T, ctx context.Context) string {
 	return value
 }
 
-func newDeclaredOutputNode(t *testing.T, executorType string, outputs []core.StepOutputDeclaration) *runtime.Node {
+func newDeclaredOutputNode(t *testing.T, executorType string, outputs []ir.StepOutputDeclaration) *runtime.Node {
 	t.Helper()
 
 	logDir := t.TempDir()
-	return runtime.NewNode(core.Step{
+	return runtime.NewNode(ir.Step{
 		Name: "publish",
 		ID:   "publish",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: executorType,
 		},
 		Outputs: outputs,

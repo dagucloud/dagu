@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Tree drawing characters using Unicode box-drawing characters.
@@ -91,7 +91,7 @@ func NewRenderer(config Config) *Renderer {
 }
 
 // RenderDAGStatus renders the complete DAG status as a tree structure.
-func (r *Renderer) RenderDAGStatus(dag *core.DAG, status *exec.DAGRunStatus) string {
+func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *exec.DAGRunStatus) string {
 	var buf strings.Builder
 
 	buf.WriteString(r.renderHeader(status))
@@ -128,7 +128,7 @@ func (r *Renderer) renderHeader(status *exec.DAGRunStatus) string {
 }
 
 // renderDAGLine renders the DAG name with total duration.
-func (r *Renderer) renderDAGLine(dag *core.DAG, status *exec.DAGRunStatus) string {
+func (r *Renderer) renderDAGLine(dag *ir.DAG, status *exec.DAGRunStatus) string {
 	duration := r.calculateDuration(status.StartedAt, status.FinishedAt, status.Status)
 	if duration != "" {
 		return fmt.Sprintf("dag: %s %s", dag.Name, r.gray("("+duration+")"))
@@ -187,9 +187,9 @@ func (r *Renderer) renderStepContent(node *exec.Node, isLast bool, prefix string
 	cPrefix := childPrefix(prefix, isLast)
 
 	hasOutput := r.hasOutput(node)
-	hasError := node.Error != "" && node.Status == core.NodeFailed
+	hasError := node.Error != "" && node.Status == ir.NodeFailed
 	hasSubRuns := len(node.SubRuns) > 0
-	hasHumanTask := node.Status == core.NodeWaiting && node.Step.HumanTask != nil
+	hasHumanTask := node.Status == ir.NodeWaiting && node.Step.HumanTask != nil
 	hasIncremental := node.Incremental != nil
 
 	hasFollowingContent := hasOutput || hasError || hasSubRuns || hasHumanTask || hasIncremental
@@ -292,20 +292,20 @@ func (r *Renderer) addFieldSpacing(buf *strings.Builder, wroteField bool, cPrefi
 }
 
 // isSkippedStatus returns true for statuses that should not show details.
-func isSkippedStatus(status core.NodeStatus) bool {
-	return status == core.NodeSkipped || status == core.NodeAborted || status == core.NodeNotStarted
+func isSkippedStatus(status ir.NodeStatus) bool {
+	return status == ir.NodeSkipped || status == ir.NodeAborted || status == ir.NodeNotStarted
 }
 
 // shouldShowDuration returns true for statuses that should display duration.
-func shouldShowDuration(status core.NodeStatus) bool {
-	return status == core.NodeSucceeded || status == core.NodeFailed ||
-		status == core.NodeRunning || status == core.NodeRetrying ||
-		status == core.NodePartiallySucceeded
+func shouldShowDuration(status ir.NodeStatus) bool {
+	return status == ir.NodeSucceeded || status == ir.NodeFailed ||
+		status == ir.NodeRunning || status == ir.NodeRetrying ||
+		status == ir.NodePartiallySucceeded
 }
 
 // getStatusLabel returns a text label for the node status.
-func (r *Renderer) getStatusLabel(status core.NodeStatus) string {
-	if status == core.NodeNotStarted {
+func (r *Renderer) getStatusLabel(status ir.NodeStatus) string {
+	if status == ir.NodeNotStarted {
 		return ""
 	}
 	return "[" + status.String() + "]"
@@ -543,7 +543,7 @@ func cleanErrorMessage(errMsg string) string {
 // renderFinalStatus renders the final result line at the bottom of the tree.
 func (r *Renderer) renderFinalStatus(status *exec.DAGRunStatus) string {
 	label := "Result"
-	if status.Status == core.Running {
+	if status.Status == ir.Running {
 		label = "Status"
 	}
 	return fmt.Sprintf("\n%s: %s\n", label, StatusText(status.Status))
@@ -555,7 +555,7 @@ func (r *Renderer) renderSchedulerLog(logPath string, hasSteps bool) string {
 }
 
 // calculateDuration calculates the duration string between start and finish times.
-func (r *Renderer) calculateDuration(startedAt, finishedAt string, status core.Status) string {
+func (r *Renderer) calculateDuration(startedAt, finishedAt string, status ir.Status) string {
 	if startedAt == "" || startedAt == "-" {
 		return ""
 	}
@@ -571,7 +571,7 @@ func (r *Renderer) calculateDuration(startedAt, finishedAt string, status core.S
 		if err != nil {
 			end = time.Now()
 		}
-	} else if status == core.Running {
+	} else if status == ir.Running {
 		end = time.Now()
 	} else {
 		return ""
@@ -587,27 +587,27 @@ func (r *Renderer) calculateNodeDuration(node *exec.Node) string {
 }
 
 // nodeStatusToStatus converts NodeStatus to Status for duration calculation.
-func nodeStatusToStatus(ns core.NodeStatus) core.Status {
+func nodeStatusToStatus(ns ir.NodeStatus) ir.Status {
 	switch ns {
-	case core.NodeRunning:
-		return core.Running
-	case core.NodeRetrying:
-		return core.Running
-	case core.NodeSucceeded:
-		return core.Succeeded
-	case core.NodeFailed:
-		return core.Failed
-	case core.NodeAborted:
-		return core.Aborted
-	case core.NodePartiallySucceeded:
-		return core.PartiallySucceeded
-	case core.NodeWaiting:
-		return core.Waiting
-	case core.NodeRejected:
-		return core.Rejected
-	case core.NodeNotStarted, core.NodeSkipped:
-		return core.NotStarted
+	case ir.NodeRunning:
+		return ir.Running
+	case ir.NodeRetrying:
+		return ir.Running
+	case ir.NodeSucceeded:
+		return ir.Succeeded
+	case ir.NodeFailed:
+		return ir.Failed
+	case ir.NodeAborted:
+		return ir.Aborted
+	case ir.NodePartiallySucceeded:
+		return ir.PartiallySucceeded
+	case ir.NodeWaiting:
+		return ir.Waiting
+	case ir.NodeRejected:
+		return ir.Rejected
+	case ir.NodeNotStarted, ir.NodeSkipped:
+		return ir.NotStarted
 	default:
-		return core.NotStarted
+		return ir.NotStarted
 	}
 }

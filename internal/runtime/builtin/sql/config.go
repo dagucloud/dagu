@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -307,6 +307,6 @@ var sqliteConfigSchema = &jsonschema.Schema{
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema("postgres", postgresConfigSchema)
-	core.RegisterExecutorConfigSchema("sqlite", sqliteConfigSchema)
+	ir.RegisterExecutorConfigSchema("postgres", postgresConfigSchema)
+	ir.RegisterExecutorConfigSchema("sqlite", sqliteConfigSchema)
 }

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
@@ -141,7 +141,7 @@ func TestPush(t *testing.T) {
 		status := exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		}
 
 		err := pusher.Push(context.Background(), status)
@@ -272,7 +272,7 @@ func TestPush(t *testing.T) {
 			Name:       "complex-dag",
 			DAGRunID:   "run-456",
 			AttemptID:  "attempt-1",
-			Status:     core.Succeeded,
+			Status:     ir.Succeeded,
 			WorkerID:   "other-worker",
 			PID:        12345,
 			StartedAt:  "2024-01-01T00:00:00Z",
@@ -282,8 +282,8 @@ func TestPush(t *testing.T) {
 			Parent:     exec.DAGRunRef{Name: "parent", ID: "parent-id"},
 			Nodes: []*exec.Node{
 				{
-					Step:   core.Step{Name: "step-1"},
-					Status: core.NodeSucceeded,
+					Step:   ir.Step{Name: "step-1"},
+					Status: ir.NodeSucceeded,
 				},
 			},
 		}
@@ -301,7 +301,7 @@ func TestPush(t *testing.T) {
 		require.NotNil(t, s)
 		assert.Equal(t, "complex-dag", s.Name)
 		assert.Equal(t, "attempt-1", s.AttemptID)
-		assert.Equal(t, core.Succeeded, s.Status)
+		assert.Equal(t, ir.Succeeded, s.Status)
 		assert.False(t, s.Root.Zero())
 		assert.False(t, s.Parent.Zero())
 		assert.Len(t, s.Nodes, 1)

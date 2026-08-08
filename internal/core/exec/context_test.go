@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +29,7 @@ func TestDAGContext_UserEnvsMap(t *testing.T) {
 		{
 			name: "ExcludesOSEnvironment",
 			setup: func(ctx context.Context) context.Context {
-				dag := &core.DAG{
+				dag := &ir.DAG{
 					Env: []string{"USER_VAR=user_value"},
 				}
 				return exec.NewContext(ctx, dag, "test-run", "test.log")
@@ -41,7 +41,7 @@ func TestDAGContext_UserEnvsMap(t *testing.T) {
 		{
 			name: "SecretOverridesEnvs",
 			setup: func(ctx context.Context) context.Context {
-				dag := &core.DAG{
+				dag := &ir.DAG{
 					Env: []string{"KEY=from_dag"},
 				}
 				secrets := []string{"KEY=from_secret"}
@@ -56,7 +56,7 @@ func TestDAGContext_UserEnvsMap(t *testing.T) {
 		{
 			name: "CombinesAllSources",
 			setup: func(ctx context.Context) context.Context {
-				dag := &core.DAG{
+				dag := &ir.DAG{
 					Env: []string{"DAG_VAR=dag_value"},
 				}
 				secrets := []string{"SECRET_VAR=secret_value"}
@@ -116,7 +116,7 @@ func TestNewContext_DAGParamsJSON(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			dag := &core.DAG{Name: "test-dag", ParamsJSON: tt.paramsJSON}
+			dag := &ir.DAG{Name: "test-dag", ParamsJSON: tt.paramsJSON}
 			ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
 			rCtx := exec.GetContext(ctx)
 			result := rCtx.UserEnvsMap()
@@ -178,7 +178,7 @@ func TestNewContext_DAGDocsDir(t *testing.T) {
 			cfg := &config.Config{}
 			cfg.Paths.DocsDir = tt.docsDir
 			ctx := config.WithConfig(context.Background(), cfg)
-			dag := &core.DAG{Name: "test-dag", Labels: core.NewLabels(tt.labels)}
+			dag := &ir.DAG{Name: "test-dag", Labels: ir.NewLabels(tt.labels)}
 			ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
 			rCtx := exec.GetContext(ctx)
 			result := rCtx.UserEnvsMap()
@@ -197,7 +197,7 @@ func TestNewContext_DAGDocsDirRequiresConfig(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dag := &core.DAG{Name: "test-dag"}
+	dag := &ir.DAG{Name: "test-dag"}
 	ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
 	rCtx := exec.GetContext(ctx)
 	result := rCtx.UserEnvsMap()
@@ -221,7 +221,7 @@ func TestNewContext_DAGRunWorkDir(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			dag := &core.DAG{Name: "test-dag"}
+			dag := &ir.DAG{Name: "test-dag"}
 			var opts []exec.ContextOption
 			if tt.workDir != "" {
 				opts = append(opts, exec.WithWorkDir(tt.workDir))
@@ -255,7 +255,7 @@ func TestNewContext_DAGRunArtifactsDir(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			dag := &core.DAG{Name: "test-dag"}
+			dag := &ir.DAG{Name: "test-dag"}
 			var opts []exec.ContextOption
 			if tt.artifactDir != "" {
 				opts = append(opts, exec.WithArtifactDir(tt.artifactDir))
@@ -278,7 +278,7 @@ func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
 
 	artifactDir := filepath.Join(t.TempDir(), "artifacts", "run-1")
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		Env: []string{
 			"DAG_RUN_ARTIFACTS_DIR=/tmp/wrong-artifacts",
@@ -309,7 +309,7 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 	scheduledAt := "2026-03-13T10:00:00Z"
 	profileResolvedAt := "2026-03-13T09:59:00Z"
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "daily",
 		Env: []string{
 			"DAG_REF=${context.dag.name}",
@@ -332,7 +332,7 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 	ctx := exec.NewContext(context.Background(), dag, "run-1", logFile,
 		exec.WithAttemptID("attempt-1"),
 		exec.WithRootDAGRun(exec.NewDAGRunRef("root", "root-run-1")),
-		exec.WithTriggerType(core.TriggerTypeScheduler),
+		exec.WithTriggerType(ir.TriggerTypeScheduler),
 		exec.WithTriggerActor("alice"),
 		exec.WithRunStartedAt(startedAt),
 		exec.WithScheduleTime(scheduledAt),
@@ -361,7 +361,7 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 func TestNewContext_DAGEnvDoesNotExposeRootFieldsForRootRun(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "root",
 		Env: []string{
 			"ROOT_NAME_REF=${context.run.root_name}",
@@ -381,12 +381,12 @@ func TestNewContext_DAGEnvDoesNotExposeRootFieldsForRootRun(t *testing.T) {
 func TestNewContext_DAGEnvUsesRuntimeParamsOption(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:   "test-dag",
 		Params: []string{"target=stored"},
-		ParamDefs: []core.ParamDef{{
+		ParamDefs: []ir.ParamDef{{
 			Name: "target",
-			Type: core.ParamDefTypeString,
+			Type: ir.ParamDefTypeString,
 		}},
 		Env: []string{
 			"TARGET=${params.target}",
@@ -406,12 +406,12 @@ func TestNewContext_DAGEnvOverridesParamsCaseInsensitiveOnWindows(t *testing.T) 
 		t.Skip("Windows environment variables are case-insensitive")
 	}
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:   "test-dag",
 		Params: []string{"target=stored"},
-		ParamDefs: []core.ParamDef{{
+		ParamDefs: []ir.ParamDef{{
 			Name: "target",
-			Type: core.ParamDefTypeString,
+			Type: ir.ParamDefTypeString,
 		}},
 		Env: []string{
 			"TARGET=${params.target}",
@@ -430,7 +430,7 @@ func TestNewContext_DAGEnvOverridesParamsCaseInsensitiveOnWindows(t *testing.T) 
 func TestNewContext_DefaultProfileEnvsHaveLowestUserPrecedence(t *testing.T) {
 	t.Parallel()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		Env: []string{
 			"FROM_DEFAULT=${DEFAULT_ONLY}",
@@ -465,7 +465,7 @@ func TestNewContext_AllEnvsUsesFilteredBaseEnv(t *testing.T) {
 	})
 
 	ctx := config.WithConfig(context.Background(), cfg)
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		Env:  []string{"DAG_VAR=dag"},
 	}

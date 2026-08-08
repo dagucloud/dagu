@@ -15,9 +15,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -32,7 +32,7 @@ type fixture struct {
 	t            *testing.T
 	th           test.Command
 	h            intgharness.Harness
-	dag          *core.DAG
+	dag          *ir.DAG
 	queue        string
 	runIDs       []string
 	schedDone    chan error
@@ -194,7 +194,7 @@ func (f *fixture) enqueueWithPriority(priority exec.QueuePriority) string {
 	require.NoError(f.t, err)
 	logFile := filepath.Join(f.th.Config.Paths.LogDir, f.dag.Name, id+".log")
 	require.NoError(f.t, os.MkdirAll(filepath.Dir(logFile), 0755))
-	st := transform.NewStatusBuilder(f.dag).Create(id, core.Queued, 0, time.Time{},
+	st := transform.NewStatusBuilder(f.dag).Create(id, ir.Queued, 0, time.Time{},
 		transform.WithLogFilePath(logFile),
 		transform.WithAttemptID(att.ID()),
 		transform.WithHierarchyRefs(exec.NewDAGRunRef(f.dag.Name, id), exec.DAGRunRef{}),
@@ -219,7 +219,7 @@ func (f *fixture) enqueueCatchup(scheduleTime time.Time) string {
 		"",
 		f.dag,
 		runID,
-		core.TriggerTypeCatchUp,
+		ir.TriggerTypeCatchUp,
 		scheduleTime,
 		"",
 	))
@@ -259,19 +259,19 @@ func (f *fixture) WaitDrain(timeout time.Duration) *fixture {
 	return f
 }
 
-func (f *fixture) WaitForStatus(runID string, expected core.Status, timeout time.Duration) *fixture {
+func (f *fixture) WaitForStatus(runID string, expected ir.Status, timeout time.Duration) *fixture {
 	f.t.Helper()
 	f.Run(runID).RequireStatusWithin(expected, queueTestTimeout(timeout))
 	return f
 }
 
-func (f *fixture) WaitForStatusIn(runID string, expected []core.Status, timeout time.Duration) *fixture {
+func (f *fixture) WaitForStatusIn(runID string, expected []ir.Status, timeout time.Duration) *fixture {
 	f.t.Helper()
 	f.Run(runID).RequireStatusInWithin(expected, queueTestTimeout(timeout))
 	return f
 }
 
-func (f *fixture) WaitForAllStatuses(expected core.Status, timeout time.Duration) *fixture {
+func (f *fixture) WaitForAllStatuses(expected ir.Status, timeout time.Duration) *fixture {
 	f.t.Helper()
 	for _, runID := range f.runIDs {
 		f.WaitForStatus(runID, expected, timeout)
@@ -279,7 +279,7 @@ func (f *fixture) WaitForAllStatuses(expected core.Status, timeout time.Duration
 	return f
 }
 
-func (f *fixture) WaitForAllStatusesAndDrain(expected core.Status, statusTimeout, drainTimeout time.Duration) *fixture {
+func (f *fixture) WaitForAllStatusesAndDrain(expected ir.Status, statusTimeout, drainTimeout time.Duration) *fixture {
 	f.t.Helper()
 	f.WaitForAllStatuses(expected, statusTimeout)
 	f.WaitDrain(drainTimeout)
@@ -458,10 +458,10 @@ type runStatusOptions struct {
 	QueuedAt       time.Time
 	ScheduleTime   time.Time
 	AutoRetryCount int
-	TriggerType    core.TriggerType
+	TriggerType    ir.TriggerType
 }
 
-func (f *fixture) writeRunStatus(status core.Status, opts runStatusOptions) string {
+func (f *fixture) writeRunStatus(status ir.Status, opts runStatusOptions) string {
 	runID := opts.RunID
 	if runID == "" {
 		runID = uuid.New().String()
@@ -495,7 +495,7 @@ func (f *fixture) writeRunStatus(status core.Status, opts runStatusOptions) stri
 	if !opts.ScheduleTime.IsZero() {
 		statusOpts = append(statusOpts, transform.WithScheduleTime(exec.FormatTime(opts.ScheduleTime)))
 	}
-	if opts.TriggerType != core.TriggerTypeUnknown {
+	if opts.TriggerType != ir.TriggerTypeUnknown {
 		statusOpts = append(statusOpts, transform.WithTriggerType(opts.TriggerType))
 	}
 
@@ -517,14 +517,14 @@ func (f *fixture) FailedRun() *fixture {
 
 // FailedRunWithMetadata creates a failed DAG run with explicit persisted metadata.
 func (f *fixture) FailedRunWithMetadata(opts runStatusOptions) string {
-	runID := f.writeRunStatus(core.Failed, opts)
+	runID := f.writeRunStatus(ir.Failed, opts)
 	f.runIDs = append(f.runIDs, runID)
 	return runID
 }
 
 // RunningRunWithMetadata creates a running DAG run with explicit persisted metadata.
 func (f *fixture) RunningRunWithMetadata(opts runStatusOptions) string {
-	return f.writeRunStatus(core.Running, opts)
+	return f.writeRunStatus(ir.Running, opts)
 }
 
 // RetryEnqueue enqueues a previously failed run for retry using exec.EnqueueRetry.

@@ -14,7 +14,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -26,7 +26,7 @@ var (
 // redisExecutor implements the Executor interface for Redis operations.
 type redisExecutor struct {
 	mu            sync.Mutex
-	step          core.Step
+	step          ir.Step
 	cfg           *Config
 	client        goredis.UniversalClient
 	poolManager   *GlobalRedisPoolManager
@@ -50,7 +50,7 @@ type ExecutionMetrics struct {
 }
 
 // newRedisExecutor creates a new Redis executor.
-func newRedisExecutor(ctx context.Context, step core.Step) (executor.Executor, error) {
+func newRedisExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	cfg, err := ParseConfig(ctx, step.ExecutorConfig.Config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse redis config: %w", err)
@@ -278,6 +278,6 @@ func init() {
 		"redis",
 		newRedisExecutor,
 		nil,
-		core.ExecutorCapabilities{Command: true, Script: true},
+		ir.ExecutorCapabilities{Command: true, Script: true},
 	)
 }

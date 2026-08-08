@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,7 +91,7 @@ steps:
 	// Verify subDAG working directories
 	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 
 	ref := exec.NewDAGRunRef(status.Name, status.DAGRunID)
 

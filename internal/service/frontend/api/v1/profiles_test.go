@@ -14,8 +14,8 @@ import (
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/profile"
@@ -644,7 +644,7 @@ steps:
 	dag, err := server.DAGStore.GetMetadata(server.Context, dagName)
 	require.NoError(t, err)
 
-	seedLatestDAGRunStatus(t, server, dag, "protected-profile-source-run", core.Failed, seedDAGRunStatusOptions{
+	seedLatestDAGRunStatus(t, server, dag, "protected-profile-source-run", ir.Failed, seedDAGRunStatusOptions{
 		errorText:   "source run failed",
 		profileName: "prod",
 	})
@@ -659,7 +659,7 @@ steps:
 
 	status, err := attempt.ReadStatus(server.Context)
 	require.NoError(t, err)
-	require.Equal(t, core.Queued, status.Status)
+	require.Equal(t, ir.Queued, status.Status)
 	assert.Equal(t, "prod", status.ProfileName)
 }
 

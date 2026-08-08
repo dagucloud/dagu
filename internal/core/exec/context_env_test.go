@@ -10,7 +10,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +20,7 @@ func TestNewContext_ManagedDAGRunEnvsAreProtectedAndAvailableToDAGEnv(t *testing
 
 	ctx := context.Background()
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:       "test-dag",
 		ParamsJSON: `{"a":"b"}`,
 	}

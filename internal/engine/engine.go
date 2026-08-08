@@ -13,9 +13,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -264,5 +264,5 @@ func statusFromValue(status coreexec.DAGRunStatus) (*Status, error) {
 }
 
 func isSuccess(status *Status) bool {
-	return status != nil && (status.Status == core.Succeeded.String() || status.Status == core.PartiallySucceeded.String())
+	return status != nil && (status.Status == ir.Succeeded.String() || status.Status == ir.PartiallySucceeded.String())
 }

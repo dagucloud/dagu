@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -22,22 +22,22 @@ const (
 )
 
 type recipe struct {
-	SchemaVersion int                          `json:"schemaVersion"`
-	ExecutorType  string                       `json:"executorType"`
-	Executor      map[string]any               `json:"executor,omitempty"`
-	Commands      []core.CommandEntry          `json:"commands,omitempty"`
-	Script        string                       `json:"script,omitempty"`
-	Shell         []string                     `json:"shell,omitempty"`
-	ShellPackages []string                     `json:"shellPackages,omitempty"`
-	WorkingDir    string                       `json:"workingDir"`
-	WorkingDirKey string                       `json:"workingDirKey"`
-	Parameters    map[string]any               `json:"parameters,omitempty"`
-	Environment   map[string]string            `json:"environment,omitempty"`
-	StepEnv       []string                     `json:"stepEnv,omitempty"`
-	Inputs        []core.StepInputDeclaration  `json:"inputs,omitempty"`
-	Outputs       []core.StepOutputDeclaration `json:"outputs,omitempty"`
-	Tools         *core.ToolConfig             `json:"tools,omitempty"`
-	Platform      string                       `json:"platform"`
+	SchemaVersion int                        `json:"schemaVersion"`
+	ExecutorType  string                     `json:"executorType"`
+	Executor      map[string]any             `json:"executor,omitempty"`
+	Commands      []ir.CommandEntry          `json:"commands,omitempty"`
+	Script        string                     `json:"script,omitempty"`
+	Shell         []string                   `json:"shell,omitempty"`
+	ShellPackages []string                   `json:"shellPackages,omitempty"`
+	WorkingDir    string                     `json:"workingDir"`
+	WorkingDirKey string                     `json:"workingDirKey"`
+	Parameters    map[string]any             `json:"parameters,omitempty"`
+	Environment   map[string]string          `json:"environment,omitempty"`
+	StepEnv       []string                   `json:"stepEnv,omitempty"`
+	Inputs        []ir.StepInputDeclaration  `json:"inputs,omitempty"`
+	Outputs       []ir.StepOutputDeclaration `json:"outputs,omitempty"`
+	Tools         *ir.ToolConfig             `json:"tools,omitempty"`
+	Platform      string                     `json:"platform"`
 }
 
 func recipeDigest(request PrepareRequest) (string, error) {
@@ -81,8 +81,8 @@ func recipeWorkingDir(workingDir, runWorkDir string) (string, string) {
 	return workingDir, ComparisonKey(workingDir)
 }
 
-func canonicalInputs(inputs []core.StepInputDeclaration) []core.StepInputDeclaration {
-	result := append([]core.StepInputDeclaration(nil), inputs...)
+func canonicalInputs(inputs []ir.StepInputDeclaration) []ir.StepInputDeclaration {
+	result := append([]ir.StepInputDeclaration(nil), inputs...)
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }

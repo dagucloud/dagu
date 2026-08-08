@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -236,6 +236,6 @@ var sftpConfigSchema = &jsonschema.Schema{
 }
 
 func init() {
-	core.RegisterExecutorConfigSchema("ssh", configSchema)
-	core.RegisterExecutorConfigSchema("sftp", sftpConfigSchema)
+	ir.RegisterExecutorConfigSchema("ssh", configSchema)
+	ir.RegisterExecutorConfigSchema("sftp", sftpConfigSchema)
 }

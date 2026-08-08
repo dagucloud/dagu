@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,10 +32,10 @@ func TestHTTPExecutor_WindowsSpecific(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
+		step := ir.Step{
 			Command: "GET",
 			Args:    []string{server.URL},
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"silent": true,
@@ -82,10 +82,10 @@ func TestHTTPExecutor_WindowsSpecific(t *testing.T) {
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
 
-		step := core.Step{
+		step := ir.Step{
 			Command: "POST",
 			Args:    []string{server.URL},
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"headers": map[string]string{
@@ -138,10 +138,10 @@ func TestHTTPExecutor_WindowsSpecific(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
+		step := ir.Step{
 			Command: "GET",
 			Args:    []string{server.URL},
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"headers": map[string]string{
@@ -180,10 +180,10 @@ func TestHTTPExecutor_WindowsSpecific(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
+		step := ir.Step{
 			Command: "GET",
 			Args:    []string{server.URL},
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"timeout": 1, // 1 second timeout
@@ -233,10 +233,10 @@ func TestHTTPExecutor_WindowsSpecific(t *testing.T) {
 				}))
 				defer server.Close()
 
-				step := core.Step{
+				step := ir.Step{
 					Command: "GET",
 					Args:    []string{server.URL},
-					ExecutorConfig: core.ExecutorConfig{
+					ExecutorConfig: ir.ExecutorConfig{
 						Type: "http",
 						Config: map[string]any{
 							"silent": false, // Don't suppress output for error cases
@@ -277,10 +277,10 @@ func TestHTTPExecutor_WindowsSpecific(t *testing.T) {
 		defer server.Close()
 
 		// Test with skip_tls_verify = true (should work)
-		step := core.Step{
+		step := ir.Step{
 			Command: "GET",
 			Args:    []string{server.URL},
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"skip_tls_verify": true,
@@ -312,10 +312,10 @@ func TestHTTPExecutor_WindowsSpecific(t *testing.T) {
 		}))
 		defer server.Close()
 
-		step := core.Step{
+		step := ir.Step{
 			Command: "GET",
 			Args:    []string{server.URL},
-			ExecutorConfig: core.ExecutorConfig{
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "http",
 				Config: map[string]any{
 					"silent": true,
@@ -363,10 +363,10 @@ func TestHTTPExecutor_WindowsPerformance(t *testing.T) {
 	}))
 	defer server.Close()
 
-	step := core.Step{
+	step := ir.Step{
 		Command: "GET",
 		Args:    []string{server.URL},
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "http",
 			Config: map[string]any{
 				"silent": true,

@@ -6,10 +6,10 @@ package cmd
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-func RestoreDAGFromStatusForTest(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) (*core.DAG, error) {
+func RestoreDAGFromStatusForTest(ctx context.Context, dag *ir.DAG, status *exec.DAGRunStatus) (*ir.DAG, error) {
 	return restoreDAGFromStatus(ctx, dag, status)
 }

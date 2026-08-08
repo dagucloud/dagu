@@ -12,8 +12,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
@@ -57,9 +57,9 @@ steps:
 	require.Equal(t, api.DAGRunId(sourceRunID), startBody.DagRunId)
 
 	test.ProcessQueuedInlineRun(t, server, dagName)
-	sourceStatus := waitForEditRetryStoredStatus(t, server, dagName, sourceRunID, core.Failed)
-	require.Equal(t, core.NodeSucceeded, sourceStatus.Nodes[0].Status)
-	require.Equal(t, core.NodeFailed, sourceStatus.Nodes[1].Status)
+	sourceStatus := waitForEditRetryStoredStatus(t, server, dagName, sourceRunID, ir.Failed)
+	require.Equal(t, ir.NodeSucceeded, sourceStatus.Nodes[0].Status)
+	require.Equal(t, ir.NodeFailed, sourceStatus.Nodes[1].Status)
 
 	editedSpec := fmt.Sprintf(`name: %s
 queue: intg_edit_retry
@@ -106,12 +106,12 @@ steps:
 	require.Equal(t, []string{"build"}, editBody.SkippedSteps)
 
 	test.ProcessQueuedInlineRun(t, server, dagName)
-	retryStatus := waitForEditRetryStoredStatus(t, server, dagName, retryRunID, core.Succeeded)
+	retryStatus := waitForEditRetryStoredStatus(t, server, dagName, retryRunID, ir.Succeeded)
 	require.Len(t, retryStatus.Nodes, 3)
-	require.Equal(t, core.NodeSkipped, retryStatus.Nodes[0].Status)
+	require.Equal(t, ir.NodeSkipped, retryStatus.Nodes[0].Status)
 	require.True(t, retryStatus.Nodes[0].SkippedByRetry)
-	require.Equal(t, core.NodeSucceeded, retryStatus.Nodes[1].Status)
-	require.Equal(t, core.NodeSucceeded, retryStatus.Nodes[2].Status)
+	require.Equal(t, ir.NodeSucceeded, retryStatus.Nodes[1].Status)
+	require.Equal(t, ir.NodeSucceeded, retryStatus.Nodes[2].Status)
 
 	rawResult, ok := retryStatus.Nodes[0].OutputVariables.Load("RESULT")
 	require.True(t, ok)
@@ -158,7 +158,7 @@ steps:
 	).ExpectStatus(http.StatusOK).Send(t)
 
 	test.ProcessQueuedInlineRun(t, server, dagName)
-	sourceStatus := waitForEditRetryStoredStatus(t, server, dagName, sourceRunID, core.Failed)
+	sourceStatus := waitForEditRetryStoredStatus(t, server, dagName, sourceRunID, ir.Failed)
 	sourceStatus.Params = "one two three"
 	sourceStatus.ParamsList = []string{"problem=one two three"}
 
@@ -195,7 +195,7 @@ steps:
 	require.Equal(t, []string{"consume"}, preview.RunnableSteps)
 }
 
-func waitForEditRetryStoredStatus(t *testing.T, server test.Server, dagName, dagRunID string, expected core.Status) *exec.DAGRunStatus {
+func waitForEditRetryStoredStatus(t *testing.T, server test.Server, dagName, dagRunID string, expected ir.Status) *exec.DAGRunStatus {
 	t.Helper()
 
 	h := intgharness.New(t, server.Helper)

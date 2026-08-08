@@ -3,21 +3,21 @@
 
 package exec
 
-import "github.com/dagucloud/dagu/v2/internal/core"
+import "github.com/dagucloud/dagu/v2/internal/ir"
 
 // IsQueuedCatchup reports whether the queued status belongs to a catchup run.
 func IsQueuedCatchup(status *DAGRunStatus) bool {
 	return status != nil &&
-		status.Status == core.Queued &&
-		status.TriggerType == core.TriggerTypeCatchUp
+		status.Status == ir.Queued &&
+		status.TriggerType == ir.TriggerTypeCatchUp
 }
 
 // PreservedQueueTriggerType returns the trigger type that must be preserved
 // when consuming a queued item. Queued retry records still execute as retries;
 // initial queued runs keep the trigger that originally enqueued them.
-func PreservedQueueTriggerType(status *DAGRunStatus) core.TriggerType {
-	if status == nil || status.Status != core.Queued || status.TriggerType == core.TriggerTypeRetry {
-		return core.TriggerTypeUnknown
+func PreservedQueueTriggerType(status *DAGRunStatus) ir.TriggerType {
+	if status == nil || status.Status != ir.Queued || status.TriggerType == ir.TriggerTypeRetry {
+		return ir.TriggerTypeUnknown
 	}
 	return status.TriggerType
 }

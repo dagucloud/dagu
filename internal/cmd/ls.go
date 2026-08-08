@@ -13,8 +13,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/spf13/cobra"
@@ -61,7 +61,7 @@ var lsFlags = []commandLineFlag{
 }
 
 type lsRow struct {
-	dag         *core.DAG
+	dag         *ir.DAG
 	nextRun     time.Time
 	lastStatus  string
 	lastStarted string
@@ -94,7 +94,7 @@ func runLs(ctx *Context, args []string) error {
 		Order:     "asc",
 		Time:      &now,
 	}
-	var nextRunProjection func(*core.DAG, time.Time) time.Time
+	var nextRunProjection func(*ir.DAG, time.Time) time.Time
 	if showNext {
 		nextRunProjection = lsNextRunProjection(ctx)
 		listOpts.NextRunProjection = nextRunProjection
@@ -136,7 +136,7 @@ func runLs(ctx *Context, args []string) error {
 	return renderLsTable(ctx.Command.OutOrStdout(), rows, showNext, showLast, showHistory)
 }
 
-func lsNextRunProjection(ctx *Context) func(*core.DAG, time.Time) time.Time {
+func lsNextRunProjection(ctx *Context) func(*ir.DAG, time.Time) time.Time {
 	stateStore := scheduler.NewWatermarkStore(
 		file.NewCollection(filepath.Join(ctx.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
 	)
@@ -147,7 +147,7 @@ func lsNextRunProjection(ctx *Context) func(*core.DAG, time.Time) time.Time {
 	}
 
 	projectNextRun := scheduler.NewNextRunProjection(ctx.Config.Core.Location, state)
-	return func(dag *core.DAG, now time.Time) time.Time {
+	return func(dag *ir.DAG, now time.Time) time.Time {
 		if ctx.DAGStore.IsSuspended(ctx, dag.FileName()) {
 			return time.Time{}
 		}
@@ -182,7 +182,7 @@ func sortLsRowsByLastRun(rows []lsRow, reverse bool) {
 func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) {
 	if wantLast {
 		st, err := ctx.DAGRunMgr.GetLatestStatus(ctx, row.dag)
-		if err == nil && st.Status != core.NotStarted {
+		if err == nil && st.Status != ir.NotStarted {
 			row.lastStatus = formatStatusText(st.Status)
 			row.lastStarted = formatTimestamp(st.StartedAt)
 			if t := parseTimeString(st.StartedAt); !t.IsZero() {

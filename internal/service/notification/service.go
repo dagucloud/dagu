@@ -27,8 +27,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
@@ -874,24 +874,24 @@ func (s *Service) isSupportedEvent(eventType eventstore.EventType) bool {
 
 func testStatus(dagName string, eventType eventstore.EventType) *exec.DAGRunStatus {
 	now := time.Now().UTC()
-	status := core.Failed
+	status := ir.Failed
 	message := "This is a test notification from Dagu."
 	switch eventType {
 	case eventstore.TypeDAGRunWaiting:
-		status = core.Waiting
+		status = ir.Waiting
 		message = "This is a test waiting notification from Dagu."
 	case eventstore.TypeDAGRunSucceeded:
-		status = core.Succeeded
+		status = ir.Succeeded
 		message = ""
 	case eventstore.TypeDAGRunPartiallySucceeded:
-		status = core.PartiallySucceeded
+		status = ir.PartiallySucceeded
 		message = "This is a test partially succeeded notification from Dagu."
 	case eventstore.TypeDAGRunFailed:
 	case eventstore.TypeDAGRunAborted:
-		status = core.Aborted
+		status = ir.Aborted
 		message = "This is a test aborted notification from Dagu."
 	case eventstore.TypeDAGRunRejected:
-		status = core.Rejected
+		status = ir.Rejected
 		message = "This is a test rejected notification from Dagu."
 	case eventstore.TypeDAGRunQueued,
 		eventstore.TypeDAGRunRunning,
@@ -1215,7 +1215,7 @@ func eventWorkspace(event chatbridge.NotificationEvent) (string, exec.WorkspaceL
 	if event.Status == nil {
 		return "", exec.WorkspaceLabelMissing
 	}
-	return exec.WorkspaceLabelFromLabels(core.NewLabels(event.Status.Labels))
+	return exec.WorkspaceLabelFromLabels(ir.NewLabels(event.Status.Labels))
 }
 
 func eventWorkspaceName(event chatbridge.NotificationEvent) string {
@@ -1781,11 +1781,11 @@ func notificationTemplateValues(event chatbridge.NotificationEvent, publicURL st
 }
 
 func notificationStepStatusValues(status *exec.DAGRunStatus) map[string]string {
-	labels := map[core.NodeStatus][]string{
-		core.NodeFailed:             nil,
-		core.NodePartiallySucceeded: nil,
-		core.NodeAborted:            nil,
-		core.NodeSucceeded:          nil,
+	labels := map[ir.NodeStatus][]string{
+		ir.NodeFailed:             nil,
+		ir.NodePartiallySucceeded: nil,
+		ir.NodeAborted:            nil,
+		ir.NodeSucceeded:          nil,
 	}
 	for _, node := range status.Nodes {
 		if node == nil {
@@ -1811,10 +1811,10 @@ func notificationStepStatusValues(status *exec.DAGRunStatus) map[string]string {
 	}
 
 	return map[string]string{
-		"run.failed_steps":              strings.Join(labels[core.NodeFailed], ", "),
-		"run.partially_succeeded_steps": strings.Join(labels[core.NodePartiallySucceeded], ", "),
-		"run.aborted_steps":             strings.Join(labels[core.NodeAborted], ", "),
-		"run.succeeded_steps":           strings.Join(labels[core.NodeSucceeded], ", "),
+		"run.failed_steps":              strings.Join(labels[ir.NodeFailed], ", "),
+		"run.partially_succeeded_steps": strings.Join(labels[ir.NodePartiallySucceeded], ", "),
+		"run.aborted_steps":             strings.Join(labels[ir.NodeAborted], ", "),
+		"run.succeeded_steps":           strings.Join(labels[ir.NodeSucceeded], ", "),
 	}
 }
 

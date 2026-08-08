@@ -14,7 +14,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -29,7 +29,7 @@ const (
 
 // Installer installs and resolves a DAG tool declaration.
 type Installer interface {
-	Install(ctx context.Context, cfg *core.ToolConfig, opts InstallOptions) (*Manifest, error)
+	Install(ctx context.Context, cfg *ir.ToolConfig, opts InstallOptions) (*Manifest, error)
 }
 
 // InstallOptions identifies the worker-local filesystem context for tools.
@@ -105,13 +105,13 @@ func CachePaths(toolsDir, platform, toolsetHash string) (CacheLayout, error) {
 }
 
 // ToolsetHash returns a stable hash for a tool declaration on a platform.
-func ToolsetHash(cfg *core.ToolConfig, platform string) (string, error) {
+func ToolsetHash(cfg *ir.ToolConfig, platform string) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("tools config is required")
 	}
 	payload := struct {
-		Platform string           `json:"platform"`
-		Tools    *core.ToolConfig `json:"tools"`
+		Platform string         `json:"platform"`
+		Tools    *ir.ToolConfig `json:"tools"`
 	}{
 		Platform: platform,
 		Tools:    cfg,

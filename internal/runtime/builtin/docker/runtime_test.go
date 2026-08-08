@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,22 +16,22 @@ func TestResolveContainerRuntime(t *testing.T) {
 	t.Run("unset_defaults_to_docker", func(t *testing.T) {
 		rt, err := ResolveContainerRuntime(nil)
 		require.NoError(t, err)
-		assert.Equal(t, core.ContainerRuntimeDocker, rt)
+		assert.Equal(t, ir.ContainerRuntimeDocker, rt)
 	})
 	t.Run("empty_defaults_to_docker", func(t *testing.T) {
 		rt, err := ResolveContainerRuntime(map[string]string{ContainerRuntimeEnv: "  "})
 		require.NoError(t, err)
-		assert.Equal(t, core.ContainerRuntimeDocker, rt)
+		assert.Equal(t, ir.ContainerRuntimeDocker, rt)
 	})
 	t.Run("docker", func(t *testing.T) {
 		rt, err := ResolveContainerRuntime(map[string]string{ContainerRuntimeEnv: "docker"})
 		require.NoError(t, err)
-		assert.Equal(t, core.ContainerRuntimeDocker, rt)
+		assert.Equal(t, ir.ContainerRuntimeDocker, rt)
 	})
 	t.Run("podman", func(t *testing.T) {
 		rt, err := ResolveContainerRuntime(map[string]string{ContainerRuntimeEnv: "podman"})
 		require.NoError(t, err)
-		assert.Equal(t, core.ContainerRuntimePodman, rt)
+		assert.Equal(t, ir.ContainerRuntimePodman, rt)
 	})
 	t.Run("invalid_errors", func(t *testing.T) {
 		_, err := ResolveContainerRuntime(map[string]string{ContainerRuntimeEnv: "nerdctl"})
@@ -41,25 +41,25 @@ func TestResolveContainerRuntime(t *testing.T) {
 
 func TestContainerDaemonHost(t *testing.T) {
 	t.Run("docker_and_empty_use_from_env", func(t *testing.T) {
-		for _, rt := range []core.ContainerRuntime{"", core.ContainerRuntimeDocker} {
+		for _, rt := range []ir.ContainerRuntime{"", ir.ContainerRuntimeDocker} {
 			host, err := ContainerDaemonHost(rt, nil)
 			require.NoError(t, err)
 			assert.Equal(t, "", host)
 		}
 	})
 	t.Run("podman_default_socket", func(t *testing.T) {
-		host, err := ContainerDaemonHost(core.ContainerRuntimePodman, nil)
+		host, err := ContainerDaemonHost(ir.ContainerRuntimePodman, nil)
 		require.NoError(t, err)
 		assert.Equal(t, PodmanDaemonHostDefault, host)
 	})
 	t.Run("podman_env_override", func(t *testing.T) {
-		host, err := ContainerDaemonHost(core.ContainerRuntimePodman,
+		host, err := ContainerDaemonHost(ir.ContainerRuntimePodman,
 			map[string]string{PodmanDaemonHostEnv: "unix:///x.sock"})
 		require.NoError(t, err)
 		assert.Equal(t, "unix:///x.sock", host)
 	})
 	t.Run("unknown_runtime_errors", func(t *testing.T) {
-		_, err := ContainerDaemonHost(core.ContainerRuntime("nerdctl"), nil)
+		_, err := ContainerDaemonHost(ir.ContainerRuntime("nerdctl"), nil)
 		require.Error(t, err)
 	})
 }

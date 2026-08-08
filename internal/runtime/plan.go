@@ -13,7 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var (
@@ -43,7 +43,7 @@ type Plan struct {
 
 // NewPlan creates a new execution plan from the given steps.
 // It builds the graph, validates it (checking for cycles), and returns the plan.
-func NewPlan(steps ...core.Step) (*Plan, error) {
+func NewPlan(steps ...ir.Step) (*Plan, error) {
 	p := &Plan{
 		nodeByID:      make(map[int]*Node),
 		nodeByName:    make(map[string]*Node),
@@ -70,7 +70,7 @@ func NewPlan(steps ...core.Step) (*Plan, error) {
 }
 
 // CreateRetryPlan creates a new execution plan for retrying specific nodes.
-func CreateRetryPlan(ctx context.Context, dag *core.DAG, nodes ...*Node) (*Plan, error) {
+func CreateRetryPlan(ctx context.Context, dag *ir.DAG, nodes ...*Node) (*Plan, error) {
 	p := &Plan{
 		nodeByID:      make(map[int]*Node),
 		nodeByName:    make(map[string]*Node),
@@ -131,7 +131,7 @@ func NewPlanFromNodes(nodes ...*Node) (*Plan, error) {
 }
 
 // CreateStepRetryPlan creates a new execution plan for retrying a specific step.
-func CreateStepRetryPlan(dag *core.DAG, nodes []*Node, stepName string) (*Plan, error) {
+func CreateStepRetryPlan(dag *ir.DAG, nodes []*Node, stepName string) (*Plan, error) {
 	p := &Plan{
 		nodeByID:      make(map[int]*Node),
 		nodeByName:    make(map[string]*Node),
@@ -161,7 +161,7 @@ func CreateStepRetryPlan(dag *core.DAG, nodes []*Node, stepName string) (*Plan, 
 	if targetNode == nil {
 		return nil, fmt.Errorf("%w: %s", ErrMissingNode, stepName)
 	}
-	preserveRetryBudget := targetNode.State().Status == core.NodeRetrying
+	preserveRetryBudget := targetNode.State().Status == ir.NodeRetrying
 
 	step, err := retryStepForNode(targetNode, steps)
 	if err != nil {
@@ -181,7 +181,7 @@ func CreateStepRetryPlan(dag *core.DAG, nodes []*Node, stepName string) (*Plan, 
 // IsController reports whether execution order is decided by a controller step
 // rather than by dependency edges.
 func (p *Plan) IsController() bool {
-	_, ok := p.nodeByName[core.ControllerStepName]
+	_, ok := p.nodeByName[ir.ControllerStepName]
 	return ok
 }
 
@@ -214,7 +214,7 @@ func (p *Plan) buildEdges() error {
 // retry execution. Persisted retry nodes carry mutable runtime state, but their
 // embedded Step snapshots can be lossy because some nested config is excluded
 // from JSON serialization for security reasons.
-func rebindRetryNodesToSteps(nodes []*Node, steps map[string]core.Step) error {
+func rebindRetryNodesToSteps(nodes []*Node, steps map[string]ir.Step) error {
 	for _, node := range nodes {
 		if node == nil {
 			continue
@@ -228,10 +228,10 @@ func rebindRetryNodesToSteps(nodes []*Node, steps map[string]core.Step) error {
 	return nil
 }
 
-func retryStepForNode(node *Node, steps map[string]core.Step) (core.Step, error) {
+func retryStepForNode(node *Node, steps map[string]ir.Step) (ir.Step, error) {
 	step, ok := steps[node.Name()]
 	if !ok {
-		return core.Step{}, fmt.Errorf("%w: %s", ErrMissingNode, node.Name())
+		return ir.Step{}, fmt.Errorf("%w: %s", ErrMissingNode, node.Name())
 	}
 	return step, nil
 }
@@ -318,10 +318,10 @@ func (p *Plan) isCyclic() bool {
 }
 
 // setupRetry resets the state of failed/aborted nodes and their dependents.
-func (p *Plan) setupRetry(ctx context.Context, steps map[string]core.Step) error {
+func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
 	// Identify nodes that need to be retried (failed or aborted)
 	toRetry := make(map[int]bool)
-	nodeStatus := make(map[int]core.NodeStatus)
+	nodeStatus := make(map[int]ir.NodeStatus)
 
 	for _, node := range p.nodes {
 		nodeStatus[node.id] = node.Status()
@@ -339,10 +339,10 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]core.Step) error
 		var next []int
 		for _, u := range frontier {
 			shouldRetry := toRetry[u] ||
-				nodeStatus[u] == core.NodeFailed ||
-				nodeStatus[u] == core.NodeRetrying ||
-				nodeStatus[u] == core.NodeAborted ||
-				nodeStatus[u] == core.NodeRejected
+				nodeStatus[u] == ir.NodeFailed ||
+				nodeStatus[u] == ir.NodeRetrying ||
+				nodeStatus[u] == ir.NodeAborted ||
+				nodeStatus[u] == ir.NodeRejected
 
 			if shouldRetry {
 				node := p.nodeByID[u]
@@ -486,17 +486,17 @@ func (p *Plan) NodeStates() PlanNodeStates {
 	var states PlanNodeStates
 	for _, node := range p.nodes {
 		switch node.State().Status {
-		case core.NodeRunning:
+		case ir.NodeRunning:
 			states.HasRunning = true
-		case core.NodeRetrying:
+		case ir.NodeRetrying:
 			states.HasRetrying = true
-		case core.NodeWaiting:
+		case ir.NodeWaiting:
 			states.HasWaiting = true
-		case core.NodeNotStarted:
+		case ir.NodeNotStarted:
 			states.HasNotStarted = true
-		case core.NodeRejected:
+		case ir.NodeRejected:
 			states.HasRejected = true
-		case core.NodeSucceeded, core.NodeFailed, core.NodeAborted, core.NodeSkipped, core.NodePartiallySucceeded:
+		case ir.NodeSucceeded, ir.NodeFailed, ir.NodeAborted, ir.NodeSkipped, ir.NodePartiallySucceeded:
 			// Terminal states
 		}
 	}
@@ -509,7 +509,7 @@ func (p *Plan) WaitingStepNames() []string {
 	defer p.mu.RUnlock()
 	var names []string
 	for _, node := range p.nodes {
-		if node.State().Status == core.NodeWaiting {
+		if node.State().Status == ir.NodeWaiting {
 			names = append(names, node.Name())
 		}
 	}
@@ -534,10 +534,10 @@ func (p *Plan) HasActiveNodes() bool {
 func (p *Plan) isRunningLocked() bool {
 	for _, node := range p.nodes {
 		s := node.State().Status
-		if s == core.NodeRunning || s == core.NodeRetrying {
+		if s == ir.NodeRunning || s == ir.NodeRetrying {
 			return true
 		}
-		if s == core.NodeNotStarted && p.finishedAt.IsZero() {
+		if s == ir.NodeNotStarted && p.finishedAt.IsZero() {
 			return true
 		}
 	}
@@ -547,7 +547,7 @@ func (p *Plan) isRunningLocked() bool {
 func (p *Plan) hasActiveNodesLocked() bool {
 	for _, node := range p.nodes {
 		s := node.State().Status
-		if s == core.NodeRunning || s == core.NodeRetrying {
+		if s == ir.NodeRunning || s == ir.NodeRetrying {
 			return true
 		}
 	}
@@ -559,9 +559,9 @@ func (p *Plan) CheckFinished() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	for _, node := range p.nodes {
-		if node.State().Status == core.NodeRunning ||
-			node.State().Status == core.NodeRetrying ||
-			node.State().Status == core.NodeNotStarted {
+		if node.State().Status == ir.NodeRunning ||
+			node.State().Status == ir.NodeRetrying ||
+			node.State().Status == ir.NodeNotStarted {
 			return false
 		}
 	}
@@ -581,8 +581,8 @@ func (p *Plan) NodeData() []NodeData {
 }
 
 // Helper
-func stepsByName(dag *core.DAG) map[string]core.Step {
-	m := make(map[string]core.Step, len(dag.Steps))
+func stepsByName(dag *ir.DAG) map[string]ir.Step {
+	m := make(map[string]ir.Step, len(dag.Steps))
 	for _, s := range dag.Steps {
 		m[s.Name] = s
 	}

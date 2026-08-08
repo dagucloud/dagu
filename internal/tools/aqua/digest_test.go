@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +36,7 @@ func TestVerifyPackageDigestsMatch(t *testing.T) {
 		{"id":"`+testReleaseID+`","checksum":"`+strings.ToUpper(testArtifactSHA)+`","algorithm":"sha256"}
 	]}`)
 
-	err := verifyPackageDigests(path, []core.ToolPackage{{
+	err := verifyPackageDigests(path, []ir.ToolPackage{{
 		Package: "anomalyco/opencode",
 		Version: "v1.18.11",
 		Digest:  "sha256:" + testArtifactSHA,
@@ -51,7 +51,7 @@ func TestVerifyPackageDigestsMatchHTTPID(t *testing.T) {
 		{"id":"`+testHTTPID+`","checksum":"`+testArtifactSHA+`","algorithm":"sha256"}
 	]}`)
 
-	err := verifyPackageDigests(path, []core.ToolPackage{{
+	err := verifyPackageDigests(path, []ir.ToolPackage{{
 		Package: "hashicorp/terraform",
 		Version: "v1.15.8",
 		Digest:  "sha256:" + testArtifactSHA,
@@ -66,7 +66,7 @@ func TestVerifyPackageDigestsMismatch(t *testing.T) {
 		{"id":"`+testReleaseID+`","checksum":"`+strings.Repeat("0", 64)+`","algorithm":"sha256"}
 	]}`)
 
-	err := verifyPackageDigests(path, []core.ToolPackage{{
+	err := verifyPackageDigests(path, []ir.ToolPackage{{
 		Package: "anomalyco/opencode",
 		Version: "v1.18.11",
 		Digest:  "sha256:" + testArtifactSHA,
@@ -83,7 +83,7 @@ func TestVerifyPackageDigestsMissingEntry(t *testing.T) {
 		{"id":"registries/github_content/github.com/aquaproj/aqua-registry/abc/registry.yaml","checksum":"FFFF","algorithm":"sha256"}
 	]}`)
 
-	err := verifyPackageDigests(path, []core.ToolPackage{{
+	err := verifyPackageDigests(path, []ir.ToolPackage{{
 		Package: "anomalyco/opencode",
 		Version: "v1.18.11",
 		Digest:  "sha256:" + testArtifactSHA,
@@ -97,7 +97,7 @@ func TestVerifyPackageDigestsMissingResolvedID(t *testing.T) {
 
 	path := writeChecksumFile(t, `{"checksums":[]}`)
 
-	err := verifyPackageDigests(path, []core.ToolPackage{{
+	err := verifyPackageDigests(path, []ir.ToolPackage{{
 		Package: "anomalyco/opencode",
 		Version: "v1.18.11",
 		Digest:  "sha256:" + testArtifactSHA,
@@ -109,7 +109,7 @@ func TestVerifyPackageDigestsMissingResolvedID(t *testing.T) {
 func TestVerifyPackageDigestsSkipsPackagesWithoutDigest(t *testing.T) {
 	t.Parallel()
 
-	err := verifyPackageDigests(filepath.Join(t.TempDir(), "missing.json"), []core.ToolPackage{{
+	err := verifyPackageDigests(filepath.Join(t.TempDir(), "missing.json"), []ir.ToolPackage{{
 		Package: "jqlang/jq",
 		Version: "jq-1.7.1",
 	}}, nil)
@@ -123,7 +123,7 @@ func TestVerifyPackageDigestsRejectsWrongAlgorithm(t *testing.T) {
 		{"id":"`+testReleaseID+`","checksum":"`+testArtifactSHA+`","algorithm":"sha512"}
 	]}`)
 
-	err := verifyPackageDigests(path, []core.ToolPackage{{
+	err := verifyPackageDigests(path, []ir.ToolPackage{{
 		Package: "anomalyco/opencode",
 		Version: "v1.18.11",
 		Digest:  "sha256:" + testArtifactSHA,
@@ -138,12 +138,12 @@ func TestApplyDigestIsolation(t *testing.T) {
 	paths, err := tools.CachePaths(t.TempDir(), "darwin-arm64", "hash123")
 	require.NoError(t, err)
 
-	shared := applyDigestIsolation(paths, &core.ToolConfig{Packages: []core.ToolPackage{
+	shared := applyDigestIsolation(paths, &ir.ToolConfig{Packages: []ir.ToolPackage{
 		{Package: "jqlang/jq", Version: "jq-1.7.1"},
 	}})
 	assert.Equal(t, paths.RootDir, shared.RootDir)
 
-	isolated := applyDigestIsolation(paths, &core.ToolConfig{Packages: []core.ToolPackage{
+	isolated := applyDigestIsolation(paths, &ir.ToolConfig{Packages: []ir.ToolPackage{
 		{Package: "jqlang/jq", Version: "jq-1.7.1", Digest: "sha256:" + testArtifactSHA},
 	}})
 	assert.Equal(t, filepath.Join(paths.EnvDir, "root"), isolated.RootDir)

@@ -8,8 +8,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func (a *Agent) maskStatusSecrets(status *exec.DAGRunStatus) {
@@ -76,7 +76,7 @@ func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap) *c
 	return masked
 }
 
-func maskStepSecrets(masker *masking.Masker, step core.Step) core.Step {
+func maskStepSecrets(masker *masking.Masker, step ir.Step) ir.Step {
 	step.Command = masker.MaskString(step.Command)
 	step.CmdWithArgs = masker.MaskString(step.CmdWithArgs)
 	step.CmdArgsSys = masker.MaskString(step.CmdArgsSys)
@@ -91,7 +91,7 @@ func maskStepSecrets(masker *masking.Masker, step core.Step) core.Step {
 	}
 
 	if len(step.Commands) > 0 {
-		commands := append([]core.CommandEntry(nil), step.Commands...)
+		commands := append([]ir.CommandEntry(nil), step.Commands...)
 		for i := range commands {
 			commands[i].Command = masker.MaskString(commands[i].Command)
 			commands[i].Args = maskStrings(masker, commands[i].Args)

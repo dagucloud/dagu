@@ -6,7 +6,7 @@ package exec
 import (
 	"slices"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -29,12 +29,12 @@ const (
 // Missing, invalid, or conflicting workspace labels return ok=false. Use
 // WorkspaceLabelFromLabels when callers must distinguish missing from malformed
 // labels.
-func WorkspaceNameFromLabels(labels core.Labels) (string, bool) {
+func WorkspaceNameFromLabels(labels ir.Labels) (string, bool) {
 	workspaceName, state := WorkspaceLabelFromLabels(labels)
 	return workspaceName, state == WorkspaceLabelValid
 }
 
-func WorkspaceLabelFromLabels(labels core.Labels) (string, WorkspaceLabelState) {
+func WorkspaceLabelFromLabels(labels ir.Labels) (string, WorkspaceLabelState) {
 	var workspaceName string
 	for _, value := range labels.Get(workspaceLabelKey) {
 		if value == "" {
@@ -62,7 +62,7 @@ type WorkspaceFilter struct {
 }
 
 // MatchesLabels reports whether labels are visible under the filter.
-func (f *WorkspaceFilter) MatchesLabels(labels core.Labels) bool {
+func (f *WorkspaceFilter) MatchesLabels(labels ir.Labels) bool {
 	if f == nil || !f.Enabled {
 		return true
 	}

@@ -16,7 +16,7 @@ import (
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -47,16 +47,16 @@ func (r *gcpSecretManagerResolver) Name() string {
 	return gcpSecretManagerProvider
 }
 
-func (r *gcpSecretManagerResolver) Validate(ref core.SecretRef) error {
+func (r *gcpSecretManagerResolver) Validate(ref ir.SecretRef) error {
 	_, err := parseGCPSecretReference(ref, "", "", true)
 	return err
 }
 
-func (r *gcpSecretManagerResolver) CheckCapability(core.SecretRef) CheckCapability {
+func (r *gcpSecretManagerResolver) CheckCapability(ir.SecretRef) CheckCapability {
 	return CheckCapabilityRequiresValueRead
 }
 
-func (r *gcpSecretManagerResolver) Resolve(ctx context.Context, ref core.SecretRef) (string, error) {
+func (r *gcpSecretManagerResolver) Resolve(ctx context.Context, ref ir.SecretRef) (string, error) {
 	cfg := config.GetConfig(ctx).Secrets.GCP
 	parsed, err := parseGCPSecretReference(ref, cfg.ProjectID, cfg.Location, false)
 	if err != nil {
@@ -85,7 +85,7 @@ func (r *gcpSecretManagerResolver) Resolve(ctx context.Context, ref core.SecretR
 	return selectJSONField(string(response.Payload.Data), ref.Options["field"])
 }
 
-func (r *gcpSecretManagerResolver) CheckAccessibility(ctx context.Context, ref core.SecretRef) error {
+func (r *gcpSecretManagerResolver) CheckAccessibility(ctx context.Context, ref ir.SecretRef) error {
 	_, err := r.Resolve(ctx, ref)
 	return err
 }
@@ -124,7 +124,7 @@ func (r *gcpSecretManagerResolver) Close() error {
 	return errors.Join(errs...)
 }
 
-func parseGCPSecretReference(ref core.SecretRef, defaultProject, defaultLocation string, allowMissingProject bool) (gcpSecretReference, error) {
+func parseGCPSecretReference(ref ir.SecretRef, defaultProject, defaultLocation string, allowMissingProject bool) (gcpSecretReference, error) {
 	key := strings.TrimSpace(ref.Key)
 	if key == "" {
 		return gcpSecretReference{}, fmt.Errorf("key (GCP Secret Manager secret ID or resource name) is required")

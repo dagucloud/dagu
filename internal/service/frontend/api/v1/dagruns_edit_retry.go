@@ -23,10 +23,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -45,7 +45,7 @@ type editRetryPlan struct {
 	sourceAttempt   exec.DAGRunAttempt
 	sourceDAGRunID  string
 	sourceStatus    *exec.DAGRunStatus
-	editedDAG       *core.DAG
+	editedDAG       *ir.DAG
 	targetWorkspace string
 	newDAGRunID     string
 	profileName     string
@@ -287,7 +287,7 @@ func (a *API) buildEditRetryPlan(
 	if status == nil {
 		return nil, nil, fmt.Errorf("failed to read status: status data is nil")
 	}
-	if status.Status.IsActive() || status.Status == core.NotStarted {
+	if status.Status.IsActive() || status.Status == ir.NotStarted {
 		return nil, nil, badEditRetryRequest(fmt.Sprintf("dag-run %s is %s and cannot be edit-retried", sourceDAGRunID, status.Status.String()))
 	}
 
@@ -304,7 +304,7 @@ func (a *API) buildEditRetryPlan(
 		validationErrors = append(validationErrors, "spec is required")
 	}
 	if opts.nameOverride != "" {
-		if err := core.ValidateDAGName(opts.nameOverride); err != nil {
+		if err := ir.ValidateDAGName(opts.nameOverride); err != nil {
 			validationErrors = append(validationErrors, err.Error())
 		}
 	}
@@ -318,7 +318,7 @@ func (a *API) buildEditRetryPlan(
 			sourceAttempt:   attempt,
 			sourceDAGRunID:  sourceDAGRunID,
 			sourceStatus:    status,
-			editedDAG:       &core.DAG{Name: dagName},
+			editedDAG:       &ir.DAG{Name: dagName},
 			targetWorkspace: statusWorkspaceName(status),
 			newDAGRunID:     opts.newDAGRunID,
 		}, validationErrors, nil
@@ -339,7 +339,7 @@ func (a *API) buildEditRetryPlan(
 			sourceAttempt:   attempt,
 			sourceDAGRunID:  sourceDAGRunID,
 			sourceStatus:    status,
-			editedDAG:       &core.DAG{Name: editRetryFallbackDAGName(dagName, opts.nameOverride)},
+			editedDAG:       &ir.DAG{Name: editRetryFallbackDAGName(dagName, opts.nameOverride)},
 			targetWorkspace: submittedSpecRuntimeWorkspaceName(opts.specContent, ""),
 			newDAGRunID:     opts.newDAGRunID,
 			params:          params,
@@ -370,7 +370,7 @@ func (a *API) loadEditedRetryDAG(
 	opts editRetryOptions,
 	params string,
 	sourceDAGRunID string,
-) (*core.DAG, []string, error) {
+) (*ir.DAG, []string, error) {
 	loadName := opts.nameOverride
 
 	var namePtr *string
@@ -398,7 +398,7 @@ func (a *API) loadEditedRetryDAG(
 	if apiErr := buildErrorsToAPIError(resolved.BuildErrors); apiErr != nil {
 		validationErrors = append(validationErrors, apiErr.Message)
 	}
-	if err := core.ValidateStartParams(resolved.DefaultParams, core.StartParamInput{RawParams: params}); err != nil {
+	if err := ir.ValidateStartParams(resolved.DefaultParams, ir.StartParamInput{RawParams: params}); err != nil {
 		validationErrors = append(validationErrors, err.Error())
 	}
 
@@ -418,11 +418,11 @@ type editRetryStepPlan struct {
 
 func planEditRetrySteps(
 	status *exec.DAGRunStatus,
-	dag *core.DAG,
+	dag *ir.DAG,
 	requestedSkipSteps *[]string,
 ) editRetryStepPlan {
 	var plan editRetryStepPlan
-	editedSteps := make(map[string]core.Step, len(dag.Steps))
+	editedSteps := make(map[string]ir.Step, len(dag.Steps))
 	editedOrder := make([]string, 0, len(dag.Steps))
 	for _, step := range dag.Steps {
 		editedSteps[step.Name] = step
@@ -508,14 +508,14 @@ func isReusableEditRetrySourceNode(node *exec.Node) bool {
 	if node == nil {
 		return false
 	}
-	return node.Status.IsSuccess() || (node.Status == core.NodeSkipped && node.SkippedByRetry)
+	return node.Status.IsSuccess() || (node.Status == ir.NodeSkipped && node.SkippedByRetry)
 }
 
 func editRetrySourceStatusReason(node *exec.Node) string {
 	if node == nil {
 		return "step was not present in the source DAG-run"
 	}
-	if node.Status == core.NodeSkipped {
+	if node.Status == ir.NodeSkipped {
 		if node.SkippedByRetry {
 			return "source step was skipped by edit retry but is missing reusable output data"
 		}
@@ -524,7 +524,7 @@ func editRetrySourceStatusReason(node *exec.Node) string {
 	return fmt.Sprintf("source step status is %s, not reusable", node.Status.String())
 }
 
-func missingEditedRetryOutputReason(node *exec.Node, editedStep core.Step) string {
+func missingEditedRetryOutputReason(node *exec.Node, editedStep ir.Step) string {
 	if editedStep.Output == "" {
 		return ""
 	}
@@ -547,7 +547,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	}
 	queueConfigured := a.config.FindQueueConfig(plan.editedDAG.ProcGroup()) != nil
 	shouldDispatch := !queueConfigured && dispatch.ShouldDispatchToCoordinator(plan.editedDAG, a.coordinatorCli != nil, a.defaultExecMode)
-	if shouldDispatch && plan.editedDAG.Type == core.TypeIncremental {
+	if shouldDispatch && plan.editedDAG.Type == ir.TypeIncremental {
 		return false, incrementalRequiresLocalAPIError()
 	}
 
@@ -604,9 +604,9 @@ func (a *API) markEditRetrySeedFailed(ctx context.Context, status *exec.DAGRunSt
 		ctx,
 		status.DAGRun(),
 		status.AttemptID,
-		core.Queued,
+		ir.Queued,
 		func(latest *exec.DAGRunStatus) error {
-			latest.Status = core.Failed
+			latest.Status = ir.Failed
 			latest.FinishedAt = stringutil.FormatTime(time.Now())
 			latest.Error = cause.Error()
 			return nil
@@ -623,7 +623,7 @@ func (a *API) markEditRetrySeedFailed(ctx context.Context, status *exec.DAGRunSt
 
 func (a *API) seedEditRetryAttempt(
 	ctx context.Context,
-	dag *core.DAG,
+	dag *ir.DAG,
 	dagRunID string,
 	params string,
 	profileName string,
@@ -669,11 +669,11 @@ func (a *API) seedEditRetryAttempt(
 			exec.NewDAGRunRef(dag.Name, dagRunID),
 			exec.DAGRunRef{},
 		),
-		transform.WithTriggerType(core.TriggerTypeRetry),
+		transform.WithTriggerType(ir.TriggerTypeRetry),
 		transform.WithTriggerActor(triggerActorFromContext(ctx)),
 		transform.WithRuntimeProfile(profileName, "", nil),
 	}
-	status := transform.NewStatusBuilder(dag).Create(dagRunID, core.Queued, 0, time.Time{}, opts...)
+	status := transform.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
 	status.Params = params
 	status.ParamsList = dag.Params
 
@@ -899,7 +899,7 @@ func cleanEditRetryWorkDir(dir string) string {
 	return filepath.Clean(dir)
 }
 
-func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec.DAGRunStatus) error {
+func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *exec.DAGRunStatus) error {
 	opts := []executor.TaskOption{
 		executor.WithWorkerSelector(dag.WorkerSelector),
 		executor.WithPreviousStatus(status),
@@ -927,7 +927,7 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *core.DAG, status *exec
 	return nil
 }
 
-func editRetrySeedNodes(dag *core.DAG, sourceStatus *exec.DAGRunStatus, skippedSteps []string) []runtime.NodeData {
+func editRetrySeedNodes(dag *ir.DAG, sourceStatus *exec.DAGRunStatus, skippedSteps []string) []runtime.NodeData {
 	sourceNodes := make(map[string]*exec.Node, len(sourceStatus.Nodes))
 	for _, node := range sourceStatus.Nodes {
 		if node != nil {
@@ -944,7 +944,7 @@ func editRetrySeedNodes(dag *core.DAG, sourceStatus *exec.DAGRunStatus, skippedS
 		data := runtime.NodeData{
 			Step: step,
 			State: runtime.NodeState{
-				Status: core.NodeNotStarted,
+				Status: ir.NodeNotStarted,
 			},
 		}
 		if _, ok := skipSet[step.Name]; ok {
@@ -957,7 +957,7 @@ func editRetrySeedNodes(dag *core.DAG, sourceStatus *exec.DAGRunStatus, skippedS
 
 func skippedEditRetryNodeState(source *exec.Node) runtime.NodeState {
 	state := runtime.NodeState{
-		Status:         core.NodeSkipped,
+		Status:         ir.NodeSkipped,
 		SkippedByRetry: true,
 	}
 	if source == nil {
@@ -1025,7 +1025,7 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-func editRetryArtifactDir(ctx context.Context, baseDir string, dag *core.DAG, dagRunID string) (string, error) {
+func editRetryArtifactDir(ctx context.Context, baseDir string, dag *ir.DAG, dagRunID string) (string, error) {
 	if dag == nil || !dag.ArtifactsEnabled() {
 		return "", nil
 	}
@@ -1040,7 +1040,7 @@ func editRetryArtifactDir(ctx context.Context, baseDir string, dag *core.DAG, da
 	return artifactDir, nil
 }
 
-func editRetryPreviewSteps(dag *core.DAG) []api.Step {
+func editRetryPreviewSteps(dag *ir.DAG) []api.Step {
 	if dag == nil || len(dag.Steps) == 0 {
 		return []api.Step{}
 	}
@@ -1118,13 +1118,13 @@ func (a *API) logEditRetryAudit(ctx context.Context, requestDAGName string, plan
 		"skipped_steps":     plan.skippedSteps,
 		"runnable_steps":    plan.runnableSteps,
 		"queued":            queued,
-		"trigger_type":      core.TriggerTypeRetry.String(),
+		"trigger_type":      ir.TriggerTypeRetry.String(),
 		"source_attempt_id": plan.sourceAttempt.ID(),
 	}
 	a.logAudit(ctx, audit.CategoryDAG, "dag_edit_retry", details)
 	logger.Info(ctx, "Edit retry dag-run launched",
 		tag.DAG(plan.editedDAG.Name),
 		tag.RunID(plan.newDAGRunID),
-		tag.Status(core.Queued.String()),
+		tag.Status(ir.Queued.String()),
 	)
 }

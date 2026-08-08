@@ -7,8 +7,8 @@ package runstate
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Store opens execution state for workflow runs.
@@ -20,7 +20,7 @@ type Store interface {
 
 // BeginAttemptRequest describes the workflow run attempt to open for execution.
 type BeginAttemptRequest struct {
-	DAG        *core.DAG
+	DAG        *ir.DAG
 	RunID      string
 	AttemptID  string
 	Retry      bool

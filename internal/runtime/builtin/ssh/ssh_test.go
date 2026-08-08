@@ -11,7 +11,7 @@ import (
 	"time"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,9 +19,9 @@ import (
 func TestNewSSHExecutor(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "ssh-exec",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "ssh",
 			Config: map[string]any{
 				"User":     "testuser",
@@ -82,9 +82,9 @@ func TestNewSSHExecutor_WithShellConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := core.Step{
+			step := ir.Step{
 				Name: "ssh-exec",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type:   "ssh",
 					Config: tt.config,
 				},
@@ -107,7 +107,7 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 	tests := []struct {
 		name          string
 		client        *Client
-		step          core.Step
+		step          ir.Step
 		expectedShell string
 		expectedArgs  []string
 	}{
@@ -118,9 +118,9 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 				Shell:     "/bin/bash",
 				ShellArgs: []string{"-e"},
 			},
-			step: core.Step{
+			step: ir.Step{
 				Name:           "ssh-step",
-				ExecutorConfig: core.ExecutorConfig{Type: "ssh", Config: nil},
+				ExecutorConfig: ir.ExecutorConfig{Type: "ssh", Config: nil},
 			},
 			expectedShell: "/bin/bash",
 			expectedArgs:  []string{"-e"},
@@ -132,9 +132,9 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 				Shell:     "/bin/sh",
 				ShellArgs: []string{"-e"},
 			},
-			step: core.Step{
+			step: ir.Step{
 				Name: "ssh-step",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: "ssh",
 					Config: map[string]any{
 						"user":     "testuser",
@@ -154,11 +154,11 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 				hostPort: "localhost:22",
 				Shell:    "",
 			},
-			step: core.Step{
+			step: ir.Step{
 				Name:           "ssh-step",
 				Shell:          "/bin/bash",
 				ShellArgs:      []string{"-e"},
-				ExecutorConfig: core.ExecutorConfig{Type: "ssh", Config: nil},
+				ExecutorConfig: ir.ExecutorConfig{Type: "ssh", Config: nil},
 			},
 			expectedShell: "/bin/bash",
 			expectedArgs:  []string{"-e"},
@@ -170,11 +170,11 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 				Shell:     "/bin/zsh",
 				ShellArgs: []string{"-e"},
 			},
-			step: core.Step{
+			step: ir.Step{
 				Name:           "ssh-step",
 				Shell:          "/bin/bash",
 				ShellArgs:      []string{"-o", "pipefail"},
-				ExecutorConfig: core.ExecutorConfig{Type: "ssh", Config: nil},
+				ExecutorConfig: ir.ExecutorConfig{Type: "ssh", Config: nil},
 			},
 			expectedShell: "/bin/zsh",
 			expectedArgs:  []string{"-e"},
@@ -185,9 +185,9 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 				hostPort: "localhost:22",
 				Shell:    "/bin/zsh",
 			},
-			step: core.Step{
+			step: ir.Step{
 				Name: "ssh-step",
-				ExecutorConfig: core.ExecutorConfig{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type: "ssh",
 					Config: map[string]any{
 						"user":     "stepuser",
@@ -221,22 +221,22 @@ func TestSSHExecutorCommandResolution(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		step            core.Step
+		step            ir.Step
 		dagShell        string
 		expectSkipShell bool
 	}{
 		{
 			name: "StepShellSet",
-			step: core.Step{
+			step: ir.Step{
 				Shell:          "/bin/bash",
-				ExecutorConfig: core.ExecutorConfig{Type: "ssh"},
+				ExecutorConfig: ir.ExecutorConfig{Type: "ssh"},
 			},
 			expectSkipShell: false,
 		},
 		{
 			name: "StepConfigShellSet",
-			step: core.Step{
-				ExecutorConfig: core.ExecutorConfig{
+			step: ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type:   "ssh",
 					Config: map[string]any{"shell": "/bin/bash"},
 				},
@@ -245,8 +245,8 @@ func TestSSHExecutorCommandResolution(t *testing.T) {
 		},
 		{
 			name: "StepConfigNoShell",
-			step: core.Step{
-				ExecutorConfig: core.ExecutorConfig{
+			step: ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{
 					Type:   "ssh",
 					Config: map[string]any{"user": "test"},
 				},
@@ -255,16 +255,16 @@ func TestSSHExecutorCommandResolution(t *testing.T) {
 		},
 		{
 			name: "DAGShellSet",
-			step: core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "ssh"},
+			step: ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "ssh"},
 			},
 			dagShell:        "/bin/bash",
 			expectSkipShell: false,
 		},
 		{
 			name: "NoShellAnywhere",
-			step: core.Step{
-				ExecutorConfig: core.ExecutorConfig{Type: "ssh"},
+			step: ir.Step{
+				ExecutorConfig: ir.ExecutorConfig{Type: "ssh"},
 			},
 			expectSkipShell: true,
 		},
@@ -288,9 +288,9 @@ func TestSSHExecutor_BuildScript_WithWorkingDir(t *testing.T) {
 	t.Parallel()
 
 	exec := &sshExecutor{
-		step: core.Step{
+		step: ir.Step{
 			Dir: "/app/src", // Working directory is taken from step.Dir
-			Commands: []core.CommandEntry{
+			Commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}},
 			},
 		},
@@ -313,7 +313,7 @@ func TestSSHExecutor_BuildScript_WithScript(t *testing.T) {
 	t.Parallel()
 
 	exec := &sshExecutor{
-		step: core.Step{
+		step: ir.Step{
 			Script: "echo 'line1'\necho 'line2'",
 		},
 		shell: "/bin/bash",
@@ -332,8 +332,8 @@ func TestSSHExecutor_BuildScript_WithCommands(t *testing.T) {
 	t.Parallel()
 
 	exec := &sshExecutor{
-		step: core.Step{
-			Commands: []core.CommandEntry{
+		step: ir.Step{
+			Commands: []ir.CommandEntry{
 				{Command: "git", Args: []string{"pull"}},
 				{Command: "make", Args: []string{"build"}},
 				{Command: "./deploy.sh"},
@@ -355,8 +355,8 @@ func TestSSHExecutor_BuildScript_FunctionWrapper(t *testing.T) {
 	t.Parallel()
 
 	exec := &sshExecutor{
-		step: core.Step{
-			Commands: []core.CommandEntry{
+		step: ir.Step{
+			Commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"test"}},
 			},
 		},
@@ -376,21 +376,21 @@ func TestSSHExecutor_ResolveShell_Fallback(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		step          core.Step
+		step          ir.Step
 		client        *Client
 		expectedShell string
 		expectedArgs  []string
 	}{
 		{
 			name:          "FallbackToSh",
-			step:          core.Step{},
+			step:          ir.Step{},
 			client:        &Client{},
 			expectedShell: "/bin/sh",
 			expectedArgs:  nil,
 		},
 		{
 			name: "ClientShellTakesPriority",
-			step: core.Step{Shell: "/bin/zsh"},
+			step: ir.Step{Shell: "/bin/zsh"},
 			client: &Client{
 				Shell:     "/bin/bash",
 				ShellArgs: []string{"-e"},
@@ -400,7 +400,7 @@ func TestSSHExecutor_ResolveShell_Fallback(t *testing.T) {
 		},
 		{
 			name:          "StepShellWhenNoClient",
-			step:          core.Step{Shell: "/bin/zsh", ShellArgs: []string{"-x"}},
+			step:          ir.Step{Shell: "/bin/zsh", ShellArgs: []string{"-x"}},
 			client:        &Client{},
 			expectedShell: "/bin/zsh",
 			expectedArgs:  []string{"-x"},
@@ -423,22 +423,22 @@ func TestSSHExecutor_BuildCommandString(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		cmd      core.CommandEntry
+		cmd      ir.CommandEntry
 		expected string
 	}{
 		{
 			name:     "CommandOnly",
-			cmd:      core.CommandEntry{Command: "ls"},
+			cmd:      ir.CommandEntry{Command: "ls"},
 			expected: "ls",
 		},
 		{
 			name:     "CommandWithArgs",
-			cmd:      core.CommandEntry{Command: "ls", Args: []string{"-la", "/tmp"}},
+			cmd:      ir.CommandEntry{Command: "ls", Args: []string{"-la", "/tmp"}},
 			expected: "ls -la /tmp",
 		},
 		{
 			name:     "CommandWithSpacesInArgs",
-			cmd:      core.CommandEntry{Command: "echo", Args: []string{"hello world"}},
+			cmd:      ir.CommandEntry{Command: "echo", Args: []string{"hello world"}},
 			expected: "echo 'hello world'",
 		},
 	}
@@ -564,7 +564,7 @@ func TestSSHExecutor_Run_NoCommands(t *testing.T) {
 
 	// Create executor with no commands or script
 	exec := &sshExecutor{
-		step: core.Step{
+		step: ir.Step{
 			Commands: nil,
 			Script:   "",
 		},
@@ -606,9 +606,9 @@ func TestNewSSHExecutor_NoConfig(t *testing.T) {
 	t.Parallel()
 
 	// Create step without SSH config and without DAG-level SSH client
-	step := core.Step{
+	step := ir.Step{
 		Name: "ssh-exec",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type:   "ssh",
 			Config: nil,
 		},
@@ -728,9 +728,9 @@ func TestNewClient_WithBastionConfig(t *testing.T) {
 func TestNewSFTPExecutor(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "sftp-transfer",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sftp",
 			Config: map[string]any{
 				"user":        "testuser",
@@ -801,9 +801,9 @@ func TestNewSFTPExecutor_ValidationErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := core.Step{
+			step := ir.Step{
 				Name:           "sftp-transfer",
-				ExecutorConfig: core.ExecutorConfig{Type: "sftp", Config: tt.config},
+				ExecutorConfig: ir.ExecutorConfig{Type: "sftp", Config: tt.config},
 			}
 			_, err := NewSFTPExecutor(context.Background(), step)
 			require.Error(t, err)
@@ -815,9 +815,9 @@ func TestNewSFTPExecutor_ValidationErrors(t *testing.T) {
 func TestNewSFTPExecutor_DefaultDirection(t *testing.T) {
 	t.Parallel()
 
-	step := core.Step{
+	step := ir.Step{
 		Name: "sftp-transfer",
-		ExecutorConfig: core.ExecutorConfig{
+		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sftp",
 			Config: map[string]any{
 				"user":        "testuser",

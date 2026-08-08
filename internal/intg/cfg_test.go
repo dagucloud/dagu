@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -127,7 +127,7 @@ steps:
 		err := agent.Run(agent.Context)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "step timed out")
-		dag.AssertLatestStatus(t, core.Failed)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
 	t.Run("NamedParams", func(t *testing.T) {
@@ -667,7 +667,7 @@ steps:
 		require.NoError(t, err)
 
 		// The test should fail with the current implementation
-		dag.AssertLatestStatus(t, core.Succeeded)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
 }
 
@@ -912,7 +912,7 @@ steps:
 	require.NoError(t, agent.Run(agent.Context))
 
 	// Verify successful completion
-	dag.AssertLatestStatus(t, core.Succeeded)
+	dag.AssertLatestStatus(t, ir.Succeeded)
 
 	// Assert the output contains the step-level environment variable
 	dag.AssertOutputs(t, map[string]any{

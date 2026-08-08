@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
@@ -74,15 +74,15 @@ func newMockDAGRunStore() *mockDAGRunStore {
 }
 
 func registerCommandExecutorCapsForCoordinatorTest() {
-	caps := core.ExecutorCapabilities{
+	caps := ir.ExecutorCapabilities{
 		Command:          true,
 		MultipleCommands: true,
 		Script:           true,
 		Shell:            true,
 	}
-	core.RegisterExecutorCapabilities("", caps)
-	core.RegisterExecutorCapabilities("shell", caps)
-	core.RegisterExecutorCapabilities("command", caps)
+	ir.RegisterExecutorCapabilities("", caps)
+	ir.RegisterExecutorCapabilities("shell", caps)
+	ir.RegisterExecutorCapabilities("command", caps)
 }
 
 func (m *mockDAGRunStore) addSubAttempt(rootRef exec.DAGRunRef, subDAGRunID string, status *exec.DAGRunStatus) *mockDAGRunAttempt {
@@ -128,7 +128,7 @@ func (m *mockDAGRunStore) FindAttempt(_ context.Context, dagRun exec.DAGRunRef) 
 
 // Implement other required interface methods (unused in tests)
 // These methods return sentinel errors or panic to make test failures obvious if accidentally called.
-func (m *mockDAGRunStore) CreateAttempt(_ context.Context, dag *core.DAG, _ time.Time, dagRunID string, _ exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) CreateAttempt(_ context.Context, dag *ir.DAG, _ time.Time, dagRunID string, _ exec.NewDAGRunAttemptOptions) (exec.DAGRunAttempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.createAttemptErr != nil {
@@ -156,7 +156,7 @@ func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...exec.ListDAG
 		opt(&options)
 	}
 
-	statusFilter := make(map[core.Status]struct{}, len(options.Statuses))
+	statusFilter := make(map[ir.Status]struct{}, len(options.Statuses))
 	for _, st := range options.Statuses {
 		statusFilter[st] = struct{}{}
 	}
@@ -222,7 +222,7 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
 	dagRun exec.DAGRunRef,
 	expectedAttemptID string,
-	expectedStatus core.Status,
+	expectedStatus ir.Status,
 	mutate func(*exec.DAGRunStatus) error,
 	opts ...exec.CompareAndSwapStatusOption,
 ) (*exec.DAGRunStatus, bool, error) {
@@ -303,7 +303,7 @@ func (m *mockDAGRunStore) RemoveDAGRun(_ context.Context, _ exec.DAGRunRef, _ ..
 
 // mockDAGRunAttempt is a test implementation of execution.DAGRunAttempt
 type mockDAGRunAttempt struct {
-	dag                    *core.DAG
+	dag                    *ir.DAG
 	status                 *exec.DAGRunStatus
 	opened                 bool
 	closed                 bool
@@ -379,8 +379,8 @@ func (m *mockDAGRunAttempt) ReadStatus(_ context.Context) (*exec.DAGRunStatus, e
 	cloned := *m.status
 	return &cloned, nil
 }
-func (m *mockDAGRunAttempt) ReadDAG(_ context.Context) (*core.DAG, error) { return m.dag, nil }
-func (m *mockDAGRunAttempt) SetDAG(dag *core.DAG) {
+func (m *mockDAGRunAttempt) ReadDAG(_ context.Context) (*ir.DAG, error) { return m.dag, nil }
+func (m *mockDAGRunAttempt) SetDAG(dag *ir.DAG) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dag = dag
@@ -443,9 +443,9 @@ func TestTransformArtifactPathsCreatesDirectory(t *testing.T) {
 	baseDir := t.TempDir()
 	handler := &Handler{artifactDir: baseDir}
 	attempt := &mockDAGRunAttempt{
-		dag: &core.DAG{
+		dag: &ir.DAG{
 			Name: "test-dag",
-			Artifacts: &core.ArtifactsConfig{
+			Artifacts: &ir.ArtifactsConfig{
 				Enabled: true,
 			},
 		},
@@ -470,9 +470,9 @@ func TestTransformArtifactPathsSanitizesDAGName(t *testing.T) {
 	baseDir := t.TempDir()
 	handler := &Handler{artifactDir: baseDir}
 	attempt := &mockDAGRunAttempt{
-		dag: &core.DAG{
+		dag: &ir.DAG{
 			Name: "../weird/..-dag--name",
-			Artifacts: &core.ArtifactsConfig{
+			Artifacts: &ir.ArtifactsConfig{
 				Enabled: true,
 			},
 		},
@@ -516,9 +516,9 @@ func TestTransformArtifactPathsRejectsEmptyExpandedBaseDir(t *testing.T) {
 
 	handler := &Handler{artifactDir: t.TempDir()}
 	attempt := &mockDAGRunAttempt{
-		dag: &core.DAG{
+		dag: &ir.DAG{
 			Name: "test-dag",
-			Artifacts: &core.ArtifactsConfig{
+			Artifacts: &ir.ArtifactsConfig{
 				Enabled: true,
 				Dir:     "${EMPTY_ARTIFACT_DIR}",
 			},
@@ -539,9 +539,9 @@ func TestTransformArtifactPathsUsesDAGSpecificDirWithoutGlobalArtifactDir(t *tes
 	baseDir := t.TempDir()
 	handler := &Handler{}
 	attempt := &mockDAGRunAttempt{
-		dag: &core.DAG{
+		dag: &ir.DAG{
 			Name: "test-dag",
-			Artifacts: &core.ArtifactsConfig{
+			Artifacts: &ir.ArtifactsConfig{
 				Enabled: true,
 				Dir:     baseDir,
 			},
@@ -865,7 +865,7 @@ func TestHandler_Poll(t *testing.T) {
 		require.NoError(t, findErr)
 		runStatus, readErr := attempt.ReadStatus(context.Background())
 		require.NoError(t, readErr)
-		require.Equal(t, core.Failed, runStatus.Status)
+		require.Equal(t, ir.Failed, runStatus.Status)
 		require.Contains(t, runStatus.Error, "failed to hand off distributed task")
 
 		h.attemptsMu.RLock()
@@ -889,7 +889,7 @@ func TestHandler_Poll(t *testing.T) {
 			Name:      "test-dag",
 			DAGRunID:  "run-123",
 			AttemptID: "attempt-existing",
-			Status:    core.Queued,
+			Status:    ir.Queued,
 		})
 
 		h := NewHandler(HandlerConfig{
@@ -910,7 +910,7 @@ func TestHandler_Poll(t *testing.T) {
 
 		runStatus, readErr := attempt.ReadStatus(context.Background())
 		require.NoError(t, readErr)
-		require.Equal(t, core.Queued, runStatus.Status)
+		require.Equal(t, ir.Queued, runStatus.Status)
 		assert.Equal(t, "attempt-existing", runStatus.AttemptID)
 		assert.True(t, attempt.WasClosed())
 
@@ -975,14 +975,14 @@ func TestHandler_DispatchRejectsStaleQueueDispatchRetry(t *testing.T) {
 		Name:      "test-dag",
 		DAGRunID:  "run-123",
 		AttemptID: "attempt-current",
-		Status:    core.Aborted,
+		Status:    ir.Aborted,
 	})
 
 	previousStatus, err := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 		Name:      "test-dag",
 		DAGRunID:  "run-123",
 		AttemptID: "attempt-queued",
-		Status:    core.Queued,
+		Status:    ir.Queued,
 	})
 	require.NoError(t, err)
 
@@ -1019,7 +1019,7 @@ func TestHandler_DispatchRejectsStaleQueueDispatchRetry(t *testing.T) {
 	runStatus, readErr := attempt.ReadStatus(context.Background())
 	require.NoError(t, readErr)
 	require.Equal(t, "attempt-current", runStatus.AttemptID)
-	require.Equal(t, core.Aborted, runStatus.Status)
+	require.Equal(t, ir.Aborted, runStatus.Status)
 }
 
 type failingDispatchTaskStore struct {
@@ -1146,7 +1146,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			AttemptKey: "root-attempt-key",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker1",
 			LeaseAt:    initialLease,
 		})
@@ -1181,7 +1181,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			DAGRunID:   "sub-456",
 			AttemptID:  "attempt-2",
 			AttemptKey: "sub-attempt-key",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker1",
 			LeaseAt:    initialLease,
 		})
@@ -1337,27 +1337,27 @@ func TestHandler_Heartbeat(t *testing.T) {
 			Root:       ref,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Failed,
+			Status:     ir.Failed,
 			WorkerID:   "worker-1",
 			FinishedAt: "2026-04-20T00:00:01Z",
 			Error:      reason,
 			Nodes: []*exec.Node{
 				{
-					Step:       core.Step{Name: "long-step"},
+					Step:       ir.Step{Name: "long-step"},
 					StartedAt:  "2026-04-20T00:00:00Z",
 					FinishedAt: "2026-04-20T00:00:01Z",
-					Status:     core.NodeFailed,
+					Status:     ir.NodeFailed,
 					Error:      reason,
 				},
 				{
-					Step:       core.Step{Name: "completed-step"},
+					Step:       ir.Step{Name: "completed-step"},
 					StartedAt:  "2026-04-20T00:00:00Z",
 					FinishedAt: "2026-04-20T00:00:01Z",
-					Status:     core.NodeSucceeded,
+					Status:     ir.NodeSucceeded,
 				},
 				{
-					Step:   core.Step{Name: "pending-step"},
-					Status: core.NodeFailed,
+					Step:   ir.Step{Name: "pending-step"},
+					Status: ir.NodeFailed,
 					Error:  reason,
 				},
 			},
@@ -1388,16 +1388,16 @@ func TestHandler_Heartbeat(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Running, status.Status)
+		assert.Equal(t, ir.Running, status.Status)
 		assert.Empty(t, status.Error)
 		assert.Empty(t, status.FinishedAt)
 		require.Len(t, status.Nodes, 3)
-		assert.Equal(t, core.NodeRunning, status.Nodes[0].Status)
+		assert.Equal(t, ir.NodeRunning, status.Nodes[0].Status)
 		assert.Equal(t, "2026-04-20T00:00:00Z", status.Nodes[0].StartedAt)
 		assert.Empty(t, status.Nodes[0].FinishedAt)
 		assert.Empty(t, status.Nodes[0].Error)
-		assert.Equal(t, core.NodeSucceeded, status.Nodes[1].Status)
-		assert.Equal(t, core.NodeNotStarted, status.Nodes[2].Status)
+		assert.Equal(t, ir.NodeSucceeded, status.Nodes[1].Status)
+		assert.Equal(t, ir.NodeNotStarted, status.Nodes[2].Status)
 		assert.Equal(t, "-", status.Nodes[2].StartedAt)
 		assert.Equal(t, "-", status.Nodes[2].FinishedAt)
 		assert.Empty(t, status.Nodes[2].Error)
@@ -1406,7 +1406,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "attempt-1", record.AttemptID)
 		assert.Equal(t, "worker-1", record.WorkerID)
-		assert.Equal(t, core.Running, record.Status)
+		assert.Equal(t, ir.Running, record.Status)
 	})
 
 	t.Run("RunHeartbeatStaleRepairSurvivesCallerCancellation", func(t *testing.T) {
@@ -1429,7 +1429,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			Root:       ref,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Failed,
+			Status:     ir.Failed,
 			WorkerID:   "worker-1",
 			FinishedAt: "2026-04-20T00:00:01Z",
 			Error:      reason,
@@ -1458,7 +1458,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Running, status.Status)
+		assert.Equal(t, ir.Running, status.Status)
 		assert.Empty(t, status.Error)
 		assert.Empty(t, status.FinishedAt)
 	})
@@ -1482,7 +1482,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			Root:       ref,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 		})
 
@@ -1530,11 +1530,11 @@ func TestHandler_Heartbeat(t *testing.T) {
 			Root:       ref,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Failed,
+			Status:     ir.Failed,
 			WorkerID:   "worker-1",
 			Error:      "exit status 1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeFailed, Error: "exit status 1"},
+				{Status: ir.NodeFailed, Error: "exit status 1"},
 			},
 		})
 
@@ -1564,9 +1564,9 @@ func TestHandler_Heartbeat(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Failed, status.Status)
+		assert.Equal(t, ir.Failed, status.Status)
 		assert.Equal(t, "exit status 1", status.Error)
-		assert.Equal(t, core.NodeFailed, status.Nodes[0].Status)
+		assert.Equal(t, ir.NodeFailed, status.Nodes[0].Status)
 		assert.Equal(t, "exit status 1", status.Nodes[0].Error)
 		assert.False(t, attempt.WasWritten())
 	})
@@ -1627,7 +1627,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			AttemptKey: "current-attempt-key",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker1",
 			LeaseAt:    initialLease,
 		})
@@ -1661,7 +1661,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			Name:      "test-dag",
 			DAGRunID:  "run-123",
 			AttemptID: "attempt-1",
-			Status:    core.Running,
+			Status:    ir.Running,
 			WorkerID:  "worker-a",
 			LeaseAt:   initialLease,
 		})
@@ -1849,10 +1849,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		initialStatus := &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
-				{Status: core.NodeSucceeded},
+				{Status: ir.NodeRunning},
+				{Status: ir.NodeSucceeded},
 			},
 		}
 		attempt := store.addAttempt(ref, initialStatus)
@@ -1868,15 +1868,15 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		// Check the status
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, ir.Failed, status.Status)
 		require.Equal(t, "worker crashed", status.Error)
 		require.NotEmpty(t, status.FinishedAt)
 
 		// Check that running node was marked as failed
-		require.Equal(t, core.NodeFailed, status.Nodes[0].Status)
+		require.Equal(t, ir.NodeFailed, status.Nodes[0].Status)
 		require.Equal(t, "worker crashed", status.Nodes[0].Error)
 		// Succeeded node should remain unchanged
-		require.Equal(t, core.NodeSucceeded, status.Nodes[1].Status)
+		require.Equal(t, ir.NodeSucceeded, status.Nodes[1].Status)
 	})
 
 	t.Run("MarkRunFailedSkipsCompletedRuns", func(t *testing.T) {
@@ -1891,7 +1891,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		initialStatus := &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		}
 		attempt := store.addAttempt(ref, initialStatus)
 
@@ -1902,7 +1902,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.False(t, attempt.WasWritten())
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.Succeeded, status.Status)
+		require.Equal(t, ir.Succeeded, status.Status)
 	})
 
 	t.Run("MarkWorkerTasksFailedWithNoStore", func(t *testing.T) {
@@ -1953,7 +1953,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		initialStatus := &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		}
 		attempt := store.addAttempt(ref, initialStatus)
 
@@ -1977,7 +1977,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.True(t, attempt.WasWritten())
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, ir.Failed, status.Status)
 		require.Contains(t, status.Error, "stale-worker")
 		require.Contains(t, status.Error, "unresponsive")
 	})
@@ -1994,7 +1994,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		status1 := &exec.DAGRunStatus{
 			Name:     "dag1",
 			DAGRunID: "run-1",
-			Status:   core.Running,
+			Status:   ir.Running,
 		}
 		attempt1 := store.addAttempt(ref1, status1)
 
@@ -2002,7 +2002,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		status2 := &exec.DAGRunStatus{
 			Name:     "dag2",
 			DAGRunID: "run-2",
-			Status:   core.Running,
+			Status:   ir.Running,
 		}
 		attempt2 := store.addAttempt(ref2, status2)
 
@@ -2029,8 +2029,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		s1, _ := attempt1.ReadStatus(ctx)
 		s2, _ := attempt2.ReadStatus(ctx)
-		require.Equal(t, core.Failed, s1.Status)
-		require.Equal(t, core.Failed, s2.Status)
+		require.Equal(t, ir.Failed, s1.Status)
+		require.Equal(t, ir.Failed, s2.Status)
 
 		// Verify the stale worker was removed
 		h.mu.Lock()
@@ -2050,7 +2050,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		status := &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		}
 		attempt := store.addAttempt(ref, status)
 
@@ -2079,7 +2079,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		// Verify the task was marked as failed
 		s, _ := attempt.ReadStatus(ctx)
-		require.Equal(t, core.Failed, s.Status)
+		require.Equal(t, ir.Failed, s.Status)
 	})
 
 	t.Run("DetectStaleLeasesOnlyFailsRunningDistributedRuns", func(t *testing.T) {
@@ -2097,21 +2097,21 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		runningAttempt := store.addAttempt(exec.DAGRunRef{Name: "running-dag", ID: "run-1"}, &exec.DAGRunStatus{
 			Name:     "running-dag",
 			DAGRunID: "run-1",
-			Status:   core.Running,
+			Status:   ir.Running,
 			WorkerID: "worker1",
 			LeaseAt:  staleLease,
 		})
 		waitingAttempt := store.addAttempt(exec.DAGRunRef{Name: "waiting-dag", ID: "run-2"}, &exec.DAGRunStatus{
 			Name:     "waiting-dag",
 			DAGRunID: "run-2",
-			Status:   core.Waiting,
+			Status:   ir.Waiting,
 			WorkerID: "worker1",
 			LeaseAt:  staleLease,
 		})
 		queuedAttempt := store.addAttempt(exec.DAGRunRef{Name: "queued-dag", ID: "run-3"}, &exec.DAGRunStatus{
 			Name:     "queued-dag",
 			DAGRunID: "run-3",
-			Status:   core.Queued,
+			Status:   ir.Queued,
 			WorkerID: "worker1",
 			LeaseAt:  staleLease,
 		})
@@ -2120,15 +2120,15 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		runningStatus, err := runningAttempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Failed, runningStatus.Status)
+		assert.Equal(t, ir.Failed, runningStatus.Status)
 
 		waitingStatus, err := waitingAttempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Waiting, waitingStatus.Status)
+		assert.Equal(t, ir.Waiting, waitingStatus.Status)
 
 		queuedStatus, err := queuedAttempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Queued, queuedStatus.Status)
+		assert.Equal(t, ir.Queued, queuedStatus.Status)
 	})
 
 	t.Run("DetectStaleSharedLeaseFailsLatestMatchingAttemptAndDeletesLease", func(t *testing.T) {
@@ -2136,15 +2136,15 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		testCases := []struct {
 			name       string
-			status     core.Status
-			nodeStatus core.NodeStatus
+			status     ir.Status
+			nodeStatus ir.NodeStatus
 			workerID   string
 		}{
-			{name: "Running", status: core.Running, nodeStatus: core.NodeRunning, workerID: "worker-1"},
-			{name: "NotStarted", status: core.NotStarted, nodeStatus: core.NodeNotStarted, workerID: "worker-1"},
-			{name: "NotStartedWithoutPersistedWorkerID", status: core.NotStarted, nodeStatus: core.NodeNotStarted},
-			{name: "Queued", status: core.Queued, nodeStatus: core.NodeNotStarted, workerID: "worker-1"},
-			{name: "QueuedWithoutPersistedWorkerID", status: core.Queued, nodeStatus: core.NodeNotStarted},
+			{name: "Running", status: ir.Running, nodeStatus: ir.NodeRunning, workerID: "worker-1"},
+			{name: "NotStarted", status: ir.NotStarted, nodeStatus: ir.NodeNotStarted, workerID: "worker-1"},
+			{name: "NotStartedWithoutPersistedWorkerID", status: ir.NotStarted, nodeStatus: ir.NodeNotStarted},
+			{name: "Queued", status: ir.Queued, nodeStatus: ir.NodeNotStarted, workerID: "worker-1"},
+			{name: "QueuedWithoutPersistedWorkerID", status: ir.Queued, nodeStatus: ir.NodeNotStarted},
 		}
 
 		for _, tc := range testCases {
@@ -2189,9 +2189,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 				status, err := attempt.ReadStatus(ctx)
 				require.NoError(t, err)
-				assert.Equal(t, core.Failed, status.Status)
+				assert.Equal(t, ir.Failed, status.Status)
 				assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
-				assert.Equal(t, core.NodeFailed, status.Nodes[0].Status)
+				assert.Equal(t, ir.NodeFailed, status.Nodes[0].Status)
 				assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Nodes[0].Error)
 
 				_, err = leaseStore.Get(ctx, "lease-key-1")
@@ -2221,10 +2221,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 
@@ -2246,9 +2246,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Failed, status.Status)
+		assert.Equal(t, ir.Failed, status.Status)
 		assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
-		assert.Equal(t, core.NodeFailed, status.Nodes[0].Status)
+		assert.Equal(t, ir.NodeFailed, status.Nodes[0].Status)
 
 		_, err = leaseStore.Get(ctx, "lease-key-1")
 		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
@@ -2275,10 +2275,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 		h.openAttempts[ref.ID] = attempt
@@ -2300,7 +2300,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.True(t, attempt.WasClosed())
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Failed, status.Status)
+		assert.Equal(t, ir.Failed, status.Status)
 
 		h.attemptsMu.RLock()
 		_, cached := h.openAttempts[ref.ID]
@@ -2333,10 +2333,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 		attempt.writeStarted = writeStarted
@@ -2364,7 +2364,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
 			ProcGroup:  "lease-dag",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 		})
 		require.NoError(t, convErr)
@@ -2421,7 +2421,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Running, status.Status)
+		assert.Equal(t, ir.Running, status.Status)
 		lease, err := leaseStore.Get(ctx, "lease-key-1")
 		require.NoError(t, err)
 		assert.Greater(t, lease.LastHeartbeatAt, staleAt.UnixMilli())
@@ -2453,10 +2453,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			Root:       root,
 			AttemptID:  attemptID,
 			AttemptKey: attemptKey,
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 
@@ -2483,9 +2483,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, core.Failed, status.Status)
+		require.Equal(t, ir.Failed, status.Status)
 		require.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
-		require.Equal(t, core.NodeFailed, status.Nodes[0].Status)
+		require.Equal(t, ir.NodeFailed, status.Nodes[0].Status)
 		require.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Nodes[0].Error)
 
 		_, err = leaseStore.Get(ctx, attemptKey)
@@ -2515,10 +2515,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 
@@ -2553,8 +2553,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Running, status.Status)
-		assert.Equal(t, core.NodeRunning, status.Nodes[0].Status)
+		assert.Equal(t, ir.Running, status.Status)
+		assert.Equal(t, ir.NodeRunning, status.Nodes[0].Status)
 
 		lease, err := leaseStore.Get(ctx, attemptKey)
 		require.NoError(t, err)
@@ -2586,10 +2586,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 
@@ -2613,8 +2613,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Running, status.Status)
-		assert.Equal(t, core.NodeRunning, status.Nodes[0].Status)
+		assert.Equal(t, ir.Running, status.Status)
+		assert.Equal(t, ir.NodeRunning, status.Nodes[0].Status)
 
 		lease, err := leaseStore.Get(ctx, attemptKey)
 		require.NoError(t, err)
@@ -2645,10 +2645,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 
@@ -2675,9 +2675,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Failed, status.Status)
+		assert.Equal(t, ir.Failed, status.Status)
 		assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
-		assert.Equal(t, core.NodeFailed, status.Nodes[0].Status)
+		assert.Equal(t, ir.NodeFailed, status.Nodes[0].Status)
 
 		_, err = leaseStore.Get(ctx, attemptKey)
 		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
@@ -2701,10 +2701,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 
@@ -2712,9 +2712,9 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Failed, status.Status)
+		assert.Equal(t, ir.Failed, status.Status)
 		assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
-		assert.Equal(t, core.NodeFailed, status.Nodes[0].Status)
+		assert.Equal(t, ir.NodeFailed, status.Nodes[0].Status)
 	})
 
 	t.Run("DetectStaleLeasesRestoresMissingLeaseFromActiveIndexWhenFreshWorkerHeartbeatStillReportsAttempt", func(t *testing.T) {
@@ -2742,10 +2742,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 		staleAt := time.Now().Add(-10 * time.Second).UTC()
@@ -2755,7 +2755,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			Root:       ref,
 			AttemptID:  "attempt-1",
 			WorkerID:   "worker-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			UpdatedAt:  staleAt.UnixMilli(),
 		}))
 		require.NoError(t, heartbeatStore.Upsert(ctx, exec.WorkerHeartbeatRecord{
@@ -2778,8 +2778,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Running, status.Status)
-		assert.Equal(t, core.NodeRunning, status.Nodes[0].Status)
+		assert.Equal(t, ir.Running, status.Status)
+		assert.Equal(t, ir.NodeRunning, status.Nodes[0].Status)
 
 		lease, err := leaseStore.Get(ctx, attemptKey)
 		require.NoError(t, err)
@@ -2814,10 +2814,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 		freshAt := time.Now().UTC()
@@ -2838,7 +2838,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Running, status.Status)
+		assert.Equal(t, ir.Running, status.Status)
 
 		record, err := activeStore.Get(ctx, attemptKey)
 		require.NoError(t, err)
@@ -2868,10 +2868,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-lease",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 		require.NoError(t, activeStore.Upsert(ctx, exec.ActiveDistributedRun{
@@ -2880,14 +2880,14 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			Root:       ref,
 			AttemptID:  "attempt-1",
 			WorkerID:   "worker-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 		}))
 
 		h.detectStaleLeases(ctx)
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Failed, status.Status)
+		assert.Equal(t, ir.Failed, status.Status)
 		assert.Equal(t, exec.DistributedLeaseExpiredReason("worker-1"), status.Error)
 
 		records, err := activeStore.ListAll(ctx)
@@ -2916,10 +2916,10 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-missing-index",
 			AttemptID:  "attempt-1",
 			AttemptKey: "lease-key-missing-index",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			Nodes: []*exec.Node{
-				{Status: core.NodeRunning},
+				{Status: ir.NodeRunning},
 			},
 		})
 
@@ -2927,7 +2927,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Running, status.Status)
+		assert.Equal(t, ir.Running, status.Status)
 		assert.Zero(t, store.ListStatusesCallCount())
 
 		records, err := activeStore.ListAll(ctx)
@@ -2957,7 +2957,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			DAGRunID:   "run-corrupted",
 			AttemptID:  "attempt-1",
 			AttemptKey: attemptKey,
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 		})
 		attempt.readStatusError = exec.ErrCorruptedStatusFile
@@ -2979,7 +2979,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			Root:       ref,
 			AttemptID:  "attempt-1",
 			WorkerID:   "worker-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 		}))
 
 		h.detectStaleLeases(ctx)
@@ -3007,14 +3007,14 @@ func TestHandler_ReportStatus(t *testing.T) {
 		store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		// Report status
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 		require.NoError(t, convErr)
 
@@ -3039,13 +3039,13 @@ func TestHandler_ReportStatus(t *testing.T) {
 		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 			LeaseAt:  1,
 		})
 		require.NoError(t, convErr)
@@ -3071,7 +3071,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:      ref.Name,
 			DAGRunID:  ref.ID,
 			AttemptID: "attempt-1",
-			Status:    core.Running,
+			Status:    ir.Running,
 			Labels:    []string{"workspace=ops"},
 		})
 
@@ -3079,7 +3079,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:      ref.Name,
 			DAGRunID:  ref.ID,
 			AttemptID: "attempt-1",
-			Status:    core.Failed,
+			Status:    ir.Failed,
 		})
 		require.NoError(t, convErr)
 
@@ -3104,13 +3104,13 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:      ref.Name,
 			DAGRunID:  ref.ID,
 			AttemptID: "attempt-1",
-			Status:    core.Running,
+			Status:    ir.Running,
 		})
 		runningProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:      ref.Name,
 			DAGRunID:  ref.ID,
 			AttemptID: "attempt-1",
-			Status:    core.Running,
+			Status:    ir.Running,
 		})
 		require.NoError(t, convErr)
 		runningResp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{Status: runningProto})
@@ -3121,7 +3121,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:       ref.Name,
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
-			Status:     core.Waiting,
+			Status:     ir.Waiting,
 			FinishedAt: time.Now().UTC().Format(time.RFC3339),
 		})
 		require.NoError(t, convErr)
@@ -3151,10 +3151,10 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Waiting,
+			Status:     ir.Waiting,
 			Nodes: []*exec.Node{{
-				Step:                   core.Step{ID: "review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}},
-				Status:                 core.NodeSucceeded,
+				Step:                   ir.Step{ID: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
+				Status:                 ir.NodeSucceeded,
 				FinishedAt:             completedAt,
 				StepOutputsValue:       &outputs,
 				HumanTaskInput:         []byte(`{"environment":"production"}`),
@@ -3167,10 +3167,10 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Waiting,
+			Status:     ir.Waiting,
 			Nodes: []*exec.Node{{
-				Step:   core.Step{ID: "review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}},
-				Status: core.NodeWaiting,
+				Step:   ir.Step{ID: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
+				Status: ir.NodeWaiting,
 			}},
 		})
 		require.NoError(t, convErr)
@@ -3183,7 +3183,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		persisted, err := attempt.ReadStatus(t.Context())
 		require.NoError(t, err)
 		require.Len(t, persisted.Nodes, 1)
-		assert.Equal(t, core.NodeSucceeded, persisted.Nodes[0].Status)
+		assert.Equal(t, ir.NodeSucceeded, persisted.Nodes[0].Status)
 		assert.JSONEq(t, `{"environment":"production"}`, string(persisted.Nodes[0].HumanTaskInput))
 		assert.Equal(t, "operator", persisted.Nodes[0].HumanTaskCompletedBy)
 		assert.Equal(t, "user-1", persisted.Nodes[0].HumanTaskCompletedByID)
@@ -3203,10 +3203,10 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Waiting,
+			Status:     ir.Waiting,
 			Nodes: []*exec.Node{{
-				Step:         core.Step{Name: "review", Approval: &core.ApprovalConfig{}},
-				Status:       core.NodeSucceeded,
+				Step:         ir.Step{Name: "review", Approval: &ir.ApprovalConfig{}},
+				Status:       ir.NodeSucceeded,
 				ApprovedAt:   approvedAt,
 				ApprovedBy:   "operator",
 				ApprovedByID: "user-1",
@@ -3220,10 +3220,10 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Waiting,
+			Status:     ir.Waiting,
 			Nodes: []*exec.Node{{
-				Step:   core.Step{Name: "review", Approval: &core.ApprovalConfig{}},
-				Status: core.NodeWaiting,
+				Step:   ir.Step{Name: "review", Approval: &ir.ApprovalConfig{}},
+				Status: ir.NodeWaiting,
 			}},
 		})
 		require.NoError(t, convErr)
@@ -3236,7 +3236,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		persisted, err := attempt.ReadStatus(t.Context())
 		require.NoError(t, err)
 		require.Len(t, persisted.Nodes, 1)
-		assert.Equal(t, core.NodeSucceeded, persisted.Nodes[0].Status)
+		assert.Equal(t, ir.NodeSucceeded, persisted.Nodes[0].Status)
 		assert.Equal(t, approvedAt, persisted.Nodes[0].ApprovedAt)
 		assert.Equal(t, "operator", persisted.Nodes[0].ApprovedBy)
 		assert.Equal(t, "user-1", persisted.Nodes[0].ApprovedByID)
@@ -3255,12 +3255,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Waiting,
+			Status:     ir.Waiting,
 			Nodes: []*exec.Node{{
-				Step:                   core.Step{ID: "prepare", Name: "prepare"},
+				Step:                   ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:              "-",
 				FinishedAt:             "-",
-				Status:                 core.NodeNotStarted,
+				Status:                 ir.NodeNotStarted,
 				ApprovalIteration:      1,
 				PushBackInputs:         map[string]string{"FEEDBACK": "revise"},
 				PushBackPreviousStdout: "/tmp/prepare.out",
@@ -3278,12 +3278,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Waiting,
+			Status:     ir.Waiting,
 			Nodes: []*exec.Node{{
-				Step:       core.Step{ID: "prepare", Name: "prepare"},
+				Step:       ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:  pushedBackAt,
 				FinishedAt: pushedBackAt,
-				Status:     core.NodeSucceeded,
+				Status:     ir.NodeSucceeded,
 				Stdout:     "/tmp/prepare.out",
 			}},
 		})
@@ -3297,7 +3297,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		persisted, err := attempt.ReadStatus(t.Context())
 		require.NoError(t, err)
 		require.Len(t, persisted.Nodes, 1)
-		assert.Equal(t, core.NodeNotStarted, persisted.Nodes[0].Status)
+		assert.Equal(t, ir.NodeNotStarted, persisted.Nodes[0].Status)
 		assert.Equal(t, 1, persisted.Nodes[0].ApprovalIteration)
 		assert.Equal(t, map[string]string{"FEEDBACK": "revise"}, persisted.Nodes[0].PushBackInputs)
 		assert.Equal(t, "/tmp/prepare.out", persisted.Nodes[0].PushBackPreviousStdout)
@@ -3324,12 +3324,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			Nodes: []*exec.Node{{
-				Step:                   core.Step{ID: "prepare", Name: "prepare"},
+				Step:                   ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:              "-",
 				FinishedAt:             "-",
-				Status:                 core.NodeNotStarted,
+				Status:                 ir.NodeNotStarted,
 				ApprovalIteration:      1,
 				PushBackInputs:         map[string]string{"FEEDBACK": "revise"},
 				PushBackHistory:        history,
@@ -3341,12 +3341,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Waiting,
+			Status:     ir.Waiting,
 			Nodes: []*exec.Node{{
-				Step:                   core.Step{ID: "prepare", Name: "prepare"},
+				Step:                   ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:              pushedBackAt,
 				FinishedAt:             pushedBackAt,
-				Status:                 core.NodeSucceeded,
+				Status:                 ir.NodeSucceeded,
 				ApprovalIteration:      1,
 				PushBackInputs:         map[string]string{"FEEDBACK": "revise"},
 				PushBackHistory:        history,
@@ -3362,7 +3362,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		persisted, err := attempt.ReadStatus(t.Context())
 		require.NoError(t, err)
 		require.Len(t, persisted.Nodes, 1)
-		assert.Equal(t, core.NodeSucceeded, persisted.Nodes[0].Status)
+		assert.Equal(t, ir.NodeSucceeded, persisted.Nodes[0].Status)
 		assert.Equal(t, 1, persisted.Nodes[0].ApprovalIteration)
 		assert.Equal(t, history, persisted.Nodes[0].PushBackHistory)
 	})
@@ -3375,8 +3375,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 		ref := exec.NewDAGRunRef("test-dag", "run-123")
 		completedAt := time.Now().UTC().Format(time.RFC3339)
 		completedNode := &exec.Node{
-			Step:                   core.Step{ID: "review", HumanTask: &core.HumanTaskConfig{Prompt: "Review"}},
-			Status:                 core.NodeSucceeded,
+			Step:                   ir.Step{ID: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
+			Status:                 ir.NodeSucceeded,
 			FinishedAt:             completedAt,
 			HumanTaskInput:         []byte(`{"approved":true}`),
 			HumanTaskCompletedBy:   "operator",
@@ -3387,7 +3387,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Queued,
+			Status:     ir.Queued,
 			Nodes:      []*exec.Node{completedNode},
 		})
 		incoming, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
@@ -3395,12 +3395,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   ref.ID,
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Waiting,
+			Status:     ir.Waiting,
 			Nodes: []*exec.Node{
 				completedNode,
 				{
-					Step:   core.Step{ID: "publish", HumanTask: &core.HumanTaskConfig{Prompt: "Publish"}},
-					Status: core.NodeWaiting,
+					Step:   ir.Step{ID: "publish", HumanTask: &ir.HumanTaskConfig{Prompt: "Publish"}},
+					Status: ir.NodeWaiting,
 				},
 			},
 		})
@@ -3429,7 +3429,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Failed,
+			Status:     ir.Failed,
 		})
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
@@ -3437,7 +3437,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 		})
 		require.NoError(t, convErr)
 
@@ -3454,7 +3454,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		current, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Failed, current.Status)
+		assert.Equal(t, ir.Failed, current.Status)
 
 		_, err = leaseStore.Get(ctx, "attempt-key-1")
 		assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
@@ -3480,7 +3480,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:     rootRef.Name,
 			DAGRunID: rootRef.ID,
 			Root:     rootRef,
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		runningProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
@@ -3489,7 +3489,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Root:      rootRef,
 			AttemptID: "child-attempt-1",
 			ProcGroup: "child-queue",
-			Status:    core.Running,
+			Status:    ir.Running,
 			WorkerID:  "worker-1",
 		})
 		require.NoError(t, convErr)
@@ -3516,7 +3516,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, rootRef, current.Root)
 		assert.Equal(t, "child-attempt-1", current.AttemptID)
 		assert.Equal(t, attemptKey, current.AttemptKey)
-		assert.Equal(t, core.Running, current.Status)
+		assert.Equal(t, ir.Running, current.Status)
 		assert.Equal(t, "worker-1", current.WorkerID)
 		assert.Equal(t, []string{"workspace=ops", "team=platform"}, current.Labels)
 		dag, err := attempt.ReadDAG(ctx)
@@ -3535,7 +3535,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "child-attempt-1", record.AttemptID)
 		assert.Equal(t, "worker-1", record.WorkerID)
-		assert.Equal(t, core.Running, record.Status)
+		assert.Equal(t, ir.Running, record.Status)
 
 		succeededProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:       "child-dag",
@@ -3543,7 +3543,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Root:       rootRef,
 			AttemptID:  "child-attempt-1",
 			AttemptKey: attemptKey,
-			Status:     core.Succeeded,
+			Status:     ir.Succeeded,
 			WorkerID:   "worker-1",
 		})
 		require.NoError(t, convErr)
@@ -3584,7 +3584,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:     rootRef.Name,
 			DAGRunID: rootRef.ID,
 			Root:     rootRef,
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		runningProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
@@ -3592,12 +3592,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:  "child-run-123",
 			Root:      rootRef,
 			ProcGroup: "child-queue",
-			Status:    core.Running,
+			Status:    ir.Running,
 			WorkerID:  "worker-1",
 			Nodes: []*exec.Node{
 				{
-					Step:   core.Step{Name: "child-step"},
-					Status: core.NodeRunning,
+					Step:   ir.Step{Name: "child-step"},
+					Status: ir.NodeRunning,
 				},
 			},
 		})
@@ -3637,7 +3637,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:     "child-dag",
 			DAGRunID: "child-run-123",
 			Root:     rootRef,
-			Status:   core.Running,
+			Status:   ir.Running,
 			WorkerID: "worker-1",
 		})
 		require.NoError(t, convErr)
@@ -3667,14 +3667,14 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:     rootRef.Name,
 			DAGRunID: rootRef.ID,
 			Root:     rootRef,
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 		})
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: "child-run-123",
 			Root:     rootRef,
-			Status:   core.Running,
+			Status:   ir.Running,
 			WorkerID: "worker-1",
 		})
 		require.NoError(t, convErr)
@@ -3704,14 +3704,14 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:     rootRef.Name,
 			DAGRunID: rootRef.ID,
 			Root:     rootRef,
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: "child-run-123",
 			Root:     rootRef,
-			Status:   core.Running,
+			Status:   ir.Running,
 			WorkerID: "worker-1",
 		})
 		require.NoError(t, convErr)
@@ -3751,7 +3751,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			WorkerID:   "worker-1",
-			Status:     core.Failed,
+			Status:     ir.Failed,
 		})
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
@@ -3760,7 +3760,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			WorkerID:   "worker-1",
-			Status:     core.Aborted,
+			Status:     ir.Aborted,
 			Error:      context.Canceled.Error(),
 		})
 		require.NoError(t, convErr)
@@ -3777,7 +3777,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		current, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, core.Aborted, current.Status)
+		assert.Equal(t, ir.Aborted, current.Status)
 		assert.Equal(t, context.Canceled.Error(), current.Error)
 
 		_, err = leaseStore.Get(ctx, "attempt-key-1")
@@ -3800,7 +3800,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-2",
 			AttemptKey: "attempt-key-2",
-			Status:     core.Running,
+			Status:     ir.Running,
 		})
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
@@ -3808,7 +3808,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 		})
 		require.NoError(t, convErr)
 
@@ -3847,7 +3847,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			WorkerID:   "worker-1",
-			Status:     core.Failed,
+			Status:     ir.Failed,
 		})
 		require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
 			AttemptKey:      "attempt-key-1",
@@ -3865,7 +3865,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Root:       ref,
 			AttemptID:  "attempt-1",
 			WorkerID:   "worker-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 		}))
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
@@ -3874,12 +3874,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			WorkerID:   "worker-1",
-			Status:     core.Failed,
+			Status:     ir.Failed,
 			Error:      "duplicate terminal payload",
 			Nodes: []*exec.Node{
 				{
-					Step:   core.Step{Name: "chat-step"},
-					Status: core.NodeFailed,
+					Step:   ir.Step{Name: "chat-step"},
+					Status: ir.NodeFailed,
 					ChatMessages: []exec.LLMMessage{
 						{Role: exec.RoleAssistant, Content: "final summary"},
 					},
@@ -3940,7 +3940,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 		require.NoError(t, convErr)
 
@@ -3967,18 +3967,18 @@ func TestHandler_ReportStatus(t *testing.T) {
 		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "chat-dag",
 			DAGRunID: "chat-run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		// Create status with ChatMessages
 		statusWithMessages := &exec.DAGRunStatus{
 			Name:     "chat-dag",
 			DAGRunID: "chat-run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 			Nodes: []*exec.Node{
 				{
-					Step:   core.Step{Name: "chat-step"},
-					Status: core.NodeSucceeded,
+					Step:   ir.Step{Name: "chat-step"},
+					Status: ir.NodeSucceeded,
 					ChatMessages: []exec.LLMMessage{
 						{Role: exec.RoleUser, Content: "Hello!"},
 						{Role: exec.RoleAssistant, Content: "Hi there!", Metadata: &exec.LLMMessageMetadata{
@@ -3989,8 +3989,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 					},
 				},
 				{
-					Step:   core.Step{Name: "no-messages-step"},
-					Status: core.NodeSucceeded,
+					Step:   ir.Step{Name: "no-messages-step"},
+					Status: ir.NodeSucceeded,
 					// No ChatMessages
 				},
 			},
@@ -4037,26 +4037,26 @@ func TestHandler_ReportStatus(t *testing.T) {
 		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "handler-dag",
 			DAGRunID: "handler-run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		// Create status with handler nodes that have empty step names
 		statusWithHandlers := &exec.DAGRunStatus{
 			Name:     "handler-dag",
 			DAGRunID: "handler-run-123",
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 			// OnInit handler with empty step name - should use "on_init" fallback
 			OnInit: &exec.Node{
-				Step:   core.Step{}, // Empty name
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{}, // Empty name
+				Status: ir.NodeSucceeded,
 				ChatMessages: []exec.LLMMessage{
 					{Role: exec.RoleAssistant, Content: "Init completed"},
 				},
 			},
 			// OnSuccess handler with explicit name - should use explicit name
 			OnSuccess: &exec.Node{
-				Step:   core.Step{Name: "my-success-handler"},
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{Name: "my-success-handler"},
+				Status: ir.NodeSucceeded,
 				ChatMessages: []exec.LLMMessage{
 					{Role: exec.RoleAssistant, Content: "Success!"},
 				},
@@ -4098,7 +4098,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "error-dag",
 			DAGRunID: "error-run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		// Inject error for WriteStepMessages
@@ -4108,11 +4108,11 @@ func TestHandler_ReportStatus(t *testing.T) {
 		statusWithMessages := &exec.DAGRunStatus{
 			Name:     "error-dag",
 			DAGRunID: "error-run-123",
-			Status:   core.Succeeded,
+			Status:   ir.Succeeded,
 			Nodes: []*exec.Node{
 				{
-					Step:   core.Step{Name: "chat-step"},
-					Status: core.NodeSucceeded,
+					Step:   ir.Step{Name: "chat-step"},
+					Status: ir.NodeSucceeded,
 					ChatMessages: []exec.LLMMessage{
 						{Role: exec.RoleUser, Content: "Hello!"},
 					},
@@ -4153,7 +4153,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.NotStarted,
+			Status:   ir.NotStarted,
 		})
 
 		protoStatus, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
@@ -4162,7 +4162,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			ProcGroup:  "test-queue",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			LeaseAt:    1,
 		})
@@ -4203,7 +4203,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.NotStarted,
+			Status:   ir.NotStarted,
 		})
 
 		require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
@@ -4222,7 +4222,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 		})
 		require.NoError(t, convErr)
@@ -4260,7 +4260,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.NotStarted,
+			Status:     ir.NotStarted,
 			WorkerID:   "worker-1",
 		})
 
@@ -4269,7 +4269,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Running,
+			Status:     ir.Running,
 			WorkerID:   "worker-1",
 		})
 		require.NoError(t, convErr)
@@ -4287,14 +4287,14 @@ func TestHandler_ReportStatus(t *testing.T) {
 		require.NotNil(t, record)
 		assert.Equal(t, "attempt-1", record.AttemptID)
 		assert.Equal(t, "worker-1", record.WorkerID)
-		assert.Equal(t, core.Running, record.Status)
+		assert.Equal(t, ir.Running, record.Status)
 
 		succeededProto, convErr := convert.DAGRunStatusToProto(&exec.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Succeeded,
+			Status:     ir.Succeeded,
 			WorkerID:   "worker-1",
 		})
 		require.NoError(t, convErr)
@@ -4364,7 +4364,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, "run-123", record.DAGRun.ID)
 		assert.Equal(t, "attempt-1", record.AttemptID)
 		assert.Equal(t, "worker-1", record.WorkerID)
-		assert.Equal(t, core.Queued, record.Status)
+		assert.Equal(t, ir.Queued, record.Status)
 
 		_, err = dispatchStore.GetClaim(ctx, claimed.ClaimToken)
 		assert.ErrorIs(t, err, exec.ErrDispatchTaskNotFound)
@@ -4433,7 +4433,7 @@ func TestHandler_GetDAGRunStatus(t *testing.T) {
 		store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		req := &coordinatorv1.GetDAGRunStatusRequest{
@@ -4654,7 +4654,7 @@ func TestHandler_Close(t *testing.T) {
 		attempt := store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		// Manually add to open attempts cache
@@ -4856,7 +4856,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		store.addAbortingAttempt(ref, &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
-			Status:   core.Running, // Status doesn't matter, IsAborting is what's checked
+			Status:   ir.Running, // Status doesn't matter, IsAborting is what's checked
 		})
 
 		expectedAttemptKey := "test-attempt-key-123"
@@ -4883,7 +4883,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		store.addAttempt(ref, &exec.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-456",
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		stats := &coordinatorv1.WorkerStats{
@@ -4909,7 +4909,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 			DAGRunID:   "run-789",
 			AttemptID:  "attempt-2",
 			AttemptKey: "attempt-key-2",
-			Status:     core.Running,
+			Status:     ir.Running,
 		})
 
 		stats := &coordinatorv1.WorkerStats{
@@ -4936,7 +4936,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 			DAGRunID:   "run-999",
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Failed,
+			Status:     ir.Failed,
 		})
 
 		stats := &coordinatorv1.WorkerStats{
@@ -4963,7 +4963,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 			DAGRunID:   "run-success",
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
-			Status:     core.Succeeded,
+			Status:     ir.Succeeded,
 		})
 
 		stats := &coordinatorv1.WorkerStats{
@@ -4992,7 +4992,7 @@ func TestHandler_RequestCancel(t *testing.T) {
 			Name:      "child-dag",
 			DAGRunID:  "child-run",
 			AttemptID: "attempt-1",
-			Status:    core.NotStarted,
+			Status:    ir.NotStarted,
 		})
 
 		resp, err := h.RequestCancel(ctx, &coordinatorv1.RequestCancelRequest{
@@ -5011,7 +5011,7 @@ func TestHandler_RequestCancel(t *testing.T) {
 		require.True(t, attempt.closed)
 		require.True(t, attempt.written)
 		require.NotNil(t, attempt.status)
-		require.Equal(t, core.Aborted, attempt.status.Status)
+		require.Equal(t, ir.Aborted, attempt.status.Status)
 		require.NotEmpty(t, attempt.status.FinishedAt)
 		require.Equal(t, context.Canceled.Error(), attempt.status.Error)
 	})
@@ -5028,7 +5028,7 @@ func TestHandler_RequestCancel(t *testing.T) {
 			Name:      "child-dag",
 			DAGRunID:  "child-run",
 			AttemptID: "attempt-1",
-			Status:    core.Running,
+			Status:    ir.Running,
 		})
 
 		resp, err := h.RequestCancel(ctx, &coordinatorv1.RequestCancelRequest{
@@ -5047,7 +5047,7 @@ func TestHandler_RequestCancel(t *testing.T) {
 		require.False(t, attempt.closed)
 		require.False(t, attempt.written)
 		require.NotNil(t, attempt.status)
-		require.Equal(t, core.Running, attempt.status.Status)
+		require.Equal(t, ir.Running, attempt.status.Status)
 	})
 }
 
@@ -5067,7 +5067,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		store.addSubAttempt(rootRef, subDAGRunID, &exec.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: subDAGRunID,
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		// Get the sub-attempt
@@ -5093,7 +5093,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		store.addSubAttempt(rootRef, subDAGRunID, &exec.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: subDAGRunID,
-			Status:   core.Running,
+			Status:   ir.Running,
 		})
 
 		// Get the sub-attempt twice

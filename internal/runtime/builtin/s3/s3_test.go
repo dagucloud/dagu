@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +20,7 @@ func TestContextInjection(t *testing.T) {
 	t.Run("WithS3Config_and_get", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &core.S3Config{
+		cfg := &ir.S3Config{
 			Region:          "us-west-2",
 			Bucket:          "test-bucket",
 			Endpoint:        "http://localhost:9000",
@@ -68,7 +68,7 @@ func TestNewExecutor_DAGLevelConfigMerging(t *testing.T) {
 		t.Parallel()
 
 		// Create DAG-level S3 config
-		dagS3 := &core.S3Config{
+		dagS3 := &ir.S3Config{
 			Region:          "us-east-1",
 			Bucket:          "dag-bucket",
 			Endpoint:        "http://minio:9000",
@@ -81,10 +81,10 @@ func TestNewExecutor_DAGLevelConfigMerging(t *testing.T) {
 		ctx = WithS3Config(ctx, dagS3)
 
 		// Step with minimal config (just source and key for upload)
-		step := core.Step{
+		step := ir.Step{
 			Name:     "upload-step",
-			Commands: []core.CommandEntry{{Command: "upload"}},
-			ExecutorConfig: core.ExecutorConfig{
+			Commands: []ir.CommandEntry{{Command: "upload"}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "s3",
 				Config: map[string]any{
 					"source": "/tmp/test.txt",
@@ -116,7 +116,7 @@ func TestNewExecutor_DAGLevelConfigMerging(t *testing.T) {
 		t.Parallel()
 
 		// Create DAG-level S3 config
-		dagS3 := &core.S3Config{
+		dagS3 := &ir.S3Config{
 			Region:          "us-east-1",
 			Bucket:          "dag-bucket",
 			Endpoint:        "http://minio:9000",
@@ -128,10 +128,10 @@ func TestNewExecutor_DAGLevelConfigMerging(t *testing.T) {
 		ctx = WithS3Config(ctx, dagS3)
 
 		// Step with config that overrides DAG-level bucket and region
-		step := core.Step{
+		step := ir.Step{
 			Name:     "upload-step",
-			Commands: []core.CommandEntry{{Command: "upload"}},
-			ExecutorConfig: core.ExecutorConfig{
+			Commands: []ir.CommandEntry{{Command: "upload"}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "s3",
 				Config: map[string]any{
 					"source": "/tmp/test.txt",
@@ -164,10 +164,10 @@ func TestNewExecutor_DAGLevelConfigMerging(t *testing.T) {
 		ctx := context.Background()
 		// No DAG-level config set
 
-		step := core.Step{
+		step := ir.Step{
 			Name:     "upload-step",
-			Commands: []core.CommandEntry{{Command: "upload"}},
-			ExecutorConfig: core.ExecutorConfig{
+			Commands: []ir.CommandEntry{{Command: "upload"}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "s3",
 				Config: map[string]any{
 					"source":            "/tmp/test.txt",
@@ -196,7 +196,7 @@ func TestNewExecutor_DAGLevelConfigMerging(t *testing.T) {
 		t.Parallel()
 
 		// Create DAG-level S3 config with all fields
-		dagS3 := &core.S3Config{
+		dagS3 := &ir.S3Config{
 			Region:          "us-west-2",
 			Bucket:          "dag-bucket",
 			Endpoint:        "http://localhost:9000",
@@ -211,10 +211,10 @@ func TestNewExecutor_DAGLevelConfigMerging(t *testing.T) {
 		ctx = WithS3Config(ctx, dagS3)
 
 		// Step only overrides endpoint and force_path_style
-		step := core.Step{
+		step := ir.Step{
 			Name:     "list-step",
-			Commands: []core.CommandEntry{{Command: "list"}},
-			ExecutorConfig: core.ExecutorConfig{
+			Commands: []ir.CommandEntry{{Command: "list"}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type: "s3",
 				Config: map[string]any{
 					"endpoint":         "http://production-s3:9000",
@@ -250,7 +250,7 @@ func TestNewExecutor_ValidationWithDAGConfig(t *testing.T) {
 		t.Parallel()
 
 		// DAG-level config provides bucket
-		dagS3 := &core.S3Config{
+		dagS3 := &ir.S3Config{
 			Bucket: "dag-bucket",
 		}
 
@@ -258,10 +258,10 @@ func TestNewExecutor_ValidationWithDAGConfig(t *testing.T) {
 		ctx = WithS3Config(ctx, dagS3)
 
 		// Step doesn't specify bucket (uses DAG-level)
-		step := core.Step{
+		step := ir.Step{
 			Name:     "list-step",
-			Commands: []core.CommandEntry{{Command: "list"}},
-			ExecutorConfig: core.ExecutorConfig{
+			Commands: []ir.CommandEntry{{Command: "list"}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type:   "s3",
 				Config: map[string]any{},
 			},
@@ -281,10 +281,10 @@ func TestNewExecutor_ValidationWithDAGConfig(t *testing.T) {
 		ctx := context.Background()
 		// No DAG-level config
 
-		step := core.Step{
+		step := ir.Step{
 			Name:     "list-step",
-			Commands: []core.CommandEntry{{Command: "list"}},
-			ExecutorConfig: core.ExecutorConfig{
+			Commands: []ir.CommandEntry{{Command: "list"}},
+			ExecutorConfig: ir.ExecutorConfig{
 				Type:   "s3",
 				Config: map[string]any{},
 			},
@@ -302,9 +302,9 @@ func TestValidateStep(t *testing.T) {
 	t.Run("valid_command", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
-			ExecutorConfig: core.ExecutorConfig{Type: "s3"},
-			Commands:       []core.CommandEntry{{Command: "upload"}},
+		step := ir.Step{
+			ExecutorConfig: ir.ExecutorConfig{Type: "s3"},
+			Commands:       []ir.CommandEntry{{Command: "upload"}},
 		}
 		err := validateStep(step)
 		require.NoError(t, err)
@@ -313,9 +313,9 @@ func TestValidateStep(t *testing.T) {
 	t.Run("empty_command", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
-			ExecutorConfig: core.ExecutorConfig{Type: "s3"},
-			Commands:       []core.CommandEntry{{Command: ""}},
+		step := ir.Step{
+			ExecutorConfig: ir.ExecutorConfig{Type: "s3"},
+			Commands:       []ir.CommandEntry{{Command: ""}},
 		}
 		err := validateStep(step)
 		require.Error(t, err)
@@ -325,9 +325,9 @@ func TestValidateStep(t *testing.T) {
 	t.Run("no_commands", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
-			ExecutorConfig: core.ExecutorConfig{Type: "s3"},
-			Commands:       []core.CommandEntry{},
+		step := ir.Step{
+			ExecutorConfig: ir.ExecutorConfig{Type: "s3"},
+			Commands:       []ir.CommandEntry{},
 		}
 		err := validateStep(step)
 		require.Error(t, err)
@@ -337,9 +337,9 @@ func TestValidateStep(t *testing.T) {
 	t.Run("different_executor_type_skipped", func(t *testing.T) {
 		t.Parallel()
 
-		step := core.Step{
-			ExecutorConfig: core.ExecutorConfig{Type: "http"},
-			Commands:       []core.CommandEntry{},
+		step := ir.Step{
+			ExecutorConfig: ir.ExecutorConfig{Type: "http"},
+			Commands:       []ir.CommandEntry{},
 		}
 		err := validateStep(step)
 		require.NoError(t, err)
@@ -438,10 +438,10 @@ func TestNewExecutor_Operations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			step := core.Step{
+			step := ir.Step{
 				Name:     tt.name,
-				Commands: []core.CommandEntry{{Command: tt.command}},
-				ExecutorConfig: core.ExecutorConfig{
+				Commands: []ir.CommandEntry{{Command: tt.command}},
+				ExecutorConfig: ir.ExecutorConfig{
 					Type:   "s3",
 					Config: tt.config,
 				},
@@ -476,7 +476,7 @@ func TestS3ConfigVariableEvaluation(t *testing.T) {
 		t.Parallel()
 
 		// Create S3Config with variable references
-		cfg := core.S3Config{
+		cfg := ir.S3Config{
 			Region:          "${AWS_REGION}",
 			Bucket:          "${S3_BUCKET}",
 			Endpoint:        "${S3_ENDPOINT}",
@@ -514,7 +514,7 @@ func TestS3ConfigVariableEvaluation(t *testing.T) {
 	t.Run("EvalObject_partial_variable_expansion", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := core.S3Config{
+		cfg := ir.S3Config{
 			Region:   "${AWS_REGION}",
 			Bucket:   "prefix-${BUCKET_NAME}-suffix",
 			Endpoint: "http://${HOST}:${PORT}",
@@ -539,7 +539,7 @@ func TestS3ConfigVariableEvaluation(t *testing.T) {
 	t.Run("EvalObject_missing_variable_preserved", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := core.S3Config{
+		cfg := ir.S3Config{
 			Region: "${UNDEFINED_VAR}",
 			Bucket: "static-bucket",
 		}
@@ -558,7 +558,7 @@ func TestS3ConfigVariableEvaluation(t *testing.T) {
 	t.Run("EvalObject_preserves_boolean_fields", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := core.S3Config{
+		cfg := ir.S3Config{
 			Region:         "${AWS_REGION}",
 			ForcePathStyle: true,
 			DisableSSL:     true,
@@ -578,16 +578,16 @@ func TestS3ConfigVariableEvaluation(t *testing.T) {
 	})
 }
 
-func evalS3TestConfig(ctx context.Context, cfg core.S3Config, vars map[string]string) (core.S3Config, error) {
+func evalS3TestConfig(ctx context.Context, cfg ir.S3Config, vars map[string]string) (ir.S3Config, error) {
 	scope := cmnvalue.NewEnvScope(nil, false).WithEntries(vars, cmnvalue.EnvSourceStepEnv)
 	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{Env: scope})
 	got, err := resolver.Object(ctx, cfg, cmnvalue.HostConfigObjectField("s3"))
 	if err != nil {
-		return core.S3Config{}, err
+		return ir.S3Config{}, err
 	}
-	value, ok := got.(core.S3Config)
+	value, ok := got.(ir.S3Config)
 	if !ok {
-		return core.S3Config{}, fmt.Errorf("type assertion failed: expected core.S3Config, got %T", got)
+		return ir.S3Config{}, fmt.Errorf("type assertion failed: expected ir.S3Config, got %T", got)
 	}
 	return value, nil
 }

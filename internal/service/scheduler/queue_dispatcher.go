@@ -17,8 +17,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -345,7 +345,7 @@ func (d *queueDispatcher) newQueuedConditionStage(
 	attempt exec.DAGRunAttempt,
 	status *exec.DAGRunStatus,
 ) *queuedConditionStage {
-	if d == nil || d.dagRunStore == nil || status == nil || status.Status != core.Queued {
+	if d == nil || d.dagRunStore == nil || status == nil || status.Status != ir.Queued {
 		return nil
 	}
 	attemptID := status.AttemptID
@@ -437,7 +437,7 @@ func (d *queueDispatcher) readQueuedConditionStatus(
 		)
 		return nil, nil, false
 	}
-	if status == nil || status.Status != core.Queued {
+	if status == nil || status.Status != ir.Queued {
 		return nil, nil, false
 	}
 	return attempt, status, true
@@ -499,7 +499,7 @@ func (s *queuedConditionStage) flushErr(ctx context.Context) error {
 		ctx,
 		s.runRef,
 		expectedAttemptID,
-		core.Queued,
+		ir.Queued,
 		func(latest *exec.DAGRunStatus) error {
 			if !queuedConditionNeedsUpdate(latest, observations) {
 				return errQueuedConditionFresh
@@ -668,7 +668,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 		return false
 	}
 
-	if status.Status != core.Queued {
+	if status.Status != ir.Queued {
 		logger.Info(ctx, "Status is not queued, skipping", tag.Status(status.Status.String()))
 		return true
 	}
@@ -759,9 +759,9 @@ func (d *queueDispatcher) dropSuspendedQueuedRun(
 		ctx,
 		runRef,
 		attemptID,
-		core.Queued,
+		ir.Queued,
 		func(latest *exec.DAGRunStatus) error {
-			latest.Status = core.Aborted
+			latest.Status = ir.Aborted
 			latest.FinishedAt = finishedAt
 			latest.Error = suspendedQueueDropReason
 			latest.WorkerID = ""
@@ -781,7 +781,7 @@ func (d *queueDispatcher) dropSuspendedQueuedRun(
 
 	if swapped {
 		logger.Info(ctx, "Dropped queued scheduler-managed run for suspended DAG",
-			tag.Status(core.Aborted.String()),
+			tag.Status(ir.Aborted.String()),
 			slog.String("trigger_type", status.TriggerType.String()),
 		)
 		return nil
@@ -798,7 +798,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartup(
 	ctx context.Context,
 	queueName string,
 	runRef exec.DAGRunRef,
-	dag *core.DAG,
+	dag *ir.DAG,
 	runID string,
 	dagStatus *exec.DAGRunStatus,
 	admissionReservationToken string,
@@ -811,7 +811,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 	ctx context.Context,
 	queueName string,
 	runRef exec.DAGRunRef,
-	dag *core.DAG,
+	dag *ir.DAG,
 	runID string,
 	dagStatus *exec.DAGRunStatus,
 	admissionReservationToken string,
@@ -1053,9 +1053,9 @@ func (d *queueDispatcher) failQueuedRunBeforeStartup(
 		ctx,
 		runRef,
 		attemptID,
-		core.Queued,
+		ir.Queued,
 		func(latest *exec.DAGRunStatus) error {
-			latest.Status = core.Failed
+			latest.Status = ir.Failed
 			latest.FinishedAt = finishedAt
 			latest.Error = startupFailureMessage(failure)
 			latest.WorkerID = ""
@@ -1068,7 +1068,7 @@ func (d *queueDispatcher) failQueuedRunBeforeStartup(
 	if err != nil {
 		return fmt.Errorf("mark queued DAG run as failed: %w", err)
 	}
-	if !swapped && (currentStatus == nil || currentStatus.Status == core.Queued) {
+	if !swapped && (currentStatus == nil || currentStatus.Status == ir.Queued) {
 		return nil
 	}
 
@@ -1159,7 +1159,7 @@ func (d *queueDispatcher) checkStartupStatus(ctx context.Context, queueName stri
 		return false, err
 	}
 
-	if status.Status != core.Queued {
+	if status.Status != ir.Queued {
 		logger.Info(ctx, "DAG execution has started or finished", tag.Status(status.Status.String()))
 		return true, nil
 	}
@@ -1540,7 +1540,7 @@ func (d *queueDispatcher) hasOutstandingDispatchReservation(ctx context.Context,
 		}
 		return false, err
 	}
-	if status == nil || status.Status != core.Queued {
+	if status == nil || status.Status != ir.Queued {
 		return false, nil
 	}
 

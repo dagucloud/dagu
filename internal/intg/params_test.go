@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -47,7 +47,7 @@ steps:
 	})
 
 	status, outputs := readAttemptStatusAndOutputs(t, th, "inline-defaults", runID)
-	require.Equal(t, core.Succeeded, status.Status)
+	require.Equal(t, ir.Succeeded, status.Status)
 	assert.Equal(t, []string{"region=us-east-1", "count=3", "debug=false"}, status.ParamsList)
 
 	require.Contains(t, outputs.Outputs, "shellValues")
@@ -167,13 +167,13 @@ steps:
 
 	parentStatus, err := parentAttempt.ReadStatus(th.Context)
 	require.NoError(t, err)
-	require.Equal(t, core.Succeeded, parentStatus.Status)
+	require.Equal(t, ir.Succeeded, parentStatus.Status)
 	require.Len(t, parentStatus.Nodes, 1)
 	require.Len(t, parentStatus.Nodes[0].SubRuns, 1)
 
 	subRunID := parentStatus.Nodes[0].SubRuns[0].DAGRunID
 	subStatus, subOutputs := readSubAttemptStatusAndOutputs(t, th, rootRef, subRunID)
-	require.Equal(t, core.Succeeded, subStatus.Status)
+	require.Equal(t, ir.Succeeded, subStatus.Status)
 	assert.Equal(t, []string{"region=us-west-2", "count=5", "debug=true"}, subStatus.ParamsList)
 
 	require.Contains(t, subOutputs.Outputs, "shellValues")

@@ -10,9 +10,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +26,7 @@ func TestRunnerShouldRun(t *testing.T) {
 
 	dispatcher := &mockDispatcher{}
 	validReq := runtimeexec.SubWorkflowRequest{
-		DAG:        &core.DAG{Name: "child"},
+		DAG:        &ir.DAG{Name: "child"},
 		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 	}
@@ -61,7 +61,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			name:   "missing run ID",
 			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
 			req: runtimeexec.SubWorkflowRequest{
-				DAG:        &core.DAG{Name: "child"},
+				DAG:        &ir.DAG{Name: "child"},
 				RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
 			},
 			want: false,
@@ -70,7 +70,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			name:   "missing root DAG run",
 			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
 			req: runtimeexec.SubWorkflowRequest{
-				DAG:   &core.DAG{Name: "child"},
+				DAG:   &ir.DAG{Name: "child"},
 				RunID: "child-1",
 			},
 			want: false,
@@ -79,7 +79,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			name:   "force local wins over distributed mode and selector",
 			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
 			req: runtimeexec.SubWorkflowRequest{
-				DAG:            &core.DAG{Name: "child", ForceLocal: true},
+				DAG:            &ir.DAG{Name: "child", ForceLocal: true},
 				RootDAGRun:     exec.NewDAGRunRef("parent", "root-1"),
 				RunID:          "child-1",
 				WorkerSelector: map[string]string{"role": "gpu"},
@@ -90,7 +90,7 @@ func TestRunnerShouldRun(t *testing.T) {
 			name:   "worker selector uses distributed path in local mode",
 			runner: subflow.New(dispatcher, config.ExecutionModeLocal),
 			req: runtimeexec.SubWorkflowRequest{
-				DAG:            &core.DAG{Name: "child"},
+				DAG:            &ir.DAG{Name: "child"},
 				RootDAGRun:     exec.NewDAGRunRef("parent", "root-1"),
 				RunID:          "child-1",
 				WorkerSelector: map[string]string{"role": "gpu"},
@@ -135,7 +135,7 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 				Status: &exec.DAGRunStatus{
 					Name:     "child",
 					DAGRunID: "child-1",
-					Status:   core.Succeeded,
+					Status:   ir.Succeeded,
 					Params:   "ITEM=1",
 					Nodes: []*exec.Node{
 						{
@@ -150,12 +150,12 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	runner := newFastRunner(dispatcher)
 
 	req := runtimeexec.SubWorkflowRequest{
-		DAG: &core.DAG{
+		DAG: &ir.DAG{
 			Name:           "child",
 			YamlData:       []byte("name: child"),
 			BaseConfigData: []byte("child-base"),
 		},
-		ParentDAG: &core.DAG{
+		ParentDAG: &ir.DAG{
 			Name:           "parent",
 			BaseConfigData: []byte("parent-base"),
 		},
@@ -185,7 +185,7 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	assert.Equal(t, map[string]string{"role": "gpu"}, task.WorkerSelector)
 	assert.True(t, task.ExternalStepRetry)
 
-	assert.Equal(t, core.Succeeded, result.Status)
+	assert.Equal(t, ir.Succeeded, result.Status)
 	assert.Equal(t, "ok", result.Outputs["RESULT"])
 	assert.Equal(t, true, result.OutputValues["typed"])
 }
@@ -196,7 +196,7 @@ func TestRunnerRunRejectsIncrementalWorkflow(t *testing.T) {
 	dispatcher := &mockDispatcher{}
 	runner := newFastRunner(dispatcher)
 	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
-		DAG:        &core.DAG{Name: "child", Type: core.TypeIncremental},
+		DAG:        &ir.DAG{Name: "child", Type: ir.TypeIncremental},
 		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 	})
@@ -213,15 +213,15 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 		Name:      "child",
 		DAGRunID:  "child-1",
 		ProcGroup: "queue-a",
-		Status:    core.Failed,
+		Status:    ir.Failed,
 		Nodes: []*exec.Node{
 			{
-				Step:   core.Step{Name: "already-done"},
-				Status: core.NodeSucceeded,
+				Step:   ir.Step{Name: "already-done"},
+				Status: ir.NodeSucceeded,
 			},
 			{
-				Step:   core.Step{Name: "flaky"},
-				Status: core.NodeFailed,
+				Step:   ir.Step{Name: "flaky"},
+				Status: ir.NodeFailed,
 			},
 		},
 	}
@@ -233,7 +233,7 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 				Status: &exec.DAGRunStatus{
 					Name:     "child",
 					DAGRunID: "child-1",
-					Status:   core.Succeeded,
+					Status:   ir.Succeeded,
 				},
 			},
 		},
@@ -241,7 +241,7 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 	runner := newFastRunner(dispatcher)
 
 	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
-		DAG: &core.DAG{
+		DAG: &ir.DAG{
 			Name:     "child",
 			YamlData: []byte("name: child"),
 		},
@@ -258,7 +258,7 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 	assert.Empty(t, task.Step)
 	assert.Equal(t, previous, task.PreviousStatus)
 	assert.Equal(t, "queue-a", task.QueueName)
-	assert.Equal(t, core.Succeeded, result.Status)
+	assert.Equal(t, ir.Succeeded, result.Status)
 }
 
 func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
@@ -269,7 +269,7 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 	previous := &exec.DAGRunStatus{
 		Name:     "child",
 		DAGRunID: "child-1",
-		Status:   core.Succeeded,
+		Status:   ir.Succeeded,
 		Nodes: []*exec.Node{
 			{OutputVariables: &outputVars},
 		},
@@ -282,7 +282,7 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 	runner := newFastRunner(dispatcher)
 
 	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
-		DAG: &core.DAG{
+		DAG: &ir.DAG{
 			Name:     "child",
 			YamlData: []byte("name: child"),
 		},
@@ -295,7 +295,7 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Empty(t, dispatcher.dispatches)
-	assert.Equal(t, core.Succeeded, result.Status)
+	assert.Equal(t, ir.Succeeded, result.Status)
 	assert.Equal(t, "ok", result.Outputs["RESULT"])
 }
 
@@ -308,7 +308,7 @@ func TestRunnerRunReuseRequiresPersistedChild(t *testing.T) {
 	runner := newFastRunner(dispatcher)
 
 	result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
-		DAG:        &core.DAG{Name: "child", YamlData: []byte("name: child")},
+		DAG:        &ir.DAG{Name: "child", YamlData: []byte("name: child")},
 		RootDAGRun: exec.NewDAGRunRef("parent", "root-1"),
 		RunID:      "child-1",
 		Reuse:      true,
@@ -326,7 +326,7 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 		Name:      "child",
 		DAGRunID:  "child-1",
 		ProcGroup: "queue-a",
-		Status:    core.Queued,
+		Status:    ir.Queued,
 	}
 	dispatcher := &mockDispatcher{
 		statuses: []*exec.DAGRunStatusResult{
@@ -336,7 +336,7 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 				Status: &exec.DAGRunStatus{
 					Name:     "child",
 					DAGRunID: "child-1",
-					Status:   core.Succeeded,
+					Status:   ir.Succeeded,
 				},
 			},
 		},
@@ -345,7 +345,7 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 
 	result, err := runner.Retry(context.Background(), runtimeexec.SubWorkflowRetryRequest{
 		SubWorkflowRequest: runtimeexec.SubWorkflowRequest{
-			DAG: &core.DAG{
+			DAG: &ir.DAG{
 				Name:     "child",
 				YamlData: []byte("name: child"),
 			},
@@ -364,7 +364,7 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 	assert.Equal(t, "flaky", task.Step)
 	assert.Equal(t, previous, task.PreviousStatus)
 	assert.Equal(t, "queue-a", task.QueueName)
-	assert.Equal(t, core.Succeeded, result.Status)
+	assert.Equal(t, ir.Succeeded, result.Status)
 }
 
 func TestRunnerRetryRejectsEmptyStepName(t *testing.T) {
@@ -375,7 +375,7 @@ func TestRunnerRetryRejectsEmptyStepName(t *testing.T) {
 
 	result, err := runner.Retry(context.Background(), runtimeexec.SubWorkflowRetryRequest{
 		SubWorkflowRequest: runtimeexec.SubWorkflowRequest{
-			DAG: &core.DAG{
+			DAG: &ir.DAG{
 				Name:     "child",
 				YamlData: []byte("name: child"),
 			},
@@ -398,7 +398,7 @@ func TestRunnerCancelRequestsDispatcherCancel(t *testing.T) {
 	root := exec.NewDAGRunRef("parent", "root-1")
 
 	err := runner.Cancel(context.Background(), runtimeexec.SubWorkflowCancelRequest{
-		DAG:        &core.DAG{Name: "child"},
+		DAG:        &ir.DAG{Name: "child"},
 		RootDAGRun: root,
 		RunID:      "child-1",
 	})

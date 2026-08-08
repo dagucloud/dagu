@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
@@ -408,14 +408,14 @@ func TestCommandExecutor_Kill(t *testing.T) {
 func TestCommandConfig_NewCmd(t *testing.T) {
 	ctx := context.Background()
 	// Create a minimal DAG for the test
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		Env:  []string{},
 	}
 	// Setup the context with DAG environment
 	ctx = runtime.NewContext(ctx, dag, "test-run", "")
 
-	env := runtime.NewEnv(ctx, core.Step{})
+	env := runtime.NewEnv(ctx, ir.Step{})
 	env.WorkingDir = t.TempDir()
 	ctx = runtime.WithEnv(ctx, env)
 
@@ -485,46 +485,46 @@ func TestCommandExecutor_ExitCode(t *testing.T) {
 
 	ctx := context.Background()
 	// Create a minimal DAG for the test
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		Env:  []string{},
 	}
 	// Setup the context with DAG environment
 	ctx = runtime.NewContext(ctx, dag, "test-run", "")
 
-	env := runtime.NewEnv(ctx, core.Step{})
+	env := runtime.NewEnv(ctx, ir.Step{})
 	env.WorkingDir = t.TempDir()
 	ctx = runtime.WithEnv(ctx, env)
 
 	tests := []struct {
 		name         string
-		step         core.Step
+		step         ir.Step
 		expectedCode int
 		shouldError  bool
 	}{
 		{
 			name: "SuccessfulCommand",
-			step: core.Step{
+			step: ir.Step{
 				Name:     "test",
-				Commands: []core.CommandEntry{{Command: "true"}},
+				Commands: []ir.CommandEntry{{Command: "true"}},
 			},
 			expectedCode: 0,
 			shouldError:  false,
 		},
 		{
 			name: "FailingCommand",
-			step: core.Step{
+			step: ir.Step{
 				Name:     "test",
-				Commands: []core.CommandEntry{{Command: "false"}},
+				Commands: []ir.CommandEntry{{Command: "false"}},
 			},
 			expectedCode: 1,
 			shouldError:  true,
 		},
 		{
 			name: "ExitWithSpecificCode",
-			step: core.Step{
+			step: ir.Step{
 				Name:     "test",
-				Commands: []core.CommandEntry{{Command: "/bin/sh", Args: []string{"-c", "exit 42"}}},
+				Commands: []ir.CommandEntry{{Command: "/bin/sh", Args: []string{"-c", "exit 42"}}},
 			},
 			expectedCode: 42,
 			shouldError:  true,
@@ -552,11 +552,11 @@ func TestCommandExecutor_ExitCode(t *testing.T) {
 }
 
 // setupTestContext creates a test context with DAG and execution environment
-func setupTestContext(t *testing.T, dag *core.DAG, step core.Step) context.Context {
+func setupTestContext(t *testing.T, dag *ir.DAG, step ir.Step) context.Context {
 	t.Helper()
 	ctx := context.Background()
 	if dag == nil {
-		dag = &core.DAG{
+		dag = &ir.DAG{
 			Name: "test-dag",
 			Env:  []string{},
 		}
@@ -573,45 +573,45 @@ func TestCommandExecutor_SimpleCommand(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 
 	tests := []struct {
 		name           string
-		step           core.Step
+		step           ir.Step
 		expectedOutput string
 		shouldError    bool
 	}{
 		{
 			name: "echo command",
-			step: core.Step{
+			step: ir.Step{
 				Name:     "test",
-				Commands: []core.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
+				Commands: []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}},
 			},
 			expectedOutput: "hello\n",
 			shouldError:    false,
 		},
 		{
 			name: "command with multiple args",
-			step: core.Step{
+			step: ir.Step{
 				Name:     "test",
-				Commands: []core.CommandEntry{{Command: "echo", Args: []string{"hello", "world"}}},
+				Commands: []ir.CommandEntry{{Command: "echo", Args: []string{"hello", "world"}}},
 			},
 			expectedOutput: "hello world\n",
 			shouldError:    false,
 		},
 		{
 			name: "command that fails",
-			step: core.Step{
+			step: ir.Step{
 				Name:     "test",
-				Commands: []core.CommandEntry{{Command: "false"}},
+				Commands: []ir.CommandEntry{{Command: "false"}},
 			},
 			shouldError: true,
 		},
 		{
 			name: "command not found",
-			step: core.Step{
+			step: ir.Step{
 				Name:     "test",
-				Commands: []core.CommandEntry{{Command: "nonexistent_command_12345"}},
+				Commands: []ir.CommandEntry{{Command: "nonexistent_command_12345"}},
 			},
 			shouldError: true,
 		},
@@ -692,7 +692,7 @@ func TestCommandExecutor_ScriptExecution(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := core.Step{
+			step := ir.Step{
 				Name:   "test",
 				Script: tt.script,
 				Shell:  tt.shell,
@@ -758,7 +758,7 @@ func TestCommandExecutor_ShellCmdArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := core.Step{
+			step := ir.Step{
 				Name:         "test",
 				ShellCmdArgs: tt.shellCmdArgs,
 				Shell:        tt.shell,
@@ -829,9 +829,9 @@ func TestCommandExecutor_CommandWithScript(t *testing.T) {
 				t.Skipf("Command %s not available", tt.command)
 			}
 
-			step := core.Step{
+			step := ir.Step{
 				Name:     "test",
-				Commands: []core.CommandEntry{{Command: tt.command, Args: tt.args}},
+				Commands: []ir.CommandEntry{{Command: tt.command, Args: tt.args}},
 				Script:   tt.script,
 				Shell:    tt.shell,
 			}
@@ -861,13 +861,13 @@ func TestCommandExecutor_DAGLevelShell(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:  "test-dag",
 		Shell: "/bin/bash",
 		Env:   []string{},
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "echo 'dag shell'",
 	}
@@ -891,13 +891,13 @@ func TestCommandExecutor_StepLevelShellOverride(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:  "test-dag",
 		Shell: "/bin/bash",
 		Env:   []string{},
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Shell:  "/bin/sh", // Override DAG shell
 		Script: "echo 'step shell'",
@@ -922,7 +922,7 @@ func TestCommandExecutor_StderrCapture(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "echo 'error message' >&2",
 	}
@@ -948,7 +948,7 @@ func TestCommandExecutor_StderrInError(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "echo 'error details' >&2; exit 1",
 	}
@@ -975,7 +975,7 @@ func TestCommandExecutor_ScriptErrorAnnotation(t *testing.T) {
 	}
 
 	script := "echo line1\necho line2\nnonexistent_command_xyz_12345\necho line4\n"
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: script,
 	}
@@ -1018,7 +1018,7 @@ func TestCommandExecutor_ScriptCleanedOnFailure(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "exit 1",
 	}
@@ -1048,7 +1048,7 @@ func TestCommandExecutor_ScriptCleanedOnSuccess(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "echo hello",
 	}
@@ -1078,7 +1078,7 @@ func TestCommandExecutor_ScriptCleanedOnCancel(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "sleep 10",
 		Dir:    tmpDir,
@@ -1119,7 +1119,7 @@ func TestCommandExecutor_WorkingDirectory(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Dir:    tmpDir,
 		Script: "pwd",
@@ -1149,12 +1149,12 @@ func TestCommandExecutor_EnvironmentVariables(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name: "test-dag",
 		Env:  []string{"DAG_VAR=dag_value"},
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "echo $DAG_VAR",
 	}
@@ -1179,14 +1179,14 @@ func TestCommandExecutor_Errexit(t *testing.T) {
 	}
 
 	// DAG with shell configured - this enables the -e flag automatically
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:  "test-dag",
 		Shell: "/bin/sh", // Setting shell enables errexit (-e) flag
 		Env:   []string{},
 	}
 
 	// This script should fail on the first command due to errexit
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "false\necho 'should not reach here'",
 	}
@@ -1271,41 +1271,41 @@ func TestSetupScript(t *testing.T) {
 func TestValidateCommandStep(t *testing.T) {
 	tests := []struct {
 		name      string
-		step      core.Step
+		step      ir.Step
 		expectErr bool
 	}{
 		{
 			name: "command only",
-			step: core.Step{
-				Commands: []core.CommandEntry{{Command: "echo"}},
+			step: ir.Step{
+				Commands: []ir.CommandEntry{{Command: "echo"}},
 			},
 			expectErr: false,
 		},
 		{
 			name: "script only",
-			step: core.Step{
+			step: ir.Step{
 				Script: "echo hello",
 			},
 			expectErr: false,
 		},
 		{
 			name: "command and script",
-			step: core.Step{
-				Commands: []core.CommandEntry{{Command: "python"}},
+			step: ir.Step{
+				Commands: []ir.CommandEntry{{Command: "python"}},
 				Script:   "print('hello')",
 			},
 			expectErr: false,
 		},
 		{
 			name: "subdag",
-			step: core.Step{
-				SubDAG: &core.SubDAG{Name: "sub.yaml"},
+			step: ir.Step{
+				SubDAG: &ir.SubDAG{Name: "sub.yaml"},
 			},
 			expectErr: false,
 		},
 		{
 			name:      "empty step",
-			step:      core.Step{},
+			step:      ir.Step{},
 			expectErr: true,
 		},
 	}
@@ -1323,21 +1323,21 @@ func TestValidateCommandStep(t *testing.T) {
 }
 
 func TestValidateCommandStepMissingCommandErrorMessage(t *testing.T) {
-	dag := &core.DAG{
-		Steps: []core.Step{
+	dag := &ir.DAG{
+		Steps: []ir.Step{
 			{
 				Name:           "missing",
-				ExecutorConfig: core.ExecutorConfig{Type: "command"},
+				ExecutorConfig: ir.ExecutorConfig{Type: "command"},
 			},
 		},
 	}
 
-	err := core.ValidateSteps(dag)
+	err := ir.ValidateSteps(dag)
 	require.Error(t, err)
 	assert.Equal(t, "field 'command': step command is required", err.Error())
 	assert.NotContains(t, err.Error(), "executor_config")
 	assert.NotContains(t, err.Error(), "value:")
-	assert.ErrorIs(t, err, core.ErrStepCommandIsRequired)
+	assert.ErrorIs(t, err, ir.ErrStepCommandIsRequired)
 }
 
 func TestLoadYAMLMissingCommandErrorMessage(t *testing.T) {
@@ -1349,7 +1349,7 @@ steps:
 	assert.Equal(t, "failed to process document 0: failed to build DAG: field 'command': step command is required", err.Error())
 	assert.NotContains(t, err.Error(), "executor_config")
 	assert.NotContains(t, err.Error(), "value:")
-	assert.ErrorIs(t, err, core.ErrStepCommandIsRequired)
+	assert.ErrorIs(t, err, ir.ErrStepCommandIsRequired)
 }
 
 // TestExitCodeFromError tests exit code extraction from errors
@@ -1443,17 +1443,17 @@ func TestNewCommandConfig(t *testing.T) {
 
 	tests := []struct {
 		name                  string
-		dag                   *core.DAG
-		step                  core.Step
+		dag                   *ir.DAG
+		step                  ir.Step
 		expectedShellContains string
 	}{
 		{
 			name: "step shell takes precedence",
-			dag: &core.DAG{
+			dag: &ir.DAG{
 				Name:  "test",
 				Shell: "/bin/bash",
 			},
-			step: core.Step{
+			step: ir.Step{
 				Name:  "test",
 				Shell: "/bin/sh",
 			},
@@ -1461,11 +1461,11 @@ func TestNewCommandConfig(t *testing.T) {
 		},
 		{
 			name: "DAG shell used when step shell empty",
-			dag: &core.DAG{
+			dag: &ir.DAG{
 				Name:  "test",
 				Shell: "/bin/bash",
 			},
-			step: core.Step{
+			step: ir.Step{
 				Name: "test",
 			},
 			expectedShellContains: "/bin/bash",
@@ -1535,9 +1535,9 @@ func TestCommandExecutor_ConcurrentRun(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:     "test",
-		Commands: []core.CommandEntry{{Command: "sleep", Args: []string{"0.1"}}},
+		Commands: []ir.CommandEntry{{Command: "sleep", Args: []string{"0.1"}}},
 	}
 
 	ctx := setupTestContext(t, nil, step)
@@ -1576,7 +1576,7 @@ func TestCommandExecutor_ScriptCleanup(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "echo 'cleanup test'",
 		Dir:    tmpDir,
@@ -1609,7 +1609,7 @@ func TestCommandConfig_NewCmd_AllBranches(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 	tmpDir := t.TempDir()
 
 	// Create a test script file
@@ -1704,7 +1704,7 @@ func TestCommandExecutor_ShellArgs(t *testing.T) {
 	}
 
 	// Test that ShellArgs field in Step is available and can be used
-	step := core.Step{
+	step := ir.Step{
 		Name:      "test",
 		Shell:     "/bin/bash",
 		ShellArgs: []string{"-x"}, // enable trace mode
@@ -1723,7 +1723,7 @@ func TestCommandExecutor_UserSpecifiedShellSkipsShebang(t *testing.T) {
 
 	// Create a script with a bash shebang
 	// When user specifies a shell, the shebang should be ignored
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Shell:  "/bin/sh", // User explicitly specifies sh
 		Script: "#!/bin/bash\necho 'using specified shell'",
@@ -1748,13 +1748,13 @@ func TestCommandExecutor_EmptyScript(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:  "test-dag",
 		Shell: "/bin/sh",
 		Env:   []string{},
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "", // Empty script
 	}
@@ -1805,13 +1805,13 @@ func TestCommandExecutor_ScriptWithSpecialChars(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dag := &core.DAG{
+			dag := &ir.DAG{
 				Name:  "test-dag",
 				Shell: "/bin/sh",
 				Env:   []string{},
 			}
 
-			step := core.Step{
+			step := ir.Step{
 				Name:   "test",
 				Script: tt.script,
 			}
@@ -1987,13 +1987,13 @@ func TestNewCommandConfig_NixShell(t *testing.T) {
 	}
 
 	// Test nix-shell configuration
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:  "test-dag",
 		Shell: "nix-shell",
 		Env:   []string{},
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:         "test",
 		ShellCmdArgs: "echo hello",
 	}
@@ -2026,13 +2026,13 @@ func TestNewCommandConfig_NixShell_AlreadyHasSetE(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:  "test-dag",
 		Shell: "nix-shell",
 		Env:   []string{},
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:         "test",
 		ShellCmdArgs: "set -e; echo hello", // Already has set -e
 	}
@@ -2048,7 +2048,7 @@ func TestNewCommandConfig_NixShell_AlreadyHasSetE(t *testing.T) {
 
 // TestCommandConfig_NewCmd_Errors tests error paths in newCmd
 func TestCommandConfig_NewCmd_Errors(t *testing.T) {
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 	tmpDir := t.TempDir()
 
 	// Create a test script file
@@ -2085,13 +2085,13 @@ func TestCommandExecutor_Run_SetupScriptError(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	dag := &core.DAG{
+	dag := &ir.DAG{
 		Name:  "test-dag",
 		Shell: "/bin/sh",
 		Env:   []string{},
 	}
 
-	step := core.Step{
+	step := ir.Step{
 		Name:   "test",
 		Script: "echo hello",
 	}
@@ -2121,7 +2121,7 @@ func TestCommandExecutor_Run_NewCmdError(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 
 	// Create config that will cause newCmd to fail
 	cfg := &commandConfig{
@@ -2150,7 +2150,7 @@ func TestCommandExecutor_Run_StartError(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 
 	cfg := &commandConfig{
 		Ctx:     ctx,
@@ -2176,7 +2176,7 @@ func TestCommandExecutor_Run_StartErrorWithStderr(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 
 	// Use a buffer that pre-contains some content to simulate stderr output
 	var stderr strings.Builder
@@ -2333,7 +2333,7 @@ func TestCmdShell_ScriptOnly_IncludesArgs(t *testing.T) {
 
 // TestCommandConfig_NewCmd_SplitCommandError tests error when SplitCommand fails in newCmd
 func TestCommandConfig_NewCmd_SplitCommandError(t *testing.T) {
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 	tmpDir := t.TempDir()
 
 	// Create a script file
@@ -2359,7 +2359,7 @@ func TestCommandConfig_NewCmd_SplitCommandError(t *testing.T) {
 
 // TestCommandConfig_NewCmd_ShellCmdArgsPath tests Shell+ShellCommandArgs path
 func TestCommandConfig_NewCmd_ShellCmdArgsPath(t *testing.T) {
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 
 	// Let's verify the path works with valid input
 	config := commandConfig{
@@ -2378,7 +2378,7 @@ func TestCommandExecutor_Run_StartFailWithStderrTail(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 
 	// Create a custom writer that provides content for tail
 	cfg := &commandConfig{
@@ -2399,13 +2399,13 @@ func TestCommandExecutor_Run_StartFailWithStderrTail(t *testing.T) {
 // TestNewCommand_ErrorPath tests NewCommand when NewCommandConfig could fail
 // Note: Currently NewCommandConfig never returns an error, but this tests the path
 func TestNewCommand_ErrorPath(t *testing.T) {
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 
 	// Currently NewCommandConfig always succeeds
 	// This test documents the behavior
-	step := core.Step{
+	step := ir.Step{
 		Name:     "test",
-		Commands: []core.CommandEntry{{Command: "echo"}},
+		Commands: []ir.CommandEntry{{Command: "echo"}},
 	}
 
 	exec, err := NewCommand(ctx, step)
@@ -2420,7 +2420,7 @@ func TestCommandConfig_NewCmd_ShellScriptNoShebang(t *testing.T) {
 		t.Skip("Skipping Unix-specific test on Windows")
 	}
 
-	ctx := setupTestContext(t, nil, core.Step{})
+	ctx := setupTestContext(t, nil, ir.Step{})
 	tmpDir := t.TempDir()
 
 	// Create a script without shebang
@@ -2449,16 +2449,16 @@ func TestMultiCommandExecutor(t *testing.T) {
 		tmpDir := t.TempDir()
 		outputFile := filepath.Join(tmpDir, "output.txt")
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			Commands: []core.CommandEntry{
+			Commands: []ir.CommandEntry{
 				{Command: "sh", Args: []string{"-c", `echo first >> "` + outputFile + `"`}},
 				{Command: "sh", Args: []string{"-c", `echo second >> "` + outputFile + `"`}},
 				{Command: "sh", Args: []string{"-c", `echo third >> "` + outputFile + `"`}},
 			},
 		}
 
-		ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test"}, "test-run", "test.log")
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test"}, "test-run", "test.log")
 		exec, err := NewCommand(ctx, step)
 		require.NoError(t, err)
 
@@ -2475,16 +2475,16 @@ func TestMultiCommandExecutor(t *testing.T) {
 		tmpDir := t.TempDir()
 		outputFile := filepath.Join(tmpDir, "output.txt")
 
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			Commands: []core.CommandEntry{
+			Commands: []ir.CommandEntry{
 				{Command: "sh", Args: []string{"-c", `echo first >> "` + outputFile + `"`}},
 				{Command: "sh", Args: []string{"-c", "exit 1"}},
 				{Command: "sh", Args: []string{"-c", `echo third >> "` + outputFile + `"`}},
 			},
 		}
 
-		ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test"}, "test-run", "test.log")
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test"}, "test-run", "test.log")
 		exec, err := NewCommand(ctx, step)
 		require.NoError(t, err)
 
@@ -2499,14 +2499,14 @@ func TestMultiCommandExecutor(t *testing.T) {
 	})
 
 	t.Run("SingleCommandUsesSingleExecutor", func(t *testing.T) {
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			Commands: []core.CommandEntry{
+			Commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"hello"}},
 			},
 		}
 
-		ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test"}, "test-run", "test.log")
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test"}, "test-run", "test.log")
 		exec, err := NewCommand(ctx, step)
 		require.NoError(t, err)
 
@@ -2516,15 +2516,15 @@ func TestMultiCommandExecutor(t *testing.T) {
 	})
 
 	t.Run("MultipleCommandsUseMultiExecutor", func(t *testing.T) {
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			Commands: []core.CommandEntry{
+			Commands: []ir.CommandEntry{
 				{Command: "echo", Args: []string{"first"}},
 				{Command: "echo", Args: []string{"second"}},
 			},
 		}
 
-		ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test"}, "test-run", "test.log")
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test"}, "test-run", "test.log")
 		exec, err := NewCommand(ctx, step)
 		require.NoError(t, err)
 
@@ -2534,15 +2534,15 @@ func TestMultiCommandExecutor(t *testing.T) {
 	})
 
 	t.Run("ExitCodeFromFailedCommand", func(t *testing.T) {
-		step := core.Step{
+		step := ir.Step{
 			Name: "test",
-			Commands: []core.CommandEntry{
+			Commands: []ir.CommandEntry{
 				{Command: "sh", Args: []string{"-c", "exit 0"}},
 				{Command: "sh", Args: []string{"-c", "exit 42"}},
 			},
 		}
 
-		ctx := runtime.NewContext(context.Background(), &core.DAG{Name: "test"}, "test-run", "test.log")
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test"}, "test-run", "test.log")
 		exec, err := NewCommand(ctx, step)
 		require.NoError(t, err)
 
