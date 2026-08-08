@@ -170,8 +170,21 @@ func (s *Store) renameAttachmentsSubtree(oldID, newID string) error {
 		return fmt.Errorf("filedoc: failed to move attachments: %w", err)
 	}
 
-	// Target exists (stale leftovers): move entries individually, letting the
-	// renamed doc's files win.
+	// Target exists (stale leftovers): merge recursively, letting the
+	// renamed doc's files win over stale ones.
+	if err := mergeMoveAttachmentDir(oldDir, newDir); err != nil {
+		return err
+	}
+	s.cleanEmptyParents(filepath.Dir(oldDir))
+	return nil
+}
+
+// mergeMoveAttachmentDir moves every entry of oldDir into newDir, descending
+// into subdirectories that already exist at the target, then removes oldDir.
+func mergeMoveAttachmentDir(oldDir, newDir string) error {
+	if err := os.MkdirAll(newDir, docDirPermissions); err != nil {
+		return fmt.Errorf("filedoc: failed to create attachments directory: %w", err)
+	}
 	entries, err := os.ReadDir(oldDir)
 	if err != nil {
 		return fmt.Errorf("filedoc: failed to read attachments directory: %w", err)
@@ -179,6 +192,12 @@ func (s *Store) renameAttachmentsSubtree(oldID, newID string) error {
 	for _, entry := range entries {
 		oldPath := filepath.Join(oldDir, entry.Name())
 		newPath := filepath.Join(newDir, entry.Name())
+		if entry.IsDir() {
+			if err := mergeMoveAttachmentDir(oldPath, newPath); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := fileutil.Remove(newPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("filedoc: failed to replace attachment: %w", err)
 		}
@@ -189,7 +208,6 @@ func (s *Store) renameAttachmentsSubtree(oldID, newID string) error {
 	if err := fileutil.Remove(oldDir); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("filedoc: failed to remove attachments directory: %w", err)
 	}
-	s.cleanEmptyParents(filepath.Dir(oldDir))
 	return nil
 }
 
