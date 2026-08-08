@@ -501,7 +501,7 @@ function Show-UninstallPlan {
     Write-Host ("Binary paths".PadRight(20) + $(if ($Script:UninstallInstallPaths.Count -gt 0) { Join-Values $Script:UninstallInstallPaths } else { "none" }))
     Write-Host ("Background service".PadRight(20) + $(if ($Script:UninstallServicePresent) { $Script:ServiceName } else { "none" }))
     $dataAction = if ($PurgeData) { "remove" } else { "keep" }
-    Write-Host ("Data directory".PadRight(20) + "$dataAction: $(if ($Script:UninstallDaguHomes.Count -gt 0) { Join-Values $Script:UninstallDaguHomes } else { 'none detected' })")
+    Write-Host ("Data directory".PadRight(20) + "${dataAction}: $(if ($Script:UninstallDaguHomes.Count -gt 0) { Join-Values $Script:UninstallDaguHomes } else { 'none detected' })")
     Write-Host ("PATH cleanup".PadRight(20) + $(if ($Script:UninstallPathScopes.Count -gt 0) { Join-Values $Script:UninstallPathScopes } else { "none detected" }))
     if ($RemoveSkill) {
         $skillTargets = @($Script:UninstallSkillDirs + $Script:UninstallCopilotFiles)
