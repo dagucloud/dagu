@@ -349,7 +349,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.windows_installer == 'true'
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -362,16 +362,39 @@ jobs:
             $installerPath,
             [Text.Encoding]::UTF8
           )
+          $installerRef = "${{ github.event.pull_request.head.sha || github.sha }}"
+          $installerUrl = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$installerRef/scripts/installer.ps1"
+          $installDir = Join-Path $env:RUNNER_TEMP "dagu-expression-install"
+          $daguExe = Join-Path $installDir "dagu.exe"
 
-          & {
-            param([string]$InstallerSource)
-            $Service = "caller-value"
-            $args = @("-NoPrompt", "-DryRun")
-            $InstallerSource | Invoke-Expression
-            if ($Service -ne "caller-value") {
-              throw "The installer changed the caller Service variable."
+          try {
+            & {
+              param([string]$InstallerUrl, [string]$InstallDir)
+              $Service = "caller-value"
+              $args = @(
+                "-NoPrompt", "-Service", "no", "-OpenBrowser", "no",
+                "-InstallDir", $InstallDir
+              )
+              irm $InstallerUrl | iex
+              if ($Service -ne "caller-value") {
+                throw "The installer changed the caller Service variable."
+              }
+            } $installerUrl $installDir
+
+            if (-not (Test-Path $daguExe)) {
+              throw "The expression-based installer did not install dagu.exe."
             }
-          } $source
+            & $daguExe version
+            if ($LASTEXITCODE -ne 0) {
+              throw "The installed Dagu binary failed its version check."
+            }
+          }
+          finally {
+            & $installerPath -NoPrompt -Uninstall -InstallDir $installDir
+          }
+          if (Test-Path $daguExe) {
+            throw "The expression-based installer did not clean up dagu.exe."
+          }
 
           $stagedInstaller = Join-Path $env:RUNNER_TEMP "dagu-validation-installer.ps1"
           [IO.File]::WriteAllText($stagedInstaller, $source, [Text.Encoding]::UTF8)
@@ -407,10 +430,14 @@ jobs:
         shell: cmd
         env:
           _DAGU_INSTALLER_PS1_PATH: ${{ github.workspace }}\scripts\installer.ps1
-        run: >-
-          scripts\installer.cmd
-          -NoPrompt -DryRun -Service no -OpenBrowser no
-          -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
+        run: |
+          scripts\installer.cmd -NoPrompt -Service no -OpenBrowser no -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\dagu-cmd-install\dagu.exe" version
+          if errorlevel 1 exit /b 1
+          scripts\installer.cmd -NoPrompt -Uninstall -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
+          if errorlevel 1 exit /b 1
+          if exist "%RUNNER_TEMP%\dagu-cmd-install\dagu.exe" exit /b 1
 
   test-windows:
     name: Test on windows-latest (${{ matrix.suite_index }}/${{ matrix.suite_total }})
