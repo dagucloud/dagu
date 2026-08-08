@@ -22,7 +22,7 @@ type Definition struct {
 	Debug                  bool     `mapstructure:"debug"`
 	DefaultShell           string   `mapstructure:"default_shell"`
 	LogFormat              string   `mapstructure:"log_format"`      // "json" or "text"
-	AccessLog              *string  `mapstructure:"access_log_mode"` // "all" (default), "non-public", or "none"
+	AccessLog              *string  `mapstructure:"access_log_mode"` // "all", "non-public", or "none" (default)
 	TZ                     string   `mapstructure:"tz"`
 	EnvPassthrough         []string `mapstructure:"env_passthrough"`
 	EnvPassthroughPrefixes []string `mapstructure:"env_passthrough_prefixes"`

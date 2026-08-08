@@ -154,7 +154,7 @@ type Server struct {
 	APIBasePath       string
 	Headless          bool
 	CheckUpdates      bool
-	AccessLog         AccessLogMode // "all" (default), "non-public", or "none"
+	AccessLog         AccessLogMode // "all", "non-public", or "none" (default)
 	LatestStatusToday bool
 	TLS               *TLSConfig
 	Auth              Auth
