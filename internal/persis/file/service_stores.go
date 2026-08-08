@@ -28,7 +28,6 @@ import (
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	fileincident "github.com/dagucloud/dagu/v2/internal/persis/file/incident"
 	filenotification "github.com/dagucloud/dagu/v2/internal/persis/file/notification"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/tokensecret"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
@@ -211,7 +210,7 @@ func NewRemoteNodeStore(cfg *config.Config, enc *crypto.Encryptor) (remotenode.S
 }
 
 func NewTokenSecretProvider(cfg *config.Config) authmodel.TokenSecretProvider {
-	return tokensecret.New(filepath.Join(cfg.Paths.DataDir, "auth"))
+	return &tokenSecretProvider{dir: filepath.Join(cfg.Paths.DataDir, "auth")}
 }
 
 func NewUpgradeCheckStore(cfg *config.Config) (upgrade.CacheStore, error) {
