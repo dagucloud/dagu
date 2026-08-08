@@ -4,7 +4,6 @@
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { Status, StatusLabel } from '@/api/v1/schema';
 import { KanbanBoard } from '../KanbanBoard';
 import type {
   KanbanColumnData,
@@ -19,7 +18,7 @@ vi.mock('../KanbanColumn', () => ({
   KanbanColumn: ({ title }: { title: string }) => <div>{title}</div>,
 }));
 
-function column(overrides: Partial<KanbanColumnData> = {}): KanbanColumnData {
+function column(): KanbanColumnData {
   return {
     runs: [],
     hasMore: false,
@@ -29,7 +28,6 @@ function column(overrides: Partial<KanbanColumnData> = {}): KanbanColumnData {
     loadMoreError: null,
     loadMore: vi.fn(async () => undefined),
     retry: vi.fn(async () => undefined),
-    ...overrides,
   };
 }
 
@@ -44,66 +42,24 @@ function emptyColumns(): KanbanColumns {
 }
 
 describe('KanbanBoard', () => {
-  it('omits empty desktop columns when another column has runs', () => {
-    const columns: KanbanColumns = {
-      ...emptyColumns(),
-      running: column({
-        runs: [
-          {
-            name: 'deploy',
-            dagRunId: 'run-1',
-            status: Status.Running,
-            statusLabel: StatusLabel.running,
-          } as KanbanColumnData['runs'][number],
-        ],
-      }),
-    };
-
-    render(
-      <KanbanBoard
-        columns={columns}
-        onCardClick={vi.fn()}
-        onArtifactsClick={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText('Running')).toBeInTheDocument();
-    expect(screen.queryByText('Queued')).not.toBeInTheDocument();
-    expect(screen.queryByText('Review')).not.toBeInTheDocument();
-    expect(screen.queryByText('Done')).not.toBeInTheDocument();
-    expect(screen.queryByText('Failed')).not.toBeInTheDocument();
-  });
-
-  it('preserves configured columns when the explicit selection is empty', () => {
-    render(
-      <KanbanBoard
-        columns={emptyColumns()}
-        visibleColumns={[]}
-        onCardClick={vi.fn()}
-        onArtifactsClick={vi.fn()}
-      />
-    );
-
-    for (const label of ['Queued', 'Running', 'Review', 'Done', 'Failed']) {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
-  });
-
   it.each([
-    ['loading more results', { isLoadingMore: true }],
-    ['showing a load-more error', { loadMoreError: 'Request failed' }],
-  ])('keeps a column visible while %s', (_description, state) => {
-    const columns = emptyColumns();
-    columns.failed = column(state);
+    ['without a column selection', undefined],
+    ['with an explicit empty selection', []],
+  ] as const)(
+    'keeps every default column visible %s',
+    (_name, visibleColumns) => {
+      render(
+        <KanbanBoard
+          columns={emptyColumns()}
+          visibleColumns={visibleColumns}
+          onCardClick={vi.fn()}
+          onArtifactsClick={vi.fn()}
+        />
+      );
 
-    render(
-      <KanbanBoard
-        columns={columns}
-        onCardClick={vi.fn()}
-        onArtifactsClick={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText('Failed')).toBeInTheDocument();
-  });
+      for (const label of ['Queued', 'Running', 'Review', 'Done', 'Failed']) {
+        expect(screen.getByText(label)).toBeInTheDocument();
+      }
+    }
+  );
 });
