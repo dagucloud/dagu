@@ -711,6 +711,7 @@ func syncItemFilePath(itemID, fileExtension string) string {
 			return itemID + fileExtension
 		}
 		return itemID + ".md"
+	case gitsync.SyncItemKindDAG:
 	}
 	if strings.EqualFold(fileExtension, ".yml") {
 		return itemID + ".yml"
@@ -765,6 +766,7 @@ func toAPISyncItemKind(itemID string) api.SyncItemKind {
 		return api.SyncItemKindDocAsset
 	case gitsync.SyncItemKindDoc:
 		return api.SyncItemKindDoc
+	case gitsync.SyncItemKindDAG:
 	}
 	return api.SyncItemKindDag
 }
