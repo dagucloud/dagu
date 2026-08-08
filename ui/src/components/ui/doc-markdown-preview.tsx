@@ -49,6 +49,12 @@ function attachmentNameFromSrc(src: string | undefined): string | null {
 export type DocLinkContext = {
   workspace: string | null;
   docPath: string;
+  /**
+   * Opens a doc link in place (for example as an editor tab) instead of
+   * navigating. Plain left-clicks use this when set; modified clicks keep
+   * the href behavior.
+   */
+  onOpenDoc?: (docPath: string, workspace: string | null) => void;
 };
 
 type DocMarkdownPreviewProps = {
@@ -110,11 +116,30 @@ function WikilinkAnchor({ href, linkContext, children }: WikilinkAnchorProps) {
       </Link>
     );
   }
+  const { onOpenDoc } = linkContext;
   return (
     <Link
       to={docLinkTo(parsed.target, parsed.anchor, linkContext)}
       className="wikilink"
       data-wikilink-target={parsed.target}
+      onClick={
+        onOpenDoc
+          ? (e) => {
+              if (
+                e.defaultPrevented ||
+                e.button !== 0 ||
+                e.metaKey ||
+                e.ctrlKey ||
+                e.shiftKey ||
+                e.altKey
+              ) {
+                return;
+              }
+              e.preventDefault();
+              onOpenDoc(parsed.target, linkContext.workspace);
+            }
+          : undefined
+      }
     >
       {children}
     </Link>
