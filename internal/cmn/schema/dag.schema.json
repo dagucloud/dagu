@@ -35,6 +35,7 @@
       "description": "An organizational label used to group related DAGs together. Useful for categorizing DAGs in the UI, e.g., 'DailyJobs', 'Analytics'."
     },
     "dotenv": {
+      "examples": [".env"],
       "oneOf": [
         {
           "type": "string",
@@ -51,6 +52,7 @@
       "description": "Specifies .env files to load environment variables from. By default, '.env' is loaded. When files are specified, '.env' is automatically prepended to the list. All files are loaded sequentially with later files overriding earlier values. Set to empty array [] to disable all .env loading. Files are loaded relative to the DAG's working_dir."
     },
     "working_dir": {
+      "examples": ["/var/data/etl"],
       "type": "string",
       "description": "Working directory for the DAG. All relative paths (including dotenv files) are resolved relative to this directory. Defaults to the directory containing the DAG file."
     },
@@ -70,6 +72,7 @@
       }
     },
     "schedule": {
+      "examples": ["0 * * * *", "*/15 8-18 * * MON-FRI"],
       "oneOf": [
         {
           "type": "string",
@@ -273,6 +276,7 @@
       }
     },
     "env": {
+      "examples": [{ "LOG_LEVEL": "debug" }],
       "oneOf": [
         {
           "type": "array",
@@ -462,6 +466,7 @@
       "description": "Controls how stdout and stderr are logged. 'separate' writes stdout to .out and stderr to .err files. 'merged' writes both to a single .log file with interleaved output."
     },
     "handler_on": {
+      "examples": [{ "failure": { "run": "./notify.sh" } }],
       "type": "object",
       "properties": {
         "init": {
@@ -551,6 +556,7 @@
       "description": "Email configuration for informational notifications."
     },
     "timeout_sec": {
+      "examples": [3600],
       "type": "integer",
       "description": "Maximum number of seconds allowed for the entire DAG to finish. If exceeded, the DAG is considered timed out."
     },
@@ -572,6 +578,7 @@
       "description": "Number of DAG runs to retain in execution history. Mutually exclusive with hist_retention_days."
     },
     "max_active_runs": {
+      "examples": [1],
       "type": "integer",
       "default": 1,
       "description": "DEPRECATED: This field is ignored for local (DAG-based) queues. For concurrency control, define a global queue in config and use the 'queue' field.",
@@ -595,6 +602,7 @@
       "description": "Maximum size in bytes for the output of each step. If a step's output exceeds this limit, it will fail with an error. Defaults to 1MB (1048576 bytes). This limit also applies to pattern matching in preconditions and continue_on conditions."
     },
     "preconditions": {
+      "examples": ["test -f /tmp/input.csv"],
       "oneOf": [
         {
           "type": "string"
@@ -609,6 +617,7 @@
       "description": "Conditions that must be satisfied before the DAG can run. Use condition for command checks or literal/value-resolved comparisons, and eval with expected for dynamic command substitutions."
     },
     "params": {
+      "examples": ["ENVIRONMENT=dev REGION=local"],
       "oneOf": [
         {
           "type": "string",
@@ -929,6 +938,7 @@
       "description": "CPU and memory limits requested for a DAG run."
     },
     "stepRetryPolicy": {
+      "examples": [{ "limit": 2, "interval_sec": 30 }],
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1588,6 +1598,7 @@
           "description": "Working directory for the step. Inherits from DAG's working_dir if not specified. Overrides DAG-level working_dir for this step."
         },
         "run": {
+          "examples": ["echo hello", "python scripts/etl.py"],
           "oneOf": [
             {
               "type": "string",
@@ -1719,6 +1730,7 @@
           "description": "Override DAG-level log output mode. 'separate' writes stdout to .out and stderr to .err files. 'merged' writes both to a single .log file."
         },
         "output": {
+          "examples": ["RESULT"],
           "oneOf": [
             {
               "type": "string",
@@ -1756,6 +1768,7 @@
           "description": "Named regular-file inputs for incremental execution."
         },
         "depends": {
+          "examples": ["build", ["build", "test"]],
           "oneOf": [
             {
               "type": "string",
@@ -1835,6 +1848,7 @@
           "$ref": "#/definitions/stepRetryPolicy"
         },
         "repeat_policy": {
+          "examples": [{ "repeat": true, "interval_sec": 60, "limit": 10 }],
           "type": "object",
           "properties": {
             "repeat": {
@@ -3107,6 +3121,7 @@
       "description": "OpenTelemetry configuration for distributed tracing. Enables detailed execution traces for DAGs and steps, providing visibility into workflow performance and debugging."
     },
     "container": {
+      "examples": [{ "image": "python:3.13" }],
       "oneOf": [
         {
           "type": "string",
