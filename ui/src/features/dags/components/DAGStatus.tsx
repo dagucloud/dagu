@@ -117,8 +117,10 @@ function DAGStatus({
   const [selectedStep, setSelectedStep] = useState<
     components['schemas']['Step'] | undefined
   >(undefined);
-  const [selectedDetailStep, setSelectedDetailStep] = useState<
-    components['schemas']['Step'] | undefined
+  // Stored by name and re-derived each render so the open drawer tracks live
+  // node updates arriving over SSE.
+  const [selectedDetailStepName, setSelectedDetailStepName] = useState<
+    string | undefined
   >(undefined);
   const [isStepDetailsOpen, setIsStepDetailsOpen] = useState(false);
 
@@ -274,10 +276,20 @@ function DAGStatus({
       if (!n) {
         return;
       }
-      setSelectedDetailStep(n.step);
+      setSelectedDetailStepName(n.step.name);
       setIsStepDetailsOpen(true);
     },
     [displayDAGRun]
+  );
+
+  const selectedDetailNode = React.useMemo(
+    () =>
+      selectedDetailStepName
+        ? displayDAGRun.nodes?.find(
+            (node) => node.step.name === selectedDetailStepName
+          )
+        : undefined,
+    [displayDAGRun, selectedDetailStepName]
   );
 
   // Child runs open as a stack rather than a navigation, so the run you started
@@ -922,8 +934,19 @@ function DAGStatus({
         <StepDetailsDrawer
           dagName={displayDAGRun.name}
           isOpen={isStepDetailsOpen}
-          step={selectedDetailStep}
+          step={selectedDetailNode?.step}
+          node={selectedDetailNode}
           onClose={closeStepDetails}
+          onViewLog={(node, stream) =>
+            handleViewLog(
+              stream === 'stderr'
+                ? `${node.step.name}_stderr`
+                : node.step.name,
+              displayDAGRun.dagRunId,
+              node
+            )
+          }
+          onOpenSubRun={(node, subRunIndex) => openSubRunAt(node, subRunIndex)}
         />
 
         {/* Log viewer modal */}

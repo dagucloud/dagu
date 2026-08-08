@@ -10,13 +10,14 @@ import {
 } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   components,
   NodeStatus,
   NodeStatusLabel,
   Status,
   StatusLabel,
+  Stream,
 } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useClient } from '@/hooks/api';
@@ -28,6 +29,7 @@ const patchMock = vi.hoisted(() => vi.fn());
 const approvalTabMock = vi.hoisted(() => vi.fn());
 const humanTasksTabMock = vi.hoisted(() => vi.fn());
 const nodeStatusTableMock = vi.hoisted(() => vi.fn());
+const logViewerMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/api', () => ({
   useClient: vi.fn(),
@@ -81,7 +83,10 @@ vi.mock('../visualization', () => ({
 }));
 
 vi.mock('../dag-execution', () => ({
-  LogViewer: () => null,
+  LogViewer: (props: unknown) => {
+    logViewerMock(props);
+    return null;
+  },
   ParallelExecutionModal: () => null,
   StatusUpdateModal: ({
     visible,
@@ -227,6 +232,20 @@ function dagStatusView(
   );
 }
 
+beforeEach(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+});
+
 afterEach(() => {
   vi.clearAllMocks();
 });
@@ -331,6 +350,90 @@ describe('DAGStatus', () => {
     expect(
       screen.queryByRole('button', { name: 'Mark failed' })
     ).not.toBeInTheDocument();
+  });
+
+  it('shows the failure and opens stderr from the step drawer', async () => {
+    const failedRun = {
+      ...dagRun,
+      nodes: [
+        {
+          ...dagRun.nodes[0],
+          status: NodeStatus.Failed,
+          statusLabel: NodeStatusLabel.failed,
+          error: 'connection refused',
+          startedAt: '2026-08-08T10:00:00Z',
+          finishedAt: '2026-08-08T10:00:12Z',
+        },
+      ],
+    } as components['schemas']['DAGRunDetails'];
+
+    render(dagStatusView(failedRun));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open step details' }));
+
+    const drawer = await screen.findByRole('dialog', { name: 'step' });
+    expect(drawer).toHaveTextContent('connection refused');
+    expect(drawer).toHaveTextContent('failed');
+    expect(drawer).toHaveTextContent('Duration');
+
+    fireEvent.click(
+      within(drawer).getByRole('button', { name: 'View stderr' })
+    );
+
+    await waitFor(() => {
+      expect(logViewerMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isOpen: true,
+          stepName: 'step',
+          stream: Stream.stderr,
+        })
+      );
+    });
+    // The drawer removal waits for its exit animation.
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: 'step' })
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it('keeps the open drawer in sync with live node updates', async () => {
+    const failedRun = {
+      ...dagRun,
+      nodes: [
+        {
+          ...dagRun.nodes[0],
+          status: NodeStatus.Running,
+          statusLabel: NodeStatusLabel.running,
+        },
+      ],
+    } as components['schemas']['DAGRunDetails'];
+
+    const { rerender } = render(dagStatusView(failedRun));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open step details' }));
+    const drawer = await screen.findByRole('dialog', { name: 'step' });
+    expect(drawer).toHaveTextContent('running');
+
+    rerender(
+      dagStatusView({
+        ...failedRun,
+        nodes: [
+          {
+            ...failedRun.nodes[0],
+            status: NodeStatus.Failed,
+            statusLabel: NodeStatusLabel.failed,
+            error: 'exit status 1',
+          },
+        ],
+      } as components['schemas']['DAGRunDetails'])
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'step' })).toHaveTextContent(
+        'exit status 1'
+      );
+    });
   });
 
   it('updates the rendered graph immediately after graph status updates succeed', async () => {
