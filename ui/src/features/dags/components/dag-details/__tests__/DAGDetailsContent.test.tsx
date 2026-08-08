@@ -41,6 +41,10 @@ vi.mock('../DAGSettingsTab', () => ({
   default: () => null,
 }));
 
+vi.mock('../DAGDocsTab', () => ({
+  default: () => null,
+}));
+
 vi.mock('../IncidentsTab', () => ({
   default: () => null,
 }));
@@ -104,6 +108,7 @@ describe('DAGDetailsContent', () => {
       'Settings',
       'Notifications',
       'History',
+      'Docs',
     ]) {
       expect(screen.getAllByText(label)).toHaveLength(2);
     }

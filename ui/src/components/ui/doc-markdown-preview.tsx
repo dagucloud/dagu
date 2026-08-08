@@ -1,6 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { DagStatusChip } from '@/components/docs-live/DagStatusChip';
+import { DaguInfoBlock } from '@/components/docs-live/DaguInfoBlock';
+import { useDocLive } from '@/components/docs-live/context';
 import { MermaidBlock } from '@/components/ui/mermaid-block';
 import { cn } from '@/lib/utils';
 import { slugifyHeading } from '@/lib/text-utils';
@@ -84,6 +87,7 @@ type WikilinkAnchorProps = {
 };
 
 function WikilinkAnchor({ href, linkContext, children }: WikilinkAnchorProps) {
+  const live = useDocLive();
   const parsed = parseWikilinkHref(href);
   if (!parsed) return <span>{children}</span>;
   if (!linkContext) {
@@ -91,6 +95,10 @@ function WikilinkAnchor({ href, linkContext, children }: WikilinkAnchorProps) {
   }
   if (parsed.target.startsWith(WIKILINK_DAG_PREFIX)) {
     const dagName = parsed.target.slice(WIKILINK_DAG_PREFIX.length);
+    if (live) {
+      const label = typeof children === 'string' ? children : dagName;
+      return <DagStatusChip dagRef={dagName} label={label} />;
+    }
     return (
       <Link
         to={`/dags/${encodeURIComponent(dagName)}`}
@@ -195,11 +203,17 @@ export function DocMarkdownPreview({
             if (codeClassName === 'language-mermaid') {
               return <MermaidBlock code={String(children)} />;
             }
+            if (codeClassName === 'language-dagu-info') {
+              return <DaguInfoBlock source={String(children)} />;
+            }
             return <code className={codeClassName}>{children}</code>;
           },
           pre({ children }) {
             const child = children as ReactElement;
-            if (child?.type === MermaidBlock) {
+            if (
+              child?.type === MermaidBlock ||
+              child?.type === DaguInfoBlock
+            ) {
               return <>{children}</>;
             }
             return <pre>{children}</pre>;
