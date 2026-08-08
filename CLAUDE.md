@@ -16,7 +16,7 @@ Dagu is a self-contained, single-binary workflow orchestration engine. Workflows
 | `make run` | Run frontend server + scheduler (requires built UI assets) |
 | `make run-server` | Run backend server only |
 | `make test` | Run Go tests except conformance (`gotestsum` with race detection) |
-| `make test TEST_TARGET=./internal/core/...` | Run tests for a specific package |
+| `make test TEST_TARGET=./internal/spec/...` | Run tests for a specific package |
 | `make conformance` | Binary-level conformance tests (builds binary, sets `DAGU_BIN`) |
 | `make test-coverage` | Run tests with coverage, writes HTML report |
 | `make test-e2e` | Browser E2E tests (Playwright, builds UI + E2E binary) |
@@ -40,8 +40,8 @@ The module root is package `dagu` — an experimental embedded API (`engine.go`,
 ### Go Backend (`internal/`)
 
 - **`ir/`** — Canonical normalized DAG and step definitions shared by storage and execution. It owns configuration value objects, lifecycle enums, compatibility decoding, cloning, defaults, and intrinsic queries, but not mutable run results or environment loading. Three DAG execution types: `graph` (default), `chain`, `controller` (LLM-driven step ordering).
-- **`core/spec/`** — YAML decoding, building, normalization, and build-time validation. Authored YAML structs remain private to this package; loaders return `*ir.DAG`. It also normalizes the step-level `action:` shorthand (~58 built-in action names like `file.*`, `state.*`, `git.worktree.*`, `human.task`) into executor configs (`step_v2.go`).
-- **Domain contracts** — Ports live with their owning concepts: `audit` (audit entries and storage), `eventstore` (events, cursors, and storage), `dagrun` (run status, attempts, run stores), `dagstore` (DAG loading/storage), `queue`, `proc`, `dispatch` (distributed dispatch, worker and lease stores), `serviceregistry`, `build`, and `workspace`. Runtime condition results live in `dagrun`; `ir.Condition` remains definition-only.
+- **`spec/`** — YAML decoding, building, normalization, and build-time validation. Authored YAML structs remain private to this package; loaders return `*ir.DAG`. It also normalizes the step-level `action:` shorthand (~58 built-in action names like `file.*`, `state.*`, `git.worktree.*`, `human.task`) into executor configs (`step_v2.go`).
+- **Domain contracts** — Ports live with their owning concepts: `audit` (audit entries and storage), `eventstore` (events, cursors, and storage), `docs` (documents and storage), `dagsettings` (base and per-DAG instance settings), `dagrun` (run status, attempts, run stores), `dagstore` (DAG loading/storage), `queue`, `proc`, `dispatch` (distributed dispatch, worker and lease stores), `serviceregistry`, `build`, and `workspace`. Runtime condition results live in `dagrun`; `ir.Condition` remains definition-only.
 - **`executor/registry/`** — Executor capabilities, step validators, and configuration-schema registries used by spec and runtime.
 - **`runtime/`** — Execution engine. `plan.go` builds the step graph (cycle validation), `runner.go` runs a plan (concurrency, lifecycle handlers, metrics), `node.go` is the per-step state machine (retry, repeat, output capture), `manager.go` starts/stops/inspects DAG runs. `runtime/agent/` is the DAG-run process agent (unix-socket control, signal propagation, status persistence) — not an LLM agent. `runtime/controller/` implements `type: controller` DAGs.
 - **`runctx/` and `runtimeenv/`** — `runctx` owns per-run execution context and shared runtime dependencies. `runtimeenv` resolves dotenv-backed environment snapshots without mutating DAG definitions; subprocess transport records whether a snapshot is already resolved.
@@ -76,7 +76,7 @@ React 19 + TypeScript with Webpack 5. Tailwind CSS 4, Radix UI/shadcn components
 ### Key Data Flow
 
 ```
-CLI/API/UI → cmd handler → DAG load & validate (core/spec) → intake (dagrun/)
+CLI/API/UI → cmd handler → DAG load & validate (spec) → intake (dagrun/)
   → runtime agent → Plan (runtime/plan.go) → Runner → Node → Executor (runtime/builtin/*)
   → persis/file storage → SSE → Web UI
 ```
@@ -92,6 +92,7 @@ Distributed mode: Scheduler → Queue → dispatch policy → Coordinator (gRPC)
 ## Key Conventions
 
 - All storage is behind domain-owned interfaces and `persis.Backend`, with file-based implementations in `persis/file` and `persis/store`.
+- Do not recreate a `core` umbrella below `internal/`; domain contracts belong to their owning packages, while authored DAG parsing belongs to `internal/spec`.
 - Packages under `persis/` must not directly import packages under `service/`, including from tests. The following check must produce no output and exit successfully:
 
   ```sh

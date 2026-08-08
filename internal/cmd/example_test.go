@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -13,13 +13,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 

@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -24,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/testutil"

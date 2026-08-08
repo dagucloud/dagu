@@ -516,9 +516,9 @@ Implementation-level references:
 
 - `internal/cmn/schema/dag.schema.json` - generated JSON Schema used by editor
   tooling and schema navigation
-- `internal/core/spec/step_v2.go` - `run:` and `action:` normalization
-- `internal/core/spec/step_types.go` - custom `actions:` and legacy
+- `internal/spec/step_v2.go` - `run:` and `action:` normalization
+- `internal/spec/step_types.go` - custom `actions:` and legacy
   `step_types:` handling
-- `internal/core/spec/deprecation.go` - deprecated v1 syntax warnings
+- `internal/spec/deprecation.go` - deprecated v1 syntax warnings
 - [`SCHEMA_MIGRATION.md`](./SCHEMA_MIGRATION.md) - migration notes from v1
   syntax to the current schema

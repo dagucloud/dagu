@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"

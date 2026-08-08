@@ -12,8 +12,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/goccy/go-yaml"
 )
 

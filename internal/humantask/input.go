@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 const maxJSONNestingDepth = 100

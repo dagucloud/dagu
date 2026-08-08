@@ -14,7 +14,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -29,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
 	"github.com/dagucloud/dagu/v2/internal/workspace"

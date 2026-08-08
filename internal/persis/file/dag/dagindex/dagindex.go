@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"google.golang.org/protobuf/proto"
 )

@@ -26,7 +26,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -35,6 +34,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 

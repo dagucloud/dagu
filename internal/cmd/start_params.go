@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 func quoteStartDashArgs(args []string) []string {

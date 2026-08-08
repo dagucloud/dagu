@@ -2,5 +2,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package ir defines the canonical normalized DAG representation.
-// Authored YAML structures remain private to internal/core/spec.
+// Authored YAML structures remain private to internal/spec.
 package ir

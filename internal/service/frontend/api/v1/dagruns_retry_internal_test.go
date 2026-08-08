@@ -14,13 +14,13 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/require"
 )
 

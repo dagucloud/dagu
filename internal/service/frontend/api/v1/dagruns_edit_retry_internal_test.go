@@ -15,7 +15,6 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -24,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/require"
 )
 

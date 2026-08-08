@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 
 	"github.com/stretchr/testify/require"
 )

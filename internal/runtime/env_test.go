@@ -14,10 +14,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

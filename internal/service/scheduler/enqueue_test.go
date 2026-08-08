@@ -11,11 +11,11 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/stretchr/testify/assert"
