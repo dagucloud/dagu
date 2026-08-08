@@ -189,7 +189,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*exec
 	if err := validateInProcessRequest(req); err != nil {
 		return nil, err
 	}
-	if err := r.validateIncrementalDAG(req.DAG); err != nil {
+	if err := r.validateBuildDAG(req.DAG); err != nil {
 		return nil, err
 	}
 
@@ -235,7 +235,7 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 	if err := validateInProcessRequest(req.SubWorkflowRequest); err != nil {
 		return nil, err
 	}
-	if err := r.validateIncrementalDAG(req.DAG); err != nil {
+	if err := r.validateBuildDAG(req.DAG); err != nil {
 		return nil, err
 	}
 	if req.StepName == "" {
@@ -264,9 +264,9 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 	return r.runAgent(ctx, req.RunID, child)
 }
 
-func (r *Local) validateIncrementalDAG(dag *core.DAG) error {
-	if dag.Type == core.TypeIncremental && exec.IsRemoteWorkerID(r.workerID) {
-		return dispatch.ErrIncrementalRequiresLocal
+func (r *Local) validateBuildDAG(dag *core.DAG) error {
+	if dag.Type == core.TypeBuild && exec.IsRemoteWorkerID(r.workerID) {
+		return dispatch.ErrBuildRequiresLocal
 	}
 	return nil
 }
@@ -537,9 +537,9 @@ func loadInProcessDAG(
 		cleanup()
 		return nil, nil, fmt.Errorf("failed to load child workflow DAG: %w", err)
 	}
-	// Incremental paths remain anchored to the authored definition when a local
+	// Build paths remain anchored to the authored definition when a local
 	// child is reloaded from a temporary copy.
-	if req.DAG.Type == core.TypeIncremental &&
+	if req.DAG.Type == core.TypeBuild &&
 		!req.DAG.WorkingDirExplicit &&
 		!dag.WorkingDirExplicit &&
 		req.DAG.WorkingDir != "" {

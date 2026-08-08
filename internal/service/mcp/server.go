@@ -116,7 +116,7 @@ type executeInput struct {
 	Params     string   `json:"params,omitempty" jsonschema:"Runtime parameters as a JSON string."`
 	Queue      string   `json:"queue,omitempty" jsonschema:"Queue override for enqueue."`
 	Singleton  bool     `json:"singleton,omitempty" jsonschema:"Prevent duplicate running or queued DAG-runs when supported by the action."`
-	NoReuse    bool     `json:"noReuse,omitempty" jsonschema:"Execute eligible incremental steps without reusing prior materializations for start or enqueue."`
+	NoReuse    bool     `json:"noReuse,omitempty" jsonschema:"Execute eligible build steps without reusing prior materializations for start or enqueue."`
 	Labels     []string `json:"labels,omitempty" jsonschema:"Additional labels, each as key=value or key-only."`
 	StepName   string   `json:"stepName,omitempty" jsonschema:"Optional step name for retry."`
 }

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package incremental_test
+package build_test
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,11 +35,11 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 	request.Step.Inputs = append(request.Step.Inputs, core.StepInputDeclaration{Name: "second", Path: secondInputPath})
 	request.Environment[exec.EnvKeyDAGRunID] = "run-1"
 
-	first, err := incremental.Prepare(ctx, store, request)
+	first, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, first.Evaluate(ctx))
-	assert.Equal(t, exec.IncrementalDecisionExecute, first.Metadata().Decision)
-	assert.Equal(t, exec.IncrementalReasonManifestMissing, first.Metadata().Reason)
+	assert.Equal(t, exec.BuildDecisionExecute, first.Metadata().Decision)
+	assert.Equal(t, exec.BuildReasonManifestMissing, first.Metadata().Reason)
 
 	outputs, staging, err := first.NewAttempt(0)
 	require.NoError(t, err)
@@ -52,14 +52,14 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 	request.AttemptID = "attempt-2"
 	request.Environment[exec.EnvKeyDAGRunID] = "run-2"
 	request.Step.Inputs[0], request.Step.Inputs[1] = request.Step.Inputs[1], request.Step.Inputs[0]
-	second, err := incremental.Prepare(ctx, store, request)
+	second, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, second.Close("")) })
 	require.NoError(t, second.Evaluate(ctx))
 
 	assert.True(t, second.Reused())
-	assert.Equal(t, exec.IncrementalReasonMatched, second.Metadata().Reason)
-	assert.Equal(t, exec.NewDAGRunRef("incremental-test", "run-1"), second.Metadata().ProducerRun)
+	assert.Equal(t, exec.BuildReasonMatched, second.Metadata().Reason)
+	assert.Equal(t, exec.NewDAGRunRef("build-test", "run-1"), second.Metadata().ProducerRun)
 	assert.Equal(t, outputPath, second.PublishedOutputs()["artifact"])
 	content, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestImplicitRunWorkingDirectoryReusesMaterialization(t *testing.T) {
 	request := prepareRequest(firstRunWorkDir, inputPath, outputPath)
 	request.RunWorkDir = firstRunWorkDir
 	request.Environment["PWD"] = firstRunWorkDir
-	first, err := incremental.Prepare(ctx, store, request)
+	first, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, first.Evaluate(ctx))
 	_, staging, err := first.NewAttempt(0)
@@ -95,7 +95,7 @@ func TestImplicitRunWorkingDirectoryReusesMaterialization(t *testing.T) {
 	request.WorkingDir = secondRunWorkDir
 	request.RunWorkDir = secondRunWorkDir
 	request.Environment["PWD"] = secondRunWorkDir
-	second, err := incremental.Prepare(ctx, store, request)
+	second, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, second.Close("")) })
 	require.NoError(t, second.Evaluate(ctx))
@@ -114,7 +114,7 @@ func TestPrepareReevaluatesAfterWaitingForOutputLock(t *testing.T) {
 
 	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
 	request := prepareRequest(workingDir, inputPath, outputPath)
-	first, err := incremental.Prepare(ctx, store, request)
+	first, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, first.Evaluate(ctx))
 	_, staging, err := first.NewAttempt(0)
@@ -128,7 +128,7 @@ func TestPrepareReevaluatesAfterWaitingForOutputLock(t *testing.T) {
 		secondRequest := request
 		secondRequest.DAGRunID = "run-2"
 		secondRequest.AttemptID = "attempt-2"
-		session, prepareErr := incremental.Prepare(ctx, notifyingStore{
+		session, prepareErr := build.Prepare(ctx, notifyingStore{
 			MaterializationStore: store,
 			acquireStarted:       acquireStarted,
 		}, secondRequest)
@@ -153,7 +153,7 @@ func TestPrepareReevaluatesAfterWaitingForOutputLock(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, result.session.Close("")) })
 	require.NoError(t, result.session.Evaluate(ctx))
 	assert.True(t, result.session.Reused())
-	assert.Equal(t, exec.IncrementalReasonMatched, result.session.Metadata().Reason)
+	assert.Equal(t, exec.BuildReasonMatched, result.session.Metadata().Reason)
 }
 
 func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
@@ -167,7 +167,7 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
 	request := prepareRequest(workingDir, inputPath, outputPath)
 
-	first, err := incremental.Prepare(ctx, store, request)
+	first, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, first.Evaluate(ctx))
 	_, staging, err := first.NewAttempt(0)
@@ -178,64 +178,64 @@ func TestPrepareExplainsWhyExecutionIsRequired(t *testing.T) {
 
 	t.Run("input changed", func(t *testing.T) {
 		require.NoError(t, os.WriteFile(inputPath, []byte("changed"), 0o600))
-		session, err := incremental.Prepare(ctx, store, request)
+		session, err := build.Prepare(ctx, store, request)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalDecisionExecute, session.Metadata().Decision)
-		assert.Equal(t, exec.IncrementalReasonInputChanged, session.Metadata().Reason)
+		assert.Equal(t, exec.BuildDecisionExecute, session.Metadata().Decision)
+		assert.Equal(t, exec.BuildReasonInputChanged, session.Metadata().Reason)
 	})
 
 	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
 	t.Run("recipe changed", func(t *testing.T) {
 		changed := request
 		changed.Environment = map[string]string{"MODE": "other"}
-		session, err := incremental.Prepare(ctx, store, changed)
+		session, err := build.Prepare(ctx, store, changed)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalReasonRecipeChanged, session.Metadata().Reason)
+		assert.Equal(t, exec.BuildReasonRecipeChanged, session.Metadata().Reason)
 	})
 
 	t.Run("step environment changed", func(t *testing.T) {
 		changed := request
 		changed.Step.Env = []string{"TARGET=${outputs.artifact}"}
-		session, err := incremental.Prepare(ctx, store, changed)
+		session, err := build.Prepare(ctx, store, changed)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalReasonRecipeChanged, session.Metadata().Reason)
+		assert.Equal(t, exec.BuildReasonRecipeChanged, session.Metadata().Reason)
 	})
 
 	t.Run("effective shell changed", func(t *testing.T) {
 		changed := request
 		changed.Shell = []string{"bash", "-e"}
-		session, err := incremental.Prepare(ctx, store, changed)
+		session, err := build.Prepare(ctx, store, changed)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalReasonRecipeChanged, session.Metadata().Reason)
+		assert.Equal(t, exec.BuildReasonRecipeChanged, session.Metadata().Reason)
 	})
 
 	t.Run("reuse disabled", func(t *testing.T) {
 		disabled := request
 		disabled.NoReuse = true
-		session, err := incremental.Prepare(ctx, store, disabled)
+		session, err := build.Prepare(ctx, store, disabled)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalReasonReuseDisabled, session.Metadata().Reason)
+		assert.Equal(t, exec.BuildReasonReuseDisabled, session.Metadata().Reason)
 	})
 
 	t.Run("secret consuming step", func(t *testing.T) {
 		secret := request
 		secret.HasSecrets = true
-		session, err := incremental.Prepare(ctx, store, secret)
+		session, err := build.Prepare(ctx, store, secret)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, session.Close("")) })
 		require.NoError(t, session.Evaluate(ctx))
-		assert.Equal(t, exec.IncrementalDecisionAlways, session.Metadata().Decision)
-		assert.Equal(t, exec.IncrementalReasonIneligible, session.Metadata().Reason)
+		assert.Equal(t, exec.BuildDecisionAlways, session.Metadata().Decision)
+		assert.Equal(t, exec.BuildReasonIneligible, session.Metadata().Reason)
 		assert.Empty(t, session.Metadata().Fingerprint)
 	})
 }
@@ -251,7 +251,7 @@ func TestIneligibleCommitPreservesReusableManifest(t *testing.T) {
 	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
 	request := prepareRequest(workingDir, inputPath, outputPath)
 
-	first, err := incremental.Prepare(ctx, store, request)
+	first, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, first.Evaluate(ctx))
 	_, staging, err := first.NewAttempt(0)
@@ -264,10 +264,10 @@ func TestIneligibleCommitPreservesReusableManifest(t *testing.T) {
 	ineligibleRequest.DAGRunID = "run-2"
 	ineligibleRequest.AttemptID = "attempt-2"
 	ineligibleRequest.HasSecrets = true
-	ineligible, err := incremental.Prepare(ctx, store, ineligibleRequest)
+	ineligible, err := build.Prepare(ctx, store, ineligibleRequest)
 	require.NoError(t, err)
 	require.NoError(t, ineligible.Evaluate(ctx))
-	require.Equal(t, exec.IncrementalDecisionAlways, ineligible.Metadata().Decision)
+	require.Equal(t, exec.BuildDecisionAlways, ineligible.Metadata().Decision)
 	_, staging, err = ineligible.NewAttempt(0)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(staging, []byte("second"), 0o600))
@@ -276,12 +276,12 @@ func TestIneligibleCommitPreservesReusableManifest(t *testing.T) {
 
 	request.DAGRunID = "run-3"
 	request.AttemptID = "attempt-3"
-	third, err := incremental.Prepare(ctx, store, request)
+	third, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, third.Close("")) })
 	require.NoError(t, third.Evaluate(ctx))
-	require.Equal(t, exec.IncrementalDecisionExecute, third.Metadata().Decision)
-	require.Equal(t, exec.IncrementalReasonOutputChanged, third.Metadata().Reason)
+	require.Equal(t, exec.BuildDecisionExecute, third.Metadata().Decision)
+	require.Equal(t, exec.BuildReasonOutputChanged, third.Metadata().Reason)
 }
 
 func TestPrepareDryRunDoesNotAcquirePathLocks(t *testing.T) {
@@ -294,12 +294,12 @@ func TestPrepareDryRunDoesNotAcquirePathLocks(t *testing.T) {
 	request := prepareRequest(workingDir, inputPath, filepath.Join(workingDir, "output.txt"))
 	request.Dry = true
 
-	session, err := incremental.Prepare(context.Background(), store, request)
+	session, err := build.Prepare(context.Background(), store, request)
 	require.NoError(t, err)
 	require.NoError(t, session.Evaluate(context.Background()))
 	assert.False(t, store.acquireCalled)
-	assert.Equal(t, exec.IncrementalDecisionExecute, session.Metadata().Decision)
-	assert.Equal(t, exec.IncrementalReasonManifestMissing, session.Metadata().Reason)
+	assert.Equal(t, exec.BuildDecisionExecute, session.Metadata().Decision)
+	assert.Equal(t, exec.BuildReasonManifestMissing, session.Metadata().Reason)
 }
 
 func TestCommitRejectsUnavailableStore(t *testing.T) {
@@ -309,7 +309,7 @@ func TestCommitRejectsUnavailableStore(t *testing.T) {
 	inputPath := filepath.Join(workingDir, "input.txt")
 	outputPath := filepath.Join(workingDir, "output.txt")
 	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
-	session, err := incremental.Prepare(context.Background(), nil, prepareRequest(workingDir, inputPath, outputPath))
+	session, err := build.Prepare(context.Background(), nil, prepareRequest(workingDir, inputPath, outputPath))
 	require.ErrorContains(t, err, "store is unavailable")
 	require.NotNil(t, session)
 
@@ -329,11 +329,11 @@ func TestComparisonKeyUsesFilesystemCaseSemantics(t *testing.T) {
 	require.NoError(t, err)
 	lowerInfo, lowerErr := os.Lstat(lower)
 	if lowerErr == nil && os.SameFile(upperInfo, lowerInfo) {
-		assert.Equal(t, incremental.ComparisonKey(upper), incremental.ComparisonKey(lower))
+		assert.Equal(t, build.ComparisonKey(upper), build.ComparisonKey(lower))
 		return
 	}
 	require.ErrorIs(t, lowerErr, os.ErrNotExist)
-	assert.NotEqual(t, incremental.ComparisonKey(upper), incremental.ComparisonKey(lower))
+	assert.NotEqual(t, build.ComparisonKey(upper), build.ComparisonKey(lower))
 }
 
 func TestComparisonKeyResolvesExistingAncestorAliases(t *testing.T) {
@@ -348,12 +348,12 @@ func TestComparisonKeyResolvesExistingAncestorAliases(t *testing.T) {
 	}
 
 	assert.Equal(t,
-		incremental.ComparisonKey(filepath.Join(realDir, "artifact.txt")),
-		incremental.ComparisonKey(filepath.Join(aliasDir, "artifact.txt")),
+		build.ComparisonKey(filepath.Join(realDir, "artifact.txt")),
+		build.ComparisonKey(filepath.Join(aliasDir, "artifact.txt")),
 	)
 	assert.Equal(t,
-		incremental.IdentityKey(filepath.Join(realDir, "artifact.txt")),
-		incremental.IdentityKey(filepath.Join(aliasDir, "artifact.txt")),
+		build.IdentityKey(filepath.Join(realDir, "artifact.txt")),
+		build.IdentityKey(filepath.Join(aliasDir, "artifact.txt")),
 	)
 }
 
@@ -362,8 +362,8 @@ func TestIdentityKeyPreservesAuthoredCase(t *testing.T) {
 
 	dir := t.TempDir()
 	assert.NotEqual(t,
-		incremental.IdentityKey(filepath.Join(dir, "Artifact.txt")),
-		incremental.IdentityKey(filepath.Join(dir, "artifact.txt")),
+		build.IdentityKey(filepath.Join(dir, "Artifact.txt")),
+		build.IdentityKey(filepath.Join(dir, "artifact.txt")),
 	)
 }
 
@@ -375,7 +375,7 @@ func TestNewAttemptBoundsStagingFilename(t *testing.T) {
 	outputPath := filepath.Join(workingDir, strings.Repeat("a", 240)+".txt")
 	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
 	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
-	session, err := incremental.Prepare(context.Background(), store, prepareRequest(workingDir, inputPath, outputPath))
+	session, err := build.Prepare(context.Background(), store, prepareRequest(workingDir, inputPath, outputPath))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, session.Close("")) })
 
@@ -391,7 +391,7 @@ func TestResolvePathRejectsExistingOutputDirectory(t *testing.T) {
 	outputPath := filepath.Join(t.TempDir(), "output")
 	require.NoError(t, os.Mkdir(outputPath, 0o750))
 
-	_, err := incremental.ResolvePath(outputPath, "", true)
+	_, err := build.ResolvePath(outputPath, "", true)
 	require.ErrorContains(t, err, "must be a regular file")
 }
 
@@ -405,7 +405,7 @@ type notifyingStore struct {
 }
 
 type prepareResult struct {
-	session *incremental.Session
+	session *build.Session
 	err     error
 }
 
@@ -430,11 +430,11 @@ func (*previewStore) Commit(context.Context, exec.MaterializationLock, exec.Mate
 	return nil
 }
 
-func prepareRequest(workingDir, inputPath, outputPath string) incremental.PrepareRequest {
-	return incremental.PrepareRequest{
+func prepareRequest(workingDir, inputPath, outputPath string) build.PrepareRequest {
+	return build.PrepareRequest{
 		DAG: &core.DAG{
-			Name:       "incremental-test",
-			Type:       core.TypeIncremental,
+			Name:       "build-test",
+			Type:       core.TypeBuild,
 			WorkingDir: workingDir,
 		},
 		Step: core.Step{

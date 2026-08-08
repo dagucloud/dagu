@@ -88,7 +88,7 @@ func ValidateSteps(dag *DAG) error {
 	resolveForeachStepDependencies(dag.Steps)
 	validateDependenciesExist(dag, stepNames, &errs)
 	validateApprovalRewindTargets(dag, stepNames, &errs)
-	validateIncrementalSteps(dag, &errs)
+	validateBuildSteps(dag, &errs)
 
 	for _, step := range dag.Steps {
 		errs = append(errs, validateStep(step)...)
@@ -101,20 +101,20 @@ func ValidateSteps(dag *DAG) error {
 	return errs
 }
 
-func validateIncrementalSteps(dag *DAG, errs *ErrorList) {
-	if dag.Type == TypeIncremental {
+func validateBuildSteps(dag *DAG, errs *ErrorList) {
+	if dag.Type == TypeBuild {
 		validateNoPreExecutionPathReference(errs, "working_dir", dag.WorkingDir)
 		validateNoPreExecutionPathReference(errs, "shell", dag.Shell)
 		validateNoPreExecutionPathReferences(errs, "shell_args", dag.ShellArgs)
 		for _, condition := range dag.Preconditions {
-			validateNoIncrementalPathCondition(errs, "preconditions", condition)
+			validateNoBuildPathCondition(errs, "preconditions", condition)
 		}
 	}
 	for _, step := range dag.Steps {
-		validateIncrementalStep(dag, step, errs)
+		validateBuildStep(dag, step, errs)
 	}
-	if dag.Type == TypeIncremental {
-		validateIncrementalRuntimeOutputReferences(dag, errs)
+	if dag.Type == TypeBuild {
+		validateBuildRuntimeOutputReferences(dag, errs)
 	}
 	for _, handler := range []*Step{
 		dag.HandlerOn.Init,
@@ -125,27 +125,27 @@ func validateIncrementalSteps(dag *DAG, errs *ErrorList) {
 		dag.HandlerOn.Wait,
 	} {
 		if handler != nil {
-			validateUnsupportedIncrementalPaths(*handler, "handler_on", "lifecycle handlers", errs)
+			validateUnsupportedBuildPaths(*handler, "handler_on", "lifecycle handlers", errs)
 		}
 	}
 }
 
-func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
+func validateBuildStep(dag *DAG, step Step, errs *ErrorList) {
 	pathOutputs := 0
 	for _, output := range step.Outputs {
 		if output.Path != "" {
 			pathOutputs++
-			validateIncrementalPathExpression(errs, "outputs", output.Path)
+			validateBuildPathExpression(errs, "outputs", output.Path)
 		}
 	}
 	for _, input := range step.Inputs {
-		validateIncrementalPathExpression(errs, "inputs", input.Path)
+		validateBuildPathExpression(errs, "inputs", input.Path)
 	}
 	hasPaths := len(step.Inputs) > 0 || pathOutputs > 0
 	if hasPaths {
-		if dag.Type != TypeIncremental {
+		if dag.Type != TypeBuild {
 			*errs = append(*errs, NewValidationError("type", dag.Type,
-				fmt.Errorf("step %s declares incremental paths but DAG type is not %q", step.Name, TypeIncremental)))
+				fmt.Errorf("step %s declares build paths but DAG type is not %q", step.Name, TypeBuild)))
 		}
 		if pathOutputs > 1 {
 			*errs = append(*errs, NewValidationError("outputs", step.Outputs,
@@ -153,12 +153,12 @@ func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
 		}
 		if dag.Container != nil || step.Container != nil {
 			*errs = append(*errs, NewValidationError("container", step.Name,
-				fmt.Errorf("incremental paths require host command or shell execution")))
+				fmt.Errorf("build paths require host command or shell execution")))
 		}
 		executorType := step.ExecutorConfig.Type
 		if executorType != "" && executorType != "command" && executorType != "shell" {
 			*errs = append(*errs, NewValidationError("type", executorType,
-				fmt.Errorf("incremental paths are not supported by executor %q", executorType)))
+				fmt.Errorf("build paths are not supported by executor %q", executorType)))
 		}
 		validateNoPreExecutionPathReference(errs, "working_dir", step.Dir)
 		validateNoPreExecutionPathReference(errs, "stdout", step.Stdout)
@@ -171,7 +171,7 @@ func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
 		validateNoAttemptOutputReferences(errs, "continue_on.output", step.ContinueOn.Output)
 		if pathOutputs > 0 && step.ContinueOn.MarkSuccess {
 			*errs = append(*errs, NewValidationError("continue_on.mark_success", true,
-				fmt.Errorf("incremental path output step %s cannot mark a failed attempt as successful", step.Name)))
+				fmt.Errorf("build path output step %s cannot mark a failed attempt as successful", step.Name)))
 		}
 		validateNoPreExecutionPathReference(errs, "signal_on_stop", step.SignalOnStop)
 		validateNoPreExecutionPathReference(errs, "retry_policy.limit", step.RetryPolicy.LimitStr)
@@ -186,15 +186,15 @@ func validateIncrementalStep(dag *DAG, step Step, errs *ErrorList) {
 	}
 	if step.Foreach != nil {
 		for _, child := range step.Foreach.Steps {
-			validateUnsupportedIncrementalPaths(child, "foreach.steps", "foreach steps", errs)
+			validateUnsupportedBuildPaths(child, "foreach.steps", "foreach steps", errs)
 		}
 	}
 }
 
-func validateIncrementalRuntimeOutputReferences(dag *DAG, errs *ErrorList) {
+func validateBuildRuntimeOutputReferences(dag *DAG, errs *ErrorList) {
 	producers := make([]Step, 0)
 	for _, step := range dag.Steps {
-		if isPotentiallyReusableIncrementalStep(dag, step) {
+		if isPotentiallyReusableBuildStep(dag, step) {
 			producers = append(producers, step)
 		}
 	}
@@ -204,13 +204,13 @@ func validateIncrementalRuntimeOutputReferences(dag *DAG, errs *ErrorList) {
 				continue
 			}
 			*errs = append(*errs, NewValidationError(field.Path, field.Value,
-				fmt.Errorf("runtime outputs from reusable incremental step %s are unavailable on reuse; use ${steps.%s.outputs.<name>}", producer.Name, producer.ID)))
+				fmt.Errorf("runtime outputs from reusable build step %s are unavailable on reuse; use ${steps.%s.outputs.<name>}", producer.Name, producer.ID)))
 		}
 	}
 }
 
-func isPotentiallyReusableIncrementalStep(dag *DAG, step Step) bool {
-	if dag.Type != TypeIncremental || step.ID == "" || len(step.Outputs) != 1 || step.Outputs[0].Path == "" {
+func isPotentiallyReusableBuildStep(dag *DAG, step Step) bool {
+	if dag.Type != TypeBuild || step.ID == "" || len(step.Outputs) != 1 || step.Outputs[0].Path == "" {
 		return false
 	}
 	if step.Output != "" || len(step.StructuredOutput) > 0 || step.StdoutOutputs != nil {
@@ -227,7 +227,7 @@ func isPotentiallyReusableIncrementalStep(dag *DAG, step Step) bool {
 	return executorType == "" || executorType == "command" || executorType == "shell"
 }
 
-func validateUnsupportedIncrementalPaths(step Step, field, scope string, errs *ErrorList) {
+func validateUnsupportedBuildPaths(step Step, field, scope string, errs *ErrorList) {
 	hasPaths := len(step.Inputs) > 0
 	for _, output := range step.Outputs {
 		if output.Path != "" {
@@ -237,27 +237,27 @@ func validateUnsupportedIncrementalPaths(step Step, field, scope string, errs *E
 	}
 	if hasPaths {
 		*errs = append(*errs, NewValidationError(field, step.Name,
-			fmt.Errorf("incremental paths are not supported in %s", scope)))
+			fmt.Errorf("build paths are not supported in %s", scope)))
 	}
 	if step.Foreach != nil {
 		for _, child := range step.Foreach.Steps {
-			validateUnsupportedIncrementalPaths(child, field, scope, errs)
+			validateUnsupportedBuildPaths(child, field, scope, errs)
 		}
 	}
 }
 
-func validateIncrementalPathExpression(errs *ErrorList, field, path string) {
+func validateBuildPathExpression(errs *ErrorList, field, path string) {
 	if containsCommandSubstitution(path) {
 		*errs = append(*errs, NewValidationError(field, path,
-			fmt.Errorf("incremental paths cannot use command substitution")))
+			fmt.Errorf("build paths cannot use command substitution")))
 	}
 	if containsStepReference(path) {
 		*errs = append(*errs, NewValidationError(field, path,
-			fmt.Errorf("incremental paths must resolve before step execution")))
+			fmt.Errorf("build paths must resolve before step execution")))
 	}
 	if containsInputPathReference(path) {
 		*errs = append(*errs, NewValidationError(field, path,
-			fmt.Errorf("incremental paths must resolve before step execution")))
+			fmt.Errorf("build paths must resolve before step execution")))
 	}
 	if containsAttemptOutputReference(path) {
 		*errs = append(*errs, NewValidationError(field, path,
@@ -326,7 +326,7 @@ func validateNoAttemptOutputCondition(errs *ErrorList, field string, condition *
 	}
 }
 
-func validateNoIncrementalPathCondition(errs *ErrorList, field string, condition *Condition) {
+func validateNoBuildPathCondition(errs *ErrorList, field string, condition *Condition) {
 	if condition == nil {
 		return
 	}
@@ -337,7 +337,7 @@ func validateNoIncrementalPathCondition(errs *ErrorList, field string, condition
 		strings.Contains(condition.Eval, "${inputs.") ||
 		strings.Contains(condition.Expected, "${inputs.") {
 		*errs = append(*errs, NewValidationError(field, condition,
-			fmt.Errorf("incremental path references are unavailable to DAG preconditions")))
+			fmt.Errorf("build path references are unavailable to DAG preconditions")))
 	}
 }
 

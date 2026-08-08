@@ -1,4 +1,4 @@
-# Spec: Incremental Workflows
+# Spec: Build Workflows
 
 ## Status
 
@@ -7,14 +7,14 @@ coordinator fencing protocol and is not part of this spec revision.
 
 ## Scope
 
-An opt-in `type: incremental` DAG may declare named regular-file inputs and a
+An opt-in `type: build` DAG may declare named regular-file inputs and a
 path-backed output on a step. Dagu infers dependencies from matching canonical
 paths and evaluates each ready node against its last committed materialization.
 
 ## Declarations
 
 ```yaml
-type: incremental
+type: build
 working_dir: /workspace
 
 steps:
@@ -38,7 +38,7 @@ source DAG directory for a file-backed definition. Inline YAML without one of
 those stable bases is invalid. Paths never resolve against per-run scratch
 space.
 
-Only host command and shell steps may declare incremental paths. DAG- or
+Only host command and shell steps may declare build paths. DAG- or
 step-level containers and other executor types are invalid for those steps.
 
 ## Planning and references
@@ -57,7 +57,7 @@ and executor environment. After commit or reuse,
 
 ## Decisions
 
-Every incremental-DAG node records a decision independently of its lifecycle
+Every build-DAG node records a decision independently of its lifecycle
 status:
 
 - `reuse`: the recipe, input contents, manifest, and current output match;
@@ -88,7 +88,7 @@ output and manifest intact. Recovery refuses to overwrite a final output that
 matches neither the previous nor the proposed materialization.
 
 Standard-stream destinations, including artifact destinations, must not resolve
-to any declared incremental input or output. Static aliases are rejected during
+to any declared build input or output. Static aliases are rejected during
 planning, and late-resolved aliases are rejected before opening the destination.
 
 `--no-reuse` on `start`, `dry`, or `enqueue` bypasses manifest hits without

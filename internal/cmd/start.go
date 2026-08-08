@@ -263,16 +263,16 @@ func runStart(ctx *Context, args []string) error {
 
 // tryExecuteDAG acquires a process handle and executes the DAG.
 func tryExecuteDAG(ctx *Context, dag *core.DAG, dagRunID string, opts runOptions) error {
-	if dag.Type == core.TypeIncremental && opts.workerID != "local" {
-		return dispatch.ErrIncrementalRequiresLocal
+	if dag.Type == core.TypeBuild && opts.workerID != "local" {
+		return dispatch.ErrBuildRequiresLocal
 	}
 	// Check for dispatch to coordinator for distributed execution.
 	// Skip if already running on a worker (workerID != "local").
 	if opts.workerID == "local" {
 		coordinatorCli := ctx.NewCoordinatorClient()
 		if dispatch.ShouldDispatchToCoordinator(dag, coordinatorCli != nil, ctx.Config.DefaultExecMode) {
-			if dag.Type == core.TypeIncremental {
-				return dispatch.ErrIncrementalRequiresLocal
+			if dag.Type == core.TypeBuild {
+				return dispatch.ErrBuildRequiresLocal
 			}
 			return dispatchToCoordinatorAndWait(ctx, dag, dagRunID, opts, coordinatorCli)
 		}

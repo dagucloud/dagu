@@ -65,8 +65,8 @@ type NodeState struct {
 	Error error
 	// StatusDetails tracks independently executed items within the node.
 	StatusDetails []exec.NodeStatusDetail
-	// Incremental explains the materialization decision for this node.
-	Incremental *exec.IncrementalExecution
+	// Build explains the materialization decision for this node.
+	Build *exec.BuildExecution
 	// ExitCode is the exit code that the command exited with.
 	// It only makes sense when the node is a command executor.
 	ExitCode int
@@ -358,11 +358,11 @@ func (d *Data) SetStatus(s core.NodeStatus) {
 	d.inner.State.Status = s
 }
 
-func (d *Data) setIncremental(value exec.IncrementalExecution) {
+func (d *Data) setBuild(value exec.BuildExecution) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	copy := value
-	d.inner.State.Incremental = &copy
+	d.inner.State.Build = &copy
 }
 
 // OpenHumanTask records the resolved prompt and transitions the node to waiting.

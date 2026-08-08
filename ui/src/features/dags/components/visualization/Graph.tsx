@@ -390,7 +390,7 @@ function Graph({
     });
 
     return dat.join('\n');
-  }, [steps, onClickNode, flowchart, isDarkMode]);
+  }, [steps, type, onClickNode, flowchart, isDarkMode]);
 
   return (
     <div

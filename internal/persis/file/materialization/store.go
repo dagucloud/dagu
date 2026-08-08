@@ -17,9 +17,9 @@ import (
 	"sort"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/gofrs/flock"
 )
 
@@ -153,7 +153,7 @@ func (s *Store) Commit(_ context.Context, lock exec.MaterializationLock, req exe
 	if !ok || held.store != s || held.released {
 		return fmt.Errorf("invalid materialization lock")
 	}
-	outputKey := incremental.ComparisonKey(req.FinalPath)
+	outputKey := build.ComparisonKey(req.FinalPath)
 	hasOutputLock := false
 	for _, request := range held.requests {
 		if request.Mode == exec.PathLockExclusive && request.Key == outputKey {
@@ -383,7 +383,7 @@ func snapshotExisting(path string) (*exec.FileSnapshot, error) {
 }
 
 func snapshotFile(path string) (exec.FileSnapshot, error) {
-	return incremental.Snapshot("", path)
+	return build.Snapshot("", path)
 }
 
 func verifyFile(path string, expected exec.FileSnapshot) error {

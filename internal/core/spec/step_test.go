@@ -3621,11 +3621,11 @@ func TestBuildStepMessages(t *testing.T) {
 	}
 }
 
-func TestLoadIncrementalStepPaths(t *testing.T) {
+func TestLoadBuildStepPaths(t *testing.T) {
 	t.Parallel()
 
 	dag, err := LoadYAML(context.Background(), []byte(`
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3640,12 +3640,12 @@ steps:
 `), WithoutEval())
 	require.NoError(t, err)
 	require.Len(t, dag.Steps, 1)
-	assert.Equal(t, core.TypeIncremental, dag.Type)
+	assert.Equal(t, core.TypeBuild, dag.Type)
 	assert.Equal(t, []core.StepInputDeclaration{{Name: "source", Path: "source.txt"}}, dag.Steps[0].Inputs)
 	assert.Equal(t, []core.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}}, dag.Steps[0].Outputs)
 }
 
-func TestLoadIncrementalStepPathValidation(t *testing.T) {
+func TestLoadBuildStepPathValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -3654,7 +3654,7 @@ func TestLoadIncrementalStepPathValidation(t *testing.T) {
 		wantDetail string
 	}{
 		{
-			name: "path declarations require incremental workflow",
+			name: "path declarations require build workflow",
 			yaml: `
 steps:
   - id: build
@@ -3664,12 +3664,12 @@ steps:
       - name: artifact
         path: artifact.txt
 `,
-			wantDetail: "declares incremental paths",
+			wantDetail: "declares build paths",
 		},
 		{
 			name: "path and value type are mutually exclusive",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3685,7 +3685,7 @@ steps:
 		{
 			name: "relative paths require stable base",
 			yaml: `
-type: incremental
+type: build
 steps:
   - id: build
     name: build
@@ -3694,12 +3694,12 @@ steps:
       - name: source
         path: source.txt
 `,
-			wantDetail: "relative incremental paths",
+			wantDetail: "relative build paths",
 		},
 		{
 			name: "handler paths are unsupported",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 handler_on:
   success:
@@ -3717,7 +3717,7 @@ steps:
 		{
 			name: "foreach body paths are unsupported",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - name: batches
@@ -3737,7 +3737,7 @@ steps:
 		{
 			name: "missing input name reports required field",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3750,7 +3750,7 @@ steps:
 		{
 			name: "missing input path reports required field",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3763,7 +3763,7 @@ steps:
 		{
 			name: "step output references are too late for paths",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3778,7 +3778,7 @@ steps:
 		{
 			name: "command substitution is unavailable to paths",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3793,7 +3793,7 @@ steps:
 		{
 			name: "input references are unavailable to paths",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3808,7 +3808,7 @@ steps:
 		{
 			name: "input references are unavailable to setup fields",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3824,7 +3824,7 @@ steps:
 		{
 			name: "input references are unavailable to output redirection",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3840,7 +3840,7 @@ steps:
 		{
 			name: "input references are unavailable to shell configuration",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3856,7 +3856,7 @@ steps:
 		{
 			name: "path output cannot mark failed attempt successful",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3874,7 +3874,7 @@ steps:
 		{
 			name: "attempt output references are unavailable to preconditions",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3891,7 +3891,7 @@ steps:
 		{
 			name: "attempt output references are unavailable to retry policy",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3909,7 +3909,7 @@ steps:
 		{
 			name: "attempt output references are unavailable to repeat policy",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3927,7 +3927,7 @@ steps:
 		{
 			name: "attempt output references are unavailable to output redirection",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3943,7 +3943,7 @@ steps:
 		{
 			name: "attempt output references are unavailable to shell configuration",
 			yaml: `
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3968,7 +3968,7 @@ steps:
 	}
 }
 
-func TestLoadIncrementalStepRuntimeOutputReferences(t *testing.T) {
+func TestLoadBuildStepRuntimeOutputReferences(t *testing.T) {
 	t.Parallel()
 
 	for _, reference := range []string{
@@ -3981,7 +3981,7 @@ func TestLoadIncrementalStepRuntimeOutputReferences(t *testing.T) {
 		t.Run(reference, func(t *testing.T) {
 			t.Parallel()
 			_, err := LoadYAML(context.Background(), []byte(`
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -3994,16 +3994,16 @@ steps:
     run: echo "`+reference+`"
 `), WithoutEval())
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "runtime outputs from reusable incremental step build are unavailable on reuse")
+			assert.Contains(t, err.Error(), "runtime outputs from reusable build step build are unavailable on reuse")
 		})
 	}
 }
 
-func TestLoadIncrementalStepAllowsStableOutputReferences(t *testing.T) {
+func TestLoadBuildStepAllowsStableOutputReferences(t *testing.T) {
 	t.Parallel()
 
 	_, err := LoadYAML(context.Background(), []byte(`
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build
@@ -4018,7 +4018,7 @@ steps:
 	require.NoError(t, err)
 
 	_, err = LoadYAML(context.Background(), []byte(`
-type: incremental
+type: build
 working_dir: .
 steps:
   - id: build

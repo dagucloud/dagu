@@ -249,9 +249,9 @@
     },
     "type": {
       "type": "string",
-      "enum": ["graph", "chain", "controller", "incremental"],
+      "enum": ["graph", "chain", "controller", "build"],
       "default": "graph",
-      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution, 'chain' executes steps sequentially, 'controller' lets the configured LLM choose steps, and 'incremental' adds file-derived dependencies and materialization reuse."
+      "description": "Execution type for steps. 'graph' (default) uses dependency-based execution, 'chain' executes steps sequentially, 'controller' lets the configured LLM choose steps, and 'build' adds file-derived dependencies and materialization reuse."
     },
     "tasks": {
       "type": "array",
@@ -1765,7 +1765,7 @@
           "items": {
             "$ref": "#/definitions/stepDeclaredInput"
           },
-          "description": "Named regular-file inputs for incremental execution."
+          "description": "Named regular-file inputs for build execution."
         },
         "depends": {
           "examples": ["build", ["build", "test"]],
@@ -7265,7 +7265,7 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "description": "Final regular-file path for an incremental materialization."
+          "description": "Final regular-file path for a build materialization."
         }
       },
       "description": "One value or path-backed step output declaration."
@@ -7283,7 +7283,7 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "description": "Regular-file path used as an incremental input."
+          "description": "Regular-file path used as a build input."
         }
       },
       "description": "One named regular-file input declaration."

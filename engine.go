@@ -399,7 +399,7 @@ func WithDryRun(enabled bool) RunOption {
 	}
 }
 
-// WithNoReuse forces incremental steps to recompute for this run.
+// WithNoReuse forces build steps to recompute for this run.
 func WithNoReuse(enabled bool) RunOption {
 	return func(o *runOptions) {
 		o.noReuse = enabled

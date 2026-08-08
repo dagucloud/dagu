@@ -208,7 +208,7 @@ Run Dagu on one machine, or scale out with distributed workers. See the [Deploym
 
 - **Observability:** Shared workflows and scheduling with clear visualizations, status tracking, and logs in the Web UI.
 - **Language-agnostic:** No framework required. Define workflow steps using shell commands, Docker containers, Kubernetes Jobs, SQL queries, HTTP requests, and any other tool via official and third-party Dagu Actions.
-- **Incremental workflows:** Reuse a step's result when its command and files have not changed. Dagu can also infer dependencies from matching file paths.
+- **Build workflows:** Reuse a step's result when its command and files have not changed. Dagu can also infer dependencies from matching file paths.
 - **Reproducibility:** Reproducible runs with pinned tools, plus automatic installation and caching on workers—eliminating the need to manually install dependencies on the server or workers.
 - **Built-in Approvals:** The Human-in-the-loop steps for manual approvals, review, and intervention in any workflow.
 - **MCP Server:** Built-in MCP server for authoring and running workflows via AI agents like Claude Code, Codex, Gemini CLI, Pi, OpenCode, and more.
@@ -346,7 +346,7 @@ graph LR
 Save this as `workflow.yaml`:
 
 ```yaml
-type: incremental
+type: build
 working_dir: .
 
 steps:
@@ -371,7 +371,7 @@ dagu start workflow.yaml
 
 Run `dagu start workflow.yaml` again and Dagu reuses `uppercase.txt`. Change `source.txt` and the step runs again. `${outputs.result}` is a temporary path that Dagu publishes as `uppercase.txt` after the command succeeds.
 
-Incremental workflows currently run locally. See [Incremental Workflows](https://docs.dagu.sh/writing-workflows/incremental-workflows) for dependency inference and reuse rules.
+Build workflows currently run locally. See [Build Workflows](https://docs.dagu.sh/writing-workflows/incremental-workflows) for dependency inference and reuse rules.
 
 ### External tools with pinning and caching
 

@@ -357,7 +357,7 @@ func WithStateStore(store dagstate.Store) ContextOption {
 	}
 }
 
-// WithMaterializationStore sets the incremental materialization store.
+// WithMaterializationStore sets the build materialization store.
 func WithMaterializationStore(store MaterializationStore) ContextOption {
 	return func(o *contextOptions) {
 		o.MaterializationStore = store
