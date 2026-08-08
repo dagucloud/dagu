@@ -6078,10 +6078,23 @@ export interface components {
             /** @description Relative file path with extension */
             filePath: string;
             status: components["schemas"]["SyncStatus"];
-            /** @description Current local file content */
-            localContent: string;
-            /** @description Content from remote repository */
+            kind?: components["schemas"]["SyncItemKind"];
+            /** @description True for binary items; content fields are omitted and sizes are reported instead */
+            binary?: boolean;
+            /** @description Current local file content. Omitted for binary items. */
+            localContent?: string;
+            /** @description Content from remote repository. Omitted for binary items. */
             remoteContent?: string;
+            /**
+             * Format: int64
+             * @description Local file size in bytes. Only set for binary items.
+             */
+            localSize?: number;
+            /**
+             * Format: int64
+             * @description Remote file size in bytes. Only set for binary items.
+             */
+            remoteSize?: number;
             /** @description Commit hash being compared against */
             remoteCommit?: string;
             /** @description Author of the remote commit */
@@ -18526,7 +18539,8 @@ export enum SyncSummary {
 }
 export enum SyncItemKind {
     dag = "dag",
-    doc = "doc"
+    doc = "doc",
+    doc_asset = "doc-asset"
 }
 export enum SyncAuthConfigType {
     token = "token",
