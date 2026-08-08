@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/google/uuid"
 
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
@@ -107,13 +107,13 @@ type WorkspaceSettings struct {
 }
 
 type SMTPConfig struct {
-	Host          string            `json:"host,omitempty"`
-	Port          string            `json:"port,omitempty"`
-	Username      string            `json:"username,omitempty"`
-	Password      string            `json:"password,omitempty"`
-	OAuth         *mailoauth.Config `json:"oauth,omitempty"`
-	From          string            `json:"from,omitempty"`
-	ClearPassword bool              `json:"-"`
+	Host          string              `json:"host,omitempty"`
+	Port          string              `json:"port,omitempty"`
+	Username      string              `json:"username,omitempty"`
+	Password      string              `json:"password,omitempty"`
+	OAuth         *oauthconfig.Config `json:"oauth,omitempty"`
+	From          string              `json:"from,omitempty"`
+	ClearPassword bool                `json:"-"`
 }
 
 type RouteSet struct {
@@ -243,12 +243,12 @@ type PublicSMTPConfig struct {
 }
 
 type PublicSMTPOAuthConfig struct {
-	Provider                     mailoauth.Provider `json:"provider"`
-	TenantID                     string             `json:"tenantId,omitempty"`
-	ClientID                     string             `json:"clientId,omitempty"`
-	ClientSecretConfigured       bool               `json:"clientSecretConfigured"`
-	RefreshTokenConfigured       bool               `json:"refreshTokenConfigured"`
-	ServiceAccountJSONConfigured bool               `json:"serviceAccountJsonConfigured"`
+	Provider                     oauthconfig.Provider `json:"provider"`
+	TenantID                     string               `json:"tenantId,omitempty"`
+	ClientID                     string               `json:"clientId,omitempty"`
+	ClientSecretConfigured       bool                 `json:"clientSecretConfigured"`
+	RefreshTokenConfigured       bool                 `json:"refreshTokenConfigured"`
+	ServiceAccountJSONConfigured bool                 `json:"serviceAccountJsonConfigured"`
 }
 
 type PublicRouteSet struct {

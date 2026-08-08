@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
@@ -319,7 +319,7 @@ steps:
 			require.NoError(t, err)
 			require.NotNil(t, dag.SMTP)
 			require.NotNil(t, dag.SMTP.OAuth)
-			assert.Equal(t, mailoauth.ProviderMicrosoft, dag.SMTP.OAuth.Provider)
+			assert.Equal(t, oauthconfig.ProviderMicrosoft, dag.SMTP.OAuth.Provider)
 		})
 
 		t.Run("ChildPasswordReplacesOAuth", func(t *testing.T) {
@@ -378,7 +378,7 @@ steps:
 		require.NoError(t, err)
 		require.NotNil(t, dag.SMTP)
 		require.NotNil(t, dag.SMTP.OAuth)
-		assert.Equal(t, mailoauth.ProviderGoogleRefresh, dag.SMTP.OAuth.Provider)
+		assert.Equal(t, oauthconfig.ProviderGoogleRefresh, dag.SMTP.OAuth.Provider)
 		assert.Empty(t, dag.SMTP.Host)
 		assert.Empty(t, dag.SMTP.Password)
 	})

@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -249,11 +249,11 @@ func handlerFieldName(name ir.HandlerType) string {
 
 // smtpConfig defines the SMTP configuration.
 type smtpConfig struct {
-	Host     string            `yaml:"host,omitempty"`     // SMTP host
-	Port     types.PortValue   `yaml:"port,omitempty"`     // SMTP port (can be string or number)
-	Username string            `yaml:"username,omitempty"` // SMTP username
-	Password string            `yaml:"password,omitempty"` // SMTP password
-	OAuth    *mailoauth.Config `yaml:"oauth,omitempty"`    // SMTP OAuth credentials
+	Host     string              `yaml:"host,omitempty"`     // SMTP host
+	Port     types.PortValue     `yaml:"port,omitempty"`     // SMTP port (can be string or number)
+	Username string              `yaml:"username,omitempty"` // SMTP username
+	Password string              `yaml:"password,omitempty"` // SMTP password
+	OAuth    *oauthconfig.Config `yaml:"oauth,omitempty"`    // SMTP OAuth credentials
 }
 
 // IsZero returns true if all fields are empty/default.
@@ -3216,7 +3216,7 @@ func buildSMTPConfig(_ buildContext, d *dag) (*ir.SMTPConfig, error) {
 		if strings.TrimSpace(d.SMTP.Username) == "" {
 			return nil, errors.New("smtp username is required with oauth")
 		}
-		if err := mailoauth.ValidateStructure(d.SMTP.OAuth); err != nil {
+		if err := oauthconfig.ValidateStructure(d.SMTP.OAuth); err != nil {
 			return nil, err
 		}
 	}

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/assert"
@@ -246,8 +246,8 @@ func TestStore_PersistsWorkspaceSMTPOAuthSettingsEncrypted(t *testing.T) {
 	settings, err := notification.NormalizeWorkspaceSettings(&notification.WorkspaceSettings{
 		SMTP: &notification.SMTPConfig{
 			Username: "sender@gmail.com",
-			OAuth: &mailoauth.Config{
-				Provider: mailoauth.ProviderGoogleRefresh, ClientID: "client-id",
+			OAuth: &oauthconfig.Config{
+				Provider: oauthconfig.ProviderGoogleRefresh, ClientID: "client-id",
 				ClientSecret: "client-secret", RefreshToken: "refresh-token",
 			},
 			From: "sender@gmail.com",
@@ -267,7 +267,7 @@ func TestStore_PersistsWorkspaceSMTPOAuthSettingsEncrypted(t *testing.T) {
 	require.NotNil(t, got.SMTP)
 	require.NotNil(t, got.SMTP.OAuth)
 	assert.Equal(t, "smtp.gmail.com", got.SMTP.Host)
-	assert.Equal(t, mailoauth.ProviderGoogleRefresh, got.SMTP.OAuth.Provider)
+	assert.Equal(t, oauthconfig.ProviderGoogleRefresh, got.SMTP.OAuth.Provider)
 	assert.Equal(t, "client-id", got.SMTP.OAuth.ClientID)
 	assert.Equal(t, "client-secret", got.SMTP.OAuth.ClientSecret)
 	assert.Equal(t, "refresh-token", got.SMTP.OAuth.RefreshToken)
@@ -276,8 +276,8 @@ func TestStore_PersistsWorkspaceSMTPOAuthSettingsEncrypted(t *testing.T) {
 	serviceAccountSettings := &notification.WorkspaceSettings{
 		SMTP: &notification.SMTPConfig{
 			Host: "smtp.gmail.com", Port: "587", Username: "sender@example.com", From: "sender@example.com",
-			OAuth: &mailoauth.Config{
-				Provider: mailoauth.ProviderGoogleServiceAccount, ServiceAccountJSON: serviceAccountJSON,
+			OAuth: &oauthconfig.Config{
+				Provider: oauthconfig.ProviderGoogleServiceAccount, ServiceAccountJSON: serviceAccountJSON,
 			},
 		},
 		CreatedAt: time.Now().UTC(),
@@ -295,8 +295,8 @@ func TestStore_PersistsWorkspaceSMTPOAuthSettingsEncrypted(t *testing.T) {
 	microsoftSettings := &notification.WorkspaceSettings{
 		SMTP: &notification.SMTPConfig{
 			Host: "smtp.office365.com", Port: "587", Username: "sender@contoso.com", From: "sender@contoso.com",
-			OAuth: &mailoauth.Config{
-				Provider: mailoauth.ProviderMicrosoft, TenantID: "tenant-id",
+			OAuth: &oauthconfig.Config{
+				Provider: oauthconfig.ProviderMicrosoft, TenantID: "tenant-id",
 				ClientID: "microsoft-client", ClientSecret: "microsoft-secret",
 			},
 		},

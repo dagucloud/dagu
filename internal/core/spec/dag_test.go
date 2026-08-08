@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
@@ -1702,15 +1702,15 @@ func TestBuildSMTPConfig(t *testing.T) {
 			name: "OAuth",
 			input: smtpConfig{
 				Username: "sender@example.com",
-				OAuth: &mailoauth.Config{
-					Provider: mailoauth.ProviderMicrosoft, TenantID: "${TENANT_ID}",
+				OAuth: &oauthconfig.Config{
+					Provider: oauthconfig.ProviderMicrosoft, TenantID: "${TENANT_ID}",
 					ClientID: "${CLIENT_ID}", ClientSecret: "${CLIENT_SECRET}",
 				},
 			},
 			expected: &ir.SMTPConfig{
 				Username: "sender@example.com",
-				OAuth: &mailoauth.Config{
-					Provider: mailoauth.ProviderMicrosoft, TenantID: "${TENANT_ID}",
+				OAuth: &oauthconfig.Config{
+					Provider: oauthconfig.ProviderMicrosoft, TenantID: "${TENANT_ID}",
 					ClientID: "${CLIENT_ID}", ClientSecret: "${CLIENT_SECRET}",
 				},
 			},
@@ -1720,8 +1720,8 @@ func TestBuildSMTPConfig(t *testing.T) {
 			input: smtpConfig{
 				Username: "sender@example.com",
 				Password: "password",
-				OAuth: &mailoauth.Config{
-					Provider: mailoauth.ProviderMicrosoft, TenantID: "tenant",
+				OAuth: &oauthconfig.Config{
+					Provider: oauthconfig.ProviderMicrosoft, TenantID: "tenant",
 					ClientID: "client", ClientSecret: "secret",
 				},
 			},

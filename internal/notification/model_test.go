@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -287,8 +287,8 @@ func TestNormalizeWorkspaceSettingsValidatesSMTP(t *testing.T) {
 	oauthSettings, err := NormalizeWorkspaceSettings(&WorkspaceSettings{
 		SMTP: &SMTPConfig{
 			Username: " sender@example.com ",
-			OAuth: &mailoauth.Config{
-				Provider: mailoauth.ProviderMicrosoft, TenantID: " tenant ",
+			OAuth: &oauthconfig.Config{
+				Provider: oauthconfig.ProviderMicrosoft, TenantID: " tenant ",
 				ClientID: " client ", ClientSecret: "secret",
 			},
 			From: "sender@example.com",
@@ -387,15 +387,15 @@ func TestPreserveWorkspaceSecrets(t *testing.T) {
 
 	existing.SMTP = &SMTPConfig{
 		Username: "sender@example.com",
-		OAuth: &mailoauth.Config{
-			Provider: mailoauth.ProviderGoogleRefresh, ClientID: "client",
+		OAuth: &oauthconfig.Config{
+			Provider: oauthconfig.ProviderGoogleRefresh, ClientID: "client",
 			ClientSecret: "old-client-secret", RefreshToken: "old-refresh-token",
 		},
 	}
 	next.SMTP = &SMTPConfig{
 		Username: "sender@example.com",
-		OAuth: &mailoauth.Config{
-			Provider: mailoauth.ProviderGoogleRefresh, ClientID: "client",
+		OAuth: &oauthconfig.Config{
+			Provider: oauthconfig.ProviderGoogleRefresh, ClientID: "client",
 		},
 	}
 	PreserveWorkspaceSecrets(next, existing)
@@ -411,13 +411,13 @@ func TestPreserveWorkspaceSecrets(t *testing.T) {
 
 	existing.SMTP = &SMTPConfig{
 		Username: "sender@example.com",
-		OAuth: &mailoauth.Config{
-			Provider: mailoauth.ProviderGoogleServiceAccount, ServiceAccountJSON: "service-account-json",
+		OAuth: &oauthconfig.Config{
+			Provider: oauthconfig.ProviderGoogleServiceAccount, ServiceAccountJSON: "service-account-json",
 		},
 	}
 	next.SMTP = &SMTPConfig{
 		Username: "sender@example.com",
-		OAuth:    &mailoauth.Config{Provider: mailoauth.ProviderGoogleServiceAccount},
+		OAuth:    &oauthconfig.Config{Provider: oauthconfig.ProviderGoogleServiceAccount},
 	}
 	PreserveWorkspaceSecrets(next, existing)
 	assert.Equal(t, "service-account-json", next.SMTP.OAuth.ServiceAccountJSON)

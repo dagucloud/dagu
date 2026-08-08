@@ -18,7 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	mailoauth "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/joho/godotenv"
@@ -1057,11 +1057,11 @@ type MailOn struct {
 
 // SMTPConfig contains the SMTP configuration.
 type SMTPConfig struct {
-	Host     string            `json:"host,omitempty"`
-	Port     string            `json:"port,omitempty"`
-	Username string            `json:"username,omitempty"`
-	Password string            `json:"password,omitempty"`
-	OAuth    *mailoauth.Config `json:"oauth,omitempty"`
+	Host     string              `json:"host,omitempty"`
+	Port     string              `json:"port,omitempty"`
+	Username string              `json:"username,omitempty"`
+	Password string              `json:"password,omitempty"`
+	OAuth    *oauthconfig.Config `json:"oauth,omitempty"`
 }
 
 // MailConfig contains the mail configuration.
