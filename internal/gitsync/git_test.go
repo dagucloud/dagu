@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -110,6 +111,21 @@ func TestGitClient_LocalOps(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	require.Equal(t, testFile, files[0])
+}
+
+func TestGitClientListFilesUnderSkipsSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks requires elevated privileges on Windows")
+	}
+	repoPath := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(repoPath, "docs"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "docs", "page.md"), []byte("page"), 0600))
+	require.NoError(t, os.Symlink("page.md", filepath.Join(repoPath, "docs", "linked.md")))
+
+	client := NewGitClient(&Config{}, repoPath)
+	files, err := client.ListFilesUnder("docs")
+	require.NoError(t, err)
+	require.Equal(t, []string{filepath.Join("docs", "page.md")}, files)
 }
 
 func TestGitClient_AddAndCommit_NoChanges(t *testing.T) {

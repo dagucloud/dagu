@@ -589,6 +589,9 @@ func (c *GitClient) ListFilesUnder(subDir string) ([]string, error) {
 			}
 			return nil
 		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
 		relPath, err := filepath.Rel(c.repoPath, path)
 		if err != nil {
 			return err

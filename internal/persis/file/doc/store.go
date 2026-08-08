@@ -111,6 +111,9 @@ type Option func(*Store)
 // return empty results.
 func WithDataDir(dir string) Option {
 	return func(s *Store) {
+		if dir == "" {
+			return
+		}
 		s.dataDir = filepath.Clean(dir)
 	}
 }
@@ -802,15 +805,15 @@ func (s *Store) pruneMissingParentsLocked(ctx context.Context, id string) {
 // The file format is optional YAML frontmatter between --- delimiters, followed by markdown body.
 // Content always contains the full file (including frontmatter); frontmatter is parsed to extract title and description.
 func parseDocFile(data []byte, id string) (*docs.Doc, error) {
-	content := strings.ReplaceAll(string(data), "\r\n", "\n")
-	content = strings.TrimRight(content, "\n")
+	content := string(data)
+	parsedContent := strings.ReplaceAll(content, "\r\n", "\n")
 
 	var title string
 	var description string
 	var tags []string
 
-	if strings.HasPrefix(content, "---\n") {
-		rest := content[4:]
+	if strings.HasPrefix(parsedContent, "---\n") {
+		rest := parsedContent[4:]
 
 		closingIdx := strings.Index(rest, "\n---\n")
 		if closingIdx == -1 {
@@ -1068,9 +1071,6 @@ func (s *Store) Create(ctx context.Context, id, content string) error {
 	}
 
 	data := []byte(content)
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		data = append(data, '\n')
-	}
 
 	// Use O_EXCL for atomic create — prevents race between concurrent creates.
 	f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, filePermissions) //nolint:gosec // filePath is validated by docFilePath
@@ -1119,9 +1119,6 @@ func (s *Store) Update(ctx context.Context, id, content string) error {
 	createdAt := s.docCreatedAt(id, filePath, info)
 
 	data := []byte(content)
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		data = append(data, '\n')
-	}
 	if prior, _, readErr := readRegularDocFile(filePath); readErr == nil {
 		if err := s.snapshotRevision(id, prior, data); err != nil {
 			logger.Warn(ctx, "Failed to snapshot doc revision", tag.File(filePath), tag.Error(err))

@@ -61,6 +61,16 @@ func TestExtractWikiLinks(t *testing.T) {
 			links:   []WikiLink{{Target: "kept"}},
 		},
 		{
+			name:    "multiline inline code excluded",
+			content: "use `code\n[[ignored]]\ncode` but [[kept]]",
+			links:   []WikiLink{{Target: "kept"}},
+		},
+		{
+			name:    "unclosed inline code kept as text",
+			content: "use `code\n[[kept]]",
+			links:   []WikiLink{{Target: "kept"}},
+		},
+		{
 			name:    "malformed links ignored",
 			content: "[[]] [[ ]] [[a|b|c]]",
 			links:   []WikiLink{{Target: "a", Label: "b|c"}},

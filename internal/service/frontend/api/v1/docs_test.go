@@ -1223,6 +1223,10 @@ func TestDocAttachments(t *testing.T) {
 			Body:   bytes.NewReader(make([]byte, 10<<20+1)),
 		})
 		require.Error(t, err)
+		var apiErr *apiv1.Error
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, apigen.ErrorCodePayloadTooLarge, apiErr.Code)
+		assert.Equal(t, http.StatusRequestEntityTooLarge, apiErr.HTTPStatus)
 	})
 
 	t.Run("invalid name is rejected", func(t *testing.T) {
