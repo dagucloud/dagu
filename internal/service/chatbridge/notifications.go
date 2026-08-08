@@ -705,7 +705,7 @@ func failureNotificationDetail(status *dagrun.DAGRunStatus) string {
 		}
 		return fmt.Sprintf("Latest error at %s: %s", node.Step.Name, trimNotificationDetail(node.Error))
 	}
-	for _, handler := range []*dagrun.Node{status.OnFailure, status.OnExit} {
+	for _, handler := range []*ir.Node{status.OnFailure, status.OnExit} {
 		if handler == nil || strings.TrimSpace(handler.Error) == "" {
 			continue
 		}

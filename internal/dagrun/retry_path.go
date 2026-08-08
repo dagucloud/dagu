@@ -196,7 +196,7 @@ func readRetryStatus(ctx context.Context, attempt DAGRunAttempt) (*DAGRunStatus,
 	return status, nil
 }
 
-func retryParentNode(status *DAGRunStatus, childRunID string) *Node {
+func retryParentNode(status *DAGRunStatus, childRunID string) *ir.Node {
 	for _, node := range status.Nodes {
 		if node == nil {
 			continue

@@ -392,7 +392,7 @@ func TestTaskOption_Functions(t *testing.T) {
 			DAGRunID:  "run-123",
 			ProcGroup: "shared-queue",
 			Status:    ir.Running,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Step: ir.Step{Name: "step1"}, Status: ir.NodeSucceeded},
 				{Step: ir.Step{Name: "step2"}, Status: ir.NodeFailed},
 			},

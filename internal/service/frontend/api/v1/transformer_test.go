@@ -90,7 +90,7 @@ func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
 		Name:     "test-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Waiting,
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step: ir.Step{
 				ID:   "review",
 				Name: "Review",
@@ -121,7 +121,7 @@ func TestToDAGRunDetailsTreatsNullHumanTaskFormAsAbsent(t *testing.T) {
 	status := dagrun.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step: ir.Step{HumanTask: &ir.HumanTaskConfig{Form: json.RawMessage(`null`)}},
 		}},
 	}
@@ -137,7 +137,7 @@ func TestToDAGRunDetailsTreatsHumanTaskFormWithTrailingDataAsAbsent(t *testing.T
 	status := dagrun.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step: ir.Step{HumanTask: &ir.HumanTaskConfig{
 				Form: json.RawMessage(`{"type":"object"} trailing`),
 			}},
@@ -345,8 +345,8 @@ func TestToDAGDetailsIncludesArtifactsDir(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesLifecycleHandlers(t *testing.T) {
-	handler := func(name string) *dagrun.Node {
-		return &dagrun.Node{
+	handler := func(name string) *ir.Node {
+		return &ir.Node{
 			Step:      ir.Step{Name: name},
 			Status:    ir.NodeSucceeded,
 			Stdout:    name + ".out",
@@ -380,7 +380,7 @@ func TestToDAGRunDetailsIncludesLifecycleHandlers(t *testing.T) {
 }
 
 func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
-	node := &dagrun.Node{
+	node := &ir.Node{
 		Step: ir.Step{
 			Name: "review",
 			Approval: &ir.ApprovalConfig{
@@ -400,7 +400,7 @@ func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
 		Stderr:                 "stderr.log",
 		ApprovalIteration:      1,
 		PushBackInputs:         map[string]string{"FEEDBACK": "revise the summary", "IGNORED": "x"},
-		PushBackHistory: []dagrun.PushBackEntry{{
+		PushBackHistory: []ir.PushBackEntry{{
 			Iteration: 1,
 			By:        "reviewer",
 			ByID:      "user-3",
@@ -520,7 +520,7 @@ func TestToNodeMapsStatuses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			node := &dagrun.Node{
+			node := &ir.Node{
 				Status: tc.coreStatus,
 				Step: ir.Step{
 					Name: "step-" + tc.name,
@@ -543,7 +543,7 @@ func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 		DAGRunID: "run-2",
 		Status:   ir.Succeeded,
 		NoReuse:  true,
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step: ir.Step{
 				ID:      "build",
 				Name:    "build",
@@ -551,7 +551,7 @@ func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 				Outputs: []ir.StepOutputDeclaration{{Name: "artifact", Path: "/data/artifact.txt"}},
 			},
 			Status: ir.NodeSucceeded,
-			Build: &dagrun.BuildExecution{
+			Build: &ir.BuildExecution{
 				Decision:    "reuse",
 				Phase:       "complete",
 				Reason:      "matched",

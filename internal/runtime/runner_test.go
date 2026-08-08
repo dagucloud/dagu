@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -4058,7 +4057,7 @@ func TestPushBackInputsExposeJSONHistoryEnvForRewoundStep(t *testing.T) {
 
 	node.SetApprovalIteration(2)
 	node.SetPushBackInputs(map[string]string{"FEEDBACK": "rerun from review"})
-	node.SetPushBackHistory([]dagrun.PushBackEntry{
+	node.SetPushBackHistory([]ir.PushBackEntry{
 		{
 			Iteration: 1,
 			By:        "reviewer-a",

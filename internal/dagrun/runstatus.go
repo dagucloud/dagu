@@ -49,7 +49,7 @@ func InitialStatus(dag *ir.DAG) DAGRunStatus {
 		Name:                 dag.Name,
 		Status:               ir.NotStarted,
 		PID:                  PID(0),
-		Nodes:                NewNodesFromSteps(dag.Steps),
+		Nodes:                ir.NewNodesFromSteps(dag.Steps),
 		OnInit:               newNodeOrNil(dag.HandlerOn.Init),
 		OnExit:               newNodeOrNil(dag.HandlerOn.Exit),
 		OnSuccess:            newNodeOrNil(dag.HandlerOn.Success),
@@ -68,9 +68,29 @@ func InitialStatus(dag *ir.DAG) DAGRunStatus {
 		CreatedAt:            time.Now().UnixMilli(),
 		StartedAt:            stringutil.FormatTime(time.Time{}),
 		FinishedAt:           stringutil.FormatTime(time.Time{}),
-		Preconditions:        NewConditionResults(dag.Preconditions),
+		Preconditions:        snapshotConditionResults(dag.Preconditions),
 		Labels:               dag.Labels.Strings(),
 	}
+}
+
+func snapshotConditionResults(conditions []*ir.Condition) []ir.ConditionResult {
+	if len(conditions) == 0 {
+		return nil
+	}
+	results := make([]ir.ConditionResult, len(conditions))
+	for i, condition := range conditions {
+		if condition != nil {
+			results[i].Condition = *condition
+		}
+	}
+	return results
+}
+
+func newNodeOrNil(step *ir.Step) *ir.Node {
+	if step == nil {
+		return nil
+	}
+	return ir.NewNodeFromStep(*step)
 }
 
 // DAGRunCondition describes an observed runtime condition for a DAG-run.
@@ -170,13 +190,13 @@ type DAGRunStatus struct {
 	WorkerID       string            `json:"workerId,omitempty"`
 	PID            PID               `json:"pid,omitempty"`
 	PIDStartedAt   int64             `json:"pidStartedAt,omitempty"`
-	Nodes          []*Node           `json:"nodes,omitempty"`
-	OnInit         *Node             `json:"onInit,omitempty"`
-	OnExit         *Node             `json:"onExit,omitempty"`
-	OnSuccess      *Node             `json:"onSuccess,omitempty"`
-	OnFailure      *Node             `json:"onFailure,omitempty"`
-	OnAbort        *Node             `json:"onAbort,omitempty"`
-	OnWait         *Node             `json:"onWait,omitempty"`
+	Nodes          []*ir.Node        `json:"nodes,omitempty"`
+	OnInit         *ir.Node          `json:"onInit,omitempty"`
+	OnExit         *ir.Node          `json:"onExit,omitempty"`
+	OnSuccess      *ir.Node          `json:"onSuccess,omitempty"`
+	OnFailure      *ir.Node          `json:"onFailure,omitempty"`
+	OnAbort        *ir.Node          `json:"onAbort,omitempty"`
+	OnWait         *ir.Node          `json:"onWait,omitempty"`
 	CreatedAt      int64             `json:"createdAt,omitempty"`
 	QueuedAt       string            `json:"queuedAt,omitempty"`
 	ScheduleTime   string            `json:"scheduleTime,omitempty"`
@@ -202,7 +222,7 @@ type DAGRunStatus struct {
 	ProfileEntries       []ir.RuntimeProfileEntry `json:"profileEntries,omitempty"`
 	NoReuse              bool                     `json:"noReuse,omitempty"`
 	PendingStepRetries   []ir.PendingStepRetry    `json:"pendingStepRetries"`
-	Preconditions        []ConditionResult        `json:"preconditions,omitempty"`
+	Preconditions        []ir.ConditionResult     `json:"preconditions,omitempty"`
 	Labels               []string                 `json:"labels,omitempty"`
 	LeaseAt              int64                    `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
 }
@@ -252,10 +272,10 @@ func (st *DAGRunStatus) DAGRun() ir.DAGRunRef {
 // NodesInRunOrder returns the run's step nodes together with the lifecycle
 // handler nodes that were configured, ordered by when they run. Handlers that
 // the DAG does not declare are omitted.
-func (st *DAGRunStatus) NodesInRunOrder() []*Node {
-	afterSteps := []*Node{st.OnWait, st.OnSuccess, st.OnFailure, st.OnAbort, st.OnExit}
+func (st *DAGRunStatus) NodesInRunOrder() []*ir.Node {
+	afterSteps := []*ir.Node{st.OnWait, st.OnSuccess, st.OnFailure, st.OnAbort, st.OnExit}
 
-	nodes := make([]*Node, 0, len(st.Nodes)+1+len(afterSteps))
+	nodes := make([]*ir.Node, 0, len(st.Nodes)+1+len(afterSteps))
 	if st.OnInit != nil {
 		nodes = append(nodes, st.OnInit)
 	}
@@ -289,7 +309,7 @@ func (st *DAGRunStatus) Errors() []error {
 
 // pendingStepRetriesFromNodes extracts pending parent-managed step retries from
 // a DAG status snapshot.
-func pendingStepRetriesFromNodes(nodes []*Node) []ir.PendingStepRetry {
+func pendingStepRetriesFromNodes(nodes []*ir.Node) []ir.PendingStepRetry {
 	var retries []ir.PendingStepRetry
 	for _, node := range nodes {
 		if retry, ok := pendingStepRetryForNode(node.Step.Name, node); ok {
@@ -326,7 +346,7 @@ func PendingStepRetriesFromStatus(status *DAGRunStatus) []ir.PendingStepRetry {
 // NodeByName returns the node with the specified name.
 // For handlers, it matches on both the handler label (e.g., "onSuccess")
 // and the step name within the handler.
-func (st *DAGRunStatus) NodeByName(name string) (*Node, error) {
+func (st *DAGRunStatus) NodeByName(name string) (*ir.Node, error) {
 	name = normalizeAbortHandlerLookup(name)
 	for _, node := range st.Nodes {
 		if node.Step.Name == name {
@@ -365,7 +385,7 @@ func (st *DAGRunStatus) UnmarshalJSON(data []byte) error {
 	type alias DAGRunStatus
 	aux := struct {
 		alias
-		OnCancel       *Node    `json:"onCancel,omitempty"`
+		OnCancel       *ir.Node `json:"onCancel,omitempty"`
 		DeprecatedTags []string `json:"tags,omitempty"`
 	}{}
 	if err := json.Unmarshal(data, &aux); err != nil {
@@ -403,7 +423,7 @@ func FormatTime(val time.Time) string {
 // handlerNode pairs a handler node with its name for iteration
 type handlerNode struct {
 	name string
-	node *Node
+	node *ir.Node
 }
 
 // handlerNodes returns all handler nodes for iteration
@@ -425,7 +445,7 @@ func normalizeAbortHandlerLookup(name string) string {
 	return name
 }
 
-func normalizeAbortHandlerNode(node *Node) {
+func normalizeAbortHandlerNode(node *ir.Node) {
 	if node == nil {
 		return
 	}
@@ -434,7 +454,7 @@ func normalizeAbortHandlerNode(node *Node) {
 	}
 }
 
-func pendingStepRetryForNode(stepName string, node *Node) (ir.PendingStepRetry, bool) {
+func pendingStepRetryForNode(stepName string, node *ir.Node) (ir.PendingStepRetry, bool) {
 	if node == nil || node.Status != ir.NodeRetrying || stepName == "" {
 		return ir.PendingStepRetry{}, false
 	}

@@ -473,7 +473,7 @@ func waitForDAGRunStatus(
 	return h.Run(ir.NewDAGRunRef(dagName, dagRunID), "").RequireStatusWithin(expected, intgTestTimeout(15*time.Second))
 }
 
-func nodeByName(t *testing.T, status *dagrun.DAGRunStatus, stepName string) *dagrun.Node {
+func nodeByName(t *testing.T, status *dagrun.DAGRunStatus, stepName string) *ir.Node {
 	t.Helper()
 
 	for _, node := range status.Nodes {

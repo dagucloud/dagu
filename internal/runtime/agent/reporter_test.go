@@ -19,7 +19,7 @@ import (
 
 func TestReporter(t *testing.T) {
 	for scenario, fn := range map[string]func(
-		t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node,
+		t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node,
 	){
 		"create error mail":   testErrorMail,
 		"no error mail":       testNoErrorMail,
@@ -59,7 +59,7 @@ func TestReporter(t *testing.T) {
 				},
 			}
 
-			nodes := []*dagrun.Node{
+			nodes := []*ir.Node{
 				{
 					Step: ir.Step{
 						Name:     "test-step",
@@ -92,7 +92,7 @@ func TestRenderHTMLWithDAGInfo(t *testing.T) {
 		StartedAt:  "2025-01-15T10:30:00Z",
 		FinishedAt: "2025-01-15T10:35:00Z",
 		Params:     "env=production batch_size=1000",
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step: ir.Step{
 					Name: "setup-database",
@@ -191,7 +191,7 @@ func TestRenderHTMLWithDAGInfo(t *testing.T) {
 	})
 }
 
-func testErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
+func testErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node) {
 	dag.MailOn.Failure = true
 	dag.MailOn.Success = false
 
@@ -205,7 +205,7 @@ func testErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, no
 	require.Equal(t, 1, mock.count)
 }
 
-func testNoErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
+func testNoErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node) {
 	dag.MailOn.Failure = false
 	dag.MailOn.Success = true
 
@@ -217,7 +217,7 @@ func testNoErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, 
 	require.Equal(t, 0, mock.count)
 }
 
-func testSuccessMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
+func testSuccessMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node) {
 	dag.MailOn.Failure = true
 	dag.MailOn.Success = true
 
@@ -232,7 +232,7 @@ func testSuccessMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, 
 	require.Equal(t, 1, mock.count)
 }
 
-func testWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
+func testWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node) {
 	dag.MailOn.Failure = false
 	dag.MailOn.Success = false
 	dag.MailOn.Wait = true
@@ -248,7 +248,7 @@ func testWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nod
 	require.Equal(t, 1, mock.count)
 }
 
-func testNoWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*dagrun.Node) {
+func testNoWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node) {
 	dag.MailOn.Failure = false
 	dag.MailOn.Success = false
 	dag.MailOn.Wait = false
@@ -261,14 +261,14 @@ func testNoWaitMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, n
 	require.Equal(t, 0, mock.count)
 }
 
-func testRenderSummary(t *testing.T, _ *reporter, _ *mockSender, dag *ir.DAG, _ []*dagrun.Node) {
+func testRenderSummary(t *testing.T, _ *reporter, _ *mockSender, dag *ir.DAG, _ []*ir.Node) {
 	status := dagrun.NewStatusBuilder(dag).Create("run-id", ir.Failed, 0, time.Now())
 	summary := renderDAGSummary(status, errors.New("test error"))
 	require.Contains(t, summary, "test error")
 	require.Contains(t, summary, dag.Name)
 }
 
-func testRenderTable(t *testing.T, _ *reporter, _ *mockSender, _ *ir.DAG, nodes []*dagrun.Node) {
+func testRenderTable(t *testing.T, _ *reporter, _ *mockSender, _ *ir.DAG, nodes []*ir.Node) {
 	summary := renderStepSummary(nodes)
 	require.Contains(t, summary, nodes[0].Step.Name)
 	require.Len(t, nodes[0].Step.Commands, 1)
@@ -298,7 +298,7 @@ func (m *mockSender) Send(_ context.Context, from string, to []string, subject, 
 // to ensure the format is correct and prevent regressions
 func TestRenderHTMLComprehensive(t *testing.T) {
 	// Create comprehensive test data with various scenarios
-	nodes := []*dagrun.Node{
+	nodes := []*ir.Node{
 		{
 			Step: ir.Step{
 				Name:     "setup-database",

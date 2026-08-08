@@ -831,7 +831,7 @@ func cloneRetryStatus(status *dagrun.DAGRunStatus) *dagrun.DAGRunStatus {
 	}
 	cloned := *status
 	if status.Nodes != nil {
-		cloned.Nodes = append([]*dagrun.Node(nil), status.Nodes...)
+		cloned.Nodes = append([]*ir.Node(nil), status.Nodes...)
 	}
 	return &cloned
 }

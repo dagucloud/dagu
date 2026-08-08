@@ -20,7 +20,7 @@ func TestDAGRunStatusProtoRoundTripPreservesStepOutputsValue(t *testing.T) {
 		Name:     "build",
 		DAGRunID: "run-1",
 		Status:   ir.Running,
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step:             ir.Step{Name: "publish", ID: "publish"},
 				Status:           ir.NodeSucceeded,

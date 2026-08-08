@@ -82,7 +82,7 @@ outputs:
 	return actionDir
 }
 
-func requireNodeByID(t *testing.T, status dagrun.DAGRunStatus, id string) *dagrun.Node {
+func requireNodeByID(t *testing.T, status dagrun.DAGRunStatus, id string) *ir.Node {
 	t.Helper()
 	for _, node := range status.Nodes {
 		if node == nil {

@@ -47,13 +47,13 @@ type NotificationReader interface {
 }
 
 type DAGRunNodeSnapshot struct {
-	StepName      string                    `json:"step_name,omitempty"`
-	Status        ir.NodeStatus             `json:"status,omitempty"`
-	Error         string                    `json:"error,omitempty"`
-	StatusDetails []dagrun.NodeStatusDetail `json:"status_details,omitempty"`
+	StepName      string                `json:"step_name,omitempty"`
+	Status        ir.NodeStatus         `json:"status,omitempty"`
+	Error         string                `json:"error,omitempty"`
+	StatusDetails []ir.NodeStatusDetail `json:"status_details,omitempty"`
 }
 
-func newDAGRunNodeSnapshot(node *dagrun.Node) *DAGRunNodeSnapshot {
+func newDAGRunNodeSnapshot(node *ir.Node) *DAGRunNodeSnapshot {
 	if node == nil {
 		return nil
 	}
@@ -61,19 +61,19 @@ func newDAGRunNodeSnapshot(node *dagrun.Node) *DAGRunNodeSnapshot {
 		StepName:      node.Step.Name,
 		Status:        node.Status,
 		Error:         node.Error,
-		StatusDetails: append([]dagrun.NodeStatusDetail(nil), node.StatusDetails...),
+		StatusDetails: append([]ir.NodeStatusDetail(nil), node.StatusDetails...),
 	}
 }
 
-func (s *DAGRunNodeSnapshot) Node() *dagrun.Node {
+func (s *DAGRunNodeSnapshot) Node() *ir.Node {
 	if s == nil {
 		return nil
 	}
-	return &dagrun.Node{
+	return &ir.Node{
 		Step:          ir.Step{Name: s.StepName},
 		Status:        s.Status,
 		Error:         s.Error,
-		StatusDetails: append([]dagrun.NodeStatusDetail(nil), s.StatusDetails...),
+		StatusDetails: append([]ir.NodeStatusDetail(nil), s.StatusDetails...),
 	}
 }
 
@@ -183,7 +183,7 @@ func (s *DAGRunStatusSnapshot) DAGRunStatus() *dagrun.DAGRunStatus {
 		return nil
 	}
 
-	nodes := make([]*dagrun.Node, 0, len(s.Nodes))
+	nodes := make([]*ir.Node, 0, len(s.Nodes))
 	for _, node := range s.Nodes {
 		nodes = append(nodes, node.Node())
 	}

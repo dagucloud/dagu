@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"maps"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // OutputValuesFromNodes extracts typed DAG/action outputs from runtime nodes.
@@ -23,7 +23,7 @@ func OutputValuesFromNodes(nodes []NodeData) map[string]any {
 }
 
 // OutputValuesFromExecNodes extracts typed DAG/action outputs from persisted nodes.
-func OutputValuesFromExecNodes(nodes []*dagrun.Node) map[string]any {
+func OutputValuesFromExecNodes(nodes []*ir.Node) map[string]any {
 	outputs := make(map[string]any)
 	for _, node := range nodes {
 		if node == nil || node.OutputsValue == nil {

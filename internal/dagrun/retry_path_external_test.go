@@ -29,10 +29,10 @@ func TestResolveRetryPathNestedRun(t *testing.T) {
 		Name:     rootRef.Name,
 		DAGRunID: rootRef.ID,
 		Status:   ir.Failed,
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step:   rootStep,
 			Status: ir.NodeFailed,
-			SubRuns: []dagrun.SubDAGRun{
+			SubRuns: []ir.SubDAGRun{
 				{DAGRunID: "middle-current", DAGName: "middle", Params: "ITEM=current"},
 				{DAGRunID: "middle-target", DAGName: "middle", Params: "ITEM=target"},
 			},
@@ -46,10 +46,10 @@ func TestResolveRetryPathNestedRun(t *testing.T) {
 		Name:     middleDAG.Name,
 		DAGRunID: "middle-target",
 		Status:   ir.Failed,
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step:    middleStep,
 			Status:  ir.NodeFailed,
-			SubRuns: []dagrun.SubDAGRun{{DAGRunID: "leaf-target", DAGName: "leaf", Params: "MODE=retry"}},
+			SubRuns: []ir.SubDAGRun{{DAGRunID: "leaf-target", DAGName: "leaf", Params: "MODE=retry"}},
 		}},
 	})
 
@@ -60,7 +60,7 @@ func TestResolveRetryPathNestedRun(t *testing.T) {
 		Name:     leafDAG.Name,
 		DAGRunID: "leaf-target",
 		Status:   ir.Succeeded,
-		Nodes:    []*dagrun.Node{{Step: targetStep, Status: ir.NodeSucceeded}},
+		Nodes:    []*ir.Node{{Step: targetStep, Status: ir.NodeSucceeded}},
 	})
 
 	path, targetStatus, err := dagrun.ResolveRetryPath(ctx, store, rootRef, "leaf-target", "target-step")
@@ -84,11 +84,11 @@ func TestResolveRetryPathNestedRun(t *testing.T) {
 func TestResolveRetryPathRejectsRepeatingStep(t *testing.T) {
 	t.Run("child run from an earlier repeat cycle", func(t *testing.T) {
 		rootStep := ir.Step{Name: "run-child", SubDAG: &ir.SubDAG{Name: "child"}}
-		_, _, err := resolveRetryPathForChild(t, rootStep, dagrun.Node{
+		_, _, err := resolveRetryPathForChild(t, rootStep, ir.Node{
 			Step:            rootStep,
 			Status:          ir.NodeFailed,
-			SubRuns:         []dagrun.SubDAGRun{{DAGRunID: "child-current", DAGName: "child"}},
-			SubRunsRepeated: []dagrun.SubDAGRun{{DAGRunID: "child-target", DAGName: "child"}},
+			SubRuns:         []ir.SubDAGRun{{DAGRunID: "child-current", DAGName: "child"}},
+			SubRunsRepeated: []ir.SubDAGRun{{DAGRunID: "child-target", DAGName: "child"}},
 		})
 		require.ErrorIs(t, err, dagrun.ErrRepeatingStepTarget)
 	})
@@ -99,10 +99,10 @@ func TestResolveRetryPathRejectsRepeatingStep(t *testing.T) {
 			SubDAG:       &ir.SubDAG{Name: "child"},
 			RepeatPolicy: ir.RepeatPolicy{RepeatMode: ir.RepeatModeWhile},
 		}
-		_, _, err := resolveRetryPathForChild(t, rootStep, dagrun.Node{
+		_, _, err := resolveRetryPathForChild(t, rootStep, ir.Node{
 			Step:    rootStep,
 			Status:  ir.NodeFailed,
-			SubRuns: []dagrun.SubDAGRun{{DAGRunID: "child-target", DAGName: "child"}},
+			SubRuns: []ir.SubDAGRun{{DAGRunID: "child-target", DAGName: "child"}},
 		})
 		require.ErrorIs(t, err, dagrun.ErrRepeatingStepTarget)
 	})
@@ -114,7 +114,7 @@ func TestResolveRetryPathRejectsRepeatingStep(t *testing.T) {
 func resolveRetryPathForChild(
 	t *testing.T,
 	rootStep ir.Step,
-	rootNode dagrun.Node,
+	rootNode ir.Node,
 ) (dagrun.RetryPath, *dagrun.DAGRunStatus, error) {
 	t.Helper()
 	ctx := context.Background()
@@ -127,7 +127,7 @@ func resolveRetryPathForChild(
 		Name:     rootRef.Name,
 		DAGRunID: rootRef.ID,
 		Status:   ir.Failed,
-		Nodes:    []*dagrun.Node{&rootNode},
+		Nodes:    []*ir.Node{&rootNode},
 	})
 
 	childDAG := &ir.DAG{Name: "child", Steps: []ir.Step{targetStep}}
@@ -137,7 +137,7 @@ func resolveRetryPathForChild(
 		Name:     childDAG.Name,
 		DAGRunID: "child-target",
 		Status:   ir.Failed,
-		Nodes:    []*dagrun.Node{{Step: targetStep, Status: ir.NodeFailed}},
+		Nodes:    []*ir.Node{{Step: targetStep, Status: ir.NodeFailed}},
 	})
 
 	return dagrun.ResolveRetryPath(ctx, store, rootRef, "child-target", targetStep.Name)

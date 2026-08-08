@@ -4,6 +4,7 @@
 package dagrun
 
 import (
+	"slices"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -106,17 +107,17 @@ func WithError(err string) StatusOption {
 // WithPreconditions initializes DAG-level precondition results.
 func WithPreconditions(conditions []*ir.Condition) StatusOption {
 	return func(status *DAGRunStatus) {
-		status.Preconditions = NewConditionResults(conditions)
+		status.Preconditions = snapshotConditionResults(conditions)
 	}
 }
 
 // WithPreconditionResults sets evaluated DAG-level preconditions.
-func WithPreconditionResults(results []ConditionResult) StatusOption {
+func WithPreconditionResults(results []ir.ConditionResult) StatusOption {
 	return func(status *DAGRunStatus) {
 		if results == nil {
 			return
 		}
-		status.Preconditions = CloneConditionResults(results)
+		status.Preconditions = slices.Clone(results)
 	}
 }
 

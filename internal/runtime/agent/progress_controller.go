@@ -75,7 +75,7 @@ func (p *ControllerProgressDisplay) Stop() {
 
 // UpdateNode consumes node updates. The controller node carries the decision
 // timeline; every other node marks which action is in flight.
-func (p *ControllerProgressDisplay) UpdateNode(node *dagrun.Node) {
+func (p *ControllerProgressDisplay) UpdateNode(node *ir.Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

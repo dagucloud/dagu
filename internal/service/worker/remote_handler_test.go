@@ -1087,7 +1087,7 @@ steps:
 		previousStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:   "retry-dag",
 			Status: ir.Succeeded,
-			Nodes:  []*dagrun.Node{},
+			Nodes:  []*ir.Node{},
 		})
 		require.NoError(t, convErr)
 
@@ -1418,7 +1418,7 @@ steps:
 	previousStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 		Name:   "exec-retry-dag",
 		Status: ir.Succeeded,
-		Nodes:  []*dagrun.Node{},
+		Nodes:  []*ir.Node{},
 	})
 	require.NoError(t, convErr)
 
@@ -1477,7 +1477,7 @@ func TestHandleRetry_LoadDAGErrorPath(t *testing.T) {
 	previousStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 		Name:   "loaddag-error-dag",
 		Status: ir.Succeeded,
-		Nodes:  []*dagrun.Node{},
+		Nodes:  []*ir.Node{},
 	})
 	require.NoError(t, convErr)
 
@@ -1514,7 +1514,7 @@ func TestHandleRetry_WithDefinitionAndCleanup(t *testing.T) {
 	previousStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 		Name:   "def-cleanup-dag",
 		Status: ir.Succeeded,
-		Nodes:  []*dagrun.Node{},
+		Nodes:  []*ir.Node{},
 	})
 	require.NoError(t, convErr)
 

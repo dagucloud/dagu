@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 
@@ -32,8 +31,8 @@ type sideChannelExecutor struct {
 	closed            bool
 	toolDefinitions   []ir.ToolDefinition
 	messages          []ir.LLMMessage
-	subRuns           []dagrun.SubDAGRun
-	statusDetails     []dagrun.NodeStatusDetail
+	subRuns           []ir.SubDAGRun
+	statusDetails     []ir.NodeStatusDetail
 	outputs           map[string]any
 	stdout            io.Writer
 	stderr            io.Writer
@@ -62,11 +61,11 @@ func (e *sideChannelExecutor) SetPushBackContext(inputs map[string]string, itera
 func (e *sideChannelExecutor) SetPushBackPreviousStdout(path string) {
 	e.previousStdout = path
 }
-func (e *sideChannelExecutor) GetSubRuns() []dagrun.SubDAGRun {
-	return append([]dagrun.SubDAGRun(nil), e.subRuns...)
+func (e *sideChannelExecutor) GetSubRuns() []ir.SubDAGRun {
+	return append([]ir.SubDAGRun(nil), e.subRuns...)
 }
-func (e *sideChannelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
-	return append([]dagrun.NodeStatusDetail(nil), e.statusDetails...)
+func (e *sideChannelExecutor) GetStatusDetails() []ir.NodeStatusDetail {
+	return append([]ir.NodeStatusDetail(nil), e.statusDetails...)
 }
 func (e *sideChannelExecutor) GetToolDefinitions() []ir.ToolDefinition {
 	return append([]ir.ToolDefinition(nil), e.toolDefinitions...)
@@ -213,10 +212,10 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 			messages: []ir.LLMMessage{
 				{Role: ir.LLMRoleAssistant, Content: "new message"},
 			},
-			subRuns: []dagrun.SubDAGRun{
+			subRuns: []ir.SubDAGRun{
 				{DAGRunID: "new-run", DAGName: "new-dag", Params: "NEW=1"},
 			},
-			statusDetails: []dagrun.NodeStatusDetail{
+			statusDetails: []ir.NodeStatusDetail{
 				{Label: "customer-a", Status: ir.NodeFailed},
 			},
 			toolDefinitions: []ir.ToolDefinition{
@@ -262,7 +261,7 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 	state := node.State()
 	require.Equal(t, []runtime.SubDAGRun{{DAGRunID: "new-run", DAGName: "new-dag", Params: "NEW=1"}}, state.SubRuns)
 	require.Equal(t, []runtime.SubDAGRun{{DAGRunID: "old-run", DAGName: "old-dag", Params: "OLD=1"}}, state.SubRunsRepeated)
-	require.Equal(t, []dagrun.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}, state.StatusDetails)
+	require.Equal(t, []ir.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}, state.StatusDetails)
 	require.Equal(t, []ir.ToolDefinition{{Name: "lookup", Description: "look up data"}}, node.GetToolDefinitions())
 	require.NotNil(t, state.OutputsValue)
 	require.JSONEq(t, `{"answer":42}`, *state.OutputsValue)

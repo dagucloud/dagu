@@ -205,7 +205,7 @@ var stepHeader = table.Row{
 	"Error",
 }
 
-func renderStepSummary(nodes []*dagrun.Node) string {
+func renderStepSummary(nodes []*ir.Node) string {
 	stepTable := table.NewWriter()
 	stepTable.AppendHeader(stepHeader)
 
@@ -224,7 +224,7 @@ func renderStepSummary(nodes []*dagrun.Node) string {
 	return stepTable.Render()
 }
 
-func renderHTML(nodes []*dagrun.Node) string {
+func renderHTML(nodes []*ir.Node) string {
 	var buffer bytes.Buffer
 
 	// Start with basic HTML structure with improved styling
@@ -294,7 +294,7 @@ func renderHTML(nodes []*dagrun.Node) string {
 
 var htmlTableHeaders = []string{"#", "Step", "Started At", "Finished At", "Status", "Command", "Error"}
 
-func writeHTMLTable(buffer *bytes.Buffer, nodes []*dagrun.Node) {
+func writeHTMLTable(buffer *bytes.Buffer, nodes []*ir.Node) {
 	_, _ = buffer.WriteString("<table><thead><tr>")
 	writeHTMLHeaderCells(buffer, htmlTableHeaders)
 	_, _ = buffer.WriteString("</tr></thead><tbody>")
@@ -313,7 +313,7 @@ func writeHTMLHeaderCells(buffer *bytes.Buffer, headers []string) {
 }
 
 // writeNodeRow writes a single node row to the HTML buffer.
-func writeNodeRow(buffer *bytes.Buffer, index int, n *dagrun.Node) {
+func writeNodeRow(buffer *bytes.Buffer, index int, n *ir.Node) {
 	_, _ = buffer.WriteString("<tr>")
 	_, _ = buffer.WriteString(fmt.Sprintf("<td class=\"row-number\">%d</td>", index+1))
 	_, _ = buffer.WriteString(fmt.Sprintf("<td class=\"step-name\">%s</td>", html.EscapeString(n.Step.Name)))
@@ -579,7 +579,7 @@ func renderHTMLWithDAGInfo(dagStatus dagrun.DAGRunStatus) string {
 }
 
 func addAttachments(
-	trigger bool, nodes []*dagrun.Node,
+	trigger bool, nodes []*ir.Node,
 ) (attachments []string) {
 	if trigger {
 		for _, n := range nodes {

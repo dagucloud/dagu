@@ -137,7 +137,7 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 					DAGRunID: "child-1",
 					Status:   ir.Succeeded,
 					Params:   "ITEM=1",
-					Nodes: []*dagrun.Node{
+					Nodes: []*ir.Node{
 						{
 							OutputVariables: &outputVars,
 							OutputsValue:    &outputValue,
@@ -214,7 +214,7 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 		DAGRunID:  "child-1",
 		ProcGroup: "queue-a",
 		Status:    ir.Failed,
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step:   ir.Step{Name: "already-done"},
 				Status: ir.NodeSucceeded,
@@ -270,7 +270,7 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 		Name:     "child",
 		DAGRunID: "child-1",
 		Status:   ir.Succeeded,
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{OutputVariables: &outputVars},
 		},
 	}

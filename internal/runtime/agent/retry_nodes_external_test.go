@@ -37,7 +37,7 @@ func TestRetryNodesUseRestoredDAGStepDefinition(t *testing.T) {
 		},
 	}
 	status := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step: ir.Step{
 					Name:   "target",
@@ -84,7 +84,7 @@ func TestRetryNodesRejectMissingRestoredSourceStep(t *testing.T) {
 	t.Parallel()
 
 	status := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{Step: ir.Step{Name: "missing"}, Status: ir.NodeFailed},
 		},
 	}

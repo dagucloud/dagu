@@ -366,10 +366,10 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 		DAGRunID:  rootRef.ID,
 		AttemptID: rootAttempt.ID(),
 		Status:    ir.Failed,
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step:   rootStep,
 			Status: ir.NodeFailed,
-			SubRuns: []dagrun.SubDAGRun{
+			SubRuns: []ir.SubDAGRun{
 				{DAGRunID: "child-success", DAGName: childDAG.Name, Params: "ITEM=one"},
 				{DAGRunID: "child-target", DAGName: childDAG.Name, Params: "ITEM=two"},
 			},
@@ -388,7 +388,7 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 		DAGRunID:  "child-target",
 		AttemptID: childAttempt.ID(),
 		Status:    ir.Succeeded,
-		Nodes:     []*dagrun.Node{{Step: childStep, Status: ir.NodeSucceeded}},
+		Nodes:     []*ir.Node{{Step: childStep, Status: ir.NodeSucceeded}},
 	}
 	require.NoError(t, childAttempt.Open(ctx))
 	require.NoError(t, childAttempt.Write(ctx, childStatus))

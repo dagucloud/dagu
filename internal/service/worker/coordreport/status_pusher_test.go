@@ -282,7 +282,7 @@ func TestPush(t *testing.T) {
 			Params:     "key=value",
 			Root:       ir.DAGRunRef{Name: "root", ID: "root-id"},
 			Parent:     ir.DAGRunRef{Name: "parent", ID: "parent-id"},
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "step-1"},
 					Status: ir.NodeSucceeded,

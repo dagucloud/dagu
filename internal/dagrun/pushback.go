@@ -3,7 +3,11 @@
 
 package dagrun
 
-import "maps"
+import (
+	"maps"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
+)
 
 // FilterPushBackInputs returns only declared push-back inputs. If no allowlist
 // is provided, the stored inputs are preserved as-is.
@@ -38,11 +42,11 @@ func NormalizePushBackHistory(
 	allowed []string,
 	iteration int,
 	latestInputs map[string]string,
-	history []PushBackEntry,
-) []PushBackEntry {
+	history []ir.PushBackEntry,
+) []ir.PushBackEntry {
 	normalized := ClonePushBackHistory(history)
 	if len(normalized) == 0 && iteration > 0 {
-		normalized = append(normalized, PushBackEntry{
+		normalized = append(normalized, ir.PushBackEntry{
 			Iteration: iteration,
 			Inputs:    FilterPushBackInputs(allowed, latestInputs),
 		})
@@ -54,14 +58,14 @@ func NormalizePushBackHistory(
 }
 
 // ClonePushBackHistory returns a deep copy of push-back history entries.
-func ClonePushBackHistory(src []PushBackEntry) []PushBackEntry {
+func ClonePushBackHistory(src []ir.PushBackEntry) []ir.PushBackEntry {
 	if len(src) == 0 {
 		return nil
 	}
 
-	dst := make([]PushBackEntry, len(src))
+	dst := make([]ir.PushBackEntry, len(src))
 	for i, entry := range src {
-		dst[i] = PushBackEntry{
+		dst[i] = ir.PushBackEntry{
 			Iteration: entry.Iteration,
 			By:        entry.By,
 			ByID:      entry.ByID,

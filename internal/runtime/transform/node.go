@@ -5,6 +5,7 @@ package transform
 
 import (
 	"errors"
+	"slices"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -13,13 +14,13 @@ import (
 )
 
 // ToNode converts a persistence Node back to a runtime Node
-func ToNode(n *dagrun.Node) *runtime.Node {
+func ToNode(n *ir.Node) *runtime.Node {
 	return ToNodeWithStep(n, n.Step)
 }
 
 // ToNodeWithStep converts a persistence Node back to a runtime Node using the
 // supplied step definition.
-func ToNodeWithStep(n *dagrun.Node, step ir.Step) *runtime.Node {
+func ToNodeWithStep(n *ir.Node, step ir.Step) *runtime.Node {
 	startedAt, _ := stringutil.ParseTime(n.StartedAt)
 	finishedAt, _ := stringutil.ParseTime(n.FinishedAt)
 	retriedAt, _ := stringutil.ParseTime(n.RetriedAt)
@@ -48,8 +49,8 @@ func ToNodeWithStep(n *dagrun.Node, step ir.Step) *runtime.Node {
 		Repeated:               n.Repeated,
 		SkippedByRetry:         n.SkippedByRetry,
 		Error:                  err,
-		PreconditionResults:    dagrun.CloneConditionResults(n.PreconditionResults),
-		StatusDetails:          append([]dagrun.NodeStatusDetail(nil), n.StatusDetails...),
+		PreconditionResults:    slices.Clone(n.PreconditionResults),
+		StatusDetails:          append([]ir.NodeStatusDetail(nil), n.StatusDetails...),
 		Build:                  n.Build,
 		SubRuns:                children,
 		SubRunsRepeated:        childrenRepeated,
@@ -79,22 +80,22 @@ func ToNodeWithStep(n *dagrun.Node, step ir.Step) *runtime.Node {
 }
 
 // newNode converts a single runtime NodeData to a persistence Node
-func newNode(node runtime.NodeData) *dagrun.Node {
-	children := make([]dagrun.SubDAGRun, len(node.State.SubRuns))
+func newNode(node runtime.NodeData) *ir.Node {
+	children := make([]ir.SubDAGRun, len(node.State.SubRuns))
 	for i, child := range node.State.SubRuns {
-		children[i] = dagrun.SubDAGRun(child)
+		children[i] = ir.SubDAGRun(child)
 	}
 	var errText string
 	if node.State.Error != nil {
 		errText = node.State.Error.Error()
 	}
-	childrenRepeated := make([]dagrun.SubDAGRun, len(node.State.SubRunsRepeated))
+	childrenRepeated := make([]ir.SubDAGRun, len(node.State.SubRunsRepeated))
 	for i, child := range node.State.SubRunsRepeated {
-		childrenRepeated[i] = dagrun.SubDAGRun(child)
+		childrenRepeated[i] = ir.SubDAGRun(child)
 	}
-	return &dagrun.Node{
+	return &ir.Node{
 		Step:                   node.Step,
-		PreconditionResults:    dagrun.CloneConditionResults(node.State.PreconditionResults),
+		PreconditionResults:    slices.Clone(node.State.PreconditionResults),
 		Stdout:                 node.State.Stdout,
 		Stderr:                 node.State.Stderr,
 		WorkingDir:             node.State.WorkingDir,
@@ -107,7 +108,7 @@ func newNode(node runtime.NodeData) *dagrun.Node {
 		Repeated:               node.State.Repeated,
 		SkippedByRetry:         node.State.SkippedByRetry,
 		Error:                  errText,
-		StatusDetails:          append([]dagrun.NodeStatusDetail(nil), node.State.StatusDetails...),
+		StatusDetails:          append([]ir.NodeStatusDetail(nil), node.State.StatusDetails...),
 		Build:                  node.State.Build,
 		SubRuns:                children,
 		SubRunsRepeated:        childrenRepeated,

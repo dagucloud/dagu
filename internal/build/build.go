@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -55,7 +54,7 @@ type Session struct {
 	recipeDigest string
 	fingerprint  string
 	materialKey  string
-	metadata     dagrun.BuildExecution
+	metadata     ir.BuildExecution
 	pathBacked   bool
 	evaluated    bool
 	closed       bool
@@ -71,9 +70,9 @@ func Prepare(ctx context.Context, store MaterializationStore, request PrepareReq
 		pathKeys:   NewPathKeyResolver(),
 		request:    request,
 		inputPaths: make(map[string]string, len(request.Step.Inputs)),
-		metadata: dagrun.BuildExecution{
-			Decision: dagrun.BuildDecisionNone,
-			Phase:    dagrun.BuildPhasePrecondition,
+		metadata: ir.BuildExecution{
+			Decision: ir.BuildDecisionNone,
+			Phase:    ir.BuildPhasePrecondition,
 		},
 	}
 	for _, input := range request.Step.Inputs {
@@ -85,18 +84,18 @@ func Prepare(ctx context.Context, store MaterializationStore, request PrepareReq
 	session.pathBacked = hasPathOutput
 
 	if len(request.Step.Inputs) == 0 && !hasPathOutput {
-		session.metadata = dagrun.BuildExecution{
-			Decision: dagrun.BuildDecisionAlways,
-			Phase:    dagrun.BuildPhaseExecute,
-			Reason:   dagrun.BuildReasonIneligible,
+		session.metadata = ir.BuildExecution{
+			Decision: ir.BuildDecisionAlways,
+			Phase:    ir.BuildPhaseExecute,
+			Reason:   ir.BuildReasonIneligible,
 			Detail:   "step has no build file paths",
 		}
 		session.evaluated = true
 		return session, nil
 	}
 	if store == nil {
-		session.metadata.Phase = dagrun.BuildPhaseEvaluate
-		session.metadata.Reason = dagrun.BuildReasonStoreUnavailable
+		session.metadata.Phase = ir.BuildPhaseEvaluate
+		session.metadata.Reason = ir.BuildReasonStoreUnavailable
 		return session, fmt.Errorf("build materialization store is unavailable")
 	}
 
@@ -111,12 +110,12 @@ func Prepare(ctx context.Context, store MaterializationStore, request PrepareReq
 	if !request.Dry {
 		lock, err := store.AcquirePaths(ctx, locks)
 		if err != nil {
-			session.metadata.Phase = dagrun.BuildPhaseEvaluate
-			session.metadata.Reason = dagrun.BuildReasonEvaluationFailed
+			session.metadata.Phase = ir.BuildPhaseEvaluate
+			session.metadata.Reason = ir.BuildReasonEvaluationFailed
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				session.metadata.Reason = dagrun.BuildReasonCancelledBeforeDecision
+				session.metadata.Reason = ir.BuildReasonCancelledBeforeDecision
 			} else if errors.Is(err, ErrMaterializationRecovery) {
-				session.metadata.Reason = dagrun.BuildReasonRecoveryFailed
+				session.metadata.Reason = ir.BuildReasonRecoveryFailed
 			}
 			return session, err
 		}
@@ -131,13 +130,13 @@ func (s *Session) Evaluate(ctx context.Context) error {
 		return nil
 	}
 	s.evaluated = true
-	s.metadata.Phase = dagrun.BuildPhaseEvaluate
-	s.metadata.Reason = dagrun.BuildReasonEvaluationFailed
+	s.metadata.Phase = ir.BuildPhaseEvaluate
+	s.metadata.Reason = ir.BuildReasonEvaluationFailed
 	if s.request.Dry && s.request.Deferred {
-		s.metadata = dagrun.BuildExecution{
-			Decision: dagrun.BuildDecisionDeferred,
-			Phase:    dagrun.BuildPhaseEvaluate,
-			Reason:   dagrun.BuildReasonUpstreamWouldExecute,
+		s.metadata = ir.BuildExecution{
+			Decision: ir.BuildDecisionDeferred,
+			Phase:    ir.BuildPhaseEvaluate,
+			Reason:   ir.BuildReasonUpstreamWouldExecute,
 			Detail:   "an upstream file producer would execute; evaluate after its output is known",
 		}
 		return nil
@@ -146,14 +145,14 @@ func (s *Session) Evaluate(ctx context.Context) error {
 	for _, input := range s.request.Step.Inputs {
 		resolved, err := ResolvePath(input.Path, "", false)
 		if err != nil || s.pathKeys.ComparisonKey(resolved) != s.pathKeys.ComparisonKey(input.Path) {
-			s.metadata.Reason = dagrun.BuildReasonEvaluationFailed
+			s.metadata.Reason = ir.BuildReasonEvaluationFailed
 			return fmt.Errorf("input path identity changed before evaluation: %s", input.Path)
 		}
 	}
 	if s.pathBacked {
 		resolved, err := ResolvePath(s.output.Path, "", true)
 		if err != nil || s.pathKeys.ComparisonKey(resolved) != s.pathKeys.ComparisonKey(s.output.Path) {
-			s.metadata.Reason = dagrun.BuildReasonEvaluationFailed
+			s.metadata.Reason = ir.BuildReasonEvaluationFailed
 			return fmt.Errorf("output path identity changed before evaluation: %s", s.output.Path)
 		}
 	}
@@ -161,7 +160,7 @@ func (s *Session) Evaluate(ctx context.Context) error {
 	for _, input := range s.request.Step.Inputs {
 		snapshot, err := Snapshot(input.Name, input.Path)
 		if err != nil {
-			s.metadata.Reason = dagrun.BuildReasonInputMissing
+			s.metadata.Reason = ir.BuildReasonInputMissing
 			s.metadata.Detail = err.Error()
 			return err
 		}
@@ -175,9 +174,9 @@ func (s *Session) Evaluate(ctx context.Context) error {
 
 	eligible, detail := eligible(s.request)
 	if !eligible {
-		s.metadata.Decision = dagrun.BuildDecisionAlways
-		s.metadata.Phase = dagrun.BuildPhaseExecute
-		s.metadata.Reason = dagrun.BuildReasonIneligible
+		s.metadata.Decision = ir.BuildDecisionAlways
+		s.metadata.Phase = ir.BuildPhaseExecute
+		s.metadata.Reason = ir.BuildReasonIneligible
 		s.metadata.Detail = detail
 		return nil
 	}
@@ -191,25 +190,25 @@ func (s *Session) Evaluate(ctx context.Context) error {
 	s.metadata.Fingerprint = s.fingerprint
 
 	if s.request.ControlDependencyRan {
-		s.metadata.Decision = dagrun.BuildDecisionExecute
-		s.metadata.Phase = dagrun.BuildPhaseExecute
-		s.metadata.Reason = dagrun.BuildReasonControlDependencyRan
+		s.metadata.Decision = ir.BuildDecisionExecute
+		s.metadata.Phase = ir.BuildPhaseExecute
+		s.metadata.Reason = ir.BuildReasonControlDependencyRan
 		s.metadata.Detail = "an explicit control dependency executed in this run"
 		return nil
 	}
 	if s.request.NoReuse {
-		s.metadata.Decision = dagrun.BuildDecisionExecute
-		s.metadata.Phase = dagrun.BuildPhaseExecute
-		s.metadata.Reason = dagrun.BuildReasonReuseDisabled
+		s.metadata.Decision = ir.BuildDecisionExecute
+		s.metadata.Phase = ir.BuildPhaseExecute
+		s.metadata.Reason = ir.BuildReasonReuseDisabled
 		s.metadata.Detail = "reuse was disabled for this run"
 		return nil
 	}
 
 	manifest, err := s.store.Get(ctx, s.materialKey)
 	if errors.Is(err, ErrMaterializationNotFound) {
-		s.metadata.Decision = dagrun.BuildDecisionExecute
-		s.metadata.Phase = dagrun.BuildPhaseExecute
-		s.metadata.Reason = dagrun.BuildReasonManifestMissing
+		s.metadata.Decision = ir.BuildDecisionExecute
+		s.metadata.Phase = ir.BuildPhaseExecute
+		s.metadata.Reason = ir.BuildReasonManifestMissing
 		s.metadata.Detail = "no prior successful materialization exists"
 		return nil
 	}
@@ -217,34 +216,34 @@ func (s *Session) Evaluate(ctx context.Context) error {
 		return err
 	}
 	if manifest.RecipeDigest != recipeDigest {
-		s.executeReason(dagrun.BuildReasonRecipeChanged, "the step recipe changed")
+		s.executeReason(ir.BuildReasonRecipeChanged, "the step recipe changed")
 		return nil
 	}
 	if !snapshotsEqual(manifest.Inputs, s.inputs) || manifest.Fingerprint != s.fingerprint {
-		s.executeReason(dagrun.BuildReasonInputChanged, "declared input content changed")
+		s.executeReason(ir.BuildReasonInputChanged, "declared input content changed")
 		return nil
 	}
 	currentOutput, err := Snapshot(s.output.Name, s.output.Path)
 	if err != nil {
-		s.executeReason(dagrun.BuildReasonOutputMissing, "the prior materialized output is unavailable")
+		s.executeReason(ir.BuildReasonOutputMissing, "the prior materialized output is unavailable")
 		return nil
 	}
 	if !snapshotEqual(currentOutput, manifest.Output) {
-		s.executeReason(dagrun.BuildReasonOutputChanged, "the prior materialized output changed")
+		s.executeReason(ir.BuildReasonOutputChanged, "the prior materialized output changed")
 		return nil
 	}
-	s.metadata.Decision = dagrun.BuildDecisionReuse
-	s.metadata.Phase = dagrun.BuildPhaseComplete
-	s.metadata.Reason = dagrun.BuildReasonMatched
+	s.metadata.Decision = ir.BuildDecisionReuse
+	s.metadata.Phase = ir.BuildPhaseComplete
+	s.metadata.Reason = ir.BuildReasonMatched
 	s.metadata.Detail = "recipe, inputs, and output match the committed manifest"
 	s.metadata.ProducerRun = manifest.ProducerRun
 	s.metadata.ProducerAttemptID = manifest.ProducerAttemptID
 	return nil
 }
 
-func (s *Session) executeReason(reason dagrun.BuildReason, detail string) {
-	s.metadata.Decision = dagrun.BuildDecisionExecute
-	s.metadata.Phase = dagrun.BuildPhaseExecute
+func (s *Session) executeReason(reason ir.BuildReason, detail string) {
+	s.metadata.Decision = ir.BuildDecisionExecute
+	s.metadata.Phase = ir.BuildPhaseExecute
 	s.metadata.Reason = reason
 	s.metadata.Detail = detail
 }
@@ -259,10 +258,10 @@ func (s *Session) SetResolvedRecipe(step ir.Step, environment map[string]string)
 }
 
 // Metadata returns the current persisted decision metadata.
-func (s *Session) Metadata() dagrun.BuildExecution { return s.metadata }
+func (s *Session) Metadata() ir.BuildExecution { return s.metadata }
 
 // Reused reports whether executor execution is unnecessary.
-func (s *Session) Reused() bool { return s.metadata.Decision == dagrun.BuildDecisionReuse }
+func (s *Session) Reused() bool { return s.metadata.Decision == ir.BuildDecisionReuse }
 
 // HasPathOutput reports whether the session stages and publishes an output.
 func (s *Session) HasPathOutput() bool { return s.pathBacked }
@@ -303,13 +302,13 @@ func (s *Session) NewAttempt(retry int) (map[string]string, string, error) {
 // Commit verifies an attempt and publishes its materialization.
 func (s *Session) Commit(ctx context.Context, staging string) error {
 	if !s.pathBacked {
-		s.metadata.Phase = dagrun.BuildPhaseComplete
+		s.metadata.Phase = ir.BuildPhaseComplete
 		return nil
 	}
 	if s.store == nil {
 		return fmt.Errorf("build materialization store is unavailable")
 	}
-	s.metadata.Phase = dagrun.BuildPhaseVerify
+	s.metadata.Phase = ir.BuildPhaseVerify
 	output, err := Snapshot(s.output.Name, staging)
 	if err != nil {
 		return fmt.Errorf("verify staged output: %w", err)
@@ -317,7 +316,7 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 	for _, expected := range s.inputs {
 		current, err := Snapshot(expected.Name, expected.Path)
 		if err != nil || !snapshotEqual(current, expected) {
-			s.metadata.Reason = dagrun.BuildReasonInputChangedDuringExecution
+			s.metadata.Reason = ir.BuildReasonInputChangedDuringExecution
 			return fmt.Errorf("input %s changed during execution", expected.Name)
 		}
 	}
@@ -340,16 +339,16 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 		ProducerAttemptID:  s.request.AttemptID,
 		CompletedAt:        time.Now().UTC(),
 	}
-	s.metadata.Phase = dagrun.BuildPhaseCommit
+	s.metadata.Phase = ir.BuildPhaseCommit
 	if err := s.store.Commit(ctx, s.lock, MaterializationCommit{
 		StagingPath:      staging,
 		FinalPath:        s.outputPath,
 		Manifest:         manifest,
-		PreserveManifest: s.metadata.Decision == dagrun.BuildDecisionAlways,
+		PreserveManifest: s.metadata.Decision == ir.BuildDecisionAlways,
 	}); err != nil {
 		return err
 	}
-	s.metadata.Phase = dagrun.BuildPhaseComplete
+	s.metadata.Phase = ir.BuildPhaseComplete
 	return nil
 }
 

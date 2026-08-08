@@ -90,7 +90,7 @@ func TestStatusBuilder(t *testing.T) {
 	assert.NotNil(t, result.OnAbort)
 	assert.Equal(t, "param1 param2", result.Params)
 	assert.Equal(t, dag.Params, result.ParamsList)
-	assert.Equal(t, dagrun.NewConditionResults(dag.Preconditions), result.Preconditions)
+	assert.Equal(t, expectedConditionResults(dag.Preconditions), result.Preconditions)
 }
 
 func TestStatusBuilderWithOptions(t *testing.T) {
@@ -375,7 +375,7 @@ func TestInitialStatus(t *testing.T) {
 	assert.NotNil(t, st.OnAbort)
 	assert.Equal(t, "arg1 arg2", st.Params)
 	assert.Equal(t, dag.Params, st.ParamsList)
-	assert.Equal(t, dagrun.NewConditionResults(dag.Preconditions), st.Preconditions)
+	assert.Equal(t, expectedConditionResults(dag.Preconditions), st.Preconditions)
 	assert.NotZero(t, st.CreatedAt)
 	assert.Equal(t, "", st.StartedAt)
 	assert.Equal(t, "", st.FinishedAt)
@@ -404,15 +404,15 @@ func TestDAGRunStatus_DAGRun(t *testing.T) {
 
 func TestDAGRunStatus_Errors(t *testing.T) {
 	dagRunStatus := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{Step: ir.Step{Name: "step1"}, Error: "error1"},
 			{Step: ir.Step{Name: "step2"}, Error: ""},
 			{Step: ir.Step{Name: "step3"}, Error: "error3"},
 		},
-		OnExit:    &dagrun.Node{Step: ir.Step{Name: "exit"}, Error: "exit error"},
-		OnSuccess: &dagrun.Node{Step: ir.Step{Name: "success"}, Error: ""},
-		OnFailure: &dagrun.Node{Step: ir.Step{Name: "failure"}, Error: "failure error"},
-		OnAbort:   &dagrun.Node{Step: ir.Step{Name: "cancel"}, Error: "cancel error"},
+		OnExit:    &ir.Node{Step: ir.Step{Name: "exit"}, Error: "exit error"},
+		OnSuccess: &ir.Node{Step: ir.Step{Name: "success"}, Error: ""},
+		OnFailure: &ir.Node{Step: ir.Step{Name: "failure"}, Error: "failure error"},
+		OnAbort:   &ir.Node{Step: ir.Step{Name: "cancel"}, Error: "cancel error"},
 	}
 
 	errors := dagRunStatus.Errors()
@@ -426,14 +426,14 @@ func TestDAGRunStatus_Errors(t *testing.T) {
 
 func TestDAGRunStatus_NodeByName(t *testing.T) {
 	dagRunStatus := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{Step: ir.Step{Name: "step1"}},
 			{Step: ir.Step{Name: "step2"}},
 		},
-		OnExit:    &dagrun.Node{Step: ir.Step{Name: "exit"}},
-		OnSuccess: &dagrun.Node{Step: ir.Step{Name: "success"}},
-		OnFailure: &dagrun.Node{Step: ir.Step{Name: "failure"}},
-		OnAbort:   &dagrun.Node{Step: ir.Step{Name: "cancel"}},
+		OnExit:    &ir.Node{Step: ir.Step{Name: "exit"}},
+		OnSuccess: &ir.Node{Step: ir.Step{Name: "success"}},
+		OnFailure: &ir.Node{Step: ir.Step{Name: "failure"}},
+		OnAbort:   &ir.Node{Step: ir.Step{Name: "cancel"}},
 	}
 
 	// Test finding regular nodes
@@ -500,7 +500,7 @@ func TestNewNodesFromSteps(t *testing.T) {
 		},
 	}
 
-	nodes := dagrun.NewNodesFromSteps(steps)
+	nodes := ir.NewNodesFromSteps(steps)
 
 	assert.Equal(t, 2, len(nodes))
 	assert.Equal(t, "step1", nodes[0].Step.Name)
@@ -520,4 +520,14 @@ func TestWithCreatedAtDefaultTime(t *testing.T) {
 
 	assert.GreaterOrEqual(t, dagRunStatus.CreatedAt, beforeTime)
 	assert.LessOrEqual(t, dagRunStatus.CreatedAt, afterTime)
+}
+
+func expectedConditionResults(conditions []*ir.Condition) []ir.ConditionResult {
+	results := make([]ir.ConditionResult, len(conditions))
+	for i, condition := range conditions {
+		if condition != nil {
+			results[i].Condition = *condition
+		}
+	}
+	return results
 }

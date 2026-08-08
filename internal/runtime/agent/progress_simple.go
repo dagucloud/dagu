@@ -64,7 +64,7 @@ func (p *SimpleProgressDisplay) Stop() {
 }
 
 // UpdateNode updates the progress for a specific node.
-func (p *SimpleProgressDisplay) UpdateNode(node *dagrun.Node) {
+func (p *SimpleProgressDisplay) UpdateNode(node *ir.Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

@@ -188,7 +188,7 @@ func TestListLogFiles(t *testing.T) {
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = "/tmp/test.log"
-		dagRunStatus.Nodes = []*dagrun.Node{
+		dagRunStatus.Nodes = []*ir.Node{
 			{
 				Step:   ir.Step{Name: "step1"},
 				Stdout: "/tmp/step1.out",
@@ -232,17 +232,17 @@ func TestListLogFiles(t *testing.T) {
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = "/tmp/test.log"
-		dagRunStatus.OnInit = &dagrun.Node{
+		dagRunStatus.OnInit = &ir.Node{
 			Step:   ir.Step{Name: "onInit"},
 			Stdout: "/tmp/onInit.out",
 			Stderr: "/tmp/onInit.err",
 		}
-		dagRunStatus.OnWait = &dagrun.Node{
+		dagRunStatus.OnWait = &ir.Node{
 			Step:   ir.Step{Name: "onWait"},
 			Stdout: "/tmp/onWait.out",
 			Stderr: "/tmp/onWait.err",
 		}
-		dagRunStatus.OnExit = &dagrun.Node{
+		dagRunStatus.OnExit = &ir.Node{
 			Step:   ir.Step{Name: "onExit"},
 			Stdout: "/tmp/onExit.out",
 			Stderr: "/tmp/onExit.err",
@@ -296,7 +296,7 @@ func TestRemoveLogFiles(t *testing.T) {
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = logFiles[0]
-		dagRunStatus.Nodes = []*dagrun.Node{
+		dagRunStatus.Nodes = []*ir.Node{
 			{
 				Step:   ir.Step{Name: "step1"},
 				Stdout: logFiles[1],
@@ -354,7 +354,7 @@ func TestRemoveLogFiles(t *testing.T) {
 		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "parent-dag-run"
 		dagRunStatus.Log = parentLogFiles[0]
-		dagRunStatus.Nodes = []*dagrun.Node{{
+		dagRunStatus.Nodes = []*ir.Node{{
 			Step:   ir.Step{Name: "parent-step"},
 			Stdout: parentLogFiles[1],
 		}}
@@ -380,7 +380,7 @@ func TestRemoveLogFiles(t *testing.T) {
 		subStatus := dagrun.InitialStatus(dag)
 		subStatus.DAGRunID = "sub1"
 		subStatus.Log = subRunLogFiles[0]
-		subStatus.Nodes = []*dagrun.Node{{
+		subStatus.Nodes = []*ir.Node{{
 			Step:   ir.Step{Name: "sub-step"},
 			Stdout: subRunLogFiles[1],
 		}}
@@ -433,7 +433,7 @@ func TestDAGRunRemove(t *testing.T) {
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Status = ir.Succeeded
 		dagRunStatus.Log = logFiles[0]
-		dagRunStatus.Nodes = []*dagrun.Node{
+		dagRunStatus.Nodes = []*ir.Node{
 			{
 				Step:   ir.Step{Name: "step1"},
 				Stdout: logFiles[1],
@@ -502,7 +502,7 @@ func TestDAGRunRemove(t *testing.T) {
 		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "parent-dag-run"
 		dagRunStatus.Log = parentLogFiles[0]
-		dagRunStatus.Nodes = []*dagrun.Node{{
+		dagRunStatus.Nodes = []*ir.Node{{
 			Step:   ir.Step{Name: "parent-step"},
 			Stdout: parentLogFiles[1],
 		}}
@@ -537,7 +537,7 @@ func TestDAGRunRemove(t *testing.T) {
 			subStatus := dagrun.InitialStatus(dag)
 			subStatus.DAGRunID = subRun.dagRunID
 			subStatus.Log = subRun.logFiles[0]
-			subStatus.Nodes = []*dagrun.Node{{
+			subStatus.Nodes = []*ir.Node{{
 				Step:   ir.Step{Name: fmt.Sprintf("%s-step", subRun.dagRunID)},
 				Stdout: subRun.logFiles[1],
 			}}
@@ -579,7 +579,7 @@ func TestDAGRunRemove(t *testing.T) {
 		dagRunStatus := dagrun.InitialStatus(dag)
 		dagRunStatus.DAGRunID = "test-dag-run"
 		dagRunStatus.Log = "/non/existent/path/dag-run.log"
-		dagRunStatus.Nodes = []*dagrun.Node{
+		dagRunStatus.Nodes = []*ir.Node{
 			{
 				Step:   ir.Step{Name: "step1"},
 				Stdout: "/non/existent/path/step1.out",

@@ -128,7 +128,7 @@ func TestStatusCommand(t *testing.T) {
 			StartedAt:  time.Now().Format(time.RFC3339),
 			FinishedAt: time.Now().Format(time.RFC3339),
 			AttemptID:  attempt.ID(),
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "error"},
 					Status: ir.NodeFailed,
@@ -242,7 +242,7 @@ steps:
 			StartedAt:  now,
 			FinishedAt: now,
 			AttemptID:  attempt.ID(),
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:       ir.Step{Name: "check"},
 					Status:     ir.NodeFailed,
@@ -423,7 +423,7 @@ steps:
 			StartedAt:  now,
 			FinishedAt: now,
 			AttemptID:  attempt.ID(),
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "binary_output"},
 					Status: ir.NodeSucceeded,

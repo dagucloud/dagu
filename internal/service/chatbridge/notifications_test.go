@@ -282,14 +282,14 @@ func TestNotificationBatcher_ClonesStatusSnapshot(t *testing.T) {
 		AttemptID: "a1",
 		Status:    ir.Failed,
 		Error:     "original error",
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step:   ir.Step{Name: "fetch"},
 				Status: ir.NodeFailed,
 				Error:  "node failed",
 			},
 		},
-		OnFailure: &dagrun.Node{
+		OnFailure: &ir.Node{
 			Step:  ir.Step{Name: "notify"},
 			Error: "handler failed",
 		},

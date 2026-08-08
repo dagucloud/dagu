@@ -36,7 +36,7 @@ func toExecStatus(detail *api.DAGRunDetails) (*dagrun.DAGRunStatus, error) {
 		WorkerID:     derefString(detail.WorkerId),
 		NoReuse:      derefBool(detail.NoReuse),
 		Labels:       labelsFromAPI(detail.Labels, detail.Tags),
-		Nodes:        make([]*dagrun.Node, 0, len(detail.Nodes)),
+		Nodes:        make([]*ir.Node, 0, len(detail.Nodes)),
 	}
 	status.Root = ir.NewDAGRunRef(detail.RootDAGRunName, detail.RootDAGRunId)
 	if detail.ParentDAGRunName != nil && detail.ParentDAGRunId != nil {
@@ -54,15 +54,15 @@ func toExecStatus(detail *api.DAGRunDetails) (*dagrun.DAGRunStatus, error) {
 	return status, nil
 }
 
-func mapAPINodePtr(node *api.Node) *dagrun.Node {
+func mapAPINodePtr(node *api.Node) *ir.Node {
 	if node == nil {
 		return nil
 	}
 	return mapAPINode(*node)
 }
 
-func mapAPINode(node api.Node) *dagrun.Node {
-	mapped := &dagrun.Node{
+func mapAPINode(node api.Node) *ir.Node {
+	mapped := &ir.Node{
 		Step:       mapAPIStep(node.Step),
 		Stdout:     node.Stdout,
 		Stderr:     node.Stderr,
@@ -75,10 +75,10 @@ func mapAPINode(node api.Node) *dagrun.Node {
 		SubRuns:    mapAPISubRuns(node.SubRuns),
 	}
 	if node.Build != nil {
-		mapped.Build = &dagrun.BuildExecution{
-			Decision:           dagrun.BuildDecision(node.Build.Decision),
-			Phase:              dagrun.BuildPhase(node.Build.Phase),
-			Reason:             dagrun.BuildReason(node.Build.Reason),
+		mapped.Build = &ir.BuildExecution{
+			Decision:           ir.BuildDecision(node.Build.Decision),
+			Phase:              ir.BuildPhase(node.Build.Phase),
+			Reason:             ir.BuildReason(node.Build.Reason),
 			Detail:             derefString(node.Build.Detail),
 			Fingerprint:        derefString(node.Build.Fingerprint),
 			MaterializationKey: derefString(node.Build.MaterializationKey),
@@ -94,13 +94,13 @@ func mapAPINode(node api.Node) *dagrun.Node {
 	return mapped
 }
 
-func mapAPISubRuns(subRuns *[]api.SubDAGRun) []dagrun.SubDAGRun {
+func mapAPISubRuns(subRuns *[]api.SubDAGRun) []ir.SubDAGRun {
 	if subRuns == nil {
 		return nil
 	}
-	out := make([]dagrun.SubDAGRun, 0, len(*subRuns))
+	out := make([]ir.SubDAGRun, 0, len(*subRuns))
 	for _, sub := range *subRuns {
-		out = append(out, dagrun.SubDAGRun{
+		out = append(out, ir.SubDAGRun{
 			DAGRunID: sub.DagRunId,
 			Params:   derefString(sub.Params),
 			DAGName:  derefString(sub.DagName),

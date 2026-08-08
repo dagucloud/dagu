@@ -13,7 +13,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -26,8 +25,8 @@ var (
 const ErrMsgOtherConditionNotMet = "other condition was not met"
 
 // EvaluateConditions evaluates conditions and returns their runtime results.
-func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Condition) ([]dagrun.ConditionResult, error) {
-	results := dagrun.NewConditionResults(conditions)
+func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Condition) ([]ir.ConditionResult, error) {
+	results := conditionResults(conditions)
 	var lastErr error
 
 	for i := range conditions {
@@ -47,6 +46,19 @@ func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Co
 	}
 
 	return results, lastErr
+}
+
+func conditionResults(conditions []*ir.Condition) []ir.ConditionResult {
+	if len(conditions) == 0 {
+		return nil
+	}
+	results := make([]ir.ConditionResult, len(conditions))
+	for i, condition := range conditions {
+		if condition != nil {
+			results[i].Condition = *condition
+		}
+	}
+	return results
 }
 
 // EvalCondition evaluates the condition and returns the actual value.

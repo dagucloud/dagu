@@ -260,8 +260,8 @@ func toPrecondition(obj *ir.Condition) api.Condition {
 	return condition
 }
 
-func toPreconditionResult(result dagrun.ConditionResult) api.Condition {
-	condition := toPrecondition(result.Definition())
+func toPreconditionResult(result ir.ConditionResult) api.Condition {
+	condition := toPrecondition(&result.Condition)
 	condition.Error = ptrOf(result.Error)
 	return condition
 }
@@ -460,7 +460,7 @@ func hasArtifactEntries(archiveDir string) bool {
 	return false
 }
 
-func toNode(node *dagrun.Node) api.Node {
+func toNode(node *ir.Node) api.Node {
 	if node == nil {
 		return api.Node{}
 	}
@@ -519,7 +519,7 @@ func toNode(node *dagrun.Node) api.Node {
 	return result
 }
 
-func toPushBackHistory(node *dagrun.Node) []api.PushBackHistoryEntry {
+func toPushBackHistory(node *ir.Node) []api.PushBackHistoryEntry {
 	if node == nil {
 		return nil
 	}
@@ -555,7 +555,7 @@ func toPushBackHistory(node *dagrun.Node) []api.PushBackHistoryEntry {
 	return items
 }
 
-func toSubDAGRuns(subDAGRuns []dagrun.SubDAGRun) []api.SubDAGRun {
+func toSubDAGRuns(subDAGRuns []ir.SubDAGRun) []api.SubDAGRun {
 	result := make([]api.SubDAGRun, len(subDAGRuns))
 	for i, w := range subDAGRuns {
 		result[i] = api.SubDAGRun{
@@ -677,7 +677,7 @@ func declaredControllerTasks(dag *ir.DAG) *[]api.ControllerTask {
 }
 
 // controllerTimeline reports the ordered decisions a controller DAG-run made.
-func controllerTimeline(nodes []*dagrun.Node) *[]api.ControllerEvent {
+func controllerTimeline(nodes []*ir.Node) *[]api.ControllerEvent {
 	for _, node := range nodes {
 		if node == nil || node.Step.Name != ir.ControllerStepName {
 			continue
@@ -708,7 +708,7 @@ func controllerTimeline(nodes []*dagrun.Node) *[]api.ControllerEvent {
 
 // controllerTaskProgress reports goal progress recorded by the controller step
 // of a controller DAG-run.
-func controllerTaskProgress(nodes []*dagrun.Node) *[]api.ControllerTask {
+func controllerTaskProgress(nodes []*ir.Node) *[]api.ControllerTask {
 	for _, node := range nodes {
 		if node == nil || node.Step.Name != ir.ControllerStepName {
 			continue

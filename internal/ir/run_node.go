@@ -1,13 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package dagrun
+package ir
 
 import (
 	"encoding/json"
+	"slices"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // PushBackEntry records one push-back event for a step approval cycle.
@@ -21,8 +21,8 @@ type PushBackEntry struct {
 
 // NodeStatusDetail identifies an independently tracked execution within a node.
 type NodeStatusDetail struct {
-	Label  string        `json:"label"`
-	Status ir.NodeStatus `json:"status"`
+	Label  string     `json:"label"`
+	Status NodeStatus `json:"status"`
 }
 
 // BuildDecision records how an build node was satisfied.
@@ -80,20 +80,20 @@ type BuildExecution struct {
 	Detail             string        `json:"detail,omitempty"`
 	Fingerprint        string        `json:"fingerprint,omitempty"`
 	MaterializationKey string        `json:"materializationKey,omitempty"`
-	ProducerRun        ir.DAGRunRef  `json:"producerRun,omitzero"`
+	ProducerRun        DAGRunRef     `json:"producerRun,omitzero"`
 	ProducerAttemptID  string        `json:"producerAttemptId,omitempty"`
 }
 
 // Node represents a DAG step with its execution state for persistence
 type Node struct {
-	Step                ir.Step              `json:"step,omitzero"`
+	Step                Step                 `json:"step,omitzero"`
 	PreconditionResults []ConditionResult    `json:"-"`
 	Stdout              string               `json:"stdout"` // standard output log file path
 	Stderr              string               `json:"stderr"` // standard error log file path
 	WorkingDir          string               `json:"workingDir,omitempty"`
 	StartedAt           string               `json:"startedAt"`
 	FinishedAt          string               `json:"finishedAt"`
-	Status              ir.NodeStatus        `json:"status"`
+	Status              NodeStatus           `json:"status"`
 	RetriedAt           string               `json:"retriedAt,omitempty"`
 	RetryCount          int                  `json:"retryCount,omitempty"`
 	DoneCount           int                  `json:"doneCount,omitempty"`
@@ -145,10 +145,10 @@ type Node struct {
 	// ChatMessages stores the session messages for chat/LLM steps.
 	// This field is populated during execution and synced via status updates
 	// from workers.
-	ChatMessages []ir.LLMMessage `json:"chatMessages,omitempty"`
+	ChatMessages []LLMMessage `json:"chatMessages,omitempty"`
 	// ToolDefinitions stores the tool definitions that were available to the LLM.
 	// This enables debugging visibility into what tools and schemas were sent.
-	ToolDefinitions []ir.ToolDefinition `json:"toolDefinitions,omitempty"`
+	ToolDefinitions []ToolDefinition `json:"toolDefinitions,omitempty"`
 }
 
 type nodeJSON Node
@@ -156,10 +156,10 @@ type nodeJSON Node
 // MarshalJSON keeps runtime condition results inside the persisted step object.
 func (n Node) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Step StepSnapshot `json:"step,omitzero"`
+		Step stepSnapshot `json:"step,omitzero"`
 		nodeJSON
 	}{
-		Step:     NewStepSnapshot(n.Step, n.PreconditionResults),
+		Step:     newStepSnapshot(n.Step, n.PreconditionResults),
 		nodeJSON: nodeJSON(n),
 	})
 }
@@ -179,9 +179,9 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*n = Node(decoded)
-	n.PreconditionResults = CloneConditionResults(runtimeState.Step.Preconditions)
+	n.PreconditionResults = slices.Clone(runtimeState.Step.Preconditions)
 	if n.PreconditionResults != nil {
-		n.Step = NewStepSnapshot(n.Step, n.PreconditionResults).Definition()
+		n.Step = newStepSnapshot(n.Step, n.PreconditionResults).definition()
 	}
 	return nil
 }
@@ -197,7 +197,7 @@ type SubDAGRun struct {
 }
 
 // NewNodesFromSteps converts a list of DAG steps to persistence Node objects.
-func NewNodesFromSteps(steps []ir.Step) []*Node {
+func NewNodesFromSteps(steps []Step) []*Node {
 	var ret []*Node
 	for _, s := range steps {
 		ret = append(ret, NewNodeFromStep(s))
@@ -206,18 +206,18 @@ func NewNodesFromSteps(steps []ir.Step) []*Node {
 }
 
 // NewNodeFromStep creates a new Node with default status values for the given step.
-func NewNodeFromStep(step ir.Step) *Node {
+func NewNodeFromStep(step Step) *Node {
 	return &Node{
 		Step:                step,
-		PreconditionResults: NewConditionResults(step.Preconditions),
+		PreconditionResults: conditionResults(step.Preconditions),
 		StartedAt:           "-",
 		FinishedAt:          "-",
-		Status:              ir.NodeNotStarted,
+		Status:              NodeNotStarted,
 	}
 }
 
 // newNodeOrNil creates a Node from a Step or returns nil if the step is nil.
-func newNodeOrNil(s *ir.Step) *Node {
+func newNodeOrNil(s *Step) *Node {
 	if s == nil {
 		return nil
 	}

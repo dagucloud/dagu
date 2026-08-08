@@ -532,7 +532,7 @@ func createTestStatus(st ir.Status) dagrun.DAGRunStatus {
 		Status:    st,
 		PID:       dagrun.PID(12345),
 		StartedAt: stringutil.FormatTime(time.Now()),
-		Nodes:     dagrun.NewNodesFromSteps(dag.Steps),
+		Nodes:     ir.NewNodesFromSteps(dag.Steps),
 	}
 }
 

@@ -38,21 +38,21 @@ func TestSimpleProgressDisplay_UpdateNode(t *testing.T) {
 	display := NewSimpleProgressDisplay(dag)
 
 	// Update with running node - should not increment completed
-	display.UpdateNode(&dagrun.Node{
+	display.UpdateNode(&ir.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeRunning,
 	})
 	assert.Equal(t, 0, display.completed)
 
 	// Update with succeeded node - should increment completed
-	display.UpdateNode(&dagrun.Node{
+	display.UpdateNode(&ir.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeSucceeded,
 	})
 	assert.Equal(t, 1, display.completed)
 
 	// Update with failed node - should increment completed
-	display.UpdateNode(&dagrun.Node{
+	display.UpdateNode(&ir.Node{
 		Step:   ir.Step{Name: "step2"},
 		Status: ir.NodeFailed,
 	})
@@ -95,19 +95,19 @@ func TestSimpleProgressDisplay_NoDuplicateCounting(t *testing.T) {
 	display := NewSimpleProgressDisplay(dag)
 
 	// Update same node multiple times - should only count once
-	display.UpdateNode(&dagrun.Node{
+	display.UpdateNode(&ir.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeSucceeded,
 	})
 	assert.Equal(t, 1, display.completed)
 
-	display.UpdateNode(&dagrun.Node{
+	display.UpdateNode(&ir.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeSucceeded,
 	})
 	assert.Equal(t, 1, display.completed) // Still 1, not 2
 
-	display.UpdateNode(&dagrun.Node{
+	display.UpdateNode(&ir.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodeSucceeded,
 	})
@@ -127,19 +127,19 @@ func TestSimpleProgressDisplay_PartiallySucceeded(t *testing.T) {
 	display := NewSimpleProgressDisplay(dag)
 
 	// NodePartiallySucceeded should count as completed
-	display.UpdateNode(&dagrun.Node{
+	display.UpdateNode(&ir.Node{
 		Step:   ir.Step{Name: "step1"},
 		Status: ir.NodePartiallySucceeded,
 	})
 	assert.Equal(t, 1, display.completed)
 
-	display.UpdateNode(&dagrun.Node{
+	display.UpdateNode(&ir.Node{
 		Step:   ir.Step{Name: "step2"},
 		Status: ir.NodeSucceeded,
 	})
 	assert.Equal(t, 2, display.completed)
 
-	display.UpdateNode(&dagrun.Node{
+	display.UpdateNode(&ir.Node{
 		Step:   ir.Step{Name: "step3"},
 		Status: ir.NodePartiallySucceeded,
 	})

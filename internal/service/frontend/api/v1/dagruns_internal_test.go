@@ -52,7 +52,7 @@ func requireNoDeprecatedTagsKey(t *testing.T, data []byte) {
 func TestDeriveManualDAGRunStatusRetryingIsRunning(t *testing.T) {
 	t.Parallel()
 
-	status := deriveManualDAGRunStatus([]*dagrun.Node{
+	status := deriveManualDAGRunStatus([]*ir.Node{
 		{
 			Step:   ir.Step{Name: "retrying"},
 			Status: ir.NodeRetrying,
@@ -65,7 +65,7 @@ func TestDeriveManualDAGRunStatusRetryingIsRunning(t *testing.T) {
 func TestDeriveManualDAGRunStatusContinueOnMarkSuccessIsContinuable(t *testing.T) {
 	t.Parallel()
 
-	status := deriveManualDAGRunStatus([]*dagrun.Node{
+	status := deriveManualDAGRunStatus([]*ir.Node{
 		{
 			Step: ir.Step{
 				Name: "failed-continuable",
@@ -88,7 +88,7 @@ func TestDeriveManualDAGRunStatusContinueOnMarkSuccessIsContinuable(t *testing.T
 func TestDeriveManualDAGRunStatusMixedNotStartedAndSucceededIsNonRunning(t *testing.T) {
 	t.Parallel()
 
-	status := deriveManualDAGRunStatus([]*dagrun.Node{
+	status := deriveManualDAGRunStatus([]*ir.Node{
 		{
 			Step:   ir.Step{Name: "succeeded"},
 			Status: ir.NodeSucceeded,
@@ -107,7 +107,7 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 
 	inputs := map[string]string{"FEEDBACK": "try again"}
 	status := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step:       ir.Step{Name: "bootstrap"},
 				Status:     ir.NodeSucceeded,
@@ -233,7 +233,7 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 	humanStep := ir.Step{ID: "review", Name: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}}
 	original := &dagrun.DAGRunStatus{
 		Name: "test", DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1", Status: ir.Waiting,
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{Step: approvalStep, Status: ir.NodeWaiting, StartedAt: "started"},
 			{Step: humanStep, Status: ir.NodeWaiting},
 		},
@@ -463,7 +463,7 @@ func TestApplyPushBackAppendsLegacyPushBackInputsToHistory(t *testing.T) {
 	firstInputs := map[string]string{"FEEDBACK": "first pass"}
 	secondInputs := map[string]string{"FEEDBACK": "second pass"}
 	status := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step: ir.Step{
 					Name: "review",
@@ -516,7 +516,7 @@ func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
 
 	inputs := map[string]string{"FEEDBACK": "needs revision"}
 	status := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step: ir.Step{
 					Name: "review",
@@ -563,12 +563,12 @@ func TestApprovalMutationsRecordAuthenticatedSubjectID(t *testing.T) {
 	t.Parallel()
 
 	ctx := auth.WithUser(context.Background(), &auth.User{ID: "user-1", Username: "reviewer"})
-	approved := &dagrun.Node{}
+	approved := &ir.Node{}
 	applyApproval(ctx, approved, nil)
 	assert.Equal(t, "reviewer", approved.ApprovedBy)
 	assert.Equal(t, "user-1", approved.ApprovedByID)
 
-	rejected := &dagrun.Node{}
+	rejected := &ir.Node{}
 	status := &dagrun.DAGRunStatus{}
 	applyRejection(ctx, rejected, status, nil)
 	assert.Equal(t, "reviewer", rejected.RejectedBy)

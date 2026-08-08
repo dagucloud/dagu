@@ -430,7 +430,7 @@ func planEditRetrySteps(
 		editedOrder = append(editedOrder, step.Name)
 	}
 
-	sourceNodes := make(map[string]*dagrun.Node, len(status.Nodes))
+	sourceNodes := make(map[string]*ir.Node, len(status.Nodes))
 	ineligibleReasons := make(map[string]string)
 	eligible := make(map[string]struct{})
 	for _, node := range status.Nodes {
@@ -505,14 +505,14 @@ func planEditRetrySteps(
 	return plan
 }
 
-func isReusableEditRetrySourceNode(node *dagrun.Node) bool {
+func isReusableEditRetrySourceNode(node *ir.Node) bool {
 	if node == nil {
 		return false
 	}
 	return node.Status.IsSuccess() || (node.Status == ir.NodeSkipped && node.SkippedByRetry)
 }
 
-func editRetrySourceStatusReason(node *dagrun.Node) string {
+func editRetrySourceStatusReason(node *ir.Node) string {
 	if node == nil {
 		return "step was not present in the source DAG-run"
 	}
@@ -525,7 +525,7 @@ func editRetrySourceStatusReason(node *dagrun.Node) string {
 	return fmt.Sprintf("source step status is %s, not reusable", node.Status.String())
 }
 
-func missingEditedRetryOutputReason(node *dagrun.Node, editedStep ir.Step) string {
+func missingEditedRetryOutputReason(node *ir.Node, editedStep ir.Step) string {
 	if editedStep.Output == "" {
 		return ""
 	}
@@ -854,7 +854,7 @@ func copyEditRetryFile(sourcePath, targetPath string, mode fs.FileMode) error {
 	return target.Chmod(mode.Perm())
 }
 
-func remapEditRetryWorkDirOutputs(nodes []*dagrun.Node, sourceWorkDir, targetWorkDir string) {
+func remapEditRetryWorkDirOutputs(nodes []*ir.Node, sourceWorkDir, targetWorkDir string) {
 	sourceWorkDir = cleanEditRetryWorkDir(sourceWorkDir)
 	targetWorkDir = cleanEditRetryWorkDir(targetWorkDir)
 	if sourceWorkDir == "" || targetWorkDir == "" || sourceWorkDir == targetWorkDir {
@@ -929,7 +929,7 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *dagrun
 }
 
 func editRetrySeedNodes(dag *ir.DAG, sourceStatus *dagrun.DAGRunStatus, skippedSteps []string) []runtime.NodeData {
-	sourceNodes := make(map[string]*dagrun.Node, len(sourceStatus.Nodes))
+	sourceNodes := make(map[string]*ir.Node, len(sourceStatus.Nodes))
 	for _, node := range sourceStatus.Nodes {
 		if node != nil {
 			sourceNodes[node.Step.Name] = node
@@ -956,7 +956,7 @@ func editRetrySeedNodes(dag *ir.DAG, sourceStatus *dagrun.DAGRunStatus, skippedS
 	return nodes
 }
 
-func skippedEditRetryNodeState(source *dagrun.Node) runtime.NodeState {
+func skippedEditRetryNodeState(source *ir.Node) runtime.NodeState {
 	state := runtime.NodeState{
 		Status:         ir.NodeSkipped,
 		SkippedByRetry: true,

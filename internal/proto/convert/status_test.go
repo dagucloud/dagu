@@ -82,7 +82,7 @@ func TestRoundTrip(t *testing.T) {
 			Error:      "test error",
 			Params:     "key=value",
 			ParamsList: []string{"key=value"},
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step: ir.Step{
 						Name:           "step-1",
@@ -100,18 +100,18 @@ func TestRoundTrip(t *testing.T) {
 					RetriedAt:       "2024-01-01T00:00:30Z",
 					OutputVariables: outputVars,
 					OutputsValue:    &outputsValue,
-					SubRuns: []dagrun.SubDAGRun{
+					SubRuns: []ir.SubDAGRun{
 						{DAGRunID: "sub-run-1", Params: "p1=v1"},
 						{DAGRunID: "sub-run-2", Params: "p2=v2"},
 					},
 				},
 			},
-			OnInit:    &dagrun.Node{Step: ir.Step{Name: "on-init"}, Status: ir.NodeSucceeded},
-			OnExit:    &dagrun.Node{Step: ir.Step{Name: "on-exit"}, Status: ir.NodeSucceeded},
-			OnSuccess: &dagrun.Node{Step: ir.Step{Name: "on-success"}, Status: ir.NodeSucceeded},
-			OnFailure: &dagrun.Node{Step: ir.Step{Name: "on-failure"}, Status: ir.NodeNotStarted},
-			OnAbort:   &dagrun.Node{Step: ir.Step{Name: "onAbort"}, Status: ir.NodeNotStarted},
-			OnWait:    &dagrun.Node{Step: ir.Step{Name: "on-wait"}, Status: ir.NodeNotStarted},
+			OnInit:    &ir.Node{Step: ir.Step{Name: "on-init"}, Status: ir.NodeSucceeded},
+			OnExit:    &ir.Node{Step: ir.Step{Name: "on-exit"}, Status: ir.NodeSucceeded},
+			OnSuccess: &ir.Node{Step: ir.Step{Name: "on-success"}, Status: ir.NodeSucceeded},
+			OnFailure: &ir.Node{Step: ir.Step{Name: "on-failure"}, Status: ir.NodeNotStarted},
+			OnAbort:   &ir.Node{Step: ir.Step{Name: "onAbort"}, Status: ir.NodeNotStarted},
+			OnWait:    &ir.Node{Step: ir.Step{Name: "on-wait"}, Status: ir.NodeNotStarted},
 		}
 
 		// Convert to proto and back
@@ -178,7 +178,7 @@ func TestRoundTrip(t *testing.T) {
 			Name:     "chat-dag",
 			DAGRunID: "chat-run-123",
 			Status:   ir.Succeeded,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeSucceeded,

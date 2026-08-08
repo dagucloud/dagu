@@ -77,7 +77,7 @@ type Runner struct {
 	mu            sync.RWMutex
 	pause         time.Duration
 	lastError     error
-	preconditions []dagrun.ConditionResult
+	preconditions []ir.ConditionResult
 
 	handlerMu sync.RWMutex
 	handlers  map[ir.HandlerType]*Node
@@ -169,7 +169,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	// If one of the conditions does not met, cancel the execution.
 	rCtx := MustDAGContext(ctx)
 	if len(rCtx.DAG.Preconditions) > 0 {
-		r.setPreconditionResults(dagrun.NewConditionResults(rCtx.DAG.Preconditions))
+		r.setPreconditionResults(conditionResults(rCtx.DAG.Preconditions))
 		shell, err := ResolveDAGShell(ctx)
 		if err != nil {
 			logger.Info(ctx, "Preconditions are not met", tag.Error(err))
@@ -574,13 +574,13 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	}
 	met, err := meetsPreconditions(ctx, node, preconditionProgress)
 	if err != nil {
-		markBuildPrecondition(buildSession, node, dagrun.BuildReasonPreconditionError, "", progressCh)
+		markBuildPrecondition(buildSession, node, ir.BuildReasonPreconditionError, "", progressCh)
 		r.setLastError(err)
 		r.Cancel(plan)
 		return
 	}
 	if !met {
-		markBuildPrecondition(buildSession, node, dagrun.BuildReasonPreconditionNotMet,
+		markBuildPrecondition(buildSession, node, ir.BuildReasonPreconditionNotMet,
 			"step precondition was not met", progressCh)
 		return
 	}
@@ -671,7 +671,7 @@ ExecRepeat: // repeat execution
 	}
 	if node.State().Status == ir.NodeSucceeded && buildSession != nil {
 		metadata := buildSession.Metadata()
-		metadata.Phase = dagrun.BuildPhaseComplete
+		metadata.Phase = ir.BuildPhaseComplete
 		node.setBuild(metadata)
 	}
 
@@ -736,17 +736,17 @@ func (r *Runner) setLastError(err error) {
 	r.lastError = err
 }
 
-func (r *Runner) setPreconditionResults(results []dagrun.ConditionResult) {
+func (r *Runner) setPreconditionResults(results []ir.ConditionResult) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.preconditions = dagrun.CloneConditionResults(results)
+	r.preconditions = slices.Clone(results)
 }
 
 // PreconditionResults returns the latest DAG-level precondition evaluation.
-func (r *Runner) PreconditionResults() []dagrun.ConditionResult {
+func (r *Runner) PreconditionResults() []ir.ConditionResult {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return dagrun.CloneConditionResults(r.preconditions)
+	return slices.Clone(r.preconditions)
 }
 
 func (r *Runner) prepareNode(ctx context.Context, node *Node) error {

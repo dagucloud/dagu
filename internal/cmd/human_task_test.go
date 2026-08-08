@@ -323,13 +323,13 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		AttemptKey: "attempt-key-1",
 		Status:     ir.Waiting,
 		FinishedAt: "2026-07-20T01:00:00Z",
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step:   step,
 			Status: ir.NodeWaiting,
 		}},
 	}
 	if anotherWaiting {
-		status.Nodes = append(status.Nodes, &dagrun.Node{
+		status.Nodes = append(status.Nodes, &ir.Node{
 			Step:   ir.Step{ID: "approval", Name: "Approval"},
 			Status: ir.NodeWaiting,
 		})

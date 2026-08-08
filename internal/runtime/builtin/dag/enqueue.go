@@ -41,7 +41,7 @@ type enqueueExecutor struct {
 	stderr        io.Writer
 	runParams     executor.RunParams
 	runParamsList []executor.RunParams
-	subRuns       []dagrun.SubDAGRun
+	subRuns       []ir.SubDAGRun
 }
 
 type enqueueRunOutput struct {
@@ -86,7 +86,7 @@ func (e *enqueueExecutor) Run(ctx context.Context) error {
 		return err
 	}
 
-	subRuns := make([]dagrun.SubDAGRun, 0, len(outputs))
+	subRuns := make([]ir.SubDAGRun, 0, len(outputs))
 	for _, output := range outputs {
 		subRuns = append(subRuns, subDAGRunFromEnqueueOutput(output))
 	}
@@ -175,8 +175,8 @@ func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []exec
 	return outputs, nil
 }
 
-func subDAGRunFromEnqueueOutput(output enqueueRunOutput) dagrun.SubDAGRun {
-	return dagrun.SubDAGRun{
+func subDAGRunFromEnqueueOutput(output enqueueRunOutput) ir.SubDAGRun {
+	return ir.SubDAGRun{
 		DAGRunID: output.DAGRunID,
 		Params:   output.Params,
 		DAGName:  output.Name,
@@ -361,10 +361,10 @@ func (e *enqueueExecutor) SetParamsList(paramsList []executor.RunParams) {
 	e.runParamsList = append([]executor.RunParams(nil), paramsList...)
 }
 
-func (e *enqueueExecutor) GetSubRuns() []dagrun.SubDAGRun {
+func (e *enqueueExecutor) GetSubRuns() []ir.SubDAGRun {
 	e.lock.Lock()
 	defer e.lock.Unlock()
-	return append([]dagrun.SubDAGRun(nil), e.subRuns...)
+	return append([]ir.SubDAGRun(nil), e.subRuns...)
 }
 
 func (e *enqueueExecutor) SetStdout(out io.Writer) {

@@ -604,7 +604,7 @@ func TestJSONDB(t *testing.T) {
 		statusToWrite.AttemptID = subAttempt.ID()
 		statusToWrite.AttemptKey = ir.GenerateAttemptKey(rootRef.Name, rootRef.ID, subRef.Name, subRef.ID, subAttempt.ID())
 		statusToWrite.Status = ir.Running
-		statusToWrite.Nodes = []*dagrun.Node{{Status: ir.NodeRunning}}
+		statusToWrite.Nodes = []*ir.Node{{Status: ir.NodeRunning}}
 		require.NoError(t, subAttempt.Write(th.Context, statusToWrite))
 		require.NoError(t, subAttempt.Close(th.Context))
 

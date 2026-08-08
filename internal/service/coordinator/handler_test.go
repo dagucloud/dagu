@@ -1344,7 +1344,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			WorkerID:   "worker-1",
 			FinishedAt: "2026-04-20T00:00:01Z",
 			Error:      reason,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:       ir.Step{Name: "long-step"},
 					StartedAt:  "2026-04-20T00:00:00Z",
@@ -1536,7 +1536,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			Status:     ir.Failed,
 			WorkerID:   "worker-1",
 			Error:      "exit status 1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeFailed, Error: "exit status 1"},
 			},
 		})
@@ -1853,7 +1853,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 				{Status: ir.NodeSucceeded},
 			},
@@ -2171,7 +2171,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 					AttemptKey: "lease-key-1",
 					Status:     tc.status,
 					WorkerID:   tc.workerID,
-					Nodes: []*dagrun.Node{
+					Nodes: []*ir.Node{
 						{Status: tc.nodeStatus},
 					},
 				})
@@ -2226,7 +2226,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2280,7 +2280,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2338,7 +2338,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2458,7 +2458,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2520,7 +2520,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2591,7 +2591,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2650,7 +2650,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2706,7 +2706,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2747,7 +2747,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2819,7 +2819,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: attemptKey,
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2873,7 +2873,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: "lease-key-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -2921,7 +2921,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			AttemptKey: "lease-key-missing-index",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Status: ir.NodeRunning},
 			},
 		})
@@ -3155,7 +3155,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*dagrun.Node{{
+			Nodes: []*ir.Node{{
 				Step:                   ir.Step{ID: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 				Status:                 ir.NodeSucceeded,
 				FinishedAt:             completedAt,
@@ -3171,7 +3171,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*dagrun.Node{{
+			Nodes: []*ir.Node{{
 				Step:   ir.Step{ID: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 				Status: ir.NodeWaiting,
 			}},
@@ -3207,7 +3207,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*dagrun.Node{{
+			Nodes: []*ir.Node{{
 				Step:         ir.Step{Name: "review", Approval: &ir.ApprovalConfig{}},
 				Status:       ir.NodeSucceeded,
 				ApprovedAt:   approvedAt,
@@ -3224,7 +3224,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*dagrun.Node{{
+			Nodes: []*ir.Node{{
 				Step:   ir.Step{Name: "review", Approval: &ir.ApprovalConfig{}},
 				Status: ir.NodeWaiting,
 			}},
@@ -3259,7 +3259,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*dagrun.Node{{
+			Nodes: []*ir.Node{{
 				Step:                   ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:              "-",
 				FinishedAt:             "-",
@@ -3267,7 +3267,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 				ApprovalIteration:      1,
 				PushBackInputs:         map[string]string{"FEEDBACK": "revise"},
 				PushBackPreviousStdout: "/tmp/prepare.out",
-				PushBackHistory: []dagrun.PushBackEntry{{
+				PushBackHistory: []ir.PushBackEntry{{
 					Iteration: 1,
 					By:        "operator",
 					ByID:      "user-1",
@@ -3282,7 +3282,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*dagrun.Node{{
+			Nodes: []*ir.Node{{
 				Step:       ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:  pushedBackAt,
 				FinishedAt: pushedBackAt,
@@ -3315,7 +3315,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ref := ir.NewDAGRunRef("test-dag", "run-123")
 		pushedBackAt := time.Now().UTC().Format(time.RFC3339)
-		history := []dagrun.PushBackEntry{{
+		history := []ir.PushBackEntry{{
 			Iteration: 1,
 			By:        "operator",
 			ByID:      "user-1",
@@ -3328,7 +3328,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Running,
-			Nodes: []*dagrun.Node{{
+			Nodes: []*ir.Node{{
 				Step:                   ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:              "-",
 				FinishedAt:             "-",
@@ -3345,7 +3345,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*dagrun.Node{{
+			Nodes: []*ir.Node{{
 				Step:                   ir.Step{ID: "prepare", Name: "prepare"},
 				StartedAt:              pushedBackAt,
 				FinishedAt:             pushedBackAt,
@@ -3377,7 +3377,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		h := NewHandler(HandlerConfig{DAGRunStore: store})
 		ref := ir.NewDAGRunRef("test-dag", "run-123")
 		completedAt := time.Now().UTC().Format(time.RFC3339)
-		completedNode := &dagrun.Node{
+		completedNode := &ir.Node{
 			Step:                   ir.Step{ID: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 			Status:                 ir.NodeSucceeded,
 			FinishedAt:             completedAt,
@@ -3391,7 +3391,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Queued,
-			Nodes:      []*dagrun.Node{completedNode},
+			Nodes:      []*ir.Node{completedNode},
 		})
 		incoming, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
 			Name:       ref.Name,
@@ -3399,7 +3399,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			AttemptID:  "attempt-1",
 			AttemptKey: "attempt-key-1",
 			Status:     ir.Waiting,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				completedNode,
 				{
 					Step:   ir.Step{ID: "publish", HumanTask: &ir.HumanTaskConfig{Prompt: "Publish"}},
@@ -3597,7 +3597,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			ProcGroup: "child-queue",
 			Status:    ir.Running,
 			WorkerID:  "worker-1",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "child-step"},
 					Status: ir.NodeRunning,
@@ -3879,7 +3879,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			WorkerID:   "worker-1",
 			Status:     ir.Failed,
 			Error:      "duplicate terminal payload",
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeFailed,
@@ -3978,7 +3978,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:     "chat-dag",
 			DAGRunID: "chat-run-123",
 			Status:   ir.Running,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeSucceeded,
@@ -4049,7 +4049,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DAGRunID: "handler-run-123",
 			Status:   ir.Succeeded,
 			// OnInit handler with empty step name - should use "on_init" fallback
-			OnInit: &dagrun.Node{
+			OnInit: &ir.Node{
 				Step:   ir.Step{}, // Empty name
 				Status: ir.NodeSucceeded,
 				ChatMessages: []ir.LLMMessage{
@@ -4057,7 +4057,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 				},
 			},
 			// OnSuccess handler with explicit name - should use explicit name
-			OnSuccess: &dagrun.Node{
+			OnSuccess: &ir.Node{
 				Step:   ir.Step{Name: "my-success-handler"},
 				Status: ir.NodeSucceeded,
 				ChatMessages: []ir.LLMMessage{
@@ -4112,7 +4112,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			Name:     "error-dag",
 			DAGRunID: "error-run-123",
 			Status:   ir.Succeeded,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeSucceeded,

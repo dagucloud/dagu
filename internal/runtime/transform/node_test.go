@@ -20,9 +20,9 @@ import (
 func TestNodeFieldsRoundTrip(t *testing.T) {
 	outputVars := &collections.SyncMap{}
 	outputVars.Store("KEY", "KEY=value")
-	statusDetails := []dagrun.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}
+	statusDetails := []ir.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}
 
-	original := &dagrun.Node{
+	original := &ir.Node{
 		Step: ir.Step{
 			Name:      "test-step",
 			HumanTask: &ir.HumanTaskConfig{Prompt: "Review production deployment"},
@@ -39,8 +39,8 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 		Repeated:               true,
 		Error:                  "test error",
 		StatusDetails:          statusDetails,
-		SubRuns:                []dagrun.SubDAGRun{{DAGRunID: "sub-1", Params: "p1"}},
-		SubRunsRepeated:        []dagrun.SubDAGRun{{DAGRunID: "sub-2", Params: "p2"}},
+		SubRuns:                []ir.SubDAGRun{{DAGRunID: "sub-1", Params: "p1"}},
+		SubRunsRepeated:        []ir.SubDAGRun{{DAGRunID: "sub-2", Params: "p2"}},
 		OutputVariables:        outputVars,
 		HumanTaskInput:         json.RawMessage(`{"window":"2026-07-20T12:00:00Z"}`),
 		HumanTaskCompletedBy:   "operator",
@@ -78,7 +78,7 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 }
 
 func TestNodeChatMessagesRoundTrip(t *testing.T) {
-	original := &dagrun.Node{
+	original := &ir.Node{
 		Step:   ir.Step{Name: "chat-step"},
 		Status: ir.NodeSucceeded,
 		ChatMessages: []ir.LLMMessage{
@@ -123,7 +123,7 @@ func TestNodeChatMessagesRoundTrip(t *testing.T) {
 
 	result := status.Nodes[0]
 
-	// Verify ChatMessages are preserved in dagrun.Node
+	// Verify ChatMessages are preserved in ir.Node
 	require.Len(t, result.ChatMessages, 3)
 	assert.Equal(t, original.ChatMessages[0].Role, result.ChatMessages[0].Role)
 	assert.Equal(t, original.ChatMessages[0].Content, result.ChatMessages[0].Content)
@@ -139,7 +139,7 @@ func TestNodeChatMessagesRoundTrip(t *testing.T) {
 
 func TestNodeEmptyChatMessages(t *testing.T) {
 	// Test that nodes without ChatMessages work correctly
-	original := &dagrun.Node{
+	original := &ir.Node{
 		Step:   ir.Step{Name: "no-chat-step"},
 		Status: ir.NodeSucceeded,
 		// No ChatMessages

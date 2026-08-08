@@ -1744,7 +1744,7 @@ func preservesCompletedManualActions(current, incoming *dagrun.DAGRunStatus) boo
 	if current == nil || incoming == nil {
 		return false
 	}
-	incomingNodes := make(map[string]*dagrun.Node, len(incoming.Nodes))
+	incomingNodes := make(map[string]*ir.Node, len(incoming.Nodes))
 	for _, node := range incoming.Nodes {
 		if node != nil {
 			incomingNodes[manualActionNodeKey(node.Step)] = node
@@ -1972,7 +1972,7 @@ func (h *Handler) transformLogPaths(status *dagrun.DAGRunStatus) {
 	}
 
 	// Transform node log paths
-	transformNode := func(node *dagrun.Node, fallbackName string) {
+	transformNode := func(node *ir.Node, fallbackName string) {
 		if node == nil {
 			return
 		}
@@ -2078,7 +2078,7 @@ func (h *Handler) transformArtifactPaths(
 // Errors are logged but don't fail the status update since messages are auxiliary data.
 func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.DAGRunAttempt, status *dagrun.DAGRunStatus) {
 	// Helper to persist messages for a single node
-	persistNode := func(node *dagrun.Node, fallbackName string) {
+	persistNode := func(node *ir.Node, fallbackName string) {
 		if node == nil || len(node.ChatMessages) == 0 {
 			return
 		}

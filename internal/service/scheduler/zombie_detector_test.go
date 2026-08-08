@@ -89,7 +89,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
 		Status:    ir.Running,
-		Nodes:     dagrun.NewNodesFromSteps(dag.Steps),
+		Nodes:     ir.NewNodesFromSteps(dag.Steps),
 	}
 	status.Nodes[0].Status = ir.NodeRunning
 	attempt := &testutil.MockDAGRunAttempt{}
@@ -140,7 +140,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRep
 		WorkerID:     "local",
 		PID:          dagrun.PID(os.Getpid()),
 		PIDStartedAt: pidStartedAt,
-		Nodes:        dagrun.NewNodesFromSteps(dag.Steps),
+		Nodes:        ir.NewNodesFromSteps(dag.Steps),
 	}
 	status.Nodes[0].Status = ir.NodeRunning
 	attempt := &testutil.MockDAGRunAttempt{}
@@ -210,7 +210,7 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 		DAGRunID:  "sub-1",
 		AttemptID: "attempt-1",
 		Status:    ir.Running,
-		Nodes:     dagrun.NewNodesFromSteps(dag.Steps),
+		Nodes:     ir.NewNodesFromSteps(dag.Steps),
 	}
 	status.Nodes[0].Status = ir.NodeRunning
 	attempt := &testutil.MockDAGRunAttempt{}

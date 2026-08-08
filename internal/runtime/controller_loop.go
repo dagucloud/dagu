@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
@@ -655,7 +654,7 @@ func childRunSummary(ctx context.Context, childRunID string, outputsReported boo
 }
 
 // childOutputs flattens the output variables declared by a child run's steps.
-func childOutputs(nodes []*dagrun.Node) map[string]string {
+func childOutputs(nodes []*ir.Node) map[string]string {
 	outputs := make(map[string]string)
 	for _, node := range nodes {
 		if node == nil || node.OutputVariables == nil {

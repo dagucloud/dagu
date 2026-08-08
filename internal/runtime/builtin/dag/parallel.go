@@ -308,7 +308,7 @@ func (e *parallelExecutor) SetParamsList(paramsList []executor.RunParams) {
 	e.runParamsList = paramsList
 }
 
-func (e *parallelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
+func (e *parallelExecutor) GetStatusDetails() []ir.NodeStatusDetail {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
@@ -320,7 +320,7 @@ func (e *parallelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
 		}
 	}
 
-	details := make([]dagrun.NodeStatusDetail, 0, len(e.runParamsList))
+	details := make([]ir.NodeStatusDetail, 0, len(e.runParamsList))
 	for _, params := range e.runParamsList {
 		result := e.results[params.RunID]
 		status := ir.NodeFailed
@@ -329,7 +329,7 @@ func (e *parallelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
 		} else if result != nil {
 			status = parallelNodeStatus(result.Status)
 		}
-		details = append(details, dagrun.NodeStatusDetail{
+		details = append(details, ir.NodeStatusDetail{
 			Label:  parallelRunLabel(params, result, nameCounts[parallelRunName(params, result)] > 1),
 			Status: status,
 		})

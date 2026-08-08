@@ -998,7 +998,7 @@ func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
 			Name:     "daily-report",
 			DAGRunID: "run-1",
 			Status:   ir.Failed,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Step: ir.Step{Name: "fetch"}, Status: ir.NodeFailed},
 				{Step: ir.Step{Name: "publish"}, Status: ir.NodePartiallySucceeded},
 				{Step: ir.Step{Name: "cleanup"}, Status: ir.NodeAborted},
@@ -1006,7 +1006,7 @@ func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
 				{
 					Step:   ir.Step{Name: "process"},
 					Status: ir.NodeFailed,
-					StatusDetails: []dagrun.NodeStatusDetail{
+					StatusDetails: []ir.NodeStatusDetail{
 						{Label: "customer-a", Status: ir.NodeFailed},
 						{Label: "customer-b", Status: ir.NodeSucceeded},
 					},
@@ -1014,7 +1014,7 @@ func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
 				{
 					Step:   ir.Step{Name: "children"},
 					Status: ir.NodePartiallySucceeded,
-					StatusDetails: []dagrun.NodeStatusDetail{
+					StatusDetails: []ir.NodeStatusDetail{
 						{Label: "child-a", Status: ir.NodePartiallySucceeded},
 						{Label: "child-b", Status: ir.NodeAborted},
 					},
@@ -1037,7 +1037,7 @@ func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
 	}, "\n"), rendered)
 
 	emptyEvent := chatbridge.NotificationEvent{Status: &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{{Step: ir.Step{Name: "fetch"}, Status: ir.NodeFailed}},
+		Nodes: []*ir.Node{{Step: ir.Step{Name: "fetch"}, Status: ir.NodeFailed}},
 	}}
 	assert.Empty(t, renderNotificationTemplate("{{run.succeeded_steps}}", emptyEvent, ""))
 }

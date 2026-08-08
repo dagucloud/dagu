@@ -182,8 +182,8 @@ func attemptFinalizing(status *dagrun.DAGRunStatus, attemptID, stepID string) (b
 	return !nodeCompleted(node), nil
 }
 
-func findNodeByID(nodes []*dagrun.Node, stepID string) (*dagrun.Node, error) {
-	var found *dagrun.Node
+func findNodeByID(nodes []*ir.Node, stepID string) (*ir.Node, error) {
+	var found *ir.Node
 	for _, node := range nodes {
 		if node == nil || node.Step.ID != stepID {
 			continue
@@ -210,15 +210,15 @@ func classifyMutationError(prefix string, err error) error {
 	return errorf(ErrorInternal, "%s: %v", prefix, err)
 }
 
-func nodeCompleted(node *dagrun.Node) bool {
+func nodeCompleted(node *ir.Node) bool {
 	return node != nil && len(node.HumanTaskInput) > 0
 }
 
-func hasWaitingNodes(nodes []*dagrun.Node) bool {
+func hasWaitingNodes(nodes []*ir.Node) bool {
 	return countWaitingNodes(nodes) > 0
 }
 
-func countWaitingNodes(nodes []*dagrun.Node) int {
+func countWaitingNodes(nodes []*ir.Node) int {
 	count := 0
 	for _, node := range nodes {
 		if node != nil && node.Status == ir.NodeWaiting {
@@ -228,7 +228,7 @@ func countWaitingNodes(nodes []*dagrun.Node) int {
 	return count
 }
 
-func hasCompletedHumanTask(nodes []*dagrun.Node) bool {
+func hasCompletedHumanTask(nodes []*ir.Node) bool {
 	for _, node := range nodes {
 		if node != nil && node.Step.HumanTask != nil && nodeCompleted(node) {
 			return true
@@ -237,7 +237,7 @@ func hasCompletedHumanTask(nodes []*dagrun.Node) bool {
 	return false
 }
 
-func hasWaitingHumanTask(nodes []*dagrun.Node) bool {
+func hasWaitingHumanTask(nodes []*ir.Node) bool {
 	for _, node := range nodes {
 		if node != nil && node.Status == ir.NodeWaiting && node.Step.HumanTask != nil {
 			return true

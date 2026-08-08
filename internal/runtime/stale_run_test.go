@@ -26,7 +26,7 @@ func TestRepairStaleLocalRunDoesNotMutateReadStatusSnapshot(t *testing.T) {
 		Status:     ir.Running,
 		StartedAt:  time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
 		FinishedAt: dagrun.FormatTime(time.Time{}),
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step:   ir.Step{Name: "step-1"},
 				Status: ir.NodeRunning,

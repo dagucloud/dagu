@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -418,7 +417,7 @@ func TestBuildRunnerFingerprintsResolvedRecipe(t *testing.T) {
 	require.NoError(t, os.WriteFile(inputPath, []byte("source"), 0o600))
 	store := filematerialization.New(filepath.Join(t.TempDir(), "materializations"))
 
-	run := func(runID, version string) dagrun.BuildExecution {
+	run := func(runID, version string) ir.BuildExecution {
 		t.Helper()
 		step := ir.Step{
 			ID:       "build",
@@ -457,17 +456,17 @@ func TestBuildRunnerFingerprintsResolvedRecipe(t *testing.T) {
 	}
 
 	first := run("run-1", "v1")
-	require.Equal(t, dagrun.BuildDecisionExecute, first.Decision)
+	require.Equal(t, ir.BuildDecisionExecute, first.Decision)
 	content, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
 	require.Equal(t, "v1", string(content))
 
 	second := run("run-2", "v1")
-	require.Equal(t, dagrun.BuildDecisionReuse, second.Decision)
+	require.Equal(t, ir.BuildDecisionReuse, second.Decision)
 
 	third := run("run-3", "v2")
-	require.Equal(t, dagrun.BuildDecisionExecute, third.Decision)
-	require.Equal(t, dagrun.BuildReasonRecipeChanged, third.Reason)
+	require.Equal(t, ir.BuildDecisionExecute, third.Decision)
+	require.Equal(t, ir.BuildReasonRecipeChanged, third.Reason)
 	content, err = os.ReadFile(outputPath)
 	require.NoError(t, err)
 	require.Equal(t, "v2", string(content))

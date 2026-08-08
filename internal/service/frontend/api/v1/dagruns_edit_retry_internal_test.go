@@ -213,7 +213,7 @@ func TestEditRetryDAGRun_RejectsDistributedBuildWorkflow(t *testing.T) {
 
 func TestSkippedEditRetryNodeStatePreservesHumanTaskCompletion(t *testing.T) {
 	outputs := `{"decision":"approve"}`
-	source := &dagrun.Node{
+	source := &ir.Node{
 		HumanTaskInput:         json.RawMessage(`{"decision":"approve"}`),
 		HumanTaskCompletedBy:   "Alice",
 		HumanTaskCompletedByID: "user-1",

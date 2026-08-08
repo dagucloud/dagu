@@ -72,7 +72,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 			PendingStepRetries: []ir.PendingStepRetry{
 				{StepName: "persisted", Interval: 5 * time.Second},
 			},
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step: ir.Step{
 						Name: "derived",
@@ -94,7 +94,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 
 	t.Run("FallsBackToNodesForLegacyStatuses", func(t *testing.T) {
 		status := &dagrun.DAGRunStatus{
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step: ir.Step{
 						Name: "legacy",
@@ -116,7 +116,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 
 	t.Run("FallsBackToRegularAndHandlerNodesForLegacyStatuses", func(t *testing.T) {
 		status := &dagrun.DAGRunStatus{
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step: ir.Step{
 						Name: "regular",
@@ -128,7 +128,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 					RetryCount: 1,
 				},
 			},
-			OnFailure: &dagrun.Node{
+			OnFailure: &ir.Node{
 				Step: ir.Step{
 					Name: "onFailure",
 					RetryPolicy: ir.RetryPolicy{
@@ -149,7 +149,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 
 	t.Run("FallsBackToHandlerIdentityWhenHandlerStepNameMissing", func(t *testing.T) {
 		status := &dagrun.DAGRunStatus{
-			OnFailure: &dagrun.Node{
+			OnFailure: &ir.Node{
 				Step: ir.Step{
 					RetryPolicy: ir.RetryPolicy{
 						Interval: 3 * time.Second,
@@ -169,7 +169,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 	t.Run("ExplicitEmptySliceSurvivesJSONRoundTrip", func(t *testing.T) {
 		status := &dagrun.DAGRunStatus{
 			PendingStepRetries: []ir.PendingStepRetry{},
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step: ir.Step{
 						Name: "legacy",
@@ -197,7 +197,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 func TestNodePreconditionResultsJSONRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	node := dagrun.NewNodeFromStep(ir.Step{
+	node := ir.NewNodeFromStep(ir.Step{
 		Name: "conditioned",
 		Preconditions: []*ir.Condition{
 			{Condition: "ready", Expected: "true"},
@@ -210,17 +210,19 @@ func TestNodePreconditionResultsJSONRoundTrip(t *testing.T) {
 
 	var payload struct {
 		Step struct {
-			Preconditions []dagrun.ConditionResult `json:"preconditions"`
+			Preconditions []ir.ConditionResult `json:"preconditions"`
 		} `json:"step"`
 	}
 	require.NoError(t, json.Unmarshal(data, &payload))
-	require.Equal(t, []dagrun.ConditionResult{{
-		Condition: "ready",
-		Expected:  "true",
-		Error:     "condition was not met",
+	require.Equal(t, []ir.ConditionResult{{
+		Condition: ir.Condition{
+			Condition: "ready",
+			Expected:  "true",
+		},
+		Error: "condition was not met",
 	}}, payload.Step.Preconditions)
 
-	var decoded dagrun.Node
+	var decoded ir.Node
 	require.NoError(t, json.Unmarshal(data, &decoded))
 	require.Equal(t, node.Step, decoded.Step)
 	require.Equal(t, node.PreconditionResults, decoded.PreconditionResults)

@@ -39,7 +39,7 @@ func RepairStaleLocalRun(
 		if dag == nil {
 			return nil, false, fmt.Errorf("dag is required when rebuilding missing nodes")
 		}
-		repairedStatus.Nodes = dagrun.NewNodesFromSteps(dag.Steps)
+		repairedStatus.Nodes = ir.NewNodesFromSteps(dag.Steps)
 	}
 
 	markActiveStatusFailed(repairedStatus, staleLocalRunError, time.Now())
@@ -58,7 +58,7 @@ func cloneStatusForStaleRunRepair(status *dagrun.DAGRunStatus) *dagrun.DAGRunSta
 
 	cloned := *status
 	if len(status.Nodes) > 0 {
-		cloned.Nodes = make([]*dagrun.Node, 0, len(status.Nodes))
+		cloned.Nodes = make([]*ir.Node, 0, len(status.Nodes))
 		for _, node := range status.Nodes {
 			if node == nil {
 				cloned.Nodes = append(cloned.Nodes, nil)

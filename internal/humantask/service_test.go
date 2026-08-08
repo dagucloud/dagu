@@ -231,7 +231,7 @@ func TestResumeRejectsRunWithoutCompletedCheckpoint(t *testing.T) {
 
 func TestCompleteWaitsForEveryManualStepBeforeResuming(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
-	fixture.status.Nodes = append(fixture.status.Nodes, &dagrun.Node{
+	fixture.status.Nodes = append(fixture.status.Nodes, &ir.Node{
 		Step:   ir.Step{ID: "approval", Name: "Approval", Approval: &ir.ApprovalConfig{}},
 		Status: ir.NodeWaiting,
 	})
@@ -260,7 +260,7 @@ func TestCompleteEnqueuesRemoteResume(t *testing.T) {
 func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
 	status := &dagrun.DAGRunStatus{
 		Status: ir.Waiting,
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step:   ir.Step{ID: "review", Name: "Review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 			Status: ir.NodeWaiting,
 		}},
@@ -286,7 +286,7 @@ func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
 func TestValidateRetryAllowsRunRetryWhileWaitingForApprovalAfterCompletedHumanTask(t *testing.T) {
 	status := &dagrun.DAGRunStatus{
 		Status: ir.Waiting,
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step:           ir.Step{ID: "review", Name: "Review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 				Status:         ir.NodeSucceeded,
@@ -383,7 +383,7 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 	status := &dagrun.DAGRunStatus{
 		Name: dag.Name, DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1",
 		Status: ir.Waiting, FinishedAt: "2026-07-21T00:00:00Z",
-		Nodes: []*dagrun.Node{{Step: step, Status: ir.NodeWaiting}},
+		Nodes: []*ir.Node{{Step: step, Status: ir.NodeWaiting}},
 	}
 	attempt := &serviceAttempt{dag: dag, status: status}
 	store := &serviceDAGRunStore{attempt: attempt, status: status}

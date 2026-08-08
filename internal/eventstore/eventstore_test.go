@@ -105,17 +105,17 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 		FinishedAt:     "2026-04-01T09:02:00Z",
 		AutoRetryCount: 1,
 		AutoRetryLimit: 3,
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step:   ir.Step{Name: "fetch"},
 				Status: ir.NodeFailed,
 				Error:  "node boom",
-				StatusDetails: []dagrun.NodeStatusDetail{
+				StatusDetails: []ir.NodeStatusDetail{
 					{Label: "customer-a", Status: ir.NodeFailed},
 				},
 			},
 		},
-		OnFailure: &dagrun.Node{
+		OnFailure: &ir.Node{
 			Step:  ir.Step{Name: "notify"},
 			Error: "handler boom",
 		},

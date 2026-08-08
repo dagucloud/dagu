@@ -672,7 +672,7 @@ func TestControllerLoop_SuspendsForHumanTaskAndResumes(t *testing.T) {
 
 	// Stand in for the human task service, which records the submission on the
 	// persisted node and marks the step complete before re-queueing the run.
-	restored := roundTripNodes(t, ch, func(node *dagrun.Node) {
+	restored := roundTripNodes(t, ch, func(node *ir.Node) {
 		if node.Step.Name == "review" {
 			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
@@ -693,7 +693,7 @@ func TestControllerLoop_SuspendsForHumanTaskAndResumes(t *testing.T) {
 // roundTripNodes serializes the plan's nodes the way a finished attempt is
 // persisted and reads them back, so the test exercises real persistence rather
 // than in-memory state.
-func roundTripNodes(t *testing.T, ch *controllerHelper, complete func(*dagrun.Node)) []*runtime.Node {
+func roundTripNodes(t *testing.T, ch *controllerHelper, complete func(*ir.Node)) []*runtime.Node {
 	t.Helper()
 
 	nodeData := make([]runtime.NodeData, 0, len(ch.plan.Nodes()))
@@ -1021,7 +1021,7 @@ func TestControllerLoop_AsksTheUserAndResumesWithTheAnswer(t *testing.T) {
 	assert.Equal(t, "Which config should alpha use?", last.Reason)
 
 	// Answering it is an ordinary human task completion.
-	restored := roundTripNodes(t, ch, func(node *dagrun.Node) {
+	restored := roundTripNodes(t, ch, func(node *ir.Node) {
 		if node.Step.Name == ir.AskUserStepName {
 			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"answer":"use config-b"}`)
@@ -1053,7 +1053,7 @@ func TestControllerLoop_RefusesToAskTheSameQuestionTwice(t *testing.T) {
 	)
 	require.Equal(t, ir.Waiting, ch.run(t))
 
-	restored := roundTripNodes(t, ch, func(node *dagrun.Node) {
+	restored := roundTripNodes(t, ch, func(node *ir.Node) {
 		if node.Step.Name == ir.AskUserStepName {
 			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"answer":"staging"}`)
@@ -1084,7 +1084,7 @@ func TestControllerLoop_FinalizesTheSuspendedActionEvent(t *testing.T) {
 	)
 	require.Equal(t, ir.Waiting, ch.run(t))
 
-	restored := roundTripNodes(t, ch, func(node *dagrun.Node) {
+	restored := roundTripNodes(t, ch, func(node *ir.Node) {
 		if node.Step.Name == "review" {
 			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)

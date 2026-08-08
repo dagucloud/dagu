@@ -6,7 +6,6 @@ package dag
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +18,7 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 		name          string
 		runParamsList []executor.RunParams
 		results       map[string]*ir.RunStatus
-		want          []dagrun.NodeStatusDetail
+		want          []ir.NodeStatusDetail
 	}{
 		{
 			name: "unique child names omit params",
@@ -31,7 +30,7 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				"run-a": {Name: "intraday-bnci", DAGRunID: "run-a", Status: ir.Failed},
 				"run-b": {Name: "intraday-bnsu", DAGRunID: "run-b", Status: ir.Succeeded},
 			},
-			want: []dagrun.NodeStatusDetail{
+			want: []ir.NodeStatusDetail{
 				{Label: "intraday-bnci", Status: ir.NodeFailed},
 				{Label: "intraday-bnsu", Status: ir.NodeSucceeded},
 			},
@@ -46,7 +45,7 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				"run-a": {Name: "intraday-a", DAGRunID: "run-a", Status: ir.Failed},
 				"run-b": {Name: "intraday-b", DAGRunID: "run-b", Status: ir.Succeeded},
 			},
-			want: []dagrun.NodeStatusDetail{
+			want: []ir.NodeStatusDetail{
 				{Label: "intraday-a", Status: ir.NodeFailed},
 				{Label: "intraday-b", Status: ir.NodeSucceeded},
 			},
@@ -61,7 +60,7 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				"run-a": {Name: "child", DAGRunID: "run-a", Params: "CUSTOMER=a", Status: ir.Failed},
 				"run-b": {Name: "child", DAGRunID: "run-b", Params: "CUSTOMER=b", Status: ir.Succeeded},
 			},
-			want: []dagrun.NodeStatusDetail{
+			want: []ir.NodeStatusDetail{
 				{Label: "child (CUSTOMER=a)", Status: ir.NodeFailed},
 				{Label: "child (CUSTOMER=b)", Status: ir.NodeSucceeded},
 			},
@@ -72,7 +71,7 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				{RunID: "run-a", Params: "CUSTOMER=a"},
 				{RunID: "run-b"},
 			},
-			want: []dagrun.NodeStatusDetail{
+			want: []ir.NodeStatusDetail{
 				{Label: "CUSTOMER=a", Status: ir.NodeFailed},
 				{Label: "run-b", Status: ir.NodeFailed},
 			},

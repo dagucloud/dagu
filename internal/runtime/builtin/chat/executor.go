@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
@@ -52,7 +51,7 @@ type Executor struct {
 	toolExecutor *ToolExecutor
 
 	// Collected sub-runs from tool executions for UI drill-down
-	collectedSubRuns []dagrun.SubDAGRun
+	collectedSubRuns []ir.SubDAGRun
 
 	// Tool definitions that were available to the LLM (for UI visibility)
 	savedToolDefinitions []ir.ToolDefinition
@@ -171,7 +170,7 @@ func (e *Executor) SetPushBackContext(inputs map[string]string, iteration int) {
 
 // GetSubRuns returns the collected sub-DAG runs from tool executions.
 // This implements the SubRunProvider interface for UI drill-down functionality.
-func (e *Executor) GetSubRuns() []dagrun.SubDAGRun {
+func (e *Executor) GetSubRuns() []ir.SubDAGRun {
 	return e.collectedSubRuns
 }
 

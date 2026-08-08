@@ -46,7 +46,7 @@ func (n *Node) SetPushBackInputs(inputs map[string]string) {
 }
 
 // SetPushBackHistory sets push-back history for testing.
-func (n *Node) SetPushBackHistory(history []dagrun.PushBackEntry) {
+func (n *Node) SetPushBackHistory(history []ir.PushBackEntry) {
 	n.Data.mu.Lock()
 	defer n.Data.mu.Unlock()
 	n.inner.State.PushBackHistory = dagrun.ClonePushBackHistory(history)

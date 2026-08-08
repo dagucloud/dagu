@@ -168,7 +168,7 @@ func hasNodeWithStatus(status *dagrun.DAGRunStatus, stepName string, nodeStatus 
 	return false
 }
 
-func findNodeByName(status *dagrun.DAGRunStatus, stepName string) *dagrun.Node {
+func findNodeByName(status *dagrun.DAGRunStatus, stepName string) *ir.Node {
 	if status == nil {
 		return nil
 	}
@@ -180,7 +180,7 @@ func findNodeByName(status *dagrun.DAGRunStatus, stepName string) *dagrun.Node {
 	return nil
 }
 
-func requireNodeByName(t *testing.T, status *dagrun.DAGRunStatus, stepName string) *dagrun.Node {
+func requireNodeByName(t *testing.T, status *dagrun.DAGRunStatus, stepName string) *ir.Node {
 	t.Helper()
 
 	node := findNodeByName(status, stepName)
@@ -1169,7 +1169,7 @@ steps:
 	})
 	require.Len(t, status.Nodes, 2)
 
-	var waitNode *dagrun.Node
+	var waitNode *ir.Node
 	for _, node := range status.Nodes {
 		if node.Step.Name == "wait-step" {
 			waitNode = node
@@ -1713,7 +1713,7 @@ steps:
 	parentRunID := "parent-run"
 	childRunID := "child-run"
 	seedLatestDAGRunStatus(t, server, parent.DAG, parentRunID, ir.Succeeded, seedDAGRunStatusOptions{
-		subRuns: map[string][]dagrun.SubDAGRun{
+		subRuns: map[string][]ir.SubDAGRun{
 			"enqueue-child": {{
 				DAGRunID: childRunID,
 				DAGName:  child.Name,
@@ -1756,7 +1756,7 @@ func TestUpdateSubDAGRunStepStatusHandlesTopLevelDagEnqueueRun(t *testing.T) {
 	parentRunID := "status-parent-run"
 	childRunID := "status-child-run"
 	seedLatestDAGRunStatus(t, server, parent, parentRunID, ir.Succeeded, seedDAGRunStatusOptions{
-		subRuns: map[string][]dagrun.SubDAGRun{
+		subRuns: map[string][]ir.SubDAGRun{
 			"enqueue-child": {{
 				DAGRunID: childRunID,
 				DAGName:  child.Name,
@@ -1810,7 +1810,7 @@ func TestRejectSubDAGRunStepHandlesTopLevelDagEnqueueRun(t *testing.T) {
 	parentRunID := "reject-parent-run"
 	childRunID := "reject-child-run"
 	seedLatestDAGRunStatus(t, server, parent, parentRunID, ir.Succeeded, seedDAGRunStatusOptions{
-		subRuns: map[string][]dagrun.SubDAGRun{
+		subRuns: map[string][]ir.SubDAGRun{
 			"enqueue-child": {{
 				DAGRunID: childRunID,
 				DAGName:  child.Name,
@@ -2138,7 +2138,7 @@ type seedDAGRunStatusOptions struct {
 	profileName    string
 	triggerActor   string
 	nodeStatuses   map[string]ir.NodeStatus
-	subRuns        map[string][]dagrun.SubDAGRun
+	subRuns        map[string][]ir.SubDAGRun
 }
 
 func seedLatestDAGRunStatus(
@@ -2210,7 +2210,7 @@ func seedLatestDAGRunStatus(
 			if node.Step.Name != stepName {
 				continue
 			}
-			node.SubRuns = append([]dagrun.SubDAGRun(nil), subRuns...)
+			node.SubRuns = append([]ir.SubDAGRun(nil), subRuns...)
 			found = true
 			break
 		}

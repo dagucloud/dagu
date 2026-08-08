@@ -161,7 +161,7 @@ func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef ir.DA
 	return status
 }
 
-func nodeOutputValue(t *testing.T, node *dagrun.Node, key string) string {
+func nodeOutputValue(t *testing.T, node *ir.Node, key string) string {
 	t.Helper()
 
 	require.NotNil(t, node.OutputVariables, "node %s should have output variables", node.Step.Name)

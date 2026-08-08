@@ -631,7 +631,7 @@ func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []dagru
 		// to ensure consistent lookup later
 		handlerPairs := []struct {
 			handlerType ir.HandlerType
-			node        *dagrun.Node
+			node        *ir.Node
 		}{
 			{ir.HandlerOnInit, st.OnInit},
 			{ir.HandlerOnWait, st.OnWait},

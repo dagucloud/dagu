@@ -1202,14 +1202,14 @@ func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {
 	}
 }
 
-// nodeToModelNode converts a runner NodeData to an dagrun.Node.
-func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *dagrun.Node {
-	subRuns := make([]dagrun.SubDAGRun, len(nodeData.State.SubRuns))
+// nodeToModelNode converts a runner NodeData to an ir.Node.
+func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *ir.Node {
+	subRuns := make([]ir.SubDAGRun, len(nodeData.State.SubRuns))
 	for i, child := range nodeData.State.SubRuns {
-		subRuns[i] = dagrun.SubDAGRun(child)
+		subRuns[i] = ir.SubDAGRun(child)
 	}
 
-	return &dagrun.Node{
+	return &ir.Node{
 		Step:             nodeData.Step,
 		Stdout:           nodeData.State.Stdout,
 		Stderr:           nodeData.State.Stderr,

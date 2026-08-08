@@ -103,8 +103,8 @@ func (a *API) rollbackPushBack(
 		return errors.New("push-back rollback status is nil")
 	}
 	type changedNode struct {
-		applied  *dagrun.Node
-		original *dagrun.Node
+		applied  *ir.Node
+		original *ir.Node
 	}
 	changes := make(map[string]changedNode)
 	for _, originalNode := range original.Nodes {
@@ -148,7 +148,7 @@ func (a *API) rollbackPushBack(
 	return nil
 }
 
-func requireApprovalNode(node *dagrun.Node, stepName string) error {
+func requireApprovalNode(node *ir.Node, stepName string) error {
 	if node == nil || node.Step.HumanTask != nil {
 		return fmt.Errorf("%w: step %s is a human task", errManualStepHumanTask, stepName)
 	}

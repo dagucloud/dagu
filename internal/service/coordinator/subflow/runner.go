@@ -549,7 +549,7 @@ func statusToRunStatus(status *dagrun.DAGRunStatus, runID string) *ir.RunStatus 
 	}
 }
 
-func outputVariablesFromNodes(nodes []*dagrun.Node) map[string]string {
+func outputVariablesFromNodes(nodes []*ir.Node) map[string]string {
 	outputs := make(map[string]string)
 	for _, node := range nodes {
 		if node == nil || node.OutputVariables == nil {
@@ -575,7 +575,7 @@ func outputVariablesFromNodes(nodes []*dagrun.Node) map[string]string {
 	return outputs
 }
 
-func outputValuesFromNodes(nodes []*dagrun.Node) map[string]any {
+func outputValuesFromNodes(nodes []*ir.Node) map[string]any {
 	outputs := make(map[string]any)
 	for _, node := range nodes {
 		if node == nil || node.OutputsValue == nil {

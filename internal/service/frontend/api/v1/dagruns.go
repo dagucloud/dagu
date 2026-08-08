@@ -2740,7 +2740,7 @@ var nodeStatusMapping = map[api.NodeStatus]ir.NodeStatus{
 	api.NodeStatusRetrying:       ir.NodeRetrying,
 }
 
-func deriveManualDAGRunStatus(nodes []*dagrun.Node, fallback ir.Status) ir.Status {
+func deriveManualDAGRunStatus(nodes []*ir.Node, fallback ir.Status) ir.Status {
 	if len(nodes) == 0 {
 		return fallback
 	}
@@ -3720,7 +3720,7 @@ func (a *API) findReferencedDAGName(ctx context.Context, parentRef ir.DAGRunRef,
 	return "", false
 }
 
-func findDAGNameInSubRuns(subRuns []dagrun.SubDAGRun, subRunID string) (string, bool) {
+func findDAGNameInSubRuns(subRuns []ir.SubDAGRun, subRunID string) (string, bool) {
 	for _, subRun := range subRuns {
 		if subRun.DAGRunID == subRunID && strings.TrimSpace(subRun.DAGName) != "" {
 			return subRun.DAGName, true
@@ -3798,7 +3798,7 @@ func (a *API) waitForManualStepMutationReady(
 	}
 }
 
-func applyApproval(ctx context.Context, node *dagrun.Node, body *api.ApproveStepRequest) {
+func applyApproval(ctx context.Context, node *ir.Node, body *api.ApproveStepRequest) {
 	node.Status = ir.NodeSucceeded
 	node.ApprovedAt = time.Now().Format(time.RFC3339)
 	node.ApprovedBy, node.ApprovedByID = manualActionSubject(ctx)
@@ -3816,7 +3816,7 @@ func applyApproval(ctx context.Context, node *dagrun.Node, body *api.ApproveStep
 	}
 }
 
-func applyRejection(ctx context.Context, node *dagrun.Node, status *dagrun.DAGRunStatus, reason *string) {
+func applyRejection(ctx context.Context, node *ir.Node, status *dagrun.DAGRunStatus, reason *string) {
 	node.Status = ir.NodeRejected
 	node.RejectedAt = time.Now().Format(time.RFC3339)
 	node.RejectedBy, node.RejectedByID = manualActionSubject(ctx)
@@ -3949,7 +3949,7 @@ func (a *API) logStepRejection(ctx context.Context, dagName, dagRunID, subDAGRun
 	a.logAudit(ctx, audit.CategoryDAG, action, detailsMap)
 }
 
-func findStepByName(nodes []*dagrun.Node, stepName string) int {
+func findStepByName(nodes []*ir.Node, stepName string) int {
 	for idx, n := range nodes {
 		if n.Step.Name == stepName {
 			return idx
@@ -3958,7 +3958,7 @@ func findStepByName(nodes []*dagrun.Node, stepName string) int {
 	return -1
 }
 
-func hasWaitingSteps(nodes []*dagrun.Node) bool {
+func hasWaitingSteps(nodes []*ir.Node) bool {
 	for _, n := range nodes {
 		if n.Status == ir.NodeWaiting {
 			return true
@@ -4012,7 +4012,7 @@ func validatePushBackInputs(step ir.Step, body *api.PushBackStepRequest) error {
 	return checkMissingInputs(step.Approval.Required, provided)
 }
 
-func applyPushBack(ctx context.Context, node *dagrun.Node, status *dagrun.DAGRunStatus, body *api.PushBackStepRequest) error {
+func applyPushBack(ctx context.Context, node *ir.Node, status *dagrun.DAGRunStatus, body *api.PushBackStepRequest) error {
 	targetName := node.Step.Name
 	if node.Step.Approval != nil && strings.TrimSpace(node.Step.Approval.RewindTo) != "" {
 		targetName = strings.TrimSpace(node.Step.Approval.RewindTo)
@@ -4032,7 +4032,7 @@ func applyPushBack(ctx context.Context, node *dagrun.Node, status *dagrun.DAGRun
 	history := buildPushBackHistory(ctx, node, allowedInputs, nextIteration, filteredInputs)
 
 	// Reset the configured rewind target and everything that depends on it.
-	rewoundNodes := append([]*dagrun.Node{status.Nodes[targetIdx]}, findDependentNodes(status.Nodes, targetName)...)
+	rewoundNodes := append([]*ir.Node{status.Nodes[targetIdx]}, findDependentNodes(status.Nodes, targetName)...)
 	for _, rewoundNode := range rewoundNodes {
 		previousStdout := rewoundNode.Stdout
 		resetNodeForManualReexecution(rewoundNode)
@@ -4041,10 +4041,10 @@ func applyPushBack(ctx context.Context, node *dagrun.Node, status *dagrun.DAGRun
 	return nil
 }
 
-func buildPushBackHistory(ctx context.Context, node *dagrun.Node, allowedInputs []string, nextIteration int, inputs map[string]string) []dagrun.PushBackEntry {
+func buildPushBackHistory(ctx context.Context, node *ir.Node, allowedInputs []string, nextIteration int, inputs map[string]string) []ir.PushBackEntry {
 	history := dagrun.NormalizePushBackHistory(allowedInputs, node.ApprovalIteration, node.PushBackInputs, node.PushBackHistory)
 	actor, actorID := manualActionSubject(ctx)
-	history = append(history, dagrun.PushBackEntry{
+	history = append(history, ir.PushBackEntry{
 		Iteration: nextIteration,
 		By:        actor,
 		ByID:      actorID,
@@ -4054,12 +4054,12 @@ func buildPushBackHistory(ctx context.Context, node *dagrun.Node, allowedInputs 
 	return history
 }
 
-func resetNodeForManualReexecution(node *dagrun.Node) {
+func resetNodeForManualReexecution(node *ir.Node) {
 	step := node.Step
-	*node = *dagrun.NewNodeFromStep(step)
+	*node = *ir.NewNodeFromStep(step)
 }
 
-func setPushBackContext(node *dagrun.Node, iteration int, inputs map[string]string, history []dagrun.PushBackEntry, previousStdout string) {
+func setPushBackContext(node *ir.Node, iteration int, inputs map[string]string, history []ir.PushBackEntry, previousStdout string) {
 	node.ApprovalIteration = iteration
 	node.PushBackInputs = cloneStringMap(inputs)
 	node.PushBackHistory = dagrun.ClonePushBackHistory(history)
@@ -4074,7 +4074,7 @@ func pushBackAllowedInputs(step ir.Step) []string {
 }
 
 // findDependentNodes returns all nodes that directly or transitively depend on the given step.
-func findDependentNodes(nodes []*dagrun.Node, stepName string) []*dagrun.Node {
+func findDependentNodes(nodes []*ir.Node, stepName string) []*ir.Node {
 	// Build a set of step names that depend on the given step
 	dependentNames := make(map[string]bool)
 	dependentNames[stepName] = true
@@ -4098,7 +4098,7 @@ func findDependentNodes(nodes []*dagrun.Node, stepName string) []*dagrun.Node {
 	}
 
 	// Collect dependent nodes (excluding the source step itself)
-	var result []*dagrun.Node
+	var result []*ir.Node
 	for _, n := range nodes {
 		if dependentNames[n.Step.Name] && n.Step.Name != stepName {
 			result = append(result, n)
@@ -4926,7 +4926,7 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func selectLogFile(node *dagrun.Node, stream api.Stream) string {
+func selectLogFile(node *ir.Node, stream api.Stream) string {
 	if stream == api.StreamStderr {
 		return node.Stderr
 	}

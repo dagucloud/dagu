@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -587,7 +586,7 @@ steps:
 	}
 }
 
-func findNodeByStepID(t *testing.T, nodes []*dagrun.Node, stepID string) *dagrun.Node {
+func findNodeByStepID(t *testing.T, nodes []*ir.Node, stepID string) *ir.Node {
 	t.Helper()
 
 	for _, node := range nodes {

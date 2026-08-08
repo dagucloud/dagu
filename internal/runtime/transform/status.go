@@ -5,13 +5,14 @@ package transform
 
 import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 // WithNodes converts runtime node data into persisted DAG-run nodes.
 func WithNodes(nodes []runtime.NodeData) dagrun.StatusOption {
 	return func(status *dagrun.DAGRunStatus) {
-		convertedNodes := make([]*dagrun.Node, len(nodes))
+		convertedNodes := make([]*ir.Node, len(nodes))
 		for i, node := range nodes {
 			convertedNodes[i] = newNode(node)
 		}
@@ -19,7 +20,7 @@ func WithNodes(nodes []runtime.NodeData) dagrun.StatusOption {
 	}
 }
 
-func convertNodeIfPresent(node *runtime.Node) *dagrun.Node {
+func convertNodeIfPresent(node *runtime.Node) *ir.Node {
 	if node == nil {
 		return nil
 	}
