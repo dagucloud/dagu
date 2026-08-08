@@ -486,7 +486,12 @@ function DAGSpecReadOnly({
       }
 
       if (responseData?.errors?.length) {
-        showError('Validation errors', responseData.errors.join('\n'));
+        showError(
+          'The spec was not saved',
+          undefined,
+          'Validation errors',
+          responseData.errors
+        );
         return;
       }
 

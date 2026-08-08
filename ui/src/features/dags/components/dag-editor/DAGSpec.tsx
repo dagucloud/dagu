@@ -337,8 +337,13 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       return;
     }
 
-    if (responseData?.errors) {
-      showError('Validation errors', responseData.errors.join('\n'));
+    if (responseData?.errors?.length) {
+      showError(
+        'The spec was not saved',
+        undefined,
+        'Validation errors',
+        responseData.errors
+      );
       return;
     }
 
