@@ -61,6 +61,7 @@ import {
 } from './customActionSchema';
 import DAGAttributes from './DAGAttributes';
 import DAGEditorWithDocs from './DAGEditorWithDocs';
+import { parseValidationMarkers } from './validationMarkers';
 import { ControllerSpecOverview } from './ControllerSpecOverview';
 import ExternalChangeDialog from './ExternalChangeDialog';
 
@@ -195,6 +196,62 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   });
 
   const { copied: specCopied, copy: copySpec } = useCopyFeedback();
+
+  // Live server-side validation of the edited buffer. Cleared whenever the
+  // buffer stops being dirty (save or discard), which also clears the markers.
+  const [liveValidation, setLiveValidation] = React.useState<{
+    errors: string[];
+    dag?: components['schemas']['DAGDetails'];
+  } | null>(null);
+  const [isValidating, setIsValidating] = React.useState(false);
+  const validateSeqRef = React.useRef(0);
+
+  React.useEffect(() => {
+    if (!editable || !localHasUnsavedChanges || currentValue == null) {
+      validateSeqRef.current += 1;
+      setLiveValidation(null);
+      setIsValidating(false);
+      return;
+    }
+
+    const seq = ++validateSeqRef.current;
+    setIsValidating(true);
+    const timer = window.setTimeout(() => {
+      void client
+        .POST('/dags/validate', {
+          params: { query: { remoteNode } },
+          body: { spec: currentValue, name: fileName },
+        })
+        .then(({ data: result, error: requestError }) => {
+          if (validateSeqRef.current !== seq) {
+            return;
+          }
+          setIsValidating(false);
+          if (!requestError && result) {
+            setLiveValidation({ errors: result.errors ?? [], dag: result.dag });
+          }
+        })
+        .catch(() => {
+          if (validateSeqRef.current === seq) {
+            setIsValidating(false);
+          }
+        });
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    client,
+    currentValue,
+    editable,
+    fileName,
+    localHasUnsavedChanges,
+    remoteNode,
+  ]);
+
+  const liveMarkers = React.useMemo(
+    () => parseValidationMarkers(liveValidation?.errors ?? []).markers,
+    [liveValidation]
+  );
 
   const [lastGoodLegacyDefinitions, setLastGoodLegacyDefinitions] =
     React.useState(
@@ -348,6 +405,11 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     }
 
     if (responseData?.errors?.length) {
+      // Feed the rejected save into the same markers/panel as live validation.
+      setLiveValidation((prev) => ({
+        errors: responseData.errors,
+        dag: prev?.dag,
+      }));
       showError(
         'The spec was not saved',
         undefined,
@@ -481,15 +543,14 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
           <ControllerSpecOverview dag={dag} />
         ) : (
           <>
-            {errors?.length || !dag.steps || dag.steps.length === 0 ? (
+            {!dag.steps || dag.steps.length === 0 ? (
               <div className="py-8 px-4 text-center">
                 <AlertTriangle className="h-12 w-12 text-warning mx-auto mb-4" />
                 <p className="text-muted-foreground mb-2">
-                  Cannot render graph due to configuration errors
+                  No steps to render
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Please fix the errors above and save the configuration to view
-                  the graph
+                  Define at least one step to view the graph
                 </p>
               </div>
             ) : (
@@ -555,6 +616,23 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         refreshCallbackRef.current = props.refresh;
         const editorHeaderActions = (
             <div className="flex items-center gap-2">
+              {editable && localHasUnsavedChanges && (
+                <span
+                  className={
+                    !isValidating && liveValidation?.errors.length
+                      ? 'text-xs text-destructive'
+                      : 'text-xs text-muted-foreground'
+                  }
+                >
+                  {isValidating
+                    ? 'Validating...'
+                    : liveValidation
+                      ? liveValidation.errors.length > 0
+                        ? `${liveValidation.errors.length} issue${liveValidation.errors.length === 1 ? '' : 's'}`
+                        : 'Valid'
+                      : ''}
+                </span>
+              )}
               {valueReferenceNotices.length > 0 && (
                 <ValueReferenceNoticesButton
                   notices={valueReferenceNotices}
@@ -649,10 +727,16 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
                 {(() => {
                   if (activeTab === 'parent') {
+                    // While the buffer is dirty, preview the live validation
+                    // result instead of the saved spec.
+                    const previewDag = liveValidation?.dag ?? data?.dag;
+                    const previewErrors = liveValidation
+                      ? liveValidation.errors
+                      : data?.errors;
                     return (
-                      data?.dag && (
+                      previewDag && (
                         <div className="flex-shrink-0">
-                          {renderDAGContent(data.dag, data?.errors)}
+                          {renderDAGContent(previewDag, previewErrors)}
                         </div>
                       )
                     );
@@ -694,6 +778,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                     className="min-h-[640px]"
                     modelUri={editorModelUri}
                     schema={editorSchema}
+                    markers={liveMarkers}
                     headerActions={editorHeaderActions}
                   />
                 </section>
