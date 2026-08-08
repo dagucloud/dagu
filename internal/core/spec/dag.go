@@ -2112,7 +2112,7 @@ func buildContainerField(ctx buildContext, raw any) (*core.Container, error) {
 		}
 		if err := decoder.Decode(v); err != nil {
 			return nil, core.NewValidationError("container", nil,
-				fmt.Errorf("failed to decode container: %w", withSnakeCaseKeyHint(err)))
+				fmt.Errorf("failed to decode container: %w", withLegacyKeyHint(err)))
 		}
 		return buildContainerFromSpec(ctx, &c)
 

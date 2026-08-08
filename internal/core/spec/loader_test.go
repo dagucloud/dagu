@@ -59,6 +59,24 @@ func TestLoad(t *testing.T) {
 			useFile:     true,
 			errContains: "invalidyaml",
 		},
+		{
+			name:        "RemovedExecutorKeyHint",
+			content:     "steps:\n  - name: a\n    executor: docker\n",
+			useFile:     true,
+			errContains: `"executor" has been removed; use "action"`,
+		},
+		{
+			name:        "LegacyCamelCaseKeyHint",
+			content:     "steps:\n  - name: a\n    run: \"true\"\n    retryPolicy:\n      limit: 2\n",
+			useFile:     true,
+			errContains: "use snake_case keys (retryPolicy -> retry_policy)",
+		},
+		{
+			name:        "RenamedPreconditionKeyHint",
+			content:     "steps:\n  - name: a\n    run: \"true\"\n    precondition: \"test -f /tmp/x\"\n",
+			useFile:     true,
+			errContains: `use "preconditions"`,
+		},
 	}
 
 	for _, tt := range errorTests {
