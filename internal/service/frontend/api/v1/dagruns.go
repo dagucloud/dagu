@@ -31,7 +31,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/intake"
@@ -572,7 +571,9 @@ func restoreDAGRunSnapshot(ctx context.Context, dag *ir.DAG, status *dagrun.DAGR
 	resolvedEnv, err := runtimeenv.Resolve(ctx, dag)
 	dag.Env = resolvedEnv.Env
 	dag.RuntimeResolved = true
-	dagwarning.Log(ctx, resolvedEnv.Warnings)
+	for _, warning := range resolvedEnv.Warnings {
+		logger.Warn(ctx, warning)
+	}
 	if err != nil {
 		return nil, "", err
 	}
@@ -3898,7 +3899,9 @@ func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *ir.DAG, sta
 	if err != nil {
 		return nil, err
 	}
-	dagwarning.Log(ctx, result.Warnings)
+	for _, warning := range result.Warnings {
+		logger.Warn(ctx, warning)
+	}
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env

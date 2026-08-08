@@ -40,7 +40,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
-	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -512,7 +511,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	resolvedEnv, dotenvErr := runtimeenv.Resolve(ctx, a.dag)
 	a.dag.Env = resolvedEnv.Env
 	a.dag.RuntimeResolved = true
-	dagwarning.Log(ctx, resolvedEnv.Warnings)
+	for _, warning := range resolvedEnv.Warnings {
+		logger.Warn(ctx, warning)
+	}
 
 	secretEnvs, secretErr := a.resolveSecrets(ctx)
 	profileValues, profileErr := a.resolveProfile(ctx)

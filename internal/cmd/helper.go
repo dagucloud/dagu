@@ -13,7 +13,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -87,7 +86,9 @@ func restoreDAGFromStatus(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRu
 	resolvedEnv, err := runtimeenv.Resolve(ctx, dag)
 	dag.Env = resolvedEnv.Env
 	dag.RuntimeResolved = true
-	dagwarning.Log(ctx, resolvedEnv.Warnings)
+	for _, warning := range resolvedEnv.Warnings {
+		logger.Warn(ctx, warning)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
@@ -409,7 +408,9 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, 
 	if err != nil {
 		return nil, err
 	}
-	dagwarning.Log(ctx, result.Warnings)
+	for _, warning := range result.Warnings {
+		logger.Warn(ctx, warning)
+	}
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env
