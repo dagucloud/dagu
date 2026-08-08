@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/gitsync"
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/gitsync"
 )
 
 // SyncService is the interface for Git sync operations.

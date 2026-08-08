@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 	filedoc "github.com/dagucloud/dagu/v2/internal/persis/file/doc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"

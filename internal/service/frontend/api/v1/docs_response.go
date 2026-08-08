@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 )
 
 func toDocResponse(doc *docs.Doc) api.DocResponse {

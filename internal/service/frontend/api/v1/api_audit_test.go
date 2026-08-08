@@ -9,8 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

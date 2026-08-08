@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/google/uuid"
 )
 

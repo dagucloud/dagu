@@ -11,11 +11,11 @@ import (
 	"net/http"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
-	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
-	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
