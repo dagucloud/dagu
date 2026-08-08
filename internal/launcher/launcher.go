@@ -176,10 +176,11 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	args = append(args, target)
 
 	return CmdSpec{
-		Executable: b.executable,
-		Args:       args,
-		Env:        b.parentEnv(),
-		BuildEnv:   append([]string{}, dag.Env...),
+		Executable:      b.executable,
+		Args:            args,
+		Env:             b.parentEnv(),
+		BuildEnv:        append([]string{}, dag.Env...),
+		RuntimeResolved: dag.RuntimeResolved,
 	}
 }
 
@@ -226,12 +227,13 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	args = append(args, dag.Location)
 
 	return CmdSpec{
-		Executable: b.executable,
-		Args:       args,
-		Env:        b.filteredEnv(),
-		BuildEnv:   append([]string{}, dag.Env...),
-		Stdout:     os.Stdout,
-		Stderr:     os.Stderr,
+		Executable:      b.executable,
+		Args:            args,
+		Env:             b.filteredEnv(),
+		BuildEnv:        append([]string{}, dag.Env...),
+		RuntimeResolved: dag.RuntimeResolved,
+		Stdout:          os.Stdout,
+		Stderr:          os.Stderr,
 	}
 }
 
@@ -269,10 +271,11 @@ func (b *SubCmdBuilder) Restart(dag *ir.DAG, opts RestartOptions) CmdSpec {
 	args = append(args, dag.Location)
 
 	return CmdSpec{
-		Executable: b.executable,
-		Args:       args,
-		Env:        b.parentEnv(),
-		BuildEnv:   append([]string{}, dag.Env...),
+		Executable:      b.executable,
+		Args:            args,
+		Env:             b.parentEnv(),
+		BuildEnv:        append([]string{}, dag.Env...),
+		RuntimeResolved: dag.RuntimeResolved,
 	}
 }
 
@@ -299,10 +302,11 @@ func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 	args = append(args, dag.Name)
 
 	spec := CmdSpec{
-		Executable: b.executable,
-		Args:       args,
-		Env:        b.parentEnv(),
-		BuildEnv:   append([]string{}, dag.Env...),
+		Executable:      b.executable,
+		Args:            args,
+		Env:             b.parentEnv(),
+		BuildEnv:        append([]string{}, dag.Env...),
+		RuntimeResolved: dag.RuntimeResolved,
 	}
 	if opts.QueueDispatch {
 		spec.Env = append(spec.Env, runenv.EnvKeyQueueDispatchRetry+"=1")
@@ -312,12 +316,13 @@ func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 
 // CmdSpec describes a command to be executed with all its configuration.
 type CmdSpec struct {
-	Executable string
-	Args       []string
-	Env        []string
-	BuildEnv   []string
-	Stdout     io.Writer
-	Stderr     io.Writer
+	Executable      string
+	Args            []string
+	Env             []string
+	BuildEnv        []string
+	RuntimeResolved bool
+	Stdout          io.Writer
+	Stderr          io.Writer
 }
 
 // StartOptions contains options for initiating a dag-run.
@@ -472,7 +477,7 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	if spec.Env != nil {
 		env = append([]string{}, spec.Env...)
 	}
-	extraEnv, cleanup, err := buildenv.Prepare(spec.BuildEnv)
+	extraEnv, cleanup, err := buildenv.Prepare(buildenv.NewSnapshot(spec.BuildEnv, spec.RuntimeResolved))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to prepare presolved build env transport: %w", err)
 	}

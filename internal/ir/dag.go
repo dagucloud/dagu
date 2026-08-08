@@ -131,6 +131,8 @@ type DAG struct {
 	Consts map[string]any `json:"consts,omitempty"`
 	// EnvEvaluated reports whether Env is safe to reuse as resolved build env.
 	EnvEvaluated bool `json:"-"`
+	// RuntimeResolved reports whether dotenv resolution is complete for Env.
+	RuntimeResolved bool `json:"-"`
 	// PresolvedBuildEnv stores resolved DAG/base-config env entries needed to
 	// rebuild the DAG from persisted YAML during retry/restart paths.
 	// It is serialized with dag.json because direct retry/restart cannot rely on

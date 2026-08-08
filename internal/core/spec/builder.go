@@ -135,6 +135,8 @@ type buildOpts struct {
 	// them via ${VAR}. Used for retry/restart where dotenv values need to be
 	// available during rebuild from YamlData.
 	BuildEnv map[string]string
+	// RuntimeResolved reports whether BuildEnv contains the complete runtime environment.
+	RuntimeResolved bool
 }
 
 // Has reports whether the flag is enabled on the current buildOpts.

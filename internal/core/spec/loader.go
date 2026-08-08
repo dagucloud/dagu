@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"dario.cat/mergo"
+	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/core/spec/types"
@@ -166,6 +167,14 @@ func WithSourceFile(sourceFile string) LoadOption {
 func WithBuildEnv(env map[string]string) LoadOption {
 	return func(o *buildOpts) {
 		o.BuildEnv = env
+	}
+}
+
+// WithBuildEnvSnapshot provides transported build values and their resolution state.
+func WithBuildEnvSnapshot(snapshot buildenv.Snapshot) LoadOption {
+	return func(o *buildOpts) {
+		o.BuildEnv = snapshot.Env
+		o.RuntimeResolved = snapshot.RuntimeResolved
 	}
 }
 

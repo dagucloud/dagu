@@ -886,6 +886,7 @@ func (s *dagBuildState) capturePresolvedBuildEnv() {
 
 func (s *dagBuildState) markEnvEvaluated() {
 	s.result.EnvEvaluated = !s.ctx.opts.Has(buildFlagNoEval)
+	s.result.RuntimeResolved = s.ctx.opts.RuntimeResolved
 }
 
 func (s *dagBuildState) finish() (*ir.DAG, error) {

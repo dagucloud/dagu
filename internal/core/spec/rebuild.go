@@ -41,8 +41,8 @@ func RebuildFromYAML(ctx context.Context, dag *ir.DAG, paramsOverride ...[]strin
 	if err != nil {
 		return nil, fmt.Errorf("failed to load presolved build env: %w", err)
 	}
-	transportEnv := buildenv.FromMap(presolvedBuildEnv)
-	maps.Copy(buildEnvMap, presolvedBuildEnv)
+	transportEnv := presolvedBuildEnv.Entries()
+	maps.Copy(buildEnvMap, presolvedBuildEnv.Env)
 
 	params := dag.Params
 	if len(paramsOverride) > 0 {
@@ -52,8 +52,12 @@ func RebuildFromYAML(ctx context.Context, dag *ir.DAG, paramsOverride ...[]strin
 		WithParams(params),
 		SkipSchemaValidation(),
 	}
-	if len(buildEnvMap) > 0 {
-		loadOpts = append(loadOpts, WithBuildEnv(buildEnvMap))
+	runtimeResolved := dag.RuntimeResolved || presolvedBuildEnv.RuntimeResolved
+	if len(buildEnvMap) > 0 || runtimeResolved {
+		loadOpts = append(loadOpts, WithBuildEnvSnapshot(buildenv.Snapshot{
+			Env:             buildEnvMap,
+			RuntimeResolved: runtimeResolved,
+		}))
 	}
 	if len(dag.BaseConfigData) > 0 {
 		loadOpts = append(loadOpts, WithBaseConfigContent(dag.BaseConfigData))

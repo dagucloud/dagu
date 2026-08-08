@@ -14,11 +14,11 @@ import (
 )
 
 func TestPrepareAndLoad(t *testing.T) {
-	extraEnv, cleanup, err := Prepare([]string{
+	extraEnv, cleanup, err := Prepare(NewSnapshot([]string{
 		"SECOND=value-2",
 		"FIRST=value-1",
 		"SECOND=latest",
-	})
+	}, true))
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	t.Cleanup(func() { require.NoError(t, cleanup()) })
@@ -38,17 +38,45 @@ func TestPrepareAndLoad(t *testing.T) {
 
 	loaded, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{
-		"FIRST":  "value-1",
-		"SECOND": "latest",
+	assert.Equal(t, Snapshot{
+		Env: map[string]string{
+			"FIRST":  "value-1",
+			"SECOND": "latest",
+		},
+		RuntimeResolved: true,
 	}, loaded)
 }
 
 func TestPrepare_EmptyEnv(t *testing.T) {
-	t.Parallel()
+	t.Run("Unresolved", func(t *testing.T) {
+		extraEnv, cleanup, err := Prepare(Snapshot{})
+		require.NoError(t, err)
+		assert.Nil(t, extraEnv)
+		assert.Nil(t, cleanup)
+	})
 
-	extraEnv, cleanup, err := Prepare(nil)
+	t.Run("Resolved", func(t *testing.T) {
+		extraEnv, cleanup, err := Prepare(Snapshot{RuntimeResolved: true})
+		require.NoError(t, err)
+		require.NotNil(t, cleanup)
+		t.Cleanup(func() { require.NoError(t, cleanup()) })
+		require.Len(t, extraEnv, 1)
+
+		key, path, ok := strings.Cut(extraEnv[0], "=")
+		require.True(t, ok)
+		t.Setenv(key, path)
+		loaded, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, Snapshot{RuntimeResolved: true}, loaded)
+	})
+}
+
+func TestLoadLegacyMap(t *testing.T) {
+	path := t.TempDir() + "/env.json"
+	require.NoError(t, os.WriteFile(path, []byte(`{"KEY":"value"}`), 0o600))
+	t.Setenv(PresolvedEnvFileKey, path)
+
+	loaded, err := Load()
 	require.NoError(t, err)
-	assert.Nil(t, extraEnv)
-	assert.Nil(t, cleanup)
+	assert.Equal(t, Snapshot{Env: map[string]string{"KEY": "value"}}, loaded)
 }

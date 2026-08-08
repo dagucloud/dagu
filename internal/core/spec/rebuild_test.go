@@ -124,10 +124,10 @@ env:
 }
 
 func TestRebuildFromYAML_UsesTransportedBuildEnv(t *testing.T) {
-	extraEnv, cleanup, err := buildenv.Prepare([]string{
+	extraEnv, cleanup, err := buildenv.Prepare(buildenv.NewSnapshot([]string{
 		"HOST_VALUE=from-transport-host",
 		"BACKTICK_VALUE=from-transport-backtick",
-	})
+	}, false))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cleanup()) })
 
@@ -156,11 +156,11 @@ steps:
 }
 
 func TestRebuildFromYAML_EnvPrecedenceWhenSourcesConflict(t *testing.T) {
-	extraEnv, cleanup, err := buildenv.Prepare([]string{
+	extraEnv, cleanup, err := buildenv.Prepare(buildenv.NewSnapshot([]string{
 		"DECLARED=from-transport",
 		"CONFLICT=from-transport",
 		"TRANSPORT_ONLY=from-transport",
-	})
+	}, false))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cleanup()) })
 
