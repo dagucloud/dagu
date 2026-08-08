@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -391,7 +392,7 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 	if task == nil || !task.ExternalStepRetry {
 		return nil
 	}
-	return []string{exec.EnvKeyExternalStepRetry + "=1"}
+	return []string{runctx.EnvKeyExternalStepRetry + "=1"}
 }
 
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.

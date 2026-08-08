@@ -22,10 +22,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -650,14 +650,14 @@ func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg provid
 }
 
 var sharedContainerHostPathEnvKeys = map[string]struct{}{
-	"PWD":                                        {},
-	coreexec.EnvKeyDAGDocsDir:                    {},
-	coreexec.EnvKeyDAGRunArtifactsDir:            {},
-	coreexec.EnvKeyDAGRunLogFile:                 {},
-	coreexec.EnvKeyDAGRunStepStderrFile:          {},
-	coreexec.EnvKeyDAGRunStepStdoutFile:          {},
-	coreexec.EnvKeyDAGRunWorkDir:                 {},
-	coreexec.EnvKeyDAGPushBackPreviousStdoutFile: {},
+	"PWD":                                      {},
+	runctx.EnvKeyDAGDocsDir:                    {},
+	runctx.EnvKeyDAGRunArtifactsDir:            {},
+	runctx.EnvKeyDAGRunLogFile:                 {},
+	runctx.EnvKeyDAGRunStepStderrFile:          {},
+	runctx.EnvKeyDAGRunStepStdoutFile:          {},
+	runctx.EnvKeyDAGRunWorkDir:                 {},
+	runctx.EnvKeyDAGPushBackPreviousStdoutFile: {},
 }
 
 func sharedContainerHarnessEnv(userEnv map[string]string) []string {

@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -457,11 +458,11 @@ func TestEnv_AllEnvsMap(t *testing.T) {
 				return env
 			},
 			expected: map[string]string{
-				"VAR1":                    "value1",
-				"VAR2":                    "value2",
-				"ENV1":                    "env1",
-				"ENV2":                    "env2",
-				exec.EnvKeyDAGRunStepName: "test-step",
+				"VAR1":                      "value1",
+				"VAR2":                      "value2",
+				"ENV1":                      "env1",
+				"ENV2":                      "env2",
+				runctx.EnvKeyDAGRunStepName: "test-step",
 			},
 		},
 		{
@@ -470,7 +471,7 @@ func TestEnv_AllEnvsMap(t *testing.T) {
 				return env
 			},
 			expected: map[string]string{
-				exec.EnvKeyDAGRunStepName: "test-step",
+				runctx.EnvKeyDAGRunStepName: "test-step",
 			},
 		},
 	}
@@ -656,7 +657,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 			env := runtime.NewEnv(ctx, tt.step)
 
 			// Check that DAG_RUN_STEP_NAME is set via Scope
-			val, ok := env.Scope.Get(exec.EnvKeyDAGRunStepName)
+			val, ok := env.Scope.Get(runctx.EnvKeyDAGRunStepName)
 			assert.True(t, ok, "DAG_RUN_STEP_NAME should be set")
 			assert.Equal(t, tt.step.Name, val)
 
@@ -745,7 +746,7 @@ func TestNewEnvForStep_BasicFields(t *testing.T) {
 	assert.NotNil(t, env.StepMap)
 
 	// Check that DAG_RUN_STEP_NAME is set via Scope
-	stepName, _ := env.Scope.Get(exec.EnvKeyDAGRunStepName)
+	stepName, _ := env.Scope.Get(runctx.EnvKeyDAGRunStepName)
 	assert.Equal(t, "test-step", stepName)
 
 	// Check that PWD is set to DAG's WorkingDir
@@ -1011,8 +1012,8 @@ func TestEnv_SpecialEnvVars_DAGParamsJSON(t *testing.T) {
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
 
-	assert.Equal(t, `{"a":"b"}`, result[exec.EnvKeyDAGParamsJSON])
-	assert.Equal(t, `{"a":"b"}`, result[exec.EnvKeyDAGParamsJSONCompat])
+	assert.Equal(t, `{"a":"b"}`, result[runctx.EnvKeyDAGParamsJSON])
+	assert.Equal(t, `{"a":"b"}`, result[runctx.EnvKeyDAGParamsJSONCompat])
 }
 
 func TestEnv_SpecialEnvVars_DAGDocsDir(t *testing.T) {
@@ -1029,7 +1030,7 @@ func TestEnv_SpecialEnvVars_DAGDocsDir(t *testing.T) {
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
 
-	assert.Equal(t, filepath.Join(docsDir, dag.Name), result[exec.EnvKeyDAGDocsDir])
+	assert.Equal(t, filepath.Join(docsDir, dag.Name), result[runctx.EnvKeyDAGDocsDir])
 }
 
 func TestEnv_SpecialEnvVars_DAGRunWorkDir(t *testing.T) {
@@ -1045,7 +1046,7 @@ func TestEnv_SpecialEnvVars_DAGRunWorkDir(t *testing.T) {
 	env := runtime.NewEnv(ctx, ir.Step{Name: "step1"})
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
-	assert.Equal(t, workDir, result[exec.EnvKeyDAGRunWorkDir])
+	assert.Equal(t, workDir, result[runctx.EnvKeyDAGRunWorkDir])
 }
 
 func TestEnv_DirectCommandOSExpansionDoesNotInjectHostEnv(t *testing.T) {

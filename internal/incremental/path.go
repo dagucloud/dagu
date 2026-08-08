@@ -13,47 +13,45 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 )
 
 // Snapshot hashes a stable regular-file snapshot.
-func Snapshot(name, path string) (exec.FileSnapshot, error) {
+func Snapshot(name, path string) (FileSnapshot, error) {
 	for range 3 {
 		before, err := os.Lstat(path)
 		if err != nil {
-			return exec.FileSnapshot{}, err
+			return FileSnapshot{}, err
 		}
 		if !before.Mode().IsRegular() {
-			return exec.FileSnapshot{}, fmt.Errorf("%s is not a regular non-symlink file", path)
+			return FileSnapshot{}, fmt.Errorf("%s is not a regular non-symlink file", path)
 		}
 		file, err := os.Open(path) //nolint:gosec
 		if err != nil {
-			return exec.FileSnapshot{}, err
+			return FileSnapshot{}, err
 		}
 		hash := sha256.New()
 		_, copyErr := io.Copy(hash, file)
 		closeErr := file.Close()
 		if copyErr != nil {
-			return exec.FileSnapshot{}, copyErr
+			return FileSnapshot{}, copyErr
 		}
 		if closeErr != nil {
-			return exec.FileSnapshot{}, closeErr
+			return FileSnapshot{}, closeErr
 		}
 		after, err := os.Lstat(path)
 		if err != nil {
-			return exec.FileSnapshot{}, err
+			return FileSnapshot{}, err
 		}
 		if os.SameFile(before, after) && before.Size() == after.Size() && before.ModTime().Equal(after.ModTime()) {
-			return exec.FileSnapshot{
+			return FileSnapshot{
 				Name: name, Path: path, Size: after.Size(), Digest: "sha256:" + hex.EncodeToString(hash.Sum(nil)),
 			}, nil
 		}
 	}
-	return exec.FileSnapshot{}, fmt.Errorf("file changed while hashing: %s", path)
+	return FileSnapshot{}, fmt.Errorf("file changed while hashing: %s", path)
 }
 
-func snapshotsEqual(left, right []exec.FileSnapshot) bool {
+func snapshotsEqual(left, right []FileSnapshot) bool {
 	if len(left) != len(right) {
 		return false
 	}
@@ -65,7 +63,7 @@ func snapshotsEqual(left, right []exec.FileSnapshot) bool {
 	return true
 }
 
-func snapshotEqual(left, right exec.FileSnapshot) bool {
+func snapshotEqual(left, right FileSnapshot) bool {
 	return left.Name == right.Name && left.Path == right.Path && left.Size == right.Size && left.Digest == right.Digest
 }
 

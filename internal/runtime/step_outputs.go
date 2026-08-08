@@ -13,8 +13,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 var outputFileDelimiterPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -168,12 +168,12 @@ func (n *Node) captureDeclaredStepOutputs(ctx context.Context) error {
 	declarations := n.Step().ValueOutputs()
 	path := n.stepOutputFile()
 	if path == "" {
-		return fmt.Errorf("%s was not set", coreexec.EnvKeyDAGUOutputFile)
+		return fmt.Errorf("%s was not set", runctx.EnvKeyDAGUOutputFile)
 	}
 
 	values, err := readDeclaredStepOutputs(ctx, path, declarations)
 	if err != nil {
-		return fmt.Errorf("failed to parse %s: %w", coreexec.EnvKeyDAGUOutputFile, err)
+		return fmt.Errorf("failed to parse %s: %w", runctx.EnvKeyDAGUOutputFile, err)
 	}
 	if len(values) == 0 {
 		n.clearStepOutputsValue()

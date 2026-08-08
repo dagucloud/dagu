@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +34,7 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
 	request := prepareRequest(workingDir, inputPath, outputPath)
 	request.Step.Inputs = append(request.Step.Inputs, ir.StepInputDeclaration{Name: "second", Path: secondInputPath})
-	request.Environment[exec.EnvKeyDAGRunID] = "run-1"
+	request.Environment[runctx.EnvKeyDAGRunID] = "run-1"
 
 	first, err := incremental.Prepare(ctx, store, request)
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 
 	request.DAGRunID = "run-2"
 	request.AttemptID = "attempt-2"
-	request.Environment[exec.EnvKeyDAGRunID] = "run-2"
+	request.Environment[runctx.EnvKeyDAGRunID] = "run-2"
 	request.Step.Inputs[0], request.Step.Inputs[1] = request.Step.Inputs[1], request.Step.Inputs[0]
 	second, err := incremental.Prepare(ctx, store, request)
 	require.NoError(t, err)
@@ -401,7 +401,7 @@ type previewStore struct {
 }
 
 type notifyingStore struct {
-	exec.MaterializationStore
+	incremental.MaterializationStore
 	acquireStarted chan struct{}
 }
 
@@ -412,22 +412,22 @@ type prepareResult struct {
 
 func (s notifyingStore) AcquirePaths(
 	ctx context.Context,
-	requests []exec.PathLockRequest,
-) (exec.MaterializationLock, error) {
+	requests []incremental.PathLockRequest,
+) (incremental.MaterializationLock, error) {
 	close(s.acquireStarted)
 	return s.MaterializationStore.AcquirePaths(ctx, requests)
 }
 
-func (s *previewStore) Get(context.Context, string) (*exec.Materialization, error) {
-	return nil, exec.ErrMaterializationNotFound
+func (s *previewStore) Get(context.Context, string) (*incremental.Materialization, error) {
+	return nil, incremental.ErrMaterializationNotFound
 }
 
-func (s *previewStore) AcquirePaths(context.Context, []exec.PathLockRequest) (exec.MaterializationLock, error) {
+func (s *previewStore) AcquirePaths(context.Context, []incremental.PathLockRequest) (incremental.MaterializationLock, error) {
 	s.acquireCalled = true
 	return nil, nil
 }
 
-func (*previewStore) Commit(context.Context, exec.MaterializationLock, exec.MaterializationCommit) error {
+func (*previewStore) Commit(context.Context, incremental.MaterializationLock, incremental.MaterializationCommit) error {
 	return nil
 }
 

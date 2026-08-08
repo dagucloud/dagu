@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -22,22 +23,22 @@ func buildManagedDAGRunEnvs(
 	options *contextOptions,
 ) map[string]string {
 	envs := map[string]string{
-		EnvKeyDAGRunLogFile: logFile,
-		EnvKeyDAGRunID:      dagRunID,
-		EnvKeyDAGName:       dag.Name,
+		runctx.EnvKeyDAGRunLogFile: logFile,
+		runctx.EnvKeyDAGRunID:      dagRunID,
+		runctx.EnvKeyDAGName:       dag.Name,
 	}
 	if docsDir := dagDocsDir(ctx, dag); docsDir != "" {
-		envs[EnvKeyDAGDocsDir] = docsDir
+		envs[runctx.EnvKeyDAGDocsDir] = docsDir
 	}
 	if options.workDir != "" {
-		envs[EnvKeyDAGRunWorkDir] = options.workDir
+		envs[runctx.EnvKeyDAGRunWorkDir] = options.workDir
 	}
 	if options.artifactDir != "" {
-		envs[EnvKeyDAGRunArtifactsDir] = options.artifactDir
+		envs[runctx.EnvKeyDAGRunArtifactsDir] = options.artifactDir
 	}
 	if dag.ParamsJSON != "" {
-		envs[EnvKeyDAGParamsJSON] = dag.ParamsJSON
-		envs[EnvKeyDAGParamsJSONCompat] = dag.ParamsJSON
+		envs[runctx.EnvKeyDAGParamsJSON] = dag.ParamsJSON
+		envs[runctx.EnvKeyDAGParamsJSONCompat] = dag.ParamsJSON
 	}
 	return envs
 }

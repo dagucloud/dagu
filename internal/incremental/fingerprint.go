@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 const (
@@ -108,26 +108,26 @@ func recipeEnvironment(environment map[string]string, workingDir, runWorkDir str
 }
 
 var volatileRuntimeEnvironment = map[string]bool{
-	exec.EnvKeyDAGRunID:                      true,
-	exec.EnvKeyDAGRunLogFile:                 true,
-	exec.EnvKeyDAGRunStepStdoutFile:          true,
-	exec.EnvKeyDAGRunStepStderrFile:          true,
-	exec.EnvKeyDAGUOutputFile:                true,
-	exec.EnvKeyDAGRunStatus:                  true,
-	exec.EnvKeyDAGWaitingSteps:               true,
-	exec.EnvKeyDAGRunWorkDir:                 true,
-	exec.EnvKeyDAGRunArtifactsDir:            true,
-	exec.EnvKeyDAGPushBack:                   true,
-	exec.EnvKeyDAGPushBackIteration:          true,
-	exec.EnvKeyDAGPushBackPreviousStdoutFile: true,
+	runctx.EnvKeyDAGRunID:                      true,
+	runctx.EnvKeyDAGRunLogFile:                 true,
+	runctx.EnvKeyDAGRunStepStdoutFile:          true,
+	runctx.EnvKeyDAGRunStepStderrFile:          true,
+	runctx.EnvKeyDAGUOutputFile:                true,
+	runctx.EnvKeyDAGRunStatus:                  true,
+	runctx.EnvKeyDAGWaitingSteps:               true,
+	runctx.EnvKeyDAGRunWorkDir:                 true,
+	runctx.EnvKeyDAGRunArtifactsDir:            true,
+	runctx.EnvKeyDAGPushBack:                   true,
+	runctx.EnvKeyDAGPushBackIteration:          true,
+	runctx.EnvKeyDAGPushBackPreviousStdoutFile: true,
 }
 
-func fingerprint(recipeDigest string, inputs []exec.FileSnapshot, controlTokens map[string]string) string {
+func fingerprint(recipeDigest string, inputs []FileSnapshot, controlTokens map[string]string) string {
 	value := struct {
-		SchemaVersion int                 `json:"schemaVersion"`
-		RecipeDigest  string              `json:"recipeDigest"`
-		Inputs        []exec.FileSnapshot `json:"inputs,omitempty"`
-		Control       map[string]string   `json:"control,omitempty"`
+		SchemaVersion int               `json:"schemaVersion"`
+		RecipeDigest  string            `json:"recipeDigest"`
+		Inputs        []FileSnapshot    `json:"inputs,omitempty"`
+		Control       map[string]string `json:"control,omitempty"`
 	}{fingerprintSchemaVersion, recipeDigest, inputs, controlTokens}
 	data, _ := json.Marshal(value)
 	return digest(data)

@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
 	"github.com/stretchr/testify/assert"
@@ -53,23 +53,23 @@ func TestRunOnce_RootContainerStdinProviderRejectedBeforeSharedClientLookup(t *t
 
 func TestSharedContainerHarnessEnvForTest_FiltersHostPathRuntimeVariables(t *testing.T) {
 	got := harness.SharedContainerHarnessEnvForTest(map[string]string{
-		"API_TOKEN":                                  "secret",
-		coreexec.EnvKeyDAGName:                       "workflow",
-		coreexec.EnvKeyDAGDocsDir:                    "/host/docs/workflow",
-		coreexec.EnvKeyDAGRunID:                      "run-1",
-		coreexec.EnvKeyDAGRunWorkDir:                 "/host/work",
-		coreexec.EnvKeyDAGRunLogFile:                 "/host/log/main.log",
-		coreexec.EnvKeyDAGRunArtifactsDir:            "/host/artifacts",
-		coreexec.EnvKeyDAGRunStepStdoutFile:          "/host/log/stdout.log",
-		coreexec.EnvKeyDAGRunStepStderrFile:          "/host/log/stderr.log",
-		coreexec.EnvKeyDAGPushBackPreviousStdoutFile: "/host/log/previous.log",
+		"API_TOKEN":                                "secret",
+		runctx.EnvKeyDAGName:                       "workflow",
+		runctx.EnvKeyDAGDocsDir:                    "/host/docs/workflow",
+		runctx.EnvKeyDAGRunID:                      "run-1",
+		runctx.EnvKeyDAGRunWorkDir:                 "/host/work",
+		runctx.EnvKeyDAGRunLogFile:                 "/host/log/main.log",
+		runctx.EnvKeyDAGRunArtifactsDir:            "/host/artifacts",
+		runctx.EnvKeyDAGRunStepStdoutFile:          "/host/log/stdout.log",
+		runctx.EnvKeyDAGRunStepStderrFile:          "/host/log/stderr.log",
+		runctx.EnvKeyDAGPushBackPreviousStdoutFile: "/host/log/previous.log",
 		"PWD": "/host/work",
 	})
 
 	assert.Equal(t, []string{
 		"API_TOKEN=secret",
-		coreexec.EnvKeyDAGName + "=workflow",
-		coreexec.EnvKeyDAGRunID + "=run-1",
+		runctx.EnvKeyDAGName + "=workflow",
+		runctx.EnvKeyDAGRunID + "=run-1",
 	}, got)
 }
 

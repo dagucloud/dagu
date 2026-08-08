@@ -17,10 +17,10 @@ import (
 	"sync"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -427,7 +427,7 @@ func (e *foreachExecutor) writeAggregate(results []itemResult) error {
 func bodyLogDir(ctx context.Context) string {
 	env := runtime.GetEnv(ctx)
 	if env.Scope != nil {
-		if stdout, ok := env.Scope.Get(coreexec.EnvKeyDAGRunStepStdoutFile); ok && stdout != "" {
+		if stdout, ok := env.Scope.Get(runctx.EnvKeyDAGRunStepStdoutFile); ok && stdout != "" {
 			return filepath.Join(filepath.Dir(stdout), "foreach")
 		}
 	}

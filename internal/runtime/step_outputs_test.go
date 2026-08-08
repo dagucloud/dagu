@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -238,7 +238,7 @@ func registerDeclaredOutputExecutor(t *testing.T, run func(context.Context, *dec
 func outputFilePathFromContext(t *testing.T, ctx context.Context) string {
 	t.Helper()
 
-	value, ok := runtime.GetEnv(ctx).Scope.Get(exec.EnvKeyDAGUOutputFile)
+	value, ok := runtime.GetEnv(ctx).Scope.Get(runctx.EnvKeyDAGUOutputFile)
 	require.True(t, ok)
 	require.NotEmpty(t, value)
 	return value

@@ -10,9 +10,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,12 +47,12 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 
 	env := runtime.NewEnv(ctx, ir.Step{ID: "build-id", Name: "build"})
 	env.Scope = env.Scope.WithEntries(map[string]string{
-		exec.EnvKeyDAGRunStatus:                  ir.Succeeded.String(),
-		exec.EnvKeyDAGRunStepStdoutFile:          filepath.Join(tmpDir, "stdout.log"),
-		exec.EnvKeyDAGRunStepStderrFile:          filepath.Join(tmpDir, "stderr.log"),
-		exec.EnvKeyDAGUOutputFile:                filepath.Join(tmpDir, "output.json"),
-		exec.EnvKeyDAGPushBackIteration:          "2",
-		exec.EnvKeyDAGPushBackPreviousStdoutFile: filepath.Join(tmpDir, "previous.log"),
+		runctx.EnvKeyDAGRunStatus:                  ir.Succeeded.String(),
+		runctx.EnvKeyDAGRunStepStdoutFile:          filepath.Join(tmpDir, "stdout.log"),
+		runctx.EnvKeyDAGRunStepStderrFile:          filepath.Join(tmpDir, "stderr.log"),
+		runctx.EnvKeyDAGUOutputFile:                filepath.Join(tmpDir, "output.json"),
+		runctx.EnvKeyDAGPushBackIteration:          "2",
+		runctx.EnvKeyDAGPushBackPreviousStdoutFile: filepath.Join(tmpDir, "previous.log"),
 	}, cmnvalue.EnvSourceStepEnv)
 	ctx = runtime.WithEnv(ctx, env)
 

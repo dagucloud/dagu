@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -592,7 +593,7 @@ func inProcessLoadOptions(
 func inProcessExtraEnvs(rCtx exec.Context, req executor.SubWorkflowRequest) []string {
 	envs := inheritedEnvForLocalRunner(rCtx.AllEnvs())
 	if req.ExternalStepRetry {
-		envs = append(envs, exec.EnvKeyExternalStepRetry+"=1")
+		envs = append(envs, runctx.EnvKeyExternalStepRetry+"=1")
 	}
 	return envs
 }

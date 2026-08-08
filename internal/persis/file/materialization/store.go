@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/gofrs/flock"
 )
@@ -38,7 +37,7 @@ func New(dir string) *Store {
 type heldLock struct {
 	store    *Store
 	locks    []*flock.Flock
-	requests []exec.PathLockRequest
+	requests []incremental.PathLockRequest
 	released bool
 }
 
@@ -55,26 +54,26 @@ func (l *heldLock) Release() error {
 }
 
 // Get returns one committed manifest.
-func (s *Store) Get(_ context.Context, key string) (*exec.Materialization, error) {
+func (s *Store) Get(_ context.Context, key string) (*incremental.Materialization, error) {
 	data, err := os.ReadFile(s.manifestPath(key)) //nolint:gosec // key is generated internally
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, exec.ErrMaterializationNotFound
+		return nil, incremental.ErrMaterializationNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	var manifest exec.Materialization
+	var manifest incremental.Materialization
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("decode materialization manifest: %w", err)
 	}
-	if manifest.SchemaVersion != exec.MaterializationSchemaVersion {
-		return nil, fmt.Errorf("%w: unsupported materialization schema version %d", exec.ErrMaterializationNotFound, manifest.SchemaVersion)
+	if manifest.SchemaVersion != incremental.MaterializationSchemaVersion {
+		return nil, fmt.Errorf("%w: unsupported materialization schema version %d", incremental.ErrMaterializationNotFound, manifest.SchemaVersion)
 	}
 	return &manifest, nil
 }
 
 // AcquirePaths acquires path locks in stable order and recovers incomplete commits.
-func (s *Store) AcquirePaths(ctx context.Context, requests []exec.PathLockRequest) (exec.MaterializationLock, error) {
+func (s *Store) AcquirePaths(ctx context.Context, requests []incremental.PathLockRequest) (incremental.MaterializationLock, error) {
 	if s == nil || s.root == "" {
 		return nil, fmt.Errorf("materialization store is unavailable")
 	}
@@ -100,10 +99,10 @@ func (s *Store) AcquirePaths(ctx context.Context, requests []exec.PathLockReques
 			}
 			held.locks = append(held.locks, lock)
 
-			if request.Mode == exec.PathLockExclusive {
+			if request.Mode == incremental.PathLockExclusive {
 				if err := s.recover(request.Key); err != nil {
 					_ = held.Release()
-					return nil, fmt.Errorf("%w: %w", exec.ErrMaterializationRecovery, err)
+					return nil, fmt.Errorf("%w: %w", incremental.ErrMaterializationRecovery, err)
 				}
 				continue
 			}
@@ -116,7 +115,7 @@ func (s *Store) AcquirePaths(ctx context.Context, requests []exec.PathLockReques
 
 			_ = held.Release()
 			if err := s.recoverWithExclusiveLock(ctx, request.Key); err != nil {
-				return nil, fmt.Errorf("%w: %w", exec.ErrMaterializationRecovery, err)
+				return nil, fmt.Errorf("%w: %w", incremental.ErrMaterializationRecovery, err)
 			}
 			restart = true
 			break
@@ -127,8 +126,8 @@ func (s *Store) AcquirePaths(ctx context.Context, requests []exec.PathLockReques
 	}
 }
 
-func acquire(ctx context.Context, lock *flock.Flock, mode exec.PathLockMode) (bool, error) {
-	if mode == exec.PathLockShared {
+func acquire(ctx context.Context, lock *flock.Flock, mode incremental.PathLockMode) (bool, error) {
+	if mode == incremental.PathLockShared {
 		return lock.TryRLockContext(ctx, 25*time.Millisecond)
 	}
 	return lock.TryLockContext(ctx, 25*time.Millisecond)
@@ -148,7 +147,7 @@ func (s *Store) recoverWithExclusiveLock(ctx context.Context, key string) error 
 }
 
 // Commit publishes the staged file and manifest with rollback on failure.
-func (s *Store) Commit(_ context.Context, lock exec.MaterializationLock, req exec.MaterializationCommit) error {
+func (s *Store) Commit(_ context.Context, lock incremental.MaterializationLock, req incremental.MaterializationCommit) error {
 	held, ok := lock.(*heldLock)
 	if !ok || held.store != s || held.released {
 		return fmt.Errorf("invalid materialization lock")
@@ -156,7 +155,7 @@ func (s *Store) Commit(_ context.Context, lock exec.MaterializationLock, req exe
 	outputKey := incremental.ComparisonKey(req.FinalPath)
 	hasOutputLock := false
 	for _, request := range held.requests {
-		if request.Mode == exec.PathLockExclusive && request.Key == outputKey {
+		if request.Mode == incremental.PathLockExclusive && request.Key == outputKey {
 			hasOutputLock = true
 			break
 		}
@@ -223,13 +222,13 @@ func (s *Store) Commit(_ context.Context, lock exec.MaterializationLock, req exe
 }
 
 type commitJournal struct {
-	FinalPath        string               `json:"finalPath"`
-	BackupPath       string               `json:"backupPath"`
-	ManifestPath     string               `json:"manifestPath"`
-	PreviousFinal    *exec.FileSnapshot   `json:"previousFinal,omitempty"`
-	PreviousManifest json.RawMessage      `json:"previousManifest,omitempty"`
-	Proposed         exec.Materialization `json:"proposed"`
-	PreserveManifest bool                 `json:"preserveManifest,omitempty"`
+	FinalPath        string                      `json:"finalPath"`
+	BackupPath       string                      `json:"backupPath"`
+	ManifestPath     string                      `json:"manifestPath"`
+	PreviousFinal    *incremental.FileSnapshot   `json:"previousFinal,omitempty"`
+	PreviousManifest json.RawMessage             `json:"previousManifest,omitempty"`
+	Proposed         incremental.Materialization `json:"proposed"`
+	PreserveManifest bool                        `json:"preserveManifest,omitempty"`
 }
 
 func (s *Store) recover(pathKey string) error {
@@ -248,7 +247,7 @@ func (s *Store) recover(pathKey string) error {
 	manifestData, manifestErr := os.ReadFile(journal.ManifestPath) //nolint:gosec
 	manifestCommitted := journal.PreserveManifest && preservedManifestMatches(manifestData, manifestErr, journal.PreviousManifest)
 	if !journal.PreserveManifest {
-		var current exec.Materialization
+		var current incremental.Materialization
 		manifestCommitted = manifestErr == nil && json.Unmarshal(manifestData, &current) == nil && current.CommitID == journal.Proposed.CommitID
 	}
 	if manifestCommitted && verifyFile(journal.FinalPath, journal.Proposed.Output) == nil {
@@ -324,20 +323,20 @@ func restorePrevious(journal commitJournal) error {
 	return nil
 }
 
-func normalizeRequests(requests []exec.PathLockRequest) []exec.PathLockRequest {
-	byKey := make(map[string]exec.PathLockMode, len(requests))
+func normalizeRequests(requests []incremental.PathLockRequest) []incremental.PathLockRequest {
+	byKey := make(map[string]incremental.PathLockMode, len(requests))
 	for _, request := range requests {
 		if request.Key == "" {
 			continue
 		}
 		mode := byKey[request.Key]
-		if mode == "" || request.Mode == exec.PathLockExclusive {
+		if mode == "" || request.Mode == incremental.PathLockExclusive {
 			byKey[request.Key] = request.Mode
 		}
 	}
-	result := make([]exec.PathLockRequest, 0, len(byKey))
+	result := make([]incremental.PathLockRequest, 0, len(byKey))
 	for key, mode := range byKey {
-		result = append(result, exec.PathLockRequest{Key: key, Mode: mode})
+		result = append(result, incremental.PathLockRequest{Key: key, Mode: mode})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Key < result[j].Key })
 	return result
@@ -367,7 +366,7 @@ func digestName(value string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func snapshotExisting(path string) (*exec.FileSnapshot, error) {
+func snapshotExisting(path string) (*incremental.FileSnapshot, error) {
 	_, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -382,11 +381,11 @@ func snapshotExisting(path string) (*exec.FileSnapshot, error) {
 	return &snapshot, nil
 }
 
-func snapshotFile(path string) (exec.FileSnapshot, error) {
+func snapshotFile(path string) (incremental.FileSnapshot, error) {
 	return incremental.Snapshot("", path)
 }
 
-func verifyFile(path string, expected exec.FileSnapshot) error {
+func verifyFile(path string, expected incremental.FileSnapshot) error {
 	got, err := snapshotFile(path)
 	if err != nil {
 		return err

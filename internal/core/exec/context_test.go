@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,12 +124,12 @@ func TestNewContext_DAGParamsJSON(t *testing.T) {
 			result := rCtx.UserEnvsMap()
 
 			if tt.expectSet {
-				assert.Equal(t, tt.paramsJSON, result[exec.EnvKeyDAGParamsJSON])
-				assert.Equal(t, tt.paramsJSON, result[exec.EnvKeyDAGParamsJSONCompat])
+				assert.Equal(t, tt.paramsJSON, result[runctx.EnvKeyDAGParamsJSON])
+				assert.Equal(t, tt.paramsJSON, result[runctx.EnvKeyDAGParamsJSONCompat])
 			} else {
-				_, ok := result[exec.EnvKeyDAGParamsJSON]
+				_, ok := result[runctx.EnvKeyDAGParamsJSON]
 				assert.False(t, ok, "DAG_PARAMS_JSON should not be set")
-				_, ok = result[exec.EnvKeyDAGParamsJSONCompat]
+				_, ok = result[runctx.EnvKeyDAGParamsJSONCompat]
 				assert.False(t, ok, "DAGU_PARAMS_JSON should not be set")
 			}
 		})
@@ -185,9 +186,9 @@ func TestNewContext_DAGDocsDir(t *testing.T) {
 			result := rCtx.UserEnvsMap()
 
 			if tt.expectSet {
-				assert.Equal(t, tt.expected, result[exec.EnvKeyDAGDocsDir])
+				assert.Equal(t, tt.expected, result[runctx.EnvKeyDAGDocsDir])
 			} else {
-				_, ok := result[exec.EnvKeyDAGDocsDir]
+				_, ok := result[runctx.EnvKeyDAGDocsDir]
 				assert.False(t, ok, "DAG_DOCS_DIR should not be set")
 			}
 		})
@@ -203,7 +204,7 @@ func TestNewContext_DAGDocsDirRequiresConfig(t *testing.T) {
 	rCtx := exec.GetContext(ctx)
 	result := rCtx.UserEnvsMap()
 
-	_, ok := result[exec.EnvKeyDAGDocsDir]
+	_, ok := result[runctx.EnvKeyDAGDocsDir]
 	assert.False(t, ok, "DAG_DOCS_DIR should not be set when no config is in context")
 }
 
@@ -231,9 +232,9 @@ func TestNewContext_DAGRunWorkDir(t *testing.T) {
 			rCtx := exec.GetContext(ctx)
 			result := rCtx.UserEnvsMap()
 			if tt.expectSet {
-				assert.Equal(t, tt.workDir, result[exec.EnvKeyDAGRunWorkDir])
+				assert.Equal(t, tt.workDir, result[runctx.EnvKeyDAGRunWorkDir])
 			} else {
-				_, ok := result[exec.EnvKeyDAGRunWorkDir]
+				_, ok := result[runctx.EnvKeyDAGRunWorkDir]
 				assert.False(t, ok, "DAG_RUN_WORK_DIR should not be set")
 			}
 		})
@@ -265,9 +266,9 @@ func TestNewContext_DAGRunArtifactsDir(t *testing.T) {
 			rCtx := exec.GetContext(ctx)
 			result := rCtx.UserEnvsMap()
 			if tt.expectSet {
-				assert.Equal(t, tt.artifactDir, result[exec.EnvKeyDAGRunArtifactsDir])
+				assert.Equal(t, tt.artifactDir, result[runctx.EnvKeyDAGRunArtifactsDir])
 			} else {
-				_, ok := result[exec.EnvKeyDAGRunArtifactsDir]
+				_, ok := result[runctx.EnvKeyDAGRunArtifactsDir]
 				assert.False(t, ok, "DAG_RUN_ARTIFACTS_DIR should not be set")
 			}
 		})
@@ -296,7 +297,7 @@ func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
 	result := exec.GetContext(ctx).UserEnvsMap()
 	assert.Equal(t, artifactDir, result["WORK_DIR"])
 	assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), filepath.Clean(result["CURRENT_IDEA_PATH"]))
-	assert.Equal(t, artifactDir, result[exec.EnvKeyDAGRunArtifactsDir])
+	assert.Equal(t, artifactDir, result[runctx.EnvKeyDAGRunArtifactsDir])
 }
 
 func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {

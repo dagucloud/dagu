@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -44,11 +43,11 @@ type PrepareRequest struct {
 
 // Session holds path locks and one ready-node materialization decision.
 type Session struct {
-	store        exec.MaterializationStore
-	lock         exec.MaterializationLock
+	store        MaterializationStore
+	lock         MaterializationLock
 	pathKeys     *PathKeyResolver
 	request      PrepareRequest
-	inputs       []exec.FileSnapshot
+	inputs       []FileSnapshot
 	inputPaths   map[string]string
 	output       ir.StepOutputDeclaration
 	outputPath   string
@@ -63,7 +62,7 @@ type Session struct {
 }
 
 // Prepare acquires path locks for a ready node before its preconditions run.
-func Prepare(ctx context.Context, store exec.MaterializationStore, request PrepareRequest) (*Session, error) {
+func Prepare(ctx context.Context, store MaterializationStore, request PrepareRequest) (*Session, error) {
 	if request.DAG == nil {
 		return nil, fmt.Errorf("incremental evaluation requires a workflow")
 	}
@@ -101,13 +100,13 @@ func Prepare(ctx context.Context, store exec.MaterializationStore, request Prepa
 		return session, fmt.Errorf("incremental materialization store is unavailable")
 	}
 
-	locks := make([]exec.PathLockRequest, 0, len(request.Step.Inputs)+1)
+	locks := make([]PathLockRequest, 0, len(request.Step.Inputs)+1)
 	for _, input := range request.Step.Inputs {
-		locks = append(locks, exec.PathLockRequest{Key: session.pathKeys.ComparisonKey(input.Path), Mode: exec.PathLockShared})
+		locks = append(locks, PathLockRequest{Key: session.pathKeys.ComparisonKey(input.Path), Mode: PathLockShared})
 	}
 	if hasPathOutput {
 		session.outputKey = session.pathKeys.ComparisonKey(output.Path)
-		locks = append(locks, exec.PathLockRequest{Key: session.outputKey, Mode: exec.PathLockExclusive})
+		locks = append(locks, PathLockRequest{Key: session.outputKey, Mode: PathLockExclusive})
 	}
 	if !request.Dry {
 		lock, err := store.AcquirePaths(ctx, locks)
@@ -116,7 +115,7 @@ func Prepare(ctx context.Context, store exec.MaterializationStore, request Prepa
 			session.metadata.Reason = dagrun.IncrementalReasonEvaluationFailed
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				session.metadata.Reason = dagrun.IncrementalReasonCancelledBeforeDecision
-			} else if errors.Is(err, exec.ErrMaterializationRecovery) {
+			} else if errors.Is(err, ErrMaterializationRecovery) {
 				session.metadata.Reason = dagrun.IncrementalReasonRecoveryFailed
 			}
 			return session, err
@@ -207,7 +206,7 @@ func (s *Session) Evaluate(ctx context.Context) error {
 	}
 
 	manifest, err := s.store.Get(ctx, s.materialKey)
-	if errors.Is(err, exec.ErrMaterializationNotFound) {
+	if errors.Is(err, ErrMaterializationNotFound) {
 		s.metadata.Decision = dagrun.IncrementalDecisionExecute
 		s.metadata.Phase = dagrun.IncrementalPhaseExecute
 		s.metadata.Reason = dagrun.IncrementalReasonManifestMissing
@@ -327,8 +326,8 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 	if err != nil {
 		return err
 	}
-	manifest := exec.Materialization{
-		SchemaVersion:      exec.MaterializationSchemaVersion,
+	manifest := Materialization{
+		SchemaVersion:      MaterializationSchemaVersion,
 		MaterializationKey: s.materialKey,
 		CommitID:           commitID,
 		DAGName:            s.request.DAG.Name,
@@ -342,7 +341,7 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 		CompletedAt:        time.Now().UTC(),
 	}
 	s.metadata.Phase = dagrun.IncrementalPhaseCommit
-	if err := s.store.Commit(ctx, s.lock, exec.MaterializationCommit{
+	if err := s.store.Commit(ctx, s.lock, MaterializationCommit{
 		StagingPath:      staging,
 		FinalPath:        s.outputPath,
 		Manifest:         manifest,

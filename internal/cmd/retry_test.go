@@ -17,11 +17,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -246,7 +246,7 @@ steps:
 
 	t.Run("QueueDispatchRetryTreatsMissingRunAsStaleDispatch", func(t *testing.T) {
 		th := test.SetupCommand(t)
-		t.Setenv(exec.EnvKeyQueueDispatchRetry, "1")
+		t.Setenv(runctx.EnvKeyQueueDispatchRetry, "1")
 
 		dagFile := th.DAG(t, `name: queue-dispatch-stale-retry
 steps:
@@ -263,7 +263,7 @@ steps:
 
 	t.Run("QueueDispatchRetryUsesQueuedAttempt", func(t *testing.T) {
 		th := test.SetupCommand(t)
-		t.Setenv(exec.EnvKeyQueueDispatchRetry, "1")
+		t.Setenv(runctx.EnvKeyQueueDispatchRetry, "1")
 
 		dagFile := th.DAG(t, `name: queue-dispatch-existing-attempt
 steps:
@@ -304,7 +304,7 @@ steps:
 
 	t.Run("QueueDispatchRetryTriggerCreatesNewAttempt", func(t *testing.T) {
 		th := test.SetupCommand(t)
-		t.Setenv(exec.EnvKeyQueueDispatchRetry, "1")
+		t.Setenv(runctx.EnvKeyQueueDispatchRetry, "1")
 
 		dagFile := th.DAG(t, `name: queue-dispatch-retry-attempt
 steps:

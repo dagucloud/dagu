@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,19 +29,19 @@ func TestExternalStepRetryEnabled(t *testing.T) {
 	})
 
 	t.Run("EnabledByProcessEnv", func(t *testing.T) {
-		t.Setenv(exec.EnvKeyExternalStepRetry, "1")
+		t.Setenv(runctx.EnvKeyExternalStepRetry, "1")
 		ctx := exec.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1", "test.log")
 		assert.True(t, externalStepRetryEnabled(ctx))
 	})
 
 	t.Run("EnabledByExecutionContextEnv", func(t *testing.T) {
-		_ = os.Unsetenv(exec.EnvKeyExternalStepRetry)
+		_ = os.Unsetenv(runctx.EnvKeyExternalStepRetry)
 		ctx := exec.NewContext(
 			context.Background(),
 			&ir.DAG{Name: "test"},
 			"run-1",
 			"test.log",
-			exec.WithEnvVars(exec.EnvKeyExternalStepRetry+"=1"),
+			exec.WithEnvVars(runctx.EnvKeyExternalStepRetry+"=1"),
 		)
 		assert.True(t, externalStepRetryEnabled(ctx))
 	})
@@ -79,7 +80,7 @@ func TestRunNodeExecution_ExternalStepRetrySkipsRepeatBookkeeping(t *testing.T) 
 		&ir.DAG{Name: "retry-dag", WorkingDir: logDir},
 		"run-1",
 		filepath.Join(logDir, "dag.log"),
-		exec.WithEnvVars(exec.EnvKeyExternalStepRetry+"=1"),
+		exec.WithEnvVars(runctx.EnvKeyExternalStepRetry+"=1"),
 	)
 	require.NoError(t, node.Prepare(ctx, logDir, "run-1"))
 

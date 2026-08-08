@@ -19,10 +19,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -1159,8 +1159,8 @@ func TestNodeSetupContextBeforeExec(t *testing.T) {
 	// Verify environment variables were set
 	newEnv := runtime.GetEnv(newCtx)
 
-	stdoutVar, _ := newEnv.Scope.Get(exec.EnvKeyDAGRunStepStdoutFile)
-	stderrVar, _ := newEnv.Scope.Get(exec.EnvKeyDAGRunStepStderrFile)
+	stdoutVar, _ := newEnv.Scope.Get(runctx.EnvKeyDAGRunStepStdoutFile)
+	stderrVar, _ := newEnv.Scope.Get(runctx.EnvKeyDAGRunStepStderrFile)
 
 	assert.Equal(t, "/tmp/stdout.log", stdoutVar)
 	assert.Equal(t, "/tmp/stderr.log", stderrVar)

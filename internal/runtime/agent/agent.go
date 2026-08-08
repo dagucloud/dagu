@@ -43,6 +43,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
+	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -100,7 +101,7 @@ type Agent struct {
 	stateStore dagstate.Store
 
 	// materializationStore coordinates incremental file materializations.
-	materializationStore exec.MaterializationStore
+	materializationStore incremental.MaterializationStore
 
 	// secretStore resolves workspace-local team-managed secret references.
 	secretStore secretpkg.Store
@@ -337,7 +338,7 @@ type Options struct {
 	// StateStore is the persistent state store shared across DAG runs.
 	StateStore dagstate.Store
 	// MaterializationStore coordinates incremental file materializations.
-	MaterializationStore exec.MaterializationStore
+	MaterializationStore incremental.MaterializationStore
 	// SecretStore resolves local registry refs and runtime profile secrets.
 	SecretStore secretpkg.Store
 	// SecretReferenceResolver resolves DAG-level registry refs.

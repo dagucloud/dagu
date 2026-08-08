@@ -16,8 +16,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 // Context contains the execution metadata for a dag-run.
@@ -38,7 +40,7 @@ type Context struct {
 	DAGRunStore          dagrun.DAGRunStore
 	QueueStore           queue.QueueStore
 	StateStore           dagstate.Store
-	MaterializationStore MaterializationStore
+	MaterializationStore incremental.MaterializationStore
 	DAGRunLogDir         string
 	DAGRunArtifactDir    string
 	ProfileName          string
@@ -264,7 +266,7 @@ func WithStateStore(store dagstate.Store) ContextOption {
 }
 
 // WithMaterializationStore sets the incremental materialization store.
-func WithMaterializationStore(store MaterializationStore) ContextOption {
+func WithMaterializationStore(store incremental.MaterializationStore) ContextOption {
 	return func(o *contextOptions) {
 		o.MaterializationStore = store
 	}
@@ -462,10 +464,10 @@ func buildDAGRunBuiltinContext(
 	addDAGRunBuiltinValue(values, "context.attempt.id", options.AttemptID)
 	addDAGRunBuiltinValue(values, "context.trigger.type", options.TriggerType.String())
 	addDAGRunBuiltinValue(values, "context.trigger.actor", options.TriggerActor)
-	addDAGRunBuiltinValue(values, "context.paths.log_file", managedEnvs[EnvKeyDAGRunLogFile])
-	addDAGRunBuiltinValue(values, "context.paths.work_dir", managedEnvs[EnvKeyDAGRunWorkDir])
-	addDAGRunBuiltinValue(values, "context.paths.artifacts_dir", managedEnvs[EnvKeyDAGRunArtifactsDir])
-	addDAGRunBuiltinValue(values, "context.paths.docs_dir", managedEnvs[EnvKeyDAGDocsDir])
+	addDAGRunBuiltinValue(values, "context.paths.log_file", managedEnvs[runctx.EnvKeyDAGRunLogFile])
+	addDAGRunBuiltinValue(values, "context.paths.work_dir", managedEnvs[runctx.EnvKeyDAGRunWorkDir])
+	addDAGRunBuiltinValue(values, "context.paths.artifacts_dir", managedEnvs[runctx.EnvKeyDAGRunArtifactsDir])
+	addDAGRunBuiltinValue(values, "context.paths.docs_dir", managedEnvs[runctx.EnvKeyDAGDocsDir])
 	addDAGRunBuiltinValue(values, "context.profile.name", options.ProfileName)
 	addDAGRunBuiltinValue(values, "context.profile.resolved_at", options.ProfileResolvedAt)
 	return cmnvalue.NewBuiltinContext(values)

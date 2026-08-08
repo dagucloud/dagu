@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 func prepareIncrementalPlan(ctx context.Context, plan *Plan) error {
@@ -196,10 +196,10 @@ func validateIncrementalRedirectAliases(
 			}
 			artifactDir := ""
 			if env.Scope != nil {
-				artifactDir, _ = env.Scope.Get(coreexec.EnvKeyDAGRunArtifactsDir)
+				artifactDir, _ = env.Scope.Get(runctx.EnvKeyDAGRunArtifactsDir)
 			}
 			if strings.TrimSpace(artifactDir) == "" {
-				return fmt.Errorf("step %s %s: %s is not set; enable artifacts for this DAG", step.Name, redirect.field, coreexec.EnvKeyDAGRunArtifactsDir)
+				return fmt.Errorf("step %s %s: %s is not set; enable artifacts for this DAG", step.Name, redirect.field, runctx.EnvKeyDAGRunArtifactsDir)
 			}
 			artifactDir, err = filepath.Abs(artifactDir)
 			if err != nil {

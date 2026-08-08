@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	dagruntime "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -1122,7 +1123,7 @@ func TestTaskExtraEnvs(t *testing.T) {
 
 	assert.Nil(t, taskExtraEnvs(nil))
 	assert.Nil(t, taskExtraEnvs(&coordinatorv1.Task{}))
-	assert.Equal(t, []string{exec.EnvKeyExternalStepRetry + "=1"}, taskExtraEnvs(&coordinatorv1.Task{
+	assert.Equal(t, []string{runctx.EnvKeyExternalStepRetry + "=1"}, taskExtraEnvs(&coordinatorv1.Task{
 		ExternalStepRetry: true,
 	}))
 }

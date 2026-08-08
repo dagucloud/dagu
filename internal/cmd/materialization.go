@@ -6,11 +6,11 @@ package cmd
 import (
 	"path/filepath"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/incremental"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 )
 
-func localMaterializationStore(ctx *Context) exec.MaterializationStore {
+func localMaterializationStore(ctx *Context) incremental.MaterializationStore {
 	if ctx == nil || ctx.Config == nil || ctx.Config.Paths.DataDir == "" {
 		return nil
 	}

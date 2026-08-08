@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec
+package runctx
 
 // Environment variable keys that are automatically set by Dagu during execution.
 const (
