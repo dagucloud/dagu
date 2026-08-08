@@ -23,10 +23,48 @@ export function graphExportBackground(): string {
 }
 
 /**
+ * Replaces mermaid's HTML node labels with plain SVG text. foreignObject
+ * content taints the canvas during PNG rasterization and does not render in
+ * non-browser SVG tools, so exports carry native text instead. Font styling
+ * comes from the rendered label so both themes export faithfully.
+ */
+function replaceForeignObjectLabels(
+  clone: SVGSVGElement,
+  rendered: SVGSVGElement
+): void {
+  const cloneLabels = Array.from(clone.querySelectorAll('foreignObject'));
+  const renderedLabels = Array.from(rendered.querySelectorAll('foreignObject'));
+
+  cloneLabels.forEach((label, index) => {
+    const source = renderedLabels[index];
+    const textContent = (source ?? label).textContent?.trim() ?? '';
+    const width = Number(label.getAttribute('width') ?? 0);
+    const height = Number(label.getAttribute('height') ?? 0);
+
+    const text = document.createElementNS(
+      'http://www.w3.org/2000/svg',
+      'text'
+    );
+    text.setAttribute('x', String(width / 2));
+    text.setAttribute('y', String(height / 2));
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dominant-baseline', 'central');
+    if (source?.firstElementChild) {
+      const style = window.getComputedStyle(source.firstElementChild);
+      text.setAttribute('font-family', style.fontFamily);
+      text.setAttribute('font-size', style.fontSize);
+      text.setAttribute('fill', style.color);
+    }
+    text.textContent = textContent;
+    label.replaceWith(text);
+  });
+}
+
+/**
  * Serializes the rendered graph SVG for export: strips the on-screen zoom
- * transform, pins explicit dimensions from the viewBox, and paints an opaque
- * background rect. Mermaid embeds its styles inside the SVG, so the clone is
- * self-contained.
+ * transform, pins explicit dimensions from the viewBox, converts HTML labels
+ * to SVG text, and paints an opaque background rect. Mermaid embeds its
+ * styles inside the SVG, so the clone is self-contained.
  */
 export function serializeGraphSvg(
   svg: SVGSVGElement,
@@ -35,6 +73,7 @@ export function serializeGraphSvg(
   const clone = svg.cloneNode(true) as SVGSVGElement;
   clone.style.transform = '';
   clone.style.transformOrigin = '';
+  replaceForeignObjectLabels(clone, svg);
 
   const viewBox = clone.viewBox.baseVal;
   const width =
