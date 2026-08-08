@@ -774,8 +774,6 @@ function DAGStatus({
                             ? onRightClickStepOnGraph
                             : undefined
                         }
-                        showIcons={displayDAGRun.status > Status.NotStarted}
-                        animate={displayDAGRun.status == Status.Running}
                         height={graphHeight}
                       />
                     </div>

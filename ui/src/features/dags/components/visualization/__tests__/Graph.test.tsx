@@ -57,7 +57,6 @@ describe('Graph', () => {
           node('prepare', NodeStatus.Success),
           node('load', NodeStatus.Success, ['prepare']),
         ]}
-        showIcons={false}
       />
     );
 
@@ -90,7 +89,6 @@ describe('Graph', () => {
       <Graph
         type="status"
         steps={[node('load', NodeStatus.Running)]}
-        showIcons={false}
       />
     );
 
@@ -127,7 +125,6 @@ describe('Graph', () => {
           node('prepare', NodeStatus.Success),
           node('load', NodeStatus.Running),
         ]}
-        showIcons={false}
       />
     );
 
@@ -186,7 +183,6 @@ describe('Graph', () => {
         steps={[node('load', NodeStatus.Running)]}
         flowchart="LR"
         onChangeFlowchart={vi.fn()}
-        showIcons={false}
       />
     );
 

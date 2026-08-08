@@ -487,7 +487,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                     onChangeFlowchart={onChangeFlowchart}
                     onClickNode={handleGraphNodeSelect}
                     selectOnClick
-                    showIcons={false}
                   />
                 </BorderedBox>
                 <div className="mt-2 flex justify-end">

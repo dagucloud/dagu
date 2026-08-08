@@ -433,6 +433,18 @@
   }
 }
 
+/* Pulse running graph nodes. The graph styler force-sets stroke properties
+   inline with !important, so only opacity is safe to animate here. */
+@media (prefers-reduced-motion: no-preference) {
+  .mermaid g.node.running rect,
+  .mermaid g.node.running polygon,
+  .mermaid g.node.running path,
+  .mermaid g.node.running circle,
+  .mermaid g.node.running ellipse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+}
+
 /* Toast Shadow Utility */
 .shadow-toast {
   box-shadow: var(--shadow-lg);
