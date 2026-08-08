@@ -357,13 +357,27 @@ jobs:
       - name: Test PowerShell installer
         shell: powershell
         run: |
+          $installerPath = (Resolve-Path "scripts/installer.ps1").Path
           $source = [IO.File]::ReadAllText(
-            (Resolve-Path "scripts/installer.ps1").Path,
+            $installerPath,
             [Text.Encoding]::UTF8
           )
 
           $Service = ""
           & ([scriptblock]::Create($source)) -NoPrompt -DryRun
+
+          try {
+            & $installerPath -NoPrompt -DryRun -Uninstall -Version latest
+            throw "The installer accepted install-only flags during uninstall."
+          }
+          catch {
+            if ($_.Exception.Message -eq "The installer accepted install-only flags during uninstall.") {
+              throw
+            }
+            if ($_.Exception.Message -ne "-Version is only supported during install.") {
+              throw
+            }
+          }
 
           & ([scriptblock]::Create($source)) `
             -NoPrompt -DryRun -Service no -OpenBrowser no `

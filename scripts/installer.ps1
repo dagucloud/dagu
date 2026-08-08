@@ -63,6 +63,7 @@ $ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Script:InstallerSource = [IO.File]::ReadAllText($MyInvocation.MyCommand.Path, [Text.Encoding]::UTF8)
+$Script:InstallerBoundParameterNames = @($PSBoundParameters.Keys)
 $Script:ReleaseBase = "https://github.com/dagucloud/dagu/releases"
 $Script:ReleaseApi = "https://api.github.com/repos/dagucloud/dagu/releases/latest"
 $Script:WinSWVersion = "v2.12.0"
@@ -296,19 +297,19 @@ function Validate-UninstallArgs {
     if (-not $Uninstall) {
         return
     }
-    if ($PSBoundParameters.ContainsKey("Version")) {
+    if ($Script:InstallerBoundParameterNames -contains "Version") {
         throw "-Version is only supported during install."
     }
-    if ($PSBoundParameters.ContainsKey("HostAddress") -or $PSBoundParameters.ContainsKey("Port")) {
+    if (($Script:InstallerBoundParameterNames -contains "HostAddress") -or ($Script:InstallerBoundParameterNames -contains "Port")) {
         throw "-HostAddress and -Port are only supported during install."
     }
-    if ($PSBoundParameters.ContainsKey("AdminUsername") -or $PSBoundParameters.ContainsKey("AdminPassword")) {
+    if (($Script:InstallerBoundParameterNames -contains "AdminUsername") -or ($Script:InstallerBoundParameterNames -contains "AdminPassword")) {
         throw "Admin bootstrap flags are only supported during install."
     }
-    if ($PSBoundParameters.ContainsKey("OpenBrowser")) {
+    if ($Script:InstallerBoundParameterNames -contains "OpenBrowser") {
         throw "-OpenBrowser is only supported during install."
     }
-    if ($PSBoundParameters.ContainsKey("Service")) {
+    if ($Script:InstallerBoundParameterNames -contains "Service") {
         throw "-Service is only supported during install. Use -ServiceScope to narrow service uninstall discovery."
     }
     if ($ServiceScope -and $ServiceScope -ne "system") {
