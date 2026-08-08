@@ -366,8 +366,10 @@ jobs:
           $Service = ""
           & ([scriptblock]::Create($source)) -NoPrompt -DryRun
 
+          $stagedInstaller = Join-Path $env:RUNNER_TEMP "dagu-validation-installer.ps1"
+          [IO.File]::WriteAllText($stagedInstaller, $source, [Text.Encoding]::UTF8)
           try {
-            & $installerPath -NoPrompt -DryRun -Uninstall -Version latest
+            & $stagedInstaller -NoPrompt -DryRun -Uninstall -Version latest
             throw "The installer accepted install-only flags during uninstall."
           }
           catch {
@@ -377,6 +379,9 @@ jobs:
             if ($_.Exception.Message -ne "-Version is only supported during install.") {
               throw
             }
+          }
+          finally {
+            Remove-Item -LiteralPath $stagedInstaller -Force -ErrorAction SilentlyContinue
           }
 
           & ([scriptblock]::Create($source)) `
