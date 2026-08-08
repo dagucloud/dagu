@@ -3,9 +3,9 @@
 
 import { SyncItemKind } from '@/api/v1/schema';
 
-export type SyncKind = 'dag' | 'doc';
+export type SyncKind = 'dag' | 'doc' | 'doc-asset';
 
-export const syncKindFilters: SyncKind[] = ['dag', 'doc'];
+export const syncKindFilters: SyncKind[] = ['dag', 'doc', 'doc-asset'];
 
 export const syncKindLabels: Record<
   SyncKind,
@@ -31,16 +31,25 @@ export const syncKindLabels: Record<
     selectionPlural: 'docs',
     badge: 'doc',
   },
+  'doc-asset': {
+    singular: 'attachment',
+    plural: 'Attachments',
+    selectionSingular: 'attachment',
+    selectionPlural: 'attachments',
+    badge: 'file',
+  },
 };
 
 export const syncKindBadgeClass: Partial<Record<SyncKind, string>> = {
   doc: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  'doc-asset': 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
 };
 
 export function createSyncKindCounts(): Record<SyncKind, number> {
   return {
     dag: 0,
     doc: 0,
+    'doc-asset': 0,
   };
 }
 
@@ -52,10 +61,18 @@ export function parseSyncKind(value: string | null): SyncKind {
 }
 
 export function normalizeSyncItemKind(kind: SyncItemKind): SyncKind {
-  return kind === SyncItemKind.doc ? 'doc' : 'dag';
+  switch (kind) {
+    case SyncItemKind.doc:
+      return 'doc';
+    case SyncItemKind.doc_asset:
+      return 'doc-asset';
+    default:
+      return 'dag';
+  }
 }
 
 export function deriveSyncKindFromItemId(id: string): SyncKind {
+  if (id.startsWith('docs/.attachments/')) return 'doc-asset';
   if (id.startsWith('docs/')) return 'doc';
   return 'dag';
 }

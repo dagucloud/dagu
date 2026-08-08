@@ -17,6 +17,9 @@ interface DiffModalProps {
   onOpenChange: (open: boolean) => void;
   dagId: string;
   status?: SyncStatus;
+  binary?: boolean;
+  localSize?: number;
+  remoteSize?: number;
   localContent?: string;
   remoteContent?: string;
   remoteCommit?: string;
@@ -36,6 +39,9 @@ export function DiffModal({
   onOpenChange,
   dagId,
   status,
+  binary,
+  localSize,
+  remoteSize,
   localContent,
   remoteContent,
   remoteCommit,
@@ -99,6 +105,37 @@ export function DiffModal({
           </DialogClose>
         </DialogHeader>
         <div className="flex-1 overflow-auto">
+          {binary ? (
+            <div className="p-6 text-sm">
+              <div className="text-muted-foreground mb-3">
+                Binary attachment. Content comparison is not available.
+              </div>
+              <table className="text-xs">
+                <tbody>
+                  <tr>
+                    <td className="pr-4 py-0.5 text-muted-foreground">
+                      {titles.left}
+                    </td>
+                    <td className="py-0.5 font-mono">
+                      {remoteSize !== undefined
+                        ? `${remoteSize.toLocaleString()} bytes`
+                        : '—'}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="pr-4 py-0.5 text-muted-foreground">
+                      {titles.right}
+                    </td>
+                    <td className="py-0.5 font-mono">
+                      {localSize !== undefined
+                        ? `${localSize.toLocaleString()} bytes`
+                        : '—'}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
           <ReactDiffViewer
             oldValue={remoteContent || ''}
             newValue={localContent || ''}
@@ -150,6 +187,7 @@ export function DiffModal({
               },
             }}
           />
+          )}
         </div>
         {status === SyncStatus.missing && (onForget || onDelete) ? (
           <DialogFooter className="px-4 py-3 border-t border-border/40">
