@@ -1,8 +1,4 @@
-import {
-  KILN_DARK,
-  KILN_LIGHT,
-  registerKilnThemes,
-} from '@/lib/monaco-theme';
+import { KILN_DARK, KILN_LIGHT, registerKilnThemes } from '@/lib/monaco-theme';
 import { cn } from '@/lib/utils';
 import MonacoEditor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
@@ -12,12 +8,14 @@ loader.config({ monaco });
 
 registerKilnThemes();
 
+export type MarkdownEditorInstance = monaco.editor.IStandaloneCodeEditor;
+
 type Props = {
   value: string;
   onChange?: (value?: string) => void;
   readOnly?: boolean;
   className?: string;
-  onEditorMount?: (editor: monaco.editor.IStandaloneCodeEditor) => void;
+  onEditorMount?: (editor: MarkdownEditorInstance) => void;
 };
 
 function MarkdownEditor({
@@ -27,7 +25,7 @@ function MarkdownEditor({
   className,
   onEditorMount,
 }: Props) {
-  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<MarkdownEditorInstance | null>(null);
 
   useEffect(() => {
     return () => {
@@ -69,7 +67,7 @@ function MarkdownEditor({
     return () => observer.disconnect();
   }, []);
 
-  const editorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
+  const editorDidMount = (editor: MarkdownEditorInstance) => {
     editorRef.current = editor;
     editor.onKeyDown((e) => {
       if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey && !e.altKey) {
