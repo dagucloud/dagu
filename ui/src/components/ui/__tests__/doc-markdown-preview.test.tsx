@@ -11,6 +11,14 @@ vi.mock('@/hooks/api', () => ({
   useQuery: () => ({ data: undefined }),
 }));
 
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecuteForWorkspace: () => true,
+}));
+
+vi.mock('@/contexts/ConfigContext', () => ({
+  useConfig: () => ({ permissions: { runDags: true, writeDags: true } }),
+}));
+
 import { DocMarkdownPreview } from '../doc-markdown-preview';
 
 function renderWithRouter(ui: React.ReactElement) {
@@ -104,6 +112,19 @@ describe('DocMarkdownPreview wikilinks', () => {
 
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
     expect(screen.getByText('guides/deploy')).toBeInTheDocument();
+  });
+
+  it('dispatches dagu-run fences to the run block instead of plain code', () => {
+    const { container } = renderWithRouter(
+      <DocMarkdownPreview
+        content={'```dagu-run\ndag: daily-etl\nlabel: Retry\n```'}
+        linkContext={linkContext}
+      />
+    );
+
+    // Without a DocLiveProvider the block renders an inert summary card.
+    expect(container.querySelector('pre')).not.toBeInTheDocument();
+    expect(screen.getByText('Retry')).toBeInTheDocument();
   });
 
   it('leaves wikilinks inside code untouched', () => {
