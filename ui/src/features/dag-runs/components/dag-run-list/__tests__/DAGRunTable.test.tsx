@@ -68,6 +68,31 @@ const config = {
 } as Config;
 
 describe('DAGRunTable', () => {
+  it('shows a loading row instead of the empty state while the first page loads', () => {
+    render(
+      <MemoryRouter>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable dagRuns={[]} isLoading />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Loading DAG runs...')).toBeInTheDocument();
+    expect(screen.queryByText('No DAG runs found')).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state once loading finishes with no runs', () => {
+    render(
+      <MemoryRouter>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable dagRuns={[]} />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('No DAG runs found')).toBeInTheDocument();
+  });
+
   it('shows the scheduled at column and value when schedule time exists', () => {
     render(
       <MemoryRouter>

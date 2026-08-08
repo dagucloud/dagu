@@ -557,6 +557,7 @@ function DAGRuns() {
   );
   const {
     dagRuns,
+    isInitialLoading,
     isLoadingMore,
     loadMoreError,
     hasMore,
@@ -1047,6 +1048,7 @@ function DAGRuns() {
         {viewMode === 'list' ? (
           <DAGRunTable
             dagRuns={dagRuns}
+            isLoading={isInitialLoading}
             selectedDAGRun={selectedDAGRun}
             onSelectDAGRun={selectDAGRun}
             onViewArtifacts={viewDAGRunArtifacts}
@@ -1056,6 +1058,7 @@ function DAGRuns() {
         ) : (
           <DAGRunGroupedView
             dagRuns={dagRuns}
+            isLoading={isInitialLoading}
             selectedDAGRun={selectedDAGRun}
             onSelectDAGRun={selectDAGRun}
             onViewArtifacts={viewDAGRunArtifacts}

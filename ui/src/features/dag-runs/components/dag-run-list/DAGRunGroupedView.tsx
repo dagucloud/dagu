@@ -19,6 +19,8 @@ import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 
 interface DAGRunGroupedViewProps {
   dagRuns: components['schemas']['DAGRunSummary'][];
+  /** True while the first page is being fetched; suppresses the empty state. */
+  isLoading?: boolean;
   selectedRunKeys?: Set<string>;
   selectedDAGRun?: { name: string; dagRunId: string } | null;
   onSelectDAGRun?: (dagRun: { name: string; dagRunId: string } | null) => void;
@@ -32,6 +34,7 @@ interface GroupedDAGRuns {
 
 function DAGRunGroupedView({
   dagRuns,
+  isLoading = false,
   selectedRunKeys,
   selectedDAGRun = null,
   onSelectDAGRun,
@@ -171,6 +174,13 @@ function DAGRunGroupedView({
   );
 
   if (dagRuns.length === 0) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+          Loading DAG runs...
+        </div>
+      );
+    }
     return <EmptyState />;
   }
 

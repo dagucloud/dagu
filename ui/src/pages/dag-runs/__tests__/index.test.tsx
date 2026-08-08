@@ -40,15 +40,10 @@ vi.mock('@/hooks/api', () => ({
   }),
 }));
 
+const usePaginatedDAGRunsMock = vi.hoisted(() => vi.fn());
+
 vi.mock('@/features/dag-runs/hooks/dagRunPagination', () => ({
-  usePaginatedDAGRuns: () => ({
-    dagRuns: [],
-    isLoadingMore: false,
-    loadMoreError: null,
-    hasMore: false,
-    refresh: vi.fn(),
-    loadMore: vi.fn(),
-  }),
+  usePaginatedDAGRuns: usePaginatedDAGRunsMock,
 }));
 
 vi.mock('@/features/dag-runs/hooks/useBulkDAGRunSelection', () => ({
@@ -94,14 +89,17 @@ vi.mock(
   })
 );
 
+const dagRunTableProps = vi.hoisted(() => ({ current: {} as { isLoading?: boolean } }));
+
 vi.mock('@/features/dag-runs/components/dag-run-list/DAGRunTable', () => ({
-  default: ({
-    onSelectDAGRun,
-    onViewArtifacts,
-  }: {
+  default: (props: {
+    isLoading?: boolean;
     onSelectDAGRun: (run: { name: string; dagRunId: string }) => void;
     onViewArtifacts: (run: { name: string; dagRunId: string }) => void;
-  }) => (
+  }) => {
+    dagRunTableProps.current = props;
+    const { onSelectDAGRun, onViewArtifacts } = props;
+    return (
     <div>
       <div>Run Table</div>
       <button
@@ -117,7 +115,8 @@ vi.mock('@/features/dag-runs/components/dag-run-list/DAGRunTable', () => ({
         Open artifacts
       </button>
     </div>
-  ),
+    );
+  },
 }));
 
 const config = {
@@ -128,6 +127,16 @@ beforeEach(() => {
   readSearchStateMock.mockReset();
   readSearchStateMock.mockReturnValue(null);
   writeSearchStateMock.mockReset();
+  usePaginatedDAGRunsMock.mockReset();
+  usePaginatedDAGRunsMock.mockReturnValue({
+    dagRuns: [],
+    isInitialLoading: false,
+    isLoadingMore: false,
+    loadMoreError: null,
+    hasMore: false,
+    refresh: vi.fn(),
+    loadMore: vi.fn(),
+  });
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -184,6 +193,22 @@ describe('DAGRuns page', () => {
     ).toBeVisible();
     expect(screen.queryByRole('heading', { name: /dag runs/i })).toBeNull();
     expect(setTitle).toHaveBeenCalledWith('Executions');
+  });
+
+  it('passes the initial-load state to the runs table', () => {
+    usePaginatedDAGRunsMock.mockReturnValue({
+      dagRuns: [],
+      isInitialLoading: true,
+      isLoadingMore: false,
+      loadMoreError: null,
+      hasMore: false,
+      refresh: vi.fn(),
+      loadMore: vi.fn(),
+    });
+
+    renderPage();
+
+    expect(dagRunTableProps.current.isLoading).toBe(true);
   });
 
   it('uses consistent filter control sizing', () => {
