@@ -18,6 +18,13 @@ vi.mock('@/hooks/useDAGsListSSE', () => ({
 const listData = {
   dags: [
     {
+      fileName: 'daily-etl',
+      dag: { name: 'filename-collision' },
+      latestDAGRun: { status: 4, statusLabel: 'finished' },
+      suspended: false,
+      errors: [],
+    },
+    {
       fileName: 'etl.yaml',
       dag: { name: 'daily-etl' },
       latestDAGRun: { status: 4, statusLabel: 'finished' },
@@ -26,7 +33,7 @@ const listData = {
     },
   ],
   errors: [],
-  pagination: { totalRecords: 1 },
+  pagination: { totalRecords: 2 },
 };
 
 vi.mock('@/hooks/api', () => ({
@@ -104,6 +111,7 @@ describe('DocLiveProvider', () => {
       </DocLiveProvider>
     );
 
+    expect(sseCalls.length).toBeGreaterThan(0);
     expect(sseCalls.every((c) => !c.enabled)).toBe(true);
   });
 
@@ -115,6 +123,7 @@ describe('DocLiveProvider', () => {
       </DocLiveProvider>
     );
 
+    expect(sseCalls.length).toBeGreaterThan(0);
     for (const call of sseCalls) {
       expect(call.params).toMatchObject({ workspace: 'default' });
     }

@@ -86,7 +86,9 @@ describe('DaguRunBlock', () => {
 
   it('rejects an invalid mode', () => {
     renderBlock('dag: daily-etl\nmode: later\n');
-    expect(screen.getByText('mode must be start or enqueue')).toBeInTheDocument();
+    expect(
+      screen.getByText('mode must be start or enqueue')
+    ).toBeInTheDocument();
   });
 
   it('renders an inert summary without a provider', () => {
@@ -109,6 +111,18 @@ describe('DaguRunBlock', () => {
     renderBlock();
     expect(screen.getByRole('button', { name: /run/i })).toBeDisabled();
   });
+
+  it.each(['loading', 'not-found'] as const)(
+    'keeps an empty status label empty while %s',
+    (lookupState) => {
+      state.live = {
+        ...foundLive,
+        lookup: () => ({ state: lookupState }),
+      };
+      renderBlock();
+      expect(screen.queryByText('daily-etl')).not.toBeInTheDocument();
+    }
+  );
 
   it('confirms then posts the exact start request', async () => {
     const user = userEvent.setup();
@@ -148,7 +162,9 @@ describe('DaguRunBlock', () => {
 
 describe('serializeRunParams', () => {
   it('produces the run dialog JSON-array convention preserving order', () => {
-    expect(serializeRunParams({ B: '2', A: '1' })).toBe('[{"B":"2"},{"A":"1"}]');
+    expect(serializeRunParams({ B: '2', A: '1' })).toBe(
+      '[{"B":"2"},{"A":"1"}]'
+    );
     expect(serializeRunParams({})).toBe('');
   });
 });

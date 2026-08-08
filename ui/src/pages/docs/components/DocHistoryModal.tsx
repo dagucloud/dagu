@@ -16,7 +16,7 @@ import { KILN_DARK, KILN_LIGHT } from '@/lib/monaco-theme';
 import { workspaceDocumentQueryForWorkspace } from '@/lib/workspace';
 import { DiffEditor } from '@monaco-editor/react';
 import { History, RotateCcw } from 'lucide-react';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useMemo, useRef, useState } from 'react';
 
 type DocRevision = components['schemas']['DocRevisionResponse'];
 
@@ -51,10 +51,11 @@ export function DocHistoryModal({
   );
 
   const [selectedRev, setSelectedRev] = useState<string | null>(null);
+  const selectedRevRef = useRef<string | null>(null);
   const [revisionContent, setRevisionContent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const { data } = useQuery(
+  const { data, isLoading } = useQuery(
     '/docs/doc/revisions',
     isOpen
       ? {
@@ -68,22 +69,32 @@ export function DocHistoryModal({
 
   const selectRevision = async (rev: string) => {
     setSelectedRev(rev);
+    selectedRevRef.current = rev;
     setRevisionContent(null);
     setLoadError(null);
-    const { data: revData, error } = await client.GET('/docs/doc/revision', {
-      params: {
-        query: { remoteNode, path: docPath, rev, ...workspaceQuery },
-      },
-    });
-    if (error || !revData) {
-      setLoadError(error?.message || 'Failed to load revision');
-      return;
+    try {
+      const { data: revData, error } = await client.GET('/docs/doc/revision', {
+        params: {
+          query: { remoteNode, path: docPath, rev, ...workspaceQuery },
+        },
+      });
+      if (selectedRevRef.current !== rev) return;
+      if (error || !revData) {
+        setLoadError(error?.message || 'Failed to load revision');
+        return;
+      }
+      setRevisionContent(revData.content ?? '');
+    } catch (error) {
+      if (selectedRevRef.current !== rev) return;
+      setLoadError(
+        error instanceof Error ? error.message : 'Failed to load revision'
+      );
     }
-    setRevisionContent(revData.content ?? '');
   };
 
   const handleClose = () => {
     setSelectedRev(null);
+    selectedRevRef.current = null;
     setRevisionContent(null);
     setLoadError(null);
     onClose();
@@ -108,7 +119,9 @@ export function DocHistoryModal({
         </DialogHeader>
         {revisions.length === 0 ? (
           <div className="text-sm text-muted-foreground py-6 text-center">
-            No stored revisions yet. Revisions are captured on each save.
+            {isLoading
+              ? 'Loading revisions…'
+              : 'No stored revisions yet. Revisions are captured on each save.'}
           </div>
         ) : (
           <div className="flex gap-3 min-h-0 flex-1">

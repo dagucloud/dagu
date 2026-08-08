@@ -472,7 +472,7 @@ describe('DAGStatus', () => {
       );
     });
     expect(
-      screen.getByText(`Graph status: ${NodeStatus.Failed}`)
+      await screen.findByText(`Graph status: ${NodeStatus.Failed}`)
     ).toBeInTheDocument();
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
   });

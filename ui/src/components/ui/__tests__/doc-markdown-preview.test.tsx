@@ -4,7 +4,7 @@
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let clientGet: (...args: unknown[]) => Promise<unknown> = () =>
   Promise.resolve({ data: null, error: { message: 'nope' } });
@@ -50,7 +50,9 @@ Follow the restart procedure.`}
     expect(
       screen.getByRole('heading', { name: 'Restart API' })
     ).toBeInTheDocument();
-    expect(screen.getByText('Follow the restart procedure.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Follow the restart procedure.')
+    ).toBeInTheDocument();
   });
 
   it('does not treat lines that only start with dashes as closing frontmatter delimiters', () => {
@@ -75,6 +77,10 @@ describe('DocMarkdownPreview wikilinks', () => {
   beforeEach(() => {
     clientGet = () =>
       Promise.resolve({ data: null, error: { message: 'nope' } });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('renders a doc wikilink as an internal link scoped to the workspace', () => {
@@ -123,14 +129,14 @@ describe('DocMarkdownPreview wikilinks', () => {
   });
 
   it('renders ![[name]] embeds as attachment images', async () => {
-    Object.defineProperty(URL, 'createObjectURL', {
-      configurable: true,
-      value: () => 'blob:attachment-test',
-    });
-    Object.defineProperty(URL, 'revokeObjectURL', {
-      configurable: true,
-      value: () => {},
-    });
+    class TestURL extends URL {
+      static createObjectURL() {
+        return 'blob:attachment-test';
+      }
+
+      static revokeObjectURL() {}
+    }
+    vi.stubGlobal('URL', TestURL);
     clientGet = () =>
       Promise.resolve({ data: new Blob(['png']), error: undefined });
 
@@ -159,15 +165,41 @@ describe('DocMarkdownPreview wikilinks', () => {
   });
 
   it('survives malformed percent-encoding in attachment references', () => {
-    const { container } = renderWithRouter(
+    expect(() =>
+      renderWithRouter(
+        <DocMarkdownPreview
+          content={
+            '![bad](attachment:bad%ZZ.png)\n\n[bad](attachment:bad%ZZ.pdf)'
+          }
+          linkContext={linkContext}
+        />
+      )
+    ).not.toThrow();
+
+    expect(screen.getByRole('link', { name: 'bad' })).toHaveAttribute(
+      'title',
+      'Download bad%ZZ.pdf'
+    );
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('keeps percent sequences in wikilink targets literal', () => {
+    renderWithRouter(
       <DocMarkdownPreview
-        content={'![bad](attachment:bad%ZZ.png)\n\n[bad](attachment:bad%ZZ.pdf)'}
+        content="[[reports/50%25%20done]]"
         linkContext={linkContext}
       />
     );
 
-    // Must render without throwing; the raw value is kept as the name.
-    expect(container).toBeTruthy();
+    const link = screen.getByRole('link', { name: 'reports/50%25%20done' });
+    expect(link).toHaveAttribute(
+      'href',
+      '/docs/reports/50%2525%2520done?workspace=ops'
+    );
+    expect(link).toHaveAttribute(
+      'data-wikilink-target',
+      'reports/50%25%20done'
+    );
   });
 
   it('degrades doc-path embeds to plain wiki links', () => {
