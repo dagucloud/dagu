@@ -585,6 +585,33 @@ func (m *mockDocStore) ListFlat(_ context.Context, opts docs.ListDocsOptions) (*
 	return &result, nil
 }
 
+func (m *mockDocStore) Backlinks(_ context.Context, target, pathPrefix string) ([]docs.DocMetadata, error) {
+	if m.failAll {
+		return nil, errForced
+	}
+	var results []docs.DocMetadata
+	for _, doc := range m.docs {
+		if doc.ID == target {
+			continue
+		}
+		underPrefix := pathPrefix != "" && strings.HasPrefix(doc.ID, pathPrefix+"/")
+		for _, link := range docs.ExtractWikiLinks(doc.Content) {
+			if link.Target == target || (underPrefix && pathPrefix+"/"+link.Target == target) {
+				results = append(results, docs.DocMetadata{
+					ID:          doc.ID,
+					Title:       doc.Title,
+					Description: doc.Description,
+					Tags:        doc.Tags,
+					ModTime:     time.Unix(1700000000, 0),
+				})
+				break
+			}
+		}
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].ID < results[j].ID })
+	return results, nil
+}
+
 // docTestSetup contains common test infrastructure for doc API tests.
 type docTestSetup struct {
 	api   *apiv1.API
@@ -806,6 +833,78 @@ func TestListDocs(t *testing.T) {
 		a := apiv1.New(nil, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil)
 
 		_, err := a.ListDocs(adminCtx(), apigen.ListDocsRequestObject{})
+		require.Error(t, err)
+	})
+}
+
+func TestListDocBacklinks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default scope returns linkers", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetup(t)
+		setup.store.docs["target"] = &docs.Doc{ID: "target", Title: "target", Content: "doc"}
+		setup.store.docs["linker"] = &docs.Doc{ID: "linker", Title: "linker", Content: "see [[target]]"}
+		setup.store.docs["other"] = &docs.Doc{ID: "other", Title: "other", Content: "nothing"}
+
+		resp, err := setup.api.ListDocBacklinks(adminCtx(), apigen.ListDocBacklinksRequestObject{
+			Params: apigen.ListDocBacklinksParams{Target: "target"},
+		})
+		require.NoError(t, err)
+
+		linksResp, ok := resp.(apigen.ListDocBacklinks200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, linksResp.Items, 1)
+		assert.Equal(t, "linker", linksResp.Items[0].Id)
+	})
+
+	t.Run("workspace scope resolves relative links and trims IDs", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetupWithWorkspaces(t, "ops")
+		setup.store.docs["ops/guides/target"] = &docs.Doc{ID: "ops/guides/target", Title: "target", Content: "doc"}
+		setup.store.docs["ops/runbooks/linker"] = &docs.Doc{ID: "ops/runbooks/linker", Title: "linker", Content: "see [[guides/target]]"}
+		setup.store.docs["outside"] = &docs.Doc{ID: "outside", Title: "outside", Content: "see [[ops/guides/target]]"}
+		workspace := apigen.Workspace("ops")
+
+		resp, err := setup.api.ListDocBacklinks(adminCtx(), apigen.ListDocBacklinksRequestObject{
+			Params: apigen.ListDocBacklinksParams{Target: "guides/target", Workspace: &workspace},
+		})
+		require.NoError(t, err)
+
+		linksResp, ok := resp.(apigen.ListDocBacklinks200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, linksResp.Items, 1)
+		assert.Equal(t, "runbooks/linker", linksResp.Items[0].Id)
+		require.NotNil(t, linksResp.Items[0].Workspace)
+		assert.Equal(t, "ops", *linksResp.Items[0].Workspace)
+	})
+
+	t.Run("scheme target matches verbatim", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetup(t)
+		setup.store.docs["runbook"] = &docs.Doc{ID: "runbook", Title: "runbook", Content: "status [[dag:daily-etl]]"}
+
+		resp, err := setup.api.ListDocBacklinks(adminCtx(), apigen.ListDocBacklinksRequestObject{
+			Params: apigen.ListDocBacklinksParams{Target: "dag:daily-etl"},
+		})
+		require.NoError(t, err)
+
+		linksResp, ok := resp.(apigen.ListDocBacklinks200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, linksResp.Items, 1)
+		assert.Equal(t, "runbook", linksResp.Items[0].Id)
+	})
+
+	t.Run("invalid doc path target is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetup(t)
+		_, err := setup.api.ListDocBacklinks(adminCtx(), apigen.ListDocBacklinksRequestObject{
+			Params: apigen.ListDocBacklinksParams{Target: "../escape"},
+		})
 		require.Error(t, err)
 	})
 }

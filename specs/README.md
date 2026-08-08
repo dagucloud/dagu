@@ -35,6 +35,8 @@ It must not be treated as product behavior until implementation catches up.
 | [030: Git Worktree Action](030-git-worktree-action.md) | Implemented |
 | [031: Human Tasks](031-human-task.md) | Implemented |
 | [032: Controller DAGs](032-controller-dag.md) | Implemented |
+| [033: Build Workflows](033-build-workflows.md) | Implemented |
+| [034: Document File Format](034-doc-format.md) | Implemented |
 
 **Writing guidelines:**
 

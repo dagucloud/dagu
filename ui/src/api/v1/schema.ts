@@ -2785,6 +2785,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/docs/backlinks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List document backlinks
+         * @description Returns documents whose wiki links resolve to the given target.
+         *     The target is a document path, or a scheme-prefixed wiki-link target
+         *     such as dag:name.
+         *
+         */
+        get: operations["listDocBacklinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/docs/doc": {
         parameters: {
             query?: never;
@@ -5375,6 +5398,10 @@ export interface components {
         /** @description Search results */
         DocSearchResponse: {
             results: components["schemas"]["DocSearchResultItem"][];
+        };
+        /** @description Documents linking to a wiki-link target */
+        DocBacklinksResponse: {
+            items: components["schemas"]["DocMetadataResponse"][];
         };
         /** @description Relative document path without extension, for example docs/deploy-guide. Must not start with / or contain .. */
         DocPath: string;
@@ -15133,6 +15160,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDocBacklinks: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path or scheme-prefixed wiki-link target (for example dag:name) */
+                target: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Documents linking to the target */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocBacklinksResponse"];
                 };
             };
             /** @description Unexpected error */

@@ -130,6 +130,11 @@ type DocStore interface {
 	Delete(ctx context.Context, id string) error
 	DeleteBatch(ctx context.Context, ids []string) (deleted []string, failed []DeleteError, err error)
 	Rename(ctx context.Context, oldID, newID string) error
+	// Backlinks returns metadata for documents linking to target. Target is a
+	// stored document ID or a scheme-prefixed wiki-link target such as
+	// "dag:name". A relative link held by a document under pathPrefix also
+	// matches when pathPrefix + "/" + link equals target.
+	Backlinks(ctx context.Context, target, pathPrefix string) ([]DocMetadata, error)
 	Search(ctx context.Context, query string) ([]*DocSearchResult, error)
 	SearchCursor(ctx context.Context, opts SearchDocsOptions) (*pagination.CursorResult[DocSearchResult], error)
 	SearchMatches(ctx context.Context, id string, opts SearchDocMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error)

@@ -423,7 +423,10 @@ function DocEditor({
           />
         ) : (
           <div className="h-full overflow-y-auto p-6">
-            <DocMarkdownPreview content={currentValue} />
+            <DocMarkdownPreview
+              content={currentValue}
+              linkContext={{ workspace: workspace ?? null, docPath }}
+            />
           </div>
         )}
       </div>
