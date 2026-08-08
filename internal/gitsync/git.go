@@ -565,6 +565,67 @@ func (c *GitClient) ListFiles(extensions []string) ([]string, error) {
 	return files, nil
 }
 
+// ListFilesUnder returns repo-relative paths of all regular files below the
+// given repo-relative subtree, regardless of extension. A missing subtree
+// yields an empty list.
+func (c *GitClient) ListFilesUnder(subDir string) ([]string, error) {
+	basePath := c.repoPath
+	if c.cfg.Path != "" {
+		basePath = filepath.Join(c.repoPath, c.cfg.Path)
+	}
+	root := filepath.Join(basePath, filepath.FromSlash(subDir))
+
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		relPath, err := filepath.Rel(c.repoPath, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, relPath)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files under %s: %w", subDir, err)
+	}
+	return files, nil
+}
+
+// GetFileSizeAtCommit returns the blob size of a file at a specific commit
+// without decoding its content.
+func (c *GitClient) GetFileSizeAtCommit(filePath, commitHash string) (int64, error) {
+	if err := c.requireRepo(); err != nil {
+		return 0, err
+	}
+
+	commit, err := c.repo.CommitObject(plumbing.NewHash(commitHash))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	tree, err := commit.Tree()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	file, err := tree.File(filePath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get file: %w", err)
+	}
+	return file.Size, nil
+}
+
 // TestConnection tests the connection to the remote repository.
 func (c *GitClient) TestConnection(_ context.Context) error {
 	auth, err := c.getAuth()
