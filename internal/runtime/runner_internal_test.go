@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/core"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
-	"github.com/dagucloud/dagu/v2/internal/incremental"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -156,7 +156,7 @@ func TestSetupVariables_StepEnvEvaluatesSequentiallyWithRuntimeVars(t *testing.T
 	}
 }
 
-func TestPrepareIncrementalPlanInfersFileDependency(t *testing.T) {
+func TestPrepareBuildPlanInfersFileDependency(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
@@ -174,24 +174,24 @@ func TestPrepareIncrementalPlanInfersFileDependency(t *testing.T) {
 	plan, err := NewPlan(producer, consumer)
 	require.NoError(t, err)
 	ctx := NewContext(context.Background(), &core.DAG{
-		Name:       "incremental-test",
-		Type:       core.TypeIncremental,
+		Name:       "build-test",
+		Type:       core.TypeBuild,
 		WorkingDir: workingDir,
 	}, "run-1", filepath.Join(workingDir, "dag.log"), WithWorkDir(runWorkDir))
 
-	require.NoError(t, prepareIncrementalPlan(ctx, plan))
+	require.NoError(t, prepareBuildPlan(ctx, plan))
 	producerNode := plan.GetNodeByName("producer")
 	consumerNode := plan.GetNodeByName("consumer")
 	require.NotNil(t, producerNode)
 	require.NotNil(t, consumerNode)
 	assert.True(t, plan.IsInferredDependency(producerNode.ID(), consumerNode.ID()))
-	expectedOutput, err := incremental.ResolvePath(filepath.Join(workingDir, "artifact.txt"), "", true)
+	expectedOutput, err := build.ResolvePath(filepath.Join(workingDir, "artifact.txt"), "", true)
 	require.NoError(t, err)
 	assert.Equal(t, expectedOutput, producerNode.Step().Outputs[0].Path)
 	assert.Equal(t, producerNode.Step().Outputs[0].Path, consumerNode.Step().Inputs[0].Path)
 }
 
-func TestPrepareIncrementalPlanRejectsRedirectAlias(t *testing.T) {
+func TestPrepareBuildPlanRejectsRedirectAlias(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -242,18 +242,18 @@ func TestPrepareIncrementalPlanRejectsRedirectAlias(t *testing.T) {
 			plan, err := NewPlan(step)
 			require.NoError(t, err)
 			ctx := NewContext(context.Background(), &core.DAG{
-				Name:       "incremental-test",
-				Type:       core.TypeIncremental,
+				Name:       "build-test",
+				Type:       core.TypeBuild,
 				WorkingDir: workingDir,
 			}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir), WithWorkDir(runWorkDir))
 
-			err = prepareIncrementalPlan(ctx, plan)
-			require.ErrorContains(t, err, tt.field+" path aliases incremental "+tt.targetKind)
+			err = prepareBuildPlan(ctx, plan)
+			require.ErrorContains(t, err, tt.field+" path aliases build "+tt.targetKind)
 		})
 	}
 }
 
-func TestPrepareIncrementalPlanChecksPlainRedirectWhenArtifactRedirectIsSet(t *testing.T) {
+func TestPrepareBuildPlanChecksPlainRedirectWhenArtifactRedirectIsSet(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
@@ -268,17 +268,17 @@ func TestPrepareIncrementalPlanChecksPlainRedirectWhenArtifactRedirectIsSet(t *t
 	plan, err := NewPlan(step)
 	require.NoError(t, err)
 	ctx := NewContext(context.Background(), &core.DAG{
-		Name:               "incremental-test",
-		Type:               core.TypeIncremental,
+		Name:               "build-test",
+		Type:               core.TypeBuild,
 		WorkingDir:         workingDir,
 		WorkingDirExplicit: true,
 	}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir))
 
-	err = prepareIncrementalPlan(ctx, plan)
-	require.ErrorContains(t, err, "stdout path aliases incremental output")
+	err = prepareBuildPlan(ctx, plan)
+	require.ErrorContains(t, err, "stdout path aliases build output")
 }
 
-func TestValidateIncrementalRuntimeRedirectAliases(t *testing.T) {
+func TestValidateBuildRuntimeRedirectAliases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -319,12 +319,12 @@ func TestValidateIncrementalRuntimeRedirectAliases(t *testing.T) {
 			plan, err := NewPlan(producer, consumer)
 			require.NoError(t, err)
 			ctx := NewContext(context.Background(), &core.DAG{
-				Name:               "incremental-test",
-				Type:               core.TypeIncremental,
+				Name:               "build-test",
+				Type:               core.TypeBuild,
 				WorkingDir:         workingDir,
 				WorkingDirExplicit: true,
 			}, "run-1", filepath.Join(workingDir, "dag.log"), WithArtifactDir(artifactDir))
-			require.NoError(t, prepareIncrementalPlan(ctx, plan))
+			require.NoError(t, prepareBuildPlan(ctx, plan))
 
 			producerNode := plan.GetNodeByName("producer")
 			consumerNode := plan.GetNodeByName("consumer")
@@ -335,8 +335,8 @@ func TestValidateIncrementalRuntimeRedirectAliases(t *testing.T) {
 			runner := New(&Config{})
 			ctx, err = runner.setupVariables(ctx, plan, consumerNode)
 			require.NoError(t, err)
-			err = validateIncrementalRuntimeRedirectAliases(ctx, plan, consumerNode)
-			require.ErrorContains(t, err, tt.field+" path aliases incremental "+tt.targetKind)
+			err = validateBuildRuntimeRedirectAliases(ctx, plan, consumerNode)
+			require.ErrorContains(t, err, tt.field+" path aliases build "+tt.targetKind)
 		})
 	}
 }
@@ -360,7 +360,7 @@ func TestEnvironmentWithoutAttemptPathsRecognizesReferenceForms(t *testing.T) {
 	}, environmentWithoutAttemptOutputs(values))
 }
 
-func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {
+func TestBuildInputIsAvailableToStepPrecondition(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
@@ -377,8 +377,8 @@ func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {
 	plan, err := NewPlan(step)
 	require.NoError(t, err)
 	dag := &core.DAG{
-		Name:               "incremental-test",
-		Type:               core.TypeIncremental,
+		Name:               "build-test",
+		Type:               core.TypeBuild,
 		WorkingDir:         workingDir,
 		WorkingDirExplicit: true,
 		Shell:              "sh",
@@ -394,7 +394,7 @@ func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {
 	ctx, err = runner.setupVariables(ctx, plan, node)
 	require.NoError(t, err)
 	ctx = runner.setupNodeExecutionEnv(ctx, node)
-	ctx, session, err := runner.startIncrementalSession(ctx, plan, node)
+	ctx, session, err := runner.startBuildSession(ctx, plan, node)
 	require.NoError(t, err)
 	require.NotNil(t, session)
 	t.Cleanup(func() { require.NoError(t, session.Close("")) })
@@ -404,7 +404,7 @@ func TestIncrementalInputIsAvailableToStepPrecondition(t *testing.T) {
 	require.NoError(t, node.evalPreconditions(ctx))
 }
 
-func TestIncrementalRunnerFingerprintsResolvedRecipe(t *testing.T) {
+func TestBuildRunnerFingerprintsResolvedRecipe(t *testing.T) {
 	if gort.GOOS == "windows" {
 		t.Skip("uses a POSIX shell script")
 	}
@@ -415,7 +415,7 @@ func TestIncrementalRunnerFingerprintsResolvedRecipe(t *testing.T) {
 	require.NoError(t, os.WriteFile(inputPath, []byte("source"), 0o600))
 	store := filematerialization.New(filepath.Join(t.TempDir(), "materializations"))
 
-	run := func(runID, version string) exec.IncrementalExecution {
+	run := func(runID, version string) exec.BuildExecution {
 		t.Helper()
 		step := core.Step{
 			ID:       "build",
@@ -427,8 +427,8 @@ func TestIncrementalRunnerFingerprintsResolvedRecipe(t *testing.T) {
 		plan, err := NewPlan(step)
 		require.NoError(t, err)
 		dag := &core.DAG{
-			Name:       "incremental-test",
-			Type:       core.TypeIncremental,
+			Name:       "build-test",
+			Type:       core.TypeBuild,
 			WorkingDir: dataDir,
 			Shell:      "sh",
 			Consts:     map[string]any{"version": version},
@@ -449,28 +449,28 @@ func TestIncrementalRunnerFingerprintsResolvedRecipe(t *testing.T) {
 		require.NoError(t, runner.Run(ctx, plan, nil))
 		node := plan.GetNodeByName(step.Name)
 		require.NotNil(t, node)
-		require.NotNil(t, node.State().Incremental)
-		return *node.State().Incremental
+		require.NotNil(t, node.State().Build)
+		return *node.State().Build
 	}
 
 	first := run("run-1", "v1")
-	require.Equal(t, exec.IncrementalDecisionExecute, first.Decision)
+	require.Equal(t, exec.BuildDecisionExecute, first.Decision)
 	content, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
 	require.Equal(t, "v1", string(content))
 
 	second := run("run-2", "v1")
-	require.Equal(t, exec.IncrementalDecisionReuse, second.Decision)
+	require.Equal(t, exec.BuildDecisionReuse, second.Decision)
 
 	third := run("run-3", "v2")
-	require.Equal(t, exec.IncrementalDecisionExecute, third.Decision)
-	require.Equal(t, exec.IncrementalReasonRecipeChanged, third.Reason)
+	require.Equal(t, exec.BuildDecisionExecute, third.Decision)
+	require.Equal(t, exec.BuildReasonRecipeChanged, third.Reason)
 	content, err = os.ReadFile(outputPath)
 	require.NoError(t, err)
 	require.Equal(t, "v2", string(content))
 }
 
-func TestEvaluateIncrementalNodeReportsReusePublishFailure(t *testing.T) {
+func TestEvaluateBuildNodeReportsReusePublishFailure(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -478,7 +478,7 @@ func TestEvaluateIncrementalNodeReportsReusePublishFailure(t *testing.T) {
 	inputPath := filepath.Join(workingDir, "input.txt")
 	outputPath := filepath.Join(workingDir, "output.txt")
 	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
-	dag := &core.DAG{Name: "incremental-test", Type: core.TypeIncremental, WorkingDir: workingDir}
+	dag := &core.DAG{Name: "build-test", Type: core.TypeBuild, WorkingDir: workingDir}
 	step := core.Step{
 		ID:       "build",
 		Name:     "build",
@@ -487,7 +487,7 @@ func TestEvaluateIncrementalNodeReportsReusePublishFailure(t *testing.T) {
 		Outputs:  []core.StepOutputDeclaration{{Name: "artifact", Path: outputPath}},
 	}
 	store := filematerialization.New(filepath.Join(t.TempDir(), "materializations"))
-	request := incremental.PrepareRequest{
+	request := build.PrepareRequest{
 		DAG:         dag,
 		Step:        step,
 		DAGRunID:    "run-1",
@@ -497,7 +497,7 @@ func TestEvaluateIncrementalNodeReportsReusePublishFailure(t *testing.T) {
 		Environment: map[string]string{},
 	}
 
-	first, err := incremental.Prepare(ctx, store, request)
+	first, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, first.Evaluate(ctx))
 	_, stagingPath, err := first.NewAttempt(0)
@@ -508,7 +508,7 @@ func TestEvaluateIncrementalNodeReportsReusePublishFailure(t *testing.T) {
 
 	request.DAGRunID = "run-2"
 	request.AttemptID = "attempt-2"
-	second, err := incremental.Prepare(ctx, store, request)
+	second, err := build.Prepare(ctx, store, request)
 	require.NoError(t, err)
 	require.NoError(t, second.Evaluate(ctx))
 	require.True(t, second.Reused())
@@ -522,14 +522,14 @@ func TestEvaluateIncrementalNodeReportsReusePublishFailure(t *testing.T) {
 	reported := 0
 	runner := New(&Config{})
 
-	handled := runner.evaluateIncrementalNode(ctx, node, second, func() { reported++ })
+	handled := runner.evaluateBuildNode(ctx, node, second, func() { reported++ })
 
 	require.True(t, handled)
 	require.Equal(t, core.NodeFailed, node.State().Status)
 	require.Equal(t, 1, reported)
 }
 
-func TestIncrementalRepeatRemovesUncommittedStagingOutput(t *testing.T) {
+func TestBuildRepeatRemovesUncommittedStagingOutput(t *testing.T) {
 	if gort.GOOS == "windows" {
 		t.Skip("uses a POSIX shell script")
 	}
@@ -567,8 +567,8 @@ echo complete > "${outputs.artifact}"
 		MaterializationStore: filematerialization.New(filepath.Join(t.TempDir(), "materializations")),
 	})
 	dag := &core.DAG{
-		Name:               "incremental-test",
-		Type:               core.TypeIncremental,
+		Name:               "build-test",
+		Type:               core.TypeBuild,
 		WorkingDir:         workingDir,
 		WorkingDirExplicit: true,
 		Shell:              "sh",
@@ -584,7 +584,7 @@ echo complete > "${outputs.artifact}"
 	require.Empty(t, stagingFiles)
 }
 
-func TestPrepareIncrementalPlanRejectsInferredCycle(t *testing.T) {
+func TestPrepareBuildPlanRejectsInferredCycle(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
@@ -603,12 +603,12 @@ func TestPrepareIncrementalPlanRejectsInferredCycle(t *testing.T) {
 	plan, err := NewPlan(first, second)
 	require.NoError(t, err)
 	ctx := NewContext(context.Background(), &core.DAG{
-		Name:       "incremental-test",
-		Type:       core.TypeIncremental,
+		Name:       "build-test",
+		Type:       core.TypeBuild,
 		WorkingDir: workingDir,
 	}, "run-1", filepath.Join(workingDir, "dag.log"))
 
-	err = prepareIncrementalPlan(ctx, plan)
+	err = prepareBuildPlan(ctx, plan)
 	require.ErrorIs(t, err, ErrCyclicPlan)
 	firstNode := plan.GetNodeByName("first")
 	secondNode := plan.GetNodeByName("second")

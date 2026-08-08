@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package incremental owns local file materialization evaluation.
-package incremental
+// Package build owns local file materialization evaluation.
+package build
 
 import (
 	"context"
@@ -55,7 +55,7 @@ type Session struct {
 	recipeDigest string
 	fingerprint  string
 	materialKey  string
-	metadata     exec.IncrementalExecution
+	metadata     exec.BuildExecution
 	pathBacked   bool
 	evaluated    bool
 	closed       bool
@@ -64,16 +64,16 @@ type Session struct {
 // Prepare acquires path locks for a ready node before its preconditions run.
 func Prepare(ctx context.Context, store exec.MaterializationStore, request PrepareRequest) (*Session, error) {
 	if request.DAG == nil {
-		return nil, fmt.Errorf("incremental evaluation requires a workflow")
+		return nil, fmt.Errorf("build evaluation requires a workflow")
 	}
 	session := &Session{
 		store:      store,
 		pathKeys:   NewPathKeyResolver(),
 		request:    request,
 		inputPaths: make(map[string]string, len(request.Step.Inputs)),
-		metadata: exec.IncrementalExecution{
-			Decision: exec.IncrementalDecisionNone,
-			Phase:    exec.IncrementalPhasePrecondition,
+		metadata: exec.BuildExecution{
+			Decision: exec.BuildDecisionNone,
+			Phase:    exec.BuildPhasePrecondition,
 		},
 	}
 	for _, input := range request.Step.Inputs {
@@ -85,19 +85,19 @@ func Prepare(ctx context.Context, store exec.MaterializationStore, request Prepa
 	session.pathBacked = hasPathOutput
 
 	if len(request.Step.Inputs) == 0 && !hasPathOutput {
-		session.metadata = exec.IncrementalExecution{
-			Decision: exec.IncrementalDecisionAlways,
-			Phase:    exec.IncrementalPhaseExecute,
-			Reason:   exec.IncrementalReasonIneligible,
-			Detail:   "step has no incremental file paths",
+		session.metadata = exec.BuildExecution{
+			Decision: exec.BuildDecisionAlways,
+			Phase:    exec.BuildPhaseExecute,
+			Reason:   exec.BuildReasonIneligible,
+			Detail:   "step has no build file paths",
 		}
 		session.evaluated = true
 		return session, nil
 	}
 	if store == nil {
-		session.metadata.Phase = exec.IncrementalPhaseEvaluate
-		session.metadata.Reason = exec.IncrementalReasonStoreUnavailable
-		return session, fmt.Errorf("incremental materialization store is unavailable")
+		session.metadata.Phase = exec.BuildPhaseEvaluate
+		session.metadata.Reason = exec.BuildReasonStoreUnavailable
+		return session, fmt.Errorf("build materialization store is unavailable")
 	}
 
 	locks := make([]exec.PathLockRequest, 0, len(request.Step.Inputs)+1)
@@ -111,12 +111,12 @@ func Prepare(ctx context.Context, store exec.MaterializationStore, request Prepa
 	if !request.Dry {
 		lock, err := store.AcquirePaths(ctx, locks)
 		if err != nil {
-			session.metadata.Phase = exec.IncrementalPhaseEvaluate
-			session.metadata.Reason = exec.IncrementalReasonEvaluationFailed
+			session.metadata.Phase = exec.BuildPhaseEvaluate
+			session.metadata.Reason = exec.BuildReasonEvaluationFailed
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				session.metadata.Reason = exec.IncrementalReasonCancelledBeforeDecision
+				session.metadata.Reason = exec.BuildReasonCancelledBeforeDecision
 			} else if errors.Is(err, exec.ErrMaterializationRecovery) {
-				session.metadata.Reason = exec.IncrementalReasonRecoveryFailed
+				session.metadata.Reason = exec.BuildReasonRecoveryFailed
 			}
 			return session, err
 		}
@@ -131,13 +131,13 @@ func (s *Session) Evaluate(ctx context.Context) error {
 		return nil
 	}
 	s.evaluated = true
-	s.metadata.Phase = exec.IncrementalPhaseEvaluate
-	s.metadata.Reason = exec.IncrementalReasonEvaluationFailed
+	s.metadata.Phase = exec.BuildPhaseEvaluate
+	s.metadata.Reason = exec.BuildReasonEvaluationFailed
 	if s.request.Dry && s.request.Deferred {
-		s.metadata = exec.IncrementalExecution{
-			Decision: exec.IncrementalDecisionDeferred,
-			Phase:    exec.IncrementalPhaseEvaluate,
-			Reason:   exec.IncrementalReasonUpstreamWouldExecute,
+		s.metadata = exec.BuildExecution{
+			Decision: exec.BuildDecisionDeferred,
+			Phase:    exec.BuildPhaseEvaluate,
+			Reason:   exec.BuildReasonUpstreamWouldExecute,
 			Detail:   "an upstream file producer would execute; evaluate after its output is known",
 		}
 		return nil
@@ -146,14 +146,14 @@ func (s *Session) Evaluate(ctx context.Context) error {
 	for _, input := range s.request.Step.Inputs {
 		resolved, err := ResolvePath(input.Path, "", false)
 		if err != nil || s.pathKeys.ComparisonKey(resolved) != s.pathKeys.ComparisonKey(input.Path) {
-			s.metadata.Reason = exec.IncrementalReasonEvaluationFailed
+			s.metadata.Reason = exec.BuildReasonEvaluationFailed
 			return fmt.Errorf("input path identity changed before evaluation: %s", input.Path)
 		}
 	}
 	if s.pathBacked {
 		resolved, err := ResolvePath(s.output.Path, "", true)
 		if err != nil || s.pathKeys.ComparisonKey(resolved) != s.pathKeys.ComparisonKey(s.output.Path) {
-			s.metadata.Reason = exec.IncrementalReasonEvaluationFailed
+			s.metadata.Reason = exec.BuildReasonEvaluationFailed
 			return fmt.Errorf("output path identity changed before evaluation: %s", s.output.Path)
 		}
 	}
@@ -161,7 +161,7 @@ func (s *Session) Evaluate(ctx context.Context) error {
 	for _, input := range s.request.Step.Inputs {
 		snapshot, err := Snapshot(input.Name, input.Path)
 		if err != nil {
-			s.metadata.Reason = exec.IncrementalReasonInputMissing
+			s.metadata.Reason = exec.BuildReasonInputMissing
 			s.metadata.Detail = err.Error()
 			return err
 		}
@@ -175,9 +175,9 @@ func (s *Session) Evaluate(ctx context.Context) error {
 
 	eligible, detail := eligible(s.request)
 	if !eligible {
-		s.metadata.Decision = exec.IncrementalDecisionAlways
-		s.metadata.Phase = exec.IncrementalPhaseExecute
-		s.metadata.Reason = exec.IncrementalReasonIneligible
+		s.metadata.Decision = exec.BuildDecisionAlways
+		s.metadata.Phase = exec.BuildPhaseExecute
+		s.metadata.Reason = exec.BuildReasonIneligible
 		s.metadata.Detail = detail
 		return nil
 	}
@@ -191,25 +191,25 @@ func (s *Session) Evaluate(ctx context.Context) error {
 	s.metadata.Fingerprint = s.fingerprint
 
 	if s.request.ControlDependencyRan {
-		s.metadata.Decision = exec.IncrementalDecisionExecute
-		s.metadata.Phase = exec.IncrementalPhaseExecute
-		s.metadata.Reason = exec.IncrementalReasonControlDependencyRan
+		s.metadata.Decision = exec.BuildDecisionExecute
+		s.metadata.Phase = exec.BuildPhaseExecute
+		s.metadata.Reason = exec.BuildReasonControlDependencyRan
 		s.metadata.Detail = "an explicit control dependency executed in this run"
 		return nil
 	}
 	if s.request.NoReuse {
-		s.metadata.Decision = exec.IncrementalDecisionExecute
-		s.metadata.Phase = exec.IncrementalPhaseExecute
-		s.metadata.Reason = exec.IncrementalReasonReuseDisabled
+		s.metadata.Decision = exec.BuildDecisionExecute
+		s.metadata.Phase = exec.BuildPhaseExecute
+		s.metadata.Reason = exec.BuildReasonReuseDisabled
 		s.metadata.Detail = "reuse was disabled for this run"
 		return nil
 	}
 
 	manifest, err := s.store.Get(ctx, s.materialKey)
 	if errors.Is(err, exec.ErrMaterializationNotFound) {
-		s.metadata.Decision = exec.IncrementalDecisionExecute
-		s.metadata.Phase = exec.IncrementalPhaseExecute
-		s.metadata.Reason = exec.IncrementalReasonManifestMissing
+		s.metadata.Decision = exec.BuildDecisionExecute
+		s.metadata.Phase = exec.BuildPhaseExecute
+		s.metadata.Reason = exec.BuildReasonManifestMissing
 		s.metadata.Detail = "no prior successful materialization exists"
 		return nil
 	}
@@ -217,34 +217,34 @@ func (s *Session) Evaluate(ctx context.Context) error {
 		return err
 	}
 	if manifest.RecipeDigest != recipeDigest {
-		s.executeReason(exec.IncrementalReasonRecipeChanged, "the step recipe changed")
+		s.executeReason(exec.BuildReasonRecipeChanged, "the step recipe changed")
 		return nil
 	}
 	if !snapshotsEqual(manifest.Inputs, s.inputs) || manifest.Fingerprint != s.fingerprint {
-		s.executeReason(exec.IncrementalReasonInputChanged, "declared input content changed")
+		s.executeReason(exec.BuildReasonInputChanged, "declared input content changed")
 		return nil
 	}
 	currentOutput, err := Snapshot(s.output.Name, s.output.Path)
 	if err != nil {
-		s.executeReason(exec.IncrementalReasonOutputMissing, "the prior materialized output is unavailable")
+		s.executeReason(exec.BuildReasonOutputMissing, "the prior materialized output is unavailable")
 		return nil
 	}
 	if !snapshotEqual(currentOutput, manifest.Output) {
-		s.executeReason(exec.IncrementalReasonOutputChanged, "the prior materialized output changed")
+		s.executeReason(exec.BuildReasonOutputChanged, "the prior materialized output changed")
 		return nil
 	}
-	s.metadata.Decision = exec.IncrementalDecisionReuse
-	s.metadata.Phase = exec.IncrementalPhaseComplete
-	s.metadata.Reason = exec.IncrementalReasonMatched
+	s.metadata.Decision = exec.BuildDecisionReuse
+	s.metadata.Phase = exec.BuildPhaseComplete
+	s.metadata.Reason = exec.BuildReasonMatched
 	s.metadata.Detail = "recipe, inputs, and output match the committed manifest"
 	s.metadata.ProducerRun = manifest.ProducerRun
 	s.metadata.ProducerAttemptID = manifest.ProducerAttemptID
 	return nil
 }
 
-func (s *Session) executeReason(reason exec.IncrementalReason, detail string) {
-	s.metadata.Decision = exec.IncrementalDecisionExecute
-	s.metadata.Phase = exec.IncrementalPhaseExecute
+func (s *Session) executeReason(reason exec.BuildReason, detail string) {
+	s.metadata.Decision = exec.BuildDecisionExecute
+	s.metadata.Phase = exec.BuildPhaseExecute
 	s.metadata.Reason = reason
 	s.metadata.Detail = detail
 }
@@ -259,10 +259,10 @@ func (s *Session) SetResolvedRecipe(step core.Step, environment map[string]strin
 }
 
 // Metadata returns the current persisted decision metadata.
-func (s *Session) Metadata() exec.IncrementalExecution { return s.metadata }
+func (s *Session) Metadata() exec.BuildExecution { return s.metadata }
 
 // Reused reports whether executor execution is unnecessary.
-func (s *Session) Reused() bool { return s.metadata.Decision == exec.IncrementalDecisionReuse }
+func (s *Session) Reused() bool { return s.metadata.Decision == exec.BuildDecisionReuse }
 
 // HasPathOutput reports whether the session stages and publishes an output.
 func (s *Session) HasPathOutput() bool { return s.pathBacked }
@@ -303,13 +303,13 @@ func (s *Session) NewAttempt(retry int) (map[string]string, string, error) {
 // Commit verifies an attempt and publishes its materialization.
 func (s *Session) Commit(ctx context.Context, staging string) error {
 	if !s.pathBacked {
-		s.metadata.Phase = exec.IncrementalPhaseComplete
+		s.metadata.Phase = exec.BuildPhaseComplete
 		return nil
 	}
 	if s.store == nil {
-		return fmt.Errorf("incremental materialization store is unavailable")
+		return fmt.Errorf("build materialization store is unavailable")
 	}
-	s.metadata.Phase = exec.IncrementalPhaseVerify
+	s.metadata.Phase = exec.BuildPhaseVerify
 	output, err := Snapshot(s.output.Name, staging)
 	if err != nil {
 		return fmt.Errorf("verify staged output: %w", err)
@@ -317,7 +317,7 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 	for _, expected := range s.inputs {
 		current, err := Snapshot(expected.Name, expected.Path)
 		if err != nil || !snapshotEqual(current, expected) {
-			s.metadata.Reason = exec.IncrementalReasonInputChangedDuringExecution
+			s.metadata.Reason = exec.BuildReasonInputChangedDuringExecution
 			return fmt.Errorf("input %s changed during execution", expected.Name)
 		}
 	}
@@ -340,16 +340,16 @@ func (s *Session) Commit(ctx context.Context, staging string) error {
 		ProducerAttemptID:  s.request.AttemptID,
 		CompletedAt:        time.Now().UTC(),
 	}
-	s.metadata.Phase = exec.IncrementalPhaseCommit
+	s.metadata.Phase = exec.BuildPhaseCommit
 	if err := s.store.Commit(ctx, s.lock, exec.MaterializationCommit{
 		StagingPath:      staging,
 		FinalPath:        s.outputPath,
 		Manifest:         manifest,
-		PreserveManifest: s.metadata.Decision == exec.IncrementalDecisionAlways,
+		PreserveManifest: s.metadata.Decision == exec.BuildDecisionAlways,
 	}); err != nil {
 		return err
 	}
-	s.metadata.Phase = exec.IncrementalPhaseComplete
+	s.metadata.Phase = exec.BuildPhaseComplete
 	return nil
 }
 
@@ -370,8 +370,8 @@ func (s *Session) Close(staging string) error {
 
 func eligible(request PrepareRequest) (bool, string) {
 	step := request.Step
-	if request.DAG == nil || request.DAG.Type != core.TypeIncremental {
-		return false, "workflow is not incremental"
+	if request.DAG == nil || request.DAG.Type != core.TypeBuild {
+		return false, "workflow is not build"
 	}
 	if step.ID == "" {
 		return false, "step has no id"
@@ -390,7 +390,7 @@ func eligible(request PrepareRequest) (bool, string) {
 	}
 	executorType := step.ExecutorConfig.Type
 	if executorType != "" && executorType != "command" && executorType != "shell" {
-		return false, "executor does not support incremental paths"
+		return false, "executor does not support build paths"
 	}
 	if request.HasSecrets {
 		return false, "secret-consuming execution is not reusable"

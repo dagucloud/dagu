@@ -1670,12 +1670,12 @@ steps:
 	assert.Equal(t, core.TypeGraph, childDAG.Type)
 }
 
-func TestLoadYAMLIncrementalLocalDAGUsesParentWorkingDirAsStableBase(t *testing.T) {
+func TestLoadYAMLBuildLocalDAGUsesParentWorkingDirAsStableBase(t *testing.T) {
 	t.Parallel()
 
 	parentWorkingDir := t.TempDir()
 	dag, err := spec.LoadYAML(context.Background(), fmt.Appendf(nil, `
-type: incremental
+type: build
 working_dir: %q
 steps:
   - name: call-child
@@ -1685,7 +1685,7 @@ steps:
 
 ---
 name: child-task
-type: incremental
+type: build
 steps:
   - id: build
     run: echo build

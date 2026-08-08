@@ -72,7 +72,7 @@ type Step struct {
 	OutputSchema map[string]any `json:"outputSchema,omitzero"`
 	// Outputs declares named step outputs.
 	Outputs []StepOutputDeclaration `json:"outputs,omitempty"`
-	// Inputs declares named regular-file inputs for incremental execution.
+	// Inputs declares named regular-file inputs for build execution.
 	Inputs []StepInputDeclaration `json:"inputs,omitempty"`
 	// Depends contains the list of step names to depend on.
 	Depends []string `json:"depends,omitempty"`

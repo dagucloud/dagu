@@ -99,7 +99,7 @@ describe('NodeStatusTableRow', () => {
       finishedAt: '',
       retryCount: 0,
       doneCount: 1,
-      incremental: {
+      build: {
         decision: 'reuse',
         phase: 'complete',
         reason: 'matched',

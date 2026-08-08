@@ -339,7 +339,7 @@ function StartDAGModal({
   const forceEnqueue = action === 'enqueue';
   const [enqueue, setEnqueue] = React.useState(forceEnqueue);
   const [noReuse, setNoReuse] = React.useState(false);
-  const isIncremental = dagDetails?.type === 'incremental';
+  const isBuild = dagDetails?.type === 'build';
   const activeProfiles = React.useMemo(
     () =>
       profiles.filter(
@@ -493,7 +493,7 @@ function StartDAGModal({
         profileSelection,
         hasDefaultProfile
       );
-      if (isIncremental) {
+      if (isBuild) {
         await onSubmit(
           paramsPayload,
           dagRunId || undefined,
@@ -527,7 +527,7 @@ function StartDAGModal({
     hasDefaultProfile,
     loadError,
     loading,
-    isIncremental,
+    isBuild,
     noReuse,
     onSubmit,
     rawParams,
@@ -628,7 +628,7 @@ function StartDAGModal({
             </div>
           )}
 
-          {isIncremental && (
+          {isBuild && (
             <div className="flex items-start space-x-2">
               <Checkbox
                 id="no-reuse"

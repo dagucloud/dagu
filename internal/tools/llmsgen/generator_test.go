@@ -37,7 +37,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Remote Action Packages",
 		"# Dagu CLI Reference",
 		"# Context References, Scoped Values, And Step Outputs",
-		"# Incremental Workflows",
+		"# Build Workflows",
 		"# External CLI Harnesses",
 	} {
 		if !strings.Contains(output, want) {
@@ -66,7 +66,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Remote Action Packages",
 		"# Dagu CLI Reference",
 		"# Context References, Scoped Values, And Step Outputs",
-		"# Incremental Workflows",
+		"# Build Workflows",
 		"# External CLI Harnesses",
 	)
 }
@@ -126,7 +126,7 @@ Use dagu validate.
 
 Use scoped references.
 `,
-		filepath.Join("references", "incremental.md"): `# Incremental Workflows
+		filepath.Join("references", "build.md"): `# Build Workflows
 
 Reuse stable file transformations.
 `,

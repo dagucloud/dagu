@@ -57,7 +57,7 @@ var (
 
 	noReuseFlag = commandLineFlag{
 		name:   "no-reuse",
-		usage:  "Recompute incremental steps instead of reusing prior materializations",
+		usage:  "Recompute build steps instead of reusing prior materializations",
 		isBool: true,
 	}
 )

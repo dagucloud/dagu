@@ -108,24 +108,24 @@ type Props = {
   defaultLogExpanded?: boolean;
 };
 
-type IncrementalExecution = components['schemas']['IncrementalExecution'];
+type BuildExecution = components['schemas']['BuildExecution'];
 
-function IncrementalDecisionBadge({
-  incremental,
+function BuildDecisionBadge({
+  build,
   remoteNode,
 }: {
-  incremental?: IncrementalExecution;
+  build?: BuildExecution;
   remoteNode: string;
 }) {
-  if (!incremental) return null;
+  if (!build) return null;
 
   const label =
-    incremental.decision === 'reuse'
+    build.decision === 'reuse'
       ? 'reused'
-      : incremental.decision === 'always'
+      : build.decision === 'always'
         ? 'always run'
-        : incremental.decision;
-  const producer = incremental.producerRun;
+        : build.decision;
+  const producer = build.producerRun;
 
   return (
     <Tooltip>
@@ -133,7 +133,7 @@ function IncrementalDecisionBadge({
         <span
           className={cn(
             'inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium',
-            incremental.decision === 'reuse'
+            build.decision === 'reuse'
               ? 'border-success/30 bg-success/10 text-success'
               : 'border-border bg-muted text-muted-foreground'
           )}
@@ -143,10 +143,10 @@ function IncrementalDecisionBadge({
       </TooltipTrigger>
       <TooltipContent className="max-w-80 space-y-1 text-xs">
         <div className="font-medium">
-          {incremental.reason.replace(/_/g, ' ')}
+          {build.reason.replace(/_/g, ' ')}
         </div>
-        {incremental.decision === 'reuse' && <div>No executor ran.</div>}
-        {incremental.detail && <div>{incremental.detail}</div>}
+        {build.decision === 'reuse' && <div>No executor ran.</div>}
+        {build.detail && <div>{build.detail}</div>}
         {producer?.name && producer.id && (
           <Link
             className="block underline underline-offset-2"
@@ -982,8 +982,8 @@ function NodeStatusTableRow({
                   {node.statusLabel}
                 </NodeStatusChip>
               </div>
-              <IncrementalDecisionBadge
-                incremental={node.incremental}
+              <BuildDecisionBadge
+                build={node.build}
                 remoteNode={remoteNode}
               />
             </div>
@@ -1193,8 +1193,8 @@ function NodeStatusTableRow({
           <NodeStatusChip status={node.status} size="sm">
             {node.statusLabel}
           </NodeStatusChip>
-          <IncrementalDecisionBadge
-            incremental={node.incremental}
+          <BuildDecisionBadge
+            build={node.build}
             remoteNode={remoteNode}
           />
           {stepActionsMenu}

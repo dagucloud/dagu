@@ -505,8 +505,8 @@ func (e *Engine) runLocal(ctx context.Context, dag *core.DAG, runID string, opts
 }
 
 func (e *Engine) runDistributed(ctx context.Context, dag *core.DAG, runID string, opts RunOptions) (*Run, error) {
-	if dag.Type == core.TypeIncremental {
-		return nil, dispatch.ErrIncrementalRequiresLocal
+	if dag.Type == core.TypeBuild {
+		return nil, dispatch.ErrBuildRequiresLocal
 	}
 	dist := e.distributed
 	if len(opts.WorkerSelector) > 0 {

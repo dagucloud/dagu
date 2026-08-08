@@ -94,7 +94,7 @@ type Agent struct {
 	// stateStore is the persistent state store shared across DAG runs.
 	stateStore dagstate.Store
 
-	// materializationStore coordinates incremental file materializations.
+	// materializationStore coordinates build file materializations.
 	materializationStore exec.MaterializationStore
 
 	// secretStore resolves workspace-local team-managed secret references.
@@ -331,7 +331,7 @@ type Options struct {
 	QueueStore exec.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
 	StateStore dagstate.Store
-	// MaterializationStore coordinates incremental file materializations.
+	// MaterializationStore coordinates build file materializations.
 	MaterializationStore exec.MaterializationStore
 	// SecretStore resolves local registry refs and runtime profile secrets.
 	SecretStore secretpkg.Store
@@ -1210,7 +1210,7 @@ func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *exec.Node {
 		RetryCount:       nodeData.State.RetryCount,
 		DoneCount:        nodeData.State.DoneCount,
 		Error:            errorString(nodeData.State.Error),
-		Incremental:      nodeData.State.Incremental,
+		Build:            nodeData.State.Build,
 		SubRuns:          subRuns,
 		OutputVariables:  nodeData.State.OutputVariables,
 		OutputsValue:     nodeData.State.OutputsValue,
