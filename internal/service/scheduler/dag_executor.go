@@ -135,8 +135,8 @@ func (e *DAGExecutor) HandleJob(
 
 	// For distributed execution with START operation, enqueue for persistence
 	if e.shouldUseDistributedExecution(dag) && operation == exec.DispatchOperationStart {
-		if dag.Type == core.TypeIncremental {
-			return dispatch.ErrIncrementalRequiresLocal
+		if dag.Type == core.TypeBuild {
+			return dispatch.ErrBuildRequiresLocal
 		}
 		ctx = logger.WithValues(ctx,
 			tag.DAG(dag.Name),
@@ -222,8 +222,8 @@ func (e *DAGExecutor) executeDAG(
 	}
 
 	if e.shouldUseDistributedExecution(dag) {
-		if dag.Type == core.TypeIncremental {
-			return dispatch.ErrIncrementalRequiresLocal
+		if dag.Type == core.TypeBuild {
+			return dispatch.ErrBuildRequiresLocal
 		}
 		// Distributed execution: dispatch to coordinator
 		taskOpts := []executor.TaskOption{

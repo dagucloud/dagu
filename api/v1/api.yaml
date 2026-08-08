@@ -1090,7 +1090,7 @@ paths:
                   default: false
                 noReuse:
                   type: boolean
-                  description: "If true, execute eligible incremental steps without reusing prior materializations"
+                  description: "If true, execute eligible build steps without reusing prior materializations"
                   default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
@@ -1175,7 +1175,7 @@ paths:
                   default: false
                 noReuse:
                   type: boolean
-                  description: "If true, execute eligible incremental steps without reusing prior materializations"
+                  description: "If true, execute eligible build steps without reusing prior materializations"
                   default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
@@ -1264,7 +1264,7 @@ paths:
                   default: false
                 noReuse:
                   type: boolean
-                  description: "If true, execute eligible incremental steps without reusing prior materializations"
+                  description: "If true, execute eligible build steps without reusing prior materializations"
                   default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
@@ -1951,7 +1951,7 @@ paths:
                   default: false
                 noReuse:
                   type: boolean
-                  description: "If true, execute eligible incremental steps without reusing prior materializations"
+                  description: "If true, execute eligible build steps without reusing prior materializations"
                   default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
@@ -2037,7 +2037,7 @@ paths:
                   default: false
                 noReuse:
                   type: boolean
-                  description: "If true, execute eligible incremental steps without reusing prior materializations"
+                  description: "If true, execute eligible build steps without reusing prior materializations"
                   default: false
                 labels:
                   $ref: "#/components/schemas/Labels"
@@ -11884,8 +11884,8 @@ components:
       properties:
         type:
           type: string
-          enum: [graph, chain, controller, incremental]
-          description: "Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step, and 'incremental' adds file-derived dependencies and materialization reuse."
+          enum: [graph, chain, controller, build]
+          description: "Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step, and 'build' adds file-derived dependencies and materialization reuse."
         tasks:
           type: array
           description: "Goals a controller DAG must satisfy. Present only for type controller."
@@ -12283,7 +12283,7 @@ components:
           description: "Whether artifact files are available for this DAG-run"
         noReuse:
           type: boolean
-          description: "Whether reuse of prior incremental materializations was disabled for this DAG-run"
+          description: "Whether reuse of prior build materializations was disabled for this DAG-run"
         params:
           type: string
           description: "Runtime parameters passed to the DAG-run in JSON format"
@@ -12593,7 +12593,7 @@ components:
           type: string
           description: "Justification the controller gave for the current status"
 
-    IncrementalProducer:
+    BuildProducer:
       type: object
       description: "DAG-run that produced a reused materialization"
       properties:
@@ -12602,9 +12602,9 @@ components:
         id:
           type: string
 
-    IncrementalExecution:
+    BuildExecution:
       type: object
-      description: "Incremental execution decision and its explanation"
+      description: "Build execution decision and its explanation"
       properties:
         decision:
           type: string
@@ -12623,7 +12623,7 @@ components:
         materializationKey:
           type: string
         producerRun:
-          $ref: "#/components/schemas/IncrementalProducer"
+          $ref: "#/components/schemas/BuildProducer"
         producerAttemptId:
           type: string
       required:
@@ -12672,8 +12672,8 @@ components:
         error:
           type: string
           description: "Error message if the step failed"
-        incremental:
-          $ref: "#/components/schemas/IncrementalExecution"
+        build:
+          $ref: "#/components/schemas/BuildExecution"
         humanTaskCompletedBy:
           type: string
           description: "Name of the subject that completed the human task"
@@ -12801,7 +12801,7 @@ components:
 
     StepOutputDeclaration:
       type: object
-      description: "One named value output or incremental file output"
+      description: "One named value output or build file output"
       additionalProperties: false
       not:
         required:
@@ -12822,11 +12822,11 @@ components:
           description: "Output value type. JSON outputs must contain valid JSON text."
         path:
           type: string
-          description: "Regular-file path published atomically by an incremental step"
+          description: "Regular-file path published atomically by a build step"
 
     StepInputDeclaration:
       type: object
-      description: "One named regular-file input for incremental execution"
+      description: "One named regular-file input for build execution"
       additionalProperties: false
       required:
         - name
@@ -12885,7 +12885,7 @@ components:
         inputs:
           type: array
           minItems: 1
-          description: "Named regular-file inputs used for incremental fingerprints and inferred dependencies. Steps that declare inputs must also define id."
+          description: "Named regular-file inputs used for build fingerprints and inferred dependencies. Steps that declare inputs must also define id."
           items:
             $ref: "#/components/schemas/StepInputDeclaration"
         call:

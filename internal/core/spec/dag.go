@@ -952,10 +952,10 @@ func buildType(_ buildContext, d *dag) (string, error) {
 		return core.TypeGraph, nil
 	}
 	switch t {
-	case core.TypeGraph, core.TypeChain, core.TypeController, core.TypeIncremental:
+	case core.TypeGraph, core.TypeChain, core.TypeController, core.TypeBuild:
 		return t, nil
 	default:
-		return "", core.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, controller, incremental)", t))
+		return "", core.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, controller, build)", t))
 	}
 }
 

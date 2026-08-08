@@ -25,89 +25,89 @@ type NodeStatusDetail struct {
 	Status core.NodeStatus `json:"status"`
 }
 
-// IncrementalDecision records how an incremental node was satisfied.
-type IncrementalDecision string
+// BuildDecision records how a build node was satisfied.
+type BuildDecision string
 
 const (
-	IncrementalDecisionNone     IncrementalDecision = "none"
-	IncrementalDecisionAlways   IncrementalDecision = "always"
-	IncrementalDecisionExecute  IncrementalDecision = "execute"
-	IncrementalDecisionReuse    IncrementalDecision = "reuse"
-	IncrementalDecisionDeferred IncrementalDecision = "deferred"
+	BuildDecisionNone     BuildDecision = "none"
+	BuildDecisionAlways   BuildDecision = "always"
+	BuildDecisionExecute  BuildDecision = "execute"
+	BuildDecisionReuse    BuildDecision = "reuse"
+	BuildDecisionDeferred BuildDecision = "deferred"
 )
 
-// IncrementalPhase records the latest incremental lifecycle phase.
-type IncrementalPhase string
+// BuildPhase records the latest build lifecycle phase.
+type BuildPhase string
 
 const (
-	IncrementalPhasePrecondition IncrementalPhase = "precondition"
-	IncrementalPhaseEvaluate     IncrementalPhase = "evaluate"
-	IncrementalPhaseExecute      IncrementalPhase = "execute"
-	IncrementalPhaseVerify       IncrementalPhase = "verify"
-	IncrementalPhaseCommit       IncrementalPhase = "commit"
-	IncrementalPhaseComplete     IncrementalPhase = "complete"
+	BuildPhasePrecondition BuildPhase = "precondition"
+	BuildPhaseEvaluate     BuildPhase = "evaluate"
+	BuildPhaseExecute      BuildPhase = "execute"
+	BuildPhaseVerify       BuildPhase = "verify"
+	BuildPhaseCommit       BuildPhase = "commit"
+	BuildPhaseComplete     BuildPhase = "complete"
 )
 
-// IncrementalReason is a stable machine-readable explanation of a decision.
-type IncrementalReason string
+// BuildReason is a stable machine-readable explanation of a decision.
+type BuildReason string
 
 const (
-	IncrementalReasonIneligible                  IncrementalReason = "ineligible"
-	IncrementalReasonStoreUnavailable            IncrementalReason = "store_unavailable"
-	IncrementalReasonEvaluationFailed            IncrementalReason = "evaluation_failed"
-	IncrementalReasonCancelledBeforeDecision     IncrementalReason = "cancelled_before_decision"
-	IncrementalReasonRecoveryFailed              IncrementalReason = "recovery_failed"
-	IncrementalReasonUpstreamWouldExecute        IncrementalReason = "upstream_would_execute"
-	IncrementalReasonInputMissing                IncrementalReason = "input_missing"
-	IncrementalReasonControlDependencyRan        IncrementalReason = "control_dependency_ran"
-	IncrementalReasonReuseDisabled               IncrementalReason = "reuse_disabled"
-	IncrementalReasonManifestMissing             IncrementalReason = "manifest_missing"
-	IncrementalReasonRecipeChanged               IncrementalReason = "recipe_changed"
-	IncrementalReasonInputChanged                IncrementalReason = "input_changed"
-	IncrementalReasonOutputMissing               IncrementalReason = "output_missing"
-	IncrementalReasonOutputChanged               IncrementalReason = "output_changed"
-	IncrementalReasonMatched                     IncrementalReason = "matched"
-	IncrementalReasonInputChangedDuringExecution IncrementalReason = "input_changed_during_execution"
-	IncrementalReasonPreconditionError           IncrementalReason = "precondition_error"
-	IncrementalReasonPreconditionNotMet          IncrementalReason = "precondition_not_met"
+	BuildReasonIneligible                  BuildReason = "ineligible"
+	BuildReasonStoreUnavailable            BuildReason = "store_unavailable"
+	BuildReasonEvaluationFailed            BuildReason = "evaluation_failed"
+	BuildReasonCancelledBeforeDecision     BuildReason = "cancelled_before_decision"
+	BuildReasonRecoveryFailed              BuildReason = "recovery_failed"
+	BuildReasonUpstreamWouldExecute        BuildReason = "upstream_would_execute"
+	BuildReasonInputMissing                BuildReason = "input_missing"
+	BuildReasonControlDependencyRan        BuildReason = "control_dependency_ran"
+	BuildReasonReuseDisabled               BuildReason = "reuse_disabled"
+	BuildReasonManifestMissing             BuildReason = "manifest_missing"
+	BuildReasonRecipeChanged               BuildReason = "recipe_changed"
+	BuildReasonInputChanged                BuildReason = "input_changed"
+	BuildReasonOutputMissing               BuildReason = "output_missing"
+	BuildReasonOutputChanged               BuildReason = "output_changed"
+	BuildReasonMatched                     BuildReason = "matched"
+	BuildReasonInputChangedDuringExecution BuildReason = "input_changed_during_execution"
+	BuildReasonPreconditionError           BuildReason = "precondition_error"
+	BuildReasonPreconditionNotMet          BuildReason = "precondition_not_met"
 )
 
-// IncrementalExecution explains how an incremental node was satisfied.
-type IncrementalExecution struct {
-	Decision           IncrementalDecision `json:"decision"`
-	Phase              IncrementalPhase    `json:"phase"`
-	Reason             IncrementalReason   `json:"reason"`
-	Detail             string              `json:"detail,omitempty"`
-	Fingerprint        string              `json:"fingerprint,omitempty"`
-	MaterializationKey string              `json:"materializationKey,omitempty"`
-	ProducerRun        DAGRunRef           `json:"producerRun,omitzero"`
-	ProducerAttemptID  string              `json:"producerAttemptId,omitempty"`
+// BuildExecution explains how a build node was satisfied.
+type BuildExecution struct {
+	Decision           BuildDecision `json:"decision"`
+	Phase              BuildPhase    `json:"phase"`
+	Reason             BuildReason   `json:"reason"`
+	Detail             string        `json:"detail,omitempty"`
+	Fingerprint        string        `json:"fingerprint,omitempty"`
+	MaterializationKey string        `json:"materializationKey,omitempty"`
+	ProducerRun        DAGRunRef     `json:"producerRun,omitzero"`
+	ProducerAttemptID  string        `json:"producerAttemptId,omitempty"`
 }
 
 // Node represents a DAG step with its execution state for persistence
 type Node struct {
-	Step             core.Step             `json:"step,omitzero"`
-	Stdout           string                `json:"stdout"` // standard output log file path
-	Stderr           string                `json:"stderr"` // standard error log file path
-	WorkingDir       string                `json:"workingDir,omitempty"`
-	StartedAt        string                `json:"startedAt"`
-	FinishedAt       string                `json:"finishedAt"`
-	Status           core.NodeStatus       `json:"status"`
-	RetriedAt        string                `json:"retriedAt,omitempty"`
-	RetryCount       int                   `json:"retryCount,omitempty"`
-	DoneCount        int                   `json:"doneCount,omitempty"`
-	Repeated         bool                  `json:"repeated,omitempty"` // indicates if the node has been repeated
-	SkippedByRetry   bool                  `json:"skippedByRetry,omitempty"`
-	Error            string                `json:"error,omitempty"`
-	StatusDetails    []NodeStatusDetail    `json:"statusDetails,omitempty"`
-	Incremental      *IncrementalExecution `json:"incremental,omitempty"`
-	SubRuns          []SubDAGRun           `json:"children,omitempty"`
-	SubRunsRepeated  []SubDAGRun           `json:"childrenRepeated,omitempty"` // repeated sub DAG runs
-	OutputVariables  *collections.SyncMap  `json:"outputVariables,omitempty"`
-	OutputValue      *string               `json:"outputValue,omitempty"`
-	OutputsValue     *string               `json:"outputsValue,omitempty"`
-	StepOutputsValue *string               `json:"stepOutputsValue,omitempty"`
-	HumanTaskInput   json.RawMessage       `json:"humanTaskInput,omitempty"`
+	Step             core.Step            `json:"step,omitzero"`
+	Stdout           string               `json:"stdout"` // standard output log file path
+	Stderr           string               `json:"stderr"` // standard error log file path
+	WorkingDir       string               `json:"workingDir,omitempty"`
+	StartedAt        string               `json:"startedAt"`
+	FinishedAt       string               `json:"finishedAt"`
+	Status           core.NodeStatus      `json:"status"`
+	RetriedAt        string               `json:"retriedAt,omitempty"`
+	RetryCount       int                  `json:"retryCount,omitempty"`
+	DoneCount        int                  `json:"doneCount,omitempty"`
+	Repeated         bool                 `json:"repeated,omitempty"` // indicates if the node has been repeated
+	SkippedByRetry   bool                 `json:"skippedByRetry,omitempty"`
+	Error            string               `json:"error,omitempty"`
+	StatusDetails    []NodeStatusDetail   `json:"statusDetails,omitempty"`
+	Build            *BuildExecution      `json:"build,omitempty"`
+	SubRuns          []SubDAGRun          `json:"children,omitempty"`
+	SubRunsRepeated  []SubDAGRun          `json:"childrenRepeated,omitempty"` // repeated sub DAG runs
+	OutputVariables  *collections.SyncMap `json:"outputVariables,omitempty"`
+	OutputValue      *string              `json:"outputValue,omitempty"`
+	OutputsValue     *string              `json:"outputsValue,omitempty"`
+	StepOutputsValue *string              `json:"stepOutputsValue,omitempty"`
+	HumanTaskInput   json.RawMessage      `json:"humanTaskInput,omitempty"`
 	// ControllerState stores the goal progress of a controller DAG's controller
 	// step, so a suspended run resumes with its task list intact.
 	ControllerState json.RawMessage `json:"controllerState,omitempty"`

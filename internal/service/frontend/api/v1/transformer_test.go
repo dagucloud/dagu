@@ -535,11 +535,11 @@ func TestToNodeMapsStatuses(t *testing.T) {
 	}
 }
 
-func TestToDAGRunDetailsIncludesIncrementalMetadata(t *testing.T) {
+func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 	t.Parallel()
 
 	status := exec.DAGRunStatus{
-		Name:     "incremental-dag",
+		Name:     "build-dag",
 		DAGRunID: "run-2",
 		Status:   core.Succeeded,
 		NoReuse:  true,
@@ -551,11 +551,11 @@ func TestToDAGRunDetailsIncludesIncrementalMetadata(t *testing.T) {
 				Outputs: []core.StepOutputDeclaration{{Name: "artifact", Path: "/data/artifact.txt"}},
 			},
 			Status: core.NodeSucceeded,
-			Incremental: &exec.IncrementalExecution{
+			Build: &exec.BuildExecution{
 				Decision:    "reuse",
 				Phase:       "complete",
 				Reason:      "matched",
-				ProducerRun: exec.NewDAGRunRef("incremental-dag", "run-1"),
+				ProducerRun: exec.NewDAGRunRef("build-dag", "run-1"),
 			},
 		}},
 	}
@@ -564,10 +564,10 @@ func TestToDAGRunDetailsIncludesIncrementalMetadata(t *testing.T) {
 	require.NotNil(t, details.NoReuse)
 	assert.True(t, *details.NoReuse)
 	require.Len(t, details.Nodes, 1)
-	require.NotNil(t, details.Nodes[0].Incremental)
-	assert.Equal(t, openapi.IncrementalExecutionDecision("reuse"), details.Nodes[0].Incremental.Decision)
-	require.NotNil(t, details.Nodes[0].Incremental.ProducerRun)
-	assert.Equal(t, "run-1", *details.Nodes[0].Incremental.ProducerRun.Id)
+	require.NotNil(t, details.Nodes[0].Build)
+	assert.Equal(t, openapi.BuildExecutionDecision("reuse"), details.Nodes[0].Build.Decision)
+	require.NotNil(t, details.Nodes[0].Build.ProducerRun)
+	assert.Equal(t, "run-1", *details.Nodes[0].Build.ProducerRun.Id)
 	require.NotNil(t, details.Nodes[0].Step.Inputs)
 	assert.Equal(t, "/data/source.txt", (*details.Nodes[0].Step.Inputs)[0].Path)
 	require.NotNil(t, details.Nodes[0].Step.Outputs)

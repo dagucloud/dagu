@@ -334,17 +334,17 @@ function Resolve-Defaults {
 }
 
 function Detect-SkillTargets {
-    $home = [Environment]::GetFolderPath("UserProfile")
+    $userHome = [Environment]::GetFolderPath("UserProfile")
     $count = 0
-    $agentsHome = if ($env:AGENTS_HOME) { $env:AGENTS_HOME } else { Join-Path $home ".agents" }
-    $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $home ".codex" }
-    if (Test-Path (Join-Path $home ".claude\.claude.json")) { $count++ }
+    $agentsHome = if ($env:AGENTS_HOME) { $env:AGENTS_HOME } else { Join-Path $userHome ".agents" }
+    $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $userHome ".codex" }
+    if (Test-Path (Join-Path $userHome ".claude\.claude.json")) { $count++ }
     if (Test-Path $agentsHome) { $count++ }
     elseif (Test-Path $codexHome) { $count++ }
-    if (Test-Path (Join-Path $home ".config\opencode")) { $count++ }
-    if (Test-Path (Join-Path $home ".gemini\GEMINI.md")) { $count++ }
-    $xdg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $home }
-    if ((Test-Path (Join-Path $xdg ".copilot\config.json")) -or (Test-Path (Join-Path $home ".copilot\config.json"))) { $count++ }
+    if (Test-Path (Join-Path $userHome ".config\opencode")) { $count++ }
+    if (Test-Path (Join-Path $userHome ".gemini\GEMINI.md")) { $count++ }
+    $xdg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $userHome }
+    if ((Test-Path (Join-Path $xdg ".copilot\config.json")) -or (Test-Path (Join-Path $userHome ".copilot\config.json"))) { $count++ }
     $Script:DetectedSkillTargets = $count
 }
 
@@ -377,17 +377,17 @@ function Get-XmlEnvValue {
 }
 
 function Discover-SkillRemovals {
-    $home = [Environment]::GetFolderPath("UserProfile")
-    $agentsHome = if ($env:AGENTS_HOME) { $env:AGENTS_HOME } else { Join-Path $home ".agents" }
-    $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $home ".codex" }
-    $xdg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $home }
-    $claudeSkill = Join-Path $home ".claude\skills\dagu"
+    $userHome = [Environment]::GetFolderPath("UserProfile")
+    $agentsHome = if ($env:AGENTS_HOME) { $env:AGENTS_HOME } else { Join-Path $userHome ".agents" }
+    $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $userHome ".codex" }
+    $xdg = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { $userHome }
+    $claudeSkill = Join-Path $userHome ".claude\skills\dagu"
     $agentsSkill = Join-Path $agentsHome "skills\dagu"
     $codexSkill = Join-Path $codexHome "skills\dagu"
-    $openCodeSkill = Join-Path $home ".config\opencode\skills\dagu"
-    $geminiSkill = Join-Path $home ".gemini\skills\dagu"
+    $openCodeSkill = Join-Path $userHome ".config\opencode\skills\dagu"
+    $geminiSkill = Join-Path $userHome ".gemini\skills\dagu"
     $xdgCopilot = Join-Path $xdg ".copilot\copilot-instructions.md"
-    $homeCopilot = Join-Path $home ".copilot\copilot-instructions.md"
+    $homeCopilot = Join-Path $userHome ".copilot\copilot-instructions.md"
     foreach ($dir in @($claudeSkill, $agentsSkill, $codexSkill, $openCodeSkill, $geminiSkill)) {
         if (Test-Path $dir) {
             Add-UniqueItem ([ref]$Script:UninstallSkillDirs) $dir
@@ -501,7 +501,7 @@ function Show-UninstallPlan {
     Write-Host ("Binary paths".PadRight(20) + $(if ($Script:UninstallInstallPaths.Count -gt 0) { Join-Values $Script:UninstallInstallPaths } else { "none" }))
     Write-Host ("Background service".PadRight(20) + $(if ($Script:UninstallServicePresent) { $Script:ServiceName } else { "none" }))
     $dataAction = if ($PurgeData) { "remove" } else { "keep" }
-    Write-Host ("Data directory".PadRight(20) + "$dataAction: $(if ($Script:UninstallDaguHomes.Count -gt 0) { Join-Values $Script:UninstallDaguHomes } else { 'none detected' })")
+    Write-Host ("Data directory".PadRight(20) + "${dataAction}: $(if ($Script:UninstallDaguHomes.Count -gt 0) { Join-Values $Script:UninstallDaguHomes } else { 'none detected' })")
     Write-Host ("PATH cleanup".PadRight(20) + $(if ($Script:UninstallPathScopes.Count -gt 0) { Join-Values $Script:UninstallPathScopes } else { "none detected" }))
     if ($RemoveSkill) {
         $skillTargets = @($Script:UninstallSkillDirs + $Script:UninstallCopilotFiles)

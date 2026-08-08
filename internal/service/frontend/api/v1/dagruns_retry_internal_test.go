@@ -116,18 +116,18 @@ steps:
 	require.NotNil(t, task.PreviousStatus)
 }
 
-func TestRetryDAGRun_RejectsDistributedIncrementalWorkflow(t *testing.T) {
+func TestRetryDAGRun_RejectsDistributedBuildWorkflow(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
-	dagFile := filepath.Join(tmpDir, "incremental-retry.yaml")
+	dagFile := filepath.Join(tmpDir, "build-retry.yaml")
 	require.NoError(t, os.WriteFile(dagFile, []byte(`
-name: incremental_retry_dag
-type: incremental
+name: build_retry_dag
+type: build
 worker_selector:
   region: apac
 steps:
   - name: main
-    run: echo incremental retry
+    run: echo build retry
 `), 0o600))
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
@@ -137,12 +137,12 @@ steps:
 		ctx,
 		dag,
 		time.Now().Add(-2*time.Minute),
-		"incremental-run",
+		"build-run",
 		exec.NewDAGRunAttemptOptions{},
 	)
 	require.NoError(t, err)
 	status := transform.NewStatusBuilder(dag).Create(
-		"incremental-run",
+		"build-run",
 		core.Failed,
 		0,
 		time.Now().Add(-2*time.Minute),
@@ -168,16 +168,16 @@ steps:
 
 	resp, err := api.RetryDAGRun(ctx, openapiv1.RetryDAGRunRequestObject{
 		Name:     dag.Name,
-		DagRunId: "incremental-run",
+		DagRunId: "build-run",
 		Body: &openapiv1.RetryDAGRunJSONRequestBody{
-			DagRunId: "incremental-run",
+			DagRunId: "build-run",
 		},
 	})
 	require.Nil(t, resp)
 	var apiErr *Error
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
-	require.Contains(t, apiErr.Message, "incremental workflows require local execution")
+	require.Contains(t, apiErr.Message, "build workflows require local execution")
 	require.Empty(t, coordinatorCli.dispatched)
 }
 

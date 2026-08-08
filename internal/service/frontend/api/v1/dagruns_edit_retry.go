@@ -547,8 +547,8 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	}
 	queueConfigured := a.config.FindQueueConfig(plan.editedDAG.ProcGroup()) != nil
 	shouldDispatch := !queueConfigured && dispatch.ShouldDispatchToCoordinator(plan.editedDAG, a.coordinatorCli != nil, a.defaultExecMode)
-	if shouldDispatch && plan.editedDAG.Type == core.TypeIncremental {
-		return false, incrementalRequiresLocalAPIError()
+	if shouldDispatch && plan.editedDAG.Type == core.TypeBuild {
+		return false, buildRequiresLocalAPIError()
 	}
 
 	nodes := editRetrySeedNodes(plan.editedDAG, plan.sourceStatus, plan.skippedSteps)

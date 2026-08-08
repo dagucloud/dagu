@@ -484,20 +484,20 @@ func toNode(node *exec.Node) api.Node {
 		RejectionReason:        ptrOf(node.RejectionReason),
 		ApprovalIteration:      ptrOf(node.ApprovalIteration),
 	}
-	if node.Incremental != nil {
-		result.Incremental = &api.IncrementalExecution{
-			Decision:           api.IncrementalExecutionDecision(node.Incremental.Decision),
-			Phase:              api.IncrementalExecutionPhase(node.Incremental.Phase),
-			Reason:             string(node.Incremental.Reason),
-			Detail:             ptrOf(node.Incremental.Detail),
-			Fingerprint:        ptrOf(node.Incremental.Fingerprint),
-			MaterializationKey: ptrOf(node.Incremental.MaterializationKey),
-			ProducerAttemptId:  ptrOf(node.Incremental.ProducerAttemptID),
+	if node.Build != nil {
+		result.Build = &api.BuildExecution{
+			Decision:           api.BuildExecutionDecision(node.Build.Decision),
+			Phase:              api.BuildExecutionPhase(node.Build.Phase),
+			Reason:             string(node.Build.Reason),
+			Detail:             ptrOf(node.Build.Detail),
+			Fingerprint:        ptrOf(node.Build.Fingerprint),
+			MaterializationKey: ptrOf(node.Build.MaterializationKey),
+			ProducerAttemptId:  ptrOf(node.Build.ProducerAttemptID),
 		}
-		if !node.Incremental.ProducerRun.Zero() {
-			result.Incremental.ProducerRun = &api.IncrementalProducer{
-				Name: ptrOf(node.Incremental.ProducerRun.Name),
-				Id:   ptrOf(node.Incremental.ProducerRun.ID),
+		if !node.Build.ProducerRun.Zero() {
+			result.Build.ProducerRun = &api.BuildProducer{
+				Name: ptrOf(node.Build.ProducerRun.Name),
+				Id:   ptrOf(node.Build.ProducerRun.ID),
 			}
 		}
 	}

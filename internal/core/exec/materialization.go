@@ -46,7 +46,7 @@ type FileSnapshot struct {
 	Digest string `json:"digest"`
 }
 
-// Materialization records one committed incremental output.
+// Materialization records one committed build output.
 type Materialization struct {
 	SchemaVersion      int            `json:"schemaVersion"`
 	MaterializationKey string         `json:"materializationKey"`
