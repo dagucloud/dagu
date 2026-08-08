@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	procctrl "github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -37,7 +38,7 @@ func TestManager(t *testing.T) {
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		socketServer, _ := sock.NewServer(
-			dag.SockAddr(dagRunID),
+			procctrl.DAGSocketAddr(dag.DAG, dagRunID),
 			func(w http.ResponseWriter, _ *http.Request) {
 				status := transform.NewStatusBuilder(dag.DAG).Create(
 					dagRunID, ir.Running, 0, time.Now(),
@@ -99,7 +100,7 @@ func TestManager(t *testing.T) {
 
 		stopRequested := make(chan struct{}, 1)
 		socketServer, err := sock.NewServer(
-			dag.SockAddr(dagRunID),
+			procctrl.DAGSocketAddr(dag.DAG, dagRunID),
 			func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/stop" {
 					w.WriteHeader(http.StatusNotFound)
@@ -941,7 +942,7 @@ func startStatusSocketServer(t *testing.T, ctx context.Context, dag *ir.DAG, dag
 	t.Helper()
 
 	socketServer, err := sock.NewServer(
-		dag.SockAddr(dagRunID),
+		procctrl.DAGSocketAddr(dag, dagRunID),
 		func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			jsonData, marshalErr := json.Marshal(status)

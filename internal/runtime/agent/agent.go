@@ -43,6 +43,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
@@ -2324,9 +2325,9 @@ func (a *Agent) setupSocketServer(ctx context.Context) error {
 
 func (a *Agent) socketAddr() string {
 	if a.isSubDAGRun.Load() {
-		return a.dag.SockAddrForSubDAGRun(a.dagRunID)
+		return proc.SubDAGSocketAddr(a.dag, a.dagRunID)
 	}
-	return a.dag.SockAddr(a.dagRunID)
+	return proc.DAGSocketAddr(a.dag, a.dagRunID)
 }
 
 // checkIsAlreadyRunning returns error if the DAG is already running.
@@ -2337,7 +2338,7 @@ func (a *Agent) checkIsAlreadyRunning(ctx context.Context) error {
 	if !a.dagRunMgr.IsRunning(ctx, a.dag, a.dagRunID) {
 		return nil
 	}
-	return fmt.Errorf("already running. dag-run ID=%s, socket=%s", a.dagRunID, a.dag.SockAddr(a.dagRunID))
+	return fmt.Errorf("already running. dag-run ID=%s, socket=%s", a.dagRunID, proc.DAGSocketAddr(a.dag, a.dagRunID))
 }
 
 // execWithRecovery executes a function with panic recovery and logs any panics.

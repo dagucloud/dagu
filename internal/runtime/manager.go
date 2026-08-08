@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
 const staleLocalRunStartupGrace = 2 * time.Second
@@ -185,7 +186,7 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 				return err
 			}
 		}
-		addr := dag.SockAddr(dagRunID)
+		addr := proc.DAGSocketAddr(dag, dagRunID)
 		if fileutil.FileExists(addr) {
 			// In case the socket exists, we try to send a stop request
 			client := sock.NewClient(addr)
@@ -356,7 +357,7 @@ func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun exec.DAGRu
 // currentStatus retrieves the current status of a running DAG by querying its socket.
 // This is a private method used internally by other status-related methods.
 func (*Manager) currentStatus(_ context.Context, dag *ir.DAG, dagRunID string) (*exec.DAGRunStatus, error) {
-	client := sock.NewClient(dag.SockAddr(dagRunID))
+	client := sock.NewClient(proc.DAGSocketAddr(dag, dagRunID))
 
 	// Check if the socket file exists
 	if !fileutil.FileExists(client.SocketAddr()) {

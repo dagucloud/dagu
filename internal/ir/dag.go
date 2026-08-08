@@ -5,13 +5,11 @@ package ir
 
 import (
 	"context"
-	"crypto/md5" //nolint:gosec
 	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -431,21 +429,6 @@ func (d *DAG) HasHumanTaskSteps() bool {
 		}
 	}
 	return false
-}
-
-// SockAddr returns the unix socket address for the DAG.
-// The address is used to communicate with the agent process.
-func (d *DAG) SockAddr(dagRunID string) string {
-	if d.Location != "" {
-		return SockAddr(d.Location, dagRunID)
-	}
-	return SockAddr(d.Name, dagRunID)
-}
-
-// SockAddrForSubDAGRun returns the unix socket address for a specific dag-run ID.
-// This is used to control sub dag-runs.
-func (d *DAG) SockAddrForSubDAGRun(dagRunID string) string {
-	return SockAddr(d.GetName(), dagRunID)
 }
 
 // GetName returns the name of the DAG.
@@ -1096,37 +1079,4 @@ const (
 
 func (h HandlerType) String() string {
 	return string(h)
-}
-
-// SockAddr returns the unix socket address for the DAG.
-// The address is used to communicate with the agent process.
-func SockAddr(name, dagRunID string) string {
-	const (
-		hashLength          = 6
-		maxSocketNameLength = 50
-		prefix              = "@dagu_"
-		suffix              = ".sock"
-	)
-
-	hash := fmt.Sprintf("%x", md5.Sum([]byte(name+dagRunID)))[:hashLength] //nolint:gosec
-	safeName := fileutil.SafeName(name)
-
-	// Calculate available space for the name
-	fixedLen := len(prefix) + 1 + len(hash) + len(suffix) // +1 for underscore connector
-	maxNameLen := maxSocketNameLength - fixedLen
-	if len(safeName) > maxNameLen {
-		safeName = safeName[:maxNameLen]
-	}
-
-	return getSocketPath(fmt.Sprintf("%s%s_%s%s", prefix, safeName, hash, suffix))
-}
-
-// getSocketPath returns the appropriate socket path for the current platform.
-// On Unix systems, it uses /tmp directory. On Windows, it uses the system temp directory.
-func getSocketPath(socketName string) string {
-	baseDir := "/tmp"
-	if runtime.GOOS == "windows" {
-		baseDir = os.TempDir()
-	}
-	return filepath.Join(baseDir, socketName)
 }
