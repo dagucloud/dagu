@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -33,8 +34,8 @@ type ServerConfig struct {
 	ProcStore            proc.ProcStore
 	DAGRunManager        runtime.Manager
 	ServiceRegistry      exec.ServiceRegistry
-	DAGRunLeaseStore     exec.DAGRunLeaseStore
-	WorkerHeartbeatStore exec.WorkerHeartbeatStore
+	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
+	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
 	LicenseManager       *license.Manager
 	ResourceService      *resource.Service
 }

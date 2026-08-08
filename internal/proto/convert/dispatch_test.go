@@ -6,7 +6,7 @@ package convert_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +16,7 @@ import (
 func TestDispatchTaskToProtoClonesWorkerSelector(t *testing.T) {
 	t.Parallel()
 
-	task := &exec.DispatchTask{
+	task := &dispatch.DispatchTask{
 		WorkerSelector: map[string]string{"host": "server-a"},
 	}
 
@@ -33,7 +33,7 @@ func TestDispatchTaskToProtoClonesWorkerSelector(t *testing.T) {
 func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 	t.Parallel()
 
-	task := &exec.DispatchTask{
+	task := &dispatch.DispatchTask{
 		ProfileName:  "prod",
 		TriggerActor: "alice",
 	}
@@ -69,8 +69,8 @@ func TestDispatchTaskToProtoValidatesOwnerPort(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := convert.DispatchTaskToProto(&exec.DispatchTask{
-				Owner: exec.CoordinatorEndpoint{Port: tt.port},
+			_, err := convert.DispatchTaskToProto(&dispatch.DispatchTask{
+				Owner: dispatch.CoordinatorEndpoint{Port: tt.port},
 			})
 			if tt.wantErr {
 				require.Error(t, err)

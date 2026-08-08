@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -24,7 +24,7 @@ type Scheduler struct {
 	Helper
 	EntryReader    scheduler.EntryReader
 	QueueStore     queue.QueueStore
-	CoordinatorCli exec.Dispatcher
+	CoordinatorCli dispatch.Dispatcher
 }
 
 // SetupScheduler creates a test scheduler instance with all dependencies

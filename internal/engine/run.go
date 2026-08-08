@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -533,14 +532,14 @@ func (e *Engine) runDistributed(ctx context.Context, dag *ir.DAG, runID string, 
 	task := runtimeexec.CreateTask(
 		dag.Name,
 		string(dag.YamlData),
-		coreexec.DispatchOperationStart,
+		dispatch.DispatchOperationStart,
 		runID,
 		taskOpts...,
 	)
 	if len(dag.Params) > 0 {
 		task.Params = strings.Join(dag.Params, " ")
 	}
-	if err := client.Dispatch(ctx, coreexec.DispatchRequest{Task: task}); err != nil {
+	if err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 		_ = client.Cleanup(ctx)
 		return nil, fmt.Errorf("dispatch DAG run: %w", err)
 	}

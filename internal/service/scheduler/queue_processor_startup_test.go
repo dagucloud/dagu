@@ -14,8 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
@@ -33,29 +33,29 @@ func newStartupTestDispatcher(dagRunStore dagrun.DAGRunStore, procStore procdoma
 }
 
 type mockLeaseStore struct {
-	getFunc         func(context.Context, string) (*exec.DAGRunLease, error)
-	listByQueueFunc func(context.Context, string) ([]exec.DAGRunLease, error)
+	getFunc         func(context.Context, string) (*dispatch.DAGRunLease, error)
+	listByQueueFunc func(context.Context, string) ([]dispatch.DAGRunLease, error)
 }
 
-func (m *mockLeaseStore) Upsert(context.Context, exec.DAGRunLease) error { return nil }
-func (m *mockLeaseStore) Touch(context.Context, string, time.Time) error { return nil }
-func (m *mockLeaseStore) Delete(context.Context, string) error           { return nil }
+func (m *mockLeaseStore) Upsert(context.Context, dispatch.DAGRunLease) error { return nil }
+func (m *mockLeaseStore) Touch(context.Context, string, time.Time) error     { return nil }
+func (m *mockLeaseStore) Delete(context.Context, string) error               { return nil }
 
-func (m *mockLeaseStore) Get(ctx context.Context, attemptKey string) (*exec.DAGRunLease, error) {
+func (m *mockLeaseStore) Get(ctx context.Context, attemptKey string) (*dispatch.DAGRunLease, error) {
 	if m.getFunc != nil {
 		return m.getFunc(ctx, attemptKey)
 	}
-	return nil, exec.ErrDAGRunLeaseNotFound
+	return nil, dispatch.ErrDAGRunLeaseNotFound
 }
 
-func (m *mockLeaseStore) ListByQueue(ctx context.Context, queueName string) ([]exec.DAGRunLease, error) {
+func (m *mockLeaseStore) ListByQueue(ctx context.Context, queueName string) ([]dispatch.DAGRunLease, error) {
 	if m.listByQueueFunc != nil {
 		return m.listByQueueFunc(ctx, queueName)
 	}
 	return nil, nil
 }
 
-func (m *mockLeaseStore) ListAll(context.Context) ([]exec.DAGRunLease, error) { return nil, nil }
+func (m *mockLeaseStore) ListAll(context.Context) ([]dispatch.DAGRunLease, error) { return nil, nil }
 
 func TestQueueDispatcher_CheckStartupStatus_WithinGraceSkipsAttemptLookup(t *testing.T) {
 	dagRunStore := &mockDAGRunStore{}
@@ -241,7 +241,7 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGracePropagatesLeaseLookupError
 	dagRunStore := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 	leaseStore := &mockLeaseStore{
-		getFunc: func(context.Context, string) (*exec.DAGRunLease, error) {
+		getFunc: func(context.Context, string) (*dispatch.DAGRunLease, error) {
 			return nil, errors.New("lease store unavailable")
 		},
 	}
@@ -294,15 +294,15 @@ func TestIsPreStartExecutionFailure(t *testing.T) {
 	}
 }
 
-// mockDispatcher implements exec.Dispatcher for testing dispatch behavior.
+// mockDispatcher implements dispatch.Dispatcher for testing dispatch behavior.
 type mockDispatcher struct {
 	callCount atomic.Int32
 	mu        sync.Mutex
-	lastReq   exec.DispatchRequest
+	lastReq   dispatch.DispatchRequest
 	errFunc   func(callNum int32) error
 }
 
-func (m *mockDispatcher) Dispatch(_ context.Context, req exec.DispatchRequest) error {
+func (m *mockDispatcher) Dispatch(_ context.Context, req dispatch.DispatchRequest) error {
 	m.mu.Lock()
 	m.lastReq = req
 	m.mu.Unlock()
@@ -313,7 +313,7 @@ func (m *mockDispatcher) Dispatch(_ context.Context, req exec.DispatchRequest) e
 	return nil
 }
 
-func (m *mockDispatcher) LastRequest() exec.DispatchRequest {
+func (m *mockDispatcher) LastRequest() dispatch.DispatchRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.lastReq
@@ -321,7 +321,7 @@ func (m *mockDispatcher) LastRequest() exec.DispatchRequest {
 
 func (m *mockDispatcher) Cleanup(_ context.Context) error { return nil }
 
-func (m *mockDispatcher) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (m *mockDispatcher) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	return nil, nil
 }
 

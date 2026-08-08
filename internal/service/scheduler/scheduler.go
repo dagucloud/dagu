@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -108,7 +109,7 @@ func New(
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
 	reg exec.ServiceRegistry,
-	coordinatorCli exec.Dispatcher,
+	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
 	opts ...Option,
 ) (*Scheduler, error) {
@@ -129,7 +130,7 @@ func newScheduler(
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
 	reg exec.ServiceRegistry,
-	coordinatorCli exec.Dispatcher,
+	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
 	hooks schedulerHooks,
 	options schedulerOptions,
@@ -226,7 +227,7 @@ func newScheduler(
 		Dispatch: func(ctx context.Context, dag *ir.DAG, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			return dagExecutor.HandleJob(
 				ctx, dag,
-				exec.DispatchOperationStart,
+				dispatch.DispatchOperationStart,
 				runID, triggerType, scheduleTime,
 			)
 		},
@@ -326,7 +327,7 @@ func (s *Scheduler) SetIncidentMonitor(monitor backgroundRunner) {
 
 // SetDAGRunLeaseStore configures the shared distributed lease store used for
 // queue capacity accounting.
-func (s *Scheduler) SetDAGRunLeaseStore(store exec.DAGRunLeaseStore) {
+func (s *Scheduler) SetDAGRunLeaseStore(store dispatch.DAGRunLeaseStore) {
 	if s == nil || s.queueProcessor == nil {
 		return
 	}
@@ -335,7 +336,7 @@ func (s *Scheduler) SetDAGRunLeaseStore(store exec.DAGRunLeaseStore) {
 
 // SetDispatchTaskStore configures the shared distributed dispatch reservation
 // store used for queue admission and restart-safe deduplication.
-func (s *Scheduler) SetDispatchTaskStore(store exec.DispatchTaskStore) {
+func (s *Scheduler) SetDispatchTaskStore(store dispatch.DispatchTaskStore) {
 	if s == nil || s.queueProcessor == nil {
 		return
 	}

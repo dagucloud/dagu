@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -49,7 +48,7 @@ var _ executor.SubWorkflowRunner = (*Runner)(nil)
 
 // Runner executes child workflows through Dagu's distributed coordinator.
 type Runner struct {
-	dispatcher           exec.Dispatcher
+	dispatcher           dispatch.Dispatcher
 	defaultMode          config.ExecutionMode
 	pollInterval         time.Duration
 	logInterval          time.Duration
@@ -82,7 +81,7 @@ func WithCancellationTimeout(timeout time.Duration) Option {
 }
 
 // New creates a coordinator-backed child workflow runner.
-func New(dispatcher exec.Dispatcher, defaultMode config.ExecutionMode, opts ...Option) *Runner {
+func New(dispatcher dispatch.Dispatcher, defaultMode config.ExecutionMode, opts ...Option) *Runner {
 	r := &Runner{
 		dispatcher:           dispatcher,
 		defaultMode:          defaultMode,
@@ -254,7 +253,7 @@ func (r *Runner) dispatchStart(ctx context.Context, req executor.SubWorkflowRequ
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
-	if err := r.dispatcher.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
+	if err := r.dispatcher.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch task: %w", err)
 	}
 	return nil
@@ -288,13 +287,13 @@ func (r *Runner) dispatchRetryWithStatus(
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
-	if err := r.dispatcher.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
+	if err := r.dispatcher.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch retry task: %w", err)
 	}
 	return nil
 }
 
-func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*exec.DispatchTask, error) {
+func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*dispatch.DispatchTask, error) {
 	opts, err := r.taskOptions(req, executor.WithTaskParams(req.Params))
 	if err != nil {
 		return nil, err
@@ -302,7 +301,7 @@ func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*exec.Dispatch
 	return executor.CreateTask(
 		req.DAG.Name,
 		string(req.DAG.YamlData),
-		exec.DispatchOperationStart,
+		dispatch.DispatchOperationStart,
 		req.RunID,
 		opts...,
 	), nil
@@ -312,7 +311,7 @@ func (r *Runner) buildRetryTask(
 	req executor.SubWorkflowRequest,
 	stepName string,
 	previousStatus *dagrun.DAGRunStatus,
-) (*exec.DispatchTask, error) {
+) (*dispatch.DispatchTask, error) {
 	extra := []executor.TaskOption{executor.WithPreviousStatus(previousStatus)}
 	if stepName != "" {
 		extra = append(extra, executor.WithStep(stepName))
@@ -324,7 +323,7 @@ func (r *Runner) buildRetryTask(
 	return executor.CreateTask(
 		req.DAG.Name,
 		string(req.DAG.YamlData),
-		exec.DispatchOperationRetry,
+		dispatch.DispatchOperationRetry,
 		req.RunID,
 		opts...,
 	), nil

@@ -29,7 +29,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	spectypes "github.com/dagucloud/dagu/v2/internal/core/spec/types"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -2236,14 +2235,14 @@ func (a *API) workerIDFromClaim(
 
 	claimKey := status.EffectiveClaimKey()
 	if claimKey == "" {
-		claimKey = exec.AttemptKeyForStatus(status, fallbackAttemptID)
+		claimKey = dispatch.AttemptKeyForStatus(status, fallbackAttemptID)
 	}
 	if claimKey == "" {
 		return ""
 	}
 
 	lease, err := a.dagRunLeaseStore.Get(ctx, claimKey)
-	if err != nil || lease == nil || !exec.IsRemoteWorkerID(lease.WorkerID) {
+	if err != nil || lease == nil || !dispatch.IsRemoteWorkerID(lease.WorkerID) {
 		return ""
 	}
 
@@ -3010,12 +3009,12 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		task := executor.CreateTask(
 			dag.Name,
 			string(dag.YamlData),
-			exec.DispatchOperationRetry,
+			dispatch.DispatchOperationRetry,
 			retryDagRunID,
 			opts...,
 		)
 
-		if err := a.coordinatorCli.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
+		if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 			return retryDAGRunResult{}, fmt.Errorf("error dispatching retry to coordinator: %w", err)
 		}
 
@@ -3743,7 +3742,7 @@ func (a *API) waitForManualStepMutationReady(
 	poll := time.NewTicker(manualStepSettlePollInterval)
 	defer poll.Stop()
 
-	if !exec.IsRemoteWorkerID(status.WorkerID) {
+	if !dispatch.IsRemoteWorkerID(status.WorkerID) {
 		if a.procStore == nil {
 			return nil, errors.New("process store is unavailable")
 		}

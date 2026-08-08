@@ -13,7 +13,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagwarning"
@@ -56,7 +55,7 @@ import (
 // - HandleJob(): Entry point for new scheduled jobs (handles persistence)
 // - ExecuteDAG(): Executes/dispatches already-persisted jobs (no persistence)
 type DAGExecutor struct {
-	coordinatorCli         exec.Dispatcher
+	coordinatorCli         dispatch.Dispatcher
 	subCmdBuilder          *launcher.SubCmdBuilder
 	defaultExecMode        config.ExecutionMode
 	baseConfigPath         string
@@ -85,7 +84,7 @@ func WithDAGExecutorWorkspaceBaseConfigDir(dir string) DAGExecutorOption {
 
 // NewDAGExecutor creates a new DAGExecutor instance.
 func NewDAGExecutor(
-	coordinatorCli exec.Dispatcher,
+	coordinatorCli dispatch.Dispatcher,
 	subCmdBuilder *launcher.SubCmdBuilder,
 	defaultExecMode config.ExecutionMode,
 	baseConfigPath string,
@@ -120,13 +119,13 @@ func NewDAGExecutor(
 func (e *DAGExecutor) HandleJob(
 	ctx context.Context,
 	dag *ir.DAG,
-	operation exec.DispatchOperation,
+	operation dispatch.DispatchOperation,
 	runID string,
 	triggerType ir.TriggerType,
 	scheduleTime time.Time,
 ) error {
 	profileName := ""
-	if operation == exec.DispatchOperationStart {
+	if operation == dispatch.DispatchOperationStart {
 		var err error
 		profileName, err = e.defaultProfileName(ctx, dag)
 		if err != nil {
@@ -135,7 +134,7 @@ func (e *DAGExecutor) HandleJob(
 	}
 
 	// For distributed execution with START operation, enqueue for persistence
-	if e.shouldUseDistributedExecution(dag) && operation == exec.DispatchOperationStart {
+	if e.shouldUseDistributedExecution(dag) && operation == dispatch.DispatchOperationStart {
 		if dag.Type == ir.TypeIncremental {
 			return dispatch.ErrIncrementalRequiresLocal
 		}
@@ -180,7 +179,7 @@ func (e *DAGExecutor) HandleJob(
 func (e *DAGExecutor) ExecuteDAG(
 	ctx context.Context,
 	dag *ir.DAG,
-	operation exec.DispatchOperation,
+	operation dispatch.DispatchOperation,
 	runID string,
 	previousStatus *dagrun.DAGRunStatus,
 	triggerType ir.TriggerType,
@@ -192,7 +191,7 @@ func (e *DAGExecutor) ExecuteDAG(
 func (e *DAGExecutor) ExecuteDAGWithAdmission(
 	ctx context.Context,
 	dag *ir.DAG,
-	operation exec.DispatchOperation,
+	operation dispatch.DispatchOperation,
 	runID string,
 	previousStatus *dagrun.DAGRunStatus,
 	triggerType ir.TriggerType,
@@ -205,7 +204,7 @@ func (e *DAGExecutor) ExecuteDAGWithAdmission(
 func (e *DAGExecutor) executeDAG(
 	ctx context.Context,
 	dag *ir.DAG,
-	operation exec.DispatchOperation,
+	operation dispatch.DispatchOperation,
 	runID string,
 	previousStatus *dagrun.DAGRunStatus,
 	triggerType ir.TriggerType,
@@ -258,7 +257,7 @@ func (e *DAGExecutor) executeDAG(
 			runID,
 			taskOpts...,
 		)
-		return e.dispatchToCoordinator(ctx, exec.DispatchRequest{
+		return e.dispatchToCoordinator(ctx, dispatch.DispatchRequest{
 			Task:                      task,
 			AdmissionReservationToken: admissionReservationToken,
 		})
@@ -275,10 +274,10 @@ func (e *DAGExecutor) executeDAG(
 	}
 
 	switch operation {
-	case exec.DispatchOperationUnspecified:
+	case dispatch.DispatchOperationUnspecified:
 		return fmt.Errorf("operation not specified")
 
-	case exec.DispatchOperationStart:
+	case dispatch.DispatchOperationStart:
 		spec := e.subCmdBuilder.Start(dag, launcher.StartOptions{
 			DAGRunID:     runID,
 			Quiet:        true,
@@ -290,7 +289,7 @@ func (e *DAGExecutor) executeDAG(
 		})
 		return launcher.Start(ctx, spec)
 
-	case exec.DispatchOperationRetry:
+	case dispatch.DispatchOperationRetry:
 		spec := e.subCmdBuilder.Retry(dag, launcher.RetryOptions{
 			DAGRunID:      runID,
 			TriggerActor:  triggerActor,
@@ -332,11 +331,11 @@ func profileNameFromStatus(status *dagrun.DAGRunStatus) string {
 	return status.ProfileName
 }
 
-func validateDispatchOperation(operation exec.DispatchOperation) error {
+func validateDispatchOperation(operation dispatch.DispatchOperation) error {
 	switch operation {
-	case exec.DispatchOperationStart, exec.DispatchOperationRetry:
+	case dispatch.DispatchOperationStart, dispatch.DispatchOperationRetry:
 		return nil
-	case exec.DispatchOperationUnspecified:
+	case dispatch.DispatchOperationUnspecified:
 		return fmt.Errorf("operation not specified")
 	default:
 		return fmt.Errorf("unknown operation: %s", operation)
@@ -363,7 +362,7 @@ func (e *DAGExecutor) IsDistributed(dag *ir.DAG) bool {
 // 1. Select an appropriate worker based on the task's workerSelector
 // 2. Forward the task to the selected worker
 // 3. Track the execution status
-func (e *DAGExecutor) dispatchToCoordinator(ctx context.Context, req exec.DispatchRequest) error {
+func (e *DAGExecutor) dispatchToCoordinator(ctx context.Context, req dispatch.DispatchRequest) error {
 	task := req.Task
 	ctx = logger.WithValues(ctx,
 		tag.Target(task.Target),

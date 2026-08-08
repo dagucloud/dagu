@@ -14,9 +14,9 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -26,13 +26,13 @@ import (
 
 type retryCoordinatorRecorder struct {
 	stubCoordinatorClient
-	dispatched  []*exec.DispatchTask
+	dispatched  []*dispatch.DispatchTask
 	dispatchErr error
 }
 
 var _ coordinator.Client = (*retryCoordinatorRecorder)(nil)
 
-func (c *retryCoordinatorRecorder) Dispatch(_ context.Context, req exec.DispatchRequest) error {
+func (c *retryCoordinatorRecorder) Dispatch(_ context.Context, req dispatch.DispatchRequest) error {
 	c.dispatched = append(c.dispatched, req.Task)
 	return c.dispatchErr
 }
@@ -109,7 +109,7 @@ steps:
 
 	require.Len(t, coordinatorCli.dispatched, 1)
 	task := coordinatorCli.dispatched[0]
-	require.Equal(t, exec.DispatchOperationRetry, task.Operation)
+	require.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
 	require.Equal(t, dag.Name, task.Target)
 	require.Equal(t, "distributed-run", task.DAGRunID)
 	require.Equal(t, dag.WorkerSelector, task.WorkerSelector)

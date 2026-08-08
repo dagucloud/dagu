@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -379,7 +380,7 @@ var _ coordinator.Client = (*mockCoordinatorCli)(nil)
 // mockCoordinatorCli is a mock implementation of coordinator.Client
 type mockCoordinatorCli struct {
 	PollFunc         func(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error)
-	DispatchFunc     func(ctx context.Context, task *exec.DispatchTask) error
+	DispatchFunc     func(ctx context.Context, task *dispatch.DispatchTask) error
 	MetricsFunc      func() coordinator.Metrics
 	CleanupFunc      func(ctx context.Context) error
 	HeartbeatFunc    func(ctx context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
@@ -411,7 +412,7 @@ func (m *mockCoordinatorCli) Poll(ctx context.Context, policy backoff.RetryPolic
 	return nil, nil
 }
 
-func (m *mockCoordinatorCli) Dispatch(ctx context.Context, req exec.DispatchRequest) error {
+func (m *mockCoordinatorCli) Dispatch(ctx context.Context, req dispatch.DispatchRequest) error {
 	m.mu.Lock()
 	dispatchFunc := m.DispatchFunc
 	m.mu.Unlock()
@@ -505,8 +506,8 @@ func (m *mockCoordinatorCli) StreamArtifactsTo(ctx context.Context, _ exec.HostI
 	return m.StreamArtifacts(ctx)
 }
 
-func (m *mockCoordinatorCli) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
-	return &exec.DAGRunStatusResult{Found: false}, nil
+func (m *mockCoordinatorCli) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+	return &dispatch.DAGRunStatusResult{Found: false}, nil
 }
 
 func (m *mockCoordinatorCli) GetDAG(_ context.Context, _ string) (string, error) {

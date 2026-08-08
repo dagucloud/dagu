@@ -11,24 +11,24 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 type attemptOwnershipConfig struct {
-	Owner               exec.CoordinatorEndpoint
-	LeaseStore          exec.DAGRunLeaseStore
-	ActiveRunStore      exec.ActiveDistributedRunStore
+	Owner               dispatch.CoordinatorEndpoint
+	LeaseStore          dispatch.DAGRunLeaseStore
+	ActiveRunStore      dispatch.ActiveDistributedRunStore
 	StaleLeaseThreshold time.Duration
 	Now                 func() time.Time
 }
 
 type attemptOwnership struct {
-	owner               exec.CoordinatorEndpoint
-	leaseStore          exec.DAGRunLeaseStore
-	activeRunStore      exec.ActiveDistributedRunStore
+	owner               dispatch.CoordinatorEndpoint
+	leaseStore          dispatch.DAGRunLeaseStore
+	activeRunStore      dispatch.ActiveDistributedRunStore
 	staleLeaseThreshold time.Duration
 	now                 func() time.Time
 }
@@ -100,7 +100,7 @@ func (o *attemptOwnership) leaseInactive(ctx context.Context, attemptKey string)
 	switch {
 	case err == nil:
 		return !lease.IsFresh(o.now(), o.staleLeaseThreshold)
-	case errors.Is(err, exec.ErrDAGRunLeaseNotFound):
+	case errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
 		return true
 	default:
 		logger.Warn(ctx, "Failed to read distributed lease for status validation",
@@ -136,7 +136,7 @@ func (o *attemptOwnership) syncLeaseFromStatus(
 		o.upsertLeaseFromStatus(ctx, workerID, status, fallbackAttemptID)
 	case ir.Failed, ir.Aborted, ir.Succeeded,
 		ir.PartiallySucceeded, ir.Waiting, ir.Rejected:
-		attemptKey := exec.AttemptKeyForStatus(status, fallbackAttemptID)
+		attemptKey := dispatch.AttemptKeyForStatus(status, fallbackAttemptID)
 		if attemptKey == "" {
 			return
 		}
@@ -159,7 +159,7 @@ func (o *attemptOwnership) upsertLeaseFromStatus(
 		return
 	}
 
-	attemptKey := exec.AttemptKeyForStatus(status, fallbackAttemptID)
+	attemptKey := dispatch.AttemptKeyForStatus(status, fallbackAttemptID)
 	if attemptKey == "" {
 		return
 	}
@@ -182,13 +182,13 @@ func (o *attemptOwnership) upsertLeaseFromStatus(
 	if workerID == "" {
 		workerID = status.WorkerID
 	}
-	if !exec.IsRemoteWorkerID(workerID) {
+	if !dispatch.IsRemoteWorkerID(workerID) {
 		return
 	}
 
 	queueName := queueNameForStatus(status)
 	now := o.now()
-	lease := exec.DAGRunLease{
+	lease := dispatch.DAGRunLease{
 		AttemptKey: attemptKey,
 		DAGRun: dagrun.DAGRunRef{
 			Name: status.Name,
@@ -245,7 +245,7 @@ func (o *attemptOwnership) syncActiveRunFromStatus(
 		return
 	}
 
-	attemptKey := exec.AttemptKeyForStatus(status, fallbackAttemptID)
+	attemptKey := dispatch.AttemptKeyForStatus(status, fallbackAttemptID)
 	if attemptKey == "" {
 		return
 	}
@@ -275,7 +275,7 @@ func (o *attemptOwnership) upsertActiveFromStatus(
 		return
 	}
 
-	attemptKey := exec.AttemptKeyForStatus(runStatus, fallbackAttemptID)
+	attemptKey := dispatch.AttemptKeyForStatus(runStatus, fallbackAttemptID)
 	if attemptKey == "" {
 		return
 	}
@@ -287,11 +287,11 @@ func (o *attemptOwnership) upsertActiveFromStatus(
 	if workerID == "" {
 		workerID = runStatus.WorkerID
 	}
-	if !exec.IsRemoteWorkerID(workerID) {
+	if !dispatch.IsRemoteWorkerID(workerID) {
 		return
 	}
 
-	record := exec.ActiveDistributedRun{
+	record := dispatch.ActiveDistributedRun{
 		AttemptKey: attemptKey,
 		DAGRun:     runStatus.DAGRun(),
 		Root:       runStatus.Root,
@@ -331,7 +331,7 @@ func (o *attemptOwnership) upsertActiveFromTask(
 	if o.activeRunStore == nil || task == nil || task.AttemptKey == "" {
 		return
 	}
-	if !exec.IsRemoteWorkerID(workerID) {
+	if !dispatch.IsRemoteWorkerID(workerID) {
 		return
 	}
 
@@ -340,7 +340,7 @@ func (o *attemptOwnership) upsertActiveFromTask(
 		root = dagrun.DAGRunRef{Name: task.Target, ID: task.DagRunId}
 	}
 
-	record := exec.ActiveDistributedRun{
+	record := dispatch.ActiveDistributedRun{
 		AttemptKey: task.AttemptKey,
 		DAGRun: dagrun.DAGRunRef{
 			Name: task.Target,
@@ -365,7 +365,7 @@ func (o *attemptOwnership) leaseFromTask(
 	task *coordinatorv1.Task,
 	workerID string,
 	now time.Time,
-) exec.DAGRunLease {
+) dispatch.DAGRunLease {
 	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	if root.Zero() {
 		root = dagrun.DAGRunRef{Name: task.Target, ID: task.DagRunId}
@@ -374,7 +374,7 @@ func (o *attemptOwnership) leaseFromTask(
 	if queueName == "" {
 		queueName = task.Target
 	}
-	return exec.DAGRunLease{
+	return dispatch.DAGRunLease{
 		AttemptKey: task.AttemptKey,
 		DAGRun: dagrun.DAGRunRef{
 			Name: task.Target,
@@ -413,7 +413,7 @@ func (o *attemptOwnership) deleteLease(
 		return
 	}
 	if err := o.leaseStore.Delete(storeCtx, attemptKey); err != nil &&
-		!errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
+		!errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
 		logger.Warn(ctx, message,
 			tag.RunID(dagRun.ID),
 			tag.Error(err),
@@ -432,7 +432,7 @@ func (o *attemptOwnership) deleteActiveRun(
 		return
 	}
 	if err := o.activeRunStore.Delete(storeCtx, attemptKey); err != nil &&
-		!errors.Is(err, exec.ErrActiveRunNotFound) {
+		!errors.Is(err, dispatch.ErrActiveRunNotFound) {
 		logger.Warn(ctx, message,
 			tag.RunID(dagRun.ID),
 			tag.AttemptKey(attemptKey),
@@ -442,7 +442,7 @@ func (o *attemptOwnership) deleteActiveRun(
 }
 
 func (o *attemptOwnership) indexedRunMatchesStatus(
-	record exec.ActiveDistributedRun,
+	record dispatch.ActiveDistributedRun,
 	runStatus *dagrun.DAGRunStatus,
 ) bool {
 	if _, ok := remoteWorkerID(runStatus, record.WorkerID); !ok {
@@ -454,7 +454,7 @@ func (o *attemptOwnership) indexedRunMatchesStatus(
 		return false
 	}
 
-	attemptKey := exec.AttemptKeyForStatus(runStatus, record.AttemptID)
+	attemptKey := dispatch.AttemptKeyForStatus(runStatus, record.AttemptID)
 	if attemptKey == "" || attemptKey != record.AttemptKey {
 		return false
 	}
@@ -501,7 +501,7 @@ func remoteWorkerID(status *dagrun.DAGRunStatus, fallbackWorkerID string) (strin
 	if status == nil {
 		return "", false
 	}
-	if exec.IsRemoteWorkerID(status.WorkerID) {
+	if dispatch.IsRemoteWorkerID(status.WorkerID) {
 		return status.WorkerID, true
 	}
 	if status.WorkerID != "" {
@@ -510,7 +510,7 @@ func remoteWorkerID(status *dagrun.DAGRunStatus, fallbackWorkerID string) (strin
 	if status.Status != ir.Queued && status.Status != ir.NotStarted {
 		return "", false
 	}
-	if !exec.IsRemoteWorkerID(fallbackWorkerID) {
+	if !dispatch.IsRemoteWorkerID(fallbackWorkerID) {
 		return "", false
 	}
 	return fallbackWorkerID, true

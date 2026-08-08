@@ -15,9 +15,9 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -180,7 +180,7 @@ func TestEditRetryDAGRun_DispatchesSeededRetryWithSkippedOutputs(t *testing.T) {
 
 	require.Len(t, recorder.dispatched, 1)
 	task := recorder.dispatched[0]
-	require.Equal(t, exec.DispatchOperationRetry, task.Operation)
+	require.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
 	require.Equal(t, "edit-run", task.DAGRunID)
 	require.NotNil(t, task.PreviousStatus)
 	previousStatus := task.PreviousStatus

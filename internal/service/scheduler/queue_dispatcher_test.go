@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,7 +45,7 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsOutstandingReservations(t 
 	reservedStatus, err := reservedAttempt.ReadStatus(f.ctx)
 	require.NoError(t, err)
 
-	require.NoError(t, f.dispatchStore.Enqueue(f.ctx, &exec.DispatchTask{
+	require.NoError(t, f.dispatchStore.Enqueue(f.ctx, &dispatch.DispatchTask{
 		DAGRunID:   reservedRef.ID,
 		Target:     f.dag.Name,
 		QueueName:  f.dag.Name,

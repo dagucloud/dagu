@@ -15,6 +15,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -33,7 +34,7 @@ type Context struct {
 	DB                   Database
 	BaseEnv              *config.BaseEnv
 	EnvScope             *cmnvalue.EnvScope // Unified environment scope for runtime variables
-	CoordinatorCli       Dispatcher
+	CoordinatorCli       dispatch.Dispatcher
 	DAGRunStore          dagrun.DAGRunStore
 	QueueStore           queue.QueueStore
 	StateStore           dagstate.Store
@@ -199,7 +200,7 @@ func WithEnvVars(envs ...string) ContextOption {
 }
 
 // WithCoordinator sets the coordinator dispatcher for distributed execution.
-func WithCoordinator(cli Dispatcher) ContextOption {
+func WithCoordinator(cli dispatch.Dispatcher) ContextOption {
 	return func(o *contextOptions) {
 		o.CoordinatorCli = cli
 	}

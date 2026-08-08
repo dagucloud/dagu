@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
@@ -145,10 +146,10 @@ func newCoordinator(
 	registry exec.ServiceRegistry,
 	dagRunStore dagrun.DAGRunStore,
 	stateStore dagstate.Store,
-	dispatchTaskStore exec.DispatchTaskStore,
-	workerHeartbeatStore exec.WorkerHeartbeatStore,
-	dagRunLeaseStore exec.DAGRunLeaseStore,
-	activeDistributedRunStore exec.ActiveDistributedRunStore,
+	dispatchTaskStore dispatch.DispatchTaskStore,
+	workerHeartbeatStore dispatch.WorkerHeartbeatStore,
+	dagRunLeaseStore dispatch.DAGRunLeaseStore,
+	activeDistributedRunStore dispatch.ActiveDistributedRunStore,
 	dagStore dagstore.DAGStore,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	// Generate instance ID
@@ -235,7 +236,7 @@ func newCoordinator(
 		LogDir:                    cfg.Paths.LogDir,
 		ArtifactDir:               cfg.Paths.ArtifactDir,
 		WorkspaceBundleDir:        workspacebundle.StoreDir(cfg.Paths.DataDir),
-		Owner:                     exec.CoordinatorEndpoint{ID: instanceID, Host: advertiseAddr, Port: cfg.Coordinator.Port},
+		Owner:                     dispatch.CoordinatorEndpoint{ID: instanceID, Host: advertiseAddr, Port: cfg.Coordinator.Port},
 		DispatchTaskStore:         dispatchTaskStore,
 		WorkerHeartbeatStore:      workerHeartbeatStore,
 		DAGRunLeaseStore:          dagRunLeaseStore,

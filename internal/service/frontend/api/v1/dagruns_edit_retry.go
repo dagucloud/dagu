@@ -23,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -919,11 +918,11 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *dagrun
 	task := executor.CreateTask(
 		dag.Name,
 		string(dag.YamlData),
-		exec.DispatchOperationRetry,
+		dispatch.DispatchOperationRetry,
 		status.DAGRunID,
 		opts...,
 	)
-	if err := a.coordinatorCli.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
+	if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("error dispatching edit retry to coordinator: %w", err)
 	}
 	return nil

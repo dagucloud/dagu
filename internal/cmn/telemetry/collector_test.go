@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -309,21 +310,21 @@ func (m *mockServiceRegistry) UpdateStatus(ctx context.Context, serviceName exec
 }
 
 type mockWorkerHeartbeatStore struct {
-	records []exec.WorkerHeartbeatRecord
+	records []dispatch.WorkerHeartbeatRecord
 	err     error
 }
 
-var _ exec.WorkerHeartbeatStore = (*mockWorkerHeartbeatStore)(nil)
+var _ dispatch.WorkerHeartbeatStore = (*mockWorkerHeartbeatStore)(nil)
 
-func (m *mockWorkerHeartbeatStore) Upsert(context.Context, exec.WorkerHeartbeatRecord) error {
+func (m *mockWorkerHeartbeatStore) Upsert(context.Context, dispatch.WorkerHeartbeatRecord) error {
 	panic("unimplemented")
 }
 
-func (m *mockWorkerHeartbeatStore) Get(context.Context, string) (*exec.WorkerHeartbeatRecord, error) {
+func (m *mockWorkerHeartbeatStore) Get(context.Context, string) (*dispatch.WorkerHeartbeatRecord, error) {
 	panic("unimplemented")
 }
 
-func (m *mockWorkerHeartbeatStore) List(context.Context) ([]exec.WorkerHeartbeatRecord, error) {
+func (m *mockWorkerHeartbeatStore) List(context.Context) ([]dispatch.WorkerHeartbeatRecord, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -525,17 +526,17 @@ func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
 	collector := NewCollector("1.0.0", dagStore, dagRunStore, queueStore, nil)
 	collector.now = func() time.Time { return now }
 	collector.SetWorkerHeartbeatStore(&mockWorkerHeartbeatStore{
-		records: []exec.WorkerHeartbeatRecord{
+		records: []dispatch.WorkerHeartbeatRecord{
 			{
 				WorkerID: "worker-a",
 				Labels: map[string]string{
 					"pool":   "gpu",
 					"region": "ap-northeast-1",
 				},
-				Stats: &exec.WorkerStats{
+				Stats: &dispatch.WorkerStats{
 					TotalPollers: 4,
 					BusyPollers:  2,
-					RunningTasks: []*exec.RunningTask{
+					RunningTasks: []*dispatch.RunningTask{
 						{DAGRunID: "run-1", DAGName: "dag-1", StartedAt: now.Add(-2 * time.Minute).Unix()},
 						{DAGRunID: "run-2", DAGName: "dag-2", StartedAt: now.Add(-30 * time.Second).Unix()},
 					},
@@ -611,7 +612,7 @@ func TestCollector_Collect_WithWorkerInfoLabels(t *testing.T) {
 	collector := NewCollector("1.0.0", dagStore, dagRunStore, queueStore, nil)
 	collector.now = func() time.Time { return now }
 	collector.SetWorkerHeartbeatStore(&mockWorkerHeartbeatStore{
-		records: []exec.WorkerHeartbeatRecord{
+		records: []dispatch.WorkerHeartbeatRecord{
 			{
 				WorkerID: "worker-a",
 				Labels: map[string]string{

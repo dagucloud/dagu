@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -124,7 +124,7 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	oldTime := time.Unix(90, 0).UTC()
 	now := time.Unix(100, 0).UTC()
 	ownership := newAttemptOwnership(attemptOwnershipConfig{
-		Owner:               exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		Owner:               dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		LeaseStore:          leaseStore,
 		ActiveRunStore:      activeStore,
 		StaleLeaseThreshold: time.Minute,
@@ -132,14 +132,14 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	})
 
 	run := dagrun.NewDAGRunRef("test-dag", "run-1")
-	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey:      "attempt-key-1",
 		DAGRun:          run,
 		Root:            run,
 		AttemptID:       "attempt-1",
 		QueueName:       "existing-queue",
 		WorkerID:        "worker-1",
-		Owner:           exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		ClaimedAt:       oldTime.UnixMilli(),
 		LastHeartbeatAt: oldTime.UnixMilli(),
 	}))
@@ -193,9 +193,9 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
 
 	_, err = leaseStore.Get(ctx, "attempt-key-1")
-	assert.ErrorIs(t, err, exec.ErrDAGRunLeaseNotFound)
+	assert.ErrorIs(t, err, dispatch.ErrDAGRunLeaseNotFound)
 	_, err = activeStore.Get(ctx, "attempt-key-1")
-	assert.ErrorIs(t, err, exec.ErrActiveRunNotFound)
+	assert.ErrorIs(t, err, dispatch.ErrActiveRunNotFound)
 }
 
 func TestInlineRunSharesClaimLease(t *testing.T) {
@@ -210,7 +210,7 @@ func TestInlineRunSharesClaimLease(t *testing.T) {
 		ActiveRunStore: activeStore,
 	})
 
-	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey:      "claim-key",
 		WorkerID:        "worker-1",
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
@@ -245,7 +245,7 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 
 	ownership := newAttemptOwnership(attemptOwnershipConfig{
-		Owner:          exec.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+		Owner:          dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		LeaseStore:     leaseStore,
 		ActiveRunStore: activeStore,
 		Now: func() time.Time {

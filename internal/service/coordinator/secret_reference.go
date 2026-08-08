@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
@@ -195,7 +196,7 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 
 	lease, err := h.dagRunLeaseStore.Get(ctx, req.GetAttemptKey())
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
+		if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
 			return status.Error(codes.PermissionDenied, "secret reference access denied")
 		}
 		return status.Error(codes.Internal, err.Error())
@@ -220,7 +221,7 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 	return nil
 }
 
-func (h *Handler) secretReferenceDAG(ctx context.Context, lease *exec.DAGRunLease) (*ir.DAG, error) {
+func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRunLease) (*ir.DAG, error) {
 	if lease == nil {
 		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
 	}

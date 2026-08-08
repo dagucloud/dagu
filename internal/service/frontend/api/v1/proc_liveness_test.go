@@ -14,8 +14,8 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -241,7 +241,7 @@ steps:
 	require.NoError(t, attempt.Close(server.Context))
 
 	staleAt := time.Now().Add(-2 * time.Minute).UTC()
-	require.NoError(t, server.DAGRunLeaseStore.Upsert(server.Context, exec.DAGRunLease{
+	require.NoError(t, server.DAGRunLeaseStore.Upsert(server.Context, dispatch.DAGRunLease{
 		AttemptKey:      status.AttemptKey,
 		DAGRun:          ref,
 		Root:            ref,
@@ -251,11 +251,11 @@ steps:
 		ClaimedAt:       staleAt.UnixMilli(),
 		LastHeartbeatAt: staleAt.UnixMilli(),
 	}))
-	require.NoError(t, server.WorkerHeartbeatStore.Upsert(server.Context, exec.WorkerHeartbeatRecord{
+	require.NoError(t, server.WorkerHeartbeatStore.Upsert(server.Context, dispatch.WorkerHeartbeatRecord{
 		WorkerID:        status.WorkerID,
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-		Stats: &exec.WorkerStats{
-			RunningTasks: []*exec.RunningTask{},
+		Stats: &dispatch.WorkerStats{
+			RunningTasks: []*dispatch.RunningTask{},
 		},
 	}))
 
@@ -311,7 +311,7 @@ steps:
 	require.NoError(t, attempt.Close(server.Context))
 
 	staleAt := time.Now().Add(-2 * time.Minute).UTC()
-	require.NoError(t, server.DAGRunLeaseStore.Upsert(server.Context, exec.DAGRunLease{
+	require.NoError(t, server.DAGRunLeaseStore.Upsert(server.Context, dispatch.DAGRunLease{
 		AttemptKey:      status.AttemptKey,
 		DAGRun:          ref,
 		Root:            ref,
@@ -321,11 +321,11 @@ steps:
 		ClaimedAt:       staleAt.UnixMilli(),
 		LastHeartbeatAt: staleAt.UnixMilli(),
 	}))
-	require.NoError(t, server.WorkerHeartbeatStore.Upsert(server.Context, exec.WorkerHeartbeatRecord{
+	require.NoError(t, server.WorkerHeartbeatStore.Upsert(server.Context, dispatch.WorkerHeartbeatRecord{
 		WorkerID:        "worker-1",
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-		Stats: &exec.WorkerStats{
-			RunningTasks: []*exec.RunningTask{},
+		Stats: &dispatch.WorkerStats{
+			RunningTasks: []*dispatch.RunningTask{},
 		},
 	}))
 

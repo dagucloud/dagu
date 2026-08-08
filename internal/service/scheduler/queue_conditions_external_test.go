@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -44,7 +44,7 @@ func TestQueueProcessorRecordsConcurrencyLimitQueuedCondition(t *testing.T) {
 
 	f := newQueueConditionFixture(t, config.ExecutionModeLocal, nil)
 	runningAttempt := f.createQueuedAttempt("running-run", nil)
-	require.NoError(t, f.leaseStore.Upsert(f.ctx, exec.DAGRunLease{
+	require.NoError(t, f.leaseStore.Upsert(f.ctx, dispatch.DAGRunLease{
 		AttemptKey:      dagrun.GenerateAttemptKey(f.dag.Name, "running-run", f.dag.Name, "running-run", runningAttempt.ID()),
 		DAGRun:          dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
 		Root:            dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
@@ -80,7 +80,7 @@ func TestQueueProcessorSkipsQueuedConditionRefreshWhenLivenessUnavailable(t *tes
 		},
 	)
 	runningAttempt := f.createQueuedAttempt("running-run", nil)
-	require.NoError(t, f.leaseStore.Upsert(f.ctx, exec.DAGRunLease{
+	require.NoError(t, f.leaseStore.Upsert(f.ctx, dispatch.DAGRunLease{
 		AttemptKey:      dagrun.GenerateAttemptKey(f.dag.Name, "running-run", f.dag.Name, "running-run", runningAttempt.ID()),
 		DAGRun:          dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
 		Root:            dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
@@ -104,7 +104,7 @@ func TestQueueProcessorSkipsQueuedConditionRefreshForFreshDistributedLease(t *te
 	f := newQueueConditionFixture(t, config.ExecutionModeLocal, nil)
 	attempt := f.enqueueRun("leased-run", nil)
 	runRef := dagrun.NewDAGRunRef(f.dag.Name, "leased-run")
-	require.NoError(t, f.leaseStore.Upsert(f.ctx, exec.DAGRunLease{
+	require.NoError(t, f.leaseStore.Upsert(f.ctx, dispatch.DAGRunLease{
 		AttemptKey:      dagrun.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attempt.ID()),
 		DAGRun:          runRef,
 		Root:            runRef,
@@ -127,7 +127,7 @@ func TestQueueProcessorKeepsFreshQueuedCondition(t *testing.T) {
 	checkedAt := time.Now().UTC().Truncate(time.Second).Add(-30 * time.Second)
 	f := newQueueConditionFixture(t, config.ExecutionModeLocal, nil)
 	runningAttempt := f.createQueuedAttempt("running-run", nil)
-	require.NoError(t, f.leaseStore.Upsert(f.ctx, exec.DAGRunLease{
+	require.NoError(t, f.leaseStore.Upsert(f.ctx, dispatch.DAGRunLease{
 		AttemptKey:      dagrun.GenerateAttemptKey(f.dag.Name, "running-run", f.dag.Name, "running-run", runningAttempt.ID()),
 		DAGRun:          dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
 		Root:            dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
@@ -167,7 +167,7 @@ func TestQueueProcessorDoesNotOverwriteNewerQueuedConditionSet(t *testing.T) {
 	checkedAt := time.Now().UTC().Truncate(time.Second).Add(time.Minute)
 	f := newQueueConditionFixture(t, config.ExecutionModeLocal, nil)
 	runningAttempt := f.createQueuedAttempt("running-run", nil)
-	require.NoError(t, f.leaseStore.Upsert(f.ctx, exec.DAGRunLease{
+	require.NoError(t, f.leaseStore.Upsert(f.ctx, dispatch.DAGRunLease{
 		AttemptKey:      dagrun.GenerateAttemptKey(f.dag.Name, "running-run", f.dag.Name, "running-run", runningAttempt.ID()),
 		DAGRun:          dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
 		Root:            dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
@@ -221,7 +221,7 @@ func TestQueueProcessorRecordsNoDispatchCapacityCondition(t *testing.T) {
 	t.Parallel()
 
 	admissionStore := &queueConditionAdmissionStore{
-		decision: &exec.DispatchAdmissionDecision{Reason: exec.DispatchAdmissionRejectedNoCapacity},
+		decision: &dispatch.DispatchAdmissionDecision{Reason: dispatch.DispatchAdmissionRejectedNoCapacity},
 	}
 	f := newQueueConditionFixture(t, config.ExecutionModeDistributed, admissionStore)
 	f.enqueueRun("waiting-run", nil)
@@ -237,7 +237,7 @@ func TestQueueProcessorRecordsDuplicateDispatchAdmissionAsPendingCondition(t *te
 	t.Parallel()
 
 	admissionStore := &queueConditionAdmissionStore{
-		decision: &exec.DispatchAdmissionDecision{Reason: exec.DispatchAdmissionRejectedDuplicate},
+		decision: &dispatch.DispatchAdmissionDecision{Reason: dispatch.DispatchAdmissionRejectedDuplicate},
 	}
 	f := newQueueConditionFixture(t, config.ExecutionModeDistributed, admissionStore)
 	f.enqueueRun("waiting-run", nil)
@@ -267,7 +267,7 @@ func TestQueueProcessorRecordsMissingAttemptIdentityCondition(t *testing.T) {
 	t.Parallel()
 
 	admissionStore := &queueConditionAdmissionStore{
-		decision: &exec.DispatchAdmissionDecision{Reserved: true, ReservationToken: "token-1"},
+		decision: &dispatch.DispatchAdmissionDecision{Reserved: true, ReservationToken: "token-1"},
 	}
 	f := newQueueConditionFixture(t, config.ExecutionModeDistributed, admissionStore)
 	f.enqueueRun("waiting-run", nil)
@@ -560,8 +560,8 @@ type queueConditionFixture struct {
 	dag           *ir.DAG
 	dagRunStore   *countingDAGRunStore
 	queueStore    queuedomain.QueueStore
-	leaseStore    exec.DAGRunLeaseStore
-	dispatchStore exec.DispatchTaskStore
+	leaseStore    dispatch.DAGRunLeaseStore
+	dispatchStore dispatch.DispatchTaskStore
 	processor     *scheduler.QueueProcessor
 }
 
@@ -574,7 +574,7 @@ type queueConditionFixtureConfig struct {
 func newQueueConditionFixture(
 	t *testing.T,
 	mode config.ExecutionMode,
-	admissionStore exec.DispatchAdmissionStore,
+	admissionStore dispatch.DispatchAdmissionStore,
 	extraOptions ...scheduler.QueueProcessorOption,
 ) *queueConditionFixture {
 	return newQueueConditionFixtureWithDispatcher(t, mode, admissionStore, &queueConditionDispatcher{}, extraOptions...)
@@ -583,7 +583,7 @@ func newQueueConditionFixture(
 func newQueueConditionFixtureWithDispatcher(
 	t *testing.T,
 	mode config.ExecutionMode,
-	admissionStore exec.DispatchAdmissionStore,
+	admissionStore dispatch.DispatchAdmissionStore,
 	dispatcher *queueConditionDispatcher,
 	extraOptions ...scheduler.QueueProcessorOption,
 ) *queueConditionFixture {
@@ -593,7 +593,7 @@ func newQueueConditionFixtureWithDispatcher(
 func newQueueConditionFixtureWithConfig(
 	t *testing.T,
 	mode config.ExecutionMode,
-	admissionStore exec.DispatchAdmissionStore,
+	admissionStore dispatch.DispatchAdmissionStore,
 	dispatcher *queueConditionDispatcher,
 	fixtureConfig queueConditionFixtureConfig,
 	extraOptions ...scheduler.QueueProcessorOption,
@@ -959,18 +959,18 @@ func queueStateUnavailableConditions() []expectedQueuedCondition {
 }
 
 type queueConditionAdmissionStore struct {
-	decision *exec.DispatchAdmissionDecision
+	decision *dispatch.DispatchAdmissionDecision
 	err      error
 }
 
-func (s *queueConditionAdmissionStore) ReserveAdmission(context.Context, exec.DispatchAdmissionRequest) (*exec.DispatchAdmissionDecision, error) {
+func (s *queueConditionAdmissionStore) ReserveAdmission(context.Context, dispatch.DispatchAdmissionRequest) (*dispatch.DispatchAdmissionDecision, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
 	return s.decision, nil
 }
 
-func (s *queueConditionAdmissionStore) BindAdmission(context.Context, exec.DispatchAdmissionBindRequest) error {
+func (s *queueConditionAdmissionStore) BindAdmission(context.Context, dispatch.DispatchAdmissionBindRequest) error {
 	return nil
 }
 
@@ -991,16 +991,16 @@ type queueConditionDispatchTaskStore struct {
 	attemptKey string
 }
 
-func (s *queueConditionDispatchTaskStore) Enqueue(context.Context, *exec.DispatchTask) error {
+func (s *queueConditionDispatchTaskStore) Enqueue(context.Context, *dispatch.DispatchTask) error {
 	return nil
 }
 
-func (s *queueConditionDispatchTaskStore) ClaimNext(context.Context, exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, error) {
-	return nil, exec.ErrDispatchTaskNotFound
+func (s *queueConditionDispatchTaskStore) ClaimNext(context.Context, dispatch.DispatchTaskClaim) (*dispatch.ClaimedDispatchTask, error) {
+	return nil, dispatch.ErrDispatchTaskNotFound
 }
 
-func (s *queueConditionDispatchTaskStore) GetClaim(context.Context, string) (*exec.ClaimedDispatchTask, error) {
-	return nil, exec.ErrDispatchTaskNotFound
+func (s *queueConditionDispatchTaskStore) GetClaim(context.Context, string) (*dispatch.ClaimedDispatchTask, error) {
+	return nil, dispatch.ErrDispatchTaskNotFound
 }
 
 func (s *queueConditionDispatchTaskStore) ReleaseClaim(context.Context, string) error {
@@ -1026,7 +1026,7 @@ type queueConditionDispatcher struct {
 	dispatchErr error
 }
 
-func (d *queueConditionDispatcher) Dispatch(context.Context, exec.DispatchRequest) error {
+func (d *queueConditionDispatcher) Dispatch(context.Context, dispatch.DispatchRequest) error {
 	return d.dispatchErr
 }
 
@@ -1034,7 +1034,7 @@ func (d *queueConditionDispatcher) Cleanup(context.Context) error {
 	return nil
 }
 
-func (d *queueConditionDispatcher) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (d *queueConditionDispatcher) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 

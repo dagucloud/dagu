@@ -15,8 +15,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
@@ -465,7 +465,7 @@ func (a *API) activeDistributedRunningSummaries(ctx context.Context, queueName s
 	return result
 }
 
-func (a *API) runningSummaryFromLease(ctx context.Context, lease exec.DAGRunLease) (api.DAGRunSummary, bool) {
+func (a *API) runningSummaryFromLease(ctx context.Context, lease dispatch.DAGRunLease) (api.DAGRunSummary, bool) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, lease.DAGRun)
 	if err != nil {
 		return api.DAGRunSummary{}, false

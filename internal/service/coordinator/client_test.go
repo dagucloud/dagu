@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -86,7 +87,7 @@ func TestClientDispatch(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		task := &exec.DispatchTask{
+		task := &dispatch.DispatchTask{
 			DAGRunID: "test-dag-run",
 			Target:   "test.yaml",
 		}
@@ -94,7 +95,7 @@ func TestClientDispatch(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
-		err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+		err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 		require.NoError(t, err)
 	})
 
@@ -126,8 +127,8 @@ func TestClientDispatch(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
-		err := client.Dispatch(ctx, exec.DispatchRequest{
-			Task: &exec.DispatchTask{
+		err := client.Dispatch(ctx, dispatch.DispatchRequest{
+			Task: &dispatch.DispatchTask{
 				DAGRunID: "test-dag-run",
 				Target:   "test.yaml",
 			},
@@ -149,7 +150,7 @@ func TestClientDispatch(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		task := &exec.DispatchTask{
+		task := &dispatch.DispatchTask{
 			DAGRunID: "test-dag-run",
 			Target:   "test.yaml",
 		}
@@ -157,7 +158,7 @@ func TestClientDispatch(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
-		err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+		err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 		require.Error(t, err)
 		// Could be either error depending on timing
 		assert.True(t, strings.Contains(err.Error(), "no coordinators available") ||
@@ -191,8 +192,8 @@ func TestClientDispatch(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		err := client.Dispatch(context.Background(), exec.DispatchRequest{
-			Task: &exec.DispatchTask{
+		err := client.Dispatch(context.Background(), dispatch.DispatchRequest{
+			Task: &dispatch.DispatchTask{
 				DAGRunID: "run-123",
 				Target:   "test-dag",
 			},
@@ -1585,13 +1586,13 @@ func TestClientMetrics(t *testing.T) {
 	assert.True(t, metrics.IsConnected)
 	assert.Equal(t, 0, metrics.ConsecutiveFails)
 
-	task := &exec.DispatchTask{DAGRunID: "test"}
+	task := &dispatch.DispatchTask{DAGRunID: "test"}
 
 	// Attempt dispatch - should fail
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+	err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 	require.Error(t, err)
 
 	// Check failure metrics
@@ -1624,12 +1625,12 @@ func TestClientCleanup(t *testing.T) {
 	client := coordinator.New(monitor, config)
 
 	// Make a call to establish connection
-	task := &exec.DispatchTask{DAGRunID: "test"}
+	task := &dispatch.DispatchTask{DAGRunID: "test"}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+	err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 	require.NoError(t, err)
 
 	// Cleanup should close all connections
@@ -1640,7 +1641,7 @@ func TestClientCleanup(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel2()
 
-	err = client.Dispatch(ctx2, exec.DispatchRequest{Task: task})
+	err = client.Dispatch(ctx2, dispatch.DispatchRequest{Task: task})
 	require.NoError(t, err)
 }
 
@@ -1651,7 +1652,7 @@ func TestClientDispatch_NoCoordinators(t *testing.T) {
 	monitor := &mockServiceMonitor{}
 	client := coordinator.New(monitor, config)
 
-	task := &exec.DispatchTask{
+	task := &dispatch.DispatchTask{
 		DAGRunID: "test-dag-run",
 		Target:   "test.yaml",
 	}
@@ -1662,7 +1663,7 @@ func TestClientDispatch_NoCoordinators(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	err := client.Dispatch(ctx, exec.DispatchRequest{Task: task})
+	err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 	require.Error(t, err)
 	// Could be either error depending on timing
 	assert.True(t, strings.Contains(err.Error(), "no coordinators available") ||

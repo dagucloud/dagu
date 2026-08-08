@@ -19,8 +19,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -40,21 +40,21 @@ var (
 
 const dispatchNoMatchCacheLimit = 1024
 
-var _ exec.DispatchTaskStore = (*DispatchTaskStore)(nil)
-var _ exec.DispatchAdmissionStore = (*DispatchTaskStore)(nil)
+var _ dispatch.DispatchTaskStore = (*DispatchTaskStore)(nil)
+var _ dispatch.DispatchAdmissionStore = (*DispatchTaskStore)(nil)
 
 // DispatchTaskStoreOption configures a DispatchTaskStore.
 type DispatchTaskStoreOption func(*DispatchTaskStore)
 
-// DispatchTaskStore implements [exec.DispatchTaskStore] on top of a
+// DispatchTaskStore implements [dispatch.DispatchTaskStore] on top of a
 // [persis.Collection]. Record IDs use "pending/" and "claims/" prefixes so a
 // file collection rooted at the distributed directory uses the existing
 // on-disk layout directly.
 type DispatchTaskStore struct {
 	col                      persis.Collection
 	reservationTTL           time.Duration
-	admissionLeaseStore      exec.DAGRunLeaseStore
-	admissionActiveRunStore  exec.ActiveDistributedRunStore
+	admissionLeaseStore      dispatch.DAGRunLeaseStore
+	admissionActiveRunStore  dispatch.ActiveDistributedRunStore
 	lastReservationCleanupAt time.Time
 	index                    *dispatchTaskIndex
 	// mu protects the in-memory index and serializes dispatch transitions;
@@ -85,16 +85,16 @@ type dispatchTaskIndexEntry struct {
 }
 
 type dispatchTaskPayload struct {
-	Version                   int                      `json:"version"`
-	Task                      *exec.DispatchTask       `json:"task"`
-	TaskFileName              string                   `json:"taskFileName"`
-	EnqueuedAt                int64                    `json:"enqueuedAt"`
-	ClaimToken                string                   `json:"claimToken,omitempty"`
-	ClaimedAt                 int64                    `json:"claimedAt,omitempty"`
-	WorkerID                  string                   `json:"workerId,omitempty"`
-	PollerID                  string                   `json:"pollerId,omitempty"`
-	Owner                     exec.CoordinatorEndpoint `json:"owner,omitzero"`
-	AdmissionReservationToken string                   `json:"admissionReservationToken,omitempty"`
+	Version                   int                          `json:"version"`
+	Task                      *dispatch.DispatchTask       `json:"task"`
+	TaskFileName              string                       `json:"taskFileName"`
+	EnqueuedAt                int64                        `json:"enqueuedAt"`
+	ClaimToken                string                       `json:"claimToken,omitempty"`
+	ClaimedAt                 int64                        `json:"claimedAt,omitempty"`
+	WorkerID                  string                       `json:"workerId,omitempty"`
+	PollerID                  string                       `json:"pollerId,omitempty"`
+	Owner                     dispatch.CoordinatorEndpoint `json:"owner,omitzero"`
+	AdmissionReservationToken string                       `json:"admissionReservationToken,omitempty"`
 }
 
 type legacyDAGRunStatusProto struct {
@@ -358,8 +358,8 @@ func WithDispatchReservationTTL(ttl time.Duration) DispatchTaskStoreOption {
 // WithDispatchAdmissionLiveness enables admission cleanup against shared
 // distributed liveness stores.
 func WithDispatchAdmissionLiveness(
-	leaseStore exec.DAGRunLeaseStore,
-	activeRunStore exec.ActiveDistributedRunStore,
+	leaseStore dispatch.DAGRunLeaseStore,
+	activeRunStore dispatch.ActiveDistributedRunStore,
 ) DispatchTaskStoreOption {
 	return func(store *DispatchTaskStore) {
 		store.admissionLeaseStore = leaseStore
@@ -478,7 +478,7 @@ func dispatchIndexIDsMatch(ids []string, indexed map[string]dispatchTaskIndexEnt
 	return true
 }
 
-func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *exec.DispatchTask) error {
+func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *dispatch.DispatchTask) error {
 	if task == nil {
 		return fmt.Errorf("task is required")
 	}
@@ -516,7 +516,7 @@ func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *exec.DispatchTask
 // claim. CompareAndDelete(pending) is the per-task atomicity point;
 // concurrent pollers racing on the same pending see one winner and the
 // losers clean up their orphan claim and continue to the next pending.
-func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, error) {
+func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim dispatch.DispatchTaskClaim) (*dispatch.ClaimedDispatchTask, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -550,7 +550,7 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim exec.DispatchTa
 	return nil, nil
 }
 
-func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim exec.DispatchTaskClaim) (*exec.ClaimedDispatchTask, bool, error) {
+func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch.DispatchTaskClaim) (*dispatch.ClaimedDispatchTask, bool, error) {
 	if s.index == nil {
 		if err := s.rebuildDispatchIndex(ctx); err != nil {
 			return nil, false, err
@@ -630,7 +630,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim exec.Dis
 		}
 		s.index.replacePendingWithClaim(id, claimRec, payload)
 
-		return &exec.ClaimedDispatchTask{
+		return &dispatch.ClaimedDispatchTask{
 			Task:       cloneDispatchTask(task),
 			ClaimToken: claimToken,
 			ClaimedAt:  claimedAt,
@@ -658,11 +658,11 @@ func (s *DispatchTaskStore) maybeRecycleExpiredReservations(ctx context.Context)
 	return true, nil
 }
 
-func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*exec.ClaimedDispatchTask, error) {
+func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*dispatch.ClaimedDispatchTask, error) {
 	rec, err := s.col.Get(ctx, claimDispatchRecordID(claimToken))
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
-			return nil, exec.ErrDispatchTaskNotFound
+			return nil, dispatch.ErrDispatchTaskNotFound
 		}
 		return nil, err
 	}
@@ -671,9 +671,9 @@ func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*e
 		return nil, err
 	}
 	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 {
-		return nil, exec.ErrDispatchTaskNotFound
+		return nil, dispatch.ErrDispatchTaskNotFound
 	}
-	return &exec.ClaimedDispatchTask{
+	return &dispatch.ClaimedDispatchTask{
 		Task:       cloneDispatchTask(payload.Task),
 		ClaimToken: payload.ClaimToken,
 		ClaimedAt:  time.UnixMilli(payload.ClaimedAt).UTC(),
@@ -690,7 +690,7 @@ func (s *DispatchTaskStore) ReleaseClaim(ctx context.Context, claimToken string)
 	rec, err := s.col.Get(ctx, claimDispatchRecordID(claimToken))
 	if err != nil {
 		if errors.Is(err, persis.ErrNotFound) {
-			return exec.ErrDispatchTaskNotFound
+			return dispatch.ErrDispatchTaskNotFound
 		}
 		return err
 	}
@@ -699,7 +699,7 @@ func (s *DispatchTaskStore) ReleaseClaim(ctx context.Context, claimToken string)
 		return err
 	}
 	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 {
-		return exec.ErrDispatchTaskNotFound
+		return dispatch.ErrDispatchTaskNotFound
 	}
 	return s.releaseClaimRecord(ctx, rec, payload, time.Now().UTC())
 }
@@ -866,7 +866,7 @@ func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.
 	payload.ClaimedAt = 0
 	payload.WorkerID = ""
 	payload.PollerID = ""
-	payload.Owner = exec.CoordinatorEndpoint{}
+	payload.Owner = dispatch.CoordinatorEndpoint{}
 	payload.Task = clearDispatchTaskClaim(payload.Task)
 
 	pendingID, err := pendingDispatchRecordID(payload.TaskFileName)
@@ -1074,7 +1074,7 @@ func hasLegacyDispatchTaskJSON(data []byte) bool {
 	return false
 }
 
-func legacyDispatchTaskFromRecord(data []byte) (*exec.DispatchTask, error) {
+func legacyDispatchTaskFromRecord(data []byte) (*dispatch.DispatchTask, error) {
 	var raw struct {
 		Task map[string]json.RawMessage `json:"task"`
 	}
@@ -1121,7 +1121,7 @@ func legacyDispatchTaskFromRecord(data []byte) (*exec.DispatchTask, error) {
 	if err != nil {
 		return nil, err
 	}
-	var task exec.DispatchTask
+	var task dispatch.DispatchTask
 	if err := json.Unmarshal(encoded, &task); err != nil {
 		return nil, err
 	}
@@ -1144,7 +1144,7 @@ func legacyPreviousStatusJSON(data json.RawMessage) (json.RawMessage, error) {
 }
 
 func legacyOwnerJSON(fields map[string]json.RawMessage) (json.RawMessage, bool, error) {
-	var owner exec.CoordinatorEndpoint
+	var owner dispatch.CoordinatorEndpoint
 	var ok bool
 	if err := decodeLegacyOwnerField(fields, "owner_coordinator_id", &owner.ID, &ok); err != nil {
 		return nil, false, err
@@ -1220,7 +1220,7 @@ func dispatchRecordTimestamp(unixMillis int64, fallback time.Time) time.Time {
 	return time.Now().UTC()
 }
 
-func cloneDispatchTask(task *exec.DispatchTask) *exec.DispatchTask {
+func cloneDispatchTask(task *dispatch.DispatchTask) *dispatch.DispatchTask {
 	if task == nil {
 		return nil
 	}
@@ -1229,7 +1229,7 @@ func cloneDispatchTask(task *exec.DispatchTask) *exec.DispatchTask {
 	return &cloned
 }
 
-func applyDispatchTaskClaim(task *exec.DispatchTask, owner exec.CoordinatorEndpoint, claimToken string) (*exec.DispatchTask, error) {
+func applyDispatchTaskClaim(task *dispatch.DispatchTask, owner dispatch.CoordinatorEndpoint, claimToken string) (*dispatch.DispatchTask, error) {
 	task = cloneDispatchTask(task)
 	if task == nil {
 		return nil, nil
@@ -1239,12 +1239,12 @@ func applyDispatchTaskClaim(task *exec.DispatchTask, owner exec.CoordinatorEndpo
 	return task, nil
 }
 
-func clearDispatchTaskClaim(task *exec.DispatchTask) *exec.DispatchTask {
+func clearDispatchTaskClaim(task *dispatch.DispatchTask) *dispatch.DispatchTask {
 	task = cloneDispatchTask(task)
 	if task == nil {
 		return nil
 	}
-	task.Owner = exec.CoordinatorEndpoint{}
+	task.Owner = dispatch.CoordinatorEndpoint{}
 	task.ClaimToken = ""
 	task.WorkerID = ""
 	return task

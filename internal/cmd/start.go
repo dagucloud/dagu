@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -647,12 +646,12 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	task := executor.CreateTask(
 		d.Name,
 		string(d.YamlData),
-		exec.DispatchOperationStart,
+		dispatch.DispatchOperationStart,
 		dagRunID,
 		taskOpts...,
 	)
 
-	if err := coordinatorCli.Dispatch(signalAwareCtx, exec.DispatchRequest{Task: task}); err != nil {
+	if err := coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch task: %w", err)
 	}
 

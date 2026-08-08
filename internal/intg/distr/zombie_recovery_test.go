@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -103,7 +103,7 @@ steps:
 
 	require.NoError(t, cmdutil.TerminateProcessGroup(workerCmd, cmdutil.ForceTermination()))
 
-	expectedReason := exec.DistributedLeaseExpiredReason("crash-worker")
+	expectedReason := dispatch.DistributedLeaseExpiredReason("crash-worker")
 	rootRef := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
 	childStatus := waitForSubDAGRunStatus(t, f, rootRef, subRuns[0].DAGRunID, ir.Failed, failureTimeout)
 	require.Equal(t, expectedReason, childStatus.Error)
@@ -199,7 +199,7 @@ steps:
 
 	initialLease := waitForLease(t, f, status.AttemptKey, 5*time.Second).LastHeartbeatAt
 
-	var lease exec.DAGRunLease
+	var lease dispatch.DAGRunLease
 	require.Eventually(t, func() bool {
 		currentStatus, _, ok := readRunningInlineSubDAGs(f, 2)
 		if !ok || currentStatus.AttemptKey != status.AttemptKey {
@@ -431,7 +431,7 @@ steps:
 	require.Equal(t, ir.Running, status.Status)
 	require.NotEmpty(t, status.AttemptKey)
 
-	var lease *exec.DAGRunLease
+	var lease *dispatch.DAGRunLease
 	require.Eventually(t, func() bool {
 		var err error
 		lease, err = f.coord.DAGRunLeaseStore.Get(f.coord.Context, status.AttemptKey)
@@ -450,7 +450,7 @@ steps:
 
 	require.Eventually(t, func() bool {
 		_, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, status.AttemptKey)
-		return errors.Is(err, exec.ErrDAGRunLeaseNotFound)
+		return errors.Is(err, dispatch.ErrDAGRunLeaseNotFound)
 	}, distrTestTimeout(10*time.Second), 100*time.Millisecond, "shared lease should be removed after completion")
 }
 
@@ -527,7 +527,7 @@ steps:
 
 	require.Eventually(t, func() bool {
 		_, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, lease.AttemptKey)
-		return errors.Is(err, exec.ErrDAGRunLeaseNotFound)
+		return errors.Is(err, dispatch.ErrDAGRunLeaseNotFound)
 	}, 10*time.Second, 100*time.Millisecond, "stale distributed lease should be removed after failure")
 
 	crashWorker.SetAfterTaskAckHook(nil)
@@ -599,7 +599,7 @@ steps:
 
 	require.Eventually(t, func() bool {
 		_, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, lease.AttemptKey)
-		return errors.Is(err, exec.ErrDAGRunLeaseNotFound)
+		return errors.Is(err, dispatch.ErrDAGRunLeaseNotFound)
 	}, 10*time.Second, 100*time.Millisecond, "stale lease should remain deleted after worker resumes")
 
 	delayedWorker.SetAfterTaskAckHook(nil)
@@ -687,7 +687,7 @@ steps:
 	require.Equal(t, rootRef, initialSubStatus.Root)
 
 	finalSubStatus := waitForSubDAGRunStatus(t, f, rootRef, subRunRef.ID, ir.Failed, 25*time.Second)
-	expectedReason := exec.DistributedLeaseExpiredReason("subdag-crash-worker")
+	expectedReason := dispatch.DistributedLeaseExpiredReason("subdag-crash-worker")
 	require.Equal(t, task.AttemptKey, finalSubStatus.AttemptKey)
 	require.Equal(t, task.AttemptId, finalSubStatus.AttemptID)
 	require.Equal(t, expectedReason, finalSubStatus.Error)
@@ -704,12 +704,12 @@ steps:
 
 	require.Eventually(t, func() bool {
 		_, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, task.AttemptKey)
-		return errors.Is(err, exec.ErrDAGRunLeaseNotFound)
+		return errors.Is(err, dispatch.ErrDAGRunLeaseNotFound)
 	}, 10*time.Second, 100*time.Millisecond, "stale sub-DAG lease should be removed after failure")
 
 	require.Eventually(t, func() bool {
 		_, err := f.coord.ActiveDistributedRunStore.Get(f.coord.Context, task.AttemptKey)
-		return errors.Is(err, exec.ErrActiveRunNotFound)
+		return errors.Is(err, dispatch.ErrActiveRunNotFound)
 	}, 10*time.Second, 100*time.Millisecond, "stale sub-DAG active-run index should be removed after failure")
 }
 
@@ -764,12 +764,12 @@ func startWorkerProcess(t *testing.T, f *testFixture, workerID, labels string) (
 	return cmd, &output
 }
 
-func waitForLease(t *testing.T, f *testFixture, attemptKey string, timeout time.Duration) exec.DAGRunLease {
+func waitForLease(t *testing.T, f *testFixture, attemptKey string, timeout time.Duration) dispatch.DAGRunLease {
 	t.Helper()
 
 	timeout = distrTestTimeout(timeout)
 
-	var lease *exec.DAGRunLease
+	var lease *dispatch.DAGRunLease
 	require.Eventually(t, func() bool {
 		current, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, attemptKey)
 		if err != nil {
@@ -845,12 +845,12 @@ func readSubDAGRunStatus(
 	return attempt.ReadStatus(f.coord.Context)
 }
 
-func waitForAnyLease(t *testing.T, f *testFixture, timeout time.Duration) exec.DAGRunLease {
+func waitForAnyLease(t *testing.T, f *testFixture, timeout time.Duration) dispatch.DAGRunLease {
 	t.Helper()
 
 	timeout = distrTestTimeout(timeout)
 
-	var lease exec.DAGRunLease
+	var lease dispatch.DAGRunLease
 	require.Eventually(t, func() bool {
 		leases, err := f.coord.DAGRunLeaseStore.ListAll(f.coord.Context)
 		if err != nil || len(leases) == 0 {

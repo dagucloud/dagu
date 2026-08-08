@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -43,7 +44,7 @@ type Collector struct {
 	dagRunStore          dagrun.DAGRunStore
 	queueStore           queue.QueueStore
 	serviceRegistry      exec.ServiceRegistry
-	workerHeartbeatStore exec.WorkerHeartbeatStore
+	workerHeartbeatStore dispatch.WorkerHeartbeatStore
 	caches               []fileutil.CacheMetrics
 	now                  func() time.Time
 
@@ -226,7 +227,7 @@ func NewCollector(
 }
 
 // SetWorkerHeartbeatStore sets the worker heartbeat store used for worker metrics.
-func (c *Collector) SetWorkerHeartbeatStore(store exec.WorkerHeartbeatStore) {
+func (c *Collector) SetWorkerHeartbeatStore(store dispatch.WorkerHeartbeatStore) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.workerHeartbeatStore = store
@@ -548,7 +549,7 @@ func (c *Collector) collectWorkerMetrics(ctx context.Context, ch chan<- promethe
 
 func (c *Collector) collectWorkerRecordMetrics(
 	ch chan<- prometheus.Metric,
-	record exec.WorkerHeartbeatRecord,
+	record dispatch.WorkerHeartbeatRecord,
 	now time.Time,
 ) {
 	c.collectWorkerInfoMetrics(ch, record)
@@ -615,7 +616,7 @@ func (c *Collector) collectWorkerRecordMetrics(
 	)
 }
 
-func (c *Collector) collectWorkerInfoMetrics(ch chan<- prometheus.Metric, record exec.WorkerHeartbeatRecord) {
+func (c *Collector) collectWorkerInfoMetrics(ch chan<- prometheus.Metric, record dispatch.WorkerHeartbeatRecord) {
 	keys := make([]string, 0, len(record.Labels))
 	for key := range record.Labels {
 		keys = append(keys, key)
@@ -657,7 +658,7 @@ func workerHealthStatus(sinceLastHeartbeat time.Duration) string {
 	}
 }
 
-func workerStats(record exec.WorkerHeartbeatRecord, now time.Time) workerStatsSnapshot {
+func workerStats(record dispatch.WorkerHeartbeatRecord, now time.Time) workerStatsSnapshot {
 	if record.Stats == nil {
 		return workerStatsSnapshot{}
 	}

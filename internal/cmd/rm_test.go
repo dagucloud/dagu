@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -173,7 +173,7 @@ steps:
   - name: "1"
     run: echo "hello"
 `)
-		require.NoError(t, th.ActiveDistributedRunStore.Upsert(th.Context, exec.ActiveDistributedRun{
+		require.NoError(t, th.ActiveDistributedRunStore.Upsert(th.Context, dispatch.ActiveDistributedRun{
 			AttemptKey: "distributed-attempt",
 			DAGRun:     dagrun.NewDAGRunRef(dag.Name, "distributed-run"),
 			AttemptID:  "attempt-1",

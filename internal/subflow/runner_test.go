@@ -10,7 +10,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -20,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var _ exec.Dispatcher = (*mockDispatcher)(nil)
+var _ dispatch.Dispatcher = (*mockDispatcher)(nil)
 
 func TestRunnerShouldRun(t *testing.T) {
 	t.Parallel()
@@ -129,7 +128,7 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	outputVars.Store("RESULT", "RESULT=ok")
 
 	dispatcher := &mockDispatcher{
-		statuses: []*exec.DAGRunStatusResult{
+		statuses: []*dispatch.DAGRunStatusResult{
 			{Found: false},
 			{
 				Found: true,
@@ -174,7 +173,7 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 
 	require.Len(t, dispatcher.dispatches, 1)
 	task := dispatcher.dispatches[0]
-	assert.Equal(t, exec.DispatchOperationStart, task.Operation)
+	assert.Equal(t, dispatch.DispatchOperationStart, task.Operation)
 	assert.Equal(t, "child-1", task.DAGRunID)
 	assert.Equal(t, "child", task.Target)
 	assert.Equal(t, "ITEM=1", task.Params)
@@ -227,7 +226,7 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 		},
 	}
 	dispatcher := &mockDispatcher{
-		statuses: []*exec.DAGRunStatusResult{
+		statuses: []*dispatch.DAGRunStatusResult{
 			{Found: true, Status: previous},
 			{
 				Found: true,
@@ -255,7 +254,7 @@ func TestRunnerRunDispatchesRetryWhenChildRunExists(t *testing.T) {
 
 	require.Len(t, dispatcher.dispatches, 1)
 	task := dispatcher.dispatches[0]
-	assert.Equal(t, exec.DispatchOperationRetry, task.Operation)
+	assert.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
 	assert.Empty(t, task.Step)
 	assert.Equal(t, previous, task.PreviousStatus)
 	assert.Equal(t, "queue-a", task.QueueName)
@@ -276,7 +275,7 @@ func TestRunnerRunReusesSucceededChildForExternalStepRetry(t *testing.T) {
 		},
 	}
 	dispatcher := &mockDispatcher{
-		statuses: []*exec.DAGRunStatusResult{
+		statuses: []*dispatch.DAGRunStatusResult{
 			{Found: true, Status: previous},
 		},
 	}
@@ -304,7 +303,7 @@ func TestRunnerRunReuseRequiresPersistedChild(t *testing.T) {
 	t.Parallel()
 
 	dispatcher := &mockDispatcher{
-		statuses: []*exec.DAGRunStatusResult{{Found: false}},
+		statuses: []*dispatch.DAGRunStatusResult{{Found: false}},
 	}
 	runner := newFastRunner(dispatcher)
 
@@ -330,7 +329,7 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 		Status:    ir.Queued,
 	}
 	dispatcher := &mockDispatcher{
-		statuses: []*exec.DAGRunStatusResult{
+		statuses: []*dispatch.DAGRunStatusResult{
 			{Found: true, Status: previous},
 			{
 				Found: true,
@@ -361,7 +360,7 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 
 	require.Len(t, dispatcher.dispatches, 1)
 	task := dispatcher.dispatches[0]
-	assert.Equal(t, exec.DispatchOperationRetry, task.Operation)
+	assert.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
 	assert.Equal(t, "flaky", task.Step)
 	assert.Equal(t, previous, task.PreviousStatus)
 	assert.Equal(t, "queue-a", task.QueueName)
@@ -413,7 +412,7 @@ func TestRunnerCancelRequestsDispatcherCancel(t *testing.T) {
 	assert.Equal(t, root, *cancel.root)
 }
 
-func newFastRunner(dispatcher exec.Dispatcher) *subflow.Runner {
+func newFastRunner(dispatcher dispatch.Dispatcher) *subflow.Runner {
 	return subflow.New(
 		dispatcher,
 		config.ExecutionModeDistributed,
@@ -423,8 +422,8 @@ func newFastRunner(dispatcher exec.Dispatcher) *subflow.Runner {
 }
 
 type mockDispatcher struct {
-	dispatches []*exec.DispatchTask
-	statuses   []*exec.DAGRunStatusResult
+	dispatches []*dispatch.DispatchTask
+	statuses   []*dispatch.DAGRunStatusResult
 	cancels    []cancelRequest
 }
 
@@ -434,7 +433,7 @@ type cancelRequest struct {
 	root *dagrun.DAGRunRef
 }
 
-func (m *mockDispatcher) Dispatch(_ context.Context, req exec.DispatchRequest) error {
+func (m *mockDispatcher) Dispatch(_ context.Context, req dispatch.DispatchRequest) error {
 	m.dispatches = append(m.dispatches, req.Task)
 	return nil
 }
@@ -448,9 +447,9 @@ func (m *mockDispatcher) GetDAGRunStatus(
 	_ string,
 	_ string,
 	_ *dagrun.DAGRunRef,
-) (*exec.DAGRunStatusResult, error) {
+) (*dispatch.DAGRunStatusResult, error) {
 	if len(m.statuses) == 0 {
-		return &exec.DAGRunStatusResult{Found: false}, nil
+		return &dispatch.DAGRunStatusResult{Found: false}, nil
 	}
 	status := m.statuses[0]
 	m.statuses = m.statuses[1:]

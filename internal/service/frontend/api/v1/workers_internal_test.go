@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ type stubCoordinatorClient struct {
 	err     error
 }
 
-func (s *stubCoordinatorClient) Dispatch(context.Context, exec.DispatchRequest) error {
+func (s *stubCoordinatorClient) Dispatch(context.Context, dispatch.DispatchRequest) error {
 	return nil
 }
 
@@ -34,7 +35,7 @@ func (s *stubCoordinatorClient) Cleanup(context.Context) error {
 	return nil
 }
 
-func (s *stubCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (s *stubCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	return nil, nil
 }
 

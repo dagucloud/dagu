@@ -268,7 +268,7 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 }
 
 func (r *Local) validateIncrementalDAG(dag *ir.DAG) error {
-	if dag.Type == ir.TypeIncremental && exec.IsRemoteWorkerID(r.workerID) {
+	if dag.Type == ir.TypeIncremental && dispatch.IsRemoteWorkerID(r.workerID) {
 		return dispatch.ErrIncrementalRequiresLocal
 	}
 	return nil

@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -41,7 +42,7 @@ import (
 // Client abstracts handling communication with the coordinator service using
 // service registry and gRPC.
 type Client interface {
-	exec.Dispatcher
+	dispatch.Dispatcher
 
 	// Poll retrieves a task from the coordinator.
 	Poll(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error)
@@ -114,7 +115,7 @@ type Metrics struct {
 var (
 	_ Client                = (*clientImpl)(nil)
 	_ SecretReferenceClient = (*clientImpl)(nil)
-	_ exec.Dispatcher       = (*clientImpl)(nil)
+	_ dispatch.Dispatcher   = (*clientImpl)(nil)
 )
 
 // clientImpl is the concrete implementation
@@ -174,7 +175,7 @@ func New(registry exec.ServiceRegistry, config *Config) Client {
 }
 
 // Dispatch sends a task to the coordinator.
-func (cli *clientImpl) Dispatch(ctx context.Context, req exec.DispatchRequest) error {
+func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchRequest) error {
 	task := req.Task
 	if task == nil {
 		return fmt.Errorf("dispatch task is nil")
@@ -1026,7 +1027,7 @@ func openStreamWithFailover[T any](
 }
 
 // GetDAGRunStatus retrieves the status of a DAG run from the coordinator.
-func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
 		return nil, err
@@ -1059,7 +1060,7 @@ func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID st
 		return nil, fmt.Errorf("coordinator returned empty DAG run status response")
 	}
 
-	result := &exec.DAGRunStatusResult{Found: resp.Found}
+	result := &dispatch.DAGRunStatusResult{Found: resp.Found}
 	if resp.Status != nil {
 		status, convErr := convert.ProtoToDAGRunStatus(resp.Status)
 		if convErr != nil {

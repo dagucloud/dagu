@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -39,7 +40,7 @@ func (m *mockCoordinatorClient) ReportStatus(ctx context.Context, req *coordinat
 }
 
 // Stub methods for interface compliance - panic if called unexpectedly
-func (m *mockCoordinatorClient) Dispatch(_ context.Context, _ exec.DispatchRequest) error {
+func (m *mockCoordinatorClient) Dispatch(_ context.Context, _ dispatch.DispatchRequest) error {
 	panic("Dispatch not implemented in mock")
 }
 
@@ -95,7 +96,7 @@ func (m *mockCoordinatorClient) Cleanup(_ context.Context) error {
 	return nil
 }
 
-func (m *mockCoordinatorClient) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (m *mockCoordinatorClient) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	panic("GetDAGRunStatus not implemented in mock")
 }
 

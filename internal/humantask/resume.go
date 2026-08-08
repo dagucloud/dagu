@@ -8,8 +8,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -103,7 +103,7 @@ func (s *Service) waitForCompletionReady(
 		return status, nil
 	}
 	originalAttemptID := status.AttemptID
-	if !exec.IsRemoteWorkerID(status.WorkerID) && s.ProcStore != nil {
+	if !dispatch.IsRemoteWorkerID(status.WorkerID) && s.ProcStore != nil {
 		deadline := s.Now().Add(s.SettleTimeout)
 		for {
 			alive, err := s.ProcStore.IsAttemptAlive(ctx, dag.ProcGroup(), status.DAGRun(), status.AttemptID)

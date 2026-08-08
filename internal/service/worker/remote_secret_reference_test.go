@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -156,7 +157,7 @@ func (c *secretResolvingRemoteCoordinatorClient) resolvedRuns() []coordinator.Se
 	return append([]coordinator.SecretReferenceRun(nil), c.runs...)
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) Dispatch(context.Context, exec.DispatchRequest) error {
+func (c *secretResolvingRemoteCoordinatorClient) Dispatch(context.Context, dispatch.DispatchRequest) error {
 	return nil
 }
 
@@ -164,8 +165,8 @@ func (c *secretResolvingRemoteCoordinatorClient) Cleanup(context.Context) error 
 	return nil
 }
 
-func (c *secretResolvingRemoteCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
-	return &exec.DAGRunStatusResult{Found: false}, nil
+func (c *secretResolvingRemoteCoordinatorClient) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+	return &dispatch.DAGRunStatusResult{Found: false}, nil
 }
 
 func (c *secretResolvingRemoteCoordinatorClient) RequestCancel(context.Context, string, string, *dagrun.DAGRunRef) error {

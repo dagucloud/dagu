@@ -17,8 +17,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
@@ -30,9 +30,9 @@ type queueDispatchDeps struct {
 	queueStore             queuedomain.QueueStore
 	dagRunStore            dagrun.DAGRunStore
 	procStore              proc.ProcStore
-	dagRunLeaseStore       exec.DAGRunLeaseStore
-	dispatchTaskStore      exec.DispatchTaskStore
-	dispatchAdmissionStore exec.DispatchAdmissionStore
+	dagRunLeaseStore       dispatch.DAGRunLeaseStore
+	dispatchTaskStore      dispatch.DispatchTaskStore
+	dispatchAdmissionStore dispatch.DispatchAdmissionStore
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	backoffConfig          BackoffConfig
@@ -46,9 +46,9 @@ type queueDispatcher struct {
 	queueStore             queuedomain.QueueStore
 	dagRunStore            dagrun.DAGRunStore
 	procStore              proc.ProcStore
-	dagRunLeaseStore       exec.DAGRunLeaseStore
-	dispatchTaskStore      exec.DispatchTaskStore
-	dispatchAdmissionStore exec.DispatchAdmissionStore
+	dagRunLeaseStore       dispatch.DAGRunLeaseStore
+	dispatchTaskStore      dispatch.DispatchTaskStore
+	dispatchAdmissionStore dispatch.DispatchAdmissionStore
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	backoffConfig          BackoffConfig
@@ -721,7 +721,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 	var execDoneErr error
 	go func() {
 		defer d.wakeUp()
-		err := d.dagExecutor.ExecuteDAG(ctx, dag, exec.DispatchOperationRetry, runID, status, status.TriggerType, status.ScheduleTime)
+		err := d.dagExecutor.ExecuteDAG(ctx, dag, dispatch.DispatchOperationRetry, runID, status, status.TriggerType, status.ScheduleTime)
 		execDoneErr = err
 		close(execDoneCh)
 		if err != nil {
@@ -835,7 +835,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 		}
 
 		if !dispatched {
-			err := d.dagExecutor.ExecuteDAGWithAdmission(ctx, dag, exec.DispatchOperationRetry,
+			err := d.dagExecutor.ExecuteDAGWithAdmission(ctx, dag, dispatch.DispatchOperationRetry,
 				runID, dagStatus, dagStatus.TriggerType, dagStatus.ScheduleTime, admissionReservationToken)
 			if err != nil {
 				var staleErr *queuedomain.StaleQueueDispatchError
@@ -920,7 +920,7 @@ func (d *queueDispatcher) reserveDistributedAdmission(
 		conditionStage.flush(ctx)
 		return "", false
 	}
-	decision, err := d.dispatchAdmissionStore.ReserveAdmission(ctx, exec.DispatchAdmissionRequest{
+	decision, err := d.dispatchAdmissionStore.ReserveAdmission(ctx, dispatch.DispatchAdmissionRequest{
 		QueueName:             queueName,
 		MaxConcurrency:        input.maxConcurrency,
 		NonAdmissionOccupancy: input.nonAdmissionOccupancy,
@@ -962,8 +962,8 @@ func (d *queueDispatcher) releaseAdmissionToken(ctx context.Context, token strin
 	}
 	err := d.dispatchAdmissionStore.ReleaseAdmissionToken(context.WithoutCancel(ctx), token)
 	if err == nil ||
-		errors.Is(err, exec.ErrDispatchAdmissionConflict) ||
-		errors.Is(err, exec.ErrDispatchAdmissionNotFound) {
+		errors.Is(err, dispatch.ErrDispatchAdmissionConflict) ||
+		errors.Is(err, dispatch.ErrDispatchAdmissionNotFound) {
 		return
 	}
 	logger.Warn(ctx, "Failed to release distributed queue admission reservation",
@@ -1273,14 +1273,14 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 	return runnable, nil
 }
 
-func dispatchAdmissionWaitingCondition(decision *exec.DispatchAdmissionDecision) []queuedConditionDef {
+func dispatchAdmissionWaitingCondition(decision *dispatch.DispatchAdmissionDecision) []queuedConditionDef {
 	if decision == nil {
 		return assignmentPendingConditionDefs
 	}
 	switch decision.Reason {
-	case exec.DispatchAdmissionRejectedNoCapacity:
+	case dispatch.DispatchAdmissionRejectedNoCapacity:
 		return maxConcurrencyReachedConditionDefs
-	case exec.DispatchAdmissionRejectedDuplicate:
+	case dispatch.DispatchAdmissionRejectedDuplicate:
 		return assignmentPendingConditionDefs
 	default:
 		return assignmentPendingConditionDefs
@@ -1608,7 +1608,7 @@ func (d *queueDispatcher) hasFreshDistributedLease(
 
 	lease, err := d.dagRunLeaseStore.Get(ctx, attemptKey)
 	if err != nil {
-		if errors.Is(err, exec.ErrDAGRunLeaseNotFound) {
+		if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
 			return false, nil
 		}
 		return false, err

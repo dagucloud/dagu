@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -64,16 +64,16 @@ func TestMetrics_ExportsWorkerMetrics(t *testing.T) {
 	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
 		cfg.Server.Metrics = config.MetricsAccessPublic
 	}))
-	require.NoError(t, server.WorkerHeartbeatStore.Upsert(context.Background(), exec.WorkerHeartbeatRecord{
+	require.NoError(t, server.WorkerHeartbeatStore.Upsert(context.Background(), dispatch.WorkerHeartbeatRecord{
 		WorkerID: "worker-a",
 		Labels: map[string]string{
 			"pool":   "gpu",
 			"region": "ap-northeast-1",
 		},
-		Stats: &exec.WorkerStats{
+		Stats: &dispatch.WorkerStats{
 			TotalPollers: 4,
 			BusyPollers:  2,
-			RunningTasks: []*exec.RunningTask{
+			RunningTasks: []*dispatch.RunningTask{
 				{DAGRunID: "run-1", DAGName: "dag-1", StartedAt: time.Now().Add(-time.Minute).Unix()},
 			},
 		},

@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
@@ -39,8 +40,8 @@ type SchedulerConfig struct {
 	QueueStore        queue.QueueStore
 	ProcStore         proc.ProcStore
 	ServiceRegistry   exec.ServiceRegistry
-	DispatchTaskStore exec.DispatchTaskStore
-	DAGRunLeaseStore  exec.DAGRunLeaseStore
+	DispatchTaskStore dispatch.DispatchTaskStore
+	DAGRunLeaseStore  dispatch.DAGRunLeaseStore
 	EventService      *eventstore.Service
 	LicenseManager    *license.Manager
 }

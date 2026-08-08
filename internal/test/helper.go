@@ -32,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -524,10 +525,10 @@ type Helper struct {
 	QueueStore                queue.QueueStore
 	StateStore                dagstate.Store
 	ServiceRegistry           exec1.ServiceRegistry
-	DispatchTaskStore         exec1.DispatchTaskStore
-	WorkerHeartbeatStore      exec1.WorkerHeartbeatStore
-	DAGRunLeaseStore          exec1.DAGRunLeaseStore
-	ActiveDistributedRunStore exec1.ActiveDistributedRunStore
+	DispatchTaskStore         dispatch.DispatchTaskStore
+	WorkerHeartbeatStore      dispatch.WorkerHeartbeatStore
+	DAGRunLeaseStore          dispatch.DAGRunLeaseStore
+	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 	SubCmdBuilder             *launcher.SubCmdBuilder
 	ServerOptions             []frontend.ServerOption
 	StaleHeartbeatThreshold   time.Duration

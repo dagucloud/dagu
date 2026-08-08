@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
@@ -85,7 +85,7 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	if helper.StaleLeaseThreshold > 0 {
 		cfg.StaleLeaseThreshold = helper.StaleLeaseThreshold
 	}
-	cfg.Owner = exec.CoordinatorEndpoint{ID: "test-coordinator", Host: "127.0.0.1", Port: port}
+	cfg.Owner = dispatch.CoordinatorEndpoint{ID: "test-coordinator", Host: "127.0.0.1", Port: port}
 	cfg.StateStore = helper.StateStore
 	cfg.DispatchTaskStore = helper.DispatchTaskStore
 	cfg.WorkerHeartbeatStore = helper.WorkerHeartbeatStore

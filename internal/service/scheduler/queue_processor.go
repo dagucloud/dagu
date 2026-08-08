@@ -14,8 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -92,9 +92,9 @@ type QueueProcessor struct {
 	queueStore             queuedomain.QueueStore
 	dagRunStore            dagrun.DAGRunStore
 	procStore              proc.ProcStore
-	dagRunLeaseStore       exec.DAGRunLeaseStore
-	dispatchTaskStore      exec.DispatchTaskStore
-	dispatchAdmissionStore exec.DispatchAdmissionStore
+	dagRunLeaseStore       dispatch.DAGRunLeaseStore
+	dispatchTaskStore      dispatch.DispatchTaskStore
+	dispatchAdmissionStore dispatch.DispatchAdmissionStore
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	queues                 sync.Map // map[string]*queue
@@ -153,28 +153,28 @@ func WithLeaseStaleThreshold(threshold time.Duration) QueueProcessorOption {
 }
 
 // WithDAGRunLeaseStore sets the shared distributed run lease store.
-func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) QueueProcessorOption {
+func WithDAGRunLeaseStore(store dispatch.DAGRunLeaseStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dagRunLeaseStore = store
 	}
 }
 
 // WithDispatchTaskStore sets the shared distributed dispatch reservation store.
-func WithDispatchTaskStore(store exec.DispatchTaskStore) QueueProcessorOption {
+func WithDispatchTaskStore(store dispatch.DispatchTaskStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dispatchTaskStore = store
 		p.dispatchAdmissionStore = dispatchAdmissionStoreFromTaskStore(store)
 	}
 }
 
-func WithDispatchAdmissionStore(store exec.DispatchAdmissionStore) QueueProcessorOption {
+func WithDispatchAdmissionStore(store dispatch.DispatchAdmissionStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dispatchAdmissionStore = store
 	}
 }
 
-func dispatchAdmissionStoreFromTaskStore(store exec.DispatchTaskStore) exec.DispatchAdmissionStore {
-	admissionStore, _ := store.(exec.DispatchAdmissionStore)
+func dispatchAdmissionStoreFromTaskStore(store dispatch.DispatchTaskStore) dispatch.DispatchAdmissionStore {
+	admissionStore, _ := store.(dispatch.DispatchAdmissionStore)
 	return admissionStore
 }
 

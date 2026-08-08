@@ -8,8 +8,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -19,8 +19,8 @@ const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
 // confirm and repair stale remote runs.
 type StaleRunRepairConfig struct {
 	DAGRunStore                   dagrun.DAGRunStore
-	DAGRunLeaseStore              exec.DAGRunLeaseStore
-	WorkerHeartbeatStore          exec.WorkerHeartbeatStore
+	DAGRunLeaseStore              dispatch.DAGRunLeaseStore
+	WorkerHeartbeatStore          dispatch.WorkerHeartbeatStore
 	StaleLeaseThreshold           time.Duration
 	StaleWorkerHeartbeatThreshold time.Duration
 	Now                           func() time.Time
@@ -55,7 +55,7 @@ func RepairStaleRemoteRun(
 		return status, false, nil
 	}
 
-	attemptKey := exec.AttemptKeyForStatus(status, attemptID)
+	attemptKey := dispatch.AttemptKeyForStatus(status, attemptID)
 	if attemptKey == "" {
 		return status, false, nil
 	}
@@ -75,7 +75,7 @@ func RepairStaleRemoteRun(
 		if lease != nil && lease.AttemptKey != claimKey {
 			return status, false, nil
 		}
-	case errors.Is(err, exec.ErrDAGRunLeaseNotFound):
+	case errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
 	default:
 		return status, false, err
 	}
@@ -94,12 +94,12 @@ func RepairStaleRemoteRun(
 				return status, false, nil
 			}
 		}
-	case errors.Is(err, exec.ErrWorkerHeartbeatNotFound):
+	case errors.Is(err, dispatch.ErrWorkerHeartbeatNotFound):
 	default:
 		return status, false, err
 	}
 
-	reason := exec.DistributedLeaseExpiredReason(workerID)
+	reason := dispatch.DistributedLeaseExpiredReason(workerID)
 	currentStatus, swapped, err := cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		status.DAGRun(),
@@ -128,7 +128,7 @@ func remoteWorkerIDForStatus(status *dagrun.DAGRunStatus, fallbackWorkerID strin
 	if status == nil {
 		return "", false
 	}
-	if exec.IsRemoteWorkerID(status.WorkerID) {
+	if dispatch.IsRemoteWorkerID(status.WorkerID) {
 		return status.WorkerID, true
 	}
 	if status.WorkerID != "" {
@@ -137,7 +137,7 @@ func remoteWorkerIDForStatus(status *dagrun.DAGRunStatus, fallbackWorkerID strin
 	if status.Status != ir.Queued && status.Status != ir.NotStarted {
 		return "", false
 	}
-	if !exec.IsRemoteWorkerID(fallbackWorkerID) {
+	if !dispatch.IsRemoteWorkerID(fallbackWorkerID) {
 		return "", false
 	}
 	return fallbackWorkerID, true
@@ -147,14 +147,14 @@ func statusRepairable(status ir.Status) bool {
 	return status == ir.Running || status == ir.Queued || status == ir.NotStarted
 }
 
-func workerHeartbeatFresh(record *exec.WorkerHeartbeatRecord, now time.Time, threshold time.Duration) bool {
+func workerHeartbeatFresh(record *dispatch.WorkerHeartbeatRecord, now time.Time, threshold time.Duration) bool {
 	if record == nil || record.LastHeartbeatAt == 0 || threshold <= 0 {
 		return false
 	}
 	return now.Sub(record.LastHeartbeatTime()) < threshold
 }
 
-func workerReportsClaim(record *exec.WorkerHeartbeatRecord, status *dagrun.DAGRunStatus, attemptKey, claimKey string) bool {
+func workerReportsClaim(record *dispatch.WorkerHeartbeatRecord, status *dagrun.DAGRunStatus, attemptKey, claimKey string) bool {
 	if record == nil || record.Stats == nil {
 		return false
 	}

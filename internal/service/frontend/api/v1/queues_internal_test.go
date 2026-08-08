@@ -11,8 +11,8 @@ import (
 
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
@@ -250,7 +250,7 @@ func createDistributedQueueRun(
 	t *testing.T,
 	ctx context.Context,
 	store dagrun.DAGRunStore,
-	leaseStore exec.DAGRunLeaseStore,
+	leaseStore dispatch.DAGRunLeaseStore,
 	name string,
 	dagRunID string,
 	leaseQueueName string,
@@ -264,7 +264,7 @@ func createDistributedQueueRunWithStatus(
 	t *testing.T,
 	ctx context.Context,
 	store dagrun.DAGRunStore,
-	leaseStore exec.DAGRunLeaseStore,
+	leaseStore dispatch.DAGRunLeaseStore,
 	name string,
 	dagRunID string,
 	leaseQueueName string,
@@ -310,7 +310,7 @@ func createDistributedQueueRunWithStatus(
 	runStatus.CreatedAt = time.Now().UnixMilli()
 
 	require.NoError(t, attempt.Write(ctx, runStatus))
-	require.NoError(t, leaseStore.Upsert(ctx, exec.DAGRunLease{
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey:      dagrun.GenerateAttemptKey(name, dagRunID, name, dagRunID, attempt.ID()),
 		DAGRun:          dagrun.NewDAGRunRef(name, dagRunID),
 		Root:            dagrun.NewDAGRunRef(name, dagRunID),

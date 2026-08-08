@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
@@ -68,8 +69,8 @@ type API struct {
 	dagRunMgr            runtime.Manager
 	queueStore           queue.QueueStore
 	procStore            proc.ProcStore
-	dagRunLeaseStore     exec.DAGRunLeaseStore
-	workerHeartbeatStore exec.WorkerHeartbeatStore
+	dagRunLeaseStore     dispatch.DAGRunLeaseStore
+	workerHeartbeatStore dispatch.WorkerHeartbeatStore
 	remoteNodeResolver   *remotenode.Resolver
 	remoteNodeStore      remotenode.Store
 	logEncodingCharset   string
@@ -334,7 +335,7 @@ func WithDocMutationNotifier(fn func()) APIOption {
 }
 
 // WithDAGRunLeaseStore sets the shared distributed run lease store.
-func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) APIOption {
+func WithDAGRunLeaseStore(store dispatch.DAGRunLeaseStore) APIOption {
 	return func(a *API) {
 		a.dagRunLeaseStore = store
 	}
@@ -342,7 +343,7 @@ func WithDAGRunLeaseStore(store exec.DAGRunLeaseStore) APIOption {
 
 // WithWorkerHeartbeatStore sets the shared worker heartbeat store used for
 // conservative distributed run auto-repair on single-run reads.
-func WithWorkerHeartbeatStore(store exec.WorkerHeartbeatStore) APIOption {
+func WithWorkerHeartbeatStore(store dispatch.WorkerHeartbeatStore) APIOption {
 	return func(a *API) {
 		a.workerHeartbeatStore = store
 	}

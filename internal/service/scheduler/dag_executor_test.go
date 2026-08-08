@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -48,7 +48,7 @@ steps:
 		err := dagExecutor.HandleJob(
 			context.Background(),
 			dag,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"handle-job-test-123",
 			ir.TriggerTypeScheduler,
 			time.Time{},
@@ -63,7 +63,7 @@ steps:
 		err := dagExecutor.ExecuteDAG(
 			context.Background(),
 			dag,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"execute-dag-test-456",
 			nil,
 			ir.TriggerTypeScheduler,
@@ -80,7 +80,7 @@ steps:
 		err := dagExecutor.ExecuteDAG(
 			context.Background(),
 			dag,
-			exec.DispatchOperationUnspecified,
+			dispatch.DispatchOperationUnspecified,
 			"execute-dag-invalid-operation",
 			nil,
 			ir.TriggerTypeScheduler,
@@ -92,7 +92,7 @@ steps:
 		err = dagExecutor.ExecuteDAG(
 			context.Background(),
 			dag,
-			exec.DispatchOperation(99),
+			dispatch.DispatchOperation(99),
 			"execute-dag-unknown-operation",
 			nil,
 			ir.TriggerTypeScheduler,
@@ -111,7 +111,7 @@ steps:
 		err = localExecutor.HandleJob(
 			context.Background(),
 			dag,
-			exec.DispatchOperationStart,
+			dispatch.DispatchOperationStart,
 			"handle-job-local-789",
 			ir.TriggerTypeScheduler,
 			time.Time{},
@@ -125,7 +125,7 @@ steps:
 		err := dagExecutor.HandleJob(
 			context.Background(),
 			dag,
-			exec.DispatchOperationRetry,
+			dispatch.DispatchOperationRetry,
 			"handle-job-retry-999",
 			ir.TriggerTypeScheduler,
 			time.Time{},
@@ -154,7 +154,7 @@ func TestDAGExecutor_DistributedRetryUsesPreviousStatusParamsList(t *testing.T) 
 	err := dagExecutor.ExecuteDAG(
 		context.Background(),
 		dag,
-		exec.DispatchOperationRetry,
+		dispatch.DispatchOperationRetry,
 		"queued-param-run",
 		previousStatus,
 		ir.TriggerTypeManual,
@@ -184,7 +184,7 @@ func TestDAGExecutor_DistributedRetryPassesLegacyQueuedParams(t *testing.T) {
 	err := dagExecutor.ExecuteDAG(
 		context.Background(),
 		dag,
-		exec.DispatchOperationRetry,
+		dispatch.DispatchOperationRetry,
 		"legacy-queued-param-run",
 		previousStatus,
 		ir.TriggerTypeManual,
@@ -209,7 +209,7 @@ func TestDAGExecutor_DistributedRetryCarriesAdmissionReservationToken(t *testing
 	err := dagExecutor.ExecuteDAGWithAdmission(
 		context.Background(),
 		dag,
-		exec.DispatchOperationRetry,
+		dispatch.DispatchOperationRetry,
 		"admitted-run",
 		&dagrun.DAGRunStatus{Status: ir.Queued},
 		ir.TriggerTypeManual,
@@ -222,10 +222,10 @@ func TestDAGExecutor_DistributedRetryCarriesAdmissionReservationToken(t *testing
 }
 
 type capturingDispatcher struct {
-	req exec.DispatchRequest
+	req dispatch.DispatchRequest
 }
 
-func (d *capturingDispatcher) Dispatch(_ context.Context, req exec.DispatchRequest) error {
+func (d *capturingDispatcher) Dispatch(_ context.Context, req dispatch.DispatchRequest) error {
 	d.req = req
 	return nil
 }
@@ -234,7 +234,7 @@ func (d *capturingDispatcher) Cleanup(context.Context) error {
 	return nil
 }
 
-func (d *capturingDispatcher) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*exec.DAGRunStatusResult, error) {
+func (d *capturingDispatcher) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	return nil, nil
 }
 

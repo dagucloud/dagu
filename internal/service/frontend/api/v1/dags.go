@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -1485,12 +1484,12 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 	task := executor.CreateTask(
 		dag.Name,
 		string(dag.YamlData),
-		exec.DispatchOperationStart,
+		dispatch.DispatchOperationStart,
 		opts.dagRunID,
 		taskOpts...,
 	)
 
-	if err := a.coordinatorCli.Dispatch(ctx, exec.DispatchRequest{Task: task}); err != nil {
+	if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("error dispatching to coordinator: %w", err)
 	}
 
