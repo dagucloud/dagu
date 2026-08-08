@@ -41,7 +41,7 @@ func RebuildFromYAML(ctx context.Context, dag *ir.DAG, paramsOverride ...[]strin
 	if err != nil {
 		return nil, fmt.Errorf("failed to load presolved build env: %w", err)
 	}
-	transportEnv := presolvedBuildEnv.Entries()
+	transportEnv := buildenv.FromMap(presolvedBuildEnv.Env)
 	maps.Copy(buildEnvMap, presolvedBuildEnv.Env)
 
 	params := dag.Params

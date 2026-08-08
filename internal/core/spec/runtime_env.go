@@ -81,7 +81,7 @@ func ResolveRuntimeEnv(ctx context.Context, dag *ir.DAG, params any, opts Resolv
 		}, err
 	}
 	loadedEnv := resolved.Env
-	buildEnv := buildEnvMap(loadedEnv)
+	buildEnv := buildenv.ToMap(loadedEnv)
 	if len(buildEnv) > 0 {
 		loadOpts = append(loadOpts, WithBuildEnvSnapshot(buildenv.Snapshot{
 			Env:             buildEnv,
@@ -195,23 +195,4 @@ func hasRuntimeParams(params any) bool {
 	default:
 		return true
 	}
-}
-
-func buildEnvMap(env []string) map[string]string {
-	if len(env) == 0 {
-		return nil
-	}
-
-	buildEnv := make(map[string]string)
-	for _, item := range env {
-		key, value, ok := strings.Cut(item, "=")
-		if !ok || key == "" {
-			continue
-		}
-		buildEnv[key] = value
-	}
-	if len(buildEnv) == 0 {
-		return nil
-	}
-	return buildEnv
 }

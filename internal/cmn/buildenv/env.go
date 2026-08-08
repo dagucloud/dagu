@@ -27,11 +27,6 @@ func NewSnapshot(env []string, runtimeResolved bool) Snapshot {
 	return Snapshot{Env: ToMap(env), RuntimeResolved: runtimeResolved}
 }
 
-// Entries returns the snapshot environment as deterministic KEY=value entries.
-func (s Snapshot) Entries() []string {
-	return FromMap(s.Env)
-}
-
 // Prepare writes a snapshot to a secure temp file and returns the transport env
 // vars plus a cleanup function.
 func Prepare(snapshot Snapshot) ([]string, func() error, error) {
