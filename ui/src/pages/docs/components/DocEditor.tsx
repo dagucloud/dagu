@@ -36,6 +36,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { DocLiveProvider } from '@/components/docs-live/DocLiveProvider';
 import DocExternalChangeDialog from './DocExternalChangeDialog';
 import { DocHistoryModal } from './DocHistoryModal';
 import { DOC_SSE_FALLBACK_INTERVAL_MS } from '../lib/doc-polling';
@@ -523,10 +524,12 @@ function DocEditor({
           />
         ) : (
           <div className="h-full overflow-y-auto p-6">
-            <DocMarkdownPreview
-              content={currentValue}
-              linkContext={{ workspace: workspace ?? null, docPath }}
-            />
+            <DocLiveProvider workspace={workspace ?? null}>
+              <DocMarkdownPreview
+                content={currentValue}
+                linkContext={{ workspace: workspace ?? null, docPath }}
+              />
+            </DocLiveProvider>
           </div>
         )}
       </div>
