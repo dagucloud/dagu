@@ -12,15 +12,29 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Plus, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useDocTemplates,
+  useResolveTemplateContent,
+} from '../hooks/useDocTemplates';
 import { validateDocPath } from '../lib/doc-validation';
+
+const BLANK_TEMPLATE_ID = 'blank';
 
 interface CreateDocModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (path: string) => Promise<void>;
+  onSubmit: (path: string, content: string) => Promise<void>;
   parentDir?: string;
+  workspace?: string | null;
   isLoading?: boolean;
   externalError?: string | null;
 }
@@ -30,16 +44,29 @@ export function CreateDocModal({
   onClose,
   onSubmit,
   parentDir = '',
+  workspace = null,
   isLoading = false,
   externalError = null,
 }: CreateDocModalProps) {
   const [path, setPath] = useState('');
+  const [templateId, setTemplateId] = useState(BLANK_TEMPLATE_ID);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [resolvingTemplate, setResolvingTemplate] = useState(false);
+
+  const templates = useDocTemplates(isOpen, workspace);
+  const resolveTemplateContent = useResolveTemplateContent();
+  const selectedTemplate = useMemo(
+    () => templates.find((t) => t.id === templateId) ?? null,
+    [templates, templateId]
+  );
 
   useEffect(() => {
     if (isOpen) {
       setPath(parentDir ? `${parentDir}/` : '');
+      setTemplateId(BLANK_TEMPLATE_ID);
       setValidationError(null);
+      setTemplateError(null);
     }
   }, [isOpen, parentDir]);
 
@@ -62,12 +89,28 @@ export function CreateDocModal({
         setValidationError(validation.error || 'Invalid path');
         return;
       }
-      await onSubmit(trimmed);
+      let content = '';
+      if (selectedTemplate) {
+        setResolvingTemplate(true);
+        setTemplateError(null);
+        try {
+          content = await resolveTemplateContent(selectedTemplate);
+        } catch (err) {
+          setTemplateError(
+            err instanceof Error ? err.message : 'Failed to load template'
+          );
+          return;
+        } finally {
+          setResolvingTemplate(false);
+        }
+      }
+      await onSubmit(trimmed, content);
     },
-    [path, onSubmit]
+    [path, selectedTemplate, resolveTemplateContent, onSubmit]
   );
 
-  const currentError = validationError || externalError;
+  const currentError = validationError || templateError || externalError;
+  const busy = isLoading || resolvingTemplate;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -91,9 +134,37 @@ export function CreateDocModal({
                 className="col-span-3 font-mono"
                 placeholder="docs/deployment"
                 autoFocus
-                disabled={isLoading}
+                disabled={busy}
               />
             </div>
+            <div className="grid grid-cols-4 items-center gap-3">
+              <Label htmlFor="doc-template" className="text-right">
+                Template
+              </Label>
+              <Select
+                value={templateId}
+                onValueChange={setTemplateId}
+                disabled={busy}
+              >
+                <SelectTrigger id="doc-template" className="col-span-3 h-8">
+                  <SelectValue placeholder="Blank" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={BLANK_TEMPLATE_ID}>Blank</SelectItem>
+                  {templates.map((template) => (
+                    <SelectItem key={template.id} value={template.id}>
+                      {template.name}
+                      {!template.builtIn && ' (custom)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedTemplate?.description && (
+              <div className="text-xs text-muted-foreground px-4">
+                {selectedTemplate.description}
+              </div>
+            )}
             <div className="text-xs text-muted-foreground px-4">
               Relative path without .md extension. Use / for directories.
             </div>
@@ -108,14 +179,14 @@ export function CreateDocModal({
               type="button"
               variant="ghost"
               onClick={onClose}
-              disabled={isLoading}
+              disabled={busy}
             >
               <X className="h-4 w-4" />
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading}>
+            <Button type="submit" disabled={busy}>
               <Plus className="h-4 w-4" />
-              {isLoading ? 'Creating...' : 'Create'}
+              {busy ? 'Creating...' : 'Create'}
             </Button>
           </DialogFooter>
         </form>
