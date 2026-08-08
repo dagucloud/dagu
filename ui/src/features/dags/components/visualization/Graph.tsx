@@ -11,7 +11,9 @@ import {
   ArrowDownUp,
   ArrowRightLeft,
   Expand,
+  FileDown,
   GitGraph,
+  ImageDown,
   Maximize2,
   RotateCcw,
   ZoomIn,
@@ -20,6 +22,7 @@ import {
 import React, { useState } from 'react';
 import { components, NodeStatus } from '../../../../api/v1/schema';
 import Mermaid from '@/components/ui/mermaid';
+import { exportGraphPng, exportGraphSvg } from './exportGraph';
 
 /**
  * Escapes special characters in labels for safe Mermaid syntax interpolation.
@@ -67,6 +70,8 @@ type Props = {
   isExpandedView?: boolean;
   /** Custom height for the graph container */
   height?: string | number;
+  /** DAG name used for export filenames */
+  name?: string;
 };
 
 const GRAPH_STATUS_STROKES = {
@@ -129,6 +134,7 @@ function Graph({
   onRightClickNode,
   isExpandedView = false,
   height,
+  name,
 }: Props): React.JSX.Element {
   const [scale, setScale] = useState(isExpandedView ? 0.8 : 1);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -151,6 +157,22 @@ function Graph({
   /** Reset zoom to default */
   const resetZoom = () => {
     setScale(1);
+  };
+
+  const handleExport = (format: 'png' | 'svg') => {
+    // Scope to the mermaid wrapper; the control bar renders its own icon SVGs.
+    const svg = containerRef.current?.querySelector<SVGSVGElement>(
+      '.mermaid svg'
+    );
+    if (!svg) {
+      return;
+    }
+    const baseName = name || 'dag';
+    if (format === 'svg') {
+      exportGraphSvg(svg, baseName);
+    } else {
+      exportGraphPng(svg, baseName);
+    }
   };
 
   /** Fit graph to container - zoom out to show entire graph */
@@ -468,6 +490,26 @@ function Graph({
             <RotateCcw className="h-4 w-4" />
           </ToggleButton>
 
+          <div className="h-6 w-px shrink-0 self-center bg-border" />
+          <ToggleButton
+            value="export-png"
+            onClick={() => handleExport('png')}
+            aria-label="Export as PNG"
+            position="middle"
+            className={graphControlButtonClass}
+          >
+            <ImageDown className="h-4 w-4" />
+          </ToggleButton>
+          <ToggleButton
+            value="export-svg"
+            onClick={() => handleExport('svg')}
+            aria-label="Export as SVG"
+            position={isExpandedView ? 'last' : 'middle'}
+            className={graphControlButtonClass}
+          >
+            <FileDown className="h-4 w-4" />
+          </ToggleButton>
+
           {!isExpandedView && (
             <>
               <div className="h-6 w-px shrink-0 self-center bg-border" />
@@ -533,6 +575,7 @@ function Graph({
                 selectOnClick={selectOnClick}
                 onDoubleClickNode={onDoubleClickNode}
                 onRightClickNode={onRightClickNode}
+                name={name}
                 isExpandedView={true}
               />
             </div>

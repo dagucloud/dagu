@@ -722,6 +722,7 @@ function DAGSpecReadOnly({
               <div className="min-h-0 flex-1 overflow-hidden p-2">
                 <Graph
                   steps={previewNodes}
+                  name={dagName}
                   type="status"
                   flowchart={previewFlowchart}
                   onChangeFlowchart={setPreviewFlowchart}

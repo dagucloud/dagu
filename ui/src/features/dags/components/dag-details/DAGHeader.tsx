@@ -1,10 +1,19 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Calendar, Check, Copy, RefreshCw, Server, Timer } from 'lucide-react';
+import {
+  Calendar,
+  Check,
+  Copy,
+  Link2,
+  RefreshCw,
+  Server,
+  Timer,
+} from 'lucide-react';
 import React, { useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { components, Status } from '../../../../api/v1/schema';
+import { useConfig } from '../../../../contexts/ConfigContext';
 import dayjs from '../../../../lib/dayjs';
 import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import StatusChip from '@/components/ui/status-chip';
@@ -37,11 +46,20 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [currentDuration, setCurrentDuration] = React.useState<string>('--');
   const { copied: nameCopied, copy: copyName } = useCopyFeedback();
+  const { copied: linkCopied, copy: copyLink } = useCopyFeedback();
+  const config = useConfig();
 
   const scopedUrl = useCallback(
     (path: string) => (buildScopedUrl ? buildScopedUrl(path) : path),
     [buildScopedUrl]
   );
+
+  const copyPageLink = useCallback(() => {
+    const basePrefix = config.basePath === '/' ? '' : (config.basePath ?? '');
+    void copyLink(
+      `${window.location.origin}${basePrefix}${scopedUrl(`/dags/${fileName}`)}`
+    );
+  }, [config.basePath, copyLink, fileName, scopedUrl]);
 
   // Use the DAG-run from context if available, otherwise use the prop
   const dagRunToDisplay = rootDAGRunContext.data || currentDAGRun;
@@ -231,6 +249,23 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
             )}
             <span className="sr-only" aria-live="polite">
               {nameCopied ? `Copied name ${displayName}` : ''}
+            </span>
+            <button
+              onClick={copyPageLink}
+              className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+              title={linkCopied ? 'Link copied' : 'Copy link to this workflow'}
+              aria-label={
+                linkCopied ? 'Link copied' : 'Copy link to this workflow'
+              }
+            >
+              {linkCopied ? (
+                <Check className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <Link2 className="h-3.5 w-3.5" />
+              )}
+            </button>
+            <span className="sr-only" aria-live="polite">
+              {linkCopied ? 'Workflow link copied to clipboard' : ''}
             </span>
           </div>
         </div>

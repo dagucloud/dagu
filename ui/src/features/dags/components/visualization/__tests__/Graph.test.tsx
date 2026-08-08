@@ -9,6 +9,7 @@ import { toMermaidNodeId } from '@/lib/utils';
 import Graph from '../Graph';
 
 const mermaidRenderMock = vi.hoisted(() => vi.fn());
+const downloadBlobMock = vi.hoisted(() => vi.fn());
 
 vi.mock('mermaid', () => ({
   default: {
@@ -17,12 +18,17 @@ vi.mock('mermaid', () => ({
   },
 }));
 
+vi.mock('@/lib/download', () => ({
+  downloadBlob: downloadBlobMock,
+}));
+
 vi.mock('@/contexts/UserPreference', () => ({
   useUserPreferences: () => ({ preferences: { theme: 'light' } }),
 }));
 
 beforeEach(() => {
   mermaidRenderMock.mockReset();
+  downloadBlobMock.mockReset();
 });
 
 function node(
@@ -169,6 +175,47 @@ describe('Graph', () => {
         toMermaidNodeId('extract (source)')
       );
     });
+  });
+
+  it('exports the rendered graph as a self-contained SVG', async () => {
+    mermaidRenderMock.mockResolvedValueOnce({
+      svg: '<svg viewBox="0 0 200 100" style="transform: scale(1.5)"><g class="node done"><rect></rect></g></svg>',
+      bindFunctions: vi.fn(),
+    });
+
+    render(
+      <Graph
+        type="status"
+        steps={[node('prepare', NodeStatus.Success)]}
+        name="mydag"
+      />
+    );
+
+    await waitFor(() => {
+      expect(mermaidRenderMock).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export as SVG' }));
+
+    expect(downloadBlobMock).toHaveBeenCalledTimes(1);
+    const call = downloadBlobMock.mock.calls[0];
+    if (!call) {
+      throw new Error('Expected downloadBlob to be called');
+    }
+    const [blob, filename] = call as [Blob, string];
+    expect(filename).toBe('mydag-graph.svg');
+    expect(blob.type).toBe('image/svg+xml');
+    const markup = await blob.text();
+    expect(markup).toContain('width="200"');
+    expect(markup).toContain('height="100"');
+    expect(markup).toContain('<rect');
+    expect(markup).not.toContain('transform: scale');
+
+    // PNG export needs canvas rasterization, unavailable in jsdom; the
+    // control itself must still be present.
+    expect(
+      screen.getByRole('button', { name: 'Export as PNG' })
+    ).toBeInTheDocument();
   });
 
   it('keeps graph controls constrained above the graph on narrow screens', async () => {

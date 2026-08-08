@@ -497,6 +497,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 <BorderedBox className="py-4 px-4 flex flex-col overflow-x-auto">
                   <Graph
                     steps={dag.steps}
+                    name={dag.name}
                     type="config"
                     flowchart={flowchart}
                     onChangeFlowchart={onChangeFlowchart}

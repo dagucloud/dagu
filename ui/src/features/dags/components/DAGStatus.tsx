@@ -763,6 +763,7 @@ function DAGStatus({
                     <div className="w-full min-w-0 max-w-full overflow-x-auto">
                       <Graph
                         steps={displayDAGRun.nodes}
+                        name={displayDAGRun.name}
                         type="status"
                         flowchart={flowchart}
                         onChangeFlowchart={onChangeFlowchart}

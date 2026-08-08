@@ -139,6 +139,7 @@ function DAGGraph({
           {sub === '0' ? (
             <Graph
               steps={dagRun.nodes}
+              name={dagRun.name}
               type="status"
               flowchart={flowchart}
               onChangeFlowchart={onChangeFlowchart}
