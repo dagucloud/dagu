@@ -54,21 +54,11 @@ var builtinHarnessCLIProviders = map[string]struct{}{
 	"pi":       {},
 }
 
-// IsBuiltinHarnessProvider reports whether name is a built-in harness provider.
-func IsBuiltinHarnessProvider(name string) bool {
-	return IsBuiltinCLIHarnessProvider(name)
-}
-
 // IsBuiltinCLIHarnessProvider reports whether name selects a built-in CLI
 // harness provider.
 func IsBuiltinCLIHarnessProvider(name string) bool {
 	_, ok := builtinHarnessCLIProviders[name]
 	return ok
-}
-
-// BuiltinHarnessProviderNames returns the built-in harness provider names.
-func BuiltinHarnessProviderNames() []string {
-	return BuiltinCLIHarnessProviderNames()
 }
 
 // BuiltinCLIHarnessProviderNames returns the built-in CLI harness provider names.
@@ -102,7 +92,7 @@ func NormalizeBuiltinHarnessFlagKeys(cfg map[string]any) map[string]any {
 		if exists && !preferBuiltinHarnessKeyVariant(key, prevKey) {
 			continue
 		}
-		normalized[canonical] = cloneHarnessValue(cfg[key])
+		normalized[canonical] = cloneConfigValue(cfg[key])
 		sourceKeys[canonical] = key
 	}
 
@@ -138,15 +128,10 @@ func cloneHarnessDefinition(def *HarnessDefinition) *HarnessDefinition {
 	if def == nil {
 		return nil
 	}
-	return &HarnessDefinition{
-		Binary:         def.Binary,
-		PrefixArgs:     append([]string(nil), def.PrefixArgs...),
-		PromptMode:     def.PromptMode,
-		PromptFlag:     def.PromptFlag,
-		PromptPosition: def.PromptPosition,
-		FlagStyle:      def.FlagStyle,
-		OptionFlags:    maps.Clone(def.OptionFlags),
-	}
+	cloned := *def
+	cloned.PrefixArgs = append([]string(nil), def.PrefixArgs...)
+	cloned.OptionFlags = maps.Clone(def.OptionFlags)
+	return &cloned
 }
 
 func cloneHarnessDefinitions(defs HarnessDefinitions) HarnessDefinitions {

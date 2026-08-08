@@ -1859,7 +1859,7 @@ func validateCommand(result *ir.Step) error {
 	if len(result.Commands) == 0 {
 		return nil
 	}
-	if !registry.SupportsCommand(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Command {
 		return ir.NewValidationError(
 			"command",
 			result.Commands,
@@ -1875,7 +1875,7 @@ func validateMultipleCommands(result *ir.Step) error {
 	if len(result.Commands) <= 1 {
 		return nil
 	}
-	if !registry.SupportsMultipleCommands(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).MultipleCommands {
 		return ir.NewValidationError(
 			"command",
 			result.Commands,
@@ -1907,7 +1907,7 @@ func validateScript(result *ir.Step) error {
 	if result.Script == "" {
 		return nil
 	}
-	if !registry.SupportsScript(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Script {
 		return ir.NewValidationError(
 			"script",
 			result.Script,
@@ -1922,7 +1922,7 @@ func validateShell(result *ir.Step) error {
 	if result.Shell == "" && len(result.ShellArgs) == 0 && len(result.ShellPackages) == 0 {
 		return nil
 	}
-	if !registry.SupportsShell(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Shell {
 		return ir.NewValidationError(
 			"shell",
 			result.Shell,
@@ -1937,7 +1937,7 @@ func validateContainer(result *ir.Step) error {
 	if result.Container == nil {
 		return nil
 	}
-	if !registry.SupportsContainer(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Container {
 		return ir.NewValidationError(
 			"container",
 			result.Container,
@@ -1952,7 +1952,7 @@ func validateSubDAG(result *ir.Step) error {
 	if result.SubDAG == nil {
 		return nil
 	}
-	if !registry.SupportsSubDAG(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).SubDAG {
 		return ir.NewValidationError(
 			"call",
 			result.SubDAG,
@@ -1967,7 +1967,7 @@ func validateWorkerSelector(result *ir.Step) error {
 	if len(result.WorkerSelector) == 0 {
 		return nil
 	}
-	if !registry.SupportsWorkerSelector(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).WorkerSelector {
 		return ir.NewValidationError(
 			"worker_selector",
 			result.WorkerSelector,
@@ -1982,7 +1982,7 @@ func validateLLM(result *ir.Step) error {
 	if result.LLM == nil {
 		return nil
 	}
-	if !registry.SupportsLLM(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).LLM {
 		return ir.NewValidationError(
 			"llm",
 			result.LLM,
@@ -2027,7 +2027,7 @@ func validateMessages(result *ir.Step) error {
 	if len(result.Messages) == 0 {
 		return nil
 	}
-	if !registry.SupportsLLM(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).LLM {
 		return ir.NewValidationError(
 			"messages",
 			result.Messages,
@@ -2552,7 +2552,7 @@ func buildStepContainer(ctx stepBuildContext, s *step, result *ir.Step) error {
 // If step has llm: config, it completely overrides DAG-level (full override pattern).
 func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 	// Only process LLM for executors that support it
-	if !registry.SupportsLLM(result.ExecutorConfig.Type) {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).LLM {
 		return nil
 	}
 
@@ -2855,12 +2855,9 @@ func buildStepApproval(_ stepBuildContext, s *step, result *ir.Step) error {
 	if s.Approval == nil {
 		return nil
 	}
-	result.Approval = &ir.ApprovalConfig{
-		Prompt:   s.Approval.Prompt,
-		Input:    s.Approval.Input,
-		Required: s.Approval.Required,
-		RewindTo: strings.TrimSpace(s.Approval.RewindTo),
-	}
+	approval := ir.ApprovalConfig(*s.Approval)
+	approval.RewindTo = strings.TrimSpace(approval.RewindTo)
+	result.Approval = &approval
 	// Validate required fields are subset of input
 	for _, req := range result.Approval.Required {
 		if !slices.Contains(result.Approval.Input, req) {

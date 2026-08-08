@@ -2604,7 +2604,7 @@ func parseHarnessDefinitions(raw map[string]any) (ir.HarnessDefinitions, error) 
 		if trimmedName == "" {
 			return nil, ir.NewValidationError("harnesses", name, fmt.Errorf("harness name is required"))
 		}
-		if ir.IsBuiltinHarnessProvider(trimmedName) {
+		if ir.IsBuiltinCLIHarnessProvider(trimmedName) {
 			return nil, ir.NewValidationError(
 				fmt.Sprintf("harnesses.%s", trimmedName),
 				value,
@@ -2992,14 +2992,13 @@ func buildToolPackage(pkg toolPackage, seenCommands map[string]struct{}) (ir.Too
 	if err != nil {
 		return ir.ToolPackage{}, err
 	}
-	return ir.ToolPackage{
-		Name:     name,
-		Package:  packageName,
-		Version:  version,
-		Commands: commands,
-		Registry: registry,
-		Digest:   digest,
-	}, nil
+	pkg.Name = name
+	pkg.Package = packageName
+	pkg.Version = version
+	pkg.Commands = commands
+	pkg.Registry = registry
+	pkg.Digest = digest
+	return ir.ToolPackage(pkg), nil
 }
 
 func normalizeToolDigest(digest string) (string, error) {

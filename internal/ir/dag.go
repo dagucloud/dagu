@@ -937,86 +937,55 @@ func cloneHarnessConfig(cfg *HarnessConfig) *HarnessConfig {
 		return nil
 	}
 	return &HarnessConfig{
-		Config:   cloneHarnessConfigMap(cfg.Config),
-		Fallback: cloneHarnessFallbackConfigs(cfg.Fallback),
+		Config:   cloneConfigMap(cfg.Config),
+		Fallback: cloneConfigMaps(cfg.Fallback),
 	}
 }
 
-func cloneHarnessConfigMap(cfg map[string]any) map[string]any {
+func cloneKubernetesConfig(cfg KubernetesConfig) KubernetesConfig {
+	return KubernetesConfig(cloneConfigMap(map[string]any(cfg)))
+}
+
+func cloneConfigMap(cfg map[string]any) map[string]any {
 	if cfg == nil {
 		return nil
 	}
 
 	cloned := make(map[string]any, len(cfg))
 	for key, value := range cfg {
-		cloned[key] = cloneHarnessValue(value)
+		cloned[key] = cloneConfigValue(value)
 	}
 	return cloned
 }
 
-func cloneHarnessFallbackConfigs(cfgs []map[string]any) []map[string]any {
+func cloneConfigMaps(cfgs []map[string]any) []map[string]any {
 	if cfgs == nil {
 		return nil
 	}
 
 	cloned := make([]map[string]any, len(cfgs))
 	for i := range cfgs {
-		cloned[i] = cloneHarnessConfigMap(cfgs[i])
+		cloned[i] = cloneConfigMap(cfgs[i])
 	}
 	return cloned
 }
 
-func cloneHarnessValue(value any) any {
-	switch v := value.(type) {
-	case map[string]any:
-		return cloneHarnessConfigMap(v)
-	case []any:
-		cloned := make([]any, len(v))
-		for i := range v {
-			cloned[i] = cloneHarnessValue(v[i])
-		}
-		return cloned
-	case []string:
-		return append([]string(nil), v...)
-	case []map[string]any:
-		return cloneHarnessFallbackConfigs(v)
-	default:
-		return value
-	}
-}
-
-func cloneKubernetesConfig(cfg KubernetesConfig) KubernetesConfig {
-	if cfg == nil {
-		return nil
-	}
-
-	cloned := make(KubernetesConfig, len(cfg))
-	for key, value := range cfg {
-		cloned[key] = cloneKubernetesValue(value)
-	}
-	return cloned
-}
-
-func cloneKubernetesValue(value any) any {
+func cloneConfigValue(value any) any {
 	switch v := value.(type) {
 	case KubernetesConfig:
 		return cloneKubernetesConfig(v)
 	case map[string]any:
-		return map[string]any(cloneKubernetesConfig(v))
+		return cloneConfigMap(v)
 	case []any:
 		cloned := make([]any, len(v))
 		for i := range v {
-			cloned[i] = cloneKubernetesValue(v[i])
+			cloned[i] = cloneConfigValue(v[i])
 		}
 		return cloned
 	case []string:
 		return append([]string(nil), v...)
 	case []map[string]any:
-		cloned := make([]map[string]any, len(v))
-		for i := range v {
-			cloned[i] = map[string]any(cloneKubernetesConfig(v[i]))
-		}
-		return cloned
+		return cloneConfigMaps(v)
 	default:
 		return value
 	}

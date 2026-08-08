@@ -1263,7 +1263,7 @@ func promptAndScript(prompt, script string) string {
 }
 
 func knownProviders(defs ir.HarnessDefinitions) []string {
-	names := ir.BuiltinHarnessProviderNames()
+	names := ir.BuiltinCLIHarnessProviderNames()
 	for name, def := range defs {
 		if def == nil {
 			continue

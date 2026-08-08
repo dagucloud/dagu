@@ -81,44 +81,9 @@ func UnregisterExecutorCapabilities(executorType string) {
 	executorCapabilities.Unregister(executorType)
 }
 
-// SupportsCommand returns whether the executor type supports the command field.
-func SupportsCommand(executorType string) bool {
-	return executorCapabilities.Get(executorType).Command
-}
-
-// SupportsMultipleCommands returns whether the executor type supports multiple commands.
-func SupportsMultipleCommands(executorType string) bool {
-	return executorCapabilities.Get(executorType).MultipleCommands
-}
-
-// SupportsScript returns whether the executor type supports the script field.
-func SupportsScript(executorType string) bool {
-	return executorCapabilities.Get(executorType).Script
-}
-
-// SupportsShell returns whether the executor type uses shell configuration.
-func SupportsShell(executorType string) bool {
-	return executorCapabilities.Get(executorType).Shell
-}
-
-// SupportsContainer returns whether the executor type supports step-level container config.
-func SupportsContainer(executorType string) bool {
-	return executorCapabilities.Get(executorType).Container
-}
-
-// SupportsSubDAG returns whether the executor type can execute sub-DAGs.
-func SupportsSubDAG(executorType string) bool {
-	return executorCapabilities.Get(executorType).SubDAG
-}
-
-// SupportsWorkerSelector returns whether the executor type supports worker selection.
-func SupportsWorkerSelector(executorType string) bool {
-	return executorCapabilities.Get(executorType).WorkerSelector
-}
-
-// SupportsLLM returns whether the executor type supports the llm field.
-func SupportsLLM(executorType string) bool {
-	return executorCapabilities.Get(executorType).LLM
+// ExecutorCapabilitiesFor returns the registered capabilities for an executor type.
+func ExecutorCapabilitiesFor(executorType string) ExecutorCapabilities {
+	return executorCapabilities.Get(executorType)
 }
 
 // CommandResolution returns command execution facts for command field resolution.

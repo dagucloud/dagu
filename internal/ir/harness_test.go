@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBuiltinHarnessProviderNamesSorted(t *testing.T) {
-	assert.Equal(t, []string{"claude", "codex", "copilot", "opencode", "pi"}, BuiltinHarnessProviderNames())
-}
-
 func TestBuiltinCLIHarnessProviderNamesSorted(t *testing.T) {
 	assert.Equal(t, []string{"claude", "codex", "copilot", "opencode", "pi"}, BuiltinCLIHarnessProviderNames())
 }

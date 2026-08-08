@@ -872,8 +872,7 @@ func (r *Runner) setupPushBackConversation(ctx context.Context, node *Node) {
 }
 
 func stepSupportsChatMessages(step ir.Step) bool {
-	executorType := step.ExecutorConfig.Type
-	return registry.SupportsLLM(executorType)
+	return registry.ExecutorCapabilitiesFor(step.ExecutorConfig.Type).LLM
 }
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (context.Context, error) {

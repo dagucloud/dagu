@@ -28,7 +28,7 @@ func TestExecutorCapabilities_Get(t *testing.T) {
 	assert.Equal(t, ExecutorCapabilities{}, registry.Get("unregistered"))
 }
 
-func TestSupportsHelpers(t *testing.T) {
+func TestExecutorCapabilitiesFor(t *testing.T) {
 	// Register a test executor with specific capabilities
 	caps := ExecutorCapabilities{
 		Command:        true,
@@ -37,14 +37,12 @@ func TestSupportsHelpers(t *testing.T) {
 	}
 	RegisterExecutorCapabilities("helper-test", caps)
 
-	assert.True(t, SupportsCommand("helper-test"))
-	assert.False(t, SupportsScript("helper-test"))
-	assert.True(t, SupportsWorkerSelector("helper-test"))
+	registered := ExecutorCapabilitiesFor("helper-test")
+	assert.True(t, registered.Command)
+	assert.False(t, registered.Script)
+	assert.True(t, registered.WorkerSelector)
 
-	// Unregistered executor should return false for everything
-	assert.False(t, SupportsCommand("unknown"))
-	assert.False(t, SupportsScript("unknown"))
-	assert.False(t, SupportsShell("unknown"))
+	assert.Equal(t, ExecutorCapabilities{}, ExecutorCapabilitiesFor("unknown"))
 }
 
 func TestExecutorCapabilities_ConcurrentAccess(t *testing.T) {
