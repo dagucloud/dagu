@@ -63,12 +63,25 @@ func TestRecursiveWatchPathsIncludesNestedDirs(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "a", "b"), 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a", "b", "doc.md"), []byte("# doc\n"), 0600))
 
-	paths, err := recursiveWatchPaths(root)
+	paths, err := recursiveWatchPaths(root, "")
 	require.NoError(t, err)
 
 	assert.Contains(t, paths, root)
 	assert.Contains(t, paths, filepath.Join(root, "a"))
 	assert.Contains(t, paths, filepath.Join(root, "a", "b"))
+}
+
+func TestRecursiveWatchPathsSkipsAttachmentSubtree(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "guides"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, docAttachmentsDirName, "guides", "doc"), 0750))
+
+	paths, err := recursiveWatchPaths(root, docAttachmentsDirName)
+	require.NoError(t, err)
+
+	assert.Contains(t, paths, filepath.Join(root, "guides"))
+	assert.NotContains(t, paths, filepath.Join(root, docAttachmentsDirName))
+	assert.NotContains(t, paths, filepath.Join(root, docAttachmentsDirName, "guides"))
 }
 
 func TestSnapshotMarkdownFilesIncludesOnlyMarkdown(t *testing.T) {
