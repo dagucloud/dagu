@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func wrapDAGRunAttempt(attempt dagrun.DAGRunAttempt) Attempt {
@@ -29,7 +30,7 @@ func (a dagRunAttempt) RecordStatus(ctx context.Context, status dagrun.DAGRunSta
 	return a.attempt.Write(ctx, status)
 }
 
-func (a dagRunAttempt) RecordOutputs(ctx context.Context, outputs *dagrun.DAGRunOutputs) error {
+func (a dagRunAttempt) RecordOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error {
 	return a.attempt.WriteOutputs(ctx, outputs)
 }
 
@@ -37,7 +38,7 @@ func (a dagRunAttempt) ReadStatus(ctx context.Context) (*dagrun.DAGRunStatus, er
 	return a.attempt.ReadStatus(ctx)
 }
 
-func (a dagRunAttempt) ReadOutputs(ctx context.Context) (*dagrun.DAGRunOutputs, error) {
+func (a dagRunAttempt) ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error) {
 	return a.attempt.ReadOutputs(ctx)
 }
 
@@ -49,11 +50,11 @@ func (a dagRunAttempt) CancelRequested(ctx context.Context) (bool, error) {
 	return a.attempt.IsAborting(ctx)
 }
 
-func (a dagRunAttempt) ReadStepMessages(ctx context.Context, stepName string) ([]dagrun.LLMMessage, error) {
+func (a dagRunAttempt) ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error) {
 	return a.attempt.ReadStepMessages(ctx, stepName)
 }
 
-func (a dagRunAttempt) WriteStepMessages(ctx context.Context, stepName string, messages []dagrun.LLMMessage) error {
+func (a dagRunAttempt) WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error {
 	return a.attempt.WriteStepMessages(ctx, stepName, messages)
 }
 

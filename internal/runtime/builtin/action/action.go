@@ -220,7 +220,7 @@ func (e *Executor) runActionDAG(ctx context.Context, bundle *actionBundle, m *ma
 	return execErr
 }
 
-func actionOutputsFromRunStatus(result *dagrun.RunStatus) map[string]any {
+func actionOutputsFromRunStatus(result *ir.RunStatus) map[string]any {
 	if result == nil {
 		return nil
 	}

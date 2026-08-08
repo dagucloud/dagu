@@ -182,10 +182,10 @@ func TestRoundTrip(t *testing.T) {
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeSucceeded,
-					ChatMessages: []dagrun.LLMMessage{
-						{Role: dagrun.RoleSystem, Content: "You are a helpful assistant."},
-						{Role: dagrun.RoleUser, Content: "Hello!"},
-						{Role: dagrun.RoleAssistant, Content: "Hi there! How can I help?", Metadata: &dagrun.LLMMessageMetadata{
+					ChatMessages: []ir.LLMMessage{
+						{Role: ir.LLMRoleSystem, Content: "You are a helpful assistant."},
+						{Role: ir.LLMRoleUser, Content: "Hello!"},
+						{Role: ir.LLMRoleAssistant, Content: "Hi there! How can I help?", Metadata: &ir.LLMMessageMetadata{
 							Provider:         "openai",
 							Model:            "gpt-4",
 							PromptTokens:     10,
@@ -215,14 +215,14 @@ func TestRoundTrip(t *testing.T) {
 		// First node with messages
 		chatNode := result.Nodes[0]
 		require.Len(t, chatNode.ChatMessages, 3)
-		assert.Equal(t, dagrun.RoleSystem, chatNode.ChatMessages[0].Role)
+		assert.Equal(t, ir.LLMRoleSystem, chatNode.ChatMessages[0].Role)
 		assert.Equal(t, "You are a helpful assistant.", chatNode.ChatMessages[0].Content)
 		assert.Nil(t, chatNode.ChatMessages[0].Metadata)
 
-		assert.Equal(t, dagrun.RoleUser, chatNode.ChatMessages[1].Role)
+		assert.Equal(t, ir.LLMRoleUser, chatNode.ChatMessages[1].Role)
 		assert.Equal(t, "Hello!", chatNode.ChatMessages[1].Content)
 
-		assert.Equal(t, dagrun.RoleAssistant, chatNode.ChatMessages[2].Role)
+		assert.Equal(t, ir.LLMRoleAssistant, chatNode.ChatMessages[2].Role)
 		assert.Equal(t, "Hi there! How can I help?", chatNode.ChatMessages[2].Content)
 		require.NotNil(t, chatNode.ChatMessages[2].Metadata)
 		assert.Equal(t, "openai", chatNode.ChatMessages[2].Metadata.Provider)

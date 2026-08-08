@@ -811,16 +811,16 @@ func (a *retryScannerAttempt) Abort(context.Context) error              { return
 func (a *retryScannerAttempt) IsAborting(context.Context) (bool, error) { return false, nil }
 func (a *retryScannerAttempt) Hide(context.Context) error               { return nil }
 func (a *retryScannerAttempt) Hidden() bool                             { return false }
-func (a *retryScannerAttempt) WriteOutputs(context.Context, *dagrun.DAGRunOutputs) error {
+func (a *retryScannerAttempt) WriteOutputs(context.Context, *ir.DAGRunOutputs) error {
 	return nil
 }
-func (a *retryScannerAttempt) ReadOutputs(context.Context) (*dagrun.DAGRunOutputs, error) {
+func (a *retryScannerAttempt) ReadOutputs(context.Context) (*ir.DAGRunOutputs, error) {
 	return nil, nil
 }
-func (a *retryScannerAttempt) WriteStepMessages(context.Context, string, []dagrun.LLMMessage) error {
+func (a *retryScannerAttempt) WriteStepMessages(context.Context, string, []ir.LLMMessage) error {
 	return nil
 }
-func (a *retryScannerAttempt) ReadStepMessages(context.Context, string) ([]dagrun.LLMMessage, error) {
+func (a *retryScannerAttempt) ReadStepMessages(context.Context, string) ([]ir.LLMMessage, error) {
 	return nil, nil
 }
 func (a *retryScannerAttempt) WorkDir() string { return "" }

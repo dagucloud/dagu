@@ -1203,7 +1203,7 @@ steps:
 	status := dagAgent.Status(th.Context)
 	require.Equal(t, "prod", status.ProfileName)
 	require.NotEmpty(t, status.ProfileResolvedAt)
-	require.ElementsMatch(t, []dagrun.RuntimeProfileEntry{
+	require.ElementsMatch(t, []ir.RuntimeProfileEntry{
 		{Key: "LOG_LEVEL", Kind: "variable"},
 		{Key: "API_TOKEN", Kind: "secret"},
 	}, status.ProfileEntries)
@@ -1340,7 +1340,7 @@ steps:
 	status := dagAgent.Status(th.Context)
 	require.Equal(t, "prod", status.ProfileName)
 	require.NotEmpty(t, status.ProfileResolvedAt)
-	require.ElementsMatch(t, []dagrun.RuntimeProfileEntry{
+	require.ElementsMatch(t, []ir.RuntimeProfileEntry{
 		{Key: "GLOBAL_ONLY", Kind: "variable"},
 		{Key: "WORKSPACE_ONLY", Kind: "variable"},
 		{Key: "SHARED", Kind: "variable"},

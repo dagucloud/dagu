@@ -170,8 +170,8 @@ func TestAttemptDelegatesStateOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	status := dagrun.DAGRunStatus{Name: "parent", DAGRunID: "run-1", Status: ir.Running}
-	outputs := &dagrun.DAGRunOutputs{Outputs: map[string]string{"result": "ok"}}
-	messages := []dagrun.LLMMessage{{Role: dagrun.RoleAssistant, Content: "done"}}
+	outputs := &ir.DAGRunOutputs{Outputs: map[string]string{"result": "ok"}}
+	messages := []ir.LLMMessage{{Role: ir.LLMRoleAssistant, Content: "done"}}
 
 	require.NoError(t, stateAttempt.Open(ctx))
 	require.NoError(t, stateAttempt.RecordStatus(ctx, status))
@@ -270,15 +270,15 @@ type recordingAttempt struct {
 	dag            *ir.DAG
 	status         *dagrun.DAGRunStatus
 	writtenStatus  dagrun.DAGRunStatus
-	writtenOutputs *dagrun.DAGRunOutputs
-	messages       map[string][]dagrun.LLMMessage
+	writtenOutputs *ir.DAGRunOutputs
+	messages       map[string][]ir.LLMMessage
 	openCalls      int
 	closeCalls     int
 	abortCalls     int
 }
 
 func newRecordingAttempt(id string) *recordingAttempt {
-	return &recordingAttempt{id: id, messages: make(map[string][]dagrun.LLMMessage)}
+	return &recordingAttempt{id: id, messages: make(map[string][]ir.LLMMessage)}
 }
 
 func (a *recordingAttempt) ID() string { return a.id }
@@ -323,22 +323,22 @@ func (a *recordingAttempt) Hide(context.Context) error { return nil }
 
 func (a *recordingAttempt) Hidden() bool { return false }
 
-func (a *recordingAttempt) WriteOutputs(_ context.Context, outputs *dagrun.DAGRunOutputs) error {
+func (a *recordingAttempt) WriteOutputs(_ context.Context, outputs *ir.DAGRunOutputs) error {
 	a.writtenOutputs = outputs
 	return nil
 }
 
-func (a *recordingAttempt) ReadOutputs(context.Context) (*dagrun.DAGRunOutputs, error) {
+func (a *recordingAttempt) ReadOutputs(context.Context) (*ir.DAGRunOutputs, error) {
 	return nil, nil
 }
 
-func (a *recordingAttempt) WriteStepMessages(_ context.Context, stepName string, messages []dagrun.LLMMessage) error {
-	a.messages[stepName] = append([]dagrun.LLMMessage(nil), messages...)
+func (a *recordingAttempt) WriteStepMessages(_ context.Context, stepName string, messages []ir.LLMMessage) error {
+	a.messages[stepName] = append([]ir.LLMMessage(nil), messages...)
 	return nil
 }
 
-func (a *recordingAttempt) ReadStepMessages(_ context.Context, stepName string) ([]dagrun.LLMMessage, error) {
-	return append([]dagrun.LLMMessage(nil), a.messages[stepName]...), nil
+func (a *recordingAttempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
+	return append([]ir.LLMMessage(nil), a.messages[stepName]...), nil
 }
 
 func (a *recordingAttempt) WorkDir() string { return "" }

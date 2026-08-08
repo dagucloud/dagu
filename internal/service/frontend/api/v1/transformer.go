@@ -876,7 +876,7 @@ func toHandlerOn(handlers ir.HandlerOn) api.HandlerOn {
 	return handlerOn
 }
 
-func toChatMessages(messages []dagrun.LLMMessage) []api.ChatMessage {
+func toChatMessages(messages []ir.LLMMessage) []api.ChatMessage {
 	if messages == nil {
 		return []api.ChatMessage{}
 	}
@@ -888,7 +888,7 @@ func toChatMessages(messages []dagrun.LLMMessage) []api.ChatMessage {
 	return result
 }
 
-func toChatMessage(msg dagrun.LLMMessage) api.ChatMessage {
+func toChatMessage(msg ir.LLMMessage) api.ChatMessage {
 	apiMsg := api.ChatMessage{
 		Role:    api.ChatMessageRole(msg.Role),
 		Content: msg.Content,
@@ -919,7 +919,7 @@ func toChatMessage(msg dagrun.LLMMessage) api.ChatMessage {
 	return apiMsg
 }
 
-func toToolDefinitions(defs []dagrun.ToolDefinition) *[]api.ToolDefinition {
+func toToolDefinitions(defs []ir.ToolDefinition) *[]api.ToolDefinition {
 	if len(defs) == 0 {
 		return nil
 	}

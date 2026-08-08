@@ -89,7 +89,7 @@ func (r *Runner) runControllerLoop(ctx context.Context, plan *Plan, progressCh c
 	}
 	planner := newControllerModelPlanner(
 		ctrlCtx, dag.LLM, models, catalog, system,
-		func(msgs []dagrun.LLMMessage) []dagrun.LLMMessage {
+		func(msgs []ir.LLMMessage) []ir.LLMMessage {
 			return MaskSecretsForProvider(ctrlCtx, msgs)
 		})
 
@@ -344,8 +344,8 @@ func (r *Runner) nudge(ctx context.Context, state *controller.State) error {
 		Reason: "no action chosen while " + open + " remained open",
 	})
 	logger.Warn(ctx, "Controller answered without acting", slog.String("openTasks", open))
-	state.Append(dagrun.LLMMessage{
-		Role: dagrun.RoleUser,
+	state.Append(ir.LLMMessage{
+		Role: ir.LLMRoleUser,
 		Content: fmt.Sprintf(
 			"These tasks are still open: %s. Either run an action that advances one of them, "+
 				"or settle each one with %s as completed, skipped, or failed.",
@@ -552,7 +552,7 @@ func (r *Runner) report(progressCh chan *Node, node *Node) {
 
 // observe renders the outcome of an action as the tool result the controller
 // sees on its next turn.
-func observe(ctx context.Context, node *Node, toolCallID string) dagrun.LLMMessage {
+func observe(ctx context.Context, node *Node, toolCallID string) ir.LLMMessage {
 	if node == nil {
 		return toolResult(ctx, toolCallID, "Error: the step disappeared from the workflow")
 	}
@@ -699,14 +699,14 @@ func logTail(path string) string {
 	return strings.TrimSpace(strings.Join(result.Lines, "\n"))
 }
 
-func toolResult(ctx context.Context, toolCallID, content string) dagrun.LLMMessage {
+func toolResult(ctx context.Context, toolCallID, content string) ir.LLMMessage {
 	dag := GetDAGContext(ctx).DAG
 	maxBytes := ir.DefaultControllerObservationMaxBytes
 	if dag != nil {
 		maxBytes = dag.ControllerObservationMaxBytes()
 	}
-	return dagrun.LLMMessage{
-		Role:       dagrun.RoleTool,
+	return ir.LLMMessage{
+		Role:       ir.LLMRoleTool,
 		ToolCallID: toolCallID,
 		Content:    limitControllerObservation(content, maxBytes),
 	}

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 	"github.com/stretchr/testify/assert"
@@ -115,8 +114,8 @@ func TestState_FallbackSummaryCountsProseDecisionsAsTurns(t *testing.T) {
 
 	state := controller.NewState(&ir.DAG{})
 	state.Append(
-		dagrun.LLMMessage{Role: dagrun.RoleAssistant, Content: "I need another reminder."},
-		dagrun.LLMMessage{Role: dagrun.RoleUser, Content: "Choose an action."},
+		ir.LLMMessage{Role: ir.LLMRoleAssistant, Content: "I need another reminder."},
+		ir.LLMMessage{Role: ir.LLMRoleUser, Content: "Choose an action."},
 		assistantToolCall("call_2", "second"),
 		toolMessage("call_2", "status: succeeded\nlarge output"),
 		assistantToolCall("call_3", "third"),
@@ -152,28 +151,28 @@ func TestState_LatestPromptTokens(t *testing.T) {
 
 	state := controller.NewState(&ir.DAG{})
 	state.Append(
-		dagrun.LLMMessage{Role: dagrun.RoleAssistant, Metadata: &dagrun.LLMMessageMetadata{PromptTokens: 20}},
-		dagrun.LLMMessage{Role: dagrun.RoleTool, Content: "result"},
-		dagrun.LLMMessage{Role: dagrun.RoleAssistant, Metadata: &dagrun.LLMMessageMetadata{PromptTokens: 35}},
-		dagrun.LLMMessage{Role: dagrun.RoleTool, Content: "new result"},
-		dagrun.LLMMessage{Role: dagrun.RoleAssistant, Metadata: &dagrun.LLMMessageMetadata{}},
+		ir.LLMMessage{Role: ir.LLMRoleAssistant, Metadata: &ir.LLMMessageMetadata{PromptTokens: 20}},
+		ir.LLMMessage{Role: ir.LLMRoleTool, Content: "result"},
+		ir.LLMMessage{Role: ir.LLMRoleAssistant, Metadata: &ir.LLMMessageMetadata{PromptTokens: 35}},
+		ir.LLMMessage{Role: ir.LLMRoleTool, Content: "new result"},
+		ir.LLMMessage{Role: ir.LLMRoleAssistant, Metadata: &ir.LLMMessageMetadata{}},
 	)
 	assert.Equal(t, 35, state.LatestPromptTokens())
 }
 
-func assistantToolCall(id, name string) dagrun.LLMMessage {
-	return dagrun.LLMMessage{
-		Role: dagrun.RoleAssistant,
-		ToolCalls: []dagrun.ToolCall{{
+func assistantToolCall(id, name string) ir.LLMMessage {
+	return ir.LLMMessage{
+		Role: ir.LLMRoleAssistant,
+		ToolCalls: []ir.ToolCall{{
 			ID:   id,
 			Type: "function",
-			Function: dagrun.ToolCallFunction{
+			Function: ir.ToolCallFunction{
 				Name: name,
 			},
 		}},
 	}
 }
 
-func toolMessage(id, content string) dagrun.LLMMessage {
-	return dagrun.LLMMessage{Role: dagrun.RoleTool, ToolCallID: id, Content: content}
+func toolMessage(id, content string) ir.LLMMessage {
+	return ir.LLMMessage{Role: ir.LLMRoleTool, ToolCallID: id, Content: content}
 }

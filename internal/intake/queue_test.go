@@ -237,16 +237,16 @@ func (a *queueAttempt) Abort(context.Context) error              { return nil }
 func (a *queueAttempt) IsAborting(context.Context) (bool, error) { return false, nil }
 func (a *queueAttempt) Hide(context.Context) error               { return nil }
 func (a *queueAttempt) Hidden() bool                             { return false }
-func (a *queueAttempt) WriteOutputs(context.Context, *dagrun.DAGRunOutputs) error {
+func (a *queueAttempt) WriteOutputs(context.Context, *ir.DAGRunOutputs) error {
 	return nil
 }
-func (a *queueAttempt) ReadOutputs(context.Context) (*dagrun.DAGRunOutputs, error) {
+func (a *queueAttempt) ReadOutputs(context.Context) (*ir.DAGRunOutputs, error) {
 	return nil, nil
 }
-func (a *queueAttempt) WriteStepMessages(context.Context, string, []dagrun.LLMMessage) error {
+func (a *queueAttempt) WriteStepMessages(context.Context, string, []ir.LLMMessage) error {
 	return nil
 }
-func (a *queueAttempt) ReadStepMessages(context.Context, string) ([]dagrun.LLMMessage, error) {
+func (a *queueAttempt) ReadStepMessages(context.Context, string) ([]ir.LLMMessage, error) {
 	return nil, nil
 }
 func (a *queueAttempt) WorkDir() string { return "" }

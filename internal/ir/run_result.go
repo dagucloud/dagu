@@ -1,21 +1,17 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package dagrun
+package ir
 
 import (
 	"encoding/json"
 	"fmt"
 	"time"
-
-	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // RuntimeProfileEntry is non-secret metadata about a profile key injected into a run.
 type RuntimeProfileEntry struct {
-	// Key is the injected environment variable name.
-	Key string `json:"key"`
-	// Kind is the profile entry type, such as variable or secret.
+	Key  string `json:"key"`
 	Kind string `json:"kind"`
 }
 
@@ -71,7 +67,7 @@ type RunStatus struct {
 	Params             string
 	Outputs            map[string]string
 	OutputValues       map[string]any
-	Status             ir.Status
+	Status             Status
 	PendingStepRetries []PendingStepRetry
 }
 

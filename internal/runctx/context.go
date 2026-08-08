@@ -46,7 +46,7 @@ type Context struct {
 	DAGRunArtifactDir    string
 	ProfileName          string
 	ProfileResolvedAt    string
-	ProfileEntries       []dagrun.RuntimeProfileEntry
+	ProfileEntries       []ir.RuntimeProfileEntry
 	Shell                string               // Default shell for this DAG (from DAG.Shell)
 	LogEncodingCharset   string               // Character encoding for log files (e.g., "utf-8", "shift_jis", "euc-jp")
 	LogWriterFactory     LogWriterFactory     // For remote log streaming (nil = use local files)
@@ -309,11 +309,11 @@ func WithArtifactDir(dir string) ContextOption {
 }
 
 // WithRuntimeProfile sets the selected profile metadata for this run context.
-func WithRuntimeProfile(name, resolvedAt string, entries []dagrun.RuntimeProfileEntry) ContextOption {
+func WithRuntimeProfile(name, resolvedAt string, entries []ir.RuntimeProfileEntry) ContextOption {
 	return func(o *contextOptions) {
 		o.ProfileName = name
 		o.ProfileResolvedAt = resolvedAt
-		o.ProfileEntries = append([]dagrun.RuntimeProfileEntry(nil), entries...)
+		o.ProfileEntries = append([]ir.RuntimeProfileEntry(nil), entries...)
 	}
 }
 

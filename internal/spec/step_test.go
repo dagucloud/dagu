@@ -3260,7 +3260,7 @@ func TestValidateLLM(t *testing.T) {
 			step: &ir.Step{
 				ExecutorConfig: ir.ExecutorConfig{Type: "chat"},
 				LLM:            &ir.LLMConfig{Provider: "openai", Model: "gpt-4"},
-				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
+				Messages:       []ir.PromptMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: false,
 		},
@@ -3278,7 +3278,7 @@ func TestValidateLLM(t *testing.T) {
 			step: &ir.Step{
 				ExecutorConfig: ir.ExecutorConfig{Type: "chat"},
 				LLM:            &ir.LLMConfig{Model: "gpt-4"},
-				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
+				Messages:       []ir.PromptMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: true,
 			errMsg:  "provider is required",
@@ -3288,7 +3288,7 @@ func TestValidateLLM(t *testing.T) {
 			step: &ir.Step{
 				ExecutorConfig: ir.ExecutorConfig{Type: "chat"},
 				LLM:            &ir.LLMConfig{Provider: "openai"},
-				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
+				Messages:       []ir.PromptMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: true,
 			errMsg:  "model is required",
@@ -3335,7 +3335,7 @@ func TestValidateMessages(t *testing.T) {
 			name: "MessagesWithChatExecutor",
 			step: &ir.Step{
 				ExecutorConfig: ir.ExecutorConfig{Type: "chat"},
-				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
+				Messages:       []ir.PromptMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: false,
 		},
@@ -3343,7 +3343,7 @@ func TestValidateMessages(t *testing.T) {
 			name: "MessagesWithUnsupportedExecutor",
 			step: &ir.Step{
 				ExecutorConfig: ir.ExecutorConfig{Type: "shell"},
-				Messages:       []ir.LLMMessage{{Role: "user", Content: "hello"}},
+				Messages:       []ir.PromptMessage{{Role: "user", Content: "hello"}},
 			},
 			wantErr: true,
 		},

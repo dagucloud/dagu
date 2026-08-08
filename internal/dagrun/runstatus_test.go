@@ -69,7 +69,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 
 	t.Run("PrefersPersistedField", func(t *testing.T) {
 		status := &dagrun.DAGRunStatus{
-			PendingStepRetries: []dagrun.PendingStepRetry{
+			PendingStepRetries: []ir.PendingStepRetry{
 				{StepName: "persisted", Interval: 5 * time.Second},
 			},
 			Nodes: []*dagrun.Node{
@@ -87,7 +87,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 		}
 
 		retries := dagrun.PendingStepRetriesFromStatus(status)
-		assert.Equal(t, []dagrun.PendingStepRetry{
+		assert.Equal(t, []ir.PendingStepRetry{
 			{StepName: "persisted", Interval: 5 * time.Second},
 		}, retries)
 	})
@@ -109,7 +109,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 		}
 
 		retries := dagrun.PendingStepRetriesFromStatus(status)
-		assert.Equal(t, []dagrun.PendingStepRetry{
+		assert.Equal(t, []ir.PendingStepRetry{
 			{StepName: "legacy", Interval: 2 * time.Second},
 		}, retries)
 	})
@@ -141,7 +141,7 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 		}
 
 		retries := dagrun.PendingStepRetriesFromStatus(status)
-		assert.Equal(t, []dagrun.PendingStepRetry{
+		assert.Equal(t, []ir.PendingStepRetry{
 			{StepName: "regular", Interval: time.Second},
 			{StepName: "onFailure", Interval: 3 * time.Second},
 		}, retries)
@@ -161,14 +161,14 @@ func TestPendingStepRetriesFromStatus(t *testing.T) {
 		}
 
 		retries := dagrun.PendingStepRetriesFromStatus(status)
-		assert.Equal(t, []dagrun.PendingStepRetry{
+		assert.Equal(t, []ir.PendingStepRetry{
 			{StepName: "onFailure", Interval: 3 * time.Second},
 		}, retries)
 	})
 
 	t.Run("ExplicitEmptySliceSurvivesJSONRoundTrip", func(t *testing.T) {
 		status := &dagrun.DAGRunStatus{
-			PendingStepRetries: []dagrun.PendingStepRetry{},
+			PendingStepRetries: []ir.PendingStepRetry{},
 			Nodes: []*dagrun.Node{
 				{
 					Step: ir.Step{

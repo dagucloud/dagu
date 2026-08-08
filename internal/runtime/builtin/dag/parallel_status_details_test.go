@@ -18,7 +18,7 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 	tests := []struct {
 		name          string
 		runParamsList []executor.RunParams
-		results       map[string]*dagrun.RunStatus
+		results       map[string]*ir.RunStatus
 		want          []dagrun.NodeStatusDetail
 	}{
 		{
@@ -27,7 +27,7 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				{RunID: "run-a", DAGName: "bnci/_intraday.yaml", Params: "SUBDAG=bnci/_intraday.yaml RUN_MODE=test"},
 				{RunID: "run-b", DAGName: "bnsu/_intraday.yaml", Params: "SUBDAG=bnsu/_intraday.yaml RUN_MODE=test"},
 			},
-			results: map[string]*dagrun.RunStatus{
+			results: map[string]*ir.RunStatus{
 				"run-a": {Name: "intraday-bnci", DAGRunID: "run-a", Status: ir.Failed},
 				"run-b": {Name: "intraday-bnsu", DAGRunID: "run-b", Status: ir.Succeeded},
 			},
@@ -42,7 +42,7 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				{RunID: "run-a", DAGName: "intraday", Params: "CUSTOMER=a"},
 				{RunID: "run-b", DAGName: "intraday", Params: "CUSTOMER=b"},
 			},
-			results: map[string]*dagrun.RunStatus{
+			results: map[string]*ir.RunStatus{
 				"run-a": {Name: "intraday-a", DAGRunID: "run-a", Status: ir.Failed},
 				"run-b": {Name: "intraday-b", DAGRunID: "run-b", Status: ir.Succeeded},
 			},
@@ -57,7 +57,7 @@ func TestParallelStatusDetailsIdentifyChildRuns(t *testing.T) {
 				{RunID: "run-a", DAGName: "child", Params: "CUSTOMER=a"},
 				{RunID: "run-b", DAGName: "child", Params: "CUSTOMER=b"},
 			},
-			results: map[string]*dagrun.RunStatus{
+			results: map[string]*ir.RunStatus{
 				"run-a": {Name: "child", DAGRunID: "run-a", Params: "CUSTOMER=a", Status: ir.Failed},
 				"run-b": {Name: "child", DAGRunID: "run-b", Params: "CUSTOMER=b", Status: ir.Succeeded},
 			},

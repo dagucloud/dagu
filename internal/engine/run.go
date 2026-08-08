@@ -203,7 +203,7 @@ func (e *Engine) readRunStateStatus(ctx context.Context, ref dagrun.DAGRunRef) (
 	return status, nil
 }
 
-func (e *Engine) readOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*dagrun.DAGRunOutputs, error) {
+func (e *Engine) readOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*ir.DAGRunOutputs, error) {
 	if e.runStateStore != nil {
 		outputs, err := e.readRunStateOutputs(ctx, ref)
 		if err == nil {
@@ -219,7 +219,7 @@ func (e *Engine) readOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*dagrun
 	return nil, fmt.Errorf("neither run-state store nor DAG-run store is configured")
 }
 
-func (e *Engine) readRunStateOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*dagrun.DAGRunOutputs, error) {
+func (e *Engine) readRunStateOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*ir.DAGRunOutputs, error) {
 	attempt, err := e.runStateStore.OpenAttempt(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -227,7 +227,7 @@ func (e *Engine) readRunStateOutputs(ctx context.Context, ref dagrun.DAGRunRef) 
 	return attempt.ReadOutputs(ctx)
 }
 
-func (e *Engine) readDAGRunOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*dagrun.DAGRunOutputs, error) {
+func (e *Engine) readDAGRunOutputs(ctx context.Context, ref dagrun.DAGRunRef) (*ir.DAGRunOutputs, error) {
 	attempt, err := e.dagRunStore.FindAttempt(ctx, ref)
 	if err != nil {
 		return nil, err

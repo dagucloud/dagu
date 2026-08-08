@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
@@ -158,10 +157,10 @@ func (c *Catalog) ToolNames() []string {
 }
 
 // Definitions returns the catalog in the form persisted for UI visibility.
-func (c *Catalog) Definitions() []dagrun.ToolDefinition {
-	defs := make([]dagrun.ToolDefinition, 0, len(c.tools))
+func (c *Catalog) Definitions() []ir.ToolDefinition {
+	defs := make([]ir.ToolDefinition, 0, len(c.tools))
 	for _, tool := range c.tools {
-		defs = append(defs, dagrun.ToolDefinition{
+		defs = append(defs, ir.ToolDefinition{
 			Name:        tool.Function.Name,
 			Description: tool.Function.Description,
 		})

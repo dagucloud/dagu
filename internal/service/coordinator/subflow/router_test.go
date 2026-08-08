@@ -21,7 +21,7 @@ func TestRouterPrefersFirstMatchingRunner(t *testing.T) {
 
 	distributed := &stubRunner{
 		shouldRun: true,
-		result: &dagrun.RunStatus{
+		result: &ir.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
 			Status:   ir.Succeeded,
@@ -29,7 +29,7 @@ func TestRouterPrefersFirstMatchingRunner(t *testing.T) {
 	}
 	local := &stubRunner{
 		shouldRun: true,
-		result: &dagrun.RunStatus{
+		result: &ir.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
 			Status:   ir.Failed,
@@ -52,7 +52,7 @@ func TestRouterFallsBackToLocalRunner(t *testing.T) {
 	distributed := &stubRunner{shouldRun: false}
 	local := &stubRunner{
 		shouldRun: true,
-		result: &dagrun.RunStatus{
+		result: &ir.RunStatus{
 			Name:     "child",
 			DAGRunID: "child-run",
 			Status:   ir.Succeeded,
@@ -163,7 +163,7 @@ func validSubWorkflowRequest() executor.SubWorkflowRequest {
 
 type stubRunner struct {
 	shouldRun   bool
-	result      *dagrun.RunStatus
+	result      *ir.RunStatus
 	runCount    int
 	cancelCount int
 }
@@ -172,12 +172,12 @@ func (r *stubRunner) ShouldRun(context.Context, executor.SubWorkflowRequest) boo
 	return r.shouldRun
 }
 
-func (r *stubRunner) Run(context.Context, executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
+func (r *stubRunner) Run(context.Context, executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	r.runCount++
 	return r.result, nil
 }
 
-func (r *stubRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
+func (r *stubRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
 	return r.result, nil
 }
 
@@ -205,17 +205,17 @@ func (r *blockingRunner) ShouldRun(context.Context, executor.SubWorkflowRequest)
 	return r.shouldRun
 }
 
-func (r *blockingRunner) Run(context.Context, executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
+func (r *blockingRunner) Run(context.Context, executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	close(r.started)
 	<-r.release
-	return &dagrun.RunStatus{
+	return &ir.RunStatus{
 		Name:     "child",
 		DAGRunID: "child-run",
 		Status:   ir.Succeeded,
 	}, nil
 }
 
-func (r *blockingRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
+func (r *blockingRunner) Retry(context.Context, executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
 	return nil, nil
 }
 

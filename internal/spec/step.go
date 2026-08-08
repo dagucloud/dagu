@@ -2748,7 +2748,7 @@ func buildStepMessages(s *step, result *ir.Step) error {
 		return nil
 	}
 
-	result.Messages = make([]ir.LLMMessage, len(s.Messages))
+	result.Messages = make([]ir.PromptMessage, len(s.Messages))
 	for i, msg := range s.Messages {
 		if msg.Role == "" {
 			return ir.NewValidationError(
@@ -2765,7 +2765,7 @@ func buildStepMessages(s *step, result *ir.Step) error {
 				fmt.Sprintf("messages[%d].content", i), msg.Content,
 				fmt.Errorf("content is required"))
 		}
-		result.Messages[i] = ir.LLMMessage{
+		result.Messages[i] = ir.PromptMessage{
 			Role:    role,
 			Content: msg.Content,
 		}

@@ -269,7 +269,7 @@ func TestStatusBuilderPopulatesPendingStepRetriesFromNodes(t *testing.T) {
 		}),
 	)
 
-	assert.Equal(t, []dagrun.PendingStepRetry{
+	assert.Equal(t, []ir.PendingStepRetry{
 		{StepName: "step1", Interval: 2 * time.Second},
 	}, result.PendingStepRetries)
 }
@@ -302,7 +302,7 @@ func TestStatusBuilderPendingStepRetriesOptionOverridesAutoDerivation(t *testing
 				},
 			},
 		}),
-		dagrun.WithPendingStepRetries([]dagrun.PendingStepRetry{}),
+		dagrun.WithPendingStepRetries([]ir.PendingStepRetry{}),
 	)
 
 	assert.NotNil(t, result.PendingStepRetries)
@@ -339,7 +339,7 @@ func TestStatusBuilderPopulatesPendingStepRetriesFromHandlerNodes(t *testing.T) 
 		transform.WithOnFailureNode(failureHandler),
 	)
 
-	assert.Equal(t, []dagrun.PendingStepRetry{
+	assert.Equal(t, []ir.PendingStepRetry{
 		{StepName: "onFailure", Interval: 3 * time.Second},
 	}, result.PendingStepRetries)
 }

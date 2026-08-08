@@ -1184,7 +1184,7 @@ steps:
 	final := reported[len(reported)-1]
 	mu.Unlock()
 	require.Equal(t, ir.Queued, final.Status)
-	require.Equal(t, []dagrun.PendingStepRetry{
+	require.Equal(t, []ir.PendingStepRetry{
 		{StepName: "flaky", Interval: 30 * time.Second},
 	}, final.PendingStepRetries)
 }

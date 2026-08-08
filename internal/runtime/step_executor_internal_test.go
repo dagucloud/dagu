@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -27,7 +26,7 @@ func (e *emptySideChannelExecutor) Kill(os.Signal) error { return nil }
 func (e *emptySideChannelExecutor) Run(context.Context) error {
 	return nil
 }
-func (e *emptySideChannelExecutor) GetToolDefinitions() []dagrun.ToolDefinition {
+func (e *emptySideChannelExecutor) GetToolDefinitions() []ir.ToolDefinition {
 	return nil
 }
 func (e *emptySideChannelExecutor) GetOutputs() map[string]any {
@@ -94,7 +93,7 @@ func TestStepExecutorClearsEmptyToolDefinitionsAndOutputs(t *testing.T) {
 			Type: executorType,
 		},
 	}, NodeState{})
-	node.SetToolDefinitions([]dagrun.ToolDefinition{{Name: "stale-tool"}})
+	node.SetToolDefinitions([]ir.ToolDefinition{{Name: "stale-tool"}})
 	node.setOutputsValue(`{"stale":true}`)
 
 	require.NoError(t, NewStepExecutor().Execute(newTestStepExecutorContext(), node))

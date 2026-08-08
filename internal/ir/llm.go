@@ -140,22 +140,12 @@ type LLMConfig struct {
 	WebSearch *WebSearchConfig `json:"webSearch,omitempty"`
 }
 
-// LLMMessage represents a message in the LLM session.
-type LLMMessage struct {
+// PromptMessage represents an authored message used to initialize an LLM session.
+type PromptMessage struct {
 	// Role is the message role (system, user, assistant, tool).
 	Role LLMRole `json:"role,omitempty"`
 	// Content is the message content. Supports variable substitution with ${VAR}.
 	Content string `json:"content,omitempty"`
-}
-
-// ToolCall represents an LLM's request to invoke a tool.
-type ToolCall struct {
-	// ID is the unique identifier for this tool call.
-	ID string `json:"id"`
-	// Name is the name of the tool to invoke (matches DAG name field).
-	Name string `json:"name"`
-	// Arguments contains the tool arguments as key-value pairs.
-	Arguments map[string]any `json:"arguments"`
 }
 
 // ToolResult represents the result of a tool execution.

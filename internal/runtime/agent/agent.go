@@ -237,7 +237,7 @@ type Agent struct {
 	// profileResolvedAt records when the selected runtime profile was resolved.
 	profileResolvedAt string
 	// profileEntries records non-secret injected key metadata for status/history.
-	profileEntries []dagrun.RuntimeProfileEntry
+	profileEntries []ir.RuntimeProfileEntry
 	// secretReferenceResolver resolves registry refs without requiring local store access.
 	secretReferenceResolver providers.ReferenceResolver
 	// secretMasker redacts resolved secret values from status/history snapshots.
@@ -1310,7 +1310,7 @@ func (a *Agent) collectOutputs(ctx context.Context) map[string]string {
 
 // buildOutputs creates the full DAGRunOutputs structure with metadata.
 // Returns nil if no outputs were collected.
-func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *dagrun.DAGRunOutputs {
+func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *ir.DAGRunOutputs {
 	outputs := a.collectOutputs(ctx)
 
 	if len(outputs) == 0 {
@@ -1345,8 +1345,8 @@ func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *dagrun
 		}
 	}
 
-	return &dagrun.DAGRunOutputs{
-		Metadata: dagrun.OutputsMetadata{
+	return &ir.DAGRunOutputs{
+		Metadata: ir.OutputsMetadata{
 			DAGName:     a.dag.Name,
 			DAGRunID:    a.dagRunID,
 			AttemptID:   a.dagRunAttemptID,
@@ -1876,13 +1876,13 @@ func (a *Agent) resolveInheritedProfiles(
 	return defaultLayers, nil
 }
 
-func profileEntries(resolved *profilepkg.Resolved) []dagrun.RuntimeProfileEntry {
+func profileEntries(resolved *profilepkg.Resolved) []ir.RuntimeProfileEntry {
 	if resolved == nil {
 		return nil
 	}
-	entries := make([]dagrun.RuntimeProfileEntry, 0, len(resolved.Entries))
+	entries := make([]ir.RuntimeProfileEntry, 0, len(resolved.Entries))
 	for _, entry := range resolved.Entries {
-		entries = append(entries, dagrun.RuntimeProfileEntry{
+		entries = append(entries, ir.RuntimeProfileEntry{
 			Key:  entry.Key,
 			Kind: string(entry.Kind),
 		})

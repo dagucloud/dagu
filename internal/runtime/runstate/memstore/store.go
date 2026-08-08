@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
 
@@ -70,7 +71,7 @@ func (s *Store) BeginAttempt(_ context.Context, req runstate.BeginAttemptRequest
 	}
 	key := attemptKey{ref: ref, id: attemptID}
 	state := &attemptState{
-		messages: make(map[string][]dagrun.LLMMessage),
+		messages: make(map[string][]ir.LLMMessage),
 	}
 	s.attempts[key] = state
 	s.latest[ref] = key
@@ -115,8 +116,8 @@ type childKey struct {
 
 type attemptState struct {
 	status    *dagrun.DAGRunStatus
-	outputs   *dagrun.DAGRunOutputs
-	messages  map[string][]dagrun.LLMMessage
+	outputs   *ir.DAGRunOutputs
+	messages  map[string][]ir.LLMMessage
 	cancelled bool
 	workDir   string
 }
@@ -155,7 +156,7 @@ func (a attempt) RecordStatus(_ context.Context, status dagrun.DAGRunStatus) err
 	return nil
 }
 
-func (a attempt) RecordOutputs(_ context.Context, outputs *dagrun.DAGRunOutputs) error {
+func (a attempt) RecordOutputs(_ context.Context, outputs *ir.DAGRunOutputs) error {
 	a.store.mu.Lock()
 	defer a.store.mu.Unlock()
 	state, err := a.stateLocked()
@@ -179,7 +180,7 @@ func (a attempt) ReadStatus(_ context.Context) (*dagrun.DAGRunStatus, error) {
 	return cloneStatusValue(state.status)
 }
 
-func (a attempt) ReadOutputs(_ context.Context) (*dagrun.DAGRunOutputs, error) {
+func (a attempt) ReadOutputs(_ context.Context) (*ir.DAGRunOutputs, error) {
 	a.store.mu.RLock()
 	defer a.store.mu.RUnlock()
 	state, err := a.stateRLocked()
@@ -210,7 +211,7 @@ func (a attempt) CancelRequested(_ context.Context) (bool, error) {
 	return state.cancelled, nil
 }
 
-func (a attempt) ReadStepMessages(_ context.Context, stepName string) ([]dagrun.LLMMessage, error) {
+func (a attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
 	a.store.mu.RLock()
 	defer a.store.mu.RUnlock()
 	state, err := a.stateRLocked()
@@ -220,7 +221,7 @@ func (a attempt) ReadStepMessages(_ context.Context, stepName string) ([]dagrun.
 	return cloneMessages(state.messages[stepName]), nil
 }
 
-func (a attempt) WriteStepMessages(_ context.Context, stepName string, messages []dagrun.LLMMessage) error {
+func (a attempt) WriteStepMessages(_ context.Context, stepName string, messages []ir.LLMMessage) error {
 	a.store.mu.Lock()
 	defer a.store.mu.Unlock()
 	state, err := a.stateLocked()
@@ -290,17 +291,17 @@ func cloneStatusValue(status *dagrun.DAGRunStatus) (*dagrun.DAGRunStatus, error)
 	return &cloned, nil
 }
 
-func cloneOutputs(outputs *dagrun.DAGRunOutputs) *dagrun.DAGRunOutputs {
+func cloneOutputs(outputs *ir.DAGRunOutputs) *ir.DAGRunOutputs {
 	if outputs == nil {
 		return nil
 	}
-	return &dagrun.DAGRunOutputs{
+	return &ir.DAGRunOutputs{
 		Metadata: outputs.Metadata,
 		Outputs:  maps.Clone(outputs.Outputs),
 	}
 }
 
-func cloneMessages(messages []dagrun.LLMMessage) []dagrun.LLMMessage {
+func cloneMessages(messages []ir.LLMMessage) []ir.LLMMessage {
 	if len(messages) == 0 {
 		return nil
 	}

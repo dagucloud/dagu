@@ -491,7 +491,7 @@ func TestPendingStepRetryJSON(t *testing.T) {
 	t.Run("MarshalUsesDurationString", func(t *testing.T) {
 		t.Parallel()
 
-		data, err := json.Marshal(dagrun.PendingStepRetry{
+		data, err := json.Marshal(ir.PendingStepRetry{
 			StepName: "step1",
 			Interval: 2 * time.Second,
 		})
@@ -502,7 +502,7 @@ func TestPendingStepRetryJSON(t *testing.T) {
 	t.Run("UnmarshalSupportsLegacyNumericInterval", func(t *testing.T) {
 		t.Parallel()
 
-		var retry dagrun.PendingStepRetry
+		var retry ir.PendingStepRetry
 		err := json.Unmarshal([]byte(`{"stepName":"step1","interval":2000000000}`), &retry)
 		require.NoError(t, err)
 		assert.Equal(t, "step1", retry.StepName)

@@ -740,7 +740,7 @@ func (d *DAG) ReadOutputs(t *testing.T) map[string]string {
 	data, err := os.ReadFile(outputsPath) //nolint:gosec // path is constructed from test config
 	require.NoError(t, err)
 
-	var outputs dagrun.DAGRunOutputs
+	var outputs ir.DAGRunOutputs
 	require.NoError(t, json.Unmarshal(data, &outputs))
 
 	return outputs.Outputs

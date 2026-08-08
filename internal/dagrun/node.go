@@ -145,10 +145,10 @@ type Node struct {
 	// ChatMessages stores the session messages for chat/LLM steps.
 	// This field is populated during execution and synced via status updates
 	// from workers.
-	ChatMessages []LLMMessage `json:"chatMessages,omitempty"`
+	ChatMessages []ir.LLMMessage `json:"chatMessages,omitempty"`
 	// ToolDefinitions stores the tool definitions that were available to the LLM.
 	// This enables debugging visibility into what tools and schemas were sent.
-	ToolDefinitions []ToolDefinition `json:"toolDefinitions,omitempty"`
+	ToolDefinitions []ir.ToolDefinition `json:"toolDefinitions,omitempty"`
 }
 
 type nodeJSON Node

@@ -577,7 +577,7 @@ func readOutputsFile(t *testing.T, th test.Helper, dag *ir.DAG) map[string]strin
 }
 
 // readFullOutputsFile reads the full outputs.json file including metadata
-func readFullOutputsFile(t *testing.T, th test.Helper, dag *ir.DAG) *dagrun.DAGRunOutputs {
+func readFullOutputsFile(t *testing.T, th test.Helper, dag *ir.DAG) *ir.DAGRunOutputs {
 	t.Helper()
 
 	// Find the attempt directory
@@ -602,7 +602,7 @@ func readFullOutputsFile(t *testing.T, th test.Helper, dag *ir.DAG) *dagrun.DAGR
 	data, err := os.ReadFile(outputsPath)
 	require.NoError(t, err)
 
-	var outputs dagrun.DAGRunOutputs
+	var outputs ir.DAGRunOutputs
 	require.NoError(t, json.Unmarshal(data, &outputs))
 
 	// Return nil if old format (no metadata)

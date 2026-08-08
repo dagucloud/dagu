@@ -142,7 +142,7 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 					},
 					Tools: []string{"${consts.llm_tool}"},
 				},
-				Messages: []ir.LLMMessage{
+				Messages: []ir.PromptMessage{
 					{Content: "${env.MESSAGE_CONTENT}"},
 				},
 			},

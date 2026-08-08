@@ -22,7 +22,7 @@ type (
 	// Dispatcher is an alias for execution.Dispatcher
 	Dispatcher = dispatch.Dispatcher
 	// RunStatus is an alias for execution.RunStatus
-	RunStatus = dagrun.RunStatus
+	RunStatus = ir.RunStatus
 	// ContextOption is an alias for execution.ContextOption
 	ContextOption = runctx.ContextOption
 )

@@ -48,15 +48,15 @@ type DAGRunAttempt interface {
 	Hidden() bool
 	// WriteOutputs writes the collected step outputs for the dag-run.
 	// Does nothing if outputs is nil or has no output entries.
-	WriteOutputs(ctx context.Context, outputs *DAGRunOutputs) error
+	WriteOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error
 	// ReadOutputs reads the collected step outputs for the dag-run.
 	// Returns nil if no outputs file exists or if the file is in v1 format.
-	ReadOutputs(ctx context.Context) (*DAGRunOutputs, error)
+	ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error)
 	// WriteStepMessages writes LLM messages for a single step.
-	WriteStepMessages(ctx context.Context, stepName string, messages []LLMMessage) error
+	WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error
 	// ReadStepMessages reads LLM messages for a single step.
 	// Returns nil if no messages exist for the step.
-	ReadStepMessages(ctx context.Context, stepName string) ([]LLMMessage, error)
+	ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error)
 	// WorkDir returns the path to the per-DAG-run working directory.
 	// Returns "" if the attempt does not support local storage.
 	WorkDir() string

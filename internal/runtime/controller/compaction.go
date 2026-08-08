@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const observationSummaryDetailBytes = 240
@@ -24,7 +24,7 @@ type decisionReference struct {
 func (s *State) LatestPromptTokens() int {
 	for i := len(s.messages) - 1; i >= 0; i-- {
 		msg := s.messages[i]
-		if msg.Role == dagrun.RoleAssistant && msg.Metadata != nil && msg.Metadata.PromptTokens > 0 {
+		if msg.Role == ir.LLMRoleAssistant && msg.Metadata != nil && msg.Metadata.PromptTokens > 0 {
 			return msg.Metadata.PromptTokens
 		}
 	}
@@ -59,7 +59,7 @@ func (s *State) CompactAllObservations(maxBytes int) int {
 func (s *State) compactObservations(keepRecent, maxBytes int, onlyIfSmaller bool) int {
 	var toolIndices []int
 	for i, msg := range s.messages {
-		if msg.Role == dagrun.RoleTool {
+		if msg.Role == ir.LLMRoleTool {
 			toolIndices = append(toolIndices, i)
 		}
 	}
@@ -93,11 +93,11 @@ func (s *State) compactObservations(keepRecent, maxBytes int, onlyIfSmaller bool
 	return changed
 }
 
-func decisionReferences(messages []dagrun.LLMMessage) map[string]decisionReference {
+func decisionReferences(messages []ir.LLMMessage) map[string]decisionReference {
 	result := make(map[string]decisionReference)
 	turn := 0
 	for _, msg := range messages {
-		if msg.Role != dagrun.RoleAssistant {
+		if msg.Role != ir.LLMRoleAssistant {
 			continue
 		}
 		turn++

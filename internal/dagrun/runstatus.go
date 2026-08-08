@@ -188,23 +188,23 @@ type DAGRunStatus struct {
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
 	// AutoRetryMaxInterval is stored as a duration snapshot for retry scanner decisions.
-	AutoRetryMaxInterval time.Duration         `json:"autoRetryMaxInterval,omitempty"`
-	ProcGroup            string                `json:"procGroup,omitempty"`
-	SuspendFlagName      string                `json:"suspendFlagName,omitempty"`
-	Log                  string                `json:"log,omitempty"`
-	WorkingDir           string                `json:"workingDir,omitempty"`
-	ArchiveDir           string                `json:"archiveDir,omitempty"`
-	Error                string                `json:"error,omitempty"`
-	Params               string                `json:"params,omitempty"`
-	ParamsList           []string              `json:"paramsList,omitempty"`
-	ProfileName          string                `json:"profileName,omitempty"`
-	ProfileResolvedAt    string                `json:"profileResolvedAt,omitempty"`
-	ProfileEntries       []RuntimeProfileEntry `json:"profileEntries,omitempty"`
-	NoReuse              bool                  `json:"noReuse,omitempty"`
-	PendingStepRetries   []PendingStepRetry    `json:"pendingStepRetries"`
-	Preconditions        []ConditionResult     `json:"preconditions,omitempty"`
-	Labels               []string              `json:"labels,omitempty"`
-	LeaseAt              int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+	AutoRetryMaxInterval time.Duration            `json:"autoRetryMaxInterval,omitempty"`
+	ProcGroup            string                   `json:"procGroup,omitempty"`
+	SuspendFlagName      string                   `json:"suspendFlagName,omitempty"`
+	Log                  string                   `json:"log,omitempty"`
+	WorkingDir           string                   `json:"workingDir,omitempty"`
+	ArchiveDir           string                   `json:"archiveDir,omitempty"`
+	Error                string                   `json:"error,omitempty"`
+	Params               string                   `json:"params,omitempty"`
+	ParamsList           []string                 `json:"paramsList,omitempty"`
+	ProfileName          string                   `json:"profileName,omitempty"`
+	ProfileResolvedAt    string                   `json:"profileResolvedAt,omitempty"`
+	ProfileEntries       []ir.RuntimeProfileEntry `json:"profileEntries,omitempty"`
+	NoReuse              bool                     `json:"noReuse,omitempty"`
+	PendingStepRetries   []ir.PendingStepRetry    `json:"pendingStepRetries"`
+	Preconditions        []ConditionResult        `json:"preconditions,omitempty"`
+	Labels               []string                 `json:"labels,omitempty"`
+	LeaseAt              int64                    `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
 }
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim
@@ -289,8 +289,8 @@ func (st *DAGRunStatus) Errors() []error {
 
 // pendingStepRetriesFromNodes extracts pending parent-managed step retries from
 // a DAG status snapshot.
-func pendingStepRetriesFromNodes(nodes []*Node) []PendingStepRetry {
-	var retries []PendingStepRetry
+func pendingStepRetriesFromNodes(nodes []*Node) []ir.PendingStepRetry {
+	var retries []ir.PendingStepRetry
 	for _, node := range nodes {
 		if retry, ok := pendingStepRetryForNode(node.Step.Name, node); ok {
 			retries = append(retries, retry)
@@ -302,7 +302,7 @@ func pendingStepRetriesFromNodes(nodes []*Node) []PendingStepRetry {
 // PendingStepRetriesFromStatus returns the persisted pending step retries when
 // present and falls back to deriving them from node state for older statuses
 // that predate the field.
-func PendingStepRetriesFromStatus(status *DAGRunStatus) []PendingStepRetry {
+func PendingStepRetriesFromStatus(status *DAGRunStatus) []ir.PendingStepRetry {
 	if status == nil {
 		return nil
 	}
@@ -434,9 +434,9 @@ func normalizeAbortHandlerNode(node *Node) {
 	}
 }
 
-func pendingStepRetryForNode(stepName string, node *Node) (PendingStepRetry, bool) {
+func pendingStepRetryForNode(stepName string, node *Node) (ir.PendingStepRetry, bool) {
 	if node == nil || node.Status != ir.NodeRetrying || stepName == "" {
-		return PendingStepRetry{}, false
+		return ir.PendingStepRetry{}, false
 	}
 
 	interval := ir.CalculateBackoffInterval(
@@ -445,7 +445,7 @@ func pendingStepRetryForNode(stepName string, node *Node) (PendingStepRetry, boo
 		node.Step.RetryPolicy.MaxInterval,
 		node.RetryCount-1,
 	)
-	return PendingStepRetry{
+	return ir.PendingStepRetry{
 		StepName: stepName,
 		Interval: interval,
 	}, true

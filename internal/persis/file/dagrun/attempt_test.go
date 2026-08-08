@@ -555,8 +555,8 @@ func TestAttempt_WriteOutputs(t *testing.T) {
 		att, err := NewAttempt(statusFile, nil)
 		require.NoError(t, err)
 
-		outputs := &dagrun.DAGRunOutputs{
-			Metadata: dagrun.OutputsMetadata{
+		outputs := &ir.DAGRunOutputs{
+			Metadata: ir.OutputsMetadata{
 				DAGName:     "test-dag",
 				DAGRunID:    "run-123",
 				AttemptID:   "attempt-1",
@@ -581,7 +581,7 @@ func TestAttempt_WriteOutputs(t *testing.T) {
 		data, err := os.ReadFile(outputsFile)
 		require.NoError(t, err)
 
-		var readOutputs dagrun.DAGRunOutputs
+		var readOutputs ir.DAGRunOutputs
 		err = json.Unmarshal(data, &readOutputs)
 		require.NoError(t, err)
 
@@ -595,8 +595,8 @@ func TestAttempt_WriteOutputs(t *testing.T) {
 		att, err := NewAttempt(statusFile, nil)
 		require.NoError(t, err)
 
-		outputs := &dagrun.DAGRunOutputs{
-			Metadata: dagrun.OutputsMetadata{},
+		outputs := &ir.DAGRunOutputs{
+			Metadata: ir.OutputsMetadata{},
 			Outputs:  map[string]string{},
 		}
 
@@ -629,16 +629,16 @@ func TestAttempt_WriteOutputs(t *testing.T) {
 		require.NoError(t, err)
 
 		// Write first outputs
-		outputs1 := &dagrun.DAGRunOutputs{
-			Metadata: dagrun.OutputsMetadata{DAGName: "dag1", DAGRunID: "run-1"},
+		outputs1 := &ir.DAGRunOutputs{
+			Metadata: ir.OutputsMetadata{DAGName: "dag1", DAGRunID: "run-1"},
 			Outputs:  map[string]string{"key1": "value1"},
 		}
 		err = att.WriteOutputs(ctx, outputs1)
 		require.NoError(t, err)
 
 		// Write second outputs (overwrites first)
-		outputs2 := &dagrun.DAGRunOutputs{
-			Metadata: dagrun.OutputsMetadata{DAGName: "dag2", DAGRunID: "run-2"},
+		outputs2 := &ir.DAGRunOutputs{
+			Metadata: ir.OutputsMetadata{DAGName: "dag2", DAGRunID: "run-2"},
 			Outputs:  map[string]string{"key2": "value2"},
 		}
 		err = att.WriteOutputs(ctx, outputs2)
@@ -663,8 +663,8 @@ func TestAttempt_ReadOutputs(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create outputs file with metadata
-		outputs := &dagrun.DAGRunOutputs{
-			Metadata: dagrun.OutputsMetadata{
+		outputs := &ir.DAGRunOutputs{
+			Metadata: ir.OutputsMetadata{
 				DAGName:     "test-dag",
 				DAGRunID:    "run-123",
 				AttemptID:   "attempt-1",
@@ -721,8 +721,8 @@ func TestAttempt_ReadOutputs(t *testing.T) {
 		att, err := NewAttempt(statusFile, nil)
 		require.NoError(t, err)
 
-		outputs := &dagrun.DAGRunOutputs{
-			Metadata: dagrun.OutputsMetadata{DAGName: "test", DAGRunID: "run-123"},
+		outputs := &ir.DAGRunOutputs{
+			Metadata: ir.OutputsMetadata{DAGName: "test", DAGRunID: "run-123"},
 			Outputs: map[string]string{
 				"path":     "/path/with/slashes",
 				"message":  "hello \"world\"",
@@ -750,10 +750,10 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		att, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 
-		messages := []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "be helpful"},
-			{Role: dagrun.RoleUser, Content: "hello"},
-			{Role: dagrun.RoleAssistant, Content: "hi there"},
+		messages := []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "be helpful"},
+			{Role: ir.LLMRoleUser, Content: "hello"},
+			{Role: ir.LLMRoleAssistant, Content: "hi there"},
 		}
 
 		err = att.WriteStepMessages(ctx, "step1", messages)
@@ -763,7 +763,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, readMsgs)
 		require.Len(t, readMsgs, 3)
-		assert.Equal(t, dagrun.RoleSystem, readMsgs[0].Role)
+		assert.Equal(t, ir.LLMRoleSystem, readMsgs[0].Role)
 		assert.Equal(t, "be helpful", readMsgs[0].Content)
 	})
 
@@ -774,7 +774,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		att, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 
-		err = att.WriteStepMessages(ctx, "step1", []dagrun.LLMMessage{})
+		err = att.WriteStepMessages(ctx, "step1", []ir.LLMMessage{})
 		require.NoError(t, err)
 
 		// File should not exist for empty messages
@@ -803,16 +803,16 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		require.NoError(t, err)
 
 		// Write initial messages
-		messages1 := []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "first"},
+		messages1 := []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "first"},
 		}
 		err = att.WriteStepMessages(ctx, "step1", messages1)
 		require.NoError(t, err)
 
 		// Update with more messages (overwrites)
-		messages2 := []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "first"},
-			{Role: dagrun.RoleAssistant, Content: "response"},
+		messages2 := []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "first"},
+			{Role: ir.LLMRoleAssistant, Content: "response"},
 		}
 		err = att.WriteStepMessages(ctx, "step1", messages2)
 		require.NoError(t, err)
@@ -831,17 +831,17 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		require.NoError(t, err)
 
 		// Write messages for step1
-		step1Msgs := []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "question 1"},
-			{Role: dagrun.RoleAssistant, Content: "answer 1"},
+		step1Msgs := []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "question 1"},
+			{Role: ir.LLMRoleAssistant, Content: "answer 1"},
 		}
 		err = att.WriteStepMessages(ctx, "step1", step1Msgs)
 		require.NoError(t, err)
 
 		// Write messages for step2
-		step2Msgs := []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "question 2"},
-			{Role: dagrun.RoleAssistant, Content: "answer 2"},
+		step2Msgs := []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "question 2"},
+			{Role: ir.LLMRoleAssistant, Content: "answer 2"},
 		}
 		err = att.WriteStepMessages(ctx, "step2", step2Msgs)
 		require.NoError(t, err)
@@ -867,9 +867,9 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		att1, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(t, err)
 
-		step1Msgs := []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "hello"},
-			{Role: dagrun.RoleAssistant, Content: "hi there"},
+		step1Msgs := []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "hello"},
+			{Role: ir.LLMRoleAssistant, Content: "hi there"},
 		}
 		err = att1.WriteStepMessages(ctx, "step1", step1Msgs)
 		require.NoError(t, err)
@@ -886,9 +886,9 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		assert.Equal(t, "hi there", readMsgs[1].Content)
 
 		// Retry attempt can also write new step messages
-		step2Msgs := []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "follow up"},
-			{Role: dagrun.RoleAssistant, Content: "response"},
+		step2Msgs := []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "follow up"},
+			{Role: ir.LLMRoleAssistant, Content: "response"},
 		}
 		err = att2.WriteStepMessages(ctx, "step2", step2Msgs)
 		require.NoError(t, err)

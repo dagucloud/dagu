@@ -317,8 +317,8 @@ type mockDAGRunAttempt struct {
 	writeError             error
 	writeStarted           chan struct{}
 	releaseWrite           chan struct{}
-	stepMessages           map[string][]dagrun.LLMMessage // stepName -> messages
-	writeStepMessagesError error                          // injected error for WriteStepMessages
+	stepMessages           map[string][]ir.LLMMessage // stepName -> messages
+	writeStepMessagesError error                      // injected error for WriteStepMessages
 	mu                     sync.Mutex
 }
 
@@ -401,25 +401,25 @@ func (m *mockDAGRunAttempt) IsAborting(_ context.Context) (bool, error) {
 }
 func (m *mockDAGRunAttempt) Hide(_ context.Context) error { return nil }
 func (m *mockDAGRunAttempt) Hidden() bool                 { return false }
-func (m *mockDAGRunAttempt) WriteOutputs(_ context.Context, _ *dagrun.DAGRunOutputs) error {
+func (m *mockDAGRunAttempt) WriteOutputs(_ context.Context, _ *ir.DAGRunOutputs) error {
 	return nil
 }
-func (m *mockDAGRunAttempt) ReadOutputs(_ context.Context) (*dagrun.DAGRunOutputs, error) {
+func (m *mockDAGRunAttempt) ReadOutputs(_ context.Context) (*ir.DAGRunOutputs, error) {
 	return nil, nil
 }
-func (m *mockDAGRunAttempt) WriteStepMessages(_ context.Context, stepName string, messages []dagrun.LLMMessage) error {
+func (m *mockDAGRunAttempt) WriteStepMessages(_ context.Context, stepName string, messages []ir.LLMMessage) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.writeStepMessagesError != nil {
 		return m.writeStepMessagesError
 	}
 	if m.stepMessages == nil {
-		m.stepMessages = make(map[string][]dagrun.LLMMessage)
+		m.stepMessages = make(map[string][]ir.LLMMessage)
 	}
 	m.stepMessages[stepName] = messages
 	return nil
 }
-func (m *mockDAGRunAttempt) ReadStepMessages(_ context.Context, stepName string) ([]dagrun.LLMMessage, error) {
+func (m *mockDAGRunAttempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.stepMessages == nil {
@@ -431,7 +431,7 @@ func (m *mockDAGRunAttempt) ReadStepMessages(_ context.Context, stepName string)
 func (m *mockDAGRunAttempt) WorkDir() string { return "" }
 
 // GetStepMessages returns the messages written for a step (for test assertions)
-func (m *mockDAGRunAttempt) GetStepMessages(stepName string) []dagrun.LLMMessage {
+func (m *mockDAGRunAttempt) GetStepMessages(stepName string) []ir.LLMMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.stepMessages == nil {
@@ -3883,8 +3883,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeFailed,
-					ChatMessages: []dagrun.LLMMessage{
-						{Role: dagrun.RoleAssistant, Content: "final summary"},
+					ChatMessages: []ir.LLMMessage{
+						{Role: ir.LLMRoleAssistant, Content: "final summary"},
 					},
 				},
 			},
@@ -3982,9 +3982,9 @@ func TestHandler_ReportStatus(t *testing.T) {
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeSucceeded,
-					ChatMessages: []dagrun.LLMMessage{
-						{Role: dagrun.RoleUser, Content: "Hello!"},
-						{Role: dagrun.RoleAssistant, Content: "Hi there!", Metadata: &dagrun.LLMMessageMetadata{
+					ChatMessages: []ir.LLMMessage{
+						{Role: ir.LLMRoleUser, Content: "Hello!"},
+						{Role: ir.LLMRoleAssistant, Content: "Hi there!", Metadata: &ir.LLMMessageMetadata{
 							Provider:    "openai",
 							Model:       "gpt-4",
 							TotalTokens: 10,
@@ -4014,9 +4014,9 @@ func TestHandler_ReportStatus(t *testing.T) {
 		// Verify ChatMessages were persisted via WriteStepMessages
 		chatStepMessages := attempt.GetStepMessages("chat-step")
 		require.Len(t, chatStepMessages, 2)
-		assert.Equal(t, dagrun.RoleUser, chatStepMessages[0].Role)
+		assert.Equal(t, ir.LLMRoleUser, chatStepMessages[0].Role)
 		assert.Equal(t, "Hello!", chatStepMessages[0].Content)
-		assert.Equal(t, dagrun.RoleAssistant, chatStepMessages[1].Role)
+		assert.Equal(t, ir.LLMRoleAssistant, chatStepMessages[1].Role)
 		assert.Equal(t, "Hi there!", chatStepMessages[1].Content)
 		require.NotNil(t, chatStepMessages[1].Metadata)
 		assert.Equal(t, "openai", chatStepMessages[1].Metadata.Provider)
@@ -4052,16 +4052,16 @@ func TestHandler_ReportStatus(t *testing.T) {
 			OnInit: &dagrun.Node{
 				Step:   ir.Step{}, // Empty name
 				Status: ir.NodeSucceeded,
-				ChatMessages: []dagrun.LLMMessage{
-					{Role: dagrun.RoleAssistant, Content: "Init completed"},
+				ChatMessages: []ir.LLMMessage{
+					{Role: ir.LLMRoleAssistant, Content: "Init completed"},
 				},
 			},
 			// OnSuccess handler with explicit name - should use explicit name
 			OnSuccess: &dagrun.Node{
 				Step:   ir.Step{Name: "my-success-handler"},
 				Status: ir.NodeSucceeded,
-				ChatMessages: []dagrun.LLMMessage{
-					{Role: dagrun.RoleAssistant, Content: "Success!"},
+				ChatMessages: []ir.LLMMessage{
+					{Role: ir.LLMRoleAssistant, Content: "Success!"},
 				},
 			},
 		}
@@ -4116,8 +4116,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeSucceeded,
-					ChatMessages: []dagrun.LLMMessage{
-						{Role: dagrun.RoleUser, Content: "Hello!"},
+					ChatMessages: []ir.LLMMessage{
+						{Role: ir.LLMRoleUser, Content: "Hello!"},
 					},
 				},
 			},

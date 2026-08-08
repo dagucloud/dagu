@@ -114,7 +114,7 @@ type Step struct {
 	LLM *LLMConfig `json:"llm,omitempty"`
 	// Messages contains the session messages for chat executor.
 	// Only used when type is "chat".
-	Messages []LLMMessage `json:"messages,omitempty"`
+	Messages []PromptMessage `json:"messages,omitempty"`
 	// Router contains the routing configuration for router-type steps.
 	// Only used when type is "router".
 	Router *RouterConfig `json:"router,omitempty"`

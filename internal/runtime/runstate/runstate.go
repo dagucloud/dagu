@@ -32,13 +32,13 @@ type Attempt interface {
 	ID() string
 	Open(ctx context.Context) error
 	RecordStatus(ctx context.Context, status dagrun.DAGRunStatus) error
-	RecordOutputs(ctx context.Context, outputs *dagrun.DAGRunOutputs) error
+	RecordOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error
 	ReadStatus(ctx context.Context) (*dagrun.DAGRunStatus, error)
-	ReadOutputs(ctx context.Context) (*dagrun.DAGRunOutputs, error)
+	ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error)
 	RequestCancel(ctx context.Context) error
 	CancelRequested(ctx context.Context) (bool, error)
-	ReadStepMessages(ctx context.Context, stepName string) ([]dagrun.LLMMessage, error)
-	WriteStepMessages(ctx context.Context, stepName string, messages []dagrun.LLMMessage) error
+	ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error)
+	WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error
 	WorkDir() string
 	Close(ctx context.Context) error
 }

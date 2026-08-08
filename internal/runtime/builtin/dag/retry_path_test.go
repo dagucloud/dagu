@@ -121,18 +121,18 @@ func (r *retryRecorder) ShouldRun(context.Context, executor.SubWorkflowRequest) 
 	return true
 }
 
-func (r *retryRecorder) Run(_ context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
+func (r *retryRecorder) Run(_ context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	r.mu.Lock()
 	r.runs = append(r.runs, req)
 	r.mu.Unlock()
-	return &dagrun.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
+	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
 }
 
-func (r *retryRecorder) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
+func (r *retryRecorder) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
 	r.mu.Lock()
 	r.retries = append(r.retries, req)
 	r.mu.Unlock()
-	return &dagrun.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
+	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
 }
 
 func (*retryRecorder) Cancel(context.Context, executor.SubWorkflowCancelRequest) error {

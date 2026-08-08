@@ -100,10 +100,10 @@ type NodeState struct {
 	// HumanTaskCompletedByID is the ID of the subject that completed the human task.
 	HumanTaskCompletedByID string
 	// ChatMessages stores the chat session messages for message passing between steps.
-	ChatMessages []dagrun.LLMMessage
+	ChatMessages []ir.LLMMessage
 	// ToolDefinitions stores the tool definitions that were available to the LLM during execution.
 	// This provides visibility into what tools/functions the LLM could call.
-	ToolDefinitions []dagrun.ToolDefinition
+	ToolDefinitions []ir.ToolDefinition
 	// ApprovalInputs stores key-value parameters provided during approval.
 	// These are available as environment variables in subsequent steps.
 	ApprovalInputs map[string]string
@@ -794,28 +794,28 @@ func (d *Data) SetControllerState(raw json.RawMessage) {
 }
 
 // SetChatMessages sets the chat session messages for the node.
-func (d *Data) SetChatMessages(messages []dagrun.LLMMessage) {
+func (d *Data) SetChatMessages(messages []ir.LLMMessage) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.inner.State.ChatMessages = messages
 }
 
 // GetChatMessages returns the chat session messages for the node.
-func (d *Data) GetChatMessages() []dagrun.LLMMessage {
+func (d *Data) GetChatMessages() []ir.LLMMessage {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.inner.State.ChatMessages
 }
 
 // SetToolDefinitions sets the tool definitions that were available to the LLM.
-func (d *Data) SetToolDefinitions(tools []dagrun.ToolDefinition) {
+func (d *Data) SetToolDefinitions(tools []ir.ToolDefinition) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.inner.State.ToolDefinitions = tools
 }
 
 // GetToolDefinitions returns the tool definitions that were available to the LLM.
-func (d *Data) GetToolDefinitions() []dagrun.ToolDefinition {
+func (d *Data) GetToolDefinitions() []ir.ToolDefinition {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.inner.State.ToolDefinitions

@@ -776,7 +776,7 @@ func readLineFrom(f *os.File, offset int64) ([]byte, int64, error) {
 
 // WriteOutputs writes the collected step outputs to outputs.json.
 // If outputs is nil or has no output entries, no file is created.
-func (att *Attempt) WriteOutputs(_ context.Context, outputs *dagrun.DAGRunOutputs) error {
+func (att *Attempt) WriteOutputs(_ context.Context, outputs *ir.DAGRunOutputs) error {
 	if outputs == nil || len(outputs.Outputs) == 0 {
 		return nil
 	}
@@ -798,7 +798,7 @@ func (att *Attempt) WriteOutputs(_ context.Context, outputs *dagrun.DAGRunOutput
 
 // ReadOutputs reads the collected step outputs from outputs.json.
 // Returns nil if the file does not exist or if the file is in old format (no metadata field).
-func (att *Attempt) ReadOutputs(_ context.Context) (*dagrun.DAGRunOutputs, error) {
+func (att *Attempt) ReadOutputs(_ context.Context) (*ir.DAGRunOutputs, error) {
 	dir := filepath.Dir(att.file)
 	outputsFile := filepath.Join(dir, OutputsFile)
 
@@ -810,7 +810,7 @@ func (att *Attempt) ReadOutputs(_ context.Context) (*dagrun.DAGRunOutputs, error
 		return nil, fmt.Errorf("failed to read outputs file: %w", err)
 	}
 
-	var outputs dagrun.DAGRunOutputs
+	var outputs ir.DAGRunOutputs
 	if err := json.Unmarshal(data, &outputs); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal outputs: %w", err)
 	}
@@ -825,7 +825,7 @@ func (att *Attempt) ReadOutputs(_ context.Context) (*dagrun.DAGRunOutputs, error
 
 // WriteStepMessages writes LLM messages for a single step.
 // Messages are stored at the dag-run level in a messages/ directory for retry persistence.
-func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messages []dagrun.LLMMessage) error {
+func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messages []ir.LLMMessage) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -853,7 +853,7 @@ func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messag
 // ReadStepMessages reads LLM messages for a single step.
 // Messages are stored at the dag-run level in a messages/ directory for retry persistence.
 // Returns nil if no messages exist for the step.
-func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]dagrun.LLMMessage, error) {
+func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
 	// Read from dag-run level (parent of attempt directory) for retry persistence
 	file := filepath.Join(att.dagRunDir(), MessagesDir, stepName+".json")
 
@@ -865,7 +865,7 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]dagr
 		return nil, fmt.Errorf("failed to read messages file: %w", err)
 	}
 
-	var messages []dagrun.LLMMessage
+	var messages []ir.LLMMessage
 	if err := json.Unmarshal(data, &messages); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal messages: %w", err)
 	}

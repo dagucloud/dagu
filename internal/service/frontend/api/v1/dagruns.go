@@ -1008,8 +1008,8 @@ func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputs
 	}
 
 	if outputs == nil {
-		outputs = &dagrun.DAGRunOutputs{
-			Metadata: dagrun.OutputsMetadata{},
+		outputs = &ir.DAGRunOutputs{
+			Metadata: ir.OutputsMetadata{},
 			Outputs:  make(map[string]string),
 		}
 	}

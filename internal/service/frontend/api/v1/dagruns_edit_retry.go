@@ -983,8 +983,8 @@ func skippedEditRetryNodeState(source *dagrun.Node) runtime.NodeState {
 	if source.OutputsValue != nil {
 		state.OutputsValue = ptrOf(*source.OutputsValue)
 	}
-	state.ChatMessages = append([]dagrun.LLMMessage(nil), source.ChatMessages...)
-	state.ToolDefinitions = append([]dagrun.ToolDefinition(nil), source.ToolDefinitions...)
+	state.ChatMessages = append([]ir.LLMMessage(nil), source.ChatMessages...)
+	state.ToolDefinitions = append([]ir.ToolDefinition(nil), source.ToolDefinitions...)
 	state.HumanTaskInput = append(state.HumanTaskInput, source.HumanTaskInput...)
 	if source.StepOutputsValue != nil {
 		state.StepOutputsValue = ptrOf(*source.StepOutputsValue)

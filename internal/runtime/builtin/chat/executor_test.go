@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -35,35 +34,35 @@ func TestExecutor_MessageSaving(t *testing.T) {
 					Model:    "gpt-4o",
 				},
 			},
-			messages: []dagrun.LLMMessage{
-				{Role: dagrun.RoleUser, Content: "Hello"},
+			messages: []ir.LLMMessage{
+				{Role: ir.LLMRoleUser, Content: "Hello"},
 			},
-			contextMessages: []dagrun.LLMMessage{
-				{Role: dagrun.RoleSystem, Content: "You are helpful"},
-				{Role: dagrun.RoleUser, Content: "Previous question"},
-				{Role: dagrun.RoleAssistant, Content: "Previous answer"},
+			contextMessages: []ir.LLMMessage{
+				{Role: ir.LLMRoleSystem, Content: "You are helpful"},
+				{Role: ir.LLMRoleUser, Content: "Previous question"},
+				{Role: ir.LLMRoleAssistant, Content: "Previous answer"},
 			},
 		}
 
 		// Simulate what happens after Run() completes
 		allMessages := append(executor.contextMessages, executor.messages...)
-		metadata := &dagrun.LLMMessageMetadata{
+		metadata := &ir.LLMMessageMetadata{
 			Provider:         "openai",
 			Model:            "gpt-4o",
 			PromptTokens:     10,
 			CompletionTokens: 5,
 			TotalTokens:      15,
 		}
-		executor.savedMessages = append(allMessages, dagrun.LLMMessage{
-			Role:     dagrun.RoleAssistant,
+		executor.savedMessages = append(allMessages, ir.LLMMessage{
+			Role:     ir.LLMRoleAssistant,
 			Content:  "Hello there!",
 			Metadata: metadata,
 		})
 
 		saved := executor.GetMessages()
 		assert.Len(t, saved, 5) // 3 inherited + 1 user + 1 assistant
-		assert.Equal(t, dagrun.RoleSystem, saved[0].Role)
-		assert.Equal(t, dagrun.RoleAssistant, saved[4].Role)
+		assert.Equal(t, ir.LLMRoleSystem, saved[0].Role)
+		assert.Equal(t, ir.LLMRoleAssistant, saved[4].Role)
 		assert.NotNil(t, saved[4].Metadata)
 		assert.Equal(t, 15, saved[4].Metadata.TotalTokens)
 	})
@@ -78,20 +77,20 @@ func TestExecutor_MessageSaving(t *testing.T) {
 					Model:    "gemini-pro",
 				},
 			},
-			messages: []dagrun.LLMMessage{
-				{Role: dagrun.RoleUser, Content: "Test"},
+			messages: []ir.LLMMessage{
+				{Role: ir.LLMRoleUser, Content: "Test"},
 			},
 		}
 
-		metadata := &dagrun.LLMMessageMetadata{
+		metadata := &ir.LLMMessageMetadata{
 			Provider:         "gemini",
 			Model:            "gemini-pro",
 			PromptTokens:     5,
 			CompletionTokens: 3,
 			TotalTokens:      8,
 		}
-		executor.savedMessages = append(executor.messages, dagrun.LLMMessage{
-			Role:     dagrun.RoleAssistant,
+		executor.savedMessages = append(executor.messages, ir.LLMMessage{
+			Role:     ir.LLMRoleAssistant,
 			Content:  "Response",
 			Metadata: metadata,
 		})
@@ -100,7 +99,7 @@ func TestExecutor_MessageSaving(t *testing.T) {
 		assert.Len(t, saved, 2)
 
 		assistantMsg := saved[1]
-		assert.Equal(t, dagrun.RoleAssistant, assistantMsg.Role)
+		assert.Equal(t, ir.LLMRoleAssistant, assistantMsg.Role)
 		assert.NotNil(t, assistantMsg.Metadata)
 		assert.Equal(t, "gemini", assistantMsg.Metadata.Provider)
 		assert.Equal(t, "gemini-pro", assistantMsg.Metadata.Model)
@@ -115,10 +114,10 @@ func TestExecutor_SetContext(t *testing.T) {
 
 	executor := &Executor{}
 
-	messages := []dagrun.LLMMessage{
-		{Role: dagrun.RoleSystem, Content: "System prompt"},
-		{Role: dagrun.RoleUser, Content: "User message"},
-		{Role: dagrun.RoleAssistant, Content: "Assistant response"},
+	messages := []ir.LLMMessage{
+		{Role: ir.LLMRoleSystem, Content: "System prompt"},
+		{Role: ir.LLMRoleUser, Content: "User message"},
+		{Role: ir.LLMRoleAssistant, Content: "Assistant response"},
 	}
 
 	executor.SetContext(messages)
@@ -130,14 +129,14 @@ func TestExecutor_PushBackExecutionMessagesUsePreviousConversationAndFeedback(t 
 	t.Parallel()
 
 	executor := &Executor{
-		messages: []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "current system"},
-			{Role: dagrun.RoleUser, Content: "original YAML prompt should not repeat"},
+		messages: []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "current system"},
+			{Role: ir.LLMRoleUser, Content: "original YAML prompt should not repeat"},
 		},
-		contextMessages: []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "previous system"},
-			{Role: dagrun.RoleUser, Content: "original prompt"},
-			{Role: dagrun.RoleAssistant, Content: "previous answer"},
+		contextMessages: []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "previous system"},
+			{Role: ir.LLMRoleUser, Content: "original prompt"},
+			{Role: ir.LLMRoleAssistant, Content: "previous answer"},
 		},
 		step: ir.Step{
 			Approval: &ir.ApprovalConfig{Input: []string{"FEEDBACK"}},
@@ -152,7 +151,7 @@ func TestExecutor_PushBackExecutionMessagesUsePreviousConversationAndFeedback(t 
 	require.NoError(t, err)
 
 	require.Len(t, messages, 4)
-	assert.Equal(t, dagrun.RoleSystem, messages[0].Role)
+	assert.Equal(t, ir.LLMRoleSystem, messages[0].Role)
 	assert.Equal(t, "current system", messages[0].Content)
 	assert.Equal(t, "original prompt", messages[1].Content)
 	assert.Equal(t, "previous answer", messages[2].Content)
@@ -176,16 +175,16 @@ func TestExecutor_GetMessages(t *testing.T) {
 		t.Parallel()
 
 		executor := &Executor{
-			savedMessages: []dagrun.LLMMessage{
-				{Role: dagrun.RoleUser, Content: "Hello"},
-				{Role: dagrun.RoleAssistant, Content: "Hi"},
+			savedMessages: []ir.LLMMessage{
+				{Role: ir.LLMRoleUser, Content: "Hello"},
+				{Role: ir.LLMRoleAssistant, Content: "Hi"},
 			},
 		}
 
 		saved := executor.GetMessages()
 		assert.Len(t, saved, 2)
-		assert.Equal(t, dagrun.RoleUser, saved[0].Role)
-		assert.Equal(t, dagrun.RoleAssistant, saved[1].Role)
+		assert.Equal(t, ir.LLMRoleUser, saved[0].Role)
+		assert.Equal(t, ir.LLMRoleAssistant, saved[1].Role)
 	})
 }
 
@@ -257,7 +256,7 @@ func TestNewChatExecutor(t *testing.T) {
 				Provider: "openai",
 				Model:    "gpt-4o",
 			},
-			Messages: []ir.LLMMessage{
+			Messages: []ir.PromptMessage{
 				{Role: ir.LLMRoleUser, Content: "Hello"},
 				{Role: ir.LLMRoleAssistant, Content: "Hi there"},
 			},
@@ -281,7 +280,7 @@ func TestNewChatExecutor(t *testing.T) {
 				Model:    "gemini-pro",
 				System:   "Be concise",
 			},
-			Messages: []ir.LLMMessage{
+			Messages: []ir.PromptMessage{
 				{Role: ir.LLMRoleUser, Content: "What is 2+2?"},
 			},
 		}
@@ -464,10 +463,10 @@ func TestToLLMMessages(t *testing.T) {
 	t.Run("ConvertMessages", func(t *testing.T) {
 		t.Parallel()
 
-		msgs := []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "System prompt"},
-			{Role: dagrun.RoleUser, Content: "User message"},
-			{Role: dagrun.RoleAssistant, Content: "Assistant response"},
+		msgs := []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "System prompt"},
+			{Role: ir.LLMRoleUser, Content: "User message"},
+			{Role: ir.LLMRoleAssistant, Content: "Assistant response"},
 		}
 		result := toLLMMessages(msgs)
 
@@ -486,36 +485,36 @@ func TestBuildMessageList(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		stepMsgs        []dagrun.LLMMessage
-		contextMsgs     []dagrun.LLMMessage
+		stepMsgs        []ir.LLMMessage
+		contextMsgs     []ir.LLMMessage
 		wantFirstSystem string
 		wantLen         int
 	}{
 		{
 			name: "step system takes precedence",
-			stepMsgs: []dagrun.LLMMessage{
-				{Role: dagrun.RoleSystem, Content: "step system"},
-				{Role: dagrun.RoleUser, Content: "user"},
+			stepMsgs: []ir.LLMMessage{
+				{Role: ir.LLMRoleSystem, Content: "step system"},
+				{Role: ir.LLMRoleUser, Content: "user"},
 			},
-			contextMsgs: []dagrun.LLMMessage{
-				{Role: dagrun.RoleSystem, Content: "context system"},
+			contextMsgs: []ir.LLMMessage{
+				{Role: ir.LLMRoleSystem, Content: "context system"},
 			},
 			wantFirstSystem: "step system",
 			wantLen:         2,
 		},
 		{
 			name:     "context system used when step has none",
-			stepMsgs: []dagrun.LLMMessage{{Role: dagrun.RoleUser, Content: "user"}},
-			contextMsgs: []dagrun.LLMMessage{
-				{Role: dagrun.RoleSystem, Content: "context system"},
+			stepMsgs: []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "user"}},
+			contextMsgs: []ir.LLMMessage{
+				{Role: ir.LLMRoleSystem, Content: "context system"},
 			},
 			wantFirstSystem: "context system",
 			wantLen:         2,
 		},
 		{
 			name: "no context",
-			stepMsgs: []dagrun.LLMMessage{
-				{Role: dagrun.RoleSystem, Content: "step system"},
+			stepMsgs: []ir.LLMMessage{
+				{Role: ir.LLMRoleSystem, Content: "step system"},
 			},
 			contextMsgs:     nil,
 			wantFirstSystem: "step system",
@@ -530,7 +529,7 @@ func TestBuildMessageList(t *testing.T) {
 			result := buildMessageList(tt.stepMsgs, tt.contextMsgs)
 
 			require.Len(t, result, tt.wantLen)
-			assert.Equal(t, dagrun.RoleSystem, result[0].Role)
+			assert.Equal(t, ir.LLMRoleSystem, result[0].Role)
 			assert.Equal(t, tt.wantFirstSystem, result[0].Content)
 		})
 	}
@@ -626,7 +625,7 @@ func TestExecutor_RunSimpleForModel_RetriesTransientChatFailure(t *testing.T) {
 		},
 	}
 
-	err := executor.runSimpleForModel(context.Background(), provider, []dagrun.LLMMessage{{Role: dagrun.RoleUser, Content: "hello"}}, cfg)
+	err := executor.runSimpleForModel(context.Background(), provider, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}}, cfg)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls.Load())
 	assert.Contains(t, stdout.String(), "done")
@@ -662,7 +661,7 @@ func TestExecutor_RunSimpleForModel_RetriesStreamBeforeFirstDelta(t *testing.T) 
 		},
 	}
 
-	err := executor.runSimpleForModel(context.Background(), provider, []dagrun.LLMMessage{{Role: dagrun.RoleUser, Content: "hello"}}, cfg)
+	err := executor.runSimpleForModel(context.Background(), provider, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}}, cfg)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls.Load())
 	assert.Equal(t, "done\n", stdout.String())
@@ -694,7 +693,7 @@ func TestExecutor_RunSimpleForModel_DoesNotRetryStreamAfterDelta(t *testing.T) {
 		},
 	}
 
-	err := executor.runSimpleForModel(context.Background(), provider, []dagrun.LLMMessage{{Role: dagrun.RoleUser, Content: "hello"}}, cfg)
+	err := executor.runSimpleForModel(context.Background(), provider, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}}, cfg)
 	require.Error(t, err)
 	assert.Equal(t, int32(1), calls.Load())
 	assert.Equal(t, "partial", stdout.String())
@@ -729,7 +728,7 @@ func TestExecutor_ExecuteToolStep_RetriesTransientChatFailure(t *testing.T) {
 		},
 	}
 
-	msgs, done, err := executor.executeToolStep(context.Background(), provider, cfg, nil, []dagrun.LLMMessage{{Role: dagrun.RoleUser, Content: "hello"}}, 0)
+	msgs, done, err := executor.executeToolStep(context.Background(), provider, cfg, nil, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}}, 0)
 	require.NoError(t, err)
 	assert.True(t, done)
 	assert.Equal(t, int32(2), calls.Load())
@@ -761,30 +760,30 @@ func TestMaskSecretsForProvider(t *testing.T) {
 	tests := []struct {
 		name       string
 		secrets    map[string]string
-		messages   []dagrun.LLMMessage
+		messages   []ir.LLMMessage
 		wantMasked []string
 	}{
 		{
 			name:    "no secrets in context",
 			secrets: nil,
-			messages: []dagrun.LLMMessage{
-				{Role: dagrun.RoleUser, Content: "Hello"},
+			messages: []ir.LLMMessage{
+				{Role: ir.LLMRoleUser, Content: "Hello"},
 			},
 			wantMasked: []string{"Hello"},
 		},
 		{
 			name:    "empty secrets",
 			secrets: map[string]string{},
-			messages: []dagrun.LLMMessage{
-				{Role: dagrun.RoleUser, Content: "Hello"},
+			messages: []ir.LLMMessage{
+				{Role: ir.LLMRoleUser, Content: "Hello"},
 			},
 			wantMasked: []string{"Hello"},
 		},
 		{
 			name:    "masks secret in content",
 			secrets: map[string]string{"API_KEY": "secret123"},
-			messages: []dagrun.LLMMessage{
-				{Role: dagrun.RoleUser, Content: "My key is secret123"},
+			messages: []ir.LLMMessage{
+				{Role: ir.LLMRoleUser, Content: "My key is secret123"},
 			},
 			wantMasked: []string{"My key is *******"},
 		},
@@ -794,9 +793,9 @@ func TestMaskSecretsForProvider(t *testing.T) {
 				"DB_PASS": "dbpass",
 				"API_KEY": "apikey",
 			},
-			messages: []dagrun.LLMMessage{
-				{Role: dagrun.RoleSystem, Content: "Use dbpass for DB"},
-				{Role: dagrun.RoleUser, Content: "Key is apikey"},
+			messages: []ir.LLMMessage{
+				{Role: ir.LLMRoleSystem, Content: "Use dbpass for DB"},
+				{Role: ir.LLMRoleUser, Content: "Key is apikey"},
 			},
 			wantMasked: []string{
 				"Use ******* for DB",
@@ -806,21 +805,21 @@ func TestMaskSecretsForProvider(t *testing.T) {
 		{
 			name:    "preserves role and metadata for multiple messages",
 			secrets: map[string]string{"SECRET": "xyz"},
-			messages: []dagrun.LLMMessage{
+			messages: []ir.LLMMessage{
 				{
-					Role:     dagrun.RoleUser,
+					Role:     ir.LLMRoleUser,
 					Content:  "Value: xyz",
 					Metadata: nil,
 				},
 				{
-					Role:     dagrun.RoleAssistant,
+					Role:     ir.LLMRoleAssistant,
 					Content:  "Response with xyz",
-					Metadata: &dagrun.LLMMessageMetadata{Model: "gpt-4", PromptTokens: 10, CompletionTokens: 5},
+					Metadata: &ir.LLMMessageMetadata{Model: "gpt-4", PromptTokens: 10, CompletionTokens: 5},
 				},
 				{
-					Role:     dagrun.RoleUser,
+					Role:     ir.LLMRoleUser,
 					Content:  "Another xyz message",
-					Metadata: &dagrun.LLMMessageMetadata{Provider: "openai"},
+					Metadata: &ir.LLMMessageMetadata{Provider: "openai"},
 				},
 			},
 			wantMasked: []string{"Value: *******", "Response with *******", "Another ******* message"},

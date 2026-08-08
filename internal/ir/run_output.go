@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package dagrun
+package ir
 
 // DAGRunOutputs represents the full outputs file structure with metadata.
 type DAGRunOutputs struct {
@@ -16,5 +16,5 @@ type OutputsMetadata struct {
 	AttemptID   string `json:"attemptId"`
 	Status      string `json:"status"`
 	CompletedAt string `json:"completedAt"`
-	Params      string `json:"params,omitempty"` // JSON-serialized parameters
+	Params      string `json:"params,omitempty"`
 }

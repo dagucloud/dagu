@@ -191,7 +191,7 @@ func (r *Local) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) bo
 }
 
 // Run executes a child workflow in the current process.
-func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
+func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	if err := validateInProcessRequest(req); err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*dagr
 }
 
 // Retry retries a child workflow step in the current process.
-func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
+func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
 	if err := validateInProcessRequest(req.SubWorkflowRequest); err != nil {
 		return nil, err
 	}
@@ -438,7 +438,7 @@ func (r *Local) prepareDAGTools(ctx context.Context, rCtx runctx.Context, dag *i
 	}, toolsBasePath(rCtx))
 }
 
-func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent) (*dagrun.RunStatus, error) {
+func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent) (*ir.RunStatus, error) {
 	r.mu.Lock()
 	r.active[runID] = child
 	r.mu.Unlock()

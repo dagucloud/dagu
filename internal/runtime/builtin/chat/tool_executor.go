@@ -256,7 +256,7 @@ func formatArgValue(value any) string {
 }
 
 // formatToolResult converts a DAG execution result to a tool result content string.
-func formatToolResult(result *dagrun.RunStatus) string {
+func formatToolResult(result *ir.RunStatus) string {
 	if result == nil {
 		return "Tool execution completed but no result returned"
 	}

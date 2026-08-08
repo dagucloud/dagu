@@ -124,8 +124,8 @@ type RunParams struct {
 
 // ChatMessageHandler is an interface for executors that handle chat session messages.
 type ChatMessageHandler interface {
-	SetContext([]dagrun.LLMMessage)
-	GetMessages() []dagrun.LLMMessage
+	SetContext([]ir.LLMMessage)
+	GetMessages() []ir.LLMMessage
 }
 
 // PushBackAware is implemented by executors that can incorporate
@@ -156,7 +156,7 @@ type StatusDetailsProvider interface {
 // This is used by chat executors to report what tools were available to the LLM
 // for debugging and visibility purposes.
 type ToolDefinitionProvider interface {
-	GetToolDefinitions() []dagrun.ToolDefinition
+	GetToolDefinitions() []ir.ToolDefinition
 }
 
 // OutputsProvider is implemented by executors that publish DAG/action outputs.

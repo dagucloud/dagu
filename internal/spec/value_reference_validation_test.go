@@ -187,7 +187,7 @@ func TestValidateStepsCoversRuntimeResolvedFields(t *testing.T) {
 			step: ir.Step{
 				Name:           "message",
 				ExecutorConfig: valueReferenceTestExec,
-				Messages: []ir.LLMMessage{
+				Messages: []ir.PromptMessage{
 					{Role: ir.LLMRoleUser, Content: "${consts.missing}"},
 				},
 			},

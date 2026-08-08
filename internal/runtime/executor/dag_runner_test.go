@@ -283,7 +283,7 @@ func TestExecute_UsesInjectedSubWorkflowRunner(t *testing.T) {
 
 	runner := &mockSubWorkflowRunner{
 		shouldRun: true,
-		runResult: &dagrun.RunStatus{
+		runResult: &ir.RunStatus{
 			Name:     "test-child",
 			DAGRunID: "child-789",
 			Status:   ir.Succeeded,
@@ -331,7 +331,7 @@ func TestRetry_Distributed(t *testing.T) {
 
 	runner := &mockSubWorkflowRunner{
 		shouldRun: true,
-		retryResult: &dagrun.RunStatus{
+		retryResult: &ir.RunStatus{
 			Name:     "test-child",
 			DAGRunID: "child-789",
 			Status:   ir.Succeeded,
@@ -411,7 +411,7 @@ func TestSubDAGExecutor_ReuseCanBeKilled(t *testing.T) {
 	started := make(chan struct{})
 	runner := &mockSubWorkflowRunner{
 		shouldRun: true,
-		runFunc: func(ctx context.Context, _ SubWorkflowRequest) (*dagrun.RunStatus, error) {
+		runFunc: func(ctx context.Context, _ SubWorkflowRequest) (*ir.RunStatus, error) {
 			close(started)
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -615,11 +615,11 @@ type mockDatabase struct {
 
 type mockSubWorkflowRunner struct {
 	shouldRun     bool
-	runResult     *dagrun.RunStatus
+	runResult     *ir.RunStatus
 	runErr        error
-	retryResult   *dagrun.RunStatus
+	retryResult   *ir.RunStatus
 	retryErr      error
-	runFunc       func(context.Context, SubWorkflowRequest) (*dagrun.RunStatus, error)
+	runFunc       func(context.Context, SubWorkflowRequest) (*ir.RunStatus, error)
 	runRequests   []SubWorkflowRequest
 	retryRequests []SubWorkflowRetryRequest
 	cancelCalled  int
@@ -629,7 +629,7 @@ func (m *mockSubWorkflowRunner) ShouldRun(context.Context, SubWorkflowRequest) b
 	return m.shouldRun
 }
 
-func (m *mockSubWorkflowRunner) Run(ctx context.Context, req SubWorkflowRequest) (*dagrun.RunStatus, error) {
+func (m *mockSubWorkflowRunner) Run(ctx context.Context, req SubWorkflowRequest) (*ir.RunStatus, error) {
 	m.runRequests = append(m.runRequests, req)
 	if m.runFunc != nil {
 		return m.runFunc(ctx, req)
@@ -637,7 +637,7 @@ func (m *mockSubWorkflowRunner) Run(ctx context.Context, req SubWorkflowRequest)
 	return m.runResult, m.runErr
 }
 
-func (m *mockSubWorkflowRunner) Retry(_ context.Context, req SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
+func (m *mockSubWorkflowRunner) Retry(_ context.Context, req SubWorkflowRetryRequest) (*ir.RunStatus, error) {
 	m.retryRequests = append(m.retryRequests, req)
 	return m.retryResult, m.retryErr
 }

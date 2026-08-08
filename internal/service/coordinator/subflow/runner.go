@@ -126,7 +126,7 @@ func (r *Runner) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) b
 }
 
 // Run starts a child workflow and waits for its result.
-func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
+func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	if err := r.validate(req); err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func (r *Runner) Run(ctx context.Context, req executor.SubWorkflowRequest) (*dag
 }
 
 // Retry schedules a parent-managed retry for a child workflow step.
-func (r *Runner) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
+func (r *Runner) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
 	if err := r.validate(req.SubWorkflowRequest); err != nil {
 		return nil, err
 	}
@@ -390,7 +390,7 @@ func (r *Runner) taskOptions(
 	return options, nil
 }
 
-func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
+func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	waitCtx := logger.WithValues(ctx,
 		tag.RunID(req.RunID),
 		tag.DAG(req.DAG.Name),
@@ -456,7 +456,7 @@ func (r *Runner) waitForCancellation(
 	ctx context.Context,
 	req executor.SubWorkflowRequest,
 	startTime time.Time,
-) (*dagrun.RunStatus, error) {
+) (*ir.RunStatus, error) {
 	waitCtx := logger.WithValues(ctx,
 		tag.RunID(req.RunID),
 		tag.DAG(req.DAG.Name),
@@ -471,7 +471,7 @@ func (r *Runner) waitForCancellation(
 	logTicker := time.NewTicker(defaultCancellationLogDelay)
 	defer logTicker.Stop()
 
-	var lastStatus *dagrun.RunStatus
+	var lastStatus *ir.RunStatus
 
 	for {
 		status, err := r.getStatus(ctx, req)
@@ -508,7 +508,7 @@ func (r *Runner) waitForCancellation(
 	}
 }
 
-func (r *Runner) getStatus(ctx context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
+func (r *Runner) getStatus(ctx context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	status, err := r.getFullStatus(ctx, req)
 	if err != nil {
 		return nil, err
@@ -536,9 +536,9 @@ func (r *Runner) getFullStatus(
 	return result.Status, nil
 }
 
-func statusToRunStatus(status *dagrun.DAGRunStatus, runID string) *dagrun.RunStatus {
+func statusToRunStatus(status *dagrun.DAGRunStatus, runID string) *ir.RunStatus {
 	nodes := status.NodesInRunOrder()
-	return &dagrun.RunStatus{
+	return &ir.RunStatus{
 		Name:               status.Name,
 		DAGRunID:           runID,
 		Params:             status.Params,

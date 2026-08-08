@@ -217,7 +217,7 @@ func (w *referenceFieldWalker) walkLLM(path string, llm *ir.LLMConfig, base Refe
 	}
 }
 
-func (w *referenceFieldWalker) walkMessages(path string, messages []ir.LLMMessage, base ReferenceField) {
+func (w *referenceFieldWalker) walkMessages(path string, messages []ir.PromptMessage, base ReferenceField) {
 	for i, message := range messages {
 		fieldPath := fmt.Sprintf("%s[%d].content", path, i)
 		w.add(base.withPathValue(fieldPath, message.Content).withField(cmnvalue.WorkflowField(fieldPath)))

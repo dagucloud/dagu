@@ -185,19 +185,19 @@ func (a *enqueueTrackingAttempt) Hidden() bool {
 	return false
 }
 
-func (a *enqueueTrackingAttempt) WriteOutputs(context.Context, *dagrun.DAGRunOutputs) error {
+func (a *enqueueTrackingAttempt) WriteOutputs(context.Context, *ir.DAGRunOutputs) error {
 	return nil
 }
 
-func (a *enqueueTrackingAttempt) ReadOutputs(context.Context) (*dagrun.DAGRunOutputs, error) {
+func (a *enqueueTrackingAttempt) ReadOutputs(context.Context) (*ir.DAGRunOutputs, error) {
 	return nil, nil
 }
 
-func (a *enqueueTrackingAttempt) WriteStepMessages(context.Context, string, []dagrun.LLMMessage) error {
+func (a *enqueueTrackingAttempt) WriteStepMessages(context.Context, string, []ir.LLMMessage) error {
 	return nil
 }
 
-func (a *enqueueTrackingAttempt) ReadStepMessages(context.Context, string) ([]dagrun.LLMMessage, error) {
+func (a *enqueueTrackingAttempt) ReadStepMessages(context.Context, string) ([]ir.LLMMessage, error) {
 	return nil, nil
 }
 

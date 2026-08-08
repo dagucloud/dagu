@@ -43,9 +43,9 @@ var (
 // ChatMessagesHandler handles chat session messages for persistence.
 type ChatMessagesHandler interface {
 	// WriteStepMessages writes messages for a single step.
-	WriteStepMessages(ctx context.Context, stepName string, messages []dagrun.LLMMessage) error
+	WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error
 	// ReadStepMessages reads messages for a single step.
-	ReadStepMessages(ctx context.Context, stepName string) ([]dagrun.LLMMessage, error)
+	ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error)
 }
 
 // Runner runs a plan of steps.
@@ -822,7 +822,7 @@ func (r *Runner) setupChatMessages(ctx context.Context, node *Node) {
 	}
 
 	// Read messages from each dependency step
-	var inherited []dagrun.LLMMessage
+	var inherited []ir.LLMMessage
 	for _, dep := range step.Depends {
 		msgs, err := r.messagesHandler.ReadStepMessages(ctx, dep)
 		if err != nil {
@@ -834,7 +834,7 @@ func (r *Runner) setupChatMessages(ctx context.Context, node *Node) {
 	}
 
 	// Deduplicate system messages (keep only first)
-	inherited = dagrun.DeduplicateSystemMessages(inherited)
+	inherited = ir.DeduplicateSystemMessages(inherited)
 	if len(inherited) > 0 {
 		node.SetChatMessages(inherited)
 	}

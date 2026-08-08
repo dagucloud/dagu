@@ -156,7 +156,7 @@ func WithAutoRetryCount(autoRetryCount int) StatusOption {
 }
 
 // WithPendingStepRetries sets parent-managed step retries awaiting scheduling.
-func WithPendingStepRetries(retries []PendingStepRetry) StatusOption {
+func WithPendingStepRetries(retries []ir.PendingStepRetry) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.PendingStepRetries = retries
 	}
@@ -170,11 +170,11 @@ func WithConditions(conditions []DAGRunCondition) StatusOption {
 }
 
 // WithRuntimeProfile sets the selected runtime profile metadata.
-func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) StatusOption {
+func WithRuntimeProfile(name, resolvedAt string, entries []ir.RuntimeProfileEntry) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.ProfileName = name
 		status.ProfileResolvedAt = resolvedAt
-		status.ProfileEntries = append([]RuntimeProfileEntry(nil), entries...)
+		status.ProfileEntries = append([]ir.RuntimeProfileEntry(nil), entries...)
 	}
 }
 

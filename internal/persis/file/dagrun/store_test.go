@@ -40,8 +40,8 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	parentStatus.Status = ir.Succeeded
 	require.NoError(t, parentAttempt.Write(ctx, parentStatus))
 
-	parentOutputs := &dagrun.DAGRunOutputs{
-		Metadata: dagrun.OutputsMetadata{
+	parentOutputs := &ir.DAGRunOutputs{
+		Metadata: ir.OutputsMetadata{
 			DAGName:     parentDAG.Name,
 			DAGRunID:    parentStatus.DAGRunID,
 			AttemptID:   parentStatus.AttemptID,
@@ -51,8 +51,8 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 		Outputs: map[string]string{"step-one": "ok"},
 	}
 	require.NoError(t, parentAttempt.WriteOutputs(ctx, parentOutputs))
-	require.NoError(t, parentAttempt.WriteStepMessages(ctx, "step-one", []dagrun.LLMMessage{
-		{Role: dagrun.RoleUser, Content: "hello"},
+	require.NoError(t, parentAttempt.WriteStepMessages(ctx, "step-one", []ir.LLMMessage{
+		{Role: ir.LLMRoleUser, Content: "hello"},
 	}))
 	require.NoError(t, parentAttempt.Close(ctx))
 
@@ -129,7 +129,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 
 	foundMessages, err := foundParent.ReadStepMessages(ctx, "step-one")
 	require.NoError(t, err)
-	assert.Equal(t, []dagrun.LLMMessage{{Role: dagrun.RoleUser, Content: "hello"}}, foundMessages)
+	assert.Equal(t, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}}, foundMessages)
 
 	foundChild, err := store.FindSubAttempt(ctx, rootRef, "child-run")
 	require.NoError(t, err)

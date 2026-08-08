@@ -8,7 +8,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -44,7 +44,7 @@ func (r *Router) ShouldRun(ctx context.Context, req executor.SubWorkflowRequest)
 }
 
 // Run executes req with the first matching runner.
-func (r *Router) Run(ctx context.Context, req executor.SubWorkflowRequest) (*dagrun.RunStatus, error) {
+func (r *Router) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	runner := r.selectRunner(ctx, req)
 	if runner == nil {
 		return nil, errNoMatchingRunner
@@ -55,7 +55,7 @@ func (r *Router) Run(ctx context.Context, req executor.SubWorkflowRequest) (*dag
 }
 
 // Retry retries req with the first matching runner.
-func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*dagrun.RunStatus, error) {
+func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
 	runner := r.selectRunner(ctx, req.SubWorkflowRequest)
 	if runner == nil {
 		return nil, errNoMatchingRunner

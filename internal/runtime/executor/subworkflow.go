@@ -15,8 +15,8 @@ import (
 // SubWorkflowRunner runs child workflows behind a workflow-level interface.
 type SubWorkflowRunner interface {
 	ShouldRun(ctx context.Context, req SubWorkflowRequest) bool
-	Run(ctx context.Context, req SubWorkflowRequest) (*dagrun.RunStatus, error)
-	Retry(ctx context.Context, req SubWorkflowRetryRequest) (*dagrun.RunStatus, error)
+	Run(ctx context.Context, req SubWorkflowRequest) (*ir.RunStatus, error)
+	Retry(ctx context.Context, req SubWorkflowRetryRequest) (*ir.RunStatus, error)
 	Cancel(ctx context.Context, req SubWorkflowCancelRequest) error
 }
 

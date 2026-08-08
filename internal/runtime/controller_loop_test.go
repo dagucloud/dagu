@@ -620,7 +620,7 @@ func TestControllerLoop_FailsWhenControllerStopsWithOpenTasks(t *testing.T) {
 	assert.Equal(t, ir.NodeFailed, ch.node(t, ir.ControllerStepName).State().Status)
 }
 
-func transcript(messages []dagrun.LLMMessage) string {
+func transcript(messages []ir.LLMMessage) string {
 	var out strings.Builder
 	for _, msg := range messages {
 		out.WriteString(string(msg.Role) + ": " + msg.Content + "\n")
@@ -1208,7 +1208,7 @@ func TestControllerLoop_FallsBackMidConversation(t *testing.T) {
 
 	var models []string
 	for _, msg := range ch.node(t, ir.ControllerStepName).GetChatMessages() {
-		if msg.Role == dagrun.RoleAssistant && msg.Metadata != nil {
+		if msg.Role == ir.LLMRoleAssistant && msg.Metadata != nil {
 			models = append(models, msg.Metadata.Model)
 		}
 	}
