@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DocTabProvider, useDocTabContext } from '@/contexts/DocTabContext';
 import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext';
+import { attachmentUploadName } from '../../lib/doc-attachments';
 import DocEditor from '../DocEditor';
 
 const testState = vi.hoisted(() => ({
@@ -15,23 +16,48 @@ const testState = vi.hoisted(() => ({
     title: 'Runbook',
   },
   mutate: vi.fn(),
+  put: vi.fn(),
 }));
 
-vi.mock('@/components/editors/MarkdownEditor', () => ({
-  default: ({
-    value,
-    onChange,
-  }: {
-    value: string;
-    onChange: (value: string) => void;
-  }) => (
-    <textarea
-      aria-label="Markdown editor"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  ),
-}));
+vi.mock('@/components/editors/MarkdownEditor', async () => {
+  const React = await import('react');
+  return {
+    default: ({
+      value,
+      onChange,
+      onEditorMount,
+    }: {
+      value: string;
+      onChange: (value: string) => void;
+      onEditorMount?: (editor: {
+        getContainerDomNode: () => HTMLDivElement;
+        getSelection: () => null;
+        onDidDispose: (callback: () => void) => void;
+      }) => void;
+    }) => {
+      const containerRef = React.useRef<HTMLDivElement>(null);
+      const initialOnEditorMount = React.useRef(onEditorMount);
+      React.useEffect(() => {
+        const disposeCallbacks: Array<() => void> = [];
+        initialOnEditorMount.current?.({
+          getContainerDomNode: () => containerRef.current!,
+          getSelection: () => null,
+          onDidDispose: (callback) => disposeCallbacks.push(callback),
+        });
+        return () => disposeCallbacks.forEach((callback) => callback());
+      }, []);
+      return (
+        <div ref={containerRef} data-testid="markdown-editor-container">
+          <textarea
+            aria-label="Markdown editor"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock('@/components/ui/doc-markdown-preview', () => ({
   DocMarkdownPreview: () => null,
@@ -47,7 +73,7 @@ vi.mock('@/contexts/AuthContext', () => ({
 }));
 
 vi.mock('@/hooks/api', () => ({
-  useClient: () => ({}),
+  useClient: () => ({ PUT: testState.put }),
   useQuery: () => ({ data: testState.doc, mutate: testState.mutate }),
 }));
 
@@ -58,6 +84,10 @@ vi.mock('@/hooks/useDocSSE', () => ({
 vi.mock('@/hooks/useSSECacheSync', () => ({
   sseFallbackOptions: () => ({}),
   useSSECacheSync: () => undefined,
+}));
+
+vi.mock('../DocHistoryModal', () => ({
+  DocHistoryModal: () => null,
 }));
 
 vi.mock('../DocExternalChangeDialog', () => ({
@@ -77,7 +107,7 @@ vi.mock('../DocExternalChangeDialog', () => ({
 
 const storageKey = 'dagu_doc_tabs:doc-editor-test';
 
-function EditorHarness() {
+function EditorHarness({ docPath = 'runbook' }: { docPath?: string }) {
   const { tabs, openDoc } = useDocTabContext();
 
   useEffect(() => {
@@ -85,7 +115,9 @@ function EditorHarness() {
   }, [openDoc, tabs.length]);
 
   const tab = tabs[0];
-  return tab ? <DocEditor tabId={tab.id} docPath={tab.docPath} /> : null;
+  return tab ? (
+    <DocEditor tabId={tab.id} docPath={docPath} workspace={null} />
+  ) : null;
 }
 
 function renderEditor() {
@@ -98,7 +130,7 @@ function renderEditor() {
   );
 }
 
-describe('DocEditor draft persistence', () => {
+describe('DocEditor', () => {
   beforeEach(() => {
     localStorage.clear();
     testState.doc = {
@@ -106,6 +138,11 @@ describe('DocEditor draft persistence', () => {
       title: 'Runbook',
     };
     testState.mutate.mockReset();
+    testState.put.mockReset();
+    testState.put.mockResolvedValue({
+      data: { name: 'logo.png' },
+      error: undefined,
+    });
     vi.useFakeTimers();
   });
 
@@ -145,5 +182,95 @@ describe('DocEditor draft persistence', () => {
     expect(screen.getByLabelText('Markdown editor')).toHaveValue(
       'external content'
     );
+  });
+
+  it('uploads attachments to the current document after its path changes', async () => {
+    const view = renderEditor();
+    view.rerender(
+      <UnsavedChangesProvider>
+        <DocTabProvider storageKey={storageKey}>
+          <EditorHarness docPath="renamed-runbook" />
+        </DocTabProvider>
+      </UnsavedChangesProvider>
+    );
+
+    await act(async () => {
+      fireEvent.paste(screen.getByTestId('markdown-editor-container'), {
+        clipboardData: {
+          files: [new File(['png'], 'logo.png', { type: 'image/png' })],
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(testState.put).toHaveBeenCalledWith(
+      '/docs/doc/attachment',
+      expect.objectContaining({
+        params: {
+          query: expect.objectContaining({ path: 'renamed-runbook' }),
+        },
+      })
+    );
+  });
+
+  it('uploads pasted files in order', async () => {
+    let finishFirst: (value: {
+      data: { name: string };
+      error: undefined;
+    }) => void = () => {};
+    const firstUpload = new Promise<{
+      data: { name: string };
+      error: undefined;
+    }>((resolve) => {
+      finishFirst = resolve;
+    });
+    testState.put
+      .mockImplementationOnce(() => firstUpload)
+      .mockResolvedValueOnce({
+        data: { name: 'second.png' },
+        error: undefined,
+      });
+    renderEditor();
+
+    fireEvent.paste(screen.getByTestId('markdown-editor-container'), {
+      clipboardData: {
+        files: [
+          new File(['first'], 'first.png', { type: 'image/png' }),
+          new File(['second'], 'second.png', { type: 'image/png' }),
+        ],
+      },
+    });
+    expect(testState.put).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishFirst({ data: { name: 'first.png' }, error: undefined });
+      await firstUpload;
+    });
+    expect(testState.put).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('attachmentUploadName', () => {
+  it('preserves names accepted by the attachment API', () => {
+    expect(
+      attachmentUploadName({
+        name: 'monthly report.pdf',
+        type: 'application/pdf',
+      })
+    ).toBe('monthly report.pdf');
+  });
+
+  it.each(['notes.md', 'CON.png', 'trailing.', 'folder/logo.png'])(
+    'generates a valid replacement for %s',
+    (name) => {
+      const generated = attachmentUploadName({ name, type: 'image/svg+xml' });
+      expect(generated).toMatch(/^pasted-\d+-\d+\.svg$/);
+      expect(generated).not.toBe(name);
+    }
+  );
+
+  it('generates unique names for concurrent uploads', () => {
+    const file = { name: 'folder/logo.png', type: 'image/png' };
+    expect(attachmentUploadName(file)).not.toBe(attachmentUploadName(file));
   });
 });

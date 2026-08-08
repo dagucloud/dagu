@@ -23,11 +23,17 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/grep"
 )
 
-// Search searches all docs for the given query pattern.
+// Search searches all docs for the given query pattern. Results are ordered
+// by relevance: title and description hits outrank body-only hits, then more
+// matches outrank fewer, with the ID as a stable tiebreak.
 func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResult, error) {
+	if query == "" {
+		return nil, nil
+	}
 	var results []*docs.DocSearchResult
+	scores := map[string]int{}
 
-	candidates, err := s.listSearchCandidates(ctx, "", "", nil)
+	candidates, err := s.listSearchCandidates(ctx, "", "", nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +47,11 @@ func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResu
 			continue
 		}
 
-		matches, err := grep.Grep(data, query, grep.DefaultGrepOptions)
+		matches, matchCount, err := grep.GrepWithCount(data, docSearchPattern(query), grep.GrepOptions{
+			IsRegexp: true,
+			Before:   grep.DefaultGrepOptions.Before,
+			After:    grep.DefaultGrepOptions.After,
+		})
 		if err != nil {
 			continue
 		}
@@ -49,25 +59,47 @@ func (s *Store) Search(ctx context.Context, query string) ([]*docs.DocSearchResu
 		doc, parseErr := parseDocFile(data, candidate.ID)
 		title := candidate.ID
 		var description string
+		var docTags []string
 		if parseErr == nil {
 			title = doc.Title
 			description = doc.Description
+			docTags = doc.Tags
 		}
 
+		scores[candidate.ID] = docSearchScore(query, title, description, matchCount)
 		results = append(results, &docs.DocSearchResult{
 			ID:          candidate.ID,
 			Title:       title,
 			Description: description,
+			Tags:        docTags,
 			ModTime:     candidate.ModTime,
 			Matches:     matches,
+			MatchCount:  matchCount,
 		})
 	}
 
 	sort.Slice(results, func(i, j int) bool {
+		if scores[results[i].ID] != scores[results[j].ID] {
+			return scores[results[i].ID] > scores[results[j].ID]
+		}
 		return results[i].ID < results[j].ID
 	})
 
 	return results, nil
+}
+
+// docSearchScore ranks a search hit. Title and description hits use the
+// metadata already parsed from the file, so scoring adds no file I/O.
+func docSearchScore(query, title, description string, matchCount int) int {
+	score := min(matchCount, 50)
+	lowered := strings.ToLower(query)
+	if strings.Contains(strings.ToLower(title), lowered) {
+		score += 100
+	}
+	if strings.Contains(strings.ToLower(description), lowered) {
+		score += 40
+	}
+	return score
 }
 
 func docSearchPattern(query string) string {
@@ -79,6 +111,7 @@ type docSearchCursor struct {
 	Query         string   `json:"q"`
 	PathPrefix    string   `json:"prefix,omitempty"`
 	FilterPrefix  string   `json:"filter,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
 	ExcludedRoots []string `json:"exclude,omitempty"`
 	ID            string   `json:"id,omitempty"`
 }
@@ -102,6 +135,7 @@ func (s *Store) listSearchCandidates(
 	ctx context.Context,
 	pathPrefix string,
 	filterPrefix string,
+	tagFilter []string,
 	excludedRoots []string,
 ) ([]docSearchCandidate, error) {
 	if err := s.ensureFreshIndex(ctx); err != nil {
@@ -112,6 +146,9 @@ func (s *Store) listSearchCandidates(
 	candidates := make([]docSearchCandidate, 0, len(s.docs))
 	for _, doc := range s.docs {
 		if !doc.Readable || docPathRootExcluded(doc.ID, excludedRoots) {
+			continue
+		}
+		if !docTagsMatch(doc.Tags, tagFilter) {
 			continue
 		}
 		id, ok := relativeDocID(doc.ID, pathPrefix)
@@ -151,6 +188,7 @@ func decodeDocSearchCursor(
 	query string,
 	pathPrefix string,
 	filterPrefix string,
+	tagFilter []string,
 	excludedRoots []string,
 ) (docSearchCursor, error) {
 	if raw == "" {
@@ -164,6 +202,7 @@ func decodeDocSearchCursor(
 		cursor.Query != query ||
 		cursor.PathPrefix != pathPrefix ||
 		cursor.FilterPrefix != filterPrefix ||
+		!slices.Equal(cursor.Tags, tagFilter) ||
 		!slices.Equal(cursor.ExcludedRoots, excludedRoots) {
 		return docSearchCursor{}, pagination.ErrInvalidCursor
 	}
@@ -197,9 +236,10 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 	if err != nil {
 		return nil, err
 	}
+	tagFilter := normalizeDocTagFilter(opts.Tags)
 	excludedRoots := normalizeExcludedPathRoots(opts.ExcludePathRoots)
 
-	cursor, err := decodeDocSearchCursor(opts.Cursor, opts.Query, pathPrefix, filterPrefix, excludedRoots)
+	cursor, err := decodeDocSearchCursor(opts.Cursor, opts.Query, pathPrefix, filterPrefix, tagFilter, excludedRoots)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +251,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 	var hasMore bool
 	var nextCursor string
 
-	candidates, err := s.listSearchCandidates(ctx, pathPrefix, filterPrefix, excludedRoots)
+	candidates, err := s.listSearchCandidates(ctx, pathPrefix, filterPrefix, tagFilter, excludedRoots)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +290,7 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 				Query:         opts.Query,
 				PathPrefix:    pathPrefix,
 				FilterPrefix:  filterPrefix,
+				Tags:          tagFilter,
 				ExcludedRoots: excludedRoots,
 				ID:            results[len(results)-1].ID,
 			})
@@ -259,14 +300,17 @@ func (s *Store) SearchCursor(ctx context.Context, opts docs.SearchDocsOptions) (
 		doc, parseErr := parseDocFile(data, candidate.ID)
 		title := candidate.ID
 		var description string
+		var docTags []string
 		if parseErr == nil {
 			title = doc.Title
 			description = doc.Description
+			docTags = doc.Tags
 		}
 		item := docs.DocSearchResult{
 			ID:             candidate.ID,
 			Title:          title,
 			Description:    description,
+			Tags:           docTags,
 			ModTime:        candidate.ModTime,
 			Matches:        window.Matches,
 			HasMoreMatches: window.HasMore,

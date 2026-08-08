@@ -4,6 +4,7 @@
 import { Button } from '@/components/ui/button';
 import { useClient } from '@/hooks/api';
 import { cn } from '@/lib/utils';
+import { encodeDocPathForURL } from '@/pages/docs/lib/doc-path';
 import {
   visibleDocumentPathForWorkspace,
   workspaceDocumentQueryForWorkspace,
@@ -254,7 +255,7 @@ function SearchResult(props: Props) {
             key: `doc-${result.id}-${result.workspace ?? ''}-${query}`,
             kind: 'Doc' as const,
             title: result.title,
-            link: `/docs/${encodeURI(docPath)}${linkSearch}`,
+            link: `/docs/${encodeDocPathForURL(docPath)}${linkSearch}`,
             initialMatches: result.matches ?? [],
             initialHasMoreMatches: result.hasMoreMatches,
             initialNextCursor: result.nextMatchesCursor,

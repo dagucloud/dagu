@@ -1,7 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import MarkdownEditor from '@/components/editors/MarkdownEditor';
+import MarkdownEditor, {
+  type MarkdownEditorInstance,
+} from '@/components/editors/MarkdownEditor';
 import { DocMarkdownPreview } from '@/components/ui/doc-markdown-preview';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useCanWrite, useCanWriteForWorkspace } from '@/contexts/AuthContext';
@@ -23,11 +25,12 @@ import {
   ClipboardCopy,
   Copy,
   FileText,
+  History,
   Save,
   Trash2,
   Undo2,
 } from 'lucide-react';
-import React, {
+import {
   useCallback,
   useContext,
   useEffect,
@@ -35,9 +38,12 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { DocLiveProvider } from '@/components/docs-live/DocLiveProvider';
 import DocExternalChangeDialog from './DocExternalChangeDialog';
+import { DocHistoryModal } from './DocHistoryModal';
 import { DOC_SSE_FALLBACK_INTERVAL_MS } from '../lib/doc-polling';
 import { useDocDraftPersistence } from '../hooks/useDocDraftPersistence';
+import { attachmentUploadName } from '../lib/doc-attachments';
 
 type Props = {
   tabId: string;
@@ -96,7 +102,7 @@ function DocEditor({
   const canEditRef = useRef(canEdit);
   canEditRef.current = canEdit;
   const { showToast } = useSimpleToast();
-  const { markTabUnsaved, markTabSaved } = useDocTabContext();
+  const { markTabUnsaved, markTabSaved, openDoc } = useDocTabContext();
 
   const docSSE = useDocSSE(docPath, !!docPath, workspaceQuery, remoteNode);
 
@@ -274,6 +280,101 @@ function DocEditor({
 
   const { copied: nameCopied, copy: copyName } = useCopyFeedback();
   const { copied: copiedContent, copy: copyContent } = useCopyFeedback();
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  // Attachment upload via paste/drop into the editor.
+  const editorInstanceRef = useRef<MarkdownEditorInstance | null>(null);
+
+  const uploadAttachment = useCallback(
+    async (file: File) => {
+      try {
+        const name = attachmentUploadName(file);
+
+        const { data, error } = await client.PUT('/docs/doc/attachment', {
+          params: {
+            query: {
+              remoteNode,
+              path: docPath,
+              name,
+              ...workspaceTargetQuery,
+            },
+          },
+          body: file as unknown as string,
+          bodySerializer: (body: unknown) => body as BodyInit,
+          headers: { 'Content-Type': 'application/octet-stream' },
+        });
+        if (error || !data) {
+          showToast(error?.message || 'Failed to upload attachment');
+          return;
+        }
+        const isImage = file.type.startsWith('image/');
+        // Names may contain spaces; the destination must be percent-encoded to
+        // stay a valid Markdown link. The preview decodes it on resolution.
+        const markdown = `${isImage ? '!' : ''}[${data.name}](attachment:${encodeURIComponent(data.name)})`;
+        const editor = editorInstanceRef.current;
+        const selection = editor?.getSelection();
+        if (editor && selection) {
+          editor.executeEdits('doc-attachment', [
+            { range: selection, text: markdown, forceMoveMarkers: true },
+          ]);
+          editor.focus();
+        } else {
+          setCurrentValue(`${currentValueRef.current ?? ''}\n${markdown}\n`);
+        }
+        showToast(`Attached ${data.name}`);
+      } catch {
+        showToast('Failed to upload attachment');
+      }
+    },
+    [
+      client,
+      remoteNode,
+      docPath,
+      workspaceTargetQuery,
+      showToast,
+      setCurrentValue,
+      currentValueRef,
+    ]
+  );
+  const uploadAttachmentRef = useRef(uploadAttachment);
+  uploadAttachmentRef.current = uploadAttachment;
+
+  const handleEditorMount = useCallback((editor: MarkdownEditorInstance) => {
+    editorInstanceRef.current = editor;
+    const dom = editor.getContainerDomNode();
+    const uploadFiles = (files: FileList | null | undefined, event: Event) => {
+      if (!canEditRef.current || !files?.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void (async () => {
+        for (const file of Array.from(files)) {
+          await uploadAttachmentRef.current(file);
+        }
+      })();
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      uploadFiles(e.clipboardData?.files, e);
+    };
+    const onDrop = (e: DragEvent) => {
+      uploadFiles(e.dataTransfer?.files, e);
+    };
+    const onDragOver = (e: DragEvent) => {
+      if ((e.dataTransfer?.types ?? []).includes('Files')) {
+        e.preventDefault();
+      }
+    };
+    dom.addEventListener('paste', onPaste, true);
+    dom.addEventListener('drop', onDrop, true);
+    dom.addEventListener('dragover', onDragOver, true);
+    editor.onDidDispose(() => {
+      dom.removeEventListener('paste', onPaste, true);
+      dom.removeEventListener('drop', onDrop, true);
+      dom.removeEventListener('dragover', onDragOver, true);
+      if (editorInstanceRef.current === editor) {
+        editorInstanceRef.current = null;
+      }
+    });
+  }, []);
 
   const title = doc?.title || docPath.split('/').pop() || docPath;
 
@@ -285,6 +386,18 @@ function DocEditor({
         <span className="text-sm font-medium truncate">{title}</span>
         {hasUnsavedChanges && (
           <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+        )}
+        {doc?.tags && doc.tags.length > 0 && (
+          <span className="hidden sm:flex items-center gap-1 shrink-0">
+            {doc.tags.map((tag) => (
+              <span
+                key={tag}
+                className="px-1.5 py-0.5 text-[10px] leading-none rounded-full bg-muted text-muted-foreground border border-border"
+              >
+                {tag}
+              </span>
+            ))}
+          </span>
         )}
 
         {title && (
@@ -307,6 +420,17 @@ function DocEditor({
         </span>
 
         <div className="flex-1" />
+
+        {/* History */}
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+          title="Revision history"
+        >
+          <History className="h-3 w-3" />
+          <span>History</span>
+        </button>
 
         {/* Copy content */}
         <button
@@ -408,10 +532,21 @@ function DocEditor({
             value={currentValue ?? ''}
             onChange={(val) => setCurrentValue(val ?? '')}
             readOnly={!canEdit}
+            onEditorMount={handleEditorMount}
           />
         ) : (
           <div className="h-full overflow-y-auto p-6">
-            <DocMarkdownPreview content={currentValue} />
+            <DocLiveProvider workspace={workspace ?? null}>
+              <DocMarkdownPreview
+                content={currentValue}
+                linkContext={{
+                  workspace: workspace ?? null,
+                  docPath,
+                  onOpenDoc: (path, ws) =>
+                    openDoc(path, path.split('/').pop() || path, ws),
+                }}
+              />
+            </DocLiveProvider>
           </div>
         )}
       </div>
@@ -425,6 +560,16 @@ function DocEditor({
           markTabSaved(tabId);
         }}
         onIgnore={() => resolveConflict('ignore')}
+      />
+
+      {/* Revision history */}
+      <DocHistoryModal
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        docPath={docPath}
+        workspace={workspace ?? null}
+        currentContent={currentValue ?? ''}
+        onRestore={(content) => setCurrentValue(content)}
       />
     </div>
   );

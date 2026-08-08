@@ -16,6 +16,19 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 )
 
+type recordingFileWatcher struct {
+	added []string
+}
+
+func (*recordingFileWatcher) Events() <-chan fsnotify.Event { return nil }
+func (*recordingFileWatcher) Errors() <-chan error          { return nil }
+func (w *recordingFileWatcher) Add(name string) error {
+	w.added = append(w.added, name)
+	return nil
+}
+func (*recordingFileWatcher) Remove(string) error { return nil }
+func (*recordingFileWatcher) Close() error        { return nil }
+
 func TestDirectoryWatcherStopIsIdempotent(t *testing.T) {
 	watcher := &directoryWatcher{
 		done: make(chan struct{}),
@@ -63,12 +76,43 @@ func TestRecursiveWatchPathsIncludesNestedDirs(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "a", "b"), 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a", "b", "doc.md"), []byte("# doc\n"), 0600))
 
-	paths, err := recursiveWatchPaths(root)
+	paths, err := recursiveWatchPaths(root, "")
 	require.NoError(t, err)
 
 	assert.Contains(t, paths, root)
 	assert.Contains(t, paths, filepath.Join(root, "a"))
 	assert.Contains(t, paths, filepath.Join(root, "a", "b"))
+}
+
+func TestRecursiveWatchPathsSkipsAttachmentSubtree(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "guides"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, docAttachmentsDirName, "guides", "doc"), 0750))
+
+	paths, err := recursiveWatchPaths(root, docAttachmentsDirName)
+	require.NoError(t, err)
+
+	assert.Contains(t, paths, filepath.Join(root, "guides"))
+	assert.NotContains(t, paths, filepath.Join(root, docAttachmentsDirName))
+	assert.NotContains(t, paths, filepath.Join(root, docAttachmentsDirName, "guides"))
+}
+
+func TestRecursiveWatcherSkipsCreatedAttachmentDirectory(t *testing.T) {
+	root := t.TempDir()
+	attachmentDir := filepath.Join(root, docAttachmentsDirName)
+	docDir := filepath.Join(root, "guides")
+	require.NoError(t, os.MkdirAll(attachmentDir, 0750))
+	require.NoError(t, os.MkdirAll(docDir, 0750))
+
+	recorder := &recordingFileWatcher{}
+	watcher := newRecursiveDirectoryWatcher(root, false, func(string, string, fsnotify.Op) {}, func(string) {})
+	watcher.skipDirName = docAttachmentsDirName
+	watcher.watcher = recorder
+
+	require.NoError(t, watcher.addCreatedDirWatches(attachmentDir))
+	assert.Empty(t, recorder.added)
+	require.NoError(t, watcher.addCreatedDirWatches(docDir))
+	assert.Equal(t, []string{docDir}, recorder.added)
 }
 
 func TestSnapshotMarkdownFilesIncludesOnlyMarkdown(t *testing.T) {
@@ -78,6 +122,8 @@ func TestSnapshotMarkdownFilesIncludesOnlyMarkdown(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "notes.txt"), []byte("ignore\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "upper.MD"), []byte("ignore\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "nested", "page.md"), []byte("# page\n"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, docAttachmentsDirName, "nested"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, docAttachmentsDirName, "nested", "hidden.md"), []byte("attachment"), 0600))
 
 	files, err := snapshotMarkdownFiles(root)
 	require.NoError(t, err)
@@ -86,6 +132,29 @@ func TestSnapshotMarkdownFilesIncludesOnlyMarkdown(t *testing.T) {
 	assert.Contains(t, files, "nested/page.md")
 	assert.NotContains(t, files, "notes.txt")
 	assert.NotContains(t, files, "upper.MD")
+	assert.NotContains(t, files, filepath.ToSlash(filepath.Join(docAttachmentsDirName, "nested", "hidden.md")))
+}
+
+func TestHandleDocEventSkipsAttachmentPaths(t *testing.T) {
+	coalescer := newAppEventCoalescer(time.Hour, func(AppEvent) {})
+	t.Cleanup(func() {
+		coalescer.mu.Lock()
+		defer coalescer.mu.Unlock()
+		if coalescer.timer != nil {
+			coalescer.timer.Stop()
+		}
+	})
+	service := &AppStreamService{coalescer: coalescer}
+
+	service.handleDocEvent("", ".attachments/guide/page.md", fsnotify.Write)
+	assert.Empty(t, coalescer.pending)
+
+	service.handleDocEvent("", "guide/page.md", fsnotify.Write)
+	require.Len(t, coalescer.pending, 1)
+	for _, event := range coalescer.pending {
+		assert.Equal(t, AppEventTypeDoc, event.Type)
+		assert.Equal(t, "guide/page", event.Path)
+	}
 }
 
 func TestMarkdownPollingWatcherEmitsOnlyMarkdownEvents(t *testing.T) {

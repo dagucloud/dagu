@@ -158,7 +158,11 @@ func NewDocStore(cfg *config.Config) (docs.DocStore, error) {
 	if cfg == nil || cfg.Paths.DocsDir == "" {
 		return nil, nil
 	}
-	docStore, err := filedoc.New(cfg.Paths.DocsDir)
+	var opts []filedoc.Option
+	if cfg.Paths.DataDir != "" {
+		opts = append(opts, filedoc.WithDataDir(filepath.Join(cfg.Paths.DataDir, "docs")))
+	}
+	docStore, err := filedoc.New(cfg.Paths.DocsDir, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("document store: %w", err)
 	}

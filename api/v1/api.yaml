@@ -1683,6 +1683,16 @@ paths:
           schema:
             type: "string"
           description: "A search query string"
+        - name: tags
+          in: query
+          description: "Only return documents carrying every given tag (case-insensitive)"
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
         - $ref: "#/components/parameters/SearchCursor"
         - $ref: "#/components/parameters/SearchLimit"
       responses:
@@ -6985,6 +6995,16 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: tags
+          in: query
+          description: "Only return documents carrying every given tag (case-insensitive). Effective in flat mode only."
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
         - name: sort
           in: query
           required: false
@@ -7088,6 +7108,233 @@ paths:
                 $ref: "#/components/schemas/DocSearchResponse"
         "400":
           description: "Missing query parameter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /docs/backlinks:
+    get:
+      summary: "List document backlinks"
+      description: |
+        Returns documents whose wiki links resolve to the given target.
+        The target is a document path, or a scheme-prefixed wiki-link target
+        such as dag:name.
+      operationId: "listDocBacklinks"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: target
+          in: query
+          description: "Document path or scheme-prefixed wiki-link target (for example dag:name)"
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 300
+      responses:
+        "200":
+          description: "Documents linking to the target"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocBacklinksResponse"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /docs/doc/revisions:
+    get:
+      summary: "List document revisions"
+      description: "Returns stored prior versions of a document, newest first, without content."
+      operationId: "listDocRevisions"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+      responses:
+        "200":
+          description: "Stored revisions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocRevisionsResponse"
+        "404":
+          description: "Document not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /docs/doc/revision:
+    get:
+      summary: "Get document revision"
+      description: "Returns one stored revision including its content."
+      operationId: "getDocRevision"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+        - name: rev
+          in: query
+          description: "Revision identifier from the revision list"
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      responses:
+        "200":
+          description: "Revision with content"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocRevisionResponse"
+        "404":
+          description: "Document or revision not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /docs/doc/attachment:
+    put:
+      summary: "Upload document attachment"
+      description: "Stores a binary attachment for an existing document, replacing any attachment with the same name. Requires DAG write permission."
+      operationId: "uploadDocAttachment"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+        - name: name
+          in: query
+          description: "Attachment file name (single path segment)"
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: "Attachment stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocAttachmentResponse"
+        "400":
+          description: "Invalid attachment name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Document not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "Attachment too large"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    get:
+      summary: "Download document attachment"
+      description: "Streams a stored document attachment."
+      operationId: "downloadDocAttachment"
+      tags:
+        - "docs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: path
+          in: query
+          description: "Document path (may include slashes for nested docs)"
+          required: true
+          schema:
+            $ref: "#/components/schemas/DocPath"
+        - name: name
+          in: query
+          description: "Attachment file name (single path segment)"
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      responses:
+        "200":
+          description: "Attachment content"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment filename"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: "Document or attachment not found"
           content:
             application/json:
               schema:
@@ -13053,6 +13300,11 @@ components:
         description:
           type: string
           description: "Short document description from YAML frontmatter"
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -13144,6 +13396,11 @@ components:
         description:
           type: string
           description: "Short document description from YAML frontmatter"
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -13174,6 +13431,11 @@ components:
         description:
           type: string
           description: "Short document description from YAML frontmatter"
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -13196,6 +13458,11 @@ components:
           type: string
         title:
           type: string
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter. Only present on file nodes."
         workspace:
           type: string
           description: "Workspace that owns this node. Omitted for default nodes."
@@ -13245,6 +13512,11 @@ components:
         description:
           type: string
           description: "Short document description from YAML frontmatter"
+        tags:
+          type: array
+          items:
+            type: string
+          description: "Document tags from YAML frontmatter"
         workspace:
           type: string
           description: "Workspace that owns this document. Omitted for default documents."
@@ -13252,6 +13524,9 @@ components:
           type: string
           format: date-time
           description: "Last modification time of the document file"
+        matchCount:
+          type: integer
+          description: "Total number of query matches in the document"
         matches:
           type: array
           items:
@@ -13267,6 +13542,66 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DocSearchResultItem"
+
+    DocBacklinksResponse:
+      type: object
+      description: "Documents linking to a wiki-link target"
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocMetadataResponse"
+
+    DocRevisionResponse:
+      type: object
+      description: "A stored prior version of a document"
+      required:
+        - rev
+        - savedAt
+        - size
+      properties:
+        rev:
+          type: string
+          description: "Opaque revision identifier"
+        savedAt:
+          type: string
+          format: date-time
+          description: "When the revision was stored"
+        size:
+          type: integer
+          format: int64
+          description: "Revision content size in bytes"
+        content:
+          type: string
+          description: "Revision content. Present only when fetching a single revision."
+
+    DocRevisionsResponse:
+      type: object
+      description: "Stored revisions of a document, newest first"
+      required:
+        - revisions
+      properties:
+        revisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocRevisionResponse"
+
+    DocAttachmentResponse:
+      type: object
+      description: "A stored document attachment"
+      required:
+        - name
+        - size
+      properties:
+        name:
+          type: string
+          description: "Attachment file name"
+        size:
+          type: integer
+          format: int64
+          description: "Attachment size in bytes"
 
     DocPath:
       type: string
@@ -14253,6 +14588,7 @@ components:
       enum:
         - dag
         - doc
+        - doc-asset
 
     SyncItem:
       type: object
@@ -14400,12 +14736,25 @@ components:
           description: "Relative file path with extension"
         status:
           $ref: "#/components/schemas/SyncStatus"
+        kind:
+          $ref: "#/components/schemas/SyncItemKind"
+        binary:
+          type: boolean
+          description: "True for binary items; content fields are omitted and sizes are reported instead"
         localContent:
           type: string
-          description: "Current local file content"
+          description: "Current local file content. Omitted for binary items."
         remoteContent:
           type: string
-          description: "Content from remote repository"
+          description: "Content from remote repository. Omitted for binary items."
+        localSize:
+          type: integer
+          format: int64
+          description: "Local file size in bytes. Only set for binary items."
+        remoteSize:
+          type: integer
+          format: int64
+          description: "Remote file size in bytes. Only set for binary items."
         remoteCommit:
           type: string
           description: "Commit hash being compared against"
@@ -14419,7 +14768,6 @@ components:
         - itemId
         - filePath
         - status
-        - localContent
 
     SyncResultResponse:
       type: object

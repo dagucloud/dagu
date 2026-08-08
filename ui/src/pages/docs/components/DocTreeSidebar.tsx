@@ -8,7 +8,9 @@ import { useClient } from '@/hooks/api';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -26,6 +28,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  Tag,
   Trash2,
   X,
 } from 'lucide-react';
@@ -39,6 +42,7 @@ import React, {
 } from 'react';
 import { Tree, TreeApi, NodeApi } from 'react-arborist';
 import DocArboristNode, { type ContextAction } from './DocArboristNode';
+import DocBacklinksPanel from './DocBacklinksPanel';
 import DocOutlinePanel from './DocOutlinePanel';
 import {
   workspaceNameForSelection,
@@ -177,6 +181,43 @@ function filterTree(
     );
 }
 
+// Collect the distinct tags present on file nodes, first casing wins.
+function collectTagVocabulary(
+  nodes: DocTreeNodeResponse[] | undefined
+): string[] {
+  const byKey = new Map<string, string>();
+  const walk = (node: DocTreeNodeResponse) => {
+    node.tags?.forEach((tag) => {
+      const key = tag.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, tag);
+    });
+    node.children?.forEach(walk);
+  };
+  nodes?.forEach(walk);
+  return [...byKey.values()].sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase())
+  );
+}
+
+// Collect IDs of file nodes carrying every selected tag (case-insensitive).
+function collectTagMatchIds(
+  nodes: DocTreeNodeResponse[],
+  selectedTags: string[]
+): Set<string> {
+  const ids = new Set<string>();
+  const walk = (node: DocTreeNodeResponse) => {
+    if (node.type === DocTreeNodeResponseType.file) {
+      const nodeTags = (node.tags ?? []).map((t) => t.toLowerCase());
+      if (selectedTags.every((t) => nodeTags.includes(t))) {
+        ids.add(node.id);
+      }
+    }
+    node.children?.forEach(walk);
+  };
+  nodes.forEach(walk);
+  return ids;
+}
+
 const SKELETON_WIDTHS = [75, 60, 85, 65, 90, 70];
 
 function DocTreeSidebar({
@@ -237,12 +278,32 @@ function DocTreeSidebar({
     [selectedIds, workspaceById]
   );
 
-  // Search state
+  // Search state; results arrive relevance-ranked from the server.
+  type RankedSearchItem = {
+    id: string;
+    title: string;
+    workspace: string | null;
+    matchCount: number;
+  };
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<string[] | null>(null);
+  const [searchResults, setSearchResults] = useState<RankedSearchItem[] | null>(
+    null
+  );
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Tag filter state (lowercased tag keys)
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const tagVocabulary = useMemo(() => collectTagVocabulary(tree), [tree]);
+  // Drop selections for tags that no longer exist in the tree.
+  useEffect(() => {
+    if (selectedTags.length === 0) return;
+    const known = new Set(tagVocabulary.map((t) => t.toLowerCase()));
+    if (selectedTags.some((t) => !known.has(t))) {
+      setSelectedTags((prev) => prev.filter((t) => known.has(t)));
+    }
+  }, [tagVocabulary, selectedTags]);
 
   // Measure container height for react-arborist
   useEffect(() => {
@@ -306,7 +367,14 @@ function DocTreeSidebar({
           setSearchError(error.message || 'Search failed');
           return;
         }
-        setSearchResults(data?.results?.map((r) => r.id) ?? []);
+        setSearchResults(
+          data?.results?.map((r) => ({
+            id: r.id,
+            title: r.title,
+            workspace: r.workspace ?? null,
+            matchCount: r.matchCount ?? 0,
+          })) ?? []
+        );
       } catch {
         if (!cancelled) {
           setSearchResults(null);
@@ -323,26 +391,49 @@ function DocTreeSidebar({
     };
   }, [searchQuery, client, remoteNode, workspaceQuery]);
 
-  // Compute filtered tree data
+  // Compute filtered tree data (text search and tag filter intersect)
+  const filterMatchIds = useMemo(() => {
+    if (!tree) return null;
+    if (!searchResults && selectedTags.length === 0) return null;
+
+    let matchIds: Set<string> | null = searchResults
+      ? new Set(searchResults.map((r) => r.id))
+      : null;
+    if (selectedTags.length > 0) {
+      const tagIds = collectTagMatchIds(tree, selectedTags);
+      matchIds = matchIds
+        ? new Set([...matchIds].filter((id) => tagIds.has(id)))
+        : tagIds;
+    }
+    return matchIds;
+  }, [tree, searchResults, selectedTags]);
+
   const treeData = useMemo(() => {
     if (!tree) return [];
-    if (!searchResults) return tree;
+    if (!filterMatchIds) return tree;
 
-    const matchIds = new Set(searchResults);
-    const ancestorIds = collectAncestorPaths(matchIds);
-    return filterTree(tree, matchIds, ancestorIds);
-  }, [tree, searchResults]);
+    const ancestorIds = collectAncestorPaths(filterMatchIds);
+    return filterTree(tree, filterMatchIds, ancestorIds);
+  }, [tree, filterMatchIds]);
+
+  // While a text query is active, show the server-ranked flat result list
+  // instead of the filtered tree. An active tag filter narrows the list.
+  const rankedResults = useMemo(() => {
+    if (!searchResults || searchQuery.length < 2) return null;
+    if (selectedTags.length === 0 || !tree) return searchResults;
+    const tagIds = collectTagMatchIds(tree, selectedTags);
+    return searchResults.filter((r) => tagIds.has(r.id));
+  }, [searchResults, searchQuery, selectedTags, tree]);
 
   useEffect(() => {
-    if (!searchResults || !treeRef.current) return;
+    if (!filterMatchIds || !treeRef.current) return;
     const api = treeRef.current;
-    const matchIds = new Set(searchResults);
-    const ancestorIds = collectAncestorPaths(matchIds);
+    const ancestorIds = collectAncestorPaths(filterMatchIds);
     for (const id of ancestorIds) {
       const node = api.get(id);
       if (node && !node.isOpen) node.open();
     }
-  }, [searchResults, treeData]);
+  }, [filterMatchIds, treeData]);
 
   // Compute initial open state: expand ancestors of active doc
   const initialOpenState = useMemo(() => {
@@ -634,6 +725,59 @@ function DocTreeSidebar({
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          {tagVocabulary.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={`p-1 rounded-sm hover:bg-accent hover:text-foreground ${
+                    selectedTags.length > 0
+                      ? 'text-primary'
+                      : 'text-muted-foreground'
+                  }`}
+                  title="Filter by tags"
+                >
+                  <Tag className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuLabel className="text-xs py-1">
+                  Filter by tags
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {tagVocabulary.map((tag) => {
+                  const key = tag.toLowerCase();
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={key}
+                      className="text-xs"
+                      checked={selectedTags.includes(key)}
+                      onCheckedChange={(checked) => {
+                        setSelectedTags((prev) =>
+                          checked
+                            ? [...prev, key]
+                            : prev.filter((t) => t !== key)
+                        );
+                      }}
+                    >
+                      {tag}
+                    </DropdownMenuCheckboxItem>
+                  );
+                })}
+                {selectedTags.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-xs text-muted-foreground"
+                      onSelect={() => setSelectedTags([])}
+                    >
+                      Clear filter
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {canEdit && canCreateNew && (
             <button
               type="button"
@@ -772,27 +916,65 @@ function DocTreeSidebar({
                 </button>
               </div>
             )}
-            <Tree<DocTreeNodeResponse>
-              ref={treeRef}
-              data={treeData}
-              width="100%"
-              height={error && onRetry ? containerHeight - 28 : containerHeight}
-              indent={16}
-              rowHeight={28}
-              openByDefault={false}
-              initialOpenState={initialOpenState}
-              disableEdit={!canEdit}
-              disableDrag={disableDrag}
-              disableDrop={disableDrop}
-              onActivate={handleActivate}
-              onSelect={handleSelect}
-              onRename={handleRename}
-              onMove={handleMove}
-              idAccessor="id"
-              childrenAccessor={(d) => d.children ?? null}
-            >
-              {renderNode}
-            </Tree>
+            {rankedResults ? (
+              <div
+                className="overflow-y-auto"
+                style={{ height: containerHeight }}
+              >
+                {rankedResults.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    No matching documents
+                  </div>
+                )}
+                {rankedResults.map((item) => (
+                  <button
+                    key={`${item.workspace ?? ''}/${item.id}`}
+                    type="button"
+                    onClick={() =>
+                      onSelectFile(item.id, item.title, item.workspace)
+                    }
+                    className="w-full text-left px-3 py-1 hover:bg-accent"
+                    title={item.id}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs truncate">{item.title}</span>
+                      {item.matchCount > 0 && (
+                        <span className="ml-auto shrink-0 px-1 text-[10px] leading-4 rounded bg-muted text-muted-foreground">
+                          {item.matchCount}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground truncate">
+                      {item.id}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <Tree<DocTreeNodeResponse>
+                ref={treeRef}
+                data={treeData}
+                width="100%"
+                height={
+                  error && onRetry ? containerHeight - 28 : containerHeight
+                }
+                indent={16}
+                rowHeight={28}
+                openByDefault={false}
+                initialOpenState={initialOpenState}
+                disableEdit={!canEdit}
+                disableDrag={disableDrag}
+                disableDrop={disableDrop}
+                onActivate={handleActivate}
+                onSelect={handleSelect}
+                onRename={handleRename}
+                onMove={handleMove}
+                idAccessor="id"
+                childrenAccessor={(d) => d.children ?? null}
+              >
+                {renderNode}
+              </Tree>
+            )}
           </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 p-4 text-center">
@@ -831,6 +1013,13 @@ function DocTreeSidebar({
           onHeadingClick={onHeadingClick}
         />
       )}
+
+      {/* Backlinks panel */}
+      <DocBacklinksPanel
+        docPath={activeDocPath}
+        workspace={activeDocWorkspace}
+        onSelectDoc={onSelectFile}
+      />
     </div>
   );
 }

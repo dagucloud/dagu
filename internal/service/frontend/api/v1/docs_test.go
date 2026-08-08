@@ -4,8 +4,10 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"path"
 	"slices"
@@ -35,6 +37,8 @@ var _ docs.DocStore = (*mockDocStore)(nil)
 
 type mockDocStore struct {
 	docs         map[string]*docs.Doc
+	revisions    map[string][]docs.DocRevision
+	attachments  map[string]map[string][]byte
 	failAll      bool // when true, all operations return errForced
 	lastListOpts docs.ListDocsOptions
 }
@@ -541,6 +545,7 @@ func (m *mockDocStore) List(_ context.Context, opts docs.ListDocsOptions) (*pagi
 			ID:    id,
 			Name:  path.Base(id),
 			Title: doc.Title,
+			Tags:  doc.Tags,
 			Type:  "file",
 		})
 	}
@@ -571,6 +576,7 @@ func (m *mockDocStore) ListFlat(_ context.Context, opts docs.ListDocsOptions) (*
 			ID:          id,
 			Title:       doc.Title,
 			Description: doc.Description,
+			Tags:        doc.Tags,
 			ModTime:     time.Unix(1700000000, 0),
 		})
 	}
@@ -581,6 +587,92 @@ func (m *mockDocStore) ListFlat(_ context.Context, opts docs.ListDocsOptions) (*
 	end := min(start+pg.Limit(), len(items))
 	result := pagination.NewPaginatedResult(items[start:end], len(items), pg)
 	return &result, nil
+}
+
+func (m *mockDocStore) Backlinks(_ context.Context, target, pathPrefix string) ([]docs.DocMetadata, error) {
+	if m.failAll {
+		return nil, errForced
+	}
+	var results []docs.DocMetadata
+	for _, doc := range m.docs {
+		if doc.ID == target {
+			continue
+		}
+		underPrefix := pathPrefix != "" && strings.HasPrefix(doc.ID, pathPrefix+"/")
+		for _, link := range docs.ExtractWikiLinks(doc.Content) {
+			if link.Target == target || (underPrefix && pathPrefix+"/"+link.Target == target) {
+				results = append(results, docs.DocMetadata{
+					ID:          doc.ID,
+					Title:       doc.Title,
+					Description: doc.Description,
+					Tags:        doc.Tags,
+					ModTime:     time.Unix(1700000000, 0),
+				})
+				break
+			}
+		}
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].ID < results[j].ID })
+	return results, nil
+}
+
+func (m *mockDocStore) ListRevisions(_ context.Context, id string) ([]docs.DocRevision, error) {
+	if m.failAll {
+		return nil, errForced
+	}
+	return m.revisions[id], nil
+}
+
+func (m *mockDocStore) GetRevision(_ context.Context, id, rev string) (*docs.DocRevision, error) {
+	if m.failAll {
+		return nil, errForced
+	}
+	for _, revision := range m.revisions[id] {
+		if revision.Rev == rev {
+			cp := revision
+			return &cp, nil
+		}
+	}
+	return nil, docs.ErrDocRevisionNotFound
+}
+
+func (m *mockDocStore) PutAttachment(_ context.Context, id, name string, content io.Reader) (*docs.DocAttachment, error) {
+	if m.failAll {
+		return nil, errForced
+	}
+	if err := docs.ValidateAttachmentName(name); err != nil {
+		return nil, err
+	}
+	if _, ok := m.docs[id]; !ok {
+		return nil, docs.ErrDocNotFound
+	}
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return nil, err
+	}
+	if m.attachments == nil {
+		m.attachments = map[string]map[string][]byte{}
+	}
+	if m.attachments[id] == nil {
+		m.attachments[id] = map[string][]byte{}
+	}
+	m.attachments[id][name] = data
+	return &docs.DocAttachment{Name: name, Size: int64(len(data)), SavedAt: time.Unix(1700000000, 0)}, nil
+}
+
+func (m *mockDocStore) OpenAttachment(_ context.Context, id, name string) (io.ReadCloser, *docs.DocAttachment, error) {
+	if m.failAll {
+		return nil, nil, errForced
+	}
+	data, ok := m.attachments[id][name]
+	if !ok {
+		return nil, nil, docs.ErrDocAttachmentNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), &docs.DocAttachment{
+		Name:    name,
+		Size:    int64(len(data)),
+		SavedAt: time.Unix(1700000000, 0),
+	}, nil
 }
 
 // docTestSetup contains common test infrastructure for doc API tests.
@@ -660,6 +752,32 @@ func TestListDocs(t *testing.T) {
 		require.NotNil(t, listResp.Items)
 		assert.Len(t, *listResp.Items, 2)
 		assert.Equal(t, "Alpha doc", (*listResp.Items)[0].Description)
+	})
+
+	t.Run("tags filter is forwarded and tags are returned", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetup(t)
+		setup.store.docs["tagged"] = &docs.Doc{ID: "tagged", Title: "tagged", Tags: []string{"ops", "runbook"}, Content: "body"}
+
+		tags := []string{"ops"}
+		resp, err := setup.api.ListDocs(adminCtx(), apigen.ListDocsRequestObject{
+			Params: apigen.ListDocsParams{
+				Flat:    new(true),
+				Tags:    &tags,
+				Page:    new(1),
+				PerPage: new(10),
+			},
+		})
+		require.NoError(t, err)
+
+		listResp, ok := resp.(apigen.ListDocs200JSONResponse)
+		require.True(t, ok)
+		assert.Equal(t, []string{"ops"}, setup.store.lastListOpts.Tags)
+		require.NotNil(t, listResp.Items)
+		require.Len(t, *listResp.Items, 1)
+		require.NotNil(t, (*listResp.Items)[0].Tags)
+		assert.Equal(t, []string{"ops", "runbook"}, *(*listResp.Items)[0].Tags)
 	})
 
 	t.Run("tree mode returns nodes", func(t *testing.T) {
@@ -778,6 +896,145 @@ func TestListDocs(t *testing.T) {
 		a := apiv1.New(nil, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil)
 
 		_, err := a.ListDocs(adminCtx(), apigen.ListDocsRequestObject{})
+		require.Error(t, err)
+	})
+}
+
+func TestListDocBacklinks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default scope returns linkers", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetup(t)
+		setup.store.docs["target"] = &docs.Doc{ID: "target", Title: "target", Content: "doc"}
+		setup.store.docs["linker"] = &docs.Doc{ID: "linker", Title: "linker", Content: "see [[target]]"}
+		setup.store.docs["other"] = &docs.Doc{ID: "other", Title: "other", Content: "nothing"}
+
+		resp, err := setup.api.ListDocBacklinks(adminCtx(), apigen.ListDocBacklinksRequestObject{
+			Params: apigen.ListDocBacklinksParams{Target: "target"},
+		})
+		require.NoError(t, err)
+
+		linksResp, ok := resp.(apigen.ListDocBacklinks200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, linksResp.Items, 1)
+		assert.Equal(t, "linker", linksResp.Items[0].Id)
+	})
+
+	t.Run("workspace scope resolves relative links and trims IDs", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetupWithWorkspaces(t, "ops")
+		setup.store.docs["ops/guides/target"] = &docs.Doc{ID: "ops/guides/target", Title: "target", Content: "doc"}
+		setup.store.docs["ops/runbooks/linker"] = &docs.Doc{ID: "ops/runbooks/linker", Title: "linker", Content: "see [[guides/target]]"}
+		setup.store.docs["outside"] = &docs.Doc{ID: "outside", Title: "outside", Content: "see [[ops/guides/target]]"}
+		workspace := apigen.Workspace("ops")
+
+		resp, err := setup.api.ListDocBacklinks(adminCtx(), apigen.ListDocBacklinksRequestObject{
+			Params: apigen.ListDocBacklinksParams{Target: "guides/target", Workspace: &workspace},
+		})
+		require.NoError(t, err)
+
+		linksResp, ok := resp.(apigen.ListDocBacklinks200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, linksResp.Items, 1)
+		assert.Equal(t, "runbooks/linker", linksResp.Items[0].Id)
+		require.NotNil(t, linksResp.Items[0].Workspace)
+		assert.Equal(t, "ops", *linksResp.Items[0].Workspace)
+	})
+
+	t.Run("scheme target matches verbatim", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetup(t)
+		setup.store.docs["runbook"] = &docs.Doc{ID: "runbook", Title: "runbook", Content: "status [[dag:daily-etl]]"}
+
+		resp, err := setup.api.ListDocBacklinks(adminCtx(), apigen.ListDocBacklinksRequestObject{
+			Params: apigen.ListDocBacklinksParams{Target: "dag:daily-etl"},
+		})
+		require.NoError(t, err)
+
+		linksResp, ok := resp.(apigen.ListDocBacklinks200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, linksResp.Items, 1)
+		assert.Equal(t, "runbook", linksResp.Items[0].Id)
+	})
+
+	t.Run("invalid doc path target is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newDocTestSetup(t)
+		_, err := setup.api.ListDocBacklinks(adminCtx(), apigen.ListDocBacklinksRequestObject{
+			Params: apigen.ListDocBacklinksParams{Target: "../escape"},
+		})
+		require.Error(t, err)
+	})
+}
+
+func TestDocRevisions(t *testing.T) {
+	t.Parallel()
+
+	newSetup := func(t *testing.T) *docTestSetup {
+		setup := newDocTestSetup(t)
+		setup.store.docs["doc"] = &docs.Doc{ID: "doc", Title: "doc", Content: "current"}
+		setup.store.revisions = map[string][]docs.DocRevision{
+			"doc": {
+				{Rev: "r2", SavedAt: time.Unix(1700000100, 0), Size: 2, Content: "v2"},
+				{Rev: "r1", SavedAt: time.Unix(1700000000, 0), Size: 2, Content: "v1"},
+			},
+		}
+		return setup
+	}
+
+	t.Run("list returns revisions without content", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		resp, err := setup.api.ListDocRevisions(adminCtx(), apigen.ListDocRevisionsRequestObject{
+			Params: apigen.ListDocRevisionsParams{Path: "doc"},
+		})
+		require.NoError(t, err)
+
+		listResp, ok := resp.(apigen.ListDocRevisions200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, listResp.Revisions, 2)
+		assert.Equal(t, "r2", listResp.Revisions[0].Rev)
+		assert.Nil(t, listResp.Revisions[0].Content)
+	})
+
+	t.Run("get returns revision content", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		resp, err := setup.api.GetDocRevision(adminCtx(), apigen.GetDocRevisionRequestObject{
+			Params: apigen.GetDocRevisionParams{Path: "doc", Rev: "r1"},
+		})
+		require.NoError(t, err)
+
+		revResp, ok := resp.(apigen.GetDocRevision200JSONResponse)
+		require.True(t, ok)
+		require.NotNil(t, revResp.Content)
+		assert.Equal(t, "v1", *revResp.Content)
+	})
+
+	t.Run("unknown revision returns not found", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.GetDocRevision(adminCtx(), apigen.GetDocRevisionRequestObject{
+			Params: apigen.GetDocRevisionParams{Path: "doc", Rev: "missing"},
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("unknown document returns not found", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.ListDocRevisions(adminCtx(), apigen.ListDocRevisionsRequestObject{
+			Params: apigen.ListDocRevisionsParams{Path: "missing"},
+		})
 		require.Error(t, err)
 	})
 }
@@ -906,6 +1163,92 @@ func TestDocMutationsNotify(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 4, notifications)
+
+	// Attachment uploads change neither content nor the tree, so they must
+	// not fan out doc invalidations.
+	_, err = setup.api.CreateDoc(adminCtx(), apigen.CreateDocRequestObject{
+		Body: &apigen.CreateDocJSONRequestBody{Id: "doc3", Content: "created"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 5, notifications)
+	_, err = setup.api.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+		Params: apigen.UploadDocAttachmentParams{Path: "doc3", Name: "logo.png"},
+		Body:   strings.NewReader("png-bytes"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 5, notifications)
+}
+
+func TestDocAttachments(t *testing.T) {
+	t.Parallel()
+
+	newSetup := func(t *testing.T) *docTestSetup {
+		setup := newDocTestSetup(t)
+		setup.store.docs["doc"] = &docs.Doc{ID: "doc", Title: "doc", Content: "body"}
+		return setup
+	}
+
+	t.Run("upload and download round-trip", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		resp, err := setup.api.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+			Params: apigen.UploadDocAttachmentParams{Path: "doc", Name: "logo.png"},
+			Body:   strings.NewReader("png-bytes"),
+		})
+		require.NoError(t, err)
+		uploadResp, ok := resp.(apigen.UploadDocAttachment201JSONResponse)
+		require.True(t, ok)
+		assert.Equal(t, "logo.png", uploadResp.Name)
+		assert.Equal(t, int64(len("png-bytes")), uploadResp.Size)
+
+		dlResp, err := setup.api.DownloadDocAttachment(adminCtx(), apigen.DownloadDocAttachmentRequestObject{
+			Params: apigen.DownloadDocAttachmentParams{Path: "doc", Name: "logo.png"},
+		})
+		require.NoError(t, err)
+		stream, ok := dlResp.(apigen.DownloadDocAttachment200ApplicationoctetStreamResponse)
+		require.True(t, ok)
+		data, err := io.ReadAll(stream.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "png-bytes", string(data))
+		assert.Contains(t, stream.Headers.ContentDisposition, "logo.png")
+	})
+
+	t.Run("oversized upload is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+			Params: apigen.UploadDocAttachmentParams{Path: "doc", Name: "big.bin"},
+			Body:   bytes.NewReader(make([]byte, 10<<20+1)),
+		})
+		require.Error(t, err)
+		var apiErr *apiv1.Error
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, apigen.ErrorCodePayloadTooLarge, apiErr.Code)
+		assert.Equal(t, http.StatusRequestEntityTooLarge, apiErr.HTTPStatus)
+	})
+
+	t.Run("invalid name is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+			Params: apigen.UploadDocAttachmentParams{Path: "doc", Name: "../escape"},
+			Body:   strings.NewReader("x"),
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("unknown attachment returns not found", func(t *testing.T) {
+		t.Parallel()
+
+		setup := newSetup(t)
+		_, err := setup.api.DownloadDocAttachment(adminCtx(), apigen.DownloadDocAttachmentRequestObject{
+			Params: apigen.DownloadDocAttachmentParams{Path: "doc", Name: "missing.png"},
+		})
+		require.Error(t, err)
+	})
 }
 
 func TestCreateDoc(t *testing.T) {
@@ -1607,6 +1950,16 @@ func TestDocWritePermissionDenied(t *testing.T) {
 		_, err := a.UpdateDoc(adminCtx(), apigen.UpdateDocRequestObject{
 			Params: apigen.UpdateDocParams{Path: "test"},
 			Body:   &apigen.UpdateDocJSONRequestBody{Content: "new"},
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("UploadDocAttachment denied", func(t *testing.T) {
+		t.Parallel()
+		a := newNoWriteSetup(t)
+		_, err := a.UploadDocAttachment(adminCtx(), apigen.UploadDocAttachmentRequestObject{
+			Params: apigen.UploadDocAttachmentParams{Path: "test", Name: "logo.png"},
+			Body:   strings.NewReader("x"),
 		})
 		require.Error(t, err)
 	})

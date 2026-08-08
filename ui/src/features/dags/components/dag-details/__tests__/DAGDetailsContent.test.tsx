@@ -41,6 +41,10 @@ vi.mock('../DAGSettingsTab', () => ({
   default: () => null,
 }));
 
+vi.mock('../DAGDocsTab', () => ({
+  default: () => null,
+}));
+
 vi.mock('../IncidentsTab', () => ({
   default: () => null,
 }));
@@ -66,7 +70,7 @@ const currentDAGRun = {
   artifactsAvailable: true,
 } as never;
 
-function renderContent(activeTab = 'status') {
+function renderContent(activeTab = 'status', isModal = true) {
   render(
     <MemoryRouter>
       <DAGDetailsContent
@@ -76,7 +80,7 @@ function renderContent(activeTab = 'status') {
         refreshFn={vi.fn()}
         formatDuration={vi.fn()}
         activeTab={activeTab}
-        isModal
+        isModal={isModal}
         fillHeight
       />
     </MemoryRouter>
@@ -104,6 +108,7 @@ describe('DAGDetailsContent', () => {
       'Settings',
       'Notifications',
       'History',
+      'Docs',
     ]) {
       expect(screen.getAllByText(label)).toHaveLength(2);
     }
@@ -117,4 +122,9 @@ describe('DAGDetailsContent', () => {
       expect(screen.getAllByText('Log')).toHaveLength(2);
     }
   );
+
+  it('does not link the modal-only docs tab from the DAG page', () => {
+    renderContent('status', false);
+    expect(screen.queryByText('Docs')).not.toBeInTheDocument();
+  });
 });

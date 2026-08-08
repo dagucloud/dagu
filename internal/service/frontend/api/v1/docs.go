@@ -4,9 +4,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,10 +21,11 @@ import (
 )
 
 const (
-	auditActionDocCreate = "doc_create"
-	auditActionDocUpdate = "doc_update"
-	auditActionDocDelete = "doc_delete"
-	auditActionDocRename = "doc_rename"
+	auditActionDocCreate           = "doc_create"
+	auditActionDocUpdate           = "doc_update"
+	auditActionDocDelete           = "doc_delete"
+	auditActionDocRename           = "doc_rename"
+	auditActionDocAttachmentUpload = "doc_attachment_upload"
 )
 
 var (
@@ -48,6 +51,18 @@ var (
 		Code:       api.ErrorCodeConflict,
 		Message:    "Document path conflicts with an existing file or directory",
 		HTTPStatus: http.StatusConflict,
+	}
+
+	errDocRevisionNotFound = &Error{
+		Code:       api.ErrorCodeNotFound,
+		Message:    "Document revision not found",
+		HTTPStatus: http.StatusNotFound,
+	}
+
+	errDocAttachmentNotFound = &Error{
+		Code:       api.ErrorCodeNotFound,
+		Message:    "Document attachment not found",
+		HTTPStatus: http.StatusNotFound,
 	}
 )
 
@@ -83,6 +98,7 @@ func (a *API) ListDocs(ctx context.Context, request api.ListDocsRequestObject) (
 		Sort:             sortField,
 		Order:            sortOrder,
 		PathPrefix:       pathPrefix,
+		Tags:             valueOf(request.Params.Tags),
 		ExcludePathRoots: visibility.excludedPathRoots(),
 	}
 
@@ -207,6 +223,236 @@ func (a *API) GetDoc(ctx context.Context, request api.GetDocRequestObject) (api.
 	return api.GetDoc200JSONResponse(resp), nil
 }
 
+// docPointReadScopedID resolves and authorizes a doc path for point reads,
+// returning the stored ID after verifying the document exists and is visible.
+func (a *API) docPointReadScopedID(ctx context.Context, workspaceParam *api.Workspace, path string) (string, error) {
+	workspaceName, visibility, err := a.docPointReadScopeForParams(ctx, workspaceParam)
+	if err != nil {
+		return "", err
+	}
+	docID, err := scopedDocPath(workspaceName, path)
+	if err != nil {
+		return "", err
+	}
+	doc, err := a.docStore.Get(ctx, docID)
+	if err != nil {
+		if errors.Is(err, docs.ErrDocNotFound) {
+			return "", errDocNotFound
+		}
+		return "", internalError(err)
+	}
+	if workspaceName == "" && !visibility.all && !visibility.visible(doc.ID) {
+		return "", errDocNotFound
+	}
+	return docID, nil
+}
+
+// ListDocRevisions returns stored prior versions of a document.
+func (a *API) ListDocRevisions(ctx context.Context, request api.ListDocRevisionsRequestObject) (api.ListDocRevisionsResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	docID, err := a.docPointReadScopedID(ctx, request.Params.Workspace, request.Params.Path)
+	if err != nil {
+		return nil, err
+	}
+	revisions, err := a.docStore.ListRevisions(ctx, docID)
+	if err != nil {
+		logger.Error(ctx, "Failed to list doc revisions", tag.Error(err))
+		return nil, internalError(err)
+	}
+	items := make([]api.DocRevisionResponse, 0, len(revisions))
+	for _, revision := range revisions {
+		items = append(items, api.DocRevisionResponse{
+			Rev:     revision.Rev,
+			SavedAt: revision.SavedAt,
+			Size:    revision.Size,
+		})
+	}
+	return api.ListDocRevisions200JSONResponse{Revisions: items}, nil
+}
+
+// GetDocRevision returns one stored revision including its content.
+func (a *API) GetDocRevision(ctx context.Context, request api.GetDocRevisionRequestObject) (api.GetDocRevisionResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	docID, err := a.docPointReadScopedID(ctx, request.Params.Workspace, request.Params.Path)
+	if err != nil {
+		return nil, err
+	}
+	revision, err := a.docStore.GetRevision(ctx, docID, request.Params.Rev)
+	if err != nil {
+		if errors.Is(err, docs.ErrDocRevisionNotFound) {
+			return nil, errDocRevisionNotFound
+		}
+		logger.Error(ctx, "Failed to get doc revision", tag.Error(err))
+		return nil, internalError(err)
+	}
+	return api.GetDocRevision200JSONResponse(api.DocRevisionResponse{
+		Rev:     revision.Rev,
+		SavedAt: revision.SavedAt,
+		Size:    revision.Size,
+		Content: ptrOf(revision.Content),
+	}), nil
+}
+
+// maxDocAttachmentSize caps a single attachment upload.
+const maxDocAttachmentSize = 10 << 20 // 10 MiB
+
+// UploadDocAttachment stores a binary attachment for an existing document.
+func (a *API) UploadDocAttachment(ctx context.Context, request api.UploadDocAttachmentRequestObject) (api.UploadDocAttachmentResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	if request.Body == nil {
+		return nil, ErrInvalidRequestBody
+	}
+	workspaceName, err := docMutationScopeForParams(request.Params.Workspace)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireDAGWriteForWorkspace(ctx, workspaceName); err != nil {
+		return nil, err
+	}
+	if err := docs.ValidateAttachmentName(request.Params.Name); err != nil {
+		return nil, &Error{
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+			HTTPStatus: http.StatusBadRequest,
+		}
+	}
+	docID, err := scopedDocPath(workspaceName, request.Params.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(io.LimitReader(request.Body, maxDocAttachmentSize+1))
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if len(data) > maxDocAttachmentSize {
+		return nil, &Error{
+			Code:       api.ErrorCodePayloadTooLarge,
+			Message:    fmt.Sprintf("attachment too large (max %d bytes)", maxDocAttachmentSize),
+			HTTPStatus: http.StatusRequestEntityTooLarge,
+		}
+	}
+
+	attachment, err := a.docStore.PutAttachment(ctx, docID, request.Params.Name, bytes.NewReader(data))
+	if err != nil {
+		switch {
+		case errors.Is(err, docs.ErrDocNotFound):
+			return nil, errDocNotFound
+		case errors.Is(err, docs.ErrInvalidAttachmentName):
+			return nil, &Error{
+				Code:       api.ErrorCodeBadRequest,
+				Message:    err.Error(),
+				HTTPStatus: http.StatusBadRequest,
+			}
+		}
+		logger.Error(ctx, "Failed to store doc attachment", tag.Error(err))
+		return nil, internalError(err)
+	}
+
+	a.logAudit(ctx, audit.CategoryDoc, auditActionDocAttachmentUpload, map[string]any{
+		"workspace": workspaceName,
+		"path":      request.Params.Path,
+		"name":      attachment.Name,
+		"size":      attachment.Size,
+	})
+
+	return api.UploadDocAttachment201JSONResponse(api.DocAttachmentResponse{
+		Name: attachment.Name,
+		Size: attachment.Size,
+	}), nil
+}
+
+// DownloadDocAttachment streams a stored document attachment.
+func (a *API) DownloadDocAttachment(ctx context.Context, request api.DownloadDocAttachmentRequestObject) (api.DownloadDocAttachmentResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	docID, err := a.docPointReadScopedID(ctx, request.Params.Workspace, request.Params.Path)
+	if err != nil {
+		return nil, err
+	}
+	reader, attachment, err := a.docStore.OpenAttachment(ctx, docID, request.Params.Name)
+	if err != nil {
+		if errors.Is(err, docs.ErrDocAttachmentNotFound) || errors.Is(err, docs.ErrInvalidAttachmentName) {
+			return nil, errDocAttachmentNotFound
+		}
+		logger.Error(ctx, "Failed to open doc attachment", tag.Error(err))
+		return nil, internalError(err)
+	}
+	return api.DownloadDocAttachment200ApplicationoctetStreamResponse{
+		Body: reader,
+		Headers: api.DownloadDocAttachment200ResponseHeaders{
+			ContentDisposition: fmt.Sprintf("attachment; filename=%q", sanitizeFilename(attachment.Name)),
+		},
+		ContentLength: attachment.Size,
+	}, nil
+}
+
+// ListDocBacklinks returns documents whose wiki links resolve to the target.
+func (a *API) ListDocBacklinks(ctx context.Context, request api.ListDocBacklinksRequestObject) (api.ListDocBacklinksResponseObject, error) {
+	if err := a.requireDocManagement(); err != nil {
+		return nil, err
+	}
+	a.workspaceDocMu.RLock()
+	defer a.workspaceDocMu.RUnlock()
+	workspaceName, visibility, err := a.docPointReadScopeForParams(ctx, request.Params.Workspace)
+	if err != nil {
+		return nil, err
+	}
+	target := strings.TrimSpace(request.Params.Target)
+	items := make([]api.DocMetadataResponse, 0)
+	if target == "" {
+		return api.ListDocBacklinks200JSONResponse{Items: items}, nil
+	}
+	// Targets without a scheme are document paths scoped to the workspace;
+	// scheme-prefixed targets (dag:name) are matched verbatim.
+	if !strings.Contains(target, ":") {
+		if err := validateDocPath(target); err != nil {
+			return nil, err
+		}
+		target, err = scopedDocPath(workspaceName, target)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	results, err := a.docStore.Backlinks(ctx, target, workspaceName)
+	if err != nil {
+		logger.Error(ctx, "Failed to list doc backlinks", tag.Error(err))
+		return nil, internalError(err)
+	}
+	for _, m := range results {
+		rawID := m.ID
+		if workspaceName != "" {
+			prefix := workspaceName + "/"
+			if !strings.HasPrefix(m.ID, prefix) {
+				continue
+			}
+			m.ID = strings.TrimPrefix(m.ID, prefix)
+		} else if !visibility.all && !visibility.visible(m.ID) {
+			continue
+		}
+		item := toDocMetadataResponse(m)
+		item.Workspace = docWorkspaceValue(workspaceName, rawID, visibility, false)
+		items = append(items, item)
+	}
+	return api.ListDocBacklinks200JSONResponse{Items: items}, nil
+}
+
 // SearchDocs searches document content.
 func (a *API) SearchDocs(ctx context.Context, request api.SearchDocsRequestObject) (api.SearchDocsResponseObject, error) {
 	if err := a.requireDocManagement(); err != nil {
@@ -246,7 +492,11 @@ func (a *API) SearchDocs(ctx context.Context, request api.SearchDocsRequestObjec
 			Id:          r.ID,
 			Title:       r.Title,
 			Description: r.Description,
+			Tags:        docTagsValue(r.Tags),
 			Workspace:   docWorkspaceValue(workspaceName, rawID, visibility, false),
+		}
+		if r.MatchCount > 0 {
+			item.MatchCount = ptrOf(r.MatchCount)
 		}
 		if !r.ModTime.IsZero() {
 			item.ModifiedAt = ptrOf(r.ModTime)

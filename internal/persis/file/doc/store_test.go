@@ -589,6 +589,39 @@ func TestSearch(t *testing.T) {
 	assert.Len(t, results, 2)
 }
 
+func TestSearchRanking(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// zz-body sorts last by ID but has the most matching lines.
+	require.NoError(t, store.Create(ctx, "zz-body", "etl\netl\netl\netl"))
+	// title-hit outranks any body-only match count.
+	require.NoError(t, store.Create(ctx, "a-title", "---\ntitle: ETL Runbook\n---\nunrelated body etl"))
+	require.NoError(t, store.Create(ctx, "m-single", "one etl mention"))
+
+	results, err := store.Search(ctx, "etl")
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	assert.Equal(t, "a-title", results[0].ID)
+	assert.Equal(t, "zz-body", results[1].ID)
+	assert.Equal(t, "m-single", results[2].ID)
+	assert.Positive(t, results[0].MatchCount)
+}
+
+func TestSearchRankingTiebreakByID(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "b", "needle"))
+	require.NoError(t, store.Create(ctx, "a", "needle"))
+
+	results, err := store.Search(ctx, "needle")
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	assert.Equal(t, "a", results[0].ID)
+	assert.Equal(t, "b", results[1].ID)
+}
+
 func TestSearchNoResults(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -613,7 +646,7 @@ func TestFrontmatter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "My Custom Title", doc.Title)
 	// Content now includes the full file with frontmatter.
-	assert.Equal(t, "---\ntitle: My Custom Title\n---\n# Content here", doc.Content)
+	assert.Equal(t, string(data), doc.Content)
 }
 
 func TestTitleFromID(t *testing.T) {
@@ -672,6 +705,128 @@ func TestListFlatIncludesDescriptionFromFrontmatter(t *testing.T) {
 	require.Len(t, result.Items, 1)
 	assert.Equal(t, "Restart API", result.Items[0].Title)
 	assert.Equal(t, "Restart the API service and verify health.", result.Items[0].Description)
+}
+
+func TestParseDocFileTags(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		tags  []string
+	}{
+		{
+			name:  "list form",
+			input: "---\ntitle: T\ntags:\n  - ops\n  - runbook\n---\nbody",
+			tags:  []string{"ops", "runbook"},
+		},
+		{
+			name:  "comma-separated scalar",
+			input: "---\ntitle: T\ntags: ops, runbook\n---\nbody",
+			tags:  []string{"ops", "runbook"},
+		},
+		{
+			name:  "case-insensitive dedupe keeps first casing",
+			input: "---\ntags: [Ops, ops, runbook]\n---\nbody",
+			tags:  []string{"Ops", "runbook"},
+		},
+		{
+			name:  "blank entries dropped",
+			input: "---\ntags: ['', '  ', ops]\n---\nbody",
+			tags:  []string{"ops"},
+		},
+		{
+			name:  "absent",
+			input: "---\ntitle: T\n---\nbody",
+			tags:  nil,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := parseDocFile([]byte(tc.input), "test")
+			require.NoError(t, err)
+			assert.Equal(t, tc.tags, doc.Tags)
+		})
+	}
+}
+
+func TestParseDocFileMalformedTagsKeepTitle(t *testing.T) {
+	// A tags value of the wrong shape must not invalidate the other
+	// frontmatter fields.
+	input := "---\ntitle: Kept\ntags:\n  nested: map\n---\nbody"
+	doc, err := parseDocFile([]byte(input), "test")
+	require.NoError(t, err)
+	assert.Equal(t, "Kept", doc.Title)
+	assert.Nil(t, doc.Tags)
+}
+
+func TestListFlatFilterByTags(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "a", "---\ntags: [ops, runbook]\n---\nbody"))
+	require.NoError(t, store.Create(ctx, "b", "---\ntags: [ops]\n---\nbody"))
+	require.NoError(t, store.Create(ctx, "c", "no tags"))
+
+	opts := defaultFlatOpts(1, 50)
+	opts.Tags = []string{"OPS"}
+	result, err := store.ListFlat(ctx, opts)
+	require.NoError(t, err)
+	require.Len(t, result.Items, 2)
+	assert.Equal(t, []string{"ops", "runbook"}, result.Items[0].Tags)
+
+	// AND semantics: both tags must be present.
+	opts.Tags = []string{"ops", "runbook"}
+	result, err = store.ListFlat(ctx, opts)
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "a", result.Items[0].ID)
+}
+
+func TestListTreeIncludesTags(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "guides/tagged", "---\ntags: [ops]\n---\nbody"))
+
+	result, err := store.List(ctx, defaultListOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	require.Len(t, result.Items[0].Children, 1)
+	assert.Equal(t, []string{"ops"}, result.Items[0].Children[0].Tags)
+}
+
+func TestSearchCursorFilterByTags(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "a", "---\ntags: [ops]\n---\nneedle"))
+	require.NoError(t, store.Create(ctx, "b", "needle"))
+
+	result, err := store.SearchCursor(ctx, docs.SearchDocsOptions{Query: "needle", Limit: 10, Tags: []string{"ops"}})
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "a", result.Items[0].ID)
+	assert.Equal(t, []string{"ops"}, result.Items[0].Tags)
+
+	// A cursor issued for one tag filter must be rejected under another.
+	require.NoError(t, store.Create(ctx, "c", "---\ntags: [ops]\n---\nneedle"))
+	first, err := store.SearchCursor(ctx, docs.SearchDocsOptions{Query: "needle", Limit: 1, Tags: []string{"ops"}})
+	require.NoError(t, err)
+	require.True(t, first.HasMore)
+	_, err = store.SearchCursor(ctx, docs.SearchDocsOptions{Query: "needle", Limit: 1, Cursor: first.NextCursor})
+	assert.ErrorIs(t, err, pagination.ErrInvalidCursor)
+}
+
+func TestIndexRefreshesTagsAfterUpdate(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, "doc", "---\ntags: [old]\n---\nbody"))
+	require.NoError(t, store.Update(ctx, "doc", "---\ntags: [new]\n---\nbody"))
+
+	result, err := store.ListFlat(ctx, defaultFlatOpts(1, 50))
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, []string{"new"}, result.Items[0].Tags)
 }
 
 func TestListFlatSkipsNonConformingFiles(t *testing.T) {
@@ -1083,7 +1238,7 @@ func TestListFlatEmpty(t *testing.T) {
 	assert.Empty(t, result.Items)
 }
 
-func TestSearchIsCaseSensitive(t *testing.T) {
+func TestSearchIsCaseInsensitive(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
@@ -1091,7 +1246,8 @@ func TestSearchIsCaseSensitive(t *testing.T) {
 
 	results, err := store.Search(ctx, "hello")
 	require.NoError(t, err)
-	assert.Empty(t, results)
+	require.Len(t, results, 1)
+	assert.Equal(t, "doc1", results[0].ID)
 }
 
 func TestSearchWithFrontmatter(t *testing.T) {
@@ -1192,12 +1348,11 @@ func TestRenamePreservesContent(t *testing.T) {
 }
 
 func TestParseDocFileCRLF(t *testing.T) {
-	// Verify CRLF normalization.
 	input := "---\r\ntitle: CRLF\r\n---\r\n# Content"
 	doc, err := parseDocFile([]byte(input), "crlf-doc")
 	require.NoError(t, err)
 	assert.Equal(t, "CRLF", doc.Title)
-	assert.Equal(t, "---\ntitle: CRLF\n---\n# Content", doc.Content)
+	assert.Equal(t, input, doc.Content)
 }
 
 func TestParseDocFileOnlyFrontmatter(t *testing.T) {
@@ -1206,7 +1361,7 @@ func TestParseDocFileOnlyFrontmatter(t *testing.T) {
 	doc, err := parseDocFile([]byte(input), "no-body")
 	require.NoError(t, err)
 	assert.Equal(t, "No Body", doc.Title)
-	assert.Equal(t, "---\ntitle: No Body\n---", doc.Content)
+	assert.Equal(t, input, doc.Content)
 }
 
 func TestParseDocFileInvalidFrontmatter(t *testing.T) {
@@ -1687,7 +1842,7 @@ func TestRenameDirectoryPreservesContent(t *testing.T) {
 	doc, err := store.Get(ctx, "newdir/doc")
 	require.NoError(t, err)
 	assert.Equal(t, "My Title", doc.Title)
-	assert.Equal(t, strings.TrimRight(content, "\n"), doc.Content)
+	assert.Equal(t, content, doc.Content)
 }
 
 func TestRenameDirectoryToRoot(t *testing.T) {
@@ -1867,10 +2022,10 @@ func TestMutationRejectsAmbiguousFileAndDirectoryID(t *testing.T) {
 
 	doc, err := store.Get(ctx, "foo")
 	require.NoError(t, err)
-	assert.Equal(t, "file content", doc.Content)
+	assert.Equal(t, "file content\n", doc.Content)
 	doc, err = store.Get(ctx, "foo/child")
 	require.NoError(t, err)
-	assert.Equal(t, "child content", doc.Content)
+	assert.Equal(t, "child content\n", doc.Content)
 }
 
 func TestDeleteDirectoryNotFound(t *testing.T) {

@@ -99,6 +99,7 @@ func (s *Store) buildTreeFromIndexLocked(pathPrefix, sortField, sortOrder string
 			ID:      id,
 			Name:    filepath.Base(filepath.FromSlash(id)) + ".md",
 			Title:   doc.Title,
+			Tags:    doc.Tags,
 			Type:    "file",
 			ModTime: doc.ModTime,
 		}

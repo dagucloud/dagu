@@ -258,16 +258,24 @@ func (a *API) GetSyncItemDiff(ctx context.Context, req api.GetSyncItemDiffReques
 	}
 
 	filePath := syncItemFilePath(diff.ItemID, diff.FileExtension)
-	return api.GetSyncItemDiff200JSONResponse{
+	resp := api.GetSyncItemDiff200JSONResponse{
 		ItemId:        diff.ItemID,
 		FilePath:      filePath,
 		Status:        toAPISyncStatus(diff.Status),
-		LocalContent:  diff.LocalContent,
-		RemoteContent: ptrOf(diff.RemoteContent),
+		Kind:          ptrOf(toAPISyncItemKind(diff.ItemID)),
 		RemoteCommit:  ptrOf(diff.RemoteCommit),
 		RemoteAuthor:  ptrOf(diff.RemoteAuthor),
 		RemoteMessage: ptrOf(diff.RemoteMessage),
-	}, nil
+	}
+	if diff.Binary {
+		resp.Binary = ptrOf(true)
+		resp.LocalSize = diff.LocalSize
+		resp.RemoteSize = diff.RemoteSize
+		return resp, nil
+	}
+	resp.LocalContent = ptrOf(diff.LocalContent)
+	resp.RemoteContent = ptrOf(diff.RemoteContent)
+	return resp, nil
 }
 
 // UpdateSyncConfig updates the Git sync configuration.
@@ -694,11 +702,16 @@ func toAPISyncStatus(s gitsync.SyncStatus) api.SyncStatus {
 }
 
 func syncItemFilePath(itemID, fileExtension string) string {
-	if gitsync.SyncItemKindForID(itemID) == gitsync.SyncItemKindDoc {
+	switch gitsync.SyncItemKindForID(itemID) {
+	case gitsync.SyncItemKindDocAsset:
+		// Asset IDs already carry their extension.
+		return itemID
+	case gitsync.SyncItemKindDoc:
 		if strings.EqualFold(fileExtension, ".md") {
 			return itemID + fileExtension
 		}
 		return itemID + ".md"
+	case gitsync.SyncItemKindDAG:
 	}
 	if strings.EqualFold(fileExtension, ".yml") {
 		return itemID + ".yml"
@@ -748,8 +761,12 @@ func toAPISyncItems(states map[string]*gitsync.SyncItemState) []api.SyncItem {
 }
 
 func toAPISyncItemKind(itemID string) api.SyncItemKind {
-	if gitsync.SyncItemKindForID(itemID) == gitsync.SyncItemKindDoc {
+	switch gitsync.SyncItemKindForID(itemID) {
+	case gitsync.SyncItemKindDocAsset:
+		return api.SyncItemKindDocAsset
+	case gitsync.SyncItemKindDoc:
 		return api.SyncItemKindDoc
+	case gitsync.SyncItemKindDAG:
 	}
 	return api.SyncItemKindDag
 }

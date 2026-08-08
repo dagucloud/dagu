@@ -2785,6 +2785,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/docs/backlinks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List document backlinks
+         * @description Returns documents whose wiki links resolve to the given target.
+         *     The target is a document path, or a scheme-prefixed wiki-link target
+         *     such as dag:name.
+         *
+         */
+        get: operations["listDocBacklinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/docs/doc/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List document revisions
+         * @description Returns stored prior versions of a document, newest first, without content.
+         */
+        get: operations["listDocRevisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/docs/doc/revision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get document revision
+         * @description Returns one stored revision including its content.
+         */
+        get: operations["getDocRevision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/docs/doc/attachment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download document attachment
+         * @description Streams a stored document attachment.
+         */
+        get: operations["downloadDocAttachment"];
+        /**
+         * Upload document attachment
+         * @description Stores a binary attachment for an existing document, replacing any attachment with the same name. Requires DAG write permission.
+         */
+        put: operations["uploadDocAttachment"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/docs/doc": {
         parameters: {
             query?: never;
@@ -5255,6 +5342,8 @@ export interface components {
             title: string;
             /** @description Short document description from YAML frontmatter */
             description: string;
+            /** @description Document tags from YAML frontmatter */
+            tags?: string[];
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /**
@@ -5296,6 +5385,8 @@ export interface components {
             title: string;
             /** @description Short document description from YAML frontmatter */
             description: string;
+            /** @description Document tags from YAML frontmatter */
+            tags?: string[];
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /** @description Full file content including YAML frontmatter */
@@ -5317,6 +5408,8 @@ export interface components {
             title: string;
             /** @description Short document description from YAML frontmatter */
             description: string;
+            /** @description Document tags from YAML frontmatter */
+            tags?: string[];
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /**
@@ -5330,6 +5423,8 @@ export interface components {
             id: string;
             name: string;
             title?: string;
+            /** @description Document tags from YAML frontmatter. Only present on file nodes. */
+            tags?: string[];
             /** @description Workspace that owns this node. Omitted for default nodes. */
             workspace?: string;
             /** @enum {string} */
@@ -5353,6 +5448,8 @@ export interface components {
             title: string;
             /** @description Short document description from YAML frontmatter */
             description: string;
+            /** @description Document tags from YAML frontmatter */
+            tags?: string[];
             /** @description Workspace that owns this document. Omitted for default documents. */
             workspace?: string;
             /**
@@ -5360,11 +5457,48 @@ export interface components {
              * @description Last modification time of the document file
              */
             modifiedAt?: string;
+            /** @description Total number of query matches in the document */
+            matchCount?: number;
             matches?: components["schemas"]["SearchMatchItem"][];
         };
         /** @description Search results */
         DocSearchResponse: {
             results: components["schemas"]["DocSearchResultItem"][];
+        };
+        /** @description Documents linking to a wiki-link target */
+        DocBacklinksResponse: {
+            items: components["schemas"]["DocMetadataResponse"][];
+        };
+        /** @description A stored prior version of a document */
+        DocRevisionResponse: {
+            /** @description Opaque revision identifier */
+            rev: string;
+            /**
+             * Format: date-time
+             * @description When the revision was stored
+             */
+            savedAt: string;
+            /**
+             * Format: int64
+             * @description Revision content size in bytes
+             */
+            size: number;
+            /** @description Revision content. Present only when fetching a single revision. */
+            content?: string;
+        };
+        /** @description Stored revisions of a document, newest first */
+        DocRevisionsResponse: {
+            revisions: components["schemas"]["DocRevisionResponse"][];
+        };
+        /** @description A stored document attachment */
+        DocAttachmentResponse: {
+            /** @description Attachment file name */
+            name: string;
+            /**
+             * Format: int64
+             * @description Attachment size in bytes
+             */
+            size: number;
         };
         /** @description Relative document path without extension, for example docs/deploy-guide. Must not start with / or contain .. */
         DocPath: string;
@@ -5944,10 +6078,23 @@ export interface components {
             /** @description Relative file path with extension */
             filePath: string;
             status: components["schemas"]["SyncStatus"];
-            /** @description Current local file content */
-            localContent: string;
-            /** @description Content from remote repository */
+            kind?: components["schemas"]["SyncItemKind"];
+            /** @description True for binary items; content fields are omitted and sizes are reported instead */
+            binary?: boolean;
+            /** @description Current local file content. Omitted for binary items. */
+            localContent?: string;
+            /** @description Content from remote repository. Omitted for binary items. */
             remoteContent?: string;
+            /**
+             * Format: int64
+             * @description Local file size in bytes. Only set for binary items.
+             */
+            localSize?: number;
+            /**
+             * Format: int64
+             * @description Remote file size in bytes. Only set for binary items.
+             */
+            remoteSize?: number;
             /** @description Commit hash being compared against */
             remoteCommit?: string;
             /** @description Author of the remote commit */
@@ -8378,6 +8525,8 @@ export interface operations {
                 prefix?: components["parameters"]["DocPrefix"];
                 /** @description A search query string */
                 q: string;
+                /** @description Only return documents carrying every given tag (case-insensitive) */
+                tags?: string[];
                 /** @description Opaque cursor returned by the previous search response */
                 cursor?: components["parameters"]["SearchCursor"];
                 /** @description Number of search results to return (default 20, max 50) */
@@ -14994,6 +15143,8 @@ export interface operations {
                 perPage?: components["parameters"]["DocsPerPage"];
                 /** @description If true, returns flat list instead of tree */
                 flat?: boolean;
+                /** @description Only return documents carrying every given tag (case-insensitive). Effective in flat mode only. */
+                tags?: string[];
                 /** @description Field to sort by:
                  *     - `name`: Alphabetically by display name (case-insensitive)
                  *     - `type`: By node type (dirs vs files), then alphabetically within each group
@@ -15114,6 +15265,252 @@ export interface operations {
             };
             /** @description Missing query parameter */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDocBacklinks: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path or scheme-prefixed wiki-link target (for example dag:name) */
+                target: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Documents linking to the target */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocBacklinksResponse"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDocRevisions: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored revisions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocRevisionsResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDocRevision: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+                /** @description Revision identifier from the revision list */
+                rev: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revision with content */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocRevisionResponse"];
+                };
+            };
+            /** @description Document or revision not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadDocAttachment: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+                /** @description Attachment file name (single path segment) */
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attachment content */
+            200: {
+                headers: {
+                    /** @description Attachment filename */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Document or attachment not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    uploadDocAttachment: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Document path (may include slashes for nested docs) */
+                path: components["schemas"]["DocPath"];
+                /** @description Attachment file name (single path segment) */
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Attachment stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocAttachmentResponse"];
+                };
+            };
+            /** @description Invalid attachment name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Attachment too large */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18142,7 +18539,8 @@ export enum SyncSummary {
 }
 export enum SyncItemKind {
     dag = "dag",
-    doc = "doc"
+    doc = "doc",
+    doc_asset = "doc-asset"
 }
 export enum SyncAuthConfigType {
     token = "token",

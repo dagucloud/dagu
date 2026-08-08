@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
   Bell,
+  BookOpen,
   FileCode,
   History,
   PlayCircle,
@@ -29,6 +30,7 @@ import {
 } from '../dag-execution';
 import { DAGHeader } from './';
 import DAGSettingsTab from './DAGSettingsTab';
+import DAGDocsTab from './DAGDocsTab';
 import IncidentsTab from './IncidentsTab';
 import NotificationsTab from './NotificationsTab';
 import WebhookTab from './WebhookTab';
@@ -285,6 +287,16 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               )}
 
+              {isModal && (
+                <ModalLinkTab
+                  label="Docs"
+                  value="docs"
+                  isActive={activeTab === 'docs'}
+                  icon={BookOpen}
+                  onClick={() => handleTabClick('docs')}
+                />
+              )}
+
               {(activeTab === 'log' || activeTab === 'dagRun-log') &&
                 (isModal ? (
                   <ModalLinkTab
@@ -455,6 +467,18 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                 />
               )}
 
+              {isModal && (
+                <ModalLinkTab
+                  label="Docs"
+                  value="docs"
+                  isActive={activeTab === 'docs'}
+                  icon={BookOpen}
+                  onClick={() => handleTabClick('docs')}
+                  className="flex-1 justify-center"
+                  aria-label="Docs"
+                />
+              )}
+
               {(activeTab === 'log' || activeTab === 'dagRun-log') &&
                 (isModal ? (
                   <ModalLinkTab
@@ -537,6 +561,15 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
             <>
               <IncidentsTab
                 fileName={fileName || ''}
+                workspaceName={dagWorkspaceName}
+              />
+              <div className="h-6 flex-shrink-0" />
+            </>
+          ) : null}
+          {activeTab === 'docs' ? (
+            <>
+              <DAGDocsTab
+                dagName={dag?.name || ''}
                 workspaceName={dagWorkspaceName}
               />
               <div className="h-6 flex-shrink-0" />

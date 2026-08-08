@@ -36,15 +36,63 @@ const (
 
 // docFrontmatter holds the YAML fields in the doc file frontmatter.
 type docFrontmatter struct {
-	Title       string `yaml:"title,omitempty"`
-	Description string `yaml:"description,omitempty"`
+	Title       string     `yaml:"title,omitempty"`
+	Description string     `yaml:"description,omitempty"`
+	Tags        docTagList `yaml:"tags,omitempty"`
+}
+
+// docTagList accepts either a YAML sequence of tags or a single
+// comma-separated scalar. Unparseable values are ignored so that a malformed
+// tags field never invalidates the rest of the frontmatter.
+type docTagList []string
+
+func (t *docTagList) UnmarshalYAML(data []byte) error {
+	var list []string
+	if err := yaml.Unmarshal(data, &list); err == nil {
+		*t = normalizeDocTags(list)
+		return nil
+	}
+	var scalar string
+	if err := yaml.Unmarshal(data, &scalar); err == nil {
+		*t = normalizeDocTags(strings.Split(scalar, ","))
+		return nil
+	}
+	*t = nil
+	return nil
+}
+
+// normalizeDocTags trims whitespace, drops empties, and removes
+// case-insensitive duplicates while preserving authored order and casing.
+func normalizeDocTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(tags))
+	normalized := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		key := strings.ToLower(tag)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, tag)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 // Store implements a file-based doc store.
 // Docs are stored as files: {baseDir}/{id}.md
-// Each file contains optional YAML frontmatter (title, description) and a Markdown body.
+// Each file contains optional YAML frontmatter (title, description, tags) and a Markdown body.
 type Store struct {
 	baseDir string
+	dataDir string
 
 	mutationMu         sync.Mutex
 	mu                 sync.RWMutex
@@ -55,16 +103,52 @@ type Store struct {
 	dirs               map[string]docDirIndexEntry
 }
 
+// Option configures a Store.
+type Option func(*Store)
+
+// WithDataDir sets the directory holding store sidecar data such as document
+// revisions. Without it, revision snapshots are skipped and revision queries
+// return empty results.
+func WithDataDir(dir string) Option {
+	return func(s *Store) {
+		if dir == "" {
+			return
+		}
+		s.dataDir = filepath.Clean(dir)
+	}
+}
+
 type docIndexEntry struct {
 	ID          string
 	RelPath     string
 	AbsPath     string
 	Title       string
 	Description string
+	Tags        []string
+	OutLinks    []string
 	ModTime     time.Time
 	Size        int64
 	Mode        os.FileMode
 	Readable    bool
+}
+
+// outLinksFromContent returns the deduplicated wiki-link targets in content,
+// anchors stripped, in first-seen order.
+func outLinksFromContent(content string) []string {
+	links := docs.ExtractWikiLinks(content)
+	if len(links) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(links))
+	targets := make([]string, 0, len(links))
+	for _, link := range links {
+		if _, ok := seen[link.Target]; ok {
+			continue
+		}
+		seen[link.Target] = struct{}{}
+		targets = append(targets, link.Target)
+	}
+	return targets
 }
 
 type docDirIndexEntry struct {
@@ -76,17 +160,21 @@ type docDirIndexEntry struct {
 }
 
 // New creates a new file-based doc store.
-func New(baseDir string) (*Store, error) {
+func New(baseDir string, opts ...Option) (*Store, error) {
 	baseDir = filepath.Clean(baseDir)
 	if err := os.MkdirAll(baseDir, docDirPermissions); err != nil {
 		return nil, fmt.Errorf("filedoc: create base directory %s: %w", baseDir, err)
 	}
-	return &Store{
+	store := &Store{
 		baseDir:            baseDir,
 		indexCheckInterval: docIndexCheckInterval,
 		docs:               make(map[string]docIndexEntry),
 		dirs:               make(map[string]docDirIndexEntry),
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(store)
+	}
+	return store, nil
 }
 
 // safePath validates that the given path stays within baseDir (preventing
@@ -561,6 +649,8 @@ func (s *Store) recordDirLocked(id, absPath string, info os.FileInfo) {
 func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os.FileInfo) error {
 	title := titleFromID(id)
 	var description string
+	var tags []string
+	var outLinks []string
 	readable := false
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return docs.ErrDocNotFound
@@ -574,6 +664,8 @@ func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os
 		}
 		title = doc.Title
 		description = doc.Description
+		tags = doc.Tags
+		outLinks = outLinksFromContent(doc.Content)
 		readable = true
 	} else if errors.Is(err, docs.ErrDocNotFound) {
 		return err
@@ -584,6 +676,8 @@ func (s *Store) upsertDocLocked(ctx context.Context, id, absPath string, info os
 		AbsPath:     absPath,
 		Title:       title,
 		Description: description,
+		Tags:        tags,
+		OutLinks:    outLinks,
 		ModTime:     info.ModTime(),
 		Size:        info.Size(),
 		Mode:        info.Mode(),
@@ -711,14 +805,15 @@ func (s *Store) pruneMissingParentsLocked(ctx context.Context, id string) {
 // The file format is optional YAML frontmatter between --- delimiters, followed by markdown body.
 // Content always contains the full file (including frontmatter); frontmatter is parsed to extract title and description.
 func parseDocFile(data []byte, id string) (*docs.Doc, error) {
-	content := strings.ReplaceAll(string(data), "\r\n", "\n")
-	content = strings.TrimRight(content, "\n")
+	content := string(data)
+	parsedContent := strings.ReplaceAll(content, "\r\n", "\n")
 
 	var title string
 	var description string
+	var tags []string
 
-	if strings.HasPrefix(content, "---\n") {
-		rest := content[4:]
+	if strings.HasPrefix(parsedContent, "---\n") {
+		rest := parsedContent[4:]
 
 		closingIdx := strings.Index(rest, "\n---\n")
 		if closingIdx == -1 {
@@ -734,6 +829,7 @@ func parseDocFile(data []byte, id string) (*docs.Doc, error) {
 			if err := yaml.Unmarshal([]byte(frontmatterStr), &fm); err == nil {
 				title = fm.Title
 				description = fm.Description
+				tags = fm.Tags
 			}
 		}
 	}
@@ -746,6 +842,7 @@ func parseDocFile(data []byte, id string) (*docs.Doc, error) {
 		ID:          id,
 		Title:       title,
 		Description: description,
+		Tags:        tags,
 		Content:     content,
 	}, nil
 }
@@ -798,10 +895,15 @@ func (s *Store) ListFlat(ctx context.Context, opts docs.ListDocsOptions) (*pagin
 		return nil, err
 	}
 
+	tagFilter := normalizeDocTagFilter(opts.Tags)
+
 	s.mu.RLock()
 	items := make([]flatDocItem, 0, len(s.docs))
 	for _, doc := range s.docs {
 		if !doc.Readable || docPathRootExcluded(doc.ID, opts.ExcludePathRoots) {
+			continue
+		}
+		if !docTagsMatch(doc.Tags, tagFilter) {
 			continue
 		}
 		id, ok := relativeDocID(doc.ID, pathPrefix)
@@ -813,6 +915,7 @@ func (s *Store) ListFlat(ctx context.Context, opts docs.ListDocsOptions) (*pagin
 				ID:          id,
 				Title:       doc.Title,
 				Description: doc.Description,
+				Tags:        doc.Tags,
 				ModTime:     doc.ModTime,
 			},
 		})
@@ -866,6 +969,50 @@ func docPathRootExcluded(id string, excludedRoots []string) bool {
 	}
 	root, _, _ := strings.Cut(id, "/")
 	return slices.Contains(excludedRoots, root)
+}
+
+// normalizeDocTagFilter lowercases, sorts, and dedupes a requested tag
+// filter so it can be matched and embedded in cursors deterministically.
+func normalizeDocTagFilter(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag != "" {
+			normalized = append(normalized, tag)
+		}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	sort.Strings(normalized)
+	return slices.Compact(normalized)
+}
+
+// docTagsMatch reports whether every tag in filter (already lowercased) is
+// present in docTags, compared case-insensitively.
+func docTagsMatch(docTags, filter []string) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	if len(docTags) == 0 {
+		return false
+	}
+	for _, want := range filter {
+		found := false
+		for _, tag := range docTags {
+			if strings.ToLower(tag) == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // Get retrieves a doc by its ID.
@@ -924,9 +1071,6 @@ func (s *Store) Create(ctx context.Context, id, content string) error {
 	}
 
 	data := []byte(content)
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		data = append(data, '\n')
-	}
 
 	// Use O_EXCL for atomic create — prevents race between concurrent creates.
 	f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, filePermissions) //nolint:gosec // filePath is validated by docFilePath
@@ -975,8 +1119,10 @@ func (s *Store) Update(ctx context.Context, id, content string) error {
 	createdAt := s.docCreatedAt(id, filePath, info)
 
 	data := []byte(content)
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		data = append(data, '\n')
+	if prior, _, readErr := readRegularDocFile(filePath); readErr == nil {
+		if err := s.snapshotRevision(id, prior, data); err != nil {
+			logger.Warn(ctx, "Failed to snapshot doc revision", tag.File(filePath), tag.Error(err))
+		}
 	}
 	if err := fileutil.WriteFileAtomic(filePath, data, filePermissions); err != nil {
 		return fmt.Errorf("filedoc: failed to write file: %w", err)
@@ -1018,6 +1164,12 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		if err := s.deleteDocCreatedAt(id); err != nil {
 			logger.Warn(ctx, "Failed to remove doc metadata", tag.File(filePath), tag.Error(err))
 		}
+		if err := s.deleteRevisions(id); err != nil {
+			logger.Warn(ctx, "Failed to remove doc revisions", tag.File(filePath), tag.Error(err))
+		}
+		if err := s.deleteAttachments(id); err != nil {
+			logger.Warn(ctx, "Failed to remove doc attachments", tag.File(filePath), tag.Error(err))
+		}
 		s.cleanEmptyParents(filepath.Dir(filePath))
 		s.removeDocIndexAfterDelete(ctx, id)
 		return nil
@@ -1036,6 +1188,12 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	}
 	if err := s.deleteDocCreatedAtPrefix(id); err != nil {
 		logger.Warn(ctx, "Failed to remove doc metadata", tag.File(dirPath), tag.Error(err))
+	}
+	if err := s.deleteRevisionsPrefix(id); err != nil {
+		logger.Warn(ctx, "Failed to remove doc revisions", tag.File(dirPath), tag.Error(err))
+	}
+	if err := s.deleteAttachmentsPrefix(id); err != nil {
+		logger.Warn(ctx, "Failed to remove doc attachments", tag.File(dirPath), tag.Error(err))
 	}
 	s.cleanEmptyParents(filepath.Dir(dirPath))
 	s.removeDirIndexAfterDelete(ctx, id)
@@ -1127,6 +1285,12 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []docs
 			if err := s.deleteDocCreatedAt(id); err != nil {
 				logger.Warn(ctx, "Failed to remove doc metadata", tag.File(filePath), tag.Error(err))
 			}
+			if err := s.deleteRevisions(id); err != nil {
+				logger.Warn(ctx, "Failed to remove doc revisions", tag.File(filePath), tag.Error(err))
+			}
+			if err := s.deleteAttachments(id); err != nil {
+				logger.Warn(ctx, "Failed to remove doc attachments", tag.File(filePath), tag.Error(err))
+			}
 			s.cleanEmptyParents(filepath.Dir(filePath))
 			s.removeDocIndexAfterDelete(ctx, id)
 			deleted = append(deleted, id)
@@ -1154,6 +1318,12 @@ func (s *Store) DeleteBatch(ctx context.Context, ids []string) ([]string, []docs
 		}
 		if err := s.deleteDocCreatedAtPrefix(id); err != nil {
 			logger.Warn(ctx, "Failed to remove doc metadata", tag.File(dirPath), tag.Error(err))
+		}
+		if err := s.deleteRevisionsPrefix(id); err != nil {
+			logger.Warn(ctx, "Failed to remove doc revisions", tag.File(dirPath), tag.Error(err))
+		}
+		if err := s.deleteAttachmentsPrefix(id); err != nil {
+			logger.Warn(ctx, "Failed to remove doc attachments", tag.File(dirPath), tag.Error(err))
 		}
 		s.cleanEmptyParents(filepath.Dir(dirPath))
 		s.removeDirIndexAfterDelete(ctx, id)
@@ -1251,6 +1421,12 @@ func (s *Store) renameFileLocked(ctx context.Context, oldID, newID, oldFilePath 
 	if err := s.renameDocCreatedAt(oldID, newID); err != nil {
 		logger.Warn(ctx, "Failed to rename doc metadata", tag.File(newFilePath), tag.Error(err))
 	}
+	if err := s.renameRevisions(oldID, newID); err != nil {
+		logger.Warn(ctx, "Failed to rename doc revisions", tag.File(newFilePath), tag.Error(err))
+	}
+	if err := s.renameAttachments(oldID, newID); err != nil {
+		logger.Warn(ctx, "Failed to rename doc attachments", tag.File(newFilePath), tag.Error(err))
+	}
 	s.cleanEmptyParents(filepath.Dir(oldFilePath))
 	s.removeDocIndexAfterDelete(ctx, oldID)
 	s.upsertDocIndexAfterMutation(ctx, newID)
@@ -1304,6 +1480,12 @@ func (s *Store) renameDirectoryLocked(ctx context.Context, oldID, newID, oldDirP
 	}
 	if err := s.renameDocCreatedAtPrefix(oldID, newID); err != nil {
 		logger.Warn(ctx, "Failed to rename doc metadata", tag.File(newDirPath), tag.Error(err))
+	}
+	if err := s.renameRevisionsPrefix(oldID, newID); err != nil {
+		logger.Warn(ctx, "Failed to rename doc revisions", tag.File(newDirPath), tag.Error(err))
+	}
+	if err := s.renameAttachmentsPrefix(oldID, newID); err != nil {
+		logger.Warn(ctx, "Failed to rename doc attachments", tag.File(newDirPath), tag.Error(err))
 	}
 	s.cleanEmptyParents(filepath.Dir(oldDirPath))
 	s.rebuildIndexAfterMutation(ctx)

@@ -43,6 +43,7 @@ import DocTabEditorPanel from './components/DocTabEditorPanel';
 import DocTreeSidebar from './components/DocTreeSidebar';
 import { RenameDocModal } from './components/RenameDocModal';
 import { DOC_SSE_FALLBACK_INTERVAL_MS } from './lib/doc-polling';
+import { encodeDocPathForURL } from './lib/doc-path';
 import { normalizeDocPathFromURL } from './lib/doc-url';
 import type { DocMutationTarget } from './lib/doc-mutation';
 import { useDocMutations } from './hooks/useDocMutations';
@@ -51,10 +52,6 @@ import type { ContextAction } from './components/DocArboristNode';
 function titleFromPath(docPath: string): string {
   const segments = docPath.split('/');
   return segments[segments.length - 1] || docPath;
-}
-
-function encodeDocPathForURL(docPath: string): string {
-  return docPath.split('/').map(encodeURIComponent).join('/');
 }
 
 function safeDecodeURIComponent(value: string): string | null {
@@ -222,7 +219,13 @@ function DocsContent() {
     selectedWorkspace,
   ]);
 
-  // Tab → URL (skip on initial mount — URL takes precedence)
+  // Tab → URL (skip on initial mount — URL takes precedence).
+  // Deliberately triggered by tab changes only: reacting to location changes
+  // here races the URL → Tab effect above (an external navigation lands
+  // before the tab state catches up) and the two effects then navigate
+  // against each other. The latest location is read through a ref instead.
+  const locationRef = useRef(location);
+  locationRef.current = location;
   useEffect(() => {
     if (isInitialMountRef.current) {
       isInitialMountRef.current = false;
@@ -233,7 +236,8 @@ function DocsContent() {
       ? tabs.find((t) => t.id === activeTabId)
       : null;
     const docPath = activeTab?.docPath;
-    const currentPath = location.pathname.replace(/^\/docs\/?/, '');
+    const currentLocation = locationRef.current;
+    const currentPath = currentLocation.pathname.replace(/^\/docs\/?/, '');
     const targetSearch = activeTab
       ? workspaceSearchForDocTab(activeTab.workspace)
       : '';
@@ -244,20 +248,20 @@ function DocsContent() {
       requestAnimationFrame(() => {
         isNavigatingRef.current = false;
       });
-    } else if (docPath && location.search !== targetSearch) {
+    } else if (docPath && currentLocation.search !== targetSearch) {
       isNavigatingRef.current = true;
       navigate(`/docs/${encodedDocPath}${targetSearch}`, { replace: true });
       requestAnimationFrame(() => {
         isNavigatingRef.current = false;
       });
-    } else if (!docPath && location.pathname !== '/docs') {
+    } else if (!docPath && currentLocation.pathname !== '/docs') {
       isNavigatingRef.current = true;
       navigate('/docs', { replace: true });
       requestAnimationFrame(() => {
         isNavigatingRef.current = false;
       });
     }
-  }, [activeTabId, tabs, navigate, location.pathname, location.search]);
+  }, [activeTabId, tabs, navigate]);
 
   // File selection handler
   const handleSelectFile = useCallback(
@@ -299,7 +303,7 @@ function DocsContent() {
 
   // Create handler
   const handleCreate = useCallback(
-    async (path: string) => {
+    async (path: string, content: string) => {
       if (!canWrite) {
         setCreateError('You do not have permission to create documents');
         return;
@@ -310,7 +314,7 @@ function DocsContent() {
         const mutationQuery = workspaceTargetQueryForWorkspace(createWorkspace);
         const { error } = await client.POST('/docs', {
           params: { query: { remoteNode, ...mutationQuery } },
-          body: { id: path, content: '' },
+          body: { id: path, content },
         });
         if (error) {
           setCreateError(error?.message || 'Failed to create document');
@@ -548,6 +552,7 @@ function DocsContent() {
         onClose={() => setCreateModalOpen(false)}
         onSubmit={handleCreate}
         parentDir={createParentDir}
+        workspace={createWorkspace}
         isLoading={createLoading}
         externalError={createError}
       />

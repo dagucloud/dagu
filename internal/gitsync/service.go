@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/core/docs"
 )
 
 // Service defines the interface for Git sync operations.
@@ -133,12 +135,16 @@ type ConnectionResult struct {
 }
 
 // SyncItemDiff represents the diff between local and remote versions of an item.
+// Binary items carry sizes instead of content.
 type SyncItemDiff struct {
 	ItemID        string     `json:"dagId"`
 	FileExtension string     `json:"fileExtension"`
 	Status        SyncStatus `json:"status"`
+	Binary        bool       `json:"binary,omitempty"`
 	LocalContent  string     `json:"localContent"`
 	RemoteContent string     `json:"remoteContent,omitempty"`
+	LocalSize     *int64     `json:"localSize,omitempty"`
+	RemoteSize    *int64     `json:"remoteSize,omitempty"`
 	RemoteCommit  string     `json:"remoteCommit,omitempty"`
 	RemoteAuthor  string     `json:"remoteAuthor,omitempty"`
 	RemoteMessage string     `json:"remoteMessage,omitempty"`
@@ -251,6 +257,12 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 	if err != nil {
 		return nil, nil, err
 	}
+	// Doc attachments are extension-agnostic; list their subtree separately.
+	assetFiles, err := s.gitClient.ListFilesUnder(path.Join(docsDir, docAssetsDirName))
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, assetFiles...)
 
 	state, _ := s.stateManager.GetState()
 	s.ensureSyncItemFileExtensions(state)
@@ -269,6 +281,12 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		if !isSyncableRepoFile(file, dagID) {
 			continue
 		}
+		repoFileSet[dagID] = struct{}{}
+		if isDocAssetFile(dagID) {
+			// Asset IDs keep their extension, so extension bookkeeping and
+			// the duplicate-extension guard do not apply.
+			continue
+		}
 		fileExtension := normalizeDAGFileExtension(path.Ext(file))
 		if existingExtension, exists := repoFileExtensions[dagID]; exists && existingExtension != fileExtension {
 			return nil, nil, &ValidationError{
@@ -276,13 +294,15 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 				Message: "DAG exists with both .yaml and .yml extensions",
 			}
 		}
-		repoFileSet[dagID] = struct{}{}
 		repoFileExtensions[dagID] = fileExtension
 	}
 
 	for _, file := range files {
 		dagID := s.filePathToDAGID(file)
-		fileExtension := normalizeDAGFileExtension(path.Ext(file))
+		fileExtension := ""
+		if !isDocAssetFile(dagID) {
+			fileExtension = normalizeDAGFileExtension(path.Ext(file))
+		}
 
 		if !isSyncableRepoFile(file, dagID) {
 			continue
@@ -293,9 +313,18 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		}
 
 		dagState := state.Items[dagID]
+		// Unchanged fast path: the item was synced against this exact commit
+		// and refreshLocalHashes above found no local drift, so neither side
+		// needs to be read. This keeps pulls from re-reading every file
+		// (binary attachments in particular) on each auto-sync cycle.
+		if dagState != nil && dagState.Status == StatusSynced && dagState.BaseCommit == pullResult.CurrentCommit {
+			continue
+		}
 		localExtension := s.syncItemFileExtension(dagID, dagState)
 		localFileExtension := fileExtension
-		if isDocFile(dagID) && strings.EqualFold(localExtension, fileExtension) {
+		if isDocAssetFile(dagID) {
+			localFileExtension = ""
+		} else if isDocFile(dagID) && strings.EqualFold(localExtension, fileExtension) {
 			localFileExtension = localExtension
 		} else if localExtension != fileExtension {
 			if err := s.migrateLocalDAGExtension(dagID, localExtension, fileExtension); err != nil {
@@ -322,9 +351,14 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 
 		if err != nil {
 			// Before creating a new local file, check if this content matches
-			// a missing item's hash (prevents duplicates after move+pull)
+			// a missing item's hash (prevents duplicates after move+pull).
+			// Only same-kind entries qualify: identical bytes across kinds
+			// must not forget an unrelated item.
 			for otherID, otherState := range state.Items {
-				if otherID != dagID && otherState.Status == StatusMissing && otherState.LastSyncedHash == repoHash {
+				if otherID != dagID &&
+					otherState.Status == StatusMissing &&
+					otherState.LastSyncedHash == repoHash &&
+					SyncItemKindForID(otherID) == SyncItemKindForID(dagID) {
 					// Auto-forget the stale missing entry
 					delete(state.Items, otherID)
 					break
@@ -543,6 +577,10 @@ func (s *serviceImpl) scanLocalItems(state *State) error {
 func (s *serviceImpl) scanDocFiles(state *State) {
 	docDir := s.localDocsDir()
 	_ = filepath.WalkDir(docDir, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr == nil && entry.IsDir() && entry.Name() == docAssetsDirName {
+			// The attachment subtree belongs to the doc-asset scanner.
+			return filepath.SkipDir
+		}
 		ext := filepath.Ext(filePath)
 		if walkErr != nil || entry.IsDir() || !strings.EqualFold(ext, docExtension) {
 			return nil
@@ -566,6 +604,64 @@ func (s *serviceImpl) scanDocFiles(state *State) {
 			FileExtension: ext,
 			LocalHash:     ComputeContentHash(content),
 			ModifiedAt:    &now,
+		}
+		if info, err := os.Stat(filePath); err == nil {
+			updateStatCache(itemState, info)
+		}
+		state.Items[itemID] = itemState
+		return nil
+	})
+	s.scanDocAssetFiles(state)
+}
+
+// isValidAssetItemID reports whether an asset item ID names a valid
+// attachment location: docs/.attachments/{docID}/{fileName} with conforming
+// doc segments and attachment file name.
+func isValidAssetItemID(itemID string) bool {
+	rel := strings.TrimPrefix(normalizeDAGIDSeparators(itemID), docAssetsPrefix)
+	if rel == itemID {
+		return false
+	}
+	idx := strings.LastIndex(rel, "/")
+	if idx <= 0 {
+		return false
+	}
+	docID, name := rel[:idx], rel[idx+1:]
+	if docs.ValidateDocID(docID) != nil {
+		return false
+	}
+	return docs.ValidateAttachmentName(name) == nil
+}
+
+// scanDocAssetFiles registers untracked doc attachments from the reserved
+// attachment subtree of the docs directory.
+func (s *serviceImpl) scanDocAssetFiles(state *State) {
+	assetDir := filepath.Join(s.localDocsDir(), docAssetsDirName)
+	_ = filepath.WalkDir(assetDir, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return nil
+		}
+		relPath, err := filepath.Rel(s.localDocsDir(), filePath)
+		if err != nil {
+			return nil
+		}
+		itemID := path.Join(docsDir, filepath.ToSlash(relPath))
+		if !isValidAssetItemID(itemID) {
+			return nil
+		}
+		if _, exists := state.Items[itemID]; exists {
+			return nil
+		}
+		content, err := safeReadFileWithinBase(s.localDocsDir(), filePath)
+		if err != nil {
+			return nil
+		}
+		now := time.Now()
+		itemState := &SyncItemState{
+			Status:     StatusUntracked,
+			Kind:       SyncItemKindDocAsset,
+			LocalHash:  ComputeContentHash(content),
+			ModifiedAt: &now,
 		}
 		if info, err := os.Stat(filePath); err == nil {
 			updateStatCache(itemState, info)
@@ -1316,6 +1412,9 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	if SyncItemKindForID(oldID) != SyncItemKindForID(newID) {
 		return &ValidationError{Field: "newItemId", Message: "source and destination must have the same item type"}
 	}
+	if isDocAssetFile(newID) && !isValidAssetItemID(newID) {
+		return &ValidationError{Field: "newItemId", Message: "destination is not a valid attachment path"}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1581,6 +1680,40 @@ func (s *serviceImpl) GetSyncItemDiff(_ context.Context, itemID string) (*SyncIt
 		Status:        itemState.Status,
 	}
 
+	// Binary attachments never load content: sizes and commit metadata only.
+	// This guard must precede every content-loading branch below.
+	if isDocAssetFile(itemID) {
+		diff.Binary = true
+		if localPath, err := s.safeDAGIDToFilePath(itemID, ""); err == nil {
+			if info, err := os.Stat(localPath); err == nil {
+				size := info.Size()
+				diff.LocalSize = &size
+			}
+		}
+		remoteCommit := itemState.BaseCommit
+		if itemState.Status == StatusConflict {
+			remoteCommit = itemState.RemoteCommit
+			diff.RemoteAuthor = itemState.RemoteAuthor
+			diff.RemoteMessage = itemState.RemoteMessage
+		}
+		if remoteCommit != "" {
+			if err := s.gitClient.Open(); err != nil {
+				return nil, fmt.Errorf("failed to open repository for binary diff: %w", err)
+			}
+			repoPath, err := s.safeDAGIDToRepoPath(itemID, "")
+			if err != nil {
+				return nil, err
+			}
+			size, err := s.gitClient.GetFileSizeAtCommit(repoPath, remoteCommit)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read remote binary metadata: %w", err)
+			}
+			diff.RemoteSize = &size
+			diff.RemoteCommit = remoteCommit
+		}
+		return diff, nil
+	}
+
 	// Missing items have no local file.
 	if itemState.Status == StatusMissing {
 		diff.LocalContent = ""
@@ -1783,6 +1916,11 @@ func (s *serviceImpl) filePathToDAGID(filePath string) string {
 		prefix := strings.TrimSuffix(filepath.ToSlash(s.cfg.Path), "/") + "/"
 		filePath = strings.TrimPrefix(filePath, prefix)
 	}
+	// Asset IDs keep the extension: attachment names in one directory may
+	// differ only by extension.
+	if isDocAssetFile(filePath) {
+		return filePath
+	}
 	// Remove extension
 	ext := path.Ext(filePath)
 	dagID := strings.TrimSuffix(filePath, ext)
@@ -1792,6 +1930,12 @@ func (s *serviceImpl) filePathToDAGID(filePath string) string {
 func isSyncableRepoFile(filePath, itemID string) bool {
 	if isBaseConfigID(itemID) {
 		return false
+	}
+	// Attachments are classified by location and validated by name; the
+	// extension switch below never applies to them, so a .md file under the
+	// asset subtree can never become a doc item.
+	if isDocAssetFile(itemID) {
+		return isValidAssetItemID(itemID)
 	}
 	switch strings.ToLower(path.Ext(filePath)) {
 	case docExtension:
@@ -2224,7 +2368,7 @@ func (s *serviceImpl) safeDAGIDToFilePath(dagID, fileExtension string) (string, 
 	}
 	baseDir := s.dagsDir
 	localID := normalized
-	if isDocFile(normalized) {
+	if isDocFile(normalized) || isDocAssetFile(normalized) {
 		baseDir = s.localDocsDir()
 		localID = strings.TrimPrefix(normalized, docsDir+"/")
 	}
@@ -2239,13 +2383,17 @@ func (s *serviceImpl) localDocsDir() string {
 }
 
 func (s *serviceImpl) localBaseDir(itemID string) string {
-	if isDocFile(itemID) {
+	if isDocFile(itemID) || isDocAssetFile(itemID) {
 		return s.localDocsDir()
 	}
 	return s.dagsDir
 }
 
 func normalizeLocalFileExtension(itemID, extension string) string {
+	// Asset IDs already carry their extension; nothing is appended.
+	if isDocAssetFile(itemID) {
+		return ""
+	}
 	if isDocFile(itemID) {
 		if strings.EqualFold(extension, docExtension) {
 			return extension
@@ -2265,7 +2413,13 @@ func (s *serviceImpl) safeDAGIDToRepoPath(dagID, fileExtension string) (string, 
 		return "", err
 	}
 
-	repoPath := normalized + normalizeDAGFileExtension(fileExtension)
+	extension := normalizeDAGFileExtension(fileExtension)
+	if isDocAssetFile(normalized) {
+		extension = ""
+	} else if isDocFile(normalized) {
+		extension = docExtension
+	}
+	repoPath := normalized + extension
 	if s.cfg != nil && s.cfg.Path != "" {
 		repoPath = path.Join(filepath.ToSlash(s.cfg.Path), repoPath)
 	}
@@ -2285,6 +2439,13 @@ func (s *serviceImpl) safeDAGIDToRepoPath(dagID, fileExtension string) (string, 
 }
 
 func (s *serviceImpl) syncItemFileExtension(dagID string, dagState *SyncItemState) string {
+	if isDocAssetFile(dagID) {
+		if dagState != nil {
+			dagState.Kind = SyncItemKindDocAsset
+			dagState.FileExtension = ""
+		}
+		return ""
+	}
 	if isDocFile(dagID) {
 		if dagState != nil {
 			dagState.Kind = SyncItemKindDoc
