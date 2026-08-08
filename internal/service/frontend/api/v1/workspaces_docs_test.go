@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 	workspacepkg "github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -26,11 +26,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -726,7 +725,7 @@ func incidentEventSupported(event chatbridge.NotificationEvent) bool {
 	return isRecoveryEvent(event.Type)
 }
 
-func isFinalFailure(status *dagrun.DAGRunStatus) bool {
+func isFinalFailure(status *ir.DAGRunStatus) bool {
 	if status == nil || status.Status != ir.Failed {
 		return false
 	}
@@ -1146,7 +1145,7 @@ func (s *Service) testEvent() chatbridge.NotificationEvent {
 	return chatbridge.NotificationEvent{
 		Key:  "incident-test:" + uuid.NewString(),
 		Type: eventstore.TypeDAGRunFailed,
-		Status: &dagrun.DAGRunStatus{
+		Status: &ir.DAGRunStatus{
 			Name:       "incident-test",
 			DAGRunID:   "incident-test-" + uuid.NewString(),
 			AttemptID:  "incident-test",
@@ -1224,13 +1223,13 @@ func incidentTemplateTime(value string) string {
 	return parsed.Format(time.RFC3339)
 }
 
-func incidentRunPath(status *dagrun.DAGRunStatus) string {
+func incidentRunPath(status *ir.DAGRunStatus) string {
 	if status == nil || status.Name == "" || status.DAGRunID == "" {
 		return ""
 	}
 	root := status.Root
 	if root.Zero() {
-		root = dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
+		root = ir.NewDAGRunRef(status.Name, status.DAGRunID)
 	}
 	if root.Name == "" || root.ID == "" {
 		return ""

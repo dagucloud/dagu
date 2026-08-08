@@ -14,10 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +31,7 @@ type monitorEventStore struct {
 }
 
 var _ eventstore.Store = (*monitorEventStore)(nil)
-var _ eventstore.NotificationReader = (*monitorEventStore)(nil)
+var _ eventstore.DAGRunReader = (*monitorEventStore)(nil)
 
 func monitorEventuallyTimeout(base time.Duration) time.Duration {
 	if runtime.GOOS == "windows" {
@@ -57,7 +56,7 @@ func (s *monitorEventStore) Query(context.Context, eventstore.QueryFilter) (*eve
 	return &eventstore.QueryResult{}, nil
 }
 
-func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.NotificationCursor, error) {
+func (s *monitorEventStore) DAGRunHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.headCalls++
@@ -65,7 +64,7 @@ func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.
 	return s.currentCursorLocked(), nil
 }
 
-func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.NotificationCursor) ([]*eventstore.Event, eventstore.NotificationCursor, error) {
+func (s *monitorEventStore) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	s.readCalls++
 
@@ -84,8 +83,8 @@ func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eve
 	return events, nextCursor, nil
 }
 
-func (s *monitorEventStore) currentCursorLocked() eventstore.NotificationCursor {
-	return eventstore.NotificationCursor{
+func (s *monitorEventStore) currentCursorLocked() eventstore.DAGRunCursor {
+	return eventstore.DAGRunCursor{
 		CommittedOffsets: map[string]int64{"events": int64(len(s.events))},
 	}
 }
@@ -289,7 +288,7 @@ func newMonitorDAGRunEvent(name string) *eventstore.Event {
 	return eventstore.NewDAGRunEvent(
 		eventstore.Source{Service: eventstore.SourceServiceScheduler},
 		eventstore.TypeDAGRunFailed,
-		&dagrun.DAGRunStatus{
+		&ir.DAGRunStatus{
 			Name:      name,
 			Status:    ir.Failed,
 			DAGRunID:  name + "-run",

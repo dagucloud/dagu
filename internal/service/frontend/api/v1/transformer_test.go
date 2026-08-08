@@ -13,7 +13,6 @@ import (
 
 	openapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +28,7 @@ func writeArtifactFile(t *testing.T) string {
 }
 
 func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 2,
@@ -52,7 +51,7 @@ func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 3,
@@ -86,11 +85,11 @@ func TestTriggerActorFromContext(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Waiting,
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step: ir.Step{
 				ID:   "review",
 				Name: "Review",
@@ -118,10 +117,10 @@ func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
 }
 
 func TestToDAGRunDetailsTreatsNullHumanTaskFormAsAbsent(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step: ir.Step{HumanTask: &ir.HumanTaskConfig{Form: json.RawMessage(`null`)}},
 		}},
 	}
@@ -134,10 +133,10 @@ func TestToDAGRunDetailsTreatsNullHumanTaskFormAsAbsent(t *testing.T) {
 }
 
 func TestToDAGRunDetailsTreatsHumanTaskFormWithTrailingDataAsAbsent(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step: ir.Step{HumanTask: &ir.HumanTaskConfig{
 				Form: json.RawMessage(`{"type":"object"} trailing`),
 			}},
@@ -152,7 +151,7 @@ func TestToDAGRunDetailsTreatsHumanTaskFormWithTrailingDataAsAbsent(t *testing.T
 }
 
 func TestToDAGRunSummaryOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 0,
@@ -166,7 +165,7 @@ func TestToDAGRunSummaryOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 }
 
 func TestToDAGRunDetailsOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:           "test-dag",
 		DAGRunID:       "run-1",
 		AutoRetryCount: 0,
@@ -180,7 +179,7 @@ func TestToDAGRunDetailsOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 }
 
 func TestToDAGRunSummarySetsProfileNameWhenPresent(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:        "test-dag",
 		DAGRunID:    "run-1",
 		Status:      ir.Succeeded,
@@ -193,7 +192,7 @@ func TestToDAGRunSummarySetsProfileNameWhenPresent(t *testing.T) {
 }
 
 func TestToDAGRunSummaryOmitsProfileNameWhenEmpty(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Succeeded,
@@ -204,7 +203,7 @@ func TestToDAGRunSummaryOmitsProfileNameWhenEmpty(t *testing.T) {
 }
 
 func TestToDAGRunDetailsSetsProfileNameWhenPresent(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:        "test-dag",
 		DAGRunID:    "run-1",
 		Status:      ir.Succeeded,
@@ -217,7 +216,7 @@ func TestToDAGRunDetailsSetsProfileNameWhenPresent(t *testing.T) {
 }
 
 func TestToDAGRunDetailsOmitsProfileNameWhenEmpty(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "test-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Succeeded,
@@ -345,8 +344,8 @@ func TestToDAGDetailsIncludesArtifactsDir(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesLifecycleHandlers(t *testing.T) {
-	handler := func(name string) *dagrun.Node {
-		return &dagrun.Node{
+	handler := func(name string) *ir.Node {
+		return &ir.Node{
 			Step:      ir.Step{Name: name},
 			Status:    ir.NodeSucceeded,
 			Stdout:    name + ".out",
@@ -354,7 +353,7 @@ func TestToDAGRunDetailsIncludesLifecycleHandlers(t *testing.T) {
 		}
 	}
 
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:      "test-dag",
 		DAGRunID:  "run-1",
 		Status:    ir.Succeeded,
@@ -380,7 +379,7 @@ func TestToDAGRunDetailsIncludesLifecycleHandlers(t *testing.T) {
 }
 
 func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
-	node := &dagrun.Node{
+	node := &ir.Node{
 		Step: ir.Step{
 			Name: "review",
 			Approval: &ir.ApprovalConfig{
@@ -400,7 +399,7 @@ func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
 		Stderr:                 "stderr.log",
 		ApprovalIteration:      1,
 		PushBackInputs:         map[string]string{"FEEDBACK": "revise the summary", "IGNORED": "x"},
-		PushBackHistory: []dagrun.PushBackEntry{{
+		PushBackHistory: []ir.PushBackEntry{{
 			Iteration: 1,
 			By:        "reviewer",
 			ByID:      "user-3",
@@ -520,7 +519,7 @@ func TestToNodeMapsStatuses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			node := &dagrun.Node{
+			node := &ir.Node{
 				Status: tc.coreStatus,
 				Step: ir.Step{
 					Name: "step-" + tc.name,
@@ -538,12 +537,12 @@ func TestToNodeMapsStatuses(t *testing.T) {
 func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 	t.Parallel()
 
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "build-dag",
 		DAGRunID: "run-2",
 		Status:   ir.Succeeded,
 		NoReuse:  true,
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step: ir.Step{
 				ID:      "build",
 				Name:    "build",
@@ -551,11 +550,11 @@ func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 				Outputs: []ir.StepOutputDeclaration{{Name: "artifact", Path: "/data/artifact.txt"}},
 			},
 			Status: ir.NodeSucceeded,
-			Build: &dagrun.BuildExecution{
+			Build: &ir.BuildExecution{
 				Decision:    "reuse",
 				Phase:       "complete",
 				Reason:      "matched",
-				ProducerRun: dagrun.NewDAGRunRef("build-dag", "run-1"),
+				ProducerRun: ir.NewDAGRunRef("build-dag", "run-1"),
 			},
 		}},
 	}

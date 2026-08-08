@@ -5,6 +5,7 @@ package process
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -154,4 +155,34 @@ func TestNewBuiltinAuthServiceUserCanAuthenticate(t *testing.T) {
 
 	_, err = result.AuthService.Authenticate(frontendStoreFactoryTestContext(t), "authadmin", "wrongpassword")
 	require.Error(t, err)
+}
+
+func TestResolveTokenSecret(t *testing.T) {
+	t.Parallel()
+
+	t.Run("configured secret takes precedence", func(t *testing.T) {
+		t.Parallel()
+		cfg := frontendStoreFactoryTestConfig(t.TempDir(), config.InitialAdmin{})
+		ctx := frontendStoreFactoryTestContext(t)
+		authDir := filepath.Join(cfg.Paths.DataDir, "auth")
+		require.NoError(t, os.MkdirAll(authDir, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(authDir, "token_secret"), []byte("file-secret"), 0o600))
+
+		secret, err := resolveTokenSecret(ctx, cfg)
+		require.NoError(t, err)
+		assert.Equal(t, []byte(cfg.Server.Auth.Builtin.Token.Secret), secret.SigningKey())
+	})
+
+	t.Run("persistent secret is used when configuration is empty", func(t *testing.T) {
+		t.Parallel()
+		cfg := frontendStoreFactoryTestConfig(t.TempDir(), config.InitialAdmin{})
+		ctx := frontendStoreFactoryTestContext(t)
+		cfg.Server.Auth.Builtin.Token.Secret = ""
+
+		first, err := resolveTokenSecret(ctx, cfg)
+		require.NoError(t, err)
+		second, err := resolveTokenSecret(ctx, cfg)
+		require.NoError(t, err)
+		assert.Equal(t, first.SigningKey(), second.SigningKey())
+	})
 }

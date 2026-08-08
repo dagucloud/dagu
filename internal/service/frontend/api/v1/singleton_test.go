@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -57,7 +56,7 @@ steps:
 		}).ExpectStatus(http.StatusConflict).Send(t)
 
 		releaseHoldFile(t, release)
-		waitForDAGRunStatus(t, server, "singleton_exec_dag", execResp.DagRunId, 5*time.Second, func(status *dagrun.DAGRunStatus) bool {
+		waitForDAGRunStatus(t, server, "singleton_exec_dag", execResp.DagRunId, 5*time.Second, func(status *ir.DAGRunStatus) bool {
 			return status.Status == ir.Succeeded
 		})
 
@@ -101,7 +100,7 @@ steps:
 		}).ExpectStatus(http.StatusConflict).Send(t)
 
 		releaseHoldFile(t, release)
-		waitForDAGRunStatus(t, server, "singleton_enq_run_dag", execResp.DagRunId, 5*time.Second, func(status *dagrun.DAGRunStatus) bool {
+		waitForDAGRunStatus(t, server, "singleton_enq_run_dag", execResp.DagRunId, 5*time.Second, func(status *ir.DAGRunStatus) bool {
 			return status.Status == ir.Succeeded
 		})
 

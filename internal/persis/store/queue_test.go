@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -31,11 +31,11 @@ func newQueueStore(t *testing.T) *store.QueueStore {
 	return store.NewQueueStore(testutil.NewMemoryBackend().Collection("queue"))
 }
 
-func queueRef(name, id string) dagrun.DAGRunRef {
-	return dagrun.NewDAGRunRef(name, id)
+func queueRef(name, id string) ir.DAGRunRef {
+	return ir.NewDAGRunRef(name, id)
 }
 
-func requireQueuedRef(t *testing.T, item queue.QueuedItemData) dagrun.DAGRunRef {
+func requireQueuedRef(t *testing.T, item queue.QueuedItemData) ir.DAGRunRef {
 	t.Helper()
 	ref, err := item.Data()
 	require.NoError(t, err)

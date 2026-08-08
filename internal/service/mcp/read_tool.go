@@ -14,8 +14,9 @@ import (
 	"strings"
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/docs"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -258,7 +259,7 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		if err = svc.requireAPI(); err == nil {
 			data, err = svc.api.GetStepLogDataByRef(
 				ctx,
-				dagrun.NewDAGRunRef(input.Name, input.DAGRunID),
+				ir.NewDAGRunRef(input.Name, input.DAGRunID),
 				input.StepName,
 			)
 		}

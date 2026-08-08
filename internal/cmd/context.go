@@ -32,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -40,9 +41,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -325,7 +324,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	case "server", "scheduler", "start-all", "coordinator":
 		// For long-running process, we setup file cache for better performance
 		limits := cfg.Cache.Limits()
-		hc := fileutil.NewCache[*dagrun.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
+		hc := fileutil.NewCache[*ir.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 		hc.StartEviction(ctx)
 		hrOpts = append(hrOpts, file.WithDAGRunHistoryFileCache(hc))
 	}
@@ -740,12 +739,12 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 
 // genRunID creates a new auto-generated dag-run ID.
 func genRunID() (string, error) {
-	return dagrun.NewDAGRunID()
+	return ir.NewDAGRunID()
 }
 
 // validateRunID checks if the dag-run ID is valid and not empty.
 func validateRunID(dagRunID string) error {
-	return dagrun.ValidateDAGRunID(dagRunID)
+	return ir.ValidateDAGRunID(dagRunID)
 }
 
 // signalListener is an interface for types that can receive OS signals.
@@ -789,7 +788,7 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 	}
 
 	// 1. Check if a DAGRunAttempt already exists for the given run-id.
-	ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 	attempt, findErr := c.DAGRunStore.FindAttempt(c, ref)
 	if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
 		return fmt.Errorf("failed to check for existing attempt: %w", findErr)
@@ -805,7 +804,7 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 	}
 
 	// 3. Construct the "Failed" status
-	statusBuilder := transform.NewStatusBuilder(dag)
+	statusBuilder := ir.NewStatusBuilder(dag)
 	logPath, logPathErr := c.GenLogFileName(dag, dagRunID)
 	if logPathErr != nil {
 		logger.Warn(c, "Failed to generate log file path for early failure status",
@@ -823,10 +822,10 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 		)
 	}
 	status := statusBuilder.Create(dagRunID, ir.Failed, 0, time.Now(),
-		transform.WithLogFilePath(logPath),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithFinishedAt(time.Now()),
-		transform.WithError(err.Error()),
+		ir.WithLogFilePath(logPath),
+		ir.WithArchiveDir(artifactDir),
+		ir.WithFinishedAt(time.Now()),
+		ir.WithError(err.Error()),
 	)
 
 	// 4. Write the status

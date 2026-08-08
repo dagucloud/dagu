@@ -260,8 +260,8 @@ func toPrecondition(obj *ir.Condition) api.Condition {
 	return condition
 }
 
-func toPreconditionResult(result dagrun.ConditionResult) api.Condition {
-	condition := toPrecondition(result.Definition())
+func toPreconditionResult(result ir.ConditionResult) api.Condition {
+	condition := toPrecondition(&result.Condition)
 	condition.Error = ptrOf(result.Error)
 	return condition
 }
@@ -273,7 +273,7 @@ func toTriggerType(t ir.TriggerType) *api.TriggerType {
 	return new(api.TriggerType(t.String()))
 }
 
-func toDAGRunConditions(status ir.Status, conditions []dagrun.DAGRunCondition) *[]api.DAGRunCondition {
+func toDAGRunConditions(status ir.Status, conditions []ir.DAGRunCondition) *[]api.DAGRunCondition {
 	if status != ir.Queued || len(conditions) == 0 {
 		return nil
 	}
@@ -324,7 +324,7 @@ func toRuntimeProfileName(name string) *api.RuntimeProfileName {
 	return &profileName
 }
 
-func toDAGRunSummary(s dagrun.DAGRunStatus) api.DAGRunSummary {
+func toDAGRunSummary(s ir.DAGRunStatus) api.DAGRunSummary {
 	var autoRetryLimit *int
 	if s.AutoRetryLimit > 0 {
 		autoRetryLimit = ptrOf(s.AutoRetryLimit)
@@ -376,7 +376,7 @@ func toDAGRunsPageResponse(page dagrun.DAGRunStatusPage) api.DAGRunsPageResponse
 
 // ToDAGRunDetails converts a DAGRunStatus to its API representation.
 // This function is exported for use by the SSE package.
-func ToDAGRunDetails(s dagrun.DAGRunStatus) api.DAGRunDetails {
+func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 	preconditions := make([]api.Condition, len(s.Preconditions))
 	for i, p := range s.Preconditions {
 		preconditions[i] = toPreconditionResult(p)
@@ -460,7 +460,7 @@ func hasArtifactEntries(archiveDir string) bool {
 	return false
 }
 
-func toNode(node *dagrun.Node) api.Node {
+func toNode(node *ir.Node) api.Node {
 	if node == nil {
 		return api.Node{}
 	}
@@ -519,7 +519,7 @@ func toNode(node *dagrun.Node) api.Node {
 	return result
 }
 
-func toPushBackHistory(node *dagrun.Node) []api.PushBackHistoryEntry {
+func toPushBackHistory(node *ir.Node) []api.PushBackHistoryEntry {
 	if node == nil {
 		return nil
 	}
@@ -555,7 +555,7 @@ func toPushBackHistory(node *dagrun.Node) []api.PushBackHistoryEntry {
 	return items
 }
 
-func toSubDAGRuns(subDAGRuns []dagrun.SubDAGRun) []api.SubDAGRun {
+func toSubDAGRuns(subDAGRuns []ir.SubDAGRun) []api.SubDAGRun {
 	result := make([]api.SubDAGRun, len(subDAGRuns))
 	for i, w := range subDAGRuns {
 		result[i] = api.SubDAGRun{
@@ -677,7 +677,7 @@ func declaredControllerTasks(dag *ir.DAG) *[]api.ControllerTask {
 }
 
 // controllerTimeline reports the ordered decisions a controller DAG-run made.
-func controllerTimeline(nodes []*dagrun.Node) *[]api.ControllerEvent {
+func controllerTimeline(nodes []*ir.Node) *[]api.ControllerEvent {
 	for _, node := range nodes {
 		if node == nil || node.Step.Name != ir.ControllerStepName {
 			continue
@@ -708,7 +708,7 @@ func controllerTimeline(nodes []*dagrun.Node) *[]api.ControllerEvent {
 
 // controllerTaskProgress reports goal progress recorded by the controller step
 // of a controller DAG-run.
-func controllerTaskProgress(nodes []*dagrun.Node) *[]api.ControllerTask {
+func controllerTaskProgress(nodes []*ir.Node) *[]api.ControllerTask {
 	for _, node := range nodes {
 		if node == nil || node.Step.Name != ir.ControllerStepName {
 			continue
@@ -876,7 +876,7 @@ func toHandlerOn(handlers ir.HandlerOn) api.HandlerOn {
 	return handlerOn
 }
 
-func toChatMessages(messages []dagrun.LLMMessage) []api.ChatMessage {
+func toChatMessages(messages []ir.LLMMessage) []api.ChatMessage {
 	if messages == nil {
 		return []api.ChatMessage{}
 	}
@@ -888,7 +888,7 @@ func toChatMessages(messages []dagrun.LLMMessage) []api.ChatMessage {
 	return result
 }
 
-func toChatMessage(msg dagrun.LLMMessage) api.ChatMessage {
+func toChatMessage(msg ir.LLMMessage) api.ChatMessage {
 	apiMsg := api.ChatMessage{
 		Role:    api.ChatMessageRole(msg.Role),
 		Content: msg.Content,
@@ -919,7 +919,7 @@ func toChatMessage(msg dagrun.LLMMessage) api.ChatMessage {
 	return apiMsg
 }
 
-func toToolDefinitions(defs []dagrun.ToolDefinition) *[]api.ToolDefinition {
+func toToolDefinitions(defs []ir.ToolDefinition) *[]api.ToolDefinition {
 	if len(defs) == 0 {
 		return nil
 	}

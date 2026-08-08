@@ -9,15 +9,15 @@ import (
 	"os"
 	"path/filepath"
 
-	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/clicontext"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/docs"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/notification"
@@ -27,13 +27,10 @@ import (
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	fileincident "github.com/dagucloud/dagu/v2/internal/persis/file/incident"
 	filenotification "github.com/dagucloud/dagu/v2/internal/persis/file/notification"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/tokensecret"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/secret"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -42,7 +39,7 @@ type BaseConfigStoreOption = filebaseconfig.Option
 
 // BaseConfigStore is a file-backed base DAG configuration store.
 type BaseConfigStore interface {
-	baseconfig.Store
+	dagsettings.BaseConfigStore
 	Initialize() error
 }
 
@@ -54,7 +51,7 @@ func NewBaseConfigStore(filePath string, opts ...BaseConfigStoreOption) (BaseCon
 	return filebaseconfig.New(filePath, opts...)
 }
 
-func NewWorkspaceBaseConfigStore(dagsDir, workspaceName string) (baseconfig.Store, error) {
+func NewWorkspaceBaseConfigStore(dagsDir, workspaceName string) (dagsettings.BaseConfigStore, error) {
 	return NewBaseConfigStore(
 		workspace.BaseConfigPath(dagsDir, workspaceName),
 		WithBaseConfigSkipDefault(true),
@@ -209,10 +206,6 @@ func NewRemoteNodeStore(cfg *config.Config, enc *crypto.Encryptor) (remotenode.S
 		return nil, fmt.Errorf("remote-node store: create directory %s: %w", dir, err)
 	}
 	return store.NewRemoteNodeStore(NewCollection(dir, WithIndentedJSON()), enc)
-}
-
-func NewTokenSecretProvider(cfg *config.Config) authmodel.TokenSecretProvider {
-	return tokensecret.New(filepath.Join(cfg.Paths.DataDir, "auth"))
 }
 
 func NewUpgradeCheckStore(cfg *config.Config) (upgrade.CacheStore, error) {

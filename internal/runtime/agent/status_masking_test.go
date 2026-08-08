@@ -6,7 +6,6 @@ package agent
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +16,7 @@ func TestMaskNodeSecretsMasksHumanTaskPrompt(t *testing.T) {
 
 	masker := newStatusSecretMasker([]string{"DEPLOY_TOKEN=very-secret-token"})
 	require.NotNil(t, masker)
-	node := &dagrun.Node{
+	node := &ir.Node{
 		Step: ir.Step{HumanTask: &ir.HumanTaskConfig{
 			Prompt: "Review very-secret-token",
 		}},
@@ -34,7 +33,7 @@ func TestMaskNodeSecretsMasksStatusDetailLabels(t *testing.T) {
 
 	masker := newStatusSecretMasker([]string{"CUSTOMER_TOKEN=very-secret-token"})
 	require.NotNil(t, masker)
-	node := &dagrun.Node{StatusDetails: []dagrun.NodeStatusDetail{
+	node := &ir.Node{StatusDetails: []ir.NodeStatusDetail{
 		{Label: "customer (TOKEN=very-secret-token)", Status: ir.NodeFailed},
 	}}
 

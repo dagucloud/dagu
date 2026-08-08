@@ -9,7 +9,7 @@ import (
 	"maps"
 	"strings"
 
-	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -26,7 +26,7 @@ import (
 // Context contains the execution metadata for a dag-run.
 type Context struct {
 	DAGRunID             string
-	RootDAGRun           dagrun.DAGRunRef
+	RootDAGRun           ir.DAGRunRef
 	RetryPath            dagrun.RetryPath
 	AttemptID            string
 	TriggerType          ir.TriggerType
@@ -46,7 +46,7 @@ type Context struct {
 	DAGRunArtifactDir    string
 	ProfileName          string
 	ProfileResolvedAt    string
-	ProfileEntries       []dagrun.RuntimeProfileEntry
+	ProfileEntries       []ir.RuntimeProfileEntry
 	Shell                string               // Default shell for this DAG (from DAG.Shell)
 	LogEncodingCharset   string               // Character encoding for log files (e.g., "utf-8", "shift_jis", "euc-jp")
 	LogWriterFactory     LogWriterFactory     // For remote log streaming (nil = use local files)
@@ -82,8 +82,8 @@ func (e Context) UserEnvsMap() map[string]string {
 }
 
 // DAGRunRef returns the DAG-run reference for the current DAG context.
-func (e Context) DAGRunRef() dagrun.DAGRunRef {
-	return dagrun.NewDAGRunRef(e.DAG.Name, e.DAGRunID)
+func (e Context) DAGRunRef() ir.DAGRunRef {
+	return ir.NewDAGRunRef(e.DAG.Name, e.DAGRunID)
 }
 
 // AllEnvs returns every environment variable as "key=value" strings.
@@ -101,7 +101,7 @@ type Database interface {
 	// GetDAG retrieves a DAG by its name.
 	GetDAG(ctx context.Context, name string) (*ir.DAG, error)
 	// RequestChildCancel requests cancellation of a sub dag-run.
-	RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun dagrun.DAGRunRef) error
+	RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun ir.DAGRunRef) error
 }
 
 // contextOptions holds optional configuration for NewContext.
@@ -133,7 +133,7 @@ func WithDatabase(db Database) ContextOption {
 }
 
 // WithRootDAGRun sets the root DAG run reference for sub-DAG execution.
-func WithRootDAGRun(ref dagrun.DAGRunRef) ContextOption {
+func WithRootDAGRun(ref ir.DAGRunRef) ContextOption {
 	return func(o *contextOptions) {
 		o.RootDAGRun = ref
 	}
@@ -309,11 +309,11 @@ func WithArtifactDir(dir string) ContextOption {
 }
 
 // WithRuntimeProfile sets the selected profile metadata for this run context.
-func WithRuntimeProfile(name, resolvedAt string, entries []dagrun.RuntimeProfileEntry) ContextOption {
+func WithRuntimeProfile(name, resolvedAt string, entries []ir.RuntimeProfileEntry) ContextOption {
 	return func(o *contextOptions) {
 		o.ProfileName = name
 		o.ProfileResolvedAt = resolvedAt
-		o.ProfileEntries = append([]dagrun.RuntimeProfileEntry(nil), entries...)
+		o.ProfileEntries = append([]ir.RuntimeProfileEntry(nil), entries...)
 	}
 }
 
@@ -474,7 +474,7 @@ func buildDAGRunBuiltinContext(
 	return cmnvalue.NewBuiltinContext(values)
 }
 
-func rootDAGRunContextAvailable(root dagrun.DAGRunRef, dag *ir.DAG, dagRunID string) bool {
+func rootDAGRunContextAvailable(root ir.DAGRunRef, dag *ir.DAG, dagRunID string) bool {
 	if root.Zero() {
 		return false
 	}

@@ -17,13 +17,13 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -32,7 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 type editRetryOptions struct {
@@ -45,7 +45,7 @@ type editRetryOptions struct {
 type editRetryPlan struct {
 	sourceAttempt   dagrun.DAGRunAttempt
 	sourceDAGRunID  string
-	sourceStatus    *dagrun.DAGRunStatus
+	sourceStatus    *ir.DAGRunStatus
 	editedDAG       *ir.DAG
 	targetWorkspace string
 	newDAGRunID     string
@@ -224,7 +224,7 @@ func (a *API) requireEditRetryPrePlanPermissions(ctx context.Context, dagName st
 	return a.requireDAGWriteForWorkspace(ctx, submittedSpecRuntimeWorkspaceName(specContent, ""))
 }
 
-func editRetryRuntimeParams(status *dagrun.DAGRunStatus, preservedParams string) string {
+func editRetryRuntimeParams(status *ir.DAGRunStatus, preservedParams string) string {
 	if status == nil {
 		return preservedParams
 	}
@@ -418,7 +418,7 @@ type editRetryStepPlan struct {
 }
 
 func planEditRetrySteps(
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	dag *ir.DAG,
 	requestedSkipSteps *[]string,
 ) editRetryStepPlan {
@@ -430,7 +430,7 @@ func planEditRetrySteps(
 		editedOrder = append(editedOrder, step.Name)
 	}
 
-	sourceNodes := make(map[string]*dagrun.Node, len(status.Nodes))
+	sourceNodes := make(map[string]*ir.Node, len(status.Nodes))
 	ineligibleReasons := make(map[string]string)
 	eligible := make(map[string]struct{})
 	for _, node := range status.Nodes {
@@ -505,14 +505,14 @@ func planEditRetrySteps(
 	return plan
 }
 
-func isReusableEditRetrySourceNode(node *dagrun.Node) bool {
+func isReusableEditRetrySourceNode(node *ir.Node) bool {
 	if node == nil {
 		return false
 	}
 	return node.Status.IsSuccess() || (node.Status == ir.NodeSkipped && node.SkippedByRetry)
 }
 
-func editRetrySourceStatusReason(node *dagrun.Node) string {
+func editRetrySourceStatusReason(node *ir.Node) string {
 	if node == nil {
 		return "step was not present in the source DAG-run"
 	}
@@ -525,7 +525,7 @@ func editRetrySourceStatusReason(node *dagrun.Node) string {
 	return fmt.Sprintf("source step status is %s, not reusable", node.Status.String())
 }
 
-func missingEditedRetryOutputReason(node *dagrun.Node, editedStep ir.Step) string {
+func missingEditedRetryOutputReason(node *ir.Node, editedStep ir.Step) string {
 	if editedStep.Output == "" {
 		return ""
 	}
@@ -597,7 +597,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	return false, nil
 }
 
-func (a *API) markEditRetrySeedFailed(ctx context.Context, status *dagrun.DAGRunStatus, cause error) {
+func (a *API) markEditRetrySeedFailed(ctx context.Context, status *ir.DAGRunStatus, cause error) {
 	if status == nil || cause == nil {
 		return
 	}
@@ -606,7 +606,7 @@ func (a *API) markEditRetrySeedFailed(ctx context.Context, status *dagrun.DAGRun
 		status.DAGRun(),
 		status.AttemptID,
 		ir.Queued,
-		func(latest *dagrun.DAGRunStatus) error {
+		func(latest *ir.DAGRunStatus) error {
 			latest.Status = ir.Failed
 			latest.FinishedAt = stringutil.FormatTime(time.Now())
 			latest.Error = cause.Error()
@@ -630,7 +630,7 @@ func (a *API) seedEditRetryAttempt(
 	profileName string,
 	nodes []runtime.NodeData,
 	sourceWorkDir string,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	now := time.Now()
 	attempt, err := a.dagRunStore.CreateAttempt(ctx, dag, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
 	if err != nil {
@@ -641,7 +641,7 @@ func (a *API) seedEditRetryAttempt(
 		if committed {
 			return
 		}
-		if rmErr := a.dagRunStore.RemoveDAGRun(ctx, dagrun.NewDAGRunRef(dag.Name, dagRunID)); rmErr != nil {
+		if rmErr := a.dagRunStore.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, dagRunID)); rmErr != nil {
 			logger.Error(ctx, "Failed to rollback edit retry attempt",
 				tag.DAG(dag.Name),
 				tag.RunID(dagRunID),
@@ -659,22 +659,22 @@ func (a *API) seedEditRetryAttempt(
 		return nil, err
 	}
 
-	opts := []transform.StatusOption{
+	opts := []ir.StatusOption{
 		transform.WithNodes(nodes),
-		transform.WithLogFilePath(logFile),
-		transform.WithArchiveDir(artifactDir),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithQueuedAt(stringutil.FormatTime(now)),
-		transform.WithPreconditions(dag.Preconditions),
-		transform.WithHierarchyRefs(
-			dagrun.NewDAGRunRef(dag.Name, dagRunID),
-			dagrun.DAGRunRef{},
+		ir.WithLogFilePath(logFile),
+		ir.WithArchiveDir(artifactDir),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithQueuedAt(stringutil.FormatTime(now)),
+		ir.WithPreconditions(dag.Preconditions),
+		ir.WithHierarchyRefs(
+			ir.NewDAGRunRef(dag.Name, dagRunID),
+			ir.DAGRunRef{},
 		),
-		transform.WithTriggerType(ir.TriggerTypeRetry),
-		transform.WithTriggerActor(triggerActorFromContext(ctx)),
-		transform.WithRuntimeProfile(profileName, "", nil),
+		ir.WithTriggerType(ir.TriggerTypeRetry),
+		ir.WithTriggerActor(triggerActorFromContext(ctx)),
+		ir.WithRuntimeProfile(profileName, "", nil),
 	}
-	status := transform.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
+	status := ir.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
 	status.Params = params
 	status.ParamsList = dag.Params
 
@@ -854,7 +854,7 @@ func copyEditRetryFile(sourcePath, targetPath string, mode fs.FileMode) error {
 	return target.Chmod(mode.Perm())
 }
 
-func remapEditRetryWorkDirOutputs(nodes []*dagrun.Node, sourceWorkDir, targetWorkDir string) {
+func remapEditRetryWorkDirOutputs(nodes []*ir.Node, sourceWorkDir, targetWorkDir string) {
 	sourceWorkDir = cleanEditRetryWorkDir(sourceWorkDir)
 	targetWorkDir = cleanEditRetryWorkDir(targetWorkDir)
 	if sourceWorkDir == "" || targetWorkDir == "" || sourceWorkDir == targetWorkDir {
@@ -900,7 +900,7 @@ func cleanEditRetryWorkDir(dir string) string {
 	return filepath.Clean(dir)
 }
 
-func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *dagrun.DAGRunStatus) error {
+func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) error {
 	opts := []executor.TaskOption{
 		executor.WithWorkerSelector(dag.WorkerSelector),
 		executor.WithPreviousStatus(status),
@@ -928,8 +928,8 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *dagrun
 	return nil
 }
 
-func editRetrySeedNodes(dag *ir.DAG, sourceStatus *dagrun.DAGRunStatus, skippedSteps []string) []runtime.NodeData {
-	sourceNodes := make(map[string]*dagrun.Node, len(sourceStatus.Nodes))
+func editRetrySeedNodes(dag *ir.DAG, sourceStatus *ir.DAGRunStatus, skippedSteps []string) []runtime.NodeData {
+	sourceNodes := make(map[string]*ir.Node, len(sourceStatus.Nodes))
 	for _, node := range sourceStatus.Nodes {
 		if node != nil {
 			sourceNodes[node.Step.Name] = node
@@ -956,7 +956,7 @@ func editRetrySeedNodes(dag *ir.DAG, sourceStatus *dagrun.DAGRunStatus, skippedS
 	return nodes
 }
 
-func skippedEditRetryNodeState(source *dagrun.Node) runtime.NodeState {
+func skippedEditRetryNodeState(source *ir.Node) runtime.NodeState {
 	state := runtime.NodeState{
 		Status:         ir.NodeSkipped,
 		SkippedByRetry: true,
@@ -983,8 +983,8 @@ func skippedEditRetryNodeState(source *dagrun.Node) runtime.NodeState {
 	if source.OutputsValue != nil {
 		state.OutputsValue = ptrOf(*source.OutputsValue)
 	}
-	state.ChatMessages = append([]dagrun.LLMMessage(nil), source.ChatMessages...)
-	state.ToolDefinitions = append([]dagrun.ToolDefinition(nil), source.ToolDefinitions...)
+	state.ChatMessages = append([]ir.LLMMessage(nil), source.ChatMessages...)
+	state.ToolDefinitions = append([]ir.ToolDefinition(nil), source.ToolDefinitions...)
 	state.HumanTaskInput = append(state.HumanTaskInput, source.HumanTaskInput...)
 	if source.StepOutputsValue != nil {
 		state.StepOutputsValue = ptrOf(*source.StepOutputsValue)

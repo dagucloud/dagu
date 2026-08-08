@@ -8,7 +8,7 @@ package doc
 import (
 	"errors"
 
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 	"golang.org/x/sys/windows"
 )
 

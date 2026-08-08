@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -175,7 +174,7 @@ steps:
 `)
 		require.NoError(t, th.ActiveDistributedRunStore.Upsert(th.Context, dispatch.ActiveDistributedRun{
 			AttemptKey: "distributed-attempt",
-			DAGRun:     dagrun.NewDAGRunRef(dag.Name, "distributed-run"),
+			DAGRun:     ir.NewDAGRunRef(dag.Name, "distributed-run"),
 			AttemptID:  "attempt-1",
 			WorkerID:   "worker-1",
 			Status:     ir.Running,

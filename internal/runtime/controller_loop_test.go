@@ -16,13 +16,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -620,7 +620,7 @@ func TestControllerLoop_FailsWhenControllerStopsWithOpenTasks(t *testing.T) {
 	assert.Equal(t, ir.NodeFailed, ch.node(t, ir.ControllerStepName).State().Status)
 }
 
-func transcript(messages []dagrun.LLMMessage) string {
+func transcript(messages []ir.LLMMessage) string {
 	var out strings.Builder
 	for _, msg := range messages {
 		out.WriteString(string(msg.Role) + ": " + msg.Content + "\n")
@@ -672,7 +672,7 @@ func TestControllerLoop_SuspendsForHumanTaskAndResumes(t *testing.T) {
 
 	// Stand in for the human task service, which records the submission on the
 	// persisted node and marks the step complete before re-queueing the run.
-	restored := roundTripNodes(t, ch, func(node *dagrun.Node) {
+	restored := roundTripNodes(t, ch, func(node *ir.Node) {
 		if node.Step.Name == "review" {
 			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
@@ -693,19 +693,19 @@ func TestControllerLoop_SuspendsForHumanTaskAndResumes(t *testing.T) {
 // roundTripNodes serializes the plan's nodes the way a finished attempt is
 // persisted and reads them back, so the test exercises real persistence rather
 // than in-memory state.
-func roundTripNodes(t *testing.T, ch *controllerHelper, complete func(*dagrun.Node)) []*runtime.Node {
+func roundTripNodes(t *testing.T, ch *controllerHelper, complete func(*ir.Node)) []*runtime.Node {
 	t.Helper()
 
 	nodeData := make([]runtime.NodeData, 0, len(ch.plan.Nodes()))
 	for _, node := range ch.plan.Nodes() {
 		nodeData = append(nodeData, node.NodeData())
 	}
-	status := transform.NewStatusBuilder(ch.dag).Create(
+	status := ir.NewStatusBuilder(ch.dag).Create(
 		ch.cfg.DAGRunID, ir.Waiting, 0, time.Now(), transform.WithNodes(nodeData))
 
 	encoded, err := json.Marshal(status)
 	require.NoError(t, err)
-	var decoded dagrun.DAGRunStatus
+	var decoded ir.DAGRunStatus
 	require.NoError(t, json.Unmarshal(encoded, &decoded))
 
 	nodes := make([]*runtime.Node, 0, len(decoded.Nodes))
@@ -1021,7 +1021,7 @@ func TestControllerLoop_AsksTheUserAndResumesWithTheAnswer(t *testing.T) {
 	assert.Equal(t, "Which config should alpha use?", last.Reason)
 
 	// Answering it is an ordinary human task completion.
-	restored := roundTripNodes(t, ch, func(node *dagrun.Node) {
+	restored := roundTripNodes(t, ch, func(node *ir.Node) {
 		if node.Step.Name == ir.AskUserStepName {
 			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"answer":"use config-b"}`)
@@ -1053,7 +1053,7 @@ func TestControllerLoop_RefusesToAskTheSameQuestionTwice(t *testing.T) {
 	)
 	require.Equal(t, ir.Waiting, ch.run(t))
 
-	restored := roundTripNodes(t, ch, func(node *dagrun.Node) {
+	restored := roundTripNodes(t, ch, func(node *ir.Node) {
 		if node.Step.Name == ir.AskUserStepName {
 			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"answer":"staging"}`)
@@ -1084,11 +1084,11 @@ func TestControllerLoop_FinalizesTheSuspendedActionEvent(t *testing.T) {
 	)
 	require.Equal(t, ir.Waiting, ch.run(t))
 
-	restored := roundTripNodes(t, ch, func(node *dagrun.Node) {
+	restored := roundTripNodes(t, ch, func(node *ir.Node) {
 		if node.Step.Name == "review" {
 			node.Status = ir.NodeSucceeded
 			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
-			node.FinishedAt = dagrun.FormatTime(time.Now())
+			node.FinishedAt = stringutil.FormatTime(time.Now())
 		}
 	})
 
@@ -1208,7 +1208,7 @@ func TestControllerLoop_FallsBackMidConversation(t *testing.T) {
 
 	var models []string
 	for _, msg := range ch.node(t, ir.ControllerStepName).GetChatMessages() {
-		if msg.Role == dagrun.RoleAssistant && msg.Metadata != nil {
+		if msg.Role == ir.LLMRoleAssistant && msg.Metadata != nil {
 			models = append(models, msg.Metadata.Model)
 		}
 	}

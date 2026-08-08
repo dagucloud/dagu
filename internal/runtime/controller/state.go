@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -133,7 +132,7 @@ type State struct {
 
 	// messages is the conversation. It is persisted separately, as the node's
 	// chat transcript, so the UI can render it with the other LLM steps.
-	messages []dagrun.LLMMessage
+	messages []ir.LLMMessage
 }
 
 // NewState builds the initial state for a controller DAG.
@@ -152,7 +151,7 @@ func NewState(dag *ir.DAG) *State {
 // LoadState restores state persisted by an earlier attempt of the same run and
 // reconciles it with the DAG, so that editing the task list between attempts
 // neither drops progress nor resurrects removed tasks.
-func LoadState(raw json.RawMessage, messages []dagrun.LLMMessage, dag *ir.DAG) (*State, error) {
+func LoadState(raw json.RawMessage, messages []ir.LLMMessage, dag *ir.DAG) (*State, error) {
 	fresh := NewState(dag)
 	if len(raw) == 0 {
 		fresh.messages = messages
@@ -280,12 +279,12 @@ func (s *State) Marshal() (json.RawMessage, error) {
 }
 
 // Messages returns the conversation so far.
-func (s *State) Messages() []dagrun.LLMMessage {
+func (s *State) Messages() []ir.LLMMessage {
 	return s.messages
 }
 
 // Append adds a message to the conversation.
-func (s *State) Append(msgs ...dagrun.LLMMessage) {
+func (s *State) Append(msgs ...ir.LLMMessage) {
 	s.messages = append(s.messages, msgs...)
 }
 

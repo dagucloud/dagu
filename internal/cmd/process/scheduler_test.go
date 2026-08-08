@@ -15,9 +15,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 )
 

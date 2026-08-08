@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
-	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -90,7 +89,7 @@ func TestSubCmdBuilderFilteredCommandsUseBaseEnv(t *testing.T) {
 	assert.Equal(t, baseEnv, enqueueSpec.Env)
 	assert.NotContains(t, enqueueSpec.Env, "SUBCMD_PARENT_ENV=from-parent")
 
-	dequeueSpec := builder.Dequeue(dag, dagrun.NewDAGRunRef("test-dag", "run-1"))
+	dequeueSpec := builder.Dequeue(dag, ir.NewDAGRunRef("test-dag", "run-1"))
 	assert.Equal(t, baseEnv, dequeueSpec.Env)
 	assert.NotContains(t, dequeueSpec.Env, "SUBCMD_PARENT_ENV=from-parent")
 }
@@ -111,15 +110,15 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, "built-exec-retry.log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := transform.NewStatusBuilder(dagFile.DAG).Create(
+	status := ir.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithTriggerType(ir.TriggerTypeRetry),
-		transform.WithQueuedAt(stringutil.FormatTime(time.Now())),
-		transform.WithLogFilePath(logPath),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithTriggerType(ir.TriggerTypeRetry),
+		ir.WithQueuedAt(stringutil.FormatTime(time.Now())),
+		ir.WithLogFilePath(logPath),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -147,14 +146,14 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := transform.NewStatusBuilder(dagFile.DAG).Create(
+	status := ir.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithLogFilePath(logPath),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dagFile.Name, runID), dagrun.DAGRunRef{}),
+		ir.WithLogFilePath(logPath),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ir.NewDAGRunRef(dagFile.Name, runID), ir.DAGRunRef{}),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -182,14 +181,14 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := transform.NewStatusBuilder(dagFile.DAG).Create(
+	status := ir.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithLogFilePath(logPath),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dagFile.Name, runID), dagrun.DAGRunRef{}),
+		ir.WithLogFilePath(logPath),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ir.NewDAGRunRef(dagFile.Name, runID), ir.DAGRunRef{}),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -217,14 +216,14 @@ steps:
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-	status := transform.NewStatusBuilder(dagFile.DAG).Create(
+	status := ir.NewStatusBuilder(dagFile.DAG).Create(
 		runID,
 		ir.Queued,
 		0,
 		time.Time{},
-		transform.WithLogFilePath(logPath),
-		transform.WithAttemptID(attempt.ID()),
-		transform.WithHierarchyRefs(dagrun.NewDAGRunRef(dagFile.Name, runID), dagrun.DAGRunRef{}),
+		ir.WithLogFilePath(logPath),
+		ir.WithAttemptID(attempt.ID()),
+		ir.WithHierarchyRefs(ir.NewDAGRunRef(dagFile.Name, runID), ir.DAGRunRef{}),
 	)
 
 	require.NoError(t, attempt.Open(th.Context))
@@ -271,7 +270,7 @@ steps:
 	started, err := launcher.StartProcess(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
-	var status dagrun.DAGRunStatus
+	var status ir.DAGRunStatus
 	require.Eventually(t, func() bool {
 		latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
 		if err != nil {
@@ -308,7 +307,7 @@ steps:
 	started, err := launcher.StartProcess(th.Context, spec)
 	require.NoError(t, err, "env=%s", strings.Join(spec.Env, "\n"))
 
-	var status dagrun.DAGRunStatus
+	var status ir.DAGRunStatus
 	require.Eventually(t, func() bool {
 		latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dagFile.DAG)
 		if err != nil {
@@ -536,7 +535,7 @@ func TestDequeue(t *testing.T) {
 
 	t.Run("BasicDequeue", func(t *testing.T) {
 		t.Parallel()
-		dagRun := dagrun.NewDAGRunRef("test-dag", "run-123")
+		dagRun := ir.NewDAGRunRef("test-dag", "run-123")
 		spec := builder.Dequeue(dag, dagRun)
 
 		assert.Equal(t, "/usr/bin/dagu", spec.Executable)
@@ -558,7 +557,7 @@ func TestDequeue(t *testing.T) {
 			},
 		}
 		builderNoFile := launcher.NewSubCmdBuilder(cfgNoFile)
-		dagRun := dagrun.NewDAGRunRef("test-dag", "run-456")
+		dagRun := ir.NewDAGRunRef("test-dag", "run-456")
 		spec := builderNoFile.Dequeue(dag, dagRun)
 
 		assert.NotContains(t, spec.Args, "--config")
@@ -575,7 +574,7 @@ func TestDequeue(t *testing.T) {
 			Location:   "/path/to/dag.yaml",
 			WorkingDir: "/path/to",
 		}
-		dagRun := dagrun.NewDAGRunRef("test-dag", "run-789")
+		dagRun := ir.NewDAGRunRef("test-dag", "run-789")
 		spec := builder.Dequeue(dagWithQueue, dagRun)
 
 		// Queue name should be the custom queue, not the DAG name
@@ -696,7 +695,7 @@ func TestRetry(t *testing.T) {
 
 	t.Run("RetryWithRootDAGRun", func(t *testing.T) {
 		t.Parallel()
-		root := dagrun.NewDAGRunRef("root-dag", "root-run-id")
+		root := ir.NewDAGRunRef("root-dag", "root-run-id")
 		spec := builder.Retry(dag, launcher.RetryOptions{
 			DAGRunID: "child-run-id",
 			Root:     root,

@@ -139,7 +139,7 @@ func TestRunHumanTaskCompletePersistsCanonicalInputAndQueuesRetry(t *testing.T) 
 	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
 	require.NoError(t, err)
 	assert.Equal(t, ir.Queued, fixture.status.Status)
-	assert.Equal(t, []dagrun.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
+	assert.Equal(t, []ir.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
 
 	node := fixture.status.Nodes[0]
 	assert.Equal(t, ir.NodeSucceeded, node.Status)
@@ -294,7 +294,7 @@ type humanTaskCompleteFixture struct {
 	command     *cobra.Command
 	ctx         *Context
 	dag         *ir.DAG
-	status      *dagrun.DAGRunStatus
+	status      *ir.DAGRunStatus
 	store       *humanTaskCompletionStore
 	queue       *humanTaskCompletionQueueStore
 	output      *bytes.Buffer
@@ -316,20 +316,20 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		Location: filepath.Join(t.TempDir(), "human-task-test.yaml"),
 		Steps:    []ir.Step{step},
 	}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:       dag.Name,
 		DAGRunID:   "run-1",
 		AttemptID:  "attempt-1",
 		AttemptKey: "attempt-key-1",
 		Status:     ir.Waiting,
 		FinishedAt: "2026-07-20T01:00:00Z",
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step:   step,
 			Status: ir.NodeWaiting,
 		}},
 	}
 	if anotherWaiting {
-		status.Nodes = append(status.Nodes, &dagrun.Node{
+		status.Nodes = append(status.Nodes, &ir.Node{
 			Step:   ir.Step{ID: "approval", Name: "Approval"},
 			Status: ir.NodeWaiting,
 		})
@@ -386,7 +386,7 @@ func humanTaskTestForm() json.RawMessage {
 type humanTaskCompletionAttempt struct {
 	dagrun.DAGRunAttempt
 	dag    *ir.DAG
-	status *dagrun.DAGRunStatus
+	status *ir.DAGRunStatus
 }
 
 func (a *humanTaskCompletionAttempt) ID() string {
@@ -397,7 +397,7 @@ func (a *humanTaskCompletionAttempt) ReadDAG(context.Context) (*ir.DAG, error) {
 	return a.dag, nil
 }
 
-func (a *humanTaskCompletionAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
+func (a *humanTaskCompletionAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
 }
 
@@ -405,33 +405,33 @@ type humanTaskCompletionProcStore struct {
 	proc.ProcStore
 }
 
-func (humanTaskCompletionProcStore) IsRunAlive(context.Context, string, dagrun.DAGRunRef) (bool, error) {
+func (humanTaskCompletionProcStore) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
 	return false, nil
 }
 
-func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, dagrun.DAGRunRef, string) (bool, error) {
+func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
 	return false, nil
 }
 
 type humanTaskCompletionStore struct {
 	dagrun.DAGRunStore
 	attempt      *humanTaskCompletionAttempt
-	status       *dagrun.DAGRunStatus
+	status       *ir.DAGRunStatus
 	beforeMutate func()
 }
 
-func (s *humanTaskCompletionStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *humanTaskCompletionStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	return s.attempt, nil
 }
 
 func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	_ dagrun.DAGRunRef,
+	_ ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*dagrun.DAGRunStatus) error,
+	mutate func(*ir.DAGRunStatus) error,
 	opts ...dagrun.CompareAndSwapStatusOption,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	options := dagrun.NewCompareAndSwapStatusOptions(opts...)
 	if s.beforeMutate != nil {
 		s.beforeMutate()
@@ -450,7 +450,7 @@ func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 
 type humanTaskCompletionQueueStore struct {
 	queue.QueueStore
-	enqueued      []dagrun.DAGRunRef
+	enqueued      []ir.DAGRunRef
 	enqueueErrors []error
 }
 
@@ -458,7 +458,7 @@ func (s *humanTaskCompletionQueueStore) Enqueue(
 	_ context.Context,
 	_ string,
 	_ queue.QueuePriority,
-	ref dagrun.DAGRunRef,
+	ref ir.DAGRunRef,
 ) error {
 	if len(s.enqueueErrors) > 0 {
 		err := s.enqueueErrors[0]

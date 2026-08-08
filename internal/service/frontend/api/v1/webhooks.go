@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -22,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/google/uuid"
 	openapitypes "github.com/oapi-codegen/runtime/types"

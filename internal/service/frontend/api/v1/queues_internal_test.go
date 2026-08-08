@@ -287,15 +287,15 @@ func createDistributedQueueRunWithStatus(
 		require.NoError(t, attempt.Close(ctx))
 	}()
 
-	runStatus := dagrun.InitialStatus(dag)
+	runStatus := ir.InitialStatus(dag)
 	runStatus.Status = status
 	runStatus.DAGRunID = dagRunID
 	runStatus.AttemptID = attempt.ID()
 	runStatus.ProcGroup = name
 	runStatus.WorkerID = "worker-1"
 	if status == ir.Queued {
-		runStatus.Conditions = []dagrun.DAGRunCondition{
-			dagrun.NewDAGRunCondition(
+		runStatus.Conditions = []ir.DAGRunCondition{
+			ir.NewDAGRunCondition(
 				"Runnable",
 				"False",
 				"MaxConcurrencyReached",
@@ -311,9 +311,9 @@ func createDistributedQueueRunWithStatus(
 
 	require.NoError(t, attempt.Write(ctx, runStatus))
 	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
-		AttemptKey:      dagrun.GenerateAttemptKey(name, dagRunID, name, dagRunID, attempt.ID()),
-		DAGRun:          dagrun.NewDAGRunRef(name, dagRunID),
-		Root:            dagrun.NewDAGRunRef(name, dagRunID),
+		AttemptKey:      ir.GenerateAttemptKey(name, dagRunID, name, dagRunID, attempt.ID()),
+		DAGRun:          ir.NewDAGRunRef(name, dagRunID),
+		Root:            ir.NewDAGRunRef(name, dagRunID),
 		AttemptID:       attempt.ID(),
 		QueueName:       leaseQueueName,
 		WorkerID:        "worker-1",
@@ -346,7 +346,7 @@ func createQueuedQueueRun(
 		require.NoError(t, attempt.Close(ctx))
 	}()
 
-	runStatus := dagrun.InitialStatus(dag)
+	runStatus := ir.InitialStatus(dag)
 	runStatus.Status = status
 	runStatus.DAGRunID = dagRunID
 	runStatus.AttemptID = attempt.ID()
@@ -358,7 +358,7 @@ func createQueuedQueueRun(
 	}
 
 	require.NoError(t, attempt.Write(ctx, runStatus))
-	require.NoError(t, queueStore.Enqueue(ctx, name, queue.QueuePriorityLow, dagrun.NewDAGRunRef(name, dagRunID)))
+	require.NoError(t, queueStore.Enqueue(ctx, name, queue.QueuePriorityLow, ir.NewDAGRunRef(name, dagRunID)))
 }
 
 func queueListLimitPtr(v int) *openapiv1.QueueListLimit {

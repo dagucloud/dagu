@@ -134,7 +134,7 @@ func newDAGRun(dir, artifactDir string) (*DAGRun, error) {
 // CreateAttempt creates a new Attempt for the dag-run with the given timestamp.
 // It creates a new Attempt directory and initializes a record within it.
 // If attemptID is provided, it uses that ID instead of generating a new one.
-func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fileutil.Cache[*dagrun.DAGRunStatus], attemptID string, opts ...AttemptOption) (*Attempt, error) {
+func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fileutil.Cache[*ir.DAGRunStatus], attemptID string, opts ...AttemptOption) (*Attempt, error) {
 	attID := attemptID
 	if attID == "" {
 		var err error
@@ -156,7 +156,7 @@ func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fi
 
 // CreateSubDAGRun creates a new sub dag-run with the given timestamp and dag-run ID.
 func (dr DAGRun) CreateSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, error) {
-	if err := dagrun.ValidateDAGRunID(dagRunID); err != nil {
+	if err := ir.ValidateDAGRunID(dagRunID); err != nil {
 		return nil, fmt.Errorf("invalid sub dag-run ID: %w", err)
 	}
 	dir := filepath.Join(dr.baseDir, SubDAGRunsDir, dagRunID)
@@ -168,7 +168,7 @@ func (dr DAGRun) CreateSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, e
 
 // FindSubDAGRun searches for a sub dag-run by its run ID.
 func (dr DAGRun) FindSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, error) {
-	if err := dagrun.ValidateDAGRunID(dagRunID); err != nil {
+	if err := ir.ValidateDAGRunID(dagRunID); err != nil {
 		return nil, fmt.Errorf("invalid sub dag-run ID: %w", err)
 	}
 	for _, dir := range []string{
@@ -229,7 +229,7 @@ func (dr DAGRun) ListSubDAGRuns(ctx context.Context) ([]*DAGRun, error) {
 // LatestAttempt returns the most recent Attempt for the dag-run.
 // It searches through all run directories and returns the first valid Attempt found.
 // It skips hidden attempts (dequeued ones).
-func (dr DAGRun) LatestAttempt(ctx context.Context, cache *fileutil.Cache[*dagrun.DAGRunStatus]) (*Attempt, error) {
+func (dr DAGRun) LatestAttempt(ctx context.Context, cache *fileutil.Cache[*ir.DAGRunStatus]) (*Attempt, error) {
 	attDirs, err := dr.listAttemptDirs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list run directories: %w", err)
@@ -256,7 +256,7 @@ func (dr DAGRun) LatestAttempt(ctx context.Context, cache *fileutil.Cache[*dagru
 
 // AttemptByDir constructs an Attempt directly from a known attempt directory name,
 // skipping the directory listing and sorting done by LatestAttempt.
-func (dr DAGRun) AttemptByDir(attemptDir string, cache *fileutil.Cache[*dagrun.DAGRunStatus]) (*Attempt, error) {
+func (dr DAGRun) AttemptByDir(attemptDir string, cache *fileutil.Cache[*ir.DAGRunStatus]) (*Attempt, error) {
 	return NewAttempt(filepath.Join(dr.baseDir, attemptDir, JSONLStatusFile), cache)
 }
 

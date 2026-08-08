@@ -12,11 +12,11 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
+	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 )
 
-// Verify Store implements baseconfig.Store at compile time.
-var _ baseconfig.Store = (*Store)(nil)
+// Verify Store implements dagsettings.BaseConfigStore at compile time.
+var _ dagsettings.BaseConfigStore = (*Store)(nil)
 
 const filePermissions = 0600
 

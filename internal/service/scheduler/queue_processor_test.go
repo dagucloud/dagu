@@ -139,11 +139,11 @@ func (f *queueFixture) enqueueRuns(n int) *queueFixture {
 		run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
 		require.NoError(f.t, err)
 		require.NoError(f.t, run.Open(f.ctx))
-		st := dagrun.InitialStatus(f.dag)
+		st := ir.InitialStatus(f.dag)
 		st.Status, st.DAGRunID = ir.Queued, runID
 		require.NoError(f.t, run.Write(f.ctx, st))
 		require.NoError(f.t, run.Close(f.ctx))
-		require.NoError(f.t, f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityHigh, dagrun.NewDAGRunRef(f.dag.Name, runID)))
+		require.NoError(f.t, f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityHigh, ir.NewDAGRunRef(f.dag.Name, runID)))
 	}
 	return f
 }
@@ -194,13 +194,13 @@ func (f *queueFixture) enqueueToQueueWithTrigger(queueName, runID string, priori
 	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(f.t, err)
 	require.NoError(f.t, run.Open(f.ctx))
-	st := dagrun.InitialStatus(f.dag)
+	st := ir.InitialStatus(f.dag)
 	st.Status, st.DAGRunID = ir.Queued, runID
 	st.AttemptID = run.ID()
 	st.TriggerType = triggerType
 	require.NoError(f.t, run.Write(f.ctx, st))
 	require.NoError(f.t, run.Close(f.ctx))
-	require.NoError(f.t, f.queueStore.Enqueue(f.ctx, queueName, priority, dagrun.NewDAGRunRef(f.dag.Name, runID)))
+	require.NoError(f.t, f.queueStore.Enqueue(f.ctx, queueName, priority, ir.NewDAGRunRef(f.dag.Name, runID)))
 }
 
 func TestQueueProcessor_LocalQueueAlwaysFIFO(t *testing.T) {
@@ -255,7 +255,7 @@ func TestQueueProcessor_PermanentStartupFailureIsFailedAndDequeued(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 
-	attempt, err := f.dagRunStore.FindAttempt(f.ctx, dagrun.NewDAGRunRef("fifo-dag", "run-1"))
+	attempt, err := f.dagRunStore.FindAttempt(f.ctx, ir.NewDAGRunRef("fifo-dag", "run-1"))
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(f.ctx)
 	require.NoError(t, err)
@@ -305,7 +305,7 @@ func TestQueueProcessor_PreservesSameRunItemEnqueuedDuringDispatch(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, initialItems, 1)
 	initialItemID := initialItems[0].ID()
-	runRef := dagrun.NewDAGRunRef(f.dag.Name, "run-1")
+	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
 
 	procStore := &mockProcStore{}
 	procStore.On("CountAlive", mock.Anything, f.dag.Name).Return(0, nil).Once()
@@ -342,7 +342,7 @@ func TestQueueProcessor_CountsFreshDistributedRunsAgainstQueueConcurrency(t *tes
 	runningAttempt, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-run", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, runningAttempt.Open(f.ctx))
-	runningStatus := dagrun.InitialStatus(f.dag)
+	runningStatus := ir.InitialStatus(f.dag)
 	runningStatus.Status = ir.Queued
 	runningStatus.DAGRunID = "running-run"
 	runningStatus.AttemptID = runningAttempt.ID()
@@ -350,9 +350,9 @@ func TestQueueProcessor_CountsFreshDistributedRunsAgainstQueueConcurrency(t *tes
 	require.NoError(t, runningAttempt.Write(f.ctx, runningStatus))
 	require.NoError(t, runningAttempt.Close(f.ctx))
 	require.NoError(t, f.leaseStore.Upsert(f.ctx, dispatch.DAGRunLease{
-		AttemptKey:      dagrun.GenerateAttemptKey(f.dag.Name, "running-run", f.dag.Name, "running-run", runningAttempt.ID()),
-		DAGRun:          dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
-		Root:            dagrun.NewDAGRunRef(f.dag.Name, "running-run"),
+		AttemptKey:      ir.GenerateAttemptKey(f.dag.Name, "running-run", f.dag.Name, "running-run", runningAttempt.ID()),
+		DAGRun:          ir.NewDAGRunRef(f.dag.Name, "running-run"),
+		Root:            ir.NewDAGRunRef(f.dag.Name, "running-run"),
 		AttemptID:       runningAttempt.ID(),
 		QueueName:       f.dag.Name,
 		WorkerID:        "worker-1",
@@ -434,7 +434,7 @@ func TestQueueProcessor_CountsOutstandingDispatchReservationsAgainstQueueConcurr
 
 	f.enqueueRuns(1)
 
-	runRef := dagrun.NewDAGRunRef(f.dag.Name, "run-1")
+	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
 	attempt, err := f.dagRunStore.FindAttempt(f.ctx, runRef)
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(f.ctx)
@@ -463,7 +463,7 @@ func TestQueueProcessor_SelectRunnableQueueItemsSkipsOutstandingReservations(t *
 
 	f.enqueueRuns(2)
 
-	reservedRef := dagrun.NewDAGRunRef(f.dag.Name, "run-1")
+	reservedRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
 	reservedAttempt, err := f.dagRunStore.FindAttempt(f.ctx, reservedRef)
 	require.NoError(t, err)
 	reservedStatus, err := reservedAttempt.ReadStatus(f.ctx)
@@ -496,7 +496,7 @@ func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T)
 
 	f.enqueueRuns(1)
 
-	runRef := dagrun.NewDAGRunRef(f.dag.Name, "run-1")
+	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
 	attempt, err := f.dagRunStore.FindAttempt(f.ctx, runRef)
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(f.ctx)
@@ -551,7 +551,7 @@ func TestQueueDispatcher_DistributedDispatchHandsOffWithAdmissionToken(t *testin
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 
-	runRef := dagrun.NewDAGRunRef(f.dag.Name, "run-1")
+	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
 	procStore := &mockProcStore{}
 	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
 	dispatcher := &mockDispatcher{}
@@ -602,7 +602,7 @@ func TestQueueProcessor_SuspendedSchedulerManagedQueuedRunsAreAbortedAndDequeued
 			require.NoError(t, err)
 			require.Len(t, items, 0)
 
-			attempt, err := f.dagRunStore.FindAttempt(f.ctx, dagrun.NewDAGRunRef(dagName, "run-1"))
+			attempt, err := f.dagRunStore.FindAttempt(f.ctx, ir.NewDAGRunRef(dagName, "run-1"))
 			require.NoError(t, err)
 			status, err := attempt.ReadStatus(f.ctx)
 			require.NoError(t, err)
@@ -623,7 +623,7 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 
-	runRef := dagrun.NewDAGRunRef(dagName, "run-1")
+	runRef := ir.NewDAGRunRef(dagName, "run-1")
 	procStore := &mockProcStore{}
 	procStore.On("IsRunAlive", mock.Anything, dagName, runRef).Return(false, nil).Once()
 	procStore.On("IsRunAlive", mock.Anything, dagName, runRef).Return(true, nil).Once()
@@ -705,7 +705,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testin
 	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-startup-run", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, run.Open(f.ctx))
-	status := dagrun.InitialStatus(f.dag)
+	status := ir.InitialStatus(f.dag)
 	status.Status = ir.Running
 	status.DAGRunID = "running-startup-run"
 	status.AttemptID = run.ID()
@@ -715,7 +715,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testin
 	started, err := f.processor.newQueueDispatcher().checkStartupStatus(
 		f.ctx,
 		f.dag.Name,
-		dagrun.NewDAGRunRef(f.dag.Name, "running-startup-run"),
+		ir.NewDAGRunRef(f.dag.Name, "running-startup-run"),
 		startupWaitState{launchedAt: time.Now().Add(-time.Second)},
 	)
 	require.NoError(t, err)
@@ -729,18 +729,18 @@ func TestQueueProcessor_CheckStartupStatusTreatsFreshDistributedLeaseAsStarted(t
 	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "lease-startup-run", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, run.Open(f.ctx))
-	status := dagrun.InitialStatus(f.dag)
+	status := ir.InitialStatus(f.dag)
 	status.Status = ir.Queued
 	status.DAGRunID = "lease-startup-run"
 	status.AttemptID = run.ID()
-	status.AttemptKey = dagrun.GenerateAttemptKey(f.dag.Name, "lease-startup-run", f.dag.Name, "lease-startup-run", run.ID())
+	status.AttemptKey = ir.GenerateAttemptKey(f.dag.Name, "lease-startup-run", f.dag.Name, "lease-startup-run", run.ID())
 	require.NoError(t, run.Write(f.ctx, status))
 	require.NoError(t, run.Close(f.ctx))
 
 	require.NoError(t, f.leaseStore.Upsert(f.ctx, dispatch.DAGRunLease{
 		AttemptKey:      status.AttemptKey,
-		DAGRun:          dagrun.NewDAGRunRef(f.dag.Name, "lease-startup-run"),
-		Root:            dagrun.NewDAGRunRef(f.dag.Name, "lease-startup-run"),
+		DAGRun:          ir.NewDAGRunRef(f.dag.Name, "lease-startup-run"),
+		Root:            ir.NewDAGRunRef(f.dag.Name, "lease-startup-run"),
 		AttemptID:       run.ID(),
 		QueueName:       f.dag.Name,
 		WorkerID:        "worker-1",
@@ -750,7 +750,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsFreshDistributedLeaseAsStarted(t
 	started, err := f.processor.newQueueDispatcher().checkStartupStatus(
 		f.ctx,
 		f.dag.Name,
-		dagrun.NewDAGRunRef(f.dag.Name, "lease-startup-run"),
+		ir.NewDAGRunRef(f.dag.Name, "lease-startup-run"),
 		startupWaitState{launchedAt: time.Now().Add(-time.Second)},
 	)
 	require.NoError(t, err)

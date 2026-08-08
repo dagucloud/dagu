@@ -14,11 +14,11 @@ import (
 
 	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/api/pathutil"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/require"
 )

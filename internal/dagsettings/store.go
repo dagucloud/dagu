@@ -5,6 +5,15 @@ package dagsettings
 
 import "context"
 
+// BaseConfigStore provides access to the base DAG configuration inherited by all DAGs.
+// Implementations must be safe for concurrent use.
+type BaseConfigStore interface {
+	// GetSpec returns the raw YAML content, or an empty string when no configuration exists.
+	GetSpec(ctx context.Context) (string, error)
+	// UpdateSpec writes the raw YAML content.
+	UpdateSpec(ctx context.Context, spec []byte) error
+}
+
 type Store interface {
 	Get(ctx context.Context, dagName string) (*Settings, error)
 	Upsert(ctx context.Context, settings *Settings) error

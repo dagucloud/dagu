@@ -6,7 +6,6 @@ package executor_test
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -63,7 +62,7 @@ steps:
 			Name: "sub-dag",
 		}
 
-		rootRef := dagrun.DAGRunRef{
+		rootRef := ir.DAGRunRef{
 			Name: "root-dag",
 			ID:   "root-run-123",
 		}
@@ -85,7 +84,7 @@ steps:
 	t.Run("WithParentDagRunOption", func(t *testing.T) {
 		t.Parallel()
 
-		parentRef := dagrun.DAGRunRef{
+		parentRef := ir.DAGRunRef{
 			Name: "parent-dag",
 			ID:   "parent-run-789",
 		}
@@ -107,11 +106,11 @@ steps:
 	t.Run("WithMultipleOptions", func(t *testing.T) {
 		t.Parallel()
 
-		rootRef := dagrun.DAGRunRef{
+		rootRef := ir.DAGRunRef{
 			Name: "root-dag",
 			ID:   "root-run-123",
 		}
-		parentRef := dagrun.DAGRunRef{
+		parentRef := ir.DAGRunRef{
 			Name: "parent-dag",
 			ID:   "parent-run-456",
 		}
@@ -154,8 +153,8 @@ steps:
 		t.Parallel()
 
 		// Test that empty refs don't modify the task
-		emptyRootRef := dagrun.DAGRunRef{}
-		emptyParentRef := dagrun.DAGRunRef{Name: "", ID: ""}
+		emptyRootRef := ir.DAGRunRef{}
+		emptyParentRef := ir.DAGRunRef{Name: "", ID: ""}
 
 		task := executor.CreateTask(
 			"test-dag",
@@ -178,8 +177,8 @@ steps:
 		t.Parallel()
 
 		// Test refs with only one field set
-		partialRootRef := dagrun.DAGRunRef{Name: "root-dag", ID: ""}
-		partialParentRef := dagrun.DAGRunRef{Name: "", ID: "parent-id"}
+		partialRootRef := ir.DAGRunRef{Name: "root-dag", ID: ""}
+		partialParentRef := ir.DAGRunRef{Name: "", ID: "parent-id"}
 
 		task := executor.CreateTask(
 			"test-dag",
@@ -289,7 +288,7 @@ func TestTaskOption_Functions(t *testing.T) {
 		t.Parallel()
 
 		task := &dispatch.DispatchTask{}
-		ref := dagrun.DAGRunRef{Name: "root", ID: "123"}
+		ref := ir.DAGRunRef{Name: "root", ID: "123"}
 
 		executor.WithRootDagRun(ref)(task)
 
@@ -301,7 +300,7 @@ func TestTaskOption_Functions(t *testing.T) {
 		t.Parallel()
 
 		task := &dispatch.DispatchTask{}
-		ref := dagrun.DAGRunRef{Name: "parent", ID: "456"}
+		ref := ir.DAGRunRef{Name: "parent", ID: "456"}
 
 		executor.WithParentDagRun(ref)(task)
 
@@ -387,12 +386,12 @@ func TestTaskOption_Functions(t *testing.T) {
 		t.Parallel()
 
 		task := &dispatch.DispatchTask{}
-		status := &dagrun.DAGRunStatus{
+		status := &ir.DAGRunStatus{
 			Name:      "test-dag",
 			DAGRunID:  "run-123",
 			ProcGroup: "shared-queue",
 			Status:    ir.Running,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{Step: ir.Step{Name: "step1"}, Status: ir.NodeSucceeded},
 				{Step: ir.Step{Name: "step2"}, Status: ir.NodeFailed},
 			},

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
@@ -96,7 +95,7 @@ func (m *mockCoordinatorClient) Cleanup(_ context.Context) error {
 	return nil
 }
 
-func (m *mockCoordinatorClient) GetDAGRunStatus(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+func (m *mockCoordinatorClient) GetDAGRunStatus(_ context.Context, _, _ string, _ *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	panic("GetDAGRunStatus not implemented in mock")
 }
 
@@ -104,7 +103,7 @@ func (m *mockCoordinatorClient) GetDAG(_ context.Context, _ string) (string, err
 	panic("GetDAG not implemented in mock")
 }
 
-func (m *mockCoordinatorClient) RequestCancel(_ context.Context, _, _ string, _ *dagrun.DAGRunRef) error {
+func (m *mockCoordinatorClient) RequestCancel(_ context.Context, _, _ string, _ *ir.DAGRunRef) error {
 	panic("RequestCancel not implemented in mock")
 }
 
@@ -140,7 +139,7 @@ func TestPush(t *testing.T) {
 			SourceFile: "/dags/daily-file.yaml",
 			Labels:     "workspace=ops,team=platform",
 		})
-		status := dagrun.DAGRunStatus{
+		status := ir.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -176,7 +175,7 @@ func TestPush(t *testing.T) {
 		}
 
 		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
-		status := dagrun.DAGRunStatus{Name: "test-dag", DAGRunID: "run-123"}
+		status := ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-123"}
 
 		err := pusher.Push(context.Background(), status)
 
@@ -198,7 +197,7 @@ func TestPush(t *testing.T) {
 		}
 
 		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
-		err := pusher.Push(context.Background(), dagrun.DAGRunStatus{})
+		err := pusher.Push(context.Background(), ir.DAGRunStatus{})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status rejected")
@@ -217,7 +216,7 @@ func TestPush(t *testing.T) {
 		}
 
 		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
-		err := pusher.Push(context.Background(), dagrun.DAGRunStatus{})
+		err := pusher.Push(context.Background(), ir.DAGRunStatus{})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "nil response")
@@ -233,7 +232,7 @@ func TestPush(t *testing.T) {
 		}
 
 		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
-		err := pusher.Push(context.Background(), dagrun.DAGRunStatus{})
+		err := pusher.Push(context.Background(), ir.DAGRunStatus{})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to report status")
@@ -253,7 +252,7 @@ func TestPush(t *testing.T) {
 		cancel() // Cancel immediately
 
 		pusher := coordreport.NewStatusPusher(client, "worker-1", "")
-		err := pusher.Push(ctx, dagrun.DAGRunStatus{})
+		err := pusher.Push(ctx, ir.DAGRunStatus{})
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "context canceled")
@@ -270,7 +269,7 @@ func TestPush(t *testing.T) {
 			},
 		}
 
-		status := dagrun.DAGRunStatus{
+		status := ir.DAGRunStatus{
 			Name:       "complex-dag",
 			DAGRunID:   "run-456",
 			AttemptID:  "attempt-1",
@@ -280,9 +279,9 @@ func TestPush(t *testing.T) {
 			StartedAt:  "2024-01-01T00:00:00Z",
 			FinishedAt: "2024-01-01T00:05:00Z",
 			Params:     "key=value",
-			Root:       dagrun.DAGRunRef{Name: "root", ID: "root-id"},
-			Parent:     dagrun.DAGRunRef{Name: "parent", ID: "parent-id"},
-			Nodes: []*dagrun.Node{
+			Root:       ir.DAGRunRef{Name: "root", ID: "root-id"},
+			Parent:     ir.DAGRunRef{Name: "parent", ID: "parent-id"},
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "step-1"},
 					Status: ir.NodeSucceeded,
@@ -321,7 +320,7 @@ func TestPush(t *testing.T) {
 		}
 
 		pusher := coordreport.NewStatusPusher(client, "worker-1", "owner-attempt-key", serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321})
-		err := pusher.Push(context.Background(), dagrun.DAGRunStatus{Name: "test-dag", DAGRunID: "run-owner"})
+		err := pusher.Push(context.Background(), ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-owner"})
 
 		require.NoError(t, err)
 		assert.True(t, client.reportStatusToCalled)

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
@@ -29,7 +28,7 @@ func createDayDir(t *testing.T, dayDir string, numRuns int, status ir.Status) {
 		attemptDir := filepath.Join(runDir, "attempt_20240115_120000_001Z_abc123")
 		require.NoError(t, os.MkdirAll(attemptDir, 0750))
 
-		st := dagrun.DAGRunStatus{
+		st := ir.DAGRunStatus{
 			Name:       "test",
 			DAGRunID:   "run" + string(rune('A'+i)),
 			AttemptID:  "abc123",
@@ -87,7 +86,7 @@ func TestTryLoadForDay_NoIndex_ActiveRun(t *testing.T) {
 	for _, de := range dirEntries {
 		if de.IsDir() {
 			attemptDir := filepath.Join(dayDir, de.Name(), "attempt_20240115_120000_001Z_abc123")
-			st := dagrun.DAGRunStatus{
+			st := ir.DAGRunStatus{
 				Status:    ir.Running,
 				StartedAt: "2024-01-15T12:00:00Z",
 				LeaseAt:   1705320030000,
@@ -142,14 +141,14 @@ func TestTryLoadForDay_PreservesRetryMetadata(t *testing.T) {
 	attemptDir := filepath.Join(runDir, "attempt_20240115_120000_001Z_abc123")
 	require.NoError(t, os.MkdirAll(attemptDir, 0750))
 
-	st := dagrun.DAGRunStatus{
+	st := ir.DAGRunStatus{
 		Name:                 "retry-dag",
 		DAGRunID:             "retry-run",
 		AttemptID:            "abc123",
 		Status:               ir.Failed,
 		StartedAt:            "2024-01-15T12:00:00Z",
 		FinishedAt:           "2024-01-15T12:01:00Z",
-		Parent:               dagrun.NewDAGRunRef("parent-dag", "parent-run"),
+		Parent:               ir.NewDAGRunRef("parent-dag", "parent-run"),
 		AutoRetryCount:       1,
 		AutoRetryLimit:       3,
 		AutoRetryInterval:    2 * time.Minute,
@@ -201,7 +200,7 @@ func TestTryLoadForDay_StaleIndex_NewRun(t *testing.T) {
 	runDir := filepath.Join(dayDir, "dag-run_20240115_130000Z_newrun")
 	attemptDir := filepath.Join(runDir, "attempt_20240115_130000_001Z_xyz789")
 	require.NoError(t, os.MkdirAll(attemptDir, 0750))
-	st := dagrun.DAGRunStatus{Status: ir.Succeeded, StartedAt: "2024-01-15T13:00:00Z", FinishedAt: "2024-01-15T13:01:00Z"}
+	st := ir.DAGRunStatus{Status: ir.Succeeded, StartedAt: "2024-01-15T13:00:00Z", FinishedAt: "2024-01-15T13:01:00Z"}
 	data, _ := json.Marshal(st)
 	require.NoError(t, os.WriteFile(filepath.Join(attemptDir, "status.jsonl"), append(data, '\n'), 0600))
 
@@ -226,7 +225,7 @@ func TestTryLoadForDay_StaleIndex_NewAttempt(t *testing.T) {
 		if de.IsDir() {
 			newAttemptDir := filepath.Join(dayDir, de.Name(), "a_20240115_130000_002Z_retry1")
 			require.NoError(t, os.MkdirAll(newAttemptDir, 0750))
-			st := dagrun.DAGRunStatus{Status: ir.Succeeded, StartedAt: "2024-01-15T13:00:00Z", FinishedAt: "2024-01-15T13:01:00Z"}
+			st := ir.DAGRunStatus{Status: ir.Succeeded, StartedAt: "2024-01-15T13:00:00Z", FinishedAt: "2024-01-15T13:01:00Z"}
 			data, _ := json.Marshal(st)
 			require.NoError(t, os.WriteFile(filepath.Join(newAttemptDir, "status.jsonl"), append(data, '\n'), 0600))
 			break
@@ -352,7 +351,7 @@ func TestRebuildForDay_MixedStatuses(t *testing.T) {
 		attemptDir := filepath.Join(runDir, "attempt_20240115_130000_001Z_abc123")
 		require.NoError(t, os.MkdirAll(attemptDir, 0750))
 
-		st := dagrun.DAGRunStatus{
+		st := ir.DAGRunStatus{
 			Name:      "test",
 			DAGRunID:  fmt.Sprintf("active%d", i),
 			AttemptID: "abc123",

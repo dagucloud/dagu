@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -42,7 +41,7 @@ steps:
 		require.NoError(t, err)
 
 		// Verify the failure was recorded
-		ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+		ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 		attempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
 		require.NoError(t, err)
 		require.NotNil(t, attempt)
@@ -87,7 +86,7 @@ steps:
 		require.NoError(t, err)
 
 		// Verify the failure was recorded (status should be updated)
-		ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+		ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 		attempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
 		require.NoError(t, err)
 		require.NotNil(t, attempt)
@@ -161,7 +160,7 @@ steps:
 		require.NoError(t, err)
 
 		// Verify initial failure status
-		ref := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+		ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 		attempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
 		require.NoError(t, err)
 		require.NotNil(t, attempt)

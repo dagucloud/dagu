@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,7 +58,7 @@ steps:
 	require.Len(t, rootStatus.Nodes, 1)
 	require.Len(t, rootStatus.Nodes[0].SubRuns, 1)
 
-	rootRef := dagrun.NewDAGRunRef(rootStatus.Name, rootStatus.DAGRunID)
+	rootRef := ir.NewDAGRunRef(rootStatus.Name, rootStatus.DAGRunID)
 	subRunID := rootStatus.Nodes[0].SubRuns[0].DAGRunID
 	subStatus := readDistributedSubAttemptStatus(t, f, rootRef, subRunID)
 
@@ -149,7 +148,7 @@ steps:
 	assert.JSONEq(t, `{"content_hash":"sha256:abc123"}`, nodeOutputValue(t, status.Nodes[1], "PARAMS_JSON"))
 }
 
-func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef dagrun.DAGRunRef, subRunID string) *dagrun.DAGRunStatus {
+func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef ir.DAGRunRef, subRunID string) *ir.DAGRunStatus {
 	t.Helper()
 
 	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)
@@ -161,7 +160,7 @@ func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef dagru
 	return status
 }
 
-func nodeOutputValue(t *testing.T, node *dagrun.Node, key string) string {
+func nodeOutputValue(t *testing.T, node *ir.Node, key string) string {
 	t.Helper()
 
 	require.NotNil(t, node.OutputVariables, "node %s should have output variables", node.Step.Name)

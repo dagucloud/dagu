@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
@@ -43,7 +44,7 @@ func CreateTask(
 type TaskOption func(*dispatch.DispatchTask)
 
 // WithRootDagRun sets the root DAG run name and ID in the task.
-func WithRootDagRun(ref dagrun.DAGRunRef) TaskOption {
+func WithRootDagRun(ref ir.DAGRunRef) TaskOption {
 	return func(task *dispatch.DispatchTask) {
 		if ref.Name == "" || ref.ID == "" {
 			return // No root DAG run reference provided
@@ -54,7 +55,7 @@ func WithRootDagRun(ref dagrun.DAGRunRef) TaskOption {
 }
 
 // WithParentDagRun sets the parent DAG run name and ID in the task.
-func WithParentDagRun(ref dagrun.DAGRunRef) TaskOption {
+func WithParentDagRun(ref ir.DAGRunRef) TaskOption {
 	return func(task *dispatch.DispatchTask) {
 		if ref.Name == "" || ref.ID == "" {
 			return // No parent DAG run reference provided
@@ -180,7 +181,7 @@ func ResolveBaseConfig(baseConfigData []byte, fallbackPath string) string {
 
 // WithPreviousStatus sets the previous status for retry operations.
 // When set, workers can retry without needing local DAGRunStore access.
-func WithPreviousStatus(status *dagrun.DAGRunStatus) TaskOption {
+func WithPreviousStatus(status *ir.DAGRunStatus) TaskOption {
 	return func(task *dispatch.DispatchTask) {
 		if status != nil {
 			if task.QueueName == "" && status.ProcGroup != "" {

@@ -12,8 +12,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/notification"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

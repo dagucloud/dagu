@@ -11,7 +11,6 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -19,11 +18,11 @@ func toCoreDAG(name string) *ir.DAG {
 	return &ir.DAG{Name: name}
 }
 
-func toExecStatus(detail *api.DAGRunDetails) (*dagrun.DAGRunStatus, error) {
+func toExecStatus(detail *api.DAGRunDetails) (*ir.DAGRunStatus, error) {
 	if detail == nil {
 		return nil, fmt.Errorf("remote DAG run details are empty")
 	}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:         detail.Name,
 		DAGRunID:     detail.DagRunId,
 		Status:       ir.Status(detail.Status),
@@ -36,11 +35,11 @@ func toExecStatus(detail *api.DAGRunDetails) (*dagrun.DAGRunStatus, error) {
 		WorkerID:     derefString(detail.WorkerId),
 		NoReuse:      derefBool(detail.NoReuse),
 		Labels:       labelsFromAPI(detail.Labels, detail.Tags),
-		Nodes:        make([]*dagrun.Node, 0, len(detail.Nodes)),
+		Nodes:        make([]*ir.Node, 0, len(detail.Nodes)),
 	}
-	status.Root = dagrun.NewDAGRunRef(detail.RootDAGRunName, detail.RootDAGRunId)
+	status.Root = ir.NewDAGRunRef(detail.RootDAGRunName, detail.RootDAGRunId)
 	if detail.ParentDAGRunName != nil && detail.ParentDAGRunId != nil {
-		status.Parent = dagrun.NewDAGRunRef(*detail.ParentDAGRunName, *detail.ParentDAGRunId)
+		status.Parent = ir.NewDAGRunRef(*detail.ParentDAGRunName, *detail.ParentDAGRunId)
 	}
 	for _, node := range detail.Nodes {
 		status.Nodes = append(status.Nodes, mapAPINode(node))
@@ -54,15 +53,15 @@ func toExecStatus(detail *api.DAGRunDetails) (*dagrun.DAGRunStatus, error) {
 	return status, nil
 }
 
-func mapAPINodePtr(node *api.Node) *dagrun.Node {
+func mapAPINodePtr(node *api.Node) *ir.Node {
 	if node == nil {
 		return nil
 	}
 	return mapAPINode(*node)
 }
 
-func mapAPINode(node api.Node) *dagrun.Node {
-	mapped := &dagrun.Node{
+func mapAPINode(node api.Node) *ir.Node {
+	mapped := &ir.Node{
 		Step:       mapAPIStep(node.Step),
 		Stdout:     node.Stdout,
 		Stderr:     node.Stderr,
@@ -75,17 +74,17 @@ func mapAPINode(node api.Node) *dagrun.Node {
 		SubRuns:    mapAPISubRuns(node.SubRuns),
 	}
 	if node.Build != nil {
-		mapped.Build = &dagrun.BuildExecution{
-			Decision:           dagrun.BuildDecision(node.Build.Decision),
-			Phase:              dagrun.BuildPhase(node.Build.Phase),
-			Reason:             dagrun.BuildReason(node.Build.Reason),
+		mapped.Build = &ir.BuildExecution{
+			Decision:           ir.BuildDecision(node.Build.Decision),
+			Phase:              ir.BuildPhase(node.Build.Phase),
+			Reason:             ir.BuildReason(node.Build.Reason),
 			Detail:             derefString(node.Build.Detail),
 			Fingerprint:        derefString(node.Build.Fingerprint),
 			MaterializationKey: derefString(node.Build.MaterializationKey),
 			ProducerAttemptID:  derefString(node.Build.ProducerAttemptId),
 		}
 		if node.Build.ProducerRun != nil {
-			mapped.Build.ProducerRun = dagrun.NewDAGRunRef(
+			mapped.Build.ProducerRun = ir.NewDAGRunRef(
 				derefString(node.Build.ProducerRun.Name),
 				derefString(node.Build.ProducerRun.Id),
 			)
@@ -94,13 +93,13 @@ func mapAPINode(node api.Node) *dagrun.Node {
 	return mapped
 }
 
-func mapAPISubRuns(subRuns *[]api.SubDAGRun) []dagrun.SubDAGRun {
+func mapAPISubRuns(subRuns *[]api.SubDAGRun) []ir.SubDAGRun {
 	if subRuns == nil {
 		return nil
 	}
-	out := make([]dagrun.SubDAGRun, 0, len(*subRuns))
+	out := make([]ir.SubDAGRun, 0, len(*subRuns))
 	for _, sub := range *subRuns {
-		out = append(out, dagrun.SubDAGRun{
+		out = append(out, ir.SubDAGRun{
 			DAGRunID: sub.DagRunId,
 			Params:   derefString(sub.Params),
 			DAGName:  derefString(sub.DagName),
@@ -376,9 +375,9 @@ func remoteRunHistory(ctx *Context, args []string) error {
 	if len(runs) > limit {
 		runs = runs[:limit]
 	}
-	statuses := make([]*dagrun.DAGRunStatus, 0, len(runs))
+	statuses := make([]*ir.DAGRunStatus, 0, len(runs))
 	for _, run := range runs {
-		status := &dagrun.DAGRunStatus{
+		status := &ir.DAGRunStatus{
 			Name:         run.Name,
 			DAGRunID:     run.DagRunId,
 			Status:       ir.Status(run.Status),
@@ -476,7 +475,7 @@ func remoteRunDequeue(ctx *Context, args []string) error {
 	queueName := args[0]
 	dagRunRef, _ := ctx.StringParam("dag-run")
 	if dagRunRef != "" {
-		ref, err := dagrun.ParseDAGRunRef(dagRunRef)
+		ref, err := ir.ParseDAGRunRef(dagRunRef)
 		if err != nil {
 			return err
 		}
@@ -689,7 +688,7 @@ func joinNonEmpty(parts []string) string {
 	return strings.Join(filtered, " ")
 }
 
-func enrichRemoteHistoryStatus(status *dagrun.DAGRunStatus, detail *api.DAGRunDetails) error {
+func enrichRemoteHistoryStatus(status *ir.DAGRunStatus, detail *api.DAGRunDetails) error {
 	remoteStatus, err := toExecStatus(detail)
 	if err != nil {
 		return err

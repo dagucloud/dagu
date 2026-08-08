@@ -19,13 +19,13 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -33,8 +33,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -605,7 +605,7 @@ func extractBuildErrors(errs []error) []string {
 	return result
 }
 
-func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []dagrun.DAGRunStatus) []api.DAGGridItem {
+func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []ir.DAGRunStatus) []api.DAGGridItem {
 	statusLen := len(statusList)
 	nodeData := make(map[string][]ir.NodeStatus)
 	handlerData := make(map[string][]ir.NodeStatus)
@@ -631,7 +631,7 @@ func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []dagru
 		// to ensure consistent lookup later
 		handlerPairs := []struct {
 			handlerType ir.HandlerType
-			node        *dagrun.Node
+			node        *ir.Node
 		}{
 			{ir.HandlerOnInit, st.OnInit},
 			{ir.HandlerOnWait, st.OnWait},
@@ -942,7 +942,7 @@ func (a *API) GetDAGDAGRunDetails(ctx context.Context, request api.GetDAGDAGRunD
 		}, nil
 	}
 
-	attempt, err := a.dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, dagRunId))
+	attempt, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunId))
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, &Error{
@@ -1184,7 +1184,7 @@ func (a *API) waitForDAGCompletion(
 	dag *ir.DAG,
 	dagRunId string,
 	timeoutSeconds int,
-) (*dagrun.DAGRunStatus, error) {
+) (*ir.DAGRunStatus, error) {
 	// Create context with timeout
 	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
@@ -1196,7 +1196,7 @@ func (a *API) waitForDAGCompletion(
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	var lastStatus *dagrun.DAGRunStatus
+	var lastStatus *ir.DAGRunStatus
 
 	for {
 		select {
@@ -1234,8 +1234,8 @@ func (a *API) waitForDAGCompletion(
 	}
 }
 
-func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *ir.DAG, dagRunID string) (*dagrun.DAGRunStatus, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, dagRunID))
+func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *ir.DAG, dagRunID string) (*ir.DAGRunStatus, error) {
+	attempt, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find dag-run attempt: %w", err)
 	}
@@ -1303,7 +1303,7 @@ func validateDAGRunID(dagRunID string) error {
 	if dagRunID == "" {
 		return nil
 	}
-	if err := dagrun.ValidateDAGRunID(dagRunID); err != nil {
+	if err := ir.ValidateDAGRunID(dagRunID); err != nil {
 		return &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,
@@ -1318,7 +1318,7 @@ func (a *API) ensureDAGRunIDUnique(ctx context.Context, dag *ir.DAG, dagRunID st
 	if dagRunID == "" {
 		return fmt.Errorf("dagRunID must be non-empty")
 	}
-	if _, err := a.dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, dagRunID)); err == nil {
+	if _, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunID)); err == nil {
 		return &Error{
 			HTTPStatus: http.StatusConflict,
 			Code:       api.ErrorCodeAlreadyExists,

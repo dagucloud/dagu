@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -1441,7 +1441,7 @@ func TestClientReportStatus(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
 			DAGRunID:  "test-run-123",
 			Status:    1, // Running status
 			StartedAt: "2024-01-01T00:00:00Z",
@@ -1493,7 +1493,7 @@ func TestClientReportStatus(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
 			DAGRunID: "test-run-456",
 			Status:   2, // Success status
 		})
@@ -1536,7 +1536,7 @@ func TestClientReportStatus(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		protoStatus, convErr := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
+		protoStatus, convErr := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
 			DAGRunID: "test-run-789",
 			Status:   3, // Failed status
 		})

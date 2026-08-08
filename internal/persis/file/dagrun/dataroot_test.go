@@ -223,7 +223,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			attempt, err := dagRunTest.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
-			status := dagrun.DAGRunStatus{
+			status := ir.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: dagRunTest.dagRunID,
 				Status:   ir.Succeeded,
@@ -270,7 +270,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			attempt, err := dagRunTest.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
-			status := dagrun.DAGRunStatus{
+			status := ir.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: dagRunTest.dagRunID,
 				Status:   ir.Succeeded,
@@ -317,7 +317,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			attempt, err := dagRun.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
-			status := dagrun.DAGRunStatus{
+			status := ir.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: dagRun.dagRunID,
 				Status:   ir.Succeeded,
@@ -356,7 +356,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			attempt, err := item.run.CreateAttempt(root.Context, dagrun.NewUTC(item.ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
-			require.NoError(t, attempt.Write(root.Context, dagrun.DAGRunStatus{
+			require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: item.run.dagRunID,
 				Status:   ir.Succeeded,
@@ -382,7 +382,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		attempt, err := activeRun.CreateAttempt(root.Context, dagrun.NewUTC(oldTime), nil, "")
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
-		require.NoError(t, attempt.Write(root.Context, dagrun.DAGRunStatus{
+		require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: activeRun.dagRunID,
 			Status:   ir.Running,
@@ -392,7 +392,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		attempt, err = newRun.CreateAttempt(root.Context, dagrun.NewUTC(newTime), nil, "")
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
-		require.NoError(t, attempt.Write(root.Context, dagrun.DAGRunStatus{
+		require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: newRun.dagRunID,
 			Status:   ir.Succeeded,
@@ -417,7 +417,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		attempt, err := oldRun.CreateAttempt(root.Context, dagrun.NewUTC(oldTime), nil, "")
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
-		require.NoError(t, attempt.Write(root.Context, dagrun.DAGRunStatus{
+		require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: oldRun.dagRunID,
 			Status:   ir.Succeeded,
@@ -430,7 +430,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		attempt, err = newRun.CreateAttempt(root.Context, dagrun.NewUTC(newTime), nil, "")
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
-		require.NoError(t, attempt.Write(root.Context, dagrun.DAGRunStatus{
+		require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: newRun.dagRunID,
 			Status:   ir.Succeeded,
@@ -459,7 +459,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			attempt, err := dagRunTest.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
-			status := dagrun.DAGRunStatus{
+			status := ir.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: dagRunTest.dagRunID,
 				Status:   ir.Succeeded,
@@ -509,7 +509,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 			attempt, err := dagRunTest.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
-			dagStatus := dagrun.DAGRunStatus{
+			dagStatus := ir.DAGRunStatus{
 				Name:     "test-dag",
 				DAGRunID: dagRunTest.dagRunID,
 				Status:   status,
@@ -556,7 +556,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
 
-		status := dagrun.DAGRunStatus{
+		status := ir.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   dagRun.dagRunID,
 			Status:     ir.Succeeded,

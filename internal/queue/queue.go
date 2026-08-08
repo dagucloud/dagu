@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
 
@@ -21,9 +21,9 @@ var (
 // for storing and retrieving queued dag-run items.
 type QueueStore interface {
 	// Enqueue adds an item to the queue
-	Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun dagrun.DAGRunRef) error
+	Enqueue(ctx context.Context, name string, priority QueuePriority, dagRun ir.DAGRunRef) error
 	// DequeueByDAGRunID retrieves items from the queue by dag-run reference and removes them
-	DequeueByDAGRunID(ctx context.Context, name string, dagRun dagrun.DAGRunRef) ([]QueuedItemData, error)
+	DequeueByDAGRunID(ctx context.Context, name string, dagRun ir.DAGRunRef) ([]QueuedItemData, error)
 	// DeleteByItemIDs removes the exact queued items identified by their queue item IDs.
 	DeleteByItemIDs(ctx context.Context, name string, itemIDs []string) (int, error)
 	// Len returns the number of items in the queue
@@ -63,5 +63,5 @@ type QueuedItemData interface {
 	// ID returns the ID of the queued item
 	ID() string
 	// Data returns the data of the queued item
-	Data() (*dagrun.DAGRunRef, error)
+	Data() (*ir.DAGRunRef, error)
 }

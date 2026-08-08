@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 )
 
 const (
@@ -37,7 +37,7 @@ const (
 type NotificationEvent struct {
 	Key        string
 	Type       eventstore.EventType
-	Status     *dagrun.DAGRunStatus
+	Status     *ir.DAGRunStatus
 	DAGFile    string
 	ObservedAt time.Time
 }
@@ -457,7 +457,7 @@ func shouldSuppressNotificationEvent(event NotificationEvent) bool {
 }
 
 // NotificationSeenKey is used by monitors to suppress repeated polling of the same status.
-func NotificationSeenKey(status *dagrun.DAGRunStatus) string {
+func NotificationSeenKey(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -465,7 +465,7 @@ func NotificationSeenKey(status *dagrun.DAGRunStatus) string {
 }
 
 // NotificationRunKey identifies a DAG run attempt independent of the latest status.
-func NotificationRunKey(status *dagrun.DAGRunStatus) string {
+func NotificationRunKey(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -487,7 +487,7 @@ func NotificationBatchDAGName(batch NotificationBatch) string {
 }
 
 // BuildNotificationPrompt constructs the single-event LLM prompt for urgent notifications.
-func BuildNotificationPrompt(status *dagrun.DAGRunStatus) string {
+func BuildNotificationPrompt(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -571,7 +571,7 @@ type notificationGroup struct {
 	Status           ir.Status
 	Count            int
 	LatestObservedAt time.Time
-	Sample           *dagrun.DAGRunStatus
+	Sample           *ir.DAGRunStatus
 }
 
 func groupNotificationEvents(events []NotificationEvent) []notificationGroup {
@@ -647,7 +647,7 @@ func writeNotificationGroups(b *strings.Builder, groups []notificationGroup, wit
 	}
 }
 
-func formatSingleNotification(status *dagrun.DAGRunStatus) string {
+func formatSingleNotification(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return "DAG update."
 	}
@@ -692,7 +692,7 @@ func notificationGroupDetail(group notificationGroup) string {
 	}
 }
 
-func failureNotificationDetail(status *dagrun.DAGRunStatus) string {
+func failureNotificationDetail(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -705,7 +705,7 @@ func failureNotificationDetail(status *dagrun.DAGRunStatus) string {
 		}
 		return fmt.Sprintf("Latest error at %s: %s", node.Step.Name, trimNotificationDetail(node.Error))
 	}
-	for _, handler := range []*dagrun.Node{status.OnFailure, status.OnExit} {
+	for _, handler := range []*ir.Node{status.OnFailure, status.OnExit} {
 		if handler == nil || strings.TrimSpace(handler.Error) == "" {
 			continue
 		}
@@ -718,7 +718,7 @@ func failureNotificationDetail(status *dagrun.DAGRunStatus) string {
 	return ""
 }
 
-func waitingNotificationDetail(status *dagrun.DAGRunStatus) string {
+func waitingNotificationDetail(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -739,7 +739,7 @@ func waitingNotificationDetail(status *dagrun.DAGRunStatus) string {
 	return "Action is required to resume the DAG."
 }
 
-func cloneNotificationStatus(status *dagrun.DAGRunStatus) *dagrun.DAGRunStatus {
+func cloneNotificationStatus(status *ir.DAGRunStatus) *ir.DAGRunStatus {
 	if status == nil {
 		return nil
 	}
@@ -752,7 +752,7 @@ func cloneNotificationStatus(status *dagrun.DAGRunStatus) *dagrun.DAGRunStatus {
 		return &clone
 	}
 
-	var clone dagrun.DAGRunStatus
+	var clone ir.DAGRunStatus
 	if err := json.Unmarshal(data, &clone); err != nil {
 		fallback := *status
 		return &fallback

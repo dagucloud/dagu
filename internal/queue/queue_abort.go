@@ -30,7 +30,7 @@ func (e *DAGRunNotQueuedError) Error() string {
 
 // AbortQueuedDAGRun marks the latest visible queued attempt as aborted, hides it,
 // and removes the dag-run record only when no visible attempts remain.
-func AbortQueuedDAGRun(ctx context.Context, dagRunStore dagrun.DAGRunStore, dagRun dagrun.DAGRunRef) error {
+func AbortQueuedDAGRun(ctx context.Context, dagRunStore dagrun.DAGRunStore, dagRun ir.DAGRunRef) error {
 	attempt, err := dagRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunStore dagrun.DAGRunStore, dagR
 		dagRun,
 		attempt.ID(),
 		ir.Queued,
-		func(latest *dagrun.DAGRunStatus) error {
+		func(latest *ir.DAGRunStatus) error {
 			latest.Status = ir.Aborted
 			latest.FinishedAt = finishedAt
 			latest.WorkerID = ""
@@ -91,7 +91,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunStore dagrun.DAGRunStore, dagR
 	return nil
 }
 
-func newDAGRunNotQueuedError(status *dagrun.DAGRunStatus) *DAGRunNotQueuedError {
+func newDAGRunNotQueuedError(status *ir.DAGRunStatus) *DAGRunNotQueuedError {
 	if status == nil {
 		return &DAGRunNotQueuedError{}
 	}

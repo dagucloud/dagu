@@ -16,7 +16,7 @@ Dagu is a self-contained, single-binary workflow orchestration engine. Workflows
 | `make run` | Run frontend server + scheduler (requires built UI assets) |
 | `make run-server` | Run backend server only |
 | `make test` | Run Go tests except conformance (`gotestsum` with race detection) |
-| `make test TEST_TARGET=./internal/core/...` | Run tests for a specific package |
+| `make test TEST_TARGET=./internal/spec/...` | Run tests for a specific package |
 | `make conformance` | Binary-level conformance tests (builds binary, sets `DAGU_BIN`) |
 | `make test-coverage` | Run tests with coverage, writes HTML report |
 | `make test-e2e` | Browser E2E tests (Playwright, builds UI + E2E binary) |
@@ -39,25 +39,27 @@ The module root is package `dagu` — an experimental embedded API (`engine.go`,
 
 ### Go Backend (`internal/`)
 
-- **`ir/`** — Canonical normalized DAG and step definitions shared by storage and execution. It owns configuration value objects, lifecycle enums, compatibility decoding, cloning, defaults, and intrinsic queries, but not mutable run results or environment loading. Three DAG execution types: `graph` (default), `chain`, `controller` (LLM-driven step ordering).
-- **`core/spec/`** — YAML decoding, building, normalization, and build-time validation. Authored YAML structs remain private to this package; loaders return `*ir.DAG`. It also normalizes the step-level `action:` shorthand (~58 built-in action names like `file.*`, `state.*`, `git.worktree.*`, `human.task`) into executor configs (`step_v2.go`).
-- **Domain contracts** — Ports live with their owning concepts: `dagrun` (run status, attempts, run stores), `dagstore` (DAG loading/storage), `queue`, `proc`, `dispatch` (distributed dispatch, worker and lease stores), `serviceregistry`, `build`, and `workspace`. Runtime condition results live in `dagrun`; `ir.Condition` remains definition-only.
+- **`ir/`** — Canonical serialized workflow representation shared by storage and execution. It owns normalized DAG definitions, persisted run snapshots, lifecycle enums, compatibility decoding, cloning, defaults, and intrinsic queries, but not mutable runtime state or environment loading. Three DAG execution types: `graph` (default), `chain`, `controller` (LLM-driven step ordering).
+- **`spec/`** — YAML decoding, building, normalization, and build-time validation. Authored YAML structs remain private to this package; loaders return `*ir.DAG`. It also normalizes the step-level `action:` shorthand (~58 built-in action names like `file.*`, `state.*`, `git.worktree.*`, `human.task`) into executor configs (`step_v2.go`).
+- **Domain contracts** — Ports live with their owning concepts: `audit` (audit entries and storage), `eventstore` (events, cursors, and storage), `docs` (documents and storage), `dagsettings` (base and per-DAG instance settings), `dagrun` (attempts, run stores, and operational policies), `dagstore` (DAG loading/storage), `queue`, `proc`, `dispatch` (distributed dispatch, worker and lease stores), `serviceregistry`, `build`, and `workspace`. Persisted run status and condition results live in `ir`; each condition result embeds a value snapshot of its definition.
+- **`intake/`** — Orchestrates local and queued DAG-run admission before execution reaches the runtime layer.
 - **`executor/registry/`** — Executor capabilities, step validators, and configuration-schema registries used by spec and runtime.
 - **`runtime/`** — Execution engine. `plan.go` builds the step graph (cycle validation), `runner.go` runs a plan (concurrency, lifecycle handlers, metrics), `node.go` is the per-step state machine (retry, repeat, output capture), `manager.go` starts/stops/inspects DAG runs. `runtime/agent/` is the DAG-run process agent (unix-socket control, signal propagation, status persistence) — not an LLM agent. `runtime/controller/` implements `type: controller` DAGs.
-- **`runctx/` and `runtimeenv/`** — `runctx` owns per-run execution context and shared runtime dependencies. `runtimeenv` resolves dotenv-backed environment snapshots without mutating DAG definitions; subprocess transport records whether a snapshot is already resolved.
+- **`runctx/`, `cmn/runenv/`, and `runtimeenv/`** — `runctx` owns per-run execution context and shared runtime dependencies. `cmn/runenv` owns the import-free environment key constants. `runtimeenv` resolves dotenv files without mutating DAG definitions, while `runtimeenv/transport` prepares source-aware snapshots for subprocess launchers.
 - **`runtime/builtin/`** — 28 executor packages registering ~37 executor type names: `command`/`shell`, `docker`, `container`, `kubernetes`, `ssh`/`sftp`, `http`, `jq`, `mail`, `postgres`/`sqlite`, `redis`, `s3`, `dag`/`subworkflow`/`parallel`/`foreach`, `router`, `chat` (LLM), `controller`, `action` (reusable Dagu Actions from `owner/repo@version`), `harness` (external coding-agent CLIs: claude, codex, copilot, opencode, pi), plus `archive`, `artifact`, `data`, `file`, `git`, `state`, `template`, `wait`, etc.
 - **`runtime/executor/`** — Executor factories and runtime `Executor` interface. Factories are registered globally and instantiated by type name.
 - **`persis/`** — Storage layer behind a generic `Backend` → `Collection` → `Record` abstraction (`backend.go`). Only production backend is `persis/file` (local filesystem). `persis/store` holds collection-backed adapters (queue, user, API key, profile, secret, workspace, view, webhook, license, worker-heartbeat, etc.).
 - **`service/frontend/`** — HTTP server (chi router). REST API v1 handlers in `api/v1/` (~150 paths), SSE, terminal, static assets; also mounts the MCP server at `/mcp`.
 - **`service/scheduler/`** — Cron scheduling with timezones, catchup, zombie detection, queue processing, file watching.
-- **`service/coordinator/`** — gRPC server for distributed execution (`proto/coordinator/v1`: dispatch, heartbeats, log/artifact streaming, workspace bundles, shared state).
+- **`service/coordinator/`** — gRPC server for distributed execution (`proto/coordinator/v1`: dispatch, heartbeats, log/artifact streaming, workspace bundles, shared state). Its `subflow/` package owns local and distributed child-workflow routing.
 - **`service/worker/`** — Polls coordinator for tasks, executes DAGs locally, reports status.
 - **`service/mcp/`** — Model Context Protocol server (read/change/execute tools, run-inspector MCP App).
 - **`auth/`** — RBAC roles (admin, manager, developer, operator, viewer), users, API keys, webhook auth. Basic, OIDC, and built-in JWT auth.
 - **`llm/`** — Provider-agnostic LLM abstraction (anthropic, openai, openrouter, gemini, zai, local) used by `chat` executor and controller DAGs.
 - **`engine/`** — Internal implementation behind the root `dagu` package.
 - **`cmd/`** — Cobra CLI implementations; entry point `cmd/main.go` at repo root registers 27 commands: `start`, `exec`, `enqueue`, `stop`, `restart`, `retry`, `dry`, `validate`, `status`, `server`, `scheduler`, `coordinator`, `worker`, `start-all` (server+scheduler+coordinator in one process), `sync`, `context`, `profile`, `license`, `human-task`, etc.
-- Domain feature packages, one concern each: `gitsync` (git-backed DAG sync), `humantask`, `incident`, `notification`, `dagstate` (cross-run persistent state), `dagsettings`, `profile`, `secret`, `workspace`, `remotenode`, `view`, `tunnel` (Tailscale), `license`, `upgrade`, `clicontext` (named remote CLI contexts), `dispatch` (local-vs-coordinator policy), `subflow`, `cmn` (config, logging, telemetry, backoff, secrets, etc.).
+- Domain feature packages, one concern each: `gitsync` (git-backed DAG sync), `humantask`, `incident`, `notification`, `dagstate` (cross-run persistent state), `dagsettings`, `profile`, `secret` (managed secrets and provider backends), `telemetry` (metrics and tracing), `workspace`, `remotenode`, `view`, `tunnel` (Tailscale), `license`, `upgrade`, `clicontext` (named remote CLI contexts), and `dispatch` (local-vs-coordinator policy).
+- **`cmn/`** — Low-level shared utilities for configuration, logging, files, backoff, values, and similar cross-domain primitives. Domain imports are prohibited except for the documented configuration exception.
 
 ### Frontend (`ui/`)
 
@@ -76,7 +78,7 @@ React 19 + TypeScript with Webpack 5. Tailwind CSS 4, Radix UI/shadcn components
 ### Key Data Flow
 
 ```
-CLI/API/UI → cmd handler → DAG load & validate (core/spec) → intake (dagrun/)
+CLI/API/UI → cmd handler → DAG load & validate (spec) → intake
   → runtime agent → Plan (runtime/plan.go) → Runner → Node → Executor (runtime/builtin/*)
   → persis/file storage → SSE → Web UI
 ```
@@ -92,6 +94,19 @@ Distributed mode: Scheduler → Queue → dispatch policy → Coordinator (gRPC)
 ## Key Conventions
 
 - All storage is behind domain-owned interfaces and `persis.Backend`, with file-based implementations in `persis/file` and `persis/store`.
+- Do not recreate a `core` umbrella below `internal/`; domain contracts belong to their owning packages, while authored DAG parsing belongs to `internal/spec`.
+- Packages under `persis/` must not directly import packages under `service/`, including from tests. The following check must produce no output and exit successfully:
+
+  ```sh
+  go list -f '{{range .Imports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .TestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .XTestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}' ./internal/persis/... | awk '$2 ~ /\/internal\/service\// { key=$1 "\t" $2; if (!seen[key]++) print key; bad=1 } END { exit bad }'
+  ```
+
+- Packages under `cmn/` must not directly import other internal domain packages. `cmn/config` is the sole deferred exception and may import only `auth` and `workspace`. The following check covers production, test, and external-test imports and must produce no output and exit successfully:
+
+  ```sh
+  go list -f '{{range .Imports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .TestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}{{range .XTestImports}}{{$.ImportPath}}{{"\t"}}{{.}}{{"\n"}}{{end}}' ./internal/cmn/... | awk '$2 ~ /^github\.com\/dagucloud\/dagu\/v2\/internal\// && $2 !~ /^github\.com\/dagucloud\/dagu\/v2\/internal\/cmn(\/|$)/ { if ($1 == "github.com/dagucloud/dagu/v2/internal/cmn/config" && ($2 == "github.com/dagucloud/dagu/v2/internal/auth" || $2 == "github.com/dagucloud/dagu/v2/internal/workspace")) next; key=$1 "\t" $2; if (!seen[key]++) print key; bad=1 } END { exit bad }'
+  ```
+
 - Executors follow the factory pattern — registered globally, instantiated dynamically by type name.
 - DAGs compose hierarchically — steps invoke other DAGs via the `dag` executor; `action:` is shorthand normalized at spec-build time.
 - Configuration uses `DAGU_*` environment variables, with fallback to `~/.config/dagu/config.yaml`.

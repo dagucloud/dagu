@@ -14,8 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const (
@@ -202,7 +202,7 @@ func (m *NotificationMonitor) Run(ctx context.Context) {
 }
 
 // NotifyCompletion queues a status update for every destination that has not yet acknowledged it.
-func (m *NotificationMonitor) NotifyCompletion(status *dagrun.DAGRunStatus) bool {
+func (m *NotificationMonitor) NotifyCompletion(status *ir.DAGRunStatus) bool {
 	if status == nil {
 		return false
 	}
@@ -230,7 +230,7 @@ func (m *NotificationMonitor) NotifyCompletion(status *dagrun.DAGRunStatus) bool
 }
 
 // IsDelivered reports whether a destination has already acknowledged a status.
-func (m *NotificationMonitor) IsDelivered(destination string, status *dagrun.DAGRunStatus) bool {
+func (m *NotificationMonitor) IsDelivered(destination string, status *ir.DAGRunStatus) bool {
 	if destination == "" || status == nil {
 		return false
 	}
@@ -857,7 +857,7 @@ func (m *NotificationMonitor) ensureBootstrapped(ctx context.Context) bool {
 	return true
 }
 
-func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinations []string, nextCursor eventstore.NotificationCursor, events []NotificationEvent) ([]queuedNotification, bool) {
+func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinations []string, nextCursor eventstore.DAGRunCursor, events []NotificationEvent) ([]queuedNotification, bool) {
 	if ctx.Err() != nil {
 		return nil, false
 	}

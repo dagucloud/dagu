@@ -12,11 +12,11 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -203,7 +203,7 @@ func dagWorkspaceName(dag *ir.DAG) string {
 	return ""
 }
 
-func statusWorkspaceName(status *dagrun.DAGRunStatus) string {
+func statusWorkspaceName(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -380,7 +380,7 @@ func (a *API) requireExecuteForWorkspace(ctx context.Context, workspaceName stri
 	return nil
 }
 
-func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun dagrun.DAGRunRef) (string, error) {
+func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun ir.DAGRunRef) (string, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
@@ -405,7 +405,7 @@ func workspaceNameForAttempt(ctx context.Context, attempt dagrun.DAGRunAttempt) 
 	return dagWorkspaceName(dag), nil
 }
 
-func (a *API) requireDAGRunVisible(ctx context.Context, dagRun dagrun.DAGRunRef) error {
+func (a *API) requireDAGRunVisible(ctx context.Context, dagRun ir.DAGRunRef) error {
 	if a.authService == nil {
 		return nil
 	}
@@ -416,14 +416,14 @@ func (a *API) requireDAGRunVisible(ctx context.Context, dagRun dagrun.DAGRunRef)
 	return a.requireWorkspaceVisible(ctx, workspaceName)
 }
 
-func (a *API) requireDAGRunStatusVisible(ctx context.Context, status *dagrun.DAGRunStatus) error {
+func (a *API) requireDAGRunStatusVisible(ctx context.Context, status *ir.DAGRunStatus) error {
 	if status == nil {
 		return nil
 	}
 	return a.requireWorkspaceVisible(ctx, statusWorkspaceName(status))
 }
 
-func (a *API) requireDAGRunStatusExecute(ctx context.Context, status *dagrun.DAGRunStatus) error {
+func (a *API) requireDAGRunStatusExecute(ctx context.Context, status *ir.DAGRunStatus) error {
 	if status == nil {
 		return nil
 	}

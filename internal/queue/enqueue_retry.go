@@ -37,7 +37,7 @@ func EnqueueRetry(
 	dagRunStore dagrun.DAGRunStore,
 	queueStore QueueStore,
 	dag *ir.DAG,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	opts EnqueueRetryOptions,
 ) (bool, error) {
 	if dagRunStore == nil {
@@ -54,13 +54,13 @@ func EnqueueRetry(
 	}
 
 	dagRun := status.DAGRun()
-	var originalStatus *dagrun.DAGRunStatus
+	var originalStatus *ir.DAGRunStatus
 	updatedStatus, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		dagRun,
 		status.AttemptID,
 		status.Status,
-		func(latest *dagrun.DAGRunStatus) error {
+		func(latest *ir.DAGRunStatus) error {
 			snapshot := *latest
 			originalStatus = &snapshot
 			now := time.Now()
@@ -113,9 +113,9 @@ func EnqueueRetry(
 func rollbackQueuedRetry(
 	ctx context.Context,
 	dagRunStore dagrun.DAGRunStore,
-	dagRun dagrun.DAGRunRef,
-	queued *dagrun.DAGRunStatus,
-	original *dagrun.DAGRunStatus,
+	dagRun ir.DAGRunRef,
+	queued *ir.DAGRunStatus,
+	original *ir.DAGRunStatus,
 ) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retryEnqueueRollbackTimeout)
 	defer cancel()
@@ -124,7 +124,7 @@ func rollbackQueuedRetry(
 		dagRun,
 		queued.AttemptID,
 		ir.Queued,
-		func(latest *dagrun.DAGRunStatus) error {
+		func(latest *ir.DAGRunStatus) error {
 			latest.Status = original.Status
 			latest.QueuedAt = original.QueuedAt
 			latest.Conditions = original.Conditions
@@ -144,7 +144,7 @@ func rollbackQueuedRetry(
 	return nil
 }
 
-func retryProcGroup(dag *ir.DAG, status *dagrun.DAGRunStatus) string {
+func retryProcGroup(dag *ir.DAG, status *ir.DAGRunStatus) string {
 	if status != nil && status.ProcGroup != "" {
 		return status.ProcGroup
 	}

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -99,8 +98,8 @@ func newTestTickPlanner(store WatermarkStore) (*TickPlanner, chan DAGChangeEvent
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
@@ -259,8 +258,8 @@ func TestTickPlanner_PlanCatchupSkipOverlap(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
@@ -303,8 +302,8 @@ func TestTickPlanner_PlanLiveRun(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
@@ -344,8 +343,8 @@ func TestTickPlanner_PlanSuspendedDAGSkipped(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return true // Always suspended
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
@@ -387,8 +386,8 @@ func TestTickPlanner_PlanSuspendedCatchupDropsBufferAndAdvancesWatermark(t *test
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return true
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -499,8 +498,8 @@ func TestTickPlanner_DeletedWatermarkExpiresAfterGraceWindow(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
@@ -749,8 +748,8 @@ func TestTickPlanner_ShouldRunGuardRunning(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{Status: ir.Running}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{Status: ir.Running}, nil
 		},
 		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
@@ -786,8 +785,8 @@ func TestTickPlanner_PlanStopSchedule(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{Status: ir.Running}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{Status: ir.Running}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -824,8 +823,8 @@ func TestTickPlanner_PlanStopSkipsNotRunning(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{Status: ir.Succeeded}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{Status: ir.Succeeded}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -859,8 +858,8 @@ func TestTickPlanner_PlanRestartSchedule(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -897,8 +896,8 @@ func TestTickPlanner_PlanSuspendedStopSkipped(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return true // Always suspended
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{Status: ir.Running}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{Status: ir.Running}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -976,8 +975,8 @@ func TestTickPlanner_PlanStopRestartWithNonUTCTimezone(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{Status: ir.Running}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{Status: ir.Running}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -1021,8 +1020,8 @@ func TestTickPlanner_IsRunningErrorAssumesNotRunning(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, errors.New("proc store error")
@@ -1060,8 +1059,8 @@ func TestTickPlanner_IsQueuedErrorDefersCatchupWithoutDroppingState(t *testing.T
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -1121,8 +1120,8 @@ func TestTickPlanner_GetLatestStatusErrorSkipsStop(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, errors.New("status error")
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, errors.New("status error")
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -1157,8 +1156,8 @@ func TestTickPlanner_GenRunIDErrorSkipsStartRun(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -1243,11 +1242,11 @@ func TestTickPlanner_StopRestartRunsHaveEmptyRunID(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, dag *ir.DAG) (dagrun.DAGRunStatus, error) {
+		GetLatestStatus: func(_ context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
 			if dag.Name == "stop-restart-dag" {
-				return dagrun.DAGRunStatus{Status: ir.Running}, nil
+				return ir.DAGRunStatus{Status: ir.Running}, nil
 			}
-			return dagrun.DAGRunStatus{}, nil
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -1304,8 +1303,8 @@ func TestTickPlanner_CatchupBlocksStopRestartSchedules(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{Status: ir.Running}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{Status: ir.Running}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -1347,8 +1346,8 @@ func TestTickPlanner_ConcurrentPlanAndEvents(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
 			return false, nil
@@ -1418,8 +1417,8 @@ func TestTickPlanner_ShouldRunSkipIfSuccessful(t *testing.T) {
 	eventCh := make(chan DAGChangeEvent, 256)
 	tp := NewTickPlanner(TickPlannerConfig{
 		IsSuspended: func(_ context.Context, _ string) bool { return false },
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{
 				Status:    ir.Succeeded,
 				StartedAt: "2026-02-07T11:30:00Z",
 			}, nil
@@ -1448,8 +1447,8 @@ func TestTickPlanner_ShouldRunSkipIfSuccessfulIgnoresStaleEditedScheduleSlot(t *
 	eventCh := make(chan DAGChangeEvent, 256)
 	tp := NewTickPlanner(TickPlannerConfig{
 		IsSuspended: func(_ context.Context, _ string) bool { return false },
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{
 				Status:       ir.Succeeded,
 				StartedAt:    "2026-02-07T12:34:00Z",
 				ScheduleTime: "2026-02-07T12:34:00Z",
@@ -1480,8 +1479,8 @@ func TestTickPlanner_ShouldRunSkipIfSuccessfulFallsBackToManualRunStartTime(t *t
 	eventCh := make(chan DAGChangeEvent, 256)
 	tp := NewTickPlanner(TickPlannerConfig{
 		IsSuspended: func(_ context.Context, _ string) bool { return false },
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{
 				Status:      ir.Succeeded,
 				StartedAt:   "2026-02-07T12:34:00Z",
 				TriggerType: ir.TriggerTypeManual,
@@ -1508,7 +1507,7 @@ func TestTickPlanner_ShouldRunSkipIfSuccessfulFallsBackToManualRunStartTime(t *t
 func TestLatestScheduledSlotMarksRemovedScheduleSlotStale(t *testing.T) {
 	t.Parallel()
 
-	scheduledAt, state := latestScheduledSlot(dagrun.DAGRunStatus{
+	scheduledAt, state := latestScheduledSlot(ir.DAGRunStatus{
 		ScheduleTime: "2026-02-07T12:34:00Z",
 	}, mustParseSchedule(t, "43 * * * *"))
 
@@ -1522,8 +1521,8 @@ func TestTickPlanner_ProfileScopedStartSchedules(t *testing.T) {
 	resolver := &testProfileResolver{profile: "prod"}
 	tp := NewTickPlanner(TickPlannerConfig{
 		ProfileResolver: resolver,
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) { return false, nil },
 		GenRunID:  func(_ context.Context) (string, error) { return "run-1", nil },
@@ -1552,8 +1551,8 @@ func TestTickPlanner_ProfileScopedStartSchedulesWithoutDefaultProfile(t *testing
 	t.Parallel()
 
 	tp := NewTickPlanner(TickPlannerConfig{
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) { return false, nil },
 		GenRunID:  func(_ context.Context) (string, error) { return "run-1", nil },
@@ -1579,8 +1578,8 @@ func TestTickPlanner_ProfileScopedSchedulesResolveErrorFailsClosed(t *testing.T)
 
 	tp := NewTickPlanner(TickPlannerConfig{
 		ProfileResolver: &testProfileResolver{err: errors.New("profile store unavailable")},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) { return false, nil },
 		GenRunID:  func(_ context.Context) (string, error) { return "run-1", nil },
@@ -1603,8 +1602,8 @@ func TestTickPlanner_ProfileScopedStopRestartSchedules(t *testing.T) {
 
 	tp := NewTickPlanner(TickPlannerConfig{
 		ProfileResolver: &testProfileResolver{profile: "dev"},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{Status: ir.Running}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{Status: ir.Running}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) { return false, nil },
 		GenRunID:  func(_ context.Context) (string, error) { return "run-1", nil },
@@ -1652,8 +1651,8 @@ func TestTickPlanner_ProfileScopedCatchupSchedules(t *testing.T) {
 		WatermarkStore:  store,
 		QueuesEnabled:   true,
 		ProfileResolver: &testProfileResolver{profile: "dev"},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) { return false, nil },
 		GenRunID:  func(_ context.Context) (string, error) { return "run-1", nil },
@@ -1693,8 +1692,8 @@ func TestTickPlanner_ProfileChangeDropsInactiveCatchupSchedules(t *testing.T) {
 		WatermarkStore:  store,
 		QueuesEnabled:   true,
 		ProfileResolver: resolver,
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) { return false, nil },
 		GenRunID:  func(_ context.Context) (string, error) { return "run-1", nil },
@@ -1735,8 +1734,8 @@ func TestTickPlanner_ShouldRunAlreadyFinished(t *testing.T) {
 	eventCh := make(chan DAGChangeEvent, 256)
 	tp := NewTickPlanner(TickPlannerConfig{
 		IsSuspended: func(_ context.Context, _ string) bool { return false },
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{
 				Status:    ir.Succeeded,
 				StartedAt: "2026-02-07T12:00:00Z",
 			}, nil
@@ -1765,8 +1764,8 @@ func TestTickPlanner_ShouldRunFailedPreviousRunNotSkipped(t *testing.T) {
 	eventCh := make(chan DAGChangeEvent, 256)
 	tp := NewTickPlanner(TickPlannerConfig{
 		IsSuspended: func(_ context.Context, _ string) bool { return false },
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{
 				Status:    ir.Failed,
 				StartedAt: "2026-02-07T11:30:00Z",
 			}, nil
@@ -2012,8 +2011,8 @@ func TestTickPlanner_PlanLatestNotRunning(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
@@ -2066,8 +2065,8 @@ func TestTickPlanner_PlanLatestRunning(t *testing.T) {
 		IsSuspended: func(_ context.Context, _ string) bool {
 			return false
 		},
-		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		},
 		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil

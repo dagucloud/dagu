@@ -19,11 +19,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 )
 
@@ -471,7 +470,7 @@ func failedEvent(dagName, runID string) chatbridge.NotificationEvent {
 		Key:        "key:" + dagName + ":" + runID,
 		Type:       eventstore.TypeDAGRunFailed,
 		ObservedAt: now,
-		Status: &dagrun.DAGRunStatus{
+		Status: &ir.DAGRunStatus{
 			Name:       dagName,
 			DAGRunID:   runID,
 			AttemptID:  runID,
@@ -483,7 +482,7 @@ func failedEvent(dagName, runID string) chatbridge.NotificationEvent {
 	}
 }
 
-func cloneStatus(status *dagrun.DAGRunStatus) *dagrun.DAGRunStatus {
+func cloneStatus(status *ir.DAGRunStatus) *ir.DAGRunStatus {
 	if status == nil {
 		return nil
 	}
@@ -509,7 +508,7 @@ type monitorEventStore struct {
 }
 
 var _ eventstore.Store = (*monitorEventStore)(nil)
-var _ eventstore.NotificationReader = (*monitorEventStore)(nil)
+var _ eventstore.DAGRunReader = (*monitorEventStore)(nil)
 
 func (s *monitorEventStore) Emit(_ context.Context, event *eventstore.Event) error {
 	s.mu.Lock()
@@ -522,14 +521,14 @@ func (s *monitorEventStore) Query(context.Context, eventstore.QueryFilter) (*eve
 	return &eventstore.QueryResult{}, nil
 }
 
-func (s *monitorEventStore) NotificationHeadCursor(context.Context) (eventstore.NotificationCursor, error) {
+func (s *monitorEventStore) DAGRunHeadCursor(context.Context) (eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.headCalls++
 	return s.cursor(), nil
 }
 
-func (s *monitorEventStore) ReadNotificationEvents(_ context.Context, cursor eventstore.NotificationCursor) ([]*eventstore.Event, eventstore.NotificationCursor, error) {
+func (s *monitorEventStore) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCursor) ([]*eventstore.Event, eventstore.DAGRunCursor, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	index := int(cursor.Normalize().CommittedOffsets["events"])
@@ -542,8 +541,8 @@ func (s *monitorEventStore) bootstrapped() bool {
 	return s.headCalls > 0
 }
 
-func (s *monitorEventStore) cursor() eventstore.NotificationCursor {
-	return eventstore.NotificationCursor{
+func (s *monitorEventStore) cursor() eventstore.DAGRunCursor {
+	return eventstore.DAGRunCursor{
 		CommittedOffsets: map[string]int64{"events": int64(len(s.events))},
 	}
 }

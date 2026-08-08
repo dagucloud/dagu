@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
@@ -56,7 +55,7 @@ steps:
 
 	// Verify the initial run completed successfully
 	ctx := context.Background()
-	ref := dagrun.NewDAGRunRef("test_retry", dagRunID)
+	ref := ir.NewDAGRunRef("test_retry", dagRunID)
 	attempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
 	require.NoError(t, err)
 
@@ -147,7 +146,7 @@ if (-not (Test-Path marker)) {
 	})
 	require.Error(t, err)
 
-	ref := dagrun.NewDAGRunRef("retry_working_dir", dagRunID)
+	ref := ir.NewDAGRunRef("retry_working_dir", dagRunID)
 	failedAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
 	require.NoError(t, err)
 	failedStatus, err := failedAttempt.ReadStatus(th.Context)

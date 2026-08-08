@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -3711,9 +3710,9 @@ func TestRunner_ChatMessagesHandler(t *testing.T) {
 
 		handler := newMockMessagesHandler()
 		// Pre-populate handler with messages for dependency
-		handler.messages["step1"] = []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "be helpful"},
-			{Role: dagrun.RoleUser, Content: "hello"},
+		handler.messages["step1"] = []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "be helpful"},
+			{Role: ir.LLMRoleUser, Content: "hello"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
@@ -3750,13 +3749,13 @@ func TestRunner_ChatMessagesHandler(t *testing.T) {
 
 		handler := newMockMessagesHandler()
 		// Multiple system messages from different dependencies
-		handler.messages["step1"] = []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "first system"},
-			{Role: dagrun.RoleUser, Content: "msg1"},
+		handler.messages["step1"] = []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "first system"},
+			{Role: ir.LLMRoleUser, Content: "msg1"},
 		}
-		handler.messages["step2"] = []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "second system"},
-			{Role: dagrun.RoleUser, Content: "msg2"},
+		handler.messages["step2"] = []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "second system"},
+			{Role: ir.LLMRoleUser, Content: "msg2"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
@@ -3801,8 +3800,8 @@ func TestRunner_ChatMessagesHandler(t *testing.T) {
 		t.Parallel()
 
 		handler := newMockMessagesHandler()
-		handler.messages["step1"] = []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "be helpful"},
+		handler.messages["step1"] = []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "be helpful"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
@@ -3837,13 +3836,13 @@ func TestSetupPushBackConversation(t *testing.T) {
 		t.Parallel()
 
 		handler := newMockMessagesHandler()
-		handler.messages["chat1"] = []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "be concise"},
-			{Role: dagrun.RoleUser, Content: "original prompt"},
-			{Role: dagrun.RoleAssistant, Content: "previous response"},
+		handler.messages["chat1"] = []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "be concise"},
+			{Role: ir.LLMRoleUser, Content: "original prompt"},
+			{Role: ir.LLMRoleAssistant, Content: "previous response"},
 		}
-		handler.messages["dep1"] = []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "dep message"},
+		handler.messages["dep1"] = []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "dep message"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
@@ -3880,8 +3879,8 @@ func TestSetupPushBackConversation(t *testing.T) {
 		t.Parallel()
 
 		handler := newMockMessagesHandler()
-		handler.messages["chat1"] = []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "should not load"},
+		handler.messages["chat1"] = []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "should not load"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
@@ -3907,8 +3906,8 @@ func TestSetupPushBackConversation(t *testing.T) {
 		t.Parallel()
 
 		handler := newMockMessagesHandler()
-		handler.messages["cmd1"] = []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "should not load"},
+		handler.messages["cmd1"] = []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "should not load"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
@@ -3933,9 +3932,9 @@ func TestSetupPushBackConversation(t *testing.T) {
 		t.Parallel()
 
 		handler := newMockMessagesHandler()
-		handler.messages["chat1"] = []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "previous prompt"},
-			{Role: dagrun.RoleAssistant, Content: "previous response"},
+		handler.messages["chat1"] = []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "previous prompt"},
+			{Role: ir.LLMRoleAssistant, Content: "previous response"},
 		}
 
 		r := setupRunner(t, withMessagesHandler(handler))
@@ -4058,7 +4057,7 @@ func TestPushBackInputsExposeJSONHistoryEnvForRewoundStep(t *testing.T) {
 
 	node.SetApprovalIteration(2)
 	node.SetPushBackInputs(map[string]string{"FEEDBACK": "rerun from review"})
-	node.SetPushBackHistory([]dagrun.PushBackEntry{
+	node.SetPushBackHistory([]ir.PushBackEntry{
 		{
 			Iteration: 1,
 			By:        "reviewer-a",

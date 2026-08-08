@@ -11,12 +11,12 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
+	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -246,7 +246,7 @@ func readWorkspaceBaseConfigSpec(dagsDir, workspaceName string) (string, error) 
 	return string(data), nil
 }
 
-func (a *API) workspaceBaseConfigStore(dagsDir, workspaceName string) (baseconfig.Store, error) {
+func (a *API) workspaceBaseConfigStore(dagsDir, workspaceName string) (dagsettings.BaseConfigStore, error) {
 	if a.baseConfigFactory == nil {
 		return nil, errors.New("workspace base config store factory is not configured")
 	}

@@ -9,11 +9,10 @@ import (
 	"fmt"
 	"maps"
 
-	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -41,7 +40,7 @@ func (r *Runner) startBuildSession(ctx context.Context, plan *Plan, node *Node) 
 		dependency := plan.GetNode(dependencyID)
 		state := dependency.State()
 		if plan.IsInferredDependency(dependencyID, node.ID()) {
-			if r.dry && (state.Build == nil || state.Build.Decision != dagrun.BuildDecisionReuse) {
+			if r.dry && (state.Build == nil || state.Build.Decision != ir.BuildDecisionReuse) {
 				deferred = true
 			}
 			continue
@@ -49,7 +48,7 @@ func (r *Runner) startBuildSession(ctx context.Context, plan *Plan, node *Node) 
 		if state.Build != nil && state.Build.Fingerprint != "" {
 			controlTokens[dependency.Name()] = state.Build.Fingerprint
 		}
-		if state.Build != nil && state.Build.Decision == dagrun.BuildDecisionReuse {
+		if state.Build != nil && state.Build.Decision == ir.BuildDecisionReuse {
 			continue
 		}
 		controlDependencyRan = true
@@ -88,7 +87,7 @@ func (r *Runner) startBuildSession(ctx context.Context, plan *Plan, node *Node) 
 func markBuildPrecondition(
 	session *build.Session,
 	node *Node,
-	reason dagrun.BuildReason,
+	reason ir.BuildReason,
 	detail string,
 	progressCh chan *Node,
 ) {
@@ -96,8 +95,8 @@ func markBuildPrecondition(
 		return
 	}
 	metadata := session.Metadata()
-	metadata.Decision = dagrun.BuildDecisionNone
-	metadata.Phase = dagrun.BuildPhasePrecondition
+	metadata.Decision = ir.BuildDecisionNone
+	metadata.Phase = ir.BuildPhasePrecondition
 	metadata.Reason = reason
 	metadata.Detail = detail
 	node.setBuild(metadata)
@@ -116,7 +115,7 @@ func (r *Runner) evaluateBuildNode(
 		return false
 	}
 	var err error
-	if session.Metadata().Decision != dagrun.BuildDecisionAlways {
+	if session.Metadata().Decision != ir.BuildDecisionAlways {
 		var resolvedStep ir.Step
 		var environment map[string]string
 		resolvedStep, environment, err = resolveBuildRecipe(ctx, node.Step())

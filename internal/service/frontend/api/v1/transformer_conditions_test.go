@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -16,11 +15,11 @@ import (
 )
 
 func TestToDAGRunSummaryIncludesConditions(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Queued,
-		Conditions: []dagrun.DAGRunCondition{
+		Conditions: []ir.DAGRunCondition{
 			{
 				Type:      "Runnable",
 				Status:    "False",
@@ -55,11 +54,11 @@ func TestToDAGRunSummaryIncludesConditions(t *testing.T) {
 }
 
 func TestToDAGRunDetailsIncludesConditions(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Queued,
-		Conditions: []dagrun.DAGRunCondition{
+		Conditions: []ir.DAGRunCondition{
 			{
 				Type:      "WorkerReady",
 				Status:    "Unknown",
@@ -82,11 +81,11 @@ func TestToDAGRunDetailsIncludesConditions(t *testing.T) {
 }
 
 func TestToDAGRunSummarySkipsOnlyConditionsWithInvalidCheckedAt(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Queued,
-		Conditions: []dagrun.DAGRunCondition{
+		Conditions: []ir.DAGRunCondition{
 			{
 				Type:      "Runnable",
 				Status:    "False",
@@ -113,11 +112,11 @@ func TestToDAGRunSummarySkipsOnlyConditionsWithInvalidCheckedAt(t *testing.T) {
 }
 
 func TestToDAGRunSummarySkipsConditionsWithInvalidStatus(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "queued-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Queued,
-		Conditions: []dagrun.DAGRunCondition{
+		Conditions: []ir.DAGRunCondition{
 			{
 				Type:      "Runnable",
 				Status:    "False",
@@ -144,11 +143,11 @@ func TestToDAGRunSummarySkipsConditionsWithInvalidStatus(t *testing.T) {
 }
 
 func TestToDAGRunSummarySkipsConditionsWhenStatusIsNotQueued(t *testing.T) {
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:     "running-dag",
 		DAGRunID: "run-1",
 		Status:   ir.Running,
-		Conditions: []dagrun.DAGRunCondition{
+		Conditions: []ir.DAGRunCondition{
 			{
 				Type:      "Runnable",
 				Status:    "False",

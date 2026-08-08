@@ -1,10 +1,10 @@
 /**
  * DAG name validation utilities
  *
- * These rules must match the backend validation in internal/core/names.go
+ * These rules must match the backend validation in internal/ir/validator.go
  */
 
-// Maximum allowed length for a DAG name (must match core.DAGNameMaxLen)
+// Maximum allowed length for a DAG name (must match ir.DAGNameMaxLen)
 export const DAG_NAME_MAX_LEN = 40;
 
 // Regex pattern for valid DAG names

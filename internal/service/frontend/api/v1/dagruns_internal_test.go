@@ -15,6 +15,7 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
@@ -52,7 +53,7 @@ func requireNoDeprecatedTagsKey(t *testing.T, data []byte) {
 func TestDeriveManualDAGRunStatusRetryingIsRunning(t *testing.T) {
 	t.Parallel()
 
-	status := deriveManualDAGRunStatus([]*dagrun.Node{
+	status := deriveManualDAGRunStatus([]*ir.Node{
 		{
 			Step:   ir.Step{Name: "retrying"},
 			Status: ir.NodeRetrying,
@@ -65,7 +66,7 @@ func TestDeriveManualDAGRunStatusRetryingIsRunning(t *testing.T) {
 func TestDeriveManualDAGRunStatusContinueOnMarkSuccessIsContinuable(t *testing.T) {
 	t.Parallel()
 
-	status := deriveManualDAGRunStatus([]*dagrun.Node{
+	status := deriveManualDAGRunStatus([]*ir.Node{
 		{
 			Step: ir.Step{
 				Name: "failed-continuable",
@@ -88,7 +89,7 @@ func TestDeriveManualDAGRunStatusContinueOnMarkSuccessIsContinuable(t *testing.T
 func TestDeriveManualDAGRunStatusMixedNotStartedAndSucceededIsNonRunning(t *testing.T) {
 	t.Parallel()
 
-	status := deriveManualDAGRunStatus([]*dagrun.Node{
+	status := deriveManualDAGRunStatus([]*ir.Node{
 		{
 			Step:   ir.Step{Name: "succeeded"},
 			Status: ir.NodeSucceeded,
@@ -106,8 +107,8 @@ func TestApplyPushBackRewindToResetsNamedStepAndDependents(t *testing.T) {
 	t.Parallel()
 
 	inputs := map[string]string{"FEEDBACK": "try again"}
-	status := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+	status := &ir.DAGRunStatus{
+		Nodes: []*ir.Node{
 			{
 				Step:       ir.Step{Name: "bootstrap"},
 				Status:     ir.NodeSucceeded,
@@ -231,9 +232,9 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 
 	approvalStep := ir.Step{Name: "approval", Approval: &ir.ApprovalConfig{}}
 	humanStep := ir.Step{ID: "review", Name: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}}
-	original := &dagrun.DAGRunStatus{
+	original := &ir.DAGRunStatus{
 		Name: "test", DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1", Status: ir.Waiting,
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{Step: approvalStep, Status: ir.NodeWaiting, StartedAt: "started"},
 			{Step: humanStep, Status: ir.NodeWaiting},
 		},
@@ -260,13 +261,13 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 
 type manualCASStore struct {
 	dagrun.DAGRunStore
-	status *dagrun.DAGRunStatus
+	status *ir.DAGRunStatus
 }
 
 type manualStepAttempt struct {
 	dagrun.DAGRunAttempt
 	dag      *ir.DAG
-	statuses []*dagrun.DAGRunStatus
+	statuses []*ir.DAGRunStatus
 	reads    int
 }
 
@@ -274,7 +275,7 @@ func (a *manualStepAttempt) ReadDAG(context.Context) (*ir.DAG, error) {
 	return a.dag, nil
 }
 
-func (a *manualStepAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
+func (a *manualStepAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	idx := a.reads
 	if idx >= len(a.statuses) {
 		idx = len(a.statuses) - 1
@@ -289,7 +290,7 @@ type manualStepProcStore struct {
 	err   error
 }
 
-func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, dagrun.DAGRunRef, string) (bool, error) {
+func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
 	return s.alive, s.err
 }
 
@@ -300,23 +301,23 @@ type failingManualCASStore struct {
 
 func (s *failingManualCASStore) CompareAndSwapLatestAttemptStatus(
 	context.Context,
-	dagrun.DAGRunRef,
+	ir.DAGRunRef,
 	string,
 	ir.Status,
-	func(*dagrun.DAGRunStatus) error,
+	func(*ir.DAGRunStatus) error,
 	...dagrun.CompareAndSwapStatusOption,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	return nil, false, s.err
 }
 
 func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	_ dagrun.DAGRunRef,
+	_ ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*dagrun.DAGRunStatus) error,
+	mutate func(*ir.DAGRunStatus) error,
 	_ ...dagrun.CompareAndSwapStatusOption,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
@@ -330,7 +331,7 @@ func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 }
 
 func TestWaitForManualStepMutationReadyFailsClosedOnLivenessError(t *testing.T) {
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "manual-dag",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -348,7 +349,7 @@ func TestWaitForManualStepMutationReadyFailsClosedOnLivenessError(t *testing.T) 
 }
 
 func TestWaitForManualStepMutationReadyHonorsCancellation(t *testing.T) {
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "manual-dag",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -367,7 +368,7 @@ func TestWaitForManualStepMutationReadyHonorsCancellation(t *testing.T) {
 }
 
 func TestWaitForManualStepMutationReadyWaitsForRemotePersistence(t *testing.T) {
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "manual-dag",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -375,8 +376,8 @@ func TestWaitForManualStepMutationReadyWaitsForRemotePersistence(t *testing.T) {
 		WorkerID:  "worker-1",
 	}
 	finalized := *status
-	finalized.FinishedAt = dagrun.FormatTime(time.Now())
-	attempt := &manualStepAttempt{statuses: []*dagrun.DAGRunStatus{status, &finalized}}
+	finalized.FinishedAt = stringutil.FormatTime(time.Now())
+	attempt := &manualStepAttempt{statuses: []*ir.DAGRunStatus{status, &finalized}}
 
 	updated, err := (&API{}).waitForManualStepMutationReady(t.Context(), attempt, status)
 
@@ -386,7 +387,7 @@ func TestWaitForManualStepMutationReadyWaitsForRemotePersistence(t *testing.T) {
 }
 
 func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name:      "manual-dag",
 		DAGRunID:  "run-1",
 		AttemptID: "attempt-1",
@@ -394,10 +395,10 @@ func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
 		WorkerID:  "local",
 	}
 	finalized := *status
-	finalized.FinishedAt = dagrun.FormatTime(time.Now())
+	finalized.FinishedAt = stringutil.FormatTime(time.Now())
 	attempt := &manualStepAttempt{
 		dag:      &ir.DAG{Name: status.Name},
-		statuses: []*dagrun.DAGRunStatus{status, &finalized},
+		statuses: []*ir.DAGRunStatus{status, &finalized},
 	}
 	a := &API{procStore: &manualStepProcStore{}}
 
@@ -420,11 +421,11 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 	}
 	attempt, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
-	status := dagrun.InitialStatus(dag)
+	status := ir.InitialStatus(dag)
 	status.DAGRunID = "run-1"
 	status.AttemptID = attempt.ID()
 	status.Status = ir.Waiting
-	status.FinishedAt = dagrun.FormatTime(time.Now())
+	status.FinishedAt = stringutil.FormatTime(time.Now())
 	status.Nodes[0].Status = ir.NodeWaiting
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, status))
@@ -462,8 +463,8 @@ func TestApplyPushBackAppendsLegacyPushBackInputsToHistory(t *testing.T) {
 
 	firstInputs := map[string]string{"FEEDBACK": "first pass"}
 	secondInputs := map[string]string{"FEEDBACK": "second pass"}
-	status := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+	status := &ir.DAGRunStatus{
+		Nodes: []*ir.Node{
 			{
 				Step: ir.Step{
 					Name: "review",
@@ -515,8 +516,8 @@ func TestApplyPushBackRecordsAuthenticatedUserInHistory(t *testing.T) {
 	t.Parallel()
 
 	inputs := map[string]string{"FEEDBACK": "needs revision"}
-	status := &dagrun.DAGRunStatus{
-		Nodes: []*dagrun.Node{
+	status := &ir.DAGRunStatus{
+		Nodes: []*ir.Node{
 			{
 				Step: ir.Step{
 					Name: "review",
@@ -563,13 +564,13 @@ func TestApprovalMutationsRecordAuthenticatedSubjectID(t *testing.T) {
 	t.Parallel()
 
 	ctx := auth.WithUser(context.Background(), &auth.User{ID: "user-1", Username: "reviewer"})
-	approved := &dagrun.Node{}
+	approved := &ir.Node{}
 	applyApproval(ctx, approved, nil)
 	assert.Equal(t, "reviewer", approved.ApprovedBy)
 	assert.Equal(t, "user-1", approved.ApprovedByID)
 
-	rejected := &dagrun.Node{}
-	status := &dagrun.DAGRunStatus{}
+	rejected := &ir.Node{}
+	status := &ir.DAGRunStatus{}
 	applyRejection(ctx, rejected, status, nil)
 	assert.Equal(t, "reviewer", rejected.RejectedBy)
 	assert.Equal(t, "user-1", rejected.RejectedByID)
@@ -766,7 +767,7 @@ func (blockingDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRun
 	panic("not implemented")
 }
 
-func (blockingDAGRunStore) ListStatuses(ctx context.Context, _ ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (blockingDAGRunStore) ListStatuses(ctx context.Context, _ ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
@@ -776,19 +777,19 @@ func (blockingDAGRunStore) ListStatusesPage(ctx context.Context, _ ...dagrun.Lis
 	return dagrun.DAGRunStatusPage{}, ctx.Err()
 }
 
-func (blockingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, dagrun.DAGRunRef, string, ir.Status, func(*dagrun.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*dagrun.DAGRunStatus, bool, error) {
+func (blockingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*ir.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*ir.DAGRunStatus, bool, error) {
 	panic("not implemented")
 }
 
-func (blockingDAGRunStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (blockingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	panic("not implemented")
 }
 
-func (blockingDAGRunStore) FindSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (blockingDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	panic("not implemented")
 }
 
-func (blockingDAGRunStore) CreateSubAttempt(context.Context, dagrun.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
+func (blockingDAGRunStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
 	panic("not implemented")
 }
 
@@ -796,7 +797,7 @@ func (blockingDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dag
 	panic("not implemented")
 }
 
-func (blockingDAGRunStore) RemoveDAGRun(context.Context, dagrun.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
+func (blockingDAGRunStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
 	panic("not implemented")
 }
 

@@ -57,7 +57,7 @@ steps:
 	require.Equal(t, ir.NodeFailed, rootStatus.Nodes[0].Status)
 	require.Len(t, rootStatus.Nodes[0].SubRuns, 2)
 
-	rootRef := dagrun.NewDAGRunRef(dag.Name, rootStatus.DAGRunID)
+	rootRef := ir.NewDAGRunRef(dag.Name, rootStatus.DAGRunID)
 	var target, sibling string
 	var targetAttempt, siblingAttempt string
 	for _, subRun := range rootStatus.Nodes[0].SubRuns {
@@ -104,7 +104,7 @@ steps:
 }
 
 // readChildRun returns the status and latest attempt ID of a child DAG run.
-func readChildRun(t *testing.T, th test.Helper, root dagrun.DAGRunRef, runID string) (ir.Status, string) {
+func readChildRun(t *testing.T, th test.Helper, root ir.DAGRunRef, runID string) (ir.Status, string) {
 	t.Helper()
 	attempt, err := th.DAGRunStore.FindSubAttempt(th.Context, root, runID)
 	require.NoError(t, err)

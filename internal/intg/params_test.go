@@ -79,7 +79,7 @@ steps:
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "region")
 
-	_, err = th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef("inline-required", runID))
+	_, err = th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef("inline-required", runID))
 	require.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 }
 
@@ -114,7 +114,7 @@ steps:
 	require.Contains(t, err.Error(), "count")
 	require.Contains(t, err.Error(), "integer")
 
-	_, err = th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef("inline-invalid", runID))
+	_, err = th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef("inline-invalid", runID))
 	require.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 }
 
@@ -161,7 +161,7 @@ steps:
 		ExpectedOut: []string{"DAG run finished"},
 	})
 
-	rootRef := dagrun.NewDAGRunRef("inline-subdag-parent", runID)
+	rootRef := ir.NewDAGRunRef("inline-subdag-parent", runID)
 	parentAttempt, err := th.DAGRunStore.FindAttempt(th.Context, rootRef)
 	require.NoError(t, err)
 
@@ -183,10 +183,10 @@ steps:
 	assert.JSONEq(t, `["region=us-west-2","count=5","debug=true"]`, subOutputs.Metadata.Params)
 }
 
-func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID string) (*dagrun.DAGRunStatus, *dagrun.DAGRunOutputs) {
+func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID string) (*ir.DAGRunStatus, *ir.DAGRunOutputs) {
 	t.Helper()
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dagName, runID))
+	attempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagName, runID))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(th.Context)
@@ -198,7 +198,7 @@ func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID s
 	return status, outputs
 }
 
-func readSubAttemptStatusAndOutputs(t *testing.T, th test.Command, rootRef dagrun.DAGRunRef, subRunID string) (*dagrun.DAGRunStatus, *dagrun.DAGRunOutputs) {
+func readSubAttemptStatusAndOutputs(t *testing.T, th test.Command, rootRef ir.DAGRunRef, subRunID string) (*ir.DAGRunStatus, *ir.DAGRunOutputs) {
 	t.Helper()
 
 	attempt, err := th.DAGRunStore.FindSubAttempt(th.Context, rootRef, subRunID)

@@ -6,20 +6,19 @@ package frontend
 import (
 	"context"
 
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/docs"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/secret"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
-	"github.com/dagucloud/dagu/v2/internal/service/eventstore"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 	"github.com/dagucloud/dagu/v2/internal/view"
@@ -47,7 +46,7 @@ type StoreFactories struct {
 	ViewStoreFactory                 ViewStoreFactory
 }
 
-type BaseConfigStoreFactory func(filePath string) (baseconfig.Store, error)
+type BaseConfigStoreFactory func(filePath string) (dagsettings.BaseConfigStore, error)
 
 type SecretStoreFactory func(context.Context, *config.Config) secret.Store
 

@@ -6,9 +6,9 @@ package dag
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/require"
 )
 

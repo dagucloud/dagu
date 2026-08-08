@@ -10,8 +10,8 @@ import (
 	"net/http"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 )
 

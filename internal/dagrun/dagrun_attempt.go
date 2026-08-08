@@ -12,7 +12,7 @@ import (
 // NewDAGRunAttemptOptions contains options for creating a new run record
 type NewDAGRunAttemptOptions struct {
 	// RootDAGRun is the root dag-run reference for this attempt.
-	RootDAGRun *DAGRunRef
+	RootDAGRun *ir.DAGRunRef
 	// Retry indicates whether this is a retry of a previous run.
 	Retry bool
 	// AttemptID is an optional attempt ID. If set, this ID is used instead of generating a new one.
@@ -28,11 +28,11 @@ type DAGRunAttempt interface {
 	// Open prepares the attempt for writing status updates
 	Open(ctx context.Context) error
 	// Write updates the status of the attempt
-	Write(ctx context.Context, status DAGRunStatus) error
+	Write(ctx context.Context, status ir.DAGRunStatus) error
 	// Close finalizes writing to the attempt
 	Close(ctx context.Context) error
 	// ReadStatus retrieves the current status of the attempt
-	ReadStatus(ctx context.Context) (*DAGRunStatus, error)
+	ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error)
 	// ReadDAG reads the DAG associated with this run attempt
 	ReadDAG(ctx context.Context) (*ir.DAG, error)
 	// SetDAG sets the DAG for this attempt (must be called before Open for DAG to be persisted)
@@ -48,15 +48,15 @@ type DAGRunAttempt interface {
 	Hidden() bool
 	// WriteOutputs writes the collected step outputs for the dag-run.
 	// Does nothing if outputs is nil or has no output entries.
-	WriteOutputs(ctx context.Context, outputs *DAGRunOutputs) error
+	WriteOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error
 	// ReadOutputs reads the collected step outputs for the dag-run.
 	// Returns nil if no outputs file exists or if the file is in v1 format.
-	ReadOutputs(ctx context.Context) (*DAGRunOutputs, error)
+	ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error)
 	// WriteStepMessages writes LLM messages for a single step.
-	WriteStepMessages(ctx context.Context, stepName string, messages []LLMMessage) error
+	WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error
 	// ReadStepMessages reads LLM messages for a single step.
 	// Returns nil if no messages exist for the step.
-	ReadStepMessages(ctx context.Context, stepName string) ([]LLMMessage, error)
+	ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error)
 	// WorkDir returns the path to the per-DAG-run working directory.
 	// Returns "" if the attempt does not support local storage.
 	WorkDir() string

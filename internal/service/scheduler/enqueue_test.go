@@ -11,11 +11,11 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/stretchr/testify/assert"
@@ -51,7 +51,7 @@ steps:
 	)
 	require.NoError(t, err)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, runID))
+	attempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(th.Context)
@@ -70,7 +70,7 @@ steps:
 
 	ref, err := items[0].Data()
 	require.NoError(t, err)
-	assert.Equal(t, dagrun.NewDAGRunRef(dag.Name, runID), *ref)
+	assert.Equal(t, ir.NewDAGRunRef(dag.Name, runID), *ref)
 }
 
 func TestEnqueueCatchupRun_RehydratesFullDAGBeforePersisting(t *testing.T) {
@@ -118,7 +118,7 @@ steps:
 	)
 	require.NoError(t, err)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, runID))
+	attempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 
 	persisted, err := attempt.ReadDAG(th.Context)
@@ -188,12 +188,12 @@ steps:
 	)
 	require.NoError(t, err)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, dagrun.NewDAGRunRef(dag.Name, runID))
+	attempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 	persisted, err := attempt.ReadDAG(th.Context)
 	require.NoError(t, err)
 
-	resolvedEnv, err := spec.ResolveRuntimeEnv(th.Context, persisted, nil, spec.ResolveEnvOptions{})
+	resolvedEnv, err := runtimeenvtransport.Resolve(th.Context, persisted, nil, runtimeenvtransport.Options{})
 	require.NoError(t, err)
 	env := buildenv.ToMap(resolvedEnv.Env)
 	require.Equal(t, "from-workspace", env["GREETING"])

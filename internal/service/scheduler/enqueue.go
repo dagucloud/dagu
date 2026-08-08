@@ -12,7 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -43,7 +43,7 @@ func EnqueueCatchupRun(
 	scheduleTime time.Time,
 	profileName string,
 ) error {
-	dagRun := dagrun.NewDAGRunRef(dag.Name, runID)
+	dagRun := ir.NewDAGRunRef(dag.Name, runID)
 
 	// Idempotency: skip if a run with this ID already exists.
 	if _, err := dagRunStore.FindAttempt(ctx, dagRun); err == nil {

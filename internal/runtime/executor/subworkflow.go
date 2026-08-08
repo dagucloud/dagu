@@ -15,8 +15,8 @@ import (
 // SubWorkflowRunner runs child workflows behind a workflow-level interface.
 type SubWorkflowRunner interface {
 	ShouldRun(ctx context.Context, req SubWorkflowRequest) bool
-	Run(ctx context.Context, req SubWorkflowRequest) (*dagrun.RunStatus, error)
-	Retry(ctx context.Context, req SubWorkflowRetryRequest) (*dagrun.RunStatus, error)
+	Run(ctx context.Context, req SubWorkflowRequest) (*ir.RunStatus, error)
+	Retry(ctx context.Context, req SubWorkflowRetryRequest) (*ir.RunStatus, error)
 	Cancel(ctx context.Context, req SubWorkflowCancelRequest) error
 }
 
@@ -24,8 +24,8 @@ type SubWorkflowRunner interface {
 type SubWorkflowRequest struct {
 	DAG               *ir.DAG
 	ParentDAG         *ir.DAG
-	RootDAGRun        dagrun.DAGRunRef
-	ParentDAGRun      dagrun.DAGRunRef
+	RootDAGRun        ir.DAGRunRef
+	ParentDAGRun      ir.DAGRunRef
 	RunID             string
 	Params            string
 	ProfileName       string
@@ -63,7 +63,7 @@ type SubWorkflowCancelIntent struct {
 // SubWorkflowCancelRequest describes a child workflow cancellation.
 type SubWorkflowCancelRequest struct {
 	DAG        *ir.DAG
-	RootDAGRun dagrun.DAGRunRef
+	RootDAGRun ir.DAGRunRef
 	RunID      string
 	Intent     SubWorkflowCancelIntent
 }

@@ -13,13 +13,12 @@ import (
 	"time"
 
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
-	"github.com/dagucloud/dagu/v2/internal/auth/tokensecret"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/baseconfig"
+	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -54,7 +53,7 @@ func newViewStore(cfg *config.Config) (view.Store, error) {
 	return store.NewViewStore(file.NewCollection(cfg.Paths.ViewsDir, file.WithIndentedJSON()))
 }
 
-func newBaseConfigStore(filePath string) (baseconfig.Store, error) {
+func newBaseConfigStore(filePath string) (dagsettings.BaseConfigStore, error) {
 	return file.NewBaseConfigStore(filePath)
 }
 
@@ -63,10 +62,9 @@ func newAuditStore(cfg *config.Config) (frontend.AuditStore, error) {
 }
 
 // newBuiltinAuthService creates the file-backed auth store and authentication service.
-// It uses the token secret provider chain to resolve the JWT signing secret,
-// auto-generating and persisting one if not configured.
+// It resolves the configured JWT signing secret or creates a persistent one.
 func newBuiltinAuthService(ctx context.Context, cfg *config.Config) (*frontend.BuiltinAuthResult, bool, error) {
-	tokenSecret, err := buildTokenSecretProvider(ctx, cfg).Resolve(ctx)
+	tokenSecret, err := resolveTokenSecret(ctx, cfg)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to resolve token secret: %w", err)
 	}
@@ -150,21 +148,15 @@ func newBuiltinAuthService(ctx context.Context, cfg *config.Config) (*frontend.B
 	}, setupRequired, nil
 }
 
-// buildTokenSecretProvider constructs the token secret provider chain.
-// Priority: 1. Static from config/env, 2. File-based auto-generated secret.
-func buildTokenSecretProvider(ctx context.Context, cfg *config.Config) authmodel.TokenSecretProvider {
-	var providers []authmodel.TokenSecretProvider
-
+func resolveTokenSecret(ctx context.Context, cfg *config.Config) (authmodel.TokenSecret, error) {
 	authDir := filepath.Join(cfg.Paths.DataDir, "auth")
 
 	if cfg.Server.Auth.Builtin.Token.Secret != "" {
-		staticProvider, err := tokensecret.NewStatic(cfg.Server.Auth.Builtin.Token.Secret)
+		secret, err := authmodel.NewTokenSecretFromString(cfg.Server.Auth.Builtin.Token.Secret)
 		if err != nil {
 			logger.Warn(ctx, "Invalid token secret from config, falling back to file-based secret",
 				tag.Error(err))
 		} else {
-			providers = append(providers, staticProvider)
-
 			secretPath := filepath.Join(authDir, "token_secret")
 			if data, readErr := os.ReadFile(secretPath); readErr == nil { //nolint:gosec // path is constructed from trusted config dir + constant filename
 				fileSecret := strings.TrimSpace(string(data))
@@ -174,10 +166,9 @@ func buildTokenSecretProvider(ctx context.Context, cfg *config.Config) authmodel
 						slog.String("file", secretPath))
 				}
 			}
+			return secret, nil
 		}
 	}
 
-	providers = append(providers, file.NewTokenSecretProvider(cfg))
-
-	return tokensecret.NewChain(providers...)
+	return file.ResolveTokenSecret(authDir)
 }

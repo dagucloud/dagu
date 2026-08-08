@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -416,7 +417,7 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	wg.Wait()
 }
 
-func currentStatusString(status *dagrun.DAGRunStatus) string {
+func currentStatusString(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return "unknown"
 	}
@@ -464,7 +465,7 @@ func readStartupExecutionError(execErrCh <-chan error) error {
 	}
 }
 
-func queueAttemptKey(runRef dagrun.DAGRunRef, attempt dagrun.DAGRunAttempt, status *dagrun.DAGRunStatus) string {
+func queueAttemptKey(runRef ir.DAGRunRef, attempt dagrun.DAGRunAttempt, status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -479,7 +480,7 @@ func queueAttemptKey(runRef dagrun.DAGRunRef, attempt dagrun.DAGRunAttempt, stat
 	if attemptID == "" {
 		return ""
 	}
-	return dagrun.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID)
+	return ir.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID)
 }
 
 func (p *QueueProcessor) leaseStaleThresholdOrDefault() time.Duration {

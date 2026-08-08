@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )

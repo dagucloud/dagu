@@ -36,7 +36,7 @@ func (n *noopDAGRunAttempt) Open(_ context.Context) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) Write(_ context.Context, _ DAGRunStatus) error {
+func (n *noopDAGRunAttempt) Write(_ context.Context, _ ir.DAGRunStatus) error {
 	return nil
 }
 
@@ -44,7 +44,7 @@ func (n *noopDAGRunAttempt) Close(_ context.Context) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) ReadStatus(_ context.Context) (*DAGRunStatus, error) {
+func (n *noopDAGRunAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	return nil, ErrNoopAttemptNotSupported
 }
 
@@ -72,19 +72,19 @@ func (n *noopDAGRunAttempt) Hidden() bool {
 	return false
 }
 
-func (n *noopDAGRunAttempt) WriteOutputs(_ context.Context, _ *DAGRunOutputs) error {
+func (n *noopDAGRunAttempt) WriteOutputs(_ context.Context, _ *ir.DAGRunOutputs) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) ReadOutputs(_ context.Context) (*DAGRunOutputs, error) {
+func (n *noopDAGRunAttempt) ReadOutputs(_ context.Context) (*ir.DAGRunOutputs, error) {
 	return nil, ErrNoopAttemptNotSupported
 }
 
-func (n *noopDAGRunAttempt) WriteStepMessages(_ context.Context, _ string, _ []LLMMessage) error {
+func (n *noopDAGRunAttempt) WriteStepMessages(_ context.Context, _ string, _ []ir.LLMMessage) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) ReadStepMessages(_ context.Context, _ string) ([]LLMMessage, error) {
+func (n *noopDAGRunAttempt) ReadStepMessages(_ context.Context, _ string) ([]ir.LLMMessage, error) {
 	return nil, nil
 }
 

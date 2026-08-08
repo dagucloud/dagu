@@ -93,7 +93,7 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, ir.Succeeded, status.Status)
 
-	ref := dagrun.NewDAGRunRef(status.Name, status.DAGRunID)
+	ref := ir.NewDAGRunRef(status.Name, status.DAGRunID)
 
 	for _, node := range status.Nodes {
 		if len(node.SubRuns) == 0 {

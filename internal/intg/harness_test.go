@@ -12,7 +12,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
@@ -54,7 +53,7 @@ steps:
 		ExpectedOut: []string{"DAG run finished"},
 	})
 
-	ref := dagrun.NewDAGRunRef("harness_codex_defaults", dagRunID)
+	ref := ir.NewDAGRunRef("harness_codex_defaults", dagRunID)
 	attempt, err := th.DAGRunStore.FindAttempt(context.Background(), ref)
 	require.NoError(t, err)
 
@@ -96,7 +95,7 @@ steps:
 		ExpectedOut: []string{"DAG run finished"},
 	})
 
-	ref := dagrun.NewDAGRunRef("harness_multiline_prompt", dagRunID)
+	ref := ir.NewDAGRunRef("harness_multiline_prompt", dagRunID)
 	attempt, err := th.DAGRunStore.FindAttempt(context.Background(), ref)
 	require.NoError(t, err)
 
@@ -148,7 +147,7 @@ steps:
 	})
 
 	ctx := context.Background()
-	ref := dagrun.NewDAGRunRef("harness_retry", dagRunID)
+	ref := ir.NewDAGRunRef("harness_retry", dagRunID)
 	attempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
 	require.NoError(t, err)
 

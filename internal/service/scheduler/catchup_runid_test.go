@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +21,7 @@ func TestGenerateCatchupRunID(t *testing.T) {
 	t.Run("normal name", func(t *testing.T) {
 		id := GenerateCatchupRunID("etl-pipeline", ts)
 		assert.Regexp(t, scheduledRunIDPattern(catchupPrefix, "20260312T140000"), id)
-		require.NoError(t, dagrun.ValidateDAGRunID(id))
+		require.NoError(t, ir.ValidateDAGRunID(id))
 	})
 
 	t.Run("deterministic", func(t *testing.T) {
@@ -40,7 +40,7 @@ func TestGenerateCatchupRunID(t *testing.T) {
 	t.Run("name with dots remains valid", func(t *testing.T) {
 		id := GenerateCatchupRunID("my.dag.name", ts)
 		assert.Regexp(t, scheduledRunIDPattern(catchupPrefix, "20260312T140000"), id)
-		require.NoError(t, dagrun.ValidateDAGRunID(id))
+		require.NoError(t, ir.ValidateDAGRunID(id))
 	})
 
 	t.Run("dot vs hyphen produce different IDs", func(t *testing.T) {
@@ -60,7 +60,7 @@ func TestGenerateCatchupRunID(t *testing.T) {
 		id := GenerateCatchupRunID(longName, ts)
 		assert.Len(t, id, len(catchupPrefix)+hashLen+1+len(timestampLayout))
 		assert.LessOrEqual(t, len(id), maxRunIDLen)
-		require.NoError(t, dagrun.ValidateDAGRunID(id))
+		require.NoError(t, ir.ValidateDAGRunID(id))
 	})
 
 	t.Run("well below max length", func(t *testing.T) {
@@ -68,7 +68,7 @@ func TestGenerateCatchupRunID(t *testing.T) {
 		id := GenerateCatchupRunID(name, ts)
 		assert.Len(t, id, len(catchupPrefix)+hashLen+1+len(timestampLayout))
 		assert.LessOrEqual(t, len(id), maxRunIDLen)
-		require.NoError(t, dagrun.ValidateDAGRunID(id))
+		require.NoError(t, ir.ValidateDAGRunID(id))
 	})
 
 	t.Run("all outputs pass validation", func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestGenerateCatchupRunID(t *testing.T) {
 		}
 		for _, name := range names {
 			id := GenerateCatchupRunID(name, ts)
-			require.NoError(t, dagrun.ValidateDAGRunID(id), "failed for DAG name: %s, generated ID: %s", name, id)
+			require.NoError(t, ir.ValidateDAGRunID(id), "failed for DAG name: %s, generated ID: %s", name, id)
 		}
 	})
 
@@ -105,7 +105,7 @@ func TestGenerateOneOffRunID(t *testing.T) {
 	t.Run("normal name", func(t *testing.T) {
 		id := GenerateOneOffRunID("etl-pipeline", fingerprint, ts)
 		assert.Regexp(t, scheduledRunIDPattern(oneOffPrefix, "20260329T011000"), id)
-		require.NoError(t, dagrun.ValidateDAGRunID(id))
+		require.NoError(t, ir.ValidateDAGRunID(id))
 	})
 
 	t.Run("deterministic", func(t *testing.T) {
@@ -143,13 +143,13 @@ func TestGenerateLegacyScheduledRunIDs(t *testing.T) {
 	t.Run("catchup", func(t *testing.T) {
 		id := generateLegacyCatchupRunID("etl.pipeline", ts)
 		assert.Regexp(t, fmt.Sprintf(`^catchup-etl_pipeline-[0-9a-f]{%d}-20260312T140000$`, legacyHashLen), id)
-		require.NoError(t, dagrun.ValidateDAGRunID(id))
+		require.NoError(t, ir.ValidateDAGRunID(id))
 	})
 
 	t.Run("one-off", func(t *testing.T) {
 		id := generateLegacyOneOffRunID("etl.pipeline", "at:2026-03-12T14:00:00Z", ts)
 		assert.Regexp(t, fmt.Sprintf(`^oneoff-etl_pipeline-[0-9a-f]{%d}-20260312T140000$`, legacyHashLen), id)
-		require.NoError(t, dagrun.ValidateDAGRunID(id))
+		require.NoError(t, ir.ValidateDAGRunID(id))
 	})
 }
 

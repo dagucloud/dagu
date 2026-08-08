@@ -21,6 +21,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -1136,7 +1137,7 @@ func legacyPreviousStatusJSON(data json.RawMessage) (json.RawMessage, error) {
 	if status.JSONData == "" {
 		return nil, nil
 	}
-	var decoded dagrun.DAGRunStatus
+	var decoded ir.DAGRunStatus
 	if err := json.Unmarshal([]byte(status.JSONData), &decoded); err != nil {
 		return nil, fmt.Errorf("decode previous status: %w", err)
 	}

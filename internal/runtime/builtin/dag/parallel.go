@@ -42,7 +42,7 @@ type parallelExecutor struct {
 	maxConcurrent int
 
 	// Runtime state
-	results  map[string]*dagrun.RunStatus        // Maps DAG run ID to result
+	results  map[string]*ir.RunStatus            // Maps DAG run ID to result
 	errors   []error                             // Collects errors from failed executions
 	children map[string]*executor.SubDAGExecutor // Active child executors keyed by attempt
 
@@ -62,7 +62,7 @@ type scheduledAttempt struct {
 
 type attemptResult struct {
 	attempt scheduledAttempt
-	result  *dagrun.RunStatus
+	result  *ir.RunStatus
 	err     error
 }
 
@@ -90,7 +90,7 @@ func newParallelExecutor(
 		step:          step,
 		workDir:       dir,
 		maxConcurrent: maxConcurrent,
-		results:       make(map[string]*dagrun.RunStatus),
+		results:       make(map[string]*ir.RunStatus),
 		errors:        make([]error, 0),
 		children:      make(map[string]*executor.SubDAGExecutor),
 		cancel:        make(chan struct{}),
@@ -308,7 +308,7 @@ func (e *parallelExecutor) SetParamsList(paramsList []executor.RunParams) {
 	e.runParamsList = paramsList
 }
 
-func (e *parallelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
+func (e *parallelExecutor) GetStatusDetails() []ir.NodeStatusDetail {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
@@ -320,7 +320,7 @@ func (e *parallelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
 		}
 	}
 
-	details := make([]dagrun.NodeStatusDetail, 0, len(e.runParamsList))
+	details := make([]ir.NodeStatusDetail, 0, len(e.runParamsList))
 	for _, params := range e.runParamsList {
 		result := e.results[params.RunID]
 		status := ir.NodeFailed
@@ -329,7 +329,7 @@ func (e *parallelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
 		} else if result != nil {
 			status = parallelNodeStatus(result.Status)
 		}
-		details = append(details, dagrun.NodeStatusDetail{
+		details = append(details, ir.NodeStatusDetail{
 			Label:  parallelRunLabel(params, result, nameCounts[parallelRunName(params, result)] > 1),
 			Status: status,
 		})
@@ -360,7 +360,7 @@ func parallelNodeStatus(status ir.Status) ir.NodeStatus {
 	}
 }
 
-func parallelRunName(params executor.RunParams, result *dagrun.RunStatus) string {
+func parallelRunName(params executor.RunParams, result *ir.RunStatus) string {
 	name := params.DAGName
 	if result != nil && result.Name != "" {
 		name = result.Name
@@ -368,7 +368,7 @@ func parallelRunName(params executor.RunParams, result *dagrun.RunStatus) string
 	return name
 }
 
-func parallelRunLabel(params executor.RunParams, result *dagrun.RunStatus, duplicateName bool) string {
+func parallelRunLabel(params executor.RunParams, result *ir.RunStatus, duplicateName bool) string {
 	name := parallelRunName(params, result)
 	values := params.Params
 	if result != nil && result.Params != "" {
@@ -452,7 +452,7 @@ func (e *parallelExecutor) DetermineNodeStatus() (ir.NodeStatus, error) {
 	return ir.NodeSucceeded, nil
 }
 
-func (e *parallelExecutor) runAttempt(ctx context.Context, attempt *scheduledAttempt) (*dagrun.RunStatus, error) {
+func (e *parallelExecutor) runAttempt(ctx context.Context, attempt *scheduledAttempt) (*ir.RunStatus, error) {
 	if e.cancelled() {
 		return nil, errParallelCancelled
 	}
@@ -565,12 +565,12 @@ func (e *parallelExecutor) outputResults() error {
 			Succeeded int `json:"succeeded"`
 			Failed    int `json:"failed"`
 		} `json:"summary"`
-		Results []dagrun.RunStatus  `json:"results"`
+		Results []ir.RunStatus      `json:"results"`
 		Outputs []map[string]string `json:"outputs"`
 	}{}
 
 	output.Summary.Total = len(e.runParamsList)
-	output.Results = make([]dagrun.RunStatus, 0, len(e.results))
+	output.Results = make([]ir.RunStatus, 0, len(e.results))
 	output.Outputs = make([]map[string]string, 0, len(e.results))
 
 	// Collect results in order of runParamsList for consistency

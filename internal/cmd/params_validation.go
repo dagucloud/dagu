@@ -6,8 +6,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 func validateStartArgumentSeparator(ctx *Context, args []string) error {

@@ -58,7 +58,7 @@ func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID st
 		_ = attempt.Close(th.Context)
 	}()
 
-	dagRunStatus := dagrun.InitialStatus(dag)
+	dagRunStatus := ir.InitialStatus(dag)
 	dagRunStatus.DAGRunID = dagRunID
 	dagRunStatus.Status = s
 
@@ -110,7 +110,7 @@ func (d DAGTest) Writer(t *testing.T, dagRunID string, startedAt time.Time) Writ
 	}
 }
 
-func (w WriterTest) Write(t *testing.T, dagRunStatus dagrun.DAGRunStatus) {
+func (w WriterTest) Write(t *testing.T, dagRunStatus ir.DAGRunStatus) {
 	t.Helper()
 
 	err := w.Writer.write(dagRunStatus)

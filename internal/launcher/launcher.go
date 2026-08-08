@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
@@ -238,7 +238,7 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 }
 
 // Dequeue creates a dequeue command spec.
-func (b *SubCmdBuilder) Dequeue(dag *ir.DAG, dagRun dagrun.DAGRunRef) CmdSpec {
+func (b *SubCmdBuilder) Dequeue(dag *ir.DAG, dagRun ir.DAGRunRef) CmdSpec {
 	queueName := dag.ProcGroup()
 	args := []string{"dequeue", queueName, fmt.Sprintf("--dag-run=%s", dagRun.String())}
 
@@ -363,7 +363,7 @@ type EnqueueOptions struct {
 type RetryOptions struct {
 	DAGRunID      string
 	Step          string
-	Root          dagrun.DAGRunRef
+	Root          ir.DAGRunRef
 	RetryPath     dagrun.RetryPath
 	TriggerActor  string
 	QueueDispatch bool

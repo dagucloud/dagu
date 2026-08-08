@@ -16,7 +16,7 @@ var _ dagrun.DAGRunAttempt = (*MockDAGRunAttempt)(nil)
 // MockDAGRunAttempt is a configurable DAG-run attempt for tests.
 type MockDAGRunAttempt struct {
 	mock.Mock
-	Status *dagrun.DAGRunStatus
+	Status *ir.DAGRunStatus
 }
 
 func (m *MockDAGRunAttempt) ID() string {
@@ -27,7 +27,7 @@ func (m *MockDAGRunAttempt) Open(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }
 
-func (m *MockDAGRunAttempt) Write(ctx context.Context, status dagrun.DAGRunStatus) error {
+func (m *MockDAGRunAttempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 	return m.Called(ctx, status).Error(0)
 }
 
@@ -35,7 +35,7 @@ func (m *MockDAGRunAttempt) Close(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }
 
-func (m *MockDAGRunAttempt) ReadStatus(ctx context.Context) (*dagrun.DAGRunStatus, error) {
+func (m *MockDAGRunAttempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) {
 	if m.Status != nil {
 		return m.Status, nil
 	}
@@ -43,7 +43,7 @@ func (m *MockDAGRunAttempt) ReadStatus(ctx context.Context) (*dagrun.DAGRunStatu
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*dagrun.DAGRunStatus), args.Error(1)
+	return args.Get(0).(*ir.DAGRunStatus), args.Error(1)
 }
 
 func (m *MockDAGRunAttempt) ReadDAG(ctx context.Context) (*ir.DAG, error) {
@@ -75,28 +75,28 @@ func (m *MockDAGRunAttempt) Hidden() bool {
 	return m.Called().Bool(0)
 }
 
-func (m *MockDAGRunAttempt) WriteOutputs(ctx context.Context, outputs *dagrun.DAGRunOutputs) error {
+func (m *MockDAGRunAttempt) WriteOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error {
 	return m.Called(ctx, outputs).Error(0)
 }
 
-func (m *MockDAGRunAttempt) ReadOutputs(ctx context.Context) (*dagrun.DAGRunOutputs, error) {
+func (m *MockDAGRunAttempt) ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*dagrun.DAGRunOutputs), args.Error(1)
+	return args.Get(0).(*ir.DAGRunOutputs), args.Error(1)
 }
 
-func (m *MockDAGRunAttempt) WriteStepMessages(ctx context.Context, stepName string, messages []dagrun.LLMMessage) error {
+func (m *MockDAGRunAttempt) WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error {
 	return m.Called(ctx, stepName, messages).Error(0)
 }
 
-func (m *MockDAGRunAttempt) ReadStepMessages(ctx context.Context, stepName string) ([]dagrun.LLMMessage, error) {
+func (m *MockDAGRunAttempt) ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error) {
 	args := m.Called(ctx, stepName)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]dagrun.LLMMessage), args.Error(1)
+	return args.Get(0).([]ir.LLMMessage), args.Error(1)
 }
 
 func (m *MockDAGRunAttempt) WorkDir() string {

@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -58,7 +57,7 @@ type RunIDFunc func(ctx context.Context) (string, error)
 type IsRunningFunc func(ctx context.Context, dag *ir.DAG) (bool, error)
 
 // GetLatestStatusFunc retrieves the latest status of a DAG.
-type GetLatestStatusFunc func(ctx context.Context, dag *ir.DAG) (dagrun.DAGRunStatus, error)
+type GetLatestStatusFunc func(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error)
 
 // IsSuspendedFunc checks whether a DAG is currently suspended.
 type IsSuspendedFunc func(ctx context.Context, dagName string) bool
@@ -186,8 +185,8 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 		cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) { return false, nil }
 	}
 	if cfg.GetLatestStatus == nil {
-		cfg.GetLatestStatus = func(context.Context, *ir.DAG) (dagrun.DAGRunStatus, error) {
-			return dagrun.DAGRunStatus{}, nil
+		cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{}, nil
 		}
 	}
 	if cfg.Stop == nil {
@@ -830,7 +829,7 @@ func (tp *TickPlanner) shouldRun(ctx context.Context, dag *ir.DAG, scheduledTime
 	return true
 }
 
-func latestRunReferenceTime(status dagrun.DAGRunStatus) (time.Time, bool) {
+func latestRunReferenceTime(status ir.DAGRunStatus) (time.Time, bool) {
 	latestStartedAt, err := stringutil.ParseTime(status.StartedAt)
 	if err != nil {
 		return time.Time{}, false
@@ -844,7 +843,7 @@ func latestRunReferenceTime(status dagrun.DAGRunStatus) (time.Time, bool) {
 	return latestStartedAt.Truncate(time.Minute), true
 }
 
-func latestSuccessReferenceTime(status dagrun.DAGRunStatus) (time.Time, bool) {
+func latestSuccessReferenceTime(status ir.DAGRunStatus) (time.Time, bool) {
 	if finishedAt, err := stringutil.ParseTime(status.FinishedAt); err == nil && !finishedAt.IsZero() {
 		return finishedAt, true
 	}
@@ -854,7 +853,7 @@ func latestSuccessReferenceTime(status dagrun.DAGRunStatus) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func latestScheduledSlot(status dagrun.DAGRunStatus, schedule ir.Schedule) (time.Time, latestScheduledSlotState) {
+func latestScheduledSlot(status ir.DAGRunStatus, schedule ir.Schedule) (time.Time, latestScheduledSlotState) {
 	if status.ScheduleTime == "" {
 		return time.Time{}, latestScheduledSlotUnknown
 	}
@@ -877,7 +876,7 @@ func scheduleMatchesFireTime(schedule ir.Schedule, scheduledTime time.Time) bool
 	return due && next.Equal(scheduledTime)
 }
 
-func (tp *TickPlanner) isPreEditSuccess(dagName string, status dagrun.DAGRunStatus) bool {
+func (tp *TickPlanner) isPreEditSuccess(dagName string, status ir.DAGRunStatus) bool {
 	resetAt := tp.skipSuccessResetAt(dagName)
 	if resetAt.IsZero() {
 		return false

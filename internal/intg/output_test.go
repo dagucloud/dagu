@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -73,7 +72,7 @@ func TestLargeOutput_128KB(t *testing.T) {
 type outputsCollectionCase struct {
 	dagYAML         string
 	runFunc         func(*testing.T, context.Context, *test.Agent)
-	validateFunc    func(*testing.T, dagrun.DAGRunStatus)
+	validateFunc    func(*testing.T, ir.DAGRunStatus)
 	validateOutputs func(*testing.T, map[string]string)
 }
 
@@ -95,7 +94,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status dagrun.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 				require.Len(t, status.Nodes, 1)
 				require.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status)
@@ -118,7 +117,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status dagrun.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 				require.Len(t, status.Nodes, 1)
 			},
@@ -148,7 +147,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status dagrun.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 				require.Len(t, status.Nodes, 3)
 			},
@@ -179,7 +178,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status dagrun.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 			},
 			validateOutputs: func(t *testing.T, outputs map[string]string) {
@@ -199,7 +198,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status dagrun.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 			},
 			validateOutputs: func(t *testing.T, outputs map[string]string) {
@@ -219,7 +218,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status dagrun.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 			},
 			validateOutputs: func(t *testing.T, outputs map[string]string) {
@@ -244,7 +243,7 @@ steps:
 			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
 				agent.RunSuccess(t)
 			},
-			validateFunc: func(t *testing.T, status dagrun.DAGRunStatus) {
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
 				require.Equal(t, ir.Succeeded, status.Status)
 			},
 			validateOutputs: func(t *testing.T, outputs map[string]string) {
@@ -577,7 +576,7 @@ func readOutputsFile(t *testing.T, th test.Helper, dag *ir.DAG) map[string]strin
 }
 
 // readFullOutputsFile reads the full outputs.json file including metadata
-func readFullOutputsFile(t *testing.T, th test.Helper, dag *ir.DAG) *dagrun.DAGRunOutputs {
+func readFullOutputsFile(t *testing.T, th test.Helper, dag *ir.DAG) *ir.DAGRunOutputs {
 	t.Helper()
 
 	// Find the attempt directory
@@ -602,7 +601,7 @@ func readFullOutputsFile(t *testing.T, th test.Helper, dag *ir.DAG) *dagrun.DAGR
 	data, err := os.ReadFile(outputsPath)
 	require.NoError(t, err)
 
-	var outputs dagrun.DAGRunOutputs
+	var outputs ir.DAGRunOutputs
 	require.NoError(t, json.Unmarshal(data, &outputs))
 
 	// Return nil if old format (no metadata)

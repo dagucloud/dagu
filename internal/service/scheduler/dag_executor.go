@@ -13,13 +13,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagwarning"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 )
 
 // DAGExecutor handles both local and distributed DAG execution.
@@ -181,7 +179,7 @@ func (e *DAGExecutor) ExecuteDAG(
 	dag *ir.DAG,
 	operation dispatch.DispatchOperation,
 	runID string,
-	previousStatus *dagrun.DAGRunStatus,
+	previousStatus *ir.DAGRunStatus,
 	triggerType ir.TriggerType,
 	scheduleTime string,
 ) error {
@@ -193,7 +191,7 @@ func (e *DAGExecutor) ExecuteDAGWithAdmission(
 	dag *ir.DAG,
 	operation dispatch.DispatchOperation,
 	runID string,
-	previousStatus *dagrun.DAGRunStatus,
+	previousStatus *ir.DAGRunStatus,
 	triggerType ir.TriggerType,
 	scheduleTime string,
 	admissionReservationToken string,
@@ -206,7 +204,7 @@ func (e *DAGExecutor) executeDAG(
 	dag *ir.DAG,
 	operation dispatch.DispatchOperation,
 	runID string,
-	previousStatus *dagrun.DAGRunStatus,
+	previousStatus *ir.DAGRunStatus,
 	triggerType ir.TriggerType,
 	scheduleTime string,
 	defaultProfileName string,
@@ -324,7 +322,7 @@ func (e *DAGExecutor) defaultProfileName(ctx context.Context, dag *ir.DAG) (stri
 	return e.profileResolver.ResolveProfile(ctx, fileName, workspaceName)
 }
 
-func profileNameFromStatus(status *dagrun.DAGRunStatus) string {
+func profileNameFromStatus(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -402,14 +400,16 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, 
 		return nil, nil
 	}
 
-	result, err := spec.ResolveRuntimeEnv(ctx, dag, params, spec.ResolveEnvOptions{
+	result, err := runtimeenvtransport.Resolve(ctx, dag, params, runtimeenvtransport.Options{
 		BaseConfig:             e.baseConfigPath,
 		WorkspaceBaseConfigDir: e.workspaceBaseConfigDir,
 	})
 	if err != nil {
 		return nil, err
 	}
-	dagwarning.Log(ctx, result.BuildWarnings)
+	for _, warning := range result.Warnings {
+		logger.Warn(ctx, warning)
+	}
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env

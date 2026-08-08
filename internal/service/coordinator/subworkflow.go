@@ -17,8 +17,8 @@ import (
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator/subflow"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
-	"github.com/dagucloud/dagu/v2/internal/subflow"
 )
 
 // DAGStoreFactory creates the DAG definition store used by local child workflows.

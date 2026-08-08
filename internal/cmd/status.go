@@ -107,7 +107,7 @@ func runStatus(ctx *Context, args []string) error {
 	return nil
 }
 
-func displayTreeStatus(dag *ir.DAG, dagStatus *dagrun.DAGRunStatus) {
+func displayTreeStatus(dag *ir.DAG, dagStatus *ir.DAGRunStatus) {
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
 
@@ -120,7 +120,7 @@ func displayTreeStatus(dag *ir.DAG, dagStatus *dagrun.DAGRunStatus) {
 // For root runs, it finds either the specified run or the latest run.
 func extractAttemptForStatus(ctx *Context, name, dagRunID, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
 	if subDAGRunID != "" {
-		dagRunRef := dagrun.NewDAGRunRef(name, dagRunID)
+		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
 		attempt, err := ctx.DAGRunStore.FindSubAttempt(ctx, dagRunRef, subDAGRunID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find sub dag-run with ID %s under root %s: %w",
@@ -130,7 +130,7 @@ func extractAttemptForStatus(ctx *Context, name, dagRunID, subDAGRunID string) (
 	}
 
 	if dagRunID != "" {
-		dagRunRef := dagrun.NewDAGRunRef(name, dagRunID)
+		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
 		attempt, err := ctx.DAGRunStore.FindAttempt(ctx, dagRunRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find run data for dag-run ID %s: %w", dagRunID, err)

@@ -194,7 +194,7 @@ func (e *SubDAGExecutor) Cleanup(ctx context.Context) error {
 
 // Execute executes the sub DAG and returns the result.
 // This is useful for parallel execution where results need to be collected.
-func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workDir string) (*dagrun.RunStatus, error) {
+func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workDir string) (*ir.RunStatus, error) {
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
 
 	req := e.subWorkflowRequest(ctx, runParams, workDir)
@@ -218,7 +218,7 @@ func (e *SubDAGExecutor) Execute(ctx context.Context, runParams RunParams, workD
 }
 
 // Reuse returns the persisted result of a child run without executing it.
-func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir string) (*dagrun.RunStatus, error) {
+func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir string) (*ir.RunStatus, error) {
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
 
 	req := e.subWorkflowRequest(ctx, runParams, workDir)
@@ -241,7 +241,7 @@ func (e *SubDAGExecutor) Reuse(ctx context.Context, runParams RunParams, workDir
 }
 
 // Retry executes a parent-managed step retry for a previously started sub DAG.
-func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepName, workDir string, path dagrun.RetryPath) (*dagrun.RunStatus, error) {
+func (e *SubDAGExecutor) Retry(ctx context.Context, runParams RunParams, stepName, workDir string, path dagrun.RetryPath) (*ir.RunStatus, error) {
 	ctx = logger.WithValues(ctx, tag.SubDAG(e.DAG.Name), tag.SubRunID(runParams.RunID))
 
 	req := e.subWorkflowRequest(ctx, runParams, workDir)
@@ -280,7 +280,7 @@ func validateSubWorkflowRequest(req SubWorkflowRequest) error {
 
 func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunParams, workDir string) SubWorkflowRequest {
 	rCtx := runctx.GetContext(ctx)
-	var parent dagrun.DAGRunRef
+	var parent ir.DAGRunRef
 	if rCtx.DAG != nil {
 		parent = rCtx.DAGRunRef()
 	}

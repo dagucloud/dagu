@@ -234,7 +234,7 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.NoError(t, oldAttempt.Open(th.Context))
-		require.NoError(t, oldAttempt.Write(th.Context, dagrun.DAGRunStatus{
+		require.NoError(t, oldAttempt.Write(th.Context, ir.DAGRunStatus{
 			Name:     dagName,
 			DAGRunID: "old-run-id",
 			Status:   ir.Succeeded,
@@ -251,7 +251,7 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.NoError(t, recentAttempt.Open(th.Context))
-		require.NoError(t, recentAttempt.Write(th.Context, dagrun.DAGRunStatus{
+		require.NoError(t, recentAttempt.Write(th.Context, ir.DAGRunStatus{
 			Name:     dagName,
 			DAGRunID: "recent-run-id",
 			Status:   ir.Succeeded,

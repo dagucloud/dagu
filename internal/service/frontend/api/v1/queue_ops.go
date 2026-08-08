@@ -11,10 +11,11 @@ import (
 
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
-func (a *API) queueNameForDAGRun(ctx context.Context, dagRun dagrun.DAGRunRef) (string, error) {
+func (a *API) queueNameForDAGRun(ctx context.Context, dagRun ir.DAGRunRef) (string, error) {
 	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err

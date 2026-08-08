@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // DispatchOperation identifies the operation requested for a distributed DAG run.
@@ -53,7 +53,7 @@ type DispatchTask struct {
 	ProfileName  string
 	TriggerActor string
 
-	PreviousStatus *dagrun.DAGRunStatus
+	PreviousStatus *ir.DAGRunStatus
 
 	BaseConfig   string
 	Labels       string
@@ -78,7 +78,7 @@ type DispatchTask struct {
 // DAGRunStatusResult is a distributed status lookup result.
 type DAGRunStatusResult struct {
 	Found  bool
-	Status *dagrun.DAGRunStatus
+	Status *ir.DAGRunStatus
 }
 
 // DispatchRequest describes a distributed dispatch call.
@@ -91,6 +91,6 @@ type DispatchRequest struct {
 type Dispatcher interface {
 	Dispatch(ctx context.Context, req DispatchRequest) error
 	Cleanup(ctx context.Context) error
-	GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) (*DAGRunStatusResult, error)
-	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *dagrun.DAGRunRef) error
+	GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) (*DAGRunStatusResult, error)
+	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) error
 }

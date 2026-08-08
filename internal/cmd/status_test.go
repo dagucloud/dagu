@@ -121,14 +121,14 @@ func TestStatusCommand(t *testing.T) {
 		err = attempt.Open(th.Context)
 		require.NoError(t, err)
 
-		status := dagrun.DAGRunStatus{
+		status := ir.DAGRunStatus{
 			Name:       dag.Name,
 			DAGRunID:   dagRunID,
 			Status:     ir.Failed,
 			StartedAt:  time.Now().Format(time.RFC3339),
 			FinishedAt: time.Now().Format(time.RFC3339),
 			AttemptID:  attempt.ID(),
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "error"},
 					Status: ir.NodeFailed,
@@ -235,14 +235,14 @@ steps:
 		require.NoError(t, err)
 
 		now := time.Now().Format(time.RFC3339)
-		status := dagrun.DAGRunStatus{
+		status := ir.DAGRunStatus{
 			Name:       dag.Name,
 			DAGRunID:   dagRunID,
 			Status:     ir.Failed,
 			StartedAt:  now,
 			FinishedAt: now,
 			AttemptID:  attempt.ID(),
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:       ir.Step{Name: "check"},
 					Status:     ir.NodeFailed,
@@ -416,14 +416,14 @@ steps:
 		require.NoError(t, err)
 
 		now := time.Now().Format(time.RFC3339)
-		status := dagrun.DAGRunStatus{
+		status := ir.DAGRunStatus{
 			Name:       dag.Name,
 			DAGRunID:   dagRunID,
 			Status:     ir.Succeeded,
 			StartedAt:  now,
 			FinishedAt: now,
 			AttemptID:  attempt.ID(),
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "binary_output"},
 					Status: ir.NodeSucceeded,
@@ -467,7 +467,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location, "--run-id=" + parentRunID})
 		require.NoError(t, err)
 
-		parentRef := dagrun.NewDAGRunRef(dagFile.Location, parentRunID)
+		parentRef := ir.NewDAGRunRef(dagFile.Location, parentRunID)
 		var parentAttempt dagrun.DAGRunAttempt
 		require.Eventually(t, func() bool {
 			var err error
@@ -523,7 +523,7 @@ steps:
 		err := executeCommand(th.Context, cmd.Start(), []string{dagFile.Location, "--run-id=" + parentRunID})
 		require.NoError(t, err)
 
-		parentRef := dagrun.NewDAGRunRef(dagFile.Location, parentRunID)
+		parentRef := ir.NewDAGRunRef(dagFile.Location, parentRunID)
 		require.Eventually(t, func() bool {
 			attempt, err := th.DAGRunStore.FindAttempt(th.Context, parentRef)
 			if err != nil {

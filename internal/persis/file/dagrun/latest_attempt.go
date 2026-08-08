@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 const latestAttemptFileName = ".dagrun.latest"
@@ -84,7 +85,7 @@ func updateLatestAttemptPointer(ctx context.Context, statusFile string) error {
 	return nil
 }
 
-func (dr DataRoot) latestAttemptFromPointer(ctx context.Context, cache *fileutil.Cache[*dagrun.DAGRunStatus], cutoff dagrun.TimeInUTC) (*Attempt, error) {
+func (dr DataRoot) latestAttemptFromPointer(ctx context.Context, cache *fileutil.Cache[*ir.DAGRunStatus], cutoff dagrun.TimeInUTC) (*Attempt, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

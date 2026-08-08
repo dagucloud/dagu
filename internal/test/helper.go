@@ -27,7 +27,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -43,6 +42,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -740,7 +740,7 @@ func (d *DAG) ReadOutputs(t *testing.T) map[string]string {
 	data, err := os.ReadFile(outputsPath) //nolint:gosec // path is constructed from test config
 	require.NoError(t, err)
 
-	var outputs dagrun.DAGRunOutputs
+	var outputs ir.DAGRunOutputs
 	require.NoError(t, json.Unmarshal(data, &outputs))
 
 	return outputs.Outputs
@@ -783,7 +783,7 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 
 	logDir := d.Config.Paths.LogDir
 	logFile := filepath.Join(d.Config.Paths.LogDir, dagRunID+".log")
-	root := dagrun.NewDAGRunRef(d.Name, dagRunID)
+	root := ir.NewDAGRunRef(d.Name, dagRunID)
 
 	helper.opts.DAGRunStore = d.DAGRunStore
 	helper.opts.QueueStore = d.QueueStore

@@ -29,7 +29,7 @@ var ErrFailedAutoRetryCancelStateChanged = errors.New(
 // FailedAutoRetryCancelStateChangedError reports the latest observed status when
 // another actor changed the latest attempt before the cancel CAS completed.
 type FailedAutoRetryCancelStateChangedError struct {
-	CurrentStatus *DAGRunStatus
+	CurrentStatus *ir.DAGRunStatus
 }
 
 func (e *FailedAutoRetryCancelStateChangedError) Error() string {
@@ -42,7 +42,7 @@ func (e *FailedAutoRetryCancelStateChangedError) Unwrap() error {
 
 // FailedAutoRetryCancelEligibilityOf classifies whether the provided status can
 // be canceled while it is failed and still waiting for a DAG-level auto-retry.
-func FailedAutoRetryCancelEligibilityOf(status *DAGRunStatus) FailedAutoRetryCancelEligibility {
+func FailedAutoRetryCancelEligibilityOf(status *ir.DAGRunStatus) FailedAutoRetryCancelEligibility {
 	switch {
 	case status == nil:
 		return FailedAutoRetryCancelMissingStatus
@@ -59,19 +59,19 @@ func FailedAutoRetryCancelEligibilityOf(status *DAGRunStatus) FailedAutoRetryCan
 
 // CanCancelFailedAutoRetryPendingRun returns true when a failed DAG-run is a
 // root run and still has remaining DAG-level auto-retry budget.
-func CanCancelFailedAutoRetryPendingRun(status *DAGRunStatus) bool {
+func CanCancelFailedAutoRetryPendingRun(status *ir.DAGRunStatus) bool {
 	return FailedAutoRetryCancelEligibilityOf(status) == FailedAutoRetryCancelEligible
 }
 
 type latestAttemptStatusSwapper interface {
 	CompareAndSwapLatestAttemptStatus(
 		ctx context.Context,
-		dagRun DAGRunRef,
+		dagRun ir.DAGRunRef,
 		expectedAttemptID string,
 		expectedStatus ir.Status,
-		mutate func(*DAGRunStatus) error,
+		mutate func(*ir.DAGRunStatus) error,
 		opts ...CompareAndSwapStatusOption,
-	) (*DAGRunStatus, bool, error)
+	) (*ir.DAGRunStatus, bool, error)
 }
 
 // CancelFailedAutoRetryPendingRun atomically marks the latest failed attempt as
@@ -79,7 +79,7 @@ type latestAttemptStatusSwapper interface {
 func CancelFailedAutoRetryPendingRun(
 	ctx context.Context,
 	dagRunStore latestAttemptStatusSwapper,
-	status *DAGRunStatus,
+	status *ir.DAGRunStatus,
 ) error {
 	if !CanCancelFailedAutoRetryPendingRun(status) {
 		return fmt.Errorf("dag-run is not eligible for failed auto-retry cancel")
@@ -90,7 +90,7 @@ func CancelFailedAutoRetryPendingRun(
 		status.DAGRun(),
 		status.AttemptID,
 		ir.Failed,
-		func(latest *DAGRunStatus) error {
+		func(latest *ir.DAGRunStatus) error {
 			latest.Status = ir.Aborted
 			return nil
 		},

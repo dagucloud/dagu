@@ -18,7 +18,7 @@ import (
 )
 
 type retryCandidateLister interface {
-	ListRetryCandidates(ctx context.Context, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error)
+	ListRetryCandidates(ctx context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error)
 }
 
 func TestStoreListRetryCandidatesTracksFailedRunWrites(t *testing.T) {
@@ -145,7 +145,7 @@ func TestStoreListRetryCandidatesRemovesCandidateWhenRunIsGone(t *testing.T) {
 	attempt, _ := writeRetryCandidateStatus(t, ctx, store, dag, now, "failed-run", ir.Failed)
 	require.NoError(t, attempt.Close(ctx))
 
-	require.NoError(t, store.RemoveDAGRun(ctx, dagrun.NewDAGRunRef(dag.Name, "failed-run")))
+	require.NoError(t, store.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, "failed-run")))
 
 	candidates, err := lister.ListRetryCandidates(ctx, dagrun.NewUTC(now.Add(-time.Hour)))
 	require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestStoreListRetryCandidatesIgnoresChildAttemptStatusFiles(t *testing.T) {
 	parentAttempt, _ := writeRetryCandidateStatus(t, ctx, store, parentDAG, now, "parent-run", ir.Running)
 	defer func() { require.NoError(t, parentAttempt.Close(ctx)) }()
 
-	rootRef := dagrun.NewDAGRunRef(parentDAG.Name, "parent-run")
+	rootRef := ir.NewDAGRunRef(parentDAG.Name, "parent-run")
 	childDAG := retryCandidateDAG()
 	childDAG.Name = "child-retry-dag"
 	childAttempt, err := store.CreateAttempt(ctx, childDAG, now.Add(time.Second), "child-run", dagrun.NewDAGRunAttemptOptions{
@@ -177,7 +177,7 @@ func TestStoreListRetryCandidatesIgnoresChildAttemptStatusFiles(t *testing.T) {
 	require.NoError(t, childAttempt.Open(ctx))
 	defer func() { require.NoError(t, childAttempt.Close(ctx)) }()
 
-	childStatus := dagrun.InitialStatus(childDAG)
+	childStatus := ir.InitialStatus(childDAG)
 	childStatus.DAGRunID = "child-run"
 	childStatus.AttemptID = childAttempt.ID()
 	childStatus.Status = ir.Failed
@@ -223,7 +223,7 @@ func writeRetryCandidateStatus(
 	ts time.Time,
 	runID string,
 	status ir.Status,
-) (dagrun.DAGRunAttempt, *dagrun.DAGRunStatus) {
+) (dagrun.DAGRunAttempt, *ir.DAGRunStatus) {
 	t.Helper()
 
 	attempt, err := store.CreateAttempt(ctx, dag, ts, runID, dagrun.NewDAGRunAttemptOptions{
@@ -232,7 +232,7 @@ func writeRetryCandidateStatus(
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 
-	runStatus := dagrun.InitialStatus(dag)
+	runStatus := ir.InitialStatus(dag)
 	runStatus.DAGRunID = runID
 	runStatus.AttemptID = attempt.ID()
 	runStatus.Status = status

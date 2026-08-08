@@ -14,16 +14,14 @@ import (
 	"strings"
 	"time"
 
-	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/cmn/secrets"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -36,9 +34,11 @@ import (
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	daguaqua "github.com/dagucloud/dagu/v2/internal/tools/aqua"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -141,8 +141,8 @@ func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task
 }
 
 func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1.Task, queuedRun bool) error {
-	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
-	parent := dagrun.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
+	root := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	parent := ir.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
 	owner, err := taskOwner(task)
 	if err != nil {
 		return fmt.Errorf("invalid task owner coordinator metadata: %w", err)
@@ -175,8 +175,8 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 }
 
 func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1.Task) error {
-	root := dagrun.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
-	parent := dagrun.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
+	root := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
+	parent := ir.DAGRunRef{Name: task.ParentDagRunName, ID: task.ParentDagRunId}
 	owner, err := taskOwner(task)
 	if err != nil {
 		return fmt.Errorf("invalid task owner coordinator metadata: %w", err)
@@ -230,7 +230,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	return err
 }
 
-func retryTaskProfileName(status *dagrun.DAGRunStatus) string {
+func retryTaskProfileName(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
@@ -246,7 +246,7 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		tag.RunID(task.DagRunId),
 		tag.Error(loadErr),
 	)
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Root:         run.root,
 		Parent:       run.parent,
 		Name:         task.Target,
@@ -300,7 +300,7 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		tag.RunID(task.DagRunId),
 		tag.Error(initErr),
 	)
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Root:         run.root,
 		Parent:       run.parent,
 		Name:         target,
@@ -339,7 +339,7 @@ func sanitizeTaskLoadError(target string, loadErr error) string {
 
 // retryConfig holds retry-specific configuration
 type retryConfig struct {
-	target      *dagrun.DAGRunStatus
+	target      *ir.DAGRunStatus
 	stepName    string
 	triggerType ir.TriggerType
 	retryPath   dagrun.RetryPath
@@ -353,8 +353,8 @@ type runHandlers struct {
 
 type remoteRun struct {
 	task        *coordinatorv1.Task
-	root        dagrun.DAGRunRef
-	parent      dagrun.DAGRunRef
+	root        ir.DAGRunRef
+	parent      ir.DAGRunRef
 	owner       serviceregistry.HostInfo
 	handlers    runHandlers
 	queued      bool
@@ -755,7 +755,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	return nil
 }
 
-func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) secrets.ReferenceResolver {
+func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) providers.ReferenceResolver {
 	client, ok := h.coordinatorClient.(coordinator.SecretReferenceClient)
 	if !ok {
 		return nil

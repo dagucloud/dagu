@@ -7,10 +7,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 // Step is the public alias for a Dagu step passed to custom executors.

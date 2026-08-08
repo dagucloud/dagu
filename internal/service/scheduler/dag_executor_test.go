@@ -9,12 +9,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -145,7 +144,7 @@ func TestDAGExecutor_DistributedRetryUsesPreviousStatusParamsList(t *testing.T) 
 		YamlData:       []byte("name: queued-param-dag\n"),
 		WorkerSelector: map[string]string{"type": "test-worker"},
 	}
-	previousStatus := &dagrun.DAGRunStatus{
+	previousStatus := &ir.DAGRunStatus{
 		Status:     ir.Queued,
 		Params:     "content_hash=sha256:abc123 message=hello world",
 		ParamsList: []string{"content_hash=sha256:abc123", "message=hello world"},
@@ -176,7 +175,7 @@ func TestDAGExecutor_DistributedRetryPassesLegacyQueuedParams(t *testing.T) {
 		YamlData:       []byte("name: legacy-queued-param-dag\n"),
 		WorkerSelector: map[string]string{"type": "test-worker"},
 	}
-	previousStatus := &dagrun.DAGRunStatus{
+	previousStatus := &ir.DAGRunStatus{
 		Status: ir.Queued,
 		Params: "content_hash=sha256:abc123",
 	}
@@ -211,7 +210,7 @@ func TestDAGExecutor_DistributedRetryCarriesAdmissionReservationToken(t *testing
 		dag,
 		dispatch.DispatchOperationRetry,
 		"admitted-run",
-		&dagrun.DAGRunStatus{Status: ir.Queued},
+		&ir.DAGRunStatus{Status: ir.Queued},
 		ir.TriggerTypeManual,
 		"",
 		"reservation-token-a",
@@ -234,10 +233,10 @@ func (d *capturingDispatcher) Cleanup(context.Context) error {
 	return nil
 }
 
-func (d *capturingDispatcher) GetDAGRunStatus(context.Context, string, string, *dagrun.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+func (d *capturingDispatcher) GetDAGRunStatus(context.Context, string, string, *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
 	return nil, nil
 }
 
-func (d *capturingDispatcher) RequestCancel(context.Context, string, string, *dagrun.DAGRunRef) error {
+func (d *capturingDispatcher) RequestCancel(context.Context, string, string, *ir.DAGRunRef) error {
 	return nil
 }

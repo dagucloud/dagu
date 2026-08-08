@@ -15,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -54,7 +54,7 @@ type LogStreamer struct {
 	dagRunID  string
 	dagName   string
 	attemptID string
-	rootRef   dagrun.DAGRunRef
+	rootRef   ir.DAGRunRef
 	owner     serviceregistry.HostInfo
 	mu        sync.RWMutex
 
@@ -69,7 +69,7 @@ func NewLogStreamer(
 	dagRunID string,
 	dagName string,
 	attemptID string,
-	rootRef dagrun.DAGRunRef,
+	rootRef ir.DAGRunRef,
 	owner ...serviceregistry.HostInfo,
 ) *LogStreamer {
 	var target serviceregistry.HostInfo

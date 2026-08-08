@@ -71,7 +71,7 @@ func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
 	assert.False(t, result.AlreadyCompleted)
 	assert.Zero(t, result.RemainingWaitingSteps)
 	assert.Equal(t, ir.Queued, fixture.status.Status)
-	assert.Equal(t, []dagrun.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
+	assert.Equal(t, []ir.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
 	assert.Equal(t, ir.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.JSONEq(t, `{"count":3,"region":"us"}`, string(fixture.status.Nodes[0].HumanTaskInput))
 	assert.Equal(t, "alice", fixture.status.Nodes[0].HumanTaskCompletedBy)
@@ -118,7 +118,7 @@ func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.Queued)
 	assert.Equal(t, ir.Queued, fixture.status.Status)
-	assert.Equal(t, []dagrun.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
+	assert.Equal(t, []ir.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
 }
 
 func TestResumeBoundsStatusVerificationAfterQueueFailure(t *testing.T) {
@@ -129,7 +129,7 @@ func TestResumeBoundsStatusVerificationAfterQueueFailure(t *testing.T) {
 	fixture.service.EnqueueTimeout = 10 * time.Millisecond
 
 	findCalls := 0
-	fixture.store.findAttempt = func(ctx context.Context, _ dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+	fixture.store.findAttempt = func(ctx context.Context, _ ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 		findCalls++
 		if findCalls == 1 {
 			return fixture.store.attempt, nil
@@ -231,7 +231,7 @@ func TestResumeRejectsRunWithoutCompletedCheckpoint(t *testing.T) {
 
 func TestCompleteWaitsForEveryManualStepBeforeResuming(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
-	fixture.status.Nodes = append(fixture.status.Nodes, &dagrun.Node{
+	fixture.status.Nodes = append(fixture.status.Nodes, &ir.Node{
 		Step:   ir.Step{ID: "approval", Name: "Approval", Approval: &ir.ApprovalConfig{}},
 		Status: ir.NodeWaiting,
 	})
@@ -254,13 +254,13 @@ func TestCompleteEnqueuesRemoteResume(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.Queued)
 	assert.Equal(t, ir.Queued, fixture.status.Status)
-	assert.Equal(t, []dagrun.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
+	assert.Equal(t, []ir.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
 }
 
 func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Status: ir.Waiting,
-		Nodes: []*dagrun.Node{{
+		Nodes: []*ir.Node{{
 			Step:   ir.Step{ID: "review", Name: "Review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 			Status: ir.NodeWaiting,
 		}},
@@ -284,9 +284,9 @@ func TestValidateRetryProtectsHumanTaskCheckpoints(t *testing.T) {
 }
 
 func TestValidateRetryAllowsRunRetryWhileWaitingForApprovalAfterCompletedHumanTask(t *testing.T) {
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Status: ir.Waiting,
-		Nodes: []*dagrun.Node{
+		Nodes: []*ir.Node{
 			{
 				Step:           ir.Step{ID: "review", Name: "Review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review"}},
 				Status:         ir.NodeSucceeded,
@@ -330,7 +330,7 @@ func TestWaitForCompletionReadyWaitsForRemoteCheckpointPersistence(t *testing.T)
 	fixture.status.FinishedAt = ""
 	finalStatus := *fixture.status
 	finalStatus.FinishedAt = "2026-07-21T01:02:03Z"
-	attempt := &sequenceAttempt{statuses: []*dagrun.DAGRunStatus{&finalStatus}}
+	attempt := &sequenceAttempt{statuses: []*ir.DAGRunStatus{&finalStatus}}
 	fixture.service.PollInterval = time.Millisecond
 	fixture.service.SettleTimeout = time.Second
 
@@ -367,7 +367,7 @@ func TestWaitForCompletionReadyRejectsUnknownStep(t *testing.T) {
 
 type serviceFixture struct {
 	dag     *ir.DAG
-	status  *dagrun.DAGRunStatus
+	status  *ir.DAGRunStatus
 	store   *serviceDAGRunStore
 	queue   *serviceQueueStore
 	service *Service
@@ -380,10 +380,10 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 		HumanTask: &ir.HumanTaskConfig{Prompt: "Approve the release?", Form: form},
 	}
 	dag := &ir.DAG{Name: "deploy", Steps: []ir.Step{step}, MaxOutputSize: 1 << 20}
-	status := &dagrun.DAGRunStatus{
+	status := &ir.DAGRunStatus{
 		Name: dag.Name, DAGRunID: "run-1", AttemptID: "attempt-1", AttemptKey: "key-1",
 		Status: ir.Waiting, FinishedAt: "2026-07-21T00:00:00Z",
-		Nodes: []*dagrun.Node{{Step: step, Status: ir.NodeWaiting}},
+		Nodes: []*ir.Node{{Step: step, Status: ir.NodeWaiting}},
 	}
 	attempt := &serviceAttempt{dag: dag, status: status}
 	store := &serviceDAGRunStore{attempt: attempt, status: status}
@@ -403,16 +403,16 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 type serviceAttempt struct {
 	dagrun.DAGRunAttempt
 	dag    *ir.DAG
-	status *dagrun.DAGRunStatus
+	status *ir.DAGRunStatus
 }
 
 type sequenceAttempt struct {
 	dagrun.DAGRunAttempt
-	statuses []*dagrun.DAGRunStatus
+	statuses []*ir.DAGRunStatus
 	calls    int
 }
 
-func (a *sequenceAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
+func (a *sequenceAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	a.calls++
 	if len(a.statuses) == 0 {
 		return nil, dagrun.ErrNoStatusData
@@ -424,21 +424,21 @@ func (a *sequenceAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, err
 
 func (a *serviceAttempt) ID() string                               { return a.status.AttemptID }
 func (a *serviceAttempt) ReadDAG(context.Context) (*ir.DAG, error) { return a.dag, nil }
-func (a *serviceAttempt) ReadStatus(context.Context) (*dagrun.DAGRunStatus, error) {
+func (a *serviceAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
 }
 
 type serviceDAGRunStore struct {
 	dagrun.DAGRunStore
 	attempt              *serviceAttempt
-	status               *dagrun.DAGRunStatus
+	status               *ir.DAGRunStatus
 	findErr              error
-	findAttempt          func(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error)
+	findAttempt          func(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error)
 	beforeCompareAndSwap func()
 	compareAndSwapErrors []error
 }
 
-func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	if s.findAttempt != nil {
 		return s.findAttempt(ctx, ref)
 	}
@@ -450,12 +450,12 @@ func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref dagrun.DAGRunR
 
 func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	_ dagrun.DAGRunRef,
+	_ ir.DAGRunRef,
 	expectedAttemptID string,
 	expectedStatus ir.Status,
-	mutate func(*dagrun.DAGRunStatus) error,
+	mutate func(*ir.DAGRunStatus) error,
 	_ ...dagrun.CompareAndSwapStatusOption,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	if len(s.compareAndSwapErrors) > 0 {
 		err := s.compareAndSwapErrors[0]
 		s.compareAndSwapErrors = s.compareAndSwapErrors[1:]
@@ -477,11 +477,11 @@ func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 
 type serviceProcStore struct{ proc.ProcStore }
 
-func (serviceProcStore) IsRunAlive(context.Context, string, dagrun.DAGRunRef) (bool, error) {
+func (serviceProcStore) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
 	return false, nil
 }
 
-func (serviceProcStore) IsAttemptAlive(context.Context, string, dagrun.DAGRunRef, string) (bool, error) {
+func (serviceProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
 	return false, nil
 }
 
@@ -490,14 +490,14 @@ type sequenceProcStore struct {
 	alive     []bool
 	calls     int
 	groupName string
-	dagRun    dagrun.DAGRunRef
+	dagRun    ir.DAGRunRef
 	attemptID string
 }
 
 func (s *sequenceProcStore) IsAttemptAlive(
 	_ context.Context,
 	groupName string,
-	dagRun dagrun.DAGRunRef,
+	dagRun ir.DAGRunRef,
 	attemptID string,
 ) (bool, error) {
 	s.calls++
@@ -514,11 +514,11 @@ func (s *sequenceProcStore) IsAttemptAlive(
 
 type serviceQueueStore struct {
 	queue.QueueStore
-	enqueued      []dagrun.DAGRunRef
+	enqueued      []ir.DAGRunRef
 	enqueueErrors []error
 }
 
-func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ queue.QueuePriority, ref dagrun.DAGRunRef) error {
+func (s *serviceQueueStore) Enqueue(_ context.Context, _ string, _ queue.QueuePriority, ref ir.DAGRunRef) error {
 	if len(s.enqueueErrors) > 0 {
 		err := s.enqueueErrors[0]
 		s.enqueueErrors = s.enqueueErrors[1:]

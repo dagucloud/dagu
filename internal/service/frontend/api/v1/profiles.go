@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
-	"github.com/dagucloud/dagu/v2/internal/service/audit"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 

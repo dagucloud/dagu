@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
@@ -44,7 +44,7 @@ steps:
   - name: assert_variables_defined
     run: echo "${TARGET_TABLE}"
 `, workDir)
-	previousStatus, err := convert.DAGRunStatusToProto(&dagrun.DAGRunStatus{
+	previousStatus, err := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
 		Name:       "calculate_zscores",
 		DAGRunID:   "run-1",
 		ParamsList: []string{"COL=foo", "MESSAGE=hello world"},

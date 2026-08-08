@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
@@ -28,12 +29,12 @@ func TestAttemptCloseKeepsSingleStatusFile(t *testing.T) {
 	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
-	require.NoError(t, attempt.Write(ctx, dagrun.DAGRunStatus{
+	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-1",
 		AttemptID: attempt.ID(),
 		Status:    ir.Queued,
-		QueuedAt:  dagrun.FormatTime(startedAt),
+		QueuedAt:  stringutil.FormatTime(startedAt),
 	}))
 
 	statusFile := findOnlyStatusFile(t, baseDir)
@@ -67,26 +68,26 @@ func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T
 		_ = attempt.Close(ctx)
 	}()
 
-	condition := dagrun.NewDAGRunCondition(
+	condition := ir.NewDAGRunCondition(
 		"Runnable",
 		"False",
 		"MaxConcurrencyReached",
 		"The DAG-run cannot start because the queue active-run concurrency limit has been reached.",
 		startedAt,
 	)
-	queued := dagrun.DAGRunStatus{
+	queued := ir.DAGRunStatus{
 		Name:       dag.Name,
 		DAGRunID:   "run-1",
 		AttemptID:  attempt.ID(),
 		Status:     ir.Queued,
-		QueuedAt:   dagrun.FormatTime(startedAt),
-		Conditions: []dagrun.DAGRunCondition{condition},
+		QueuedAt:   stringutil.FormatTime(startedAt),
+		Conditions: []ir.DAGRunCondition{condition},
 	}
 	require.NoError(t, attempt.Write(ctx, queued))
 
 	persistedQueued, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
-	require.Equal(t, []dagrun.DAGRunCondition{condition}, persistedQueued.Conditions)
+	require.Equal(t, []ir.DAGRunCondition{condition}, persistedQueued.Conditions)
 
 	running := queued
 	running.Status = ir.Running
@@ -117,13 +118,13 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 		}
 	})
 
-	status := dagrun.DAGRunStatus{
+	status := ir.DAGRunStatus{
 		Name:      dag.Name,
 		DAGRunID:  "run-conditions",
 		AttemptID: attempt.ID(),
 		Status:    ir.Queued,
-		Conditions: []dagrun.DAGRunCondition{
-			dagrun.NewDAGRunCondition(
+		Conditions: []ir.DAGRunCondition{
+			ir.NewDAGRunCondition(
 				"Runnable",
 				"False",
 				"MaxConcurrencyReached",
@@ -138,10 +139,10 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 
 	updated, swapped, err := store.CompareAndSwapLatestAttemptStatus(
 		ctx,
-		dagrun.NewDAGRunRef(dag.Name, "run-conditions"),
+		ir.NewDAGRunRef(dag.Name, "run-conditions"),
 		attempt.ID(),
 		ir.Queued,
-		func(latest *dagrun.DAGRunStatus) error {
+		func(latest *ir.DAGRunStatus) error {
 			latest.Status = ir.Failed
 			return nil
 		},

@@ -18,13 +18,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagrun/intake"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 const dagEnqueueQueueConfigKey = "queue"
@@ -41,7 +41,7 @@ type enqueueExecutor struct {
 	stderr        io.Writer
 	runParams     executor.RunParams
 	runParamsList []executor.RunParams
-	subRuns       []dagrun.SubDAGRun
+	subRuns       []ir.SubDAGRun
 }
 
 type enqueueRunOutput struct {
@@ -86,7 +86,7 @@ func (e *enqueueExecutor) Run(ctx context.Context) error {
 		return err
 	}
 
-	subRuns := make([]dagrun.SubDAGRun, 0, len(outputs))
+	subRuns := make([]ir.SubDAGRun, 0, len(outputs))
 	for _, output := range outputs {
 		subRuns = append(subRuns, subDAGRunFromEnqueueOutput(output))
 	}
@@ -175,8 +175,8 @@ func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []exec
 	return outputs, nil
 }
 
-func subDAGRunFromEnqueueOutput(output enqueueRunOutput) dagrun.SubDAGRun {
-	return dagrun.SubDAGRun{
+func subDAGRunFromEnqueueOutput(output enqueueRunOutput) ir.SubDAGRun {
+	return ir.SubDAGRun{
 		DAGRunID: output.DAGRunID,
 		Params:   output.Params,
 		DAGName:  output.Name,
@@ -242,7 +242,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		queueName = queueOverride
 	}
 
-	dagRun := dagrun.NewDAGRunRef(dagCopy.Name, runParams.RunID)
+	dagRun := ir.NewDAGRunRef(dagCopy.Name, runParams.RunID)
 	if existing, err := rCtx.DAGRunStore.FindAttempt(ctx, dagRun); err == nil {
 		return e.outputFromExisting(ctx, existing, dagCopy.Name, runParams, queueName), nil
 	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
@@ -361,10 +361,10 @@ func (e *enqueueExecutor) SetParamsList(paramsList []executor.RunParams) {
 	e.runParamsList = append([]executor.RunParams(nil), paramsList...)
 }
 
-func (e *enqueueExecutor) GetSubRuns() []dagrun.SubDAGRun {
+func (e *enqueueExecutor) GetSubRuns() []ir.SubDAGRun {
 	e.lock.Lock()
 	defer e.lock.Unlock()
-	return append([]dagrun.SubDAGRun(nil), e.subRuns...)
+	return append([]ir.SubDAGRun(nil), e.subRuns...)
 }
 
 func (e *enqueueExecutor) SetStdout(out io.Writer) {

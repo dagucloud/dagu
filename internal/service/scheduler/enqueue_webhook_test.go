@@ -41,6 +41,6 @@ type findAttemptErrStore struct {
 	err error
 }
 
-func (s *findAttemptErrStore) FindAttempt(context.Context, dagrun.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *findAttemptErrStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	return nil, s.err
 }

@@ -4,14 +4,11 @@
 package auth
 
 import (
-	"context"
 	"errors"
 	"fmt"
 )
 
 // ErrInvalidTokenSecret indicates the token secret is empty or otherwise unusable.
-// Used by TokenSecretProvider implementations to signal that the next provider
-// in a chain should be tried.
 var ErrInvalidTokenSecret = errors.New("invalid token secret")
 
 // TokenSecret is an opaque handle to JWT signing key material.
@@ -87,11 +84,4 @@ func (ts *TokenSecret) UnmarshalJSON([]byte) error {
 // UnmarshalText rejects deserialization to prevent silent zero-value creation.
 func (ts *TokenSecret) UnmarshalText([]byte) error {
 	return fmt.Errorf("auth.TokenSecret must be constructed via NewTokenSecret or NewTokenSecretFromString, not deserialized from text")
-}
-
-// TokenSecretProvider resolves the JWT signing secret from a configured source.
-// Implementations may perform I/O (file reads, auto-generation) and should
-// respect context cancellation.
-type TokenSecretProvider interface {
-	Resolve(ctx context.Context) (TokenSecret, error)
 }

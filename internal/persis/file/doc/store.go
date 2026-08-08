@@ -19,7 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/goccy/go-yaml"
 )

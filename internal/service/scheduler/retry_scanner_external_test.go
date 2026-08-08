@@ -24,13 +24,13 @@ type retryCandidateDAGRunStore struct {
 	listOptions    dagrun.ListDAGRunStatusesOptions
 }
 
-func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from dagrun.TimeInUTC) ([]*dagrun.DAGRunStatus, error) {
+func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
 	s.candidateCalls++
 	s.candidateFrom = from
 	return nil, nil
 }
 
-func (s *retryCandidateDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (s *retryCandidateDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	s.listCalls++
 	for _, opt := range opts {
 		opt(&s.listOptions)
@@ -45,7 +45,7 @@ type fallbackRetryDAGRunStore struct {
 	listOptions dagrun.ListDAGRunStatusesOptions
 }
 
-func (s *fallbackRetryDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*dagrun.DAGRunStatus, error) {
+func (s *fallbackRetryDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
 	s.listCalls++
 	for _, opt := range opts {
 		opt(&s.listOptions)

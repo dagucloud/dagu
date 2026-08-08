@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +21,7 @@ func TestDAGRunStatusToProto(t *testing.T) {
 	})
 
 	t.Run("basic status", func(t *testing.T) {
-		status := &dagrun.DAGRunStatus{
+		status := &ir.DAGRunStatus{
 			Name:     "test-dag",
 			DAGRunID: "run-123",
 			Status:   ir.Running,
@@ -65,15 +64,15 @@ func TestRoundTrip(t *testing.T) {
 		outputVars.Store("key2", "value2")
 		outputsValue := `{"messageId":"msg-123","accepted":true}`
 
-		original := &dagrun.DAGRunStatus{
+		original := &ir.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
 			PID:        12345,
-			Root:       dagrun.DAGRunRef{Name: "root-dag", ID: "root-run"},
-			Parent:     dagrun.DAGRunRef{Name: "parent-dag", ID: "parent-run"},
+			Root:       ir.DAGRunRef{Name: "root-dag", ID: "root-run"},
+			Parent:     ir.DAGRunRef{Name: "parent-dag", ID: "parent-run"},
 			CreatedAt:  1234567890,
 			QueuedAt:   "2024-01-01T00:00:00Z",
 			StartedAt:  "2024-01-01T00:01:00Z",
@@ -82,7 +81,7 @@ func TestRoundTrip(t *testing.T) {
 			Error:      "test error",
 			Params:     "key=value",
 			ParamsList: []string{"key=value"},
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step: ir.Step{
 						Name:           "step-1",
@@ -100,18 +99,18 @@ func TestRoundTrip(t *testing.T) {
 					RetriedAt:       "2024-01-01T00:00:30Z",
 					OutputVariables: outputVars,
 					OutputsValue:    &outputsValue,
-					SubRuns: []dagrun.SubDAGRun{
+					SubRuns: []ir.SubDAGRun{
 						{DAGRunID: "sub-run-1", Params: "p1=v1"},
 						{DAGRunID: "sub-run-2", Params: "p2=v2"},
 					},
 				},
 			},
-			OnInit:    &dagrun.Node{Step: ir.Step{Name: "on-init"}, Status: ir.NodeSucceeded},
-			OnExit:    &dagrun.Node{Step: ir.Step{Name: "on-exit"}, Status: ir.NodeSucceeded},
-			OnSuccess: &dagrun.Node{Step: ir.Step{Name: "on-success"}, Status: ir.NodeSucceeded},
-			OnFailure: &dagrun.Node{Step: ir.Step{Name: "on-failure"}, Status: ir.NodeNotStarted},
-			OnAbort:   &dagrun.Node{Step: ir.Step{Name: "onAbort"}, Status: ir.NodeNotStarted},
-			OnWait:    &dagrun.Node{Step: ir.Step{Name: "on-wait"}, Status: ir.NodeNotStarted},
+			OnInit:    &ir.Node{Step: ir.Step{Name: "on-init"}, Status: ir.NodeSucceeded},
+			OnExit:    &ir.Node{Step: ir.Step{Name: "on-exit"}, Status: ir.NodeSucceeded},
+			OnSuccess: &ir.Node{Step: ir.Step{Name: "on-success"}, Status: ir.NodeSucceeded},
+			OnFailure: &ir.Node{Step: ir.Step{Name: "on-failure"}, Status: ir.NodeNotStarted},
+			OnAbort:   &ir.Node{Step: ir.Step{Name: "onAbort"}, Status: ir.NodeNotStarted},
+			OnWait:    &ir.Node{Step: ir.Step{Name: "on-wait"}, Status: ir.NodeNotStarted},
 		}
 
 		// Convert to proto and back
@@ -174,18 +173,18 @@ func TestRoundTrip(t *testing.T) {
 	})
 
 	t.Run("roundtrip with ChatMessages", func(t *testing.T) {
-		original := &dagrun.DAGRunStatus{
+		original := &ir.DAGRunStatus{
 			Name:     "chat-dag",
 			DAGRunID: "chat-run-123",
 			Status:   ir.Succeeded,
-			Nodes: []*dagrun.Node{
+			Nodes: []*ir.Node{
 				{
 					Step:   ir.Step{Name: "chat-step"},
 					Status: ir.NodeSucceeded,
-					ChatMessages: []dagrun.LLMMessage{
-						{Role: dagrun.RoleSystem, Content: "You are a helpful assistant."},
-						{Role: dagrun.RoleUser, Content: "Hello!"},
-						{Role: dagrun.RoleAssistant, Content: "Hi there! How can I help?", Metadata: &dagrun.LLMMessageMetadata{
+					ChatMessages: []ir.LLMMessage{
+						{Role: ir.LLMRoleSystem, Content: "You are a helpful assistant."},
+						{Role: ir.LLMRoleUser, Content: "Hello!"},
+						{Role: ir.LLMRoleAssistant, Content: "Hi there! How can I help?", Metadata: &ir.LLMMessageMetadata{
 							Provider:         "openai",
 							Model:            "gpt-4",
 							PromptTokens:     10,
@@ -215,14 +214,14 @@ func TestRoundTrip(t *testing.T) {
 		// First node with messages
 		chatNode := result.Nodes[0]
 		require.Len(t, chatNode.ChatMessages, 3)
-		assert.Equal(t, dagrun.RoleSystem, chatNode.ChatMessages[0].Role)
+		assert.Equal(t, ir.LLMRoleSystem, chatNode.ChatMessages[0].Role)
 		assert.Equal(t, "You are a helpful assistant.", chatNode.ChatMessages[0].Content)
 		assert.Nil(t, chatNode.ChatMessages[0].Metadata)
 
-		assert.Equal(t, dagrun.RoleUser, chatNode.ChatMessages[1].Role)
+		assert.Equal(t, ir.LLMRoleUser, chatNode.ChatMessages[1].Role)
 		assert.Equal(t, "Hello!", chatNode.ChatMessages[1].Content)
 
-		assert.Equal(t, dagrun.RoleAssistant, chatNode.ChatMessages[2].Role)
+		assert.Equal(t, ir.LLMRoleAssistant, chatNode.ChatMessages[2].Role)
 		assert.Equal(t, "Hi there! How can I help?", chatNode.ChatMessages[2].Content)
 		require.NotNil(t, chatNode.ChatMessages[2].Metadata)
 		assert.Equal(t, "openai", chatNode.ChatMessages[2].Metadata.Provider)

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 
@@ -25,15 +24,15 @@ import (
 const periodicFlushExecutorType = "test-step-executor-periodic-flush"
 
 type sideChannelExecutor struct {
-	inputMessages     []dagrun.LLMMessage
+	inputMessages     []ir.LLMMessage
 	pushBackInputs    map[string]string
 	pushBackIteration int
 	previousStdout    string
 	closed            bool
-	toolDefinitions   []dagrun.ToolDefinition
-	messages          []dagrun.LLMMessage
-	subRuns           []dagrun.SubDAGRun
-	statusDetails     []dagrun.NodeStatusDetail
+	toolDefinitions   []ir.ToolDefinition
+	messages          []ir.LLMMessage
+	subRuns           []ir.SubDAGRun
+	statusDetails     []ir.NodeStatusDetail
 	outputs           map[string]any
 	stdout            io.Writer
 	stderr            io.Writer
@@ -49,11 +48,11 @@ func (e *sideChannelExecutor) Close() error {
 	e.closed = true
 	return nil
 }
-func (e *sideChannelExecutor) SetContext(messages []dagrun.LLMMessage) {
-	e.inputMessages = append([]dagrun.LLMMessage(nil), messages...)
+func (e *sideChannelExecutor) SetContext(messages []ir.LLMMessage) {
+	e.inputMessages = append([]ir.LLMMessage(nil), messages...)
 }
-func (e *sideChannelExecutor) GetMessages() []dagrun.LLMMessage {
-	return append([]dagrun.LLMMessage(nil), e.messages...)
+func (e *sideChannelExecutor) GetMessages() []ir.LLMMessage {
+	return append([]ir.LLMMessage(nil), e.messages...)
 }
 func (e *sideChannelExecutor) SetPushBackContext(inputs map[string]string, iteration int) {
 	e.pushBackInputs = inputs
@@ -62,14 +61,14 @@ func (e *sideChannelExecutor) SetPushBackContext(inputs map[string]string, itera
 func (e *sideChannelExecutor) SetPushBackPreviousStdout(path string) {
 	e.previousStdout = path
 }
-func (e *sideChannelExecutor) GetSubRuns() []dagrun.SubDAGRun {
-	return append([]dagrun.SubDAGRun(nil), e.subRuns...)
+func (e *sideChannelExecutor) GetSubRuns() []ir.SubDAGRun {
+	return append([]ir.SubDAGRun(nil), e.subRuns...)
 }
-func (e *sideChannelExecutor) GetStatusDetails() []dagrun.NodeStatusDetail {
-	return append([]dagrun.NodeStatusDetail(nil), e.statusDetails...)
+func (e *sideChannelExecutor) GetStatusDetails() []ir.NodeStatusDetail {
+	return append([]ir.NodeStatusDetail(nil), e.statusDetails...)
 }
-func (e *sideChannelExecutor) GetToolDefinitions() []dagrun.ToolDefinition {
-	return append([]dagrun.ToolDefinition(nil), e.toolDefinitions...)
+func (e *sideChannelExecutor) GetToolDefinitions() []ir.ToolDefinition {
+	return append([]ir.ToolDefinition(nil), e.toolDefinitions...)
 }
 func (e *sideChannelExecutor) GetOutputs() map[string]any {
 	return e.outputs
@@ -210,16 +209,16 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 	execCh := make(chan *sideChannelExecutor, 1)
 	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 		exec := &sideChannelExecutor{
-			messages: []dagrun.LLMMessage{
-				{Role: dagrun.RoleAssistant, Content: "new message"},
+			messages: []ir.LLMMessage{
+				{Role: ir.LLMRoleAssistant, Content: "new message"},
 			},
-			subRuns: []dagrun.SubDAGRun{
+			subRuns: []ir.SubDAGRun{
 				{DAGRunID: "new-run", DAGName: "new-dag", Params: "NEW=1"},
 			},
-			statusDetails: []dagrun.NodeStatusDetail{
+			statusDetails: []ir.NodeStatusDetail{
 				{Label: "customer-a", Status: ir.NodeFailed},
 			},
-			toolDefinitions: []dagrun.ToolDefinition{
+			toolDefinitions: []ir.ToolDefinition{
 				{Name: "lookup", Description: "look up data"},
 			},
 			outputs: map[string]any{"answer": float64(42)},
@@ -238,8 +237,8 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 		ApprovalIteration:      2,
 		PushBackInputs:         map[string]string{"reason": "try again"},
 		PushBackPreviousStdout: "/tmp/previous.out",
-		ChatMessages: []dagrun.LLMMessage{
-			{Role: dagrun.RoleUser, Content: "previous message"},
+		ChatMessages: []ir.LLMMessage{
+			{Role: ir.LLMRoleUser, Content: "previous message"},
 		},
 	})
 	node.SetRepeated(true)
@@ -253,17 +252,17 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 
 	fakeExec := <-execCh
 	require.True(t, fakeExec.closed)
-	require.Equal(t, []dagrun.LLMMessage{{Role: dagrun.RoleUser, Content: "previous message"}}, fakeExec.inputMessages)
+	require.Equal(t, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "previous message"}}, fakeExec.inputMessages)
 	require.Equal(t, map[string]string{"reason": "try again"}, fakeExec.pushBackInputs)
 	require.Equal(t, 2, fakeExec.pushBackIteration)
 	require.Equal(t, "/tmp/previous.out", fakeExec.previousStdout)
 
-	require.Equal(t, []dagrun.LLMMessage{{Role: dagrun.RoleAssistant, Content: "new message"}}, node.GetChatMessages())
+	require.Equal(t, []ir.LLMMessage{{Role: ir.LLMRoleAssistant, Content: "new message"}}, node.GetChatMessages())
 	state := node.State()
 	require.Equal(t, []runtime.SubDAGRun{{DAGRunID: "new-run", DAGName: "new-dag", Params: "NEW=1"}}, state.SubRuns)
 	require.Equal(t, []runtime.SubDAGRun{{DAGRunID: "old-run", DAGName: "old-dag", Params: "OLD=1"}}, state.SubRunsRepeated)
-	require.Equal(t, []dagrun.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}, state.StatusDetails)
-	require.Equal(t, []dagrun.ToolDefinition{{Name: "lookup", Description: "look up data"}}, node.GetToolDefinitions())
+	require.Equal(t, []ir.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}, state.StatusDetails)
+	require.Equal(t, []ir.ToolDefinition{{Name: "lookup", Description: "look up data"}}, node.GetToolDefinitions())
 	require.NotNil(t, state.OutputsValue)
 	require.JSONEq(t, `{"answer":42}`, *state.OutputsValue)
 }

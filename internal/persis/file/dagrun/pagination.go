@@ -28,7 +28,7 @@ type dagRunListKey struct {
 
 type dagRunListItem struct {
 	Key    dagRunListKey
-	Status *dagrun.DAGRunStatus
+	Status *ir.DAGRunStatus
 }
 
 func compareDagRunListKeys(a, b dagRunListKey) int {
@@ -72,7 +72,7 @@ func (store *Store) listStatusesOrdered(
 	opts dagrun.ListDAGRunStatusesOptions,
 	limit int,
 	returnCursor bool,
-) ([]*dagrun.DAGRunStatus, string, error) {
+) ([]*ir.DAGRunStatus, string, error) {
 	cursorKey, err := decodeQueryCursor(opts.Cursor, opts)
 	if err != nil {
 		return nil, "", err
@@ -114,7 +114,7 @@ func (store *Store) listStatusesOrdered(
 	}
 	heap.Init(&pq)
 
-	statuses := make([]*dagrun.DAGRunStatus, 0, min(target, len(iterators)))
+	statuses := make([]*ir.DAGRunStatus, 0, min(target, len(iterators)))
 	keys := make([]dagRunListKey, 0, cap(statuses))
 
 	for pq.Len() > 0 && len(statuses) < target {

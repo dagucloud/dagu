@@ -16,7 +16,6 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
@@ -241,5 +240,5 @@ func waitForWebhookRunStatus(
 	t.Helper()
 
 	h := intgharness.New(t, server.Helper)
-	h.Run(dagrun.NewDAGRunRef(dagName, runID), "").RequireStatusWithin(expected, test.SubprocessRunTimeout(30*time.Second))
+	h.Run(ir.NewDAGRunRef(dagName, runID), "").RequireStatusWithin(expected, test.SubprocessRunTimeout(30*time.Second))
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -22,7 +23,7 @@ func RepairStaleLocalRun(
 	ctx context.Context,
 	attempt dagrun.DAGRunAttempt,
 	dag *ir.DAG,
-) (*dagrun.DAGRunStatus, bool, error) {
+) (*ir.DAGRunStatus, bool, error) {
 	fullStatus, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return nil, false, fmt.Errorf("read full status: %w", err)
@@ -39,7 +40,7 @@ func RepairStaleLocalRun(
 		if dag == nil {
 			return nil, false, fmt.Errorf("dag is required when rebuilding missing nodes")
 		}
-		repairedStatus.Nodes = dagrun.NewNodesFromSteps(dag.Steps)
+		repairedStatus.Nodes = ir.NewNodesFromSteps(dag.Steps)
 	}
 
 	markActiveStatusFailed(repairedStatus, staleLocalRunError, time.Now())
@@ -51,14 +52,14 @@ func RepairStaleLocalRun(
 	return repairedStatus, true, nil
 }
 
-func cloneStatusForStaleRunRepair(status *dagrun.DAGRunStatus) *dagrun.DAGRunStatus {
+func cloneStatusForStaleRunRepair(status *ir.DAGRunStatus) *ir.DAGRunStatus {
 	if status == nil {
 		return nil
 	}
 
 	cloned := *status
 	if len(status.Nodes) > 0 {
-		cloned.Nodes = make([]*dagrun.Node, 0, len(status.Nodes))
+		cloned.Nodes = make([]*ir.Node, 0, len(status.Nodes))
 		for _, node := range status.Nodes {
 			if node == nil {
 				cloned.Nodes = append(cloned.Nodes, nil)
@@ -72,12 +73,12 @@ func cloneStatusForStaleRunRepair(status *dagrun.DAGRunStatus) *dagrun.DAGRunSta
 	return &cloned
 }
 
-func markActiveStatusFailed(status *dagrun.DAGRunStatus, reason string, finishedAt time.Time) {
+func markActiveStatusFailed(status *ir.DAGRunStatus, reason string, finishedAt time.Time) {
 	if status == nil {
 		return
 	}
 
-	finishedAtFormatted := dagrun.FormatTime(finishedAt)
+	finishedAtFormatted := stringutil.FormatTime(finishedAt)
 	status.Status = ir.Failed
 	status.FinishedAt = finishedAtFormatted
 	status.Error = reason
@@ -97,7 +98,7 @@ func markActiveStatusFailed(status *dagrun.DAGRunStatus, reason string, finished
 	}
 }
 
-func writeAttemptStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, status dagrun.DAGRunStatus) error {
+func writeAttemptStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus) error {
 	if err := attempt.Open(ctx); err != nil {
 		return fmt.Errorf("open attempt: %w", err)
 	}

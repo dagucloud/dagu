@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 type historyStoreOption func(*historyStore)
@@ -75,7 +76,7 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 	return wrapDAGRunAttempt(attempt), nil
 }
 
-func (s *historyStore) OpenAttempt(ctx context.Context, ref dagrun.DAGRunRef) (Attempt, error) {
+func (s *historyStore) OpenAttempt(ctx context.Context, ref ir.DAGRunRef) (Attempt, error) {
 	if s.store == nil {
 		return nil, dagrun.ErrNoopAttemptNotSupported
 	}
@@ -86,7 +87,7 @@ func (s *historyStore) OpenAttempt(ctx context.Context, ref dagrun.DAGRunRef) (A
 	return wrapDAGRunAttempt(attempt), nil
 }
 
-func (s *historyStore) OpenChildAttempt(ctx context.Context, root dagrun.DAGRunRef, childRunID string) (Attempt, error) {
+func (s *historyStore) OpenChildAttempt(ctx context.Context, root ir.DAGRunRef, childRunID string) (Attempt, error) {
 	if s.store == nil {
 		return nil, dagrun.ErrNoopAttemptNotSupported
 	}

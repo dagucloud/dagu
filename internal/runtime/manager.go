@@ -145,7 +145,7 @@ func (m *Manager) Stop(ctx context.Context, dag *ir.DAG, dagRunID string) error 
 func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID string) error {
 	// Set run ID in context for all logs in this function
 	ctx = logger.WithValues(ctx, tag.RunID(dagRunID))
-	runRef := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	runRef := ir.NewDAGRunRef(dag.Name, dagRunID)
 	run, findErr := m.dagRunStore.FindAttempt(ctx, runRef)
 
 	if findErr == nil {
@@ -218,7 +218,7 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 
 // GenDAGRunID generates a unique ID for a dag-run.
 func (m *Manager) GenDAGRunID(_ context.Context) (string, error) {
-	id, err := dagrun.NewDAGRunID()
+	id, err := ir.NewDAGRunID()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate dag-run ID: %w", err)
 	}
@@ -236,7 +236,7 @@ func (m *Manager) IsRunning(ctx context.Context, dag *ir.DAG, dagRunID string) b
 		return false
 	}
 
-	runRef := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	runRef := ir.NewDAGRunRef(dag.Name, dagRunID)
 	if alive, err := m.procStore.IsRunAlive(ctx, dag.ProcGroup(), runRef); err == nil && alive {
 		st, err := m.getPersistedOrCurrentStatus(ctx, dag, dagRunID)
 		if err != nil {
@@ -252,7 +252,7 @@ func (m *Manager) IsRunning(ctx context.Context, dag *ir.DAG, dagRunID string) b
 // If the run ID is empty, it resolves the latest run first.
 // If the dag-run is running, it queries the socket for the current status.
 // If the socket doesn't exist or times out, it falls back to stored status or creates an initial status.
-func (m *Manager) GetCurrentStatus(ctx context.Context, dag *ir.DAG, dagRunID string) (*dagrun.DAGRunStatus, error) {
+func (m *Manager) GetCurrentStatus(ctx context.Context, dag *ir.DAG, dagRunID string) (*ir.DAGRunStatus, error) {
 	if dagRunID == "" {
 		status, err := m.GetLatestStatus(ctx, dag)
 		if err != nil {
@@ -273,7 +273,7 @@ func (m *Manager) GetCurrentStatus(ctx context.Context, dag *ir.DAG, dagRunID st
 
 // GetSavedStatus retrieves the saved status of a dag-run by its ir.DAGRun reference.
 // For stale local runs, it repairs the persisted status before returning it.
-func (m *Manager) GetSavedStatus(ctx context.Context, dagRun dagrun.DAGRunRef) (*dagrun.DAGRunStatus, error) {
+func (m *Manager) GetSavedStatus(ctx context.Context, dagRun ir.DAGRunRef) (*ir.DAGRunStatus, error) {
 	attempt, err := m.dagRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find status by run reference: %w", err)
@@ -301,9 +301,9 @@ func (m *Manager) GetSavedStatus(ctx context.Context, dagRun dagrun.DAGRunRef) (
 // If the stored status indicates the DAG is running, it attempts to get the current status.
 // If current status retrieval fails and the local proc is dead, it repairs the stale run.
 func (m *Manager) getPersistedOrCurrentStatus(ctx context.Context, dag *ir.DAG, dagRunID string) (
-	*dagrun.DAGRunStatus, error,
+	*ir.DAGRunStatus, error,
 ) {
-	dagRunRef := dagrun.NewDAGRunRef(dag.Name, dagRunID)
+	dagRunRef := ir.NewDAGRunRef(dag.Name, dagRunID)
 	attempt, err := m.dagRunStore.FindAttempt(ctx, dagRunRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find status by dag-run ID: %w", err)
@@ -322,7 +322,7 @@ func (m *Manager) getPersistedOrCurrentStatus(ctx context.Context, dag *ir.DAG, 
 
 // FindSubDAGRunStatus retrieves the status of a sub dag-run by its ID.
 // It repairs stale local child runs before returning their status.
-func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun dagrun.DAGRunRef, subRunID string) (*dagrun.DAGRunStatus, error) {
+func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun ir.DAGRunRef, subRunID string) (*ir.DAGRunStatus, error) {
 	if m == nil || m.dagRunStore == nil {
 		return nil, dagrun.ErrNoStatusData
 	}
@@ -356,7 +356,7 @@ func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun dagrun.DAG
 
 // currentStatus retrieves the current status of a running DAG by querying its socket.
 // This is a private method used internally by other status-related methods.
-func (*Manager) currentStatus(_ context.Context, dag *ir.DAG, dagRunID string) (*dagrun.DAGRunStatus, error) {
+func (*Manager) currentStatus(_ context.Context, dag *ir.DAG, dagRunID string) (*ir.DAGRunStatus, error) {
 	client := sock.NewClient(proc.DAGSocketAddr(dag, dagRunID))
 
 	// Check if the socket file exists
@@ -369,7 +369,7 @@ func (*Manager) currentStatus(_ context.Context, dag *ir.DAG, dagRunID string) (
 		return nil, fmt.Errorf("failed to get current status: %w", err)
 	}
 
-	return dagrun.StatusFromJSON(statusJSON)
+	return ir.StatusFromJSON(statusJSON)
 }
 
 func isLocalWorkerID(workerID string) bool {
@@ -387,9 +387,9 @@ func (m *Manager) resolveRunningStatus(
 	ctx context.Context,
 	dag *ir.DAG,
 	attempt dagrun.DAGRunAttempt,
-	status *dagrun.DAGRunStatus,
+	status *ir.DAGRunStatus,
 	isRoot bool,
-) *dagrun.DAGRunStatus {
+) *ir.DAGRunStatus {
 	if status == nil || status.Status != ir.Running || !isLocalWorkerID(status.WorkerID) {
 		return status
 	}
@@ -413,9 +413,9 @@ func (m *Manager) resolveRunningStatus(
 // GetLatestStatus retrieves the latest status of a DAG.
 // If the DAG is running, it attempts to get the current status from the socket.
 // If that fails and the local proc is dead, it repairs the stale run before returning it.
-func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (dagrun.DAGRunStatus, error) {
+func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
 	if m.dagRunStore == nil {
-		return dagrun.InitialStatus(dag), nil
+		return ir.InitialStatus(dag), nil
 	}
 
 	if m.procStore != nil {
@@ -437,7 +437,7 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (dagrun.DAGR
 	attempt, err := m.dagRunStore.LatestAttempt(ctx, dag.Name)
 	if err != nil {
 		// If the latest status is not found, return the default status
-		ret := dagrun.InitialStatus(dag)
+		ret := ir.InitialStatus(dag)
 		return ret, nil
 	}
 
@@ -445,7 +445,7 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (dagrun.DAGR
 	st, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		// If the latest status is not found, return the default status
-		ret := dagrun.InitialStatus(dag)
+		ret := ir.InitialStatus(dag)
 		return ret, nil
 	}
 
@@ -472,8 +472,8 @@ func (m *Manager) repairStaleLocalRunIfDead(
 	ctx context.Context,
 	attempt dagrun.DAGRunAttempt,
 	dag *ir.DAG,
-	st *dagrun.DAGRunStatus,
-) (*dagrun.DAGRunStatus, error) {
+	st *ir.DAGRunStatus,
+) (*ir.DAGRunStatus, error) {
 	if !isLocalWorkerID(st.WorkerID) {
 		return st, nil
 	}
@@ -537,7 +537,7 @@ func (m *Manager) repairStaleLocalRunIfDead(
 	return repaired, nil
 }
 
-func shouldDelayStaleLocalRunRepair(st *dagrun.DAGRunStatus, now time.Time) bool {
+func shouldDelayStaleLocalRunRepair(st *ir.DAGRunStatus, now time.Time) bool {
 	startedAt, ok := statusStartTime(st)
 	if !ok {
 		return false
@@ -546,7 +546,7 @@ func shouldDelayStaleLocalRunRepair(st *dagrun.DAGRunStatus, now time.Time) bool
 	return age >= 0 && age < staleLocalRunStartupGrace
 }
 
-func statusStartTime(st *dagrun.DAGRunStatus) (time.Time, bool) {
+func statusStartTime(st *ir.DAGRunStatus) (time.Time, bool) {
 	if startedAt, err := stringutil.ParseTime(st.StartedAt); err == nil && !startedAt.IsZero() {
 		return startedAt, true
 	}
@@ -565,10 +565,10 @@ func (m *Manager) currentTime() time.Time {
 
 // ListRecentStatus retrieves the n most recent statuses for a DAG by name.
 // It returns a slice of Status objects, filtering out any that cannot be read.
-func (m *Manager) ListRecentStatus(ctx context.Context, name string, n int) []dagrun.DAGRunStatus {
+func (m *Manager) ListRecentStatus(ctx context.Context, name string, n int) []ir.DAGRunStatus {
 	attempts := m.dagRunStore.RecentAttempts(ctx, name, n)
 
-	var statuses []dagrun.DAGRunStatus
+	var statuses []ir.DAGRunStatus
 	for _, att := range attempts {
 		if status, err := att.ReadStatus(ctx); err == nil {
 			statuses = append(statuses, *status)
@@ -579,7 +579,7 @@ func (m *Manager) ListRecentStatus(ctx context.Context, name string, n int) []da
 }
 
 // UpdateStatus updates the status of a dag-run.
-func (m *Manager) UpdateStatus(ctx context.Context, rootDAGRun dagrun.DAGRunRef, newStatus dagrun.DAGRunStatus) error {
+func (m *Manager) UpdateStatus(ctx context.Context, rootDAGRun ir.DAGRunRef, newStatus ir.DAGRunStatus) error {
 	// Find the attempt for the status.
 	var attempt dagrun.DAGRunAttempt
 

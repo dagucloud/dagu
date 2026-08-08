@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -20,9 +19,9 @@ import (
 func TestNodeFieldsRoundTrip(t *testing.T) {
 	outputVars := &collections.SyncMap{}
 	outputVars.Store("KEY", "KEY=value")
-	statusDetails := []dagrun.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}
+	statusDetails := []ir.NodeStatusDetail{{Label: "customer-a", Status: ir.NodeFailed}}
 
-	original := &dagrun.Node{
+	original := &ir.Node{
 		Step: ir.Step{
 			Name:      "test-step",
 			HumanTask: &ir.HumanTaskConfig{Prompt: "Review production deployment"},
@@ -39,8 +38,8 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 		Repeated:               true,
 		Error:                  "test error",
 		StatusDetails:          statusDetails,
-		SubRuns:                []dagrun.SubDAGRun{{DAGRunID: "sub-1", Params: "p1"}},
-		SubRunsRepeated:        []dagrun.SubDAGRun{{DAGRunID: "sub-2", Params: "p2"}},
+		SubRuns:                []ir.SubDAGRun{{DAGRunID: "sub-1", Params: "p1"}},
+		SubRunsRepeated:        []ir.SubDAGRun{{DAGRunID: "sub-2", Params: "p2"}},
 		OutputVariables:        outputVars,
 		HumanTaskInput:         json.RawMessage(`{"window":"2026-07-20T12:00:00Z"}`),
 		HumanTaskCompletedBy:   "operator",
@@ -63,7 +62,7 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 	assert.Equal(t, ir.NodeFailed, state.StatusDetails[0].Status)
 
 	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
-	status := transform.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+	status := ir.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]
@@ -78,13 +77,13 @@ func TestNodeFieldsRoundTrip(t *testing.T) {
 }
 
 func TestNodeChatMessagesRoundTrip(t *testing.T) {
-	original := &dagrun.Node{
+	original := &ir.Node{
 		Step:   ir.Step{Name: "chat-step"},
 		Status: ir.NodeSucceeded,
-		ChatMessages: []dagrun.LLMMessage{
-			{Role: dagrun.RoleSystem, Content: "You are helpful."},
-			{Role: dagrun.RoleUser, Content: "Hello!"},
-			{Role: dagrun.RoleAssistant, Content: "Hi there!", Metadata: &dagrun.LLMMessageMetadata{
+		ChatMessages: []ir.LLMMessage{
+			{Role: ir.LLMRoleSystem, Content: "You are helpful."},
+			{Role: ir.LLMRoleUser, Content: "Hello!"},
+			{Role: ir.LLMRoleAssistant, Content: "Hi there!", Metadata: &ir.LLMMessageMetadata{
 				Provider:         "openai",
 				Model:            "gpt-4",
 				PromptTokens:     5,
@@ -100,14 +99,14 @@ func TestNodeChatMessagesRoundTrip(t *testing.T) {
 
 	// Verify ChatMessages are preserved in runtime.NodeState
 	require.Len(t, state.ChatMessages, 3)
-	assert.Equal(t, dagrun.RoleSystem, state.ChatMessages[0].Role)
+	assert.Equal(t, ir.LLMRoleSystem, state.ChatMessages[0].Role)
 	assert.Equal(t, "You are helpful.", state.ChatMessages[0].Content)
 	assert.Nil(t, state.ChatMessages[0].Metadata)
 
-	assert.Equal(t, dagrun.RoleUser, state.ChatMessages[1].Role)
+	assert.Equal(t, ir.LLMRoleUser, state.ChatMessages[1].Role)
 	assert.Equal(t, "Hello!", state.ChatMessages[1].Content)
 
-	assert.Equal(t, dagrun.RoleAssistant, state.ChatMessages[2].Role)
+	assert.Equal(t, ir.LLMRoleAssistant, state.ChatMessages[2].Role)
 	assert.Equal(t, "Hi there!", state.ChatMessages[2].Content)
 	assert.NotNil(t, state.ChatMessages[2].Metadata)
 	assert.Equal(t, "openai", state.ChatMessages[2].Metadata.Provider)
@@ -118,12 +117,12 @@ func TestNodeChatMessagesRoundTrip(t *testing.T) {
 
 	// Verify round-trip through status builder
 	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
-	status := transform.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+	status := ir.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]
 
-	// Verify ChatMessages are preserved in dagrun.Node
+	// Verify ChatMessages are preserved in ir.Node
 	require.Len(t, result.ChatMessages, 3)
 	assert.Equal(t, original.ChatMessages[0].Role, result.ChatMessages[0].Role)
 	assert.Equal(t, original.ChatMessages[0].Content, result.ChatMessages[0].Content)
@@ -139,7 +138,7 @@ func TestNodeChatMessagesRoundTrip(t *testing.T) {
 
 func TestNodeEmptyChatMessages(t *testing.T) {
 	// Test that nodes without ChatMessages work correctly
-	original := &dagrun.Node{
+	original := &ir.Node{
 		Step:   ir.Step{Name: "no-chat-step"},
 		Status: ir.NodeSucceeded,
 		// No ChatMessages
@@ -152,7 +151,7 @@ func TestNodeEmptyChatMessages(t *testing.T) {
 	assert.Nil(t, state.ChatMessages)
 
 	dag := &ir.DAG{Name: "test", Steps: []ir.Step{original.Step}}
-	status := transform.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
+	status := ir.NewStatusBuilder(dag).Create("run-1", ir.Succeeded, 0, time.Now(),
 		transform.WithNodes([]runtime.NodeData{{Step: original.Step, State: state}}))
 
 	result := status.Nodes[0]

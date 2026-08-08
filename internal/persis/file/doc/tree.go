@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 )
 
 func normalizeSortParams(sortField docs.DocSortField, sortOrder docs.DocSortOrder) (string, string) {

@@ -6,7 +6,6 @@ package runtime
 import (
 	"context"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -22,7 +21,7 @@ type (
 	// Dispatcher is an alias for execution.Dispatcher
 	Dispatcher = dispatch.Dispatcher
 	// RunStatus is an alias for execution.RunStatus
-	RunStatus = dagrun.RunStatus
+	RunStatus = ir.RunStatus
 	// ContextOption is an alias for execution.ContextOption
 	ContextOption = runctx.ContextOption
 )
@@ -112,8 +111,8 @@ func WithDAGContext(ctx context.Context, rCtx Context) context.Context {
 }
 
 // NewDAGRunRef is a convenience wrapper for execution.NewDAGRunRef.
-func NewDAGRunRef(name, runID string) dagrun.DAGRunRef {
-	return dagrun.NewDAGRunRef(name, runID)
+func NewDAGRunRef(name, runID string) ir.DAGRunRef {
+	return ir.NewDAGRunRef(name, runID)
 }
 
 // NewContextForTest creates a minimal context for testing purposes.

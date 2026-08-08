@@ -7,6 +7,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 )
 
@@ -17,12 +18,12 @@ type DAGRunStoreOption func(*DAGRunStoreOptions)
 
 // DAGRunStoreOptions contains file-backed DAG-run store settings.
 type DAGRunStoreOptions struct {
-	HistoryFileCache  *fileutil.Cache[*dagrun.DAGRunStatus]
+	HistoryFileCache  *fileutil.Cache[*ir.DAGRunStatus]
 	LatestStatusToday bool
 }
 
 // WithDAGRunHistoryFileCache sets the cache used for reading DAG-run history files.
-func WithDAGRunHistoryFileCache(cache *fileutil.Cache[*dagrun.DAGRunStatus]) DAGRunStoreOption {
+func WithDAGRunHistoryFileCache(cache *fileutil.Cache[*ir.DAGRunStatus]) DAGRunStoreOption {
 	return func(o *DAGRunStoreOptions) {
 		o.HistoryFileCache = cache
 	}

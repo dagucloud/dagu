@@ -4,7 +4,7 @@
 package coordreport
 
 import (
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
@@ -40,7 +40,7 @@ type LogStreamerSnapshot struct {
 	DAGRunID  string
 	DAGName   string
 	AttemptID string
-	RootRef   dagrun.DAGRunRef
+	RootRef   ir.DAGRunRef
 }
 
 // SnapshotLogStreamer captures log streamer construction state.

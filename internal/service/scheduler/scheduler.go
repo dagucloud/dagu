@@ -245,7 +245,7 @@ func newScheduler(
 		Enqueue:         enqueueFunc,
 		IsQueued:        isQueued,
 		RunExists: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
-			_, err := dagRunStore.FindAttempt(ctx, dagrun.NewDAGRunRef(dag.Name, runID))
+			_, err := dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
 			switch {
 			case err == nil:
 				return true, nil
