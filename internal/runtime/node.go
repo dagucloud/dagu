@@ -21,6 +21,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"syscall"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
@@ -33,7 +35,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/goccy/go-yaml"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -874,7 +875,7 @@ func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error)
 	}
 
 	env := GetEnv(ctx)
-	env.Scope = env.Scope.WithEntry(runctx.EnvKeyDAGUOutputFile, path, cmnvalue.EnvSourceStepEnv)
+	env.Scope = env.Scope.WithEntry(runenv.EnvKeyDAGUOutputFile, path, cmnvalue.EnvSourceStepEnv)
 	return WithEnv(ctx, env), nil
 }
 
@@ -1154,9 +1155,9 @@ func (n *Node) SetupEnv(ctx context.Context) context.Context {
 	defer n.mu.RUnlock()
 	env := GetEnv(ctx)
 	env.Scope = env.Scope.WithEntry(
-		runctx.EnvKeyDAGRunStepStdoutFile, n.GetStdout(), cmnvalue.EnvSourceStepEnv,
+		runenv.EnvKeyDAGRunStepStdoutFile, n.GetStdout(), cmnvalue.EnvSourceStepEnv,
 	).WithEntry(
-		runctx.EnvKeyDAGRunStepStderrFile, n.GetStderr(), cmnvalue.EnvSourceStepEnv,
+		runenv.EnvKeyDAGRunStepStderrFile, n.GetStderr(), cmnvalue.EnvSourceStepEnv,
 	)
 	return WithEnv(ctx, env)
 }

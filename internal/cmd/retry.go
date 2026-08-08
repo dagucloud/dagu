@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -20,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/spf13/cobra"
 )
@@ -360,7 +361,7 @@ func storedDAGHasNonDefaultWorkingDir(dag *ir.DAG) bool {
 }
 
 func queueDispatchRetryRequested() bool {
-	return os.Getenv(runctx.EnvKeyQueueDispatchRetry) != ""
+	return os.Getenv(runenv.EnvKeyQueueDispatchRetry) != ""
 }
 
 func ensureQueueDispatchRetryTarget(

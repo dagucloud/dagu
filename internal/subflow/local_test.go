@@ -16,12 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/subflow"
@@ -210,12 +210,12 @@ steps:
 	require.NoError(t, os.WriteFile(child.Location, child.YamlData, 0o600))
 
 	root := dagrun.NewDAGRunRef("parent", uuid.Must(uuid.NewV7()).String())
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		th.Context,
 		&ir.DAG{Name: root.Name},
 		root.ID,
 		filepath.Join(t.TempDir(), "parent.log"),
-		exec.WithMaterializationStore(filematerialization.New(filepath.Join(t.TempDir(), "materializations"))),
+		runctx.WithMaterializationStore(filematerialization.New(filepath.Join(t.TempDir(), "materializations"))),
 	)
 	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGStore)
 	result, err := runner.Run(ctx, executor.SubWorkflowRequest{

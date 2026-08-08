@@ -1,13 +1,15 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec
+package runctx
 
 import (
 	"context"
 	"io"
 	"maps"
 	"strings"
+
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -19,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 // Context contains the execution metadata for a dag-run.
@@ -464,10 +465,10 @@ func buildDAGRunBuiltinContext(
 	addDAGRunBuiltinValue(values, "context.attempt.id", options.AttemptID)
 	addDAGRunBuiltinValue(values, "context.trigger.type", options.TriggerType.String())
 	addDAGRunBuiltinValue(values, "context.trigger.actor", options.TriggerActor)
-	addDAGRunBuiltinValue(values, "context.paths.log_file", managedEnvs[runctx.EnvKeyDAGRunLogFile])
-	addDAGRunBuiltinValue(values, "context.paths.work_dir", managedEnvs[runctx.EnvKeyDAGRunWorkDir])
-	addDAGRunBuiltinValue(values, "context.paths.artifacts_dir", managedEnvs[runctx.EnvKeyDAGRunArtifactsDir])
-	addDAGRunBuiltinValue(values, "context.paths.docs_dir", managedEnvs[runctx.EnvKeyDAGDocsDir])
+	addDAGRunBuiltinValue(values, "context.paths.log_file", managedEnvs[runenv.EnvKeyDAGRunLogFile])
+	addDAGRunBuiltinValue(values, "context.paths.work_dir", managedEnvs[runenv.EnvKeyDAGRunWorkDir])
+	addDAGRunBuiltinValue(values, "context.paths.artifacts_dir", managedEnvs[runenv.EnvKeyDAGRunArtifactsDir])
+	addDAGRunBuiltinValue(values, "context.paths.docs_dir", managedEnvs[runenv.EnvKeyDAGDocsDir])
 	addDAGRunBuiltinValue(values, "context.profile.name", options.ProfileName)
 	addDAGRunBuiltinValue(values, "context.profile.resolved_at", options.ProfileResolvedAt)
 	return cmnvalue.NewBuiltinContext(values)

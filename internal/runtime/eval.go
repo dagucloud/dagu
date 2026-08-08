@@ -12,10 +12,11 @@ import (
 	"strings"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 // EvalBool evaluates the given value with the variables within the execution context
@@ -84,18 +85,18 @@ func builtinContextFromDAGContext(rCtx Context, scope *cmnvalue.EnvScope, step i
 	addBuiltinContextValue(values, "context.step.name", step.Name)
 	addBuiltinContextValue(values, "context.trigger.type", rCtx.TriggerType.String())
 	addBuiltinContextValue(values, "context.trigger.actor", rCtx.TriggerActor)
-	addBuiltinContextEnvValue(values, "context.run.status", scope, runctx.EnvKeyDAGRunStatus)
-	addBuiltinContextEnvValue(values, "context.paths.log_file", scope, runctx.EnvKeyDAGRunLogFile)
-	addBuiltinContextEnvValue(values, "context.paths.work_dir", scope, runctx.EnvKeyDAGRunWorkDir)
-	addBuiltinContextEnvValue(values, "context.paths.artifacts_dir", scope, runctx.EnvKeyDAGRunArtifactsDir)
-	addBuiltinContextEnvValue(values, "context.paths.docs_dir", scope, runctx.EnvKeyDAGDocsDir)
-	addBuiltinContextEnvValue(values, "context.paths.step_stdout_file", scope, runctx.EnvKeyDAGRunStepStdoutFile)
-	addBuiltinContextEnvValue(values, "context.paths.step_stderr_file", scope, runctx.EnvKeyDAGRunStepStderrFile)
-	addBuiltinContextEnvValue(values, "context.paths.step_output_file", scope, runctx.EnvKeyDAGUOutputFile)
+	addBuiltinContextEnvValue(values, "context.run.status", scope, runenv.EnvKeyDAGRunStatus)
+	addBuiltinContextEnvValue(values, "context.paths.log_file", scope, runenv.EnvKeyDAGRunLogFile)
+	addBuiltinContextEnvValue(values, "context.paths.work_dir", scope, runenv.EnvKeyDAGRunWorkDir)
+	addBuiltinContextEnvValue(values, "context.paths.artifacts_dir", scope, runenv.EnvKeyDAGRunArtifactsDir)
+	addBuiltinContextEnvValue(values, "context.paths.docs_dir", scope, runenv.EnvKeyDAGDocsDir)
+	addBuiltinContextEnvValue(values, "context.paths.step_stdout_file", scope, runenv.EnvKeyDAGRunStepStdoutFile)
+	addBuiltinContextEnvValue(values, "context.paths.step_stderr_file", scope, runenv.EnvKeyDAGRunStepStderrFile)
+	addBuiltinContextEnvValue(values, "context.paths.step_output_file", scope, runenv.EnvKeyDAGUOutputFile)
 	addBuiltinContextValue(values, "context.profile.name", rCtx.ProfileName)
 	addBuiltinContextValue(values, "context.profile.resolved_at", rCtx.ProfileResolvedAt)
-	addBuiltinContextEnvValue(values, "context.pushback.iteration", scope, runctx.EnvKeyDAGPushBackIteration)
-	addBuiltinContextEnvValue(values, "context.pushback.previous_stdout_file", scope, runctx.EnvKeyDAGPushBackPreviousStdoutFile)
+	addBuiltinContextEnvValue(values, "context.pushback.iteration", scope, runenv.EnvKeyDAGPushBackIteration)
+	addBuiltinContextEnvValue(values, "context.pushback.previous_stdout_file", scope, runenv.EnvKeyDAGPushBackPreviousStdoutFile)
 	return cmnvalue.NewBuiltinContext(values)
 }
 

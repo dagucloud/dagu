@@ -255,7 +255,7 @@ var (
 	secretRefPathPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$`)
 )
 
-// Keep in sync with internal/core/exec runtime env keys. This package cannot
+// Keep in sync with internal/runctx/env runtime env keys. This package cannot
 // import core/exec because core/exec imports spec for DAG loading.
 var reservedSecretEnvNames = []string{
 	"DAG_NAME",

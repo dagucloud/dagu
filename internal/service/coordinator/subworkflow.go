@@ -7,12 +7,12 @@ import (
 	"context"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -39,7 +39,7 @@ type SubWorkflowRunnerConfig struct {
 	PeerConfig        config.Peer
 	DefaultExecMode   config.ExecutionMode
 	StatusPusher      runtime.StatusPusher
-	LogWriterFactory  exec.LogWriterFactory
+	LogWriterFactory  runctx.LogWriterFactory
 	ArtifactFinalizer runtime.ArtifactFinalizer
 	WorkerID          string
 	DAGRunLogDir      string

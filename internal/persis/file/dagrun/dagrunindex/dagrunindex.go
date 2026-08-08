@@ -455,7 +455,7 @@ func parseTimeToUnix(s string) int64 {
 // parseStatusFile reads the status file. This is a local wrapper to avoid
 // importing the parent dagrun package (which would create a circular dependency).
 // It reads the file and finds the last valid JSON line.
-// Keep in sync with internal/core/exec/runstatus.go:StatusFromJSON if the format changes.
+// Keep in sync with internal/dagrun/runstatus.go:StatusFromJSON if the format changes.
 func parseStatusFile(filePath string) (*dagrun.DAGRunStatus, error) {
 	data, err := fileutil.ReadFile(filePath)
 	if err != nil {

@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 	"sync"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
@@ -45,7 +46,7 @@ type Local struct {
 	profileStore             profilepkg.Store
 	serviceRegistry          serviceregistry.ServiceRegistry
 	statusPusher             runtime.StatusPusher
-	logWriterFactory         exec.LogWriterFactory
+	logWriterFactory         runctx.LogWriterFactory
 	artifactFinalizer        runtime.ArtifactFinalizer
 	subWorkflowRunnerFactory rtagent.SubWorkflowRunnerFactory
 	workerID                 string
@@ -126,7 +127,7 @@ func WithLocalStatusPusher(pusher runtime.StatusPusher) LocalOption {
 }
 
 // WithLocalLogWriterFactory sets the log writer factory used by child workflow agents.
-func WithLocalLogWriterFactory(factory exec.LogWriterFactory) LocalOption {
+func WithLocalLogWriterFactory(factory runctx.LogWriterFactory) LocalOption {
 	return func(r *Local) {
 		r.logWriterFactory = factory
 	}
@@ -358,7 +359,7 @@ func (r *Local) newAgent(
 	dag *ir.DAG,
 	opts rtagent.Options,
 ) (*rtagent.Agent, error) {
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	logDir := r.dagRunLogDir
 	if logDir == "" {
 		logDir = rCtx.DAGRunLogDir
@@ -424,7 +425,7 @@ func (r *Local) newAgent(
 	), nil
 }
 
-func (r *Local) prepareDAGTools(ctx context.Context, rCtx exec.Context, dag *ir.DAG) ([]string, error) {
+func (r *Local) prepareDAGTools(ctx context.Context, rCtx runctx.Context, dag *ir.DAG) ([]string, error) {
 	cfg := config.GetConfig(ctx)
 	workDir := ""
 	if dag != nil {
@@ -464,7 +465,7 @@ func (r *Local) dagRunStoreFromContext(ctx context.Context) dagrun.DAGRunStore {
 	if r.dagRunStore != nil {
 		return r.dagRunStore
 	}
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	if rCtx.DAGRunStore != nil {
 		return rCtx.DAGRunStore
 	}
@@ -485,14 +486,14 @@ func (r *Local) queueStoreFromContext(ctx context.Context) queue.QueueStore {
 	if r.queueStore != nil {
 		return r.queueStore
 	}
-	return exec.GetContext(ctx).QueueStore
+	return runctx.GetContext(ctx).QueueStore
 }
 
 func (r *Local) stateStoreFromContext(ctx context.Context) dagstate.Store {
 	if r.stateStore != nil {
 		return r.stateStore
 	}
-	return exec.GetContext(ctx).StateStore
+	return runctx.GetContext(ctx).StateStore
 }
 
 func validateInProcessRequest(req executor.SubWorkflowRequest) error {
@@ -591,10 +592,10 @@ func inProcessLoadOptions(
 	return loadOpts
 }
 
-func inProcessExtraEnvs(rCtx exec.Context, req executor.SubWorkflowRequest) []string {
+func inProcessExtraEnvs(rCtx runctx.Context, req executor.SubWorkflowRequest) []string {
 	envs := inheritedEnvForLocalRunner(rCtx.AllEnvs())
 	if req.ExternalStepRetry {
-		envs = append(envs, runctx.EnvKeyExternalStepRetry+"=1")
+		envs = append(envs, runenv.EnvKeyExternalStepRetry+"=1")
 	}
 	return envs
 }

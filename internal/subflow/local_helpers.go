@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
@@ -69,7 +69,7 @@ func inheritedEnvForLocalRunner(envs []string) []string {
 	return filtered
 }
 
-func toolsBasePath(rCtx coreexec.Context) string {
+func toolsBasePath(rCtx runctx.Context) string {
 	if rCtx.BaseEnv != nil {
 		for _, env := range rCtx.BaseEnv.AsSlice() {
 			key, value, ok := strings.Cut(env, "=")

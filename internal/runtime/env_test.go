@@ -10,9 +10,10 @@ import (
 	goruntime "runtime"
 	"testing"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/core/spec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -462,7 +463,7 @@ func TestEnv_AllEnvsMap(t *testing.T) {
 				"VAR2":                      "value2",
 				"ENV1":                      "env1",
 				"ENV2":                      "env2",
-				runctx.EnvKeyDAGRunStepName: "test-step",
+				runenv.EnvKeyDAGRunStepName: "test-step",
 			},
 		},
 		{
@@ -471,7 +472,7 @@ func TestEnv_AllEnvsMap(t *testing.T) {
 				return env
 			},
 			expected: map[string]string{
-				runctx.EnvKeyDAGRunStepName: "test-step",
+				runenv.EnvKeyDAGRunStepName: "test-step",
 			},
 		},
 	}
@@ -488,7 +489,7 @@ func TestEnv_AllEnvsMap(t *testing.T) {
 				Name:       "test-dag",
 				WorkingDir: tempDir,
 			}
-			ctx := exec.NewContext(context.Background(), dag, "", "")
+			ctx := runctx.NewContext(context.Background(), dag, "", "")
 
 			env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 			env = tt.setupEnv(env)
@@ -649,7 +650,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 				Name:       "test-dag",
 				WorkingDir: tt.dagWorkDir,
 			}
-			dagCtx := exec.Context{
+			dagCtx := runctx.Context{
 				DAG: dag,
 			}
 			ctx := runtime.WithDAGContext(context.Background(), dagCtx)
@@ -657,7 +658,7 @@ func TestNewEnvForStep_WorkingDirectory(t *testing.T) {
 			env := runtime.NewEnv(ctx, tt.step)
 
 			// Check that DAG_RUN_STEP_NAME is set via Scope
-			val, ok := env.Scope.Get(runctx.EnvKeyDAGRunStepName)
+			val, ok := env.Scope.Get(runenv.EnvKeyDAGRunStepName)
 			assert.True(t, ok, "DAG_RUN_STEP_NAME should be set")
 			assert.Equal(t, tt.step.Name, val)
 
@@ -683,7 +684,7 @@ func TestNewEnvForStep_ImplicitWorkingDirUsesDAGRunWorkDir(t *testing.T) {
 		Name:       "test-dag",
 		WorkingDir: staleSerializedDir,
 	}
-	ctx := exec.NewContext(context.Background(), dag, "run-id", "", exec.WithWorkDir(runWorkDir))
+	ctx := runctx.NewContext(context.Background(), dag, "run-id", "", runctx.WithWorkDir(runWorkDir))
 
 	env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 	assert.Equal(t, runWorkDir, env.WorkingDir)
@@ -705,7 +706,7 @@ func TestNewEnvForStep_ExplicitWorkingDirIgnoresDAGRunWorkDir(t *testing.T) {
 		WorkingDir:         explicitDir,
 		WorkingDirExplicit: true,
 	}
-	ctx := exec.NewContext(context.Background(), dag, "run-id", "", exec.WithWorkDir(runWorkDir))
+	ctx := runctx.NewContext(context.Background(), dag, "run-id", "", runctx.WithWorkDir(runWorkDir))
 
 	env := runtime.NewEnv(ctx, ir.Step{Name: "test-step"})
 	assert.Equal(t, explicitDir, env.WorkingDir)
@@ -724,7 +725,7 @@ func TestNewEnvForStep_BasicFields(t *testing.T) {
 		Name:       "test-dag",
 		WorkingDir: tempDir,
 	}
-	dagCtx := exec.Context{
+	dagCtx := runctx.Context{
 		DAG: dag,
 	}
 	ctx := runtime.WithDAGContext(context.Background(), dagCtx)
@@ -746,7 +747,7 @@ func TestNewEnvForStep_BasicFields(t *testing.T) {
 	assert.NotNil(t, env.StepMap)
 
 	// Check that DAG_RUN_STEP_NAME is set via Scope
-	stepName, _ := env.Scope.Get(runctx.EnvKeyDAGRunStepName)
+	stepName, _ := env.Scope.Get(runenv.EnvKeyDAGRunStepName)
 	assert.Equal(t, "test-step", stepName)
 
 	// Check that PWD is set to DAG's WorkingDir
@@ -762,7 +763,7 @@ func TestNewEnvUsesDAGScopeWhenContextHasInheritedEnv(t *testing.T) {
 
 	childScope := cmnvalue.NewEnvScope(nil, false).WithEntry("VALUE", "child", cmnvalue.EnvSourceDAGEnv)
 	parentScope := cmnvalue.NewEnvScope(nil, false).WithEntry("VALUE", "parent", cmnvalue.EnvSourceStepEnv)
-	ctx := runtime.WithDAGContext(context.Background(), exec.Context{
+	ctx := runtime.WithDAGContext(context.Background(), runctx.Context{
 		DAG:      &ir.DAG{Name: "child"},
 		EnvScope: childScope,
 	})
@@ -792,7 +793,7 @@ func TestNewEnvForStep_WorkingDirectory_DAGEnvExpansion(t *testing.T) {
 		WorkingDir: tempDir,
 		Env:        []string{"MY_SUBDIR=subdir"},
 	}
-	dagCtx := exec.Context{
+	dagCtx := runctx.Context{
 		DAG: dag,
 	}
 	ctx := runtime.WithDAGContext(context.Background(), dagCtx)
@@ -1012,8 +1013,8 @@ func TestEnv_SpecialEnvVars_DAGParamsJSON(t *testing.T) {
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
 
-	assert.Equal(t, `{"a":"b"}`, result[runctx.EnvKeyDAGParamsJSON])
-	assert.Equal(t, `{"a":"b"}`, result[runctx.EnvKeyDAGParamsJSONCompat])
+	assert.Equal(t, `{"a":"b"}`, result[runenv.EnvKeyDAGParamsJSON])
+	assert.Equal(t, `{"a":"b"}`, result[runenv.EnvKeyDAGParamsJSONCompat])
 }
 
 func TestEnv_SpecialEnvVars_DAGDocsDir(t *testing.T) {
@@ -1030,7 +1031,7 @@ func TestEnv_SpecialEnvVars_DAGDocsDir(t *testing.T) {
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
 
-	assert.Equal(t, filepath.Join(docsDir, dag.Name), result[runctx.EnvKeyDAGDocsDir])
+	assert.Equal(t, filepath.Join(docsDir, dag.Name), result[runenv.EnvKeyDAGDocsDir])
 }
 
 func TestEnv_SpecialEnvVars_DAGRunWorkDir(t *testing.T) {
@@ -1046,7 +1047,7 @@ func TestEnv_SpecialEnvVars_DAGRunWorkDir(t *testing.T) {
 	env := runtime.NewEnv(ctx, ir.Step{Name: "step1"})
 	ctx = runtime.WithEnv(ctx, env)
 	result := runtime.AllEnvsMap(ctx)
-	assert.Equal(t, workDir, result[runctx.EnvKeyDAGRunWorkDir])
+	assert.Equal(t, workDir, result[runenv.EnvKeyDAGRunWorkDir])
 }
 
 func TestEnv_DirectCommandOSExpansionDoesNotInjectHostEnv(t *testing.T) {

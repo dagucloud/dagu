@@ -8,10 +8,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 // toolParam represents a parsed parameter definition.
@@ -41,7 +41,7 @@ func NewToolRegistry(ctx context.Context, dagNames []string) (*ToolRegistry, err
 		return nil, nil
 	}
 
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 
 	registry := &ToolRegistry{
 		tools:    make(map[string]*toolInfo),

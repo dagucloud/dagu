@@ -9,11 +9,12 @@ import (
 	"fmt"
 	"maps"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *Node) (context.Context, *incremental.Session, error) {
@@ -27,7 +28,7 @@ func (r *Runner) startIncrementalSession(ctx context.Context, plan *Plan, node *
 	runWorkDir := ""
 	if env.Scope != nil {
 		environment = env.Scope.ToMap()
-		runWorkDir, _ = env.Scope.Get(runctx.EnvKeyDAGRunWorkDir)
+		runWorkDir, _ = env.Scope.Get(runenv.EnvKeyDAGRunWorkDir)
 	}
 	shell, err := env.ResolveShell(ctx)
 	if err != nil {

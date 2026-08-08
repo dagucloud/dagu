@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -41,13 +41,13 @@ func TestNewSubDAGExecutor_LocalDAG(t *testing.T) {
 
 	// Set up the DAG context
 	mockDB := new(mockDatabase)
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         mockDB,
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	// Test creating executor for local DAG
 	executor, err := NewSubDAGExecutor(ctx, "local-child")
@@ -87,13 +87,13 @@ func TestNewSubDAGExecutor_RegularDAG(t *testing.T) {
 
 	// Set up the DAG context
 	mockDB := new(mockDatabase)
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         mockDB,
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	// Mock the database call
 	expectedDAG := &ir.DAG{
@@ -134,13 +134,13 @@ func TestNewSubDAGExecutor_NotFound(t *testing.T) {
 
 	// Set up the DAG context
 	mockDB := new(mockDatabase)
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         mockDB,
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	// Mock the database call to return not found
 	mockDB.On("GetDAG", ctx, "non-existent").Return(nil, assert.AnError)
@@ -166,13 +166,13 @@ func TestNewSubDAGExecutor_NilDB(t *testing.T) {
 	parentDAG := &ir.DAG{Name: "parent"}
 
 	// Set up context with nil DB
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         nil,
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	executor, err := NewSubDAGExecutor(ctx, "child-dag")
 	require.Error(t, err)
@@ -192,13 +192,13 @@ func TestNewSubDAGExecutor_NilDAGReturn(t *testing.T) {
 	parentDAG := &ir.DAG{Name: "parent"}
 
 	mockDB := new(mockDatabase)
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DB:         mockDB,
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	// Mock returns nil DAG with nil error
 	mockDB.On("GetDAG", ctx, "child-dag").Return(nil, nil)
@@ -219,13 +219,13 @@ func TestExecute_NoRunID(t *testing.T) {
 
 	// Set up the DAG context
 	mockDB := new(mockDatabase)
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
 		DB:         mockDB,
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	executor := &SubDAGExecutor{
 		DAG:    &ir.DAG{Name: "test-child"},
@@ -250,13 +250,13 @@ func TestExecute_NoRootDAGRun(t *testing.T) {
 
 	// Set up the DAG context without RootDAGRun
 	mockDB := new(mockDatabase)
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG: &ir.DAG{Name: "parent"},
 		DB:  mockDB,
 		// RootDAGRun is zero value
 		DAGRunID: "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	executor := &SubDAGExecutor{
 		DAG: &ir.DAG{Name: "test-child"},
@@ -274,12 +274,12 @@ func TestExecute_UsesInjectedSubWorkflowRunner(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	runner := &mockSubWorkflowRunner{
 		shouldRun: true,
@@ -322,12 +322,12 @@ func TestRetry_Distributed(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	runner := &mockSubWorkflowRunner{
 		shouldRun: true,
@@ -370,12 +370,12 @@ func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	runner := &mockSubWorkflowRunner{shouldRun: true}
 	executor := &SubDAGExecutor{
@@ -402,12 +402,12 @@ func TestSubDAGExecutor_ExecuteDoesNotDispatchAfterPreRunKill(t *testing.T) {
 func TestSubDAGExecutor_ReuseCanBeKilled(t *testing.T) {
 	t.Parallel()
 
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
 		RootDAGRun: dagrun.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
-	ctx := exec1.WithContext(context.Background(), dagCtx)
+	ctx := runctx.WithContext(context.Background(), dagCtx)
 	started := make(chan struct{})
 	runner := &mockSubWorkflowRunner{
 		shouldRun: true,
@@ -449,12 +449,12 @@ func TestRetry_NoRootDAGRun(t *testing.T) {
 	ctx := context.Background()
 
 	mockDB := new(mockDatabase)
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DAG:      &ir.DAG{Name: "parent"},
 		DB:       mockDB,
 		DAGRunID: "parent-456",
 	}
-	ctx = exec1.WithContext(ctx, dagCtx)
+	ctx = runctx.WithContext(ctx, dagCtx)
 
 	executor := &SubDAGExecutor{
 		DAG:    &ir.DAG{Name: "test-child"},
@@ -514,7 +514,7 @@ func TestCleanup_NonExistentFile(t *testing.T) {
 func TestSubDAGExecutor_Kill_ActiveRunner(t *testing.T) {
 	t.Parallel()
 
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		RootDAGRun: dagrun.NewDAGRunRef("root-dag", "root-run-id"),
 		DAGRunID:   "parent-run-id",
 	}
@@ -545,7 +545,7 @@ func TestSubDAGExecutor_Kill_FallbackDB(t *testing.T) {
 	t.Parallel()
 
 	mockDB := new(mockDatabase)
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DB:         mockDB,
 		RootDAGRun: dagrun.NewDAGRunRef("root-dag", "root-run-id"),
 		DAGRunID:   "parent-run-id",
@@ -578,7 +578,7 @@ func TestSubDAGExecutor_Kill_Empty(t *testing.T) {
 	mockDB := new(mockDatabase)
 
 	// Create a DAG context
-	dagCtx := exec1.Context{
+	dagCtx := runctx.Context{
 		DB:         mockDB,
 		RootDAGRun: dagrun.NewDAGRunRef("root-dag", "root-run-id"),
 		DAGRunID:   "parent-run-id",
@@ -606,7 +606,7 @@ func TestSubDAGExecutor_Kill_Empty(t *testing.T) {
 	mockDB.AssertNotCalled(t, "RequestChildCancel")
 }
 
-var _ exec1.Database = (*mockDatabase)(nil)
+var _ runctx.Database = (*mockDatabase)(nil)
 
 // mockDatabase is a mock implementation of ir.Database
 type mockDatabase struct {

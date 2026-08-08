@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -21,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 // CommandError wraps a command execution error with captured output.
@@ -119,7 +120,7 @@ func filteredParentEnv() []string {
 	env := os.Environ()
 	filtered := env[:0]
 	for _, entry := range env {
-		if strings.HasPrefix(entry, runctx.EnvKeyQueueDispatchRetry+"=") {
+		if strings.HasPrefix(entry, runenv.EnvKeyQueueDispatchRetry+"=") {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -304,7 +305,7 @@ func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 		BuildEnv:   append([]string{}, dag.Env...),
 	}
 	if opts.QueueDispatch {
-		spec.Env = append(spec.Env, runctx.EnvKeyQueueDispatchRetry+"=1")
+		spec.Env = append(spec.Env, runenv.EnvKeyQueueDispatchRetry+"=1")
 	}
 	return spec
 }

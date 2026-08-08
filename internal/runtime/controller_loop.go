@@ -18,9 +18,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 )
 
@@ -277,7 +277,7 @@ func (r *Runner) askUser(
 
 	// Waiting for a person is a root-run capability. A controller running as
 	// somebody's child says so and carries on rather than stalling the parent.
-	if rCtx := exec.GetContext(ctx); rCtx.RootDAGRun.ID != "" &&
+	if rCtx := runctx.GetContext(ctx); rCtx.RootDAGRun.ID != "" &&
 		rCtx.RootDAGRun.ID != rCtx.DAGRunID {
 		state.Append(toolResult(ctx, decision.ToolCallID,
 			"Error: this run is a sub-workflow, so nobody can be asked. "+
@@ -619,7 +619,7 @@ func publishedOutputs(state NodeState) string {
 // declared its outputs, outputsReported suppresses the scraped fallback so
 // intermediate variables stay out of the transcript.
 func childRunSummary(ctx context.Context, childRunID string, outputsReported bool) string {
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	if childRunID == "" || rCtx.DAGRunStore == nil {
 		return ""
 	}

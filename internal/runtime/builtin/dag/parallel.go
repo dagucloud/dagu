@@ -18,10 +18,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	exec1 "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -132,7 +132,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 	pending := make([]scheduledAttempt, 0, len(e.runParamsList))
 	pendingSet := make(map[string]struct{}, len(e.runParamsList))
 	busyRuns := make(map[string]struct{}, len(e.runParamsList))
-	path := exec1.GetContext(ctx).RetryPath
+	path := runctx.GetContext(ctx).RetryPath
 	hop, targeted := path.Current()
 	targeted = targeted && hop.Step == e.step.Name
 	targetFound := false

@@ -11,11 +11,12 @@ import (
 	"testing"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 	store := materialization.New(filepath.Join(t.TempDir(), "materializations"))
 	request := prepareRequest(workingDir, inputPath, outputPath)
 	request.Step.Inputs = append(request.Step.Inputs, ir.StepInputDeclaration{Name: "second", Path: secondInputPath})
-	request.Environment[runctx.EnvKeyDAGRunID] = "run-1"
+	request.Environment[runenv.EnvKeyDAGRunID] = "run-1"
 
 	first, err := incremental.Prepare(ctx, store, request)
 	require.NoError(t, err)
@@ -51,7 +52,7 @@ func TestPrepareCommitAndReuse(t *testing.T) {
 
 	request.DAGRunID = "run-2"
 	request.AttemptID = "attempt-2"
-	request.Environment[runctx.EnvKeyDAGRunID] = "run-2"
+	request.Environment[runenv.EnvKeyDAGRunID] = "run-2"
 	request.Step.Inputs[0], request.Step.Inputs[1] = request.Step.Inputs[1], request.Step.Inputs[0]
 	second, err := incremental.Prepare(ctx, store, request)
 	require.NoError(t, err)

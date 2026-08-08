@@ -12,8 +12,9 @@ import (
 	"sort"
 	"strings"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 const (
@@ -108,18 +109,18 @@ func recipeEnvironment(environment map[string]string, workingDir, runWorkDir str
 }
 
 var volatileRuntimeEnvironment = map[string]bool{
-	runctx.EnvKeyDAGRunID:                      true,
-	runctx.EnvKeyDAGRunLogFile:                 true,
-	runctx.EnvKeyDAGRunStepStdoutFile:          true,
-	runctx.EnvKeyDAGRunStepStderrFile:          true,
-	runctx.EnvKeyDAGUOutputFile:                true,
-	runctx.EnvKeyDAGRunStatus:                  true,
-	runctx.EnvKeyDAGWaitingSteps:               true,
-	runctx.EnvKeyDAGRunWorkDir:                 true,
-	runctx.EnvKeyDAGRunArtifactsDir:            true,
-	runctx.EnvKeyDAGPushBack:                   true,
-	runctx.EnvKeyDAGPushBackIteration:          true,
-	runctx.EnvKeyDAGPushBackPreviousStdoutFile: true,
+	runenv.EnvKeyDAGRunID:                      true,
+	runenv.EnvKeyDAGRunLogFile:                 true,
+	runenv.EnvKeyDAGRunStepStdoutFile:          true,
+	runenv.EnvKeyDAGRunStepStderrFile:          true,
+	runenv.EnvKeyDAGUOutputFile:                true,
+	runenv.EnvKeyDAGRunStatus:                  true,
+	runenv.EnvKeyDAGWaitingSteps:               true,
+	runenv.EnvKeyDAGRunWorkDir:                 true,
+	runenv.EnvKeyDAGRunArtifactsDir:            true,
+	runenv.EnvKeyDAGPushBack:                   true,
+	runenv.EnvKeyDAGPushBackIteration:          true,
+	runenv.EnvKeyDAGPushBackPreviousStdoutFile: true,
 }
 
 func fingerprint(recipeDigest string, inputs []FileSnapshot, controlTokens map[string]string) string {

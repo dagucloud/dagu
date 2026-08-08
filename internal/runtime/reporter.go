@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 // StatusPusher reports DAG run status outside the current execution process.
@@ -25,7 +25,7 @@ type AttemptRejected interface {
 
 // SchedulerLogStreamer streams a completed scheduler log.
 type SchedulerLogStreamer interface {
-	exec.LogWriterFactory
+	runctx.LogWriterFactory
 	NewSchedulerLogWriter(ctx context.Context, localFile *os.File) io.WriteCloser
 	StreamSchedulerLog(ctx context.Context, logFilePath string) error
 }

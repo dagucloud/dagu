@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -20,7 +22,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 // Env holds information about the DAG and the current step to execute
@@ -102,7 +103,7 @@ func NewEnvWithError(ctx context.Context, step ir.Step) (Env, error) {
 func newEnv(ctx context.Context, step ir.Step, rCtx Context, workingDir string) Env {
 	// Build step-specific env vars
 	stepEnvs := map[string]string{
-		runctx.EnvKeyDAGRunStepName: step.Name,
+		runenv.EnvKeyDAGRunStepName: step.Name,
 		"PWD":                       workingDir,
 	}
 
@@ -319,7 +320,7 @@ func dagRunWorkDir(rCtx Context) string {
 	if rCtx.EnvScope == nil {
 		return ""
 	}
-	workDir, ok := rCtx.EnvScope.Get(runctx.EnvKeyDAGRunWorkDir)
+	workDir, ok := rCtx.EnvScope.Get(runenv.EnvKeyDAGRunWorkDir)
 	if !ok {
 		return ""
 	}

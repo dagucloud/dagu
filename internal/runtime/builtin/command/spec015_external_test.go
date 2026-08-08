@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	coreexec "github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	daguruntime "github.com/dagucloud/dagu/v2/internal/runtime"
 	command "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
 	"github.com/stretchr/testify/require"
@@ -125,7 +125,7 @@ func TestSpec015BareShebangInterpreterResolvesFromStepPATH(t *testing.T) {
 		Name:       "spec015-test",
 		WorkingDir: t.TempDir(),
 	}
-	ctx := coreexec.NewContext(context.Background(), dag, "", "")
+	ctx := runctx.NewContext(context.Background(), dag, "", "")
 	env := daguruntime.NewEnv(ctx, ir.Step{Name: "script"})
 	env.Scope = env.Scope.WithEntries(map[string]string{"PATH": dir}, cmnvalue.EnvSourceStepEnv)
 	ctx = daguruntime.WithEnv(ctx, env)
@@ -149,7 +149,7 @@ func TestSpec015BareShebangInterpreterUsesStepPATHEXT(t *testing.T) {
 		Name:       "spec015-test",
 		WorkingDir: t.TempDir(),
 	}
-	ctx := coreexec.NewContext(context.Background(), dag, "", "")
+	ctx := runctx.NewContext(context.Background(), dag, "", "")
 	env := daguruntime.NewEnv(ctx, ir.Step{Name: "script"})
 	env.Scope = env.Scope.WithEntries(map[string]string{
 		"PATH":    dir,

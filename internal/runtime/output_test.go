@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	executorpkg "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
@@ -551,7 +551,7 @@ func newMockLogWriterFactory() *mockLogWriterFactory {
 }
 
 func (m *mockLogWriterFactory) NewStepWriter(_ context.Context, _ string, streamType int) io.WriteCloser {
-	if streamType == exec.StreamTypeStdout {
+	if streamType == runctx.StreamTypeStdout {
 		return m.stdoutWriter
 	}
 	return m.stderrWriter

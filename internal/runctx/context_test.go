@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec_test
+package runctx_test
 
 import (
 	"context"
@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -34,7 +35,7 @@ func TestDAGContext_UserEnvsMap(t *testing.T) {
 				dag := &ir.DAG{
 					Env: []string{"USER_VAR=user_value"},
 				}
-				return exec.NewContext(ctx, dag, "test-run", "test.log")
+				return runctx.NewContext(ctx, dag, "test-run", "test.log")
 			},
 			expected: map[string]string{
 				"USER_VAR": "user_value",
@@ -47,8 +48,8 @@ func TestDAGContext_UserEnvsMap(t *testing.T) {
 					Env: []string{"KEY=from_dag"},
 				}
 				secrets := []string{"KEY=from_secret"}
-				return exec.NewContext(ctx, dag, "test-run", "test.log",
-					exec.WithSecrets(secrets),
+				return runctx.NewContext(ctx, dag, "test-run", "test.log",
+					runctx.WithSecrets(secrets),
 				)
 			},
 			expected: map[string]string{
@@ -62,8 +63,8 @@ func TestDAGContext_UserEnvsMap(t *testing.T) {
 					Env: []string{"DAG_VAR=dag_value"},
 				}
 				secrets := []string{"SECRET_VAR=secret_value"}
-				return exec.NewContext(ctx, dag, "test-run", "test.log",
-					exec.WithSecrets(secrets),
+				return runctx.NewContext(ctx, dag, "test-run", "test.log",
+					runctx.WithSecrets(secrets),
 				)
 			},
 			expected: map[string]string{
@@ -79,7 +80,7 @@ func TestDAGContext_UserEnvsMap(t *testing.T) {
 
 			ctx := context.Background()
 			ctx = tt.setup(ctx)
-			rCtx := exec.GetContext(ctx)
+			rCtx := runctx.GetContext(ctx)
 
 			result := rCtx.UserEnvsMap()
 
@@ -119,17 +120,17 @@ func TestNewContext_DAGParamsJSON(t *testing.T) {
 
 			ctx := context.Background()
 			dag := &ir.DAG{Name: "test-dag", ParamsJSON: tt.paramsJSON}
-			ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
-			rCtx := exec.GetContext(ctx)
+			ctx = runctx.NewContext(ctx, dag, "run-1", "test.log")
+			rCtx := runctx.GetContext(ctx)
 			result := rCtx.UserEnvsMap()
 
 			if tt.expectSet {
-				assert.Equal(t, tt.paramsJSON, result[runctx.EnvKeyDAGParamsJSON])
-				assert.Equal(t, tt.paramsJSON, result[runctx.EnvKeyDAGParamsJSONCompat])
+				assert.Equal(t, tt.paramsJSON, result[runenv.EnvKeyDAGParamsJSON])
+				assert.Equal(t, tt.paramsJSON, result[runenv.EnvKeyDAGParamsJSONCompat])
 			} else {
-				_, ok := result[runctx.EnvKeyDAGParamsJSON]
+				_, ok := result[runenv.EnvKeyDAGParamsJSON]
 				assert.False(t, ok, "DAG_PARAMS_JSON should not be set")
-				_, ok = result[runctx.EnvKeyDAGParamsJSONCompat]
+				_, ok = result[runenv.EnvKeyDAGParamsJSONCompat]
 				assert.False(t, ok, "DAGU_PARAMS_JSON should not be set")
 			}
 		})
@@ -181,14 +182,14 @@ func TestNewContext_DAGDocsDir(t *testing.T) {
 			cfg.Paths.DocsDir = tt.docsDir
 			ctx := config.WithConfig(context.Background(), cfg)
 			dag := &ir.DAG{Name: "test-dag", Labels: ir.NewLabels(tt.labels)}
-			ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
-			rCtx := exec.GetContext(ctx)
+			ctx = runctx.NewContext(ctx, dag, "run-1", "test.log")
+			rCtx := runctx.GetContext(ctx)
 			result := rCtx.UserEnvsMap()
 
 			if tt.expectSet {
-				assert.Equal(t, tt.expected, result[runctx.EnvKeyDAGDocsDir])
+				assert.Equal(t, tt.expected, result[runenv.EnvKeyDAGDocsDir])
 			} else {
-				_, ok := result[runctx.EnvKeyDAGDocsDir]
+				_, ok := result[runenv.EnvKeyDAGDocsDir]
 				assert.False(t, ok, "DAG_DOCS_DIR should not be set")
 			}
 		})
@@ -200,11 +201,11 @@ func TestNewContext_DAGDocsDirRequiresConfig(t *testing.T) {
 
 	ctx := context.Background()
 	dag := &ir.DAG{Name: "test-dag"}
-	ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
-	rCtx := exec.GetContext(ctx)
+	ctx = runctx.NewContext(ctx, dag, "run-1", "test.log")
+	rCtx := runctx.GetContext(ctx)
 	result := rCtx.UserEnvsMap()
 
-	_, ok := result[runctx.EnvKeyDAGDocsDir]
+	_, ok := result[runenv.EnvKeyDAGDocsDir]
 	assert.False(t, ok, "DAG_DOCS_DIR should not be set when no config is in context")
 }
 
@@ -224,17 +225,17 @@ func TestNewContext_DAGRunWorkDir(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			dag := &ir.DAG{Name: "test-dag"}
-			var opts []exec.ContextOption
+			var opts []runctx.ContextOption
 			if tt.workDir != "" {
-				opts = append(opts, exec.WithWorkDir(tt.workDir))
+				opts = append(opts, runctx.WithWorkDir(tt.workDir))
 			}
-			ctx = exec.NewContext(ctx, dag, "run-1", "test.log", opts...)
-			rCtx := exec.GetContext(ctx)
+			ctx = runctx.NewContext(ctx, dag, "run-1", "test.log", opts...)
+			rCtx := runctx.GetContext(ctx)
 			result := rCtx.UserEnvsMap()
 			if tt.expectSet {
-				assert.Equal(t, tt.workDir, result[runctx.EnvKeyDAGRunWorkDir])
+				assert.Equal(t, tt.workDir, result[runenv.EnvKeyDAGRunWorkDir])
 			} else {
-				_, ok := result[runctx.EnvKeyDAGRunWorkDir]
+				_, ok := result[runenv.EnvKeyDAGRunWorkDir]
 				assert.False(t, ok, "DAG_RUN_WORK_DIR should not be set")
 			}
 		})
@@ -258,17 +259,17 @@ func TestNewContext_DAGRunArtifactsDir(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			dag := &ir.DAG{Name: "test-dag"}
-			var opts []exec.ContextOption
+			var opts []runctx.ContextOption
 			if tt.artifactDir != "" {
-				opts = append(opts, exec.WithArtifactDir(tt.artifactDir))
+				opts = append(opts, runctx.WithArtifactDir(tt.artifactDir))
 			}
-			ctx = exec.NewContext(ctx, dag, "run-1", "test.log", opts...)
-			rCtx := exec.GetContext(ctx)
+			ctx = runctx.NewContext(ctx, dag, "run-1", "test.log", opts...)
+			rCtx := runctx.GetContext(ctx)
 			result := rCtx.UserEnvsMap()
 			if tt.expectSet {
-				assert.Equal(t, tt.artifactDir, result[runctx.EnvKeyDAGRunArtifactsDir])
+				assert.Equal(t, tt.artifactDir, result[runenv.EnvKeyDAGRunArtifactsDir])
 			} else {
-				_, ok := result[runctx.EnvKeyDAGRunArtifactsDir]
+				_, ok := result[runenv.EnvKeyDAGRunArtifactsDir]
 				assert.False(t, ok, "DAG_RUN_ARTIFACTS_DIR should not be set")
 			}
 		})
@@ -290,14 +291,14 @@ func TestNewContext_DAGEnvCanReferenceRuntimeManagedDirs(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = exec.NewContext(ctx, dag, "run-1", "test.log",
-		exec.WithArtifactDir(artifactDir),
+	ctx = runctx.NewContext(ctx, dag, "run-1", "test.log",
+		runctx.WithArtifactDir(artifactDir),
 	)
 
-	result := exec.GetContext(ctx).UserEnvsMap()
+	result := runctx.GetContext(ctx).UserEnvsMap()
 	assert.Equal(t, artifactDir, result["WORK_DIR"])
 	assert.Equal(t, filepath.Join(artifactDir, "current_idea.md"), filepath.Clean(result["CURRENT_IDEA_PATH"]))
-	assert.Equal(t, artifactDir, result[runctx.EnvKeyDAGRunArtifactsDir])
+	assert.Equal(t, artifactDir, result[runenv.EnvKeyDAGRunArtifactsDir])
 }
 
 func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
@@ -331,19 +332,19 @@ func TestNewContext_DAGEnvCanReferenceBuiltInRunContext(t *testing.T) {
 		},
 	}
 
-	ctx := exec.NewContext(context.Background(), dag, "run-1", logFile,
-		exec.WithAttemptID("attempt-1"),
-		exec.WithRootDAGRun(dagrun.NewDAGRunRef("root", "root-run-1")),
-		exec.WithTriggerType(ir.TriggerTypeScheduler),
-		exec.WithTriggerActor("alice"),
-		exec.WithRunStartedAt(startedAt),
-		exec.WithScheduleTime(scheduledAt),
-		exec.WithWorkDir(workDir),
-		exec.WithArtifactDir(artifactDir),
-		exec.WithRuntimeProfile("prod", profileResolvedAt, nil),
+	ctx := runctx.NewContext(context.Background(), dag, "run-1", logFile,
+		runctx.WithAttemptID("attempt-1"),
+		runctx.WithRootDAGRun(dagrun.NewDAGRunRef("root", "root-run-1")),
+		runctx.WithTriggerType(ir.TriggerTypeScheduler),
+		runctx.WithTriggerActor("alice"),
+		runctx.WithRunStartedAt(startedAt),
+		runctx.WithScheduleTime(scheduledAt),
+		runctx.WithWorkDir(workDir),
+		runctx.WithArtifactDir(artifactDir),
+		runctx.WithRuntimeProfile("prod", profileResolvedAt, nil),
 	)
 
-	envs := exec.GetContext(ctx).UserEnvsMap()
+	envs := runctx.GetContext(ctx).UserEnvsMap()
 	assert.Equal(t, "daily", envs["DAG_REF"])
 	assert.Equal(t, "run-1", envs["RUN_REF"])
 	assert.Equal(t, "attempt-1", envs["ATTEMPT_REF"])
@@ -371,11 +372,11 @@ func TestNewContext_DAGEnvDoesNotExposeRootFieldsForRootRun(t *testing.T) {
 		},
 	}
 
-	ctx := exec.NewContext(context.Background(), dag, "run-1", "dag.log",
-		exec.WithRootDAGRun(dagrun.NewDAGRunRef("root", "run-1")),
+	ctx := runctx.NewContext(context.Background(), dag, "run-1", "dag.log",
+		runctx.WithRootDAGRun(dagrun.NewDAGRunRef("root", "run-1")),
 	)
 
-	envs := exec.GetContext(ctx).UserEnvsMap()
+	envs := runctx.GetContext(ctx).UserEnvsMap()
 	assert.Equal(t, "${context.run.root_name}", envs["ROOT_NAME_REF"])
 	assert.Equal(t, "${context.run.root_id}", envs["ROOT_ID_REF"])
 }
@@ -395,11 +396,11 @@ func TestNewContext_DAGEnvUsesRuntimeParamsOption(t *testing.T) {
 		},
 	}
 
-	ctx := exec.NewContext(context.Background(), dag, "run-1", "test.log",
-		exec.WithParams([]string{"target=runtime"}),
+	ctx := runctx.NewContext(context.Background(), dag, "run-1", "test.log",
+		runctx.WithParams([]string{"target=runtime"}),
 	)
 
-	result := exec.GetContext(ctx).UserEnvsMap()
+	result := runctx.GetContext(ctx).UserEnvsMap()
 	assert.Equal(t, "runtime", result["TARGET"])
 }
 
@@ -420,11 +421,11 @@ func TestNewContext_DAGEnvOverridesParamsCaseInsensitiveOnWindows(t *testing.T) 
 		},
 	}
 
-	ctx := exec.NewContext(context.Background(), dag, "run-1", "test.log",
-		exec.WithParams([]string{"target=runtime"}),
+	ctx := runctx.NewContext(context.Background(), dag, "run-1", "test.log",
+		runctx.WithParams([]string{"target=runtime"}),
 	)
 
-	result := exec.GetContext(ctx).UserEnvsMap()
+	result := runctx.GetContext(ctx).UserEnvsMap()
 	assert.Equal(t, "runtime", result["TARGET"])
 	assert.NotContains(t, result, "target")
 }
@@ -441,13 +442,13 @@ func TestNewContext_DefaultProfileEnvsHaveLowestUserPrecedence(t *testing.T) {
 		},
 	}
 
-	ctx := exec.NewContext(context.Background(), dag, "run-1", "test.log",
-		exec.WithDefaultEnvVars("DEFAULT_ONLY=global", "SHARED=global"),
-		exec.WithDefaultSecrets([]string{"SECRET_ONLY=default-secret", "SECRET_SHARED=default-secret"}),
-		exec.WithEnvVars("SHARED=selected-profile", "SECRET_SHARED=selected-profile"),
+	ctx := runctx.NewContext(context.Background(), dag, "run-1", "test.log",
+		runctx.WithDefaultEnvVars("DEFAULT_ONLY=global", "SHARED=global"),
+		runctx.WithDefaultSecrets([]string{"SECRET_ONLY=default-secret", "SECRET_SHARED=default-secret"}),
+		runctx.WithEnvVars("SHARED=selected-profile", "SECRET_SHARED=selected-profile"),
 	)
 
-	result := exec.GetContext(ctx).UserEnvsMap()
+	result := runctx.GetContext(ctx).UserEnvsMap()
 	assert.Equal(t, "global", result["DEFAULT_ONLY"])
 	assert.Equal(t, "global", result["FROM_DEFAULT"])
 	assert.Equal(t, "selected-profile", result["SHARED"])
@@ -472,8 +473,8 @@ func TestNewContext_AllEnvsUsesFilteredBaseEnv(t *testing.T) {
 		Env:  []string{"DAG_VAR=dag"},
 	}
 
-	ctx = exec.NewContext(ctx, dag, "run-1", "test.log")
-	rCtx := exec.GetContext(ctx)
+	ctx = runctx.NewContext(ctx, dag, "run-1", "test.log")
+	rCtx := runctx.GetContext(ctx)
 	envs := rCtx.AllEnvs()
 
 	assert.Contains(t, envs, "PATH=/usr/bin:/bin")

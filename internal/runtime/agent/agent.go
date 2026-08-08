@@ -38,7 +38,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/telemetry"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
@@ -49,6 +48,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/s3"
@@ -214,7 +214,7 @@ type Agent struct {
 
 	// logWriterFactory is used to create log writers for step output.
 	// When nil, logs are written to local filesystem.
-	logWriterFactory exec.LogWriterFactory
+	logWriterFactory runctx.LogWriterFactory
 
 	// scheduleTime is the RFC 3339 timestamp of when this run was scheduled.
 	// Set by the scheduler for cron-triggered runs; empty for manual runs.
@@ -318,7 +318,7 @@ type Options struct {
 	SubWorkflowRunnerFactory SubWorkflowRunnerFactory
 	// LogWriterFactory is used to create log writers for step output.
 	// When nil, logs are written to local filesystem.
-	LogWriterFactory exec.LogWriterFactory
+	LogWriterFactory runctx.LogWriterFactory
 	// QueuedRun indicates this execution is from a queued item.
 	// When true, the agent will find the existing dag-run (created by enqueue)
 	// instead of creating a new one. This is used for distributed execution

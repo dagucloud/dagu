@@ -1,15 +1,16 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package exec
+package runctx
 
 import (
 	"context"
 	"path/filepath"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -23,22 +24,22 @@ func buildManagedDAGRunEnvs(
 	options *contextOptions,
 ) map[string]string {
 	envs := map[string]string{
-		runctx.EnvKeyDAGRunLogFile: logFile,
-		runctx.EnvKeyDAGRunID:      dagRunID,
-		runctx.EnvKeyDAGName:       dag.Name,
+		runenv.EnvKeyDAGRunLogFile: logFile,
+		runenv.EnvKeyDAGRunID:      dagRunID,
+		runenv.EnvKeyDAGName:       dag.Name,
 	}
 	if docsDir := dagDocsDir(ctx, dag); docsDir != "" {
-		envs[runctx.EnvKeyDAGDocsDir] = docsDir
+		envs[runenv.EnvKeyDAGDocsDir] = docsDir
 	}
 	if options.workDir != "" {
-		envs[runctx.EnvKeyDAGRunWorkDir] = options.workDir
+		envs[runenv.EnvKeyDAGRunWorkDir] = options.workDir
 	}
 	if options.artifactDir != "" {
-		envs[runctx.EnvKeyDAGRunArtifactsDir] = options.artifactDir
+		envs[runenv.EnvKeyDAGRunArtifactsDir] = options.artifactDir
 	}
 	if dag.ParamsJSON != "" {
-		envs[runctx.EnvKeyDAGParamsJSON] = dag.ParamsJSON
-		envs[runctx.EnvKeyDAGParamsJSONCompat] = dag.ParamsJSON
+		envs[runenv.EnvKeyDAGParamsJSON] = dag.ParamsJSON
+		envs[runenv.EnvKeyDAGParamsJSONCompat] = dag.ParamsJSON
 	}
 	return envs
 }

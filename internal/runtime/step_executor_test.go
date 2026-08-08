@@ -14,8 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -129,7 +129,7 @@ type flushObservingLogWriterFactory struct {
 }
 
 func (f *flushObservingLogWriterFactory) NewStepWriter(_ context.Context, _ string, streamType int) io.WriteCloser {
-	if streamType == exec.StreamTypeStdout {
+	if streamType == runctx.StreamTypeStdout {
 		return f.stdout
 	}
 	return &flushObservingWriter{}

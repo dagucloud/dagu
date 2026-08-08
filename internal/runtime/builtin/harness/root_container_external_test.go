@@ -7,8 +7,9 @@ import (
 	"context"
 	"testing"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
 	"github.com/stretchr/testify/assert"
@@ -54,22 +55,22 @@ func TestRunOnce_RootContainerStdinProviderRejectedBeforeSharedClientLookup(t *t
 func TestSharedContainerHarnessEnvForTest_FiltersHostPathRuntimeVariables(t *testing.T) {
 	got := harness.SharedContainerHarnessEnvForTest(map[string]string{
 		"API_TOKEN":                                "secret",
-		runctx.EnvKeyDAGName:                       "workflow",
-		runctx.EnvKeyDAGDocsDir:                    "/host/docs/workflow",
-		runctx.EnvKeyDAGRunID:                      "run-1",
-		runctx.EnvKeyDAGRunWorkDir:                 "/host/work",
-		runctx.EnvKeyDAGRunLogFile:                 "/host/log/main.log",
-		runctx.EnvKeyDAGRunArtifactsDir:            "/host/artifacts",
-		runctx.EnvKeyDAGRunStepStdoutFile:          "/host/log/stdout.log",
-		runctx.EnvKeyDAGRunStepStderrFile:          "/host/log/stderr.log",
-		runctx.EnvKeyDAGPushBackPreviousStdoutFile: "/host/log/previous.log",
+		runenv.EnvKeyDAGName:                       "workflow",
+		runenv.EnvKeyDAGDocsDir:                    "/host/docs/workflow",
+		runenv.EnvKeyDAGRunID:                      "run-1",
+		runenv.EnvKeyDAGRunWorkDir:                 "/host/work",
+		runenv.EnvKeyDAGRunLogFile:                 "/host/log/main.log",
+		runenv.EnvKeyDAGRunArtifactsDir:            "/host/artifacts",
+		runenv.EnvKeyDAGRunStepStdoutFile:          "/host/log/stdout.log",
+		runenv.EnvKeyDAGRunStepStderrFile:          "/host/log/stderr.log",
+		runenv.EnvKeyDAGPushBackPreviousStdoutFile: "/host/log/previous.log",
 		"PWD": "/host/work",
 	})
 
 	assert.Equal(t, []string{
 		"API_TOKEN=secret",
-		runctx.EnvKeyDAGName + "=workflow",
-		runctx.EnvKeyDAGRunID + "=run-1",
+		runenv.EnvKeyDAGName + "=workflow",
+		runenv.EnvKeyDAGRunID + "=run-1",
 	}, got)
 }
 

@@ -9,11 +9,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 )
 
 const (
@@ -241,7 +241,7 @@ func resolveChildDAG(ctx context.Context, dag *ir.DAG, name string) *ir.DAG {
 		return local
 	}
 
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	if rCtx.DB == nil {
 		return nil
 	}

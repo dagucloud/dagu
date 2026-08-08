@@ -15,8 +15,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -44,7 +44,7 @@ func isLogStreamingNotConfigured(err error) bool {
 		strings.Contains(st.Message(), "log streaming not configured")
 }
 
-var _ exec.LogWriterFactory = (*LogStreamer)(nil)
+var _ runctx.LogWriterFactory = (*LogStreamer)(nil)
 var _ runtime.SchedulerLogStreamer = (*LogStreamer)(nil)
 
 // LogStreamer streams logs to coordinator via gRPC
@@ -514,9 +514,9 @@ func (w *stepLogWriter) Close() error {
 // toProtoStreamType converts streamType int to proto LogStreamType
 func toProtoStreamType(streamType int) coordinatorv1.LogStreamType {
 	switch streamType {
-	case exec.StreamTypeStdout:
+	case runctx.StreamTypeStdout:
 		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT
-	case exec.StreamTypeStderr:
+	case runctx.StreamTypeStderr:
 		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR
 	default:
 		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED

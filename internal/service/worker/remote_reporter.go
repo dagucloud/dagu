@@ -14,9 +14,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
@@ -222,7 +222,7 @@ func (r *remoteRunReporter) schedulerLogEntry(meta remoteRunMetadata, logFile st
 
 func (r *remoteRunReporter) metadataFromContext(ctx context.Context) remoteRunMetadata {
 	meta := r.defaultMetadata()
-	if rCtx, ok := exec.LookupContext(ctx); ok {
+	if rCtx, ok := runctx.LookupContext(ctx); ok {
 		dagName := ""
 		if rCtx.DAG != nil {
 			dagName = rCtx.DAG.Name

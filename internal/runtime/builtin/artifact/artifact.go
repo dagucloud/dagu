@@ -20,11 +20,12 @@ import (
 	"sync"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -138,11 +139,11 @@ func stepOperation(step ir.Step) string {
 func artifactDirFromContext(ctx context.Context) (string, error) {
 	env := runtime.GetEnv(ctx)
 	if env.Scope == nil {
-		return "", fmt.Errorf("%w: %s is not set; enable artifacts for this DAG", errConfig, runctx.EnvKeyDAGRunArtifactsDir)
+		return "", fmt.Errorf("%w: %s is not set; enable artifacts for this DAG", errConfig, runenv.EnvKeyDAGRunArtifactsDir)
 	}
-	artifactDir, ok := env.Scope.Get(runctx.EnvKeyDAGRunArtifactsDir)
+	artifactDir, ok := env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
 	if !ok || strings.TrimSpace(artifactDir) == "" {
-		return "", fmt.Errorf("%w: %s is not set; enable artifacts for this DAG", errConfig, runctx.EnvKeyDAGRunArtifactsDir)
+		return "", fmt.Errorf("%w: %s is not set; enable artifacts for this DAG", errConfig, runenv.EnvKeyDAGRunArtifactsDir)
 	}
 	return artifactDir, nil
 }
@@ -412,7 +413,7 @@ func (e *executorImpl) resolveExistingPath(raw string, allowRoot bool) (artifact
 func (e *executorImpl) prepareRoot() (string, error) {
 	rootRaw := strings.TrimSpace(e.artifactDir)
 	if rootRaw == "" {
-		return "", fmt.Errorf("%w: %s is not set", errConfig, runctx.EnvKeyDAGRunArtifactsDir)
+		return "", fmt.Errorf("%w: %s is not set", errConfig, runenv.EnvKeyDAGRunArtifactsDir)
 	}
 	root, err := filepath.Abs(rootRaw)
 	if err != nil {

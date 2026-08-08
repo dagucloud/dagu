@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/log"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +22,7 @@ import (
 func TestEvalExecutorConfig_TemplateTreatsOmittedOptionalParamsAsEmpty(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
 		&ir.DAG{
 			Name: "test-dag",
@@ -33,7 +33,7 @@ func TestEvalExecutorConfig_TemplateTreatsOmittedOptionalParamsAsEmpty(t *testin
 		},
 		"",
 		"",
-		exec.WithParams([]string{"name=tom"}),
+		runctx.WithParams([]string{"name=tom"}),
 	)
 	env := NewEnv(ctx, ir.Step{Name: "render"})
 	ctx = WithEnv(ctx, env)
@@ -63,7 +63,7 @@ func TestEvalExecutorConfig_TemplateTreatsOmittedOptionalParamsAsEmpty(t *testin
 func TestEvalExecutorConfig_TemplatePreservesLiteralCodeFencesInData(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
 		&ir.DAG{Name: "test-dag"},
 		"",
@@ -95,7 +95,7 @@ func TestEvalExecutorConfig_TemplatePreservesLiteralCodeFencesInData(t *testing.
 func TestEvalExecutorConfig_TemplateReferenceResolvesOnce(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
 		&ir.DAG{Name: "test-dag"},
 		"",
@@ -125,7 +125,7 @@ func TestEvalExecutorConfig_TemplateReferenceResolvesOnce(t *testing.T) {
 func TestEvalExecutorConfig_TemplateReferenceMustResolve(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
 		&ir.DAG{Name: "test-dag"},
 		"",
@@ -151,7 +151,7 @@ func TestEvalExecutorConfig_TemplateReferenceMustResolve(t *testing.T) {
 func TestEvalExecutorConfig_DefaultPreservesLiteralCodeFencesInData(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
 		&ir.DAG{Name: "test-dag"},
 		"",
@@ -179,7 +179,7 @@ func TestEvalExecutorConfig_DefaultPreservesLiteralCodeFencesInData(t *testing.T
 func TestEvalExecutorConfig_ExpandsStepOutputsReferences(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
 		&ir.DAG{Name: "test-dag"},
 		"",

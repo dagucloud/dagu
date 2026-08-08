@@ -13,10 +13,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -421,7 +421,7 @@ func chatRuntimeContext(t *testing.T, params []string) context.Context {
 		name, _, _ := strings.Cut(param, "=")
 		dag.ParamDefs = append(dag.ParamDefs, ir.ParamDef{Name: name, Type: ir.ParamDefTypeString})
 	}
-	ctx := exec.NewContext(context.Background(), dag, "run-1", "/tmp/log")
+	ctx := runctx.NewContext(context.Background(), dag, "run-1", "/tmp/log")
 	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, ir.Step{Name: "test"}))
 }
 
@@ -751,8 +751,8 @@ func createContextWithSecrets(secrets map[string]string) context.Context {
 	for k, v := range secrets {
 		secretEnvs = append(secretEnvs, k+"="+v)
 	}
-	return exec.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1", "/tmp/log",
-		exec.WithSecrets(secretEnvs))
+	return runctx.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1", "/tmp/log",
+		runctx.WithSecrets(secretEnvs))
 }
 
 func TestMaskSecretsForProvider(t *testing.T) {

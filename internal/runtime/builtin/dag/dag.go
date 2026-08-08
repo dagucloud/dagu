@@ -15,10 +15,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -146,7 +146,7 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 
 	var result *dagrun.RunStatus
 	var execErr error
-	path := exec.GetContext(ctx).RetryPath
+	path := runctx.GetContext(ctx).RetryPath
 	if hop, ok := path.Current(); ok && hop.Step == e.step.Name {
 		if hop.RunID != e.runParams.RunID {
 			return errTargetRunMissing(hop.RunID, e.step.Name)

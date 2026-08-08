@@ -16,10 +16,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
@@ -52,7 +52,7 @@ type SubDAGExecutor struct {
 
 	mu         sync.Mutex
 	activeRuns map[string]context.CancelFunc // runID -> cancel active runner wait
-	dagCtx     exec.Context
+	dagCtx     runctx.Context
 
 	// killed should be closed when Kill is called
 	killed     chan struct{}
@@ -72,7 +72,7 @@ type WorkspaceSeed struct {
 // It handles the logic for finding the DAG - either from the database
 // or from local DAGs defined in the parent.
 func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, error) {
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 
 	// First, check if it's a local DAG in the parent
 	if rCtx.DAG != nil && rCtx.DAG.LocalDAGs != nil {
@@ -119,11 +119,11 @@ func NewSubDAGExecutorForDAG(ctx context.Context, dag *ir.DAG) (*SubDAGExecutor,
 	if dag == nil {
 		return nil, fmt.Errorf("sub DAG is required")
 	}
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	return newSubDAGExecutor(ctx, rCtx, dag, ""), nil
 }
 
-func newSubDAGExecutor(ctx context.Context, rCtx exec.Context, dag *ir.DAG, tempFile string) *SubDAGExecutor {
+func newSubDAGExecutor(ctx context.Context, rCtx runctx.Context, dag *ir.DAG, tempFile string) *SubDAGExecutor {
 	subWorkflowRunner, _ := SubWorkflowRunnerFromContext(ctx)
 	return &SubDAGExecutor{
 		DAG:               dag,
@@ -279,7 +279,7 @@ func validateSubWorkflowRequest(req SubWorkflowRequest) error {
 }
 
 func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunParams, workDir string) SubWorkflowRequest {
-	rCtx := exec.GetContext(ctx)
+	rCtx := runctx.GetContext(ctx)
 	var parent dagrun.DAGRunRef
 	if rCtx.DAG != nil {
 		parent = rCtx.DAGRunRef()

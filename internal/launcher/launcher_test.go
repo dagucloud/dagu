@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
-	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
@@ -721,14 +722,14 @@ func TestRetry(t *testing.T) {
 		t.Parallel()
 		spec := builder.Retry(dag, launcher.RetryOptions{DAGRunID: "retry-run-id"})
 
-		assert.NotContains(t, spec.Env, runctx.EnvKeyQueueDispatchRetry+"=1")
+		assert.NotContains(t, spec.Env, runenv.EnvKeyQueueDispatchRetry+"=1")
 	})
 
 	t.Run("RetryStripsInheritedQueueDispatchMarker", func(t *testing.T) {
-		t.Setenv(runctx.EnvKeyQueueDispatchRetry, "1")
+		t.Setenv(runenv.EnvKeyQueueDispatchRetry, "1")
 		spec := builder.Retry(dag, launcher.RetryOptions{DAGRunID: "retry-run-id"})
 
-		assert.NotContains(t, spec.Env, runctx.EnvKeyQueueDispatchRetry+"=1")
+		assert.NotContains(t, spec.Env, runenv.EnvKeyQueueDispatchRetry+"=1")
 	})
 
 	t.Run("RetryWithoutConfig", func(t *testing.T) {

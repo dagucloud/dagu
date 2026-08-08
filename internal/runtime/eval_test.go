@@ -8,15 +8,15 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func setupTestContext() context.Context {
-	return exec.NewContext(
+	return runctx.NewContext(
 		context.Background(),
 		&ir.DAG{Name: "test-dag"},
 		"", // dagRunID
@@ -347,7 +347,7 @@ func TestEvalObjectWithExecutorConfig(t *testing.T) {
 func TestEvalObjectWithExecutorConfig_PreservesUnresolvedPlaceholderWhenOptionalParamIsOmitted(t *testing.T) {
 	t.Parallel()
 
-	ctx := exec.NewContext(
+	ctx := runctx.NewContext(
 		context.Background(),
 		&ir.DAG{
 			Name: "test-dag",

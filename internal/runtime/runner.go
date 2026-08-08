@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/incremental"
@@ -25,7 +27,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -250,7 +251,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 			)
 
 			if err := r.runEventHandler(ctx, plan, handlerNode, map[string]string{
-				runctx.EnvKeyDAGWaitingSteps: waitingSteps,
+				runenv.EnvKeyDAGWaitingSteps: waitingSteps,
 			}); err != nil {
 				// Log error but don't fail - notification failure shouldn't block Wait status
 				logger.Error(ctx, "onWait handler failed", tag.Error(err))
@@ -698,9 +699,9 @@ func (r *Runner) setupNodeExecutionEnv(ctx context.Context, node *Node) context.
 	for k, v := range filteredInputs {
 		env = env.WithEnvVars(k, v)
 	}
-	env = env.WithEnvVars(runctx.EnvKeyDAGPushBackIteration, strconv.Itoa(state.ApprovalIteration))
+	env = env.WithEnvVars(runenv.EnvKeyDAGPushBackIteration, strconv.Itoa(state.ApprovalIteration))
 	if state.PushBackPreviousStdout != "" {
-		env = env.WithEnvVars(runctx.EnvKeyDAGPushBackPreviousStdoutFile, state.PushBackPreviousStdout)
+		env = env.WithEnvVars(runenv.EnvKeyDAGPushBackPreviousStdoutFile, state.PushBackPreviousStdout)
 	}
 
 	if approval != nil && len(filteredInputs) != len(state.PushBackInputs) {
@@ -716,7 +717,7 @@ func (r *Runner) setupNodeExecutionEnv(ctx context.Context, node *Node) context.
 	if err != nil {
 		logger.Warn(ctx, "Failed to marshal push-back payload", tag.Error(err))
 	} else if payload != "" {
-		env = env.WithEnvVars(runctx.EnvKeyDAGPushBack, payload)
+		env = env.WithEnvVars(runenv.EnvKeyDAGPushBack, payload)
 	}
 
 	return WithEnv(ctx, env)
@@ -981,7 +982,7 @@ func (r *Runner) setupEnvironEventHandler(
 
 	// Add DAG_RUN_STATUS to scope
 	env.Scope = env.Scope.WithEntry(
-		runctx.EnvKeyDAGRunStatus,
+		runenv.EnvKeyDAGRunStatus,
 		r.Status(ctx, plan).String(),
 		cmnvalue.EnvSourceStepEnv,
 	)
@@ -1585,12 +1586,12 @@ func (r *Runner) finishNode(node *Node, wg *sync.WaitGroup) {
 }
 
 func externalStepRetryEnabled(ctx context.Context) bool {
-	if os.Getenv(runctx.EnvKeyExternalStepRetry) != "" {
+	if os.Getenv(runenv.EnvKeyExternalStepRetry) != "" {
 		return true
 	}
 
-	rCtx := exec.GetContext(ctx)
-	if value, ok := rCtx.UserEnvsMap()[runctx.EnvKeyExternalStepRetry]; ok {
+	rCtx := runctx.GetContext(ctx)
+	if value, ok := rCtx.UserEnvsMap()[runenv.EnvKeyExternalStepRetry]; ok {
 		return value != ""
 	}
 	return false

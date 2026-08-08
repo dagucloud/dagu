@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -123,8 +123,8 @@ func TestToProtoStreamType(t *testing.T) {
 		input    int
 		expected coordinatorv1.LogStreamType
 	}{
-		{"stdout", exec.StreamTypeStdout, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT},
-		{"stderr", exec.StreamTypeStderr, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR},
+		{"stdout", runctx.StreamTypeStdout, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT},
+		{"stderr", runctx.StreamTypeStderr, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR},
 		{"unknown", 999, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED},
 	}
 	for _, tt := range tests {
@@ -163,7 +163,7 @@ func TestLogStreamer_FinalChunksIncludeOwnerCoordinatorID(t *testing.T) {
 	owner := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}
 	streamer := coordreport.NewLogStreamer(stepClient, "worker-1", "run-123", "test-dag", "attempt-1", dagrun.DAGRunRef{}, owner)
 
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 	_, err := stepWriter.Write([]byte("hello"))
 	require.NoError(t, err)
 	require.NoError(t, stepWriter.Close())
@@ -248,14 +248,14 @@ func TestNewStepWriter(t *testing.T) {
 	}
 	streamer := coordreport.NewLogStreamer(client, "worker-1", "run-123", "test-dag", "attempt-1", dagrun.DAGRunRef{})
 
-	writer := streamer.NewStepWriter(context.Background(), "step1", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step1", runctx.StreamTypeStdout)
 
 	require.NotNil(t, writer)
 	stepWriter, ok := writer.(*coordreport.StepLogWriter)
 	require.True(t, ok)
 	snapshot := coordreport.SnapshotStepLogWriter(stepWriter)
 	assert.Equal(t, "step1", snapshot.StepName)
-	assert.Equal(t, exec.StreamTypeStdout, snapshot.StreamType)
+	assert.Equal(t, runctx.StreamTypeStdout, snapshot.StreamType)
 	assert.Equal(t, streamer, snapshot.Streamer)
 	assert.False(t, snapshot.Closed)
 	assert.False(t, snapshot.StreamInitFailed)
@@ -270,7 +270,7 @@ func TestWrite_SmallData(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Write small data (< 32KB)
 	data := []byte("small log message")
@@ -292,7 +292,7 @@ func TestFlush_SmallDataBeforeClose(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	data := []byte("small log message")
 	_, err := writer.Write(data)
@@ -325,7 +325,7 @@ func TestFlushIfDue_SmallDataWhileOpen(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 	defer func() { require.NoError(t, writer.Close()) }()
 
 	data := []byte("small log message")
@@ -352,7 +352,7 @@ func TestWrite_ExactThreshold(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Write exactly the buffer threshold to trigger flush.
 	data := make([]byte, coordreport.LogBufferSize)
@@ -380,7 +380,7 @@ func TestWrite_LargeData(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Write data larger than buffer (64KB)
 	data := make([]byte, 64*1024)
@@ -406,7 +406,7 @@ func TestWrite_MultipleSmallWrites(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Multiple small writes that accumulate to >= threshold
 	smallData := make([]byte, 8*1024) // 8KB each
@@ -435,7 +435,7 @@ func TestWrite_AfterClose(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Close the writer
 	err := writer.Close()
@@ -458,7 +458,7 @@ func TestWrite_FlushError_Continues(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Write enough to trigger flush (which will fail)
 	data := make([]byte, coordreport.LogBufferSize)
@@ -480,7 +480,7 @@ func TestWrite_FlushError_ClearsBuffer(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 	stepWriter := writer.(*coordreport.StepLogWriter)
 
 	// Write enough to trigger flush
@@ -501,7 +501,7 @@ func TestFlush_EmptyBuffer(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	result := coordreport.FlushStepLogWriterWithBuffer(stepWriter, nil)
 
@@ -520,7 +520,7 @@ func TestFlush_StreamInitSuccess(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	result := coordreport.FlushStepLogWriterWithBuffer(stepWriter, []byte("test data"))
 
@@ -538,7 +538,7 @@ func TestFlush_StreamInitFailure(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	result := coordreport.FlushStepLogWriterWithBuffer(stepWriter, []byte("test data"))
 
@@ -557,7 +557,7 @@ func TestFlush_AfterInitFailure(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	// First flush triggers init failure.
 	_ = coordreport.FlushStepLogWriterWithBuffer(stepWriter, []byte("data1"))
@@ -579,7 +579,7 @@ func TestFlush_SendSuccess(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	result := coordreport.FlushStepLogWriterWithBuffer(stepWriter, []byte("test data"))
 
@@ -598,7 +598,7 @@ func TestFlush_SendFailure(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	result := coordreport.FlushStepLogWriterWithBuffer(stepWriter, []byte("test data"))
 
@@ -615,7 +615,7 @@ func TestFlush_SingleChunk(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	// Buffer < 3MB - single chunk
 	data := make([]byte, 1*1024*1024) // 1MB
@@ -640,7 +640,7 @@ func TestFlush_ExactMaxChunkSize(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	// A max-size buffer stays in a single chunk.
 	data := make([]byte, coordreport.MaxChunkSize)
@@ -665,7 +665,7 @@ func TestFlush_TwoChunks(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	// 4MB buffer - should split into 3MB + 1MB
 	data := make([]byte, 4*1024*1024)
@@ -691,7 +691,7 @@ func TestFlush_MultipleChunks(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	// 10MB buffer - should split into 3MB + 3MB + 3MB + 1MB = 4 chunks
 	data := make([]byte, 10*1024*1024)
@@ -719,7 +719,7 @@ func TestFlush_ChunkSequences(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	// 6MB buffer - 2 chunks
 	data := make([]byte, 6*1024*1024)
@@ -750,7 +750,7 @@ func TestFlush_PartialFailure(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	// 6MB buffer - would be 2 chunks, but second fails
 	data := make([]byte, 6*1024*1024)
@@ -773,7 +773,7 @@ func TestFlush_DataCopied(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	data := []byte("original data")
 
@@ -799,7 +799,7 @@ func TestClose_NoData(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	err := writer.Close()
 
@@ -817,7 +817,7 @@ func TestClose_WithUnflushedData(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Write small data (not flushed)
 	_, _ = writer.Write([]byte("unflushed data"))
@@ -841,7 +841,7 @@ func TestClose_Idempotent(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Write and close
 	_, _ = writer.Write([]byte("data"))
@@ -867,7 +867,7 @@ func TestClose_FinalChunkSequence(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Write enough to flush, then close
 	data := make([]byte, coordreport.LogBufferSize)
@@ -896,7 +896,7 @@ func TestClose_FinalSendSuccess(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	stepWriter := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 
 	_, _ = stepWriter.Write([]byte("data"))
 	err := stepWriter.Close()
@@ -925,7 +925,7 @@ func TestClose_FinalSendFailure(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	_, _ = writer.Write([]byte("data"))
 	err := writer.Close()
@@ -945,7 +945,7 @@ func TestClose_CloseAndRecvError(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	_, _ = writer.Write([]byte("data"))
 	err := writer.Close()
@@ -969,7 +969,7 @@ func TestLogStreamer_LogStreamingDisabled(t *testing.T) {
 			},
 		}
 		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-		writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+		writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 		_, err := writer.Write([]byte("data"))
 		require.NoError(t, err)
@@ -1040,7 +1040,7 @@ func TestLogStreamer_LogStreamingDisabled(t *testing.T) {
 			},
 		}
 		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-		writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+		writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 		_, err := writer.Write([]byte("data"))
 		require.NoError(t, err)
@@ -1065,7 +1065,7 @@ func TestLogStreamer_PreservesFailedPrecondition(t *testing.T) {
 			},
 		}
 		streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-		writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+		writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 		_, err := writer.Write([]byte("data"))
 		require.NoError(t, err)
@@ -1141,7 +1141,7 @@ func TestClose_MultipleErrors(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	_, _ = writer.Write([]byte("data"))
 	err := writer.Close()
@@ -1160,7 +1160,7 @@ func TestClose_NoStream(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Write triggers init failure
 	data := make([]byte, coordreport.LogBufferSize)
@@ -1191,7 +1191,7 @@ func TestClose_FlushErrorThenSendSuccess(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	_, _ = writer.Write([]byte("data"))
 	err := writer.Close()
@@ -1210,7 +1210,7 @@ func TestConcurrentWrites(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	var wg sync.WaitGroup
 	const goroutines = 100
@@ -1238,7 +1238,7 @@ func TestConcurrentWriteAndClose(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	var wg sync.WaitGroup
 
@@ -1288,7 +1288,7 @@ func TestConcurrentSetAttemptID(t *testing.T) {
 	// Concurrent writes with separate writers (each gets its own stream)
 	for range 10 {
 		wg.Go(func() {
-			writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+			writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 			_, _ = writer.Write(make([]byte, coordreport.LogBufferSize)) // Triggers flush which reads attemptID
 			_ = writer.Close()
 		})
@@ -1308,7 +1308,7 @@ func TestLogStreamer_FullLifecycle(t *testing.T) {
 	rootRef := dagrun.DAGRunRef{Name: "root", ID: "root-123"}
 	streamer := coordreport.NewLogStreamer(client, "worker-1", "run-456", "test-dag", "attempt-789", rootRef)
 
-	writer := streamer.NewStepWriter(context.Background(), "step1", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step1", runctx.StreamTypeStdout)
 
 	// Multiple writes
 	for range 5 {
@@ -1357,8 +1357,8 @@ func TestLogStreamer_MultipleSteps(t *testing.T) {
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
 
 	// Create multiple step writers
-	writer1 := streamer.NewStepWriter(context.Background(), "step1", exec.StreamTypeStdout)
-	writer2 := streamer.NewStepWriter(context.Background(), "step2", exec.StreamTypeStdout)
+	writer1 := streamer.NewStepWriter(context.Background(), "step1", runctx.StreamTypeStdout)
+	writer2 := streamer.NewStepWriter(context.Background(), "step2", runctx.StreamTypeStdout)
 
 	_, _ = writer1.Write([]byte("step1 data"))
 	_, _ = writer2.Write([]byte("step2 data"))
@@ -1386,8 +1386,8 @@ func TestLogStreamer_StdoutAndStderr(t *testing.T) {
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
 
-	stdout := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
-	stderr := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStderr)
+	stdout := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
+	stderr := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStderr)
 
 	_, _ = stdout.Write([]byte("stdout data"))
 	_, _ = stderr.Write([]byte("stderr data"))
@@ -1428,8 +1428,8 @@ func TestLogStreamer_StepOutputMirrorsToSchedulerLog(t *testing.T) {
 		defer func() { _ = localFile.Close() }()
 
 		scheduler := streamer.NewSchedulerLogWriter(context.Background(), localFile)
-		stdout := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
-		stderr := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStderr)
+		stdout := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
+		stderr := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStderr)
 
 		const schedulerData = "scheduler live data\n"
 		const stdoutData = "stdout mirror data\n"
@@ -1496,7 +1496,7 @@ func TestLogStreamer_StepOutputMirrorsToSchedulerLog(t *testing.T) {
 		defer func() { _ = localFile.Close() }()
 
 		scheduler := streamer.NewSchedulerLogWriter(context.Background(), localFile)
-		stdout := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+		stdout := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 		const schedulerData = "scheduler live data\n"
 		const marker = "failed step marker\n"
@@ -1679,7 +1679,7 @@ func TestStepFlushDoesNotWaitForBlockedSchedulerStream(t *testing.T) {
 		t.Fatal("scheduler stream did not begin sending")
 	}
 
-	step := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout).(*coordreport.StepLogWriter)
+	step := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
 	_, err = step.Write([]byte("step data\n"))
 	require.NoError(t, err)
 
@@ -1711,7 +1711,7 @@ func TestLogStreamer_LargeOutput(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Write 12MB of data
 	data := make([]byte, 12*1024*1024)
@@ -1751,7 +1751,7 @@ func TestLogStreamer_AttemptIDUpdatedDuringStream(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "initial-attempt", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// First write with initial attempt ID
 	data := make([]byte, coordreport.LogBufferSize)
@@ -1786,7 +1786,7 @@ func TestLogStreamer_SequenceContinuity(t *testing.T) {
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", dagrun.DAGRunRef{})
-	writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 
 	// Multiple flushes
 	for range 5 {
@@ -1820,7 +1820,7 @@ func TestLogStreamer_RaceDetector(t *testing.T) {
 	// Multiple writers on same streamer (each gets its own stream)
 	for range 5 {
 		wg.Go(func() {
-			writer := streamer.NewStepWriter(context.Background(), "step", exec.StreamTypeStdout)
+			writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
 			for range 20 {
 				_, _ = writer.Write([]byte("data"))
 				atomic.AddInt64(&ops, 1)

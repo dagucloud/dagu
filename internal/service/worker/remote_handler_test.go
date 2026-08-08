@@ -15,10 +15,11 @@ import (
 	"testing"
 	"time"
 
+	runenv "github.com/dagucloud/dagu/v2/internal/runctx/env"
+
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -1124,7 +1125,7 @@ func TestTaskExtraEnvs(t *testing.T) {
 
 	assert.Nil(t, taskExtraEnvs(nil))
 	assert.Nil(t, taskExtraEnvs(&coordinatorv1.Task{}))
-	assert.Equal(t, []string{runctx.EnvKeyExternalStepRetry + "=1"}, taskExtraEnvs(&coordinatorv1.Task{
+	assert.Equal(t, []string{runenv.EnvKeyExternalStepRetry + "=1"}, taskExtraEnvs(&coordinatorv1.Task{
 		ExternalStepRetry: true,
 	}))
 }
@@ -2051,12 +2052,12 @@ func TestRemoteRunReporter_MirrorsStepOutputIntoFinalSchedulerLog(t *testing.T) 
 	_, err = schedulerWriter.Write([]byte("scheduler-start\n"))
 	require.NoError(t, err)
 
-	stdoutWriter := reporter.NewStepWriter(context.Background(), "step-one", exec.StreamTypeStdout)
+	stdoutWriter := reporter.NewStepWriter(context.Background(), "step-one", runctx.StreamTypeStdout)
 	_, err = stdoutWriter.Write([]byte("mirrored-stdout\n"))
 	require.NoError(t, err)
 	require.NoError(t, stdoutWriter.Close())
 
-	stderrWriter := reporter.NewStepWriter(context.Background(), "step-one", exec.StreamTypeStderr)
+	stderrWriter := reporter.NewStepWriter(context.Background(), "step-one", runctx.StreamTypeStderr)
 	_, err = stderrWriter.Write([]byte("mirrored-stderr\n"))
 	require.NoError(t, err)
 	require.NoError(t, stderrWriter.Close())
@@ -2130,14 +2131,14 @@ func TestRemoteRunReporter_UsesRuntimeContextForChildLogsAndArtifactsWithoutMuta
 	}, serviceregistry.HostInfo{})
 	require.NotNil(t, reporter.EnableSchedulerFinalizer(filepath.Join(t.TempDir(), "scheduler.log")))
 
-	rootWriter := reporter.NewStepWriter(context.Background(), "root-step", exec.StreamTypeStdout)
+	rootWriter := reporter.NewStepWriter(context.Background(), "root-step", runctx.StreamTypeStdout)
 	_, err := rootWriter.Write([]byte("root output"))
 	require.NoError(t, err)
 	require.NoError(t, rootWriter.Close())
 
 	childDAG := &ir.DAG{Name: childName}
 	childCtx := dagruntime.NewContext(context.Background(), childDAG, childRunID, "", dagruntime.WithAttemptID(childAttempt), dagruntime.WithRootDAGRun(rootRef))
-	childWriter := reporter.NewStepWriter(childCtx, "child-step", exec.StreamTypeStdout)
+	childWriter := reporter.NewStepWriter(childCtx, "child-step", runctx.StreamTypeStdout)
 	_, err = childWriter.Write([]byte("child output"))
 	require.NoError(t, err)
 	require.NoError(t, childWriter.Close())

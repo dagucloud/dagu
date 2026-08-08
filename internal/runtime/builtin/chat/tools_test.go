@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/exec"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -178,7 +178,7 @@ func TestNewToolRegistry_LocalDAGs(t *testing.T) {
 		}
 
 		// Create context with parent DAG
-		ctx := exec.NewContext(context.Background(), parentDAG, "run-1", "/tmp/log")
+		ctx := runctx.NewContext(context.Background(), parentDAG, "run-1", "/tmp/log")
 
 		registry, err := NewToolRegistry(ctx, []string{"search_tool"})
 		require.NoError(t, err)
