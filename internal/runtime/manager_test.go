@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	procctrl "github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -87,7 +86,7 @@ func TestManager(t *testing.T) {
 		require.NoError(t, attempt.Write(ctx, testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)))
 		require.NoError(t, attempt.Close(ctx))
 
-		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), proc.ProcMeta{
+		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         dag.Name,
 			DAGRunID:     dagRunID,
@@ -451,7 +450,7 @@ steps:
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
 
-		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), proc.ProcMeta{
+		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         dag.Name,
 			DAGRunID:     dagRunID,
@@ -748,7 +747,7 @@ steps:
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
 
-		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), proc.ProcMeta{
+		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         dag.Name,
 			DAGRunID:     dagRunID,
@@ -771,7 +770,7 @@ steps:
 		ctx := th.Context
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 
-		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), proc.ProcMeta{
+		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         dag.Name,
 			DAGRunID:     dagRunID,
