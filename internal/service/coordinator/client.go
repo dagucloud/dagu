@@ -847,7 +847,7 @@ func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.Heartbe
 
 	members, err := cli.getCoordinatorMembers(ctx)
 	if err != nil {
-		return nil, err
+		return nil, heartbeatContextError(ctx, err)
 	}
 
 	var resp *coordinatorv1.HeartbeatResponse
@@ -863,7 +863,7 @@ func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.Heartbe
 	deadline, hasDeadline := ctx.Deadline()
 	if !hasDeadline || len(members) == 1 {
 		err = cli.attemptCall(ctx, members, call)
-		return resp, err
+		return resp, heartbeatContextError(ctx, err)
 	}
 
 	rand.Shuffle(len(members), func(i, j int) {
@@ -885,7 +885,20 @@ func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.Heartbe
 			return resp, nil
 		}
 	}
-	return nil, lastErr
+	return nil, heartbeatContextError(ctx, lastErr)
+}
+
+func heartbeatContextError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return err
 }
 
 func (cli *clientImpl) AckTaskClaimTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
