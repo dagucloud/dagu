@@ -363,8 +363,8 @@ function DAGsContent() {
       return;
     }
     previousWorkspaceKeyRef.current = workspaceKey;
-    updateSelectedDAG(null, true);
-  }, [updateSelectedDAG, workspaceKey]);
+    setSelectedDAG(null);
+  }, [workspaceKey]);
 
   const resetLoadedPages = React.useCallback(() => {
     paginationGenerationRef.current += 1;
@@ -504,8 +504,9 @@ function DAGsContent() {
     };
 
     if (scopeChanged) {
+      params.delete('selectedDAG');
       const nextSearch = buildWorkflowFilterSearch(
-        location.search,
+        params.toString(),
         next,
         nextActiveViewId ?? ALL_WORKFLOWS_VIEW_PARAM
       );

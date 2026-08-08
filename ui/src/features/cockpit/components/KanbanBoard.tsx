@@ -31,7 +31,7 @@ export function KanbanBoard({
   );
   const displayedColumns = useMemo(
     () =>
-      visibleColumns?.length
+      visibleColumns !== undefined
         ? columnOrder
         : columnOrder.filter((column) => {
             const data = columns[column];
@@ -39,7 +39,9 @@ export function KanbanBoard({
               data.runs.length > 0 ||
               data.hasMore ||
               data.isInitialLoading ||
-              Boolean(data.error)
+              data.isLoadingMore ||
+              Boolean(data.error) ||
+              Boolean(data.loadMoreError)
             );
           }),
     [columnOrder, columns, visibleColumns]

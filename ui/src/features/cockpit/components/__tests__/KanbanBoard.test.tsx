@@ -19,9 +19,9 @@ vi.mock('../KanbanColumn', () => ({
   KanbanColumn: ({ title }: { title: string }) => <div>{title}</div>,
 }));
 
-function column(runs: KanbanColumnData['runs'] = []): KanbanColumnData {
+function column(overrides: Partial<KanbanColumnData> = {}): KanbanColumnData {
   return {
-    runs,
+    runs: [],
     hasMore: false,
     isInitialLoading: false,
     isLoadingMore: false,
@@ -29,24 +29,34 @@ function column(runs: KanbanColumnData['runs'] = []): KanbanColumnData {
     loadMoreError: null,
     loadMore: vi.fn(async () => undefined),
     retry: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
+function emptyColumns(): KanbanColumns {
+  return {
+    queued: column(),
+    running: column(),
+    review: column(),
+    done: column(),
+    failed: column(),
   };
 }
 
 describe('KanbanBoard', () => {
   it('omits empty desktop columns when another column has runs', () => {
     const columns: KanbanColumns = {
-      queued: column(),
-      running: column([
-        {
-          name: 'deploy',
-          dagRunId: 'run-1',
-          status: Status.Running,
-          statusLabel: StatusLabel.running,
-        } as KanbanColumnData['runs'][number],
-      ]),
-      review: column(),
-      done: column(),
-      failed: column(),
+      ...emptyColumns(),
+      running: column({
+        runs: [
+          {
+            name: 'deploy',
+            dagRunId: 'run-1',
+            status: Status.Running,
+            statusLabel: StatusLabel.running,
+          } as KanbanColumnData['runs'][number],
+        ],
+      }),
     };
 
     render(
@@ -62,5 +72,38 @@ describe('KanbanBoard', () => {
     expect(screen.queryByText('Review')).not.toBeInTheDocument();
     expect(screen.queryByText('Done')).not.toBeInTheDocument();
     expect(screen.queryByText('Failed')).not.toBeInTheDocument();
+  });
+
+  it('preserves configured columns when the explicit selection is empty', () => {
+    render(
+      <KanbanBoard
+        columns={emptyColumns()}
+        visibleColumns={[]}
+        onCardClick={vi.fn()}
+        onArtifactsClick={vi.fn()}
+      />
+    );
+
+    for (const label of ['Queued', 'Running', 'Review', 'Done', 'Failed']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+  });
+
+  it.each([
+    ['loading more results', { isLoadingMore: true }],
+    ['showing a load-more error', { loadMoreError: 'Request failed' }],
+  ])('keeps a column visible while %s', (_description, state) => {
+    const columns = emptyColumns();
+    columns.failed = column(state);
+
+    render(
+      <KanbanBoard
+        columns={columns}
+        onCardClick={vi.fn()}
+        onArtifactsClick={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Failed')).toBeInTheDocument();
   });
 });

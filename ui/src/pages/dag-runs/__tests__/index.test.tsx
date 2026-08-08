@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,11 +10,19 @@ import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { WorkspaceKind } from '@/lib/workspace';
 import DAGRuns from '..';
 
+const { readSearchStateMock, searchStateMock, writeSearchStateMock } =
+  vi.hoisted(() => {
+    const readState = vi.fn(() => null);
+    const writeState = vi.fn();
+    return {
+      readSearchStateMock: readState,
+      searchStateMock: { readState, writeState },
+      writeSearchStateMock: writeState,
+    };
+  });
+
 vi.mock('@/contexts/SearchStateContext', () => ({
-  useSearchState: () => ({
-    readState: vi.fn(() => null),
-    writeState: vi.fn(),
-  }),
+  useSearchState: () => searchStateMock,
 }));
 
 vi.mock('@/contexts/UserPreference', () => ({
@@ -117,6 +125,9 @@ const config = {
 } as Config;
 
 beforeEach(() => {
+  readSearchStateMock.mockReset();
+  readSearchStateMock.mockReturnValue(null);
+  writeSearchStateMock.mockReset();
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -213,6 +224,40 @@ describe('DAGRuns page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close run' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByTestId('location-search')).toHaveTextContent('');
+  });
+
+  it('opens a run on the artifacts tab and stores that selection in the URL', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open artifacts' }));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'Run modal for demo/run-1 on artifacts'
+    );
+    expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
+    );
+  });
+
+  it('preserves execution filters when opening a run', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByPlaceholderText('Filter by DAG name...'), {
+      target: { value: 'deploy' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => {
+      const search = screen.getByTestId('location-search').textContent ?? '';
+      expect(new URLSearchParams(search).get('name')).toBe('deploy');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open run' }));
+
+    const search = screen.getByTestId('location-search').textContent ?? '';
+    expect(new URLSearchParams(search).get('name')).toBe('deploy');
+    expect(new URLSearchParams(search).get('selectedRunName')).toBe('demo');
+    expect(new URLSearchParams(search).get('selectedRunId')).toBe('run-1');
   });
 
   it('restores the run and artifact tab from the URL', () => {

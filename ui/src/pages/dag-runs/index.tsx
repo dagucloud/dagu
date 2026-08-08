@@ -591,21 +591,23 @@ function DAGRuns() {
     toggleSelection,
   } = useBulkDAGRunSelection(dagRuns);
 
-  const addSearchParam = (key: string, value: string | undefined) => {
-    const locationQuery = new URLSearchParams(window.location.search);
-    if (key === 'labels') {
-      locationQuery.delete('tags');
+  const updateSearchParams = (updates: Record<string, string | undefined>) => {
+    const params = new URLSearchParams(location.search);
+    if ('labels' in updates) {
+      params.delete('tags');
     }
-    if (value && value.length > 0) {
-      locationQuery.set(key, value);
-    } else {
-      locationQuery.delete(key);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
     }
-    window.history.pushState(
-      {},
-      '',
-      `${window.location.pathname}?${locationQuery.toString()}`
-    );
+    const search = params.toString();
+    navigate({
+      pathname: location.pathname,
+      search: search ? `?${search}` : '',
+    });
   };
 
   const handleSearch = (overrideStatus?: string) => {
@@ -620,20 +622,18 @@ function DAGRuns() {
     setApiFromDate(fromDate);
     setApiToDate(toDate);
 
-    // Update URL parameters
-    addSearchParam('name', searchText);
-    addSearchParam('dagRunId', dagRunId);
-    addSearchParam('status', statusToUse);
-    addSearchParam(
-      'labels',
-      selectedLabels.length > 0 ? selectedLabels.join(',') : undefined
-    );
-    addSearchParam('fromDate', fromDate);
-    addSearchParam('toDate', toDate);
-    addSearchParam('dateMode', dateRangeMode);
-    addSearchParam('preset', datePreset);
-    addSearchParam('specificValue', specificValue);
-    addSearchParam('specificPeriod', specificPeriod);
+    updateSearchParams({
+      name: searchText,
+      dagRunId,
+      status: statusToUse,
+      labels: selectedLabels.length > 0 ? selectedLabels.join(',') : undefined,
+      fromDate,
+      toDate,
+      dateMode: dateRangeMode,
+      preset: datePreset,
+      specificValue,
+      specificPeriod,
+    });
   };
 
   const handleNameInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -655,10 +655,9 @@ function DAGRuns() {
   const updateLabels = (newLabels: string[]) => {
     setSelectedLabels(newLabels);
     setApiLabels(newLabels);
-    addSearchParam(
-      'labels',
-      newLabels.length > 0 ? newLabels.join(',') : undefined
-    );
+    updateSearchParams({
+      labels: newLabels.length > 0 ? newLabels.join(',') : undefined,
+    });
   };
 
   const handleViewModeChange = (value: string) => {
@@ -705,10 +704,12 @@ function DAGRuns() {
     setToDate(dates.to);
     setApiFromDate(dates.from);
     setApiToDate(dates.to);
-    addSearchParam('preset', preset);
-    addSearchParam('dateMode', 'preset');
-    addSearchParam('fromDate', dates.from);
-    addSearchParam('toDate', dates.to);
+    updateSearchParams({
+      preset,
+      dateMode: 'preset',
+      fromDate: dates.from,
+      toDate: dates.to,
+    });
   };
 
   const getSpecificPeriodDates = (
@@ -762,18 +763,19 @@ function DAGRuns() {
     setToDate(dates.to);
     setApiFromDate(dates.from);
     setApiToDate(dates.to);
-    addSearchParam('specificValue', value);
-    addSearchParam('specificPeriod', periodToUse);
-    addSearchParam('dateMode', 'specific');
-    addSearchParam('fromDate', dates.from);
-    addSearchParam('toDate', dates.to);
+    updateSearchParams({
+      specificValue: value,
+      specificPeriod: periodToUse,
+      dateMode: 'specific',
+      fromDate: dates.from,
+      toDate: dates.to,
+    });
   };
 
   const handleDateRangeModeChange = (
     newMode: 'preset' | 'specific' | 'custom'
   ) => {
     setDateRangeMode(newMode);
-    addSearchParam('dateMode', newMode);
 
     if (newMode === 'preset') {
       // Apply current preset
@@ -782,11 +784,14 @@ function DAGRuns() {
       setToDate(dates.to);
       setApiFromDate(dates.from);
       setApiToDate(dates.to);
-      addSearchParam('preset', datePreset);
-      addSearchParam('fromDate', dates.from);
-      addSearchParam('toDate', dates.to);
-      addSearchParam('specificValue', '');
-      addSearchParam('specificPeriod', '');
+      updateSearchParams({
+        dateMode: newMode,
+        preset: datePreset,
+        fromDate: dates.from,
+        toDate: dates.to,
+        specificValue: undefined,
+        specificPeriod: undefined,
+      });
     } else if (newMode === 'specific') {
       // Apply current specific period value
       const dates = getSpecificPeriodDates(specificPeriod, specificValue);
@@ -794,15 +799,21 @@ function DAGRuns() {
       setToDate(dates.to);
       setApiFromDate(dates.from);
       setApiToDate(dates.to);
-      addSearchParam('specificPeriod', specificPeriod);
-      addSearchParam('specificValue', specificValue);
-      addSearchParam('fromDate', dates.from);
-      addSearchParam('toDate', dates.to);
-      addSearchParam('preset', '');
+      updateSearchParams({
+        dateMode: newMode,
+        specificPeriod,
+        specificValue,
+        fromDate: dates.from,
+        toDate: dates.to,
+        preset: undefined,
+      });
     } else {
-      addSearchParam('preset', '');
-      addSearchParam('specificValue', '');
-      addSearchParam('specificPeriod', '');
+      updateSearchParams({
+        dateMode: newMode,
+        preset: undefined,
+        specificValue: undefined,
+        specificPeriod: undefined,
+      });
     }
   };
 

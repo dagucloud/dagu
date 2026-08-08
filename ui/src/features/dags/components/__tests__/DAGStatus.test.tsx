@@ -258,6 +258,32 @@ describe('DAGStatus', () => {
     ).toBeInTheDocument();
   });
 
+  it('surfaces a rejected step and its rejection reason', () => {
+    const rejectedRun = {
+      ...dagRun,
+      nodes: [
+        {
+          ...dagRun.nodes[0],
+          status: NodeStatus.Rejected,
+          statusLabel: NodeStatusLabel.rejected,
+          rejectionReason: 'approval was denied',
+        },
+      ],
+    } as components['schemas']['DAGRunDetails'];
+
+    render(dagStatusView(rejectedRun));
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Rejected at step');
+    expect(alert).toHaveTextContent('approval was denied');
+    expect(
+      within(alert).getByRole('button', { name: 'View stderr' })
+    ).toBeInTheDocument();
+    expect(
+      within(alert).getByRole('button', { name: 'Inspect step' })
+    ).toBeInTheDocument();
+  });
+
   it('passes its workflow filename to the step table', () => {
     vi.mocked(useClient).mockReturnValue({
       PATCH: patchMock,
