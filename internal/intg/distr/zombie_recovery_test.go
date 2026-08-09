@@ -230,7 +230,9 @@ steps:
 
 func TestDistributedRun_CoordinatorReplacementPreservesActiveRun(t *testing.T) {
 	heartbeatThreshold := testStaleHeartbeatThreshold
-	leaseThreshold := testStaleLeaseThreshold
+	// Leave enough lease headroom for graceful coordinator drain and the next
+	// owner-bound heartbeat after the replacement starts.
+	leaseThreshold := 8 * time.Second
 	runningTimeout := 15 * time.Second
 	replacementTimeout := leaseThreshold + 15*time.Second
 	completionTimeout := 20 * time.Second
