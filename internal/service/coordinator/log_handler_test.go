@@ -574,6 +574,49 @@ func TestLogHandler_HandleStream(t *testing.T) {
 		assert.Equal(t, replayedChunk.Data, content)
 	})
 
+	t.Run("RejectsPositionedOffsetsPastCurrentEnd", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range []struct {
+			name  string
+			final bool
+		}{
+			{name: "data"},
+			{name: "final marker", final: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				logDir := t.TempDir()
+				h := newLogHandler(logDir)
+				defer h.Close(context.Background())
+				initial := &coordinatorv1.LogChunk{
+					DagName:    "test-dag",
+					DagRunId:   "run-invalid-offset",
+					AttemptId:  "attempt-1",
+					StepName:   "step1",
+					StreamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
+					Data:       []byte("hello"),
+				}
+				initial.SetByteOffset(0)
+				invalid := proto.Clone(initial).(*coordinatorv1.LogChunk)
+				invalid.Data = []byte("x")
+				invalid.IsFinal = tc.final
+				invalid.SetByteOffset(uint64(len(initial.Data) + 1))
+
+				err := h.handleStream(&mockStreamLogsServer{
+					chunks: []*coordinatorv1.LogChunk{initial, invalid},
+					ctx:    context.Background(),
+				})
+				require.Error(t, err)
+
+				content, readErr := os.ReadFile(h.logFilePath(initial))
+				require.NoError(t, readErr)
+				assert.Equal(t, initial.Data, content)
+			})
+		}
+	})
+
 	t.Run("MakesTinyChunkVisibleBeforeStreamCompletion", func(t *testing.T) {
 		t.Parallel()
 

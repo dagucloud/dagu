@@ -40,6 +40,7 @@ type streamLogWriter struct {
 	file       *os.File
 	path       string
 	positioned bool
+	size       int64
 	mu         sync.Mutex
 }
 
@@ -51,13 +52,26 @@ func (w *streamLogWriter) write(chunk *coordinatorv1.LogChunk) (int, error) {
 		return 0, errors.New("log stream write mode changed")
 	}
 	if !w.positioned {
-		return w.file.Write(chunk.Data)
+		n, err := w.file.Write(chunk.Data)
+		w.size += int64(n) // #nosec G115 -- n is non-negative and bounded by the input buffer
+		return n, err
 	}
 	byteOffset := chunk.GetByteOffset()
 	if byteOffset > math.MaxInt64 {
 		return 0, errors.New("log chunk byte offset exceeds supported file size")
 	}
-	return w.file.WriteAt(chunk.Data, int64(byteOffset)) // #nosec G115 -- bounds checked above
+	offset := int64(byteOffset) // #nosec G115 -- bounds checked above
+	if offset > w.size {
+		return 0, errors.New("log chunk byte offset exceeds current file size")
+	}
+	if uint64(len(chunk.Data)) > uint64(math.MaxInt64-offset) { // #nosec G115 -- buffer length is non-negative
+		return 0, errors.New("log chunk exceeds supported file size")
+	}
+	n, err := w.file.WriteAt(chunk.Data, offset)
+	if end := offset + int64(n); end > w.size { // #nosec G115 -- n is non-negative and bounded above
+		w.size = end
+	}
+	return n, err
 }
 
 func (w *streamLogWriter) close(finalSize *uint64) error {
@@ -68,8 +82,13 @@ func (w *streamLogWriter) close(finalSize *uint64) error {
 	if finalSize != nil {
 		if *finalSize > math.MaxInt64 {
 			truncateErr = errors.New("final log size exceeds supported file size")
+		} else if int64(*finalSize) > w.size { // #nosec G115 -- bounds checked above
+			truncateErr = errors.New("final log size exceeds current file size")
 		} else {
 			truncateErr = w.file.Truncate(int64(*finalSize)) // #nosec G115 -- bounds checked above
+			if truncateErr == nil {
+				w.size = int64(*finalSize) // #nosec G115 -- bounds checked above
+			}
 		}
 	}
 	return errors.Join(truncateErr, w.file.Sync(), w.file.Close())
@@ -240,11 +259,17 @@ func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*streamLo
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("failed to inspect log file: %w", err)
+	}
 
 	w := &streamLogWriter{
 		file:       file,
 		path:       logPath,
 		positioned: chunk.HasByteOffset(),
+		size:       info.Size(),
 	}
 
 	h.writers[key] = w
