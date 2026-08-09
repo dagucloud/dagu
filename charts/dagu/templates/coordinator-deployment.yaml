@@ -13,9 +13,12 @@ metadata:
     app.kubernetes.io/component: coordinator
 spec:
   replicas: {{ .Values.coordinator.replicas }}
-  # Recreate stops every replica during upgrades; additional replicas only cover isolated Pod failures.
+  # Replace one coordinator at a time without exceeding the requested replica count.
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       {{- include "dagu.selectorLabels" . | nindent 6 }}

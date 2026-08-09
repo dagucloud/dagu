@@ -228,7 +228,7 @@ steps:
 	assert.Equal(t, ir.Succeeded, finalStatus.Status)
 }
 
-func TestDistributedRun_CoordinatorReplacementPreservesActiveRun(t *testing.T) {
+func TestDistributedRun_CoordinatorRollingReplacementPreservesActiveRun(t *testing.T) {
 	heartbeatThreshold := testStaleHeartbeatThreshold
 	// Leave enough lease headroom for graceful coordinator drain and the next
 	// owner-bound heartbeat after the replacement starts.
@@ -273,6 +273,20 @@ steps:
 	initialOwner := initialLease.Owner
 	initialHeartbeat := initialLease.LastHeartbeatAt
 	require.Equal(t, f.coord.InstanceID(), initialOwner.ID)
+
+	peer := f.coord.StartPeer(t)
+	require.NotEqual(t, initialOwner.ID, peer.InstanceID())
+	heartbeatResp, err := peer.RunHeartbeat(t, &coordinatorv1.RunHeartbeatRequest{
+		WorkerId:           initialLease.WorkerID,
+		OwnerCoordinatorId: initialOwner.ID,
+		RunningTasks: []*coordinatorv1.RunningTask{{
+			DagRunId:   initialStatus.DAGRunID,
+			DagName:    initialStatus.Name,
+			AttemptKey: initialStatus.AttemptKey,
+		}},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, heartbeatResp.CancelledRuns)
 
 	f.coord.Restart(t)
 	require.NotEqual(t, initialOwner.ID, f.coord.InstanceID())

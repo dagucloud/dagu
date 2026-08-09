@@ -95,7 +95,7 @@ coordinator:
   replicas: 2
 ```
 
-Coordinator replicas must share the same `ReadWriteMany` volume and advertise the same coordinator Service host and port. The chart configures that shared endpoint automatically. Coordinators with different advertised endpoints remain separate ownership domains. Two replicas protect against isolated Pod failures, but coordinator upgrades use a `Recreate` strategy that stops every replica before starting the replacement. If the replacement is not ready within the 30-second distributed lease window, active runs cannot continue through the upgrade.
+Coordinator replicas must share the same `ReadWriteMany` volume and advertise the same coordinator Service host and port. The chart configures that shared endpoint automatically. Coordinators with different advertised endpoints remain separate ownership domains. Upgrades replace one coordinator at a time without creating surge replicas, so old and new coordinator versions briefly share that ownership domain and storage. With two or more replicas, at least one coordinator remains available throughout the rollout; with one replica, the replacement causes a brief coordinator outage.
 
 Install with those values:
 

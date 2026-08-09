@@ -26,18 +26,21 @@ import (
 // Coordinator represents a test gRPC coordinator instance
 type Coordinator struct {
 	Helper
-	handlerConfig coordinator.HandlerConfig
-	host          string
-	port          int
-	instanceID    string
-	restartCount  int
-	running       bool
-	service       *coordinator.Service
-	handler       *coordinator.Handler
-	grpcServer    *grpc.Server
-	healthServer  *health.Server
-	listener      net.Listener
-	logDir        string // Log directory for remote log streaming
+	handlerConfig  coordinator.HandlerConfig
+	host           string
+	port           int
+	advertisedHost string
+	advertisedPort int
+	instanceID     string
+	restartCount   int
+	register       bool
+	running        bool
+	service        *coordinator.Service
+	handler        *coordinator.Handler
+	grpcServer     *grpc.Server
+	healthServer   *health.Server
+	listener       net.Listener
+	logDir         string // Log directory for remote log streaming
 }
 
 // SetupCoordinator creates and starts a test coordinator instance
@@ -91,12 +94,15 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	cfg.ActiveDistributedRunStore = helper.ActiveDistributedRunStore
 
 	coord := &Coordinator{
-		Helper:        helper,
-		handlerConfig: cfg,
-		host:          "127.0.0.1",
-		port:          port,
-		instanceID:    "test-coordinator",
-		logDir:        helper.Config.Paths.LogDir,
+		Helper:         helper,
+		handlerConfig:  cfg,
+		host:           "127.0.0.1",
+		port:           port,
+		advertisedHost: "127.0.0.1",
+		advertisedPort: port,
+		instanceID:     "test-coordinator",
+		register:       true,
+		logDir:         helper.Config.Paths.LogDir,
 	}
 	coord.start(t, listener)
 
@@ -116,18 +122,22 @@ func (c *Coordinator) start(t *testing.T, listener net.Listener) {
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
 
 	cfg := c.handlerConfig
-	cfg.Owner = dispatch.CoordinatorEndpoint{ID: c.instanceID, Host: c.host, Port: c.port}
+	cfg.Owner = dispatch.CoordinatorEndpoint{ID: c.instanceID, Host: c.advertisedHost, Port: c.advertisedPort}
 	handler := coordinator.NewHandler(cfg)
+	registry := c.ServiceRegistry
+	if !c.register {
+		registry = nil
+	}
 	service := coordinator.NewService(
 		grpcServer,
 		handler,
 		listener,
 		healthServer,
 		healthcheck.NewServer("coordinator", 0),
-		c.ServiceRegistry,
+		registry,
 		c.Config,
 		c.instanceID,
-		c.host,
+		c.advertisedHost,
 	)
 
 	c.service = service
@@ -138,6 +148,30 @@ func (c *Coordinator) start(t *testing.T, listener net.Listener) {
 	require.NoError(t, service.Start(c.Context), "failed to start coordinator")
 	c.running = true
 	waitForCoordinatorStart(t, c.Address())
+}
+
+// StartPeer starts another coordinator instance in the same ownership domain.
+func (c *Coordinator) StartPeer(t *testing.T) *Coordinator {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "failed to create peer coordinator listener")
+	port := listener.Addr().(*net.TCPAddr).Port
+	peer := &Coordinator{
+		Helper:         c.Helper,
+		handlerConfig:  c.handlerConfig,
+		host:           "127.0.0.1",
+		port:           port,
+		advertisedHost: c.advertisedHost,
+		advertisedPort: c.advertisedPort,
+		instanceID:     "test-coordinator-peer",
+		logDir:         c.logDir,
+	}
+	peer.start(t, listener)
+	t.Cleanup(func() {
+		_ = peer.Stop()
+	})
+	return peer
 }
 
 // Stop gracefully shuts down the coordinator
@@ -180,6 +214,17 @@ func (c *Coordinator) Port() int {
 // InstanceID returns the current coordinator process identifier.
 func (c *Coordinator) InstanceID() string {
 	return c.instanceID
+}
+
+// RunHeartbeat sends a run heartbeat directly to this coordinator instance.
+func (c *Coordinator) RunHeartbeat(t *testing.T, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
+	t.Helper()
+
+	conn, err := grpc.NewClient(c.Address(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create coordinator client")
+	defer func() { _ = conn.Close() }()
+
+	return coordinatorv1.NewCoordinatorServiceClient(conn).RunHeartbeat(c.Context, req)
 }
 
 // DispatchTask dispatches a task to a waiting worker

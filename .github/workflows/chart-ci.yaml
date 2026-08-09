@@ -151,7 +151,9 @@ jobs:
             >/tmp/dagu-coordinator-render.yaml
 
           grep -Fq 'replicas: 2' /tmp/dagu-coordinator-render.yaml
-          grep -Fq 'type: Recreate' /tmp/dagu-coordinator-render.yaml
+          grep -Fq 'type: RollingUpdate' /tmp/dagu-coordinator-render.yaml
+          grep -Fq 'maxUnavailable: 1' /tmp/dagu-coordinator-render.yaml
+          grep -Fq 'maxSurge: 0' /tmp/dagu-coordinator-render.yaml
 
       - name: Smoke-render optional configurations
         run: |
