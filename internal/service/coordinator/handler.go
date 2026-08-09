@@ -110,6 +110,7 @@ type Handler struct {
 	waitingPollers     map[string]*workerInfo    // pollerID -> worker info
 	heartbeats         map[string]*heartbeatInfo // workerID -> heartbeat info
 	owner              dispatch.CoordinatorEndpoint
+	ownerAliasLookupMu sync.Mutex
 	ownerAliasesMu     sync.RWMutex
 	ownerAliases       map[string]struct{}
 	rejectedOwnerID    string
@@ -285,10 +286,7 @@ func (h *Handler) acceptsOwner(ctx context.Context, ownerID string) (bool, error
 		return true, nil
 	}
 
-	h.ownerAliasesMu.RLock()
-	_, accepted := h.ownerAliases[ownerID]
-	rejected := h.rejectedOwnerID == ownerID && time.Now().Before(h.rejectedOwnerUntil)
-	h.ownerAliasesMu.RUnlock()
+	accepted, rejected := h.cachedOwnerAlias(ownerID)
 	if accepted {
 		return true, nil
 	}
@@ -296,6 +294,17 @@ func (h *Handler) acceptsOwner(ctx context.Context, ownerID string) (bool, error
 		return false, nil
 	}
 	if h.dagRunLeaseStore == nil {
+		return false, nil
+	}
+
+	h.ownerAliasLookupMu.Lock()
+	defer h.ownerAliasLookupMu.Unlock()
+
+	accepted, rejected = h.cachedOwnerAlias(ownerID)
+	if accepted {
+		return true, nil
+	}
+	if rejected {
 		return false, nil
 	}
 
@@ -314,6 +323,14 @@ func (h *Handler) acceptsOwner(ctx context.Context, ownerID string) (bool, error
 	h.rejectedOwnerUntil = time.Now().Add(rejectedOwnerCacheTTL)
 	h.ownerAliasesMu.Unlock()
 	return false, nil
+}
+
+func (h *Handler) cachedOwnerAlias(ownerID string) (accepted, rejected bool) {
+	h.ownerAliasesMu.RLock()
+	defer h.ownerAliasesMu.RUnlock()
+	_, accepted = h.ownerAliases[ownerID]
+	rejected = h.rejectedOwnerID == ownerID && time.Now().Before(h.rejectedOwnerUntil)
+	return accepted, rejected
 }
 
 func (h *Handler) rememberOwnerAlias(ctx context.Context, owner dispatch.CoordinatorEndpoint) {

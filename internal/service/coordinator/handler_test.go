@@ -43,6 +43,34 @@ type corruptLeaseStore struct {
 	attemptKey string
 }
 
+type observedLeaseStore struct {
+	dispatch.DAGRunLeaseStore
+	listStarted chan struct{}
+	releaseList chan struct{}
+	once        sync.Once
+	mu          sync.Mutex
+	listCalls   int
+}
+
+func (s *observedLeaseStore) ListAll(ctx context.Context) ([]dispatch.DAGRunLease, error) {
+	s.mu.Lock()
+	s.listCalls++
+	s.mu.Unlock()
+	s.once.Do(func() { close(s.listStarted) })
+	select {
+	case <-s.releaseList:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return s.DAGRunLeaseStore.ListAll(ctx)
+}
+
+func (s *observedLeaseStore) calls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listCalls
+}
+
 func (s corruptLeaseStore) Get(ctx context.Context, attemptKey string) (*dispatch.DAGRunLease, error) {
 	if attemptKey == s.attemptKey {
 		return nil, persis.ErrCorrupt
@@ -4922,6 +4950,55 @@ func TestHandler_StreamLogs_Full(t *testing.T) {
 		content, err := os.ReadFile(filepath.Join(logDir, "test-dag", "run-123", "attempt-1", "step1.stdout.log"))
 		require.NoError(t, err)
 		assert.Equal(t, "continued\n", string(content))
+	})
+
+	t.Run("CoalescesPreviousOwnerDiscovery", func(t *testing.T) {
+		t.Parallel()
+
+		baseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		require.NoError(t, baseStore.Upsert(t.Context(), dispatch.DAGRunLease{
+			AttemptKey: "attempt-key-1",
+			Owner:      dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 50055},
+		}))
+		leaseStore := &observedLeaseStore{
+			DAGRunLeaseStore: baseStore,
+			listStarted:      make(chan struct{}),
+			releaseList:      make(chan struct{}),
+		}
+		h := NewHandler(HandlerConfig{
+			DAGRunLeaseStore: leaseStore,
+			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator", Port: 50055},
+		})
+
+		const callers = 16
+		start := make(chan struct{})
+		ready := sync.WaitGroup{}
+		ready.Add(callers)
+		results := make(chan error, callers)
+		for range callers {
+			go func() {
+				<-start
+				ready.Done()
+				accepted, err := h.acceptsOwner(t.Context(), "coord-a")
+				if err == nil && !accepted {
+					err = errors.New("previous owner was rejected")
+				}
+				results <- err
+			}()
+		}
+		close(start)
+		ready.Wait()
+		select {
+		case <-leaseStore.listStarted:
+		case <-time.After(coordinatorTestTimeout(time.Second)):
+			t.Fatal("lease discovery did not start")
+		}
+		close(leaseStore.releaseList)
+
+		for range callers {
+			require.NoError(t, <-results)
+		}
+		assert.Equal(t, 1, leaseStore.calls())
 	})
 
 	t.Run("RejectsForeignOwnerAtDifferentEndpoint", func(t *testing.T) {
