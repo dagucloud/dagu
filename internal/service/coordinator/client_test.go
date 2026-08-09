@@ -447,6 +447,11 @@ func TestClientGetWorkers_TieBreakIsIndependentOfDiscoveryOrder(t *testing.T) {
 
 	assert.Equal(t, forward.Labels, reverse.Labels)
 	assert.Equal(t, forward.BusyPollers, reverse.BusyPollers)
+	require.True(t,
+		(forward.Labels["source"] == "coord-a" && forward.BusyPollers == 1) ||
+			(forward.Labels["source"] == "coord-b" && forward.BusyPollers == 2),
+		"selected worker fields must come from one coordinator report",
+	)
 }
 
 func TestClientGetWorkers_PartialFailureStillReturnsWorkers(t *testing.T) {
