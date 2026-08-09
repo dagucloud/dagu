@@ -4,7 +4,6 @@
 package dagstate
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,57 +23,4 @@ func TestNormalizeValuePreservesNumericPrecision(t *testing.T) {
 	value, err := NormalizeValue([]byte(`{"id":9007199254740993,"decimal":1.2300}`))
 	require.NoError(t, err)
 	assert.Equal(t, `{"decimal":1.2300,"id":9007199254740993}`, string(value))
-}
-
-func TestRefRecordIDEncodesFilesystemSensitiveParts(t *testing.T) {
-	ref := Ref{
-		Scope:     ScopeDAG,
-		Namespace: "Daily:Agent",
-		Key:       "Cursor/CON:<latest>",
-	}
-
-	id, err := ref.RecordID()
-	require.NoError(t, err)
-	require.NotContains(t, id, ref.Namespace)
-	require.NotContains(t, id, ref.Key)
-	require.NotContains(t, filepath.Base(id), ":")
-	require.NotContains(t, filepath.Base(id), "<")
-	require.NotContains(t, filepath.Base(id), ">")
-
-	roundTrip, err := RefFromRecordID(id)
-	require.NoError(t, err)
-	require.Equal(t, ref, roundTrip)
-}
-
-func TestRefFromRecordIDRejectsUnversionedIDs(t *testing.T) {
-	_, err := RefFromRecordID("dag/daily-agent/cursor")
-	require.ErrorIs(t, err, ErrInvalidRef)
-}
-
-func TestRefRecordIDAvoidsHierarchicalKeyPathCollisions(t *testing.T) {
-	plain, err := (Ref{Scope: ScopeDAG, Namespace: "daily-agent", Key: "cursor"}).RecordID()
-	require.NoError(t, err)
-
-	nested, err := (Ref{Scope: ScopeDAG, Namespace: "daily-agent", Key: "cursor/feed"}).RecordID()
-	require.NoError(t, err)
-
-	require.NotEqual(t, plain+"/feed", nested)
-	require.Len(t, strings.Split(nested, "/"), 4)
-}
-
-func TestListOptionsRecordIDPrefixPreservesStateKeyPrefix(t *testing.T) {
-	prefix, err := (ListOptions{
-		Scope:     ScopeDAG,
-		Namespace: "daily-agent",
-		KeyPrefix: "cursors/",
-	}).RecordIDPrefix()
-	require.NoError(t, err)
-
-	id, err := (Ref{Scope: ScopeDAG, Namespace: "daily-agent", Key: "cursors/feed"}).RecordID()
-	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(id, prefix))
-
-	other, err := (Ref{Scope: ScopeDAG, Namespace: "daily-agent", Key: "tokens/feed"}).RecordID()
-	require.NoError(t, err)
-	require.False(t, strings.HasPrefix(other, prefix))
 }

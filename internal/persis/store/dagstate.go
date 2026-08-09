@@ -5,16 +5,20 @@ package store
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
+
+const dagStateRecordIDVersion = "v1"
 
 var _ dagstate.Store = (*DAGStateStore)(nil)
 
@@ -38,7 +42,7 @@ func NewDAGStateStore(col persis.Collection) *DAGStateStore {
 }
 
 func (s *DAGStateStore) Get(ctx context.Context, ref dagstate.Ref) (*dagstate.Entry, error) {
-	id, err := ref.RecordID()
+	id, err := dagStateRecordID(ref)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +54,7 @@ func (s *DAGStateStore) Get(ctx context.Context, ref dagstate.Ref) (*dagstate.En
 }
 
 func (s *DAGStateStore) Put(ctx context.Context, ref dagstate.Ref, value json.RawMessage, opts dagstate.PutOptions) (*dagstate.Entry, error) {
-	id, err := ref.RecordID()
+	id, err := dagStateRecordID(ref)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +123,7 @@ func (s *DAGStateStore) Put(ctx context.Context, ref dagstate.Ref, value json.Ra
 }
 
 func (s *DAGStateStore) Delete(ctx context.Context, ref dagstate.Ref) (bool, error) {
-	id, err := ref.RecordID()
+	id, err := dagStateRecordID(ref)
 	if err != nil {
 		return false, err
 	}
@@ -150,7 +154,7 @@ func (s *DAGStateStore) List(ctx context.Context, opts dagstate.ListOptions) ([]
 		return nil, err
 	}
 
-	prefix, err := opts.RecordIDPrefix()
+	prefix, err := dagStateRecordIDPrefix(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -235,12 +239,55 @@ func decodeDAGStateRecord(rec *persis.Record) (*dagstate.Entry, error) {
 	if err := persis.Decode(rec, &entry); err != nil {
 		return nil, fmt.Errorf("dag state store: decode %q: %w", rec.ID, err)
 	}
-	ref, err := dagstate.RefFromRecordID(rec.ID)
+	ref, err := dagStateRefFromRecordID(rec.ID)
 	if err != nil {
 		return nil, fmt.Errorf("dag state store: decode %q: %w", rec.ID, err)
 	}
 	entry.Ref = ref
 	return entry.Clone(), nil
+}
+
+func dagStateRecordID(ref dagstate.Ref) (string, error) {
+	if err := ref.Validate(); err != nil {
+		return "", err
+	}
+	return dagStateRecordIDVersion + "/" + string(ref.Scope) + "/" + encodeDAGStateRecordIDPart(ref.Namespace) + "/" + encodeDAGStateRecordIDPart(ref.Key), nil
+}
+
+func dagStateRefFromRecordID(id string) (dagstate.Ref, error) {
+	parts := strings.SplitN(id, "/", 4)
+	if len(parts) != 4 || parts[0] != dagStateRecordIDVersion {
+		return dagstate.Ref{}, fmt.Errorf("%w: malformed record id", dagstate.ErrInvalidRef)
+	}
+	namespace, err := decodeDAGStateRecordIDPart(parts[2])
+	if err != nil {
+		return dagstate.Ref{}, err
+	}
+	key, err := decodeDAGStateRecordIDPart(parts[3])
+	if err != nil {
+		return dagstate.Ref{}, err
+	}
+	ref := dagstate.Ref{Scope: dagstate.Scope(parts[1]), Namespace: namespace, Key: key}
+	return ref, ref.Validate()
+}
+
+func dagStateRecordIDPrefix(opts dagstate.ListOptions) (string, error) {
+	if err := opts.Validate(); err != nil {
+		return "", err
+	}
+	return dagStateRecordIDVersion + "/" + string(opts.Scope) + "/" + encodeDAGStateRecordIDPart(opts.Namespace) + "/" + encodeDAGStateRecordIDPart(opts.KeyPrefix), nil
+}
+
+func encodeDAGStateRecordIDPart(value string) string {
+	return hex.EncodeToString([]byte(value))
+}
+
+func decodeDAGStateRecordIDPart(value string) (string, error) {
+	decoded, err := hex.DecodeString(value)
+	if err != nil {
+		return "", fmt.Errorf("%w: malformed record id", dagstate.ErrInvalidRef)
+	}
+	return string(decoded), nil
 }
 
 func mapDAGStateStoreError(err error) error {

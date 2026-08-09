@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/dagstate"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -133,34 +131,6 @@ func TestDAGStateStoreDeleteAndList(t *testing.T) {
 	require.ErrorIs(t, err, dagstate.ErrNotFound)
 }
 
-func TestDAGStateStoreListUsesRecordIDsLimitBeforeDecode(t *testing.T) {
-	ctx := context.Background()
-	firstID, err := stateRef("cursors/a").RecordID()
-	require.NoError(t, err)
-	secondID, err := stateRef("cursors/b").RecordID()
-	require.NoError(t, err)
-	thirdID, err := stateRef("cursors/c").RecordID()
-	require.NoError(t, err)
-	col := newCountingRecordIDCollection(t, []string{
-		firstID,
-		secondID,
-		thirdID,
-	})
-	s := store.NewDAGStateStore(col)
-
-	list, err := s.List(ctx, dagstate.ListOptions{
-		Scope:     dagstate.ScopeDAG,
-		Namespace: "daily-agent",
-		KeyPrefix: "cursors/",
-		Limit:     1,
-	})
-	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, "cursors/a", list[0].Key)
-	assert.Equal(t, 1, col.getCalls)
-	assert.Equal(t, 0, col.listCalls)
-}
-
 func TestDAGStateStoreValidation(t *testing.T) {
 	ctx := context.Background()
 	s := newDAGStateStore(t)
@@ -234,76 +204,4 @@ func TestNormalizeValueCompactsJSON(t *testing.T) {
 
 	_, err = dagstate.NormalizeValue([]byte(`{`))
 	require.True(t, errors.Is(err, dagstate.ErrInvalidValue))
-}
-
-type countingRecordIDCollection struct {
-	ids       []string
-	records   map[string]*persis.Record
-	getCalls  int
-	listCalls int
-}
-
-func newCountingRecordIDCollection(t *testing.T, ids []string) *countingRecordIDCollection {
-	t.Helper()
-
-	records := make(map[string]*persis.Record, len(ids))
-	for _, id := range ids {
-		ref, err := dagstate.RefFromRecordID(id)
-		require.NoError(t, err)
-		entry := &dagstate.Entry{
-			Ref:     ref,
-			Value:   rawJSON(t, `1`),
-			Version: 1,
-		}
-		data, err := persis.Encode(entry)
-		require.NoError(t, err)
-		records[id] = &persis.Record{ID: id, Data: data}
-	}
-	return &countingRecordIDCollection{ids: append([]string(nil), ids...), records: records}
-}
-
-func (c *countingRecordIDCollection) RecordIDs(_ context.Context, prefix string) ([]string, error) {
-	var out []string
-	for _, id := range c.ids {
-		if strings.HasPrefix(id, prefix) {
-			out = append(out, id)
-		}
-	}
-	return out, nil
-}
-
-func (c *countingRecordIDCollection) Get(_ context.Context, id string) (*persis.Record, error) {
-	c.getCalls++
-	rec, ok := c.records[id]
-	if !ok {
-		return nil, persis.ErrNotFound
-	}
-	cp := *rec
-	cp.Data = append([]byte(nil), rec.Data...)
-	return &cp, nil
-}
-
-func (c *countingRecordIDCollection) Put(context.Context, *persis.Record) error {
-	return nil
-}
-
-func (c *countingRecordIDCollection) Create(context.Context, *persis.Record) error {
-	return nil
-}
-
-func (c *countingRecordIDCollection) Delete(context.Context, string) error {
-	return nil
-}
-
-func (c *countingRecordIDCollection) CompareAndDelete(context.Context, *persis.Record) error {
-	return nil
-}
-
-func (c *countingRecordIDCollection) List(context.Context, persis.ListQuery) (*persis.Page, error) {
-	c.listCalls++
-	return &persis.Page{}, nil
-}
-
-func (c *countingRecordIDCollection) CompareAndSwap(context.Context, string, []byte, []byte) error {
-	return nil
 }

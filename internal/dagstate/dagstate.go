@@ -18,8 +18,6 @@ import (
 )
 
 const (
-	recordIDVersion = "v1"
-
 	// ScopeDAG stores state under the current DAG name.
 	ScopeDAG Scope = "dag"
 	// ScopeRootDAG stores state under the root DAG name for nested runs.
@@ -123,40 +121,6 @@ func (r Ref) Validate() error {
 	return validateKey("key", r.Key)
 }
 
-// RecordID returns the stable storage key for the reference.
-func (r Ref) RecordID() (string, error) {
-	if err := r.Validate(); err != nil {
-		return "", err
-	}
-	return recordIDVersion + "/" + string(r.Scope) + "/" + encodeRecordIDPart(r.Namespace) + "/" + encodeRecordIDPart(r.Key), nil
-}
-
-// RefFromRecordID parses a storage key back into a state reference.
-func RefFromRecordID(id string) (Ref, error) {
-	parts := strings.SplitN(id, "/", 4)
-	if len(parts) != 4 || parts[0] != recordIDVersion {
-		return Ref{}, fmt.Errorf("%w: malformed record id", ErrInvalidRef)
-	}
-	namespace, err := decodeRecordIDPart(parts[2])
-	if err != nil {
-		return Ref{}, err
-	}
-	key, err := decodeRecordIDPart(parts[3])
-	if err != nil {
-		return Ref{}, err
-	}
-	ref := Ref{Scope: Scope(parts[1]), Namespace: namespace, Key: key}
-	return ref, ref.Validate()
-}
-
-// RecordIDPrefix returns the storage prefix for a list filter.
-func (o ListOptions) RecordIDPrefix() (string, error) {
-	if err := o.Validate(); err != nil {
-		return "", err
-	}
-	return recordIDVersion + "/" + string(o.Scope) + "/" + encodeRecordIDPart(o.Namespace) + "/" + encodeRecordIDPart(o.KeyPrefix), nil
-}
-
 // Valid reports whether the scope is supported.
 func (s Scope) Valid() bool {
 	switch s {
@@ -253,18 +217,6 @@ func validateKey(name, value string) error {
 		}
 	}
 	return nil
-}
-
-func encodeRecordIDPart(value string) string {
-	return hex.EncodeToString([]byte(value))
-}
-
-func decodeRecordIDPart(value string) (string, error) {
-	decoded, err := hex.DecodeString(value)
-	if err != nil {
-		return "", fmt.Errorf("%w: malformed record id", ErrInvalidRef)
-	}
-	return string(decoded), nil
 }
 
 // ValidateKeyPrefix rejects malformed key prefixes for list filters.
