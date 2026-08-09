@@ -101,6 +101,11 @@ func (u *ArtifactUploader) UploadDir(ctx context.Context, dir string) error {
 	}
 
 	attemptID := u.getAttemptID()
+	err := u.uploadDir(ctx, dir, attemptID)
+	if !isRetryableArtifactUploadError(err) {
+		return err
+	}
+
 	retryCtx, cancel := context.WithTimeout(ctx, artifactUploadRetryTimeout)
 	defer cancel()
 	return backoff.Retry(retryCtx, func(ctx context.Context) error {
