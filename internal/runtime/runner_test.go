@@ -682,7 +682,7 @@ func TestRunner(t *testing.T) {
 
 		// 1 -> 2 (timeout) -> 3 (should not be executed)
 		plan := r.newPlan(t,
-			newStep("1", withCommand("exit 0")),
+			newStep("1", withExecutorType("noop")),
 			newStep("2", withCommand(test.Sleep(secondSleep)), withDepends("1")),
 			successStep("3", "2"),
 		)
