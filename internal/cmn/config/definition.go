@@ -99,6 +99,7 @@ type Definition struct {
 // DAGDiscoveryDef configures DAG definition discovery.
 type DAGDiscoveryDef struct {
 	Recursive *bool `mapstructure:"recursive"`
+	Symlinks  *bool `mapstructure:"symlinks"`
 }
 
 // -----------------------------------------------------------------------------

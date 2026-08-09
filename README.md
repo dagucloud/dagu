@@ -919,6 +919,7 @@ The table lists the most common commands. The binary ships 31 in total, includin
 | `DAGU_HOME` | — | Overrides all path defaults |
 | `DAGU_DAGS_DIR` | `~/.config/dagu/dags` | DAG definitions directory |
 | `DAGU_DAG_DISCOVERY_RECURSIVE` | `false` | Discover DAGs in subdirectories |
+| `DAGU_DAG_DISCOVERY_SYMLINKS` | `false` | Include recursive file symlinks and allow external targets |
 | `DAGU_LOG_DIR` | `~/.local/share/dagu/logs` | Log files |
 | `DAGU_DATA_DIR` | `~/.local/share/dagu/data` | Application state |
 | `DAGU_TOOLS_DIR` | `{DAGU_DATA_DIR}/tools` | Managed DAG tool cache |
@@ -933,6 +934,15 @@ dag_discovery:
 ```
 
 It scans `paths.dags_dir`, excluding `workspaces/`, dot-directories, and symlinks. File stems and effective DAG names must each be unique, using case-sensitive comparison; conflicting files are excluded until the conflict is resolved. `paths.alt_dags_dir` remains lookup-only.
+
+Set `dag_discovery.symlinks: true` (or
+`DAGU_DAG_DISCOVERY_SYMLINKS=true`) to include YAML file symlinks in recursive
+discovery and to allow YAML file symlinks whose targets are outside
+`paths.dags_dir`. Symlinked directories are never traversed. External targets
+can be viewed, scheduled, and run, but cannot be updated, deleted, or renamed
+through Dagu. Without the opt-in, top-level YAML file symlinks whose targets
+remain inside `paths.dags_dir` continue to work. A symlink configured as
+`paths.dags_dir` itself is also supported.
 
 ### Authentication
 

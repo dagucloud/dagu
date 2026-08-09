@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
@@ -38,10 +40,16 @@ type dagFileSnapshot struct {
 }
 
 // newDAGFileSource creates the production DAG file source for a watched directory.
-func newDAGFileSource(dir string) *dagFileSource {
+func newDAGFileSource(dir string, store dagstore.DAGStore) *dagFileSource {
+	load := loadDAGMetadata
+	if store != nil {
+		load = func(ctx context.Context, filePath string) (*ir.DAG, error) {
+			return store.GetMetadata(ctx, filePath)
+		}
+	}
 	return &dagFileSource{
 		dir:  dir,
-		load: loadDAGMetadata,
+		load: load,
 	}
 }
 
@@ -67,7 +75,7 @@ func (s *dagFileSource) snapshot(ctx context.Context, fileName string) (dagFileS
 			return dagFileSnapshot{dag: dag, exists: true}, nil
 		}
 
-		if !errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, dagdiscovery.ErrExternalSymlinkDisabled) || !errors.Is(err, os.ErrNotExist) {
 			return dagFileSnapshot{}, err
 		}
 		if attempt >= dagFileSnapshotRetries {

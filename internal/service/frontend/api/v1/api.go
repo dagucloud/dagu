@@ -768,6 +768,9 @@ func (a *API) resolveError(err error) (api.ErrorCode, string, int) {
 	if errors.Is(err, dagstore.ErrDAGAlreadyExists) {
 		return api.ErrorCodeAlreadyExists, "DAG already exists", http.StatusConflict
 	}
+	if errors.Is(err, dagstore.ErrDAGReadOnly) {
+		return api.ErrorCodeForbidden, "DAG definition is read-only because it is managed through an external file symlink", http.StatusForbidden
+	}
 
 	return api.ErrorCodeInternalError, "An unexpected error occurred", http.StatusInternalServerError
 }

@@ -489,6 +489,55 @@ func TestGetSpecRejectsSymlinkOutsideConfiguredDirectories(t *testing.T) {
 	assert.ErrorIs(t, err, dagstore.ErrDAGNotFound)
 }
 
+func TestExternalDAGFileSymlink(t *testing.T) {
+	baseDir := t.TempDir()
+	targetDir := t.TempDir()
+	const dagContent = "name: external\nsteps:\n  - run: echo external\n"
+	targetPath := filepath.Join(targetDir, "source.yaml")
+	require.NoError(t, os.WriteFile(targetPath, []byte(dagContent), 0600))
+	linkPath := filepath.Join(baseDir, "external.yaml")
+	if err := os.Symlink(targetPath, linkPath); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+
+	t.Run("Disabled", func(t *testing.T) {
+		store := New(baseDir, WithSkipExamples(true))
+		result, issues, err := store.List(context.Background(), dagstore.ListDAGsOptions{})
+		require.NoError(t, err)
+		require.Empty(t, result.Items)
+		require.Len(t, issues, 1)
+		assert.Contains(t, issues[0], "dag_discovery.symlinks")
+
+		_, err = store.GetSpec(context.Background(), "external")
+		assert.ErrorIs(t, err, dagstore.ErrDAGNotFound)
+	})
+
+	t.Run("Enabled", func(t *testing.T) {
+		store := New(baseDir, WithSkipExamples(true), WithSymlinks(true))
+		result, issues, err := store.List(context.Background(), dagstore.ListDAGsOptions{})
+		require.NoError(t, err)
+		require.Empty(t, issues)
+		require.Len(t, result.Items, 1)
+		assert.Equal(t, "external", result.Items[0].Name)
+
+		spec, err := store.GetSpec(context.Background(), "external")
+		require.NoError(t, err)
+		assert.Equal(t, dagContent, spec)
+		_, err = store.GetDetails(context.Background(), "external", dagstore.DAGLoadOptions{})
+		require.NoError(t, err)
+
+		assert.ErrorIs(t, store.UpdateSpec(context.Background(), "external", []byte(dagContent)), dagstore.ErrDAGReadOnly)
+		assert.ErrorIs(t, store.Delete(context.Background(), "external"), dagstore.ErrDAGReadOnly)
+		assert.ErrorIs(t, store.Rename(context.Background(), "external", "renamed"), dagstore.ErrDAGReadOnly)
+
+		_, err = os.Lstat(linkPath)
+		require.NoError(t, err)
+		content, err := os.ReadFile(targetPath)
+		require.NoError(t, err)
+		assert.Equal(t, dagContent, string(content))
+	})
+}
+
 func TestGetSpecAllowsExplicitSearchPaths(t *testing.T) {
 	baseDir := t.TempDir()
 	searchDir := t.TempDir()

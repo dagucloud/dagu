@@ -942,6 +942,45 @@ steps:
 	}, dagRunEventuallyTimeout(5*time.Second), 200*time.Millisecond)
 }
 
+func TestExternalDAGFileSymlinkAPI(t *testing.T) {
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.DAGDiscovery.Symlinks = true
+	}))
+
+	targetDir := t.TempDir()
+	targetPath := filepath.Join(targetDir, "source.yaml")
+	dagSpec := fmt.Sprintf(`
+name: external-link
+steps:
+  - %s
+`, test.ShellQuote("exit 0"))
+	require.NoError(t, os.WriteFile(targetPath, []byte(dagSpec), 0600))
+	if err := os.Symlink(targetPath, filepath.Join(server.Config.Paths.DAGsDir, "external-link.yaml")); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+
+	server.Client().Get("/api/v1/dags/external-link").
+		ExpectStatus(http.StatusOK).Send(t)
+	resp := server.Client().Post(
+		"/api/v1/dags/external-link/enqueue",
+		api.EnqueueDAGDAGRunJSONRequestBody{},
+	).ExpectStatus(http.StatusOK).Send(t)
+	var enqueueBody api.EnqueueDAGDAGRun200JSONResponse
+	resp.Unmarshal(t, &enqueueBody)
+	require.NotEmpty(t, enqueueBody.DagRunId)
+
+	resp = server.Client().Put("/api/v1/dags/external-link/spec", api.UpdateDAGSpecJSONRequestBody{
+		Spec: dagSpec,
+	}).ExpectStatus(http.StatusForbidden).Send(t)
+	var errorBody api.Error
+	resp.Unmarshal(t, &errorBody)
+	assert.Equal(t, api.ErrorCodeForbidden, errorBody.Code)
+	assert.Contains(t, errorBody.Message, "external file symlink")
+
+	server.Client().Delete("/api/v1/dags/external-link").
+		ExpectStatus(http.StatusForbidden).Send(t)
+}
+
 type stubSchedulerStateStore struct {
 	state *scheduler.SchedulerState
 }

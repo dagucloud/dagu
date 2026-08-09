@@ -35,22 +35,28 @@ func testLoadWithError(t *testing.T, opts ...ConfigLoaderOption) error {
 func TestLoad_DAGDiscovery(t *testing.T) {
 	t.Run("Default", func(t *testing.T) {
 		t.Setenv("DAGU_DAG_DISCOVERY_RECURSIVE", "")
+		t.Setenv("DAGU_DAG_DISCOVERY_SYMLINKS", "")
 		cfg := testLoad(t)
 		assert.False(t, cfg.DAGDiscovery.Recursive)
+		assert.False(t, cfg.DAGDiscovery.Symlinks)
 	})
 
 	t.Run("YAML", func(t *testing.T) {
 		cfg := loadFromYAML(t, `
 dag_discovery:
   recursive: true
+  symlinks: true
 `)
 		assert.True(t, cfg.DAGDiscovery.Recursive)
+		assert.True(t, cfg.DAGDiscovery.Symlinks)
 	})
 
 	t.Run("Environment", func(t *testing.T) {
 		t.Setenv("DAGU_DAG_DISCOVERY_RECURSIVE", "true")
+		t.Setenv("DAGU_DAG_DISCOVERY_SYMLINKS", "true")
 		cfg := testLoad(t)
 		assert.True(t, cfg.DAGDiscovery.Recursive)
+		assert.True(t, cfg.DAGDiscovery.Symlinks)
 	})
 }
 

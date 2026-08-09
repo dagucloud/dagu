@@ -81,7 +81,7 @@ func NewEntryReader(dir string, dagCli dagstore.DAGStore, recursive bool) EntryR
 		stamps:      make(map[string]dagFileStamp),
 		watchedDirs: make(map[string]struct{}),
 		dagStore:    dagCli,
-		dagSource:   newDAGFileSource(dir),
+		dagSource:   newDAGFileSource(dir, dagCli),
 		recursive:   recursive,
 		quit:        make(chan struct{}),
 	}
@@ -355,7 +355,7 @@ func (er *entryReaderImpl) DAGStore() dagstore.DAGStore {
 func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 	er.watcher = filenotify.New(time.Minute)
 
-	scan, err := dagdiscovery.Scan(er.targetDir, true)
+	scan, err := dagdiscovery.Scan(er.targetDir, dagdiscovery.Options{Recursive: true})
 	if err != nil {
 		_ = er.watcher.Close()
 		return fmt.Errorf("failed to initialize recursive DAGs: %w", err)
@@ -389,7 +389,7 @@ func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 }
 
 func (er *entryReaderImpl) refreshRecursive(ctx context.Context) error {
-	scan, err := dagdiscovery.Scan(er.targetDir, true)
+	scan, err := dagdiscovery.Scan(er.targetDir, dagdiscovery.Options{Recursive: true})
 	if err != nil {
 		return err
 	}

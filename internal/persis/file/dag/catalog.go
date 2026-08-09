@@ -21,7 +21,10 @@ type catalog struct {
 }
 
 func (store *Storage) loadCatalog(ctx context.Context) (*catalog, error) {
-	scan, err := dagdiscovery.Scan(store.baseDir, store.recursive)
+	scan, err := dagdiscovery.Scan(store.baseDir, dagdiscovery.Options{
+		Recursive: store.recursive,
+		Symlinks:  store.symlinks,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +102,13 @@ func entryStem(entry *indexv1.DAGIndexEntry) string {
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-func (store *Storage) entryPath(entry *indexv1.DAGIndexEntry) string {
-	return filepath.Join(store.baseDir, filepath.FromSlash(entry.FilePath))
+func (store *Storage) entryLoadPath(entry *indexv1.DAGIndexEntry) (string, error) {
+	resolved, err := dagdiscovery.ResolveFile(store.baseDir, filepath.FromSlash(entry.FilePath))
+	if err != nil {
+		return "", err
+	}
+	if resolved.ExternalSymlink && !store.symlinks {
+		return "", fmt.Errorf("DAG file symlink resolves outside the configured DAG directory")
+	}
+	return resolved.ResolvedPath, nil
 }

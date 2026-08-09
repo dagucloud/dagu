@@ -44,6 +44,7 @@ type Config struct {
 // DAGDiscoveryConfig controls how DAG definitions are discovered.
 type DAGDiscoveryConfig struct {
 	Recursive bool
+	Symlinks  bool
 }
 
 const DefaultWebhookMaxPayloadSize = 1 * 1024 * 1024

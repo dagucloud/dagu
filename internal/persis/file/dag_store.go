@@ -22,6 +22,7 @@ type DAGStoreOptions struct {
 	Cache                 *fileutil.Cache[*ir.DAG]
 	SearchPaths           []string
 	SkipExamples          *bool
+	Symlinks              bool
 	SkipDirectoryCreation bool
 }
 
@@ -46,6 +47,13 @@ func WithDAGSkipExamples(skip bool) DAGStoreOption {
 	}
 }
 
+// WithDAGSymlinks includes file symlinks in recursive discovery and permits external targets.
+func WithDAGSymlinks(enabled bool) DAGStoreOption {
+	return func(o *DAGStoreOptions) {
+		o.Symlinks = enabled
+	}
+}
+
 // WithDAGSkipDirectoryCreation controls whether the DAG directory is created on startup.
 func WithDAGSkipDirectoryCreation(skip bool) DAGStoreOption {
 	return func(o *DAGStoreOptions) {
@@ -55,7 +63,7 @@ func WithDAGSkipDirectoryCreation(skip bool) DAGStoreOption {
 
 // NewDAGStore wires the file-backed DAG definition store from application config.
 func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (dagstore.DAGStore, error) {
-	options := DAGStoreOptions{}
+	options := DAGStoreOptions{Symlinks: cfg.DAGDiscovery.Symlinks}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&options)
@@ -75,6 +83,7 @@ func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (dagstore.DAGStore,
 		filedag.WithFileCache(options.Cache),
 		filedag.WithSkipExamples(skipExamples),
 		filedag.WithRecursiveDiscovery(cfg.DAGDiscovery.Recursive),
+		filedag.WithSymlinks(options.Symlinks),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
 	)
 	if s, ok := store.(*filedag.Storage); ok {

@@ -25,6 +25,7 @@ type DAGLoadOptions struct {
 var (
 	ErrDAGAlreadyExists = errors.New("DAG already exists")
 	ErrDAGNotFound      = errors.New("DAG is not found")
+	ErrDAGReadOnly      = errors.New("DAG definition is read-only")
 )
 
 // DAGStore is an interface for interacting with underlying DAG storage systems.

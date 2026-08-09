@@ -31,7 +31,7 @@ func TestRefreshFailures_ClearsAnErrorAnOlderBuildRecorded(t *testing.T) {
 		LoadError: "decoding failed due to the following error(s): 'spec.dag' has invalid keys: tasks",
 	}}
 
-	changed := dagindex.RefreshFailures(t.Context(), dir, entries, dagindex.SuspendFlags{})
+	changed := dagindex.RefreshFailures(t.Context(), dir, nil, entries, dagindex.SuspendFlags{})
 
 	assert.True(t, changed, "the correction must be persisted")
 	assert.Empty(t, entries[0].LoadError, "the stale error is dropped once the file parses")
@@ -53,7 +53,7 @@ func TestRefreshFailures_KeepsARealError(t *testing.T) {
 		LoadError: "some older message",
 	}}
 
-	dagindex.RefreshFailures(t.Context(), dir, entries, dagindex.SuspendFlags{})
+	dagindex.RefreshFailures(t.Context(), dir, nil, entries, dagindex.SuspendFlags{})
 	assert.NotEmpty(t, entries[0].LoadError)
 }
 
@@ -69,13 +69,13 @@ func TestRefreshFailures_ReportsMetadataChangesUnderAnUnchangedError(t *testing.
 		[]byte("type: nonsense\nsteps:\n  - name: a\n    run: echo a\n"), 0o600))
 
 	entries := []*indexv1.DAGIndexEntry{{FilePath: "bad.yaml", LoadError: "placeholder"}}
-	require.True(t, dagindex.RefreshFailures(t.Context(), dir, entries, dagindex.SuspendFlags{}))
+	require.True(t, dagindex.RefreshFailures(t.Context(), dir, nil, entries, dagindex.SuspendFlags{}))
 	require.NotEmpty(t, entries[0].LoadError, "the file is expected to stay unloadable")
 
 	// Same error, metadata only the previous parser produced.
 	entries[0].Labels = []string{"team=infra"}
 
-	changed := dagindex.RefreshFailures(t.Context(), dir, entries, dagindex.SuspendFlags{})
+	changed := dagindex.RefreshFailures(t.Context(), dir, nil, entries, dagindex.SuspendFlags{})
 
 	assert.True(t, changed, "a metadata-only correction still has to be persisted")
 	assert.Empty(t, entries[0].Labels)
@@ -89,7 +89,7 @@ func TestRefreshFailures_LeavesHealthyEntriesAlone(t *testing.T) {
 	entries := []*indexv1.DAGIndexEntry{{FilePath: "gone.yaml", Name: "cached"}}
 
 	changed := dagindex.RefreshFailures(
-		t.Context(), t.TempDir(), entries, dagindex.SuspendFlags{})
+		t.Context(), t.TempDir(), nil, entries, dagindex.SuspendFlags{})
 
 	assert.False(t, changed)
 	assert.Equal(t, "cached", entries[0].Name, "a healthy entry is served from cache")

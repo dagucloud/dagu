@@ -787,6 +787,11 @@
           "type": "boolean",
           "description": "Discover DAG definitions in subdirectories.",
           "default": false
+        },
+        "symlinks": {
+          "type": "boolean",
+          "description": "Include file symlinks in recursive DAG discovery and allow file symlinks whose targets are outside the configured DAG directory.",
+          "default": false
         }
       }
     },

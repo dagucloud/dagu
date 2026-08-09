@@ -124,7 +124,7 @@ func newTestEntryReader(dir string, events chan DAGChangeEvent) *entryReaderImpl
 	return &entryReaderImpl{
 		targetDir: dir,
 		registry:  make(map[string]*ir.DAG),
-		dagSource: newDAGFileSource(dir),
+		dagSource: newDAGFileSource(dir, nil),
 		quit:      make(chan struct{}),
 		events:    events,
 	}
@@ -344,6 +344,52 @@ steps:
 		assert.Equal(t, "shared-name", event.DAGName)
 	case <-time.After(time.Second):
 		t.Fatal("expected the resolved DAG conflict to recover")
+	}
+}
+
+func TestEntryReaderExternalDAGFileSymlink(t *testing.T) {
+	tests := []struct {
+		name      string
+		recursive bool
+		symlinks  bool
+		expected  int
+	}{
+		{name: "NonRecursiveDisabled"},
+		{name: "NonRecursiveEnabled", symlinks: true, expected: 1},
+		{name: "RecursiveDisabled", recursive: true},
+		{name: "RecursiveEnabled", recursive: true, symlinks: true, expected: 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			linkDir := root
+			if tc.recursive {
+				linkDir = filepath.Join(root, "nested")
+				require.NoError(t, os.MkdirAll(linkDir, 0750))
+			}
+			targetDir := t.TempDir()
+			targetPath := writeDAGFile(t, targetDir, "source.yaml", "external")
+			if err := os.Symlink(targetPath, filepath.Join(linkDir, "external.yaml")); err != nil {
+				t.Skipf("symlink creation is unavailable: %v", err)
+			}
+
+			store := filedag.New(
+				root,
+				filedag.WithSkipExamples(true),
+				filedag.WithRecursiveDiscovery(tc.recursive),
+				filedag.WithSymlinks(tc.symlinks),
+			)
+			reader := NewEntryReader(root, store, tc.recursive)
+			require.NoError(t, reader.Init(context.Background()))
+			t.Cleanup(reader.Stop)
+
+			dags := reader.DAGs()
+			require.Len(t, dags, tc.expected)
+			if tc.expected == 1 {
+				assert.Equal(t, "external", dags[0].Name)
+			}
+		})
 	}
 }
 
