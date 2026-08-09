@@ -777,7 +777,18 @@ func (cli *clientImpl) GetWorkers(ctx context.Context) ([]*coordinatorv1.WorkerI
 }
 
 func sortCoordinatorMembers(members []serviceregistry.HostInfo) []serviceregistry.HostInfo {
-	sorted := append([]serviceregistry.HostInfo(nil), members...)
+	byEndpoint := make(map[string]serviceregistry.HostInfo, len(members))
+	for _, member := range members {
+		key := coordinatorMemberKey(member)
+		current, exists := byEndpoint[key]
+		if !exists || member.StartedAt.After(current.StartedAt) {
+			byEndpoint[key] = member
+		}
+	}
+	sorted := make([]serviceregistry.HostInfo, 0, len(byEndpoint))
+	for _, member := range byEndpoint {
+		sorted = append(sorted, member)
+	}
 	sort.Slice(sorted, func(i, j int) bool {
 		return coordinatorMemberKey(sorted[i]) < coordinatorMemberKey(sorted[j])
 	})
@@ -814,10 +825,10 @@ func stateCoordinatorMemberScore(routingKey string, member serviceregistry.HostI
 }
 
 func coordinatorMemberKey(member serviceregistry.HostInfo) string {
-	if member.ID != "" {
-		return member.ID
+	if member.Host != "" && member.Port > 0 {
+		return coordinatorAddress(member)
 	}
-	return fmt.Sprintf("%s:%d", member.Host, member.Port)
+	return member.ID
 }
 
 func coordinatorAddress(member serviceregistry.HostInfo) string {

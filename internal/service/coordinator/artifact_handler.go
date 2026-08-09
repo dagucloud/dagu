@@ -23,9 +23,8 @@ import (
 )
 
 type artifactHandler struct {
-	dagRunStore    dagrun.DAGRunStore
-	ownerID        string
-	ownerValidator func(context.Context, string) (bool, error)
+	dagRunStore      dagrun.DAGRunStore
+	attemptValidator func(context.Context, remoteAttemptIdentity) error
 }
 
 type artifactWriter struct {
@@ -33,19 +32,15 @@ type artifactWriter struct {
 	finalPath string
 }
 
-func newArtifactHandler(dagRunStore dagrun.DAGRunStore, ownerID string) *artifactHandler {
-	return &artifactHandler{
-		dagRunStore: dagRunStore,
-		ownerID:     ownerID,
-	}
+func newArtifactHandler(dagRunStore dagrun.DAGRunStore, _ ...string) *artifactHandler {
+	return &artifactHandler{dagRunStore: dagRunStore}
 }
 
 func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_StreamArtifactsServer) error {
 	ctx := stream.Context()
 	var chunksReceived uint64
 	var bytesWritten uint64
-	var validatedOwnerID string
-	var ownerValidated bool
+	var validatedIdentity *remoteAttemptIdentity
 	activeWriters := make(map[string]*artifactWriter)
 
 	defer func() {
@@ -69,25 +64,21 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 		chunksReceived++
 		key := h.streamKey(chunk)
 
-		if ownerValidated {
-			if chunk.OwnerCoordinatorId != validatedOwnerID {
-				return status.Error(codes.FailedPrecondition, "artifact chunk sent to non-owner coordinator")
+		if h.attemptValidator != nil {
+			identity, identityErr := artifactChunkIdentity(chunk)
+			if identityErr != nil {
+				return status.Error(codes.InvalidArgument, identityErr.Error())
 			}
-		} else if h.ownerValidator != nil {
-			accepted, err := h.ownerValidator(ctx, chunk.OwnerCoordinatorId)
-			if err != nil {
-				return status.Error(codes.Internal, "failed to validate artifact chunk owner: "+err.Error())
+			if validatedIdentity != nil {
+				if identity != *validatedIdentity {
+					return status.Error(codes.FailedPrecondition, "artifact stream attempt identity changed")
+				}
+			} else {
+				if err := h.attemptValidator(ctx, identity); err != nil {
+					return err
+				}
+				validatedIdentity = &identity
 			}
-			if !accepted {
-				return status.Error(codes.FailedPrecondition, "artifact chunk sent to non-owner coordinator")
-			}
-			validatedOwnerID = chunk.OwnerCoordinatorId
-			ownerValidated = true
-		} else if h.ownerID != "" && chunk.OwnerCoordinatorId != h.ownerID {
-			return status.Error(codes.FailedPrecondition, "artifact chunk sent to non-owner coordinator")
-		} else if h.ownerID != "" {
-			validatedOwnerID = chunk.OwnerCoordinatorId
-			ownerValidated = true
 		}
 
 		if len(chunk.Data) == 0 && !chunk.IsFinal {

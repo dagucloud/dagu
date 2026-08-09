@@ -84,6 +84,7 @@ func (m *mockStreamLogsClient) Send(chunk *coordinatorv1.LogChunk) error {
 		RootDagRunId:       chunk.RootDagRunId,
 		AttemptId:          chunk.AttemptId,
 		OwnerCoordinatorId: chunk.OwnerCoordinatorId,
+		AttemptKey:         chunk.AttemptKey,
 	}
 	m.sentChunks = append(m.sentChunks, chunkCopy)
 	return nil
@@ -872,6 +873,33 @@ func TestClose_WithUnflushedData(t *testing.T) {
 	assert.True(t, chunks[1].IsFinal)
 }
 
+func TestClose_RetriesBufferedDataAfterCoordinatorOutage(t *testing.T) {
+	t.Parallel()
+
+	failedStream := &mockStreamLogsClient{sendErr: status.Error(codes.Unavailable, "coordinator restarting")}
+	recoveredStream := &mockStreamLogsClient{}
+	var opens atomic.Int32
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			if opens.Add(1) == 1 {
+				return failedStream, nil
+			}
+			return recoveredStream, nil
+		},
+	}
+	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", ir.DAGRunRef{})
+	writer := streamer.NewStepWriter(t.Context(), "step", runctx.StreamTypeStdout)
+	_, err := writer.Write([]byte("retained output"))
+	require.NoError(t, err)
+
+	require.NoError(t, writer.Close())
+	require.Equal(t, int32(2), opens.Load())
+	chunks := recoveredStream.getSentChunks()
+	require.Len(t, chunks, 2)
+	require.Equal(t, "retained output", string(chunks[0].Data))
+	require.True(t, chunks[1].IsFinal)
+}
+
 func TestClose_Idempotent(t *testing.T) {
 	t.Parallel()
 	mockStream := &mockStreamLogsClient{}
@@ -1346,6 +1374,7 @@ func TestLogStreamer_FullLifecycle(t *testing.T) {
 	}
 	rootRef := ir.DAGRunRef{Name: "root", ID: "root-123"}
 	streamer := coordreport.NewLogStreamer(client, "worker-1", "run-456", "test-dag", "attempt-789", rootRef)
+	streamer.SetClaimKey("root-claim")
 
 	writer := streamer.NewStepWriter(context.Background(), "step1", runctx.StreamTypeStdout)
 
@@ -1373,6 +1402,7 @@ func TestLogStreamer_FullLifecycle(t *testing.T) {
 		assert.Equal(t, "root", chunk.RootDagRunName)
 		assert.Equal(t, "root-123", chunk.RootDagRunId)
 		assert.Equal(t, "attempt-789", chunk.AttemptId)
+		assert.Equal(t, "root-claim", chunk.AttemptKey)
 	}
 
 	// Verify final chunk

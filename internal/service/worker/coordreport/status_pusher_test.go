@@ -18,6 +18,8 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Compile-time interface check
@@ -237,6 +239,29 @@ func TestPush(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to report status")
 		assert.Contains(t, err.Error(), "connection refused")
+	})
+
+	t.Run("TerminalStatusRetriesTransientFailure", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+		client := &mockCoordinatorClient{
+			reportStatusFunc: func(_ context.Context, _ *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+				calls++
+				if calls == 1 {
+					return nil, status.Error(codes.Unavailable, "coordinator restarting")
+				}
+				return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+			},
+		}
+
+		pusher := coordreport.NewStatusPusher(client, "worker-1", "claim-key")
+		err := pusher.Push(t.Context(), ir.DAGRunStatus{
+			Name: "test-dag", DAGRunID: "run-123", Status: ir.Succeeded,
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, 2, calls)
 	})
 
 	t.Run("ContextCancelled", func(t *testing.T) {

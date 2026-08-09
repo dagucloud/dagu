@@ -407,6 +407,7 @@ func (h *remoteTaskHandler) createRemoteHandlers(run remoteRun, dagName string) 
 			dagRunID:  task.DagRunId,
 			dagName:   dagName,
 			attemptID: task.AttemptId,
+			claimKey:  task.AttemptKey,
 			root:      run.root,
 		},
 		run.owner,

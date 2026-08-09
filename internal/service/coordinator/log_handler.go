@@ -26,9 +26,8 @@ const flushThreshold = 65536
 
 // logHandler handles log streaming from workers
 type logHandler struct {
-	logDir         string
-	ownerID        string
-	ownerValidator func(context.Context, string) (bool, error)
+	logDir           string
+	attemptValidator func(context.Context, remoteAttemptIdentity) error
 
 	// Active writers: streamKey -> writer
 	writers   map[string]*streamLogWriter
@@ -111,14 +110,9 @@ func (w *logWriter) close() error {
 }
 
 // newLogHandler creates a new log handler
-func newLogHandler(logDir string, ownerID ...string) *logHandler {
-	var expectedOwner string
-	if len(ownerID) > 0 {
-		expectedOwner = ownerID[0]
-	}
+func newLogHandler(logDir string) *logHandler {
 	return &logHandler{
 		logDir:  logDir,
-		ownerID: expectedOwner,
 		writers: make(map[string]*streamLogWriter),
 	}
 }
@@ -128,8 +122,7 @@ func (h *logHandler) handleStream(stream coordinatorv1.CoordinatorService_Stream
 	ctx := stream.Context()
 	var chunksReceived uint64
 	var bytesWritten uint64
-	var validatedOwnerID string
-	var ownerValidated bool
+	var validatedIdentity *remoteAttemptIdentity
 
 	for {
 		chunk, err := stream.Recv()
@@ -146,25 +139,21 @@ func (h *logHandler) handleStream(stream coordinatorv1.CoordinatorService_Stream
 
 		chunksReceived++
 
-		if ownerValidated {
-			if chunk.OwnerCoordinatorId != validatedOwnerID {
-				return status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator")
+		if h.attemptValidator != nil {
+			identity, identityErr := logChunkIdentity(chunk)
+			if identityErr != nil {
+				return status.Error(codes.InvalidArgument, identityErr.Error())
 			}
-		} else if h.ownerValidator != nil {
-			accepted, err := h.ownerValidator(ctx, chunk.OwnerCoordinatorId)
-			if err != nil {
-				return status.Error(codes.Internal, "failed to validate log chunk owner: "+err.Error())
+			if validatedIdentity != nil {
+				if identity != *validatedIdentity {
+					return status.Error(codes.FailedPrecondition, "log stream attempt identity changed")
+				}
+			} else {
+				if err := h.attemptValidator(ctx, identity); err != nil {
+					return err
+				}
+				validatedIdentity = &identity
 			}
-			if !accepted {
-				return status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator")
-			}
-			validatedOwnerID = chunk.OwnerCoordinatorId
-			ownerValidated = true
-		} else if h.ownerID != "" && chunk.OwnerCoordinatorId != h.ownerID {
-			return status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator")
-		} else if h.ownerID != "" {
-			validatedOwnerID = chunk.OwnerCoordinatorId
-			ownerValidated = true
 		}
 
 		// Handle final marker

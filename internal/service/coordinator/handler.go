@@ -56,8 +56,6 @@ type heartbeatInfo struct {
 	lastHeartbeatAt time.Time
 }
 
-const rejectedOwnerCacheTTL = 5 * time.Second
-
 // defaultStaleHeartbeatThreshold is the default duration after which a worker's heartbeat is considered stale.
 const defaultStaleHeartbeatThreshold = 30 * time.Second
 
@@ -106,15 +104,10 @@ type runClaim struct {
 type Handler struct {
 	coordinatorv1.UnimplementedCoordinatorServiceServer
 
-	mu                 sync.Mutex
-	waitingPollers     map[string]*workerInfo    // pollerID -> worker info
-	heartbeats         map[string]*heartbeatInfo // workerID -> heartbeat info
-	owner              dispatch.CoordinatorEndpoint
-	ownerAliasLookupMu sync.Mutex
-	ownerAliasesMu     sync.RWMutex
-	ownerAliases       map[string]struct{}
-	rejectedOwnerID    string
-	rejectedOwnerUntil time.Time
+	mu             sync.Mutex
+	waitingPollers map[string]*workerInfo    // pollerID -> worker info
+	heartbeats     map[string]*heartbeatInfo // workerID -> heartbeat info
+	owner          dispatch.CoordinatorEndpoint
 
 	dispatchWakeMu          sync.Mutex
 	dispatchWakeCh          chan struct{}
@@ -248,7 +241,6 @@ func NewHandler(cfg HandlerConfig) *Handler {
 	return &Handler{
 		waitingPollers:            make(map[string]*workerInfo),
 		heartbeats:                make(map[string]*heartbeatInfo),
-		ownerAliases:              make(map[string]struct{}),
 		dispatchWakeCh:            make(chan struct{}),
 		dispatchPollInitialWait:   defaultDispatchPollInitialWait,
 		dispatchPollMaxWait:       defaultDispatchPollMaxWait,
@@ -279,88 +271,6 @@ func (h *Handler) eventContext(ctx context.Context) context.Context {
 		Service:  eventstore.SourceServiceCoordinator,
 		Instance: h.eventSourceInstance,
 	})
-}
-
-func (h *Handler) acceptsOwner(ctx context.Context, ownerID string) (bool, error) {
-	if h.owner.ID == "" || ownerID == h.owner.ID {
-		return true, nil
-	}
-
-	accepted, rejected := h.cachedOwnerAlias(ownerID)
-	if accepted {
-		return true, nil
-	}
-	if rejected {
-		return false, nil
-	}
-	if h.dagRunLeaseStore == nil {
-		return false, nil
-	}
-
-	h.ownerAliasLookupMu.Lock()
-	defer h.ownerAliasLookupMu.Unlock()
-
-	accepted, rejected = h.cachedOwnerAlias(ownerID)
-	if accepted {
-		return true, nil
-	}
-	if rejected {
-		return false, nil
-	}
-
-	leases, err := h.dagRunLeaseStore.ListAll(ctx)
-	if err != nil {
-		return false, err
-	}
-	for _, lease := range leases {
-		if lease.Owner.ID == ownerID && sameCoordinatorAddress(lease.Owner, h.owner) {
-			h.rememberOwnerAlias(ctx, lease.Owner)
-			return true, nil
-		}
-	}
-	h.ownerAliasesMu.Lock()
-	h.rejectedOwnerID = ownerID
-	h.rejectedOwnerUntil = time.Now().Add(rejectedOwnerCacheTTL)
-	h.ownerAliasesMu.Unlock()
-	return false, nil
-}
-
-func (h *Handler) cachedOwnerAlias(ownerID string) (accepted, rejected bool) {
-	h.ownerAliasesMu.RLock()
-	defer h.ownerAliasesMu.RUnlock()
-	_, accepted = h.ownerAliases[ownerID]
-	rejected = h.rejectedOwnerID == ownerID && time.Now().Before(h.rejectedOwnerUntil)
-	return accepted, rejected
-}
-
-func (h *Handler) rememberOwnerAlias(ctx context.Context, owner dispatch.CoordinatorEndpoint) {
-	if owner.ID == "" || owner.ID == h.owner.ID {
-		return
-	}
-
-	h.ownerAliasesMu.Lock()
-	if h.ownerAliases == nil {
-		h.ownerAliases = make(map[string]struct{})
-	}
-	_, exists := h.ownerAliases[owner.ID]
-	if !exists {
-		h.ownerAliases[owner.ID] = struct{}{}
-	}
-	if h.rejectedOwnerID == owner.ID {
-		h.rejectedOwnerID = ""
-		h.rejectedOwnerUntil = time.Time{}
-	}
-	h.ownerAliasesMu.Unlock()
-	if exists {
-		return
-	}
-
-	logger.Info(ctx, "Accepted previous coordinator owner for shared endpoint",
-		slog.String("owner-id", owner.ID),
-		slog.String("replacement-id", h.owner.ID),
-		tag.Host(h.owner.Host),
-		tag.Port(h.owner.Port),
-	)
 }
 
 func sameCoordinatorAddress(a, b dispatch.CoordinatorEndpoint) bool {
@@ -1232,6 +1142,17 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	claimed, err := h.dispatchTaskStore.GetClaim(ctx, req.ClaimToken)
 	if err != nil {
 		if errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
+			if req.AttemptKey != "" && req.WorkerId != "" {
+				lease, leaseErr := h.dagRunLeaseStore.Get(ctx, req.AttemptKey)
+				if leaseErr == nil && lease.MatchesClaim(req.AttemptKey, req.WorkerId) &&
+					lease.ClaimToken == req.ClaimToken &&
+					(lease.Owner.Host == "" || h.owner.Host == "" || sameCoordinatorAddress(lease.Owner, h.owner)) {
+					return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
+				}
+				if leaseErr != nil && !errors.Is(leaseErr, dispatch.ErrDAGRunLeaseNotFound) {
+					return nil, status.Error(codes.Internal, "failed to load acknowledged claim: "+leaseErr.Error())
+				}
+			}
 			return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim not found or expired"}, nil
 		}
 		return nil, status.Error(codes.Internal, "failed to load claim: "+err.Error())
@@ -1246,11 +1167,8 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	if claimOwner == (dispatch.CoordinatorEndpoint{}) {
 		claimOwner = claimed.Task.Owner
 	}
-	if claimOwner.ID != "" && claimOwner.ID != h.owner.ID {
-		if !sameCoordinatorAddress(claimOwner, h.owner) {
-			return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim belongs to a different coordinator endpoint"}, nil
-		}
-		h.rememberOwnerAlias(ctx, claimOwner)
+	if claimOwner.Host != "" && h.owner.Host != "" && !sameCoordinatorAddress(claimOwner, h.owner) {
+		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim belongs to a different coordinator endpoint"}, nil
 	}
 
 	workerID := req.WorkerId
@@ -1267,6 +1185,9 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	task, err := convert.DispatchTaskToProto(claimed.Task)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to encode claimed task: "+err.Error())
+	}
+	if req.AttemptKey != "" && req.AttemptKey != task.AttemptKey {
+		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim belongs to a different attempt"}, nil
 	}
 	if err := h.attemptOwnership().recordTaskClaim(ctx, task, workerID); err != nil {
 		return nil, status.Error(codes.Internal, "failed to create run lease: "+err.Error())
@@ -1287,19 +1208,23 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 	if h.dagRunLeaseStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
 	}
-	ownerAccepted, err := h.acceptsOwner(ctx, req.OwnerCoordinatorId)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to validate run heartbeat owner: "+err.Error())
-	}
-	if !ownerAccepted {
-		return nil, status.Error(codes.FailedPrecondition, "run heartbeat sent to non-owner coordinator")
-	}
-
 	cancelledRuns := make([]*coordinatorv1.CancelledRun, 0)
 	observedAt := time.Now().UTC()
 	for _, task := range req.RunningTasks {
 		if task == nil || task.AttemptKey == "" {
 			continue
+		}
+		identity, identityErr := runningTaskIdentity(req.WorkerId, task)
+		if identityErr != nil {
+			cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
+			continue
+		}
+		if err := h.validateRemoteAttempt(ctx, identity); err != nil {
+			if status.Code(err) == codes.FailedPrecondition {
+				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
+				continue
+			}
+			return nil, err
 		}
 		if err := h.refreshRunLease(ctx, task.AttemptKey, observedAt); err != nil {
 			if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) || errors.Is(err, persis.ErrCorrupt) {
@@ -1708,14 +1633,6 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if h.dagRunStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "status reporting not configured: DAG run storage not available")
 	}
-	ownerAccepted, err := h.acceptsOwner(ctx, req.OwnerCoordinatorId)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to validate status update owner: "+err.Error())
-	}
-	if !ownerAccepted {
-		return nil, status.Error(codes.FailedPrecondition, "status update sent to non-owner coordinator")
-	}
-
 	if req.Status == nil {
 		return nil, status.Error(codes.InvalidArgument, "status is required")
 	}
@@ -1727,6 +1644,25 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	}
 	if len(dagRunStatus.Labels) == 0 {
 		dagRunStatus.Labels = splitTaskLabels(req.Labels)
+	}
+	leaseMissing := false
+	if h.dagRunLeaseStore != nil {
+		identity, identityErr := statusIdentity(req.WorkerId, dagRunStatus)
+		if identityErr == nil {
+			lease, leaseErr := h.dagRunLeaseStore.Get(ctx, identity.claimKey)
+			switch {
+			case errors.Is(leaseErr, dispatch.ErrDAGRunLeaseNotFound):
+				leaseMissing = true
+			case leaseErr != nil:
+				return nil, status.Error(codes.Internal, "failed to load distributed run lease: "+leaseErr.Error())
+			default:
+				if err := h.validateRemoteAttemptLease(lease, identity); err != nil {
+					return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: status.Convert(err).Message()}, nil
+				}
+			}
+		} else if dagRunStatus.EffectiveClaimKey() != "" {
+			return nil, status.Error(codes.InvalidArgument, identityErr.Error())
+		}
 	}
 
 	// Transform worker-local log paths to coordinator paths.
@@ -1777,6 +1713,10 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	}
 
 	ownership := h.attemptOwnership()
+	if leaseMissing && latestStatus.Status != ir.NotStarted && !isTerminalRunStatus(latestStatus.Status) {
+		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, remoteAttemptRejectedLeaseInactive)
+		return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: remoteAttemptRejectedLeaseInactive}, nil
+	}
 	accepted, rejectReason := ownership.statusDecision(ctx, latestStatus, dagRunStatus, statusDecisionOptions{
 		CancellationRequested: h.sameAttemptCancellationRequested(ctx, latestAttempt, latestStatus, dagRunStatus),
 		ClaimKey:              dagRunStatus.EffectiveClaimKey(),
@@ -2375,8 +2315,10 @@ func (h *Handler) StreamLogs(stream coordinatorv1.CoordinatorService_StreamLogsS
 	}
 
 	// Delegate to the log handler
-	logHandler := newLogHandler(h.logDir, h.owner.ID)
-	logHandler.ownerValidator = h.acceptsOwner
+	logHandler := newLogHandler(h.logDir)
+	if h.dagRunLeaseStore != nil {
+		logHandler.attemptValidator = h.validateRemoteAttempt
+	}
 	defer logHandler.Close(stream.Context()) // Ensure file handles are closed on stream end or error
 	return logHandler.handleStream(stream)
 }
@@ -2390,8 +2332,10 @@ func (h *Handler) StreamArtifacts(stream coordinatorv1.CoordinatorService_Stream
 		return status.Error(codes.FailedPrecondition, "artifact streaming not configured: dagRunStore is empty")
 	}
 
-	artifactHandler := newArtifactHandler(h.dagRunStore, h.owner.ID)
-	artifactHandler.ownerValidator = h.acceptsOwner
+	artifactHandler := newArtifactHandler(h.dagRunStore)
+	if h.dagRunLeaseStore != nil {
+		artifactHandler.attemptValidator = h.validateRemoteAttempt
+	}
 	return artifactHandler.handleStream(stream)
 }
 

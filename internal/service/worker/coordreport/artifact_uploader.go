@@ -38,6 +38,7 @@ type ArtifactUploader struct {
 	dagRunID  string
 	dagName   string
 	attemptID string
+	claimKey  string
 	rootRef   ir.DAGRunRef
 	owner     serviceregistry.HostInfo
 	mu        sync.RWMutex
@@ -75,6 +76,13 @@ func (u *ArtifactUploader) SetAttemptID(attemptID string) {
 	u.attemptID = attemptID
 }
 
+// SetClaimKey binds uploaded artifacts to the task claim that authorizes the run.
+func (u *ArtifactUploader) SetClaimKey(claimKey string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.claimKey = claimKey
+}
+
 // Finalize uploads artifacts for the finalized attempt before the terminal status is written.
 func (u *ArtifactUploader) Finalize(ctx context.Context, attemptID, dir string) error {
 	u.SetAttemptID(attemptID)
@@ -85,6 +93,19 @@ func (u *ArtifactUploader) getAttemptID() string {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
 	return u.attemptID
+}
+
+func (u *ArtifactUploader) attemptKey(attemptID string) string {
+	u.mu.RLock()
+	defer u.mu.RUnlock()
+	if u.claimKey != "" {
+		return u.claimKey
+	}
+	root := u.rootRef
+	if root.Zero() {
+		root = ir.NewDAGRunRef(u.dagName, u.dagRunID)
+	}
+	return ir.GenerateAttemptKey(root.Name, root.ID, u.dagName, u.dagRunID, attemptID)
 }
 
 func (u *ArtifactUploader) openStream(ctx context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
@@ -176,6 +197,7 @@ func (u *ArtifactUploader) uploadDir(ctx context.Context, dir, attemptID string)
 						RootDagRunId:       u.rootRef.ID,
 						AttemptId:          attemptID,
 						OwnerCoordinatorId: u.owner.ID,
+						AttemptKey:         u.attemptKey(attemptID),
 					}
 					if err := sendChunk(chunk); err != nil {
 						return fmt.Errorf("send artifact chunk: %w", err)
@@ -202,6 +224,7 @@ func (u *ArtifactUploader) uploadDir(ctx context.Context, dir, attemptID string)
 				RootDagRunId:       u.rootRef.ID,
 				AttemptId:          attemptID,
 				OwnerCoordinatorId: u.owner.ID,
+				AttemptKey:         u.attemptKey(attemptID),
 			}); err != nil {
 				return fmt.Errorf("send artifact final marker: %w", err)
 			}

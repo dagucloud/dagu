@@ -5,6 +5,7 @@ package coordreport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,6 +36,8 @@ const (
 
 	logFlushInterval          = 2 * time.Second
 	logStreamOperationTimeout = 5 * time.Second
+	stepLogCloseRetryInterval = 100 * time.Millisecond
+	stepLogCloseRetryTimeout  = 30 * time.Second
 	maxRetainedStepLogSize    = 16 * 1024 * 1024
 )
 
@@ -55,6 +58,7 @@ type LogStreamer struct {
 	dagRunID  string
 	dagName   string
 	attemptID string
+	claimKey  string
 	rootRef   ir.DAGRunRef
 	owner     serviceregistry.HostInfo
 	mu        sync.RWMutex
@@ -95,11 +99,31 @@ func (s *LogStreamer) SetAttemptID(attemptID string) {
 	s.attemptID = attemptID
 }
 
+// SetClaimKey binds streamed logs to the task claim that authorizes the run.
+func (s *LogStreamer) SetClaimKey(claimKey string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.claimKey = claimKey
+}
+
 // getAttemptID returns the current attemptID
 func (s *LogStreamer) getAttemptID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.attemptID
+}
+
+func (s *LogStreamer) getAttemptKey() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.claimKey != "" {
+		return s.claimKey
+	}
+	root := s.rootRef
+	if root.Zero() {
+		root = ir.NewDAGRunRef(s.dagName, s.dagRunID)
+	}
+	return ir.GenerateAttemptKey(root.Name, root.ID, s.dagName, s.dagRunID, s.attemptID)
 }
 
 func (s *LogStreamer) registerSchedulerWriter(w *schedulerLogWriter) {
@@ -237,6 +261,7 @@ func (s *LogStreamer) StreamSchedulerLog(ctx context.Context, logFilePath string
 			RootDagRunId:       s.rootRef.ID,
 			AttemptId:          s.getAttemptID(),
 			OwnerCoordinatorId: s.owner.ID,
+			AttemptKey:         s.getAttemptKey(),
 		}
 
 		if err := stream.Send(chunk); err != nil {
@@ -260,6 +285,7 @@ func (s *LogStreamer) StreamSchedulerLog(ctx context.Context, logFilePath string
 		RootDagRunId:       s.rootRef.ID,
 		AttemptId:          s.getAttemptID(),
 		OwnerCoordinatorId: s.owner.ID,
+		AttemptKey:         s.getAttemptKey(),
 	}
 
 	if err := stream.Send(finalChunk); err != nil {
@@ -397,6 +423,7 @@ func (w *stepLogWriter) flushLocked() error {
 			RootDagRunId:       w.streamer.rootRef.ID,
 			AttemptId:          w.streamer.getAttemptID(),
 			OwnerCoordinatorId: w.streamer.owner.ID,
+			AttemptKey:         w.streamer.getAttemptKey(),
 		}
 
 		if err := w.withOperationTimeout(func() error {
@@ -473,65 +500,102 @@ func (w *stepLogWriter) Close() error {
 	w.closed = true
 	defer w.cancelStream()
 
-	var firstErr error
+	retryCtx, cancel := context.WithTimeout(w.parentCtx, stepLogCloseRetryTimeout)
+	defer cancel()
+	w.parentCtx = retryCtx
 
-	// Flush any remaining data
-	if err := w.flushLocked(); err != nil {
-		firstErr = err
-	}
-
-	// Send final marker
-	if w.stream != nil {
-		if !w.streamingDisabled {
-			// Use peek value for sequence - only increment after successful Send
-			nextSeq := w.sequence + 1
-			finalChunk := &coordinatorv1.LogChunk{
-				WorkerId:           w.streamer.workerID,
-				DagRunId:           w.streamer.dagRunID,
-				DagName:            w.streamer.dagName,
-				StepName:           w.stepName,
-				StreamType:         toProtoStreamType(w.streamType),
-				IsFinal:            true,
-				Sequence:           nextSeq,
-				RootDagRunName:     w.streamer.rootRef.Name,
-				RootDagRunId:       w.streamer.rootRef.ID,
-				AttemptId:          w.streamer.getAttemptID(),
-				OwnerCoordinatorId: w.streamer.owner.ID,
-			}
-			if err := w.withOperationTimeout(func() error {
-				return w.stream.Send(finalChunk)
-			}); err != nil {
-				w.handleStreamFailureLocked(err)
-				if !isLogStreamingNotConfigured(err) {
-					if firstErr == nil {
-						firstErr = err
-					}
-				}
-			} else {
-				w.sequence = nextSeq // Only increment after successful Send
-			}
+	var lastErr error
+	for {
+		if err := w.flushLocked(); err != nil {
+			lastErr = err
+		} else if err := w.finishLocked(); err != nil {
+			lastErr = err
+		} else {
+			return nil
+		}
+		if !isRetryableStepLogError(lastErr) {
+			return lastErr
 		}
 
-		if w.stream != nil {
-			err := w.withOperationTimeout(func() error {
-				_, err := w.stream.CloseAndRecv()
-				return err
-			})
-			w.stream = nil
-			if err != nil {
-				if isLogStreamingNotConfigured(err) {
-					w.streamingDisabled = true
-				} else {
-					logger.Error(w.ctx, "Failed to close log stream", tag.Error(err))
-					if firstErr == nil {
-						firstErr = err
-					}
-				}
-			}
+		timer := time.NewTimer(stepLogCloseRetryInterval)
+		select {
+		case <-retryCtx.Done():
+			timer.Stop()
+			return lastErr
+		case <-timer.C:
 		}
 	}
+}
 
-	return firstErr
+func (w *stepLogWriter) finishLocked() error {
+	if w.streamingDisabled {
+		return nil
+	}
+	if w.stream == nil && w.sequence == 0 {
+		return nil
+	}
+	if w.stream == nil {
+		var stream coordinatorv1.CoordinatorService_StreamLogsClient
+		err := w.withOperationTimeout(func() error {
+			var err error
+			stream, err = w.streamer.openStream(w.ctx)
+			return err
+		})
+		if err != nil {
+			w.handleStreamFailureLocked(err)
+			if isLogStreamingNotConfigured(err) {
+				return nil
+			}
+			return err
+		}
+		w.stream = stream
+	}
+
+	nextSeq := w.sequence + 1
+	finalChunk := &coordinatorv1.LogChunk{
+		WorkerId:           w.streamer.workerID,
+		DagRunId:           w.streamer.dagRunID,
+		DagName:            w.streamer.dagName,
+		StepName:           w.stepName,
+		StreamType:         toProtoStreamType(w.streamType),
+		IsFinal:            true,
+		Sequence:           nextSeq,
+		RootDagRunName:     w.streamer.rootRef.Name,
+		RootDagRunId:       w.streamer.rootRef.ID,
+		AttemptId:          w.streamer.getAttemptID(),
+		OwnerCoordinatorId: w.streamer.owner.ID,
+		AttemptKey:         w.streamer.getAttemptKey(),
+	}
+	if err := w.withOperationTimeout(func() error { return w.stream.Send(finalChunk) }); err != nil {
+		w.handleStreamFailureLocked(err)
+		if isLogStreamingNotConfigured(err) {
+			return nil
+		}
+		return err
+	}
+	w.sequence = nextSeq
+
+	err := w.withOperationTimeout(func() error {
+		_, err := w.stream.CloseAndRecv()
+		return err
+	})
+	w.stream = nil
+	if err != nil {
+		w.handleStreamFailureLocked(err)
+		if isLogStreamingNotConfigured(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func isRetryableStepLogError(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	code := status.Code(err)
+	return code == codes.Unavailable || code == codes.DeadlineExceeded
 }
 
 // toProtoStreamType converts streamType int to proto LogStreamType
@@ -749,6 +813,7 @@ func (w *schedulerLogWriter) sendSchedulerDataLocked(data []byte) error {
 			RootDagRunId:       w.streamer.rootRef.ID,
 			AttemptId:          w.streamer.getAttemptID(),
 			OwnerCoordinatorId: w.streamer.owner.ID,
+			AttemptKey:         w.streamer.getAttemptKey(),
 		}
 
 		if err := w.stream.Send(chunk); err != nil {
@@ -850,6 +915,7 @@ func (w *schedulerLogWriter) close() {
 			RootDagRunId:       w.streamer.rootRef.ID,
 			AttemptId:          w.streamer.getAttemptID(),
 			OwnerCoordinatorId: w.streamer.owner.ID,
+			AttemptKey:         w.streamer.getAttemptKey(),
 		}
 		_ = w.stream.Send(finalChunk)  // Ignore error - best effort
 		_, _ = w.stream.CloseAndRecv() // Ignore error - best effort

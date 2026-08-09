@@ -1570,9 +1570,13 @@ func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, statu
 
 func (a *Agent) pushStatus(ctx context.Context, status ir.DAGRunStatus) {
 	pushCtx := context.WithoutCancel(ctx)
-	if remoteStatusPushTimeout > 0 {
+	timeout := remoteStatusPushTimeout
+	if status.Status != ir.NotStarted && !status.Status.IsActive() {
+		timeout = remoteTerminalStatusPushTimeout
+	}
+	if timeout > 0 {
 		var cancel context.CancelFunc
-		pushCtx, cancel = context.WithTimeout(pushCtx, remoteStatusPushTimeout)
+		pushCtx, cancel = context.WithTimeout(pushCtx, timeout)
 		defer cancel()
 	}
 	if err := a.statusPusher.Push(pushCtx, status); err != nil {
@@ -1629,6 +1633,7 @@ const waitForRunning = time.Millisecond * 100
 const artifactFinalizeTimeout = 30 * time.Second
 
 var remoteStatusPushTimeout = 5 * time.Second
+var remoteTerminalStatusPushTimeout = 30 * time.Second
 
 // Simple regular expressions for request routing
 var (

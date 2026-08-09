@@ -16,6 +16,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+const (
+	taskClaimAckRetryInterval = 100 * time.Millisecond
+	taskClaimAckRetryTimeout  = 30 * time.Second
 )
 
 // Poller handles polling for tasks from the coordinator
@@ -127,10 +134,19 @@ func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) err
 		return fmt.Errorf("claimed task is missing owner coordinator metadata")
 	}
 
-	resp, err := p.coordinatorCli.AckTaskClaimTo(ctx, owner, &coordinatorv1.AckTaskClaimRequest{
+	req := &coordinatorv1.AckTaskClaimRequest{
 		WorkerId:   p.workerID,
 		ClaimToken: task.ClaimToken,
-	})
+		AttemptKey: task.AttemptKey,
+	}
+	var resp *coordinatorv1.AckTaskClaimResponse
+	retryCtx, cancel := context.WithTimeout(ctx, taskClaimAckRetryTimeout)
+	defer cancel()
+	err = backoff.Retry(retryCtx, func(ctx context.Context) error {
+		var callErr error
+		resp, callErr = p.coordinatorCli.AckTaskClaimTo(ctx, owner, req)
+		return callErr
+	}, backoff.NewConstantBackoffPolicy(taskClaimAckRetryInterval), isRetryableTaskClaimAckError)
 	if err != nil {
 		return err
 	}
@@ -141,6 +157,11 @@ func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) err
 		return fmt.Errorf("task claim rejected: %s", resp.Error)
 	}
 	return nil
+}
+
+func isRetryableTaskClaimAckError(err error) bool {
+	code := status.Code(err)
+	return code == codes.Unavailable || code == codes.DeadlineExceeded
 }
 
 // pollForTask polls the coordinator for a task with retry on failure

@@ -67,6 +67,7 @@ func (m *mockStreamArtifactsClient) Send(chunk *coordinatorv1.ArtifactChunk) err
 		RootDagRunId:       chunk.RootDagRunId,
 		AttemptId:          chunk.AttemptId,
 		OwnerCoordinatorId: chunk.OwnerCoordinatorId,
+		AttemptKey:         chunk.AttemptKey,
 	}
 
 	m.mu.Lock()
@@ -134,6 +135,7 @@ func TestArtifactUploaderUploadDirIncludesEmptyFiles(t *testing.T) {
 	}
 
 	uploader := coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", ir.DAGRunRef{})
+	uploader.SetClaimKey("root-claim")
 	err := uploader.UploadDir(context.Background(), dir)
 	require.NoError(t, err)
 
@@ -141,11 +143,14 @@ func TestArtifactUploaderUploadDirIncludesEmptyFiles(t *testing.T) {
 	require.Len(t, emptyChunks, 1)
 	assert.True(t, emptyChunks[0].IsFinal)
 	assert.Empty(t, emptyChunks[0].Data)
+	assert.Equal(t, "root-claim", emptyChunks[0].AttemptKey)
 
 	nonEmptyChunks := stream.chunksForPath("non-empty.txt")
 	require.Len(t, nonEmptyChunks, 2)
 	assert.Equal(t, []byte("hello"), nonEmptyChunks[0].Data)
 	assert.True(t, nonEmptyChunks[1].IsFinal)
+	assert.Equal(t, "root-claim", nonEmptyChunks[0].AttemptKey)
+	assert.Equal(t, "root-claim", nonEmptyChunks[1].AttemptKey)
 }
 
 func TestArtifactUploaderUploadDirUsesSingleAttemptIDSnapshot(t *testing.T) {

@@ -123,7 +123,7 @@ func resolveSecretReferenceRPC(ctx context.Context, coordinatorID string, client
 }
 
 func completeSecretReferenceOwner(owner serviceregistry.HostInfo) bool {
-	return owner.ID != "" && owner.Host != "" && owner.Port != 0
+	return owner.Host != "" && owner.Port != 0
 }
 
 func secretReferenceRequest(ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) *coordinatorv1.ResolveSecretReferenceRequest {

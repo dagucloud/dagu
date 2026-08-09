@@ -24,13 +24,14 @@ import (
 
 const (
 	remoteSchedulerLogFinalizeTimeout = 5 * time.Second
-	remoteTerminalStatusReportTimeout = 5 * time.Second
+	remoteTerminalStatusReportTimeout = 30 * time.Second
 )
 
 type remoteRunMetadata struct {
 	dagRunID  string
 	dagName   string
 	attemptID string
+	claimKey  string
 	root      ir.DAGRunRef
 }
 
@@ -271,9 +272,11 @@ func (r *remoteRunReporter) logStreamerLocked(meta remoteRunMetadata) *coordrepo
 			meta.root,
 			r.owner,
 		)
+		streamer.SetClaimKey(meta.claimKey)
 		r.logs[key] = streamer
 		return streamer
 	}
+	streamer.SetClaimKey(meta.claimKey)
 	if meta.attemptID != "" {
 		streamer.SetAttemptID(meta.attemptID)
 	}
@@ -305,9 +308,11 @@ func (r *remoteRunReporter) artifactUploaderFor(meta remoteRunMetadata) *coordre
 			meta.root,
 			r.owner,
 		)
+		uploader.SetClaimKey(meta.claimKey)
 		r.artifacts[key] = uploader
 		return uploader
 	}
+	uploader.SetClaimKey(meta.claimKey)
 	if meta.attemptID != "" {
 		uploader.SetAttemptID(meta.attemptID)
 	}

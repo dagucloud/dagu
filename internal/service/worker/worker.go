@@ -498,7 +498,7 @@ func (w *Worker) sendOwnerRunHeartbeats(ctx context.Context) {
 		if state == nil || state.task == nil || state.owner.Host == "" {
 			continue
 		}
-		key := fmt.Sprintf("%s|%s|%d", state.owner.ID, state.owner.Host, state.owner.Port)
+		key := fmt.Sprintf("%s|%d", state.owner.Host, state.owner.Port)
 		group := groups[key]
 		if group == nil {
 			group = &ownerGroup{owner: state.owner}

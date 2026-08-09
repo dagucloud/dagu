@@ -35,7 +35,9 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 var _ TaskHandler = (*remoteTaskHandler)(nil)
@@ -88,6 +90,18 @@ func TestTaskOwner(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 4321}, owner)
 	})
+
+	t.Run("AcceptsEndpointWithoutProcessID", func(t *testing.T) {
+		t.Parallel()
+
+		owner, err := taskOwner(&coordinatorv1.Task{
+			OwnerCoordinatorHost: "coordinator",
+			OwnerCoordinatorPort: 50055,
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, serviceregistry.HostInfo{Host: "coordinator", Port: 50055}, owner)
+	})
 }
 
 func TestPollerAckTaskClaimRejectsPartialOwnerMetadata(t *testing.T) {
@@ -104,13 +118,39 @@ func TestPollerAckTaskClaimRejectsPartialOwnerMetadata(t *testing.T) {
 	err := poller.ackTaskClaim(context.Background(), &coordinatorv1.Task{
 		ClaimToken:           "claim-1",
 		OwnerCoordinatorHost: "127.0.0.1",
-		OwnerCoordinatorPort: 4321,
-		OwnerCoordinatorId:   "",
+		OwnerCoordinatorId:   "coord-1",
 	})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "incomplete owner coordinator metadata")
 	assert.False(t, called)
+}
+
+func TestPollerAckTaskClaimRetriesTransientFailure(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRemoteCoordinatorClient()
+	calls := 0
+	client.AckTaskClaimFunc = func(_ context.Context, _ serviceregistry.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+		calls++
+		require.Equal(t, "attempt-key-1", req.AttemptKey)
+		if calls == 1 {
+			return nil, status.Error(codes.Unavailable, "coordinator restarting")
+		}
+		return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
+	}
+
+	poller := NewPoller("worker-1", client, nil, 0, nil)
+	err := poller.ackTaskClaim(t.Context(), &coordinatorv1.Task{
+		AttemptKey:           "attempt-key-1",
+		ClaimToken:           "claim-1",
+		OwnerCoordinatorHost: "coordinator",
+		OwnerCoordinatorPort: 50055,
+		OwnerCoordinatorId:   "coord-a",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
 }
 
 type mockStreamLogsClient struct {

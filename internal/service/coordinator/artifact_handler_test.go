@@ -140,8 +140,13 @@ func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtSharedEndpoint(t *testing.T
 		ArchiveDir: archiveDir,
 	})
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+	attemptKey := ir.GenerateAttemptKey("test-dag", "run-123", "test-dag", "run-123", "attempt-1")
 	require.NoError(t, leaseStore.Upsert(t.Context(), dispatch.DAGRunLease{
-		AttemptKey:      "attempt-key-1",
+		AttemptKey:      attemptKey,
+		DAGRun:          ir.NewDAGRunRef("test-dag", "run-123"),
+		Root:            ir.NewDAGRunRef("test-dag", "run-123"),
+		AttemptID:       "attempt-1",
+		WorkerID:        "worker-1",
 		Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 50055},
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 	}))
@@ -154,6 +159,7 @@ func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtSharedEndpoint(t *testing.T
 	stream := &mockStreamArtifactsServer{
 		ctx: t.Context(),
 		chunks: []*coordinatorv1.ArtifactChunk{{
+			WorkerId:           "worker-1",
 			DagName:            "test-dag",
 			DagRunId:           "run-123",
 			AttemptId:          "attempt-1",
@@ -161,6 +167,7 @@ func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtSharedEndpoint(t *testing.T
 			Data:               []byte("continued"),
 			IsFinal:            true,
 			OwnerCoordinatorId: "coord-a",
+			AttemptKey:         attemptKey,
 		}},
 	}
 

@@ -1067,7 +1067,7 @@ func TestClientHeartbeatWithSkipTLSVerify(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
+func TestClientTreatsDiscoveredEndpointsAsDistinctOwners(t *testing.T) {
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
@@ -1152,21 +1152,21 @@ func TestClientDiscoveredAddressRemainsAuthoritative(t *testing.T) {
 		Ref: &coordinatorv1.StateRef{Scope: "dag", Namespace: "test", Key: "state"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), oldPuts.Load())
-	assert.Equal(t, int32(2), newPuts.Load())
+	assert.Equal(t, int32(2), oldPuts.Load())
+	assert.Equal(t, int32(1), newPuts.Load())
 
 	monitor.members = []serviceregistry.HostInfo{oldMember}
 	_, err = client.Heartbeat(context.Background(), request)
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), oldHeartbeats.Load())
-	assert.Equal(t, int32(2), newHeartbeats.Load())
+	assert.Equal(t, int32(2), oldHeartbeats.Load())
+	assert.Equal(t, int32(1), newHeartbeats.Load())
 
 	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
 	_, err = client.ReportStatusTo(ctx, oldMember, &coordinatorv1.ReportStatusRequest{})
 	cancel()
 	require.NoError(t, err)
-	assert.Zero(t, oldReports.Load())
-	assert.Equal(t, int32(1), newReports.Load())
+	assert.Equal(t, int32(1), oldReports.Load())
+	assert.Zero(t, newReports.Load())
 }
 
 func TestClientHeartbeatFailsOverWithinConfiguredTimeout(t *testing.T) {

@@ -39,6 +39,19 @@ func TestOrderStateCoordinatorMembersIsDeterministicAndMinimizesMovement(t *test
 	require.Equal(t, owner.ID, orderStateCoordinatorMembers(remaining, key)[0].ID)
 }
 
+func TestSortCoordinatorMembersDeduplicatesAdvertisedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Now().UTC()
+	members := sortCoordinatorMembers([]serviceregistry.HostInfo{
+		{ID: "coord-a", Host: "coordinator", Port: 50055, StartedAt: startedAt.Add(-time.Minute)},
+		{ID: "coord-b", Host: "coordinator", Port: 50055, StartedAt: startedAt},
+	})
+
+	require.Len(t, members, 1)
+	require.Equal(t, "coord-b", members[0].ID)
+}
+
 func TestPinnedStateCoordinatorUsesDeterministicOwnerWithoutHealthFailover(t *testing.T) {
 	t.Parallel()
 

@@ -15,16 +15,14 @@ func taskOwner(task *coordinatorv1.Task) (serviceregistry.HostInfo, error) {
 		return serviceregistry.HostInfo{}, nil
 	}
 
-	hasID := task.OwnerCoordinatorId != ""
 	hasHost := task.OwnerCoordinatorHost != ""
 	hasPort := task.OwnerCoordinatorPort != 0
-	if !hasID && !hasHost && !hasPort {
+	if task.OwnerCoordinatorId == "" && !hasHost && !hasPort {
 		return serviceregistry.HostInfo{}, nil
 	}
-	if !hasID || !hasHost || !hasPort {
+	if !hasHost || !hasPort {
 		return serviceregistry.HostInfo{}, fmt.Errorf(
-			"task has incomplete owner coordinator metadata: id=%t host=%t port=%t",
-			hasID,
+			"task has incomplete owner coordinator metadata: host=%t port=%t",
 			hasHost,
 			hasPort,
 		)

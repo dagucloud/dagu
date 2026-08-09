@@ -113,3 +113,24 @@ func TestClientCacheUsesDerivedKeyForEmptyCoordinatorIDs(t *testing.T) {
 	require.Contains(t, cli.clients, coordinatorMemberKey(member2))
 	require.NoError(t, cli.Cleanup(t.Context()))
 }
+
+func TestClientCacheUsesAdvertisedEndpointAcrossCoordinatorProcesses(t *testing.T) {
+	t.Parallel()
+
+	cli := &clientImpl{
+		config:  DefaultConfig(),
+		clients: make(map[string]*client),
+	}
+	endpoint := serviceregistry.HostInfo{ID: "coord-a", Host: "coordinator", Port: 50055}
+	replacement := endpoint
+	replacement.ID = "coord-b"
+
+	first, err := cli.getOrCreateClient(endpoint)
+	require.NoError(t, err)
+	second, err := cli.getOrCreateClient(replacement)
+	require.NoError(t, err)
+
+	require.Same(t, first, second)
+	require.Len(t, cli.clients, 1)
+	require.NoError(t, cli.Cleanup(t.Context()))
+}
