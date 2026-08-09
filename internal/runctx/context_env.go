@@ -28,8 +28,9 @@ func buildManagedDAGRunEnvs(
 		runenv.EnvKeyDAGRunID:      dagRunID,
 		runenv.EnvKeyDAGName:       dag.Name,
 	}
-	if docsDir := dagDocsDir(ctx, dag); docsDir != "" {
-		envs[runenv.EnvKeyDAGDocsDir] = docsDir
+	if wikiDir := dagWikiDir(ctx, dag); wikiDir != "" {
+		envs[runenv.EnvKeyDAGWikiDir] = wikiDir
+		envs[runenv.EnvKeyDAGDocsDir] = wikiDir
 	}
 	if options.workDir != "" {
 		envs[runenv.EnvKeyDAGRunWorkDir] = options.workDir
@@ -44,15 +45,15 @@ func buildManagedDAGRunEnvs(
 	return envs
 }
 
-// dagDocsDir returns the documents directory for the DAG, or an empty string
-// when no documents root is configured.
-func dagDocsDir(ctx context.Context, dag *ir.DAG) string {
+// dagWikiDir returns the Wiki directory for the DAG, or an empty string
+// when no Wiki root is configured.
+func dagWikiDir(ctx context.Context, dag *ir.DAG) string {
 	cfg := config.GetConfig(ctx)
-	if cfg.Paths.DocsDir == "" {
+	if cfg.Paths.WikiDir == "" {
 		return ""
 	}
 	if workspaceName, ok := workspace.WorkspaceNameFromLabels(dag.Labels); ok {
-		return filepath.Join(cfg.Paths.DocsDir, workspaceName, dag.Name)
+		return filepath.Join(cfg.Paths.WikiDir, workspaceName, dag.Name)
 	}
-	return filepath.Join(cfg.Paths.DocsDir, dag.Name)
+	return filepath.Join(cfg.Paths.WikiDir, dag.Name)
 }

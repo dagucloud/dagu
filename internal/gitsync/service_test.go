@@ -32,8 +32,30 @@ func newTestService(t *testing.T, cfg *Config) (*serviceImpl, string) {
 	dataDir := filepath.Join(tempDir, "data")
 	require.NoError(t, os.MkdirAll(dagsDir, 0755))
 	require.NoError(t, os.MkdirAll(dataDir, 0755))
-	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, docsDir), dataDir)
+	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, wikiDir), dataDir)
 	return svc.(*serviceImpl), dagsDir
+}
+
+func TestSelectRepoWikiDirCompatibility(t *testing.T) {
+	repoDir := t.TempDir()
+	service := &serviceImpl{
+		cfg:       &Config{},
+		gitClient: NewGitClient(&Config{}, repoDir),
+	}
+
+	selected, err := service.selectRepoWikiDir()
+	require.NoError(t, err)
+	assert.Equal(t, wikiDir, selected)
+
+	require.NoError(t, os.Mkdir(filepath.Join(repoDir, legacyDocsDir), 0o750))
+	selected, err = service.selectRepoWikiDir()
+	require.NoError(t, err)
+	assert.Equal(t, legacyDocsDir, selected)
+
+	require.NoError(t, os.Mkdir(filepath.Join(repoDir, wikiDir), 0o750))
+	_, err = service.selectRepoWikiDir()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "both")
 }
 
 // --- Pre-existing tests ---
@@ -129,17 +151,18 @@ func TestService_PathHelpers(t *testing.T) {
 
 func TestScanLocalItems(t *testing.T) {
 	tempDir := t.TempDir()
-	docsPath := filepath.Join(tempDir, "document-root")
+	wikiPath := filepath.Join(tempDir, "wiki-root")
 
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "README.md"), []byte("# readme"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "my-dag.yaml"), []byte("steps: []"), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(docsPath, "operations"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(docsPath, "operations", "deploy.MD"), []byte("# Deploy"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(wikiPath, "operations"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(wikiPath, "operations", "deploy.MD"), []byte("# Deploy"), 0600))
 
 	s := &serviceImpl{
-		dagsDir: tempDir,
-		docsDir: docsPath,
-		cfg:     &Config{},
+		dagsDir:     tempDir,
+		wikiDir:     wikiPath,
+		repoWikiDir: wikiDir,
+		cfg:         &Config{},
 	}
 
 	state := &State{Items: make(map[string]*SyncItemState)}
@@ -148,44 +171,45 @@ func TestScanLocalItems(t *testing.T) {
 
 	require.Len(t, state.Items, 2)
 	assert.Contains(t, state.Items, "my-dag")
-	assert.Equal(t, SyncItemKindDoc, state.Items["docs/operations/deploy"].Kind)
-	assert.Equal(t, ".MD", state.Items["docs/operations/deploy"].FileExtension)
+	assert.Equal(t, SyncItemKindWikiPage, state.Items["wiki/operations/deploy"].Kind)
+	assert.Equal(t, ".MD", state.Items["wiki/operations/deploy"].FileExtension)
 
-	localPath, err := s.safeDAGIDToFilePath("docs/operations/deploy", ".MD")
+	localPath, err := s.safeDAGIDToFilePath("wiki/operations/deploy", ".MD")
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(docsPath, "operations", "deploy.MD"), localPath)
+	assert.Equal(t, filepath.Join(wikiPath, "operations", "deploy.MD"), localPath)
 }
 
-func TestScanLocalItemsDocAssets(t *testing.T) {
+func TestScanLocalWikiPageAssets(t *testing.T) {
 	tempDir := t.TempDir()
-	docsPath := filepath.Join(tempDir, "document-root")
+	wikiPath := filepath.Join(tempDir, "wiki-root")
 
-	assetDir := filepath.Join(docsPath, ".attachments", "guides", "deploy")
+	assetDir := filepath.Join(wikiPath, ".attachments", "guides", "deploy")
 	require.NoError(t, os.MkdirAll(assetDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(assetDir, "logo.png"), []byte{0x89, 'P', 'N', 'G'}, 0600))
-	// A markdown-named file inside the asset subtree is neither a doc item
-	// (the doc scan skips the subtree) nor an asset (reserved extension).
+	// A markdown-named file inside the asset subtree is neither a Wiki page
+	// nor an asset because Markdown is a reserved extension.
 	require.NoError(t, os.WriteFile(filepath.Join(assetDir, "evil.md"), []byte("# evil"), 0600))
-	// Files placed directly under .attachments have no doc segment.
-	require.NoError(t, os.WriteFile(filepath.Join(docsPath, ".attachments", "stray.png"), []byte("x"), 0600))
+	// Files placed directly under .attachments have no Wiki page segment.
+	require.NoError(t, os.WriteFile(filepath.Join(wikiPath, ".attachments", "stray.png"), []byte("x"), 0600))
 
 	s := &serviceImpl{
-		dagsDir: tempDir,
-		docsDir: docsPath,
-		cfg:     &Config{},
+		dagsDir:     tempDir,
+		wikiDir:     wikiPath,
+		repoWikiDir: wikiDir,
+		cfg:         &Config{},
 	}
 
 	state := &State{Items: make(map[string]*SyncItemState)}
 	require.NoError(t, s.scanLocalItems(state))
 
 	require.Len(t, state.Items, 1)
-	item := state.Items["docs/.attachments/guides/deploy/logo.png"]
+	item := state.Items["wiki/.attachments/guides/deploy/logo.png"]
 	require.NotNil(t, item)
-	assert.Equal(t, SyncItemKindDocAsset, item.Kind)
+	assert.Equal(t, SyncItemKindWikiPageAsset, item.Kind)
 	assert.Equal(t, StatusUntracked, item.Status)
 	assert.Empty(t, item.FileExtension)
 
-	localPath, err := s.safeDAGIDToFilePath("docs/.attachments/guides/deploy/logo.png", "")
+	localPath, err := s.safeDAGIDToFilePath("wiki/.attachments/guides/deploy/logo.png", "")
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(assetDir, "logo.png"), localPath)
 }
@@ -193,43 +217,46 @@ func TestScanLocalItemsDocAssets(t *testing.T) {
 func TestSyncItemKindForIDAssets(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, SyncItemKindDocAsset, SyncItemKindForID("docs/.attachments/guides/deploy/logo.png"))
-	assert.Equal(t, SyncItemKindDoc, SyncItemKindForID("docs/guides/deploy"))
+	assert.Equal(t, SyncItemKindWikiPageAsset, SyncItemKindForID("wiki/.attachments/guides/deploy/logo.png"))
+	assert.Equal(t, SyncItemKindWikiPage, SyncItemKindForID("wiki/guides/deploy"))
+	assert.Equal(t, SyncItemKindWikiPageAsset, SyncItemKindForID("docs/.attachments/guides/deploy/logo.png"))
+	assert.Equal(t, SyncItemKindWikiPage, SyncItemKindForID("docs/guides/deploy"))
 	assert.Equal(t, SyncItemKindDAG, SyncItemKindForID("my-dag"))
-	// A doc that happens to be named .attachments.md is not an asset.
-	assert.Equal(t, SyncItemKindDoc, SyncItemKindForID("docs/.attachments"))
+	// A page that happens to be named .attachments.md is not an asset.
+	assert.Equal(t, SyncItemKindWikiPage, SyncItemKindForID("wiki/.attachments"))
 }
 
 func TestIsValidAssetItemID(t *testing.T) {
 	t.Parallel()
 
+	assert.True(t, isValidAssetItemID("wiki/.attachments/guides/deploy/logo.png"))
 	assert.True(t, isValidAssetItemID("docs/.attachments/guides/deploy/logo.png"))
-	assert.True(t, isValidAssetItemID("docs/.attachments/doc/image with space.jpg"))
+	assert.True(t, isValidAssetItemID("wiki/.attachments/page/image with space.jpg"))
 
-	// No doc segment.
-	assert.False(t, isValidAssetItemID("docs/.attachments/logo.png"))
+	// No Wiki page segment.
+	assert.False(t, isValidAssetItemID("wiki/.attachments/logo.png"))
 	// Reserved extensions.
-	assert.False(t, isValidAssetItemID("docs/.attachments/doc/evil.md"))
-	assert.False(t, isValidAssetItemID("docs/.attachments/doc/flow.yaml"))
-	// Invalid doc segment (leading dot) and invalid file name.
-	assert.False(t, isValidAssetItemID("docs/.attachments/.hidden/logo.png"))
-	assert.False(t, isValidAssetItemID("docs/.attachments/doc/.hidden"))
+	assert.False(t, isValidAssetItemID("wiki/.attachments/page/evil.md"))
+	assert.False(t, isValidAssetItemID("wiki/.attachments/page/flow.yaml"))
+	// Invalid page segment (leading dot) and invalid file name.
+	assert.False(t, isValidAssetItemID("wiki/.attachments/.hidden/logo.png"))
+	assert.False(t, isValidAssetItemID("wiki/.attachments/page/.hidden"))
 	// Not under the asset prefix at all.
-	assert.False(t, isValidAssetItemID("docs/guides/deploy"))
+	assert.False(t, isValidAssetItemID("wiki/guides/deploy"))
 }
 
 func TestNormalizeTrackedItemsKeepsAssetKind(t *testing.T) {
 	t.Parallel()
 
 	state := &State{Items: map[string]*SyncItemState{
-		"docs/.attachments/doc/logo.png": {Kind: SyncItemKindDocAsset, Status: StatusSynced},
-		"docs/guides/deploy":             {Kind: SyncItemKindDoc, Status: StatusSynced},
-		"bogus":                          {Kind: SyncItemKind("mystery"), Status: StatusSynced},
+		"wiki/.attachments/page/logo.png": {Kind: SyncItemKindWikiPageAsset, Status: StatusSynced},
+		"wiki/guides/deploy":              {Kind: SyncItemKindWikiPage, Status: StatusSynced},
+		"bogus":                           {Kind: SyncItemKind("mystery"), Status: StatusSynced},
 	}}
 	normalizeTrackedItems(state)
 
-	require.Contains(t, state.Items, "docs/.attachments/doc/logo.png")
-	assert.Equal(t, SyncItemKindDocAsset, state.Items["docs/.attachments/doc/logo.png"].Kind)
+	require.Contains(t, state.Items, "wiki/.attachments/page/logo.png")
+	assert.Equal(t, SyncItemKindWikiPageAsset, state.Items["wiki/.attachments/page/logo.png"].Kind)
 	assert.NotContains(t, state.Items, "bogus")
 }
 
@@ -237,17 +264,17 @@ func TestIsSyncableRepoFile(t *testing.T) {
 	t.Parallel()
 
 	assert.True(t, isSyncableRepoFile("workflow.yml", "workflow"))
-	assert.True(t, isSyncableRepoFile("docs/operations/deploy.md", "docs/operations/deploy"))
+	assert.True(t, isSyncableRepoFile("wiki/operations/deploy.md", "wiki/operations/deploy"))
 	assert.False(t, isSyncableRepoFile("README.md", "README"))
 
 	// Attachments: any valid name syncs, invalid locations and reserved
-	// extensions never do — even as docs.
+	// extensions never do — even as wiki.
 	assert.True(t, isSyncableRepoFile(
-		"docs/.attachments/guides/deploy/logo.png", "docs/.attachments/guides/deploy/logo.png"))
+		"wiki/.attachments/guides/deploy/logo.png", "wiki/.attachments/guides/deploy/logo.png"))
 	assert.False(t, isSyncableRepoFile(
-		"docs/.attachments/guides/deploy/evil.md", "docs/.attachments/guides/deploy/evil.md"))
+		"wiki/.attachments/guides/deploy/evil.md", "wiki/.attachments/guides/deploy/evil.md"))
 	assert.False(t, isSyncableRepoFile(
-		"docs/.attachments/stray.png", "docs/.attachments/stray.png"))
+		"wiki/.attachments/stray.png", "wiki/.attachments/stray.png"))
 }
 
 func TestResolvePublishTargets(t *testing.T) {
@@ -333,10 +360,10 @@ func TestSafeDAGIDPathValidation(t *testing.T) {
 		assert.Equal(t, "subdir/reports/monthly.yml", path)
 	})
 
-	t.Run("uses markdown extension for documents", func(t *testing.T) {
-		path, err := s.safeDAGIDToRepoPath("docs/operations/deploy", docExtension)
+	t.Run("uses markdown extension for Wiki pages", func(t *testing.T) {
+		path, err := s.safeDAGIDToRepoPath("wiki/operations/deploy", wikiPageExtension)
 		require.NoError(t, err)
-		assert.Equal(t, "subdir/docs/operations/deploy.md", path)
+		assert.Equal(t, "subdir/wiki/operations/deploy.md", path)
 	})
 
 	t.Run("valid repo file path", func(t *testing.T) {
@@ -598,7 +625,7 @@ func TestReconcile_BackwardCompatibility(t *testing.T) {
 		Enabled:    true,
 		Repository: "host.com/org/repo",
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, docsDir), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, legacyDocsDir), dataDir)
 	impl := svc.(*serviceImpl)
 
 	// Save old state without PreviousStatus/MissingAt fields
@@ -677,7 +704,7 @@ func TestSummaryPriority_MissingBetweenConflictAndPending(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dagsDir, 0755))
 	require.NoError(t, os.MkdirAll(dataDir, 0755))
 
-	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, docsDir), dataDir)
+	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, legacyDocsDir), dataDir)
 	impl := svc.(*serviceImpl)
 
 	t.Run("missing overrides pending", func(t *testing.T) {
@@ -1240,7 +1267,7 @@ func TestMove_RequiresMatchingItemKinds(t *testing.T) {
 	t.Parallel()
 	impl, _ := newTestService(t, testCfgReadWrite)
 
-	err := impl.Move(context.Background(), "workflow", "docs/workflow", "", false)
+	err := impl.Move(context.Background(), "workflow", "wiki/workflow", "", false)
 	require.Error(t, err)
 	var validationErr *ValidationError
 	require.ErrorAs(t, err, &validationErr)

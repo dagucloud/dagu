@@ -50,9 +50,9 @@ tags:
   - name: "events"
     description: "Centralized operational event log operations (manager or admin only)"
   - name: "sync"
-    description: "Git synchronization operations for workflow definitions and documents"
-  - name: "docs"
-    description: "Document management operations"
+    description: "Git synchronization operations for workflow definitions and Wiki pages"
+  - name: "wiki"
+    description: "Wiki page management operations"
   - name: "remote-nodes"
     description: "Remote node management operations (admin only)"
   - name: "secrets"
@@ -1666,17 +1666,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /search/docs:
+  /search/wiki:
     get:
-      summary: "Search documents"
-      description: "Returns cursor-based document search results in stable path order. Use nextCursor only with the same query, workspace, and prefix."
-      operationId: "searchDocFeed"
+      summary: "Search Wiki pages"
+      description: "Returns cursor-based Wiki page search results in stable path order. Use nextCursor only with the same query, workspace, and prefix."
+      operationId: "searchWikiPageFeed"
       tags:
         - "search"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
-        - $ref: "#/components/parameters/DocPrefix"
+        - $ref: "#/components/parameters/WikiPagePrefix"
         - name: "q"
           in: "query"
           required: true
@@ -1685,7 +1685,7 @@ paths:
           description: "A search query string"
         - name: tags
           in: query
-          description: "Only return documents carrying every given tag (case-insensitive)"
+          description: "Only return Wiki pages carrying every given tag (case-insensitive)"
           required: false
           style: form
           explode: false
@@ -1697,11 +1697,11 @@ paths:
         - $ref: "#/components/parameters/SearchLimit"
       responses:
         "200":
-          description: "Cursor-based document search results"
+          description: "Cursor-based Wiki page search results"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocSearchFeedResponse"
+                $ref: "#/components/schemas/WikiPageSearchFeedResponse"
         "400":
           description: "Invalid request"
           content:
@@ -1766,11 +1766,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /search/docs/matches:
+  /search/wiki/matches:
     get:
-      summary: "Search document match snippets"
-      description: "Returns cursor-based snippets for one matching document."
-      operationId: "searchDocMatches"
+      summary: "Search Wiki page match snippets"
+      description: "Returns cursor-based snippets for one matching Wiki page."
+      operationId: "searchWikiPageMatches"
       tags:
         - "search"
       parameters:
@@ -1778,10 +1778,10 @@ paths:
         - $ref: "#/components/parameters/Workspace"
         - name: "path"
           in: "query"
-          description: "Document path (may include slashes for nested docs)"
+          description: "Wiki page path (may include slashes for nested pages)"
           required: true
           schema:
-            $ref: "#/components/schemas/DocPath"
+            $ref: "#/components/schemas/WikiPagePath"
         - name: "q"
           in: "query"
           required: true
@@ -1792,7 +1792,7 @@ paths:
         - $ref: "#/components/parameters/SearchMatchLimit"
       responses:
         "200":
-          description: "Cursor-based document match snippets"
+          description: "Cursor-based Wiki page match snippets"
           content:
             application/json:
               schema:
@@ -1804,7 +1804,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "Document not found"
+          description: "Wiki page not found"
           content:
             application/json:
               schema:
@@ -6973,22 +6973,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /docs:
+  /wiki:
     get:
-      summary: "List documents"
+      summary: "List Wiki pages"
       description: |
-        Returns documents as a tree structure or flat list. All authenticated users can browse.
+        Returns Wiki pages as a tree structure or flat list. All authenticated users can browse.
         In tree mode, page and perPage apply to direct children of the selected workspace or prefix;
-        each returned directory includes its descendants. In flat mode, they apply to individual documents.
-      operationId: "listDocs"
+        each returned directory includes its descendants. In flat mode, they apply to individual Wiki pages.
+      operationId: "listWikiPages"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
-        - $ref: "#/components/parameters/DocPrefix"
+        - $ref: "#/components/parameters/WikiPagePrefix"
         - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/DocsPerPage"
+        - $ref: "#/components/parameters/WikiPagesPerPage"
         - name: flat
           in: query
           description: "If true, returns flat list instead of tree"
@@ -6997,7 +6997,7 @@ paths:
             type: boolean
         - name: tags
           in: query
-          description: "Only return documents carrying every given tag (case-insensitive). Effective in flat mode only."
+          description: "Only return Wiki pages carrying every given tag (case-insensitive). Effective in flat mode only."
           required: false
           style: form
           explode: false
@@ -7027,11 +7027,11 @@ paths:
           description: "Sort order. For type: asc=folders first. For mtime: desc=newest first."
       responses:
         "200":
-          description: "List of documents"
+          description: "List of Wiki pages"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocListResponse"
+                $ref: "#/components/schemas/WikiPageListResponse"
         default:
           description: "Unexpected error"
           content:
@@ -7040,11 +7040,11 @@ paths:
                 $ref: "#/components/schemas/Error"
 
     post:
-      summary: "Create document"
-      description: "Creates a new document. Requires DAG write permission."
-      operationId: "createDoc"
+      summary: "Create Wiki page"
+      description: "Creates a new Wiki page. Requires DAG write permission."
+      operationId: "createWikiPage"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
@@ -7053,10 +7053,10 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateDocRequest"
+              $ref: "#/components/schemas/CreateWikiPageRequest"
       responses:
         "201":
-          description: "Document created"
+          description: "Wiki page created"
           content:
             application/json:
               schema:
@@ -7071,7 +7071,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "Document already exists"
+          description: "Wiki page already exists"
           content:
             application/json:
               schema:
@@ -7083,13 +7083,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /docs/search:
+  /wiki/search:
     get:
-      summary: "Search documents"
-      description: "Searches document content for the given query."
-      operationId: "searchDocs"
+      summary: "Search Wiki pages"
+      description: "Searches Wiki page content for the given query."
+      operationId: "searchWikiPages"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
@@ -7105,7 +7105,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocSearchResponse"
+                $ref: "#/components/schemas/WikiPageSearchResponse"
         "400":
           description: "Missing query parameter"
           content:
@@ -7119,22 +7119,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /docs/backlinks:
+  /wiki/backlinks:
     get:
-      summary: "List document backlinks"
+      summary: "List Wiki page backlinks"
       description: |
-        Returns documents whose wiki links resolve to the given target.
-        The target is a document path, or a scheme-prefixed wiki-link target
+        Returns Wiki pages whose wiki links resolve to the given target.
+        The target is a Wiki page path, or a scheme-prefixed wiki-link target
         such as dag:name.
-      operationId: "listDocBacklinks"
+      operationId: "listWikiPageBacklinks"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
         - name: target
           in: query
-          description: "Document path or scheme-prefixed wiki-link target (for example dag:name)"
+          description: "Wiki page path or scheme-prefixed wiki-link target (for example dag:name)"
           required: true
           schema:
             type: string
@@ -7142,11 +7142,11 @@ paths:
             maxLength: 300
       responses:
         "200":
-          description: "Documents linking to the target"
+          description: "Wiki pages linking to the target"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocBacklinksResponse"
+                $ref: "#/components/schemas/WikiPageBacklinksResponse"
         default:
           description: "Unexpected error"
           content:
@@ -7154,31 +7154,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /docs/doc/revisions:
+  /wiki/page/revisions:
     get:
-      summary: "List document revisions"
-      description: "Returns stored prior versions of a document, newest first, without content."
-      operationId: "listDocRevisions"
+      summary: "List Wiki page revisions"
+      description: "Returns stored prior versions of a Wiki page, newest first, without content."
+      operationId: "listWikiPageRevisions"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
         - name: path
           in: query
-          description: "Document path (may include slashes for nested docs)"
+          description: "Wiki page path (may include slashes for nested pages)"
           required: true
           schema:
-            $ref: "#/components/schemas/DocPath"
+            $ref: "#/components/schemas/WikiPagePath"
       responses:
         "200":
           description: "Stored revisions"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocRevisionsResponse"
+                $ref: "#/components/schemas/WikiPageRevisionsResponse"
         "404":
-          description: "Document not found"
+          description: "Wiki page not found"
           content:
             application/json:
               schema:
@@ -7190,22 +7190,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /docs/doc/revision:
+  /wiki/page/revision:
     get:
-      summary: "Get document revision"
+      summary: "Get Wiki page revision"
       description: "Returns one stored revision including its content."
-      operationId: "getDocRevision"
+      operationId: "getWikiPageRevision"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
         - name: path
           in: query
-          description: "Document path (may include slashes for nested docs)"
+          description: "Wiki page path (may include slashes for nested pages)"
           required: true
           schema:
-            $ref: "#/components/schemas/DocPath"
+            $ref: "#/components/schemas/WikiPagePath"
         - name: rev
           in: query
           description: "Revision identifier from the revision list"
@@ -7220,9 +7220,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocRevisionResponse"
+                $ref: "#/components/schemas/WikiPageRevisionResponse"
         "404":
-          description: "Document or revision not found"
+          description: "Wiki page or revision not found"
           content:
             application/json:
               schema:
@@ -7234,22 +7234,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /docs/doc/attachment:
+  /wiki/page/attachment:
     put:
-      summary: "Upload document attachment"
-      description: "Stores a binary attachment for an existing document, replacing any attachment with the same name. Requires DAG write permission."
-      operationId: "uploadDocAttachment"
+      summary: "Upload Wiki page attachment"
+      description: "Stores a binary attachment for an existing Wiki page, replacing any attachment with the same name. Requires DAG write permission."
+      operationId: "uploadWikiPageAttachment"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
         - name: path
           in: query
-          description: "Document path (may include slashes for nested docs)"
+          description: "Wiki page path (may include slashes for nested pages)"
           required: true
           schema:
-            $ref: "#/components/schemas/DocPath"
+            $ref: "#/components/schemas/WikiPagePath"
         - name: name
           in: query
           description: "Attachment file name (single path segment)"
@@ -7271,7 +7271,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocAttachmentResponse"
+                $ref: "#/components/schemas/WikiPageAttachmentResponse"
         "400":
           description: "Invalid attachment name"
           content:
@@ -7279,7 +7279,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "404":
-          description: "Document not found"
+          description: "Wiki page not found"
           content:
             application/json:
               schema:
@@ -7298,20 +7298,20 @@ paths:
                 $ref: "#/components/schemas/Error"
 
     get:
-      summary: "Download document attachment"
-      description: "Streams a stored document attachment."
-      operationId: "downloadDocAttachment"
+      summary: "Download Wiki page attachment"
+      description: "Streams a stored Wiki page attachment."
+      operationId: "downloadWikiPageAttachment"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
         - name: path
           in: query
-          description: "Document path (may include slashes for nested docs)"
+          description: "Wiki page path (may include slashes for nested pages)"
           required: true
           schema:
-            $ref: "#/components/schemas/DocPath"
+            $ref: "#/components/schemas/WikiPagePath"
         - name: name
           in: query
           description: "Attachment file name (single path segment)"
@@ -7334,7 +7334,7 @@ paths:
                 type: string
                 format: binary
         "404":
-          description: "Document or attachment not found"
+          description: "Wiki page or attachment not found"
           content:
             application/json:
               schema:
@@ -7346,31 +7346,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /docs/doc:
+  /wiki/page:
     get:
-      summary: "Get document"
-      description: "Returns a single document by path."
-      operationId: "getDoc"
+      summary: "Get Wiki page"
+      description: "Returns a single Wiki page by path."
+      operationId: "getWikiPage"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
         - name: path
           in: query
-          description: "Document path (may include slashes for nested docs)"
+          description: "Wiki page path (may include slashes for nested pages)"
           required: true
           schema:
-            $ref: "#/components/schemas/DocPath"
+            $ref: "#/components/schemas/WikiPagePath"
       responses:
         "200":
-          description: "Document details"
+          description: "Wiki page details"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocResponse"
+                $ref: "#/components/schemas/WikiPageResponse"
         "404":
-          description: "Document not found"
+          description: "Wiki page not found"
           content:
             application/json:
               schema:
@@ -7383,29 +7383,29 @@ paths:
                 $ref: "#/components/schemas/Error"
 
     patch:
-      summary: "Update document"
-      description: "Updates an existing document's content. Requires DAG write permission."
-      operationId: "updateDoc"
+      summary: "Update Wiki page"
+      description: "Updates an existing Wiki page's content. Requires DAG write permission."
+      operationId: "updateWikiPage"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
         - name: path
           in: query
-          description: "Document path (may include slashes for nested docs)"
+          description: "Wiki page path (may include slashes for nested pages)"
           required: true
           schema:
-            $ref: "#/components/schemas/DocPath"
+            $ref: "#/components/schemas/WikiPagePath"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateDocRequest"
+              $ref: "#/components/schemas/UpdateWikiPageRequest"
       responses:
         "200":
-          description: "Document updated"
+          description: "Wiki page updated"
           content:
             application/json:
               schema:
@@ -7414,7 +7414,7 @@ paths:
                   message:
                     type: string
         "404":
-          description: "Document not found"
+          description: "Wiki page not found"
           content:
             application/json:
               schema:
@@ -7427,25 +7427,25 @@ paths:
                 $ref: "#/components/schemas/Error"
 
     delete:
-      summary: "Delete document"
-      description: "Deletes a document. Requires DAG write permission."
-      operationId: "deleteDoc"
+      summary: "Delete Wiki page"
+      description: "Deletes a Wiki page. Requires DAG write permission."
+      operationId: "deleteWikiPage"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
         - name: path
           in: query
-          description: "Document path (may include slashes for nested docs)"
+          description: "Wiki page path (may include slashes for nested pages)"
           required: true
           schema:
-            $ref: "#/components/schemas/DocPath"
+            $ref: "#/components/schemas/WikiPagePath"
       responses:
         "204":
-          description: "Document deleted"
+          description: "Wiki page deleted"
         "404":
-          description: "Document not found"
+          description: "Wiki page not found"
           content:
             application/json:
               schema:
@@ -7457,31 +7457,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /docs/doc/rename:
+  /wiki/page/rename:
     post:
-      summary: "Rename document or directory"
-      description: "Renames/moves a document or directory to a new path. When a directory path is given, all documents under it are moved atomically. Requires DAG write permission."
-      operationId: "renameDoc"
+      summary: "Rename Wiki page or directory"
+      description: "Renames/moves a Wiki page or directory to a new path. When a directory path is given, all Wiki pages under it are moved atomically. Requires DAG write permission."
+      operationId: "renameWikiPage"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
         - name: path
           in: query
-          description: "Current document or directory path (may include slashes for nested docs)"
+          description: "Current Wiki page or directory path (may include slashes for nested pages)"
           required: true
           schema:
-            $ref: "#/components/schemas/DocPath"
+            $ref: "#/components/schemas/WikiPagePath"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RenameDocRequest"
+              $ref: "#/components/schemas/RenameWikiPageRequest"
       responses:
         "200":
-          description: "Document or directory renamed"
+          description: "Wiki page or directory renamed"
           content:
             application/json:
               schema:
@@ -7490,7 +7490,7 @@ paths:
                   message:
                     type: string
         "404":
-          description: "Document or directory not found"
+          description: "Wiki page or directory not found"
           content:
             application/json:
               schema:
@@ -7508,13 +7508,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /docs/delete-batch:
+  /wiki/delete-batch:
     post:
-      summary: "Delete multiple documents or directories"
-      description: "Deletes multiple documents and/or directories in a single operation. Supports recursive directory deletion. Not-found items are treated as successful deletes for idempotency. Requires DAG write permission."
-      operationId: "deleteDocBatch"
+      summary: "Delete multiple Wiki pages or directories"
+      description: "Deletes multiple Wiki pages and/or directories in a single operation. Supports recursive directory deletion. Not-found items are treated as successful deletes for idempotency. Requires DAG write permission."
+      operationId: "deleteWikiPageBatch"
       tags:
-        - "docs"
+        - "wiki"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
@@ -7523,14 +7523,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/DocDeleteBatchRequest"
+              $ref: "#/components/schemas/WikiPageDeleteBatchRequest"
       responses:
         "200":
           description: "Batch delete completed (may include partial failures)"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DocDeleteBatchResponse"
+                $ref: "#/components/schemas/WikiPageDeleteBatchResponse"
         "400":
           description: "Invalid batch delete request"
           content:
@@ -9406,7 +9406,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "Workspace still contains documents"
+          description: "Workspace still contains Wiki pages"
           content:
             application/json:
               schema:
@@ -9462,10 +9462,10 @@ components:
         maximum: 1000
         default: 50
 
-    DocsPerPage:
+    WikiPagesPerPage:
       name: perPage
       in: query
-      description: "Number of document entries per page (default 50, max 200)"
+      description: "Number of Wiki page entries per page (default 50, max 200)"
       required: false
       schema:
         type: integer
@@ -9484,13 +9484,13 @@ components:
         maxLength: 64
         pattern: "^[A-Za-z0-9_-]+$"
 
-    DocPrefix:
+    WikiPagePrefix:
       name: prefix
       in: query
-      description: "Optional document path prefix within the selected workspace"
+      description: "Optional Wiki page path prefix within the selected workspace"
       required: false
       schema:
-        $ref: "#/components/schemas/DocPath"
+        $ref: "#/components/schemas/WikiPagePath"
 
     SearchCursor:
       name: cursor
@@ -13289,9 +13289,9 @@ components:
         - results
         - hasMore
 
-    DocSearchPageItem:
+    WikiPageSearchPageItem:
       type: object
-      description: "Lightweight cursor-based search result item for a document"
+      description: "Lightweight cursor-based search result item for a Wiki page"
       properties:
         id:
           type: string
@@ -13299,25 +13299,25 @@ components:
           type: string
         description:
           type: string
-          description: "Short document description from YAML frontmatter"
+          description: "Short Wiki page description from YAML frontmatter"
         tags:
           type: array
           items:
             type: string
-          description: "Document tags from YAML frontmatter"
+          description: "Wiki page tags from YAML frontmatter"
         workspace:
           type: string
-          description: "Workspace that owns this document. Omitted for default documents."
+          description: "Workspace that owns this Wiki page. Omitted for default Wiki pages."
         modifiedAt:
           type: string
           format: date-time
-          description: "Last modification time of the document file"
+          description: "Last modification time of the Wiki page file"
         hasMoreMatches:
           type: boolean
           description: "Whether additional snippets are available beyond the preview"
         nextMatchesCursor:
           type: string
-          description: "Opaque cursor for loading more snippets for this document result"
+          description: "Opaque cursor for loading more snippets for this Wiki page result"
         matches:
           type: array
           description: "Preview snippets for the result"
@@ -13330,14 +13330,14 @@ components:
         - hasMoreMatches
         - matches
 
-    DocSearchFeedResponse:
+    WikiPageSearchFeedResponse:
       type: object
-      description: "Cursor-based document search results"
+      description: "Cursor-based Wiki page search results"
       properties:
         results:
           type: array
           items:
-            $ref: "#/components/schemas/DocSearchPageItem"
+            $ref: "#/components/schemas/WikiPageSearchPageItem"
         hasMore:
           type: boolean
         nextCursor:
@@ -13380,9 +13380,9 @@ components:
         - matches
         - hasMore
 
-    DocResponse:
+    WikiPageResponse:
       type: object
-      description: "Full document with content"
+      description: "Full Wiki page with content"
       required:
         - id
         - title
@@ -13395,30 +13395,30 @@ components:
           type: string
         description:
           type: string
-          description: "Short document description from YAML frontmatter"
+          description: "Short Wiki page description from YAML frontmatter"
         tags:
           type: array
           items:
             type: string
-          description: "Document tags from YAML frontmatter"
+          description: "Wiki page tags from YAML frontmatter"
         workspace:
           type: string
-          description: "Workspace that owns this document. Omitted for default documents."
+          description: "Workspace that owns this Wiki page. Omitted for default Wiki pages."
         content:
           type: string
           description: "Full file content including YAML frontmatter"
         createdAt:
           type: string
           format: date-time
-          description: "RFC3339 timestamp when the document was created"
+          description: "RFC3339 timestamp when the Wiki page was created"
         updatedAt:
           type: string
           format: date-time
-          description: "RFC3339 timestamp when the document was last updated"
+          description: "RFC3339 timestamp when the Wiki page was last updated"
 
-    DocMetadataResponse:
+    WikiPageMetadataResponse:
       type: object
-      description: "Lightweight document metadata"
+      description: "Lightweight Wiki page metadata"
       required:
         - id
         - title
@@ -13430,23 +13430,23 @@ components:
           type: string
         description:
           type: string
-          description: "Short document description from YAML frontmatter"
+          description: "Short Wiki page description from YAML frontmatter"
         tags:
           type: array
           items:
             type: string
-          description: "Document tags from YAML frontmatter"
+          description: "Wiki page tags from YAML frontmatter"
         workspace:
           type: string
-          description: "Workspace that owns this document. Omitted for default documents."
+          description: "Workspace that owns this Wiki page. Omitted for default Wiki pages."
         modifiedAt:
           type: string
           format: date-time
-          description: "Last modification time of the document file"
+          description: "Last modification time of the Wiki page file"
 
-    DocTreeNodeResponse:
+    WikiPageTreeNodeResponse:
       type: object
-      description: "A file or directory node in the doc tree"
+      description: "A file or directory node in the Wiki page tree"
       required:
         - id
         - name
@@ -13462,7 +13462,7 @@ components:
           type: array
           items:
             type: string
-          description: "Document tags from YAML frontmatter. Only present on file nodes."
+          description: "Wiki page tags from YAML frontmatter. Only present on file nodes."
         workspace:
           type: string
           description: "Workspace that owns this node. Omitted for default nodes."
@@ -13474,32 +13474,32 @@ components:
         children:
           type: array
           items:
-            $ref: "#/components/schemas/DocTreeNodeResponse"
+            $ref: "#/components/schemas/WikiPageTreeNodeResponse"
         modifiedAt:
           type: string
           format: date-time
           description: "Last modification time. For files: file mtime. For directories: most recent descendant mtime."
 
-    DocListResponse:
+    WikiPageListResponse:
       type: object
-      description: "Paginated document list (tree or flat)"
+      description: "Paginated Wiki page list (tree or flat)"
       required:
         - pagination
       properties:
         tree:
           type: array
           items:
-            $ref: "#/components/schemas/DocTreeNodeResponse"
+            $ref: "#/components/schemas/WikiPageTreeNodeResponse"
         items:
           type: array
           items:
-            $ref: "#/components/schemas/DocMetadataResponse"
+            $ref: "#/components/schemas/WikiPageMetadataResponse"
         pagination:
           $ref: "#/components/schemas/Pagination"
 
-    DocSearchResultItem:
+    WikiPageSearchResultItem:
       type: object
-      description: "A search result for a single document"
+      description: "A search result for a single Wiki page"
       required:
         - id
         - title
@@ -13511,28 +13511,28 @@ components:
           type: string
         description:
           type: string
-          description: "Short document description from YAML frontmatter"
+          description: "Short Wiki page description from YAML frontmatter"
         tags:
           type: array
           items:
             type: string
-          description: "Document tags from YAML frontmatter"
+          description: "Wiki page tags from YAML frontmatter"
         workspace:
           type: string
-          description: "Workspace that owns this document. Omitted for default documents."
+          description: "Workspace that owns this Wiki page. Omitted for default Wiki pages."
         modifiedAt:
           type: string
           format: date-time
-          description: "Last modification time of the document file"
+          description: "Last modification time of the Wiki page file"
         matchCount:
           type: integer
-          description: "Total number of query matches in the document"
+          description: "Total number of query matches in the Wiki page"
         matches:
           type: array
           items:
             $ref: "#/components/schemas/SearchMatchItem"
 
-    DocSearchResponse:
+    WikiPageSearchResponse:
       type: object
       description: "Search results"
       required:
@@ -13541,22 +13541,22 @@ components:
         results:
           type: array
           items:
-            $ref: "#/components/schemas/DocSearchResultItem"
+            $ref: "#/components/schemas/WikiPageSearchResultItem"
 
-    DocBacklinksResponse:
+    WikiPageBacklinksResponse:
       type: object
-      description: "Documents linking to a wiki-link target"
+      description: "Wiki pages linking to a wiki-link target"
       required:
         - items
       properties:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/DocMetadataResponse"
+            $ref: "#/components/schemas/WikiPageMetadataResponse"
 
-    DocRevisionResponse:
+    WikiPageRevisionResponse:
       type: object
-      description: "A stored prior version of a document"
+      description: "A stored prior version of a Wiki page"
       required:
         - rev
         - savedAt
@@ -13577,20 +13577,20 @@ components:
           type: string
           description: "Revision content. Present only when fetching a single revision."
 
-    DocRevisionsResponse:
+    WikiPageRevisionsResponse:
       type: object
-      description: "Stored revisions of a document, newest first"
+      description: "Stored revisions of a Wiki page, newest first"
       required:
         - revisions
       properties:
         revisions:
           type: array
           items:
-            $ref: "#/components/schemas/DocRevisionResponse"
+            $ref: "#/components/schemas/WikiPageRevisionResponse"
 
-    DocAttachmentResponse:
+    WikiPageAttachmentResponse:
       type: object
-      description: "A stored document attachment"
+      description: "A stored Wiki page attachment"
       required:
         - name
         - size
@@ -13603,50 +13603,50 @@ components:
           format: int64
           description: "Attachment size in bytes"
 
-    DocPath:
+    WikiPagePath:
       type: string
       minLength: 1
       maxLength: 256
-      description: "Relative document path without extension, for example docs/deploy-guide. Must not start with / or contain .."
+      description: "Relative Wiki page path without extension, for example runbooks/deploy-guide. Must not start with / or contain .."
       pattern: '^[A-Za-z0-9_][A-Za-z0-9_. -]*(/[A-Za-z0-9_][A-Za-z0-9_. -]*)*$'
 
-    CreateDocRequest:
+    CreateWikiPageRequest:
       type: object
       required:
         - id
         - content
-      description: "Request to create a new document"
+      description: "Request to create a new Wiki page"
       properties:
         id:
-          $ref: "#/components/schemas/DocPath"
+          $ref: "#/components/schemas/WikiPagePath"
         content:
           type: string
           description: "Full file content including optional YAML frontmatter"
 
-    UpdateDocRequest:
+    UpdateWikiPageRequest:
       type: object
       required:
         - content
-      description: "Request to update document content"
+      description: "Request to update Wiki page content"
       properties:
         content:
           type: string
           description: "Full file content including optional YAML frontmatter"
 
-    RenameDocRequest:
+    RenameWikiPageRequest:
       type: object
       required:
         - newPath
-      description: "Request to rename/move a document or directory"
+      description: "Request to rename/move a Wiki page or directory"
       properties:
         newPath:
-          $ref: "#/components/schemas/DocPath"
+          $ref: "#/components/schemas/WikiPagePath"
 
-    DocDeleteBatchRequest:
+    WikiPageDeleteBatchRequest:
       type: object
       required:
         - paths
-      description: "Request to delete multiple documents or directories"
+      description: "Request to delete multiple Wiki pages or directories"
       properties:
         paths:
           type: array
@@ -13654,10 +13654,10 @@ components:
           maxItems: 100
           uniqueItems: true
           items:
-            $ref: "#/components/schemas/DocPath"
-          description: "Document or directory paths to delete (max 100)"
+            $ref: "#/components/schemas/WikiPagePath"
+          description: "Wiki page or directory paths to delete (max 100)"
 
-    DocDeleteBatchResponse:
+    WikiPageDeleteBatchResponse:
       type: object
       required:
         - deleted
@@ -13672,13 +13672,13 @@ components:
         failed:
           type: array
           items:
-            $ref: "#/components/schemas/DocDeleteBatchFailedItem"
+            $ref: "#/components/schemas/WikiPageDeleteBatchFailedItem"
           description: "Paths that failed to delete with error details"
         message:
           type: string
           description: "Human-readable summary"
 
-    DocDeleteBatchFailedItem:
+    WikiPageDeleteBatchFailedItem:
       type: object
       required:
         - path

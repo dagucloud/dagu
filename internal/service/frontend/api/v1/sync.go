@@ -703,10 +703,10 @@ func toAPISyncStatus(s gitsync.SyncStatus) api.SyncStatus {
 
 func syncItemFilePath(itemID, fileExtension string) string {
 	switch gitsync.SyncItemKindForID(itemID) {
-	case gitsync.SyncItemKindDocAsset:
+	case gitsync.SyncItemKindWikiPageAsset:
 		// Asset IDs already carry their extension.
 		return itemID
-	case gitsync.SyncItemKindDoc:
+	case gitsync.SyncItemKindWikiPage:
 		if strings.EqualFold(fileExtension, ".md") {
 			return itemID + fileExtension
 		}
@@ -762,9 +762,9 @@ func toAPISyncItems(states map[string]*gitsync.SyncItemState) []api.SyncItem {
 
 func toAPISyncItemKind(itemID string) api.SyncItemKind {
 	switch gitsync.SyncItemKindForID(itemID) {
-	case gitsync.SyncItemKindDocAsset:
+	case gitsync.SyncItemKindWikiPageAsset:
 		return api.SyncItemKindDocAsset
-	case gitsync.SyncItemKindDoc:
+	case gitsync.SyncItemKindWikiPage:
 		return api.SyncItemKindDoc
 	case gitsync.SyncItemKindDAG:
 	}

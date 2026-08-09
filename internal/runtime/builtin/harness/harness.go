@@ -651,6 +651,7 @@ func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg provid
 
 var sharedContainerHostPathEnvKeys = map[string]struct{}{
 	"PWD":                                      {},
+	runenv.EnvKeyDAGWikiDir:                    {},
 	runenv.EnvKeyDAGDocsDir:                    {},
 	runenv.EnvKeyDAGRunArtifactsDir:            {},
 	runenv.EnvKeyDAGRunLogFile:                 {},

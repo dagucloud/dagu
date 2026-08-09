@@ -36,7 +36,7 @@ It must not be treated as product behavior until implementation catches up.
 | [031: Human Tasks](031-human-task.md) | Implemented |
 | [032: Controller DAGs](032-controller-dag.md) | Implemented |
 | [033: Build Workflows](033-build-workflows.md) | Implemented |
-| [034: Document File Format](034-doc-format.md) | Implemented |
+| [034: Wiki Page File Format](034-wiki-page-format.md) | Implemented |
 
 **Writing guidelines:**
 

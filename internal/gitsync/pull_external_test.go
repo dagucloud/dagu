@@ -105,7 +105,7 @@ func TestPullPreservesShortYAMLExtension(t *testing.T) {
 	assert.Equal(t, ".yml", status.Items["short"].FileExtension)
 }
 
-func TestPullWritesDocumentsToConfiguredDocsDir(t *testing.T) {
+func TestPullAdoptsLegacyDocsDirectory(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -125,12 +125,12 @@ func TestPullWritesDocumentsToConfiguredDocsDir(t *testing.T) {
 	require.NoError(t, err)
 
 	dagsDir := filepath.Join(root, "dags")
-	docsPath := filepath.Join(root, "content")
+	wikiPath := filepath.Join(root, "content")
 	svc := gitsync.NewService(&gitsync.Config{
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, docsPath, dataDir)
+	}, dagsDir, wikiPath, dataDir)
 
 	result, err := svc.Pull(ctx)
 
@@ -138,7 +138,7 @@ func TestPullWritesDocumentsToConfiguredDocsDir(t *testing.T) {
 	require.True(t, result.Success)
 	assert.Contains(t, result.Synced, "docs/operations/deploy")
 
-	content, err := os.ReadFile(filepath.Join(docsPath, "operations", "deploy.md"))
+	content, err := os.ReadFile(filepath.Join(wikiPath, "operations", "deploy.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "# Deploy\n", string(content))
 	_, err = os.Stat(filepath.Join(dagsDir, "docs", "operations", "deploy.md"))
@@ -182,7 +182,7 @@ func TestPullReturnsErrorWhenMissingDAGsDirCannotBeCreated(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to write")
 }
 
-func TestPullSyncsDocAttachments(t *testing.T) {
+func TestPullSyncsWikiPageAttachments(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -191,12 +191,12 @@ func TestPullSyncsDocAttachments(t *testing.T) {
 	remoteRepo := initPullExternalTestRepo(t, remotePath)
 
 	pngBytes := string([]byte{0x89, 'P', 'N', 'G', 0x00, 0x01, 0xFF})
-	commitPullExternalTestFile(t, remoteRepo, remotePath, "docs/guides/setup.md", "# Setup\n", "doc")
-	commitPullExternalTestFile(t, remoteRepo, remotePath, "docs/.attachments/guides/setup/logo.png", pngBytes, "asset")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "wiki/guides/setup.md", "# Setup\n", "page")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "wiki/.attachments/guides/setup/logo.png", pngBytes, "asset")
 	// Hostile or malformed asset paths must never reach the local disk:
 	// a reserved extension and a file with no doc segment.
-	commitPullExternalTestFile(t, remoteRepo, remotePath, "docs/.attachments/guides/setup/evil.md", "# evil\n", "evil")
-	commitPullExternalTestFile(t, remoteRepo, remotePath, "docs/.attachments/stray.png", "stray", "stray")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "wiki/.attachments/guides/setup/evil.md", "# evil\n", "evil")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "wiki/.attachments/stray.png", "stray", "stray")
 
 	dataDir := filepath.Join(root, "data")
 	_, err := git.PlainCloneContext(ctx, filepath.Join(dataDir, "gitsync", "repo"), false, &git.CloneOptions{
@@ -208,39 +208,39 @@ func TestPullSyncsDocAttachments(t *testing.T) {
 	require.NoError(t, err)
 
 	dagsDir := filepath.Join(root, "dags")
-	docsDir := filepath.Join(dagsDir, "docs")
+	wikiDir := filepath.Join(dagsDir, "wiki")
 	svc := gitsync.NewService(&gitsync.Config{
 		Enabled:    true,
 		Repository: remotePath,
 		Branch:     "main",
-	}, dagsDir, docsDir, dataDir)
+	}, dagsDir, wikiDir, dataDir)
 
 	result, err := svc.Pull(ctx)
 	require.NoError(t, err)
 	require.True(t, result.Success)
 
-	assetID := "docs/.attachments/guides/setup/logo.png"
+	assetID := "wiki/.attachments/guides/setup/logo.png"
 	assert.Contains(t, result.Synced, assetID)
 
-	localAsset := filepath.Join(docsDir, ".attachments", "guides", "setup", "logo.png")
+	localAsset := filepath.Join(wikiDir, ".attachments", "guides", "setup", "logo.png")
 	content, err := os.ReadFile(localAsset)
 	require.NoError(t, err)
 	assert.Equal(t, pngBytes, string(content))
 
-	_, err = os.Lstat(filepath.Join(docsDir, ".attachments", "guides", "setup", "evil.md"))
+	_, err = os.Lstat(filepath.Join(wikiDir, ".attachments", "guides", "setup", "evil.md"))
 	assert.True(t, os.IsNotExist(err))
-	_, err = os.Lstat(filepath.Join(docsDir, ".attachments", "stray.png"))
+	_, err = os.Lstat(filepath.Join(wikiDir, ".attachments", "stray.png"))
 	assert.True(t, os.IsNotExist(err))
 
 	status, err := svc.GetStatus(ctx)
 	require.NoError(t, err)
 	assetState := status.Items[assetID]
 	require.NotNil(t, assetState)
-	assert.Equal(t, gitsync.SyncItemKindDocAsset, assetState.Kind)
+	assert.Equal(t, gitsync.SyncItemKindWikiPageAsset, assetState.Kind)
 	assert.Equal(t, gitsync.StatusSynced, assetState.Status)
-	assert.NotContains(t, status.Items, "docs/.attachments/guides/setup/evil")
-	assert.NotContains(t, status.Items, "docs/.attachments/guides/setup/evil.md")
-	assert.NotContains(t, status.Items, "docs/.attachments/stray.png")
+	assert.NotContains(t, status.Items, "wiki/.attachments/guides/setup/evil")
+	assert.NotContains(t, status.Items, "wiki/.attachments/guides/setup/evil.md")
+	assert.NotContains(t, status.Items, "wiki/.attachments/stray.png")
 
 	// A second pull is idempotent.
 	result, err = svc.Pull(ctx)

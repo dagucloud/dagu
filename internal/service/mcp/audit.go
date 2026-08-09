@@ -265,7 +265,7 @@ func changeAuditMetadata(input changeInput) toolAuditMetadata {
 		if input.NewPath != "" {
 			attributes["new_path"] = input.NewPath
 		}
-		if changeType == changeTypeUpsertDoc {
+		if changeType == changeTypeUpsertWikiPage || changeType == legacyChangeTypeUpsertDoc {
 			attributes["content_bytes"] = len(input.Content)
 		}
 	}
@@ -416,7 +416,7 @@ func withMCPResourceSourceContext(ctx context.Context, req *mcpsdk.ReadResourceR
 	source.MCPAction = "read_resource"
 	if req != nil {
 		applyMCPRequestMetadata(source, req.Session, req.Extra)
-		if parsed, err := url.Parse(req.Params.URI); err == nil && parsed.Scheme == "dagu" && parsed.Host == "docs" {
+		if parsed, err := url.Parse(req.Params.URI); err == nil && parsed.Scheme == "dagu" && (parsed.Host == "wiki" || parsed.Host == "docs") {
 			segments, _ := uriPathSegments(parsed)
 			if len(segments) > 0 {
 				source.ResolvedWorkspace = segments[0]
@@ -472,7 +472,7 @@ func resourceAuditDetails(rawURI string) map[string]any {
 			if len(segments) >= 2 && !isStepLogResourceSegments(segments) {
 				resourceID = segments[0] + "/" + segments[1]
 			}
-		case "docs":
+		case "wiki", "docs":
 			switch len(segments) {
 			case 0:
 				resourceType = "documents"

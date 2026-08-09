@@ -139,7 +139,7 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_KEY_FILE":  filepath.Join(testPaths, "key.pem"),
 
 		"DAGU_DAGS_DIR":             filepath.Join(testPaths, "dags"),
-		"DAGU_DOCS_DIR":             filepath.Join(testPaths, "docs"),
+		"DAGU_WIKI_DIR":             filepath.Join(testPaths, "wiki"),
 		"DAGU_EXECUTABLE":           filepath.Join(testPaths, "bin", "dagu"),
 		"DAGU_LOG_DIR":              filepath.Join(testPaths, "logs"),
 		"DAGU_DATA_DIR":             filepath.Join(testPaths, "data"),
@@ -286,7 +286,7 @@ func TestLoad_Env(t *testing.T) {
 		},
 		Paths: PathsConfig{
 			DAGsDir:            filepath.Join(testPaths, "dags"),
-			DocsDir:            filepath.Join(testPaths, "docs"),
+			WikiDir:            filepath.Join(testPaths, "wiki"),
 			AltDAGsDir:         filepath.Join(testPaths, "alt-dags"),
 			Executable:         filepath.Join(testPaths, "bin", "dagu"),
 			LogDir:             filepath.Join(testPaths, "logs"),
@@ -748,7 +748,7 @@ scheduler:
 		Paths: PathsConfig{
 			DAGsDir:            resolvedTestPath(t, "/var/dagu/dags"),
 			LogDir:             resolvedTestPath(t, "/var/dagu/logs"),
-			DocsDir:            resolvedTestPath(t, "/var/dagu/dags/docs"),
+			WikiDir:            resolvedTestPath(t, "/var/dagu/dags/wiki"),
 			DataDir:            resolvedTestPath(t, "/var/dagu/data"),
 			DAGStateDir:        resolvedTestPath(t, "/var/dagu/data/dag-state"),
 			ToolsDir:           resolvedTestPath(t, "/var/dagu/tools"),
@@ -885,6 +885,67 @@ paths:
 	assert.Equal(t, filepath.Join(dataDir, "service-registry"), cfg.Paths.ServiceRegistryDir)
 	assert.Equal(t, filepath.Join(dataDir, "users"), cfg.Paths.UsersDir)
 	assert.Equal(t, filepath.Join(dataDir, "contexts"), cfg.Paths.ContextsDir)
+}
+
+func TestLoad_WikiDirectoryCompatibility(t *testing.T) {
+	t.Run("canonical config", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+paths:
+  wiki_dir: "/custom/wiki"
+`)
+		assert.Equal(t, resolvedTestPath(t, "/custom/wiki"), cfg.Paths.WikiDir)
+		assert.False(t, cfg.Paths.WikiDirLegacy)
+		assert.NotContains(t, strings.Join(cfg.Warnings, "\n"), "paths.docs_dir")
+	})
+
+	t.Run("legacy config", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+paths:
+  docs_dir: "/custom/docs"
+`)
+		assert.Equal(t, resolvedTestPath(t, "/custom/docs"), cfg.Paths.WikiDir)
+		assert.True(t, cfg.Paths.WikiDirLegacy)
+		assert.Contains(t, strings.Join(cfg.Warnings, "\n"), "paths.docs_dir is deprecated")
+	})
+
+	t.Run("canonical config wins", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+paths:
+  wiki_dir: "/custom/wiki"
+  docs_dir: "/custom/docs"
+`)
+		assert.Equal(t, resolvedTestPath(t, "/custom/wiki"), cfg.Paths.WikiDir)
+		assert.False(t, cfg.Paths.WikiDirLegacy)
+		assert.Contains(t, strings.Join(cfg.Warnings, "\n"), "paths.docs_dir is deprecated and ignored")
+	})
+
+	t.Run("legacy environment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{"DAGU_DOCS_DIR": "/env/docs"})
+		assert.Equal(t, resolvedTestPath(t, "/env/docs"), cfg.Paths.WikiDir)
+		assert.True(t, cfg.Paths.WikiDirLegacy)
+		assert.Contains(t, strings.Join(cfg.Warnings, "\n"), "paths.docs_dir is deprecated")
+	})
+
+	t.Run("adopts existing legacy default", func(t *testing.T) {
+		dagsDir := t.TempDir()
+		legacyDir := filepath.Join(dagsDir, "docs")
+		require.NoError(t, os.Mkdir(legacyDir, 0o700))
+		cfg := loadFromYAML(t, fmt.Sprintf("paths:\n  dags_dir: %q\n", dagsDir))
+		assert.Equal(t, legacyDir, cfg.Paths.WikiDir)
+		assert.True(t, cfg.Paths.WikiDirLegacy)
+		require.Len(t, cfg.Notices, 1)
+		assert.Contains(t, cfg.Notices[0], "Using existing legacy docs directory")
+	})
+
+	t.Run("rejects ambiguous defaults", func(t *testing.T) {
+		dagsDir := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(dagsDir, "wiki"), 0o700))
+		require.NoError(t, os.Mkdir(filepath.Join(dagsDir, "docs"), 0o700))
+		err := loadWithErrorFromYAML(t, fmt.Sprintf("paths:\n  dags_dir: %q\n", dagsDir))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "both")
+		assert.Contains(t, err.Error(), "paths.wiki_dir")
+	})
 }
 
 func TestLoad_EdgeCases_ToolsDirFromConfig(t *testing.T) {

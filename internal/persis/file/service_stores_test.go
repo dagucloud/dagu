@@ -4,6 +4,7 @@
 package file_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -39,30 +40,79 @@ func TestNewEventCollectorDisabledWhenConfigNilOrEventStoreDisabled(t *testing.T
 	assert.Nil(t, collector)
 }
 
-func TestNewDocStoreCreatesDocumentDirectory(t *testing.T) {
+func TestNewWikiStoreCreatesWikiDirectory(t *testing.T) {
 	t.Parallel()
 
-	docsDir := filepath.Join(t.TempDir(), "nested", "docs")
-	store, err := file.NewDocStore(&config.Config{Paths: config.PathsConfig{DocsDir: docsDir}})
+	wikiDir := filepath.Join(t.TempDir(), "nested", "wiki")
+	store, err := file.NewWikiStore(&config.Config{Paths: config.PathsConfig{WikiDir: wikiDir}})
 
 	require.NoError(t, err)
 	assert.NotNil(t, store)
-	info, statErr := os.Stat(docsDir)
+	info, statErr := os.Stat(wikiDir)
 	require.NoError(t, statErr)
 	assert.True(t, info.IsDir())
 }
 
-func TestNewDocStoreReturnsDirectoryCreationError(t *testing.T) {
+func TestNewWikiStoreReturnsDirectoryCreationError(t *testing.T) {
 	t.Parallel()
 
 	blockingFile := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(blockingFile, []byte("content"), 0o600))
-	store, err := file.NewDocStore(&config.Config{
-		Paths: config.PathsConfig{DocsDir: filepath.Join(blockingFile, "docs")},
+	store, err := file.NewWikiStore(&config.Config{
+		Paths: config.PathsConfig{WikiDir: filepath.Join(blockingFile, "wiki")},
 	})
 
 	require.Error(t, err)
 	assert.Nil(t, store)
+}
+
+func TestNewWikiStoreDataLayoutCompatibility(t *testing.T) {
+	t.Run("fresh store uses Wiki data directory", func(t *testing.T) {
+		dataDir := t.TempDir()
+		store, err := file.NewWikiStore(&config.Config{Paths: config.PathsConfig{
+			WikiDir: filepath.Join(t.TempDir(), "wiki"),
+			DataDir: dataDir,
+		}})
+		require.NoError(t, err)
+		require.NoError(t, store.Create(context.Background(), "runbook", "first"))
+		require.NoError(t, store.Update(context.Background(), "runbook", "second"))
+
+		_, err = os.Stat(filepath.Join(dataDir, "wiki", "revisions.json"))
+		require.NoError(t, err)
+		_, err = os.Stat(filepath.Join(dataDir, "docs"))
+		assert.ErrorIs(t, err, os.ErrNotExist)
+	})
+
+	t.Run("existing legacy data directory stays in place", func(t *testing.T) {
+		dataDir := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(dataDir, "docs"), 0o750))
+		store, err := file.NewWikiStore(&config.Config{Paths: config.PathsConfig{
+			WikiDir: filepath.Join(t.TempDir(), "wiki"),
+			DataDir: dataDir,
+		}})
+		require.NoError(t, err)
+		require.NoError(t, store.Create(context.Background(), "runbook", "first"))
+		require.NoError(t, store.Update(context.Background(), "runbook", "second"))
+
+		_, err = os.Stat(filepath.Join(dataDir, "docs", "revisions.json"))
+		require.NoError(t, err)
+		_, err = os.Stat(filepath.Join(dataDir, "wiki"))
+		assert.ErrorIs(t, err, os.ErrNotExist)
+	})
+
+	t.Run("ambiguous data directories are rejected", func(t *testing.T) {
+		dataDir := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(dataDir, "wiki"), 0o750))
+		require.NoError(t, os.Mkdir(filepath.Join(dataDir, "docs"), 0o750))
+
+		store, err := file.NewWikiStore(&config.Config{Paths: config.PathsConfig{
+			WikiDir: filepath.Join(t.TempDir(), "wiki"),
+			DataDir: dataDir,
+		}})
+		require.Error(t, err)
+		assert.Nil(t, store)
+		assert.Contains(t, err.Error(), "both")
+	})
 }
 
 func TestResolveTokenSecret(t *testing.T) {

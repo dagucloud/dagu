@@ -38,47 +38,57 @@ const (
 )
 
 const (
-	docsDir      = "docs"
-	baseConfigID = "base"
+	wikiDir       = "wiki"
+	legacyDocsDir = "docs"
+	baseConfigID  = "base"
 
-	// docAssetsDirName is the reserved subtree inside the docs directory
-	// holding binary doc attachments: docs/.attachments/{docID}/{name}.
-	docAssetsDirName = ".attachments"
+	// wikiPageAssetsDirName is the reserved subtree holding page attachments.
+	wikiPageAssetsDirName = ".attachments"
 )
-
-// docAssetsPrefix is the item ID prefix classifying doc attachment files.
-var docAssetsPrefix = docsDir + "/" + docAssetsDirName + "/"
 
 // SyncItemKind identifies a supported Git Sync item type.
 type SyncItemKind string
 
 const (
-	SyncItemKindDAG SyncItemKind = "dag"
-	SyncItemKindDoc SyncItemKind = "doc"
-	// SyncItemKindDocAsset is a binary doc attachment. Unlike DAG and doc
-	// items, its ID keeps the file extension: names inside one attachment
+	SyncItemKindDAG      SyncItemKind = "dag"
+	SyncItemKindWikiPage SyncItemKind = "doc"
+	// SyncItemKindWikiPageAsset is a binary page attachment. Its ID keeps the
+	// file extension so names inside one attachment
 	// directory differ only by extension.
-	SyncItemKindDocAsset SyncItemKind = "doc-asset"
+	SyncItemKindWikiPageAsset SyncItemKind = "doc-asset"
 )
 
 // SyncItemKindForID derives the item type from its normalized ID.
 func SyncItemKindForID(id string) SyncItemKind {
 	id = normalizeDAGIDSeparators(id)
-	if strings.HasPrefix(id, docAssetsPrefix) {
-		return SyncItemKindDocAsset
+	if hasWikiPrefix(id, wikiPageAssetsDirName+"/") {
+		return SyncItemKindWikiPageAsset
 	}
-	if strings.HasPrefix(id, docsDir+"/") {
-		return SyncItemKindDoc
+	if hasWikiPrefix(id, "") {
+		return SyncItemKindWikiPage
 	}
 	return SyncItemKindDAG
 }
 
-func isDocFile(id string) bool {
-	return SyncItemKindForID(id) == SyncItemKindDoc
+func hasWikiPrefix(id, suffix string) bool {
+	return strings.HasPrefix(id, wikiDir+"/"+suffix) ||
+		strings.HasPrefix(id, legacyDocsDir+"/"+suffix)
 }
 
-func isDocAssetFile(id string) bool {
-	return SyncItemKindForID(id) == SyncItemKindDocAsset
+func isWikiPageFile(id string) bool {
+	return SyncItemKindForID(id) == SyncItemKindWikiPage
+}
+
+func isWikiPageAssetFile(id string) bool {
+	return SyncItemKindForID(id) == SyncItemKindWikiPageAsset
+}
+
+func wikiRepoDirForID(id string) string {
+	id = normalizeDAGIDSeparators(id)
+	if strings.HasPrefix(id, legacyDocsDir+"/") {
+		return legacyDocsDir
+	}
+	return wikiDir
 }
 
 func isBaseConfigID(id string) bool {
@@ -239,7 +249,7 @@ func normalizeTrackedItems(state *State) {
 			continue
 		}
 		switch itemState.Kind {
-		case "", SyncItemKindDAG, SyncItemKindDoc, SyncItemKindDocAsset:
+		case "", SyncItemKindDAG, SyncItemKindWikiPage, SyncItemKindWikiPageAsset:
 		default:
 			delete(state.Items, itemID)
 			continue

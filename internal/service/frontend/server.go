@@ -502,13 +502,13 @@ func NewServer(ctx context.Context, cfg *config.Config, dr dagstore.DAGStore, dr
 		}
 	}
 
-	if stores.DocStoreFactory != nil {
-		docStore, err := stores.DocStoreFactory(cfg)
+	if stores.WikiStoreFactory != nil {
+		wikiStore, err := stores.WikiStoreFactory(cfg)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create document store: %w", err)
+			return nil, fmt.Errorf("failed to create Wiki store: %w", err)
 		}
-		if docStore != nil {
-			apiOpts = append(apiOpts, apiv1.WithDocStore(docStore))
+		if wikiStore != nil {
+			apiOpts = append(apiOpts, apiv1.WithWikiStore(wikiStore))
 		}
 	}
 
@@ -674,12 +674,11 @@ func NewServer(ctx context.Context, cfg *config.Config, dr dagstore.DAGStore, dr
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
 	}))
-	apiOpts = append(apiOpts, apiv1.WithDocMutationNotifier(func() {
+	apiOpts = append(apiOpts, apiv1.WithWikiMutationNotifier(func() {
 		if srv.sseMultiplexer == nil {
 			return
 		}
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
+		srv.wakeWikiTopics()
 	}))
 	// Pass license manager to API
 	if srv.licenseManager != nil {
@@ -758,7 +757,7 @@ func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 	}
 
 	syncCfg := gitsync.NewConfigFromGlobal(cfg.GitSync)
-	svc := gitsync.NewService(syncCfg, cfg.Paths.DAGsDir, cfg.Paths.DocsDir, cfg.Paths.DataDir)
+	svc := gitsync.NewService(syncCfg, cfg.Paths.DAGsDir, cfg.Paths.WikiDir, cfg.Paths.DataDir)
 
 	if syncCfg.AutoSync.Enabled {
 		if err := svc.Start(ctx); err != nil {
@@ -1316,9 +1315,8 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 		} else {
 			srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 		}
-	case sse.AppEventTypeDoc:
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
-		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
+	case sse.AppEventTypeWiki:
+		srv.wakeWikiTopics()
 	case sse.AppEventTypeReset:
 		srv.wakeAllMultiplexedFileBackedTopics()
 	}
@@ -1333,8 +1331,18 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
-	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDoc)
-	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDocTree)
+	srv.wakeWikiTopics()
+}
+
+func (srv *Server) wakeWikiTopics() {
+	for _, topicType := range []sse.TopicType{
+		sse.TopicTypeWikiPage,
+		sse.TopicTypeWikiTree,
+		sse.TopicTypeLegacyDoc,
+		sse.TopicTypeLegacyDocTree,
+	} {
+		srv.sseMultiplexer.WakeTopicType(topicType)
+	}
 }
 
 func (srv *Server) setupMCPRoute(ctx context.Context, r *chi.Mux) {
@@ -1381,14 +1389,20 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.RegisterFetcher(sse.TopicTypeDAGRuns, srv.apiV1.GetDAGRunsListData)
 	registrar.RegisterFetcher(sse.TopicTypeQueues, srv.apiV1.GetQueuesListData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
-	registrar.RegisterFetcher(sse.TopicTypeDoc, srv.apiV1.GetDocContentData)
-	registrar.RegisterFetcher(sse.TopicTypeDocTree, srv.apiV1.GetDocTreeData)
+	for _, topicType := range []sse.TopicType{sse.TopicTypeWikiPage, sse.TopicTypeLegacyDoc} {
+		registrar.RegisterFetcher(topicType, srv.apiV1.GetWikiPageContentData)
+	}
+	for _, topicType := range []sse.TopicType{sse.TopicTypeWikiTree, sse.TopicTypeLegacyDocTree} {
+		registrar.RegisterFetcher(topicType, srv.apiV1.GetWikiPageTreeData)
+	}
 
 	appStreamAvailable := srv.appStream != nil
 	if appStreamAvailable {
-		registrar.SetRefreshMode(sse.TopicTypeDoc, sse.TopicRefreshModeOnDemand)
-		registrar.SetRefreshMode(sse.TopicTypeDocTree, sse.TopicRefreshModeOnDemand)
-		registrar.SetPublishOnWake(sse.TopicTypeDocTree, true)
+		for _, topicType := range []sse.TopicType{sse.TopicTypeWikiPage, sse.TopicTypeWikiTree, sse.TopicTypeLegacyDoc, sse.TopicTypeLegacyDocTree} {
+			registrar.SetRefreshMode(topicType, sse.TopicRefreshModeOnDemand)
+		}
+		registrar.SetPublishOnWake(sse.TopicTypeWikiTree, true)
+		registrar.SetPublishOnWake(sse.TopicTypeLegacyDocTree, true)
 	}
 
 	// Run-driven topics have an event-store invalidation path. Keeping them on

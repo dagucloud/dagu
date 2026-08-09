@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bytes"
 	"compress/flate"
 	"compress/gzip"
 	"crypto/tls"
@@ -148,7 +149,54 @@ type remoteNodeProxy struct {
 // If yes, it proxies the request to the remote node and returns the remote response.
 // If not, it returns nil, indicating to proceed locally.
 func (h *remoteNodeProxy) proxy(r *http.Request) (*http.Response, error) {
-	return h.doRequest(r.Body, r)
+	legacyPath, hasLegacyWikiPath := legacyWikiProxyPath(r.URL.Path, h.apiBasePath)
+	if !hasLegacyWikiPath {
+		return h.doRequest(r.Body, r)
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read request body: %w", err)
+	}
+	resp, err := h.doRequest(bytes.NewReader(body), r)
+	if err != nil || resp.StatusCode != http.StatusNotFound || strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
+		return resp, err
+	}
+	_ = resp.Body.Close()
+
+	legacyRequest := r.Clone(r.Context())
+	legacyURL := *r.URL
+	legacyURL.Path = legacyPath
+	legacyRequest.URL = &legacyURL
+	legacyRequest.Body = io.NopCloser(bytes.NewReader(body))
+	legacyRequest.ContentLength = int64(len(body))
+	return h.doRequest(bytes.NewReader(body), legacyRequest)
+}
+
+func legacyWikiProxyPath(requestPath, apiBasePath string) (string, bool) {
+	suffix, ok := strings.CutPrefix(requestPath, strings.TrimRight(apiBasePath, "/"))
+	if !ok {
+		return "", false
+	}
+
+	legacySuffix := ""
+	switch {
+	case suffix == "/wiki":
+		legacySuffix = "/docs"
+	case strings.HasPrefix(suffix, "/wiki/page"):
+		legacySuffix = "/docs/doc" + strings.TrimPrefix(suffix, "/wiki/page")
+	case strings.HasPrefix(suffix, "/wiki/"):
+		legacySuffix = "/docs/" + strings.TrimPrefix(suffix, "/wiki/")
+	case strings.HasPrefix(suffix, "/search/wiki"):
+		legacySuffix = "/search/docs" + strings.TrimPrefix(suffix, "/search/wiki")
+	case suffix == "/events/wiki-tree":
+		legacySuffix = "/events/docs-tree"
+	case strings.HasPrefix(suffix, "/events/wiki/"):
+		legacySuffix = "/events/docs/" + strings.TrimPrefix(suffix, "/events/wiki/")
+	default:
+		return "", false
+	}
+	return strings.TrimRight(apiBasePath, "/") + legacySuffix, true
 }
 
 // doRequest performs the actual proxying of the request to the remote node.

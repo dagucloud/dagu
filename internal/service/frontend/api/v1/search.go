@@ -13,8 +13,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
-	"github.com/dagucloud/dagu/v2/internal/docs"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/wiki"
 )
 
 const (
@@ -110,17 +110,17 @@ func toDAGSearchFeedResponse(result *pagination.CursorResult[dagstore.SearchDAGR
 	}
 }
 
-func toDocSearchPageItem(
-	item docs.DocSearchResult,
+func toWikiPageSearchPageItem(
+	item wiki.PageSearchResult,
 	workspaceName string,
-	visibility docWorkspaceVisibility,
-) api.DocSearchPageItem {
-	result := api.DocSearchPageItem{
+	visibility wikiWorkspaceVisibility,
+) api.WikiPageSearchPageItem {
+	result := api.WikiPageSearchPageItem{
 		Id:                item.ID,
 		Title:             item.Title,
 		Description:       item.Description,
-		Tags:              docTagsValue(item.Tags),
-		Workspace:         docWorkspaceValue(workspaceName, item.ID, visibility, false),
+		Tags:              wikiPageTagsValue(item.Tags),
+		Workspace:         wikiWorkspaceValue(workspaceName, item.ID, visibility, false),
 		HasMoreMatches:    item.HasMoreMatches,
 		NextMatchesCursor: optionalString(item.NextMatchesCursor),
 		Matches:           toSearchMatchItems(item.Matches),
@@ -131,15 +131,15 @@ func toDocSearchPageItem(
 	return result
 }
 
-func toDocSearchFeedResponse(
-	result *pagination.CursorResult[docs.DocSearchResult],
+func toWikiPageSearchFeedResponse(
+	result *pagination.CursorResult[wiki.PageSearchResult],
 	workspaceName string,
-	visibility docWorkspaceVisibility,
-) api.DocSearchFeedResponse {
-	items, hasMore, nextCursor := mapCursorItems(result, func(item docs.DocSearchResult) api.DocSearchPageItem {
-		return toDocSearchPageItem(item, workspaceName, visibility)
+	visibility wikiWorkspaceVisibility,
+) api.WikiPageSearchFeedResponse {
+	items, hasMore, nextCursor := mapCursorItems(result, func(item wiki.PageSearchResult) api.WikiPageSearchPageItem {
+		return toWikiPageSearchPageItem(item, workspaceName, visibility)
 	})
-	return api.DocSearchFeedResponse{
+	return api.WikiPageSearchFeedResponse{
 		Results:    items,
 		HasMore:    hasMore,
 		NextCursor: nextCursor,
@@ -188,30 +188,30 @@ func (a *API) SearchDAGFeed(ctx context.Context, request api.SearchDAGFeedReques
 	return api.SearchDAGFeed200JSONResponse(toDAGSearchFeedResponse(result)), nil
 }
 
-// SearchDocFeed returns cursor-based document search results for the global search page.
-func (a *API) SearchDocFeed(ctx context.Context, request api.SearchDocFeedRequestObject) (api.SearchDocFeedResponseObject, error) {
-	if err := a.requireDocManagement(); err != nil {
+// SearchWikiPageFeed returns cursor-based Wiki page search results for the global search page.
+func (a *API) SearchWikiPageFeed(ctx context.Context, request api.SearchWikiPageFeedRequestObject) (api.SearchWikiPageFeedResponseObject, error) {
+	if err := a.requireWikiManagement(); err != nil {
 		return nil, err
 	}
-	a.workspaceDocMu.RLock()
-	defer a.workspaceDocMu.RUnlock()
+	a.workspaceWikiMu.RLock()
+	defer a.workspaceWikiMu.RUnlock()
 
 	query, err := validateSearchQuery(request.Params.Q)
 	if err != nil {
 		return nil, err
 	}
-	workspaceName, visibility, err := a.docReadScopeForParams(ctx, request.Params.Workspace)
+	workspaceName, visibility, err := a.wikiReadScopeForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
 	}
 	filterPrefix := string(valueOf(request.Params.Prefix))
 	if filterPrefix != "" {
-		if err := validateDocPath(filterPrefix); err != nil {
+		if err := validateWikiPagePath(filterPrefix); err != nil {
 			return nil, err
 		}
 	}
 
-	result, err := a.docStore.SearchCursor(ctx, docs.SearchDocsOptions{
+	result, err := a.wikiStore.SearchCursor(ctx, wiki.SearchPagesOptions{
 		Cursor:           valueOf(request.Params.Cursor),
 		Limit:            normalizeSearchLimit(valueOf(request.Params.Limit), searchDefaultLimit),
 		Query:            query,
@@ -225,7 +225,7 @@ func (a *API) SearchDocFeed(ctx context.Context, request api.SearchDocFeedReques
 		if errors.Is(err, pagination.ErrInvalidCursor) {
 			return nil, invalidSearchCursorError()
 		}
-		logger.Error(ctx, "Failed to search docs", tag.Error(err))
+		logger.Error(ctx, "Failed to search Wiki pages", tag.Error(err))
 		return nil, internalError(err)
 	}
 	if workspaceName == "" && !visibility.all {
@@ -238,7 +238,7 @@ func (a *API) SearchDocFeed(ctx context.Context, request api.SearchDocFeedReques
 		result.Items = items
 	}
 
-	return api.SearchDocFeed200JSONResponse(toDocSearchFeedResponse(result, workspaceName, visibility)), nil
+	return api.SearchWikiPageFeed200JSONResponse(toWikiPageSearchFeedResponse(result, workspaceName, visibility)), nil
 }
 
 // SearchDagMatches returns cursor-based snippets for one DAG result.
@@ -279,23 +279,23 @@ func (a *API) SearchDagMatches(ctx context.Context, request api.SearchDagMatches
 	return api.SearchDagMatches200JSONResponse(toSearchMatchesResponse(result)), nil
 }
 
-// SearchDocMatches returns cursor-based snippets for one document result.
-func (a *API) SearchDocMatches(ctx context.Context, request api.SearchDocMatchesRequestObject) (api.SearchDocMatchesResponseObject, error) {
-	if err := a.requireDocManagement(); err != nil {
+// SearchWikiPageMatches returns cursor-based snippets for one Wiki page result.
+func (a *API) SearchWikiPageMatches(ctx context.Context, request api.SearchWikiPageMatchesRequestObject) (api.SearchWikiPageMatchesResponseObject, error) {
+	if err := a.requireWikiManagement(); err != nil {
 		return nil, err
 	}
-	a.workspaceDocMu.RLock()
-	defer a.workspaceDocMu.RUnlock()
-	if err := validateDocPath(request.Params.Path); err != nil {
+	a.workspaceWikiMu.RLock()
+	defer a.workspaceWikiMu.RUnlock()
+	if err := validateWikiPagePath(request.Params.Path); err != nil {
 		return nil, err
 	}
-	workspaceName, visibility, err := a.docPointReadScopeForParams(ctx, request.Params.Workspace)
+	workspaceName, visibility, err := a.wikiPointReadScopeForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
 	}
 	if workspaceName == "" && !visibility.all {
 		if !visibility.visible(request.Params.Path) {
-			return nil, errDocNotFound
+			return nil, errWikiPageNotFound
 		}
 	}
 
@@ -305,36 +305,36 @@ func (a *API) SearchDocMatches(ctx context.Context, request api.SearchDocMatches
 	}
 
 	cursor := valueOf(request.Params.Cursor)
-	matchOpts := docs.SearchDocMatchesOptions{
+	matchOpts := wiki.SearchPageMatchesOptions{
 		Cursor:     cursor,
 		Limit:      normalizeSearchLimit(valueOf(request.Params.Limit), searchDefaultMatchLimit),
 		Query:      query,
 		PathPrefix: workspaceName,
 	}
-	result, err := a.docStore.SearchMatches(ctx, request.Params.Path, matchOpts)
+	result, err := a.wikiStore.SearchMatches(ctx, request.Params.Path, matchOpts)
 	if err != nil && errors.Is(err, pagination.ErrInvalidCursor) && workspaceName != "" && cursor != "" {
 		// Aggregate-search cursors encode an empty path prefix. Replaying the
-		// workspace-qualified ID preserves the authorized document scope.
-		aggregatePath, scopeErr := scopedDocPath(workspaceName, request.Params.Path)
+		// workspace-qualified ID preserves the authorized Wiki page scope.
+		aggregatePath, scopeErr := scopedWikiPagePath(workspaceName, request.Params.Path)
 		if scopeErr == nil {
 			aggregateOpts := matchOpts
 			aggregateOpts.PathPrefix = ""
-			if aggregateResult, aggregateErr := a.docStore.SearchMatches(ctx, aggregatePath, aggregateOpts); aggregateErr == nil {
-				return api.SearchDocMatches200JSONResponse(toSearchMatchesResponse(aggregateResult)), nil
+			if aggregateResult, aggregateErr := a.wikiStore.SearchMatches(ctx, aggregatePath, aggregateOpts); aggregateErr == nil {
+				return api.SearchWikiPageMatches200JSONResponse(toSearchMatchesResponse(aggregateResult)), nil
 			}
 		}
 	}
 	if err != nil {
 		switch {
-		case errors.Is(err, docs.ErrDocNotFound):
-			return nil, errDocNotFound
+		case errors.Is(err, wiki.ErrPageNotFound):
+			return nil, errWikiPageNotFound
 		case errors.Is(err, pagination.ErrInvalidCursor):
 			return nil, invalidSearchCursorError()
 		default:
-			logger.Error(ctx, "Failed to search doc matches", tag.Name(request.Params.Path), tag.Error(err))
+			logger.Error(ctx, "Failed to search page matches", tag.Name(request.Params.Path), tag.Error(err))
 			return nil, internalError(err)
 		}
 	}
 
-	return api.SearchDocMatches200JSONResponse(toSearchMatchesResponse(result)), nil
+	return api.SearchWikiPageMatches200JSONResponse(toSearchMatchesResponse(result)), nil
 }

@@ -773,13 +773,13 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 		},
 		"docs/operations/deploy": {
 			Status:        gitsync.StatusSynced,
-			Kind:          gitsync.SyncItemKindDoc,
+			Kind:          gitsync.SyncItemKindWikiPage,
 			FileExtension: ".MD",
 			ModifiedAt:    &now,
 		},
 		"docs/.attachments/guides/deploy/logo.png": {
 			Status:     gitsync.StatusSynced,
-			Kind:       gitsync.SyncItemKindDocAsset,
+			Kind:       gitsync.SyncItemKindWikiPageAsset,
 			ModifiedAt: &now,
 		},
 	}

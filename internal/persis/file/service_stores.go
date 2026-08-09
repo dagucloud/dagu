@@ -16,22 +16,22 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
-	"github.com/dagucloud/dagu/v2/internal/docs"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
-	filedoc "github.com/dagucloud/dagu/v2/internal/persis/file/doc"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	fileincident "github.com/dagucloud/dagu/v2/internal/persis/file/incident"
 	filenotification "github.com/dagucloud/dagu/v2/internal/persis/file/notification"
+	filewiki "github.com/dagucloud/dagu/v2/internal/persis/file/wiki"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
+	"github.com/dagucloud/dagu/v2/internal/wiki"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -151,19 +151,44 @@ func NewDAGSettingsStore(cfg *config.Config) (dagsettings.Store, error) {
 	return store.NewDAGSettingsStore(NewCollection(dir, WithIndentedJSON()))
 }
 
-func NewDocStore(cfg *config.Config) (docs.DocStore, error) {
-	if cfg == nil || cfg.Paths.DocsDir == "" {
+func NewWikiStore(cfg *config.Config) (wiki.PageStore, error) {
+	if cfg == nil || cfg.Paths.WikiDir == "" {
 		return nil, nil
 	}
-	var opts []filedoc.Option
+	opts := []filewiki.Option{filewiki.WithLegacyLayout(cfg.Paths.WikiDirLegacy)}
 	if cfg.Paths.DataDir != "" {
-		opts = append(opts, filedoc.WithDataDir(filepath.Join(cfg.Paths.DataDir, "docs")))
+		dataDir, err := selectWikiStoragePath(
+			filepath.Join(cfg.Paths.DataDir, "wiki"),
+			filepath.Join(cfg.Paths.DataDir, "docs"),
+			cfg.Paths.WikiDirLegacy,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("wiki store: %w", err)
+		}
+		opts = append(opts, filewiki.WithDataDir(dataDir))
 	}
-	docStore, err := filedoc.New(cfg.Paths.DocsDir, opts...)
+	wikiStore, err := filewiki.New(cfg.Paths.WikiDir, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("document store: %w", err)
+		return nil, fmt.Errorf("wiki store: %w", err)
 	}
-	return docStore, nil
+	return wikiStore, nil
+}
+
+func selectWikiStoragePath(canonical, legacy string, preferLegacy bool) (string, error) {
+	canonicalExists := storePathExists(canonical)
+	legacyExists := storePathExists(legacy)
+	if canonicalExists && legacyExists {
+		return "", fmt.Errorf("both %s and %s exist; reconcile them before starting Dagu", canonical, legacy)
+	}
+	if legacyExists || (!canonicalExists && preferLegacy) {
+		return legacy, nil
+	}
+	return canonical, nil
+}
+
+func storePathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func NewIncidentStore(cfg *config.Config, enc *crypto.Encryptor) (incident.Store, error) {

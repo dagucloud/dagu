@@ -36,7 +36,7 @@ func NewFrontendStoreFactories() frontend.StoreFactories {
 		SecretStoreFactory:               file.NewSecretStore,
 		ProfileStoreFactory:              file.NewProfileStore,
 		DAGSettingsStoreFactory:          file.NewDAGSettingsStore,
-		DocStoreFactory:                  file.NewDocStore,
+		WikiStoreFactory:                 file.NewWikiStore,
 		NotificationStoreFactory:         file.NewNotificationStore,
 		NotificationMonitorStateFileFunc: file.NotificationMonitorStateFile,
 		IncidentStoreFactory:             file.NewIncidentStore,

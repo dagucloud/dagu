@@ -46,11 +46,27 @@ func TestChangeToolIdentityAndInputSchema(t *testing.T) {
 		require.Equal(t, "string", property["type"])
 	}
 
-	expectedRequired := map[string][]any{
-		"upsert_dag": {"name", "spec"},
-		"upsert_doc": {"type", "workspace", "path", "content"},
-		"rename_doc": {"type", "workspace", "path", "newPath"},
-		"delete_doc": {"type", "workspace", "path"},
+	type branchContract struct {
+		types    []any
+		required []any
+	}
+	expectedBranches := map[string]branchContract{
+		"upsert_dag": {
+			types:    []any{"upsert_dag"},
+			required: []any{"name", "spec"},
+		},
+		"upsert_wiki_page": {
+			types:    []any{"upsert_wiki_page", "upsert_doc"},
+			required: []any{"type", "workspace", "path", "content"},
+		},
+		"rename_wiki_page": {
+			types:    []any{"rename_wiki_page", "rename_doc"},
+			required: []any{"type", "workspace", "path", "newPath"},
+		},
+		"delete_wiki_page": {
+			types:    []any{"delete_wiki_page", "delete_doc"},
+			required: []any{"type", "workspace", "path"},
+		},
 	}
 	for _, rawBranch := range requireArray(t, schema, "oneOf") {
 		branch, ok := rawBranch.(map[string]any)
@@ -60,15 +76,15 @@ func TestChangeToolIdentityAndInputSchema(t *testing.T) {
 		typeSchema, ok := branchProperties["type"].(map[string]any)
 		require.True(t, ok)
 		typeValues := requireArray(t, typeSchema, "enum")
-		require.Len(t, typeValues, 1)
 		changeType, ok := typeValues[0].(string)
 		require.True(t, ok)
-		requiredFields, ok := expectedRequired[changeType]
+		contract, ok := expectedBranches[changeType]
 		require.True(t, ok, "unexpected change type %q", changeType)
-		require.ElementsMatch(t, requiredFields, requireArray(t, branch, "required"))
-		delete(expectedRequired, changeType)
+		require.Equal(t, contract.types, typeValues)
+		require.ElementsMatch(t, contract.required, requireArray(t, branch, "required"))
+		delete(expectedBranches, changeType)
 	}
-	require.Empty(t, expectedRequired)
+	require.Empty(t, expectedBranches)
 }
 
 func toolInputSchema(t *testing.T, tool *mcpsdk.Tool) map[string]any {
