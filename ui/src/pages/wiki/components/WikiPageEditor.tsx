@@ -44,7 +44,10 @@ import { WikiPageHistoryModal } from './WikiPageHistoryModal';
 import { WIKI_SSE_FALLBACK_INTERVAL_MS } from '../lib/wiki-page-polling';
 import { useWikiPageDraftPersistence } from '../hooks/useWikiPageDraftPersistence';
 import { attachmentUploadName } from '../lib/wiki-page-attachments';
-import { readMigratedLocalStorage } from '@/lib/local-storage-migration';
+import {
+  readMigratedLocalStorage,
+  writeLocalStorage,
+} from '@/lib/local-storage-migration';
 
 type Props = {
   tabId: string;
@@ -103,9 +106,15 @@ function WikiPageEditor({
   const canEditRef = useRef(canEdit);
   canEditRef.current = canEdit;
   const { showToast } = useSimpleToast();
-  const { markTabUnsaved, markTabSaved, openWikiPage } = useWikiPageTabContext();
+  const { markTabUnsaved, markTabSaved, openWikiPage } =
+    useWikiPageTabContext();
 
-  const wikiPageSSE = useWikiPageSSE(wikiPagePath, !!wikiPagePath, workspaceQuery, remoteNode);
+  const wikiPageSSE = useWikiPageSSE(
+    wikiPagePath,
+    !!wikiPagePath,
+    workspaceQuery,
+    remoteNode
+  );
 
   // Fetch page — SWR is the single source of truth, refreshed by live invalidations
   const { data: page, mutate: mutateWikiPage } = useQuery(
@@ -181,7 +190,7 @@ function WikiPageEditor({
 
   // Persist mode preference
   useEffect(() => {
-    localStorage.setItem('wiki-page-editor-mode', mode);
+    writeLocalStorage('wiki-page-editor-mode', mode);
   }, [mode]);
 
   // Report content changes to parent for outline panel (debounced)

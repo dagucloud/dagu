@@ -175,4 +175,29 @@ describe('useWikiPageMutations', () => {
     expect(mocks.closeTab).toHaveBeenCalledWith('default-tab');
     expect(mocks.closeTab).toHaveBeenCalledWith('ops-tab');
   });
+
+  it('continues batch deletion when one workspace request rejects', async () => {
+    mocks.client.POST.mockRejectedValueOnce(
+      new Error('network error')
+    ).mockResolvedValueOnce({
+      data: { deleted: ['runbooks'], failed: [] },
+      error: undefined,
+    });
+
+    const { result } = renderHook(() =>
+      useWikiPageMutations({ remoteNode: 'local', revalidateTree })
+    );
+
+    await act(async () => {
+      await expect(
+        result.current.deleteBatch([
+          { path: 'readme', workspace: null },
+          { path: 'runbooks', workspace: 'ops' },
+        ])
+      ).resolves.toEqual({ deletedCount: 1, failedCount: 1 });
+    });
+
+    expect(mocks.client.POST).toHaveBeenCalledTimes(2);
+    expect(revalidateTree).toHaveBeenCalledOnce();
+  });
 });

@@ -175,8 +175,14 @@ func NewWikiStore(cfg *config.Config) (wiki.PageStore, error) {
 }
 
 func selectWikiStoragePath(canonical, legacy string, preferLegacy bool) (string, error) {
-	canonicalExists := storePathExists(canonical)
-	legacyExists := storePathExists(legacy)
+	canonicalExists, err := storePathExists(canonical)
+	if err != nil {
+		return "", err
+	}
+	legacyExists, err := storePathExists(legacy)
+	if err != nil {
+		return "", err
+	}
 	if canonicalExists && legacyExists {
 		return "", fmt.Errorf("both %s and %s exist; reconcile them before starting Dagu", canonical, legacy)
 	}
@@ -186,9 +192,18 @@ func selectWikiStoragePath(canonical, legacy string, preferLegacy bool) (string,
 	return canonical, nil
 }
 
-func storePathExists(path string) bool {
+func storePathExists(path string) (bool, error) {
 	_, err := os.Stat(path)
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if parent, parentErr := os.Stat(filepath.Dir(path)); parentErr == nil && !parent.IsDir() {
+		return false, nil
+	}
+	return false, fmt.Errorf("inspect %s: %w", path, err)
 }
 
 func NewIncidentStore(cfg *config.Config, enc *crypto.Encryptor) (incident.Store, error) {

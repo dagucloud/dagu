@@ -88,16 +88,21 @@ type WikiPageMarkdownPreviewProps = {
   linkContext?: WikiPageLinkContext;
 };
 
+function headingText(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(headingText).join('');
+  }
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return headingText(node.props.children);
+  }
+  return '';
+}
+
 function headingId(children: ReactNode): string {
-  const text =
-    typeof children === 'string'
-      ? children
-      : Array.isArray(children)
-        ? children
-            .map((child) => (typeof child === 'string' ? child : ''))
-            .join('')
-        : String(children ?? '');
-  return slugifyHeading(text);
+  return slugifyHeading(headingText(children));
 }
 
 function stripFrontmatter(content: string): string {

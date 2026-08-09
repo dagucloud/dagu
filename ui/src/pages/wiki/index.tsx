@@ -18,7 +18,10 @@ import SplitLayout from '@/components/SplitLayout';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useAuth, useCanWrite } from '@/contexts/AuthContext';
-import { WikiPageTabProvider, useWikiPageTabContext } from '@/contexts/WikiPageTabContext';
+import {
+  WikiPageTabProvider,
+  useWikiPageTabContext,
+} from '@/contexts/WikiPageTabContext';
 import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext';
 import { useUserPreferences } from '@/contexts/UserPreference';
 import { CockpitToolbar } from '@/features/cockpit/components/CockpitToolbar';
@@ -107,7 +110,9 @@ function WikiContent() {
   const [mobileView, setMobileView] = useState<'tree' | 'editor'>('tree');
 
   // Active page content for outline panel
-  const [activeWikiPageContent, setActiveWikiPageContent] = useState<string | null>(null);
+  const [activeWikiPageContent, setActiveWikiPageContent] = useState<
+    string | null
+  >(null);
 
   // Clear stale content when switching tabs so the outline panel doesn't show old headings
   useEffect(() => {
@@ -241,16 +246,18 @@ function WikiContent() {
     const targetSearch = activeTab
       ? workspaceSearchForWikiPageTab(activeTab.workspace)
       : '';
-    const encodedWikiPagePath = wikiPagePath ? encodeWikiPagePathForURL(wikiPagePath) : '';
-    if (wikiPagePath && encodedWikiPagePath !== currentPath) {
+    const encodedWikiPagePath = wikiPagePath
+      ? encodeWikiPagePathForURL(wikiPagePath)
+      : '';
+    if (
+      wikiPagePath &&
+      (encodedWikiPagePath !== currentPath ||
+        currentLocation.search !== targetSearch)
+    ) {
       isNavigatingRef.current = true;
-      navigate(`/wiki/${encodedWikiPagePath}${targetSearch}`, { replace: true });
-      requestAnimationFrame(() => {
-        isNavigatingRef.current = false;
+      navigate(`/wiki/${encodedWikiPagePath}${targetSearch}`, {
+        replace: true,
       });
-    } else if (wikiPagePath && currentLocation.search !== targetSearch) {
-      isNavigatingRef.current = true;
-      navigate(`/wiki/${encodedWikiPagePath}${targetSearch}`, { replace: true });
       requestAnimationFrame(() => {
         isNavigatingRef.current = false;
       });
@@ -266,7 +273,10 @@ function WikiContent() {
   // File selection handler
   const handleSelectFile = useCallback(
     (wikiPagePath: string, title: string, workspace?: string | null) => {
-      const visiblePath = visibleWikiPagePathForWorkspace(wikiPagePath, workspace);
+      const visiblePath = visibleWikiPagePathForWorkspace(
+        wikiPagePath,
+        workspace
+      );
       openWikiPage(visiblePath, title, workspace ?? null);
       if (isMobile) setMobileView('editor');
     },
@@ -330,7 +340,15 @@ function WikiContent() {
         setCreateLoading(false);
       }
     },
-    [canWrite, client, createWorkspace, remoteNode, mutate, openWikiPage, showToast]
+    [
+      canWrite,
+      client,
+      createWorkspace,
+      remoteNode,
+      mutate,
+      openWikiPage,
+      showToast,
+    ]
   );
 
   // Rename handler (from modal)
@@ -572,8 +590,8 @@ function WikiContent() {
         onSubmit={handleDelete}
       >
         <p className="text-sm text-muted-foreground">
-          Are you sure you want to delete <strong>{deleteWikiPageTitle}</strong>?
-          This action cannot be undone.
+          Are you sure you want to delete <strong>{deleteWikiPageTitle}</strong>
+          ? This action cannot be undone.
         </p>
       </ConfirmModal>
       <ConfirmModal
@@ -655,7 +673,10 @@ function WikiPage() {
 
   return (
     <UnsavedChangesProvider>
-      <WikiPageTabProvider key={wikiTabStorageKey} storageKey={wikiTabStorageKey}>
+      <WikiPageTabProvider
+        key={wikiTabStorageKey}
+        storageKey={wikiTabStorageKey}
+      >
         <WikiContent />
       </WikiPageTabProvider>
     </UnsavedChangesProvider>

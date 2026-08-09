@@ -4,7 +4,6 @@
 package api
 
 import (
-	"bytes"
 	"compress/flate"
 	"compress/gzip"
 	"crypto/tls"
@@ -15,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -154,11 +154,21 @@ func (h *remoteNodeProxy) proxy(r *http.Request) (*http.Response, error) {
 		return h.doRequest(r.Body, r)
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := os.CreateTemp("", "dagu-wiki-proxy-*")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read request body: %w", err)
+		return nil, fmt.Errorf("failed to buffer request body: %w", err)
 	}
-	resp, err := h.doRequest(bytes.NewReader(body), r)
+	defer func() {
+		_ = body.Close()
+		_ = os.Remove(body.Name())
+	}()
+	bodySize, err := io.Copy(body, r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to buffer request body: %w", err)
+	}
+	request := r.Clone(r.Context())
+	request.ContentLength = bodySize
+	resp, err := h.doRequest(io.NewSectionReader(body, 0, bodySize), request)
 	if err != nil || resp.StatusCode != http.StatusNotFound || strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
 		return resp, err
 	}
@@ -168,9 +178,8 @@ func (h *remoteNodeProxy) proxy(r *http.Request) (*http.Response, error) {
 	legacyURL := *r.URL
 	legacyURL.Path = legacyPath
 	legacyRequest.URL = &legacyURL
-	legacyRequest.Body = io.NopCloser(bytes.NewReader(body))
-	legacyRequest.ContentLength = int64(len(body))
-	return h.doRequest(bytes.NewReader(body), legacyRequest)
+	legacyRequest.ContentLength = bodySize
+	return h.doRequest(io.NewSectionReader(body, 0, bodySize), legacyRequest)
 }
 
 func legacyWikiProxyPath(requestPath, apiBasePath string) (string, bool) {

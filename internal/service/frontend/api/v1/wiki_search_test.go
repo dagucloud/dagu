@@ -4,13 +4,16 @@
 package api_test
 
 import (
+	"context"
 	"testing"
 
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
+	workspacepkg "github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,6 +72,40 @@ func TestSearchWikiPages(t *testing.T) {
 		searchResp, ok := resp.(apigen.SearchWikiPages200JSONResponse)
 		require.True(t, ok)
 		assert.Empty(t, searchResp.Results)
+	})
+
+	t.Run("respects workspace visibility", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockWikiStore{pages: map[string]*wiki.Page{
+			"ops/deploy":    {ID: "ops/deploy", Title: "deploy", Content: "needle"},
+			"secret/deploy": {ID: "secret/deploy", Title: "deploy", Content: "needle"},
+		}}
+		setup := newWikiPageTestSetupWithStoreOptions(
+			t,
+			store,
+			&mockWorkspaceStore{workspaces: []*workspacepkg.Workspace{
+				{ID: "ops", Name: "ops"},
+				{ID: "secret", Name: "secret"},
+			}},
+			apiv1.WithAuthService(stubAuthService{}),
+		)
+		ctx := auth.WithUser(context.Background(), &auth.User{
+			Username: "viewer",
+			Role:     auth.RoleViewer,
+			WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+				{Workspace: "ops", Role: auth.RoleViewer},
+			}},
+		})
+
+		resp, err := setup.api.SearchWikiPages(ctx, apigen.SearchWikiPagesRequestObject{
+			Params: apigen.SearchWikiPagesParams{Q: "needle"},
+		})
+		require.NoError(t, err)
+		searchResp, ok := resp.(apigen.SearchWikiPages200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, searchResp.Results, 1)
+		assert.Equal(t, "ops/deploy", searchResp.Results[0].Id)
 	})
 
 	t.Run("no Wiki store", func(t *testing.T) {

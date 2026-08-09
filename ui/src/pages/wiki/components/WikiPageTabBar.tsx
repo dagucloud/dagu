@@ -53,6 +53,7 @@ function WikiPageTabBar({
   );
 
   const handleKeyDown = (e: React.KeyboardEvent, tabId: string) => {
+    if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       setActiveTab(tabId);
@@ -193,7 +194,11 @@ function WikiPageTabBar({
                         className="text-destructive focus:text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDeleteWikiPage(tab.wikiPagePath, tab.title, tab.workspace);
+                          onDeleteWikiPage(
+                            tab.wikiPagePath,
+                            tab.title,
+                            tab.workspace
+                          );
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5 mr-2" />

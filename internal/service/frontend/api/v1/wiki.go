@@ -148,8 +148,8 @@ func (a *API) CreateWikiPage(ctx context.Context, request api.CreateWikiPageRequ
 	if err := a.requireWikiManagement(); err != nil {
 		return nil, err
 	}
-	a.workspaceWikiMu.RLock()
-	defer a.workspaceWikiMu.RUnlock()
+	a.workspaceWikiMu.Lock()
+	defer a.workspaceWikiMu.Unlock()
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
@@ -309,8 +309,8 @@ func (a *API) UploadWikiPageAttachment(ctx context.Context, request api.UploadWi
 	if err := a.requireWikiManagement(); err != nil {
 		return nil, err
 	}
-	a.workspaceWikiMu.RLock()
-	defer a.workspaceWikiMu.RUnlock()
+	a.workspaceWikiMu.Lock()
+	defer a.workspaceWikiMu.Unlock()
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
@@ -525,8 +525,8 @@ func (a *API) UpdateWikiPage(ctx context.Context, request api.UpdateWikiPageRequ
 	if err := a.requireWikiManagement(); err != nil {
 		return nil, err
 	}
-	a.workspaceWikiMu.RLock()
-	defer a.workspaceWikiMu.RUnlock()
+	a.workspaceWikiMu.Lock()
+	defer a.workspaceWikiMu.Unlock()
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
@@ -564,8 +564,8 @@ func (a *API) DeleteWikiPage(ctx context.Context, request api.DeleteWikiPageRequ
 	if err := a.requireWikiManagement(); err != nil {
 		return nil, err
 	}
-	a.workspaceWikiMu.RLock()
-	defer a.workspaceWikiMu.RUnlock()
+	a.workspaceWikiMu.Lock()
+	defer a.workspaceWikiMu.Unlock()
 	workspaceName, err := wikiMutationScopeForParams(request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -603,8 +603,8 @@ func (a *API) RenameWikiPage(ctx context.Context, request api.RenameWikiPageRequ
 	if err := a.requireWikiManagement(); err != nil {
 		return nil, err
 	}
-	a.workspaceWikiMu.RLock()
-	defer a.workspaceWikiMu.RUnlock()
+	a.workspaceWikiMu.Lock()
+	defer a.workspaceWikiMu.Unlock()
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
@@ -654,8 +654,8 @@ func (a *API) DeleteWikiPageBatch(ctx context.Context, request api.DeleteWikiPag
 	if err := a.requireWikiManagement(); err != nil {
 		return nil, err
 	}
-	a.workspaceWikiMu.RLock()
-	defer a.workspaceWikiMu.RUnlock()
+	a.workspaceWikiMu.Lock()
+	defer a.workspaceWikiMu.Unlock()
 	if request.Body == nil || len(request.Body.Paths) == 0 {
 		return nil, &Error{
 			Code:       api.ErrorCodeBadRequest,
@@ -817,7 +817,10 @@ func (a *API) GetWikiPageContentData(ctx context.Context, pageID string) (any, e
 		}
 		page, err := a.wikiStore.Get(readCtx, scopedID)
 		if err != nil {
-			return nil, err
+			if errors.Is(err, wiki.ErrPageNotFound) {
+				return nil, errWikiPageNotFound
+			}
+			return nil, internalError(err)
 		}
 		if workspaceName == "" && !visibility.all {
 			if !visibility.visible(page.ID) {

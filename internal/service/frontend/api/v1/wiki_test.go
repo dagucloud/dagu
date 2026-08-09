@@ -299,27 +299,19 @@ func (m *mockWikiStore) DeleteBatch(_ context.Context, ids []string) ([]string, 
 			failed = append(failed, wiki.DeleteError{ID: id, Error: err.Error()})
 			continue
 		}
-		// Try exact match (file).
+		// Remove an exact page or every page under a directory path.
 		if _, ok := m.pages[id]; ok {
 			delete(m.pages, id)
-			deleted = append(deleted, id)
-			continue
-		}
-		// Try prefix match (directory).
-		prefix := id + "/"
-		found := false
-		for pageID := range m.pages {
-			if strings.HasPrefix(pageID, prefix) {
-				delete(m.pages, pageID)
-				found = true
+		} else {
+			prefix := id + "/"
+			for pageID := range m.pages {
+				if strings.HasPrefix(pageID, prefix) {
+					delete(m.pages, pageID)
+				}
 			}
 		}
-		if found {
-			deleted = append(deleted, id)
-		} else {
-			// Not found = success (idempotency).
-			deleted = append(deleted, id)
-		}
+		// Missing paths are successful to keep batch deletion idempotent.
+		deleted = append(deleted, id)
 	}
 	return deleted, failed, nil
 }
@@ -1812,7 +1804,10 @@ func TestGetWikiPageContentData(t *testing.T) {
 		setup := newWikiPageTestSetup(t)
 
 		_, err := setup.api.GetWikiPageContentData(adminCtx(), "nonexistent")
-		require.Error(t, err)
+		var apiErr *apiv1.Error
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, http.StatusNotFound, apiErr.HTTPStatus)
+		assert.Equal(t, apigen.ErrorCodeNotFound, apiErr.Code)
 	})
 
 	t.Run("no Wiki store", func(t *testing.T) {

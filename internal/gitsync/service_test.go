@@ -77,6 +77,24 @@ func TestService_GetStatus(t *testing.T) {
 	require.Equal(t, cfg.Branch, status.Branch)
 }
 
+func TestService_GetStatusAdoptsLegacyDocsDirectory(t *testing.T) {
+	t.Parallel()
+
+	impl, dagsDir := newTestService(t, &Config{
+		Enabled:    true,
+		Repository: "host.com/org/repo",
+		Branch:     "main",
+	})
+	require.NoError(t, os.MkdirAll(filepath.Join(impl.gitClient.repoPath, legacyDocsDir), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(dagsDir, wikiDir), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, wikiDir, "runbook.md"), []byte("# Runbook\n"), 0o600))
+
+	status, err := impl.GetStatus(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, status.Items, "docs/runbook")
+	assert.Equal(t, StatusUntracked, status.Items["docs/runbook"].Status)
+}
+
 func TestService_StatusReadsAreConcurrentSafe(t *testing.T) {
 	t.Parallel()
 

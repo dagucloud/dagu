@@ -150,14 +150,14 @@ func (svc *Service) changeToolImpl(ctx context.Context, input changeInput) (*mcp
 	if err := svc.requireAPI(); err != nil {
 		return nil, nil, err
 	}
-	switch input.Type {
+	switch canonicalChangeType(input.Type) {
 	case changeTypeUpsertDAG:
 		return svc.changeDAG(ctx, input)
-	case changeTypeUpsertWikiPage, legacyChangeTypeUpsertDoc:
+	case changeTypeUpsertWikiPage:
 		return svc.changeUpsertWikiPage(ctx, input)
-	case changeTypeRenameWikiPage, legacyChangeTypeRenameDoc:
+	case changeTypeRenameWikiPage:
 		return svc.changeRenameWikiPage(ctx, input)
-	case changeTypeDeleteWikiPage, legacyChangeTypeDeleteDoc:
+	case changeTypeDeleteWikiPage:
 		return svc.changeDeleteWikiPage(ctx, input)
 	default:
 		return nil, nil, errors.New("unsupported change type")
@@ -426,14 +426,27 @@ func isChangeInputField(field string) bool {
 }
 
 func isSupportedChangeType(changeType string) bool {
-	switch changeType {
+	switch canonicalChangeType(changeType) {
 	case changeTypeUpsertDAG,
-		changeTypeUpsertWikiPage, legacyChangeTypeUpsertDoc,
-		changeTypeRenameWikiPage, legacyChangeTypeRenameDoc,
-		changeTypeDeleteWikiPage, legacyChangeTypeDeleteDoc:
+		changeTypeUpsertWikiPage,
+		changeTypeRenameWikiPage,
+		changeTypeDeleteWikiPage:
 		return true
 	default:
 		return false
+	}
+}
+
+func canonicalChangeType(changeType string) string {
+	switch changeType {
+	case legacyChangeTypeUpsertDoc:
+		return changeTypeUpsertWikiPage
+	case legacyChangeTypeRenameDoc:
+		return changeTypeRenameWikiPage
+	case legacyChangeTypeDeleteDoc:
+		return changeTypeDeleteWikiPage
+	default:
+		return changeType
 	}
 }
 
@@ -443,22 +456,23 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		changeFieldType: true,
 	}
 	required := []string{}
-	switch input.Type {
+	changeType := canonicalChangeType(input.Type)
+	switch changeType {
 	case changeTypeUpsertDAG:
 		allowed[changeFieldName] = true
 		allowed[changeFieldSpec] = true
 		required = []string{changeFieldName, changeFieldSpec}
-	case changeTypeUpsertWikiPage, legacyChangeTypeUpsertDoc:
+	case changeTypeUpsertWikiPage:
 		allowed[changeFieldWorkspace] = true
 		allowed[changeFieldPath] = true
 		allowed[changeFieldContent] = true
 		required = []string{changeFieldWorkspace, changeFieldPath, changeFieldContent}
-	case changeTypeRenameWikiPage, legacyChangeTypeRenameDoc:
+	case changeTypeRenameWikiPage:
 		allowed[changeFieldWorkspace] = true
 		allowed[changeFieldPath] = true
 		allowed[changeFieldNewPath] = true
 		required = []string{changeFieldWorkspace, changeFieldPath, changeFieldNewPath}
-	case changeTypeDeleteWikiPage, legacyChangeTypeDeleteDoc:
+	case changeTypeDeleteWikiPage:
 		allowed[changeFieldWorkspace] = true
 		allowed[changeFieldPath] = true
 		required = []string{changeFieldWorkspace, changeFieldPath}
@@ -482,7 +496,7 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		}
 	}
 
-	switch input.Type {
+	switch changeType {
 	case changeTypeUpsertDAG:
 		if input.Name == "" {
 			return changeInputError(input, "The name field is required.", changeFieldName)
@@ -500,7 +514,7 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		if err := wiki.ValidatePageID(input.Path); err != nil {
 			return changeInputError(input, "Invalid Wiki page path: "+err.Error(), changeFieldPath)
 		}
-		if input.Type == changeTypeRenameWikiPage || input.Type == legacyChangeTypeRenameDoc {
+		if changeType == changeTypeRenameWikiPage {
 			if err := wiki.ValidatePageID(input.NewPath); err != nil {
 				return changeInputError(input, "Invalid destination path: "+err.Error(), changeFieldNewPath)
 			}

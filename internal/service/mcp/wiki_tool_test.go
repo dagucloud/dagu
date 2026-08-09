@@ -118,29 +118,39 @@ func TestReadToolListsReadsAndSearchesWikiPages(t *testing.T) {
 }
 
 func TestReadToolRejectsInvalidWikiDiscoveryInput(t *testing.T) {
-	_, readErr := parseReadToolInput(json.RawMessage(`{
-		"target":"doc_search",
-		"search":"needle",
-		"limit":"1"
-	}`))
-	require.NotNil(t, readErr)
-	require.Equal(t, readFieldLimit, readErr.Field)
+	for _, target := range []string{readTargetWikiSearch, legacyReadTargetDocSearch} {
+		t.Run(target+" limit type", func(t *testing.T) {
+			_, readErr := parseReadToolInput(json.RawMessage(`{
+				"target":"` + target + `",
+				"search":"needle",
+				"limit":"1"
+			}`))
+			require.NotNil(t, readErr)
+			require.Equal(t, readFieldLimit, readErr.Field)
+		})
 
-	_, readErr = parseReadToolInput(json.RawMessage(`{
-		"target":"doc_search",
-		"search":"needle",
-		"limit":51
-	}`))
-	require.NotNil(t, readErr)
-	require.Equal(t, readFieldLimit, readErr.Field)
+		t.Run(target+" limit range", func(t *testing.T) {
+			_, readErr := parseReadToolInput(json.RawMessage(`{
+				"target":"` + target + `",
+				"search":"needle",
+				"limit":51
+			}`))
+			require.NotNil(t, readErr)
+			require.Equal(t, readFieldLimit, readErr.Field)
+		})
+	}
 
-	_, readErr = parseReadToolInput(json.RawMessage(`{
-		"target":"docs",
-		"prefix":"guides",
-		"query":"page=%zz"
-	}`))
-	require.NotNil(t, readErr)
-	require.Equal(t, readErrorInvalidToolInput, readErr.Code)
+	for _, target := range []string{readTargetWiki, legacyReadTargetDocs} {
+		t.Run(target+" query", func(t *testing.T) {
+			_, readErr := parseReadToolInput(json.RawMessage(`{
+				"target":"` + target + `",
+				"prefix":"guides",
+				"query":"page=%zz"
+			}`))
+			require.NotNil(t, readErr)
+			require.Equal(t, readErrorInvalidToolInput, readErr.Code)
+		})
+	}
 }
 
 func TestChangeToolPreviewsAndAppliesWikiPageUpsert(t *testing.T) {

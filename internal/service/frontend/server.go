@@ -75,6 +75,13 @@ const (
 	httpWriteTimeout      = 60 * time.Second
 )
 
+var wikiSSETopicTypes = [...]sse.TopicType{
+	sse.TopicTypeWikiPage,
+	sse.TopicTypeWikiTree,
+	sse.TopicTypeLegacyDoc,
+	sse.TopicTypeLegacyDocTree,
+}
+
 type shutdownActions struct {
 	stopSync               func() error
 	shutdownSSEMultiplexer func()
@@ -1335,12 +1342,7 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 }
 
 func (srv *Server) wakeWikiTopics() {
-	for _, topicType := range []sse.TopicType{
-		sse.TopicTypeWikiPage,
-		sse.TopicTypeWikiTree,
-		sse.TopicTypeLegacyDoc,
-		sse.TopicTypeLegacyDocTree,
-	} {
+	for _, topicType := range wikiSSETopicTypes {
 		srv.sseMultiplexer.WakeTopicType(topicType)
 	}
 }
@@ -1398,7 +1400,7 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 
 	appStreamAvailable := srv.appStream != nil
 	if appStreamAvailable {
-		for _, topicType := range []sse.TopicType{sse.TopicTypeWikiPage, sse.TopicTypeWikiTree, sse.TopicTypeLegacyDoc, sse.TopicTypeLegacyDocTree} {
+		for _, topicType := range wikiSSETopicTypes {
 			registrar.SetRefreshMode(topicType, sse.TopicRefreshModeOnDemand)
 		}
 		registrar.SetPublishOnWake(sse.TopicTypeWikiTree, true)

@@ -60,7 +60,7 @@ describe('WikiPageTabProvider', () => {
     });
 
     expect(result.current.tabs).toHaveLength(0);
-    expect(result.current.drafts).toHaveLength(0);
+    expect(result.current.drafts.size).toBe(0);
     expect(JSON.parse(localStorage.getItem(storageKey) ?? '{}').drafts).toEqual(
       []
     );
@@ -82,7 +82,7 @@ describe('WikiPageTabProvider', () => {
     });
 
     expect(result.current.tabs).toHaveLength(0);
-    expect(result.current.drafts).toHaveLength(0);
+    expect(result.current.drafts.size).toBe(0);
   });
 
   it('copies scoped legacy tabs into canonical storage without deleting them', () => {
@@ -133,7 +133,7 @@ describe('WikiPageTabProvider', () => {
       wrapper: wrapperFor(userBKey),
     });
     expect(userB.result.current.tabs).toHaveLength(0);
-    expect(userB.result.current.drafts).toHaveLength(0);
+    expect(userB.result.current.drafts.size).toBe(0);
     userB.unmount();
 
     const restoredUserA = renderHook(() => useWikiPageTabContext(), {

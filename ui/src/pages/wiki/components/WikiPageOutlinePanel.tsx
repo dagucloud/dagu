@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { cn } from '@/lib/utils';
-import { slugifyHeading } from '@/lib/text-utils';
 import { ChevronDown, ChevronRight, List } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { readMigratedLocalStorage } from '@/lib/local-storage-migration';
+import { slugifyHeading } from '@/lib/text-utils';
+import { cn } from '@/lib/utils';
 
 export interface OutlineHeading {
   level: number;
@@ -32,7 +32,7 @@ export function extractHeadings(
     }
     if (codeFence) continue;
 
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
+    const match = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (match && match[1] && match[2]) {
       const level = match[1].length;
       const text = match[2].trim();
@@ -63,10 +63,7 @@ function WikiPageOutlinePanel({ markdown, onHeadingClick }: Props) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(
-        'dagu_wiki_outline_collapsed',
-        collapsed.toString()
-      );
+      localStorage.setItem('dagu_wiki_outline_collapsed', collapsed.toString());
     } catch {
       /* ignore */
     }
@@ -82,6 +79,7 @@ function WikiPageOutlinePanel({ markdown, onHeadingClick }: Props) {
         type="button"
         className="flex items-center gap-1.5 w-full px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
         onClick={() => setCollapsed((c) => !c)}
+        aria-expanded={!collapsed}
       >
         {collapsed ? (
           <ChevronRight className="h-3 w-3" />

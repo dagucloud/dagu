@@ -45,4 +45,16 @@ describe('UserPreferencesProvider', () => {
     expect(result.current.preferences.wikiSortField).toBe('type');
     expect(result.current.preferences.wikiSortOrder).toBe('asc');
   });
+
+  it('uses Wiki sorting defaults for invalid legacy values', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ docSortField: 'unknown', docSortOrder: 'sideways' })
+    );
+
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+
+    expect(result.current.preferences.wikiSortField).toBe('type');
+    expect(result.current.preferences.wikiSortOrder).toBe('asc');
+  });
 });

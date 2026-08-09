@@ -646,6 +646,10 @@ function WikiTreeSidebar({
   );
 
   const hasWikiPages = treeData && treeData.length > 0;
+  const selectionOverlayActive = selectedIds.length > 1 && canEdit;
+  const filtersActive =
+    (searchResults !== null && searchQuery.length >= 2) ||
+    selectedTags.length > 0;
 
   // Custom node renderer that passes through extra props
   const renderNode = useCallback(
@@ -809,9 +813,8 @@ function WikiTreeSidebar({
       <div className="px-2 py-1.5 border-b border-border relative">
         {/* Search input — always rendered to define the container height */}
         <div
-          className={
-            selectedIds.length > 1 && canEdit ? 'invisible' : undefined
-          }
+          className={selectionOverlayActive ? 'invisible' : undefined}
+          aria-hidden={selectionOverlayActive || undefined}
         >
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
@@ -821,13 +824,15 @@ function WikiTreeSidebar({
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search Wiki pages..."
               className="w-full text-xs bg-muted/50 border border-border rounded px-2 py-1 pl-6 pr-6 outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/60"
-              tabIndex={selectedIds.length > 1 && canEdit ? -1 : undefined}
+              tabIndex={selectionOverlayActive ? -1 : undefined}
+              disabled={selectionOverlayActive}
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded-sm hover:bg-accent text-muted-foreground"
+                disabled={selectionOverlayActive}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -851,7 +856,7 @@ function WikiTreeSidebar({
             )}
         </div>
         {/* Selection bar — overlaid on top when multi-select is active */}
-        {selectedIds.length > 1 && canEdit && (
+        {selectionOverlayActive && (
           <div className="absolute inset-0 flex items-center justify-between px-3">
             <span className="text-xs text-muted-foreground">
               {selectedIds.length} selected
@@ -992,7 +997,7 @@ function WikiTreeSidebar({
           </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 p-4 text-center">
-            {searchResults !== null && searchQuery.length >= 2 ? (
+            {filtersActive ? (
               <>
                 <Search className="h-8 w-8 text-muted-foreground/50" />
                 <p className="text-sm text-muted-foreground">

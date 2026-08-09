@@ -104,7 +104,13 @@ export function CreateWikiPageModal({
           setResolvingTemplate(false);
         }
       }
-      await onSubmit(trimmed, content);
+      try {
+        await onSubmit(trimmed, content);
+      } catch (err) {
+        setTemplateError(
+          err instanceof Error ? err.message : 'Failed to create Wiki page'
+        );
+      }
     },
     [path, selectedTemplate, resolveTemplateContent, onSubmit]
   );

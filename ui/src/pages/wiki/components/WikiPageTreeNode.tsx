@@ -28,7 +28,8 @@ import {
 import React, { useCallback, useRef, useEffect } from 'react';
 import { NodeRendererProps } from 'react-arborist';
 
-type WikiPageTreeNodeResponse = components['schemas']['WikiPageTreeNodeResponse'];
+type WikiPageTreeNodeResponse =
+  components['schemas']['WikiPageTreeNodeResponse'];
 
 export type ContextAction =
   | { type: 'create'; parentDir: string; workspace?: string | null }
@@ -147,8 +148,13 @@ function WikiPageTreeNode({
       className={cn(
         'flex items-center gap-1 py-1 pr-1 cursor-pointer group rounded-sm',
         'hover:bg-accent/50',
-        node.isSelected && !isActiveWikiPage && !node.isEditing && 'bg-primary/10',
-        isActiveWikiPage && !node.isEditing && 'bg-accent text-accent-foreground',
+        node.isSelected &&
+          !isActiveWikiPage &&
+          !node.isEditing &&
+          'bg-primary/10',
+        isActiveWikiPage &&
+          !node.isEditing &&
+          'bg-accent text-accent-foreground',
         node.willReceiveDrop && 'bg-primary/10 ring-1 ring-primary/30',
         node.isDragging && 'opacity-50'
       )}
@@ -187,7 +193,10 @@ function WikiPageTreeNode({
           />
         </form>
       ) : (
-        <span className="flex-1 text-sm truncate select-none">
+        <span
+          className="flex-1 text-sm truncate select-none"
+          title={displayTitle}
+        >
           {displayTitle}
         </span>
       )}

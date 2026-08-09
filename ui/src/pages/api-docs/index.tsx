@@ -23,7 +23,7 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; spec: OpenAPIDocument };
 
-export default function APIWikiPage(): React.ReactElement {
+export default function APIDocsPage(): React.ReactElement {
   const appBarContext = React.useContext(AppBarContext);
   const { selectedRemoteNode, setTitle } = appBarContext;
   const config = useConfig();

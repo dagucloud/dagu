@@ -10,8 +10,8 @@ import { CreateWikiPageModal } from '../CreateWikiPageModal';
 
 vi.mock('../../hooks/useWikiPageTemplates', () => ({
   useWikiPageTemplates: () => BUILT_IN_WIKI_PAGE_TEMPLATES,
-  useResolveTemplateContent:
-    () => async (template: { content: string }) => template.content,
+  useResolveTemplateContent: () => async (template: { content: string }) =>
+    template.content,
 }));
 
 // Radix Select requires pointer-capture APIs missing from jsdom.
@@ -50,7 +50,9 @@ describe('CreateWikiPageModal templates', () => {
   it('submits the selected template content', async () => {
     const user = userEvent.setup();
     const onSubmit = renderModal();
-    const runbook = BUILT_IN_WIKI_PAGE_TEMPLATES.find((t) => t.name === 'Runbook');
+    const runbook = BUILT_IN_WIKI_PAGE_TEMPLATES.find(
+      (t) => t.name === 'Runbook'
+    );
 
     await user.type(screen.getByLabelText('Path'), 'runbooks/etl');
     await user.click(screen.getByLabelText('Template'));
@@ -69,5 +71,18 @@ describe('CreateWikiPageModal templates', () => {
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByText(/invalid|must/i)).toBeInTheDocument();
+  });
+
+  it('shows submission failures in the dialog', async () => {
+    const user = userEvent.setup();
+    const onSubmit = renderModal(
+      vi.fn().mockRejectedValue(new Error('Request failed'))
+    );
+
+    await user.type(screen.getByLabelText('Path'), 'guides/new-page');
+    await user.click(screen.getByRole('button', { name: /create/i }));
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(await screen.findByText('Request failed')).toBeInTheDocument();
   });
 });

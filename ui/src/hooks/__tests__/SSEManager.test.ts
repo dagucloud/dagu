@@ -709,7 +709,7 @@ describe('SSEManager', () => {
     setAuthSession('fresh-token', new Date(Date.now() + 60_000).toISOString());
 
     expect(MockEventSource.instances).toHaveLength(1);
-    expect(MockEventSource.instances[0]?.url).toContain('token=fresh-token');
+    expect(lastEventSource()?.url).toContain('token=fresh-token');
 
     unsubscribe();
   });

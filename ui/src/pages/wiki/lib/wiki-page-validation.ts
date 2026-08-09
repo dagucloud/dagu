@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-export const DOC_PATH_PATTERN =
+export const WIKI_PAGE_PATH_PATTERN =
   /^[a-zA-Z0-9_][a-zA-Z0-9_. -]*(\/[a-zA-Z0-9_][a-zA-Z0-9_. -]*)*$/;
 
-const MAX_DOC_PATH_LENGTH = 252;
+const MAX_WIKI_PAGE_PATH_LENGTH = 252;
 const WINDOWS_RESERVED_SEGMENT =
   /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
@@ -16,10 +16,10 @@ export function validateWikiPagePath(path: string): {
   if (!trimmed) {
     return { isValid: false, error: 'Path is required' };
   }
-  if (trimmed.length > MAX_DOC_PATH_LENGTH) {
+  if (trimmed.length > MAX_WIKI_PAGE_PATH_LENGTH) {
     return {
       isValid: false,
-      error: `Path must be ${MAX_DOC_PATH_LENGTH} characters or fewer`,
+      error: `Path must be ${MAX_WIKI_PAGE_PATH_LENGTH} characters or fewer`,
     };
   }
   if (trimmed.toLowerCase().endsWith('.md')) {
@@ -28,7 +28,7 @@ export function validateWikiPagePath(path: string): {
       error: 'Path should not include the .md extension.',
     };
   }
-  if (!DOC_PATH_PATTERN.test(trimmed)) {
+  if (!WIKI_PAGE_PATH_PATTERN.test(trimmed)) {
     return {
       isValid: false,
       error:

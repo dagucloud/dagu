@@ -25,7 +25,9 @@ type BatchDeleteResult = {
 };
 
 function pathMatches(wikiPagePath: string, targetPath: string): boolean {
-  return wikiPagePath === targetPath || wikiPagePath.startsWith(`${targetPath}/`);
+  return (
+    wikiPagePath === targetPath || wikiPagePath.startsWith(`${targetPath}/`)
+  );
 }
 
 function workspaceMatches(
@@ -94,7 +96,8 @@ export function useWikiPageMutations({
       failureMessage,
       revalidateOnFailure = false,
     }: PathChange): Promise<string | null> => {
-      const normalizedWorkspace = normalizedWikiPageMutationWorkspace(workspace);
+      const normalizedWorkspace =
+        normalizedWikiPageMutationWorkspace(workspace);
       const mutationQuery =
         workspaceTargetQueryForWorkspace(normalizedWorkspace);
       try {
@@ -121,7 +124,8 @@ export function useWikiPageMutations({
 
   const deletePath = useCallback(
     async (path: string, workspace?: string | null): Promise<string | null> => {
-      const normalizedWorkspace = normalizedWikiPageMutationWorkspace(workspace);
+      const normalizedWorkspace =
+        normalizedWikiPageMutationWorkspace(workspace);
       const mutationQuery =
         workspaceTargetQueryForWorkspace(normalizedWorkspace);
       try {
@@ -158,17 +162,21 @@ export function useWikiPageMutations({
       for (const [workspaceKey, workspaceTargets] of grouped) {
         const workspace = workspaceKey || null;
         const mutationQuery = workspaceTargetQueryForWorkspace(workspace);
-        const { data, error } = await client.POST('/wiki/delete-batch', {
-          params: { query: { remoteNode, ...mutationQuery } },
-          body: { paths: workspaceTargets.map((target) => target.path) },
-        });
-        if (error) {
+        try {
+          const { data, error } = await client.POST('/wiki/delete-batch', {
+            params: { query: { remoteNode, ...mutationQuery } },
+            body: { paths: workspaceTargets.map((target) => target.path) },
+          });
+          if (error) {
+            failedCount += workspaceTargets.length;
+            continue;
+          }
+          deletedCount += data.deleted.length;
+          failedCount += data.failed?.length || 0;
+          deletedByWorkspace.set(workspaceKey, new Set(data.deleted));
+        } catch {
           failedCount += workspaceTargets.length;
-          continue;
         }
-        deletedCount += data.deleted.length;
-        failedCount += data.failed?.length || 0;
-        deletedByWorkspace.set(workspaceKey, new Set(data.deleted));
       }
 
       revalidateTree();

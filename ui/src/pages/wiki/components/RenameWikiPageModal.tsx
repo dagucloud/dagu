@@ -66,7 +66,13 @@ export function RenameWikiPageModal({
         setValidationError('New path must be different from current path');
         return;
       }
-      await onSubmit(trimmed);
+      try {
+        await onSubmit(trimmed);
+      } catch (err) {
+        setValidationError(
+          err instanceof Error ? err.message : 'Failed to rename Wiki page'
+        );
+      }
     },
     [newPath, currentPath, onSubmit]
   );

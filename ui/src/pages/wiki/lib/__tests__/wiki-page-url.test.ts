@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
+import { encodeWikiPagePathForURL } from '../wiki-page-path';
 import { normalizeWikiPagePathFromURL } from '../wiki-page-url';
 
 describe('normalizeWikiPagePathFromURL', () => {
@@ -18,6 +19,16 @@ describe('normalizeWikiPagePathFromURL', () => {
   });
 
   it('does not strip md text from non-markdown suffixes', () => {
-    expect(normalizeWikiPagePathFromURL('notes.md.backup')).toBe('notes.md.backup');
+    expect(normalizeWikiPagePathFromURL('notes.md.backup')).toBe(
+      'notes.md.backup'
+    );
+  });
+
+  it('round-trips stored page IDs that end with a markdown extension', () => {
+    const encoded = encodeWikiPagePathForURL('imports/notes.md');
+
+    expect(normalizeWikiPagePathFromURL(decodeURIComponent(encoded))).toBe(
+      'imports/notes.md'
+    );
   });
 });

@@ -591,7 +591,11 @@ func (s *serviceImpl) scanWikiPageFiles(state *State) {
 		if err != nil {
 			return nil
 		}
-		itemID := path.Join(s.repoWikiDir, strings.TrimSuffix(filepath.ToSlash(relPath), ext))
+		pageID := strings.TrimSuffix(filepath.ToSlash(relPath), ext)
+		if wiki.ValidatePageID(pageID) != nil {
+			return nil
+		}
+		itemID := path.Join(s.repoWikiDir, pageID)
 		if _, exists := state.Items[itemID]; exists {
 			return nil
 		}
@@ -1576,6 +1580,13 @@ func (s *serviceImpl) GetStatus(_ context.Context) (*OverallStatus, error) {
 
 	status.Repository = s.cfg.Repository
 	status.Branch = s.cfg.Branch
+	repoWikiDir, err := s.selectRepoWikiDir()
+	if err != nil {
+		status.Summary = SummaryError
+		status.LastError = new(err.Error())
+		return status, nil
+	}
+	s.repoWikiDir = repoWikiDir
 
 	state, err := s.stateManager.GetState()
 	if err != nil {

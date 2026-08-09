@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useClient } from '@/hooks/api';
-import { AppBarContext } from '@/contexts/AppBarContext';
-import { workspaceWikiQueryForWorkspace } from '@/lib/workspace';
 import { useContext, useEffect, useState } from 'react';
+import { AppBarContext } from '@/contexts/AppBarContext';
+import { useClient } from '@/hooks/api';
+import { workspaceWikiQueryForWorkspace } from '@/lib/workspace';
 
 // Blob MIME types by extension. Unknown extensions download as opaque data;
 // SVG served through a blob URL in an <img> cannot execute scripts.

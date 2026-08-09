@@ -33,6 +33,14 @@ const defaultPreferences: UserPreferences = {
   wikiSortOrder: 'asc',
 };
 
+function isWikiSortField(value: unknown): value is WikiSortField {
+  return value === 'name' || value === 'type' || value === 'mtime';
+}
+
+function isWikiSortOrder(value: unknown): value is WikiSortOrder {
+  return value === 'asc' || value === 'desc';
+}
+
 function loadPreferences(): UserPreferences {
   try {
     const saved = localStorage.getItem('user_preferences');
@@ -40,22 +48,20 @@ function loadPreferences(): UserPreferences {
       return defaultPreferences;
     }
     const preferences = JSON.parse(saved) as Record<string, unknown>;
-    if (
-      preferences.wikiSortField === undefined &&
-      preferences.docSortField !== undefined
-    ) {
-      preferences.wikiSortField = preferences.docSortField;
-    }
-    if (
-      preferences.wikiSortOrder === undefined &&
-      preferences.docSortOrder !== undefined
-    ) {
-      preferences.wikiSortOrder = preferences.docSortOrder;
-    }
     delete preferences.workflowFilterViews;
     const migrated = {
       ...defaultPreferences,
       ...preferences,
+      wikiSortField: isWikiSortField(preferences.wikiSortField)
+        ? preferences.wikiSortField
+        : isWikiSortField(preferences.docSortField)
+          ? preferences.docSortField
+          : defaultPreferences.wikiSortField,
+      wikiSortOrder: isWikiSortOrder(preferences.wikiSortOrder)
+        ? preferences.wikiSortOrder
+        : isWikiSortOrder(preferences.docSortOrder)
+          ? preferences.docSortOrder
+          : defaultPreferences.wikiSortOrder,
     } as UserPreferences;
     localStorage.setItem(
       'user_preferences',

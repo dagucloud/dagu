@@ -1,28 +1,29 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { BookOpen, FilePlus, Link2 } from 'lucide-react';
+import React, { useContext, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   components,
   PathsWikiGetParametersQueryOrder,
   PathsWikiGetParametersQuerySort,
 } from '@/api/v1/schema';
-import { useConfig } from '@/contexts/ConfigContext';
-import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
-import { AppBarContext } from '@/contexts/AppBarContext';
-import { useClient, useQuery } from '@/hooks/api';
 import { useSimpleToast } from '@/components/ui/simple-toast';
+import { AppBarContext } from '@/contexts/AppBarContext';
+import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
+import { useConfig } from '@/contexts/ConfigContext';
+import { useClient, useQuery } from '@/hooks/api';
+import { workspaceWikiQueryForWorkspace } from '@/lib/workspace';
+import { CreateWikiPageModal } from '@/pages/wiki/components/CreateWikiPageModal';
+import { encodeWikiPagePathForURL } from '@/pages/wiki/lib/wiki-page-path';
 import {
   BUILT_IN_WIKI_PAGE_TEMPLATES,
   WIKI_PAGE_TEMPLATE_DAG_NAME,
 } from '@/pages/wiki/lib/wiki-page-templates';
-import { workspaceWikiQueryForWorkspace } from '@/lib/workspace';
-import { BookOpen, FilePlus, Link2 } from 'lucide-react';
-import React, { useContext, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { CreateWikiPageModal } from '@/pages/wiki/components/CreateWikiPageModal';
-import { encodeWikiPagePathForURL } from '@/pages/wiki/lib/wiki-page-path';
 
-type WikiPageMetadataResponse = components['schemas']['WikiPageMetadataResponse'];
+type WikiPageMetadataResponse =
+  components['schemas']['WikiPageMetadataResponse'];
 
 type Props = {
   dagName: string;
@@ -35,7 +36,10 @@ function isValidWikiPageSegment(name: string): boolean {
   return /^[a-zA-Z0-9_][a-zA-Z0-9_. -]*$/.test(name) && !/[. ]$/.test(name);
 }
 
-function wikiPageLink(item: WikiPageMetadataResponse, fallbackWorkspace: string | null) {
+function wikiPageLink(
+  item: WikiPageMetadataResponse,
+  fallbackWorkspace: string | null
+) {
   const workspace = item.workspace ?? fallbackWorkspace;
   const search = workspace ? `?workspace=${encodeURIComponent(workspace)}` : '';
   return `/wiki/${encodeWikiPagePathForURL(item.id)}${search}`;
@@ -53,13 +57,15 @@ function WikiPageRow({
       to={wikiPageLink(item, workspace)}
       className="block px-3 py-1.5 hover:bg-accent border-b border-border last:border-b-0"
     >
-      <div className="text-xs font-medium">{item.title}</div>
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-        <span className="truncate">{item.id}</span>
+      <div className="min-w-0 whitespace-normal break-words text-xs font-medium">
+        {item.title}
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+        <span className="min-w-0 whitespace-normal break-words">{item.id}</span>
         {(item.tags ?? []).map((tag) => (
           <span
             key={tag}
-            className="px-1 rounded-full bg-muted border border-border shrink-0"
+            className="max-w-full whitespace-normal break-words px-1 rounded-full bg-muted border border-border"
           >
             {tag}
           </span>
@@ -135,8 +141,12 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
   );
 
   const runbookTemplate = useMemo(() => {
-    const template = BUILT_IN_WIKI_PAGE_TEMPLATES.find((t) => t.name === 'Runbook');
-    return (template?.content ?? '').split(WIKI_PAGE_TEMPLATE_DAG_NAME).join(dagName);
+    const template = BUILT_IN_WIKI_PAGE_TEMPLATES.find(
+      (t) => t.name === 'Runbook'
+    );
+    return (template?.content ?? '')
+      .split(WIKI_PAGE_TEMPLATE_DAG_NAME)
+      .join(dagName);
   }, [dagName]);
 
   const handleCreate = async (path: string, content: string) => {

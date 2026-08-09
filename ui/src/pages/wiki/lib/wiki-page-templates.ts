@@ -8,8 +8,8 @@
  */
 export const WIKI_TEMPLATES_PREFIX = '_templates';
 
-/** Placeholder replaced with a DAG name when a template is created for a DAG. */
-export const WIKI_PAGE_TEMPLATE_DAG_NAME = '{{DAG_NAME}}';
+/** Example DAG name replaced when a template is created from a DAG page. */
+export const WIKI_PAGE_TEMPLATE_DAG_NAME = 'example-dag';
 
 export type WikiPageTemplate = {
   id: string;
@@ -36,6 +36,8 @@ tags: [runbook]
 ---
 
 # Runbook
+
+Target DAG: \`${WIKI_PAGE_TEMPLATE_DAG_NAME}\`
 
 Status: [[dag:${WIKI_PAGE_TEMPLATE_DAG_NAME}]]
 

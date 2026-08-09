@@ -69,6 +69,14 @@ title: Restart API
     expect(container.textContent).toContain('title: Restart API');
     expect(container.textContent).toContain('---not-a-delimiter');
   });
+
+  it('builds heading anchors from inline Markdown text', () => {
+    render(<WikiPageMarkdownPreview content="## Restart **the API**" />);
+
+    expect(
+      screen.getByRole('heading', { name: 'Restart the API' })
+    ).toHaveAttribute('id', 'restart-the-api');
+  });
 });
 
 describe('WikiPageMarkdownPreview wikilinks', () => {

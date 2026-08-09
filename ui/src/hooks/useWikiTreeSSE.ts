@@ -23,5 +23,5 @@ export function useWikiTreeSSE(
     perPage: 200,
     ...params,
   });
-  return useSSE<WikiPageListResponse>(endpoint, enabled);
+  return useSSE<WikiPageListResponse>(endpoint, enabled, params.remoteNode);
 }
