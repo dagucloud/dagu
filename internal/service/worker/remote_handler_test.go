@@ -1914,10 +1914,14 @@ func TestRemoteRunReporter_RetainsClaimKeyWhenReusedWithPartialMetadata(t *testi
 	require.NoError(t, os.WriteFile(filepath.Join(artifactDir, "out.txt"), []byte("artifact"), 0o600))
 	require.NoError(t, uploader.UploadDir(context.Background(), artifactDir))
 
-	for _, chunk := range logStream.snapshotChunks() {
+	logChunks := logStream.snapshotChunks()
+	require.NotEmpty(t, logChunks)
+	for _, chunk := range logChunks {
 		assert.Equal(t, claimKey, chunk.AttemptKey)
 	}
-	for _, chunk := range artifactStream.snapshotChunks() {
+	artifactChunks := artifactStream.snapshotChunks()
+	require.NotEmpty(t, artifactChunks)
+	for _, chunk := range artifactChunks {
 		assert.Equal(t, claimKey, chunk.AttemptKey)
 	}
 }

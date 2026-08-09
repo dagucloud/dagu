@@ -423,14 +423,13 @@ func (w *stepLogWriter) flushLocked() error {
 			StreamType:         toProtoStreamType(w.streamType),
 			Data:               chunkData,
 			Sequence:           nextSeq,
-			ByteOffset:         w.byteOffset + uint64(w.remoteSent), // #nosec G115 -- remoteSent is non-negative
-			UseByteOffset:      true,
 			RootDagRunName:     w.streamer.rootRef.Name,
 			RootDagRunId:       w.streamer.rootRef.ID,
 			AttemptId:          w.streamer.getAttemptID(),
 			OwnerCoordinatorId: w.streamer.owner.ID,
 			AttemptKey:         w.streamer.getAttemptKey(),
 		}
+		chunk.SetByteOffset(w.byteOffset + uint64(w.remoteSent)) // #nosec G115 -- remoteSent is non-negative
 
 		if err := w.withOperationTimeout(func() error {
 			return w.stream.Send(chunk)
@@ -506,6 +505,7 @@ func (w *stepLogWriter) capRemoteBufferLocked() {
 		return
 	}
 	w.remoteBuffer = append([]byte(nil), w.remoteBuffer[len(w.remoteBuffer)-maxRetainedStepLogSize:]...)
+	// Retained output stays contiguous after the acknowledged file prefix.
 	w.remoteSent = 0
 	w.remoteChunks = 0
 	if w.remoteTruncated {
@@ -601,14 +601,13 @@ func (w *stepLogWriter) finishLocked() error {
 		StreamType:         toProtoStreamType(w.streamType),
 		IsFinal:            true,
 		Sequence:           nextSeq,
-		ByteOffset:         w.byteOffset + uint64(len(w.remoteBuffer)), // #nosec G115 -- buffer length is non-negative
-		UseByteOffset:      true,
 		RootDagRunName:     w.streamer.rootRef.Name,
 		RootDagRunId:       w.streamer.rootRef.ID,
 		AttemptId:          w.streamer.getAttemptID(),
 		OwnerCoordinatorId: w.streamer.owner.ID,
 		AttemptKey:         w.streamer.getAttemptKey(),
 	}
+	finalChunk.SetByteOffset(w.byteOffset + uint64(len(w.remoteBuffer))) // #nosec G115 -- buffer length is non-negative
 	if err := w.withOperationTimeout(func() error { return w.stream.Send(finalChunk) }); err != nil {
 		w.handleStreamFailureLocked(err)
 		if isLogStreamingNotConfigured(err) {

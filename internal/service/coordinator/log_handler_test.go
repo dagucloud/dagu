@@ -14,6 +14,7 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestStreamTypeToExtension(t *testing.T) {
@@ -532,51 +533,45 @@ func TestLogHandler_HandleStream(t *testing.T) {
 		assert.Equal(t, "line 1\nline 2\n", string(content))
 	})
 
-	t.Run("ReplayedChunksReplacePreviouslyWrittenBytes", func(t *testing.T) {
+	t.Run("ShorterReplayReplacesAndTruncatesPreviouslyWrittenBytes", func(t *testing.T) {
 		t.Parallel()
 
 		logDir := t.TempDir()
-		dataChunk := &coordinatorv1.LogChunk{
-			DagName:       "test-dag",
-			DagRunId:      "run-replay",
-			AttemptId:     "attempt-1",
-			StepName:      "step1",
-			StreamType:    coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
-			Data:          []byte("hello"),
-			UseByteOffset: true,
+		baseChunk := &coordinatorv1.LogChunk{
+			DagName:    "test-dag",
+			DagRunId:   "run-replay",
+			AttemptId:  "attempt-1",
+			StepName:   "step1",
+			StreamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
 		}
+		baseChunk.SetByteOffset(0)
+		firstChunk := proto.Clone(baseChunk).(*coordinatorv1.LogChunk)
+		firstChunk.Data = []byte("hello stale tail")
 
 		firstHandler := newLogHandler(logDir)
 		firstStream := &mockStreamLogsServer{
-			chunks: []*coordinatorv1.LogChunk{dataChunk},
+			chunks: []*coordinatorv1.LogChunk{firstChunk},
 			ctx:    context.Background(),
 		}
 		require.NoError(t, firstHandler.handleStream(firstStream))
 		firstHandler.Close(context.Background())
 
+		replayedChunk := proto.Clone(baseChunk).(*coordinatorv1.LogChunk)
+		replayedChunk.Data = []byte("hello")
+		finalChunk := proto.Clone(baseChunk).(*coordinatorv1.LogChunk)
+		finalChunk.IsFinal = true
+		finalChunk.SetByteOffset(uint64(len(replayedChunk.Data)))
 		secondHandler := newLogHandler(logDir)
 		defer secondHandler.Close(context.Background())
 		secondStream := &mockStreamLogsServer{
-			chunks: []*coordinatorv1.LogChunk{
-				dataChunk,
-				{
-					DagName:       dataChunk.DagName,
-					DagRunId:      dataChunk.DagRunId,
-					AttemptId:     dataChunk.AttemptId,
-					StepName:      dataChunk.StepName,
-					StreamType:    dataChunk.StreamType,
-					IsFinal:       true,
-					ByteOffset:    uint64(len(dataChunk.Data)),
-					UseByteOffset: true,
-				},
-			},
-			ctx: context.Background(),
+			chunks: []*coordinatorv1.LogChunk{replayedChunk, finalChunk},
+			ctx:    context.Background(),
 		}
 		require.NoError(t, secondHandler.handleStream(secondStream))
 
-		content, err := os.ReadFile(secondHandler.logFilePath(dataChunk))
+		content, err := os.ReadFile(secondHandler.logFilePath(baseChunk))
 		require.NoError(t, err)
-		assert.Equal(t, dataChunk.Data, content)
+		assert.Equal(t, replayedChunk.Data, content)
 	})
 
 	t.Run("MakesTinyChunkVisibleBeforeStreamCompletion", func(t *testing.T) {

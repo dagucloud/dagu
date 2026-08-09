@@ -47,16 +47,17 @@ func (w *streamLogWriter) write(chunk *coordinatorv1.LogChunk) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if chunk.UseByteOffset != w.positioned {
+	if chunk.HasByteOffset() != w.positioned {
 		return 0, errors.New("log stream write mode changed")
 	}
 	if !w.positioned {
 		return w.file.Write(chunk.Data)
 	}
-	if chunk.ByteOffset > math.MaxInt64 {
+	byteOffset := chunk.GetByteOffset()
+	if byteOffset > math.MaxInt64 {
 		return 0, errors.New("log chunk byte offset exceeds supported file size")
 	}
-	return w.file.WriteAt(chunk.Data, int64(chunk.ByteOffset)) // #nosec G115 -- bounds checked above
+	return w.file.WriteAt(chunk.Data, int64(byteOffset)) // #nosec G115 -- bounds checked above
 }
 
 func (w *streamLogWriter) close(finalSize *uint64) error {
@@ -214,7 +215,7 @@ func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*streamLo
 
 	// Check if writer already exists
 	if w, ok := h.writers[key]; ok {
-		if w.positioned != chunk.UseByteOffset {
+		if w.positioned != chunk.HasByteOffset() {
 			return nil, errors.New("log stream write mode changed")
 		}
 		return w, nil
@@ -231,7 +232,7 @@ func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*streamLo
 
 	var file *os.File
 	var err error
-	if chunk.UseByteOffset {
+	if chunk.HasByteOffset() {
 		file, err = fileutil.OpenOrCreateFileForRandomWrite(logPath)
 	} else {
 		file, err = fileutil.OpenOrCreateFileWithoutSync(logPath)
@@ -243,7 +244,7 @@ func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*streamLo
 	w := &streamLogWriter{
 		file:       file,
 		path:       logPath,
-		positioned: chunk.UseByteOffset,
+		positioned: chunk.HasByteOffset(),
 	}
 
 	h.writers[key] = w
@@ -266,7 +267,8 @@ func (h *logHandler) closeWriter(chunk *coordinatorv1.LogChunk) error {
 	if !w.positioned {
 		return w.close(nil)
 	}
-	return w.close(&chunk.ByteOffset)
+	finalSize := chunk.GetByteOffset()
+	return w.close(&finalSize)
 }
 
 // logFilePath generates the log file path following the existing pattern.

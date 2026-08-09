@@ -2302,10 +2302,8 @@ type LogChunk struct {
 	OwnerCoordinatorId string `protobuf:"bytes,12,opt,name=owner_coordinator_id,json=ownerCoordinatorId,proto3" json:"owner_coordinator_id,omitempty"`
 	// Durable attempt identity used to fence log writes.
 	AttemptKey string `protobuf:"bytes,13,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"`
-	// Absolute byte position for idempotent replay after an ambiguous stream failure.
-	ByteOffset uint64 `protobuf:"varint,14,opt,name=byte_offset,json=byteOffset,proto3" json:"byte_offset,omitempty"`
-	// Indicates that byte_offset is present; older workers append without it.
-	UseByteOffset bool `protobuf:"varint,15,opt,name=use_byte_offset,json=useByteOffset,proto3" json:"use_byte_offset,omitempty"`
+	// When present, data is written at this absolute byte position; otherwise it is appended.
+	ByteOffset    *uint64 `protobuf:"varint,14,opt,name=byte_offset,json=byteOffset,proto3,oneof" json:"byte_offset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2427,17 +2425,10 @@ func (x *LogChunk) GetAttemptKey() string {
 }
 
 func (x *LogChunk) GetByteOffset() uint64 {
-	if x != nil {
-		return x.ByteOffset
+	if x != nil && x.ByteOffset != nil {
+		return *x.ByteOffset
 	}
 	return 0
-}
-
-func (x *LogChunk) GetUseByteOffset() bool {
-	if x != nil {
-		return x.UseByteOffset
-	}
-	return false
 }
 
 func (x *LogChunk) SetWorkerId(v string) {
@@ -2496,11 +2487,18 @@ func (x *LogChunk) SetAttemptKey(v string) {
 }
 
 func (x *LogChunk) SetByteOffset(v uint64) {
-	x.ByteOffset = v
+	x.ByteOffset = &v
 }
 
-func (x *LogChunk) SetUseByteOffset(v bool) {
-	x.UseByteOffset = v
+func (x *LogChunk) HasByteOffset() bool {
+	if x == nil {
+		return false
+	}
+	return x.ByteOffset != nil
+}
+
+func (x *LogChunk) ClearByteOffset() {
+	x.ByteOffset = nil
 }
 
 type LogChunk_builder struct {
@@ -2523,10 +2521,8 @@ type LogChunk_builder struct {
 	OwnerCoordinatorId string
 	// Durable attempt identity used to fence log writes.
 	AttemptKey string
-	// Absolute byte position for idempotent replay after an ambiguous stream failure.
-	ByteOffset uint64
-	// Indicates that byte_offset is present; older workers append without it.
-	UseByteOffset bool
+	// When present, data is written at this absolute byte position; otherwise it is appended.
+	ByteOffset *uint64
 }
 
 func (b0 LogChunk_builder) Build() *LogChunk {
@@ -2547,7 +2543,6 @@ func (b0 LogChunk_builder) Build() *LogChunk {
 	x.OwnerCoordinatorId = b.OwnerCoordinatorId
 	x.AttemptKey = b.AttemptKey
 	x.ByteOffset = b.ByteOffset
-	x.UseByteOffset = b.UseByteOffset
 	return m0
 }
 
@@ -5264,7 +5259,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"0\n" +
 	"\x11DAGRunStatusProto\x12\x1b\n" +
-	"\tjson_data\x18\x01 \x01(\tR\bjsonData\"\x95\x04\n" +
+	"\tjson_data\x18\x01 \x01(\tR\bjsonData\"\x82\x04\n" +
 	"\bLogChunk\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1c\n" +
 	"\n" +
@@ -5283,10 +5278,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"attempt_id\x18\v \x01(\tR\tattemptId\x120\n" +
 	"\x14owner_coordinator_id\x18\f \x01(\tR\x12ownerCoordinatorId\x12\x1f\n" +
 	"\vattempt_key\x18\r \x01(\tR\n" +
-	"attemptKey\x12\x1f\n" +
-	"\vbyte_offset\x18\x0e \x01(\x04R\n" +
-	"byteOffset\x12&\n" +
-	"\x0fuse_byte_offset\x18\x0f \x01(\bR\ruseByteOffset\"x\n" +
+	"attemptKey\x12$\n" +
+	"\vbyte_offset\x18\x0e \x01(\x04H\x00R\n" +
+	"byteOffset\x88\x01\x01B\x0e\n" +
+	"\f_byte_offset\"x\n" +
 	"\x12StreamLogsResponse\x12'\n" +
 	"\x0fchunks_received\x18\x01 \x01(\x04R\x0echunksReceived\x12#\n" +
 	"\rbytes_written\x18\x02 \x01(\x04R\fbytesWritten\x12\x14\n" +
@@ -5600,6 +5595,7 @@ func file_proto_coordinator_v1_coordinator_proto_init() {
 	if File_proto_coordinator_v1_coordinator_proto != nil {
 		return
 	}
+	file_proto_coordinator_v1_coordinator_proto_msgTypes[20].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

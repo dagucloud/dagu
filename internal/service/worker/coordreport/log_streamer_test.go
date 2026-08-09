@@ -79,14 +79,15 @@ func (m *mockStreamLogsClient) Send(chunk *coordinatorv1.LogChunk) error {
 		StreamType:         chunk.StreamType,
 		Data:               append([]byte(nil), chunk.Data...),
 		Sequence:           chunk.Sequence,
-		ByteOffset:         chunk.ByteOffset,
-		UseByteOffset:      chunk.UseByteOffset,
 		IsFinal:            chunk.IsFinal,
 		RootDagRunName:     chunk.RootDagRunName,
 		RootDagRunId:       chunk.RootDagRunId,
 		AttemptId:          chunk.AttemptId,
 		OwnerCoordinatorId: chunk.OwnerCoordinatorId,
 		AttemptKey:         chunk.AttemptKey,
+	}
+	if chunk.HasByteOffset() {
+		chunkCopy.SetByteOffset(chunk.GetByteOffset())
 	}
 	m.sentChunks = append(m.sentChunks, chunkCopy)
 	return nil
@@ -1054,11 +1055,11 @@ func TestClose_ReplaysDataAfterAmbiguousCloseFailure(t *testing.T) {
 	chunks := recoveredStream.getSentChunks()
 	require.Len(t, chunks, 2)
 	assert.Equal(t, payload, chunks[0].Data)
-	assert.Equal(t, uint64(0), chunks[0].ByteOffset)
-	assert.True(t, chunks[0].UseByteOffset)
+	assert.True(t, chunks[0].HasByteOffset())
+	assert.Equal(t, uint64(0), chunks[0].GetByteOffset())
 	assert.True(t, chunks[1].IsFinal)
-	assert.Equal(t, uint64(len(payload)), chunks[1].ByteOffset)
-	assert.True(t, chunks[1].UseByteOffset)
+	assert.True(t, chunks[1].HasByteOffset())
+	assert.Equal(t, uint64(len(payload)), chunks[1].GetByteOffset())
 }
 
 func TestLogStreamer_LogStreamingDisabled(t *testing.T) {
