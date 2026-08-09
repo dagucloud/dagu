@@ -671,20 +671,14 @@ func TestRunner(t *testing.T) {
 		result.assertNodeStatus(t, "3", ir.NodeNotStarted)
 	})
 	t.Run("Timeout", func(t *testing.T) {
-		dagTimeout := 500 * time.Millisecond
-		secondSleep := 500 * time.Millisecond
-		if windowsShellTest() {
-			dagTimeout = 3 * time.Second
-			secondSleep = 5 * time.Second
-		}
-
-		r := setupRunner(t, withTimeout(dagTimeout))
+		executorType, _ := registerStoppedStatusExecutor(t)
+		r := setupRunner(t, withTimeout(2*time.Second))
 
 		// 1 -> 2 (timeout) -> 3 (should not be executed)
 		plan := r.newPlan(t,
-			newStep("1", withCommand("exit 0")),
-			newStep("2", withCommand(test.Sleep(secondSleep)), withDepends("1")),
-			successStep("3", "2"),
+			newStep("1", withExecutorType("noop")),
+			newStep("2", withExecutorType(executorType), withDepends("1")),
+			newStep("3", withExecutorType("noop"), withDepends("2")),
 		)
 
 		result := plan.assertRun(t, ir.Failed)
