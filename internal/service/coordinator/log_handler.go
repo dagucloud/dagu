@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -36,35 +37,41 @@ type logHandler struct {
 
 // streamLogWriter writes streamed logs directly to a single log file.
 type streamLogWriter struct {
-	file *os.File
-	path string
-	mu   sync.Mutex
+	file       *os.File
+	path       string
+	positioned bool
+	mu         sync.Mutex
 }
 
-// write appends data to the log file.
-func (w *streamLogWriter) write(data []byte) (int, error) {
+func (w *streamLogWriter) write(chunk *coordinatorv1.LogChunk) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	return w.file.Write(data)
+	if chunk.UseByteOffset != w.positioned {
+		return 0, errors.New("log stream write mode changed")
+	}
+	if !w.positioned {
+		return w.file.Write(chunk.Data)
+	}
+	if chunk.ByteOffset > math.MaxInt64 {
+		return 0, errors.New("log chunk byte offset exceeds supported file size")
+	}
+	return w.file.WriteAt(chunk.Data, int64(chunk.ByteOffset)) // #nosec G115 -- bounds checked above
 }
 
-// close syncs and closes the file.
-// Errors are logged but not returned since this is typically called during cleanup.
-func (w *streamLogWriter) close(ctx context.Context) {
+func (w *streamLogWriter) close(finalSize *uint64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if err := w.file.Sync(); err != nil {
-		logger.Warn(ctx, "Failed to sync log file",
-			slog.String("path", w.path),
-			slog.String("error", err.Error()))
+	var truncateErr error
+	if finalSize != nil {
+		if *finalSize > math.MaxInt64 {
+			truncateErr = errors.New("final log size exceeds supported file size")
+		} else {
+			truncateErr = w.file.Truncate(int64(*finalSize)) // #nosec G115 -- bounds checked above
+		}
 	}
-	if err := w.file.Close(); err != nil {
-		logger.Warn(ctx, "Failed to close log file",
-			slog.String("path", w.path),
-			slog.String("error", err.Error()))
-	}
+	return errors.Join(truncateErr, w.file.Sync(), w.file.Close())
 }
 
 // logWriter manages buffered artifact writes to a single file.
@@ -158,7 +165,9 @@ func (h *logHandler) handleStream(stream coordinatorv1.CoordinatorService_Stream
 
 		// Handle final marker
 		if chunk.IsFinal {
-			h.closeWriter(ctx, chunk)
+			if err := h.closeWriter(chunk); err != nil {
+				return fmt.Errorf("failed to finalize log file: %w", err)
+			}
 			continue
 		}
 
@@ -174,7 +183,7 @@ func (h *logHandler) handleStream(stream coordinatorv1.CoordinatorService_Stream
 		}
 
 		// Write the data using thread-safe method
-		n, err := writer.write(chunk.Data)
+		n, err := writer.write(chunk)
 		if err != nil {
 			return fmt.Errorf("failed to write data: %w", err)
 		}
@@ -205,6 +214,9 @@ func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*streamLo
 
 	// Check if writer already exists
 	if w, ok := h.writers[key]; ok {
+		if w.positioned != chunk.UseByteOffset {
+			return nil, errors.New("log stream write mode changed")
+		}
 		return w, nil
 	}
 
@@ -217,32 +229,44 @@ func (h *logHandler) getOrCreateWriter(chunk *coordinatorv1.LogChunk) (*streamLo
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
-	// Open or create the file
-	file, err := fileutil.OpenOrCreateFileWithoutSync(logPath)
+	var file *os.File
+	var err error
+	if chunk.UseByteOffset {
+		file, err = fileutil.OpenOrCreateFileForRandomWrite(logPath)
+	} else {
+		file, err = fileutil.OpenOrCreateFileWithoutSync(logPath)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
 
 	w := &streamLogWriter{
-		file: file,
-		path: logPath,
+		file:       file,
+		path:       logPath,
+		positioned: chunk.UseByteOffset,
 	}
 
 	h.writers[key] = w
 	return w, nil
 }
 
-// closeWriter closes and removes a writer
-func (h *logHandler) closeWriter(ctx context.Context, chunk *coordinatorv1.LogChunk) {
+// closeWriter closes and removes a writer.
+func (h *logHandler) closeWriter(chunk *coordinatorv1.LogChunk) error {
 	key := h.streamKey(chunk)
 
 	h.writersMu.Lock()
-	defer h.writersMu.Unlock()
-
-	if w, ok := h.writers[key]; ok {
-		w.close(ctx)
+	w, ok := h.writers[key]
+	if ok {
 		delete(h.writers, key)
 	}
+	h.writersMu.Unlock()
+	if !ok {
+		return nil
+	}
+	if !w.positioned {
+		return w.close(nil)
+	}
+	return w.close(&chunk.ByteOffset)
 }
 
 // logFilePath generates the log file path following the existing pattern.
@@ -303,7 +327,11 @@ func (h *logHandler) Close(ctx context.Context) {
 	defer h.writersMu.Unlock()
 
 	for _, w := range h.writers {
-		w.close(ctx)
+		if err := w.close(nil); err != nil {
+			logger.Warn(ctx, "Failed to close log file",
+				slog.String("path", w.path),
+				slog.String("error", err.Error()))
+		}
 	}
 	h.writers = make(map[string]*streamLogWriter)
 }

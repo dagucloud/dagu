@@ -2291,6 +2291,8 @@ type LogChunk struct {
 	xxx_hidden_AttemptId          string                 `protobuf:"bytes,11,opt,name=attempt_id,json=attemptId,proto3"`
 	xxx_hidden_OwnerCoordinatorId string                 `protobuf:"bytes,12,opt,name=owner_coordinator_id,json=ownerCoordinatorId,proto3"`
 	xxx_hidden_AttemptKey         string                 `protobuf:"bytes,13,opt,name=attempt_key,json=attemptKey,proto3"`
+	xxx_hidden_ByteOffset         uint64                 `protobuf:"varint,14,opt,name=byte_offset,json=byteOffset,proto3"`
+	xxx_hidden_UseByteOffset      bool                   `protobuf:"varint,15,opt,name=use_byte_offset,json=useByteOffset,proto3"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -2411,6 +2413,20 @@ func (x *LogChunk) GetAttemptKey() string {
 	return ""
 }
 
+func (x *LogChunk) GetByteOffset() uint64 {
+	if x != nil {
+		return x.xxx_hidden_ByteOffset
+	}
+	return 0
+}
+
+func (x *LogChunk) GetUseByteOffset() bool {
+	if x != nil {
+		return x.xxx_hidden_UseByteOffset
+	}
+	return false
+}
+
 func (x *LogChunk) SetWorkerId(v string) {
 	x.xxx_hidden_WorkerId = v
 }
@@ -2466,6 +2482,14 @@ func (x *LogChunk) SetAttemptKey(v string) {
 	x.xxx_hidden_AttemptKey = v
 }
 
+func (x *LogChunk) SetByteOffset(v uint64) {
+	x.xxx_hidden_ByteOffset = v
+}
+
+func (x *LogChunk) SetUseByteOffset(v bool) {
+	x.xxx_hidden_UseByteOffset = v
+}
+
 type LogChunk_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2486,6 +2510,10 @@ type LogChunk_builder struct {
 	OwnerCoordinatorId string
 	// Durable attempt identity used to fence log writes.
 	AttemptKey string
+	// Absolute byte position for idempotent replay after an ambiguous stream failure.
+	ByteOffset uint64
+	// Indicates that byte_offset is present; older workers append without it.
+	UseByteOffset bool
 }
 
 func (b0 LogChunk_builder) Build() *LogChunk {
@@ -2505,6 +2533,8 @@ func (b0 LogChunk_builder) Build() *LogChunk {
 	x.xxx_hidden_AttemptId = b.AttemptId
 	x.xxx_hidden_OwnerCoordinatorId = b.OwnerCoordinatorId
 	x.xxx_hidden_AttemptKey = b.AttemptKey
+	x.xxx_hidden_ByteOffset = b.ByteOffset
+	x.xxx_hidden_UseByteOffset = b.UseByteOffset
 	return m0
 }
 
@@ -5216,7 +5246,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"0\n" +
 	"\x11DAGRunStatusProto\x12\x1b\n" +
-	"\tjson_data\x18\x01 \x01(\tR\bjsonData\"\xcc\x03\n" +
+	"\tjson_data\x18\x01 \x01(\tR\bjsonData\"\x95\x04\n" +
 	"\bLogChunk\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1c\n" +
 	"\n" +
@@ -5235,7 +5265,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"attempt_id\x18\v \x01(\tR\tattemptId\x120\n" +
 	"\x14owner_coordinator_id\x18\f \x01(\tR\x12ownerCoordinatorId\x12\x1f\n" +
 	"\vattempt_key\x18\r \x01(\tR\n" +
-	"attemptKey\"x\n" +
+	"attemptKey\x12\x1f\n" +
+	"\vbyte_offset\x18\x0e \x01(\x04R\n" +
+	"byteOffset\x12&\n" +
+	"\x0fuse_byte_offset\x18\x0f \x01(\bR\ruseByteOffset\"x\n" +
 	"\x12StreamLogsResponse\x12'\n" +
 	"\x0fchunks_received\x18\x01 \x01(\x04R\x0echunksReceived\x12#\n" +
 	"\rbytes_written\x18\x02 \x01(\x04R\fbytesWritten\x12\x14\n" +

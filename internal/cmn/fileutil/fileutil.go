@@ -72,6 +72,23 @@ func OpenOrCreateFileWithoutSync(filepath string) (*os.File, error) {
 	return openOrCreateFile(filepath, 0)
 }
 
+// OpenOrCreateFileForRandomWrite opens or creates a file for writes at explicit offsets.
+func OpenOrCreateFileForRandomWrite(filepath string) (*os.File, error) {
+	var file *os.File
+	err := retryWindowsFileOp(func() error {
+		opened, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY, 0600) // nolint:gosec
+		if err != nil {
+			return err
+		}
+		file = opened
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create/open log file %s: %w", filepath, err)
+	}
+	return file, nil
+}
+
 func openOrCreateFile(filepath string, extraFlags int) (*os.File, error) {
 	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND | extraFlags
 

@@ -290,6 +290,10 @@ message LogChunk {
   string owner_coordinator_id = 12;
   // Durable attempt identity used to fence log writes.
   string attempt_key = 13;
+  // Absolute byte position for idempotent replay after an ambiguous stream failure.
+  uint64 byte_offset = 14;
+  // Indicates that byte_offset is present; older workers append without it.
+  bool use_byte_offset = 15;
 }
 
 // Type of log stream.

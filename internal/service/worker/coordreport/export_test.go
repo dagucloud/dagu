@@ -88,7 +88,7 @@ func snapshotStepLogWriterLocked(w *StepLogWriter) StepLogWriterSnapshot {
 		Streamer:         w.streamer,
 		Closed:           w.closed,
 		StreamInitFailed: w.streamingDisabled,
-		BufferLen:        len(w.buffer) + len(w.remoteBuffer),
+		BufferLen:        len(w.buffer) + len(w.remoteBuffer) - w.remoteSent,
 		Sequence:         w.sequence,
 		HasStream:        w.stream != nil,
 	}
@@ -117,7 +117,7 @@ func FlushStepLogWriterWithBuffer(w *StepLogWriter, data []byte) StepLogWriterFl
 		Err:             err,
 		InitialSequence: initialSequence,
 		FinalSequence:   w.sequence,
-		BufferLen:       len(w.buffer) + len(w.remoteBuffer),
+		BufferLen:       len(w.buffer) + len(w.remoteBuffer) - w.remoteSent,
 		HasStream:       w.stream != nil,
 		StreamFailed:    w.streamingDisabled,
 	}

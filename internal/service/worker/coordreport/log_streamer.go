@@ -309,6 +309,9 @@ type stepLogWriter struct {
 	buffer            []byte
 	remoteBuffer      []byte
 	sequence          uint64
+	byteOffset        uint64
+	remoteSent        int
+	remoteChunks      uint64
 	stream            coordinatorv1.CoordinatorService_StreamLogsClient
 	mu                sync.Mutex
 	closed            bool
@@ -326,7 +329,7 @@ func (w *stepLogWriter) Write(p []byte) (int, error) {
 		return 0, io.ErrClosedPipe
 	}
 
-	if len(w.buffer) == 0 && len(w.remoteBuffer) == 0 {
+	if len(w.buffer) == 0 && w.remoteSent == len(w.remoteBuffer) {
 		w.pendingSince = time.Now()
 	}
 	w.buffer = append(w.buffer, p...)
@@ -355,7 +358,7 @@ func (w *stepLogWriter) FlushIfDue() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.closed || (len(w.buffer) == 0 && len(w.remoteBuffer) == 0) || time.Since(w.pendingSince) < logFlushInterval {
+	if w.closed || (len(w.buffer) == 0 && w.remoteSent == len(w.remoteBuffer)) || time.Since(w.pendingSince) < logFlushInterval {
 		return nil
 	}
 	return w.flushLocked()
@@ -363,7 +366,7 @@ func (w *stepLogWriter) FlushIfDue() error {
 
 // flushLocked sends buffered data to coordinator.
 // Implements chunk splitting for large buffers to stay within gRPC message size limits.
-// Sequence numbers are only incremented after successful Send to avoid gaps.
+// Sent data remains buffered until the coordinator acknowledges the stream.
 func (w *stepLogWriter) flushLocked() error {
 	if len(w.buffer) > 0 {
 		w.streamer.mirrorToSchedulerLog(w.buffer)
@@ -376,16 +379,18 @@ func (w *stepLogWriter) flushLocked() error {
 	}
 	if w.streamingDisabled {
 		w.remoteBuffer = nil
+		w.remoteSent = 0
+		w.remoteChunks = 0
 		w.pendingSince = time.Time{}
 		return nil
 	}
 
-	for len(w.remoteBuffer) > 0 {
-		chunkSize := min(len(w.remoteBuffer), maxChunkSize)
+	for w.remoteSent < len(w.remoteBuffer) {
+		chunkSize := min(len(w.remoteBuffer)-w.remoteSent, maxChunkSize)
 
 		// Copy chunk data to avoid corruption if Send buffers the message
 		chunkData := make([]byte, chunkSize)
-		copy(chunkData, w.remoteBuffer[:chunkSize])
+		copy(chunkData, w.remoteBuffer[w.remoteSent:w.remoteSent+chunkSize])
 
 		// Initialize stream if needed
 		if w.stream == nil {
@@ -409,8 +414,7 @@ func (w *stepLogWriter) flushLocked() error {
 			w.stream = stream
 		}
 
-		// Use peek value for sequence - only increment after successful Send
-		nextSeq := w.sequence + 1
+		nextSeq := w.sequence + w.remoteChunks + 1
 		chunk := &coordinatorv1.LogChunk{
 			WorkerId:           w.streamer.workerID,
 			DagRunId:           w.streamer.dagRunID,
@@ -419,6 +423,8 @@ func (w *stepLogWriter) flushLocked() error {
 			StreamType:         toProtoStreamType(w.streamType),
 			Data:               chunkData,
 			Sequence:           nextSeq,
+			ByteOffset:         w.byteOffset + uint64(w.remoteSent), // #nosec G115 -- remoteSent is non-negative
+			UseByteOffset:      true,
 			RootDagRunName:     w.streamer.rootRef.Name,
 			RootDagRunId:       w.streamer.rootRef.ID,
 			AttemptId:          w.streamer.getAttemptID(),
@@ -439,12 +445,43 @@ func (w *stepLogWriter) flushLocked() error {
 			w.pendingSince = time.Now()
 			return err
 		}
-		w.sequence = nextSeq // Only increment after successful Send
-		w.remoteBuffer = w.remoteBuffer[chunkSize:]
+		w.remoteSent += chunkSize
+		w.remoteChunks++
 	}
 
-	w.remoteBuffer = nil
 	w.pendingSince = time.Time{}
+	if len(w.remoteBuffer) >= maxRetainedStepLogSize {
+		return w.checkpointLocked()
+	}
+	return nil
+}
+
+func (w *stepLogWriter) checkpointLocked() error {
+	if w.stream == nil {
+		return nil
+	}
+	err := w.withOperationTimeout(func() error {
+		_, err := w.stream.CloseAndRecv()
+		return err
+	})
+	w.stream = nil
+	if err != nil {
+		w.handleStreamFailureLocked(err)
+		if isLogStreamingNotConfigured(err) {
+			w.remoteBuffer = nil
+			w.remoteSent = 0
+			w.remoteChunks = 0
+			return nil
+		}
+		w.capRemoteBufferLocked()
+		w.pendingSince = time.Now()
+		return err
+	}
+	w.byteOffset += uint64(len(w.remoteBuffer)) // #nosec G115 -- buffer length is non-negative
+	w.sequence += w.remoteChunks
+	w.remoteBuffer = nil
+	w.remoteSent = 0
+	w.remoteChunks = 0
 	return nil
 }
 
@@ -452,6 +489,8 @@ func (w *stepLogWriter) handleStreamFailureLocked(err error) {
 	w.cancelStream()
 	w.stream = nil
 	w.ctx, w.cancel = context.WithCancel(w.parentCtx)
+	w.remoteSent = 0
+	w.remoteChunks = 0
 	if isLogStreamingNotConfigured(err) {
 		w.streamingDisabled = true
 		return
@@ -467,6 +506,8 @@ func (w *stepLogWriter) capRemoteBufferLocked() {
 		return
 	}
 	w.remoteBuffer = append([]byte(nil), w.remoteBuffer[len(w.remoteBuffer)-maxRetainedStepLogSize:]...)
+	w.remoteSent = 0
+	w.remoteChunks = 0
 	if w.remoteTruncated {
 		return
 	}
@@ -531,7 +572,7 @@ func (w *stepLogWriter) finishLocked() error {
 	if w.streamingDisabled {
 		return nil
 	}
-	if w.stream == nil && w.sequence == 0 {
+	if w.stream == nil && w.sequence == 0 && len(w.remoteBuffer) == 0 {
 		return nil
 	}
 	if w.stream == nil {
@@ -551,7 +592,7 @@ func (w *stepLogWriter) finishLocked() error {
 		w.stream = stream
 	}
 
-	nextSeq := w.sequence + 1
+	nextSeq := w.sequence + w.remoteChunks + 1
 	finalChunk := &coordinatorv1.LogChunk{
 		WorkerId:           w.streamer.workerID,
 		DagRunId:           w.streamer.dagRunID,
@@ -560,6 +601,8 @@ func (w *stepLogWriter) finishLocked() error {
 		StreamType:         toProtoStreamType(w.streamType),
 		IsFinal:            true,
 		Sequence:           nextSeq,
+		ByteOffset:         w.byteOffset + uint64(len(w.remoteBuffer)), // #nosec G115 -- buffer length is non-negative
+		UseByteOffset:      true,
 		RootDagRunName:     w.streamer.rootRef.Name,
 		RootDagRunId:       w.streamer.rootRef.ID,
 		AttemptId:          w.streamer.getAttemptID(),
@@ -573,7 +616,6 @@ func (w *stepLogWriter) finishLocked() error {
 		}
 		return err
 	}
-	w.sequence = nextSeq
 
 	err := w.withOperationTimeout(func() error {
 		_, err := w.stream.CloseAndRecv()
@@ -587,6 +629,11 @@ func (w *stepLogWriter) finishLocked() error {
 		}
 		return err
 	}
+	w.sequence = nextSeq
+	w.byteOffset += uint64(len(w.remoteBuffer)) // #nosec G115 -- buffer length is non-negative
+	w.remoteBuffer = nil
+	w.remoteSent = 0
+	w.remoteChunks = 0
 	return nil
 }
 
