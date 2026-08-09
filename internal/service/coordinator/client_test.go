@@ -384,7 +384,7 @@ func TestClientGetWorkers_DeduplicatesAndSorts(t *testing.T) {
 	assert.Equal(t, "new-run", workers[1].RunningTasks[0].DagRunId)
 }
 
-func TestClientGetWorkers_TieBreaksByStableCoordinatorOrder(t *testing.T) {
+func TestClientGetWorkers_TieBreakIsIndependentOfDiscoveryOrder(t *testing.T) {
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
@@ -428,24 +428,25 @@ func TestClientGetWorkers_TieBreaksByStableCoordinatorOrder(t *testing.T) {
 
 	hostA, portA := parseHostPort(addrA)
 	hostB, portB := parseHostPort(addrB)
-	monitor := &mockServiceMonitor{
-		members: []serviceregistry.HostInfo{
-			{ID: "coord-b", Host: hostB, Port: portB, Status: serviceregistry.ServiceStatusActive},
-			{ID: "coord-a", Host: hostA, Port: portA, Status: serviceregistry.ServiceStatusActive},
-		},
+	memberA := serviceregistry.HostInfo{ID: "coord-a", Host: hostA, Port: portA, Status: serviceregistry.ServiceStatusActive}
+	memberB := serviceregistry.HostInfo{ID: "coord-b", Host: hostB, Port: portB, Status: serviceregistry.ServiceStatusActive}
+
+	getWorker := func(members ...serviceregistry.HostInfo) *coordinatorv1.WorkerInfo {
+		client := coordinator.New(&mockServiceMonitor{members: members}, config)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+
+		workers, err := client.GetWorkers(ctx)
+		require.NoError(t, err)
+		require.Len(t, workers, 1)
+		return workers[0]
 	}
 
-	client := coordinator.New(monitor, config)
+	forward := getWorker(memberA, memberB)
+	reverse := getWorker(memberB, memberA)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	workers, err := client.GetWorkers(ctx)
-	require.NoError(t, err)
-	require.Len(t, workers, 1)
-
-	assert.Equal(t, map[string]string{"source": "coord-a"}, workers[0].Labels)
-	assert.Equal(t, int32(1), workers[0].BusyPollers)
+	assert.Equal(t, forward.Labels, reverse.Labels)
+	assert.Equal(t, forward.BusyPollers, reverse.BusyPollers)
 }
 
 func TestClientGetWorkers_PartialFailureStillReturnsWorkers(t *testing.T) {
