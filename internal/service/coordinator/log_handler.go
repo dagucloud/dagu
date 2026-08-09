@@ -142,6 +142,8 @@ func (h *logHandler) handleStream(stream coordinatorv1.CoordinatorService_Stream
 	ctx := stream.Context()
 	var chunksReceived uint64
 	var bytesWritten uint64
+	var validatedOwnerID string
+	var ownerValidated bool
 
 	for {
 		chunk, err := stream.Recv()
@@ -158,7 +160,11 @@ func (h *logHandler) handleStream(stream coordinatorv1.CoordinatorService_Stream
 
 		chunksReceived++
 
-		if h.ownerValidator != nil {
+		if ownerValidated {
+			if chunk.OwnerCoordinatorId != validatedOwnerID {
+				return status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator")
+			}
+		} else if h.ownerValidator != nil {
 			accepted, err := h.ownerValidator(ctx, chunk.OwnerCoordinatorId)
 			if err != nil {
 				return status.Error(codes.Internal, "failed to validate log chunk owner: "+err.Error())
@@ -166,8 +172,13 @@ func (h *logHandler) handleStream(stream coordinatorv1.CoordinatorService_Stream
 			if !accepted {
 				return status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator")
 			}
+			validatedOwnerID = chunk.OwnerCoordinatorId
+			ownerValidated = true
 		} else if h.ownerID != "" && chunk.OwnerCoordinatorId != h.ownerID {
 			return status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator")
+		} else if h.ownerID != "" {
+			validatedOwnerID = chunk.OwnerCoordinatorId
+			ownerValidated = true
 		}
 
 		// Handle final marker

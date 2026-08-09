@@ -288,3 +288,28 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 }
+
+func TestAttemptOwnershipTaskClaimFallsBackToConfiguredOwner(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseDir := filepath.Join(t.TempDir(), "distributed")
+	leaseStore := newTestDAGRunLeaseStore(baseDir)
+	owner := dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "127.0.0.1", Port: 1234}
+	ownership := newAttemptOwnership(attemptOwnershipConfig{
+		Owner:      owner,
+		LeaseStore: leaseStore,
+	})
+	task := &coordinatorv1.Task{
+		Target:             "test-dag",
+		DagRunId:           "run-1",
+		AttemptId:          "attempt-1",
+		AttemptKey:         "attempt-key-1",
+		OwnerCoordinatorId: "coord-a",
+	}
+
+	require.NoError(t, ownership.recordTaskClaim(ctx, task, "worker-1"))
+	lease, err := leaseStore.Get(ctx, task.AttemptKey)
+	require.NoError(t, err)
+	assert.Equal(t, owner, lease.Owner)
+}

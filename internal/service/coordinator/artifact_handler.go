@@ -43,6 +43,8 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 	ctx := stream.Context()
 	var chunksReceived uint64
 	var bytesWritten uint64
+	var validatedOwnerID string
+	var ownerValidated bool
 	activeKeys := make(map[string]struct{})
 
 	defer func() {
@@ -66,7 +68,11 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 		chunksReceived++
 		key := h.streamKey(chunk)
 
-		if h.ownerValidator != nil {
+		if ownerValidated {
+			if chunk.OwnerCoordinatorId != validatedOwnerID {
+				return status.Error(codes.FailedPrecondition, "artifact chunk sent to non-owner coordinator")
+			}
+		} else if h.ownerValidator != nil {
 			accepted, err := h.ownerValidator(ctx, chunk.OwnerCoordinatorId)
 			if err != nil {
 				return status.Error(codes.Internal, "failed to validate artifact chunk owner: "+err.Error())
@@ -74,8 +80,13 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 			if !accepted {
 				return status.Error(codes.FailedPrecondition, "artifact chunk sent to non-owner coordinator")
 			}
+			validatedOwnerID = chunk.OwnerCoordinatorId
+			ownerValidated = true
 		} else if h.ownerID != "" && chunk.OwnerCoordinatorId != h.ownerID {
 			return status.Error(codes.FailedPrecondition, "artifact chunk sent to non-owner coordinator")
+		} else if h.ownerID != "" {
+			validatedOwnerID = chunk.OwnerCoordinatorId
+			ownerValidated = true
 		}
 
 		if len(chunk.Data) == 0 && !chunk.IsFinal {

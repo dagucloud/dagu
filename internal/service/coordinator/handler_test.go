@@ -4923,6 +4923,41 @@ func TestHandler_StreamLogs_Full(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "continued\n", string(content))
 	})
+
+	t.Run("RejectsForeignOwnerAtDifferentEndpoint", func(t *testing.T) {
+		t.Parallel()
+
+		logDir := t.TempDir()
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		require.NoError(t, leaseStore.Upsert(t.Context(), dispatch.DAGRunLease{
+			AttemptKey:      "attempt-key-1",
+			Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator-a", Port: 50055},
+			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+		}))
+		h := NewHandler(HandlerConfig{
+			LogDir:           logDir,
+			DAGRunLeaseStore: leaseStore,
+			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator-b", Port: 50055},
+		})
+		stream := &mockStreamLogsServer{
+			ctx: t.Context(),
+			chunks: []*coordinatorv1.LogChunk{{
+				DagName:            "test-dag",
+				DagRunId:           "run-123",
+				AttemptId:          "attempt-1",
+				StepName:           "step1",
+				StreamType:         coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
+				Data:               []byte("rejected\n"),
+				OwnerCoordinatorId: "coord-a",
+			}},
+		}
+
+		err := h.StreamLogs(stream)
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.FailedPrecondition, st.Code())
+	})
 }
 
 func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {

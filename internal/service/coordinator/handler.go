@@ -56,6 +56,8 @@ type heartbeatInfo struct {
 	lastHeartbeatAt time.Time
 }
 
+const rejectedOwnerCacheTTL = 5 * time.Second
+
 // defaultStaleHeartbeatThreshold is the default duration after which a worker's heartbeat is considered stale.
 const defaultStaleHeartbeatThreshold = 30 * time.Second
 
@@ -104,12 +106,14 @@ type runClaim struct {
 type Handler struct {
 	coordinatorv1.UnimplementedCoordinatorServiceServer
 
-	mu             sync.Mutex
-	waitingPollers map[string]*workerInfo    // pollerID -> worker info
-	heartbeats     map[string]*heartbeatInfo // workerID -> heartbeat info
-	owner          dispatch.CoordinatorEndpoint
-	ownerAliasesMu sync.RWMutex
-	ownerAliases   map[string]struct{}
+	mu                 sync.Mutex
+	waitingPollers     map[string]*workerInfo    // pollerID -> worker info
+	heartbeats         map[string]*heartbeatInfo // workerID -> heartbeat info
+	owner              dispatch.CoordinatorEndpoint
+	ownerAliasesMu     sync.RWMutex
+	ownerAliases       map[string]struct{}
+	rejectedOwnerID    string
+	rejectedOwnerUntil time.Time
 
 	dispatchWakeMu          sync.Mutex
 	dispatchWakeCh          chan struct{}
@@ -283,9 +287,13 @@ func (h *Handler) acceptsOwner(ctx context.Context, ownerID string) (bool, error
 
 	h.ownerAliasesMu.RLock()
 	_, accepted := h.ownerAliases[ownerID]
+	rejected := h.rejectedOwnerID == ownerID && time.Now().Before(h.rejectedOwnerUntil)
 	h.ownerAliasesMu.RUnlock()
 	if accepted {
 		return true, nil
+	}
+	if rejected {
+		return false, nil
 	}
 	if h.dagRunLeaseStore == nil {
 		return false, nil
@@ -301,6 +309,10 @@ func (h *Handler) acceptsOwner(ctx context.Context, ownerID string) (bool, error
 			return true, nil
 		}
 	}
+	h.ownerAliasesMu.Lock()
+	h.rejectedOwnerID = ownerID
+	h.rejectedOwnerUntil = time.Now().Add(rejectedOwnerCacheTTL)
+	h.ownerAliasesMu.Unlock()
 	return false, nil
 }
 
@@ -316,6 +328,10 @@ func (h *Handler) rememberOwnerAlias(ctx context.Context, owner dispatch.Coordin
 	_, exists := h.ownerAliases[owner.ID]
 	if !exists {
 		h.ownerAliases[owner.ID] = struct{}{}
+	}
+	if h.rejectedOwnerID == owner.ID {
+		h.rejectedOwnerID = ""
+		h.rejectedOwnerUntil = time.Time{}
 	}
 	h.ownerAliasesMu.Unlock()
 	if exists {

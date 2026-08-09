@@ -146,10 +146,11 @@ jobs:
             --set deploymentMode=distributed \
             --set persistence.accessMode=ReadWriteMany \
             --set persistence.storageClass=nfs-client \
+            --set coordinator.replicas=2 \
             --show-only templates/coordinator-deployment.yaml \
             >/tmp/dagu-coordinator-render.yaml
 
-          grep -Fq 'replicas: 1' /tmp/dagu-coordinator-render.yaml
+          grep -Fq 'replicas: 2' /tmp/dagu-coordinator-render.yaml
           grep -Fq 'type: Recreate' /tmp/dagu-coordinator-render.yaml
 
       - name: Smoke-render optional configurations
