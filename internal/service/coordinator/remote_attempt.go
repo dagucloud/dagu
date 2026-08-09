@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -109,6 +110,97 @@ func statusIdentity(workerID string, runStatus *ir.DAGRunStatus) (remoteAttemptI
 		root:       root,
 		attemptID:  runStatus.AttemptID,
 	}, nil
+}
+
+func (h *Handler) validateRemoteStatusLease(
+	ctx context.Context,
+	workerID string,
+	runStatus *ir.DAGRunStatus,
+) (bool, error) {
+	if workerID == "" {
+		return false, status.Error(codes.InvalidArgument, "worker, DAG run, and attempt identity are required")
+	}
+
+	identity, identityErr := statusIdentity(workerID, runStatus)
+	if identityErr == nil {
+		lease, err := h.dagRunLeaseStore.Get(ctx, identity.claimKey)
+		switch {
+		case err == nil:
+			return false, h.validateRemoteAttemptLease(lease, identity)
+		case !errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
+			return false, status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
+		}
+	}
+
+	if !isSubDAGStatus(runStatus) {
+		if identityErr != nil {
+			return false, status.Error(codes.InvalidArgument, identityErr.Error())
+		}
+		return true, nil
+	}
+	if runStatus.ClaimKey != "" {
+		return false, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+	}
+
+	claimKey, err := h.validateRootLeaseForSubDAGStatus(ctx, workerID, runStatus.Root)
+	if err != nil {
+		return false, err
+	}
+	runStatus.ClaimKey = claimKey
+	return false, nil
+}
+
+func (h *Handler) validateRootLeaseForSubDAGStatus(
+	ctx context.Context,
+	workerID string,
+	rootRef ir.DAGRunRef,
+) (string, error) {
+	rootAttempt, err := h.dagRunStore.FindAttempt(ctx, rootRef)
+	if err != nil {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+			return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+		}
+		return "", status.Error(codes.Internal, "failed to load root attempt: "+err.Error())
+	}
+	rootStatus, err := rootAttempt.ReadStatus(ctx)
+	if err != nil {
+		if errors.Is(err, dagrun.ErrNoStatusData) {
+			return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+		}
+		return "", status.Error(codes.Internal, "failed to load root status: "+err.Error())
+	}
+	if rootStatus == nil || isTerminalRunStatus(rootStatus.Status) {
+		return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+	}
+
+	attemptID := rootStatus.AttemptID
+	if attemptID == "" {
+		attemptID = rootAttempt.ID()
+	}
+	attemptKey := dispatch.AttemptKeyForStatus(rootStatus, rootAttempt.ID())
+	claimKey := rootStatus.EffectiveClaimKey()
+	if claimKey == "" {
+		claimKey = attemptKey
+	}
+	if attemptKey == "" || claimKey == "" {
+		return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+	}
+	identity := remoteAttemptIdentity{
+		attemptKey: attemptKey,
+		claimKey:   claimKey,
+		workerID:   workerID,
+		dagRun:     rootRef,
+		root:       rootRef,
+		attemptID:  attemptID,
+	}
+	if err := h.validateRemoteAttempt(ctx, identity); err != nil {
+		return "", err
+	}
+	return claimKey, nil
+}
+
+func isSubDAGStatus(runStatus *ir.DAGRunStatus) bool {
+	return runStatus != nil && !runStatus.Root.Zero() && runStatus.Root != runStatus.DAGRun()
 }
 
 func runningTaskIdentity(workerID string, task *coordinatorv1.RunningTask) (remoteAttemptIdentity, error) {

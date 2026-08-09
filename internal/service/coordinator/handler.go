@@ -1649,21 +1649,13 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	}
 	leaseMissing := false
 	if h.dagRunLeaseStore != nil {
-		identity, identityErr := statusIdentity(req.WorkerId, dagRunStatus)
-		if identityErr == nil {
-			lease, leaseErr := h.dagRunLeaseStore.Get(ctx, identity.claimKey)
-			switch {
-			case errors.Is(leaseErr, dispatch.ErrDAGRunLeaseNotFound):
-				leaseMissing = true
-			case leaseErr != nil:
-				return nil, status.Error(codes.Internal, "failed to load distributed run lease: "+leaseErr.Error())
-			default:
-				if err := h.validateRemoteAttemptLease(lease, identity); err != nil {
-					return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: status.Convert(err).Message()}, nil
-				}
+		var validationErr error
+		leaseMissing, validationErr = h.validateRemoteStatusLease(ctx, req.WorkerId, dagRunStatus)
+		if validationErr != nil {
+			if status.Code(validationErr) == codes.FailedPrecondition {
+				return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: status.Convert(validationErr).Message()}, nil
 			}
-		} else if dagRunStatus.EffectiveClaimKey() != "" {
-			return nil, status.Error(codes.InvalidArgument, identityErr.Error())
+			return nil, validationErr
 		}
 	}
 
