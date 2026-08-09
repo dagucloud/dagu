@@ -136,39 +136,39 @@ func TestNewContext_DAGParamsJSON(t *testing.T) {
 	}
 }
 
-func TestNewContext_DAGDocsDir(t *testing.T) {
+func TestNewContext_DAGWikiDir(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name      string
-		docsDir   string
+		wikiDir   string
 		labels    []string
 		expected  string
 		expectSet bool
 	}{
 		{
-			name:      "ConfigHasDocsDir",
-			docsDir:   "/tmp/docs",
-			expected:  filepath.Join("/tmp/docs", "test-dag"),
+			name:      "ConfigHasWikiDir",
+			wikiDir:   "/tmp/wiki",
+			expected:  filepath.Join("/tmp/wiki", "test-dag"),
 			expectSet: true,
 		},
 		{
-			name:      "WorkspaceLabelUsesWorkspaceScopedDocsDir",
-			docsDir:   "/tmp/docs",
+			name:      "WorkspaceLabelUsesWorkspaceScopedWikiDir",
+			wikiDir:   "/tmp/wiki",
 			labels:    []string{"workspace=ops"},
-			expected:  filepath.Join("/tmp/docs", "ops", "test-dag"),
+			expected:  filepath.Join("/tmp/wiki", "ops", "test-dag"),
 			expectSet: true,
 		},
 		{
-			name:      "ConflictingWorkspaceLabelsUseUnscopedDocsDir",
-			docsDir:   "/tmp/docs",
+			name:      "ConflictingWorkspaceLabelsUseUnscopedWikiDir",
+			wikiDir:   "/tmp/wiki",
 			labels:    []string{"workspace=ops", "workspace=prod"},
-			expected:  filepath.Join("/tmp/docs", "test-dag"),
+			expected:  filepath.Join("/tmp/wiki", "test-dag"),
 			expectSet: true,
 		},
 		{
-			name:      "DocsDirEmpty",
-			docsDir:   "",
+			name:      "WikiDirEmpty",
+			wikiDir:   "",
 			expectSet: false,
 		},
 	}
@@ -178,7 +178,7 @@ func TestNewContext_DAGDocsDir(t *testing.T) {
 			t.Parallel()
 
 			cfg := &config.Config{}
-			cfg.Paths.DocsDir = tt.docsDir
+			cfg.Paths.WikiDir = tt.wikiDir
 			ctx := config.WithConfig(context.Background(), cfg)
 			dag := &ir.DAG{Name: "test-dag", Labels: ir.NewLabels(tt.labels)}
 			ctx = runctx.NewContext(ctx, dag, "run-1", "test.log")
@@ -186,16 +186,19 @@ func TestNewContext_DAGDocsDir(t *testing.T) {
 			result := rCtx.UserEnvsMap()
 
 			if tt.expectSet {
+				assert.Equal(t, tt.expected, result[runenv.EnvKeyDAGWikiDir])
 				assert.Equal(t, tt.expected, result[runenv.EnvKeyDAGDocsDir])
 			} else {
-				_, ok := result[runenv.EnvKeyDAGDocsDir]
-				assert.False(t, ok, "DAG_DOCS_DIR should not be set")
+				_, wikiSet := result[runenv.EnvKeyDAGWikiDir]
+				_, docsSet := result[runenv.EnvKeyDAGDocsDir]
+				assert.False(t, wikiSet, "DAG_WIKI_DIR should not be set")
+				assert.False(t, docsSet, "DAG_DOCS_DIR should not be set")
 			}
 		})
 	}
 }
 
-func TestNewContext_DAGDocsDirRequiresConfig(t *testing.T) {
+func TestNewContext_DAGWikiDirRequiresConfig(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -204,8 +207,10 @@ func TestNewContext_DAGDocsDirRequiresConfig(t *testing.T) {
 	rCtx := runctx.GetContext(ctx)
 	result := rCtx.UserEnvsMap()
 
-	_, ok := result[runenv.EnvKeyDAGDocsDir]
-	assert.False(t, ok, "DAG_DOCS_DIR should not be set when no config is in context")
+	_, wikiSet := result[runenv.EnvKeyDAGWikiDir]
+	_, docsSet := result[runenv.EnvKeyDAGDocsDir]
+	assert.False(t, wikiSet, "DAG_WIKI_DIR should not be set when no config is in context")
+	assert.False(t, docsSet, "DAG_DOCS_DIR should not be set when no config is in context")
 }
 
 func TestNewContext_DAGRunWorkDir(t *testing.T) {

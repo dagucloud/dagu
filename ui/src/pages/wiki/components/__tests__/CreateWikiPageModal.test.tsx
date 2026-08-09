@@ -1,0 +1,88 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import React from 'react';
+import { describe, expect, it, vi } from 'vitest';
+import { BUILT_IN_WIKI_PAGE_TEMPLATES } from '../../lib/wiki-page-templates';
+import { CreateWikiPageModal } from '../CreateWikiPageModal';
+
+vi.mock('../../hooks/useWikiPageTemplates', () => ({
+  useWikiPageTemplates: () => BUILT_IN_WIKI_PAGE_TEMPLATES,
+  useResolveTemplateContent: () => async (template: { content: string }) =>
+    template.content,
+}));
+
+// Radix Select requires pointer-capture APIs missing from jsdom.
+Object.defineProperty(HTMLElement.prototype, 'hasPointerCapture', {
+  configurable: true,
+  value: () => false,
+});
+Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+  configurable: true,
+  value: () => {},
+});
+
+function renderModal(onSubmit = vi.fn().mockResolvedValue(undefined)) {
+  render(
+    <CreateWikiPageModal
+      isOpen
+      onClose={() => {}}
+      onSubmit={onSubmit}
+      workspace={null}
+    />
+  );
+  return onSubmit;
+}
+
+describe('CreateWikiPageModal templates', () => {
+  it('submits empty content for the default blank template', async () => {
+    const user = userEvent.setup();
+    const onSubmit = renderModal();
+
+    await user.type(screen.getByLabelText('Path'), 'guides/new-page');
+    await user.click(screen.getByRole('button', { name: /create/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith('guides/new-page', '');
+  });
+
+  it('submits the selected template content', async () => {
+    const user = userEvent.setup();
+    const onSubmit = renderModal();
+    const runbook = BUILT_IN_WIKI_PAGE_TEMPLATES.find(
+      (t) => t.name === 'Runbook'
+    );
+
+    await user.type(screen.getByLabelText('Path'), 'runbooks/etl');
+    await user.click(screen.getByLabelText('Template'));
+    await user.click(screen.getByRole('option', { name: 'Runbook' }));
+    await user.click(screen.getByRole('button', { name: /create/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith('runbooks/etl', runbook?.content);
+  });
+
+  it('rejects an invalid path before submitting', async () => {
+    const user = userEvent.setup();
+    const onSubmit = renderModal();
+
+    await user.type(screen.getByLabelText('Path'), '../escape');
+    await user.click(screen.getByRole('button', { name: /create/i }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(/invalid|must/i)).toBeInTheDocument();
+  });
+
+  it('shows submission failures in the dialog', async () => {
+    const user = userEvent.setup();
+    const onSubmit = renderModal(
+      vi.fn().mockRejectedValue(new Error('Request failed'))
+    );
+
+    await user.type(screen.getByLabelText('Path'), 'guides/new-page');
+    await user.click(screen.getByRole('button', { name: /create/i }));
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(await screen.findByText('Request failed')).toBeInTheDocument();
+  });
+});

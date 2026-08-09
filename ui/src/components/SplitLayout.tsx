@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { readMigratedLocalStorage } from '@/lib/local-storage-migration';
 
 // Context to provide panel width to children
 export const PanelWidthContext = React.createContext<number | null>(null);
@@ -10,6 +11,7 @@ interface SplitLayoutProps {
   minLeftWidth?: number; // percentage
   maxLeftWidth?: number; // percentage
   storageKey?: string; // localStorage key for persistence
+  legacyStorageKey?: string;
   emptyRightMessage?: string;
 }
 
@@ -28,12 +30,15 @@ function SplitLayout({
   minLeftWidth = 20,
   maxLeftWidth = 70,
   storageKey = 'splitLayoutWidth',
+  legacyStorageKey,
   emptyRightMessage = 'Select an item to view details',
 }: SplitLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const leftPanelRef = useRef<HTMLDivElement>(null);
   const [leftWidth, setLeftWidth] = useState<number>(() => {
-    const saved = localStorage.getItem(storageKey);
+    const saved = legacyStorageKey
+      ? readMigratedLocalStorage(storageKey, legacyStorageKey)
+      : localStorage.getItem(storageKey);
     if (saved) {
       const parsed = parseFloat(saved);
       if (!isNaN(parsed) && parsed >= minLeftWidth && parsed <= maxLeftWidth) {

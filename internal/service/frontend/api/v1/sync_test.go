@@ -25,6 +25,7 @@ type mockSyncService struct {
 	deleteBatchFn    func(ctx context.Context, itemIDs []string, message string, force bool) ([]string, error)
 	deleteAllMissing func(ctx context.Context, message string) ([]string, error)
 	moveFn           func(ctx context.Context, oldID, newID, message string, force bool) error
+	getSyncItemDiff  func(ctx context.Context, itemID string) (*gitsync.SyncItemDiff, error)
 }
 
 func (m *mockSyncService) Pull(_ context.Context) (*gitsync.SyncResult, error) { return nil, nil }
@@ -95,7 +96,10 @@ func (m *mockSyncService) GetSyncItemStatus(_ context.Context, _ string) (*gitsy
 	return nil, nil
 }
 
-func (m *mockSyncService) GetSyncItemDiff(_ context.Context, _ string) (*gitsync.SyncItemDiff, error) {
+func (m *mockSyncService) GetSyncItemDiff(ctx context.Context, itemID string) (*gitsync.SyncItemDiff, error) {
+	if m.getSyncItemDiff != nil {
+		return m.getSyncItemDiff(ctx, itemID)
+	}
 	return nil, nil
 }
 
@@ -769,24 +773,60 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 		},
 		"docs/operations/deploy": {
 			Status:        gitsync.StatusSynced,
-			Kind:          gitsync.SyncItemKindDoc,
+			Kind:          gitsync.SyncItemKindWikiPage,
 			FileExtension: ".MD",
 			ModifiedAt:    &now,
+		},
+		"docs/.attachments/guides/deploy/logo.png": {
+			Status:     gitsync.StatusSynced,
+			Kind:       gitsync.SyncItemKindWikiPageAsset,
+			ModifiedAt: &now,
 		},
 	}
 
 	apiItems := toAPISyncItems(states)
-	require.Len(t, apiItems, 3)
+	require.Len(t, apiItems, 4)
 
 	assert.Equal(t, "alpha", apiItems[0].ItemId)
 	assert.Equal(t, "alpha.yml", apiItems[0].FilePath)
 	assert.Equal(t, "alpha.yml", apiItems[0].DisplayName)
 
-	assert.Equal(t, "docs/operations/deploy", apiItems[1].ItemId)
-	assert.Equal(t, "docs/operations/deploy.MD", apiItems[1].FilePath)
-	assert.Equal(t, apigen.SyncItemKindDoc, apiItems[1].Kind)
+	// Asset IDs already carry their extension; the path passes through.
+	assert.Equal(t, "docs/.attachments/guides/deploy/logo.png", apiItems[1].ItemId)
+	assert.Equal(t, "docs/.attachments/guides/deploy/logo.png", apiItems[1].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDocAsset, apiItems[1].Kind)
 
-	assert.Equal(t, "reports/monthly", apiItems[2].ItemId)
-	assert.Equal(t, "reports/monthly.yaml", apiItems[2].FilePath)
-	assert.Equal(t, apigen.SyncItemKindDag, apiItems[2].Kind)
+	assert.Equal(t, "docs/operations/deploy", apiItems[2].ItemId)
+	assert.Equal(t, "docs/operations/deploy.MD", apiItems[2].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDoc, apiItems[2].Kind)
+
+	assert.Equal(t, "reports/monthly", apiItems[3].ItemId)
+	assert.Equal(t, "reports/monthly.yaml", apiItems[3].FilePath)
+	assert.Equal(t, apigen.SyncItemKindDag, apiItems[3].Kind)
+}
+
+func TestGetSyncItemDiffPreservesBinarySizeAvailability(t *testing.T) {
+	t.Parallel()
+
+	zero := int64(0)
+	a := newSyncAPIForTest(&mockSyncService{
+		getSyncItemDiff: func(_ context.Context, itemID string) (*gitsync.SyncItemDiff, error) {
+			return &gitsync.SyncItemDiff{
+				ItemID:    itemID,
+				Status:    gitsync.StatusModified,
+				Binary:    true,
+				LocalSize: &zero,
+			}, nil
+		},
+	})
+
+	resp, err := a.GetSyncItemDiff(context.Background(), apigen.GetSyncItemDiffRequestObject{
+		ItemId: "docs/.attachments/guide/empty.bin",
+	})
+	require.NoError(t, err)
+	diff, ok := resp.(apigen.GetSyncItemDiff200JSONResponse)
+	require.True(t, ok)
+	require.NotNil(t, diff.LocalSize)
+	assert.Zero(t, *diff.LocalSize)
+	assert.Nil(t, diff.RemoteSize)
 }

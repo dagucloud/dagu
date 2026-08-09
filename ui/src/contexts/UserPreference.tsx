@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
+import { writeLocalStorage } from '@/lib/local-storage-migration';
 
 export type DAGRunsViewMode = 'list' | 'grouped';
 
-export type DocSortField = 'name' | 'type' | 'mtime';
-export type DocSortOrder = 'asc' | 'desc';
+export type WikiSortField = 'name' | 'type' | 'mtime';
+export type WikiSortOrder = 'asc' | 'desc';
 
 export type UserPreferences = {
   pageLimit: number;
@@ -11,8 +12,8 @@ export type UserPreferences = {
   logWrap: boolean;
   theme: 'light' | 'dark';
   safeMode: boolean;
-  docSortField: DocSortField;
-  docSortOrder: DocSortOrder;
+  wikiSortField: WikiSortField;
+  wikiSortOrder: WikiSortOrder;
 };
 
 const UserPreferencesContext = createContext<{
@@ -29,9 +30,17 @@ const defaultPreferences: UserPreferences = {
   logWrap: true,
   theme: 'light', // Default to light theme (from main branch)
   safeMode: false,
-  docSortField: 'type',
-  docSortOrder: 'asc',
+  wikiSortField: 'type',
+  wikiSortOrder: 'asc',
 };
+
+function isWikiSortField(value: unknown): value is WikiSortField {
+  return value === 'name' || value === 'type' || value === 'mtime';
+}
+
+function isWikiSortOrder(value: unknown): value is WikiSortOrder {
+  return value === 'asc' || value === 'desc';
+}
 
 function loadPreferences(): UserPreferences {
   try {
@@ -39,9 +48,27 @@ function loadPreferences(): UserPreferences {
     if (!saved) {
       return defaultPreferences;
     }
-    const preferences = JSON.parse(saved);
+    const preferences = JSON.parse(saved) as Record<string, unknown>;
     delete preferences.workflowFilterViews;
-    return { ...defaultPreferences, ...preferences };
+    const migrated = {
+      ...defaultPreferences,
+      ...preferences,
+      wikiSortField: isWikiSortField(preferences.wikiSortField)
+        ? preferences.wikiSortField
+        : isWikiSortField(preferences.docSortField)
+          ? preferences.docSortField
+          : defaultPreferences.wikiSortField,
+      wikiSortOrder: isWikiSortOrder(preferences.wikiSortOrder)
+        ? preferences.wikiSortOrder
+        : isWikiSortOrder(preferences.docSortOrder)
+          ? preferences.docSortOrder
+          : defaultPreferences.wikiSortOrder,
+    } as UserPreferences;
+    writeLocalStorage(
+      'user_preferences',
+      JSON.stringify({ ...preferences, ...migrated })
+    );
+    return migrated;
   } catch {
     return defaultPreferences;
   }

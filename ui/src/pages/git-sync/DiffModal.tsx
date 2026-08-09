@@ -17,6 +17,9 @@ interface DiffModalProps {
   onOpenChange: (open: boolean) => void;
   dagId: string;
   status?: SyncStatus;
+  binary?: boolean;
+  localSize?: number;
+  remoteSize?: number;
   localContent?: string;
   remoteContent?: string;
   remoteCommit?: string;
@@ -36,6 +39,9 @@ export function DiffModal({
   onOpenChange,
   dagId,
   status,
+  binary,
+  localSize,
+  remoteSize,
   localContent,
   remoteContent,
   remoteCommit,
@@ -58,7 +64,9 @@ export function DiffModal({
     switch (status) {
       case SyncStatus.modified:
         return {
-          left: remoteCommit ? `Remote (${remoteCommit.slice(0, 7)})` : 'Remote',
+          left: remoteCommit
+            ? `Remote (${remoteCommit.slice(0, 7)})`
+            : 'Remote',
           right: 'Local (modified)',
         };
       case SyncStatus.conflict:
@@ -78,7 +86,9 @@ export function DiffModal({
         };
       case SyncStatus.missing:
         return {
-          left: remoteCommit ? `Remote (${remoteCommit.slice(0, 7)})` : 'Remote',
+          left: remoteCommit
+            ? `Remote (${remoteCommit.slice(0, 7)})`
+            : 'Remote',
           right: 'Local (missing)',
         };
       default:
@@ -90,7 +100,10 @@ export function DiffModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent hideCloseButton className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col p-0 duration-100">
+      <DialogContent
+        hideCloseButton
+        className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col p-0 duration-100"
+      >
         <DialogHeader className="px-4 py-3 border-b border-border/40 flex flex-row items-center justify-between space-y-0">
           <DialogTitle className="text-sm font-mono">{dagId}</DialogTitle>
           <DialogClose className="p-1.5 rounded-md opacity-70 transition-opacity hover:opacity-100 hover:bg-muted">
@@ -99,57 +112,90 @@ export function DiffModal({
           </DialogClose>
         </DialogHeader>
         <div className="flex-1 overflow-auto">
-          <ReactDiffViewer
-            oldValue={remoteContent || ''}
-            newValue={localContent || ''}
-            splitView={true}
-            leftTitle={titles.left}
-            rightTitle={titles.right}
-            useDarkTheme={isDarkMode}
-            compareMethod={DiffMethod.LINES}
-            showDiffOnly={false}
-            styles={{
-              variables: {
-                dark: {
-                  diffViewerBackground: '#1e1e1e',
-                  gutterBackground: '#252526',
-                  addedBackground: '#1e3a29',
-                  addedGutterBackground: '#1e3a29',
-                  removedBackground: '#3a1e1e',
-                  removedGutterBackground: '#3a1e1e',
-                  wordAddedBackground: '#2ea043',
-                  wordRemovedBackground: '#f85149',
-                  emptyLineBackground: '#1e1e1e',
-                  gutterColor: '#6e7681',
+          {binary ? (
+            <div className="p-3 text-sm bg-muted/30">
+              <div className="text-muted-foreground mb-3">
+                Binary attachment. Content comparison is not available.
+              </div>
+              <table className="text-xs">
+                <tbody>
+                  <tr>
+                    <td className="pr-4 py-0.5 text-muted-foreground">
+                      {titles.left}
+                    </td>
+                    <td className="py-0.5 font-mono">
+                      {remoteSize !== undefined
+                        ? `${remoteSize.toLocaleString()} bytes`
+                        : '—'}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="pr-4 py-0.5 text-muted-foreground">
+                      {titles.right}
+                    </td>
+                    <td className="py-0.5 font-mono">
+                      {localSize !== undefined
+                        ? `${localSize.toLocaleString()} bytes`
+                        : '—'}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <ReactDiffViewer
+              oldValue={remoteContent || ''}
+              newValue={localContent || ''}
+              splitView={true}
+              leftTitle={titles.left}
+              rightTitle={titles.right}
+              useDarkTheme={isDarkMode}
+              compareMethod={DiffMethod.LINES}
+              showDiffOnly={false}
+              styles={{
+                variables: {
+                  dark: {
+                    diffViewerBackground: '#1e1e1e',
+                    gutterBackground: '#252526',
+                    addedBackground: '#1e3a29',
+                    addedGutterBackground: '#1e3a29',
+                    removedBackground: '#3a1e1e',
+                    removedGutterBackground: '#3a1e1e',
+                    wordAddedBackground: '#2ea043',
+                    wordRemovedBackground: '#f85149',
+                    emptyLineBackground: '#1e1e1e',
+                    gutterColor: '#6e7681',
+                  },
+                  light: {
+                    diffViewerBackground: '#ffffff',
+                    gutterBackground: '#f6f8fa',
+                    addedBackground: '#e6ffec',
+                    addedGutterBackground: '#ccffd8',
+                    removedBackground: '#ffebe9',
+                    removedGutterBackground: '#ffd7d5',
+                    wordAddedBackground: '#abf2bc',
+                    wordRemovedBackground: '#ff818266',
+                    emptyLineBackground: '#ffffff',
+                    gutterColor: '#57606a',
+                  },
                 },
-                light: {
-                  diffViewerBackground: '#ffffff',
-                  gutterBackground: '#f6f8fa',
-                  addedBackground: '#e6ffec',
-                  addedGutterBackground: '#ccffd8',
-                  removedBackground: '#ffebe9',
-                  removedGutterBackground: '#ffd7d5',
-                  wordAddedBackground: '#abf2bc',
-                  wordRemovedBackground: '#ff818266',
-                  emptyLineBackground: '#ffffff',
-                  gutterColor: '#57606a',
+                contentText: {
+                  fontFamily:
+                    'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                  fontSize: '12px',
+                  lineHeight: '1.5',
                 },
-              },
-              contentText: {
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                fontSize: '12px',
-                lineHeight: '1.5',
-              },
-              titleBlock: {
-                padding: '8px 12px',
-                fontSize: '12px',
-                fontWeight: 500,
-              },
-              line: {
-                padding: '0 8px',
-              },
-            }}
-          />
+                titleBlock: {
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                },
+                line: {
+                  padding: '0 8px',
+                },
+              }}
+            />
+          )}
         </div>
         {status === SyncStatus.missing && (onForget || onDelete) ? (
           <DialogFooter className="px-4 py-3 border-t border-border/40">
@@ -184,7 +230,7 @@ export function DiffModal({
               </Button>
             )}
           </DialogFooter>
-        ) : (canPublish || canRevert) ? (
+        ) : canPublish || canRevert ? (
           <DialogFooter className="px-4 py-3 border-t border-border/40">
             {canRevert && onRevert && (
               <Button

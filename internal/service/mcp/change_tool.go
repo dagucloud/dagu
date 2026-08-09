@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/docs"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/wiki"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,10 +20,14 @@ const (
 	changeModePreview = "preview"
 	changeModeApply   = "apply"
 
-	changeTypeUpsertDAG = "upsert_dag"
-	changeTypeUpsertDoc = "upsert_doc"
-	changeTypeRenameDoc = "rename_doc"
-	changeTypeDeleteDoc = "delete_doc"
+	changeTypeUpsertDAG      = "upsert_dag"
+	changeTypeUpsertWikiPage = "upsert_wiki_page"
+	changeTypeRenameWikiPage = "rename_wiki_page"
+	changeTypeDeleteWikiPage = "delete_wiki_page"
+
+	legacyChangeTypeUpsertDoc = "upsert_doc"
+	legacyChangeTypeRenameDoc = "rename_doc"
+	legacyChangeTypeDeleteDoc = "delete_doc"
 
 	changeErrorUnauthenticated       = "unauthenticated"
 	changeErrorUnauthorized          = "unauthorized"
@@ -45,17 +49,17 @@ const (
 )
 
 type changeToolError struct {
-	Code      string
-	Message   string
-	Mode      string
-	Type      string
-	DAGName   string
-	Workspace string
-	DocPath   string
-	Field     string
-	DAGURI    string
-	DocURI    string
-	Details   map[string]any
+	Code         string
+	Message      string
+	Mode         string
+	Type         string
+	DAGName      string
+	Workspace    string
+	WikiPagePath string
+	Field        string
+	DAGURI       string
+	WikiPageURI  string
+	Details      map[string]any
 }
 
 func (e *changeToolError) Error() string {
@@ -72,7 +76,7 @@ func changeToolInputSchema() json.RawMessage {
 			},
 			"type": {
 				"type": "string",
-				"description": "Change type: upsert_dag, upsert_doc, rename_doc, or delete_doc."
+				"description": "Change type: upsert_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. The legacy page aliases remain available for compatibility."
 			},
 			"name": {
 				"type": "string",
@@ -84,19 +88,19 @@ func changeToolInputSchema() json.RawMessage {
 			},
 			"workspace": {
 				"type": "string",
-				"description": "Document workspace: default or a named workspace. Required for document changes."
+				"description": "Wiki workspace: default or a named workspace. Required for Wiki changes."
 			},
 			"path": {
 				"type": "string",
-				"description": "Document or directory path without .md. Required for document changes."
+				"description": "Wiki page or directory path without .md. Required for Wiki changes."
 			},
 			"content": {
 				"type": "string",
-				"description": "Full Markdown content for upsert_doc. Empty content is allowed."
+				"description": "Full Markdown content for upsert_wiki_page. Empty content is allowed."
 			},
 			"newPath": {
 				"type": "string",
-				"description": "Destination document or directory path for rename_doc."
+				"description": "Destination Wiki page or directory path for rename_wiki_page."
 			}
 		},
 		"oneOf": [
@@ -105,15 +109,15 @@ func changeToolInputSchema() json.RawMessage {
 				"required": ["name", "spec"]
 			},
 			{
-				"properties": {"type": {"enum": ["upsert_doc"]}},
+				"properties": {"type": {"enum": ["upsert_wiki_page", "upsert_doc"]}},
 				"required": ["type", "workspace", "path", "content"]
 			},
 			{
-				"properties": {"type": {"enum": ["rename_doc"]}},
+				"properties": {"type": {"enum": ["rename_wiki_page", "rename_doc"]}},
 				"required": ["type", "workspace", "path", "newPath"]
 			},
 			{
-				"properties": {"type": {"enum": ["delete_doc"]}},
+				"properties": {"type": {"enum": ["delete_wiki_page", "delete_doc"]}},
 				"required": ["type", "workspace", "path"]
 			}
 		],
@@ -146,15 +150,15 @@ func (svc *Service) changeToolImpl(ctx context.Context, input changeInput) (*mcp
 	if err := svc.requireAPI(); err != nil {
 		return nil, nil, err
 	}
-	switch input.Type {
+	switch canonicalChangeType(input.Type) {
 	case changeTypeUpsertDAG:
 		return svc.changeDAG(ctx, input)
-	case changeTypeUpsertDoc:
-		return svc.changeUpsertDoc(ctx, input)
-	case changeTypeRenameDoc:
-		return svc.changeRenameDoc(ctx, input)
-	case changeTypeDeleteDoc:
-		return svc.changeDeleteDoc(ctx, input)
+	case changeTypeUpsertWikiPage:
+		return svc.changeUpsertWikiPage(ctx, input)
+	case changeTypeRenameWikiPage:
+		return svc.changeRenameWikiPage(ctx, input)
+	case changeTypeDeleteWikiPage:
+		return svc.changeDeleteWikiPage(ctx, input)
 	default:
 		return nil, nil, errors.New("unsupported change type")
 	}
@@ -201,116 +205,122 @@ func (svc *Service) changeDAG(ctx context.Context, input changeInput) (*mcpsdk.C
 	return resultWithLinks("DAG change applied.", linkForDAGSpec(input.Name)), output, nil
 }
 
-func (svc *Service) changeUpsertDoc(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	nodes, err := svc.docNodes(ctx, input.Workspace)
+func (svc *Service) changeUpsertWikiPage(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	nodes, err := svc.wikiPageNodes(ctx, input.Workspace)
 	if err != nil {
 		return nil, nil, err
 	}
 	created := false
-	node, err := inspectDocPath(nodes, input.Path)
+	node, err := inspectWikiPagePath(nodes, input.Path)
 	if err != nil {
-		if !errors.Is(err, errDocPathNotFound) {
+		if !errors.Is(err, errWikiPagePathNotFound) {
 			return nil, nil, err
 		}
-		if err := ensureDocPathAvailable(nodes, input.Path); err != nil {
+		if err := ensureWikiPagePathAvailable(nodes, input.Path); err != nil {
 			return nil, nil, err
 		}
 		created = true
 	} else if node.Type != "file" {
-		return nil, nil, docPathConflict("Document path identifies a directory")
+		return nil, nil, wikiPagePathConflict("Wiki page path identifies a directory")
 	}
 
-	output := docChangeOutput(input)
+	output := wikiPageChangeOutput(input)
 	output["created"] = created
 	output["updated"] = !created
 	output["contentBytes"] = len(input.Content)
 	if input.Mode == changeModePreview {
-		return resultWithLinks("Document change is valid. Re-run with mode=apply to write it.", linkForDoc(input.Workspace, input.Path)), output, nil
+		return resultWithLinks("Wiki page change is valid. Re-run with mode=apply to write it.", linkForWikiPage(input.Workspace, input.Path)), output, nil
 	}
 
 	if created {
-		err = svc.createDoc(ctx, input.Workspace, input.Path, input.Content)
+		err = svc.createWikiPage(ctx, input.Workspace, input.Path, input.Content)
 	} else {
-		err = svc.updateDoc(ctx, input.Workspace, input.Path, input.Content)
+		err = svc.updateWikiPage(ctx, input.Workspace, input.Path, input.Content)
 	}
 	if err != nil {
 		return nil, nil, err
 	}
 	output["applied"] = true
-	return resultWithLinks("Document change applied.", linkForDoc(input.Workspace, input.Path)), output, nil
+	return resultWithLinks("Wiki page change applied.", linkForWikiPage(input.Workspace, input.Path)), output, nil
 }
 
-func (svc *Service) changeRenameDoc(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	nodes, err := svc.docNodes(ctx, input.Workspace)
+func (svc *Service) changeRenameWikiPage(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	nodes, err := svc.wikiPageNodes(ctx, input.Workspace)
 	if err != nil {
 		return nil, nil, err
 	}
-	node, err := inspectDocPath(nodes, input.Path)
+	node, err := inspectWikiPagePath(nodes, input.Path)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := ensureDocPathAvailable(nodes, input.NewPath); err != nil {
+	if err := ensureWikiPagePathAvailable(nodes, input.NewPath); err != nil {
 		return nil, nil, err
 	}
 
-	output := docChangeOutput(input)
+	output := wikiPageChangeOutput(input)
 	output["nodeType"] = node.Type
 	output["newPath"] = input.NewPath
 	links := []resourceLink{}
 	if node.Type == "file" {
-		output["newDocUri"] = docURI(input.Workspace, input.NewPath)
-		links = append(links, linkForDoc(input.Workspace, input.NewPath))
+		output["newWikiPageUri"] = wikiPageURI(input.Workspace, input.NewPath)
+		output["newDocUri"] = output["newWikiPageUri"]
+		links = append(links, linkForWikiPage(input.Workspace, input.NewPath))
 	} else {
+		delete(output, "wikiPageUri")
 		delete(output, "docUri")
 	}
 	if input.Mode == changeModePreview {
-		return resultWithLinks("Document rename is valid. Re-run with mode=apply to write it.", links...), output, nil
+		return resultWithLinks("Wiki page rename is valid. Re-run with mode=apply to write it.", links...), output, nil
 	}
-	if err := svc.renameDoc(ctx, input.Workspace, input.Path, input.NewPath); err != nil {
+	if err := svc.renameWikiPage(ctx, input.Workspace, input.Path, input.NewPath); err != nil {
 		return nil, nil, err
 	}
 	output["applied"] = true
-	return resultWithLinks("Document rename applied.", links...), output, nil
+	return resultWithLinks("Wiki page rename applied.", links...), output, nil
 }
 
-func (svc *Service) changeDeleteDoc(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	nodes, err := svc.docNodes(ctx, input.Workspace)
+func (svc *Service) changeDeleteWikiPage(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	nodes, err := svc.wikiPageNodes(ctx, input.Workspace)
 	if err != nil {
 		return nil, nil, err
 	}
-	node, err := inspectDocPath(nodes, input.Path)
+	node, err := inspectWikiPagePath(nodes, input.Path)
 	if err != nil {
 		return nil, nil, err
 	}
-	output := docChangeOutput(input)
+	output := wikiPageChangeOutput(input)
 	output["nodeType"] = node.Type
 	links := []resourceLink{}
 	if node.Type == "file" {
-		links = append(links, linkForDoc(input.Workspace, input.Path))
+		links = append(links, linkForWikiPage(input.Workspace, input.Path))
 	} else {
+		delete(output, "wikiPageUri")
 		delete(output, "docUri")
 	}
 	if input.Mode == changeModePreview {
-		return resultWithLinks("Document deletion is valid. Re-run with mode=apply to delete it.", links...), output, nil
+		return resultWithLinks("Wiki page deletion is valid. Re-run with mode=apply to delete it.", links...), output, nil
 	}
-	if err := svc.deleteDoc(ctx, input.Workspace, input.Path); err != nil {
+	if err := svc.deleteWikiPage(ctx, input.Workspace, input.Path); err != nil {
 		return nil, nil, err
 	}
 	output["applied"] = true
+	delete(output, "wikiPageUri")
 	delete(output, "docUri")
-	return resultWithLinks("Document deletion applied."), output, nil
+	return resultWithLinks("Wiki page deletion applied."), output, nil
 }
 
-func docChangeOutput(input changeInput) map[string]any {
+func wikiPageChangeOutput(input changeInput) map[string]any {
+	uri := wikiPageURI(input.Workspace, input.Path)
 	return map[string]any{
-		"mode":       input.Mode,
-		"type":       input.Type,
-		"workspace":  input.Workspace,
-		"path":       input.Path,
-		"docUri":     docURI(input.Workspace, input.Path),
-		"valid":      true,
-		"applied":    false,
-		"references": defaultReferenceURIs(),
+		"mode":        input.Mode,
+		"type":        input.Type,
+		"workspace":   input.Workspace,
+		"path":        input.Path,
+		"wikiPageUri": uri,
+		"docUri":      uri,
+		"valid":       true,
+		"applied":     false,
+		"references":  defaultReferenceURIs(),
 	}
 }
 
@@ -416,11 +426,27 @@ func isChangeInputField(field string) bool {
 }
 
 func isSupportedChangeType(changeType string) bool {
-	switch changeType {
-	case changeTypeUpsertDAG, changeTypeUpsertDoc, changeTypeRenameDoc, changeTypeDeleteDoc:
+	switch canonicalChangeType(changeType) {
+	case changeTypeUpsertDAG,
+		changeTypeUpsertWikiPage,
+		changeTypeRenameWikiPage,
+		changeTypeDeleteWikiPage:
 		return true
 	default:
 		return false
+	}
+}
+
+func canonicalChangeType(changeType string) string {
+	switch changeType {
+	case legacyChangeTypeUpsertDoc:
+		return changeTypeUpsertWikiPage
+	case legacyChangeTypeRenameDoc:
+		return changeTypeRenameWikiPage
+	case legacyChangeTypeDeleteDoc:
+		return changeTypeDeleteWikiPage
+	default:
+		return changeType
 	}
 }
 
@@ -430,22 +456,23 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		changeFieldType: true,
 	}
 	required := []string{}
-	switch input.Type {
+	changeType := canonicalChangeType(input.Type)
+	switch changeType {
 	case changeTypeUpsertDAG:
 		allowed[changeFieldName] = true
 		allowed[changeFieldSpec] = true
 		required = []string{changeFieldName, changeFieldSpec}
-	case changeTypeUpsertDoc:
+	case changeTypeUpsertWikiPage:
 		allowed[changeFieldWorkspace] = true
 		allowed[changeFieldPath] = true
 		allowed[changeFieldContent] = true
 		required = []string{changeFieldWorkspace, changeFieldPath, changeFieldContent}
-	case changeTypeRenameDoc:
+	case changeTypeRenameWikiPage:
 		allowed[changeFieldWorkspace] = true
 		allowed[changeFieldPath] = true
 		allowed[changeFieldNewPath] = true
 		required = []string{changeFieldWorkspace, changeFieldPath, changeFieldNewPath}
-	case changeTypeDeleteDoc:
+	case changeTypeDeleteWikiPage:
 		allowed[changeFieldWorkspace] = true
 		allowed[changeFieldPath] = true
 		required = []string{changeFieldWorkspace, changeFieldPath}
@@ -469,7 +496,7 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		}
 	}
 
-	switch input.Type {
+	switch changeType {
 	case changeTypeUpsertDAG:
 		if input.Name == "" {
 			return changeInputError(input, "The name field is required.", changeFieldName)
@@ -482,13 +509,13 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 			return changeInputError(input, "The workspace field is required.", changeFieldWorkspace)
 		}
 		if input.Workspace == "all" {
-			return changeInputError(input, "Document changes require default or one named workspace.", changeFieldWorkspace)
+			return changeInputError(input, "Wiki changes require default or one named workspace.", changeFieldWorkspace)
 		}
-		if err := docs.ValidateDocID(input.Path); err != nil {
-			return changeInputError(input, "Invalid document path: "+err.Error(), changeFieldPath)
+		if err := wiki.ValidatePageID(input.Path); err != nil {
+			return changeInputError(input, "Invalid Wiki page path: "+err.Error(), changeFieldPath)
 		}
-		if input.Type == changeTypeRenameDoc {
-			if err := docs.ValidateDocID(input.NewPath); err != nil {
+		if changeType == changeTypeRenameWikiPage {
+			if err := wiki.ValidatePageID(input.NewPath); err != nil {
 				return changeInputError(input, "Invalid destination path: "+err.Error(), changeFieldNewPath)
 			}
 			if input.Path == input.NewPath {
@@ -518,9 +545,9 @@ func changeInputError(input changeInput, message, field string) *changeToolError
 		err.Workspace = input.Workspace
 	}
 	if input.Path != "" {
-		err.DocPath = input.Path
+		err.WikiPagePath = input.Path
 		if input.Workspace != "" && input.Workspace != "all" {
-			err.DocURI = docURI(input.Workspace, input.Path)
+			err.WikiPageURI = wikiPageURI(input.Workspace, input.Path)
 		}
 	}
 	return err
@@ -528,19 +555,19 @@ func changeInputError(input changeInput, message, field string) *changeToolError
 
 func classifyChangeToolError(input changeInput, err error) *changeToolError {
 	out := &changeToolError{
-		Code:      changeErrorInternal,
-		Message:   "Internal MCP change error.",
-		Mode:      input.Mode,
-		Type:      input.Type,
-		DAGName:   input.Name,
-		Workspace: input.Workspace,
-		DocPath:   input.Path,
+		Code:         changeErrorInternal,
+		Message:      "Internal MCP change error.",
+		Mode:         input.Mode,
+		Type:         input.Type,
+		DAGName:      input.Name,
+		Workspace:    input.Workspace,
+		WikiPagePath: input.Path,
 	}
 	if input.Name != "" {
 		out.DAGURI = dagSpecURI(input.Name)
 	}
 	if input.Path != "" && input.Workspace != "" && input.Workspace != "all" {
-		out.DocURI = docURI(input.Workspace, input.Path)
+		out.WikiPageURI = wikiPageURI(input.Workspace, input.Path)
 	}
 
 	var apiErr *frontendapi.Error
@@ -595,11 +622,12 @@ func changeErrorResult(err *changeToolError) *mcpsdk.CallToolResult {
 	if err.Workspace != "" {
 		output["workspace"] = err.Workspace
 	}
-	if err.DocPath != "" {
-		output["path"] = err.DocPath
+	if err.WikiPagePath != "" {
+		output["path"] = err.WikiPagePath
 	}
-	if err.DocURI != "" {
-		output["docUri"] = err.DocURI
+	if err.WikiPageURI != "" {
+		output["wikiPageUri"] = err.WikiPageURI
+		output["docUri"] = err.WikiPageURI
 	}
 	if err.Details != nil {
 		output["details"] = err.Details

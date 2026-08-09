@@ -99,13 +99,13 @@ func NewServer(api *frontendapi.API) *mcpsdk.Server {
 
 type changeInput struct {
 	Mode      string `json:"mode,omitempty" jsonschema:"preview or apply. Defaults to preview."`
-	Type      string `json:"type,omitempty" jsonschema:"Change type: upsert_dag, upsert_doc, rename_doc, or delete_doc."`
+	Type      string `json:"type,omitempty" jsonschema:"Change type: upsert_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page."`
 	Name      string `json:"name,omitempty" jsonschema:"DAG name for upsert_dag."`
 	Spec      string `json:"spec,omitempty" jsonschema:"DAG YAML specification for upsert_dag."`
-	Workspace string `json:"workspace,omitempty" jsonschema:"Document workspace for document changes: default or a named workspace."`
-	Path      string `json:"path,omitempty" jsonschema:"Document or directory path for document changes."`
-	Content   string `json:"content,omitempty" jsonschema:"Markdown content for upsert_doc."`
-	NewPath   string `json:"newPath,omitempty" jsonschema:"Destination document or directory path for rename_doc."`
+	Workspace string `json:"workspace,omitempty" jsonschema:"Wiki workspace for Wiki changes: default or a named workspace."`
+	Path      string `json:"path,omitempty" jsonschema:"Wiki page or directory path for Wiki changes."`
+	Content   string `json:"content,omitempty" jsonschema:"Markdown content for upsert_wiki_page."`
+	NewPath   string `json:"newPath,omitempty" jsonschema:"Destination Wiki page or directory path for rename_wiki_page."`
 }
 
 type executeInput struct {
@@ -130,7 +130,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 		Meta:        runInspectorToolMeta(),
 		Name:        toolRead,
 		Title:       "Read Dagu state",
-		Description: "Read DAG specs, workspace-aware Markdown documents, DAG-run details, logs, list views, and Dagu MCP reference resources.",
+		Description: "Read DAG specs, workspace-aware Wiki pages, DAG-run details, logs, list views, and Dagu MCP reference resources.",
 		InputSchema: readToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			OpenWorldHint: falsePtr,
@@ -142,7 +142,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 	server.AddTool(&mcpsdk.Tool{
 		Name:        toolChange,
 		Title:       "Preview or apply Dagu changes",
-		Description: "Validate and optionally apply DAG YAML or Markdown document changes. Document changes are workspace-aware. Use mode=preview before mode=apply unless the user explicitly asked to write immediately.",
+		Description: "Validate and optionally apply DAG YAML or Markdown Wiki changes. Wiki changes are workspace-aware. Use mode=preview before mode=apply unless the user explicitly asked to write immediately.",
 		InputSchema: changeToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			DestructiveHint: truePtr,
@@ -193,26 +193,48 @@ func registerResources(server *mcpsdk.Server, svc *Service) {
 	}, svc.readResource)
 
 	server.AddResource(&mcpsdk.Resource{
-		URI:         readResourceDocsCollectionURI,
-		Name:        "documents",
-		Title:       "Documents",
-		Description: "Documents visible across accessible workspaces.",
+		URI:         readResourceWikiCollectionURI,
+		Name:        "wiki",
+		Title:       "Wiki",
+		Description: "Wiki pages visible across accessible workspaces.",
 		MIMEType:    resourceMIMEJSON,
 	}, svc.readResource)
 
+	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
+		URITemplate: "dagu://wiki/{workspace}",
+		Name:        "workspace_wiki",
+		Title:       "Workspace Wiki",
+		Description: "Wiki page tree for default or one named workspace.",
+		MIMEType:    resourceMIMEJSON,
+	}, svc.readResource)
+
+	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
+		URITemplate: "dagu://wiki/{workspace}/{path}",
+		Name:        "wiki_page",
+		Title:       "Wiki page",
+		Description: "Current Markdown content for a Wiki page in default or one named workspace. Nested paths are encoded as one URI segment.",
+		MIMEType:    resourceMIMEText,
+	}, svc.readResource)
+
+	server.AddResource(&mcpsdk.Resource{
+		URI:         legacyReadResourceDocsCollectionURI,
+		Name:        "documents_legacy",
+		Title:       "Legacy Docs (deprecated)",
+		Description: "Deprecated alias for the Wiki collection.",
+		MIMEType:    resourceMIMEJSON,
+	}, svc.readResource)
 	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
 		URITemplate: "dagu://docs/{workspace}",
-		Name:        "workspace_documents",
-		Title:       "Workspace documents",
-		Description: "Document tree for default or one named workspace.",
+		Name:        "workspace_documents_legacy",
+		Title:       "Legacy workspace Docs (deprecated)",
+		Description: "Deprecated alias for a workspace Wiki tree.",
 		MIMEType:    resourceMIMEJSON,
 	}, svc.readResource)
-
 	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
 		URITemplate: "dagu://docs/{workspace}/{path}",
-		Name:        "document",
-		Title:       "Markdown document",
-		Description: "Current Markdown content for a document in default or one named workspace. Nested paths are encoded as one URI segment.",
+		Name:        "document_legacy",
+		Title:       "Legacy Docs page (deprecated)",
+		Description: "Deprecated alias for a Wiki page.",
 		MIMEType:    resourceMIMEText,
 	}, svc.readResource)
 
@@ -262,26 +284,47 @@ func registerPrompts(server *mcpsdk.Server) {
 	}, promptEditDAG)
 
 	server.AddPrompt(&mcpsdk.Prompt{
-		Name:        "dagu_create_doc",
-		Title:       "Create a Dagu document",
-		Description: "Draft, preview, and create a workspace-aware Markdown document.",
+		Name:        "dagu_create_wiki_page",
+		Title:       "Create a Dagu Wiki page",
+		Description: "Draft, preview, and create a workspace-aware Wiki page.",
 		Arguments: []*mcpsdk.PromptArgument{
 			{Name: "workspace", Description: "default or a workspace name.", Required: true},
-			{Name: "path", Description: "Document path without .md.", Required: true},
-			{Name: "goal", Description: "What the document should contain.", Required: true},
+			{Name: "path", Description: "Wiki page path without .md.", Required: true},
+			{Name: "goal", Description: "What the Wiki page should contain.", Required: true},
 		},
-	}, promptCreateDoc)
+	}, promptCreateWikiPage)
 
 	server.AddPrompt(&mcpsdk.Prompt{
-		Name:        "dagu_edit_doc",
-		Title:       "Edit a Dagu document",
-		Description: "Read an existing Markdown document, make a scoped edit, preview, then apply.",
+		Name:        "dagu_edit_wiki_page",
+		Title:       "Edit a Dagu Wiki page",
+		Description: "Read an existing Wiki page, make a scoped edit, preview, then apply.",
 		Arguments: []*mcpsdk.PromptArgument{
 			{Name: "workspace", Description: "default or a workspace name.", Required: true},
-			{Name: "path", Description: "Document path without .md.", Required: true},
+			{Name: "path", Description: "Wiki page path without .md.", Required: true},
 			{Name: "change", Description: "Requested change.", Required: true},
 		},
-	}, promptEditDoc)
+	}, promptEditWikiPage)
+
+	server.AddPrompt(&mcpsdk.Prompt{
+		Name:        "dagu_create_doc",
+		Title:       "Create a Dagu document (deprecated)",
+		Description: "Deprecated alias for dagu_create_wiki_page.",
+		Arguments: []*mcpsdk.PromptArgument{
+			{Name: "workspace", Description: "default or a workspace name.", Required: true},
+			{Name: "path", Description: "Wiki page path without .md.", Required: true},
+			{Name: "goal", Description: "What the Wiki page should contain.", Required: true},
+		},
+	}, promptCreateWikiPage)
+	server.AddPrompt(&mcpsdk.Prompt{
+		Name:        "dagu_edit_doc",
+		Title:       "Edit a Dagu document (deprecated)",
+		Description: "Deprecated alias for dagu_edit_wiki_page.",
+		Arguments: []*mcpsdk.PromptArgument{
+			{Name: "workspace", Description: "default or a workspace name.", Required: true},
+			{Name: "path", Description: "Wiki page path without .md.", Required: true},
+			{Name: "change", Description: "Requested change.", Required: true},
+		},
+	}, promptEditWikiPage)
 
 	server.AddPrompt(&mcpsdk.Prompt{
 		Name:        "dagu_debug_failed_run",
@@ -693,7 +736,7 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		}
 		rawSpec, _ := spec["spec"].(string)
 		return rawSpec, resourceMIMEYAML, nil
-	case "docs":
+	case "wiki", "docs":
 		input, readErr := parseReadResourceURI(rawURI)
 		if readErr != nil {
 			return "", "", mcpsdk.ResourceNotFoundError(rawURI)
@@ -701,14 +744,14 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		if err := svc.requireAPI(); err != nil {
 			return "", "", err
 		}
-		if input.Target == readTargetDoc {
-			doc, err := svc.getDoc(ctx, input.Workspace, input.Path)
+		if input.Target == readTargetWikiPage {
+			page, err := svc.getWikiPage(ctx, input.Workspace, input.Path)
 			if err != nil {
 				return "", "", err
 			}
-			return doc.Content, resourceMIMEText, nil
+			return page.Content, resourceMIMEText, nil
 		}
-		data, err := svc.listDocs(ctx, input.Workspace, input.Query)
+		data, err := svc.listWikiPages(ctx, input.Workspace, input.Query)
 		if err != nil {
 			return "", "", err
 		}
@@ -970,12 +1013,12 @@ func linkForDAGSpec(name string) resourceLink {
 	}
 }
 
-func linkForDoc(workspace, path string) resourceLink {
+func linkForWikiPage(workspace, path string) resourceLink {
 	return resourceLink{
-		uri:         docURI(workspace, path),
-		name:        "document",
-		title:       "Markdown document",
-		description: "Current Markdown content for this document.",
+		uri:         wikiPageURI(workspace, path),
+		name:        "wiki_page",
+		title:       "Wiki page",
+		description: "Current Markdown content for this Wiki page.",
 		mimeType:    resourceMIMEText,
 	}
 }

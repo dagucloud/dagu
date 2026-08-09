@@ -23,7 +23,7 @@ const (
 	CategoryNotification Category = "notification"
 	CategoryIncident     Category = "incident"
 	CategoryGitSync      Category = "git_sync"
-	CategoryDoc          Category = "doc"
+	CategoryWiki         Category = "doc"
 	CategoryAgent        Category = "agent"
 	CategorySystem       Category = "system"
 	CategoryRemoteNode   Category = "remote_node"

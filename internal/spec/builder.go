@@ -266,6 +266,7 @@ var reservedSecretEnvNames = []string{
 	runenv.EnvKeyDAGRunStepStdoutFile,
 	runenv.EnvKeyDAGRunStepStderrFile,
 	runenv.EnvKeyDAGRunStatus,
+	runenv.EnvKeyDAGWikiDir,
 	runenv.EnvKeyDAGDocsDir,
 	runenv.EnvKeyDAGParamsJSON,
 	runenv.EnvKeyDAGParamsJSONCompat,

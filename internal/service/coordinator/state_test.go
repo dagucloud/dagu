@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -25,7 +25,7 @@ func TestHandlerStateRPCPutGetListDelete(t *testing.T) {
 		StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 	})
 	ctx := context.Background()
-	ref := &coordinatorv1.StateRef{Scope: string(dagstate.ScopeDAG), Namespace: "daily-agent", Key: "cursor"}
+	ref := &coordinatorv1.StateRef{Scope: string(dagrun.StateScopeDAG), Namespace: "daily-agent", Key: "cursor"}
 
 	putResp, err := h.PutState(ctx, &coordinatorv1.PutStateRequest{
 		Ref:   ref,
@@ -48,7 +48,7 @@ func TestHandlerStateRPCPutGetListDelete(t *testing.T) {
 	assert.JSONEq(t, `{"last_id":123}`, string(getResp.Entry.Value))
 
 	listResp, err := h.ListState(ctx, &coordinatorv1.ListStateRequest{
-		Scope:     string(dagstate.ScopeDAG),
+		Scope:     string(dagrun.StateScopeDAG),
 		Namespace: "daily-agent",
 		KeyPrefix: "cur",
 	})
@@ -69,7 +69,7 @@ func TestHandlerStateRPCConflictAndMissingStore(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	ref := &coordinatorv1.StateRef{Scope: string(dagstate.ScopeDAG), Namespace: "daily-agent", Key: "cursor"}
+	ref := &coordinatorv1.StateRef{Scope: string(dagrun.StateScopeDAG), Namespace: "daily-agent", Key: "cursor"}
 	h := NewHandler(HandlerConfig{
 		StateStore: store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state")),
 	})

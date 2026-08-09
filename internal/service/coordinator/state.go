@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,7 +26,7 @@ func (h *Handler) GetState(ctx context.Context, req *coordinatorv1.GetStateReque
 	}
 	entry, err := h.stateStore.Get(ctx, ref)
 	if err != nil {
-		if errors.Is(err, dagstate.ErrNotFound) {
+		if errors.Is(err, dagrun.ErrStateNotFound) {
 			return &coordinatorv1.GetStateResponse{Found: false}, nil
 		}
 		return nil, stateRPCError(err)
@@ -48,7 +48,7 @@ func (h *Handler) PutState(ctx context.Context, req *coordinatorv1.PutStateReque
 		v := req.GetExpectedVersion()
 		expected = &v
 	}
-	entry, err := h.stateStore.Put(ctx, ref, json.RawMessage(req.GetValue()), dagstate.PutOptions{
+	entry, err := h.stateStore.Put(ctx, ref, json.RawMessage(req.GetValue()), dagrun.StatePutOptions{
 		ExpectedVersion: expected,
 		CreateOnly:      req.GetCreateOnly(),
 		UpdatedBy:       stateUpdateSourceFromProto(req.GetUpdatedBy()),
@@ -80,8 +80,8 @@ func (h *Handler) ListState(ctx context.Context, req *coordinatorv1.ListStateReq
 	if h.stateStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "state store is not configured")
 	}
-	entries, err := h.stateStore.List(ctx, dagstate.ListOptions{
-		Scope:     dagstate.Scope(req.GetScope()),
+	entries, err := h.stateStore.List(ctx, dagrun.StateListOptions{
+		Scope:     dagrun.StateScope(req.GetScope()),
 		Namespace: req.GetNamespace(),
 		KeyPrefix: req.GetKeyPrefix(),
 		Limit:     int(req.GetLimit()),
@@ -96,24 +96,24 @@ func (h *Handler) ListState(ctx context.Context, req *coordinatorv1.ListStateReq
 	return &coordinatorv1.ListStateResponse{Entries: out}, nil
 }
 
-func stateRefFromProto(ref *coordinatorv1.StateRef) (dagstate.Ref, error) {
+func stateRefFromProto(ref *coordinatorv1.StateRef) (dagrun.StateRef, error) {
 	if ref == nil {
-		return dagstate.Ref{}, fmt.Errorf("%w: ref is required", dagstate.ErrInvalidRef)
+		return dagrun.StateRef{}, fmt.Errorf("%w: ref is required", dagrun.ErrInvalidStateRef)
 	}
-	out := dagstate.Ref{
-		Scope:     dagstate.Scope(ref.GetScope()),
+	out := dagrun.StateRef{
+		Scope:     dagrun.StateScope(ref.GetScope()),
 		Namespace: ref.GetNamespace(),
 		Key:       ref.GetKey(),
 	}
 	return out, out.Validate()
 }
 
-func stateEntryToProto(entry *dagstate.Entry) *coordinatorv1.StateEntry {
+func stateEntryToProto(entry *dagrun.StateEntry) *coordinatorv1.StateEntry {
 	if entry == nil {
 		return nil
 	}
 	return &coordinatorv1.StateEntry{
-		Ref:       stateRefToProto(entry.Ref),
+		Ref:       stateRefToProto(entry.StateRef),
 		Value:     append([]byte(nil), entry.Value...),
 		Version:   entry.Version,
 		Hash:      entry.Hash,
@@ -123,7 +123,7 @@ func stateEntryToProto(entry *dagstate.Entry) *coordinatorv1.StateEntry {
 	}
 }
 
-func stateRefToProto(ref dagstate.Ref) *coordinatorv1.StateRef {
+func stateRefToProto(ref dagrun.StateRef) *coordinatorv1.StateRef {
 	return &coordinatorv1.StateRef{
 		Scope:     string(ref.Scope),
 		Namespace: ref.Namespace,
@@ -131,11 +131,11 @@ func stateRefToProto(ref dagstate.Ref) *coordinatorv1.StateRef {
 	}
 }
 
-func stateUpdateSourceFromProto(src *coordinatorv1.StateUpdateSource) *dagstate.UpdateSource {
+func stateUpdateSourceFromProto(src *coordinatorv1.StateUpdateSource) *dagrun.StateUpdateSource {
 	if src == nil {
 		return nil
 	}
-	return &dagstate.UpdateSource{
+	return &dagrun.StateUpdateSource{
 		DAGName:   src.GetDagName(),
 		DAGRunID:  src.GetDagRunId(),
 		AttemptID: src.GetAttemptId(),
@@ -143,7 +143,7 @@ func stateUpdateSourceFromProto(src *coordinatorv1.StateUpdateSource) *dagstate.
 	}
 }
 
-func stateUpdateSourceToProto(src *dagstate.UpdateSource) *coordinatorv1.StateUpdateSource {
+func stateUpdateSourceToProto(src *dagrun.StateUpdateSource) *coordinatorv1.StateUpdateSource {
 	if src == nil {
 		return nil
 	}
@@ -159,11 +159,11 @@ func stateRPCError(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, dagstate.ErrInvalidRef), errors.Is(err, dagstate.ErrInvalidValue), errors.Is(err, dagstate.ErrValueTooLarge):
+	case errors.Is(err, dagrun.ErrInvalidStateRef), errors.Is(err, dagrun.ErrInvalidStateValue), errors.Is(err, dagrun.ErrStateValueTooLarge):
 		return status.Error(codes.InvalidArgument, err.Error())
-	case errors.Is(err, dagstate.ErrConflict):
+	case errors.Is(err, dagrun.ErrStateConflict):
 		return status.Error(codes.Aborted, err.Error())
-	case errors.Is(err, dagstate.ErrNotFound):
+	case errors.Is(err, dagrun.ErrStateNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, err.Error())

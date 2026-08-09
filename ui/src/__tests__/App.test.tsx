@@ -62,7 +62,7 @@ vi.mock('../pages/dags', () => ({ default: () => <h1>DAGs</h1> }));
 vi.mock('../pages/dags/dag', () => ({
   default: () => <h1>DAG Details</h1>,
 }));
-vi.mock('../pages/docs', () => ({ default: () => <h1>Docs</h1> }));
+vi.mock('../pages/wiki', () => ({ default: () => <h1>Wiki</h1> }));
 vi.mock('../pages/event-logs', () => ({
   default: () => <h1>Event Logs</h1>,
 }));
@@ -174,6 +174,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       configFileUsed: '',
       gitSyncDir: '',
       auditLogsDir: '',
+      wikiDir: '',
       docsDir: '',
     },
     ...overrides,
@@ -217,8 +218,23 @@ describe('App document title', () => {
   it('falls back to the configured title when a page sets none', async () => {
     renderAt('/queues', makeConfig({ title: 'Operations' }));
 
-    expect(await screen.findByRole('heading', { name: 'Queues' })).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'Queues' })
+    ).toBeVisible();
     expect(document.title).toBe('Operations');
+  });
+});
+
+describe('legacy Wiki routing', () => {
+  it('preserves the path, query, and hash when redirecting from docs', async () => {
+    renderAt('/docs/runbooks/deploy?workspace=ops#rollback');
+
+    expect(await screen.findByRole('heading', { name: 'Wiki' })).toBeVisible();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/wiki/runbooks/deploy');
+      expect(window.location.search).toBe('?workspace=ops');
+      expect(window.location.hash).toBe('#rollback');
+    });
   });
 });
 

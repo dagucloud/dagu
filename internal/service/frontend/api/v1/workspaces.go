@@ -14,7 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/docs"
+	"github.com/dagucloud/dagu/v2/internal/wiki"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -26,18 +26,18 @@ func workspaceStoreUnavailable() *Error {
 	}
 }
 
-type workspaceDocStore interface {
+type workspaceWikiStore interface {
 	PathExists(ctx context.Context, id string) (fileExists, directoryExists bool, err error)
 	RenameDirectory(ctx context.Context, oldID, newID string) error
 }
 
-func (a *API) workspaceDocumentStore() (workspaceDocStore, error) {
-	if a.docStore == nil {
+func (a *API) workspaceWikiStore() (workspaceWikiStore, error) {
+	if a.wikiStore == nil {
 		return nil, nil
 	}
-	store, ok := a.docStore.(workspaceDocStore)
+	store, ok := a.wikiStore.(workspaceWikiStore)
 	if !ok {
-		return nil, errors.New("document store does not support workspace lifecycle operations")
+		return nil, errors.New("wiki page store does not support workspace lifecycle operations")
 	}
 	return store, nil
 }
@@ -87,22 +87,22 @@ func (a *API) CreateWorkspace(ctx context.Context, request api.CreateWorkspaceRe
 		}, nil
 	}
 
-	a.workspaceDocMu.Lock()
-	defer a.workspaceDocMu.Unlock()
+	a.workspaceWikiMu.Lock()
+	defer a.workspaceWikiMu.Unlock()
 
-	docStore, err := a.workspaceDocumentStore()
+	wikiStore, err := a.workspaceWikiStore()
 	if err != nil {
 		return nil, err
 	}
-	if docStore != nil {
-		fileExists, directoryExists, err := docStore.PathExists(ctx, body.Name)
+	if wikiStore != nil {
+		fileExists, directoryExists, err := wikiStore.PathExists(ctx, body.Name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to inspect workspace document path: %w", err)
+			return nil, fmt.Errorf("failed to inspect workspace Wiki page path: %w", err)
 		}
 		if fileExists || directoryExists {
 			return api.CreateWorkspace409JSONResponse{
 				Code:    api.ErrorCodeAlreadyExists,
-				Message: "Workspace name conflicts with an existing document path",
+				Message: "Workspace name conflicts with an existing Wiki page path",
 			}, nil
 		}
 	}
@@ -161,8 +161,8 @@ func (a *API) UpdateWorkspace(ctx context.Context, request api.UpdateWorkspaceRe
 		return nil, workspaceStoreUnavailable()
 	}
 
-	a.workspaceDocMu.Lock()
-	defer a.workspaceDocMu.Unlock()
+	a.workspaceWikiMu.Lock()
+	defer a.workspaceWikiMu.Unlock()
 
 	existing, err := a.workspaceStore.GetByID(ctx, request.WorkspaceId)
 	if err != nil {
@@ -199,51 +199,51 @@ func (a *API) UpdateWorkspace(ctx context.Context, request api.UpdateWorkspaceRe
 
 	updated.UpdatedAt = time.Now().UTC()
 
-	docStore, err := a.workspaceDocumentStore()
+	wikiStore, err := a.workspaceWikiStore()
 	if err != nil {
 		return nil, err
 	}
-	docsMoved := false
-	if docStore != nil && updated.Name != existing.Name {
-		oldFileExists, oldDirectoryExists, err := docStore.PathExists(ctx, existing.Name)
+	wikiMoved := false
+	if wikiStore != nil && updated.Name != existing.Name {
+		oldFileExists, oldDirectoryExists, err := wikiStore.PathExists(ctx, existing.Name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to inspect current workspace document path: %w", err)
+			return nil, fmt.Errorf("failed to inspect current workspace Wiki page path: %w", err)
 		}
-		newFileExists, newDirectoryExists, err := docStore.PathExists(ctx, updated.Name)
+		newFileExists, newDirectoryExists, err := wikiStore.PathExists(ctx, updated.Name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to inspect new workspace document path: %w", err)
+			return nil, fmt.Errorf("failed to inspect new workspace Wiki page path: %w", err)
 		}
 		if oldFileExists || newFileExists || newDirectoryExists {
 			return api.UpdateWorkspace409JSONResponse{
 				Code:    api.ErrorCodeAlreadyExists,
-				Message: "Workspace rename conflicts with an existing document path",
+				Message: "Workspace rename conflicts with an existing Wiki page path",
 			}, nil
 		}
 		if oldDirectoryExists {
-			if err := docStore.RenameDirectory(ctx, existing.Name, updated.Name); err != nil {
-				if errors.Is(err, docs.ErrDocAlreadyExists) || errors.Is(err, docs.ErrDocPathConflict) {
+			if err := wikiStore.RenameDirectory(ctx, existing.Name, updated.Name); err != nil {
+				if errors.Is(err, wiki.ErrPageAlreadyExists) || errors.Is(err, wiki.ErrPagePathConflict) {
 					return api.UpdateWorkspace409JSONResponse{
 						Code:    api.ErrorCodeAlreadyExists,
-						Message: "Workspace rename conflicts with an existing document path",
+						Message: "Workspace rename conflicts with an existing Wiki page path",
 					}, nil
 				}
-				return nil, fmt.Errorf("failed to rename workspace documents: %w", err)
+				return nil, fmt.Errorf("failed to rename workspace Wiki pages: %w", err)
 			}
-			docsMoved = true
+			wikiMoved = true
 		}
 	}
 
 	if err := a.workspaceStore.Update(ctx, &updated); err != nil {
-		if docsMoved {
-			if rollbackErr := docStore.RenameDirectory(ctx, updated.Name, existing.Name); rollbackErr != nil {
-				logger.Error(ctx, "Failed to restore workspace documents after update failure",
-					tag.String("current-doc-id", updated.Name),
-					tag.String("restore-doc-id", existing.Name),
+		if wikiMoved {
+			if rollbackErr := wikiStore.RenameDirectory(ctx, updated.Name, existing.Name); rollbackErr != nil {
+				logger.Error(ctx, "Failed to restore workspace Wiki pages after update failure",
+					tag.String("current-page-id", updated.Name),
+					tag.String("restore-page-id", existing.Name),
 					tag.Error(rollbackErr),
 				)
 				return nil, errors.Join(
 					fmt.Errorf("failed to update workspace: %w", err),
-					fmt.Errorf("failed to restore workspace documents: %w", rollbackErr),
+					fmt.Errorf("failed to restore workspace Wiki pages: %w", rollbackErr),
 				)
 			}
 		}
@@ -273,8 +273,8 @@ func (a *API) DeleteWorkspace(ctx context.Context, request api.DeleteWorkspaceRe
 		return nil, workspaceStoreUnavailable()
 	}
 
-	a.workspaceDocMu.Lock()
-	defer a.workspaceDocMu.Unlock()
+	a.workspaceWikiMu.Lock()
+	defer a.workspaceWikiMu.Unlock()
 
 	ws, err := a.workspaceStore.GetByID(ctx, request.WorkspaceId)
 	if err != nil {
@@ -293,19 +293,19 @@ func (a *API) DeleteWorkspace(ctx context.Context, request api.DeleteWorkspaceRe
 		}, nil
 	}
 
-	docStore, err := a.workspaceDocumentStore()
+	wikiStore, err := a.workspaceWikiStore()
 	if err != nil {
 		return nil, err
 	}
-	if docStore != nil {
-		fileExists, directoryExists, err := docStore.PathExists(ctx, ws.Name)
+	if wikiStore != nil {
+		fileExists, directoryExists, err := wikiStore.PathExists(ctx, ws.Name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to inspect workspace document path: %w", err)
+			return nil, fmt.Errorf("failed to inspect workspace Wiki page path: %w", err)
 		}
 		if fileExists || directoryExists {
 			return api.DeleteWorkspace409JSONResponse{
 				Code:    api.ErrorCodeConflict,
-				Message: "Delete workspace documents before deleting the workspace",
+				Message: "Delete workspace Wiki pages before deleting the workspace",
 			}, nil
 		}
 	}

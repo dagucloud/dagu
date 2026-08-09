@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -40,7 +39,7 @@ type Context struct {
 	CoordinatorCli       dispatch.Dispatcher
 	DAGRunStore          dagrun.DAGRunStore
 	QueueStore           queue.QueueStore
-	StateStore           dagstate.Store
+	StateStore           dagrun.StateStore
 	MaterializationStore build.MaterializationStore
 	DAGRunLogDir         string
 	DAGRunArtifactDir    string
@@ -260,7 +259,7 @@ func WithQueueStore(store queue.QueueStore) ContextOption {
 }
 
 // WithStateStore sets the persistent DAG state store for state actions.
-func WithStateStore(store dagstate.Store) ContextOption {
+func WithStateStore(store dagrun.StateStore) ContextOption {
 	return func(o *contextOptions) {
 		o.StateStore = store
 	}
@@ -468,6 +467,7 @@ func buildDAGRunBuiltinContext(
 	addDAGRunBuiltinValue(values, "context.paths.log_file", managedEnvs[runenv.EnvKeyDAGRunLogFile])
 	addDAGRunBuiltinValue(values, "context.paths.work_dir", managedEnvs[runenv.EnvKeyDAGRunWorkDir])
 	addDAGRunBuiltinValue(values, "context.paths.artifacts_dir", managedEnvs[runenv.EnvKeyDAGRunArtifactsDir])
+	addDAGRunBuiltinValue(values, "context.paths.wiki_dir", managedEnvs[runenv.EnvKeyDAGWikiDir])
 	addDAGRunBuiltinValue(values, "context.paths.docs_dir", managedEnvs[runenv.EnvKeyDAGDocsDir])
 	addDAGRunBuiltinValue(values, "context.profile.name", options.ProfileName)
 	addDAGRunBuiltinValue(values, "context.profile.resolved_at", options.ProfileResolvedAt)

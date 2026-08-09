@@ -21,7 +21,7 @@ import (
 const (
 	defaultAppStreamBufferSize = 32
 	appStreamDebounceInterval  = 200 * time.Millisecond
-	docsPollingInterval        = 30 * time.Second
+	wikiPollingInterval        = 30 * time.Second
 )
 
 type AppEventType string
@@ -30,7 +30,7 @@ const (
 	AppEventTypeReset      AppEventType = "reset"
 	AppEventTypeDAGChanged AppEventType = "dag.changed"
 	AppEventTypeQueue      AppEventType = "queue.changed"
-	AppEventTypeDoc        AppEventType = "doc.changed"
+	AppEventTypeWiki       AppEventType = "wiki.page.changed"
 )
 
 // AppEvent carries low-volume invalidations that tell the UI what to revalidate.
@@ -171,9 +171,13 @@ func (c *appEventCoalescer) flush() {
 }
 
 type directoryWatcher struct {
-	root           string
-	createRoot     bool
-	scope          watchScope
+	root       string
+	createRoot bool
+	scope      watchScope
+	// skipDirName excludes directories with this base name (and their
+	// subtrees) from watch registration; their events are unwanted and the
+	// per-directory watches would consume kernel resources.
+	skipDirName    string
 	newFileWatcher fileWatcherFactory
 	watcher        filenotify.FileWatcher
 	onEvent        func(root, relPath string, op fsnotify.Op)
@@ -210,8 +214,8 @@ func newRecursiveDirectoryWatcher(root string, createRoot bool, onEvent func(roo
 	return newWatcher(root, createRoot, watchScopeRecursive, onEvent, onReset)
 }
 
-func newDocsDirectoryWatcher(root string, createRoot bool, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) appWatcher {
-	return &docsDirectoryWatcher{
+func newWikiDirectoryWatcher(root string, createRoot bool, onEvent func(root, relPath string, op fsnotify.Op), onReset func(reason string)) appWatcher {
+	return &wikiDirectoryWatcher{
 		root:       root,
 		createRoot: createRoot,
 		onEvent:    onEvent,
@@ -250,7 +254,7 @@ func (w *directoryWatcher) Start(ctx context.Context) error {
 	}
 
 	if w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive {
-		paths, err := watchPathsForScope(w.root, w.scope)
+		paths, err := watchPathsForScope(w.root, w.scope, w.skipDirName)
 		if err != nil {
 			_ = w.watcher.Close()
 			return err
@@ -333,6 +337,9 @@ func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil
 	}
+	if w.skipDirName != "" && filepath.Base(path) == w.skipDirName {
+		return nil
+	}
 	parent := filepath.Clean(filepath.Dir(path))
 	if w.scope == watchScopeOneLevel && parent != filepath.Clean(w.root) {
 		return nil
@@ -350,6 +357,9 @@ func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 		if !entry.IsDir() {
 			return nil
 		}
+		if w.skipDirName != "" && entry.Name() == w.skipDirName {
+			return filepath.SkipDir
+		}
 		info, err := entry.Info()
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -364,7 +374,7 @@ func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 	})
 }
 
-type docsDirectoryWatcher struct {
+type wikiDirectoryWatcher struct {
 	root       string
 	createRoot bool
 	onEvent    func(root, relPath string, op fsnotify.Op)
@@ -372,7 +382,7 @@ type docsDirectoryWatcher struct {
 	active     appWatcher
 }
 
-func (w *docsDirectoryWatcher) Start(ctx context.Context) error {
+func (w *wikiDirectoryWatcher) Start(ctx context.Context) error {
 	ready, err := prepareWatchRoot(w.root, w.createRoot)
 	if err != nil || !ready {
 		return err
@@ -380,6 +390,7 @@ func (w *docsDirectoryWatcher) Start(ctx context.Context) error {
 
 	eventWatcher := newRecursiveDirectoryWatcher(w.root, false, w.onEvent, w.onReset)
 	eventWatcher.newFileWatcher = filenotify.NewEventWatcher
+	eventWatcher.skipDirName = wikiPageAttachmentsDirName
 	eventErr := eventWatcher.Start(ctx)
 	if eventErr == nil {
 		w.active = eventWatcher
@@ -387,15 +398,15 @@ func (w *docsDirectoryWatcher) Start(ctx context.Context) error {
 	}
 	eventWatcher.Stop()
 
-	pollingWatcher := newMarkdownPollingWatcher(w.root, false, docsPollingInterval, w.onEvent, w.onReset)
+	pollingWatcher := newMarkdownPollingWatcher(w.root, false, wikiPollingInterval, w.onEvent, w.onReset)
 	if pollingErr := pollingWatcher.Start(ctx); pollingErr != nil {
-		return fmt.Errorf("start docs watcher: event watcher: %w; markdown poller: %v", eventErr, pollingErr)
+		return fmt.Errorf("start Wiki watcher: event watcher: %w; markdown poller: %v", eventErr, pollingErr)
 	}
 	w.active = pollingWatcher
 	return nil
 }
 
-func (w *docsDirectoryWatcher) Stop() {
+func (w *wikiDirectoryWatcher) Stop() {
 	if w.active != nil {
 		w.active.Stop()
 	}
@@ -472,7 +483,7 @@ func (w *markdownPollingWatcher) loop(ctx context.Context) {
 func (w *markdownPollingWatcher) check() {
 	next, err := snapshotMarkdownFiles(w.root)
 	if err != nil {
-		w.onReset(fmt.Sprintf("docs polling scan failed for %s: %v", w.root, err))
+		w.onReset(fmt.Sprintf("Wiki polling scan failed for %s: %v", w.root, err))
 		return
 	}
 
@@ -513,6 +524,9 @@ func snapshotMarkdownFiles(root string) (map[string]markdownFileState, error) {
 			return nil
 		}
 		if entry.IsDir() {
+			if entry.Name() == wikiPageAttachmentsDirName {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(entry.Name()) != ".md" {
@@ -542,9 +556,9 @@ func snapshotMarkdownFiles(root string) (map[string]markdownFileState, error) {
 	return files, err
 }
 
-func watchPathsForScope(root string, scope watchScope) ([]string, error) {
+func watchPathsForScope(root string, scope watchScope, skipDirName string) ([]string, error) {
 	if scope == watchScopeRecursive {
-		return recursiveWatchPaths(root)
+		return recursiveWatchPaths(root, skipDirName)
 	}
 	return oneLevelWatchPaths(root)
 }
@@ -563,7 +577,7 @@ func oneLevelWatchPaths(root string) ([]string, error) {
 	return paths, nil
 }
 
-func recursiveWatchPaths(root string) ([]string, error) {
+func recursiveWatchPaths(root string, skipDirName string) ([]string, error) {
 	paths := []string{}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -571,6 +585,9 @@ func recursiveWatchPaths(root string) ([]string, error) {
 		}
 		if !entry.IsDir() {
 			return nil
+		}
+		if skipDirName != "" && entry.Name() == skipDirName && path != root {
+			return filepath.SkipDir
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -642,7 +659,7 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 		))
 	}
 	service.watchers = append(service.watchers,
-		newDocsDirectoryWatcher(cfg.Paths.DocsDir, true, service.handleDocEvent, service.publishReset),
+		newWikiDirectoryWatcher(cfg.Paths.WikiDir, true, service.handleWikiPageEvent, service.publishReset),
 		newDirectoryWatcher(cfg.Paths.SuspendFlagsDir, true, service.handleSuspendFlagEvent, service.publishReset),
 		newOneLevelDirectoryWatcher(cfg.Paths.QueueDir, true, service.handleQueueEvent, service.publishReset),
 	)
@@ -734,12 +751,26 @@ func (s *AppStreamService) handleQueueEvent(_, relPath string, op fsnotify.Op) {
 	})
 }
 
-func (s *AppStreamService) handleDocEvent(_, relPath string, op fsnotify.Op) {
-	if filepath.Ext(relPath) != ".md" {
+// wikiPageAttachmentsDirName is the reserved attachment subtree inside the Wiki
+// directory. Files under it are attachments rather than Wiki pages and must
+// not produce Wiki page invalidations.
+const wikiPageAttachmentsDirName = ".attachments"
+
+func isWikiPageAttachmentPath(relPath string) bool {
+	for segment := range strings.SplitSeq(filepath.ToSlash(relPath), "/") {
+		if segment == wikiPageAttachmentsDirName {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *AppStreamService) handleWikiPageEvent(_, relPath string, op fsnotify.Op) {
+	if filepath.Ext(relPath) != ".md" || isWikiPageAttachmentPath(relPath) {
 		return
 	}
 	s.coalescer.Enqueue(AppEvent{
-		Type:   AppEventTypeDoc,
+		Type:   AppEventTypeWiki,
 		Path:   strings.TrimSuffix(filepath.ToSlash(relPath), ".md"),
 		Reason: fileEventReason(op),
 	})

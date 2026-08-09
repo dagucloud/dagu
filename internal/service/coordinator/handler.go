@@ -23,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -119,7 +118,7 @@ type Handler struct {
 	dagRunStore               dagrun.DAGRunStore                 // For status persistence
 	logDir                    string                             // For log storage
 	artifactDir               string                             // For artifact storage
-	stateStore                dagstate.Store                     // For persistent DAG state shared across DAG runs
+	stateStore                dagrun.StateStore                  // For persistent DAG state shared across DAG runs
 	workspaceBundleStore      *workspacebundle.Store             // For immutable action workspace bundles
 	dispatchTaskStore         dispatch.DispatchTaskStore         // Shared distributed dispatch queue
 	dispatchAdmissionStore    dispatch.DispatchAdmissionStore    // Shared distributed admission state
@@ -168,7 +167,7 @@ type HandlerConfig struct {
 	ArtifactDir string
 
 	// StateStore is the persistent DAG state store used by state RPCs.
-	StateStore dagstate.Store
+	StateStore dagrun.StateStore
 
 	// WorkspaceBundleDir stores immutable action workspace bundles by digest.
 	WorkspaceBundleDir string

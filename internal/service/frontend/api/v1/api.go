@@ -26,7 +26,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
-	"github.com/dagucloud/dagu/v2/internal/docs"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -51,6 +50,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 	"github.com/dagucloud/dagu/v2/internal/view"
+	"github.com/dagucloud/dagu/v2/internal/wiki"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -90,8 +90,8 @@ type API struct {
 	dagWritesDisabled    bool // True when git sync read-only mode is active
 	baseConfigStore      dagsettings.BaseConfigStore
 	dagSettingsStore     dagsettings.Store
-	docStore             docs.DocStore
-	workspaceDocMu       sync.RWMutex
+	wikiStore            wiki.PageStore
+	workspaceWikiMu      sync.RWMutex
 	secretStore          secretpkg.Store
 	profileStore         profilepkg.Store
 	viewStore            view.Store
@@ -101,7 +101,7 @@ type API struct {
 	leaseStaleThreshold  time.Duration
 	schedulerStateStore  scheduler.WatermarkStore
 	dagMutationNotifier  func(fileName string)
-	docMutationNotifier  func()
+	wikiMutationNotifier func()
 	baseConfigFactory    WorkspaceBaseConfigStoreFactory
 	oidcRoleMapping      func() config.OIDCRoleMapping
 }
@@ -268,10 +268,10 @@ func WithDAGSettingsStore(store dagsettings.Store) APIOption {
 	}
 }
 
-// WithDocStore returns an APIOption that sets the API's doc store.
-func WithDocStore(store docs.DocStore) APIOption {
+// WithWikiStore returns an APIOption that sets the API's Wiki page store.
+func WithWikiStore(store wiki.PageStore) APIOption {
 	return func(a *API) {
-		a.docStore = store
+		a.wikiStore = store
 	}
 }
 
@@ -325,11 +325,11 @@ func WithDAGMutationNotifier(fn func(fileName string)) APIOption {
 	}
 }
 
-// WithDocMutationNotifier returns an APIOption that is called after successful
-// document mutations that should invalidate live document views.
-func WithDocMutationNotifier(fn func()) APIOption {
+// WithWikiMutationNotifier returns an APIOption that is called after successful
+// Wiki page mutations that should invalidate live Wiki views.
+func WithWikiMutationNotifier(fn func()) APIOption {
 	return func(a *API) {
-		a.docMutationNotifier = fn
+		a.wikiMutationNotifier = fn
 	}
 }
 
@@ -414,9 +414,9 @@ func (a *API) notifyDAGMutation(fileName string) {
 	}
 }
 
-func (a *API) notifyDocMutation() {
-	if a.docMutationNotifier != nil {
-		a.docMutationNotifier()
+func (a *API) notifyWikiMutation() {
+	if a.wikiMutationNotifier != nil {
+		a.wikiMutationNotifier()
 	}
 }
 

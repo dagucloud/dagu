@@ -38,29 +38,57 @@ const (
 )
 
 const (
-	docsDir      = "docs"
-	baseConfigID = "base"
+	wikiDir       = "wiki"
+	legacyDocsDir = "docs"
+	baseConfigID  = "base"
+
+	// wikiPageAssetsDirName is the reserved subtree holding page attachments.
+	wikiPageAssetsDirName = ".attachments"
 )
 
 // SyncItemKind identifies a supported Git Sync item type.
 type SyncItemKind string
 
 const (
-	SyncItemKindDAG SyncItemKind = "dag"
-	SyncItemKindDoc SyncItemKind = "doc"
+	SyncItemKindDAG      SyncItemKind = "dag"
+	SyncItemKindWikiPage SyncItemKind = "doc"
+	// SyncItemKindWikiPageAsset is a binary page attachment. Its ID keeps the
+	// file extension so names inside one attachment
+	// directory differ only by extension.
+	SyncItemKindWikiPageAsset SyncItemKind = "doc-asset"
 )
 
 // SyncItemKindForID derives the item type from its normalized ID.
 func SyncItemKindForID(id string) SyncItemKind {
 	id = normalizeDAGIDSeparators(id)
-	if strings.HasPrefix(id, docsDir+"/") {
-		return SyncItemKindDoc
+	if hasWikiPrefix(id, wikiPageAssetsDirName+"/") {
+		return SyncItemKindWikiPageAsset
+	}
+	if hasWikiPrefix(id, "") {
+		return SyncItemKindWikiPage
 	}
 	return SyncItemKindDAG
 }
 
-func isDocFile(id string) bool {
-	return SyncItemKindForID(id) == SyncItemKindDoc
+func hasWikiPrefix(id, suffix string) bool {
+	return strings.HasPrefix(id, wikiDir+"/"+suffix) ||
+		strings.HasPrefix(id, legacyDocsDir+"/"+suffix)
+}
+
+func isWikiPageFile(id string) bool {
+	return SyncItemKindForID(id) == SyncItemKindWikiPage
+}
+
+func isWikiPageAssetFile(id string) bool {
+	return SyncItemKindForID(id) == SyncItemKindWikiPageAsset
+}
+
+func wikiRepoDirForID(id string) string {
+	id = normalizeDAGIDSeparators(id)
+	if strings.HasPrefix(id, legacyDocsDir+"/") {
+		return legacyDocsDir
+	}
+	return wikiDir
 }
 
 func isBaseConfigID(id string) bool {
@@ -220,7 +248,9 @@ func normalizeTrackedItems(state *State) {
 			delete(state.Items, itemID)
 			continue
 		}
-		if itemState.Kind != "" && itemState.Kind != SyncItemKindDAG && itemState.Kind != SyncItemKindDoc {
+		switch itemState.Kind {
+		case "", SyncItemKindDAG, SyncItemKindWikiPage, SyncItemKindWikiPageAsset:
+		default:
 			delete(state.Items, itemID)
 			continue
 		}

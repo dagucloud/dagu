@@ -46,14 +46,14 @@ func TestResourceAuditDetailsIdentifiesStepLog(t *testing.T) {
 	require.Equal(t, "nightly/run-1/build", details["resource_id"])
 }
 
-func TestResourceAuditDetailsIdentifiesDocument(t *testing.T) {
+func TestResourceAuditDetailsIdentifiesLegacyWikiURI(t *testing.T) {
 	details := resourceAuditDetails("dagu://docs/operations/runbooks%2Frestart")
 
 	require.Equal(t, "document", details["resource_type"])
 	require.Equal(t, "operations/runbooks/restart", details["resource_id"])
 }
 
-func TestResourceAuditDetailsPreservesInvalidDocumentURI(t *testing.T) {
+func TestResourceAuditDetailsPreservesInvalidLegacyWikiURI(t *testing.T) {
 	const uri = "dagu://docs/operations/runbooks/restart"
 	details := resourceAuditDetails(uri)
 
@@ -64,7 +64,7 @@ func TestResourceAuditDetailsPreservesInvalidDocumentURI(t *testing.T) {
 func TestDocumentChangeAuditMetadataUsesWorkspaceAndContentSize(t *testing.T) {
 	metadata := changeAuditMetadata(changeInput{
 		Mode:      changeModeApply,
-		Type:      changeTypeUpsertDoc,
+		Type:      changeTypeUpsertWikiPage,
 		Workspace: "operations",
 		Path:      "runbooks/restart",
 		Content:   "# Restart",

@@ -220,6 +220,8 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	}
 	require.Contains(t, names, "dagu_create_dag")
 	require.Contains(t, names, "dagu_edit_dag")
+	require.Contains(t, names, "dagu_create_wiki_page")
+	require.Contains(t, names, "dagu_edit_wiki_page")
 	require.Contains(t, names, "dagu_create_doc")
 	require.Contains(t, names, "dagu_edit_doc")
 	require.Contains(t, names, "dagu_debug_failed_run")
@@ -257,7 +259,7 @@ func TestPromptMentionsPreviewBeforeApply(t *testing.T) {
 	require.True(t, strings.Contains(text, "dagu_change"))
 }
 
-func TestDocumentPromptsIncludeRequiredUpsertFields(t *testing.T) {
+func TestWikiPagePromptsIncludeRequiredUpsertFields(t *testing.T) {
 	ctx := context.Background()
 	session := connectTestClient(t, ctx, NewServer(nil))
 
@@ -268,14 +270,34 @@ func TestDocumentPromptsIncludeRequiredUpsertFields(t *testing.T) {
 		wantFieldBlock string
 	}{
 		{
+			name: "dagu_create_wiki_page",
+			arguments: map[string]string{
+				"workspace": "operations",
+				"path":      "runbooks/restart",
+				"goal":      "Describe a safe restart.",
+			},
+			request:        "Describe a safe restart.",
+			wantFieldBlock: "mode=preview, type=upsert_wiki_page, workspace=operations, path=runbooks/restart, and content set to the complete drafted Markdown",
+		},
+		{
+			name: "dagu_edit_wiki_page",
+			arguments: map[string]string{
+				"workspace": "operations",
+				"path":      "runbooks/restart",
+				"change":    "Add the rollback steps.",
+			},
+			request:        "Add the rollback steps.",
+			wantFieldBlock: "mode=preview, type=upsert_wiki_page, workspace=operations, path=runbooks/restart, and content set to the complete edited Markdown",
+		},
+		{
 			name: "dagu_create_doc",
 			arguments: map[string]string{
 				"workspace": "operations",
 				"path":      "runbooks/restart",
-				"goal":      "Document a safe restart.",
+				"goal":      "Describe a safe restart.",
 			},
-			request:        "Document a safe restart.",
-			wantFieldBlock: "mode=preview, type=upsert_doc, workspace=operations, path=runbooks/restart, and content set to the complete drafted Markdown",
+			request:        "Describe a safe restart.",
+			wantFieldBlock: "mode=preview, type=upsert_wiki_page, workspace=operations, path=runbooks/restart, and content set to the complete drafted Markdown",
 		},
 		{
 			name: "dagu_edit_doc",
@@ -285,7 +307,7 @@ func TestDocumentPromptsIncludeRequiredUpsertFields(t *testing.T) {
 				"change":    "Add the rollback steps.",
 			},
 			request:        "Add the rollback steps.",
-			wantFieldBlock: "mode=preview, type=upsert_doc, workspace=operations, path=runbooks/restart, and content set to the complete edited Markdown",
+			wantFieldBlock: "mode=preview, type=upsert_wiki_page, workspace=operations, path=runbooks/restart, and content set to the complete edited Markdown",
 		},
 	}
 	for _, test := range tests {

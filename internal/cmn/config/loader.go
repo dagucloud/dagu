@@ -329,7 +329,9 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 		return nil, err
 	}
 	l.loadLegacyEnv(&cfg)
-	l.finalizePaths(&cfg)
+	if err := l.finalizePaths(&cfg); err != nil {
+		return nil, err
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -418,7 +420,6 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 	}{
 		{"DAGsDir", &cfg.Paths.DAGsDir, def.Paths.DAGsDir},
 		{"AltDAGsDir", &cfg.Paths.AltDAGsDir, def.Paths.AltDagsDir},
-		{"DocsDir", &cfg.Paths.DocsDir, def.Paths.DocsDir},
 		{"SuspendFlagsDir", &cfg.Paths.SuspendFlagsDir, def.Paths.SuspendFlagsDir},
 		{"DataDir", &cfg.Paths.DataDir, def.Paths.DataDir},
 		{"ToolsDir", &cfg.Paths.ToolsDir, def.Paths.ToolsDir},
@@ -448,6 +449,24 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 			return err
 		}
 		*m.target = resolved
+	}
+
+	wikiDir := def.Paths.WikiDir
+	if wikiDir != "" {
+		if def.Paths.DocsDir != "" {
+			l.warnings = append(l.warnings, "paths.docs_dir is deprecated and ignored because paths.wiki_dir is set")
+		}
+	} else if def.Paths.DocsDir != "" {
+		wikiDir = def.Paths.DocsDir
+		cfg.Paths.WikiDirLegacy = true
+		l.warnings = append(l.warnings, "paths.docs_dir is deprecated; use paths.wiki_dir instead")
+	}
+	if wikiDir != "" {
+		resolved, err := l.resolvePath("WikiDir", wikiDir)
+		if err != nil {
+			return err
+		}
+		cfg.Paths.WikiDir = resolved
 	}
 
 	return nil
@@ -1697,7 +1716,7 @@ func (l *ConfigLoader) loadCacheConfig(cfg *Config, def Definition) {
 	}
 }
 
-func (l *ConfigLoader) finalizePaths(cfg *Config) {
+func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 	derivedPaths := []struct {
 		target      *string
 		defaultPath string
@@ -1732,8 +1751,18 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) {
 	if cfg.Paths.ArtifactDir == "" {
 		cfg.Paths.ArtifactDir = filepath.Join(cfg.Paths.DataDir, "artifacts")
 	}
-	if cfg.Paths.DocsDir == "" {
-		cfg.Paths.DocsDir = filepath.Join(cfg.Paths.DAGsDir, "docs")
+	if cfg.Paths.WikiDir == "" {
+		wikiDir := filepath.Join(cfg.Paths.DAGsDir, "wiki")
+		docsDir := filepath.Join(cfg.Paths.DAGsDir, "docs")
+		selected, legacy, err := selectRenamedPath(wikiDir, docsDir)
+		if err != nil {
+			return fmt.Errorf("wiki directory: %w", err)
+		}
+		cfg.Paths.WikiDir = selected
+		cfg.Paths.WikiDirLegacy = legacy
+		if legacy {
+			l.notices = append(l.notices, fmt.Sprintf("Using existing legacy docs directory %s for the Wiki; configure paths.wiki_dir to choose another location", selected))
+		}
 	}
 
 	if cfg.Paths.Executable == "" {
@@ -1741,6 +1770,36 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) {
 			cfg.Paths.Executable = executable
 		}
 	}
+	return nil
+}
+
+func selectRenamedPath(canonical, legacy string) (string, bool, error) {
+	canonicalExists, err := pathExists(canonical)
+	if err != nil {
+		return "", false, err
+	}
+	legacyExists, err := pathExists(legacy)
+	if err != nil {
+		return "", false, err
+	}
+	if canonicalExists && legacyExists {
+		return "", false, fmt.Errorf("both %s and %s exist; set paths.wiki_dir explicitly after reconciling them", canonical, legacy)
+	}
+	if legacyExists {
+		return legacy, true, nil
+	}
+	return canonical, false, nil
+}
+
+func pathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("inspect %s: %w", path, err)
 }
 
 // LoadLegacyFields applies deprecated configuration fields to the current Config.
@@ -2105,6 +2164,7 @@ var envBindings = []envBinding{
 	{key: "paths.dags_dir", env: "DAGS", isPath: true},
 	{key: "paths.dags_dir", env: "DAGS_DIR", isPath: true},
 	{key: "paths.alt_dags_dir", env: "ALT_DAGS_DIR", isPath: true},
+	{key: "paths.wiki_dir", env: "WIKI_DIR", isPath: true},
 	{key: "paths.docs_dir", env: "DOCS_DIR", isPath: true},
 	{key: "paths.executable", env: "EXECUTABLE", isPath: true},
 	{key: "paths.log_dir", env: "LOG_DIR", isPath: true},

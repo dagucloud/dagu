@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
@@ -18,7 +18,7 @@ import (
 )
 
 var _ StateClient = (*clientImpl)(nil)
-var _ dagstate.Store = (*stateStoreClient)(nil)
+var _ dagrun.StateStore = (*stateStoreClient)(nil)
 
 func (cli *clientImpl) GetState(ctx context.Context, req *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error) {
 	var resp *coordinatorv1.GetStateResponse
@@ -78,15 +78,15 @@ type stateStoreClient struct {
 	client StateClient
 }
 
-// NewStateStoreClient adapts coordinator state RPCs to the dagstate store interface.
-func NewStateStoreClient(client StateClient) dagstate.Store {
+// NewStateStoreClient adapts coordinator state RPCs to the persistent state store interface.
+func NewStateStoreClient(client StateClient) dagrun.StateStore {
 	if client == nil {
 		return nil
 	}
 	return &stateStoreClient{client: client}
 }
 
-func (s *stateStoreClient) Get(ctx context.Context, ref dagstate.Ref) (*dagstate.Entry, error) {
+func (s *stateStoreClient) Get(ctx context.Context, ref dagrun.StateRef) (*dagrun.StateEntry, error) {
 	if err := ref.Validate(); err != nil {
 		return nil, err
 	}
@@ -95,16 +95,16 @@ func (s *stateStoreClient) Get(ctx context.Context, ref dagstate.Ref) (*dagstate
 		return nil, stateClientError(err)
 	}
 	if resp == nil || !resp.GetFound() {
-		return nil, dagstate.ErrNotFound
+		return nil, dagrun.ErrStateNotFound
 	}
 	return stateEntryFromProto(resp.GetEntry())
 }
 
-func (s *stateStoreClient) Put(ctx context.Context, ref dagstate.Ref, value json.RawMessage, opts dagstate.PutOptions) (*dagstate.Entry, error) {
+func (s *stateStoreClient) Put(ctx context.Context, ref dagrun.StateRef, value json.RawMessage, opts dagrun.StatePutOptions) (*dagrun.StateEntry, error) {
 	if err := ref.Validate(); err != nil {
 		return nil, err
 	}
-	normalized, err := dagstate.NormalizeValue(value)
+	normalized, err := dagrun.NormalizeStateValue(value)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func (s *stateStoreClient) Put(ctx context.Context, ref dagstate.Ref, value json
 	return stateEntryFromProto(resp.GetEntry())
 }
 
-func (s *stateStoreClient) Delete(ctx context.Context, ref dagstate.Ref) (bool, error) {
+func (s *stateStoreClient) Delete(ctx context.Context, ref dagrun.StateRef) (bool, error) {
 	if err := ref.Validate(); err != nil {
 		return false, err
 	}
@@ -136,7 +136,7 @@ func (s *stateStoreClient) Delete(ctx context.Context, ref dagstate.Ref) (bool, 
 	return resp.GetDeleted(), nil
 }
 
-func (s *stateStoreClient) List(ctx context.Context, opts dagstate.ListOptions) ([]*dagstate.Entry, error) {
+func (s *stateStoreClient) List(ctx context.Context, opts dagrun.StateListOptions) ([]*dagrun.StateEntry, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (s *stateStoreClient) List(ctx context.Context, opts dagstate.ListOptions) 
 	if err != nil {
 		return nil, stateClientError(err)
 	}
-	entries := make([]*dagstate.Entry, 0, len(resp.GetEntries()))
+	entries := make([]*dagrun.StateEntry, 0, len(resp.GetEntries()))
 	for _, item := range resp.GetEntries() {
 		entry, err := stateEntryFromProto(item)
 		if err != nil {
@@ -161,16 +161,16 @@ func (s *stateStoreClient) List(ctx context.Context, opts dagstate.ListOptions) 
 	return entries, nil
 }
 
-func stateEntryFromProto(entry *coordinatorv1.StateEntry) (*dagstate.Entry, error) {
+func stateEntryFromProto(entry *coordinatorv1.StateEntry) (*dagrun.StateEntry, error) {
 	if entry == nil {
-		return nil, dagstate.ErrNotFound
+		return nil, dagrun.ErrStateNotFound
 	}
 	ref, err := stateRefFromProto(entry.GetRef())
 	if err != nil {
 		return nil, err
 	}
-	return &dagstate.Entry{
-		Ref:       ref,
+	return &dagrun.StateEntry{
+		StateRef:  ref,
 		Value:     append(json.RawMessage(nil), entry.GetValue()...),
 		Version:   entry.GetVersion(),
 		Hash:      entry.GetHash(),
@@ -184,7 +184,7 @@ func stateClientError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, dagstate.ErrNotFound) || errors.Is(err, dagstate.ErrConflict) || errors.Is(err, dagstate.ErrInvalidRef) || errors.Is(err, dagstate.ErrInvalidValue) || errors.Is(err, dagstate.ErrValueTooLarge) {
+	if errors.Is(err, dagrun.ErrStateNotFound) || errors.Is(err, dagrun.ErrStateConflict) || errors.Is(err, dagrun.ErrInvalidStateRef) || errors.Is(err, dagrun.ErrInvalidStateValue) || errors.Is(err, dagrun.ErrStateValueTooLarge) {
 		return err
 	}
 	st, ok := status.FromError(err)
@@ -193,9 +193,9 @@ func stateClientError(err error) error {
 	}
 	switch st.Code() { //nolint:exhaustive // State RPCs only translate domain-specific status codes.
 	case codes.NotFound:
-		return dagstate.ErrNotFound
+		return dagrun.ErrStateNotFound
 	case codes.Aborted:
-		return dagstate.ErrConflict
+		return dagrun.ErrStateConflict
 	case codes.InvalidArgument:
 		return stateInvalidArgumentError(st.Message())
 	default:
@@ -205,13 +205,13 @@ func stateClientError(err error) error {
 
 func stateInvalidArgumentError(message string) error {
 	switch {
-	case strings.Contains(message, dagstate.ErrInvalidRef.Error()):
-		return dagstate.ErrInvalidRef
-	case strings.Contains(message, dagstate.ErrValueTooLarge.Error()):
-		return dagstate.ErrValueTooLarge
-	case strings.Contains(message, dagstate.ErrInvalidValue.Error()):
-		return dagstate.ErrInvalidValue
+	case strings.Contains(message, dagrun.ErrInvalidStateRef.Error()):
+		return dagrun.ErrInvalidStateRef
+	case strings.Contains(message, dagrun.ErrStateValueTooLarge.Error()):
+		return dagrun.ErrStateValueTooLarge
+	case strings.Contains(message, dagrun.ErrInvalidStateValue.Error()):
+		return dagrun.ErrInvalidStateValue
 	default:
-		return dagstate.ErrInvalidValue
+		return dagrun.ErrInvalidStateValue
 	}
 }

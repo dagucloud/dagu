@@ -572,7 +572,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/search/docs": {
+    "/search/wiki": {
         parameters: {
             query?: never;
             header?: never;
@@ -580,10 +580,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search documents
-         * @description Returns cursor-based document search results in stable path order. Use nextCursor only with the same query, workspace, and prefix.
+         * Search Wiki pages
+         * @description Returns cursor-based Wiki page search results in stable path order. Use nextCursor only with the same query, workspace, and prefix.
          */
-        get: operations["searchDocFeed"];
+        get: operations["searchWikiPageFeed"];
         put?: never;
         post?: never;
         delete?: never;
@@ -612,7 +612,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/search/docs/matches": {
+    "/search/wiki/matches": {
         parameters: {
             query?: never;
             header?: never;
@@ -620,10 +620,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search document match snippets
-         * @description Returns cursor-based snippets for one matching document.
+         * Search Wiki page match snippets
+         * @description Returns cursor-based snippets for one matching Wiki page.
          */
-        get: operations["searchDocMatches"];
+        get: operations["searchWikiPageMatches"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2738,7 +2738,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/docs": {
+    "/wiki": {
         parameters: {
             query?: never;
             header?: never;
@@ -2746,26 +2746,26 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List documents
-         * @description Returns documents as a tree structure or flat list. All authenticated users can browse.
+         * List Wiki pages
+         * @description Returns Wiki pages as a tree structure or flat list. All authenticated users can browse.
          *     In tree mode, page and perPage apply to direct children of the selected workspace or prefix;
-         *     each returned directory includes its descendants. In flat mode, they apply to individual documents.
+         *     each returned directory includes its descendants. In flat mode, they apply to individual Wiki pages.
          *
          */
-        get: operations["listDocs"];
+        get: operations["listWikiPages"];
         put?: never;
         /**
-         * Create document
-         * @description Creates a new document. Requires DAG write permission.
+         * Create Wiki page
+         * @description Creates a new Wiki page. Requires DAG write permission.
          */
-        post: operations["createDoc"];
+        post: operations["createWikiPage"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/docs/search": {
+    "/wiki/search": {
         parameters: {
             query?: never;
             header?: never;
@@ -2773,10 +2773,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search documents
-         * @description Searches document content for the given query.
+         * Search Wiki pages
+         * @description Searches Wiki page content for the given query.
          */
-        get: operations["searchDocs"];
+        get: operations["searchWikiPages"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2785,7 +2785,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/docs/doc": {
+    "/wiki/backlinks": {
         parameters: {
             query?: never;
             header?: never;
@@ -2793,27 +2793,114 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get document
-         * @description Returns a single document by path.
+         * List Wiki page backlinks
+         * @description Returns Wiki pages whose wiki links resolve to the given target.
+         *     The target is a Wiki page path, or a scheme-prefixed wiki-link target
+         *     such as dag:name.
+         *
          */
-        get: operations["getDoc"];
+        get: operations["listWikiPageBacklinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/wiki/page/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Wiki page revisions
+         * @description Returns stored prior versions of a Wiki page, newest first, without content.
+         */
+        get: operations["listWikiPageRevisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/wiki/page/revision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Wiki page revision
+         * @description Returns one stored revision including its content.
+         */
+        get: operations["getWikiPageRevision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/wiki/page/attachment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Wiki page attachment
+         * @description Streams a stored Wiki page attachment.
+         */
+        get: operations["downloadWikiPageAttachment"];
+        /**
+         * Upload Wiki page attachment
+         * @description Stores a binary attachment for an existing Wiki page, replacing any attachment with the same name. Requires DAG write permission.
+         */
+        put: operations["uploadWikiPageAttachment"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/wiki/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Wiki page
+         * @description Returns a single Wiki page by path.
+         */
+        get: operations["getWikiPage"];
         put?: never;
         post?: never;
         /**
-         * Delete document
-         * @description Deletes a document. Requires DAG write permission.
+         * Delete Wiki page
+         * @description Deletes a Wiki page. Requires DAG write permission.
          */
-        delete: operations["deleteDoc"];
+        delete: operations["deleteWikiPage"];
         options?: never;
         head?: never;
         /**
-         * Update document
-         * @description Updates an existing document's content. Requires DAG write permission.
+         * Update Wiki page
+         * @description Updates an existing Wiki page's content. Requires DAG write permission.
          */
-        patch: operations["updateDoc"];
+        patch: operations["updateWikiPage"];
         trace?: never;
     };
-    "/docs/doc/rename": {
+    "/wiki/page/rename": {
         parameters: {
             query?: never;
             header?: never;
@@ -2823,17 +2910,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Rename document or directory
-         * @description Renames/moves a document or directory to a new path. When a directory path is given, all documents under it are moved atomically. Requires DAG write permission.
+         * Rename Wiki page or directory
+         * @description Renames/moves a Wiki page or directory to a new path. When a directory path is given, all Wiki pages under it are moved atomically. Requires DAG write permission.
          */
-        post: operations["renameDoc"];
+        post: operations["renameWikiPage"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/docs/delete-batch": {
+    "/wiki/delete-batch": {
         parameters: {
             query?: never;
             header?: never;
@@ -2843,10 +2930,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delete multiple documents or directories
-         * @description Deletes multiple documents and/or directories in a single operation. Supports recursive directory deletion. Not-found items are treated as successful deletes for idempotency. Requires DAG write permission.
+         * Delete multiple Wiki pages or directories
+         * @description Deletes multiple Wiki pages and/or directories in a single operation. Supports recursive directory deletion. Not-found items are treated as successful deletes for idempotency. Requires DAG write permission.
          */
-        post: operations["deleteDocBatch"];
+        post: operations["deleteWikiPageBatch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5249,29 +5336,31 @@ export interface components {
             hasMore: boolean;
             nextCursor?: string;
         };
-        /** @description Lightweight cursor-based search result item for a document */
-        DocSearchPageItem: {
+        /** @description Lightweight cursor-based search result item for a Wiki page */
+        WikiPageSearchPageItem: {
             id: string;
             title: string;
-            /** @description Short document description from YAML frontmatter */
+            /** @description Short Wiki page description from YAML frontmatter */
             description: string;
-            /** @description Workspace that owns this document. Omitted for default documents. */
+            /** @description Wiki page tags from YAML frontmatter */
+            tags?: string[];
+            /** @description Workspace that owns this Wiki page. Omitted for default Wiki pages. */
             workspace?: string;
             /**
              * Format: date-time
-             * @description Last modification time of the document file
+             * @description Last modification time of the Wiki page file
              */
             modifiedAt?: string;
             /** @description Whether additional snippets are available beyond the preview */
             hasMoreMatches: boolean;
-            /** @description Opaque cursor for loading more snippets for this document result */
+            /** @description Opaque cursor for loading more snippets for this Wiki page result */
             nextMatchesCursor?: string;
             /** @description Preview snippets for the result */
             matches: components["schemas"]["SearchMatchItem"][];
         };
-        /** @description Cursor-based document search results */
-        DocSearchFeedResponse: {
-            results: components["schemas"]["DocSearchPageItem"][];
+        /** @description Cursor-based Wiki page search results */
+        WikiPageSearchFeedResponse: {
+            results: components["schemas"]["WikiPageSearchPageItem"][];
             hasMore: boolean;
             nextCursor?: string;
         };
@@ -5290,113 +5379,158 @@ export interface components {
             hasMore: boolean;
             nextCursor?: string;
         };
-        /** @description Full document with content */
-        DocResponse: {
+        /** @description Full Wiki page with content */
+        WikiPageResponse: {
             id: string;
             title: string;
-            /** @description Short document description from YAML frontmatter */
+            /** @description Short Wiki page description from YAML frontmatter */
             description: string;
-            /** @description Workspace that owns this document. Omitted for default documents. */
+            /** @description Wiki page tags from YAML frontmatter */
+            tags?: string[];
+            /** @description Workspace that owns this Wiki page. Omitted for default Wiki pages. */
             workspace?: string;
             /** @description Full file content including YAML frontmatter */
             content: string;
             /**
              * Format: date-time
-             * @description RFC3339 timestamp when the document was created
+             * @description RFC3339 timestamp when the Wiki page was created
              */
             createdAt?: string;
             /**
              * Format: date-time
-             * @description RFC3339 timestamp when the document was last updated
+             * @description RFC3339 timestamp when the Wiki page was last updated
              */
             updatedAt?: string;
         };
-        /** @description Lightweight document metadata */
-        DocMetadataResponse: {
+        /** @description Lightweight Wiki page metadata */
+        WikiPageMetadataResponse: {
             id: string;
             title: string;
-            /** @description Short document description from YAML frontmatter */
+            /** @description Short Wiki page description from YAML frontmatter */
             description: string;
-            /** @description Workspace that owns this document. Omitted for default documents. */
+            /** @description Wiki page tags from YAML frontmatter */
+            tags?: string[];
+            /** @description Workspace that owns this Wiki page. Omitted for default Wiki pages. */
             workspace?: string;
             /**
              * Format: date-time
-             * @description Last modification time of the document file
+             * @description Last modification time of the Wiki page file
              */
             modifiedAt?: string;
         };
-        /** @description A file or directory node in the doc tree */
-        DocTreeNodeResponse: {
+        /** @description A file or directory node in the Wiki page tree */
+        WikiPageTreeNodeResponse: {
             id: string;
             name: string;
             title?: string;
+            /** @description Wiki page tags from YAML frontmatter. Only present on file nodes. */
+            tags?: string[];
             /** @description Workspace that owns this node. Omitted for default nodes. */
             workspace?: string;
             /** @enum {string} */
-            type: DocTreeNodeResponseType;
-            children?: components["schemas"]["DocTreeNodeResponse"][];
+            type: WikiPageTreeNodeResponseType;
+            children?: components["schemas"]["WikiPageTreeNodeResponse"][];
             /**
              * Format: date-time
              * @description Last modification time. For files: file mtime. For directories: most recent descendant mtime.
              */
             modifiedAt?: string;
         };
-        /** @description Paginated document list (tree or flat) */
-        DocListResponse: {
-            tree?: components["schemas"]["DocTreeNodeResponse"][];
-            items?: components["schemas"]["DocMetadataResponse"][];
+        /** @description Paginated Wiki page list (tree or flat) */
+        WikiPageListResponse: {
+            tree?: components["schemas"]["WikiPageTreeNodeResponse"][];
+            items?: components["schemas"]["WikiPageMetadataResponse"][];
             pagination: components["schemas"]["Pagination"];
         };
-        /** @description A search result for a single document */
-        DocSearchResultItem: {
+        /** @description A search result for a single Wiki page */
+        WikiPageSearchResultItem: {
             id: string;
             title: string;
-            /** @description Short document description from YAML frontmatter */
+            /** @description Short Wiki page description from YAML frontmatter */
             description: string;
-            /** @description Workspace that owns this document. Omitted for default documents. */
+            /** @description Wiki page tags from YAML frontmatter */
+            tags?: string[];
+            /** @description Workspace that owns this Wiki page. Omitted for default Wiki pages. */
             workspace?: string;
             /**
              * Format: date-time
-             * @description Last modification time of the document file
+             * @description Last modification time of the Wiki page file
              */
             modifiedAt?: string;
+            /** @description Total number of query matches in the Wiki page */
+            matchCount?: number;
             matches?: components["schemas"]["SearchMatchItem"][];
         };
         /** @description Search results */
-        DocSearchResponse: {
-            results: components["schemas"]["DocSearchResultItem"][];
+        WikiPageSearchResponse: {
+            results: components["schemas"]["WikiPageSearchResultItem"][];
         };
-        /** @description Relative document path without extension, for example docs/deploy-guide. Must not start with / or contain .. */
-        DocPath: string;
-        /** @description Request to create a new document */
-        CreateDocRequest: {
-            id: components["schemas"]["DocPath"];
+        /** @description Wiki pages linking to a wiki-link target */
+        WikiPageBacklinksResponse: {
+            items: components["schemas"]["WikiPageMetadataResponse"][];
+        };
+        /** @description A stored prior version of a Wiki page */
+        WikiPageRevisionResponse: {
+            /** @description Opaque revision identifier */
+            rev: string;
+            /**
+             * Format: date-time
+             * @description When the revision was stored
+             */
+            savedAt: string;
+            /**
+             * Format: int64
+             * @description Revision content size in bytes
+             */
+            size: number;
+            /** @description Revision content. Present only when fetching a single revision. */
+            content?: string;
+        };
+        /** @description Stored revisions of a Wiki page, newest first */
+        WikiPageRevisionsResponse: {
+            revisions: components["schemas"]["WikiPageRevisionResponse"][];
+        };
+        /** @description A stored Wiki page attachment */
+        WikiPageAttachmentResponse: {
+            /** @description Attachment file name */
+            name: string;
+            /**
+             * Format: int64
+             * @description Attachment size in bytes
+             */
+            size: number;
+        };
+        /** @description Relative Wiki page path without extension, for example runbooks/deploy-guide. Must not start with / or contain .. */
+        WikiPagePath: string;
+        /** @description Request to create a new Wiki page */
+        CreateWikiPageRequest: {
+            id: components["schemas"]["WikiPagePath"];
             /** @description Full file content including optional YAML frontmatter */
             content: string;
         };
-        /** @description Request to update document content */
-        UpdateDocRequest: {
+        /** @description Request to update Wiki page content */
+        UpdateWikiPageRequest: {
             /** @description Full file content including optional YAML frontmatter */
             content: string;
         };
-        /** @description Request to rename/move a document or directory */
-        RenameDocRequest: {
-            newPath: components["schemas"]["DocPath"];
+        /** @description Request to rename/move a Wiki page or directory */
+        RenameWikiPageRequest: {
+            newPath: components["schemas"]["WikiPagePath"];
         };
-        /** @description Request to delete multiple documents or directories */
-        DocDeleteBatchRequest: {
-            /** @description Document or directory paths to delete (max 100) */
-            paths: components["schemas"]["DocPath"][];
+        /** @description Request to delete multiple Wiki pages or directories */
+        WikiPageDeleteBatchRequest: {
+            /** @description Wiki page or directory paths to delete (max 100) */
+            paths: components["schemas"]["WikiPagePath"][];
         };
-        DocDeleteBatchResponse: {
+        WikiPageDeleteBatchResponse: {
             /** @description Successfully deleted paths */
             deleted: string[];
             /** @description Paths that failed to delete with error details */
-            failed: components["schemas"]["DocDeleteBatchFailedItem"][];
+            failed: components["schemas"]["WikiPageDeleteBatchFailedItem"][];
             /** @description Human-readable summary */
             message: string;
         };
-        DocDeleteBatchFailedItem: {
+        WikiPageDeleteBatchFailedItem: {
             path: string;
             error: string;
         };
@@ -5944,10 +6078,23 @@ export interface components {
             /** @description Relative file path with extension */
             filePath: string;
             status: components["schemas"]["SyncStatus"];
-            /** @description Current local file content */
-            localContent: string;
-            /** @description Content from remote repository */
+            kind?: components["schemas"]["SyncItemKind"];
+            /** @description True for binary items; content fields are omitted and sizes are reported instead */
+            binary?: boolean;
+            /** @description Current local file content. Omitted for binary items. */
+            localContent?: string;
+            /** @description Content from remote repository. Omitted for binary items. */
             remoteContent?: string;
+            /**
+             * Format: int64
+             * @description Local file size in bytes. Only set for binary items.
+             */
+            localSize?: number;
+            /**
+             * Format: int64
+             * @description Remote file size in bytes. Only set for binary items.
+             */
+            remoteSize?: number;
             /** @description Commit hash being compared against */
             remoteCommit?: string;
             /** @description Author of the remote commit */
@@ -6358,12 +6505,12 @@ export interface components {
         APIKeyId: string;
         /** @description number of items per page (default is 30, max is 100) */
         PerPage: number;
-        /** @description Number of document entries per page (default 50, max 200) */
-        DocsPerPage: number;
+        /** @description Number of Wiki page entries per page (default 50, max 200) */
+        WikiPagesPerPage: number;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
         Workspace: string;
-        /** @description Optional document path prefix within the selected workspace */
-        DocPrefix: components["schemas"]["DocPath"];
+        /** @description Optional Wiki page path prefix within the selected workspace */
+        WikiPagePrefix: components["schemas"]["WikiPagePath"];
         /** @description Opaque cursor returned by the previous search response */
         SearchCursor: string;
         /** @description Number of search results to return (default 20, max 50) */
@@ -8367,17 +8514,19 @@ export interface operations {
             };
         };
     };
-    searchDocFeed: {
+    searchWikiPageFeed: {
         parameters: {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Optional document path prefix within the selected workspace */
-                prefix?: components["parameters"]["DocPrefix"];
+                /** @description Optional Wiki page path prefix within the selected workspace */
+                prefix?: components["parameters"]["WikiPagePrefix"];
                 /** @description A search query string */
                 q: string;
+                /** @description Only return Wiki pages carrying every given tag (case-insensitive) */
+                tags?: string[];
                 /** @description Opaque cursor returned by the previous search response */
                 cursor?: components["parameters"]["SearchCursor"];
                 /** @description Number of search results to return (default 20, max 50) */
@@ -8389,13 +8538,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Cursor-based document search results */
+            /** @description Cursor-based Wiki page search results */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DocSearchFeedResponse"];
+                    "application/json": components["schemas"]["WikiPageSearchFeedResponse"];
                 };
             };
             /** @description Invalid request */
@@ -8481,15 +8630,15 @@ export interface operations {
             };
         };
     };
-    searchDocMatches: {
+    searchWikiPageMatches: {
         parameters: {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Document path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
+                /** @description Wiki page path (may include slashes for nested pages) */
+                path: components["schemas"]["WikiPagePath"];
                 /** @description A search query string */
                 q: string;
                 /** @description Opaque cursor returned by the previous search response */
@@ -8503,7 +8652,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Cursor-based document match snippets */
+            /** @description Cursor-based Wiki page match snippets */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8521,7 +8670,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Document not found */
+            /** @description Wiki page not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14979,29 +15128,31 @@ export interface operations {
             };
         };
     };
-    listDocs: {
+    listWikiPages: {
         parameters: {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Optional document path prefix within the selected workspace */
-                prefix?: components["parameters"]["DocPrefix"];
+                /** @description Optional Wiki page path prefix within the selected workspace */
+                prefix?: components["parameters"]["WikiPagePrefix"];
                 /** @description page number of items to fetch (default is 1) */
                 page?: components["parameters"]["Page"];
-                /** @description Number of document entries per page (default 50, max 200) */
-                perPage?: components["parameters"]["DocsPerPage"];
+                /** @description Number of Wiki page entries per page (default 50, max 200) */
+                perPage?: components["parameters"]["WikiPagesPerPage"];
                 /** @description If true, returns flat list instead of tree */
                 flat?: boolean;
+                /** @description Only return Wiki pages carrying every given tag (case-insensitive). Effective in flat mode only. */
+                tags?: string[];
                 /** @description Field to sort by:
                  *     - `name`: Alphabetically by display name (case-insensitive)
                  *     - `type`: By node type (dirs vs files), then alphabetically within each group
                  *     - `mtime`: By last modification time
                  *      */
-                sort?: PathsDocsGetParametersQuerySort;
+                sort?: PathsWikiGetParametersQuerySort;
                 /** @description Sort order. For type: asc=folders first. For mtime: desc=newest first. */
-                order?: PathsDocsGetParametersQueryOrder;
+                order?: PathsWikiGetParametersQueryOrder;
             };
             header?: never;
             path?: never;
@@ -15009,13 +15160,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description List of documents */
+            /** @description List of Wiki pages */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DocListResponse"];
+                    "application/json": components["schemas"]["WikiPageListResponse"];
                 };
             };
             /** @description Unexpected error */
@@ -15029,7 +15180,7 @@ export interface operations {
             };
         };
     };
-    createDoc: {
+    createWikiPage: {
         parameters: {
             query?: {
                 /** @description name of the remote node */
@@ -15043,11 +15194,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateDocRequest"];
+                "application/json": components["schemas"]["CreateWikiPageRequest"];
             };
         };
         responses: {
-            /** @description Document created */
+            /** @description Wiki page created */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -15067,7 +15218,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Document already exists */
+            /** @description Wiki page already exists */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15087,7 +15238,7 @@ export interface operations {
             };
         };
     };
-    searchDocs: {
+    searchWikiPages: {
         parameters: {
             query: {
                 /** @description name of the remote node */
@@ -15109,7 +15260,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DocSearchResponse"];
+                    "application/json": components["schemas"]["WikiPageSearchResponse"];
                 };
             };
             /** @description Missing query parameter */
@@ -15132,15 +15283,15 @@ export interface operations {
             };
         };
     };
-    getDoc: {
+    listWikiPageBacklinks: {
         parameters: {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Document path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
+                /** @description Wiki page path or scheme-prefixed wiki-link target (for example dag:name) */
+                target: string;
             };
             header?: never;
             path?: never;
@@ -15148,16 +15299,52 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Document details */
+            /** @description Wiki pages linking to the target */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DocResponse"];
+                    "application/json": components["schemas"]["WikiPageBacklinksResponse"];
                 };
             };
-            /** @description Document not found */
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listWikiPageRevisions: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Wiki page path (may include slashes for nested pages) */
+                path: components["schemas"]["WikiPagePath"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored revisions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WikiPageRevisionsResponse"];
+                };
+            };
+            /** @description Wiki page not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15177,15 +15364,17 @@ export interface operations {
             };
         };
     };
-    deleteDoc: {
+    getWikiPageRevision: {
         parameters: {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Document path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
+                /** @description Wiki page path (may include slashes for nested pages) */
+                path: components["schemas"]["WikiPagePath"];
+                /** @description Revision identifier from the revision list */
+                rev: string;
             };
             header?: never;
             path?: never;
@@ -15193,14 +15382,222 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Document deleted */
+            /** @description Revision with content */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WikiPageRevisionResponse"];
+                };
+            };
+            /** @description Wiki page or revision not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadWikiPageAttachment: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Wiki page path (may include slashes for nested pages) */
+                path: components["schemas"]["WikiPagePath"];
+                /** @description Attachment file name (single path segment) */
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attachment content */
+            200: {
+                headers: {
+                    /** @description Attachment filename */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Wiki page or attachment not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    uploadWikiPageAttachment: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Wiki page path (may include slashes for nested pages) */
+                path: components["schemas"]["WikiPagePath"];
+                /** @description Attachment file name (single path segment) */
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Attachment stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WikiPageAttachmentResponse"];
+                };
+            };
+            /** @description Invalid attachment name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Wiki page not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Attachment too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getWikiPage: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Wiki page path (may include slashes for nested pages) */
+                path: components["schemas"]["WikiPagePath"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Wiki page details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WikiPageResponse"];
+                };
+            };
+            /** @description Wiki page not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteWikiPage: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Wiki page path (may include slashes for nested pages) */
+                path: components["schemas"]["WikiPagePath"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Wiki page deleted */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Document not found */
+            /** @description Wiki page not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15220,15 +15617,15 @@ export interface operations {
             };
         };
     };
-    updateDoc: {
+    updateWikiPage: {
         parameters: {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Document path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
+                /** @description Wiki page path (may include slashes for nested pages) */
+                path: components["schemas"]["WikiPagePath"];
             };
             header?: never;
             path?: never;
@@ -15236,11 +15633,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateDocRequest"];
+                "application/json": components["schemas"]["UpdateWikiPageRequest"];
             };
         };
         responses: {
-            /** @description Document updated */
+            /** @description Wiki page updated */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -15251,7 +15648,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Document not found */
+            /** @description Wiki page not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15271,15 +15668,15 @@ export interface operations {
             };
         };
     };
-    renameDoc: {
+    renameWikiPage: {
         parameters: {
             query: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
-                /** @description Current document or directory path (may include slashes for nested docs) */
-                path: components["schemas"]["DocPath"];
+                /** @description Current Wiki page or directory path (may include slashes for nested pages) */
+                path: components["schemas"]["WikiPagePath"];
             };
             header?: never;
             path?: never;
@@ -15287,11 +15684,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RenameDocRequest"];
+                "application/json": components["schemas"]["RenameWikiPageRequest"];
             };
         };
         responses: {
-            /** @description Document or directory renamed */
+            /** @description Wiki page or directory renamed */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -15302,7 +15699,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Document or directory not found */
+            /** @description Wiki page or directory not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15331,7 +15728,7 @@ export interface operations {
             };
         };
     };
-    deleteDocBatch: {
+    deleteWikiPageBatch: {
         parameters: {
             query?: {
                 /** @description name of the remote node */
@@ -15345,7 +15742,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DocDeleteBatchRequest"];
+                "application/json": components["schemas"]["WikiPageDeleteBatchRequest"];
             };
         };
         responses: {
@@ -15355,7 +15752,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DocDeleteBatchResponse"];
+                    "application/json": components["schemas"]["WikiPageDeleteBatchResponse"];
                 };
             };
             /** @description Invalid batch delete request */
@@ -17752,7 +18149,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Workspace still contains documents */
+            /** @description Workspace still contains Wiki pages */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17819,12 +18216,12 @@ export enum PathsDagsGetParametersQueryOrder {
     asc = "asc",
     desc = "desc"
 }
-export enum PathsDocsGetParametersQuerySort {
+export enum PathsWikiGetParametersQuerySort {
     name = "name",
     type = "type",
     mtime = "mtime"
 }
-export enum PathsDocsGetParametersQueryOrder {
+export enum PathsWikiGetParametersQueryOrder {
     asc = "asc",
     desc = "desc"
 }
@@ -18078,7 +18475,7 @@ export enum StepOutputDeclarationType {
     string = "string",
     json = "json"
 }
-export enum DocTreeNodeResponseType {
+export enum WikiPageTreeNodeResponseType {
     file = "file",
     directory = "directory"
 }
@@ -18142,7 +18539,8 @@ export enum SyncSummary {
 }
 export enum SyncItemKind {
     dag = "dag",
-    doc = "doc"
+    doc = "doc",
+    doc_asset = "doc-asset"
 }
 export enum SyncAuthConfigType {
     token = "token",

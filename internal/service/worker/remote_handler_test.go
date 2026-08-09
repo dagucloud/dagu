@@ -16,11 +16,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -625,7 +625,7 @@ type mockRemoteStateCoordinatorClient struct {
 	handler *coordinator.Handler
 }
 
-func newMockRemoteStateCoordinatorClient(stateStore dagstate.Store) *mockRemoteStateCoordinatorClient {
+func newMockRemoteStateCoordinatorClient(stateStore dagrun.StateStore) *mockRemoteStateCoordinatorClient {
 	return &mockRemoteStateCoordinatorClient{
 		mockRemoteCoordinatorClient: newMockRemoteCoordinatorClient(),
 		handler: coordinator.NewHandler(coordinator.HandlerConfig{
@@ -724,8 +724,8 @@ func TestNewRemoteTaskHandler(t *testing.T) {
 		require.True(t, ok)
 		require.NotNil(t, rh.stateStore)
 
-		ref := dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "cursor"}
-		_, err := rh.stateStore.Put(context.Background(), ref, json.RawMessage(`{"last_id":123}`), dagstate.PutOptions{})
+		ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
+		_, err := rh.stateStore.Put(context.Background(), ref, json.RawMessage(`{"last_id":123}`), dagrun.StatePutOptions{})
 		require.NoError(t, err)
 
 		got, err := stateStore.Get(context.Background(), ref)

@@ -113,3 +113,22 @@ func TestRemoteNodeProxyPreservesStructuredError(t *testing.T) {
 	assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 	assert.JSONEq(t, responseBody, recorder.Body.String())
 }
+
+func TestLegacyWikiProxyPath(t *testing.T) {
+	tests := map[string]string{
+		"/api/v1/wiki":                        "/api/v1/docs",
+		"/api/v1/wiki/search":                 "/api/v1/docs/search",
+		"/api/v1/wiki/page":                   "/api/v1/docs/doc",
+		"/api/v1/wiki/page/revisions":         "/api/v1/docs/doc/revisions",
+		"/api/v1/search/wiki/matches":         "/api/v1/search/docs/matches",
+		"/api/v1/events/wiki-tree":            "/api/v1/events/docs-tree",
+		"/api/v1/events/wiki/guides%2Fdeploy": "/api/v1/events/docs/guides%2Fdeploy",
+	}
+	for requestPath, expected := range tests {
+		t.Run(requestPath, func(t *testing.T) {
+			actual, ok := legacyWikiProxyPath(requestPath, "/api/v1")
+			require.True(t, ok)
+			assert.Equal(t, expected, actual)
+		})
+	}
+}

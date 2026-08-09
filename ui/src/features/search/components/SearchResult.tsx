@@ -4,9 +4,10 @@
 import { Button } from '@/components/ui/button';
 import { useClient } from '@/hooks/api';
 import { cn } from '@/lib/utils';
+import { encodeWikiPagePathForURL } from '@/pages/wiki/lib/wiki-page-path';
 import {
-  visibleDocumentPathForWorkspace,
-  workspaceDocumentQueryForWorkspace,
+  visibleWikiPagePathForWorkspace,
+  workspaceWikiQueryForWorkspace,
 } from '@/lib/workspace';
 import React from 'react';
 import { Link } from 'react-router-dom';
@@ -15,7 +16,7 @@ import { AppBarContext } from '../../../contexts/AppBarContext';
 
 type SearchMatch = components['schemas']['SearchMatchItem'];
 type DagResult = components['schemas']['DAGSearchPageItem'];
-type DocResult = components['schemas']['DocSearchPageItem'];
+type WikiPageResult = components['schemas']['WikiPageSearchPageItem'];
 type DAGWorkspaceQuery = {
   workspace?: string;
 };
@@ -40,10 +41,10 @@ type Props =
       results: DagResult[];
       workspaceQuery?: DAGWorkspaceQuery;
     }
-  | { type: 'doc'; query: string; results: DocResult[] };
+  | { type: 'wiki'; query: string; results: WikiPageResult[] };
 
 type SearchResultItemProps = {
-  kind: 'DAG' | 'Doc';
+  kind: 'DAG' | 'Wiki';
   title: string;
   link: string;
   query: string;
@@ -240,34 +241,34 @@ function SearchResult(props: Props) {
           };
         })
       : results.map((result) => {
-          const docPath = visibleDocumentPathForWorkspace(
+          const wikiPagePath = visibleWikiPagePathForWorkspace(
             result.id,
             result.workspace
           );
-          const docWorkspaceQuery = workspaceDocumentQueryForWorkspace(
+          const wikiWorkspaceQuery = workspaceWikiQueryForWorkspace(
             result.workspace
           );
           const linkSearch = result.workspace
             ? `?workspace=${encodeURIComponent(result.workspace)}`
             : '';
           return {
-            key: `doc-${result.id}-${result.workspace ?? ''}-${query}`,
-            kind: 'Doc' as const,
+            key: `wiki-${result.id}-${result.workspace ?? ''}-${query}`,
+            kind: 'Wiki' as const,
             title: result.title,
-            link: `/docs/${encodeURI(docPath)}${linkSearch}`,
+            link: `/wiki/${encodeWikiPagePathForURL(wikiPagePath)}${linkSearch}`,
             initialMatches: result.matches ?? [],
             initialHasMoreMatches: result.hasMoreMatches,
             initialNextCursor: result.nextMatchesCursor,
             loadMore: (cursor?: string) =>
               fetchSearchMatches(() =>
-                client.GET('/search/docs/matches', {
+                client.GET('/search/wiki/matches', {
                   params: {
                     query: {
                       remoteNode,
-                      path: docPath,
+                      path: wikiPagePath,
                       q: query,
                       cursor,
-                      ...docWorkspaceQuery,
+                      ...wikiWorkspaceQuery,
                     },
                   },
                 })

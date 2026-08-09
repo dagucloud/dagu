@@ -152,15 +152,15 @@ describe('SearchResult', () => {
     expect(link.getAttribute('href')).toBe('/dags/build/spec?workspace=team-a');
   });
 
-  it('loads more document matches with document workspace query', async () => {
+  it('loads more Wiki page matches with the page workspace query', async () => {
     render(
       <MemoryRouter>
         <SearchResult
-          type="doc"
+          type="wiki"
           query="needle"
           results={[
             {
-              id: 'team-a/docs/deploy',
+              id: 'team-a/runbooks/deploy',
               title: 'deploy',
               description: '',
               workspace: 'team-a',
@@ -187,11 +187,11 @@ describe('SearchResult', () => {
       expect(getMock).toHaveBeenCalledTimes(1);
     });
 
-    expect(getMock).toHaveBeenCalledWith('/search/docs/matches', {
+    expect(getMock).toHaveBeenCalledWith('/search/wiki/matches', {
       params: {
         query: {
           remoteNode: 'local',
-          path: 'docs/deploy',
+          path: 'runbooks/deploy',
           q: 'needle',
           cursor: 'cursor-1',
           workspace: 'team-a',

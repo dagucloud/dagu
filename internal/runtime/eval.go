@@ -89,6 +89,7 @@ func builtinContextFromDAGContext(rCtx Context, scope *cmnvalue.EnvScope, step i
 	addBuiltinContextEnvValue(values, "context.paths.log_file", scope, runenv.EnvKeyDAGRunLogFile)
 	addBuiltinContextEnvValue(values, "context.paths.work_dir", scope, runenv.EnvKeyDAGRunWorkDir)
 	addBuiltinContextEnvValue(values, "context.paths.artifacts_dir", scope, runenv.EnvKeyDAGRunArtifactsDir)
+	addBuiltinContextEnvValue(values, "context.paths.wiki_dir", scope, runenv.EnvKeyDAGWikiDir)
 	addBuiltinContextEnvValue(values, "context.paths.docs_dir", scope, runenv.EnvKeyDAGDocsDir)
 	addBuiltinContextEnvValue(values, "context.paths.step_stdout_file", scope, runenv.EnvKeyDAGRunStepStdoutFile)
 	addBuiltinContextEnvValue(values, "context.paths.step_stderr_file", scope, runenv.EnvKeyDAGRunStepStderrFile)

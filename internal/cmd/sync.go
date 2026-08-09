@@ -666,5 +666,5 @@ func newSyncService(ctx *Context) (gitsync.Service, error) {
 	if !syncCfg.Enabled {
 		return nil, fmt.Errorf("git sync is not enabled, set gitSync.enabled=true in your config")
 	}
-	return gitsync.NewService(syncCfg, ctx.Config.Paths.DAGsDir, ctx.Config.Paths.DocsDir, ctx.Config.Paths.DataDir), nil
+	return gitsync.NewService(syncCfg, ctx.Config.Paths.DAGsDir, ctx.Config.Paths.WikiDir, ctx.Config.Paths.DataDir), nil
 }

@@ -37,9 +37,9 @@ For a quick look at how workflows are defined, see the examples.
   </a>
 </div>
 
-| Run Details | Step Logs | Documents |
+| Run Details | Step Logs | Wiki |
 |---|---|---|
-| ![Run details in dark mode](./assets/images/readme-run-details-dark.png) | ![Workflow logs in dark mode](./assets/images/readme-logs-dark.png) | ![Workflow documents in dark mode](./assets/images/readme-documents-dark.png) |
+| ![Run details in dark mode](./assets/images/readme-run-details-dark.png) | ![Workflow logs in dark mode](./assets/images/readme-logs-dark.png) | ![Workflow Wiki in dark mode](./assets/images/readme-wiki-dark.png) |
 
 **Try it live:** [Live Demo](https://dagu-demo-f5e33d0e.dagu.sh) (credentials: `demouser` / `demouser`)
 
@@ -169,7 +169,7 @@ Dagu exposes a built-in MCP server from the running HTTP server. Start Dagu, the
 http://localhost:8080/mcp
 ```
 
-Use MCP when you want an AI agent to read Dagu state and Markdown documents, preview or apply workflow and document changes, and start, enqueue, retry, or stop runs through `dagu_read`, `dagu_change`, and `dagu_execute`. See the [MCP setup guide](https://docs.dagu.sh/mcp/quickstart).
+Use MCP when you want an AI agent to read Dagu state and Wiki pages, preview or apply workflow and Wiki page changes, and start, enqueue, retry, or stop runs through `dagu_read`, `dagu_change`, and `dagu_execute`. See the [MCP setup guide](https://docs.dagu.sh/mcp/quickstart).
 
 For authoring-only help in Claude Code, Codex, Gemini CLI, and other AI coding tools, install the Dagu workflow authoring skill:
 

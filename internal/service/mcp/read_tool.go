@@ -15,9 +15,9 @@ import (
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/docs"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/wiki"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -27,13 +27,17 @@ const (
 	readTargetDAGs       = "dags"
 	readTargetDAG        = "dag"
 	readTargetDAGSpec    = "dag_spec"
-	readTargetDocs       = "docs"
-	readTargetDoc        = "doc"
-	readTargetDocSearch  = "doc_search"
-	readTargetRuns       = "runs"
-	readTargetRun        = "run"
-	readTargetRunLogs    = "run_logs"
-	readTargetStepLog    = "step_log"
+	readTargetWiki       = "wiki"
+	readTargetWikiPage   = "wiki_page"
+	readTargetWikiSearch = "wiki_search"
+
+	legacyReadTargetDocs      = "docs"
+	legacyReadTargetDoc       = "doc"
+	legacyReadTargetDocSearch = "doc_search"
+	readTargetRuns            = "runs"
+	readTargetRun             = "run"
+	readTargetRunLogs         = "run_logs"
+	readTargetStepLog         = "step_log"
 
 	readErrorInvalidToolInput      = "invalid_tool_input"
 	readErrorInvalidResourceURI    = "invalid_resource_uri"
@@ -58,26 +62,27 @@ const (
 
 	readResourceScheme = "dagu"
 
-	readResourceReferenceCollectionURI = "dagu://reference"
-	readResourceDAGsCollectionURI      = "dagu://dags"
-	readResourceDocsCollectionURI      = "dagu://docs"
-	readResourceRunsCollectionURI      = "dagu://runs"
+	readResourceReferenceCollectionURI  = "dagu://reference"
+	readResourceDAGsCollectionURI       = "dagu://dags"
+	readResourceWikiCollectionURI       = "dagu://wiki"
+	legacyReadResourceDocsCollectionURI = "dagu://docs"
+	readResourceRunsCollectionURI       = "dagu://runs"
 
-	readDocSearchMaxLimit = 50
+	readWikiSearchMaxLimit = 50
 )
 
 type readInput struct {
-	Target    string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, docs, doc, doc_search, runs, run, run_logs, step_log, or reference."`
+	Target    string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, wiki, wiki_page, wiki_search, runs, run, run_logs, step_log, or reference."`
 	Name      string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, run, run_logs, and step_log targets."`
 	DAGRunID  string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run, run_logs, and step_log targets. The value latest is accepted where Dagu accepts it."`
 	StepName  string `json:"stepName,omitempty" jsonschema:"Step name for the step_log target."`
 	Query     string `json:"query,omitempty" jsonschema:"URL query string for list targets, for example page=1&perPage=100 or status=running."`
-	Workspace string `json:"workspace,omitempty" jsonschema:"Document workspace: all, default, or a workspace name. Required for doc and optional for docs and doc_search."`
-	Path      string `json:"path,omitempty" jsonschema:"Document path without the .md extension. Required for doc."`
-	Search    string `json:"search,omitempty" jsonschema:"Document search text. Required for doc_search."`
-	Prefix    string `json:"prefix,omitempty" jsonschema:"Document path prefix. Optional for docs and doc_search."`
-	Cursor    string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by doc_search."`
-	Limit     int    `json:"limit,omitempty" jsonschema:"Maximum doc_search results to return, from 1 to 50."`
+	Workspace string `json:"workspace,omitempty" jsonschema:"Wiki workspace: all, default, or a workspace name. Required for wiki_page and optional for wiki and wiki_search."`
+	Path      string `json:"path,omitempty" jsonschema:"Wiki page path without the .md extension. Required for wiki_page."`
+	Search    string `json:"search,omitempty" jsonschema:"Wiki search text. Required for wiki_search."`
+	Prefix    string `json:"prefix,omitempty" jsonschema:"Wiki page path prefix. Optional for wiki and wiki_search."`
+	Cursor    string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by wiki_search."`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Maximum wiki_search results to return, from 1 to 50."`
 	URI       string `json:"uri,omitempty" jsonschema:"Resource URI to read directly, for example dagu://reference/authoring."`
 }
 
@@ -87,7 +92,7 @@ func readToolInputSchema() json.RawMessage {
 		"properties": {
 			"target": {
 				"type": "string",
-				"description": "Read target: references, reference, dags, dag, dag_spec, docs, doc, doc_search, runs, run, run_logs, or step_log."
+				"description": "Read target: references, reference, dags, dag, dag_spec, wiki, wiki_page, wiki_search, runs, run, run_logs, or step_log. The docs, doc, and doc_search aliases are deprecated."
 			},
 			"name": {
 				"type": "string",
@@ -107,29 +112,29 @@ func readToolInputSchema() json.RawMessage {
 			},
 			"workspace": {
 				"type": "string",
-				"description": "Document workspace: all, default, or a workspace name. Required for doc and optional for docs and doc_search."
+				"description": "Wiki workspace: all, default, or a workspace name. Required for wiki_page and optional for wiki and wiki_search."
 			},
 			"path": {
 				"type": "string",
-				"description": "Document path without the .md extension. Required for doc."
+				"description": "Wiki page path without the .md extension. Required for wiki_page."
 			},
 			"search": {
 				"type": "string",
-				"description": "Document search text. Required for doc_search."
+				"description": "Wiki search text. Required for wiki_search."
 			},
 			"prefix": {
 				"type": "string",
-				"description": "Document path prefix. Optional for docs and doc_search."
+				"description": "Wiki page path prefix. Optional for wiki and wiki_search."
 			},
 			"cursor": {
 				"type": "string",
-				"description": "Opaque cursor returned by doc_search."
+				"description": "Opaque cursor returned by wiki_search."
 			},
 			"limit": {
 				"type": "integer",
 				"minimum": 1,
 				"maximum": 50,
-				"description": "Maximum number of doc_search results to return."
+				"description": "Maximum number of wiki_search results to return."
 			},
 			"uri": {
 				"type": "string",
@@ -215,21 +220,21 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 				data = normalizeDAGSpec(raw, input.Name)
 			}
 		}
-	case readTargetDocs:
+	case readTargetWiki:
 		if err = svc.requireAPI(); err == nil {
-			data, err = svc.listDocs(ctx, input.Workspace, input.Query)
+			data, err = svc.listWikiPages(ctx, input.Workspace, input.Query)
 		}
-	case readTargetDoc:
+	case readTargetWikiPage:
 		if err = svc.requireAPI(); err == nil {
-			var doc daguapi.DocResponse
-			doc, err = svc.getDoc(ctx, input.Workspace, input.Path)
+			var page daguapi.WikiPageResponse
+			page, err = svc.getWikiPage(ctx, input.Workspace, input.Path)
 			if err == nil {
-				data = normalizeDoc(doc, input.Workspace)
+				data = normalizeWikiPage(page, input.Workspace)
 			}
 		}
-	case readTargetDocSearch:
+	case readTargetWikiSearch:
 		if err = svc.requireAPI(); err == nil {
-			data, err = svc.searchDocs(ctx, input.Workspace, input.Search, input.Prefix, input.Cursor, input.Limit)
+			data, err = svc.searchWikiPages(ctx, input.Workspace, input.Search, input.Prefix, input.Cursor, input.Limit)
 		}
 	case readTargetRuns:
 		if err = svc.requireAPI(); err == nil {
@@ -325,7 +330,7 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 			if err := json.Unmarshal(value, &limit); err != nil {
 				return readInput{}, invalidToolInput("Field limit must be an integer.", readFieldLimit)
 			}
-			if limit < 1 || limit > readDocSearchMaxLimit {
+			if limit < 1 || limit > readWikiSearchMaxLimit {
 				return readInput{}, invalidToolInput("Field limit must be between 1 and 50.", readFieldLimit)
 			}
 			continue
@@ -381,7 +386,7 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 		return parseReadResourceURI(values[readFieldURI])
 	}
 
-	target := values[readFieldTarget]
+	target := canonicalReadTarget(values[readFieldTarget])
 	if target == "" {
 		if emptyTarget {
 			return readInput{}, invalidToolInput("The target field is required for target mode.", readFieldTarget)
@@ -425,6 +430,19 @@ func isReadInputField(field string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func canonicalReadTarget(target string) string {
+	switch target {
+	case legacyReadTargetDocs:
+		return readTargetWiki
+	case legacyReadTargetDoc:
+		return readTargetWikiPage
+	case legacyReadTargetDocSearch:
+		return readTargetWikiSearch
+	default:
+		return target
 	}
 }
 
@@ -474,43 +492,43 @@ func parseReadResourceURI(rawURI string) (readInput, *readToolError) {
 		default:
 			return readInput{}, invalidResourceURI(rawURI, "Unsupported DAG resource path.")
 		}
-	case readTargetDocs:
+	case readTargetWiki, legacyReadTargetDocs:
 		switch len(resource.segments) {
 		case 0:
-			if err := validateReadQuery(readTargetDocs, resource.query, true, rawURI); err != nil {
+			if err := validateReadQuery(readTargetWiki, resource.query, true, rawURI); err != nil {
 				return readInput{}, err
 			}
 			return readInput{
-				Target:    readTargetDocs,
+				Target:    readTargetWiki,
 				Workspace: "all",
 				Query:     resource.query,
-				URI:       uriWithQuery(readResourceDocsCollectionURI, resource.query),
+				URI:       uriWithQuery(readResourceWikiCollectionURI, resource.query),
 			}, nil
 		case 1:
 			if resource.segments[0] == "all" {
-				return readInput{}, invalidResourceURI(rawURI, "Use dagu://docs for the all-workspaces collection.")
+				return readInput{}, invalidResourceURI(rawURI, "Use dagu://wiki for the all-workspaces collection.")
 			}
-			if err := validateReadQuery(readTargetDocs, resource.query, true, rawURI); err != nil {
+			if err := validateReadQuery(readTargetWiki, resource.query, true, rawURI); err != nil {
 				return readInput{}, err
 			}
 			return readInput{
-				Target:    readTargetDocs,
+				Target:    readTargetWiki,
 				Workspace: resource.segments[0],
 				Query:     resource.query,
-				URI:       uriWithQuery(docsCollectionURI(resource.segments[0]), resource.query),
+				URI:       uriWithQuery(wikiCollectionURI(resource.segments[0]), resource.query),
 			}, nil
 		case 2:
 			if resource.query != "" {
-				return readInput{}, invalidResourceURI(rawURI, "Document resources do not support query parameters.")
+				return readInput{}, invalidResourceURI(rawURI, "Wiki page resources do not support query parameters.")
 			}
 			if resource.segments[0] == "all" {
-				return readInput{}, invalidResourceURI(rawURI, "A document resource requires a concrete workspace.")
+				return readInput{}, invalidResourceURI(rawURI, "A Wiki page resource requires a concrete workspace.")
 			}
 			input := readInput{
-				Target:    readTargetDoc,
+				Target:    readTargetWikiPage,
 				Workspace: resource.segments[0],
 				Path:      resource.segments[1],
-				URI:       docURI(resource.segments[0], resource.segments[1]),
+				URI:       wikiPageURI(resource.segments[0], resource.segments[1]),
 			}
 			if err := validateTargetReadInput(&input); err != nil {
 				err.Code = readErrorInvalidResourceURI
@@ -520,7 +538,7 @@ func parseReadResourceURI(rawURI string) (readInput, *readToolError) {
 			}
 			return input, nil
 		default:
-			return readInput{}, invalidResourceURI(rawURI, "Unsupported document resource path.")
+			return readInput{}, invalidResourceURI(rawURI, "Unsupported Wiki resource path.")
 		}
 	case readTargetRuns:
 		switch {
@@ -598,27 +616,27 @@ func validateTargetReadInput(input *readInput) *readToolError {
 	if input.StepName != "" && input.Target != readTargetStepLog {
 		return invalidTargetField(input.Target, readFieldStepName)
 	}
-	docTarget := input.Target == readTargetDocs || input.Target == readTargetDoc || input.Target == readTargetDocSearch
-	if input.Workspace != "" && !docTarget {
+	wikiTarget := input.Target == readTargetWiki || input.Target == readTargetWikiPage || input.Target == readTargetWikiSearch
+	if input.Workspace != "" && !wikiTarget {
 		return invalidTargetField(input.Target, readFieldWorkspace)
 	}
-	if input.Path != "" && input.Target != readTargetDoc {
+	if input.Path != "" && input.Target != readTargetWikiPage {
 		return invalidTargetField(input.Target, readFieldPath)
 	}
-	if input.Search != "" && input.Target != readTargetDocSearch {
+	if input.Search != "" && input.Target != readTargetWikiSearch {
 		return invalidTargetField(input.Target, readFieldSearch)
 	}
-	if input.Prefix != "" && input.Target != readTargetDocs && input.Target != readTargetDocSearch {
+	if input.Prefix != "" && input.Target != readTargetWiki && input.Target != readTargetWikiSearch {
 		return invalidTargetField(input.Target, readFieldPrefix)
 	}
-	if input.Cursor != "" && input.Target != readTargetDocSearch {
+	if input.Cursor != "" && input.Target != readTargetWikiSearch {
 		return invalidTargetField(input.Target, readFieldCursor)
 	}
-	if input.Limit != 0 && input.Target != readTargetDocSearch {
+	if input.Limit != 0 && input.Target != readTargetWikiSearch {
 		return invalidTargetField(input.Target, readFieldLimit)
 	}
 	if input.Prefix != "" {
-		if err := docs.ValidateDocID(input.Prefix); err != nil {
+		if err := wiki.ValidatePageID(input.Prefix); err != nil {
 			return invalidTargetValue(input.Target, readFieldPrefix, err.Error())
 		}
 	}
@@ -675,7 +693,7 @@ func validateTargetReadInput(input *readInput) *readToolError {
 			return invalidTargetField(input.Target, readFieldQuery)
 		}
 		input.URI = dagSpecURI(input.Name)
-	case readTargetDocs:
+	case readTargetWiki:
 		if input.Name != "" {
 			return invalidTargetField(input.Target, readFieldName)
 		}
@@ -699,8 +717,8 @@ func validateTargetReadInput(input *readInput) *readToolError {
 		if err := validateReadQuery(input.Target, input.Query, false, ""); err != nil {
 			return err
 		}
-		input.URI = uriWithQuery(docsCollectionURI(input.Workspace), input.Query)
-	case readTargetDoc:
+		input.URI = uriWithQuery(wikiCollectionURI(input.Workspace), input.Query)
+	case readTargetWikiPage:
 		if input.Name != "" {
 			return invalidTargetField(input.Target, readFieldName)
 		}
@@ -714,16 +732,16 @@ func validateTargetReadInput(input *readInput) *readToolError {
 			return missingTargetField(input.Target, readFieldWorkspace)
 		}
 		if input.Workspace == "all" {
-			return invalidTargetValue(input.Target, readFieldWorkspace, "The workspace field must identify default or one named workspace for target doc.")
+			return invalidTargetValue(input.Target, readFieldWorkspace, "The workspace field must identify default or one named workspace for target wiki_page.")
 		}
 		if input.Path == "" {
 			return missingTargetField(input.Target, readFieldPath)
 		}
-		if err := docs.ValidateDocID(input.Path); err != nil {
+		if err := wiki.ValidatePageID(input.Path); err != nil {
 			return invalidTargetValue(input.Target, readFieldPath, err.Error())
 		}
-		input.URI = docURI(input.Workspace, input.Path)
-	case readTargetDocSearch:
+		input.URI = wikiPageURI(input.Workspace, input.Path)
+	case readTargetWikiSearch:
 		if input.Name != "" {
 			return invalidTargetField(input.Target, readFieldName)
 		}
@@ -832,7 +850,7 @@ func isAllowedReadQueryParam(target, key string) bool {
 		case "page", "perPage", "name", "labels", "active", "sort", "order":
 			return true
 		}
-	case readTargetDocs:
+	case readTargetWiki:
 		switch key {
 		case "page", "perPage", "flat", "sort", "order", "prefix":
 			return true
@@ -870,7 +888,7 @@ func validReadQueryValue(target, key, value string) bool {
 		case "order":
 			return value == "asc" || value == "desc"
 		}
-	case readTargetDocs:
+	case readTargetWiki:
 		switch key {
 		case "page":
 			return validIntRange(value, 1, 0)
@@ -883,7 +901,7 @@ func validReadQueryValue(target, key, value string) bool {
 		case "order":
 			return value == "asc" || value == "desc"
 		case "prefix":
-			return docs.ValidateDocID(value) == nil
+			return wiki.ValidatePageID(value) == nil
 		}
 	case readTargetRuns:
 		switch key {
@@ -1139,10 +1157,10 @@ func resourceURIForReadError(input readInput) string {
 		return readReferenceURI(input.Name)
 	case readTargetDAGSpec:
 		return dagSpecURI(input.Name)
-	case readTargetDocs:
-		return uriWithQuery(docsCollectionURI(input.Workspace), input.Query)
-	case readTargetDoc:
-		return docURI(input.Workspace, input.Path)
+	case readTargetWiki:
+		return uriWithQuery(wikiCollectionURI(input.Workspace), input.Query)
+	case readTargetWikiPage:
+		return wikiPageURI(input.Workspace, input.Path)
 	case readTargetRun:
 		return runURI(input.Name, input.DAGRunID)
 	case readTargetRunLogs:
@@ -1296,18 +1314,18 @@ func readResourceLinks(uri string) []resourceLink {
 		if len(resource.segments) == 2 {
 			return []resourceLink{linkForDAGSpec(resource.segments[0])}
 		}
-	case readTargetDocs:
+	case readTargetWiki:
 		if len(resource.segments) <= 1 {
 			return []resourceLink{{
 				uri:         resource.rawURI,
-				name:        "documents",
-				title:       "Documents",
-				description: "Workspace-aware document collection.",
+				name:        "wiki",
+				title:       "Wiki",
+				description: "Workspace-aware Wiki collection.",
 				mimeType:    resourceMIMEJSON,
 			}}
 		}
 		if len(resource.segments) == 2 {
-			return []resourceLink{linkForDoc(resource.segments[0], resource.segments[1])}
+			return []resourceLink{linkForWikiPage(resource.segments[0], resource.segments[1])}
 		}
 	case readTargetRuns:
 		if len(resource.segments) == 0 {

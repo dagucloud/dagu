@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -30,7 +29,7 @@ type Engine struct {
 	cfg             *config.Config
 	dagRunStore     dagrun.DAGRunStore
 	runStateStore   runstate.Store
-	stateStore      dagstate.Store
+	stateStore      dagrun.StateStore
 	procStore       proc.ProcStore
 	serviceRegistry serviceregistry.ServiceRegistry
 	dagStore        dagstore.DAGStore

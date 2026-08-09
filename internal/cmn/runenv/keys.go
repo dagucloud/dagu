@@ -40,7 +40,10 @@ const (
 	// EnvKeyDAGParamsJSONCompat exposes the resolved parameters encoded as JSON.
 	EnvKeyDAGParamsJSONCompat = "DAGU_PARAMS_JSON"
 
-	// EnvKeyDAGDocsDir holds the per-DAG docs directory path.
+	// EnvKeyDAGWikiDir holds the per-DAG Wiki directory path.
+	EnvKeyDAGWikiDir = "DAG_WIKI_DIR"
+
+	// EnvKeyDAGDocsDir is the deprecated name for EnvKeyDAGWikiDir.
 	EnvKeyDAGDocsDir = "DAG_DOCS_DIR"
 
 	// EnvKeyDAGRunWorkDir holds the path to the per-DAG-run working directory.

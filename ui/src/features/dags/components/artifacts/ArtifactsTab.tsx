@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Button } from '@/components/ui/button';
-import { DocMarkdownPreview } from '@/components/ui/doc-markdown-preview';
+import { WikiPageMarkdownPreview } from '@/components/ui/wiki-page-markdown-preview';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { downloadBlob } from '@/lib/download';
@@ -824,7 +824,7 @@ export default function ArtifactsTab({
                   {preview.content || ''}
                 </pre>
               ) : (
-                <DocMarkdownPreview content={preview.content} />
+                <WikiPageMarkdownPreview content={preview.content} />
               )}
             </div>
           ) : preview.kind === 'html' ? (

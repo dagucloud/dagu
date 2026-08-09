@@ -118,4 +118,26 @@ describe('SearchPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('treats the legacy docs scope as Wiki search', () => {
+    mockUseInfinite.mockReturnValue({
+      data: [],
+      error: undefined,
+      isLoading: false,
+      isValidating: false,
+      setSize: vi.fn(),
+      mutate: vi.fn(),
+    } as never);
+
+    renderSearchPage('/search?q=needle&scope=docs');
+
+    expect(mockUseInfinite).toHaveBeenCalledWith(
+      '/search/wiki',
+      expect.any(Function),
+      expect.any(Object)
+    );
+    expect(screen.getByRole('button', { name: 'Wiki' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
 });

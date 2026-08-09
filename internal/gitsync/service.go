@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/wiki"
 )
 
 // Service defines the interface for Git sync operations.
@@ -133,26 +135,30 @@ type ConnectionResult struct {
 }
 
 // SyncItemDiff represents the diff between local and remote versions of an item.
+// Binary items carry sizes instead of content.
 type SyncItemDiff struct {
 	ItemID        string     `json:"dagId"`
 	FileExtension string     `json:"fileExtension"`
 	Status        SyncStatus `json:"status"`
+	Binary        bool       `json:"binary,omitempty"`
 	LocalContent  string     `json:"localContent"`
 	RemoteContent string     `json:"remoteContent,omitempty"`
+	LocalSize     *int64     `json:"localSize,omitempty"`
+	RemoteSize    *int64     `json:"remoteSize,omitempty"`
 	RemoteCommit  string     `json:"remoteCommit,omitempty"`
 	RemoteAuthor  string     `json:"remoteAuthor,omitempty"`
 	RemoteMessage string     `json:"remoteMessage,omitempty"`
 }
 
 const (
-	dagYAMLExtension = ".yaml"
-	dagYMLExtension  = ".yml"
-	docExtension     = ".md"
+	dagYAMLExtension  = ".yaml"
+	dagYMLExtension   = ".yml"
+	wikiPageExtension = ".md"
 )
 
 func normalizeDAGFileExtension(extension string) string {
-	if strings.EqualFold(extension, docExtension) {
-		return docExtension
+	if strings.EqualFold(extension, wikiPageExtension) {
+		return wikiPageExtension
 	}
 	if strings.EqualFold(extension, dagYMLExtension) {
 		return dagYMLExtension
@@ -164,7 +170,8 @@ func normalizeDAGFileExtension(extension string) string {
 type serviceImpl struct {
 	cfg          *Config
 	dagsDir      string
-	docsDir      string
+	wikiDir      string
+	repoWikiDir  string
 	dataDir      string
 	stateManager *StateManager
 	gitClient    *GitClient
@@ -174,15 +181,16 @@ type serviceImpl struct {
 }
 
 // NewService creates a new Git sync service.
-func NewService(cfg *Config, dagsDir, docsPath, dataDir string) Service {
+func NewService(cfg *Config, dagsDir, wikiPath, dataDir string) Service {
 	repoPath := filepath.Join(dataDir, "gitsync", "repo")
-	if docsPath == "" {
-		docsPath = filepath.Join(dagsDir, docsDir)
+	if wikiPath == "" {
+		wikiPath = filepath.Join(dagsDir, wikiDir)
 	}
 	return &serviceImpl{
 		cfg:          cfg,
 		dagsDir:      dagsDir,
-		docsDir:      docsPath,
+		wikiDir:      wikiPath,
+		repoWikiDir:  wikiDir,
 		dataDir:      dataDir,
 		stateManager: NewStateManager(dataDir),
 		gitClient:    NewGitClient(cfg, repoPath),
@@ -246,11 +254,17 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 	var synced []string
 	var conflicts []string
 
-	extensions := []string{dagYAMLExtension, dagYMLExtension, docExtension}
+	extensions := []string{dagYAMLExtension, dagYMLExtension, wikiPageExtension}
 	files, err := s.gitClient.ListFiles(extensions)
 	if err != nil {
 		return nil, nil, err
 	}
+	// Page attachments are extension-agnostic; list their subtree separately.
+	assetFiles, err := s.gitClient.ListFilesUnder(path.Join(s.repoWikiDir, wikiPageAssetsDirName))
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, assetFiles...)
 
 	state, _ := s.stateManager.GetState()
 	s.ensureSyncItemFileExtensions(state)
@@ -269,6 +283,12 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		if !isSyncableRepoFile(file, dagID) {
 			continue
 		}
+		repoFileSet[dagID] = struct{}{}
+		if isWikiPageAssetFile(dagID) {
+			// Asset IDs keep their extension, so extension bookkeeping and
+			// the duplicate-extension guard do not apply.
+			continue
+		}
 		fileExtension := normalizeDAGFileExtension(path.Ext(file))
 		if existingExtension, exists := repoFileExtensions[dagID]; exists && existingExtension != fileExtension {
 			return nil, nil, &ValidationError{
@@ -276,13 +296,15 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 				Message: "DAG exists with both .yaml and .yml extensions",
 			}
 		}
-		repoFileSet[dagID] = struct{}{}
 		repoFileExtensions[dagID] = fileExtension
 	}
 
 	for _, file := range files {
 		dagID := s.filePathToDAGID(file)
-		fileExtension := normalizeDAGFileExtension(path.Ext(file))
+		fileExtension := ""
+		if !isWikiPageAssetFile(dagID) {
+			fileExtension = normalizeDAGFileExtension(path.Ext(file))
+		}
 
 		if !isSyncableRepoFile(file, dagID) {
 			continue
@@ -293,9 +315,18 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		}
 
 		dagState := state.Items[dagID]
+		// Unchanged fast path: the item was synced against this exact commit
+		// and refreshLocalHashes above found no local drift, so neither side
+		// needs to be read. This keeps pulls from re-reading every file
+		// (binary attachments in particular) on each auto-sync cycle.
+		if dagState != nil && dagState.Status == StatusSynced && dagState.BaseCommit == pullResult.CurrentCommit {
+			continue
+		}
 		localExtension := s.syncItemFileExtension(dagID, dagState)
 		localFileExtension := fileExtension
-		if isDocFile(dagID) && strings.EqualFold(localExtension, fileExtension) {
+		if isWikiPageAssetFile(dagID) {
+			localFileExtension = ""
+		} else if isWikiPageFile(dagID) && strings.EqualFold(localExtension, fileExtension) {
 			localFileExtension = localExtension
 		} else if localExtension != fileExtension {
 			if err := s.migrateLocalDAGExtension(dagID, localExtension, fileExtension); err != nil {
@@ -322,9 +353,14 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 
 		if err != nil {
 			// Before creating a new local file, check if this content matches
-			// a missing item's hash (prevents duplicates after move+pull)
+			// a missing item's hash (prevents duplicates after move+pull).
+			// Only same-kind entries qualify: identical bytes across kinds
+			// must not forget an unrelated item.
 			for otherID, otherState := range state.Items {
-				if otherID != dagID && otherState.Status == StatusMissing && otherState.LastSyncedHash == repoHash {
+				if otherID != dagID &&
+					otherState.Status == StatusMissing &&
+					otherState.LastSyncedHash == repoHash &&
+					SyncItemKindForID(otherID) == SyncItemKindForID(dagID) {
 					// Auto-forget the stale missing entry
 					delete(state.Items, otherID)
 					break
@@ -479,7 +515,7 @@ func (s *serviceImpl) reconcileAfterPull(state *State, repoFileSet map[string]st
 	}
 }
 
-// scanLocalItems marks local DAGs and documents missing from state as untracked.
+// scanLocalItems marks local DAGs and Wiki pages missing from state as untracked.
 func (s *serviceImpl) scanLocalItems(state *State) error {
 	extensions := map[string]bool{dagYAMLExtension: true, dagYMLExtension: true}
 
@@ -535,37 +571,102 @@ func (s *serviceImpl) scanLocalItems(state *State) error {
 		state.Items[dagID] = ds
 	}
 
-	s.scanDocFiles(state)
+	s.scanWikiPageFiles(state)
 
 	return nil
 }
 
-func (s *serviceImpl) scanDocFiles(state *State) {
-	docDir := s.localDocsDir()
-	_ = filepath.WalkDir(docDir, func(filePath string, entry os.DirEntry, walkErr error) error {
+func (s *serviceImpl) scanWikiPageFiles(state *State) {
+	wikiRoot := s.localWikiDir()
+	_ = filepath.WalkDir(wikiRoot, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr == nil && entry.IsDir() && entry.Name() == wikiPageAssetsDirName {
+			// The attachment subtree belongs to the page-asset scanner.
+			return filepath.SkipDir
+		}
 		ext := filepath.Ext(filePath)
-		if walkErr != nil || entry.IsDir() || !strings.EqualFold(ext, docExtension) {
+		if walkErr != nil || entry.IsDir() || !strings.EqualFold(ext, wikiPageExtension) {
 			return nil
 		}
-		relPath, err := filepath.Rel(docDir, filePath)
+		relPath, err := filepath.Rel(wikiRoot, filePath)
 		if err != nil {
 			return nil
 		}
-		itemID := path.Join(docsDir, strings.TrimSuffix(filepath.ToSlash(relPath), ext))
+		pageID := strings.TrimSuffix(filepath.ToSlash(relPath), ext)
+		if wiki.ValidatePageID(pageID) != nil {
+			return nil
+		}
+		itemID := path.Join(s.repoWikiDir, pageID)
 		if _, exists := state.Items[itemID]; exists {
 			return nil
 		}
-		content, err := safeReadFileWithinBase(docDir, filePath)
+		content, err := safeReadFileWithinBase(wikiRoot, filePath)
 		if err != nil {
 			return nil
 		}
 		now := time.Now()
 		itemState := &SyncItemState{
 			Status:        StatusUntracked,
-			Kind:          SyncItemKindDoc,
+			Kind:          SyncItemKindWikiPage,
 			FileExtension: ext,
 			LocalHash:     ComputeContentHash(content),
 			ModifiedAt:    &now,
+		}
+		if info, err := os.Stat(filePath); err == nil {
+			updateStatCache(itemState, info)
+		}
+		state.Items[itemID] = itemState
+		return nil
+	})
+	s.scanWikiPageAssetFiles(state)
+}
+
+// isValidAssetItemID reports whether an asset item ID names a valid
+// attachment location under the Wiki repository root.
+func isValidAssetItemID(itemID string) bool {
+	normalized := normalizeDAGIDSeparators(itemID)
+	rel := strings.TrimPrefix(normalized, wikiRepoDirForID(normalized)+"/"+wikiPageAssetsDirName+"/")
+	if rel == normalized {
+		return false
+	}
+	idx := strings.LastIndex(rel, "/")
+	if idx <= 0 {
+		return false
+	}
+	wikiPageID, name := rel[:idx], rel[idx+1:]
+	if wiki.ValidatePageID(wikiPageID) != nil {
+		return false
+	}
+	return wiki.ValidateAttachmentName(name) == nil
+}
+
+// scanWikiPageAssetFiles registers untracked Wiki page attachments.
+func (s *serviceImpl) scanWikiPageAssetFiles(state *State) {
+	assetDir := filepath.Join(s.localWikiDir(), wikiPageAssetsDirName)
+	_ = filepath.WalkDir(assetDir, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return nil
+		}
+		relPath, err := filepath.Rel(s.localWikiDir(), filePath)
+		if err != nil {
+			return nil
+		}
+		itemID := path.Join(s.repoWikiDir, filepath.ToSlash(relPath))
+		if !isValidAssetItemID(itemID) {
+			return nil
+		}
+		if _, exists := state.Items[itemID]; exists {
+			return nil
+		}
+		content, err := safeReadFileWithinBase(s.localWikiDir(), filePath)
+		if err != nil {
+			return nil
+		}
+		now := time.Now()
+		itemState := &SyncItemState{
+			Status:     StatusUntracked,
+			Kind:       SyncItemKindWikiPageAsset,
+			LocalHash:  ComputeContentHash(content),
+			ModifiedAt: &now,
 		}
 		if info, err := os.Stat(filePath); err == nil {
 			updateStatCache(itemState, info)
@@ -1316,6 +1417,9 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	if SyncItemKindForID(oldID) != SyncItemKindForID(newID) {
 		return &ValidationError{Field: "newItemId", Message: "source and destination must have the same item type"}
 	}
+	if isWikiPageAssetFile(newID) && !isValidAssetItemID(newID) {
+		return &ValidationError{Field: "newItemId", Message: "destination is not a valid attachment path"}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1476,6 +1580,13 @@ func (s *serviceImpl) GetStatus(_ context.Context) (*OverallStatus, error) {
 
 	status.Repository = s.cfg.Repository
 	status.Branch = s.cfg.Branch
+	repoWikiDir, err := s.selectRepoWikiDir()
+	if err != nil {
+		status.Summary = SummaryError
+		status.LastError = new(err.Error())
+		return status, nil
+	}
+	s.repoWikiDir = repoWikiDir
 
 	state, err := s.stateManager.GetState()
 	if err != nil {
@@ -1579,6 +1690,40 @@ func (s *serviceImpl) GetSyncItemDiff(_ context.Context, itemID string) (*SyncIt
 		ItemID:        itemID,
 		FileExtension: s.syncItemFileExtension(itemID, itemState),
 		Status:        itemState.Status,
+	}
+
+	// Binary attachments never load content: sizes and commit metadata only.
+	// This guard must precede every content-loading branch below.
+	if isWikiPageAssetFile(itemID) {
+		diff.Binary = true
+		if localPath, err := s.safeDAGIDToFilePath(itemID, ""); err == nil {
+			if info, err := os.Stat(localPath); err == nil {
+				size := info.Size()
+				diff.LocalSize = &size
+			}
+		}
+		remoteCommit := itemState.BaseCommit
+		if itemState.Status == StatusConflict {
+			remoteCommit = itemState.RemoteCommit
+			diff.RemoteAuthor = itemState.RemoteAuthor
+			diff.RemoteMessage = itemState.RemoteMessage
+		}
+		if remoteCommit != "" {
+			if err := s.gitClient.Open(); err != nil {
+				return nil, fmt.Errorf("failed to open repository for binary diff: %w", err)
+			}
+			repoPath, err := s.safeDAGIDToRepoPath(itemID, "")
+			if err != nil {
+				return nil, err
+			}
+			size, err := s.gitClient.GetFileSizeAtCommit(repoPath, remoteCommit)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read remote binary metadata: %w", err)
+			}
+			diff.RemoteSize = &size
+			diff.RemoteCommit = remoteCommit
+		}
+		return diff, nil
 	}
 
 	// Missing items have no local file.
@@ -1783,6 +1928,11 @@ func (s *serviceImpl) filePathToDAGID(filePath string) string {
 		prefix := strings.TrimSuffix(filepath.ToSlash(s.cfg.Path), "/") + "/"
 		filePath = strings.TrimPrefix(filePath, prefix)
 	}
+	// Asset IDs keep the extension: attachment names in one directory may
+	// differ only by extension.
+	if isWikiPageAssetFile(filePath) {
+		return filePath
+	}
 	// Remove extension
 	ext := path.Ext(filePath)
 	dagID := strings.TrimSuffix(filePath, ext)
@@ -1793,11 +1943,17 @@ func isSyncableRepoFile(filePath, itemID string) bool {
 	if isBaseConfigID(itemID) {
 		return false
 	}
+	// Attachments are classified by location and validated by name; the
+	// extension switch below never applies to them, so a .md file under the
+	// asset subtree can never become a Wiki page item.
+	if isWikiPageAssetFile(itemID) {
+		return isValidAssetItemID(itemID)
+	}
 	switch strings.ToLower(path.Ext(filePath)) {
-	case docExtension:
-		return isDocFile(itemID)
+	case wikiPageExtension:
+		return isWikiPageFile(itemID)
 	case dagYAMLExtension, dagYMLExtension:
-		return !isDocFile(itemID)
+		return !isWikiPageFile(itemID)
 	default:
 		return false
 	}
@@ -2224,33 +2380,37 @@ func (s *serviceImpl) safeDAGIDToFilePath(dagID, fileExtension string) (string, 
 	}
 	baseDir := s.dagsDir
 	localID := normalized
-	if isDocFile(normalized) {
-		baseDir = s.localDocsDir()
-		localID = strings.TrimPrefix(normalized, docsDir+"/")
+	if isWikiPageFile(normalized) || isWikiPageAssetFile(normalized) {
+		baseDir = s.localWikiDir()
+		localID = strings.TrimPrefix(normalized, wikiRepoDirForID(normalized)+"/")
 	}
 	return safeJoinWithinBase(baseDir, filepath.FromSlash(localID+normalizeLocalFileExtension(normalized, fileExtension)))
 }
 
-func (s *serviceImpl) localDocsDir() string {
-	if s.docsDir != "" {
-		return s.docsDir
+func (s *serviceImpl) localWikiDir() string {
+	if s.wikiDir != "" {
+		return s.wikiDir
 	}
-	return filepath.Join(s.dagsDir, docsDir)
+	return filepath.Join(s.dagsDir, wikiDir)
 }
 
 func (s *serviceImpl) localBaseDir(itemID string) string {
-	if isDocFile(itemID) {
-		return s.localDocsDir()
+	if isWikiPageFile(itemID) || isWikiPageAssetFile(itemID) {
+		return s.localWikiDir()
 	}
 	return s.dagsDir
 }
 
 func normalizeLocalFileExtension(itemID, extension string) string {
-	if isDocFile(itemID) {
-		if strings.EqualFold(extension, docExtension) {
+	// Asset IDs already carry their extension; nothing is appended.
+	if isWikiPageAssetFile(itemID) {
+		return ""
+	}
+	if isWikiPageFile(itemID) {
+		if strings.EqualFold(extension, wikiPageExtension) {
 			return extension
 		}
-		return docExtension
+		return wikiPageExtension
 	}
 	return normalizeDAGFileExtension(extension)
 }
@@ -2265,7 +2425,13 @@ func (s *serviceImpl) safeDAGIDToRepoPath(dagID, fileExtension string) (string, 
 		return "", err
 	}
 
-	repoPath := normalized + normalizeDAGFileExtension(fileExtension)
+	extension := normalizeDAGFileExtension(fileExtension)
+	if isWikiPageAssetFile(normalized) {
+		extension = ""
+	} else if isWikiPageFile(normalized) {
+		extension = wikiPageExtension
+	}
+	repoPath := normalized + extension
 	if s.cfg != nil && s.cfg.Path != "" {
 		repoPath = path.Join(filepath.ToSlash(s.cfg.Path), repoPath)
 	}
@@ -2285,15 +2451,22 @@ func (s *serviceImpl) safeDAGIDToRepoPath(dagID, fileExtension string) (string, 
 }
 
 func (s *serviceImpl) syncItemFileExtension(dagID string, dagState *SyncItemState) string {
-	if isDocFile(dagID) {
+	if isWikiPageAssetFile(dagID) {
 		if dagState != nil {
-			dagState.Kind = SyncItemKindDoc
-			if strings.EqualFold(dagState.FileExtension, docExtension) {
+			dagState.Kind = SyncItemKindWikiPageAsset
+			dagState.FileExtension = ""
+		}
+		return ""
+	}
+	if isWikiPageFile(dagID) {
+		if dagState != nil {
+			dagState.Kind = SyncItemKindWikiPage
+			if strings.EqualFold(dagState.FileExtension, wikiPageExtension) {
 				return dagState.FileExtension
 			}
-			dagState.FileExtension = docExtension
+			dagState.FileExtension = wikiPageExtension
 		}
-		return docExtension
+		return wikiPageExtension
 	}
 	if dagState != nil {
 		dagState.Kind = SyncItemKindDAG
@@ -2444,9 +2617,40 @@ func (s *serviceImpl) validatePublishable(itemState *SyncItemState, itemID strin
 // ensureRepoReady ensures the repository is cloned and opened.
 func (s *serviceImpl) ensureRepoReady(ctx context.Context) error {
 	if !s.gitClient.IsCloned() {
-		return s.gitClient.Clone(ctx)
+		if err := s.gitClient.Clone(ctx); err != nil {
+			return err
+		}
+	} else if err := s.gitClient.Open(); err != nil {
+		return err
 	}
-	return s.gitClient.Open()
+
+	repoWikiDir, err := s.selectRepoWikiDir()
+	if err != nil {
+		return err
+	}
+	s.repoWikiDir = repoWikiDir
+	return nil
+}
+
+func (s *serviceImpl) selectRepoWikiDir() (string, error) {
+	root := s.gitClient.repoPath
+	if s.cfg != nil && s.cfg.Path != "" {
+		root = filepath.Join(root, s.cfg.Path)
+	}
+	wikiExists := pathExists(filepath.Join(root, wikiDir))
+	docsExists := pathExists(filepath.Join(root, legacyDocsDir))
+	if wikiExists && docsExists {
+		return "", fmt.Errorf("git sync repository contains both %q and legacy %q Wiki directories", wikiDir, legacyDocsDir)
+	}
+	if docsExists {
+		return legacyDocsDir, nil
+	}
+	return wikiDir, nil
+}
+
+func pathExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	return err == nil
 }
 
 // newSyncedItemState creates a new SyncItemState in synced status.

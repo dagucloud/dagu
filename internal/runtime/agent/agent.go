@@ -38,7 +38,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
@@ -99,7 +98,7 @@ type Agent struct {
 	queueStore queue.QueueStore
 
 	// stateStore is the persistent state store shared across DAG runs.
-	stateStore dagstate.Store
+	stateStore dagrun.StateStore
 
 	// materializationStore coordinates build file materializations.
 	materializationStore build.MaterializationStore
@@ -337,7 +336,7 @@ type Options struct {
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
 	QueueStore queue.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
-	StateStore dagstate.Store
+	StateStore dagrun.StateStore
 	// MaterializationStore coordinates build file materializations.
 	MaterializationStore build.MaterializationStore
 	// SecretStore resolves local registry refs and runtime profile secrets.

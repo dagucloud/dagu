@@ -18,10 +18,10 @@ import {
 } from '../../lib/workspace';
 import Title from '@/components/ui/title';
 
-type SearchScope = 'dags' | 'docs';
+type SearchScope = 'dags' | 'wiki';
 type DagResult = components['schemas']['DAGSearchPageItem'];
-type DocResult = components['schemas']['DocSearchPageItem'];
-type SearchPageResult = DagResult | DocResult;
+type WikiPageResult = components['schemas']['WikiPageSearchPageItem'];
+type SearchPageResult = DagResult | WikiPageResult;
 
 type SearchFilters = {
   searchVal: string;
@@ -58,7 +58,7 @@ type SearchFeedPage = {
 };
 
 type CursorSearchFeedProps<T extends SearchPageResult> = SearchFeedProps & {
-  endpoint: '/search/dags' | '/search/docs';
+  endpoint: '/search/dags' | '/search/wiki';
   title: string;
   emptyMessage: string;
   unavailableMessage?: string;
@@ -66,7 +66,7 @@ type CursorSearchFeedProps<T extends SearchPageResult> = SearchFeedProps & {
 };
 
 function parseScope(value: string | null): SearchScope {
-  return value === 'docs' ? 'docs' : 'dags';
+  return value === 'wiki' || value === 'docs' ? 'wiki' : 'dags';
 }
 
 function buildSearchParams(filters: SearchFilters): URLSearchParams {
@@ -334,18 +334,18 @@ function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
   );
 }
 
-function DocSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
+function WikiSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
   return (
-    <CursorSearchFeed<DocResult>
-      endpoint="/search/docs"
-      title="Docs"
-      emptyMessage="No docs found"
-      unavailableMessage="Document management is not available on this server."
+    <CursorSearchFeed<WikiPageResult>
+      endpoint="/search/wiki"
+      title="Wiki"
+      emptyMessage="No Wiki pages found"
+      unavailableMessage="Wiki page management is not available on this server."
       query={query}
       remoteNode={remoteNode}
       workspaceQuery={workspaceQuery}
       renderResults={(results) => (
-        <SearchResult type="doc" query={query} results={results} />
+        <SearchResult type="wiki" query={query} results={results} />
       )}
     />
   );
@@ -485,24 +485,24 @@ function Search() {
                 DAGs
               </ToggleButton>
               <ToggleButton
-                value="docs"
+                value="wiki"
                 groupValue={currentFilters.scope}
                 onClick={() => {
                   syncFilters({
                     searchVal: currentFilters.searchVal,
-                    scope: 'docs',
+                    scope: 'wiki',
                   });
                 }}
               >
-                Docs
+                Wiki
               </ToggleButton>
             </ToggleGroup>
           </div>
         </div>
 
         <div className="mt-4 space-y-4">
-          {currentFilters.scope === 'docs' ? (
-            <DocSearchFeed
+          {currentFilters.scope === 'wiki' ? (
+            <WikiSearchFeed
               query={submittedQuery}
               remoteNode={remoteNode}
               workspaceQuery={workspaceQuery}

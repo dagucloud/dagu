@@ -35,7 +35,7 @@ func TestConfigCommand(t *testing.T) {
 	t.Run("ShowsLabels", func(t *testing.T) {
 		out := runConfigCmd(t)
 		assert.Contains(t, out, "DAGs directory:")
-		assert.Contains(t, out, "Docs directory:")
+		assert.Contains(t, out, "Wiki directory:")
 		assert.Contains(t, out, "DAG runs:")
 		assert.Contains(t, out, "Log directory:")
 		assert.Contains(t, out, "Data directory:")
@@ -48,7 +48,7 @@ func TestConfigCommand(t *testing.T) {
 	t.Run("ShowsConfiguredPaths", func(t *testing.T) {
 		out := runConfigCmd(t)
 		assert.Contains(t, out, th.Config.Paths.DAGsDir)
-		assert.Contains(t, out, th.Config.Paths.DocsDir)
+		assert.Contains(t, out, th.Config.Paths.WikiDir)
 		assert.Contains(t, out, th.Config.Paths.DAGRunsDir)
 		assert.Contains(t, out, th.Config.Paths.LogDir)
 		assert.Contains(t, out, th.Config.Paths.DataDir)

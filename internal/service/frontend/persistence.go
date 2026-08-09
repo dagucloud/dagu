@@ -11,7 +11,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
-	"github.com/dagucloud/dagu/v2/internal/docs"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/notification"
@@ -22,6 +21,7 @@ import (
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 	"github.com/dagucloud/dagu/v2/internal/view"
+	"github.com/dagucloud/dagu/v2/internal/wiki"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -34,7 +34,7 @@ type StoreFactories struct {
 	SecretStoreFactory               SecretStoreFactory
 	ProfileStoreFactory              ProfileStoreFactory
 	DAGSettingsStoreFactory          DAGSettingsStoreFactory
-	DocStoreFactory                  DocStoreFactory
+	WikiStoreFactory                 WikiStoreFactory
 	NotificationStoreFactory         NotificationStoreFactory
 	NotificationMonitorStateFileFunc MonitorStateFileFunc
 	IncidentStoreFactory             IncidentStoreFactory
@@ -58,7 +58,7 @@ type RemoteNodeStoreFactory func(*config.Config, *crypto.Encryptor) (remotenode.
 
 type DAGSettingsStoreFactory func(*config.Config) (dagsettings.Store, error)
 
-type DocStoreFactory func(*config.Config) (docs.DocStore, error)
+type WikiStoreFactory func(*config.Config) (wiki.PageStore, error)
 
 type NotificationStoreFactory func(*config.Config, *crypto.Encryptor) (notification.Store, error)
 
