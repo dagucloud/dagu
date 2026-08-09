@@ -395,6 +395,7 @@ func (o *attemptOwnership) leaseFromTask(
 		QueueName:       queueName,
 		WorkerID:        workerID,
 		Owner:           owner,
+		ClaimToken:      task.ClaimToken,
 		ClaimedAt:       now.UnixMilli(),
 		LastHeartbeatAt: now.UnixMilli(),
 	}

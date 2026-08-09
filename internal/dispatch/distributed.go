@@ -18,6 +18,7 @@ var (
 	ErrDispatchAdmissionConflict              = errors.New("dispatch admission conflict")
 	ErrDispatchAdmissionLivenessNotConfigured = errors.New("dispatch admission liveness not configured")
 	ErrDAGRunLeaseNotFound                    = errors.New("dag-run lease not found")
+	ErrDAGRunLeaseConflict                    = errors.New("dag-run lease identity conflict")
 	ErrActiveRunNotFound                      = errors.New("active distributed run not found")
 	ErrWorkerHeartbeatNotFound                = errors.New("worker heartbeat not found")
 )
@@ -155,18 +156,15 @@ type DAGRunLease struct {
 	QueueName       string              `json:"queueName"`
 	WorkerID        string              `json:"workerId"`
 	Owner           CoordinatorEndpoint `json:"owner"`
+	ClaimToken      string              `json:"claimToken,omitempty"`
 	ClaimedAt       int64               `json:"claimedAt"`
 	LastHeartbeatAt int64               `json:"lastHeartbeatAt"`
 }
 
-// MatchesClaim reports whether the lease identifies claimKey without
-// conflicting with workerID. An empty worker ID on either side is treated as
-// unspecified.
+// MatchesClaim reports whether the lease identifies the worker claim.
 func (l *DAGRunLease) MatchesClaim(claimKey, workerID string) bool {
-	if l == nil || claimKey == "" || l.AttemptKey != claimKey {
-		return false
-	}
-	return l.WorkerID == "" || workerID == "" || l.WorkerID == workerID
+	return l != nil && claimKey != "" && workerID != "" &&
+		l.AttemptKey == claimKey && l.WorkerID == workerID
 }
 
 // LastHeartbeatTime returns the last run heartbeat time.

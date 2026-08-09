@@ -122,11 +122,7 @@ func TestDAGRunLeaseStore_ConcurrentTouchPreservesLatestHeartbeat(t *testing.T) 
 	assert.True(t, ok, "lease.LastHeartbeatAt must equal one of the requested observedAt values; got %d", lease.LastHeartbeatAt)
 }
 
-// TestDAGRunLeaseStore_ConcurrentTouchAndUpsertNoClobber documents the
-// CAS-retry semantic: an Upsert and a Touch concurrently targeting the same
-// attempt key must converge to a state that contains the Upsert's payload
-// changes (WorkerID/Owner) AND a LastHeartbeatAt at-or-after the Touch.
-func TestDAGRunLeaseStore_ConcurrentTouchAndUpsertNoClobber(t *testing.T) {
+func TestDAGRunLeaseStore_RejectsWorkerTransfer(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -144,40 +140,69 @@ func TestDAGRunLeaseStore_ConcurrentTouchAndUpsertNoClobber(t *testing.T) {
 	}
 	require.NoError(t, s.Upsert(ctx, initial))
 
-	newWorker := "worker-claim-update"
-	// Real coordinator callers pass fresh LastHeartbeatAt on every Upsert
-	// (see coordinator/distributed_attempts.go). Mirror that here so this
-	// test models production semantics: whichever write lands last, both
-	// the WorkerID change and a fresh heartbeat survive.
 	touchAt := time.Now().UTC().Truncate(time.Second)
-	upsertHeartbeat := touchAt.UnixMilli()
-
-	var wg sync.WaitGroup
-	errCh := make(chan error, 2)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		u := initial
-		u.WorkerID = newWorker
-		u.LastHeartbeatAt = upsertHeartbeat
-		errCh <- s.Upsert(ctx, u)
-	}()
-	go func() {
-		defer wg.Done()
-		errCh <- s.Touch(ctx, "attempt-key-clobber", touchAt)
-	}()
-	wg.Wait()
-	close(errCh)
-	for err := range errCh {
-		require.NoError(t, err)
-	}
+	replacement := initial
+	replacement.WorkerID = "worker-claim-update"
+	replacement.LastHeartbeatAt = touchAt.UnixMilli()
+	require.ErrorIs(t, s.Upsert(ctx, replacement), dispatch.ErrDAGRunLeaseConflict)
+	require.NoError(t, s.Touch(ctx, "attempt-key-clobber", touchAt))
 
 	lease, err := s.Get(ctx, "attempt-key-clobber")
 	require.NoError(t, err)
 	require.NotNil(t, lease)
-	assert.Equal(t, newWorker, lease.WorkerID, "Upsert's WorkerID must survive concurrent Touch")
-	assert.GreaterOrEqual(t, lease.LastHeartbeatAt, touchAt.UnixMilli(), "LastHeartbeatAt must be at-or-after touchAt under either write ordering")
-	assert.Equal(t, initial.ClaimedAt, lease.ClaimedAt, "ClaimedAt is caller-controlled and stable across both writes")
+	assert.Equal(t, initial.WorkerID, lease.WorkerID)
+	assert.GreaterOrEqual(t, lease.LastHeartbeatAt, touchAt.UnixMilli())
+	assert.Equal(t, initial.ClaimedAt, lease.ClaimedAt)
+}
+
+func TestDAGRunLeaseStore_SharedFileInstancesPreserveLeaseIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	dir := t.TempDir()
+	first := store.NewDAGRunLeaseStore(file.NewCollection(dir))
+	second := store.NewDAGRunLeaseStore(file.NewCollection(dir))
+	initialHeartbeat := time.Now().Add(-time.Minute).UTC().Truncate(time.Millisecond)
+	latestHeartbeat := initialHeartbeat.Add(30 * time.Second)
+	lease := dispatch.DAGRunLease{
+		AttemptKey:      "shared-attempt",
+		DAGRun:          ir.NewDAGRunRef("dag-a", "run-1"),
+		Root:            ir.NewDAGRunRef("dag-a", "run-1"),
+		AttemptID:       "attempt-1",
+		QueueName:       "queue-a",
+		WorkerID:        "worker-1",
+		Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 50055},
+		ClaimToken:      "claim-token",
+		ClaimedAt:       initialHeartbeat.UnixMilli(),
+		LastHeartbeatAt: initialHeartbeat.UnixMilli(),
+	}
+	require.NoError(t, first.Upsert(ctx, lease))
+
+	start := make(chan struct{})
+	errCh := make(chan error, 2)
+	go func() {
+		<-start
+		errCh <- first.Touch(ctx, lease.AttemptKey, latestHeartbeat)
+	}()
+	go func() {
+		<-start
+		replacement := lease
+		replacement.Owner.ID = "coord-b"
+		replacement.LastHeartbeatAt = initialHeartbeat.Add(10 * time.Second).UnixMilli()
+		errCh <- second.Upsert(ctx, replacement)
+	}()
+	close(start)
+	require.NoError(t, <-errCh)
+	require.NoError(t, <-errCh)
+
+	stored, err := second.Get(ctx, lease.AttemptKey)
+	require.NoError(t, err)
+	require.Equal(t, "worker-1", stored.WorkerID)
+	require.Equal(t, "claim-token", stored.ClaimToken)
+	require.Equal(t, "coord-a", stored.Owner.ID)
+	require.Equal(t, "coordinator", stored.Owner.Host)
+	require.Equal(t, 50055, stored.Owner.Port)
+	require.Equal(t, latestHeartbeat.UnixMilli(), stored.LastHeartbeatAt)
 }
 
 func TestDAGRunLeaseStore_ListAllSurfacesCorruptRecord(t *testing.T) {

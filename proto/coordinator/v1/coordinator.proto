@@ -207,6 +207,7 @@ message HeartbeatResponse {
 message AckTaskClaimRequest {
   string worker_id = 1;
   string claim_token = 2;
+  string attempt_key = 3;
 }
 
 message AckTaskClaimResponse {
@@ -287,6 +288,8 @@ message LogChunk {
   string attempt_id = 11;
   // Owner coordinator used to validate owner-bound log writes.
   string owner_coordinator_id = 12;
+  // Durable attempt identity used to fence log writes.
+  string attempt_key = 13;
 }
 
 // Type of log stream.
@@ -322,6 +325,8 @@ message ArtifactChunk {
   string attempt_id = 10;
   // Owner coordinator used to validate owner-bound artifact writes.
   string owner_coordinator_id = 11;
+  // Durable attempt identity used to fence artifact writes.
+  string attempt_key = 12;
 }
 
 // Response message for artifact streaming.
