@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
+import { writeLocalStorage } from '@/lib/local-storage-migration';
 
 export type DAGRunsViewMode = 'list' | 'grouped';
 
@@ -63,7 +64,7 @@ function loadPreferences(): UserPreferences {
           ? preferences.docSortOrder
           : defaultPreferences.wikiSortOrder,
     } as UserPreferences;
-    localStorage.setItem(
+    writeLocalStorage(
       'user_preferences',
       JSON.stringify({ ...preferences, ...migrated })
     );

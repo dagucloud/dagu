@@ -10,7 +10,7 @@ export function readMigratedLocalStorage(
     if (current !== null) return current;
 
     const legacy = localStorage.getItem(legacyKey);
-    if (legacy !== null) localStorage.setItem(key, legacy);
+    if (legacy !== null) writeLocalStorage(key, legacy);
     return legacy;
   } catch {
     return null;

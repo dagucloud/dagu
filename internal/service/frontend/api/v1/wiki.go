@@ -309,8 +309,6 @@ func (a *API) UploadWikiPageAttachment(ctx context.Context, request api.UploadWi
 	if err := a.requireWikiManagement(); err != nil {
 		return nil, err
 	}
-	a.workspaceWikiMu.Lock()
-	defer a.workspaceWikiMu.Unlock()
 	if request.Body == nil {
 		return nil, ErrInvalidRequestBody
 	}
@@ -345,7 +343,9 @@ func (a *API) UploadWikiPageAttachment(ctx context.Context, request api.UploadWi
 		}
 	}
 
+	a.workspaceWikiMu.Lock()
 	attachment, err := a.wikiStore.PutAttachment(ctx, pageID, request.Params.Name, bytes.NewReader(data))
+	a.workspaceWikiMu.Unlock()
 	if err != nil {
 		switch {
 		case errors.Is(err, wiki.ErrPageNotFound):

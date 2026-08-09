@@ -3,7 +3,7 @@
 
 import { renderHook } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserPreferencesProvider, useUserPreferences } from '../UserPreference';
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -13,6 +13,10 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 describe('UserPreferencesProvider', () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('copies legacy Wiki sorting preferences without deleting them', () => {
@@ -56,5 +60,20 @@ describe('UserPreferencesProvider', () => {
 
     expect(result.current.preferences.wikiSortField).toBe('type');
     expect(result.current.preferences.wikiSortOrder).toBe('asc');
+  });
+
+  it('keeps migrated preferences when storage is read-only', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ docSortField: 'mtime', docSortOrder: 'desc' })
+    );
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('read-only storage');
+    });
+
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+
+    expect(result.current.preferences.wikiSortField).toBe('mtime');
+    expect(result.current.preferences.wikiSortOrder).toBe('desc');
   });
 });
