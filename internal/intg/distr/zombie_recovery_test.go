@@ -21,7 +21,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -52,6 +54,50 @@ func rollingReplacementLogCommand(before, after, releasePath string) string {
 		waitForReleaseFileScript(releasePath),
 		test.Output(after),
 	)
+}
+
+type failedLogSendObserver struct {
+	coordinator.Client
+	failed chan struct{}
+	once   sync.Once
+}
+
+func newFailedLogSendObserver(client coordinator.Client) *failedLogSendObserver {
+	return &failedLogSendObserver{Client: client, failed: make(chan struct{})}
+}
+
+func (o *failedLogSendObserver) StreamLogs(ctx context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+	stream, err := o.Client.StreamLogs(ctx)
+	return o.wrap(stream, err)
+}
+
+func (o *failedLogSendObserver) StreamLogsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+	stream, err := o.Client.StreamLogsTo(ctx, owner)
+	return o.wrap(stream, err)
+}
+
+func (o *failedLogSendObserver) wrap(
+	stream coordinatorv1.CoordinatorService_StreamLogsClient,
+	err error,
+) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+	if err != nil {
+		return nil, err
+	}
+	return &observedLogStream{CoordinatorService_StreamLogsClient: stream, observer: o}, nil
+}
+
+type observedLogStream struct {
+	coordinatorv1.CoordinatorService_StreamLogsClient
+	observer *failedLogSendObserver
+}
+
+func (s *observedLogStream) Send(chunk *coordinatorv1.LogChunk) error {
+	err := s.CoordinatorService_StreamLogsClient.Send(chunk)
+	if err != nil && chunk.StepName == "wait" &&
+		chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT {
+		s.observer.once.Do(func() { close(s.observer.failed) })
+	}
+	return err
 }
 
 // TestDistributedRun_WorkerCrash_MarkedFailed verifies that a hard-killed
@@ -255,6 +301,7 @@ func TestDistributedRun_CoordinatorRollingReplacementPreservesActiveRun(t *testi
 	}
 
 	releaseFile := filepath.Join(t.TempDir(), "coordinator-replacement.release")
+	completionReleaseFile := filepath.Join(t.TempDir(), "coordinator-replacement-complete.release")
 	beforeReplacement := "before-coordinator-replacement"
 	afterReplacement := "after-coordinator-replacement"
 	f := newTestFixture(t, fmt.Sprintf(`
@@ -265,13 +312,23 @@ steps:
   - name: wait
     command: |
 %s
-`, indentYAMLBlock(rollingReplacementLogCommand(beforeReplacement, afterReplacement, releaseFile), 6)),
+  - name: hold
+    depends: [wait]
+    command: |
+%s
+`, indentYAMLBlock(rollingReplacementLogCommand(beforeReplacement, afterReplacement, releaseFile), 6),
+		indentYAMLBlock(waitForReleaseFileScript(completionReleaseFile), 6)),
 		withStaleThresholds(heartbeatThreshold, leaseThreshold),
 		withZombieDetectionInterval(testZombieDetectorInterval),
 		withLogPersistence(),
+		withWorkerCount(0),
 	)
+	logObserver := newFailedLogSendObserver(f.coordinatorClient)
+	f.coordinatorClient = logObserver
+	f.workers = append(f.workers, f.setupWorker("worker-1", map[string]string{"test": "true"}, ""))
 	defer func() {
 		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
+		_ = os.WriteFile(completionReleaseFile, []byte("ok"), 0o600)
 		f.cleanup()
 	}()
 
@@ -309,7 +366,14 @@ steps:
 	require.NoError(t, err)
 	assert.Empty(t, heartbeatResp.CancelledRuns)
 
-	f.coord.Restart(t)
+	require.NoError(t, f.coord.Stop())
+	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0o600))
+	select {
+	case <-logObserver.failed:
+	case <-time.After(distrTestTimeout(runningTimeout)):
+		t.Fatal("step log writer did not observe the stopped coordinator before closing")
+	}
+	f.coord.StartReplacement(t)
 	require.NotEqual(t, initialOwner.ID, f.coord.InstanceID())
 	replacementReadyAt := time.Now().UTC()
 
@@ -333,7 +397,7 @@ steps:
 	require.NotNil(t, refreshedLease)
 	assert.Equal(t, initialOwner, refreshedLease.Owner)
 
-	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0o600))
+	require.NoError(t, os.WriteFile(completionReleaseFile, []byte("ok"), 0o600))
 	finalStatus := f.waitForStatus(ir.Succeeded, completionTimeout)
 	assert.Equal(t, initialStatus.AttemptID, finalStatus.AttemptID)
 	assert.Equal(t, initialStatus.AttemptKey, finalStatus.AttemptKey)

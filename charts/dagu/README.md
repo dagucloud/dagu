@@ -95,7 +95,9 @@ coordinator:
   replicas: 2
 ```
 
-Coordinator replicas must share the same `ReadWriteMany` volume and advertise the same coordinator Service host and port. The chart configures that shared endpoint automatically. Coordinators with different advertised endpoints remain separate ownership domains. Upgrades replace one coordinator at a time without creating surge replicas, so old and new coordinator versions briefly share that ownership domain and storage. With two or more replicas, at least one coordinator remains available throughout the rollout; with one replica, the replacement causes a brief coordinator outage.
+Coordinator replicas must share the same `ReadWriteMany` volume and advertise the same coordinator Service host and port. The chart configures that shared endpoint automatically. The advertised endpoint and the durable run lease define the ownership domain; a coordinator process ID is diagnostic only. Coordinators with different advertised endpoints remain isolated.
+
+Upgrades replace one coordinator at a time without creating surge replicas. With two or more replicas, at least one coordinator remains available throughout the rollout; with one replica, the replacement causes a brief coordinator outage. The first upgrade from a version that fenced traffic by process ID has a short mixed-version window in which an older pod can reject traffic for work accepted by a newer pod. Subsequent upgrades between endpoint-fenced versions do not have that transitional limitation.
 
 Install with those values:
 

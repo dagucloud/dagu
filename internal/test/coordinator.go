@@ -194,6 +194,13 @@ func (c *Coordinator) Restart(t *testing.T) {
 	t.Helper()
 
 	require.NoError(t, c.Stop(), "failed to stop coordinator")
+	c.StartReplacement(t)
+}
+
+// StartReplacement starts a new coordinator process on the retained endpoint.
+func (c *Coordinator) StartReplacement(t *testing.T) {
+	t.Helper()
+
 	listener, err := net.Listen("tcp", c.Address())
 	require.NoError(t, err, "failed to recreate coordinator listener")
 	c.restartCount++

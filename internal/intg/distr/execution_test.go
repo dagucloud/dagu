@@ -23,6 +23,8 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 func directStartStatusTimeout() time.Duration {
@@ -604,7 +606,7 @@ steps:
 
 		_, err = stream.CloseAndRecv()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "does not match latest attempt")
+		assert.Equal(t, codes.FailedPrecondition, grpcstatus.Code(err))
 
 		_, statErr := os.Stat(filepath.Join(status.ArchiveDir, "reports", "stale.txt"))
 		require.Error(t, statErr)
