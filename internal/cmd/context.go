@@ -29,7 +29,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -66,7 +65,7 @@ type Context struct {
 	DAGRunMgr                 runtime.Manager
 	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore
-	StateStore                dagstate.Store
+	StateStore                dagrun.StateStore
 	ServiceRegistry           serviceregistry.ServiceRegistry
 	DispatchTaskStore         dispatch.DispatchTaskStore
 	WorkerHeartbeatStore      dispatch.WorkerHeartbeatStore

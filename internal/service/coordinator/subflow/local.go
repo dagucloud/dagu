@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -41,7 +40,7 @@ type Local struct {
 	dagRunStore              dagrun.DAGRunStore
 	runStateStore            runstate.Store
 	queueStore               queue.QueueStore
-	stateStore               dagstate.Store
+	stateStore               dagrun.StateStore
 	secretStore              secretpkg.Store
 	profileStore             profilepkg.Store
 	serviceRegistry          serviceregistry.ServiceRegistry
@@ -92,7 +91,7 @@ func WithLocalQueueStore(store queue.QueueStore) LocalOption {
 }
 
 // WithLocalStateStore sets the state store used by child workflow agents.
-func WithLocalStateStore(store dagstate.Store) LocalOption {
+func WithLocalStateStore(store dagrun.StateStore) LocalOption {
 	return func(r *Local) {
 		r.stateStore = store
 	}
@@ -489,7 +488,7 @@ func (r *Local) queueStoreFromContext(ctx context.Context) queue.QueueStore {
 	return runctx.GetContext(ctx).QueueStore
 }
 
-func (r *Local) stateStoreFromContext(ctx context.Context) dagstate.Store {
+func (r *Local) stateStoreFromContext(ctx context.Context) dagrun.StateStore {
 	if r.stateStore != nil {
 		return r.stateStore
 	}

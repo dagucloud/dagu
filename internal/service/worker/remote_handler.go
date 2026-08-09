@@ -23,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -58,7 +57,7 @@ type RemoteTaskHandlerConfig struct {
 	// DAGRunMgr is the manager for DAG runs
 	DAGRunMgr runtime.Manager
 	// StateStore is the persistent state store shared across DAG runs.
-	StateStore dagstate.Store
+	StateStore dagrun.StateStore
 	// ServiceRegistry is the service registry
 	ServiceRegistry serviceregistry.ServiceRegistry
 	// PeerConfig is the peer configuration
@@ -109,7 +108,7 @@ type remoteTaskHandler struct {
 	coordinatorClient coordinator.Client
 	dagStore          dagstore.DAGStore
 	dagRunMgr         runtime.Manager
-	stateStore        dagstate.Store
+	stateStore        dagrun.StateStore
 	serviceRegistry   serviceregistry.ServiceRegistry
 	peerConfig        config.Peer
 	config            *config.Config

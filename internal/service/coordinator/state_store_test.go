@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -27,9 +27,9 @@ func TestStateStoreClientUsesCoordinatorRPC(t *testing.T) {
 	})
 	stateStore := NewStateStoreClient(fakeStateClient{handler: handler})
 	ctx := context.Background()
-	ref := dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "cursor"}
+	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
 
-	entry, err := stateStore.Put(ctx, ref, json.RawMessage(`{"last_id":123}`), dagstate.PutOptions{})
+	entry, err := stateStore.Put(ctx, ref, json.RawMessage(`{"last_id":123}`), dagrun.StatePutOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), entry.Version)
 
@@ -37,8 +37,8 @@ func TestStateStoreClientUsesCoordinatorRPC(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"last_id":123}`, string(got.Value))
 
-	entries, err := stateStore.List(ctx, dagstate.ListOptions{
-		Scope:     dagstate.ScopeDAG,
+	entries, err := stateStore.List(ctx, dagrun.StateListOptions{
+		Scope:     dagrun.StateScopeDAG,
 		Namespace: "daily-agent",
 		KeyPrefix: "cur",
 	})
@@ -60,17 +60,17 @@ func TestStateStoreClientValidatesBeforeRPC(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	_, err := stateStore.Get(ctx, dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "../bad"})
-	require.ErrorIs(t, err, dagstate.ErrInvalidRef)
+	_, err := stateStore.Get(ctx, dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "../bad"})
+	require.ErrorIs(t, err, dagrun.ErrInvalidStateRef)
 
-	_, err = stateStore.Put(ctx, dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "bad-json"}, json.RawMessage(`{`), dagstate.PutOptions{})
-	require.ErrorIs(t, err, dagstate.ErrInvalidValue)
+	_, err = stateStore.Put(ctx, dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "bad-json"}, json.RawMessage(`{`), dagrun.StatePutOptions{})
+	require.ErrorIs(t, err, dagrun.ErrInvalidStateValue)
 
-	_, err = stateStore.List(ctx, dagstate.ListOptions{
-		Scope:     dagstate.Scope("invalid"),
+	_, err = stateStore.List(ctx, dagrun.StateListOptions{
+		Scope:     dagrun.StateScope("invalid"),
 		Namespace: "daily-agent",
 	})
-	require.ErrorIs(t, err, dagstate.ErrInvalidRef)
+	require.ErrorIs(t, err, dagrun.ErrInvalidStateRef)
 }
 
 func TestStateStoreClientNormalizesValueBeforeRPC(t *testing.T) {
@@ -78,9 +78,9 @@ func TestStateStoreClientNormalizesValueBeforeRPC(t *testing.T) {
 
 	client := &capturingStateClient{}
 	stateStore := NewStateStoreClient(client)
-	ref := dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "cursor"}
+	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
 
-	entry, err := stateStore.Put(context.Background(), ref, json.RawMessage(`{ "b": 2, "a": 1 }`), dagstate.PutOptions{})
+	entry, err := stateStore.Put(context.Background(), ref, json.RawMessage(`{ "b": 2, "a": 1 }`), dagrun.StatePutOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, `{"a":1,"b":2}`, string(client.putValue))
 	assert.JSONEq(t, `{"a":1,"b":2}`, string(entry.Value))
@@ -89,9 +89,9 @@ func TestStateStoreClientNormalizesValueBeforeRPC(t *testing.T) {
 func TestStateClientErrorPreservesInvalidArgumentSubtype(t *testing.T) {
 	t.Parallel()
 
-	require.ErrorIs(t, stateClientError(status.Error(codes.InvalidArgument, "dag state: invalid ref: key is required")), dagstate.ErrInvalidRef)
-	require.ErrorIs(t, stateClientError(status.Error(codes.InvalidArgument, "dag state: value too large: 1048577 bytes exceeds 1048576")), dagstate.ErrValueTooLarge)
-	require.ErrorIs(t, stateClientError(status.Error(codes.InvalidArgument, "dag state: invalid value: unexpected end of JSON input")), dagstate.ErrInvalidValue)
+	require.ErrorIs(t, stateClientError(status.Error(codes.InvalidArgument, "dag state: invalid ref: key is required")), dagrun.ErrInvalidStateRef)
+	require.ErrorIs(t, stateClientError(status.Error(codes.InvalidArgument, "dag state: value too large: 1048577 bytes exceeds 1048576")), dagrun.ErrStateValueTooLarge)
+	require.ErrorIs(t, stateClientError(status.Error(codes.InvalidArgument, "dag state: invalid value: unexpected end of JSON input")), dagrun.ErrInvalidStateValue)
 }
 
 type fakeStateClient struct {
@@ -125,11 +125,11 @@ func (c *capturingStateClient) GetState(context.Context, *coordinatorv1.GetState
 func (c *capturingStateClient) PutState(_ context.Context, req *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error) {
 	c.putValue = append([]byte(nil), req.GetValue()...)
 	return &coordinatorv1.PutStateResponse{
-		Entry: stateEntryToProto(&dagstate.Entry{
-			Ref:     dagstate.Ref{Scope: dagstate.Scope(req.GetRef().GetScope()), Namespace: req.GetRef().GetNamespace(), Key: req.GetRef().GetKey()},
-			Value:   append(json.RawMessage(nil), req.GetValue()...),
-			Version: 1,
-			Hash:    dagstate.HashValue(req.GetValue()),
+		Entry: stateEntryToProto(&dagrun.StateEntry{
+			StateRef: dagrun.StateRef{Scope: dagrun.StateScope(req.GetRef().GetScope()), Namespace: req.GetRef().GetNamespace(), Key: req.GetRef().GetKey()},
+			Value:    append(json.RawMessage(nil), req.GetValue()...),
+			Version:  1,
+			Hash:     dagrun.HashStateValue(req.GetValue()),
 		}),
 	}, nil
 }

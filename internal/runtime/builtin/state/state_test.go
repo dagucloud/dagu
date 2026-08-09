@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -183,12 +183,12 @@ func TestStateStepValidationExpectedVersion(t *testing.T) {
 	}
 }
 
-func newStateStoreForTest(t *testing.T) dagstate.Store {
+func newStateStoreForTest(t *testing.T) dagrun.StateStore {
 	t.Helper()
 	return store.NewDAGStateStore(testutil.NewMemoryBackend().Collection("dag_state"))
 }
 
-func runStateAction(t *testing.T, stateStore dagstate.Store, op string, cfg map[string]any) *bytes.Buffer {
+func runStateAction(t *testing.T, stateStore dagrun.StateStore, op string, cfg map[string]any) *bytes.Buffer {
 	t.Helper()
 
 	exec, err := newStateExecutorForTest(t, stateStore, op, cfg)
@@ -200,7 +200,7 @@ func runStateAction(t *testing.T, stateStore dagstate.Store, op string, cfg map[
 	return out
 }
 
-func newStateExecutorForTest(t *testing.T, stateStore dagstate.Store, op string, cfg map[string]any) (*executorImpl, error) {
+func newStateExecutorForTest(t *testing.T, stateStore dagrun.StateStore, op string, cfg map[string]any) (*executorImpl, error) {
 	t.Helper()
 
 	step := stateStep(op, cfg)

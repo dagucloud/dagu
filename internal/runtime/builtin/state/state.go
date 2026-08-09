@@ -16,7 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -45,21 +45,21 @@ type executorImpl struct {
 	stderr  io.Writer
 	cfg     config
 	op      string
-	store   dagstate.Store
+	store   dagrun.StateStore
 	dagName string
-	root    dagstate.Ref
-	source  *dagstate.UpdateSource
+	root    dagrun.StateRef
+	source  *dagrun.StateUpdateSource
 }
 
 type entryOutput struct {
-	Scope     dagstate.Scope   `json:"scope"`
-	Namespace string           `json:"namespace"`
-	Key       string           `json:"key"`
-	Version   int64            `json:"version"`
-	Hash      string           `json:"hash"`
-	CreatedAt string           `json:"createdAt"`
-	UpdatedAt string           `json:"updatedAt"`
-	Value     *json.RawMessage `json:"value,omitempty"`
+	Scope     dagrun.StateScope `json:"scope"`
+	Namespace string            `json:"namespace"`
+	Key       string            `json:"key"`
+	Version   int64             `json:"version"`
+	Hash      string            `json:"hash"`
+	CreatedAt string            `json:"createdAt"`
+	UpdatedAt string            `json:"updatedAt"`
+	Value     *json.RawMessage  `json:"value,omitempty"`
 }
 
 func init() {
@@ -100,12 +100,12 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		op:      op,
 		store:   rCtx.StateStore,
 		dagName: dagName,
-		root: dagstate.Ref{
-			Scope:     dagstate.ScopeRootDAG,
+		root: dagrun.StateRef{
+			Scope:     dagrun.StateScopeRootDAG,
 			Namespace: rCtx.RootDAGRun.Name,
 			Key:       rCtx.RootDAGRun.ID,
 		},
-		source: &dagstate.UpdateSource{
+		source: &dagrun.StateUpdateSource{
 			DAGName:  dagName,
 			DAGRunID: rCtx.DAGRunID,
 			StepName: stepName,
@@ -184,7 +184,7 @@ func (e *executorImpl) runGet(ctx context.Context) error {
 	}
 	entry, err := e.store.Get(ctx, ref)
 	if err != nil {
-		if !errors.Is(err, dagstate.ErrNotFound) {
+		if !errors.Is(err, dagrun.ErrStateNotFound) {
 			return err
 		}
 		if e.cfg.Required {
@@ -198,12 +198,12 @@ func (e *executorImpl) runGet(ctx context.Context) error {
 			}
 		}
 		return e.writeJSON(struct {
-			Operation string          `json:"operation"`
-			Scope     dagstate.Scope  `json:"scope"`
-			Namespace string          `json:"namespace"`
-			Key       string          `json:"key"`
-			Found     bool            `json:"found"`
-			Value     json.RawMessage `json:"value,omitempty"`
+			Operation string            `json:"operation"`
+			Scope     dagrun.StateScope `json:"scope"`
+			Namespace string            `json:"namespace"`
+			Key       string            `json:"key"`
+			Found     bool              `json:"found"`
+			Value     json.RawMessage   `json:"value,omitempty"`
 		}{
 			Operation: opGet,
 			Scope:     ref.Scope,
@@ -215,14 +215,14 @@ func (e *executorImpl) runGet(ctx context.Context) error {
 	}
 
 	return e.writeJSON(struct {
-		Operation string          `json:"operation"`
-		Scope     dagstate.Scope  `json:"scope"`
-		Namespace string          `json:"namespace"`
-		Key       string          `json:"key"`
-		Found     bool            `json:"found"`
-		Version   int64           `json:"version"`
-		Hash      string          `json:"hash"`
-		Value     json.RawMessage `json:"value"`
+		Operation string            `json:"operation"`
+		Scope     dagrun.StateScope `json:"scope"`
+		Namespace string            `json:"namespace"`
+		Key       string            `json:"key"`
+		Found     bool              `json:"found"`
+		Version   int64             `json:"version"`
+		Hash      string            `json:"hash"`
+		Value     json.RawMessage   `json:"value"`
 	}{
 		Operation: opGet,
 		Scope:     entry.Scope,
@@ -244,7 +244,7 @@ func (e *executorImpl) runSet(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	entry, err := e.store.Put(ctx, ref, value, dagstate.PutOptions{
+	entry, err := e.store.Put(ctx, ref, value, dagrun.StatePutOptions{
 		ExpectedVersion: e.cfg.ExpectedVersion,
 		CreateOnly:      e.cfg.CreateOnly,
 		UpdatedBy:       e.source,
@@ -253,13 +253,13 @@ func (e *executorImpl) runSet(ctx context.Context) error {
 		return err
 	}
 	return e.writeJSON(struct {
-		Operation string         `json:"operation"`
-		Scope     dagstate.Scope `json:"scope"`
-		Namespace string         `json:"namespace"`
-		Key       string         `json:"key"`
-		Version   int64          `json:"version"`
-		Hash      string         `json:"hash"`
-		Created   bool           `json:"created"`
+		Operation string            `json:"operation"`
+		Scope     dagrun.StateScope `json:"scope"`
+		Namespace string            `json:"namespace"`
+		Key       string            `json:"key"`
+		Version   int64             `json:"version"`
+		Hash      string            `json:"hash"`
+		Created   bool              `json:"created"`
 	}{
 		Operation: opSet,
 		Scope:     entry.Scope,
@@ -281,11 +281,11 @@ func (e *executorImpl) runDelete(ctx context.Context) error {
 		return err
 	}
 	return e.writeJSON(struct {
-		Operation string         `json:"operation"`
-		Scope     dagstate.Scope `json:"scope"`
-		Namespace string         `json:"namespace"`
-		Key       string         `json:"key"`
-		Deleted   bool           `json:"deleted"`
+		Operation string            `json:"operation"`
+		Scope     dagrun.StateScope `json:"scope"`
+		Namespace string            `json:"namespace"`
+		Key       string            `json:"key"`
+		Deleted   bool              `json:"deleted"`
 	}{
 		Operation: opDelete,
 		Scope:     ref.Scope,
@@ -300,7 +300,7 @@ func (e *executorImpl) runList(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	entries, err := e.store.List(ctx, dagstate.ListOptions{
+	entries, err := e.store.List(ctx, dagrun.StateListOptions{
 		Scope:     scope,
 		Namespace: namespace,
 		KeyPrefix: strings.TrimSpace(e.cfg.Prefix),
@@ -329,11 +329,11 @@ func (e *executorImpl) runList(ctx context.Context) error {
 	}
 
 	return e.writeJSON(struct {
-		Operation string         `json:"operation"`
-		Scope     dagstate.Scope `json:"scope"`
-		Namespace string         `json:"namespace"`
-		Prefix    string         `json:"prefix,omitempty"`
-		Entries   []entryOutput  `json:"entries"`
+		Operation string            `json:"operation"`
+		Scope     dagrun.StateScope `json:"scope"`
+		Namespace string            `json:"namespace"`
+		Prefix    string            `json:"prefix,omitempty"`
+		Entries   []entryOutput     `json:"entries"`
 	}{
 		Operation: opList,
 		Scope:     scope,
@@ -352,20 +352,20 @@ func (e *executorImpl) runDiff(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	currentHash := dagstate.HashValue(current)
+	currentHash := dagrun.HashStateValue(current)
 
 	previous, err := e.store.Get(ctx, ref)
-	if err != nil && !errors.Is(err, dagstate.ErrNotFound) {
+	if err != nil && !errors.Is(err, dagrun.ErrStateNotFound) {
 		return err
 	}
-	if errors.Is(err, dagstate.ErrNotFound) {
+	if errors.Is(err, dagrun.ErrStateNotFound) {
 		if e.cfg.ExpectedVersion != nil && *e.cfg.ExpectedVersion != 0 {
-			return dagstate.ErrConflict
+			return dagrun.ErrStateConflict
 		}
-		var entry *dagstate.Entry
+		var entry *dagrun.StateEntry
 		if e.shouldUpdateDiff() {
 			expected := int64(0)
-			entry, err = e.store.Put(ctx, ref, current, dagstate.PutOptions{
+			entry, err = e.store.Put(ctx, ref, current, dagrun.StatePutOptions{
 				ExpectedVersion: &expected,
 				UpdatedBy:       e.source,
 			})
@@ -378,7 +378,7 @@ func (e *executorImpl) runDiff(ctx context.Context) error {
 
 	changed := previous.Hash != currentHash
 	if e.cfg.ExpectedVersion != nil && previous.Version != *e.cfg.ExpectedVersion {
-		return dagstate.ErrConflict
+		return dagrun.ErrStateConflict
 	}
 	if !changed {
 		return e.writeDiffResult(ref, previous, previous, current, false)
@@ -387,7 +387,7 @@ func (e *executorImpl) runDiff(ctx context.Context) error {
 	entry := previous
 	if e.shouldUpdateDiff() {
 		expected := previous.Version
-		entry, err = e.store.Put(ctx, ref, current, dagstate.PutOptions{
+		entry, err = e.store.Put(ctx, ref, current, dagrun.StatePutOptions{
 			ExpectedVersion: &expected,
 			UpdatedBy:       e.source,
 		})
@@ -398,7 +398,7 @@ func (e *executorImpl) runDiff(ctx context.Context) error {
 	return e.writeDiffResult(ref, previous, entry, current, true)
 }
 
-func (e *executorImpl) writeDiffResult(ref dagstate.Ref, previous, entry *dagstate.Entry, current json.RawMessage, changed bool) error {
+func (e *executorImpl) writeDiffResult(ref dagrun.StateRef, previous, entry *dagrun.StateEntry, current json.RawMessage, changed bool) error {
 	var previousValue json.RawMessage
 	var previousVersion int64
 	var version int64
@@ -414,17 +414,17 @@ func (e *executorImpl) writeDiffResult(ref dagstate.Ref, previous, entry *dagsta
 	}
 
 	return e.writeJSON(struct {
-		Operation       string          `json:"operation"`
-		Scope           dagstate.Scope  `json:"scope"`
-		Namespace       string          `json:"namespace"`
-		Key             string          `json:"key"`
-		Changed         bool            `json:"changed"`
-		FoundPrevious   bool            `json:"foundPrevious"`
-		PreviousVersion int64           `json:"previousVersion,omitempty"`
-		Version         int64           `json:"version,omitempty"`
-		Hash            string          `json:"hash,omitempty"`
-		Previous        json.RawMessage `json:"previous,omitempty"`
-		Current         json.RawMessage `json:"current"`
+		Operation       string            `json:"operation"`
+		Scope           dagrun.StateScope `json:"scope"`
+		Namespace       string            `json:"namespace"`
+		Key             string            `json:"key"`
+		Changed         bool              `json:"changed"`
+		FoundPrevious   bool              `json:"foundPrevious"`
+		PreviousVersion int64             `json:"previousVersion,omitempty"`
+		Version         int64             `json:"version,omitempty"`
+		Hash            string            `json:"hash,omitempty"`
+		Previous        json.RawMessage   `json:"previous,omitempty"`
+		Current         json.RawMessage   `json:"current"`
 	}{
 		Operation:       opDiff,
 		Scope:           ref.Scope,
@@ -444,45 +444,45 @@ func (e *executorImpl) shouldUpdateDiff() bool {
 	return e.cfg.Update == nil || *e.cfg.Update
 }
 
-func (e *executorImpl) resolveRef(key string) (dagstate.Ref, error) {
+func (e *executorImpl) resolveRef(key string) (dagrun.StateRef, error) {
 	scope, namespace, err := e.resolveScope()
 	if err != nil {
-		return dagstate.Ref{}, err
+		return dagrun.StateRef{}, err
 	}
-	ref := dagstate.Ref{
+	ref := dagrun.StateRef{
 		Scope:     scope,
 		Namespace: namespace,
 		Key:       strings.TrimSpace(key),
 	}
 	if err := ref.Validate(); err != nil {
-		return dagstate.Ref{}, err
+		return dagrun.StateRef{}, err
 	}
 	return ref, nil
 }
 
-func (e *executorImpl) resolveScope() (dagstate.Scope, string, error) {
-	scope := dagstate.Scope(strings.TrimSpace(e.cfg.Scope))
+func (e *executorImpl) resolveScope() (dagrun.StateScope, string, error) {
+	scope := dagrun.StateScope(strings.TrimSpace(e.cfg.Scope))
 	if scope == "" {
-		scope = dagstate.ScopeDAG
+		scope = dagrun.StateScopeDAG
 	}
 	namespace := strings.TrimSpace(e.cfg.Namespace)
 	switch scope {
-	case dagstate.ScopeDAG:
+	case dagrun.StateScopeDAG:
 		if namespace == "" {
 			namespace = e.dagName
 		}
-	case dagstate.ScopeRootDAG:
+	case dagrun.StateScopeRootDAG:
 		if namespace == "" {
 			namespace = strings.TrimSpace(e.root.Namespace)
 		}
 		if namespace == "" {
 			namespace = e.dagName
 		}
-	case dagstate.ScopeGlobal:
+	case dagrun.StateScopeGlobal:
 		if namespace == "" {
-			namespace = dagstate.DefaultGlobalNamespace
+			namespace = dagrun.DefaultGlobalStateNamespace
 		}
-	case dagstate.ScopeCustom:
+	case dagrun.StateScopeCustom:
 		if namespace == "" {
 			return "", "", fmt.Errorf("%w: namespace is required for custom scope", errConfig)
 		}
@@ -497,7 +497,7 @@ func marshalStateValue(value any) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: marshal value: %v", errConfig, err)
 	}
-	return dagstate.NormalizeValue(data)
+	return dagrun.NormalizeStateValue(data)
 }
 
 func (e *executorImpl) writeJSON(value any) error {

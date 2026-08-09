@@ -13,13 +13,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 func TestDAGStateRecordIDEncodesFilesystemSensitiveParts(t *testing.T) {
-	ref := dagstate.Ref{
-		Scope:     dagstate.ScopeDAG,
+	ref := dagrun.StateRef{
+		Scope:     dagrun.StateScopeDAG,
 		Namespace: "Daily:Agent",
 		Key:       "Cursor/CON:<latest>",
 	}
@@ -39,14 +39,14 @@ func TestDAGStateRecordIDEncodesFilesystemSensitiveParts(t *testing.T) {
 
 func TestDAGStateRefFromRecordIDRejectsUnversionedIDs(t *testing.T) {
 	_, err := dagStateRefFromRecordID("dag/daily-agent/cursor")
-	require.ErrorIs(t, err, dagstate.ErrInvalidRef)
+	require.ErrorIs(t, err, dagrun.ErrInvalidStateRef)
 }
 
 func TestDAGStateRecordIDAvoidsHierarchicalKeyPathCollisions(t *testing.T) {
-	plain, err := dagStateRecordID(dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "cursor"})
+	plain, err := dagStateRecordID(dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"})
 	require.NoError(t, err)
 
-	nested, err := dagStateRecordID(dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "cursor/feed"})
+	nested, err := dagStateRecordID(dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor/feed"})
 	require.NoError(t, err)
 
 	require.NotEqual(t, plain+"/feed", nested)
@@ -54,18 +54,18 @@ func TestDAGStateRecordIDAvoidsHierarchicalKeyPathCollisions(t *testing.T) {
 }
 
 func TestDAGStateRecordIDPrefixPreservesStateKeyPrefix(t *testing.T) {
-	prefix, err := dagStateRecordIDPrefix(dagstate.ListOptions{
-		Scope:     dagstate.ScopeDAG,
+	prefix, err := dagStateRecordIDPrefix(dagrun.StateListOptions{
+		Scope:     dagrun.StateScopeDAG,
 		Namespace: "daily-agent",
 		KeyPrefix: "cursors/",
 	})
 	require.NoError(t, err)
 
-	id, err := dagStateRecordID(dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "cursors/feed"})
+	id, err := dagStateRecordID(dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursors/feed"})
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(id, prefix))
 
-	other, err := dagStateRecordID(dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "tokens/feed"})
+	other, err := dagStateRecordID(dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "tokens/feed"})
 	require.NoError(t, err)
 	require.False(t, strings.HasPrefix(other, prefix))
 }
@@ -81,8 +81,8 @@ func TestDAGStateStoreListUsesRecordIDsLimitBeforeDecode(t *testing.T) {
 	col := newCountingRecordIDCollection(t, []string{firstID, secondID, thirdID})
 	s := NewDAGStateStore(col)
 
-	list, err := s.List(ctx, dagstate.ListOptions{
-		Scope:     dagstate.ScopeDAG,
+	list, err := s.List(ctx, dagrun.StateListOptions{
+		Scope:     dagrun.StateScopeDAG,
 		Namespace: "daily-agent",
 		KeyPrefix: "cursors/",
 		Limit:     1,
@@ -94,13 +94,13 @@ func TestDAGStateStoreListUsesRecordIDsLimitBeforeDecode(t *testing.T) {
 	assert.Equal(t, 0, col.listCalls)
 }
 
-func stateRefForStoreTest(key string) dagstate.Ref {
-	return dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: key}
+func stateRefForStoreTest(key string) dagrun.StateRef {
+	return dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: key}
 }
 
 func normalizeStateValueForStoreTest(t *testing.T, value string) json.RawMessage {
 	t.Helper()
-	msg, err := dagstate.NormalizeValue([]byte(value))
+	msg, err := dagrun.NormalizeStateValue([]byte(value))
 	require.NoError(t, err)
 	return msg
 }
@@ -119,10 +119,10 @@ func newCountingRecordIDCollection(t *testing.T, ids []string) *countingRecordID
 	for _, id := range ids {
 		ref, err := dagStateRefFromRecordID(id)
 		require.NoError(t, err)
-		entry := &dagstate.Entry{
-			Ref:     ref,
-			Value:   normalizeStateValueForStoreTest(t, `1`),
-			Version: 1,
+		entry := &dagrun.StateEntry{
+			StateRef: ref,
+			Value:    normalizeStateValueForStoreTest(t, `1`),
+			Version:  1,
 		}
 		data, err := persis.Encode(entry)
 		require.NoError(t, err)

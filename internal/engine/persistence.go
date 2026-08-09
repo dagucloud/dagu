@@ -10,7 +10,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/profile"
@@ -28,7 +27,7 @@ type Persistence struct {
 	DAGRunStore          dagrun.DAGRunStore
 	RunStateStore        runstate.Store
 	ProcStore            proc.ProcStore
-	StateStore           dagstate.Store
+	StateStore           dagrun.StateStore
 	ServiceRegistry      serviceregistry.ServiceRegistry
 	DAGStoreFactory      DAGStoreFactory
 	RuntimeStoresFactory RuntimeStoresFactory

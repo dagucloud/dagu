@@ -8,7 +8,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -32,7 +31,7 @@ type SubWorkflowRunnerConfig struct {
 	DAGRunStore       dagrun.DAGRunStore
 	RunStateStore     runstate.Store
 	QueueStore        queue.QueueStore
-	StateStore        dagstate.Store
+	StateStore        dagrun.StateStore
 	SecretStore       secret.Store
 	ProfileStore      profile.Store
 	ServiceRegistry   serviceregistry.ServiceRegistry

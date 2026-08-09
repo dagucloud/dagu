@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,15 +34,24 @@ func TestNewContext_InitializesConfiguredDAGStateStore(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ctx.StateStore)
 
-	ref := dagstate.Ref{Scope: dagstate.ScopeDAG, Namespace: "daily-agent", Key: "cursor"}
-	value, err := dagstate.NormalizeValue([]byte(`{"last_id":123}`))
+	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
+	value, err := dagrun.NormalizeStateValue([]byte(`{"last_id":123}`))
 	require.NoError(t, err)
-	_, err = ctx.StateStore.Put(ctx.Context, ref, value, dagstate.PutOptions{})
+	_, err = ctx.StateStore.Put(ctx.Context, ref, value, dagrun.StatePutOptions{})
 	require.NoError(t, err)
 
-	recordID, err := ref.RecordID()
-	require.NoError(t, err)
-	raw, err := os.ReadFile(filepath.Join(append([]string{stateDir}, strings.Split(recordID, "/")...)...) + ".json")
+	var stateFiles []string
+	require.NoError(t, filepath.Walk(stateDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ".json") {
+			stateFiles = append(stateFiles, path)
+		}
+		return nil
+	}))
+	require.Len(t, stateFiles, 1)
+	raw, err := os.ReadFile(stateFiles[0])
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"last_id":123`)
 
@@ -81,8 +90,8 @@ steps:
 
 	require.NoError(t, runStart(ctx, []string{dagFile}))
 
-	got, err := ctx.StateStore.Get(ctx.Context, dagstate.Ref{
-		Scope:     dagstate.ScopeDAG,
+	got, err := ctx.StateStore.Get(ctx.Context, dagrun.StateRef{
+		Scope:     dagrun.StateScopeDAG,
 		Namespace: "state-action-start-test",
 		Key:       "cursor",
 	})

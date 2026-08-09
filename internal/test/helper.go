@@ -28,7 +28,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstate"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -523,7 +522,7 @@ type Helper struct {
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore
-	StateStore                dagstate.Store
+	StateStore                dagrun.StateStore
 	ServiceRegistry           serviceregistry.ServiceRegistry
 	DispatchTaskStore         dispatch.DispatchTaskStore
 	WorkerHeartbeatStore      dispatch.WorkerHeartbeatStore
