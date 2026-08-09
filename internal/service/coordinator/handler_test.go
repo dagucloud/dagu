@@ -4476,6 +4476,60 @@ func TestHandler_ReportStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "worker-1", record.WorkerID)
 	})
+
+	t.Run("AckTaskClaimRejectsConflictingLease", func(t *testing.T) {
+		t.Parallel()
+
+		baseDir := filepath.Join(t.TempDir(), "distributed")
+		dispatchStore := newTestDispatchTaskStore(baseDir)
+		leaseStore := newTestDAGRunLeaseStore(baseDir)
+		activeStore := newTestActiveDistributedRunStore(baseDir)
+		owner := dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 1234}
+		h := NewHandler(HandlerConfig{
+			DispatchTaskStore:         dispatchStore,
+			DAGRunLeaseStore:          leaseStore,
+			ActiveDistributedRunStore: activeStore,
+			Owner:                     owner,
+		})
+		ctx := context.Background()
+
+		record := dispatch.DAGRunLease{
+			AttemptKey: "attempt-key-1",
+			DAGRun:     ir.NewDAGRunRef("test-dag", "run-123"),
+			WorkerID:   "worker-1",
+			Owner:      owner,
+			ClaimToken: "claim-1",
+		}
+		require.NoError(t, leaseStore.Upsert(ctx, record))
+		require.NoError(t, dispatchStore.Enqueue(ctx, &dispatch.DispatchTask{
+			DAGRunID:   "run-123",
+			Target:     "test-dag",
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+		}))
+
+		claimed, err := dispatchStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{
+			WorkerID: "worker-2",
+			PollerID: "poller-2",
+			Owner:    owner,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, claimed)
+
+		resp, err := h.AckTaskClaim(ctx, &coordinatorv1.AckTaskClaimRequest{
+			ClaimToken: claimed.ClaimToken,
+			WorkerId:   "worker-2",
+			AttemptKey: "attempt-key-1",
+		})
+		require.NoError(t, err)
+		require.False(t, resp.Accepted)
+		assert.Contains(t, resp.Error, "conflicts with the active lease")
+
+		lease, err := leaseStore.Get(ctx, "attempt-key-1")
+		require.NoError(t, err)
+		assert.Equal(t, "worker-1", lease.WorkerID)
+		assert.Equal(t, "claim-1", lease.ClaimToken)
+	})
 }
 
 func TestHandler_GetDAGRunStatus(t *testing.T) {

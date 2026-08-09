@@ -246,7 +246,9 @@ func TestPush(t *testing.T) {
 
 		calls := 0
 		client := &mockCoordinatorClient{
-			reportStatusFunc: func(_ context.Context, _ *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			reportStatusFunc: func(ctx context.Context, _ *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+				_, bounded := ctx.Deadline()
+				require.True(t, bounded, "terminal status retry must have a local deadline")
 				calls++
 				if calls == 1 {
 					return nil, status.Error(codes.Unavailable, "coordinator restarting")
@@ -256,7 +258,7 @@ func TestPush(t *testing.T) {
 		}
 
 		pusher := coordreport.NewStatusPusher(client, "worker-1", "claim-key")
-		err := pusher.Push(t.Context(), ir.DAGRunStatus{
+		err := pusher.Push(context.Background(), ir.DAGRunStatus{
 			Name: "test-dag", DAGRunID: "run-123", Status: ir.Succeeded,
 		})
 

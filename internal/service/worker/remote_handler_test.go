@@ -1871,6 +1871,57 @@ func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testi
 	require.Equal(t, []string{"terminal-status"}, events)
 }
 
+func TestRemoteRunReporter_RetainsClaimKeyWhenReusedWithPartialMetadata(t *testing.T) {
+	const (
+		dagName   = "claim-key-reuse"
+		dagRunID  = "run-claim-key-reuse"
+		attemptID = "attempt-claim-key-reuse"
+		claimKey  = "claim-key"
+	)
+
+	logStream := newMockStreamLogsClient()
+	artifactStream := newMockStreamArtifactsClient()
+	client := newMockRemoteCoordinatorClient()
+	client.StreamLogsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+		return logStream, nil
+	}
+	client.StreamArtifactsFunc = func(context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+		return artifactStream, nil
+	}
+
+	root := ir.NewDAGRunRef(dagName, dagRunID)
+	full := remoteRunMetadata{
+		dagRunID:  dagRunID,
+		dagName:   dagName,
+		attemptID: attemptID,
+		claimKey:  claimKey,
+		root:      root,
+	}
+	partial := full
+	partial.claimKey = ""
+	reporter := newRemoteRunReporter(client, "worker-1", full, serviceregistry.HostInfo{})
+
+	streamer := reporter.logStreamerFor(full)
+	require.Same(t, streamer, reporter.logStreamerFor(partial))
+	writer := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout)
+	_, err := writer.Write([]byte("output"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	uploader := reporter.artifactUploaderFor(full)
+	require.Same(t, uploader, reporter.artifactUploaderFor(partial))
+	artifactDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(artifactDir, "out.txt"), []byte("artifact"), 0o600))
+	require.NoError(t, uploader.UploadDir(context.Background(), artifactDir))
+
+	for _, chunk := range logStream.snapshotChunks() {
+		assert.Equal(t, claimKey, chunk.AttemptKey)
+	}
+	for _, chunk := range artifactStream.snapshotChunks() {
+		assert.Equal(t, claimKey, chunk.AttemptKey)
+	}
+}
+
 func TestFinalSchedulerLogStatusPusher_BoundsSchedulerLogFinalization(t *testing.T) {
 	const (
 		dagName  = "bounded-scheduler-log"

@@ -19,7 +19,10 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 )
 
-const terminalStatusRetryInterval = 100 * time.Millisecond
+const (
+	terminalStatusRetryInterval = 100 * time.Millisecond
+	terminalStatusRetryTimeout  = 30 * time.Second
+)
 
 var _ runtime.StatusPusher = (*StatusPusher)(nil)
 
@@ -106,7 +109,9 @@ func (p *StatusPusher) Push(ctx context.Context, status ir.DAGRunStatus) error {
 		return err
 	}
 	if status.Status != ir.NotStarted && !status.Status.IsActive() {
-		err = backoff.Retry(ctx, report, backoff.NewConstantBackoffPolicy(terminalStatusRetryInterval), isRetryableStatusReportError)
+		retryCtx, cancel := context.WithTimeout(ctx, terminalStatusRetryTimeout)
+		defer cancel()
+		err = backoff.Retry(retryCtx, report, backoff.NewConstantBackoffPolicy(terminalStatusRetryInterval), isRetryableStatusReportError)
 	} else {
 		err = report(ctx)
 	}

@@ -1189,6 +1189,9 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim belongs to a different attempt"}, nil
 	}
 	if err := h.attemptOwnership().recordTaskClaim(ctx, task, workerID); err != nil {
+		if errors.Is(err, dispatch.ErrDAGRunLeaseConflict) {
+			return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "attempt claim conflicts with the active lease"}, nil
+		}
 		return nil, status.Error(codes.Internal, "failed to create run lease: "+err.Error())
 	}
 	if err := h.dispatchTaskStore.DeleteClaim(ctx, req.ClaimToken); err != nil {

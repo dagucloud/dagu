@@ -276,7 +276,9 @@ func (r *remoteRunReporter) logStreamerLocked(meta remoteRunMetadata) *coordrepo
 		r.logs[key] = streamer
 		return streamer
 	}
-	streamer.SetClaimKey(meta.claimKey)
+	if meta.claimKey != "" {
+		streamer.SetClaimKey(meta.claimKey)
+	}
 	if meta.attemptID != "" {
 		streamer.SetAttemptID(meta.attemptID)
 	}
@@ -312,7 +314,9 @@ func (r *remoteRunReporter) artifactUploaderFor(meta remoteRunMetadata) *coordre
 		r.artifacts[key] = uploader
 		return uploader
 	}
-	uploader.SetClaimKey(meta.claimKey)
+	if meta.claimKey != "" {
+		uploader.SetClaimKey(meta.claimKey)
+	}
 	if meta.attemptID != "" {
 		uploader.SetAttemptID(meta.attemptID)
 	}
