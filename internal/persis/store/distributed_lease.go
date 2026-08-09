@@ -45,7 +45,7 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease dispatch.DAGRunLeas
 	}
 	id := distributedRecordKey(lease.AttemptKey)
 
-	return retryCAS(ctx, func(ctx context.Context) error {
+	return retryConflict(ctx, func(ctx context.Context) error {
 		return s.withRecordLock(ctx, id, func() error {
 			now := time.Now().UTC()
 			existing, getErr := s.col.Get(ctx, id)

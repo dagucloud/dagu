@@ -33,15 +33,15 @@ func withCollectionRecordLock(
 }
 
 const (
-	casRetryInitialBackoff = 5 * time.Millisecond
-	casRetryMaxBackoff     = 5 * time.Second
+	conflictRetryInitialBackoff = 5 * time.Millisecond
+	conflictRetryMaxBackoff     = 5 * time.Second
 )
 
-// retryCAS runs op with exponential full-jitter backoff while op returns
+// retryConflict runs op with exponential full-jitter backoff while op returns
 // [persis.ErrConflict]. Any other error (including ErrNotFound) propagates.
 // Total time is bounded by ctx.
-func retryCAS(ctx context.Context, op func(ctx context.Context) error) error {
-	backoff := casRetryInitialBackoff
+func retryConflict(ctx context.Context, op func(ctx context.Context) error) error {
+	backoff := conflictRetryInitialBackoff
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -63,6 +63,6 @@ func retryCAS(ctx context.Context, op func(ctx context.Context) error) error {
 		case <-timer.C:
 		}
 
-		backoff = min(backoff*2, casRetryMaxBackoff)
+		backoff = min(backoff*2, conflictRetryMaxBackoff)
 	}
 }

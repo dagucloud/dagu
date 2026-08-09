@@ -230,7 +230,7 @@ func (s *DispatchTaskStore) BindAdmission(ctx context.Context, req dispatch.Disp
 		return err
 	}
 
-	return retryCAS(ctx, func(ctx context.Context) error {
+	return retryConflict(ctx, func(ctx context.Context) error {
 		attemptRec, attemptPayload, err := s.loadAdmissionAttemptByToken(ctx, req.ReservationToken)
 		if err != nil {
 			return err

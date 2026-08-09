@@ -37,15 +37,14 @@ func NewActiveDistributedRunStore(col persis.Collection, opts ...DistributedStor
 	}
 }
 
-// Upsert writes the active-run record. Get → Create if absent /
-// CompareAndSwap if present, retrying on conflict.
+// Upsert writes the active-run record.
 func (s *ActiveDistributedRunStore) Upsert(ctx context.Context, record dispatch.ActiveDistributedRun) error {
 	if record.AttemptKey == "" {
 		return fmt.Errorf("attempt key is required")
 	}
 	id := distributedRecordKey(record.AttemptKey)
 
-	return retryCAS(ctx, func(ctx context.Context) error {
+	return retryConflict(ctx, func(ctx context.Context) error {
 		return s.withRecordLock(ctx, id, func() error {
 			now := time.Now().UTC()
 			record.UpdatedAt = now.UnixMilli()
