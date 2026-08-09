@@ -6,6 +6,7 @@ package coordreport_test
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -192,10 +193,11 @@ func TestArtifactUploaderUploadDirReplaysAfterStreamFailure(t *testing.T) {
 	failedStream := &mockStreamArtifactsClient{
 		sendFunc: func(index int, _ *coordinatorv1.ArtifactChunk) error {
 			if index == 1 {
-				return status.Error(codes.Unavailable, "coordinator replaced")
+				return io.EOF
 			}
 			return nil
 		},
+		closeErr: status.Error(codes.Unavailable, "coordinator replaced"),
 	}
 	recoveredStream := &mockStreamArtifactsClient{}
 	streamCount := 0
@@ -219,4 +221,34 @@ func TestArtifactUploaderUploadDirReplaysAfterStreamFailure(t *testing.T) {
 	require.Len(t, recoveredChunks, 2)
 	assert.Equal(t, []byte("complete"), recoveredChunks[0].Data)
 	assert.True(t, recoveredChunks[1].IsFinal)
+}
+
+func TestArtifactUploaderUploadDirDoesNotReplayRejectedStream(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "artifact.txt"), []byte("stale"), 0o600))
+
+	stream := &mockStreamArtifactsClient{
+		sendFunc: func(index int, _ *coordinatorv1.ArtifactChunk) error {
+			if index == 1 {
+				return io.EOF
+			}
+			return nil
+		},
+		closeErr: status.Error(codes.FailedPrecondition, "artifact chunk attempt is stale"),
+	}
+	streamCount := 0
+	client := &artifactUploaderMockClient{
+		streamArtifactsFunc: func(context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+			streamCount++
+			return stream, nil
+		},
+	}
+
+	uploader := coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", ir.DAGRunRef{})
+	err := uploader.UploadDir(context.Background(), dir)
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.Equal(t, 1, streamCount)
 }

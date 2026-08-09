@@ -35,6 +35,7 @@ const (
 
 	logFlushInterval          = 2 * time.Second
 	logStreamOperationTimeout = 5 * time.Second
+	maxRetainedStepLogSize    = 16 * 1024 * 1024
 )
 
 func isLogStreamingNotConfigured(err error) bool {
@@ -286,6 +287,7 @@ type stepLogWriter struct {
 	mu                sync.Mutex
 	closed            bool
 	streamingDisabled bool
+	remoteTruncated   bool
 	pendingSince      time.Time
 }
 
@@ -374,6 +376,7 @@ func (w *stepLogWriter) flushLocked() error {
 					w.pendingSince = time.Time{}
 					return nil
 				}
+				w.capRemoteBufferLocked()
 				w.pendingSince = time.Now()
 				return err
 			}
@@ -405,6 +408,7 @@ func (w *stepLogWriter) flushLocked() error {
 				w.pendingSince = time.Time{}
 				return nil
 			}
+			w.capRemoteBufferLocked()
 			w.pendingSince = time.Now()
 			return err
 		}
@@ -420,13 +424,27 @@ func (w *stepLogWriter) flushLocked() error {
 func (w *stepLogWriter) handleStreamFailureLocked(err error) {
 	w.cancelStream()
 	w.stream = nil
+	w.ctx, w.cancel = context.WithCancel(w.parentCtx)
 	if isLogStreamingNotConfigured(err) {
 		w.streamingDisabled = true
 		return
 	}
-	w.ctx, w.cancel = context.WithCancel(w.parentCtx)
 	logger.Warn(w.ctx, "Step log stream interrupted; buffered output will retry",
 		tag.Error(err),
+		tag.Step(w.stepName),
+	)
+}
+
+func (w *stepLogWriter) capRemoteBufferLocked() {
+	if len(w.remoteBuffer) <= maxRetainedStepLogSize {
+		return
+	}
+	w.remoteBuffer = append([]byte(nil), w.remoteBuffer[len(w.remoteBuffer)-maxRetainedStepLogSize:]...)
+	if w.remoteTruncated {
+		return
+	}
+	w.remoteTruncated = true
+	logger.Warn(w.ctx, "Buffered step log output truncated during coordinator outage",
 		tag.Step(w.stepName),
 	)
 }

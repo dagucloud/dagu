@@ -2392,7 +2392,6 @@ func (h *Handler) StreamArtifacts(stream coordinatorv1.CoordinatorService_Stream
 
 	artifactHandler := newArtifactHandler(h.dagRunStore, h.owner.ID)
 	artifactHandler.ownerValidator = h.acceptsOwner
-	defer artifactHandler.Close(stream.Context())
 	return artifactHandler.handleStream(stream)
 }
 

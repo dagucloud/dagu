@@ -627,6 +627,25 @@ func TestFlush_SendFailure(t *testing.T) {
 	assert.Equal(t, uint64(1), chunks[0].Sequence)
 }
 
+func TestFlush_SendFailureCapsRetainedData(t *testing.T) {
+	t.Parallel()
+
+	mockStream := &mockStreamLogsClient{sendErr: errors.New("send failed")}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", ir.DAGRunRef{})
+	stepWriter := streamer.NewStepWriter(context.Background(), "step", runctx.StreamTypeStdout).(*coordreport.StepLogWriter)
+	data := make([]byte, coordreport.MaxRetainedStepLogSize+1)
+
+	result := coordreport.FlushStepLogWriterWithBuffer(stepWriter, data)
+
+	require.Error(t, result.Err)
+	assert.Equal(t, coordreport.MaxRetainedStepLogSize, result.BufferLen)
+}
+
 func TestFlush_SingleChunk(t *testing.T) {
 	t.Parallel()
 	mockStream := &mockStreamLogsClient{}

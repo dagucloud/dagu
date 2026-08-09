@@ -13,11 +13,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -29,9 +26,6 @@ type artifactHandler struct {
 	dagRunStore    dagrun.DAGRunStore
 	ownerID        string
 	ownerValidator func(context.Context, string) (bool, error)
-
-	writers   map[*artifactWriter]struct{}
-	writersMu sync.Mutex
 }
 
 type artifactWriter struct {
@@ -43,7 +37,6 @@ func newArtifactHandler(dagRunStore dagrun.DAGRunStore, ownerID string) *artifac
 	return &artifactHandler{
 		dagRunStore: dagRunStore,
 		ownerID:     ownerID,
-		writers:     make(map[*artifactWriter]struct{}),
 	}
 }
 
@@ -119,6 +112,10 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 		}
 
 		if chunk.IsFinal {
+			if _, err := h.archiveDir(ctx, chunk); err != nil {
+				_ = h.closeWriter(activeWriters, key, false)
+				return fmt.Errorf("failed to validate artifact finalization: %w", err)
+			}
 			if err := h.closeWriter(activeWriters, key, true); err != nil {
 				return fmt.Errorf("failed to finalize artifact: %w", err)
 			}
@@ -143,10 +140,6 @@ func (h *artifactHandler) getOrCreateWriter(
 ) (*artifactWriter, error) {
 	key := h.streamKey(chunk)
 	if w, ok := activeWriters[key]; ok {
-		if _, err := h.archiveDir(ctx, chunk); err != nil {
-			_ = h.closeWriter(activeWriters, key, false)
-			return nil, err
-		}
 		return w, nil
 	}
 
@@ -172,9 +165,6 @@ func (h *artifactHandler) getOrCreateWriter(
 		finalPath: filePath,
 	}
 
-	h.writersMu.Lock()
-	h.writers[w] = struct{}{}
-	h.writersMu.Unlock()
 	activeWriters[key] = w
 	return w, nil
 }
@@ -236,10 +226,6 @@ func (h *artifactHandler) closeWriter(
 	}
 	delete(activeWriters, key)
 
-	h.writersMu.Lock()
-	delete(h.writers, w)
-	h.writersMu.Unlock()
-
 	tempPath := w.writer.path
 	if err := w.writer.close(); err != nil {
 		_ = fileutil.Remove(tempPath)
@@ -256,21 +242,4 @@ func (h *artifactHandler) closeWriter(
 		return fmt.Errorf("remove temporary artifact file: %w", err)
 	}
 	return nil
-}
-
-func (h *artifactHandler) Close(ctx context.Context) {
-	h.writersMu.Lock()
-	writers := h.writers
-	h.writers = make(map[*artifactWriter]struct{})
-	h.writersMu.Unlock()
-
-	for w := range writers {
-		tempPath := w.writer.path
-		if err := w.writer.close(); err != nil {
-			logger.Warn(ctx, "Failed to close artifact writer", tag.Error(err))
-		}
-		if err := fileutil.Remove(tempPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logger.Warn(ctx, "Failed to remove temporary artifact file", tag.Error(err))
-		}
-	}
 }

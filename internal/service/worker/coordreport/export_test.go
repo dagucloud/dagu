@@ -15,6 +15,9 @@ const LogBufferSize = logBufferSize
 // MaxChunkSize exposes the stream chunk limit to black-box tests.
 const MaxChunkSize = maxChunkSize
 
+// MaxRetainedStepLogSize exposes the failed-stream retention limit to black-box tests.
+const MaxRetainedStepLogSize = maxRetainedStepLogSize
+
 // StepLogWriter exposes the concrete step writer type to black-box tests.
 type StepLogWriter = stepLogWriter
 

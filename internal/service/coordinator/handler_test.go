@@ -4979,6 +4979,7 @@ func TestHandler_StreamLogs_Full(t *testing.T) {
 			go func() {
 				<-start
 				ready.Done()
+				ready.Wait()
 				accepted, err := h.acceptsOwner(t.Context(), "coord-a")
 				if err == nil && !accepted {
 					err = errors.New("previous owner was rejected")

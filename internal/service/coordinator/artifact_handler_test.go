@@ -25,6 +25,7 @@ type mockStreamArtifactsServer struct {
 	response *coordinatorv1.StreamArtifactsResponse
 	ctx      context.Context
 	recvErr  error
+	recvHook func(int)
 }
 
 func (m *mockStreamArtifactsServer) Recv() (*coordinatorv1.ArtifactChunk, error) {
@@ -33,6 +34,9 @@ func (m *mockStreamArtifactsServer) Recv() (*coordinatorv1.ArtifactChunk, error)
 			return nil, m.recvErr
 		}
 		return nil, io.EOF
+	}
+	if m.recvHook != nil {
+		m.recvHook(m.idx)
 	}
 	chunk := m.chunks[m.idx]
 	m.idx++
@@ -230,7 +234,6 @@ func TestArtifactHandlerHandleStreamDiscardsPartialFileOnRecvError(t *testing.T)
 
 	err := handler.handleStream(stream)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
-	assert.Empty(t, handler.writers)
 	_, err = os.Stat(filepath.Join(archiveDir, "artifact.txt"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 	entries, err := os.ReadDir(archiveDir)
@@ -254,7 +257,7 @@ func TestArtifactHandlerHandleStreamDiscardsPartialFileOnRecvError(t *testing.T)
 	assert.Equal(t, "complete", string(content))
 }
 
-func TestArtifactHandlerGetOrCreateWriterRevalidatesCachedAttempt(t *testing.T) {
+func TestArtifactHandlerHandleStreamRevalidatesAttemptBeforeFinalizing(t *testing.T) {
 	t.Parallel()
 
 	store := newMockDAGRunStore()
@@ -267,26 +270,39 @@ func TestArtifactHandlerGetOrCreateWriterRevalidatesCachedAttempt(t *testing.T) 
 	})
 
 	handler := newArtifactHandler(store, "")
-	activeWriters := make(map[string]*artifactWriter)
-	chunk := &coordinatorv1.ArtifactChunk{
-		DagName:      "test-dag",
-		DagRunId:     "run-123",
-		AttemptId:    "attempt-1",
-		RelativePath: "artifact.txt",
+	stream := &mockStreamArtifactsServer{
+		ctx: context.Background(),
+		chunks: []*coordinatorv1.ArtifactChunk{
+			{
+				DagName:      "test-dag",
+				DagRunId:     "run-123",
+				AttemptId:    "attempt-1",
+				RelativePath: "artifact.txt",
+				Data:         []byte("stale"),
+			},
+			{
+				DagName:      "test-dag",
+				DagRunId:     "run-123",
+				AttemptId:    "attempt-1",
+				RelativePath: "artifact.txt",
+				IsFinal:      true,
+			},
+		},
+		recvHook: func(index int) {
+			if index != 1 {
+				return
+			}
+			attempt.mu.Lock()
+			attempt.status.AttemptID = "attempt-2"
+			attempt.mu.Unlock()
+		},
 	}
 
-	_, err := handler.getOrCreateWriter(context.Background(), chunk, activeWriters)
-	require.NoError(t, err)
-	require.Len(t, handler.writers, 1)
-
-	attempt.mu.Lock()
-	attempt.status.AttemptID = "attempt-2"
-	attempt.mu.Unlock()
-
-	_, err = handler.getOrCreateWriter(context.Background(), chunk, activeWriters)
+	err := handler.handleStream(stream)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not match latest attempt")
-	assert.Empty(t, handler.writers)
+	_, statErr := os.Stat(filepath.Join(archiveDir, "artifact.txt"))
+	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
 func TestArtifactHandlerStreamKeyNormalizesRelativePath(t *testing.T) {

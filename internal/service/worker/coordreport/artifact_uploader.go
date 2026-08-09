@@ -24,7 +24,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const artifactUploadRetryInterval = 100 * time.Millisecond
+const (
+	artifactUploadRetryInterval = 100 * time.Millisecond
+	artifactUploadRetryTimeout  = 30 * time.Second
+)
 
 var _ runtime.ArtifactFinalizer = (*ArtifactUploader)(nil)
 
@@ -98,7 +101,9 @@ func (u *ArtifactUploader) UploadDir(ctx context.Context, dir string) error {
 	}
 
 	attemptID := u.getAttemptID()
-	return backoff.Retry(ctx, func(ctx context.Context) error {
+	retryCtx, cancel := context.WithTimeout(ctx, artifactUploadRetryTimeout)
+	defer cancel()
+	return backoff.Retry(retryCtx, func(ctx context.Context) error {
 		return u.uploadDir(ctx, dir, attemptID)
 	}, backoff.NewConstantBackoffPolicy(artifactUploadRetryInterval), isRetryableArtifactUploadError)
 }
@@ -120,7 +125,13 @@ func (u *ArtifactUploader) uploadDir(ctx context.Context, dir, attemptID string)
 				return err
 			}
 		}
-		return stream.Send(chunk)
+		err := stream.Send(chunk)
+		if errors.Is(err, io.EOF) {
+			if _, terminalErr := stream.CloseAndRecv(); terminalErr != nil {
+				return terminalErr
+			}
+		}
+		return err
 	}
 
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {

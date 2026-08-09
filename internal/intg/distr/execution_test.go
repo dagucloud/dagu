@@ -115,7 +115,7 @@ func largeArtifactWriteCommand(size int) string {
 	return test.JoinLines(
 		`test -n "${DAG_RUN_ARTIFACTS_DIR}"`,
 		`mkdir -p "${DAG_RUN_ARTIFACTS_DIR}/reports"`,
-		fmt.Sprintf(`dd if=/dev/zero of="${DAG_RUN_ARTIFACTS_DIR}/reports/large.txt" bs=%d count=1 2>/dev/null`, size),
+		fmt.Sprintf(`head -c %d /dev/zero > "${DAG_RUN_ARTIFACTS_DIR}/reports/large.txt"`, size),
 	)
 }
 
@@ -171,6 +171,7 @@ func (s *gatedArtifactStream) Send(chunk *coordinatorv1.ArtifactChunk) error {
 		return err
 	}
 	if len(chunk.Data) > 0 {
+		// The callback holds all artifact sends at the first chunk until the coordinator has restarted.
 		s.gate.firstChunkOnce.Do(func() {
 			close(s.gate.firstChunk)
 			<-s.gate.release
