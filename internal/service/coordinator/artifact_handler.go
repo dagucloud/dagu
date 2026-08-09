@@ -6,6 +6,7 @@ package coordinator
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -27,15 +30,20 @@ type artifactHandler struct {
 	ownerID        string
 	ownerValidator func(context.Context, string) (bool, error)
 
-	writers   map[string]*logWriter
+	writers   map[*artifactWriter]struct{}
 	writersMu sync.Mutex
+}
+
+type artifactWriter struct {
+	writer    *logWriter
+	finalPath string
 }
 
 func newArtifactHandler(dagRunStore dagrun.DAGRunStore, ownerID string) *artifactHandler {
 	return &artifactHandler{
 		dagRunStore: dagRunStore,
 		ownerID:     ownerID,
-		writers:     make(map[string]*logWriter),
+		writers:     make(map[*artifactWriter]struct{}),
 	}
 }
 
@@ -45,11 +53,11 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 	var bytesWritten uint64
 	var validatedOwnerID string
 	var ownerValidated bool
-	activeKeys := make(map[string]struct{})
+	activeWriters := make(map[string]*artifactWriter)
 
 	defer func() {
-		for key := range activeKeys {
-			h.closeWriterByKey(ctx, key)
+		for key := range activeWriters {
+			_ = h.closeWriter(activeWriters, key, false)
 		}
 	}()
 
@@ -94,14 +102,13 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 		}
 
 		if len(chunk.Data) > 0 || chunk.IsFinal {
-			writer, err := h.getOrCreateWriter(ctx, chunk)
+			writer, err := h.getOrCreateWriter(ctx, chunk, activeWriters)
 			if err != nil {
 				return fmt.Errorf("failed to create artifact writer: %w", err)
 			}
-			activeKeys[key] = struct{}{}
 
 			if len(chunk.Data) > 0 {
-				n, err := writer.write(chunk.Data)
+				n, err := writer.writer.write(chunk.Data)
 				if err != nil {
 					return fmt.Errorf("failed to write artifact data: %w", err)
 				}
@@ -112,8 +119,9 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 		}
 
 		if chunk.IsFinal {
-			h.closeWriterByKey(ctx, key)
-			delete(activeKeys, key)
+			if err := h.closeWriter(activeWriters, key, true); err != nil {
+				return fmt.Errorf("failed to finalize artifact: %w", err)
+			}
 		}
 	}
 }
@@ -128,19 +136,19 @@ func (h *artifactHandler) streamKey(chunk *coordinatorv1.ArtifactChunk) string {
 	)
 }
 
-func (h *artifactHandler) getOrCreateWriter(ctx context.Context, chunk *coordinatorv1.ArtifactChunk) (*logWriter, error) {
+func (h *artifactHandler) getOrCreateWriter(
+	ctx context.Context,
+	chunk *coordinatorv1.ArtifactChunk,
+	activeWriters map[string]*artifactWriter,
+) (*artifactWriter, error) {
 	key := h.streamKey(chunk)
-
-	h.writersMu.Lock()
-	if w, ok := h.writers[key]; ok {
-		h.writersMu.Unlock()
+	if w, ok := activeWriters[key]; ok {
 		if _, err := h.archiveDir(ctx, chunk); err != nil {
-			h.closeWriterByKey(ctx, key)
+			_ = h.closeWriter(activeWriters, key, false)
 			return nil, err
 		}
 		return w, nil
 	}
-	h.writersMu.Unlock()
 
 	filePath, err := h.artifactFilePath(ctx, chunk)
 	if err != nil {
@@ -150,30 +158,24 @@ func (h *artifactHandler) getOrCreateWriter(ctx context.Context, chunk *coordina
 		return nil, fmt.Errorf("failed to create artifact directory: %w", err)
 	}
 
-	file, err := fileutil.OpenOrCreateFile(filePath)
+	file, err := os.CreateTemp(filepath.Dir(filePath), ".dagu-artifact-*")
 	if err != nil {
-		return nil, fmt.Errorf("failed to open artifact file: %w", err)
+		return nil, fmt.Errorf("failed to create temporary artifact file: %w", err)
 	}
 
-	w := &logWriter{
-		file:   file,
-		writer: bufio.NewWriterSize(file, 64*1024),
-		path:   filePath,
+	w := &artifactWriter{
+		writer: &logWriter{
+			file:   file,
+			writer: bufio.NewWriterSize(file, 64*1024),
+			path:   file.Name(),
+		},
+		finalPath: filePath,
 	}
 
 	h.writersMu.Lock()
-	defer h.writersMu.Unlock()
-
-	if existing, ok := h.writers[key]; ok {
-		w.close(ctx)
-		if _, err := h.archiveDir(ctx, chunk); err != nil {
-			delete(h.writers, key)
-			existing.close(ctx)
-			return nil, err
-		}
-		return existing, nil
-	}
-	h.writers[key] = w
+	h.writers[w] = struct{}{}
+	h.writersMu.Unlock()
+	activeWriters[key] = w
 	return w, nil
 }
 
@@ -223,22 +225,52 @@ func (h *artifactHandler) archiveDir(ctx context.Context, chunk *coordinatorv1.A
 	return runStatus.ArchiveDir, nil
 }
 
-func (h *artifactHandler) closeWriterByKey(ctx context.Context, key string) {
-	h.writersMu.Lock()
-	defer h.writersMu.Unlock()
-
-	if w, ok := h.writers[key]; ok {
-		w.close(ctx)
-		delete(h.writers, key)
+func (h *artifactHandler) closeWriter(
+	activeWriters map[string]*artifactWriter,
+	key string,
+	commit bool,
+) error {
+	w, ok := activeWriters[key]
+	if !ok {
+		return nil
 	}
+	delete(activeWriters, key)
+
+	h.writersMu.Lock()
+	delete(h.writers, w)
+	h.writersMu.Unlock()
+
+	tempPath := w.writer.path
+	if err := w.writer.close(); err != nil {
+		_ = fileutil.Remove(tempPath)
+		return err
+	}
+	if commit {
+		if err := fileutil.ReplaceFile(tempPath, w.finalPath); err != nil {
+			_ = fileutil.Remove(tempPath)
+			return err
+		}
+		return nil
+	}
+	if err := fileutil.Remove(tempPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove temporary artifact file: %w", err)
+	}
+	return nil
 }
 
 func (h *artifactHandler) Close(ctx context.Context) {
 	h.writersMu.Lock()
-	defer h.writersMu.Unlock()
+	writers := h.writers
+	h.writers = make(map[*artifactWriter]struct{})
+	h.writersMu.Unlock()
 
-	for _, w := range h.writers {
-		w.close(ctx)
+	for w := range writers {
+		tempPath := w.writer.path
+		if err := w.writer.close(); err != nil {
+			logger.Warn(ctx, "Failed to close artifact writer", tag.Error(err))
+		}
+		if err := fileutil.Remove(tempPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logger.Warn(ctx, "Failed to remove temporary artifact file", tag.Error(err))
+		}
 	}
-	h.writers = make(map[string]*logWriter)
 }

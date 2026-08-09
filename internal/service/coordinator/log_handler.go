@@ -6,6 +6,7 @@ package coordinator
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -102,26 +103,11 @@ func (w *logWriter) write(data []byte) (int, error) {
 }
 
 // close flushes the buffer, syncs to disk, and closes the file.
-// Errors are logged but not returned since this is typically called during cleanup.
-func (w *logWriter) close(ctx context.Context) {
+func (w *logWriter) close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if err := w.writer.Flush(); err != nil {
-		logger.Warn(ctx, "Failed to flush log writer",
-			slog.String("path", w.path),
-			slog.String("error", err.Error()))
-	}
-	if err := w.file.Sync(); err != nil {
-		logger.Warn(ctx, "Failed to sync log file",
-			slog.String("path", w.path),
-			slog.String("error", err.Error()))
-	}
-	if err := w.file.Close(); err != nil {
-		logger.Warn(ctx, "Failed to close log file",
-			slog.String("path", w.path),
-			slog.String("error", err.Error()))
-	}
+	return errors.Join(w.writer.Flush(), w.file.Sync(), w.file.Close())
 }
 
 // newLogHandler creates a new log handler

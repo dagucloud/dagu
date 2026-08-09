@@ -5,19 +5,26 @@ package coordreport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+const artifactUploadRetryInterval = 100 * time.Millisecond
 
 var _ runtime.ArtifactFinalizer = (*ArtifactUploader)(nil)
 
@@ -91,8 +98,19 @@ func (u *ArtifactUploader) UploadDir(ctx context.Context, dir string) error {
 	}
 
 	attemptID := u.getAttemptID()
+	return backoff.Retry(ctx, func(ctx context.Context) error {
+		return u.uploadDir(ctx, dir, attemptID)
+	}, backoff.NewConstantBackoffPolicy(artifactUploadRetryInterval), isRetryableArtifactUploadError)
+}
+
+func (u *ArtifactUploader) uploadDir(ctx context.Context, dir, attemptID string) error {
 	seq := uint64(0)
 	var stream coordinatorv1.CoordinatorService_StreamArtifactsClient
+	defer func() {
+		if stream != nil {
+			_ = stream.CloseSend()
+		}
+	}()
 
 	sendChunk := func(chunk *coordinatorv1.ArtifactChunk) error {
 		if stream == nil {
@@ -191,4 +209,12 @@ func (u *ArtifactUploader) UploadDir(ctx context.Context, dir string) error {
 		return fmt.Errorf("artifact upload failed: %s", resp.Error)
 	}
 	return nil
+}
+
+func isRetryableArtifactUploadError(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	code := status.Code(err)
+	return code == codes.Unavailable || code == codes.DeadlineExceeded
 }

@@ -469,7 +469,7 @@ func TestWrite_FlushError_Continues(t *testing.T) {
 	assert.Equal(t, len(data), n)
 }
 
-func TestWrite_FlushError_ClearsBuffer(t *testing.T) {
+func TestWrite_FlushError_RetainsBuffer(t *testing.T) {
 	t.Parallel()
 	mockStream := &mockStreamLogsClient{
 		sendErr: errors.New("send failed"),
@@ -487,9 +487,9 @@ func TestWrite_FlushError_ClearsBuffer(t *testing.T) {
 	data := make([]byte, coordreport.LogBufferSize)
 	_, _ = writer.Write(data)
 
-	// Buffer should be cleared to prevent memory growth
+	// Unsent data remains available for the next stream.
 	snapshot := coordreport.SnapshotStepLogWriter(stepWriter)
-	assert.Equal(t, 0, snapshot.BufferLen)
+	assert.Equal(t, len(data), snapshot.BufferLen)
 }
 
 func TestFlush_EmptyBuffer(t *testing.T) {
@@ -543,17 +543,21 @@ func TestFlush_StreamInitFailure(t *testing.T) {
 	result := coordreport.FlushStepLogWriterWithBuffer(stepWriter, []byte("test data"))
 
 	assert.Equal(t, initErr, result.Err)
-	assert.True(t, result.StreamFailed, "streamInitFailed should be set")
-	assert.Equal(t, 0, result.BufferLen, "buffer should be cleared")
+	assert.False(t, result.StreamFailed)
+	assert.Equal(t, len("test data"), result.BufferLen)
 }
 
 func TestFlush_AfterInitFailure(t *testing.T) {
 	t.Parallel()
 	callCount := 0
+	mockStream := &mockStreamLogsClient{}
 	client := &logStreamerMockClient{
 		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 			callCount++
-			return nil, errors.New("init failed")
+			if callCount == 1 {
+				return nil, errors.New("init failed")
+			}
+			return mockStream, nil
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", ir.DAGRunRef{})
@@ -562,12 +566,15 @@ func TestFlush_AfterInitFailure(t *testing.T) {
 	// First flush triggers init failure.
 	_ = coordreport.FlushStepLogWriterWithBuffer(stepWriter, []byte("data1"))
 
-	// Second flush silently returns without retrying.
+	// The next flush opens a new stream and preserves output order.
 	result := coordreport.FlushStepLogWriterWithBuffer(stepWriter, []byte("data2"))
 
-	require.NoError(t, result.Err, "should silently succeed after init failure")
-	assert.Equal(t, 0, result.BufferLen, "buffer should be cleared")
-	assert.Equal(t, 1, callCount, "should not retry stream init")
+	require.NoError(t, result.Err)
+	assert.Equal(t, 0, result.BufferLen)
+	assert.Equal(t, 2, callCount)
+	chunks := mockStream.getSentChunks()
+	require.Len(t, chunks, 1)
+	assert.Equal(t, "data1data2", string(chunks[0].Data))
 }
 
 func TestFlush_SendSuccess(t *testing.T) {
@@ -589,12 +596,18 @@ func TestFlush_SendSuccess(t *testing.T) {
 
 func TestFlush_SendFailure(t *testing.T) {
 	t.Parallel()
-	mockStream := &mockStreamLogsClient{
+	failedStream := &mockStreamLogsClient{
 		sendErr: errors.New("send failed"),
 	}
+	recoveredStream := &mockStreamLogsClient{}
+	streamCount := 0
 	client := &logStreamerMockClient{
 		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
-			return mockStream, nil
+			streamCount++
+			if streamCount == 1 {
+				return failedStream, nil
+			}
+			return recoveredStream, nil
 		},
 	}
 	streamer := coordreport.NewLogStreamer(client, "w", "r", "d", "a", ir.DAGRunRef{})
@@ -604,6 +617,14 @@ func TestFlush_SendFailure(t *testing.T) {
 
 	assert.Error(t, result.Err)
 	assert.Equal(t, result.InitialSequence, result.FinalSequence, "sequence should NOT increment on failure")
+	assert.Equal(t, len("test data"), result.BufferLen)
+
+	result = coordreport.FlushStepLogWriterWithBuffer(stepWriter, []byte(" after reconnect"))
+	require.NoError(t, result.Err)
+	chunks := recoveredStream.getSentChunks()
+	require.Len(t, chunks, 1)
+	assert.Equal(t, "test data after reconnect", string(chunks[0].Data))
+	assert.Equal(t, uint64(1), chunks[0].Sequence)
 }
 
 func TestFlush_SingleChunk(t *testing.T) {
@@ -1166,10 +1187,9 @@ func TestClose_NoStream(t *testing.T) {
 	data := make([]byte, coordreport.LogBufferSize)
 	_, _ = writer.Write(data)
 
-	// Close should handle nil stream gracefully
+	// Close reports the final failed attempt without panicking on a nil stream.
 	err := writer.Close()
-	// No error because stream never initialized and streamInitFailed handles it
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "init failed")
 }
 
 func TestClose_FlushErrorThenSendSuccess(t *testing.T) {

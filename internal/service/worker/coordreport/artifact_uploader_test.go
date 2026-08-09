@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -18,7 +19,9 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type artifactUploaderMockClient struct {
@@ -46,6 +49,8 @@ type mockStreamArtifactsClient struct {
 	sentChunks []*coordinatorv1.ArtifactChunk
 	response   *coordinatorv1.StreamArtifactsResponse
 	sendHook   func(*coordinatorv1.ArtifactChunk)
+	sendFunc   func(int, *coordinatorv1.ArtifactChunk) error
+	closeErr   error
 }
 
 func (m *mockStreamArtifactsClient) Send(chunk *coordinatorv1.ArtifactChunk) error {
@@ -64,6 +69,12 @@ func (m *mockStreamArtifactsClient) Send(chunk *coordinatorv1.ArtifactChunk) err
 	}
 
 	m.mu.Lock()
+	if m.sendFunc != nil {
+		if err := m.sendFunc(len(m.sentChunks), chunkCopy); err != nil {
+			m.mu.Unlock()
+			return err
+		}
+	}
 	m.sentChunks = append(m.sentChunks, chunkCopy)
 	sendHook := m.sendHook
 	m.mu.Unlock()
@@ -78,6 +89,9 @@ func (m *mockStreamArtifactsClient) CloseAndRecv() (*coordinatorv1.StreamArtifac
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.closeErr != nil {
+		return nil, m.closeErr
+	}
 	if m.response == nil {
 		m.response = &coordinatorv1.StreamArtifactsResponse{}
 	}
@@ -167,4 +181,42 @@ func TestArtifactUploaderUploadDirUsesSingleAttemptIDSnapshot(t *testing.T) {
 	for _, chunk := range chunks {
 		assert.Equal(t, "attempt-1", chunk.AttemptId)
 	}
+}
+
+func TestArtifactUploaderUploadDirReplaysAfterStreamFailure(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "artifact.txt"), []byte("complete"), 0o600))
+
+	failedStream := &mockStreamArtifactsClient{
+		sendFunc: func(index int, _ *coordinatorv1.ArtifactChunk) error {
+			if index == 1 {
+				return status.Error(codes.Unavailable, "coordinator replaced")
+			}
+			return nil
+		},
+	}
+	recoveredStream := &mockStreamArtifactsClient{}
+	streamCount := 0
+	client := &artifactUploaderMockClient{
+		streamArtifactsFunc: func(context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+			streamCount++
+			if streamCount == 1 {
+				return failedStream, nil
+			}
+			return recoveredStream, nil
+		},
+	}
+
+	uploader := coordreport.NewArtifactUploader(client, "worker-1", "run-123", "test-dag", "attempt-1", ir.DAGRunRef{})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, uploader.UploadDir(ctx, dir))
+	assert.Equal(t, 2, streamCount)
+	assert.Len(t, failedStream.chunksForPath("artifact.txt"), 1)
+	recoveredChunks := recoveredStream.chunksForPath("artifact.txt")
+	require.Len(t, recoveredChunks, 2)
+	assert.Equal(t, []byte("complete"), recoveredChunks[0].Data)
+	assert.True(t, recoveredChunks[1].IsFinal)
 }

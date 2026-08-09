@@ -12,6 +12,7 @@ import (
 	osexec "os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
+	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -42,6 +44,14 @@ func delayedAfterAckFailureTimeout() time.Duration {
 
 func waitForReleaseFileScript(path string) string {
 	return intgharness.PortableCommands().WaitForFile(path)
+}
+
+func rollingReplacementLogCommand(before, after, releasePath string) string {
+	return test.JoinLines(
+		test.Output(before),
+		waitForReleaseFileScript(releasePath),
+		test.Output(after),
+	)
 }
 
 // TestDistributedRun_WorkerCrash_MarkedFailed verifies that a hard-killed
@@ -245,6 +255,8 @@ func TestDistributedRun_CoordinatorRollingReplacementPreservesActiveRun(t *testi
 	}
 
 	releaseFile := filepath.Join(t.TempDir(), "coordinator-replacement.release")
+	beforeReplacement := "before-coordinator-replacement"
+	afterReplacement := "after-coordinator-replacement"
 	f := newTestFixture(t, fmt.Sprintf(`
 name: coordinator-replacement
 worker_selector:
@@ -253,9 +265,10 @@ steps:
   - name: wait
     command: |
 %s
-`, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
+`, indentYAMLBlock(rollingReplacementLogCommand(beforeReplacement, afterReplacement, releaseFile), 6)),
 		withStaleThresholds(heartbeatThreshold, leaseThreshold),
 		withZombieDetectionInterval(testZombieDetectorInterval),
+		withLogPersistence(),
 	)
 	defer func() {
 		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
@@ -273,6 +286,14 @@ steps:
 	initialOwner := initialLease.Owner
 	initialHeartbeat := initialLease.LastHeartbeatAt
 	require.Equal(t, f.coord.InstanceID(), initialOwner.ID)
+	require.Eventually(t, func() bool {
+		files := findLogFiles(t, f.logDir(), f.dagWrapper.Name, initialStatus.DAGRunID, "wait", "stdout")
+		if len(files) == 0 {
+			return false
+		}
+		content, err := os.ReadFile(files[0])
+		return err == nil && strings.Contains(string(content), beforeReplacement)
+	}, distrTestTimeout(runningTimeout), 100*time.Millisecond, "step output should reach the original coordinator before replacement")
 
 	peer := f.coord.StartPeer(t)
 	require.NotEqual(t, initialOwner.ID, peer.InstanceID())
@@ -316,6 +337,11 @@ steps:
 	finalStatus := f.waitForStatus(ir.Succeeded, completionTimeout)
 	assert.Equal(t, initialStatus.AttemptID, finalStatus.AttemptID)
 	assert.Equal(t, initialStatus.AttemptKey, finalStatus.AttemptKey)
+	stdoutFiles := findLogFiles(t, f.logDir(), f.dagWrapper.Name, finalStatus.DAGRunID, "wait", "stdout")
+	require.NotEmpty(t, stdoutFiles)
+	stdout := getLogContent(t, stdoutFiles[0])
+	assert.Equal(t, 1, strings.Count(stdout, beforeReplacement))
+	assert.Equal(t, 1, strings.Count(stdout, afterReplacement))
 }
 
 // TestDistributedRun_QueueConcurrency_ActiveRunCounted verifies that a running

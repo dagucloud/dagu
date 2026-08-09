@@ -144,6 +144,7 @@ func (s *LogStreamer) NewStepWriter(ctx context.Context, stepName string, stream
 	}
 	streamCtx, cancel := context.WithCancel(ctx)
 	return &stepLogWriter{
+		parentCtx:  ctx,
 		ctx:        streamCtx,
 		cancel:     cancel,
 		streamer:   s,
@@ -272,18 +273,20 @@ func (s *LogStreamer) StreamSchedulerLog(ctx context.Context, logFilePath string
 
 // stepLogWriter implements io.WriteCloser for streaming logs
 type stepLogWriter struct {
-	ctx              context.Context
-	cancel           context.CancelFunc
-	streamer         *LogStreamer
-	stepName         string
-	streamType       int
-	buffer           []byte
-	sequence         uint64
-	stream           coordinatorv1.CoordinatorService_StreamLogsClient
-	mu               sync.Mutex
-	closed           bool
-	streamInitFailed bool // Tracks terminal stream failure
-	pendingSince     time.Time
+	parentCtx         context.Context
+	ctx               context.Context
+	cancel            context.CancelFunc
+	streamer          *LogStreamer
+	stepName          string
+	streamType        int
+	buffer            []byte
+	remoteBuffer      []byte
+	sequence          uint64
+	stream            coordinatorv1.CoordinatorService_StreamLogsClient
+	mu                sync.Mutex
+	closed            bool
+	streamingDisabled bool
+	pendingSince      time.Time
 }
 
 // Write implements io.Writer
@@ -295,7 +298,7 @@ func (w *stepLogWriter) Write(p []byte) (int, error) {
 		return 0, io.ErrClosedPipe
 	}
 
-	if len(w.buffer) == 0 {
+	if len(w.buffer) == 0 && len(w.remoteBuffer) == 0 {
 		w.pendingSince = time.Now()
 	}
 	w.buffer = append(w.buffer, p...)
@@ -324,7 +327,7 @@ func (w *stepLogWriter) FlushIfDue() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.closed || len(w.buffer) == 0 || time.Since(w.pendingSince) < logFlushInterval {
+	if w.closed || (len(w.buffer) == 0 && len(w.remoteBuffer) == 0) || time.Since(w.pendingSince) < logFlushInterval {
 		return nil
 	}
 	return w.flushLocked()
@@ -334,29 +337,27 @@ func (w *stepLogWriter) FlushIfDue() error {
 // Implements chunk splitting for large buffers to stay within gRPC message size limits.
 // Sequence numbers are only incremented after successful Send to avoid gaps.
 func (w *stepLogWriter) flushLocked() error {
-	if len(w.buffer) == 0 {
+	if len(w.buffer) > 0 {
+		w.streamer.mirrorToSchedulerLog(w.buffer)
+		w.remoteBuffer = append(w.remoteBuffer, w.buffer...)
+		w.buffer = w.buffer[:0]
+	}
+	if len(w.remoteBuffer) == 0 {
+		w.pendingSince = time.Time{}
+		return nil
+	}
+	if w.streamingDisabled {
+		w.remoteBuffer = nil
+		w.pendingSince = time.Time{}
 		return nil
 	}
 
-	// Split buffer into chunks if necessary to stay within gRPC limits
-	data := w.buffer
-	w.buffer = w.buffer[:0]
-	w.pendingSince = time.Time{}
-	streamingDisabled := w.streamInitFailed
-	var firstErr error
-
-	for len(data) > 0 {
-		chunkSize := min(len(data), maxChunkSize)
+	for len(w.remoteBuffer) > 0 {
+		chunkSize := min(len(w.remoteBuffer), maxChunkSize)
 
 		// Copy chunk data to avoid corruption if Send buffers the message
 		chunkData := make([]byte, chunkSize)
-		copy(chunkData, data[:chunkSize])
-		data = data[chunkSize:]
-
-		w.streamer.mirrorToSchedulerLog(chunkData)
-		if streamingDisabled {
-			continue
-		}
+		copy(chunkData, w.remoteBuffer[:chunkSize])
 
 		// Initialize stream if needed
 		if w.stream == nil {
@@ -367,15 +368,14 @@ func (w *stepLogWriter) flushLocked() error {
 				return err
 			})
 			if err != nil {
-				w.disableStreamLocked(err)
-				streamingDisabled = true
+				w.handleStreamFailureLocked(err)
 				if isLogStreamingNotConfigured(err) {
-					continue
+					w.remoteBuffer = nil
+					w.pendingSince = time.Time{}
+					return nil
 				}
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
+				w.pendingSince = time.Now()
+				return err
 			}
 			w.stream = stream
 		}
@@ -399,31 +399,33 @@ func (w *stepLogWriter) flushLocked() error {
 		if err := w.withOperationTimeout(func() error {
 			return w.stream.Send(chunk)
 		}); err != nil {
-			w.disableStreamLocked(err)
-			streamingDisabled = true
+			w.handleStreamFailureLocked(err)
 			if isLogStreamingNotConfigured(err) {
-				continue
+				w.remoteBuffer = nil
+				w.pendingSince = time.Time{}
+				return nil
 			}
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
+			w.pendingSince = time.Now()
+			return err
 		}
 		w.sequence = nextSeq // Only increment after successful Send
+		w.remoteBuffer = w.remoteBuffer[chunkSize:]
 	}
 
-	return firstErr
+	w.remoteBuffer = nil
+	w.pendingSince = time.Time{}
+	return nil
 }
 
-func (w *stepLogWriter) disableStreamLocked(err error) {
-	if w.streamInitFailed {
-		return
-	}
-	w.streamInitFailed = true
+func (w *stepLogWriter) handleStreamFailureLocked(err error) {
+	w.cancelStream()
+	w.stream = nil
 	if isLogStreamingNotConfigured(err) {
+		w.streamingDisabled = true
 		return
 	}
-	logger.Warn(w.ctx, "Step log streaming disabled after stream failure",
+	w.ctx, w.cancel = context.WithCancel(w.parentCtx)
+	logger.Warn(w.ctx, "Step log stream interrupted; buffered output will retry",
 		tag.Error(err),
 		tag.Step(w.stepName),
 	)
@@ -436,7 +438,8 @@ func (w *stepLogWriter) cancelStream() {
 }
 
 func (w *stepLogWriter) withOperationTimeout(operation func() error) error {
-	cancelTimer := time.AfterFunc(logStreamOperationTimeout, w.cancelStream)
+	cancel := w.cancel
+	cancelTimer := time.AfterFunc(logStreamOperationTimeout, cancel)
 	defer cancelTimer.Stop()
 	return operation()
 }
@@ -461,7 +464,7 @@ func (w *stepLogWriter) Close() error {
 
 	// Send final marker
 	if w.stream != nil {
-		if !w.streamInitFailed {
+		if !w.streamingDisabled {
 			// Use peek value for sequence - only increment after successful Send
 			nextSeq := w.sequence + 1
 			finalChunk := &coordinatorv1.LogChunk{
@@ -480,7 +483,7 @@ func (w *stepLogWriter) Close() error {
 			if err := w.withOperationTimeout(func() error {
 				return w.stream.Send(finalChunk)
 			}); err != nil {
-				w.disableStreamLocked(err)
+				w.handleStreamFailureLocked(err)
 				if !isLogStreamingNotConfigured(err) {
 					if firstErr == nil {
 						firstErr = err
@@ -491,18 +494,20 @@ func (w *stepLogWriter) Close() error {
 			}
 		}
 
-		err := w.withOperationTimeout(func() error {
-			_, err := w.stream.CloseAndRecv()
-			return err
-		})
-		w.stream = nil
-		if err != nil {
-			if isLogStreamingNotConfigured(err) {
-				w.streamInitFailed = true
-			} else {
-				logger.Error(w.ctx, "Failed to close log stream", tag.Error(err))
-				if firstErr == nil {
-					firstErr = err
+		if w.stream != nil {
+			err := w.withOperationTimeout(func() error {
+				_, err := w.stream.CloseAndRecv()
+				return err
+			})
+			w.stream = nil
+			if err != nil {
+				if isLogStreamingNotConfigured(err) {
+					w.streamingDisabled = true
+				} else {
+					logger.Error(w.ctx, "Failed to close log stream", tag.Error(err))
+					if firstErr == nil {
+						firstErr = err
+					}
 				}
 			}
 		}

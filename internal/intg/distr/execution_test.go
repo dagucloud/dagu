@@ -4,16 +4,21 @@
 package distr_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -94,6 +99,84 @@ func artifactWriteCommand(content string, fail bool) string {
 		commands = append(commands, "exit 0")
 	}
 	return test.JoinLines(commands...)
+}
+
+func largeArtifactWriteCommand(size int) string {
+	if runtime.GOOS == "windows" {
+		return test.JoinLines(
+			"if (-not $env:DAG_RUN_ARTIFACTS_DIR) { throw 'DAG_RUN_ARTIFACTS_DIR not set' }",
+			"$reportsDir = Join-Path $env:DAG_RUN_ARTIFACTS_DIR 'reports'",
+			"New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null",
+			"$artifactFile = Join-Path $reportsDir 'large.txt'",
+			"$stream = [System.IO.File]::Create($artifactFile)",
+			fmt.Sprintf("try { $stream.SetLength(%d) } finally { $stream.Dispose() }", size),
+		)
+	}
+	return test.JoinLines(
+		`test -n "${DAG_RUN_ARTIFACTS_DIR}"`,
+		`mkdir -p "${DAG_RUN_ARTIFACTS_DIR}/reports"`,
+		fmt.Sprintf(`dd if=/dev/zero of="${DAG_RUN_ARTIFACTS_DIR}/reports/large.txt" bs=%d count=1 2>/dev/null`, size),
+	)
+}
+
+type artifactUploadGate struct {
+	coordinator.Client
+	firstChunk     chan struct{}
+	release        chan struct{}
+	firstChunkOnce sync.Once
+	releaseOnce    sync.Once
+	streamCount    atomic.Int32
+}
+
+func newArtifactUploadGate(client coordinator.Client) *artifactUploadGate {
+	return &artifactUploadGate{
+		Client:     client,
+		firstChunk: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+}
+
+func (g *artifactUploadGate) StreamArtifacts(ctx context.Context) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+	stream, err := g.Client.StreamArtifacts(ctx)
+	return g.wrap(stream, err)
+}
+
+func (g *artifactUploadGate) StreamArtifactsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+	stream, err := g.Client.StreamArtifactsTo(ctx, owner)
+	return g.wrap(stream, err)
+}
+
+func (g *artifactUploadGate) wrap(
+	stream coordinatorv1.CoordinatorService_StreamArtifactsClient,
+	err error,
+) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
+	if err != nil {
+		return nil, err
+	}
+	g.streamCount.Add(1)
+	return &gatedArtifactStream{CoordinatorService_StreamArtifactsClient: stream, gate: g}, nil
+}
+
+func (g *artifactUploadGate) releaseUpload() {
+	g.releaseOnce.Do(func() { close(g.release) })
+}
+
+type gatedArtifactStream struct {
+	coordinatorv1.CoordinatorService_StreamArtifactsClient
+	gate *artifactUploadGate
+}
+
+func (s *gatedArtifactStream) Send(chunk *coordinatorv1.ArtifactChunk) error {
+	if err := s.CoordinatorService_StreamArtifactsClient.Send(chunk); err != nil {
+		return err
+	}
+	if len(chunk.Data) > 0 {
+		s.gate.firstChunkOnce.Do(func() {
+			close(s.gate.firstChunk)
+			<-s.gate.release
+		})
+	}
+	return nil
 }
 
 func gatedLogCommand(stdoutMarker, stderrMarker, releasePath string) string {
@@ -443,6 +526,46 @@ steps:
 		entries, err := os.ReadDir(status.ArchiveDir)
 		require.NoError(t, err)
 		assert.Empty(t, entries)
+	})
+
+	t.Run("workerResumesArtifactUploadAfterCoordinatorReplacement", func(t *testing.T) {
+		const artifactSize = 4*1024*1024 + 1
+		f := newTestFixture(t, `
+name: coordinator-restart-artifact-test
+worker_selector:
+  test: "true"
+artifacts:
+  enabled: true
+steps:
+  - name: write-large-artifact
+`+artifactStepShellYAML()+`    command: |
+`+indentYAMLBlock(largeArtifactWriteCommand(artifactSize), 6)+`
+`, withArtifactPersistence(), withWorkerCount(0))
+		defer f.cleanup()
+
+		gate := newArtifactUploadGate(f.coordinatorClient)
+		defer gate.releaseUpload()
+		f.coordinatorClient = gate
+		f.workers = append(f.workers, f.setupWorker("worker-1", map[string]string{"test": "true"}, ""))
+
+		require.NoError(t, f.enqueue())
+		f.waitForQueued()
+		f.startScheduler(30 * time.Second)
+
+		select {
+		case <-gate.firstChunk:
+		case <-time.After(distrTestTimeout(artifactExecutionStatusTimeout())):
+			t.Fatal("artifact upload did not send its first chunk")
+		}
+		f.coord.Restart(t)
+		gate.releaseUpload()
+
+		status := f.waitForStatus(ir.Succeeded, artifactExecutionStatusTimeout())
+		require.GreaterOrEqual(t, gate.streamCount.Load(), int32(2))
+		artifactPath := filepath.Join(status.ArchiveDir, "reports", "large.txt")
+		info, err := os.Stat(artifactPath)
+		require.NoError(t, err)
+		assert.Equal(t, int64(artifactSize), info.Size())
 	})
 
 	t.Run("coordinatorRejectsStaleAttemptArtifactChunks", func(t *testing.T) {

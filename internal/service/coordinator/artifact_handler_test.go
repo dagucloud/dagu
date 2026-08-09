@@ -201,7 +201,7 @@ func TestArtifactHandlerHandleStreamRejectsMismatchedAttempt(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr))
 }
 
-func TestArtifactHandlerHandleStreamClosesWritersOnRecvError(t *testing.T) {
+func TestArtifactHandlerHandleStreamDiscardsPartialFileOnRecvError(t *testing.T) {
 	t.Parallel()
 
 	store := newMockDAGRunStore()
@@ -231,6 +231,27 @@ func TestArtifactHandlerHandleStreamClosesWritersOnRecvError(t *testing.T) {
 	err := handler.handleStream(stream)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	assert.Empty(t, handler.writers)
+	_, err = os.Stat(filepath.Join(archiveDir, "artifact.txt"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	entries, err := os.ReadDir(archiveDir)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+
+	retryStream := &mockStreamArtifactsServer{
+		ctx: context.Background(),
+		chunks: []*coordinatorv1.ArtifactChunk{{
+			DagName:      "test-dag",
+			DagRunId:     "run-123",
+			AttemptId:    "attempt-1",
+			RelativePath: "artifact.txt",
+			Data:         []byte("complete"),
+			IsFinal:      true,
+		}},
+	}
+	require.NoError(t, handler.handleStream(retryStream))
+	content, err := os.ReadFile(filepath.Join(archiveDir, "artifact.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "complete", string(content))
 }
 
 func TestArtifactHandlerGetOrCreateWriterRevalidatesCachedAttempt(t *testing.T) {
@@ -246,6 +267,7 @@ func TestArtifactHandlerGetOrCreateWriterRevalidatesCachedAttempt(t *testing.T) 
 	})
 
 	handler := newArtifactHandler(store, "")
+	activeWriters := make(map[string]*artifactWriter)
 	chunk := &coordinatorv1.ArtifactChunk{
 		DagName:      "test-dag",
 		DagRunId:     "run-123",
@@ -253,7 +275,7 @@ func TestArtifactHandlerGetOrCreateWriterRevalidatesCachedAttempt(t *testing.T) 
 		RelativePath: "artifact.txt",
 	}
 
-	_, err := handler.getOrCreateWriter(context.Background(), chunk)
+	_, err := handler.getOrCreateWriter(context.Background(), chunk, activeWriters)
 	require.NoError(t, err)
 	require.Len(t, handler.writers, 1)
 
@@ -261,7 +283,7 @@ func TestArtifactHandlerGetOrCreateWriterRevalidatesCachedAttempt(t *testing.T) 
 	attempt.status.AttemptID = "attempt-2"
 	attempt.mu.Unlock()
 
-	_, err = handler.getOrCreateWriter(context.Background(), chunk)
+	_, err = handler.getOrCreateWriter(context.Background(), chunk, activeWriters)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not match latest attempt")
 	assert.Empty(t, handler.writers)
