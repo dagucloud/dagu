@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

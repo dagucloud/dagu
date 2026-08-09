@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 )
 
 // Service defines the interface for Git sync operations.

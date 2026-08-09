@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 )
 
 // Backlinks returns metadata for documents whose wiki links resolve to target.

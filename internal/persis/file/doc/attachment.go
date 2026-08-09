@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/core/docs"
+	"github.com/dagucloud/dagu/v2/internal/docs"
 )
 
 // docAttachmentsDirName is the reserved directory under the docs base dir
