@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 func TestStoreListEntriesWaitsForTransientDirectorySharingViolation(t *testing.T) {
@@ -24,7 +24,7 @@ func TestStoreListEntriesWaitsForTransientDirectorySharingViolation(t *testing.T
 
 	root := t.TempDir()
 	store := New(root)
-	ref := dagrun.NewDAGRunRef("shared-dag", "run-1")
+	ref := ir.NewDAGRunRef("shared-dag", "run-1")
 	meta := testProcMeta(ref)
 	require.NoError(t, writeProcFile(store.filePath("queue-a", meta, time.Now().UTC()), time.Now().UTC().Unix(), meta))
 
