@@ -23,8 +23,9 @@ import (
 )
 
 type artifactHandler struct {
-	dagRunStore dagrun.DAGRunStore
-	ownerID     string
+	dagRunStore    dagrun.DAGRunStore
+	ownerID        string
+	ownerValidator func(context.Context, string) (bool, error)
 
 	writers   map[string]*logWriter
 	writersMu sync.Mutex
@@ -65,7 +66,15 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 		chunksReceived++
 		key := h.streamKey(chunk)
 
-		if h.ownerID != "" && chunk.OwnerCoordinatorId != h.ownerID {
+		if h.ownerValidator != nil {
+			accepted, err := h.ownerValidator(ctx, chunk.OwnerCoordinatorId)
+			if err != nil {
+				return status.Error(codes.Internal, "failed to validate artifact chunk owner: "+err.Error())
+			}
+			if !accepted {
+				return status.Error(codes.FailedPrecondition, "artifact chunk sent to non-owner coordinator")
+			}
+		} else if h.ownerID != "" && chunk.OwnerCoordinatorId != h.ownerID {
 			return status.Error(codes.FailedPrecondition, "artifact chunk sent to non-owner coordinator")
 		}
 

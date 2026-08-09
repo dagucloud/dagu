@@ -88,6 +88,15 @@ persistence:
   storageClass: "<your-rwx-storage-class>"
 ```
 
+The coordinator defaults to one replica. Set two replicas to keep the coordinator endpoint available when a pod is replaced:
+
+```yaml
+coordinator:
+  replicas: 2
+```
+
+Coordinator replicas must share the same `ReadWriteMany` volume and advertise the same coordinator Service host and port. The chart configures that shared endpoint automatically. Coordinators with different advertised endpoints remain separate ownership domains. Coordinator upgrades use a `Recreate` strategy to avoid mixing binaries with different ownership behavior; with one replica, the replacement must become ready within the 30-second distributed lease window for active runs to continue.
+
 Install with those values:
 
 ```bash

@@ -108,6 +108,8 @@ type Handler struct {
 	waitingPollers map[string]*workerInfo    // pollerID -> worker info
 	heartbeats     map[string]*heartbeatInfo // workerID -> heartbeat info
 	owner          dispatch.CoordinatorEndpoint
+	ownerAliasesMu sync.RWMutex
+	ownerAliases   map[string]struct{}
 
 	dispatchWakeMu          sync.Mutex
 	dispatchWakeCh          chan struct{}
@@ -241,6 +243,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 	return &Handler{
 		waitingPollers:            make(map[string]*workerInfo),
 		heartbeats:                make(map[string]*heartbeatInfo),
+		ownerAliases:              make(map[string]struct{}),
 		dispatchWakeCh:            make(chan struct{}),
 		dispatchPollInitialWait:   defaultDispatchPollInitialWait,
 		dispatchPollMaxWait:       defaultDispatchPollMaxWait,
@@ -271,6 +274,65 @@ func (h *Handler) eventContext(ctx context.Context) context.Context {
 		Service:  eventstore.SourceServiceCoordinator,
 		Instance: h.eventSourceInstance,
 	})
+}
+
+func (h *Handler) acceptsOwner(ctx context.Context, ownerID string) (bool, error) {
+	if h.owner.ID == "" || ownerID == h.owner.ID {
+		return true, nil
+	}
+
+	h.ownerAliasesMu.RLock()
+	_, accepted := h.ownerAliases[ownerID]
+	h.ownerAliasesMu.RUnlock()
+	if accepted {
+		return true, nil
+	}
+	if h.dagRunLeaseStore == nil {
+		return false, nil
+	}
+
+	leases, err := h.dagRunLeaseStore.ListAll(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, lease := range leases {
+		if lease.Owner.ID == ownerID && sameCoordinatorAddress(lease.Owner, h.owner) {
+			h.rememberOwnerAlias(ctx, lease.Owner)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (h *Handler) rememberOwnerAlias(ctx context.Context, owner dispatch.CoordinatorEndpoint) {
+	if owner.ID == "" || owner.ID == h.owner.ID {
+		return
+	}
+
+	h.ownerAliasesMu.Lock()
+	if h.ownerAliases == nil {
+		h.ownerAliases = make(map[string]struct{})
+	}
+	_, exists := h.ownerAliases[owner.ID]
+	if !exists {
+		h.ownerAliases[owner.ID] = struct{}{}
+	}
+	h.ownerAliasesMu.Unlock()
+	if exists {
+		return
+	}
+
+	logger.Info(ctx, "Accepted previous coordinator owner for shared endpoint",
+		slog.String("owner-id", owner.ID),
+		slog.String("replacement-id", h.owner.ID),
+		tag.Host(h.owner.Host),
+		tag.Port(h.owner.Port),
+	)
+}
+
+func sameCoordinatorAddress(a, b dispatch.CoordinatorEndpoint) bool {
+	return a.Host != "" && a.Port > 0 && b.Host != "" && b.Port > 0 &&
+		a.Host == b.Host && a.Port == b.Port
 }
 
 func (h *Handler) dispatchWakeSnapshot() (int64, <-chan struct{}) {
@@ -1147,6 +1209,16 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	if claimed.Task == nil {
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim has no task payload"}, nil
 	}
+	claimOwner := claimed.Owner
+	if claimOwner == (dispatch.CoordinatorEndpoint{}) {
+		claimOwner = claimed.Task.Owner
+	}
+	if claimOwner.ID != "" && claimOwner.ID != h.owner.ID {
+		if !sameCoordinatorAddress(claimOwner, h.owner) {
+			return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim belongs to a different coordinator endpoint"}, nil
+		}
+		h.rememberOwnerAlias(ctx, claimOwner)
+	}
 
 	workerID := req.WorkerId
 	if workerID == "" {
@@ -1156,6 +1228,9 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "worker_id is required"}, nil
 	}
 
+	if claimOwner != (dispatch.CoordinatorEndpoint{}) {
+		claimed.Task.Owner = claimOwner
+	}
 	task, err := convert.DispatchTaskToProto(claimed.Task)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to encode claimed task: "+err.Error())
@@ -1179,7 +1254,11 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 	if h.dagRunLeaseStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
 	}
-	if h.owner.ID != "" && req.OwnerCoordinatorId != h.owner.ID {
+	ownerAccepted, err := h.acceptsOwner(ctx, req.OwnerCoordinatorId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to validate run heartbeat owner: "+err.Error())
+	}
+	if !ownerAccepted {
 		return nil, status.Error(codes.FailedPrecondition, "run heartbeat sent to non-owner coordinator")
 	}
 
@@ -1596,7 +1675,11 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if h.dagRunStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "status reporting not configured: DAG run storage not available")
 	}
-	if h.owner.ID != "" && req.OwnerCoordinatorId != h.owner.ID {
+	ownerAccepted, err := h.acceptsOwner(ctx, req.OwnerCoordinatorId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to validate status update owner: "+err.Error())
+	}
+	if !ownerAccepted {
 		return nil, status.Error(codes.FailedPrecondition, "status update sent to non-owner coordinator")
 	}
 
@@ -2260,6 +2343,7 @@ func (h *Handler) StreamLogs(stream coordinatorv1.CoordinatorService_StreamLogsS
 
 	// Delegate to the log handler
 	logHandler := newLogHandler(h.logDir, h.owner.ID)
+	logHandler.ownerValidator = h.acceptsOwner
 	defer logHandler.Close(stream.Context()) // Ensure file handles are closed on stream end or error
 	return logHandler.handleStream(stream)
 }
@@ -2274,6 +2358,7 @@ func (h *Handler) StreamArtifacts(stream coordinatorv1.CoordinatorService_Stream
 	}
 
 	artifactHandler := newArtifactHandler(h.dagRunStore, h.owner.ID)
+	artifactHandler.ownerValidator = h.acceptsOwner
 	defer artifactHandler.Close(stream.Context())
 	return artifactHandler.handleStream(stream)
 }

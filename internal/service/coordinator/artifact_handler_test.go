@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -120,6 +122,48 @@ func TestArtifactHandlerHandleStreamWritesFinalChunkPayload(t *testing.T) {
 	content, readErr := os.ReadFile(filepath.Join(archiveDir, "artifact.txt"))
 	require.NoError(t, readErr)
 	assert.Equal(t, []byte("hello"), content)
+}
+
+func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtSharedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	store := newMockDAGRunStore()
+	archiveDir := t.TempDir()
+	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &ir.DAGRunStatus{
+		Name:       "test-dag",
+		DAGRunID:   "run-123",
+		AttemptID:  "attempt-1",
+		ArchiveDir: archiveDir,
+	})
+	leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+	require.NoError(t, leaseStore.Upsert(t.Context(), dispatch.DAGRunLease{
+		AttemptKey:      "attempt-key-1",
+		Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 50055},
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+	handler := NewHandler(HandlerConfig{
+		DAGRunStore:      store,
+		ArtifactDir:      archiveDir,
+		DAGRunLeaseStore: leaseStore,
+		Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator", Port: 50055},
+	})
+	stream := &mockStreamArtifactsServer{
+		ctx: t.Context(),
+		chunks: []*coordinatorv1.ArtifactChunk{{
+			DagName:            "test-dag",
+			DagRunId:           "run-123",
+			AttemptId:          "attempt-1",
+			RelativePath:       "artifact.txt",
+			Data:               []byte("continued"),
+			IsFinal:            true,
+			OwnerCoordinatorId: "coord-a",
+		}},
+	}
+
+	require.NoError(t, handler.StreamArtifacts(stream))
+	content, err := os.ReadFile(filepath.Join(archiveDir, "artifact.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "continued", string(content))
 }
 
 func TestArtifactHandlerHandleStreamRejectsMismatchedAttempt(t *testing.T) {

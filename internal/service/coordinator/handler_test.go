@@ -1600,9 +1600,14 @@ func TestHandler_Heartbeat(t *testing.T) {
 		t.Parallel()
 
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		require.NoError(t, leaseStore.Upsert(t.Context(), dispatch.DAGRunLease{
+			AttemptKey:      "attempt-key-1",
+			Owner:           dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator-b", Port: 50055},
+			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+		}))
 		h := NewHandler(HandlerConfig{
 			DAGRunLeaseStore: leaseStore,
-			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a"},
+			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator-a", Port: 50055},
 		})
 		ctx := context.Background()
 
@@ -1614,6 +1619,37 @@ func TestHandler_Heartbeat(t *testing.T) {
 		st, ok := status.FromError(err)
 		require.True(t, ok)
 		assert.Equal(t, codes.FailedPrecondition, st.Code())
+	})
+
+	t.Run("RunHeartbeatAcceptsPreviousOwnerAtSharedEndpoint", func(t *testing.T) {
+		t.Parallel()
+
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		initialHeartbeat := time.Now().UTC().Add(-time.Minute)
+		require.NoError(t, leaseStore.Upsert(t.Context(), dispatch.DAGRunLease{
+			AttemptKey:      "attempt-key-1",
+			Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 50055},
+			LastHeartbeatAt: initialHeartbeat.UnixMilli(),
+		}))
+		h := NewHandler(HandlerConfig{
+			DAGRunLeaseStore: leaseStore,
+			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator", Port: 50055},
+		})
+
+		resp, err := h.RunHeartbeat(t.Context(), &coordinatorv1.RunHeartbeatRequest{
+			WorkerId:           "worker-1",
+			OwnerCoordinatorId: "coord-a",
+			RunningTasks: []*coordinatorv1.RunningTask{{
+				AttemptKey: "attempt-key-1",
+			}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		lease, err := leaseStore.Get(t.Context(), "attempt-key-1")
+		require.NoError(t, err)
+		assert.Greater(t, lease.LastHeartbeatAt, initialHeartbeat.UnixMilli())
+		assert.Equal(t, "coord-a", lease.Owner.ID)
 	})
 
 	t.Run("HeartbeatSkipsLeaseRefreshOnAttemptKeyMismatch", func(t *testing.T) {
@@ -4325,7 +4361,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DispatchTaskStore:         dispatchStore,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
-			Owner:                     dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+			Owner:                     dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator", Port: 1234},
 		})
 		ctx := context.Background()
 
@@ -4343,7 +4379,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		claimed, err := dispatchStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{
 			WorkerID: "worker-1",
 			PollerID: "poller-1",
-			Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
+			Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 1234},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, claimed)
@@ -4359,7 +4395,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "queue-a", lease.QueueName)
 		assert.Equal(t, "worker-1", lease.WorkerID)
-		assert.Equal(t, "coord-a", lease.Owner.ID)
+		assert.Equal(t, dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 1234}, lease.Owner)
 
 		record, err := activeStore.Get(ctx, "attempt-key-1")
 		require.NoError(t, err)
@@ -4841,6 +4877,51 @@ func TestHandler_StreamLogs_Full(t *testing.T) {
 		require.NotNil(t, stream.response)
 		assert.Equal(t, uint64(2), stream.response.ChunksReceived)
 		assert.Equal(t, uint64(14), stream.response.BytesWritten)
+	})
+
+	t.Run("AcceptsPreviousOwnerAtSharedEndpoint", func(t *testing.T) {
+		t.Parallel()
+
+		logDir := t.TempDir()
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		require.NoError(t, leaseStore.Upsert(t.Context(), dispatch.DAGRunLease{
+			AttemptKey:      "attempt-key-1",
+			Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 50055},
+			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+		}))
+		h := NewHandler(HandlerConfig{
+			LogDir:           logDir,
+			DAGRunLeaseStore: leaseStore,
+			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator", Port: 50055},
+		})
+		stream := &mockStreamLogsServer{
+			ctx: t.Context(),
+			chunks: []*coordinatorv1.LogChunk{
+				{
+					DagName:            "test-dag",
+					DagRunId:           "run-123",
+					AttemptId:          "attempt-1",
+					StepName:           "step1",
+					StreamType:         coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
+					Data:               []byte("continued\n"),
+					OwnerCoordinatorId: "coord-a",
+				},
+				{
+					DagName:            "test-dag",
+					DagRunId:           "run-123",
+					AttemptId:          "attempt-1",
+					StepName:           "step1",
+					StreamType:         coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
+					IsFinal:            true,
+					OwnerCoordinatorId: "coord-a",
+				},
+			},
+		}
+
+		require.NoError(t, h.StreamLogs(stream))
+		content, err := os.ReadFile(filepath.Join(logDir, "test-dag", "run-123", "attempt-1", "step1.stdout.log"))
+		require.NoError(t, err)
+		assert.Equal(t, "continued\n", string(content))
 	})
 }
 

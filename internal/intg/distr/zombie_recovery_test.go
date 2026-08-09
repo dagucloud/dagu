@@ -228,6 +228,80 @@ steps:
 	assert.Equal(t, ir.Succeeded, finalStatus.Status)
 }
 
+func TestDistributedRun_CoordinatorReplacementPreservesActiveRun(t *testing.T) {
+	heartbeatThreshold := testStaleHeartbeatThreshold
+	leaseThreshold := testStaleLeaseThreshold
+	runningTimeout := 15 * time.Second
+	replacementTimeout := leaseThreshold + 15*time.Second
+	completionTimeout := 20 * time.Second
+	if runtime.GOOS == "windows" {
+		heartbeatThreshold = 12 * time.Second
+		leaseThreshold = 20 * time.Second
+		runningTimeout = 30 * time.Second
+		replacementTimeout = leaseThreshold + 30*time.Second
+		completionTimeout = 90 * time.Second
+	}
+
+	releaseFile := filepath.Join(t.TempDir(), "coordinator-replacement.release")
+	f := newTestFixture(t, fmt.Sprintf(`
+name: coordinator-replacement
+worker_selector:
+  test: "true"
+steps:
+  - name: wait
+    command: |
+%s
+`, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
+		withStaleThresholds(heartbeatThreshold, leaseThreshold),
+		withZombieDetectionInterval(testZombieDetectorInterval),
+	)
+	defer func() {
+		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
+		f.cleanup()
+	}()
+
+	require.NoError(t, f.enqueue())
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+
+	initialStatus := f.waitForStatus(ir.Running, runningTimeout)
+	require.NotEmpty(t, initialStatus.AttemptID)
+	require.NotEmpty(t, initialStatus.AttemptKey)
+	initialLease := waitForLease(t, f, initialStatus.AttemptKey, 5*time.Second)
+	initialOwner := initialLease.Owner
+	initialHeartbeat := initialLease.LastHeartbeatAt
+	require.Equal(t, f.coord.InstanceID(), initialOwner.ID)
+
+	f.coord.Restart(t)
+	require.NotEqual(t, initialOwner.ID, f.coord.InstanceID())
+	replacementReadyAt := time.Now().UTC()
+
+	var refreshedLease *dispatch.DAGRunLease
+	require.Eventually(t, func() bool {
+		currentStatus, err := f.latestStatus()
+		if err != nil || currentStatus.Status != ir.Running ||
+			currentStatus.AttemptID != initialStatus.AttemptID || currentStatus.AttemptKey != initialStatus.AttemptKey {
+			return false
+		}
+		lease, err := f.coord.DAGRunLeaseStore.Get(f.coord.Context, initialStatus.AttemptKey)
+		if err != nil || lease == nil || lease.LastHeartbeatAt <= initialHeartbeat {
+			return false
+		}
+		if !time.UnixMilli(lease.LastHeartbeatAt).After(replacementReadyAt.Add(leaseThreshold)) {
+			return false
+		}
+		refreshedLease = lease
+		return true
+	}, distrTestTimeout(replacementTimeout), 100*time.Millisecond, "replacement coordinator should refresh the original attempt lease")
+	require.NotNil(t, refreshedLease)
+	assert.Equal(t, initialOwner, refreshedLease.Owner)
+
+	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0o600))
+	finalStatus := f.waitForStatus(ir.Succeeded, completionTimeout)
+	assert.Equal(t, initialStatus.AttemptID, finalStatus.AttemptID)
+	assert.Equal(t, initialStatus.AttemptKey, finalStatus.AttemptKey)
+}
+
 // TestDistributedRun_QueueConcurrency_ActiveRunCounted verifies that a running
 // distributed run with fresh heartbeats continues to block the next queued item.
 func TestDistributedRun_QueueConcurrency_ActiveRunCounted(t *testing.T) {

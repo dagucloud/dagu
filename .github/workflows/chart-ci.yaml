@@ -140,6 +140,18 @@ jobs:
           grep -Fq -- '- ReadWriteMany' /tmp/dagu-distributed-render.yaml
           test "$(grep -Fc 'serviceAccountName: dagu' /tmp/dagu-distributed-render.yaml)" -eq 4
 
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --kube-version 1.35.0 \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set persistence.storageClass=nfs-client \
+            --show-only templates/coordinator-deployment.yaml \
+            >/tmp/dagu-coordinator-render.yaml
+
+          grep -Fq 'replicas: 1' /tmp/dagu-coordinator-render.yaml
+          grep -Fq 'type: Recreate' /tmp/dagu-coordinator-render.yaml
+
       - name: Smoke-render optional configurations
         run: |
           helm template dagu ./charts/dagu \

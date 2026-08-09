@@ -25,8 +25,9 @@ const flushThreshold = 65536
 
 // logHandler handles log streaming from workers
 type logHandler struct {
-	logDir  string
-	ownerID string
+	logDir         string
+	ownerID        string
+	ownerValidator func(context.Context, string) (bool, error)
 
 	// Active writers: streamKey -> writer
 	writers   map[string]*streamLogWriter
@@ -157,7 +158,15 @@ func (h *logHandler) handleStream(stream coordinatorv1.CoordinatorService_Stream
 
 		chunksReceived++
 
-		if h.ownerID != "" && chunk.OwnerCoordinatorId != h.ownerID {
+		if h.ownerValidator != nil {
+			accepted, err := h.ownerValidator(ctx, chunk.OwnerCoordinatorId)
+			if err != nil {
+				return status.Error(codes.Internal, "failed to validate log chunk owner: "+err.Error())
+			}
+			if !accepted {
+				return status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator")
+			}
+		} else if h.ownerID != "" && chunk.OwnerCoordinatorId != h.ownerID {
 			return status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator")
 		}
 

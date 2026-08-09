@@ -13,6 +13,8 @@ metadata:
     app.kubernetes.io/component: coordinator
 spec:
   replicas: {{ .Values.coordinator.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "dagu.selectorLabels" . | nindent 6 }}
