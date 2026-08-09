@@ -104,6 +104,7 @@ function getLoadState(
 }
 
 function buildFullscreenUrl(fileName: string, activeTab: string): string {
+  if (activeTab === 'docs') activeTab = 'wiki';
   return activeTab === 'status'
     ? `/dags/${fileName}`
     : `/dags/${fileName}/${activeTab}`;
@@ -125,7 +126,9 @@ function DAGDetailsSidePanel({
 
   const [shouldRender, setShouldRender] = React.useState(isOpen);
   const [isVisible, setIsVisible] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState(initialTab);
+  const [activeTab, setActiveTab] = React.useState(
+    initialTab === 'docs' ? 'wiki' : initialTab
+  );
   const [trackedDagRunId, setTrackedDagRunId] = React.useState<string>();
   const [currentDAGRun, setCurrentDAGRun] = React.useState<
     components['schemas']['DAGRunDetails'] | undefined
@@ -173,7 +176,7 @@ function DAGDetailsSidePanel({
       return;
     }
 
-    setActiveTab(initialTab);
+    setActiveTab(initialTab === 'docs' ? 'wiki' : initialTab);
     setTrackedDagRunId(undefined);
     setCurrentDAGRun(undefined);
   }, [fileName, initialTab, isOpen, remoteNode]);

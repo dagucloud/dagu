@@ -34,7 +34,7 @@ const STATIC_ROUTE_LABELS: Record<string, string> = {
   '/dags': 'DAGs',
   '/search': 'Search',
   '/base-config': 'Base Config',
-  '/docs': 'Docs',
+  '/wiki': 'Wiki',
   '/queues': 'Queues',
   '/dag-runs': 'DAG Runs',
   '/system-status': 'System Status',
@@ -132,15 +132,15 @@ export function getBreadcrumbItems(pathname: string): BreadcrumbItemData[] {
     return items;
   }
 
-  if (segments[0] === 'docs') {
+  if (segments[0] === 'wiki' || segments[0] === 'docs') {
     items.push(
       { label: 'Workflows', to: '/dags' },
-      { label: 'Docs', to: '/docs' }
+      { label: 'Wiki', to: '/wiki' }
     );
-    let docsPath = '/docs';
+    let wikiPath = '/wiki';
     for (const segment of segments.slice(1)) {
-      docsPath += `/${segment}`;
-      items.push({ label: decodePathSegment(segment), to: docsPath });
+      wikiPath += `/${segment}`;
+      items.push({ label: decodePathSegment(segment), to: wikiPath });
     }
     return items;
   }

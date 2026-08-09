@@ -30,7 +30,7 @@ import {
 } from '../dag-execution';
 import { DAGHeader } from './';
 import DAGSettingsTab from './DAGSettingsTab';
-import DAGDocsTab from './DAGDocsTab';
+import DAGWikiTab from './DAGWikiTab';
 import IncidentsTab from './IncidentsTab';
 import NotificationsTab from './NotificationsTab';
 import WebhookTab from './WebhookTab';
@@ -289,11 +289,11 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal && (
                 <ModalLinkTab
-                  label="Docs"
-                  value="docs"
-                  isActive={activeTab === 'docs'}
+                  label="Wiki"
+                  value="wiki"
+                  isActive={activeTab === 'wiki' || activeTab === 'docs'}
                   icon={BookOpen}
-                  onClick={() => handleTabClick('docs')}
+                  onClick={() => handleTabClick('wiki')}
                 />
               )}
 
@@ -469,13 +469,13 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 
               {isModal && (
                 <ModalLinkTab
-                  label="Docs"
-                  value="docs"
-                  isActive={activeTab === 'docs'}
+                  label="Wiki"
+                  value="wiki"
+                  isActive={activeTab === 'wiki' || activeTab === 'docs'}
                   icon={BookOpen}
-                  onClick={() => handleTabClick('docs')}
+                  onClick={() => handleTabClick('wiki')}
                   className="flex-1 justify-center"
-                  aria-label="Docs"
+                  aria-label="Wiki"
                 />
               )}
 
@@ -566,9 +566,9 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
               <div className="h-6 flex-shrink-0" />
             </>
           ) : null}
-          {activeTab === 'docs' ? (
+          {activeTab === 'wiki' || activeTab === 'docs' ? (
             <>
-              <DAGDocsTab
+              <DAGWikiTab
                 dagName={dag?.name || ''}
                 workspaceName={dagWorkspaceName}
               />

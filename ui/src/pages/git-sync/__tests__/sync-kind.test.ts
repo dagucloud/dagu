@@ -35,9 +35,13 @@ describe('sync-kind', () => {
   });
 
   it('derives the kind from item IDs with attachments taking precedence', () => {
-    expect(deriveSyncKindFromItemId('docs/.attachments/guides/x/logo.png')).toBe(
-      'doc-asset'
-    );
+    expect(
+      deriveSyncKindFromItemId('wiki/.attachments/guides/x/logo.png')
+    ).toBe('doc-asset');
+    expect(
+      deriveSyncKindFromItemId('docs/.attachments/guides/x/logo.png')
+    ).toBe('doc-asset');
+    expect(deriveSyncKindFromItemId('wiki/guides/x')).toBe('doc');
     expect(deriveSyncKindFromItemId('docs/guides/x')).toBe('doc');
     expect(deriveSyncKindFromItemId('my-dag')).toBe('dag');
   });

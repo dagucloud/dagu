@@ -701,7 +701,7 @@ export const mainListItems = React.forwardRef<
               '/dags',
               '/search',
               '/base-config',
-              '/docs',
+              '/wiki',
               '/git-sync',
             ]}
             to="/dags"
@@ -726,8 +726,8 @@ export const mainListItems = React.forwardRef<
               />
             )}
             <NavItem
-              to="/docs"
-              text="Docs"
+              to="/wiki"
+              text="Wiki"
               isOpen={isOpen}
               onClick={onNavItemClick}
               customColor={customColor}

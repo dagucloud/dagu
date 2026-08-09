@@ -7,6 +7,8 @@ export type PathsConfig = {
   suspendFlagsDir: string;
   adminLogsDir: string;
   baseConfig: string;
+  wikiDir?: string;
+  /** @deprecated Use wikiDir. */
   docsDir?: string;
   dagRunsDir: string;
   queueDir: string;

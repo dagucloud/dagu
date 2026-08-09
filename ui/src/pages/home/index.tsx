@@ -110,12 +110,12 @@ export default function HomePage(): React.ReactElement {
         {
           to: '/search',
           label: 'Search',
-          description: 'Find workflows and documentation.',
+          description: 'Find workflows and Wiki pages.',
         },
         {
-          to: '/docs',
-          label: 'Docs',
-          description: 'Read and edit docs.',
+          to: '/wiki',
+          label: 'Wiki',
+          description: 'Read and edit Wiki pages.',
         },
         ...(canWrite
           ? [

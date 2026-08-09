@@ -54,7 +54,7 @@ function parseMatch(match: RegExpExecArray): ParsedWikilink | null {
   };
 }
 
-// An embed target is an attachment when it is a bare file name; doc-path
+// An embed target is an attachment when it is a bare file name; wiki-page-path
 // embeds (transclusion) are not supported and degrade to plain links.
 function isAttachmentEmbed(link: ParsedWikilink): boolean {
   return link.embed && !link.target.includes('/') && !link.target.includes(':');

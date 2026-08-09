@@ -130,7 +130,10 @@ function PathsCard() {
                 title="Data"
               >
                 <PathRow label="DAGs" path={paths.dagsDir} />
-                <PathRow label="Docs" path={paths.docsDir ?? ''} />
+                <PathRow
+                  label="Wiki"
+                  path={paths.wikiDir ?? paths.docsDir ?? ''}
+                />
                 <PathRow label="DAG Runs" path={paths.dagRunsDir} />
                 <PathRow label="Queue" path={paths.queueDir} />
                 <PathRow label="Process" path={paths.procDir} />

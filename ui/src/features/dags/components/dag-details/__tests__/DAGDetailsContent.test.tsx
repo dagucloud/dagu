@@ -41,7 +41,7 @@ vi.mock('../DAGSettingsTab', () => ({
   default: () => null,
 }));
 
-vi.mock('../DAGDocsTab', () => ({
+vi.mock('../DAGWikiTab', () => ({
   default: () => null,
 }));
 
@@ -108,7 +108,7 @@ describe('DAGDetailsContent', () => {
       'Settings',
       'Notifications',
       'History',
-      'Docs',
+      'Wiki',
     ]) {
       expect(screen.getAllByText(label)).toHaveLength(2);
     }
@@ -123,8 +123,8 @@ describe('DAGDetailsContent', () => {
     }
   );
 
-  it('does not link the modal-only docs tab from the DAG page', () => {
+  it('does not link the modal-only Wiki tab from the DAG page', () => {
     renderContent('status', false);
-    expect(screen.queryByText('Docs')).not.toBeInTheDocument();
+    expect(screen.queryByText('Wiki')).not.toBeInTheDocument();
   });
 });

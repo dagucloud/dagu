@@ -610,9 +610,8 @@ export default function GitSyncPage() {
         <GitBranch className="h-16 w-16 text-muted-foreground/30 mb-4" />
         <h2 className="text-xl font-semibold mb-2">Git Sync Not Configured</h2>
         <p className="text-muted-foreground max-w-md">
-          Git sync allows you to synchronize workflow definitions and Markdown
-          documents with a remote Git repository. Configure it in your server
-          settings.
+          Git sync allows you to synchronize workflow definitions and Wiki pages
+          with a remote Git repository. Configure it in your server settings.
         </p>
       </div>
     );

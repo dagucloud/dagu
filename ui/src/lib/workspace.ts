@@ -182,7 +182,7 @@ export function workspaceTargetSelectionQuery(
   return { workspace: WorkspaceKind.default };
 }
 
-export function workspaceDocumentSelectionQuery(
+export function workspaceWikiSelectionQuery(
   selection?: Partial<WorkspaceSelection> | null
 ): WorkspaceTargetQuery | null {
   return workspaceTargetSelectionQuery(selection);
@@ -198,19 +198,19 @@ export function workspaceTargetQueryForWorkspace(
   return { workspace: sanitized };
 }
 
-export const workspaceDocumentQueryForWorkspace =
+export const workspaceWikiQueryForWorkspace =
   workspaceTargetQueryForWorkspace;
 
-export function visibleDocumentPathForWorkspace(
-  docPath: string,
+export function visibleWikiPagePathForWorkspace(
+  wikiPagePath: string,
   workspace?: string | null
 ): string {
   const sanitized = sanitizeWorkspaceName(workspace ?? '');
   if (!sanitized) {
-    return docPath;
+    return wikiPagePath;
   }
   const prefix = `${sanitized}/`;
-  return docPath.startsWith(prefix) ? docPath.slice(prefix.length) : docPath;
+  return wikiPagePath.startsWith(prefix) ? wikiPagePath.slice(prefix.length) : wikiPagePath;
 }
 
 function normalizeStoredWorkspaceKind(kind: unknown): WorkspaceKind | null {

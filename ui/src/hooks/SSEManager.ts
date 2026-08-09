@@ -168,6 +168,16 @@ export function endpointToTopic(endpoint: string): string {
   ) {
     return buildTopic('queueitems', segments[2]);
   }
+  if (segments.length === 2 && segments[1] === 'wiki-tree') {
+    return buildTopic('wikitree', query);
+  }
+  if (segments.length >= 3 && segments[1] === 'wiki') {
+    const identifier = segments.slice(2).join('/');
+    return buildTopic(
+      'wikipage',
+      query ? `${identifier}?${query}` : identifier
+    );
+  }
   if (segments.length === 2 && segments[1] === 'docs-tree') {
     return buildTopic('doctree', query);
   }
@@ -177,6 +187,13 @@ export function endpointToTopic(endpoint: string): string {
   }
 
   throw new Error(`Unsupported SSE endpoint: ${endpoint}`);
+}
+
+function topicForRemoteNode(topic: string, remoteNode: string): string {
+  if (!remoteNode || remoteNode === 'local') return topic;
+  if (topic.startsWith('wikipage:')) return `doc:${topic.slice(9)}`;
+  if (topic.startsWith('wikitree:')) return `doctree:${topic.slice(9)}`;
+  return topic;
 }
 
 function buildStreamUrl(
@@ -247,7 +264,7 @@ export class SSEManager {
     callbacks: SubscriberCallbacks
   ): () => void {
     return this.subscribeTopic(
-      endpointToTopic(endpoint),
+      topicForRemoteNode(endpointToTopic(endpoint), remoteNode),
       remoteNode,
       apiURL,
       callbacks

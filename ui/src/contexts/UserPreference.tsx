@@ -2,8 +2,8 @@ import React, { createContext, useCallback, useContext, useState } from 'react';
 
 export type DAGRunsViewMode = 'list' | 'grouped';
 
-export type DocSortField = 'name' | 'type' | 'mtime';
-export type DocSortOrder = 'asc' | 'desc';
+export type WikiSortField = 'name' | 'type' | 'mtime';
+export type WikiSortOrder = 'asc' | 'desc';
 
 export type UserPreferences = {
   pageLimit: number;
@@ -11,8 +11,8 @@ export type UserPreferences = {
   logWrap: boolean;
   theme: 'light' | 'dark';
   safeMode: boolean;
-  docSortField: DocSortField;
-  docSortOrder: DocSortOrder;
+  wikiSortField: WikiSortField;
+  wikiSortOrder: WikiSortOrder;
 };
 
 const UserPreferencesContext = createContext<{
@@ -29,8 +29,8 @@ const defaultPreferences: UserPreferences = {
   logWrap: true,
   theme: 'light', // Default to light theme (from main branch)
   safeMode: false,
-  docSortField: 'type',
-  docSortOrder: 'asc',
+  wikiSortField: 'type',
+  wikiSortOrder: 'asc',
 };
 
 function loadPreferences(): UserPreferences {
@@ -39,9 +39,29 @@ function loadPreferences(): UserPreferences {
     if (!saved) {
       return defaultPreferences;
     }
-    const preferences = JSON.parse(saved);
+    const preferences = JSON.parse(saved) as Record<string, unknown>;
+    if (
+      preferences.wikiSortField === undefined &&
+      preferences.docSortField !== undefined
+    ) {
+      preferences.wikiSortField = preferences.docSortField;
+    }
+    if (
+      preferences.wikiSortOrder === undefined &&
+      preferences.docSortOrder !== undefined
+    ) {
+      preferences.wikiSortOrder = preferences.docSortOrder;
+    }
     delete preferences.workflowFilterViews;
-    return { ...defaultPreferences, ...preferences };
+    const migrated = {
+      ...defaultPreferences,
+      ...preferences,
+    } as UserPreferences;
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ ...preferences, ...migrated })
+    );
+    return migrated;
   } catch {
     return defaultPreferences;
   }

@@ -12,7 +12,7 @@ import * as React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
-import APIDocsPage from '../index';
+import APIWikiPage from '../index';
 
 const fetchJsonMock = vi.fn();
 const scalarViewerMock = vi.fn();
@@ -105,13 +105,13 @@ function renderPage(
   return render(
     <ConfigContext.Provider value={makeConfig(configOverrides)}>
       <AppBarContext.Provider value={makeAppBarContext(appBarOverrides)}>
-        <APIDocsPage />
+        <APIWikiPage />
       </AppBarContext.Provider>
     </ConfigContext.Provider>
   );
 }
 
-describe('APIDocsPage', () => {
+describe('APIWikiPage', () => {
   beforeEach(() => {
     fetchJsonMock.mockReset();
     scalarViewerMock.mockReset();

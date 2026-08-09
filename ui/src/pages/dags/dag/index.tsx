@@ -84,7 +84,7 @@ function DAGDetails() {
   const dagSSE = useDAGSSE(fileName, !!fileName, remoteNode);
 
   // Determine active tab
-  const tab = params.tab || 'status';
+  const tab = params.tab === 'docs' ? 'wiki' : params.tab || 'status';
 
   // Format duration utility function
   const formatDuration = useCallback(
@@ -132,6 +132,12 @@ function DAGDetails() {
     },
     [fileName, navigate, buildUrl]
   );
+
+  useEffect(() => {
+    if (params.tab === 'docs' && fileName) {
+      navigate(buildUrl(`/dags/${fileName}/wiki`), { replace: true });
+    }
+  }, [buildUrl, fileName, navigate, params.tab]);
 
   // Navigate to status tab - convenience wrapper for handleTabChange
   const navigateToStatusTab = useCallback(() => {

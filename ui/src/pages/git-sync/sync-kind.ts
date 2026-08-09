@@ -25,11 +25,11 @@ export const syncKindLabels: Record<
     badge: 'dag',
   },
   doc: {
-    singular: 'doc',
-    plural: 'Docs',
-    selectionSingular: 'doc',
-    selectionPlural: 'docs',
-    badge: 'doc',
+    singular: 'Wiki page',
+    plural: 'Wiki pages',
+    selectionSingular: 'Wiki page',
+    selectionPlural: 'Wiki pages',
+    badge: 'wiki',
   },
   'doc-asset': {
     singular: 'attachment',
@@ -72,7 +72,11 @@ export function normalizeSyncItemKind(kind: SyncItemKind): SyncKind {
 }
 
 export function deriveSyncKindFromItemId(id: string): SyncKind {
-  if (id.startsWith('docs/.attachments/')) return 'doc-asset';
-  if (id.startsWith('docs/')) return 'doc';
+  if (
+    id.startsWith('wiki/.attachments/') ||
+    id.startsWith('docs/.attachments/')
+  )
+    return 'doc-asset';
+  if (id.startsWith('wiki/') || id.startsWith('docs/')) return 'doc';
   return 'dag';
 }

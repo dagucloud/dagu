@@ -32,7 +32,7 @@ const CATEGORIES = [
   { value: 'webhook', label: 'Webhook' },
   { value: 'notification', label: 'Notification' },
   { value: 'git_sync', label: 'Git Sync' },
-  { value: 'doc', label: 'Docs' },
+  { value: 'doc', label: 'Wiki' },
   { value: 'mcp', label: 'MCP' },
   { value: 'secret', label: 'Secret' },
   { value: 'workspace', label: 'Workspace' },

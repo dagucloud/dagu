@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from 'react-router-dom';
 import { SWRConfig, mutate as globalMutate } from 'swr';
 
 import { Shield } from 'lucide-react';
@@ -54,7 +61,7 @@ const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
 const DAGRunDetails = React.lazy(() => import('./pages/dag-runs/dag-run'));
 const DAGs = React.lazy(() => import('./pages/dags'));
 const DAGDetails = React.lazy(() => import('./pages/dags/dag'));
-const DocsPage = React.lazy(() => import('./pages/docs'));
+const WikiPage = React.lazy(() => import('./pages/wiki'));
 const EventLogsPage = React.lazy(() => import('./pages/event-logs'));
 const GitSyncPage = React.lazy(() => import('./pages/git-sync'));
 const HomePage = React.lazy(() => import('./pages/home'));
@@ -95,6 +102,14 @@ const WORKSPACE_SENSITIVE_TARGET_PATH_PREFIXES = [
   '/dags/{fileName}',
   '/dag-runs/{name}/{dagRunId}',
 ] as const;
+
+function LegacyWikiRouteRedirect() {
+  const location = useLocation();
+  const suffix = location.pathname.replace(/^\/docs/, '');
+  return (
+    <Navigate to={`/wiki${suffix}${location.search}${location.hash}`} replace />
+  );
+}
 
 function isWorkspaceSensitiveTargetPath(path: unknown): boolean {
   return (
@@ -712,8 +727,12 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         element={<Search />}
                                       />
                                       <Route
+                                        path="/wiki/*"
+                                        element={<WikiPage />}
+                                      />
+                                      <Route
                                         path="/docs/*"
-                                        element={<DocsPage />}
+                                        element={<LegacyWikiRouteRedirect />}
                                       />
                                       <Route
                                         path="/queues"

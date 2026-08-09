@@ -67,7 +67,7 @@ function lastEventSource(): MockEventSource | undefined {
 }
 
 describe('endpointToTopic', () => {
-  it('maps every supported legacy SSE endpoint to a canonical topic', () => {
+  it('maps every supported SSE endpoint to its topic', () => {
     const cases: Array<[string, string]> = [
       ['/events/dags?perPage=100&page=1', 'dagslist:page=1&perPage=100'],
       ['/events/dags/example.yaml', 'dag:example.yaml'],
@@ -91,6 +91,11 @@ describe('endpointToTopic', () => {
       ],
       ['/events/queues?status=active&page=3', 'queues:page=3&status=active'],
       ['/events/queues/default/items', 'queueitems:default'],
+      ['/events/wiki-tree?prefix=docs', 'wikitree:prefix=docs'],
+      [
+        '/events/wiki/docs/deploy?workspace=ops',
+        'wikipage:docs/deploy?workspace=ops',
+      ],
       ['/events/docs-tree?prefix=docs', 'doctree:prefix=docs'],
       [
         '/events/docs/docs/deploy?workspace=ops',
@@ -116,6 +121,26 @@ describe('SSEManager', () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     localStorage.clear();
+  });
+
+  it('uses legacy Wiki topics when subscribing through a remote node', () => {
+    const manager = new SSEManager();
+    const unsubscribe = manager.subscribe(
+      '/events/wiki/runbooks/deploy?workspace=ops',
+      'remote-a',
+      '/api/v1',
+      {
+        onData: () => undefined,
+        onStateChange: () => undefined,
+      }
+    );
+
+    const streamURL = new URL(MockEventSource.instances[0]!.url);
+    expect(streamURL.searchParams.getAll('topic')).toEqual([
+      'doc:runbooks/deploy?workspace=ops',
+    ]);
+
+    unsubscribe();
   });
 
   it('keeps a fresh topic pending until the server acknowledges the subscription', async () => {
