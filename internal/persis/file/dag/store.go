@@ -412,7 +412,7 @@ func (store *Storage) Delete(ctx context.Context, name string) error {
 	if resolved.ExternalSymlink {
 		return fmt.Errorf("%w: external DAG file symlink", dagstore.ErrDAGReadOnly)
 	}
-	if err := fileutil.Remove(resolved.ResolvedPath); err != nil {
+	if err := fileutil.Remove(resolved.EntryPath); err != nil {
 		return err
 	}
 	if store.fileCache != nil {
@@ -997,7 +997,7 @@ func (store *Storage) Rename(ctx context.Context, oldID, newID string) error {
 	if resolved.ExternalSymlink {
 		return fmt.Errorf("%w: external DAG file symlink", dagstore.ErrDAGReadOnly)
 	}
-	oldFilePath := resolved.ResolvedPath
+	oldFilePath := resolved.EntryPath
 	newFilePath := store.generateFilePath(newID)
 	exceptPath := ""
 	if store.recursive {

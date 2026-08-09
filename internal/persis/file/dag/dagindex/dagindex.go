@@ -23,7 +23,7 @@ const (
 	// IndexFileName is the name of the DAG definition index file.
 	IndexFileName = ".dag.index"
 	// IndexVersion is the current index format version.
-	IndexVersion = 2
+	IndexVersion = 3
 )
 
 // YAMLFileMeta holds stat metadata for a single YAML file.
@@ -69,7 +69,7 @@ func Load(indexPath string, yamlFiles []YAMLFileMeta, flags SuspendFlags) []*ind
 		if !ok {
 			return nil
 		}
-		if e.FileSize != f.Size || e.ModTime != f.ModTime {
+		if e.FileSize != f.Size || e.ModTime != f.ModTime || e.LoadPath != f.LoadPath {
 			return nil
 		}
 	}
@@ -108,6 +108,7 @@ func Build(
 			FilePath: f.Name,
 			FileSize: f.Size,
 			ModTime:  f.ModTime,
+			LoadPath: f.LoadPath,
 		}
 		buildEntry(ctx, yamlFilePath(dagDir, f), entry, flags, loadOpts...)
 		idx.Entries = append(idx.Entries, entry)
@@ -184,14 +185,15 @@ func RefreshFailures(
 		if ctx.Err() != nil {
 			break
 		}
+		file := filesByName[entry.FilePath]
+		if file.Name == "" {
+			file.Name = entry.FilePath
+		}
 		refreshed := &indexv1.DAGIndexEntry{
 			FilePath: entry.FilePath,
 			FileSize: entry.FileSize,
 			ModTime:  entry.ModTime,
-		}
-		file := filesByName[entry.FilePath]
-		if file.Name == "" {
-			file.Name = entry.FilePath
+			LoadPath: file.LoadPath,
 		}
 		buildEntry(ctx, yamlFilePath(dagDir, file), refreshed, flags, loadOpts...)
 		if proto.Equal(entry, refreshed) {

@@ -27,6 +27,7 @@ message DAGIndexEntry {
   bool suspended = 8;
   string description = 9;
   string load_error = 10;
+  string load_path = 11;
 }
 
 // DAGRunIndex stores cached summaries for a single day's DAG runs.

@@ -98,6 +98,7 @@ type DAGIndexEntry struct {
 	Suspended     bool                   `protobuf:"varint,8,opt,name=suspended,proto3" json:"suspended,omitempty"`
 	Description   string                 `protobuf:"bytes,9,opt,name=description,proto3" json:"description,omitempty"`
 	LoadError     string                 `protobuf:"bytes,10,opt,name=load_error,json=loadError,proto3" json:"load_error,omitempty"`
+	LoadPath      string                 `protobuf:"bytes,11,opt,name=load_path,json=loadPath,proto3" json:"load_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -198,6 +199,13 @@ func (x *DAGIndexEntry) GetDescription() string {
 func (x *DAGIndexEntry) GetLoadError() string {
 	if x != nil {
 		return x.LoadError
+	}
+	return ""
+}
+
+func (x *DAGIndexEntry) GetLoadPath() string {
+	if x != nil {
+		return x.LoadPath
 	}
 	return ""
 }
@@ -540,7 +548,7 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\bDAGIndex\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\"\n" +
 	"\rbuilt_at_unix\x18\x02 \x01(\x03R\vbuiltAtUnix\x121\n" +
-	"\aentries\x18\x03 \x03(\v2\x17.index.v1.DAGIndexEntryR\aentries\"\xa1\x02\n" +
+	"\aentries\x18\x03 \x03(\v2\x17.index.v1.DAGIndexEntryR\aentries\"\xbe\x02\n" +
 	"\rDAGIndexEntry\x12\x1b\n" +
 	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12\x1b\n" +
 	"\tfile_size\x18\x02 \x01(\x03R\bfileSize\x12\x19\n" +
@@ -553,7 +561,8 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\vdescription\x18\t \x01(\tR\vdescription\x12\x1d\n" +
 	"\n" +
 	"load_error\x18\n" +
-	" \x01(\tR\tloadError\"\x81\x01\n" +
+	" \x01(\tR\tloadError\x12\x1b\n" +
+	"\tload_path\x18\v \x01(\tR\bloadPath\"\x81\x01\n" +
 	"\vDAGRunIndex\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\"\n" +
 	"\rbuilt_at_unix\x18\x02 \x01(\x03R\vbuiltAtUnix\x124\n" +
