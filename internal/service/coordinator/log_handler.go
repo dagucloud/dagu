@@ -4,7 +4,6 @@
 package coordinator
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -22,13 +21,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// flushThreshold is the number of buffered bytes after which artifact data is flushed.
-const flushThreshold = 65536
-
 // logHandler handles log streaming from workers
 type logHandler struct {
 	logDir           string
-	attemptValidator func(context.Context, remoteAttemptIdentity) error
+	attemptValidator func(context.Context, attemptIdentity) error
 
 	// Active writers: streamKey -> writer
 	writers   map[string]*streamLogWriter
@@ -94,48 +90,6 @@ func (w *streamLogWriter) close(finalSize *uint64) error {
 	return errors.Join(truncateErr, w.file.Sync(), w.file.Close())
 }
 
-// logWriter manages buffered artifact writes to a single file.
-type logWriter struct {
-	file            *os.File
-	writer          *bufio.Writer
-	path            string
-	bytesSinceFlush uint64 // Track bytes written since last flush
-	mu              sync.Mutex
-}
-
-// write writes data to the buffer and flushes if threshold is exceeded.
-// Returns the number of bytes written and any error.
-func (w *logWriter) write(data []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	n, err := w.writer.Write(data)
-	if err != nil {
-		return n, err
-	}
-	if n > 0 {
-		w.bytesSinceFlush += uint64(n)
-	}
-
-	// Flush periodically to ensure data is visible
-	if w.bytesSinceFlush >= flushThreshold {
-		if err := w.writer.Flush(); err != nil {
-			return n, fmt.Errorf("failed to flush log buffer for %s: %w", w.path, err)
-		}
-		w.bytesSinceFlush = 0
-	}
-
-	return n, nil
-}
-
-// close flushes the buffer, syncs to disk, and closes the file.
-func (w *logWriter) close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	return errors.Join(w.writer.Flush(), w.file.Sync(), w.file.Close())
-}
-
 // newLogHandler creates a new log handler
 func newLogHandler(logDir string) *logHandler {
 	return &logHandler{
@@ -149,7 +103,7 @@ func (h *logHandler) handleStream(stream coordinatorv1.CoordinatorService_Stream
 	ctx := stream.Context()
 	var chunksReceived uint64
 	var bytesWritten uint64
-	var validatedIdentity *remoteAttemptIdentity
+	var validatedIdentity *attemptIdentity
 
 	for {
 		chunk, err := stream.Recv()

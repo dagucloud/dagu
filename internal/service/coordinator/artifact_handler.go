@@ -24,23 +24,48 @@ import (
 
 type artifactHandler struct {
 	dagRunStore      dagrun.DAGRunStore
-	attemptValidator func(context.Context, remoteAttemptIdentity) error
+	attemptValidator func(context.Context, attemptIdentity) error
 }
 
 type artifactWriter struct {
-	writer    *logWriter
-	finalPath string
+	file            *os.File
+	buffer          *bufio.Writer
+	tempPath        string
+	finalPath       string
+	bytesSinceFlush uint64
 }
 
-func newArtifactHandler(dagRunStore dagrun.DAGRunStore, _ ...string) *artifactHandler {
+const artifactFlushThreshold = 64 * 1024
+
+func newArtifactHandler(dagRunStore dagrun.DAGRunStore) *artifactHandler {
 	return &artifactHandler{dagRunStore: dagRunStore}
+}
+
+func (w *artifactWriter) write(data []byte) (int, error) {
+	n, err := w.buffer.Write(data)
+	if err != nil {
+		return n, err
+	}
+	w.bytesSinceFlush += uint64(n) // #nosec G115 -- n is non-negative from successful Write
+	if w.bytesSinceFlush < artifactFlushThreshold {
+		return n, nil
+	}
+	if err := w.buffer.Flush(); err != nil {
+		return n, fmt.Errorf("flush artifact buffer for %s: %w", w.tempPath, err)
+	}
+	w.bytesSinceFlush = 0
+	return n, nil
+}
+
+func (w *artifactWriter) close() error {
+	return errors.Join(w.buffer.Flush(), w.file.Sync(), w.file.Close())
 }
 
 func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_StreamArtifactsServer) error {
 	ctx := stream.Context()
 	var chunksReceived uint64
 	var bytesWritten uint64
-	var validatedIdentity *remoteAttemptIdentity
+	var validatedIdentity *attemptIdentity
 	activeWriters := make(map[string]*artifactWriter)
 
 	defer func() {
@@ -85,20 +110,18 @@ func (h *artifactHandler) handleStream(stream coordinatorv1.CoordinatorService_S
 			continue
 		}
 
-		if len(chunk.Data) > 0 || chunk.IsFinal {
-			writer, err := h.getOrCreateWriter(ctx, chunk, activeWriters)
-			if err != nil {
-				return fmt.Errorf("failed to create artifact writer: %w", err)
-			}
+		writer, err := h.getOrCreateWriter(ctx, chunk, activeWriters)
+		if err != nil {
+			return fmt.Errorf("failed to create artifact writer: %w", err)
+		}
 
-			if len(chunk.Data) > 0 {
-				n, err := writer.writer.write(chunk.Data)
-				if err != nil {
-					return fmt.Errorf("failed to write artifact data: %w", err)
-				}
-				if n > 0 {
-					bytesWritten += uint64(n) // #nosec G115 -- n is non-negative from successful Write
-				}
+		if len(chunk.Data) > 0 {
+			n, err := writer.write(chunk.Data)
+			if err != nil {
+				return fmt.Errorf("failed to write artifact data: %w", err)
+			}
+			if n > 0 {
+				bytesWritten += uint64(n) // #nosec G115 -- n is non-negative from successful Write
 			}
 		}
 
@@ -148,11 +171,9 @@ func (h *artifactHandler) getOrCreateWriter(
 	}
 
 	w := &artifactWriter{
-		writer: &logWriter{
-			file:   file,
-			writer: bufio.NewWriterSize(file, 64*1024),
-			path:   file.Name(),
-		},
+		file:      file,
+		buffer:    bufio.NewWriterSize(file, 64*1024),
+		tempPath:  file.Name(),
 		finalPath: filePath,
 	}
 
@@ -217,19 +238,18 @@ func (h *artifactHandler) closeWriter(
 	}
 	delete(activeWriters, key)
 
-	tempPath := w.writer.path
-	if err := w.writer.close(); err != nil {
-		_ = fileutil.Remove(tempPath)
+	if err := w.close(); err != nil {
+		_ = fileutil.Remove(w.tempPath)
 		return err
 	}
 	if commit {
-		if err := fileutil.ReplaceFile(tempPath, w.finalPath); err != nil {
-			_ = fileutil.Remove(tempPath)
+		if err := fileutil.ReplaceFile(w.tempPath, w.finalPath); err != nil {
+			_ = fileutil.Remove(w.tempPath)
 			return err
 		}
 		return nil
 	}
-	if err := fileutil.Remove(tempPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := fileutil.Remove(w.tempPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove temporary artifact file: %w", err)
 	}
 	return nil

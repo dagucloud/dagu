@@ -67,7 +67,7 @@ func TestArtifactHandlerHandleStreamCreatesEmptyFileOnFinalChunk(t *testing.T) {
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store, "")
+	handler := newArtifactHandler(store)
 	stream := &mockStreamArtifactsServer{
 		ctx: context.Background(),
 		chunks: []*coordinatorv1.ArtifactChunk{
@@ -103,7 +103,7 @@ func TestArtifactHandlerHandleStreamWritesFinalChunkPayload(t *testing.T) {
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store, "")
+	handler := newArtifactHandler(store)
 	stream := &mockStreamArtifactsServer{
 		ctx: context.Background(),
 		chunks: []*coordinatorv1.ArtifactChunk{
@@ -189,7 +189,7 @@ func TestArtifactHandlerHandleStreamRejectsMismatchedAttempt(t *testing.T) {
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store, "")
+	handler := newArtifactHandler(store)
 	stream := &mockStreamArtifactsServer{
 		ctx: context.Background(),
 		chunks: []*coordinatorv1.ArtifactChunk{
@@ -224,7 +224,7 @@ func TestArtifactHandlerHandleStreamDiscardsPartialFileOnRecvError(t *testing.T)
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store, "")
+	handler := newArtifactHandler(store)
 	stream := &mockStreamArtifactsServer{
 		ctx:     context.Background(),
 		recvErr: io.ErrUnexpectedEOF,
@@ -276,7 +276,7 @@ func TestArtifactHandlerHandleStreamRevalidatesAttemptBeforeFinalizing(t *testin
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store, "")
+	handler := newArtifactHandler(store)
 	stream := &mockStreamArtifactsServer{
 		ctx: context.Background(),
 		chunks: []*coordinatorv1.ArtifactChunk{
@@ -315,7 +315,7 @@ func TestArtifactHandlerHandleStreamRevalidatesAttemptBeforeFinalizing(t *testin
 func TestArtifactHandlerStreamKeyNormalizesRelativePath(t *testing.T) {
 	t.Parallel()
 
-	handler := newArtifactHandler(nil, "")
+	handler := newArtifactHandler(nil)
 	normalized := &coordinatorv1.ArtifactChunk{
 		DagName:      "test-dag",
 		DagRunId:     "run-123",

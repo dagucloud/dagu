@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type remoteAttemptIdentity struct {
+type attemptIdentity struct {
 	attemptKey string
 	claimKey   string
 	workerID   string
@@ -26,28 +26,28 @@ type remoteAttemptIdentity struct {
 	attemptID  string
 }
 
-func newRemoteAttemptIdentity(
+func newAttemptIdentity(
 	explicitKey string,
 	workerID string,
 	dagRun ir.DAGRunRef,
 	root ir.DAGRunRef,
 	attemptID string,
-) (remoteAttemptIdentity, error) {
+) (attemptIdentity, error) {
 	if workerID == "" || dagRun.Zero() || attemptID == "" {
-		return remoteAttemptIdentity{}, fmt.Errorf("worker, DAG run, and attempt identity are required")
+		return attemptIdentity{}, fmt.Errorf("worker, DAG run, and attempt identity are required")
 	}
 	if root.Zero() {
 		root = dagRun
 	}
 	derivedKey := ir.GenerateAttemptKey(root.Name, root.ID, dagRun.Name, dagRun.ID, attemptID)
 	if explicitKey != "" && dagRun == root && explicitKey != derivedKey {
-		return remoteAttemptIdentity{}, fmt.Errorf("attempt key does not match stream metadata")
+		return attemptIdentity{}, fmt.Errorf("attempt key does not match stream metadata")
 	}
 	claimKey := explicitKey
 	if claimKey == "" {
 		claimKey = derivedKey
 	}
-	return remoteAttemptIdentity{
+	return attemptIdentity{
 		attemptKey: derivedKey,
 		claimKey:   claimKey,
 		workerID:   workerID,
@@ -57,11 +57,11 @@ func newRemoteAttemptIdentity(
 	}, nil
 }
 
-func logChunkIdentity(chunk *coordinatorv1.LogChunk) (remoteAttemptIdentity, error) {
+func logChunkIdentity(chunk *coordinatorv1.LogChunk) (attemptIdentity, error) {
 	if chunk == nil {
-		return remoteAttemptIdentity{}, fmt.Errorf("log chunk is required")
+		return attemptIdentity{}, fmt.Errorf("log chunk is required")
 	}
-	return newRemoteAttemptIdentity(
+	return newAttemptIdentity(
 		chunk.AttemptKey,
 		chunk.WorkerId,
 		ir.NewDAGRunRef(chunk.DagName, chunk.DagRunId),
@@ -70,11 +70,11 @@ func logChunkIdentity(chunk *coordinatorv1.LogChunk) (remoteAttemptIdentity, err
 	)
 }
 
-func artifactChunkIdentity(chunk *coordinatorv1.ArtifactChunk) (remoteAttemptIdentity, error) {
+func artifactChunkIdentity(chunk *coordinatorv1.ArtifactChunk) (attemptIdentity, error) {
 	if chunk == nil {
-		return remoteAttemptIdentity{}, fmt.Errorf("artifact chunk is required")
+		return attemptIdentity{}, fmt.Errorf("artifact chunk is required")
 	}
-	return newRemoteAttemptIdentity(
+	return newAttemptIdentity(
 		chunk.AttemptKey,
 		chunk.WorkerId,
 		ir.NewDAGRunRef(chunk.DagName, chunk.DagRunId),
@@ -83,12 +83,12 @@ func artifactChunkIdentity(chunk *coordinatorv1.ArtifactChunk) (remoteAttemptIde
 	)
 }
 
-func statusIdentity(workerID string, runStatus *ir.DAGRunStatus) (remoteAttemptIdentity, error) {
+func statusIdentity(workerID string, runStatus *ir.DAGRunStatus) (attemptIdentity, error) {
 	if runStatus == nil {
-		return remoteAttemptIdentity{}, fmt.Errorf("status is required")
+		return attemptIdentity{}, fmt.Errorf("status is required")
 	}
 	if workerID == "" || runStatus.DAGRun().Zero() || runStatus.AttemptID == "" {
-		return remoteAttemptIdentity{}, fmt.Errorf("worker, DAG run, and attempt identity are required")
+		return attemptIdentity{}, fmt.Errorf("worker, DAG run, and attempt identity are required")
 	}
 	root := runStatus.Root
 	if root.Zero() {
@@ -102,7 +102,7 @@ func statusIdentity(workerID string, runStatus *ir.DAGRunStatus) (remoteAttemptI
 	if claimKey == "" {
 		claimKey = attemptKey
 	}
-	return remoteAttemptIdentity{
+	return attemptIdentity{
 		attemptKey: attemptKey,
 		claimKey:   claimKey,
 		workerID:   workerID,
@@ -112,7 +112,7 @@ func statusIdentity(workerID string, runStatus *ir.DAGRunStatus) (remoteAttemptI
 	}, nil
 }
 
-func (h *Handler) validateRemoteStatusLease(
+func (h *Handler) validateStatusLease(
 	ctx context.Context,
 	workerID string,
 	runStatus *ir.DAGRunStatus,
@@ -126,7 +126,7 @@ func (h *Handler) validateRemoteStatusLease(
 		lease, err := h.dagRunLeaseStore.Get(ctx, identity.claimKey)
 		switch {
 		case err == nil:
-			return false, h.validateRemoteAttemptLease(lease, identity)
+			return false, h.validateAttemptLease(lease, identity)
 		case !errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
 			return false, status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
 		}
@@ -142,7 +142,7 @@ func (h *Handler) validateRemoteStatusLease(
 		return false, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
 	}
 
-	claimKey, err := h.validateRootLeaseForSubDAGStatus(ctx, workerID, runStatus.Root)
+	claimKey, err := h.validateSubDAGRootLease(ctx, workerID, runStatus.Root)
 	if err != nil {
 		return false, err
 	}
@@ -150,7 +150,7 @@ func (h *Handler) validateRemoteStatusLease(
 	return false, nil
 }
 
-func (h *Handler) validateRootLeaseForSubDAGStatus(
+func (h *Handler) validateSubDAGRootLease(
 	ctx context.Context,
 	workerID string,
 	rootRef ir.DAGRunRef,
@@ -185,7 +185,7 @@ func (h *Handler) validateRootLeaseForSubDAGStatus(
 	if attemptKey == "" || claimKey == "" {
 		return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
 	}
-	identity := remoteAttemptIdentity{
+	identity := attemptIdentity{
 		attemptKey: attemptKey,
 		claimKey:   claimKey,
 		workerID:   workerID,
@@ -193,7 +193,7 @@ func (h *Handler) validateRootLeaseForSubDAGStatus(
 		root:       rootRef,
 		attemptID:  attemptID,
 	}
-	if err := h.validateRemoteAttempt(ctx, identity); err != nil {
+	if err := h.validateAttempt(ctx, identity); err != nil {
 		return "", err
 	}
 	return claimKey, nil
@@ -203,16 +203,16 @@ func isSubDAGStatus(runStatus *ir.DAGRunStatus) bool {
 	return runStatus != nil && !runStatus.Root.Zero() && runStatus.Root != runStatus.DAGRun()
 }
 
-func runningTaskIdentity(workerID string, task *coordinatorv1.RunningTask) (remoteAttemptIdentity, error) {
+func runningTaskIdentity(workerID string, task *coordinatorv1.RunningTask) (attemptIdentity, error) {
 	if task == nil || workerID == "" || task.AttemptKey == "" || task.DagName == "" || task.DagRunId == "" {
-		return remoteAttemptIdentity{}, fmt.Errorf("running task identity is required")
+		return attemptIdentity{}, fmt.Errorf("running task identity is required")
 	}
 	dagRun := ir.NewDAGRunRef(task.DagName, task.DagRunId)
 	root := ir.NewDAGRunRef(task.RootDagRunName, task.RootDagRunId)
 	if root.Zero() {
 		root = dagRun
 	}
-	return remoteAttemptIdentity{
+	return attemptIdentity{
 		attemptKey: task.AttemptKey,
 		claimKey:   task.AttemptKey,
 		workerID:   workerID,
@@ -221,7 +221,7 @@ func runningTaskIdentity(workerID string, task *coordinatorv1.RunningTask) (remo
 	}, nil
 }
 
-func (h *Handler) validateRemoteAttempt(ctx context.Context, identity remoteAttemptIdentity) error {
+func (h *Handler) validateAttempt(ctx context.Context, identity attemptIdentity) error {
 	if h.dagRunLeaseStore == nil {
 		return nil
 	}
@@ -232,10 +232,10 @@ func (h *Handler) validateRemoteAttempt(ctx context.Context, identity remoteAtte
 		}
 		return status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
 	}
-	return h.validateRemoteAttemptLease(lease, identity)
+	return h.validateAttemptLease(lease, identity)
 }
 
-func (h *Handler) validateRemoteAttemptLease(lease *dispatch.DAGRunLease, identity remoteAttemptIdentity) error {
+func (h *Handler) validateAttemptLease(lease *dispatch.DAGRunLease, identity attemptIdentity) error {
 	if !lease.MatchesClaim(identity.claimKey, identity.workerID) ||
 		(!lease.Root.Zero() && lease.Root != identity.root) {
 		return status.Error(codes.FailedPrecondition, remoteAttemptRejectedSuperseded)

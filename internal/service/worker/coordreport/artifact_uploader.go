@@ -19,8 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 var _ runtime.ArtifactFinalizer = (*ArtifactUploader)(nil)
@@ -117,7 +115,7 @@ func (u *ArtifactUploader) UploadDir(ctx context.Context, dir string) error {
 
 	attemptID := u.getAttemptID()
 	err := u.uploadDir(ctx, dir, attemptID)
-	if !isRetryableArtifactUploadError(err) {
+	if !isRetryableStreamError(err) {
 		return err
 	}
 
@@ -125,7 +123,7 @@ func (u *ArtifactUploader) UploadDir(ctx context.Context, dir string) error {
 	defer cancel()
 	return backoff.Retry(retryCtx, func(ctx context.Context) error {
 		return u.uploadDir(ctx, dir, attemptID)
-	}, finalDeliveryRetryPolicy(), isRetryableArtifactUploadError)
+	}, finalDeliveryRetryPolicy(), isRetryableStreamError)
 }
 
 func (u *ArtifactUploader) uploadDir(ctx context.Context, dir, attemptID string) error {
@@ -242,12 +240,4 @@ func (u *ArtifactUploader) uploadDir(ctx context.Context, dir, attemptID string)
 		return fmt.Errorf("artifact upload failed: %s", resp.Error)
 	}
 	return nil
-}
-
-func isRetryableArtifactUploadError(err error) bool {
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return true
-	}
-	code := status.Code(err)
-	return code == codes.Unavailable || code == codes.DeadlineExceeded
 }

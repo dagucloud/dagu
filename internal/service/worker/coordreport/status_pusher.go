@@ -5,7 +5,9 @@ package coordreport
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
@@ -118,7 +120,7 @@ func (p *StatusPusher) Push(ctx context.Context, status ir.DAGRunStatus) error {
 	if status.Status != ir.NotStarted && !status.Status.IsActive() {
 		retryCtx, cancel := context.WithTimeout(ctx, finalDeliveryRetryTimeout)
 		defer cancel()
-		err = backoff.Retry(retryCtx, report, finalDeliveryRetryPolicy(), isRetryableStatusReportError)
+		err = backoff.Retry(retryCtx, report, finalDeliveryRetryPolicy(), isRetryableRPCError)
 	} else {
 		err = report(ctx)
 	}
@@ -137,7 +139,11 @@ func (p *StatusPusher) Push(ctx context.Context, status ir.DAGRunStatus) error {
 	return nil
 }
 
-func isRetryableStatusReportError(err error) bool {
+func isRetryableRPCError(err error) bool {
 	code := grpcstatus.Code(err)
 	return code == codes.Unavailable || code == codes.DeadlineExceeded
+}
+
+func isRetryableStreamError(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || isRetryableRPCError(err)
 }

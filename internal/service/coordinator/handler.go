@@ -1211,7 +1211,7 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 			cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 			continue
 		}
-		if err := h.validateRemoteAttempt(ctx, identity); err != nil {
+		if err := h.validateAttempt(ctx, identity); err != nil {
 			if status.Code(err) == codes.FailedPrecondition {
 				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 				continue
@@ -1640,7 +1640,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	leaseMissing := false
 	if h.dagRunLeaseStore != nil {
 		var validationErr error
-		leaseMissing, validationErr = h.validateRemoteStatusLease(ctx, req.WorkerId, dagRunStatus)
+		leaseMissing, validationErr = h.validateStatusLease(ctx, req.WorkerId, dagRunStatus)
 		if validationErr != nil {
 			if status.Code(validationErr) == codes.FailedPrecondition {
 				return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: status.Convert(validationErr).Message()}, nil
@@ -2301,7 +2301,7 @@ func (h *Handler) StreamLogs(stream coordinatorv1.CoordinatorService_StreamLogsS
 	// Delegate to the log handler
 	logHandler := newLogHandler(h.logDir)
 	if h.dagRunLeaseStore != nil {
-		logHandler.attemptValidator = h.validateRemoteAttempt
+		logHandler.attemptValidator = h.validateAttempt
 	}
 	defer logHandler.Close(stream.Context()) // Ensure file handles are closed on stream end or error
 	return logHandler.handleStream(stream)
@@ -2318,7 +2318,7 @@ func (h *Handler) StreamArtifacts(stream coordinatorv1.CoordinatorService_Stream
 
 	artifactHandler := newArtifactHandler(h.dagRunStore)
 	if h.dagRunLeaseStore != nil {
-		artifactHandler.attemptValidator = h.validateRemoteAttempt
+		artifactHandler.attemptValidator = h.validateAttempt
 	}
 	return artifactHandler.handleStream(stream)
 }
