@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	remoteSchedulerLogFinalizeTimeout = 5 * time.Second
-	remoteTerminalStatusReportTimeout = 30 * time.Second
+	remoteSchedulerLogFinalizeTimeout = 3 * time.Minute
+	remoteTerminalStatusReportTimeout = 3 * time.Minute
 )
 
 type remoteRunMetadata struct {

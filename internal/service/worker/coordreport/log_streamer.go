@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -36,8 +37,6 @@ const (
 
 	logFlushInterval          = 2 * time.Second
 	logStreamOperationTimeout = 5 * time.Second
-	stepLogCloseRetryInterval = 100 * time.Millisecond
-	stepLogCloseRetryTimeout  = 30 * time.Second
 	maxRetainedStepLogSize    = 16 * 1024 * 1024
 )
 
@@ -188,6 +187,7 @@ func (s *LogStreamer) NewSchedulerLogWriter(ctx context.Context, localFile *os.F
 	}
 	streamCtx, cancel := context.WithCancel(ctx)
 	w := &schedulerLogWriter{
+		parentCtx:     ctx,
 		ctx:           streamCtx,
 		cancel:        cancel,
 		streamer:      s,
@@ -196,7 +196,6 @@ func (s *LogStreamer) NewSchedulerLogWriter(ctx context.Context, localFile *os.F
 		flushStop:     make(chan struct{}),
 		flushFinished: make(chan struct{}),
 		flushWake:     make(chan struct{}, 1),
-		closeDone:     make(chan struct{}),
 	}
 	s.registerSchedulerWriter(w)
 	go w.runFlushLoop()
@@ -541,31 +540,16 @@ func (w *stepLogWriter) Close() error {
 	w.closed = true
 	defer w.cancelStream()
 
-	retryCtx, cancel := context.WithTimeout(w.parentCtx, stepLogCloseRetryTimeout)
+	retryCtx, cancel := context.WithTimeout(w.parentCtx, finalDeliveryRetryTimeout)
 	defer cancel()
 	w.parentCtx = retryCtx
 
-	var lastErr error
-	for {
+	return backoff.Retry(retryCtx, func(context.Context) error {
 		if err := w.flushLocked(); err != nil {
-			lastErr = err
-		} else if err := w.finishLocked(); err != nil {
-			lastErr = err
-		} else {
-			return nil
+			return err
 		}
-		if !isRetryableStepLogError(lastErr) {
-			return lastErr
-		}
-
-		timer := time.NewTimer(stepLogCloseRetryInterval)
-		select {
-		case <-retryCtx.Done():
-			timer.Stop()
-			return lastErr
-		case <-timer.C:
-		}
-	}
+		return w.finishLocked()
+	}, finalDeliveryRetryPolicy(), isRetryableStepLogError)
 }
 
 func (w *stepLogWriter) finishLocked() error {
@@ -659,25 +643,27 @@ func toProtoStreamType(streamType int) coordinatorv1.LogStreamType {
 // schedulerLogWriter writes to both local file and streams to coordinator in real-time.
 // This enables viewing scheduler logs while the DAG is still running.
 type schedulerLogWriter struct {
-	ctx              context.Context
-	cancel           context.CancelFunc
-	streamer         *LogStreamer
-	localFile        *os.File
-	buffer           []byte
-	sequence         uint64
-	localBytes       int64
-	streamedBytes    int64
-	stream           coordinatorv1.CoordinatorService_StreamLogsClient
-	mu               sync.Mutex
-	closed           bool
-	streamMu         sync.Mutex
-	streamInitFailed bool // Tracks permanent stream initialization failure
-	flushStop        chan struct{}
-	flushFinished    chan struct{}
-	flushWake        chan struct{}
-	flushStopOnce    sync.Once
-	closeOnce        sync.Once
-	closeDone        chan struct{}
+	parentCtx         context.Context
+	ctx               context.Context
+	cancel            context.CancelFunc
+	streamer          *LogStreamer
+	localFile         *os.File
+	buffer            []byte
+	sequence          uint64
+	localBytes        int64
+	streamedBytes     int64
+	acknowledgedBytes int64
+	stream            coordinatorv1.CoordinatorService_StreamLogsClient
+	mu                sync.Mutex
+	closed            bool
+	streamMu          sync.Mutex
+	streamInitFailed  bool // Tracks permanent stream initialization failure
+	flushStop         chan struct{}
+	flushFinished     chan struct{}
+	flushWake         chan struct{}
+	flushStopOnce     sync.Once
+	closeOnce         sync.Once
+	closeErr          error
 }
 
 func (w *schedulerLogWriter) cancelStream() {
@@ -819,12 +805,18 @@ func (w *schedulerLogWriter) ensureStreamLocked() error {
 		return nil
 	}
 
-	stream, err := w.streamer.openStream(w.ctx)
+	var stream coordinatorv1.CoordinatorService_StreamLogsClient
+	err := w.withOperationTimeout(func() error {
+		var err error
+		stream, err = w.streamer.openStream(w.ctx)
+		return err
+	})
 	if err != nil {
 		if isLogStreamingNotConfigured(err) {
 			w.streamInitFailed = true
 			return nil
 		}
+		w.resetStreamLocked()
 		return err
 	}
 	w.stream = stream
@@ -861,13 +853,14 @@ func (w *schedulerLogWriter) sendSchedulerDataLocked(data []byte) error {
 			OwnerCoordinatorId: w.streamer.owner.ID,
 			AttemptKey:         w.streamer.getAttemptKey(),
 		}
+		chunk.SetByteOffset(uint64(w.streamedBytes)) // #nosec G115 -- streamedBytes is non-negative
 
-		if err := w.stream.Send(chunk); err != nil {
+		if err := w.withOperationTimeout(func() error { return w.stream.Send(chunk) }); err != nil {
 			if isLogStreamingNotConfigured(err) {
 				w.streamInitFailed = true
 				return nil
 			}
-			w.stream = nil
+			w.resetStreamLocked()
 			return err
 		}
 		w.sequence = nextSeq
@@ -875,6 +868,19 @@ func (w *schedulerLogWriter) sendSchedulerDataLocked(data []byte) error {
 	}
 
 	return nil
+}
+
+func (w *schedulerLogWriter) resetStreamLocked() {
+	w.cancelStream()
+	w.stream = nil
+	w.streamedBytes = w.acknowledgedBytes
+	w.ctx, w.cancel = context.WithCancel(w.parentCtx)
+}
+
+func (w *schedulerLogWriter) withOperationTimeout(operation func() error) error {
+	timer := time.AfterFunc(logStreamOperationTimeout, w.cancelStream)
+	defer timer.Stop()
+	return operation()
 }
 
 func (w *schedulerLogWriter) streamUnsentLocalFileLocked(localBytes int64) error {
@@ -914,21 +920,14 @@ func (w *schedulerLogWriter) streamUnsentLocalFileLocked(localBytes int64) error
 	return nil
 }
 
-// Close implements io.Closer - flushes remaining data and closes the stream
+// Close implements io.Closer.
 func (w *schedulerLogWriter) Close() error {
-	w.closeOnce.Do(func() {
-		defer close(w.closeDone)
-		w.close()
-	})
-	<-w.closeDone
-	return nil
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(w.parentCtx), finalDeliveryRetryTimeout)
+	defer cancel()
+	return w.CloseWithContext(ctx)
 }
 
-func (w *schedulerLogWriter) close() {
-	cancelTimer := time.AfterFunc(logStreamOperationTimeout, w.cancelStream)
-	defer cancelTimer.Stop()
-	defer w.cancelStream()
-
+func (w *schedulerLogWriter) close(ctx context.Context) error {
 	w.mu.Lock()
 	w.closed = true
 	data := w.buffer
@@ -936,18 +935,37 @@ func (w *schedulerLogWriter) close() {
 	localBytes := w.localBytes
 	w.mu.Unlock()
 
+	stopCancel := context.AfterFunc(ctx, w.cancelStream)
+	defer stopCancel()
+	cancelTimer := time.AfterFunc(logStreamOperationTimeout, w.cancelStream)
 	w.stopFlushLoop()
+	cancelTimer.Stop()
 
 	w.streamMu.Lock()
 	defer w.streamMu.Unlock()
+	defer w.cancelStream()
+	defer w.streamer.unregisterSchedulerWriter(w)
 
-	_ = w.flushDataLocked(data, localBytes)
-	if w.streamedBytes < localBytes {
-		_ = w.streamUnsentLocalFileLocked(localBytes)
+	w.parentCtx = ctx
+	if w.stream == nil {
+		w.cancelStream()
+		w.ctx, w.cancel = context.WithCancel(ctx)
+		w.streamedBytes = w.acknowledgedBytes
 	}
 
-	// Send final marker if stream was initialized
-	if w.stream != nil {
+	return backoff.Retry(ctx, func(context.Context) error {
+		if err := w.flushDataLocked(data, localBytes); err != nil {
+			return err
+		}
+		if w.streamedBytes < localBytes {
+			if err := w.streamUnsentLocalFileLocked(localBytes); err != nil {
+				return err
+			}
+		}
+		if w.stream == nil {
+			return nil
+		}
+
 		nextSeq := w.sequence + 1
 		finalChunk := &coordinatorv1.LogChunk{
 			WorkerId:           w.streamer.workerID,
@@ -963,11 +981,32 @@ func (w *schedulerLogWriter) close() {
 			OwnerCoordinatorId: w.streamer.owner.ID,
 			AttemptKey:         w.streamer.getAttemptKey(),
 		}
-		_ = w.stream.Send(finalChunk)  // Ignore error - best effort
-		_, _ = w.stream.CloseAndRecv() // Ignore error - best effort
-	}
-
-	w.streamer.unregisterSchedulerWriter(w)
+		finalChunk.SetByteOffset(uint64(localBytes)) // #nosec G115 -- localBytes is non-negative
+		if err := w.withOperationTimeout(func() error { return w.stream.Send(finalChunk) }); err != nil {
+			if isLogStreamingNotConfigured(err) {
+				w.streamInitFailed = true
+				return nil
+			}
+			w.resetStreamLocked()
+			return err
+		}
+		if err := w.withOperationTimeout(func() error {
+			_, err := w.stream.CloseAndRecv()
+			return err
+		}); err != nil {
+			if isLogStreamingNotConfigured(err) {
+				w.streamInitFailed = true
+				return nil
+			}
+			w.resetStreamLocked()
+			return err
+		}
+		w.sequence = nextSeq
+		w.acknowledgedBytes = localBytes
+		w.streamedBytes = localBytes
+		w.stream = nil
+		return nil
+	}, finalDeliveryRetryPolicy(), isRetryableStepLogError)
 }
 
 func (w *schedulerLogWriter) CloseWithContext(ctx context.Context) error {
@@ -975,16 +1014,8 @@ func (w *schedulerLogWriter) CloseWithContext(ctx context.Context) error {
 		ctx = context.Background()
 	}
 
-	done := make(chan error, 1)
-	go func() {
-		done <- w.Close()
-	}()
-
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		w.cancelStream()
-		return ctx.Err()
-	}
+	w.closeOnce.Do(func() {
+		w.closeErr = w.close(ctx)
+	})
+	return w.closeErr
 }

@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -22,11 +21,6 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-)
-
-const (
-	artifactUploadRetryInterval = 100 * time.Millisecond
-	artifactUploadRetryTimeout  = 30 * time.Second
 )
 
 var _ runtime.ArtifactFinalizer = (*ArtifactUploader)(nil)
@@ -127,11 +121,11 @@ func (u *ArtifactUploader) UploadDir(ctx context.Context, dir string) error {
 		return err
 	}
 
-	retryCtx, cancel := context.WithTimeout(ctx, artifactUploadRetryTimeout)
+	retryCtx, cancel := context.WithTimeout(ctx, finalDeliveryRetryTimeout)
 	defer cancel()
 	return backoff.Retry(retryCtx, func(ctx context.Context) error {
 		return u.uploadDir(ctx, dir, attemptID)
-	}, backoff.NewConstantBackoffPolicy(artifactUploadRetryInterval), isRetryableArtifactUploadError)
+	}, finalDeliveryRetryPolicy(), isRetryableArtifactUploadError)
 }
 
 func (u *ArtifactUploader) uploadDir(ctx context.Context, dir, attemptID string) error {

@@ -1629,10 +1629,10 @@ func (a *Agent) Signal(ctx context.Context, sig os.Signal) {
 
 // wait before read the running status
 const waitForRunning = time.Millisecond * 100
-const artifactFinalizeTimeout = 30 * time.Second
+const artifactFinalizeTimeout = 3 * time.Minute
 
 var remoteStatusPushTimeout = 5 * time.Second
-var remoteTerminalStatusPushTimeout = 30 * time.Second
+var remoteTerminalStatusPushTimeout = 3 * time.Minute
 
 // Simple regular expressions for request routing
 var (

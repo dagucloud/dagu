@@ -20,9 +20,16 @@ import (
 )
 
 const (
-	terminalStatusRetryInterval = 100 * time.Millisecond
-	terminalStatusRetryTimeout  = 30 * time.Second
+	finalDeliveryRetryInitialInterval = 100 * time.Millisecond
+	finalDeliveryRetryMaxInterval     = 2 * time.Second
+	finalDeliveryRetryTimeout         = 3 * time.Minute
 )
+
+func finalDeliveryRetryPolicy() backoff.RetryPolicy {
+	policy := backoff.NewExponentialBackoffPolicy(finalDeliveryRetryInitialInterval)
+	policy.MaxInterval = finalDeliveryRetryMaxInterval
+	return backoff.WithJitter(policy, backoff.Jitter)
+}
 
 var _ runtime.StatusPusher = (*StatusPusher)(nil)
 
@@ -109,9 +116,9 @@ func (p *StatusPusher) Push(ctx context.Context, status ir.DAGRunStatus) error {
 		return err
 	}
 	if status.Status != ir.NotStarted && !status.Status.IsActive() {
-		retryCtx, cancel := context.WithTimeout(ctx, terminalStatusRetryTimeout)
+		retryCtx, cancel := context.WithTimeout(ctx, finalDeliveryRetryTimeout)
 		defer cancel()
-		err = backoff.Retry(retryCtx, report, backoff.NewConstantBackoffPolicy(terminalStatusRetryInterval), isRetryableStatusReportError)
+		err = backoff.Retry(retryCtx, report, finalDeliveryRetryPolicy(), isRetryableStatusReportError)
 	} else {
 		err = report(ctx)
 	}

@@ -560,7 +560,9 @@ steps:
 		case <-time.After(distrTestTimeout(artifactExecutionStatusTimeout())):
 			t.Fatal("artifact upload did not send its first chunk")
 		}
-		f.coord.Restart(t)
+		peer := f.coord.StartPeer(t)
+		require.NotEqual(t, f.coord.Address(), peer.Address())
+		require.NoError(t, f.coord.Stop())
 		gate.releaseUpload()
 
 		status := f.waitForStatus(ir.Succeeded, artifactExecutionStatusTimeout())
