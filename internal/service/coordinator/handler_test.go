@@ -2150,11 +2150,14 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		}))
 
 		h.StartZombieDetector(ctx, threshold/10)
-		time.Sleep(threshold / 3)
-		assert.False(t, attempt.WasWritten())
-		lease, err := leaseStore.Get(ctx, "attempt-key-1")
-		require.NoError(t, err)
-		assert.Equal(t, staleAt.UnixMilli(), lease.LastHeartbeatAt)
+		deadline := time.Now().Add(threshold / 2)
+		for time.Now().Before(deadline) {
+			require.False(t, attempt.WasWritten(), "stale shared lease was cleaned up before the threshold elapsed")
+			lease, err := leaseStore.Get(ctx, "attempt-key-1")
+			require.NoError(t, err)
+			require.Equal(t, staleAt.UnixMilli(), lease.LastHeartbeatAt)
+			time.Sleep(threshold / 20)
+		}
 	})
 
 	t.Run("DetectStaleLeasesOnlyFailsRunningDistributedRuns", func(t *testing.T) {

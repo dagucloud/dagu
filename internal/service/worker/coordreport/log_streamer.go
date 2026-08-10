@@ -878,9 +878,14 @@ func (w *schedulerLogWriter) resetStreamLocked() {
 }
 
 func (w *schedulerLogWriter) withOperationTimeout(operation func() error) error {
-	timer := time.AfterFunc(logStreamOperationTimeout, w.cancelStream)
-	defer timer.Stop()
-	return operation()
+	cancel := w.cancel
+	timer := time.AfterFunc(logStreamOperationTimeout, cancel)
+	err := operation()
+	if !timer.Stop() && err == nil {
+		w.resetStreamLocked()
+		return context.DeadlineExceeded
+	}
+	return err
 }
 
 func (w *schedulerLogWriter) streamUnsentLocalFileLocked(localBytes int64) error {
@@ -922,7 +927,11 @@ func (w *schedulerLogWriter) streamUnsentLocalFileLocked(localBytes int64) error
 
 // Close implements io.Closer.
 func (w *schedulerLogWriter) Close() error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(w.parentCtx), finalDeliveryRetryTimeout)
+	w.streamMu.Lock()
+	parentCtx := w.parentCtx
+	w.streamMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), finalDeliveryRetryTimeout)
 	defer cancel()
 	return w.CloseWithContext(ctx)
 }

@@ -119,6 +119,14 @@ var (
 	_ dispatch.Dispatcher   = (*clientImpl)(nil)
 )
 
+const (
+	legacyClaimOwnerEndpointRejection = "claim belongs to a different coordinator endpoint"
+	legacyRunHeartbeatOwnerRejection  = "run heartbeat sent to non-owner coordinator"
+	legacyStatusUpdateOwnerRejection  = "status update sent to non-owner coordinator"
+	legacyLogChunkOwnerRejection      = "log chunk sent to non-owner coordinator"
+	legacyArtifactChunkOwnerRejection = "artifact chunk sent to non-owner coordinator"
+)
+
 // clientImpl is the concrete implementation
 type clientImpl struct {
 	config   *Config
@@ -606,6 +614,8 @@ func (cli *clientImpl) callOwner(
 		if err == nil {
 			callbackCtx := callCtx
 			if checkHealth {
+				// Streaming callbacks use the parent context so the member probe
+				// timeout does not limit the lifetime of an established stream.
 				callbackCtx = ctx
 			}
 			err = callback(callbackCtx, member, memberClient)
@@ -704,11 +714,13 @@ func isLegacyOwnerRejection(err error) bool {
 	if status.Code(err) != codes.FailedPrecondition {
 		return false
 	}
+	// Older coordinators expose owner rejection only as status text. Keep these
+	// frozen wire messages recognizable during mixed-version rolling upgrades.
 	message := err.Error()
-	return strings.Contains(message, "run heartbeat sent to non-owner coordinator") ||
-		strings.Contains(message, "status update sent to non-owner coordinator") ||
-		strings.Contains(message, "log chunk sent to non-owner coordinator") ||
-		strings.Contains(message, "artifact chunk sent to non-owner coordinator")
+	return strings.Contains(message, legacyRunHeartbeatOwnerRejection) ||
+		strings.Contains(message, legacyStatusUpdateOwnerRejection) ||
+		strings.Contains(message, legacyLogChunkOwnerRejection) ||
+		strings.Contains(message, legacyArtifactChunkOwnerRejection)
 }
 
 func (cli *clientImpl) cachedOwnerRoute(owner serviceregistry.HostInfo) (serviceregistry.HostInfo, bool) {
@@ -1166,7 +1178,7 @@ func (cli *clientImpl) AckTaskClaimTo(ctx context.Context, owner serviceregistry
 		if callErr != nil {
 			return fmt.Errorf("ack task claim failed: %w", callErr)
 		}
-		if resp != nil && !resp.Accepted && resp.Error == "claim belongs to a different coordinator endpoint" {
+		if resp != nil && !resp.Accepted && resp.Error == legacyClaimOwnerEndpointRejection {
 			return status.Error(codes.Unavailable, resp.Error)
 		}
 		return nil
