@@ -165,13 +165,13 @@ func TestChangeInputValidationErrors(t *testing.T) {
 		{
 			name: "unsupported type",
 			arguments: map[string]any{
-				"type": "delete_dag",
+				"type": "archive_dag",
 				"name": "mcp_change_error_type",
 				"spec": validSpec,
 			},
 			code:       "unsupported_change_type",
 			field:      "type",
-			changeType: "delete_dag",
+			changeType: "archive_dag",
 			dagName:    "mcp_change_error_type",
 			dagURI:     changeDAGSpecURI("mcp_change_error_type"),
 		},
