@@ -652,14 +652,26 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 			}
 			return nil, findErr
 		}
+	}
+	if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
+		return nil, fmt.Errorf("failed to find existing attempt: %w", findErr)
+	}
 
-		existingStatus, readErr := existingAttempt.ReadStatus(ctx)
+	var existingStatus *ir.DAGRunStatus
+	if findErr == nil {
+		var readErr error
+		existingStatus, readErr = existingAttempt.ReadStatus(ctx)
 		if readErr != nil {
-			if errors.Is(readErr, dagrun.ErrNoStatusData) || errors.Is(readErr, dagrun.ErrCorruptedStatusFile) {
-				return nil, staleQueueDispatchError("dag-run is no longer queued")
+			if queueDispatchStatus != nil {
+				if errors.Is(readErr, dagrun.ErrNoStatusData) || errors.Is(readErr, dagrun.ErrCorruptedStatusFile) {
+					return nil, staleQueueDispatchError("dag-run is no longer queued")
+				}
+				return nil, readErr
 			}
-			return nil, readErr
+			return nil, fmt.Errorf("failed to read existing attempt: %w", readErr)
 		}
+	}
+	if queueDispatchStatus != nil {
 		if existingAttempt.ID() != queueDispatchStatus.AttemptID {
 			return nil, staleQueueDispatchError("queued attempt was superseded")
 		}
@@ -671,34 +683,25 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 			return nil, staleQueueDispatchError("latest attempt is " + statusLabel)
 		}
 	}
-	if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
-		return nil, fmt.Errorf("failed to find existing attempt: %w", findErr)
-	}
-	if findErr == nil {
-		existingStatus, readErr := existingAttempt.ReadStatus(ctx)
-		if readErr != nil {
-			return nil, fmt.Errorf("failed to read existing attempt: %w", readErr)
+	if existingStatus != nil && existingStatus.Status == ir.Queued {
+		task.AttemptId = existingAttempt.ID()
+		task.AttemptKey = generateRootAttemptKey(task)
+
+		if err := existingAttempt.Open(ctx); err != nil {
+			return nil, fmt.Errorf("failed to open existing attempt: %w", err)
 		}
-		if existingStatus != nil && existingStatus.Status == ir.Queued {
-			task.AttemptId = existingAttempt.ID()
-			task.AttemptKey = generateRootAttemptKey(task)
 
-			if err := existingAttempt.Open(ctx); err != nil {
-				return nil, fmt.Errorf("failed to open existing attempt: %w", err)
-			}
+		h.attemptsMu.Lock()
+		h.openAttempts[task.DagRunId] = existingAttempt
+		h.attemptsMu.Unlock()
 
-			h.attemptsMu.Lock()
-			h.openAttempts[task.DagRunId] = existingAttempt
-			h.attemptsMu.Unlock()
-
-			logger.Info(ctx, "Reusing existing queued attempt for dispatched task",
-				tag.RunID(task.DagRunId),
-				tag.Target(task.Target),
-				tag.AttemptID(task.AttemptId),
-				tag.AttemptKey(task.AttemptKey),
-			)
-			return &preparedDispatchAttempt{attempt: existingAttempt}, nil
-		}
+		logger.Info(ctx, "Reusing existing queued attempt for dispatched task",
+			tag.RunID(task.DagRunId),
+			tag.Target(task.Target),
+			tag.AttemptID(task.AttemptId),
+			tag.AttemptKey(task.AttemptKey),
+		)
+		return &preparedDispatchAttempt{attempt: existingAttempt}, nil
 	}
 
 	// Create new attempt (either first attempt or retry)

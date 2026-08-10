@@ -27,21 +27,14 @@ import (
 // Coordinator represents a test gRPC coordinator instance
 type Coordinator struct {
 	Helper
-	handlerConfig  coordinator.HandlerConfig
-	host           string
-	port           int
-	advertisedHost string
-	advertisedPort int
-	instanceID     string
-	restartCount   int
-	register       bool
-	running        bool
-	service        *coordinator.Service
-	handler        *coordinator.Handler
-	grpcServer     *grpc.Server
-	healthServer   *health.Server
-	listener       net.Listener
-	logDir         string // Log directory for remote log streaming
+	handlerConfig coordinator.HandlerConfig
+	host          string
+	port          int
+	instanceID    string
+	restartCount  int
+	running       bool
+	service       *coordinator.Service
+	handler       *coordinator.Handler
 }
 
 // SetupCoordinator creates and starts a test coordinator instance
@@ -95,15 +88,11 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	cfg.ActiveDistributedRunStore = helper.ActiveDistributedRunStore
 
 	coord := &Coordinator{
-		Helper:         helper,
-		handlerConfig:  cfg,
-		host:           "127.0.0.1",
-		port:           port,
-		advertisedHost: "127.0.0.1",
-		advertisedPort: port,
-		instanceID:     "test-coordinator",
-		register:       true,
-		logDir:         helper.Config.Paths.LogDir,
+		Helper:        helper,
+		handlerConfig: cfg,
+		host:          "127.0.0.1",
+		port:          port,
+		instanceID:    "test-coordinator",
 	}
 	coord.start(t, listener)
 
@@ -123,29 +112,22 @@ func (c *Coordinator) start(t *testing.T, listener net.Listener) {
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
 
 	cfg := c.handlerConfig
-	cfg.Owner = dispatch.CoordinatorEndpoint{ID: c.instanceID, Host: c.advertisedHost, Port: c.advertisedPort}
+	cfg.Owner = dispatch.CoordinatorEndpoint{ID: c.instanceID, Host: c.host, Port: c.port}
 	handler := coordinator.NewHandler(cfg)
-	registry := c.ServiceRegistry
-	if !c.register {
-		registry = nil
-	}
 	service := coordinator.NewService(
 		grpcServer,
 		handler,
 		listener,
 		healthServer,
 		healthcheck.NewServer("coordinator", 0),
-		registry,
+		c.ServiceRegistry,
 		c.Config,
 		c.instanceID,
-		c.advertisedHost,
+		c.host,
 	)
 
 	c.service = service
 	c.handler = handler
-	c.grpcServer = grpcServer
-	c.healthServer = healthServer
-	c.listener = listener
 	require.NoError(t, service.Start(c.Context), "failed to start coordinator")
 	c.running = true
 	waitForCoordinatorStart(t, c.Address())
@@ -161,15 +143,11 @@ func (c *Coordinator) StartPeer(t *testing.T) *Coordinator {
 	peerHelper := c.Helper
 	peerHelper.ServiceRegistry = file.NewServiceRegistry(c.Config)
 	peer := &Coordinator{
-		Helper:         peerHelper,
-		handlerConfig:  c.handlerConfig,
-		host:           "127.0.0.1",
-		port:           port,
-		advertisedHost: "127.0.0.1",
-		advertisedPort: port,
-		instanceID:     "test-coordinator-peer",
-		register:       true,
-		logDir:         c.logDir,
+		Helper:        peerHelper,
+		handlerConfig: c.handlerConfig,
+		host:          "127.0.0.1",
+		port:          port,
+		instanceID:    "test-coordinator-peer",
 	}
 	peer.start(t, listener)
 	t.Cleanup(func() {
@@ -278,7 +256,7 @@ func (c *Coordinator) Handler() *coordinator.Handler {
 
 // LogDir returns the log directory path for verifying log persistence
 func (c *Coordinator) LogDir() string {
-	return c.logDir
+	return c.Config.Paths.LogDir
 }
 
 // WithCoordinatorConfig creates a coordinator configuration option

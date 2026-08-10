@@ -733,9 +733,6 @@ func (cli *clientImpl) cachedOwnerRoute(owner serviceregistry.HostInfo) (service
 func (cli *clientImpl) rememberOwnerRoute(owner, member serviceregistry.HostInfo) {
 	cli.ownerRoutesMu.Lock()
 	defer cli.ownerRoutesMu.Unlock()
-	if cli.ownerRoutes == nil {
-		cli.ownerRoutes = make(map[string]serviceregistry.HostInfo)
-	}
 	key := coordinatorMemberKey(owner)
 	cli.ownerRoutes[key] = member
 	delete(cli.ownerFailures, key)
@@ -750,9 +747,6 @@ func (cli *clientImpl) cachedOwnerFailure(owner serviceregistry.HostInfo) string
 func (cli *clientImpl) rememberOwnerFailure(owner, failed serviceregistry.HostInfo) {
 	cli.ownerRoutesMu.Lock()
 	defer cli.ownerRoutesMu.Unlock()
-	if cli.ownerFailures == nil {
-		cli.ownerFailures = make(map[string]string)
-	}
 	cli.ownerFailures[coordinatorMemberKey(owner)] = coordinatorMemberKey(failed)
 }
 
