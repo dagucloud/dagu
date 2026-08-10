@@ -95,6 +95,7 @@ steps:
 	require.False(t, applied.IsError)
 	require.Equal(t, true, structuredMap(t, applied)["applied"])
 	require.Equal(t, dagSpecURI(rename.NewName), structuredMap(t, applied)["newDagUri"])
+	require.NotContains(t, structuredMap(t, applied), "dagUri")
 	_, err = store.GetSpec(ctx, rename.Name)
 	require.ErrorIs(t, err, dagstore.ErrDAGNotFound)
 	spec, err := store.GetSpec(ctx, rename.NewName)
@@ -111,6 +112,7 @@ steps:
 	deleted := callTool(t, ctx, session, toolChange, remove)
 	require.False(t, deleted.IsError)
 	require.Equal(t, true, structuredMap(t, deleted)["applied"])
+	require.NotContains(t, structuredMap(t, deleted), "dagUri")
 	_, err = store.GetSpec(ctx, remove.Name)
 	require.ErrorIs(t, err, dagstore.ErrDAGNotFound)
 

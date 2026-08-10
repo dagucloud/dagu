@@ -210,7 +210,7 @@ Mode behavior:
 Output:
 
 - Successful result text describes the previewed or applied change.
-- DAG output has dagName, valid, applied, and dagUri while the target exists. Upsert output also has errors; rename output has newDagName and newDagUri.
+- DAG output has dagName, valid, applied, and dagUri while the target exists. Upsert output also has errors; rename output has newDagName and newDagUri, and omits the stale source dagUri after apply.
 - Wiki output has workspace, path, valid, applied, and wikiPageUri when the target is a page. docUri remains as a compatibility alias.
 
 Errors:

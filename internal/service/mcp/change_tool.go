@@ -254,6 +254,7 @@ func (svc *Service) changeRenameDAG(ctx context.Context, input changeInput) (*mc
 		return nil, nil, err
 	}
 	output["applied"] = true
+	delete(output, "dagUri")
 	return resultWithLinks("DAG rename applied.", linkForDAGSpec(input.NewName)), output, nil
 }
 
