@@ -70,6 +70,26 @@ func artifactStepShellYAML() string {
 	return "    shell: /bin/sh\n"
 }
 
+func logStepShellYAML() string {
+	if runtime.GOOS == "windows" {
+		return "    shell: cmd\n"
+	}
+	return "    shell: /bin/sh\n"
+}
+
+func logOutputCommands(stdout, stderr string) string {
+	if runtime.GOOS == "windows" {
+		return test.JoinLines(
+			"echo "+stdout,
+			"echo "+stderr+" 1>&2",
+		)
+	}
+	return test.JoinLines(
+		test.Output(stdout),
+		test.Stderr(stderr),
+	)
+}
+
 func indentYAMLBlock(s string, spaces int) string {
 	prefix := strings.Repeat(" ", spaces)
 	lines := strings.Split(s, "\n")
@@ -275,17 +295,11 @@ worker_selector:
   test: "true"
 steps:
   - name: first
-`+artifactStepShellYAML()+`    command: |
-`+indentYAMLBlock(test.JoinLines(
-		test.Output(firstStdout),
-		test.Stderr(firstStderr),
-	), 6)+`
+`+logStepShellYAML()+`    command: |
+`+indentYAMLBlock(logOutputCommands(firstStdout, firstStderr), 6)+`
   - name: second
-`+artifactStepShellYAML()+`    command: |
-`+indentYAMLBlock(test.JoinLines(
-		test.Output(secondStdout),
-		test.Stderr(secondStderr),
-	), 6)+`
+`+logStepShellYAML()+`    command: |
+`+indentYAMLBlock(logOutputCommands(secondStdout, secondStderr), 6)+`
     depends: [first]
 `, withLogPersistence())
 	defer f.cleanup()
