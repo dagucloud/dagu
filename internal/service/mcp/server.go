@@ -99,8 +99,9 @@ func NewServer(api *frontendapi.API) *mcpsdk.Server {
 
 type changeInput struct {
 	Mode      string `json:"mode,omitempty" jsonschema:"preview or apply. Defaults to preview."`
-	Type      string `json:"type,omitempty" jsonschema:"Change type: upsert_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page."`
-	Name      string `json:"name,omitempty" jsonschema:"DAG name for upsert_dag."`
+	Type      string `json:"type,omitempty" jsonschema:"Change type: upsert_dag, rename_dag, delete_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page."`
+	Name      string `json:"name,omitempty" jsonschema:"DAG name for DAG changes."`
+	NewName   string `json:"newName,omitempty" jsonschema:"Destination DAG name for rename_dag."`
 	Spec      string `json:"spec,omitempty" jsonschema:"DAG YAML specification for upsert_dag."`
 	Workspace string `json:"workspace,omitempty" jsonschema:"Wiki workspace for Wiki changes: default or a named workspace."`
 	Path      string `json:"path,omitempty" jsonschema:"Wiki page or directory path for Wiki changes."`
@@ -142,7 +143,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 	server.AddTool(&mcpsdk.Tool{
 		Name:        toolChange,
 		Title:       "Preview or apply Dagu changes",
-		Description: "Validate and optionally apply DAG YAML or Markdown Wiki changes. Wiki changes are workspace-aware. Use mode=preview before mode=apply unless the user explicitly asked to write immediately.",
+		Description: "Validate and optionally apply DAG definition or Markdown Wiki changes. Wiki changes are workspace-aware. Use mode=preview before mode=apply unless the user explicitly asked to write immediately.",
 		InputSchema: changeToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			DestructiveHint: truePtr,
@@ -503,6 +504,39 @@ func (svc *Service) upsertDAG(ctx context.Context, name, spec string) (bool, err
 		return false, nil
 	default:
 		return false, fmt.Errorf("unexpected update DAG response %T", resp)
+	}
+}
+
+func (svc *Service) renameDAG(ctx context.Context, name, newName string) error {
+	resp, err := svc.api.RenameDAG(ctx, daguapi.RenameDAGRequestObject{
+		FileName: daguapi.DAGFileName(name),
+		Body: &daguapi.RenameDAGJSONRequestBody{
+			NewFileName: newName,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	switch resp.(type) {
+	case *daguapi.RenameDAG200Response, daguapi.RenameDAG200Response:
+		return nil
+	default:
+		return fmt.Errorf("unexpected rename DAG response %T", resp)
+	}
+}
+
+func (svc *Service) deleteDAG(ctx context.Context, name string) error {
+	resp, err := svc.api.DeleteDAG(ctx, daguapi.DeleteDAGRequestObject{
+		FileName: daguapi.DAGFileName(name),
+	})
+	if err != nil {
+		return err
+	}
+	switch resp.(type) {
+	case *daguapi.DeleteDAG204Response, daguapi.DeleteDAG204Response:
+		return nil
+	default:
+		return fmt.Errorf("unexpected delete DAG response %T", resp)
 	}
 }
 

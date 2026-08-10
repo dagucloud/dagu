@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,6 +23,8 @@ const (
 	changeModeApply   = "apply"
 
 	changeTypeUpsertDAG      = "upsert_dag"
+	changeTypeRenameDAG      = "rename_dag"
+	changeTypeDeleteDAG      = "delete_dag"
 	changeTypeUpsertWikiPage = "upsert_wiki_page"
 	changeTypeRenameWikiPage = "rename_wiki_page"
 	changeTypeDeleteWikiPage = "delete_wiki_page"
@@ -41,6 +45,7 @@ const (
 	changeFieldMode                  = "mode"
 	changeFieldType                  = "type"
 	changeFieldName                  = "name"
+	changeFieldNewName               = "newName"
 	changeFieldSpec                  = "spec"
 	changeFieldWorkspace             = "workspace"
 	changeFieldPath                  = "path"
@@ -76,7 +81,7 @@ func changeToolInputSchema() json.RawMessage {
 			},
 			"type": {
 				"type": "string",
-				"description": "Change type: upsert_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. The legacy page aliases remain available for compatibility."
+				"description": "Change type: upsert_dag, rename_dag, delete_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. The legacy page aliases remain available for compatibility."
 			},
 			"name": {
 				"type": "string",
@@ -85,6 +90,10 @@ func changeToolInputSchema() json.RawMessage {
 			"spec": {
 				"type": "string",
 				"description": "DAG YAML document to validate and optionally store."
+			},
+			"newName": {
+				"type": "string",
+				"description": "Destination DAG name for rename_dag."
 			},
 			"workspace": {
 				"type": "string",
@@ -107,6 +116,14 @@ func changeToolInputSchema() json.RawMessage {
 			{
 				"properties": {"type": {"enum": ["upsert_dag"]}},
 				"required": ["name", "spec"]
+			},
+			{
+				"properties": {"type": {"enum": ["rename_dag"]}},
+				"required": ["type", "name", "newName"]
+			},
+			{
+				"properties": {"type": {"enum": ["delete_dag"]}},
+				"required": ["type", "name"]
 			},
 			{
 				"properties": {"type": {"enum": ["upsert_wiki_page", "upsert_doc"]}},
@@ -153,6 +170,10 @@ func (svc *Service) changeToolImpl(ctx context.Context, input changeInput) (*mcp
 	switch canonicalChangeType(input.Type) {
 	case changeTypeUpsertDAG:
 		return svc.changeDAG(ctx, input)
+	case changeTypeRenameDAG:
+		return svc.changeRenameDAG(ctx, input)
+	case changeTypeDeleteDAG:
+		return svc.changeDeleteDAG(ctx, input)
 	case changeTypeUpsertWikiPage:
 		return svc.changeUpsertWikiPage(ctx, input)
 	case changeTypeRenameWikiPage:
@@ -203,6 +224,62 @@ func (svc *Service) changeDAG(ctx context.Context, input changeInput) (*mcpsdk.C
 	output["updated"] = !created
 
 	return resultWithLinks("DAG change applied.", linkForDAGSpec(input.Name)), output, nil
+}
+
+func (svc *Service) changeRenameDAG(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	if _, err := svc.getDAGSpec(ctx, input.Name); err != nil {
+		return nil, nil, err
+	}
+	if _, err := svc.getDAGSpec(ctx, input.NewName); err == nil {
+		return nil, nil, dagstore.ErrDAGAlreadyExists
+	} else if !isDAGNotFound(err) {
+		return nil, nil, err
+	}
+
+	output := map[string]any{
+		"mode":       input.Mode,
+		"type":       input.Type,
+		"dagName":    input.Name,
+		"newDagName": input.NewName,
+		"valid":      true,
+		"applied":    false,
+		"references": defaultReferenceURIs(),
+		"dagUri":     dagSpecURI(input.Name),
+		"newDagUri":  dagSpecURI(input.NewName),
+	}
+	if input.Mode == changeModePreview {
+		return resultWithLinks("DAG rename is valid. Re-run with mode=apply to rename it.", linkForDAGSpec(input.Name)), output, nil
+	}
+	if err := svc.renameDAG(ctx, input.Name, input.NewName); err != nil {
+		return nil, nil, err
+	}
+	output["applied"] = true
+	return resultWithLinks("DAG rename applied.", linkForDAGSpec(input.NewName)), output, nil
+}
+
+func (svc *Service) changeDeleteDAG(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	if _, err := svc.getDAGSpec(ctx, input.Name); err != nil {
+		return nil, nil, err
+	}
+
+	output := map[string]any{
+		"mode":       input.Mode,
+		"type":       input.Type,
+		"dagName":    input.Name,
+		"valid":      true,
+		"applied":    false,
+		"references": defaultReferenceURIs(),
+		"dagUri":     dagSpecURI(input.Name),
+	}
+	if input.Mode == changeModePreview {
+		return resultWithLinks("DAG deletion is valid. Re-run with mode=apply to delete it.", linkForDAGSpec(input.Name)), output, nil
+	}
+	if err := svc.deleteDAG(ctx, input.Name); err != nil {
+		return nil, nil, err
+	}
+	output["applied"] = true
+	delete(output, "dagUri")
+	return resultWithLinks("DAG deletion applied."), output, nil
 }
 
 func (svc *Service) changeUpsertWikiPage(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
@@ -373,6 +450,8 @@ func parseChangeToolInput(raw json.RawMessage) (changeInput, *changeToolError) {
 			input.Type = strings.TrimSpace(text)
 		case changeFieldName:
 			input.Name = strings.TrimSpace(text)
+		case changeFieldNewName:
+			input.NewName = strings.TrimSpace(text)
 		case changeFieldSpec:
 			input.Spec = text
 		case changeFieldWorkspace:
@@ -414,6 +493,7 @@ func isChangeInputField(field string) bool {
 	case changeFieldMode,
 		changeFieldType,
 		changeFieldName,
+		changeFieldNewName,
 		changeFieldSpec,
 		changeFieldWorkspace,
 		changeFieldPath,
@@ -428,6 +508,8 @@ func isChangeInputField(field string) bool {
 func isSupportedChangeType(changeType string) bool {
 	switch canonicalChangeType(changeType) {
 	case changeTypeUpsertDAG,
+		changeTypeRenameDAG,
+		changeTypeDeleteDAG,
 		changeTypeUpsertWikiPage,
 		changeTypeRenameWikiPage,
 		changeTypeDeleteWikiPage:
@@ -462,6 +544,13 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		allowed[changeFieldName] = true
 		allowed[changeFieldSpec] = true
 		required = []string{changeFieldName, changeFieldSpec}
+	case changeTypeRenameDAG:
+		allowed[changeFieldName] = true
+		allowed[changeFieldNewName] = true
+		required = []string{changeFieldName, changeFieldNewName}
+	case changeTypeDeleteDAG:
+		allowed[changeFieldName] = true
+		required = []string{changeFieldName}
 	case changeTypeUpsertWikiPage:
 		allowed[changeFieldWorkspace] = true
 		allowed[changeFieldPath] = true
@@ -503,6 +592,24 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		}
 		if strings.TrimSpace(input.Spec) == "" {
 			return changeInputError(input, "The spec field is required.", changeFieldSpec)
+		}
+	case changeTypeRenameDAG, changeTypeDeleteDAG:
+		if input.Name == "" {
+			return changeInputError(input, "The name field is required.", changeFieldName)
+		}
+		if err := ir.ValidateDAGName(input.Name); err != nil {
+			return changeInputError(input, "Invalid DAG name: "+err.Error(), changeFieldName)
+		}
+		if changeType == changeTypeRenameDAG {
+			if input.NewName == "" {
+				return changeInputError(input, "The newName field is required.", changeFieldNewName)
+			}
+			if err := ir.ValidateDAGName(input.NewName); err != nil {
+				return changeInputError(input, "Invalid destination DAG name: "+err.Error(), changeFieldNewName)
+			}
+			if input.Name == input.NewName {
+				return changeInputError(input, "The newName field must differ from name.", changeFieldNewName)
+			}
 		}
 	default:
 		if input.Workspace == "" {
@@ -591,8 +698,13 @@ func classifyChangeToolError(input changeInput, err error) *changeToolError {
 	}
 
 	if isDAGNotFound(err) {
-		out.Code = changeErrorResourceUnavailable
-		out.Message = "The requested DAG resource is unavailable."
+		out.Code = changeErrorResourceNotFound
+		out.Message = "The requested DAG was not found."
+		return out
+	}
+	if errors.Is(err, dagstore.ErrDAGAlreadyExists) {
+		out.Code = changeErrorConflict
+		out.Message = "A DAG with the requested name already exists."
 		return out
 	}
 

@@ -75,3 +75,43 @@ func TestDocumentChangeAuditMetadataUsesWorkspaceAndContentSize(t *testing.T) {
 	require.Equal(t, "operations", metadata.Workspace)
 	require.Equal(t, len("# Restart"), metadata.Attributes["content_bytes"])
 }
+
+func TestDAGChangeAuditMetadata(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   changeInput
+		wantNew string
+	}{
+		{
+			name: "rename",
+			input: changeInput{
+				Mode:    changeModeApply,
+				Type:    changeTypeRenameDAG,
+				Name:    "old",
+				NewName: "new",
+			},
+			wantNew: "new",
+		},
+		{
+			name: "delete",
+			input: changeInput{
+				Mode: changeModeApply,
+				Type: changeTypeDeleteDAG,
+				Name: "old",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			metadata := changeAuditMetadata(test.input)
+
+			require.Equal(t, "dag", metadata.ResourceType)
+			require.Equal(t, test.input.Name, metadata.ResourceID)
+			require.Equal(t, test.input.Name, metadata.Attributes["dag_name"])
+			if test.wantNew != "" {
+				require.Equal(t, test.wantNew, metadata.Attributes["new_dag_name"])
+			}
+		})
+	}
+}

@@ -12,7 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,6 +38,141 @@ func TestServerExposesCompactToolSurface(t *testing.T) {
 	slices.Sort(names)
 
 	require.Equal(t, []string{toolChange, toolExecute, toolRead}, names)
+}
+
+func TestChangeToolRenamesAndDeletesDAG(t *testing.T) {
+	ctx := context.Background()
+	store := filedag.New(t.TempDir(), filedag.WithSkipExamples(true))
+	require.NoError(t, store.Create(ctx, "mcp-original", []byte(`
+name: mcp-original
+steps:
+  - run: echo hello
+`)))
+	require.NoError(t, store.Create(ctx, "mcp-existing", []byte(`
+name: mcp-existing
+steps:
+  - run: echo existing
+`)))
+	cfg := &config.Config{}
+	cfg.Server.Permissions = map[config.Permission]bool{config.PermissionWriteDAGs: true}
+	api := frontendapi.New(
+		store,
+		nil,
+		nil,
+		nil,
+		runtime.Manager{},
+		cfg,
+		nil,
+		nil,
+		prometheus.NewRegistry(),
+		nil,
+	)
+	session := connectTestClient(t, ctx, NewServer(api))
+
+	conflict := callTool(t, ctx, session, toolChange, changeInput{
+		Type:    changeTypeRenameDAG,
+		Name:    "mcp-original",
+		NewName: "mcp-existing",
+	})
+	require.True(t, conflict.IsError)
+	require.Equal(t, changeErrorConflict, structuredMap(t, conflict)["code"])
+
+	rename := changeInput{
+		Type:    changeTypeRenameDAG,
+		Name:    "mcp-original",
+		NewName: "mcp-renamed",
+	}
+	preview := callTool(t, ctx, session, toolChange, rename)
+	require.False(t, preview.IsError)
+	require.Equal(t, false, structuredMap(t, preview)["applied"])
+	_, err := store.GetSpec(ctx, rename.Name)
+	require.NoError(t, err)
+	_, err = store.GetSpec(ctx, rename.NewName)
+	require.ErrorIs(t, err, dagstore.ErrDAGNotFound)
+
+	rename.Mode = changeModeApply
+	applied := callTool(t, ctx, session, toolChange, rename)
+	require.False(t, applied.IsError)
+	require.Equal(t, true, structuredMap(t, applied)["applied"])
+	require.Equal(t, dagSpecURI(rename.NewName), structuredMap(t, applied)["newDagUri"])
+	_, err = store.GetSpec(ctx, rename.Name)
+	require.ErrorIs(t, err, dagstore.ErrDAGNotFound)
+	spec, err := store.GetSpec(ctx, rename.NewName)
+	require.NoError(t, err)
+	require.Contains(t, spec, "name: mcp-original")
+
+	remove := changeInput{Type: changeTypeDeleteDAG, Name: rename.NewName}
+	preview = callTool(t, ctx, session, toolChange, remove)
+	require.False(t, preview.IsError)
+	_, err = store.GetSpec(ctx, remove.Name)
+	require.NoError(t, err)
+
+	remove.Mode = changeModeApply
+	deleted := callTool(t, ctx, session, toolChange, remove)
+	require.False(t, deleted.IsError)
+	require.Equal(t, true, structuredMap(t, deleted)["applied"])
+	_, err = store.GetSpec(ctx, remove.Name)
+	require.ErrorIs(t, err, dagstore.ErrDAGNotFound)
+
+	missing := callTool(t, ctx, session, toolChange, remove)
+	require.True(t, missing.IsError)
+	require.Equal(t, changeErrorResourceNotFound, structuredMap(t, missing)["code"])
+}
+
+func TestDAGChangeInputValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantField string
+	}{
+		{
+			name:  "rename",
+			input: `{"type":"rename_dag","name":"old","newName":"new"}`,
+		},
+		{
+			name:  "delete",
+			input: `{"type":"delete_dag","name":"old"}`,
+		},
+		{
+			name:      "rename requires destination",
+			input:     `{"type":"rename_dag","name":"old"}`,
+			wantField: changeFieldNewName,
+		},
+		{
+			name:      "rename rejects blank destination",
+			input:     `{"type":"rename_dag","name":"old","newName":" "}`,
+			wantField: changeFieldNewName,
+		},
+		{
+			name:      "rename requires different destination",
+			input:     `{"type":"rename_dag","name":"old","newName":"old"}`,
+			wantField: changeFieldNewName,
+		},
+		{
+			name:      "rename validates destination",
+			input:     `{"type":"rename_dag","name":"old","newName":"bad name"}`,
+			wantField: changeFieldNewName,
+		},
+		{
+			name:      "delete rejects spec",
+			input:     `{"type":"delete_dag","name":"old","spec":"steps: []"}`,
+			wantField: changeFieldSpec,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input, changeErr := parseChangeToolInput(json.RawMessage(test.input))
+			if test.wantField == "" {
+				require.Nil(t, changeErr)
+				require.Equal(t, changeModePreview, input.Mode)
+				return
+			}
+			require.NotNil(t, changeErr)
+			require.Equal(t, changeErrorInvalidToolInput, changeErr.Code)
+			require.Equal(t, test.wantField, changeErr.Field)
+		})
+	}
 }
 
 func TestExecuteToolSupportsNoReuse(t *testing.T) {

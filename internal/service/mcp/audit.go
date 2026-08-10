@@ -245,8 +245,9 @@ func changeAuditMetadata(input changeInput) toolAuditMetadata {
 	}
 	changeType := strings.TrimSpace(input.Type)
 	if changeType == "" {
-		changeType = "upsert_dag"
+		changeType = changeTypeUpsertDAG
 	}
+	canonicalType := canonicalChangeType(changeType)
 	resourceType := "dag"
 	resourceID := input.Name
 	attributes := map[string]any{
@@ -254,10 +255,16 @@ func changeAuditMetadata(input changeInput) toolAuditMetadata {
 		"type": changeType,
 	}
 	workspace := ""
-	if changeType == changeTypeUpsertDAG {
+	switch canonicalType {
+	case changeTypeUpsertDAG:
 		attributes["dag_name"] = input.Name
 		attributes["spec_bytes"] = len(input.Spec)
-	} else {
+	case changeTypeRenameDAG:
+		attributes["dag_name"] = input.Name
+		attributes["new_dag_name"] = input.NewName
+	case changeTypeDeleteDAG:
+		attributes["dag_name"] = input.Name
+	default:
 		resourceType = "doc"
 		resourceID = input.Path
 		workspace = input.Workspace
@@ -265,7 +272,7 @@ func changeAuditMetadata(input changeInput) toolAuditMetadata {
 		if input.NewPath != "" {
 			attributes["new_path"] = input.NewPath
 		}
-		if changeType == changeTypeUpsertWikiPage || changeType == legacyChangeTypeUpsertDoc {
+		if canonicalType == changeTypeUpsertWikiPage {
 			attributes["content_bytes"] = len(input.Content)
 		}
 	}

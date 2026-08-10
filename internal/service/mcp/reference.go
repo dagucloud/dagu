@@ -184,13 +184,15 @@ Errors:
 			description: "Detailed dagu_change input, output, and error reference.",
 			text: `# dagu_change reference
 
-Purpose: validate or write DAG YAML and Markdown Wiki changes.
+Purpose: validate or apply DAG definition and Markdown Wiki changes.
 
 Fields:
 
 - mode: preview or apply. Defaults to preview.
-- type: upsert_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. Defaults to upsert_dag. The upsert_doc, rename_doc, and delete_doc aliases are deprecated.
-- name and spec: required for upsert_dag.
+- type: upsert_dag, rename_dag, delete_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. Defaults to upsert_dag. The upsert_doc, rename_doc, and delete_doc aliases are deprecated.
+- name: DAG name. Required for DAG changes.
+- spec: complete DAG YAML. Required for upsert_dag.
+- newName: destination DAG name. Required for rename_dag.
 - workspace: default or a named workspace. Required for Wiki changes; all is not allowed.
 - path: Wiki page or directory path without .md. Required for Wiki changes.
 - content: full Markdown content. Required for upsert_wiki_page; empty content is allowed.
@@ -198,15 +200,17 @@ Fields:
 
 Mode behavior:
 
-- preview validates the requested operation and reads enough current state to report whether it can target a file or directory, without writing.
-- apply repeats validation and performs the requested operation through Dagu's workspace-aware Wiki API.
+- preview validates the requested operation and reads the required current state without writing.
+- apply repeats validation and performs the requested operation through Dagu's API; Wiki operations remain workspace-aware.
+- rename_dag changes the stored DAG identifier without rewriting the YAML name or historical runs.
+- delete_dag removes the DAG definition using Dagu's existing deletion behavior.
 - upsert_wiki_page creates a missing page or updates an existing page.
 - rename_wiki_page and delete_wiki_page support pages and directories.
 
 Output:
 
-- Successful result text is Dagu change completed.
-- DAG output has dagName, valid, errors, applied, and dagUri.
+- Successful result text describes the previewed or applied change.
+- DAG output has dagName, valid, applied, and dagUri while the target exists. Upsert output also has errors; rename output has newDagName and newDagUri.
 - Wiki output has workspace, path, valid, applied, and wikiPageUri when the target is a page. docUri remains as a compatibility alias.
 
 Errors:
@@ -214,7 +218,7 @@ Errors:
 - invalid_tool_input for missing or incompatible fields, invalid paths, unknown mode, unknown type, or malformed input.
 - unauthorized when the caller cannot perform the requested write.
 - resource_not_found when a rename or delete source does not exist.
-- conflict when a Wiki path conflicts with another file or directory.
+- conflict when a DAG rename destination exists or a Wiki path conflicts with another file or directory.
 - internal_error for unexpected failures.`,
 		},
 		{
