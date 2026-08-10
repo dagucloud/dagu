@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
@@ -157,14 +158,17 @@ func (c *Coordinator) StartPeer(t *testing.T) *Coordinator {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err, "failed to create peer coordinator listener")
 	port := listener.Addr().(*net.TCPAddr).Port
+	peerHelper := c.Helper
+	peerHelper.ServiceRegistry = file.NewServiceRegistry(c.Config)
 	peer := &Coordinator{
-		Helper:         c.Helper,
+		Helper:         peerHelper,
 		handlerConfig:  c.handlerConfig,
 		host:           "127.0.0.1",
 		port:           port,
-		advertisedHost: c.advertisedHost,
-		advertisedPort: c.advertisedPort,
+		advertisedHost: "127.0.0.1",
+		advertisedPort: port,
 		instanceID:     "test-coordinator-peer",
+		register:       true,
 		logDir:         c.logDir,
 	}
 	peer.start(t, listener)

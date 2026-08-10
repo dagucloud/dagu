@@ -2409,6 +2409,15 @@ func (h *Handler) StartZombieDetector(ctx context.Context, interval time.Duratio
 
 	go func() {
 		defer close(h.zombieDetectorDone)
+		if h.dagRunLeaseStore != nil {
+			timer := time.NewTimer(h.staleLeaseThreshold)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
 		h.detectAndCleanupZombies(ctx)
 
 		ticker := time.NewTicker(interval)

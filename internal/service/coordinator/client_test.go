@@ -1316,6 +1316,37 @@ func TestClientOwnerCallRetriesLegacyNonOwnerRejection(t *testing.T) {
 	require.True(t, resp.Accepted)
 }
 
+func TestClientOwnerCallRetriesLegacyClaimEndpointRejection(t *testing.T) {
+	t.Parallel()
+
+	ownerServer, ownerAddr := startMockServer(t, &mockCoordinatorService{
+		ackTaskClaimFunc: func(context.Context, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+			return &coordinatorv1.AckTaskClaimResponse{
+				Error: "claim belongs to a different coordinator endpoint",
+			}, nil
+		},
+	})
+	defer ownerServer.Stop()
+	replacementServer, replacementAddr := startMockServer(t, &mockCoordinatorService{
+		ackTaskClaimFunc: func(context.Context, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+			return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
+		},
+	})
+	defer replacementServer.Stop()
+
+	ownerHost, ownerPort := parseHostPort(ownerAddr)
+	replacementHost, replacementPort := parseHostPort(replacementAddr)
+	owner := serviceregistry.HostInfo{ID: "coord-a", Host: ownerHost, Port: ownerPort, Status: serviceregistry.ServiceStatusActive}
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{
+		owner,
+		{ID: "coord-b", Host: replacementHost, Port: replacementPort, Status: serviceregistry.ServiceStatusActive},
+	}}, coordinator.DefaultConfig())
+
+	resp, err := client.AckTaskClaimTo(t.Context(), owner, &coordinatorv1.AckTaskClaimRequest{})
+	require.NoError(t, err)
+	require.True(t, resp.Accepted)
+}
+
 func TestClientOwnerStreamMovesAfterLegacyNonOwnerRejection(t *testing.T) {
 	t.Parallel()
 
@@ -1363,7 +1394,7 @@ func TestClientOwnerStreamMovesAfterLegacyNonOwnerRejection(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, stream.Send(&coordinatorv1.LogChunk{Data: []byte("old")}))
 	_, err = stream.CloseAndRecv()
-	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, codes.Unavailable, status.Code(err))
 
 	stream, err = client.StreamLogsTo(t.Context(), owner)
 	require.NoError(t, err)
@@ -1980,6 +2011,7 @@ type mockCoordinatorService struct {
 
 	dispatchFunc     func(context.Context, *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error)
 	pollFunc         func(context.Context, *coordinatorv1.PollRequest) (*coordinatorv1.PollResponse, error)
+	ackTaskClaimFunc func(context.Context, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error)
 	getWorkersFunc   func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error)
 	heartbeatFunc    func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
 	reportStatusFunc func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
@@ -2013,6 +2045,13 @@ func (m *mockCoordinatorService) Dispatch(ctx context.Context, req *coordinatorv
 func (m *mockCoordinatorService) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*coordinatorv1.PollResponse, error) {
 	if m.pollFunc != nil {
 		return m.pollFunc(ctx, req)
+	}
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (m *mockCoordinatorService) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
+	if m.ackTaskClaimFunc != nil {
+		return m.ackTaskClaimFunc(ctx, req)
 	}
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }

@@ -2104,6 +2104,59 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.Equal(t, ir.Failed, s.Status)
 	})
 
+	t.Run("StartZombieDetectorDefersSharedLeaseCleanup", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		threshold := coordinatorTestTimeout(300 * time.Millisecond)
+		h := NewHandler(HandlerConfig{
+			DAGRunStore:         store,
+			DAGRunLeaseStore:    leaseStore,
+			StaleLeaseThreshold: threshold,
+			Owner: dispatch.CoordinatorEndpoint{
+				ID: "coord-b", Host: "127.0.0.1", Port: 4321,
+			},
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		defer func() {
+			cancel()
+			h.WaitZombieDetector()
+		}()
+
+		ref := ir.NewDAGRunRef("test-dag", "run-123")
+		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			Root:       ref,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     ir.Running,
+			WorkerID:   "worker-1",
+		})
+		staleAt := time.Now().Add(-threshold - time.Second).UTC()
+		require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+			AttemptKey: "attempt-key-1",
+			DAGRun:     ref,
+			Root:       ref,
+			AttemptID:  "attempt-1",
+			QueueName:  ref.Name,
+			WorkerID:   "worker-1",
+			Owner: dispatch.CoordinatorEndpoint{
+				ID: "coord-a", Host: "127.0.0.1", Port: 1234,
+			},
+			ClaimedAt:       staleAt.UnixMilli(),
+			LastHeartbeatAt: staleAt.UnixMilli(),
+		}))
+
+		h.StartZombieDetector(ctx, threshold/10)
+		time.Sleep(threshold / 3)
+		assert.False(t, attempt.WasWritten())
+		lease, err := leaseStore.Get(ctx, "attempt-key-1")
+		require.NoError(t, err)
+		assert.Equal(t, staleAt.UnixMilli(), lease.LastHeartbeatAt)
+	})
+
 	t.Run("DetectStaleLeasesOnlyFailsRunningDistributedRuns", func(t *testing.T) {
 		t.Parallel()
 

@@ -163,14 +163,12 @@ type ownerLogStream struct {
 
 func (s *ownerLogStream) Send(chunk *coordinatorv1.LogChunk) error {
 	err := s.CoordinatorService_StreamLogsClient.Send(chunk)
-	s.client.handleOwnerStreamError(s.owner, s.member, err)
-	return err
+	return s.client.ownerStreamError(s.owner, s.member, err)
 }
 
 func (s *ownerLogStream) CloseAndRecv() (*coordinatorv1.StreamLogsResponse, error) {
 	resp, err := s.CoordinatorService_StreamLogsClient.CloseAndRecv()
-	s.client.handleOwnerStreamError(s.owner, s.member, err)
-	return resp, err
+	return resp, s.client.ownerStreamError(s.owner, s.member, err)
 }
 
 type ownerArtifactStream struct {
@@ -182,14 +180,12 @@ type ownerArtifactStream struct {
 
 func (s *ownerArtifactStream) Send(chunk *coordinatorv1.ArtifactChunk) error {
 	err := s.CoordinatorService_StreamArtifactsClient.Send(chunk)
-	s.client.handleOwnerStreamError(s.owner, s.member, err)
-	return err
+	return s.client.ownerStreamError(s.owner, s.member, err)
 }
 
 func (s *ownerArtifactStream) CloseAndRecv() (*coordinatorv1.StreamArtifactsResponse, error) {
 	resp, err := s.CoordinatorService_StreamArtifactsClient.CloseAndRecv()
-	s.client.handleOwnerStreamError(s.owner, s.member, err)
-	return resp, err
+	return resp, s.client.ownerStreamError(s.owner, s.member, err)
 }
 
 // grpcMaxMsgSize is the maximum message size for gRPC calls.
@@ -764,15 +760,19 @@ func (cli *clientImpl) removeClient(member serviceregistry.HostInfo) {
 	}
 }
 
-func (cli *clientImpl) handleOwnerStreamError(owner, member serviceregistry.HostInfo, err error) {
+func (cli *clientImpl) ownerStreamError(owner, member serviceregistry.HostInfo, err error) error {
 	if err == nil || !isOwnerFailoverError(err) {
-		return
+		return err
 	}
 	cli.forgetOwnerRoute(owner, member)
 	if isLegacyOwnerRejection(err) {
 		cli.rememberOwnerFailure(owner, member)
 		cli.removeClient(member)
+		if st, ok := status.FromError(err); ok {
+			return status.Error(codes.Unavailable, st.Message())
+		}
 	}
+	return err
 }
 
 func (cli *clientImpl) forgetOwnerRoute(owner, failed serviceregistry.HostInfo) {
@@ -1165,6 +1165,9 @@ func (cli *clientImpl) AckTaskClaimTo(ctx context.Context, owner serviceregistry
 		resp, callErr = client.client.AckTaskClaim(ctx, req)
 		if callErr != nil {
 			return fmt.Errorf("ack task claim failed: %w", callErr)
+		}
+		if resp != nil && !resp.Accepted && resp.Error == "claim belongs to a different coordinator endpoint" {
+			return status.Error(codes.Unavailable, resp.Error)
 		}
 		return nil
 	})

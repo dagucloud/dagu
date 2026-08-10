@@ -354,6 +354,7 @@ steps:
 
 	peer := f.coord.StartPeer(t)
 	require.NotEqual(t, initialOwner.ID, peer.InstanceID())
+	require.NotEqual(t, f.coord.Address(), peer.Address())
 	heartbeatResp, err := peer.RunHeartbeat(t, &coordinatorv1.RunHeartbeatRequest{
 		WorkerId:           initialLease.WorkerID,
 		OwnerCoordinatorId: initialOwner.ID,
@@ -367,15 +368,13 @@ steps:
 	assert.Empty(t, heartbeatResp.CancelledRuns)
 
 	require.NoError(t, f.coord.Stop())
+	failoverStartedAt := time.Now().UTC()
 	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0o600))
 	select {
 	case <-logObserver.failed:
 	case <-time.After(distrTestTimeout(runningTimeout)):
 		t.Fatal("step log writer did not observe the stopped coordinator before closing")
 	}
-	f.coord.StartReplacement(t)
-	require.NotEqual(t, initialOwner.ID, f.coord.InstanceID())
-	replacementReadyAt := time.Now().UTC()
 
 	var refreshedLease *dispatch.DAGRunLease
 	require.Eventually(t, func() bool {
@@ -388,12 +387,12 @@ steps:
 		if err != nil || lease == nil || lease.LastHeartbeatAt <= initialHeartbeat {
 			return false
 		}
-		if !time.UnixMilli(lease.LastHeartbeatAt).After(replacementReadyAt.Add(leaseThreshold)) {
+		if !time.UnixMilli(lease.LastHeartbeatAt).After(failoverStartedAt.Add(leaseThreshold)) {
 			return false
 		}
 		refreshedLease = lease
 		return true
-	}, distrTestTimeout(replacementTimeout), 100*time.Millisecond, "replacement coordinator should refresh the original attempt lease")
+	}, distrTestTimeout(replacementTimeout), 100*time.Millisecond, "peer coordinator should refresh the original attempt lease")
 	require.NotNil(t, refreshedLease)
 	assert.Equal(t, initialOwner, refreshedLease.Owner)
 
