@@ -272,11 +272,6 @@ func (h *Handler) eventContext(ctx context.Context) context.Context {
 	})
 }
 
-func sameCoordinatorAddress(a, b dispatch.CoordinatorEndpoint) bool {
-	return a.Host != "" && a.Port > 0 && b.Host != "" && b.Port > 0 &&
-		a.Host == b.Host && a.Port == b.Port
-}
-
 func (h *Handler) dispatchWakeSnapshot() (int64, <-chan struct{}) {
 	h.dispatchWakeMu.Lock()
 	defer h.dispatchWakeMu.Unlock()
@@ -1144,8 +1139,7 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 			if req.AttemptKey != "" && req.WorkerId != "" {
 				lease, leaseErr := h.dagRunLeaseStore.Get(ctx, req.AttemptKey)
 				if leaseErr == nil && lease.MatchesClaim(req.AttemptKey, req.WorkerId) &&
-					lease.ClaimToken == req.ClaimToken &&
-					(lease.Owner.Host == "" || h.owner.Host == "" || sameCoordinatorAddress(lease.Owner, h.owner)) {
+					lease.ClaimToken == req.ClaimToken {
 					return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 				}
 				if leaseErr != nil && !errors.Is(leaseErr, dispatch.ErrDAGRunLeaseNotFound) {
@@ -1166,10 +1160,6 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	if claimOwner == (dispatch.CoordinatorEndpoint{}) {
 		claimOwner = claimed.Task.Owner
 	}
-	if claimOwner.Host != "" && h.owner.Host != "" && !sameCoordinatorAddress(claimOwner, h.owner) {
-		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim belongs to a different coordinator endpoint"}, nil
-	}
-
 	workerID := req.WorkerId
 	if workerID == "" {
 		workerID = claimed.WorkerID

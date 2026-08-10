@@ -128,7 +128,7 @@ func TestArtifactHandlerHandleStreamWritesFinalChunkPayload(t *testing.T) {
 	assert.Equal(t, []byte("hello"), content)
 }
 
-func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtSharedEndpoint(t *testing.T) {
+func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtDifferentCoordinatorEndpoint(t *testing.T) {
 	t.Parallel()
 
 	store := newMockDAGRunStore()
@@ -154,7 +154,7 @@ func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtSharedEndpoint(t *testing.T
 		DAGRunStore:      store,
 		ArtifactDir:      archiveDir,
 		DAGRunLeaseStore: leaseStore,
-		Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator", Port: 50055},
+		Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator-b", Port: 50056},
 	})
 	stream := &mockStreamArtifactsServer{
 		ctx: t.Context(),

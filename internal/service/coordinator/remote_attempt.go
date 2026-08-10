@@ -240,9 +240,6 @@ func (h *Handler) validateRemoteAttemptLease(lease *dispatch.DAGRunLease, identi
 		(!lease.Root.Zero() && lease.Root != identity.root) {
 		return status.Error(codes.FailedPrecondition, remoteAttemptRejectedSuperseded)
 	}
-	if lease.Owner.Host != "" && h.owner.Host != "" && !sameCoordinatorAddress(lease.Owner, h.owner) {
-		return status.Error(codes.FailedPrecondition, "attempt belongs to a different coordinator endpoint")
-	}
 	if identity.claimKey != identity.attemptKey {
 		if lease.DAGRun != identity.root {
 			return status.Error(codes.FailedPrecondition, remoteAttemptRejectedSuperseded)

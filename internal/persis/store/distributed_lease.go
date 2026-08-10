@@ -139,9 +139,7 @@ func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLe
 		(!current.Root.Zero() && !incoming.Root.Zero() && current.Root != incoming.Root) ||
 		(current.AttemptID != "" && incoming.AttemptID != "" && current.AttemptID != incoming.AttemptID) ||
 		(current.WorkerID != "" && incoming.WorkerID != "" && current.WorkerID != incoming.WorkerID) ||
-		(current.ClaimToken != "" && incoming.ClaimToken != "" && current.ClaimToken != incoming.ClaimToken) ||
-		(current.Owner.Host != "" && incoming.Owner.Host != "" &&
-			(current.Owner.Host != incoming.Owner.Host || current.Owner.Port != incoming.Owner.Port)) {
+		(current.ClaimToken != "" && incoming.ClaimToken != "" && current.ClaimToken != incoming.ClaimToken) {
 		return dispatch.DAGRunLease{}, dispatch.ErrDAGRunLeaseConflict
 	}
 	if current.DAGRun == (ir.DAGRunRef{}) {

@@ -187,7 +187,7 @@ func TestDAGRunLeaseStore_SharedFileInstancesPreserveLeaseIdentity(t *testing.T)
 	go func() {
 		<-start
 		replacement := lease
-		replacement.Owner.ID = "coord-b"
+		replacement.Owner = dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator-b", Port: 50056}
 		replacement.LastHeartbeatAt = initialHeartbeat.Add(10 * time.Second).UnixMilli()
 		errCh <- second.Upsert(ctx, replacement)
 	}()

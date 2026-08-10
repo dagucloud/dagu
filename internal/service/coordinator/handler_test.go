@@ -1596,10 +1596,11 @@ func TestHandler_Heartbeat(t *testing.T) {
 		assert.Equal(t, "missing-attempt-key", resp.CancelledRuns[0].AttemptKey)
 	})
 
-	t.Run("RunHeartbeatCancelsAttemptOwnedByDifferentEndpoint", func(t *testing.T) {
+	t.Run("RunHeartbeatAcceptsAttemptFromDifferentCoordinatorEndpoint", func(t *testing.T) {
 		t.Parallel()
 
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		initialHeartbeat := time.Now().UTC().Add(-time.Minute)
 		require.NoError(t, leaseStore.Upsert(t.Context(), dispatch.DAGRunLease{
 			AttemptKey:      "attempt-key-1",
 			DAGRun:          ir.NewDAGRunRef("test-dag", "run-123"),
@@ -1607,7 +1608,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 			AttemptID:       "attempt-1",
 			WorkerID:        "worker-1",
 			Owner:           dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator-b", Port: 50055},
-			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+			LastHeartbeatAt: initialHeartbeat.UnixMilli(),
 		}))
 		h := NewHandler(HandlerConfig{
 			DAGRunLeaseStore: leaseStore,
@@ -1625,45 +1626,13 @@ func TestHandler_Heartbeat(t *testing.T) {
 			}},
 		})
 		require.NoError(t, err)
-		require.Len(t, resp.CancelledRuns, 1)
-		assert.Equal(t, "attempt-key-1", resp.CancelledRuns[0].AttemptKey)
-	})
-
-	t.Run("RunHeartbeatAcceptsPreviousOwnerAtSharedEndpoint", func(t *testing.T) {
-		t.Parallel()
-
-		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
-		initialHeartbeat := time.Now().UTC().Add(-time.Minute)
-		require.NoError(t, leaseStore.Upsert(t.Context(), dispatch.DAGRunLease{
-			AttemptKey:      "attempt-key-1",
-			DAGRun:          ir.NewDAGRunRef("test-dag", "run-123"),
-			Root:            ir.NewDAGRunRef("test-dag", "run-123"),
-			AttemptID:       "attempt-1",
-			WorkerID:        "worker-1",
-			Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 50055},
-			LastHeartbeatAt: initialHeartbeat.UnixMilli(),
-		}))
-		h := NewHandler(HandlerConfig{
-			DAGRunLeaseStore: leaseStore,
-			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator", Port: 50055},
-		})
-
-		resp, err := h.RunHeartbeat(t.Context(), &coordinatorv1.RunHeartbeatRequest{
-			WorkerId:           "worker-1",
-			OwnerCoordinatorId: "coord-a",
-			RunningTasks: []*coordinatorv1.RunningTask{{
-				AttemptKey: "attempt-key-1",
-				DagRunId:   "run-123",
-				DagName:    "test-dag",
-			}},
-		})
-		require.NoError(t, err)
 		require.NotNil(t, resp)
+		assert.Empty(t, resp.CancelledRuns)
 
 		lease, err := leaseStore.Get(t.Context(), "attempt-key-1")
 		require.NoError(t, err)
 		assert.Greater(t, lease.LastHeartbeatAt, initialHeartbeat.UnixMilli())
-		assert.Equal(t, "coord-a", lease.Owner.ID)
+		assert.Equal(t, "coord-b", lease.Owner.ID)
 	})
 
 	t.Run("HeartbeatSkipsLeaseRefreshOnAttemptKeyMismatch", func(t *testing.T) {
@@ -4490,7 +4459,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 			DispatchTaskStore:         dispatchStore,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
-			Owner:                     dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator", Port: 1234},
+			Owner:                     dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator-b", Port: 5678},
 		})
 		ctx := context.Background()
 
@@ -4508,7 +4477,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		claimed, err := dispatchStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{
 			WorkerID: "worker-1",
 			PollerID: "poller-1",
-			Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 1234},
+			Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator-a", Port: 1234},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, claimed)
@@ -4526,7 +4495,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "queue-a", lease.QueueName)
 		assert.Equal(t, "worker-1", lease.WorkerID)
-		assert.Equal(t, dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator", Port: 1234}, lease.Owner)
+		assert.Equal(t, dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator-a", Port: 1234}, lease.Owner)
 		assert.Equal(t, claimed.ClaimToken, lease.ClaimToken)
 
 		record, err := activeStore.Get(ctx, "attempt-key-1")
@@ -5069,7 +5038,7 @@ func TestHandler_StreamLogs_Full(t *testing.T) {
 		assert.Equal(t, uint64(14), stream.response.BytesWritten)
 	})
 
-	t.Run("AcceptsPreviousOwnerAtSharedEndpoint", func(t *testing.T) {
+	t.Run("AcceptsPreviousOwnerAtDifferentCoordinatorEndpoint", func(t *testing.T) {
 		t.Parallel()
 
 		logDir := t.TempDir()
@@ -5087,7 +5056,7 @@ func TestHandler_StreamLogs_Full(t *testing.T) {
 		h := NewHandler(HandlerConfig{
 			LogDir:           logDir,
 			DAGRunLeaseStore: leaseStore,
-			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator", Port: 50055},
+			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator-b", Port: 50056},
 		})
 		stream := &mockStreamLogsServer{
 			ctx: t.Context(),
@@ -5178,47 +5147,6 @@ func TestHandler_StreamLogs_Full(t *testing.T) {
 		assert.Equal(t, "child output\n", string(content))
 	})
 
-	t.Run("RejectsForeignOwnerAtDifferentEndpoint", func(t *testing.T) {
-		t.Parallel()
-
-		logDir := t.TempDir()
-		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
-		attemptKey := ir.GenerateAttemptKey("test-dag", "run-123", "test-dag", "run-123", "attempt-1")
-		require.NoError(t, leaseStore.Upsert(t.Context(), dispatch.DAGRunLease{
-			AttemptKey:      attemptKey,
-			DAGRun:          ir.NewDAGRunRef("test-dag", "run-123"),
-			Root:            ir.NewDAGRunRef("test-dag", "run-123"),
-			AttemptID:       "attempt-1",
-			WorkerID:        "worker-1",
-			Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "coordinator-a", Port: 50055},
-			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-		}))
-		h := NewHandler(HandlerConfig{
-			LogDir:           logDir,
-			DAGRunLeaseStore: leaseStore,
-			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator-b", Port: 50055},
-		})
-		stream := &mockStreamLogsServer{
-			ctx: t.Context(),
-			chunks: []*coordinatorv1.LogChunk{{
-				WorkerId:           "worker-1",
-				DagName:            "test-dag",
-				DagRunId:           "run-123",
-				AttemptId:          "attempt-1",
-				StepName:           "step1",
-				StreamType:         coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
-				Data:               []byte("rejected\n"),
-				OwnerCoordinatorId: "coord-a",
-				AttemptKey:         attemptKey,
-			}},
-		}
-
-		err := h.StreamLogs(stream)
-		require.Error(t, err)
-		st, ok := status.FromError(err)
-		require.True(t, ok)
-		assert.Equal(t, codes.FailedPrecondition, st.Code())
-	})
 }
 
 func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
