@@ -1337,19 +1337,22 @@ func (cli *clientImpl) GetDAGRunStatus(ctx context.Context, dagName, dagRunID st
 	}
 
 	var resp *coordinatorv1.GetDAGRunStatusResponse
-	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.GetDAGRunStatus(ctx, req)
 		if callErr != nil {
 			return fmt.Errorf("get DAG run status failed: %w", callErr)
 		}
+		if resp == nil {
+			return fmt.Errorf("coordinator %s returned empty DAG run status response", member.ID)
+		}
+		if resp.Error != "" {
+			return fmt.Errorf("coordinator %s failed to get DAG run status: %s", member.ID, resp.Error)
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	if resp == nil {
-		return nil, fmt.Errorf("coordinator returned empty DAG run status response")
 	}
 
 	result := &dispatch.DAGRunStatusResult{Found: resp.Found}

@@ -671,9 +671,15 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 			return nil, staleQueueDispatchError("latest attempt is " + statusLabel)
 		}
 	}
+	if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
+		return nil, fmt.Errorf("failed to find existing attempt: %w", findErr)
+	}
 	if findErr == nil {
 		existingStatus, readErr := existingAttempt.ReadStatus(ctx)
-		if readErr == nil && existingStatus != nil && existingStatus.Status == ir.Queued {
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read existing attempt: %w", readErr)
+		}
+		if existingStatus != nil && existingStatus.Status == ir.Queued {
 			task.AttemptId = existingAttempt.ID()
 			task.AttemptKey = generateRootAttemptKey(task)
 
@@ -711,8 +717,9 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		return nil, fmt.Errorf("failed to open attempt: %w", err)
 	}
 
-	if err := h.writeInitialStatus(ctx, attempt, task, dag.Name, ir.DAGRunRef{}, labels); err != nil {
-		return nil, fmt.Errorf("failed to write initial status: %w", err)
+	if writeErr := h.writeInitialStatus(ctx, attempt, task, dag.Name, ir.DAGRunRef{}, labels); writeErr != nil {
+		closeErr := attempt.Close(context.WithoutCancel(ctx))
+		return nil, errors.Join(fmt.Errorf("failed to write initial status: %w", writeErr), closeErr)
 	}
 
 	h.attemptsMu.Lock()
@@ -771,11 +778,6 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 
 	rootRef := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 
-	attempt, err := h.dagRunStore.CreateSubAttempt(ctx, rootRef, task.DagRunId)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create sub-attempt: %w", err)
-	}
-
 	loadOpts := []spec.LoadOption{spec.WithName(task.Target)}
 	if task.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
@@ -787,6 +789,11 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 	dag.SourceFile = task.SourceFile
 	labels := labelsForInitialStatus(task, dag)
 	task.Labels = strings.Join(labels, ",")
+
+	attempt, err := h.dagRunStore.CreateSubAttempt(ctx, rootRef, task.DagRunId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create sub-attempt: %w", err)
+	}
 	attempt.SetDAG(dag)
 
 	task.AttemptId = attempt.ID()
@@ -799,8 +806,9 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 		return nil, fmt.Errorf("failed to open sub-attempt: %w", err)
 	}
 
-	if err := h.writeInitialStatus(ctx, attempt, task, task.Target, rootRef, labels); err != nil {
-		return nil, fmt.Errorf("failed to write initial status: %w", err)
+	if writeErr := h.writeInitialStatus(ctx, attempt, task, task.Target, rootRef, labels); writeErr != nil {
+		closeErr := attempt.Close(context.WithoutCancel(ctx))
+		return nil, errors.Join(fmt.Errorf("failed to write initial status: %w", writeErr), closeErr)
 	}
 
 	h.attemptsMu.Lock()
@@ -2350,27 +2358,23 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 		attempt, err = h.dagRunStore.FindAttempt(ctx, ref)
 	}
 
-	if err != nil {
-		// Not found is not an error, just return found=false
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
 		return &coordinatorv1.GetDAGRunStatusResponse{
 			Found: false,
 		}, nil
+	}
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to find DAG run status: "+err.Error())
 	}
 
 	runStatus, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		return &coordinatorv1.GetDAGRunStatusResponse{
-			Found: false,
-			Error: fmt.Sprintf("failed to read status: %v", err),
-		}, nil
+		return nil, status.Error(codes.Internal, "failed to read DAG run status: "+err.Error())
 	}
 
 	protoStatus, convErr := convert.DAGRunStatusToProto(runStatus)
 	if convErr != nil {
-		return &coordinatorv1.GetDAGRunStatusResponse{
-			Found: false,
-			Error: fmt.Sprintf("failed to convert status: %v", convErr),
-		}, nil
+		return nil, status.Error(codes.Internal, "failed to convert DAG run status: "+convErr.Error())
 	}
 
 	return &coordinatorv1.GetDAGRunStatusResponse{

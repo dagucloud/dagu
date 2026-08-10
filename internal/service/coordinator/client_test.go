@@ -1854,6 +1854,34 @@ func TestClientReportStatus(t *testing.T) {
 	})
 }
 
+func TestClientGetDAGRunStatusReturnsResponseError(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.MaxRetries = 0
+	config.RequestTimeout = 100 * time.Millisecond
+
+	mockCoord := &mockCoordinatorService{
+		getRunStatusFunc: func(_ context.Context, req *coordinatorv1.GetDAGRunStatusRequest) (*coordinatorv1.GetDAGRunStatusResponse, error) {
+			assert.Equal(t, "test-dag", req.DagName)
+			assert.Equal(t, "run-123", req.DagRunId)
+			return &coordinatorv1.GetDAGRunStatusResponse{Error: "failed to read status: storage unavailable"}, nil
+		},
+	}
+
+	server, addr := startMockServer(t, mockCoord)
+	defer server.Stop()
+
+	host, port := parseHostPort(addr)
+	monitor := &mockServiceMonitor{
+		members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
+	}
+	client := coordinator.New(monitor, config)
+
+	_, err := client.GetDAGRunStatus(context.Background(), "test-dag", "run-123", nil)
+	require.ErrorContains(t, err, "failed to read status: storage unavailable")
+}
+
 func TestClientMetrics(t *testing.T) {
 	t.Parallel()
 
@@ -2015,6 +2043,7 @@ type mockCoordinatorService struct {
 	getWorkersFunc   func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error)
 	heartbeatFunc    func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
 	reportStatusFunc func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
+	getRunStatusFunc func(context.Context, *coordinatorv1.GetDAGRunStatusRequest) (*coordinatorv1.GetDAGRunStatusResponse, error)
 	streamLogsFunc   func(coordinatorv1.CoordinatorService_StreamLogsServer) error
 	getStateFunc     func(context.Context, *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error)
 	putStateFunc     func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error)
@@ -2073,6 +2102,13 @@ func (m *mockCoordinatorService) Heartbeat(ctx context.Context, req *coordinator
 func (m *mockCoordinatorService) ReportStatus(ctx context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	if m.reportStatusFunc != nil {
 		return m.reportStatusFunc(ctx, req)
+	}
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (m *mockCoordinatorService) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAGRunStatusRequest) (*coordinatorv1.GetDAGRunStatusResponse, error) {
+	if m.getRunStatusFunc != nil {
+		return m.getRunStatusFunc(ctx, req)
 	}
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }

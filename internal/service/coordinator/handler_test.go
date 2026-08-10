@@ -62,8 +62,10 @@ func TestDispatchBindErrorCode(t *testing.T) {
 type mockDAGRunStore struct {
 	attempts            map[string]*mockDAGRunAttempt
 	subAttempts         map[string]*mockDAGRunAttempt // key: rootID:subID
+	findAttemptErr      error
 	createAttemptErr    error
 	createSubAttemptErr error
+	attemptWriteErr     error
 	listStatusesCalls   int
 	compareAndSwapCalls int
 	mu                  sync.Mutex
@@ -123,6 +125,9 @@ func (m *mockDAGRunStore) addAbortingAttempt(ref ir.DAGRunRef, status *ir.DAGRun
 func (m *mockDAGRunStore) FindAttempt(_ context.Context, dagRun ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.findAttemptErr != nil {
+		return nil, m.findAttemptErr
+	}
 	if attempt, ok := m.attempts[dagRun.ID]; ok {
 		return attempt, nil
 	}
@@ -138,7 +143,8 @@ func (m *mockDAGRunStore) CreateAttempt(_ context.Context, dag *ir.DAG, _ time.T
 		return nil, m.createAttemptErr
 	}
 	attempt := &mockDAGRunAttempt{
-		status: &ir.DAGRunStatus{Name: dag.Name, DAGRunID: dagRunID},
+		status:     &ir.DAGRunStatus{Name: dag.Name, DAGRunID: dagRunID},
+		writeError: m.attemptWriteErr,
 	}
 	m.attempts[dagRunID] = attempt
 	return attempt, nil
@@ -292,7 +298,8 @@ func (m *mockDAGRunStore) CreateSubAttempt(_ context.Context, rootRef ir.DAGRunR
 	}
 	key := rootRef.ID + ":" + subDAGRunID
 	attempt := &mockDAGRunAttempt{
-		status: &ir.DAGRunStatus{},
+		status:     &ir.DAGRunStatus{},
+		writeError: m.attemptWriteErr,
 	}
 	m.subAttempts[key] = attempt
 	return attempt, nil
@@ -578,6 +585,73 @@ func TestCreateAttemptForTaskCarriesDAGLabels(t *testing.T) {
 	status, err := prepared.attempt.ReadStatus(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"workspace=ops", "team=platform"}, status.Labels)
+}
+
+func TestCreateAttemptForTaskReturnsStorageErrors(t *testing.T) {
+	registerCommandExecutorCapsForCoordinatorTest()
+
+	newTask := func(runID string) *coordinatorv1.Task {
+		return &coordinatorv1.Task{
+			DagRunId:   runID,
+			Target:     "daily",
+			Definition: "name: daily\nsteps:\n  - name: step1\n    run: echo hello",
+		}
+	}
+
+	t.Run("FindAttempt", func(t *testing.T) {
+		storeErr := errors.New("storage unavailable")
+		store := newMockDAGRunStore()
+		store.findAttemptErr = storeErr
+
+		_, err := NewHandler(HandlerConfig{DAGRunStore: store}).createAttemptForTask(context.Background(), newTask("run-find"))
+		require.ErrorIs(t, err, storeErr)
+	})
+
+	t.Run("ReadStatus", func(t *testing.T) {
+		storeErr := errors.New("status read failed")
+		store := newMockDAGRunStore()
+		attempt := store.addAttempt(ir.DAGRunRef{Name: "daily", ID: "run-read"}, &ir.DAGRunStatus{Status: ir.Running})
+		attempt.readStatusError = storeErr
+
+		_, err := NewHandler(HandlerConfig{DAGRunStore: store}).createAttemptForTask(context.Background(), newTask("run-read"))
+		require.ErrorIs(t, err, storeErr)
+	})
+}
+
+func TestAttemptInitializationClosesAfterWriteFailure(t *testing.T) {
+	registerCommandExecutorCapsForCoordinatorTest()
+
+	t.Run("RootAttempt", func(t *testing.T) {
+		writeErr := errors.New("status write failed")
+		store := newMockDAGRunStore()
+		store.attemptWriteErr = writeErr
+		task := &coordinatorv1.Task{
+			DagRunId:   "run-root",
+			Target:     "daily",
+			Definition: "name: daily\nsteps:\n  - name: step1\n    run: echo hello",
+		}
+
+		_, err := NewHandler(HandlerConfig{DAGRunStore: store}).createAttemptForTask(context.Background(), task)
+		require.ErrorIs(t, err, writeErr)
+		assert.True(t, store.attempts[task.DagRunId].WasClosed())
+	})
+
+	t.Run("SubAttempt", func(t *testing.T) {
+		writeErr := errors.New("status write failed")
+		store := newMockDAGRunStore()
+		store.attemptWriteErr = writeErr
+		task := &coordinatorv1.Task{
+			DagRunId:       "run-child",
+			Target:         "child",
+			Definition:     "name: child\nsteps:\n  - name: step1\n    run: echo hello",
+			RootDagRunName: "daily",
+			RootDagRunId:   "run-root",
+		}
+
+		_, err := NewHandler(HandlerConfig{DAGRunStore: store}).createSubAttemptForTask(context.Background(), task)
+		require.ErrorIs(t, err, writeErr)
+		assert.True(t, store.subAttempts[task.RootDagRunId+":"+task.DagRunId].WasClosed())
+	})
 }
 
 // Thread-safe getters for test assertions
@@ -4718,6 +4792,37 @@ func TestHandler_GetDAGRunStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.False(t, resp.Found)
+	})
+
+	t.Run("LookupFailureReturnsInternalError", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		store.findAttemptErr = errors.New("storage unavailable")
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+
+		_, err := h.GetDAGRunStatus(context.Background(), &coordinatorv1.GetDAGRunStatusRequest{
+			DagName:  "test-dag",
+			DagRunId: "run-123",
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.Internal, status.Code(err))
+	})
+
+	t.Run("ReadFailureReturnsInternalError", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		attempt := store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &ir.DAGRunStatus{})
+		attempt.readStatusError = errors.New("status read failed")
+		h := NewHandler(HandlerConfig{DAGRunStore: store})
+
+		_, err := h.GetDAGRunStatus(context.Background(), &coordinatorv1.GetDAGRunStatusRequest{
+			DagName:  "test-dag",
+			DagRunId: "run-123",
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.Internal, status.Code(err))
 	})
 
 	t.Run("NilDAGRunStoreReturnsError", func(t *testing.T) {
