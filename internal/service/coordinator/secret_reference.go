@@ -96,9 +96,9 @@ func (cli *clientImpl) resolveSecretReference(ctx context.Context, req *coordina
 
 func (cli *clientImpl) resolveSecretReferenceTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ResolveSecretReferenceRequest) (string, error) {
 	var resp *coordinatorv1.ResolveSecretReferenceResponse
-	err := cli.callMemberWithTimeout(ctx, owner, func(ctx context.Context, client *client) error {
+	err := cli.callOwner(ctx, owner, false, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
 		var callErr error
-		resp, callErr = resolveSecretReferenceRPC(ctx, owner.ID, client, req)
+		resp, callErr = resolveSecretReferenceRPC(ctx, member.ID, client, req)
 		return callErr
 	})
 	if err != nil {

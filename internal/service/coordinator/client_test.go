@@ -1216,6 +1216,208 @@ func TestClientHeartbeatFailsOverWithinConfiguredTimeout(t *testing.T) {
 	assert.Equal(t, int32(2), heartbeatCalls.Load())
 }
 
+func TestClientOwnerCallFailsOverAndCachesSuccessfulRoute(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.RequestTimeout = time.Second
+
+	var ownerCalls atomic.Int32
+	ownerServer, ownerAddr := startMockServer(t, &mockCoordinatorService{
+		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			ownerCalls.Add(1)
+			return nil, status.Error(codes.Unavailable, "owner unavailable")
+		},
+	})
+	defer ownerServer.Stop()
+
+	var replacementCalls atomic.Int32
+	replacementServer, replacementAddr := startMockServer(t, &mockCoordinatorService{
+		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			replacementCalls.Add(1)
+			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+		},
+	})
+	defer replacementServer.Stop()
+
+	ownerHost, ownerPort := parseHostPort(ownerAddr)
+	replacementHost, replacementPort := parseHostPort(replacementAddr)
+	owner := serviceregistry.HostInfo{ID: "coord-a", Host: ownerHost, Port: ownerPort, Status: serviceregistry.ServiceStatusActive}
+	replacement := serviceregistry.HostInfo{ID: "coord-b", Host: replacementHost, Port: replacementPort, Status: serviceregistry.ServiceStatusActive}
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{owner, replacement}}, config)
+
+	for range 2 {
+		resp, err := client.ReportStatusTo(t.Context(), owner, &coordinatorv1.ReportStatusRequest{})
+		require.NoError(t, err)
+		require.True(t, resp.Accepted)
+	}
+
+	assert.Equal(t, int32(1), ownerCalls.Load())
+	assert.Equal(t, int32(2), replacementCalls.Load())
+}
+
+func TestClientOwnerCallDoesNotMaskApplicationRejection(t *testing.T) {
+	t.Parallel()
+
+	var replacementCalls atomic.Int32
+	ownerServer, ownerAddr := startMockServer(t, &mockCoordinatorService{
+		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			return nil, status.Error(codes.FailedPrecondition, "stale attempt")
+		},
+	})
+	defer ownerServer.Stop()
+	replacementServer, replacementAddr := startMockServer(t, &mockCoordinatorService{
+		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			replacementCalls.Add(1)
+			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+		},
+	})
+	defer replacementServer.Stop()
+
+	ownerHost, ownerPort := parseHostPort(ownerAddr)
+	replacementHost, replacementPort := parseHostPort(replacementAddr)
+	owner := serviceregistry.HostInfo{ID: "coord-a", Host: ownerHost, Port: ownerPort, Status: serviceregistry.ServiceStatusActive}
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{
+		owner,
+		{ID: "coord-b", Host: replacementHost, Port: replacementPort, Status: serviceregistry.ServiceStatusActive},
+	}}, coordinator.DefaultConfig())
+
+	_, err := client.ReportStatusTo(t.Context(), owner, &coordinatorv1.ReportStatusRequest{})
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.Zero(t, replacementCalls.Load())
+}
+
+func TestClientOwnerCallRetriesLegacyNonOwnerRejection(t *testing.T) {
+	t.Parallel()
+
+	ownerServer, ownerAddr := startMockServer(t, &mockCoordinatorService{
+		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			return nil, status.Error(codes.FailedPrecondition, "status update sent to non-owner coordinator")
+		},
+	})
+	defer ownerServer.Stop()
+	replacementServer, replacementAddr := startMockServer(t, &mockCoordinatorService{
+		reportStatusFunc: func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+		},
+	})
+	defer replacementServer.Stop()
+
+	ownerHost, ownerPort := parseHostPort(ownerAddr)
+	replacementHost, replacementPort := parseHostPort(replacementAddr)
+	owner := serviceregistry.HostInfo{ID: "coord-a", Host: ownerHost, Port: ownerPort, Status: serviceregistry.ServiceStatusActive}
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{
+		owner,
+		{ID: "coord-b", Host: replacementHost, Port: replacementPort, Status: serviceregistry.ServiceStatusActive},
+	}}, coordinator.DefaultConfig())
+
+	resp, err := client.ReportStatusTo(t.Context(), owner, &coordinatorv1.ReportStatusRequest{})
+	require.NoError(t, err)
+	require.True(t, resp.Accepted)
+}
+
+func TestClientOwnerStreamMovesAfterLegacyNonOwnerRejection(t *testing.T) {
+	t.Parallel()
+
+	ownerServer, ownerAddr := startMockServer(t, &mockCoordinatorService{
+		streamLogsFunc: func(stream coordinatorv1.CoordinatorService_StreamLogsServer) error {
+			_, err := stream.Recv()
+			if err != nil {
+				return err
+			}
+			return status.Error(codes.FailedPrecondition, "log chunk sent to non-owner coordinator")
+		},
+	})
+	defer ownerServer.Stop()
+
+	received := make(chan string, 1)
+	replacementServer, replacementAddr := startMockServer(t, &mockCoordinatorService{
+		streamLogsFunc: func(stream coordinatorv1.CoordinatorService_StreamLogsServer) error {
+			chunk, err := stream.Recv()
+			if err != nil {
+				return err
+			}
+			received <- string(chunk.Data)
+			for {
+				_, err = stream.Recv()
+				if err == io.EOF {
+					return stream.SendAndClose(&coordinatorv1.StreamLogsResponse{})
+				}
+				if err != nil {
+					return err
+				}
+			}
+		},
+	})
+	defer replacementServer.Stop()
+
+	ownerHost, ownerPort := parseHostPort(ownerAddr)
+	replacementHost, replacementPort := parseHostPort(replacementAddr)
+	owner := serviceregistry.HostInfo{ID: "coord-a", Host: ownerHost, Port: ownerPort, Status: serviceregistry.ServiceStatusActive}
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{
+		owner,
+		{ID: "coord-b", Host: replacementHost, Port: replacementPort, Status: serviceregistry.ServiceStatusActive},
+	}}, coordinator.DefaultConfig())
+
+	stream, err := client.StreamLogsTo(t.Context(), owner)
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(&coordinatorv1.LogChunk{Data: []byte("old")}))
+	_, err = stream.CloseAndRecv()
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+
+	stream, err = client.StreamLogsTo(t.Context(), owner)
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(&coordinatorv1.LogChunk{Data: []byte("replacement")}))
+	_, err = stream.CloseAndRecv()
+	require.NoError(t, err)
+	assert.Equal(t, "replacement", <-received)
+}
+
+func TestClientOwnerStreamSkipsUnhealthyOwner(t *testing.T) {
+	t.Parallel()
+
+	unhealthy := health.NewServer()
+	unhealthy.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+	ownerServer, ownerAddr := startMockServerWithHealth(t, &mockCoordinatorService{}, unhealthy)
+	defer ownerServer.Stop()
+
+	received := make(chan string, 1)
+	replacementServer, replacementAddr := startMockServer(t, &mockCoordinatorService{
+		streamLogsFunc: func(stream coordinatorv1.CoordinatorService_StreamLogsServer) error {
+			chunk, err := stream.Recv()
+			if err != nil {
+				return err
+			}
+			received <- string(chunk.Data)
+			for {
+				_, err = stream.Recv()
+				if err == io.EOF {
+					return stream.SendAndClose(&coordinatorv1.StreamLogsResponse{})
+				}
+				if err != nil {
+					return err
+				}
+			}
+		},
+	})
+	defer replacementServer.Stop()
+
+	ownerHost, ownerPort := parseHostPort(ownerAddr)
+	replacementHost, replacementPort := parseHostPort(replacementAddr)
+	owner := serviceregistry.HostInfo{ID: "coord-a", Host: ownerHost, Port: ownerPort, Status: serviceregistry.ServiceStatusActive}
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{
+		owner,
+		{ID: "coord-b", Host: replacementHost, Port: replacementPort, Status: serviceregistry.ServiceStatusActive},
+	}}, coordinator.DefaultConfig())
+
+	stream, err := client.StreamLogsTo(t.Context(), owner)
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(&coordinatorv1.LogChunk{Data: []byte("replacement")}))
+	_, err = stream.CloseAndRecv()
+	require.NoError(t, err)
+	assert.Equal(t, "replacement", <-received)
+}
+
 func TestClientHeartbeatFailsOverAfterHealthCheckStalls(t *testing.T) {
 	t.Parallel()
 

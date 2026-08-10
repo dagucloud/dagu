@@ -18,6 +18,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -126,6 +127,10 @@ type clientImpl struct {
 	clientsMu sync.RWMutex
 	clients   map[string]*client // Cache of gRPC clients by coordinator ID
 
+	ownerRoutesMu sync.RWMutex
+	ownerRoutes   map[string]serviceregistry.HostInfo
+	ownerFailures map[string]string
+
 	stateMu sync.RWMutex // Mutex for state access
 	state   *Metrics     // Connection state tracking
 
@@ -149,6 +154,44 @@ type client struct {
 	healthClient grpc_health_v1.HealthClient
 }
 
+type ownerLogStream struct {
+	coordinatorv1.CoordinatorService_StreamLogsClient
+	client *clientImpl
+	owner  serviceregistry.HostInfo
+	member serviceregistry.HostInfo
+}
+
+func (s *ownerLogStream) Send(chunk *coordinatorv1.LogChunk) error {
+	err := s.CoordinatorService_StreamLogsClient.Send(chunk)
+	s.client.handleOwnerStreamError(s.owner, s.member, err)
+	return err
+}
+
+func (s *ownerLogStream) CloseAndRecv() (*coordinatorv1.StreamLogsResponse, error) {
+	resp, err := s.CoordinatorService_StreamLogsClient.CloseAndRecv()
+	s.client.handleOwnerStreamError(s.owner, s.member, err)
+	return resp, err
+}
+
+type ownerArtifactStream struct {
+	coordinatorv1.CoordinatorService_StreamArtifactsClient
+	client *clientImpl
+	owner  serviceregistry.HostInfo
+	member serviceregistry.HostInfo
+}
+
+func (s *ownerArtifactStream) Send(chunk *coordinatorv1.ArtifactChunk) error {
+	err := s.CoordinatorService_StreamArtifactsClient.Send(chunk)
+	s.client.handleOwnerStreamError(s.owner, s.member, err)
+	return err
+}
+
+func (s *ownerArtifactStream) CloseAndRecv() (*coordinatorv1.StreamArtifactsResponse, error) {
+	resp, err := s.CoordinatorService_StreamArtifactsClient.CloseAndRecv()
+	s.client.handleOwnerStreamError(s.owner, s.member, err)
+	return resp, err
+}
+
 // grpcMaxMsgSize is the maximum message size for gRPC calls.
 // Default gRPC limit is 4 MB; we increase to 16 MB to handle large status
 // payloads that include LLM session messages from workers.
@@ -167,6 +210,8 @@ func New(registry serviceregistry.ServiceRegistry, config *Config) Client {
 		config:            config,
 		registry:          registry,
 		clients:           make(map[string]*client),
+		ownerRoutes:       make(map[string]serviceregistry.HostInfo),
+		ownerFailures:     make(map[string]string),
 		stateCoordinators: make(map[string]pinnedStateCoordinator),
 		state: &Metrics{
 			IsConnected: true, // Assume connected initially
@@ -536,6 +581,207 @@ func (cli *clientImpl) callMemberWithTimeout(ctx context.Context, member service
 	callCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
 	defer cancel()
 	return cli.callMember(callCtx, member, callback)
+}
+
+func (cli *clientImpl) callOwner(
+	ctx context.Context,
+	owner serviceregistry.HostInfo,
+	checkHealth bool,
+	callback func(context.Context, serviceregistry.HostInfo, *client) error,
+) error {
+	members, discoveryErr := cli.ownerMembers(ctx, owner)
+	if len(members) == 0 {
+		return discoveryErr
+	}
+
+	var lastErr error
+	for i, member := range members {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		callCtx, cancel := cli.memberCallContext(ctx, len(members)-i)
+		memberClient, err := cli.getOrCreateDiscoveredClient(member)
+		healthFailed := false
+		if err == nil && checkHealth {
+			err = cli.isHealthy(callCtx, memberClient)
+			healthFailed = err != nil
+		}
+		if err == nil {
+			callbackCtx := callCtx
+			if checkHealth {
+				callbackCtx = ctx
+			}
+			err = callback(callbackCtx, member, memberClient)
+		}
+		cancel()
+		if err == nil {
+			cli.rememberOwnerRoute(owner, member)
+			cli.recordSuccess(ctx)
+			return nil
+		}
+
+		cli.recordFailure(err)
+		cli.forgetOwnerRoute(owner, member)
+		if isLegacyOwnerRejection(err) {
+			cli.rememberOwnerFailure(owner, member)
+			cli.removeClient(member)
+		}
+		lastErr = err
+		if !healthFailed && !isOwnerFailoverError(err) {
+			return err
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return discoveryErr
+}
+
+func (cli *clientImpl) ownerMembers(ctx context.Context, owner serviceregistry.HostInfo) ([]serviceregistry.HostInfo, error) {
+	candidates := make([]serviceregistry.HostInfo, 0, 2)
+	seen := make(map[string]struct{})
+	add := func(member serviceregistry.HostInfo) {
+		if member.Host == "" || member.Port <= 0 {
+			return
+		}
+		key := coordinatorMemberKey(member)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		candidates = append(candidates, member)
+	}
+
+	if member, ok := cli.cachedOwnerRoute(owner); ok {
+		add(member)
+	}
+	add(owner)
+
+	members, err := cli.getCoordinatorMembers(ctx)
+	if err == nil {
+		for _, member := range members {
+			add(member)
+		}
+	}
+	if len(candidates) > 0 {
+		if failedKey := cli.cachedOwnerFailure(owner); failedKey != "" && len(candidates) > 1 {
+			for i, member := range candidates[:len(candidates)-1] {
+				if coordinatorMemberKey(member) == failedKey {
+					copy(candidates[i:], candidates[i+1:])
+					candidates[len(candidates)-1] = member
+					break
+				}
+			}
+		}
+		return candidates, nil
+	}
+	if err == nil {
+		err = fmt.Errorf("no coordinators available")
+	}
+	return nil, err
+}
+
+func (cli *clientImpl) memberCallContext(ctx context.Context, remainingMembers int) (context.Context, context.CancelFunc) {
+	timeout := cli.config.RequestTimeout
+	if deadline, ok := ctx.Deadline(); ok && remainingMembers > 0 {
+		share := time.Until(deadline) / time.Duration(remainingMembers)
+		if timeout <= 0 || share < timeout {
+			timeout = share
+		}
+	}
+	if timeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func isOwnerFailoverError(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	code := status.Code(err)
+	return code == codes.Unavailable || code == codes.DeadlineExceeded || isLegacyOwnerRejection(err)
+}
+
+func isLegacyOwnerRejection(err error) bool {
+	if status.Code(err) != codes.FailedPrecondition {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "run heartbeat sent to non-owner coordinator") ||
+		strings.Contains(message, "status update sent to non-owner coordinator") ||
+		strings.Contains(message, "log chunk sent to non-owner coordinator") ||
+		strings.Contains(message, "artifact chunk sent to non-owner coordinator")
+}
+
+func (cli *clientImpl) cachedOwnerRoute(owner serviceregistry.HostInfo) (serviceregistry.HostInfo, bool) {
+	cli.ownerRoutesMu.RLock()
+	defer cli.ownerRoutesMu.RUnlock()
+	member, ok := cli.ownerRoutes[coordinatorMemberKey(owner)]
+	return member, ok
+}
+
+func (cli *clientImpl) rememberOwnerRoute(owner, member serviceregistry.HostInfo) {
+	cli.ownerRoutesMu.Lock()
+	defer cli.ownerRoutesMu.Unlock()
+	if cli.ownerRoutes == nil {
+		cli.ownerRoutes = make(map[string]serviceregistry.HostInfo)
+	}
+	key := coordinatorMemberKey(owner)
+	cli.ownerRoutes[key] = member
+	delete(cli.ownerFailures, key)
+}
+
+func (cli *clientImpl) cachedOwnerFailure(owner serviceregistry.HostInfo) string {
+	cli.ownerRoutesMu.RLock()
+	defer cli.ownerRoutesMu.RUnlock()
+	return cli.ownerFailures[coordinatorMemberKey(owner)]
+}
+
+func (cli *clientImpl) rememberOwnerFailure(owner, failed serviceregistry.HostInfo) {
+	cli.ownerRoutesMu.Lock()
+	defer cli.ownerRoutesMu.Unlock()
+	if cli.ownerFailures == nil {
+		cli.ownerFailures = make(map[string]string)
+	}
+	cli.ownerFailures[coordinatorMemberKey(owner)] = coordinatorMemberKey(failed)
+}
+
+func (cli *clientImpl) removeClient(member serviceregistry.HostInfo) {
+	key := coordinatorMemberKey(member)
+	address := coordinatorAddress(member)
+	cli.clientsMu.Lock()
+	memberClient, ok := cli.clients[key]
+	if ok && memberClient.address == address {
+		delete(cli.clients, key)
+	} else {
+		memberClient = nil
+	}
+	cli.clientsMu.Unlock()
+	if memberClient != nil {
+		_ = memberClient.conn.Close()
+	}
+}
+
+func (cli *clientImpl) handleOwnerStreamError(owner, member serviceregistry.HostInfo, err error) {
+	if err == nil || !isOwnerFailoverError(err) {
+		return
+	}
+	cli.forgetOwnerRoute(owner, member)
+	if isLegacyOwnerRejection(err) {
+		cli.rememberOwnerFailure(owner, member)
+		cli.removeClient(member)
+	}
+}
+
+func (cli *clientImpl) forgetOwnerRoute(owner, failed serviceregistry.HostInfo) {
+	cli.ownerRoutesMu.Lock()
+	defer cli.ownerRoutesMu.Unlock()
+	key := coordinatorMemberKey(owner)
+	if member, ok := cli.ownerRoutes[key]; ok && coordinatorMemberKey(member) == coordinatorMemberKey(failed) {
+		delete(cli.ownerRoutes, key)
+	}
 }
 
 func (cli *clientImpl) isHealthy(ctx context.Context, client *client) error {
@@ -914,7 +1160,7 @@ func heartbeatContextError(ctx context.Context, err error) error {
 
 func (cli *clientImpl) AckTaskClaimTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
 	var resp *coordinatorv1.AckTaskClaimResponse
-	err := cli.callMemberWithTimeout(ctx, owner, func(ctx context.Context, client *client) error {
+	err := cli.callOwner(ctx, owner, false, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.AckTaskClaim(ctx, req)
 		if callErr != nil {
@@ -927,7 +1173,7 @@ func (cli *clientImpl) AckTaskClaimTo(ctx context.Context, owner serviceregistry
 
 func (cli *clientImpl) RunHeartbeatTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.RunHeartbeatRequest) (*coordinatorv1.RunHeartbeatResponse, error) {
 	var resp *coordinatorv1.RunHeartbeatResponse
-	err := cli.callMemberWithTimeout(ctx, owner, func(ctx context.Context, client *client) error {
+	err := cli.callOwner(ctx, owner, false, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.RunHeartbeat(ctx, req)
 		if callErr != nil {
@@ -959,7 +1205,7 @@ func (cli *clientImpl) ReportStatus(ctx context.Context, req *coordinatorv1.Repo
 
 func (cli *clientImpl) ReportStatusTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 	var resp *coordinatorv1.ReportStatusResponse
-	err := cli.callMemberWithTimeout(ctx, owner, func(ctx context.Context, client *client) error {
+	err := cli.callOwner(ctx, owner, false, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		resp, callErr = client.client.ReportStatus(ctx, req)
 		if callErr != nil {
@@ -980,18 +1226,25 @@ func (cli *clientImpl) StreamLogs(ctx context.Context) (coordinatorv1.Coordinato
 
 func (cli *clientImpl) StreamLogsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
 	var stream coordinatorv1.CoordinatorService_StreamLogsClient
-	err := cli.callMember(ctx, owner, func(ctx context.Context, client *client) error {
+	var member serviceregistry.HostInfo
+	err := cli.callOwner(ctx, owner, true, func(ctx context.Context, selected serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		stream, callErr = client.client.StreamLogs(ctx)
 		if callErr != nil {
 			return fmt.Errorf("stream logs failed: %w", callErr)
 		}
+		member = selected
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return stream, nil
+	return &ownerLogStream{
+		CoordinatorService_StreamLogsClient: stream,
+		client:                              cli,
+		owner:                               owner,
+		member:                              member,
+	}, nil
 }
 
 // StreamArtifacts returns an artifact streaming client for sending artifacts to the coordinator.
@@ -1159,18 +1412,25 @@ func (cli *clientImpl) RequestCancel(ctx context.Context, dagName, dagRunID stri
 
 func (cli *clientImpl) StreamArtifactsTo(ctx context.Context, owner serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_StreamArtifactsClient, error) {
 	var stream coordinatorv1.CoordinatorService_StreamArtifactsClient
-	err := cli.callMember(ctx, owner, func(ctx context.Context, client *client) error {
+	var member serviceregistry.HostInfo
+	err := cli.callOwner(ctx, owner, true, func(ctx context.Context, selected serviceregistry.HostInfo, client *client) error {
 		var callErr error
 		stream, callErr = client.client.StreamArtifacts(ctx)
 		if callErr != nil {
 			return fmt.Errorf("stream artifacts failed: %w", callErr)
 		}
+		member = selected
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return stream, nil
+	return &ownerArtifactStream{
+		CoordinatorService_StreamArtifactsClient: stream,
+		client:                                   cli,
+		owner:                                    owner,
+		member:                                   member,
+	}, nil
 }
 
 func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebundle.Descriptor, data []byte) error {
