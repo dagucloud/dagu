@@ -1485,6 +1485,24 @@ func TestLoadPreservesSourceFileForFileBasedDAG(t *testing.T) {
 	assert.Equal(t, dagFile, dag.SourceFile)
 }
 
+func TestLoadYAMLAtPreservesAuthoredFileSemantics(t *testing.T) {
+	t.Parallel()
+
+	sourcePath := filepath.Join(t.TempDir(), "authored.yaml")
+	source := []byte(`steps:
+  - name: a
+    run: echo hi
+`)
+
+	dag, err := spec.LoadYAMLAt(context.Background(), source, sourcePath)
+	require.NoError(t, err)
+	assert.Equal(t, "authored", dag.Name)
+	assert.Equal(t, sourcePath, dag.Location)
+	assert.Equal(t, sourcePath, dag.SourceFile)
+	assert.Equal(t, filepath.Dir(sourcePath), dag.WorkingDir)
+	assert.Equal(t, source, dag.YamlData)
+}
+
 func TestLoadYAMLWithOpts_MarksConfiguredWorkingDirExplicit(t *testing.T) {
 	t.Parallel()
 

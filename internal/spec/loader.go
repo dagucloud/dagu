@@ -219,6 +219,15 @@ func LoadYAML(ctx context.Context, data []byte, opts ...LoadOption) (*ir.DAG, er
 	return loadYAMLWithOptsAndNotices(ctx, data, newBuildOpts(opts...), nil)
 }
 
+// LoadYAMLAt loads YAML content as authored at sourcePath, preserving
+// file-relative loading semantics.
+func LoadYAMLAt(ctx context.Context, data []byte, sourcePath string, opts ...LoadOption) (*ir.DAG, error) {
+	if sourcePath == "" {
+		return nil, ErrNameOrPathRequired
+	}
+	return loadDAGData(loadBuildContext(ctx, opts...).WithFile(sourcePath), data, sourcePath)
+}
+
 // LoadYAMLWithResult loads a DAG from YAML and returns transient value-reference notices produced by that load operation.
 func LoadYAMLWithResult(ctx context.Context, data []byte, opts ...LoadOption) (*LoadResult, error) {
 	var collector cmnvalue.ValueReferenceNoticeCollector
@@ -374,13 +383,20 @@ func loadDAG(ctx buildContext, nameOrPath string) (*ir.DAG, error) {
 	}
 
 	ctx = ctx.WithFile(filePath)
+	data, err := fileutil.ReadFile(filePath)
+	if err != nil {
+		return loadDAGFailure(ctx, filePath, fmt.Errorf("failed to read file %q: %w", filePath, err))
+	}
+	return loadDAGData(ctx, data, filePath)
+}
 
+func loadDAGData(ctx buildContext, data []byte, filePath string) (*ir.DAG, error) {
 	baseDef, baseRaw, err := loadBaseDefinition(ctx.opts)
 	if err != nil {
 		return loadDAGFailure(ctx, filePath, err)
 	}
 
-	dags, err := loadDAGsFromFile(ctx, filePath, baseDef, baseRaw)
+	dags, err := loadDAGsFromData(ctx, data, filePath, baseDef, baseRaw)
 	if err != nil {
 		return loadDAGFailure(ctx, filePath, err)
 	}
@@ -460,15 +476,6 @@ func markConfiguredWorkingDirsExplicit(dag *ir.DAG) {
 	for _, localDAG := range dag.LocalDAGs {
 		markConfiguredWorkingDirsExplicit(localDAG)
 	}
-}
-
-// loadDAGsFromFile loads all DAGs from a multi-document YAML file.
-func loadDAGsFromFile(ctx buildContext, filePath string, baseDef *dag, baseRaw []byte) ([]*ir.DAG, error) {
-	data, err := fileutil.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %q: %w", filePath, err)
-	}
-	return loadDAGsFromData(ctx, data, filePath, baseDef, baseRaw)
 }
 
 type dagDocument struct {

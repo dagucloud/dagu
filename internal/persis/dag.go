@@ -23,9 +23,9 @@ var (
 // DAGDefinition is a stored DAG specification.
 type DAGDefinition struct {
 	ID string
-	// Location is an optional loader-readable source path.
-	Location string
-	Source   []byte
+	// SourcePath is the optional path where the definition was authored.
+	SourcePath string
+	Source     []byte
 }
 
 // DAGListItem contains a stable storage identity, metadata, and suspension state.
@@ -41,7 +41,7 @@ type DAGCatalog struct {
 	Issues []string
 }
 
-// DAGDefinitionStore persists DAG definitions without application-level queries.
+// DAGDefinitionStore persists definitions and exposes their listing projection.
 type DAGDefinitionStore interface {
 	Create(ctx context.Context, id string, source []byte) error
 	Delete(ctx context.Context, id string) error

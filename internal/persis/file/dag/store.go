@@ -162,7 +162,10 @@ type DefinitionStore struct {
 func (store *DefinitionStore) Get(ctx context.Context, id string) (persis.DAGDefinition, error) {
 	resolved, err := store.locateDAG(ctx, id)
 	if err != nil {
-		return persis.DAGDefinition{}, persis.ErrDAGNotFound
+		if errors.Is(err, os.ErrNotExist) {
+			return persis.DAGDefinition{}, persis.ErrDAGNotFound
+		}
+		return persis.DAGDefinition{}, err
 	}
 	source, err := fileutil.ReadFile(resolved.ResolvedPath)
 	if err != nil {
@@ -171,7 +174,7 @@ func (store *DefinitionStore) Get(ctx context.Context, id string) (persis.DAGDef
 		}
 		return persis.DAGDefinition{}, err
 	}
-	return persis.DAGDefinition{ID: id, Location: resolved.ResolvedPath, Source: source}, nil
+	return persis.DAGDefinition{ID: id, Source: source, SourcePath: resolved.ResolvedPath}, nil
 }
 
 func (store *DefinitionStore) Update(ctx context.Context, id string, source []byte) error {

@@ -74,8 +74,8 @@ func (r *dagRepository) GetDetails(ctx context.Context, id string, opts DAGLoadO
 	loadOpts := r.loadOptions(repositoryLoadOptions(opts)...)
 	loadOpts = append(loadOpts, spec.WithoutEval())
 	var dag *ir.DAG
-	if definition.Location != "" {
-		dag, err = spec.Load(ctx, definition.Location, loadOpts...)
+	if definition.SourcePath != "" {
+		dag, err = spec.LoadYAMLAt(ctx, definition.Source, definition.SourcePath, loadOpts...)
 	} else {
 		loadOpts = append(loadOpts, spec.WithName(definition.ID))
 		dag, err = spec.LoadYAML(ctx, definition.Source, loadOpts...)

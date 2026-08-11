@@ -5,6 +5,7 @@ package persis
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -30,7 +31,7 @@ func (s dagDefinitionStoreStub) Catalog(context.Context) (DAGCatalog, error) {
 	return s.catalog, nil
 }
 
-func TestDAGRepositoryLoadsDefinitionWithoutFileLocation(t *testing.T) {
+func TestDAGRepositoryLoadsDefinitionWithoutSourcePath(t *testing.T) {
 	repository := NewDAGRepository(dagDefinitionStoreStub{
 		definition: DAGDefinition{
 			ID:     "in-memory",
@@ -41,6 +42,24 @@ func TestDAGRepositoryLoadsDefinitionWithoutFileLocation(t *testing.T) {
 	dag, err := repository.GetDetails(context.Background(), "in-memory", DAGLoadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "in-memory", dag.Name)
+}
+
+func TestDAGRepositoryLoadsStoredSourceWithAuthoredPath(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "stored.yaml")
+	repository := NewDAGRepository(dagDefinitionStoreStub{
+		definition: DAGDefinition{
+			ID:         "stored",
+			SourcePath: sourcePath,
+			Source:     []byte("steps: []\n"),
+		},
+	}, DAGRepositoryOptions{})
+
+	dag, err := repository.GetDetails(context.Background(), "stored", DAGLoadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "stored", dag.Name)
+	assert.Equal(t, sourcePath, dag.Location)
+	assert.Equal(t, sourcePath, dag.SourceFile)
+	assert.Equal(t, filepath.Dir(sourcePath), dag.WorkingDir)
 }
 
 func TestDAGRepositoryListsByBackendIdentity(t *testing.T) {

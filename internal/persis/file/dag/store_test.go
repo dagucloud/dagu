@@ -395,6 +395,7 @@ steps:
 	// Test DAG not found
 	_, err = store.GetDetails(ctx, "non-existent", persis.DAGLoadOptions{})
 	require.Error(t, err)
+	assert.ErrorIs(t, err, persis.ErrDAGNotFound)
 	assert.Contains(t, err.Error(), "failed to locate DAG non-existent")
 
 	// A DAG that builds with errors fails unless the caller tolerates them, in
@@ -433,6 +434,16 @@ steps:
 
 	err = recursiveStore.Create(ctx, "dagu.update-cloud-image", []byte(dottedDAGContent))
 	require.ErrorIs(t, err, persis.ErrDAGAlreadyExists)
+}
+
+func TestDefinitionStoreGetPreservesDiscoveryError(t *testing.T) {
+	basePath := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(basePath, []byte("content"), 0600))
+	store := NewDefinitionStore(basePath, WithRecursiveDiscovery(true), WithSkipExamples(true))
+
+	_, err := store.Get(context.Background(), "example")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, persis.ErrDAGNotFound)
 }
 
 func TestGetSpec(t *testing.T) {
