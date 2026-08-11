@@ -337,6 +337,7 @@ describe('TimelineChart', () => {
     const bar = screen.getByTestId('timeline-bar-subdag:parallel-call:child-run-1');
     expect(bar).toHaveAttribute('role', 'button');
     expect(bar).toHaveAttribute('tabIndex', '0');
+    expect(bar).toHaveAccessibleName('Open child-dag run child-run-1');
 
     await userEvent.click(bar);
 
@@ -374,8 +375,46 @@ describe('TimelineChart', () => {
     const bar = screen.getByTestId(
       'timeline-bar-subdag:repeat-child:repeat-run-2'
     );
+    expect(bar).toHaveAccessibleName('Open child-dag run repeat-run-2');
     bar.focus();
     await userEvent.keyboard('{Enter}');
+
+    expect(onOpenSubRun).toHaveBeenCalledWith({
+      name: 'child-dag',
+      dagRunId: 'repeat-run-2',
+    });
+  });
+
+  it('opens a repeat-policy child run when Space is pressed on its bar', async () => {
+    const onOpenSubRun = vi.fn();
+    useQueryMock.mockReturnValue({
+      data: {
+        subRuns: [
+          subRunDetail('repeat-run-1'),
+          subRunDetail('repeat-run-2'),
+        ],
+      },
+      mutate: vi.fn(),
+    });
+
+    renderChart(
+      dagRun({
+        nodes: [
+          node({
+            step: { name: 'repeat-child', call: 'child-dag' },
+            subRunsRepeated: [subRun('repeat-run-1')],
+            subRuns: [subRun('repeat-run-2')],
+          }),
+        ],
+      }),
+      { onOpenSubRun }
+    );
+
+    const bar = screen.getByTestId(
+      'timeline-bar-subdag:repeat-child:repeat-run-2'
+    );
+    bar.focus();
+    await userEvent.keyboard(' ');
 
     expect(onOpenSubRun).toHaveBeenCalledWith({
       name: 'child-dag',
@@ -397,6 +436,7 @@ describe('TimelineChart', () => {
     const bar = screen.getByTestId('timeline-bar-step:ordinary-step');
     expect(bar).not.toHaveAttribute('role', 'button');
     expect(bar).not.toHaveAttribute('tabIndex');
+    expect(bar).not.toHaveAttribute('aria-label');
   });
 
   it('opens a repeat-policy child run when its timeline bar is clicked', async () => {

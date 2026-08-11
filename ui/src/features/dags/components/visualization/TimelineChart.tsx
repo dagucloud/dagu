@@ -288,6 +288,7 @@ const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
   ) {
     const canOpen =
       item.kind === 'subdag' && !!openSubRun && !!item.dagRunId;
+    const openName = item.dagName || item.parentStepName || item.label;
 
     function handleClick(event: React.MouseEvent<HTMLDivElement>) {
       onClick?.(event);
@@ -295,22 +296,23 @@ const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
         return;
       }
       openSubRun({
-        name: item.dagName || item.parentStepName || item.label,
+        name: openName,
         dagRunId: item.dagRunId,
       });
     }
 
     function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
       onKeyDown?.(event);
-      if (!canOpen || event.key !== 'Enter') {
+      if (!canOpen || (event.key !== 'Enter' && event.key !== ' ')) {
         return;
       }
+      // Prevent Space from scrolling the page when activating the control.
       event.preventDefault();
       if (!openSubRun || !item.dagRunId) {
         return;
       }
       openSubRun({
-        name: item.dagName || item.parentStepName || item.label,
+        name: openName,
         dagRunId: item.dagRunId,
       });
     }
@@ -322,8 +324,15 @@ const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
         {...props}
         role={canOpen ? 'button' : undefined}
         tabIndex={canOpen ? 0 : undefined}
+        aria-label={
+          canOpen && item.dagRunId
+            ? `Open ${openName} run ${item.dagRunId}`
+            : undefined
+        }
         className={`absolute h-5 rounded transition-opacity hover:opacity-80 ${
-          canOpen ? 'cursor-pointer' : ''
+          canOpen
+            ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+            : ''
         } ${isActive ? 'animate-pulse' : ''} ${className ?? ''}`}
         style={{
           left: `calc(${leftPercent}% + 130px)`,
