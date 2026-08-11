@@ -126,11 +126,16 @@ function parallelNode(
 
 function renderChart(
   status: DAGRunDetails,
-  appBarOverride: Partial<typeof appBarValue> = {}
+  options: {
+    appBarOverride?: Partial<typeof appBarValue>;
+    onOpenSubRun?: (entry: { name: string; dagRunId: string }) => void;
+  } = {}
 ) {
   return render(
-    <AppBarContext.Provider value={{ ...appBarValue, ...appBarOverride }}>
-      <TimelineChart status={status} />
+    <AppBarContext.Provider
+      value={{ ...appBarValue, ...options.appBarOverride }}
+    >
+      <TimelineChart status={status} onOpenSubRun={options.onOpenSubRun} />
     </AppBarContext.Provider>
   );
 }
@@ -180,9 +185,260 @@ describe('TimelineChart', () => {
     expect(screen.queryByText('#01')).not.toBeInTheDocument();
   });
 
-  it('does not render child rows for repeat-policy-only sub-DAG runs', () => {
+  it('does not expand archived parallel batches when subRunsRepeated is present', () => {
     useQueryMock.mockReturnValue({
-      data: { subRuns: [subRunDetail('repeat-run-1')] },
+      data: {
+        subRuns: [
+          subRunDetail('archived-batch-1'),
+          subRunDetail('parallel-run-1'),
+          subRunDetail('parallel-run-2'),
+        ],
+      },
+      mutate: vi.fn(),
+    });
+
+    renderChart(
+      dagRun({
+        nodes: [
+          parallelNode(
+            'parallel-call',
+            [subRun('parallel-run-1'), subRun('parallel-run-2')],
+            {
+              subRunsRepeated: [subRun('archived-batch-1')],
+            }
+          ),
+        ],
+      })
+    );
+
+    expect(
+      screen
+        .getAllByTestId('timeline-row')
+        .map((row) => row.getAttribute('data-row-id'))
+    ).toEqual([
+      'step:parallel-call',
+      'subdag:parallel-call:parallel-run-1',
+      'subdag:parallel-call:parallel-run-2',
+    ]);
+    expect(
+      screen.queryByTestId('timeline-bar-subdag:parallel-call:archived-batch-1')
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps ordinary calls collapsed while expanding parallel and repeat in one chart', () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        subRuns: [
+          subRunDetail('ordinary-run'),
+          subRunDetail('parallel-run-1'),
+          subRunDetail('repeat-run-1'),
+          subRunDetail('repeat-run-2'),
+        ],
+      },
+      mutate: vi.fn(),
+    });
+
+    renderChart(
+      dagRun({
+        nodes: [
+          node({
+            step: { name: 'ordinary-call', call: 'child-dag' },
+            startedAt: '2026-01-01T00:00:00Z',
+            finishedAt: '2026-01-01T00:00:05Z',
+            subRuns: [subRun('ordinary-run')],
+          }),
+          parallelNode('parallel-call', [subRun('parallel-run-1')], {
+            startedAt: '2026-01-01T00:00:10Z',
+            finishedAt: '2026-01-01T00:00:20Z',
+          }),
+          node({
+            step: { name: 'repeat-child', call: 'child-dag' },
+            startedAt: '2026-01-01T00:00:30Z',
+            finishedAt: '2026-01-01T00:00:50Z',
+            subRunsRepeated: [subRun('repeat-run-1')],
+            subRuns: [subRun('repeat-run-2')],
+          }),
+        ],
+      })
+    );
+
+    expect(
+      screen
+        .getAllByTestId('timeline-row')
+        .map((row) => row.getAttribute('data-row-id'))
+    ).toEqual([
+      'step:ordinary-call',
+      'step:parallel-call',
+      'subdag:parallel-call:parallel-run-1',
+      'step:repeat-child',
+      'subdag:repeat-child:repeat-run-1',
+      'subdag:repeat-child:repeat-run-2',
+    ]);
+    expect(
+      screen.queryByTestId('timeline-bar-subdag:ordinary-call:ordinary-run')
+    ).not.toBeInTheDocument();
+  });
+
+  it('fetches and renders repeat-policy child rows in archive-then-current order', () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        subRuns: [
+          subRunDetail('repeat-run-1'),
+          subRunDetail('repeat-run-2'),
+          subRunDetail('repeat-run-3'),
+        ],
+      },
+      mutate: vi.fn(),
+    });
+
+    renderChart(
+      dagRun({
+        nodes: [
+          node({
+            step: { name: 'repeat-child', call: 'child-dag' },
+            subRunsRepeated: [subRun('repeat-run-1'), subRun('repeat-run-2')],
+            subRuns: [subRun('repeat-run-3')],
+          }),
+        ],
+      })
+    );
+
+    expect(
+      screen
+        .getAllByTestId('timeline-row')
+        .map((row) => row.getAttribute('data-row-id'))
+    ).toEqual([
+      'step:repeat-child',
+      'subdag:repeat-child:repeat-run-1',
+      'subdag:repeat-child:repeat-run-2',
+      'subdag:repeat-child:repeat-run-3',
+    ]);
+    expect(screen.getByText('#01')).toBeInTheDocument();
+    expect(screen.getByText('#02')).toBeInTheDocument();
+    expect(screen.getByText('#03')).toBeInTheDocument();
+  });
+
+  it('opens a parallel child run when its timeline bar is clicked', async () => {
+    const onOpenSubRun = vi.fn();
+    useQueryMock.mockReturnValue({
+      data: {
+        subRuns: [subRunDetail('child-run-1')],
+      },
+      mutate: vi.fn(),
+    });
+
+    renderChart(
+      dagRun({
+        nodes: [parallelNode('parallel-call', [subRun('child-run-1')])],
+      }),
+      { onOpenSubRun }
+    );
+
+    const bar = screen.getByTestId('timeline-bar-subdag:parallel-call:child-run-1');
+    expect(bar).toHaveAttribute('role', 'button');
+    expect(bar).toHaveAttribute('tabIndex', '0');
+
+    await userEvent.click(bar);
+
+    expect(onOpenSubRun).toHaveBeenCalledWith({
+      name: 'child-dag',
+      dagRunId: 'child-run-1',
+    });
+  });
+
+  it('opens a repeat-policy child run when Enter is pressed on its bar', async () => {
+    const onOpenSubRun = vi.fn();
+    useQueryMock.mockReturnValue({
+      data: {
+        subRuns: [
+          subRunDetail('repeat-run-1'),
+          subRunDetail('repeat-run-2'),
+        ],
+      },
+      mutate: vi.fn(),
+    });
+
+    renderChart(
+      dagRun({
+        nodes: [
+          node({
+            step: { name: 'repeat-child', call: 'child-dag' },
+            subRunsRepeated: [subRun('repeat-run-1')],
+            subRuns: [subRun('repeat-run-2')],
+          }),
+        ],
+      }),
+      { onOpenSubRun }
+    );
+
+    const bar = screen.getByTestId(
+      'timeline-bar-subdag:repeat-child:repeat-run-2'
+    );
+    bar.focus();
+    await userEvent.keyboard('{Enter}');
+
+    expect(onOpenSubRun).toHaveBeenCalledWith({
+      name: 'child-dag',
+      dagRunId: 'repeat-run-2',
+    });
+  });
+
+  it('does not treat parent step bars as buttons', () => {
+    renderChart(
+      dagRun({
+        nodes: [
+          node({
+            step: { name: 'ordinary-step' },
+          }),
+        ],
+      })
+    );
+
+    const bar = screen.getByTestId('timeline-bar-step:ordinary-step');
+    expect(bar).not.toHaveAttribute('role', 'button');
+    expect(bar).not.toHaveAttribute('tabIndex');
+  });
+
+  it('opens a repeat-policy child run when its timeline bar is clicked', async () => {
+    const onOpenSubRun = vi.fn();
+    useQueryMock.mockReturnValue({
+      data: {
+        subRuns: [
+          subRunDetail('repeat-run-1'),
+          subRunDetail('repeat-run-2'),
+        ],
+      },
+      mutate: vi.fn(),
+    });
+
+    renderChart(
+      dagRun({
+        nodes: [
+          node({
+            step: { name: 'repeat-child', call: 'child-dag' },
+            subRunsRepeated: [subRun('repeat-run-1')],
+            subRuns: [subRun('repeat-run-2')],
+          }),
+        ],
+      }),
+      { onOpenSubRun }
+    );
+
+    await userEvent.click(
+      screen.getByTestId('timeline-bar-subdag:repeat-child:repeat-run-2')
+    );
+
+    expect(onOpenSubRun).toHaveBeenCalledWith({
+      name: 'child-dag',
+      dagRunId: 'repeat-run-2',
+    });
+  });
+
+  it('keeps tooltips for child rows after click wiring', async () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        subRuns: [subRunDetail('repeat-run-1')],
+      },
       mutate: vi.fn(),
     });
 
@@ -197,8 +453,12 @@ describe('TimelineChart', () => {
       })
     );
 
-    expect(screen.getByText('repeat-child')).toBeInTheDocument();
-    expect(screen.queryByText('#01')).not.toBeInTheDocument();
+    await userEvent.hover(
+      screen.getByTestId('timeline-bar-subdag:repeat-child:repeat-run-1')
+    );
+
+    expect(await screen.findAllByText('DAG: child-dag')).not.toHaveLength(0);
+    expect(screen.getAllByText('Run ID: repeat-run-1')).not.toHaveLength(0);
   });
 
   it('queries root timeline details with the root DAG name and run ID', () => {

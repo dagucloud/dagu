@@ -22,8 +22,17 @@ import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import dayjs from '@/lib/dayjs';
 import { isActiveNodeStatus } from '@/lib/status-utils';
-import { useEffect, useMemo } from 'react';
+import React, {
+  forwardRef,
+  useEffect,
+  useMemo,
+  type KeyboardEvent,
+} from 'react';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
+import {
+  useOpenSubRun,
+  type SubRunStackEntry,
+} from '../common/SubRunStackModal';
 import {
   buildTimelineRows,
   getSubRunQueryContext,
@@ -38,6 +47,11 @@ import {
 type Props = {
   /** DAG run details containing execution information */
   status: components['schemas']['DAGRunDetails'];
+  /**
+   * Optional opener for child DAG-run drill-down. Defaults to the
+   * SubRunOpenProvider context when rendered inside DAG status.
+   */
+  onOpenSubRun?: (entry: SubRunStackEntry) => void;
 };
 
 /** Format for displaying timestamps in tooltips */
@@ -242,11 +256,97 @@ function isActiveTimelineStatus(row: TimelineRow): boolean {
   return isActiveNodeStatus(row.status as NodeStatus);
 }
 
+type TimelineBarProps = {
+  item: TimelineRow;
+  leftPercent: number;
+  widthPercent: number;
+  colors: { bg: string; border: string };
+  isActive: boolean;
+  openSubRun?: (entry: SubRunStackEntry) => void;
+} & React.ComponentPropsWithoutRef<'div'>;
+
+/**
+ * Colored execution bar. Openable sub-DAG bars use role="button"
+ * (same pattern as ControllerTimeline) so positioning stays a div.
+ */
+const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
+  function TimelineBar(
+    {
+      item,
+      leftPercent,
+      widthPercent,
+      colors,
+      isActive,
+      openSubRun,
+      className,
+      style,
+      onClick,
+      onKeyDown,
+      ...props
+    },
+    ref
+  ) {
+    const canOpen =
+      item.kind === 'subdag' && !!openSubRun && !!item.dagRunId;
+
+    function handleClick(event: React.MouseEvent<HTMLDivElement>) {
+      onClick?.(event);
+      if (!canOpen || !openSubRun || !item.dagRunId) {
+        return;
+      }
+      openSubRun({
+        name: item.dagName || item.parentStepName || item.label,
+        dagRunId: item.dagRunId,
+      });
+    }
+
+    function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+      onKeyDown?.(event);
+      if (!canOpen || event.key !== 'Enter') {
+        return;
+      }
+      event.preventDefault();
+      if (!openSubRun || !item.dagRunId) {
+        return;
+      }
+      openSubRun({
+        name: item.dagName || item.parentStepName || item.label,
+        dagRunId: item.dagRunId,
+      });
+    }
+
+    return (
+      <div
+        ref={ref}
+        data-testid={`timeline-bar-${item.id}`}
+        {...props}
+        role={canOpen ? 'button' : undefined}
+        tabIndex={canOpen ? 0 : undefined}
+        className={`absolute h-5 rounded transition-opacity hover:opacity-80 ${
+          canOpen ? 'cursor-pointer' : ''
+        } ${isActive ? 'animate-pulse' : ''} ${className ?? ''}`}
+        style={{
+          left: `calc(${leftPercent}% + 130px)`,
+          width: `calc(${Math.max(widthPercent, 0.5)}% - 130px)`,
+          minWidth: '4px',
+          backgroundColor: colors.bg,
+          borderLeft: `2px solid ${colors.border}`,
+          ...style,
+        }}
+        onClick={canOpen ? handleClick : onClick}
+        onKeyDown={canOpen ? handleKeyDown : onKeyDown}
+      />
+    );
+  }
+);
+
 /**
  * TimelineChart component renders a horizontal bar chart showing step execution
  */
-function TimelineChart({ status }: Props) {
+function TimelineChart({ status, onOpenSubRun }: Props) {
   const remoteNode = useRemoteNode();
+  const openSubRunFromContext = useOpenSubRun();
+  const openSubRun = onOpenSubRun ?? openSubRunFromContext;
   const shouldFetchSubRuns = hasTimelineSubRuns(status);
   const queryContext = getSubRunQueryContext(status);
   const eligibleSubRunIdsKey = useMemo(
@@ -399,18 +499,13 @@ function TimelineChart({ status }: Props) {
               {/* Timeline bar */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div
-                    data-testid={`timeline-bar-${item.id}`}
-                    className={`absolute h-5 rounded cursor-pointer transition-opacity hover:opacity-80 ${
-                      isActive ? 'animate-pulse' : ''
-                    }`}
-                    style={{
-                      left: `calc(${leftPercent}% + 130px)`,
-                      width: `calc(${Math.max(widthPercent, 0.5)}% - 130px)`,
-                      minWidth: '4px',
-                      backgroundColor: colors.bg,
-                      borderLeft: `2px solid ${colors.border}`,
-                    }}
+                  <TimelineBar
+                    item={item}
+                    leftPercent={leftPercent}
+                    widthPercent={widthPercent}
+                    colors={colors}
+                    isActive={isActive}
+                    openSubRun={openSubRun}
                   />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs">

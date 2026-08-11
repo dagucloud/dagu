@@ -35,13 +35,23 @@ export type SubRunQueryContext = {
   parentSubDAGRunId?: string;
 };
 
-/** Returns sub-runs that should be shown under a parallel parent step. */
+/**
+ * Returns sub-runs that should expand under a parent step on the timeline.
+ * Parallel steps keep `subRuns` only; non-parallel steps with archived
+ * repeat-policy children expand `[...subRunsRepeated, ...subRuns]`.
+ */
 export function getTimelineSubRuns(node: Node): SubDAGRun[] {
-  if (!node.step.parallel) return [];
-  return node.subRuns || [];
+  if (node.step.parallel) {
+    return node.subRuns || [];
+  }
+  const repeated = node.subRunsRepeated || [];
+  if (repeated.length === 0) {
+    return [];
+  }
+  return [...repeated, ...(node.subRuns || [])];
 }
 
-/** Checks whether a DAG run has any parallel sub-runs worth expanding. */
+/** Checks whether a DAG run has any expandable child sub-runs. */
 export function hasTimelineSubRuns(dagRun: DAGRunDetails): boolean {
   return (dagRun.nodes || []).some(
     (node) => getTimelineSubRuns(node).length > 0
