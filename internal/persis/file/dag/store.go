@@ -229,8 +229,14 @@ func (store *DefinitionStore) readSuspendFlags(ctx context.Context) (dagindex.Su
 	flagEntries, err := os.ReadDir(store.flagsBaseDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			logger.Debug(ctx, "Suspend flags directory does not exist", tag.Dir(store.flagsBaseDir))
-			return flags, nil
+			exists, statErr := store.suspendFlagsDirExists()
+			if statErr != nil {
+				return nil, statErr
+			}
+			if !exists {
+				logger.Debug(ctx, "Suspend flags directory does not exist", tag.Dir(store.flagsBaseDir))
+				return flags, nil
+			}
 		}
 		return nil, fmt.Errorf("read suspend flags directory %s: %w", store.flagsBaseDir, err)
 	}
@@ -686,17 +692,22 @@ func (store *DefinitionStore) flagExistsResult(file string) (bool, error) {
 		return false, err
 	}
 
-	info, baseErr := os.Stat(store.flagsBaseDir)
-	if errors.Is(baseErr, os.ErrNotExist) {
+	_, err = store.suspendFlagsDirExists()
+	return false, err
+}
+
+func (store *DefinitionStore) suspendFlagsDirExists() (bool, error) {
+	info, err := os.Stat(store.flagsBaseDir)
+	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
-	if baseErr != nil {
-		return false, baseErr
+	if err != nil {
+		return false, err
 	}
 	if !info.IsDir() {
 		return false, fmt.Errorf("suspend flags path %s is not a directory", store.flagsBaseDir)
 	}
-	return false, nil
+	return true, nil
 }
 
 // deleteFlag deletes the given file.
