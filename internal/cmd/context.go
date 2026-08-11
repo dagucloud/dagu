@@ -569,10 +569,8 @@ func (c *Context) NewCoordinatorClient() coordinator.Client {
 func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	stores := c.runtimeStores()
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
-		DAGRunMgr: c.DAGRunMgr,
-		DAGRepositoryFactory: func(context.Context) (*persis.DAGRepository, error) {
-			return c.dagRepository(dagRepositoryConfig{})
-		},
+		DAGRunMgr:         c.DAGRunMgr,
+		DAGRepository:     c.DAGRepository,
 		DAGRunStore:       c.DAGRunStore,
 		QueueStore:        c.QueueStore,
 		StateStore:        c.StateStore,

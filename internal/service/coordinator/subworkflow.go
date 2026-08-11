@@ -20,39 +20,31 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
-// DAGRepositoryFactory creates the DAG definition store used by local child workflows.
-type DAGRepositoryFactory func(context.Context) (*persis.DAGRepository, error)
-
 // SubWorkflowRunnerConfig contains dependencies for child workflow execution.
 type SubWorkflowRunnerConfig struct {
-	DAGRunMgr            runtime.Manager
-	DAGRepository        *persis.DAGRepository
-	DAGRepositoryFactory DAGRepositoryFactory
-	DAGRunStore          dagrun.DAGRunStore
-	RunStateStore        runstate.Store
-	QueueStore           queue.QueueStore
-	StateStore           dagrun.StateStore
-	SecretStore          secret.Store
-	ProfileStore         profile.Store
-	ServiceRegistry      serviceregistry.ServiceRegistry
-	PeerConfig           config.Peer
-	DefaultExecMode      config.ExecutionMode
-	StatusPusher         runtime.StatusPusher
-	LogWriterFactory     runctx.LogWriterFactory
-	ArtifactFinalizer    runtime.ArtifactFinalizer
-	WorkerID             string
-	DAGRunLogDir         string
-	DAGRunArtifactDir    string
+	DAGRunMgr         runtime.Manager
+	DAGRepository     *persis.DAGRepository
+	DAGRunStore       dagrun.DAGRunStore
+	RunStateStore     runstate.Store
+	QueueStore        queue.QueueStore
+	StateStore        dagrun.StateStore
+	SecretStore       secret.Store
+	ProfileStore      profile.Store
+	ServiceRegistry   serviceregistry.ServiceRegistry
+	PeerConfig        config.Peer
+	DefaultExecMode   config.ExecutionMode
+	StatusPusher      runtime.StatusPusher
+	LogWriterFactory  runctx.LogWriterFactory
+	ArtifactFinalizer runtime.ArtifactFinalizer
+	WorkerID          string
+	DAGRunLogDir      string
+	DAGRunArtifactDir string
 }
 
 // NewSubWorkflowRunnerFactory creates recursive child workflow runners.
 func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	var factory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
-	factory = func(ctx context.Context) (runtimeexec.SubWorkflowRunner, error) {
-		dagRepository, err := subWorkflowDAGRepository(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
+	factory = func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 		dispatcher, err := NewRuntimeDispatcher(cfg.ServiceRegistry, cfg.PeerConfig)
 		if err != nil {
 			return nil, err
@@ -61,7 +53,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 			subflow.New(dispatcher, cfg.DefaultExecMode),
 			subflow.NewLocal(
 				cfg.DAGRunMgr,
-				dagRepository,
+				cfg.DAGRepository,
 				subflow.WithLocalDAGRunStore(cfg.DAGRunStore),
 				subflow.WithLocalRunStateStore(cfg.RunStateStore),
 				subflow.WithLocalQueueStore(cfg.QueueStore),
@@ -79,11 +71,4 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 		), nil
 	}
 	return factory
-}
-
-func subWorkflowDAGRepository(ctx context.Context, cfg SubWorkflowRunnerConfig) (*persis.DAGRepository, error) {
-	if cfg.DAGRepositoryFactory != nil {
-		return cfg.DAGRepositoryFactory(ctx)
-	}
-	return cfg.DAGRepository, nil
 }

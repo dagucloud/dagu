@@ -371,7 +371,7 @@ type Options struct {
 	DAGRunArtifactDir string
 	// ArtifactFinalizer persists artifacts before the final terminal status is written.
 	ArtifactFinalizer ArtifactFinalizer
-	// RemoteDAGLoader loads a DAG from a remote source when the local DAG store misses.
+	// RemoteDAGLoader loads a DAG from a remote source when the local repository misses.
 	// When nil, no remote fallback is attempted.
 	RemoteDAGLoader RemoteDAGLoader
 	// SocketServerFactory creates the local status/control transport.

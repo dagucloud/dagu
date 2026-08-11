@@ -52,7 +52,7 @@ type RemoteTaskHandlerConfig struct {
 	WorkerID string
 	// CoordinatorClient is the coordinator client with load balancing support
 	CoordinatorClient coordinator.Client
-	// DAGRepository is the store for DAG definitions
+	// DAGRepository provides access to DAG definitions.
 	DAGRepository *persis.DAGRepository
 	// DAGRunMgr is the manager for DAG runs
 	DAGRunMgr runtime.Manager
@@ -681,7 +681,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	})
 
 	// Create a remote DAG loader that fetches DAG definitions from the coordinator
-	// as a fallback when the local DAG store misses.
+	// as a fallback when the local DAG repository misses.
 	remoteDAGLoader := rtagent.RemoteDAGLoader(func(ctx context.Context, name string) (*ir.DAG, error) {
 		dagYAML, err := h.coordinatorClient.GetDAG(ctx, name)
 		if err != nil {

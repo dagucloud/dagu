@@ -34,7 +34,7 @@ func newDBClient(drs dagrun.DAGRunStore, dagLoader dagDetailsLoader, remoteDAGLo
 
 // GetDAG implements ir.DBClient.
 func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
-	// Guard against nil DAG store
+	// Fall back to the remote loader when no local repository is available.
 	if o.dagLoader == nil {
 		logger.Info(ctx, "No local DAG store, trying remote fallback", tag.SubDAG(name))
 		if o.remoteDAGLoader == nil {

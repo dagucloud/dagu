@@ -40,11 +40,11 @@ type dagFileSnapshot struct {
 }
 
 // newDAGFileSource creates the production DAG file source for a watched directory.
-func newDAGFileSource(dir string, store *persis.DAGRepository) *dagFileSource {
+func newDAGFileSource(dir string, dagRepository *persis.DAGRepository) *dagFileSource {
 	load := loadDAGMetadata
-	if store != nil {
+	if dagRepository != nil {
 		load = func(ctx context.Context, filePath string) (*ir.DAG, error) {
-			return store.GetMetadata(ctx, filePath)
+			return dagRepository.GetMetadata(ctx, filePath)
 		}
 	}
 	return &dagFileSource{
