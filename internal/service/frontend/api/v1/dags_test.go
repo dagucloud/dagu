@@ -6,7 +6,6 @@ package api_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -18,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -993,26 +991,6 @@ func (stubSchedulerStateStore) Save(context.Context, *scheduler.SchedulerState) 
 	return nil
 }
 
-var errLoadSpecFatal = errors.New("load spec fatal")
-
-type loadSpecErrorDAGStore struct {
-	persis.DAGRepository
-	updateCalled bool
-}
-
-func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, persis.DAGLoadOptions) (*ir.DAG, error) {
-	return &ir.DAG{Name: "load-spec-error"}, nil
-}
-
-func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, string, persis.DAGLoadOptions) (*ir.DAG, error) {
-	return nil, errLoadSpecFatal
-}
-
-func (s *loadSpecErrorDAGStore) UpdateSpec(context.Context, string, []byte) error {
-	s.updateCalled = true
-	return nil
-}
-
 func TestListDAGsDataPreservesNextRunAcrossSSEPath(t *testing.T) {
 	t.Parallel()
 
@@ -1502,36 +1480,6 @@ steps:
 	require.True(t, ok, "expected 200 response, got %T", respObj)
 	require.NotEmpty(t, resp.Errors)
 	require.Contains(t, resp.Errors[0], `fields "with" and "config" cannot be used together`)
-}
-
-func TestUpdateDAGSpec_ReturnsFatalLoadSpecError(t *testing.T) {
-	t.Parallel()
-
-	helper := test.Setup(t, test.WithStatusPersistence())
-	dagRepository := &loadSpecErrorDAGStore{}
-	apiImpl := localapi.New(
-		dagRepository,
-		helper.DAGRunStore,
-		helper.QueueStore,
-		helper.ProcStore,
-		helper.DAGRunMgr,
-		helper.Config,
-		nil,
-		helper.ServiceRegistry,
-		nil,
-		nil,
-	)
-
-	respObj, err := apiImpl.UpdateDAGSpec(context.Background(), api.UpdateDAGSpecRequestObject{
-		FileName: "load-spec-error",
-		Body: &api.UpdateDAGSpecJSONRequestBody{
-			Spec: "steps:\n  - command: echo updated\n",
-		},
-	})
-
-	require.ErrorIs(t, err, errLoadSpecFatal)
-	require.Nil(t, respObj)
-	require.False(t, dagRepository.updateCalled)
 }
 
 func TestUpdateDAGSpec_NotifiesDAGMutation(t *testing.T) {

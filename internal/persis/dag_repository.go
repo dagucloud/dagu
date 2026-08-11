@@ -21,17 +21,18 @@ import (
 
 const dagSearchCursorVersion = 1
 
-type dagRepository struct {
+// DAGRepository provides application-level access to DAG definitions.
+type DAGRepository struct {
 	definitions DAGDefinitionStore
 	options     DAGRepositoryOptions
 }
 
 // NewDAGRepository creates a repository backed by the given definition store.
-func NewDAGRepository(definitions DAGDefinitionStore, options DAGRepositoryOptions) DAGRepository {
-	return &dagRepository{definitions: definitions, options: options}
+func NewDAGRepository(definitions DAGDefinitionStore, options DAGRepositoryOptions) *DAGRepository {
+	return &DAGRepository{definitions: definitions, options: options}
 }
 
-func (r *dagRepository) loadOptions(opts ...spec.LoadOption) []spec.LoadOption {
+func (r *DAGRepository) loadOptions(opts ...spec.LoadOption) []spec.LoadOption {
 	loadOpts := make([]spec.LoadOption, 0, len(opts)+2)
 	if r.options.BaseConfigPath != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(r.options.BaseConfigPath))
@@ -49,23 +50,23 @@ func repositoryLoadOptions(opts DAGLoadOptions) []spec.LoadOption {
 	return nil
 }
 
-func (r *dagRepository) Create(ctx context.Context, id string, source []byte) error {
+func (r *DAGRepository) Create(ctx context.Context, id string, source []byte) error {
 	return r.definitions.Create(ctx, id, source)
 }
 
-func (r *dagRepository) Delete(ctx context.Context, id string) error {
+func (r *DAGRepository) Delete(ctx context.Context, id string) error {
 	return r.definitions.Delete(ctx, id)
 }
 
-func (r *dagRepository) Rename(ctx context.Context, oldID, newID string) error {
+func (r *DAGRepository) Rename(ctx context.Context, oldID, newID string) error {
 	return r.definitions.Rename(ctx, oldID, newID)
 }
 
-func (r *dagRepository) GetMetadata(ctx context.Context, id string) (*ir.DAG, error) {
+func (r *DAGRepository) GetMetadata(ctx context.Context, id string) (*ir.DAG, error) {
 	return r.definitions.GetMetadata(ctx, id)
 }
 
-func (r *dagRepository) GetDetails(ctx context.Context, id string, opts DAGLoadOptions) (*ir.DAG, error) {
+func (r *DAGRepository) GetDetails(ctx context.Context, id string, opts DAGLoadOptions) (*ir.DAG, error) {
 	definition, err := r.definitions.Get(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate DAG %s: %w", id, err)
@@ -86,7 +87,7 @@ func (r *dagRepository) GetDetails(ctx context.Context, id string, opts DAGLoadO
 	return dag, nil
 }
 
-func (r *dagRepository) GetSpec(ctx context.Context, id string) (string, error) {
+func (r *DAGRepository) GetSpec(ctx context.Context, id string) (string, error) {
 	definition, err := r.definitions.Get(ctx, id)
 	if err != nil {
 		return "", err
@@ -94,13 +95,13 @@ func (r *dagRepository) GetSpec(ctx context.Context, id string) (string, error) 
 	return string(definition.Source), nil
 }
 
-func (r *dagRepository) LoadSpec(ctx context.Context, source []byte, name string, opts DAGLoadOptions) (*ir.DAG, error) {
+func (r *DAGRepository) LoadSpec(ctx context.Context, source []byte, name string, opts DAGLoadOptions) (*ir.DAG, error) {
 	loadOpts := r.loadOptions(repositoryLoadOptions(opts)...)
 	loadOpts = append(loadOpts, spec.WithName(name), spec.WithoutEval())
 	return spec.LoadYAML(ctx, source, loadOpts...)
 }
 
-func (r *dagRepository) UpdateSpec(ctx context.Context, id string, source []byte) error {
+func (r *DAGRepository) UpdateSpec(ctx context.Context, id string, source []byte) error {
 	dag, err := spec.LoadYAML(ctx, source, r.loadOptions(
 		spec.WithName(id),
 		spec.WithoutEval(),
@@ -114,15 +115,15 @@ func (r *dagRepository) UpdateSpec(ctx context.Context, id string, source []byte
 	return r.definitions.Update(ctx, id, source)
 }
 
-func (r *dagRepository) SetSuspended(ctx context.Context, id string, suspended bool) error {
+func (r *DAGRepository) SetSuspended(ctx context.Context, id string, suspended bool) error {
 	return r.definitions.SetSuspended(ctx, id, suspended)
 }
 
-func (r *dagRepository) IsSuspended(ctx context.Context, id string) (bool, error) {
+func (r *DAGRepository) IsSuspended(ctx context.Context, id string) (bool, error) {
 	return r.definitions.IsSuspended(ctx, id)
 }
 
-func (r *dagRepository) List(ctx context.Context, opts DAGListOptions) (pagination.PaginatedResult[DAGListItem], []string, error) {
+func (r *DAGRepository) List(ctx context.Context, opts DAGListOptions) (pagination.PaginatedResult[DAGListItem], []string, error) {
 	if opts.Paginator == nil {
 		paginator := pagination.DefaultPaginator()
 		opts.Paginator = &paginator
@@ -211,7 +212,7 @@ func sortDAGList(items []DAGListItem, opts DAGListOptions) {
 	})
 }
 
-func (r *dagRepository) LabelList(ctx context.Context) ([]string, []string, error) {
+func (r *DAGRepository) LabelList(ctx context.Context) ([]string, []string, error) {
 	catalog, err := r.definitions.Catalog(ctx)
 	if err != nil {
 		return nil, catalog.Issues, err
@@ -239,7 +240,7 @@ func (r *dagRepository) LabelList(ctx context.Context) ([]string, []string, erro
 	return result, catalog.Issues, nil
 }
 
-func (r *dagRepository) Grep(ctx context.Context, pattern string) ([]*DAGGrepResult, []string, error) {
+func (r *DAGRepository) Grep(ctx context.Context, pattern string) ([]*DAGGrepResult, []string, error) {
 	if pattern == "" {
 		return nil, nil, nil
 	}
@@ -290,7 +291,7 @@ type dagMatchCursor struct {
 	Offset   int    `json:"offset"`
 }
 
-func (r *dagRepository) SearchCursor(ctx context.Context, opts DAGSearchOptions) (*pagination.CursorResult[DAGSearchResult], []string, error) {
+func (r *DAGRepository) SearchCursor(ctx context.Context, opts DAGSearchOptions) (*pagination.CursorResult[DAGSearchResult], []string, error) {
 	if opts.Query == "" {
 		return &pagination.CursorResult[DAGSearchResult]{Items: []DAGSearchResult{}}, nil, nil
 	}
@@ -371,7 +372,7 @@ func (r *dagRepository) SearchCursor(ctx context.Context, opts DAGSearchOptions)
 	return &pagination.CursorResult[DAGSearchResult]{Items: results, HasMore: hasMore, NextCursor: nextCursor}, issues, nil
 }
 
-func (r *dagRepository) SearchMatches(ctx context.Context, id string, opts DAGMatchSearchOptions) (*pagination.CursorResult[*textsearch.Match], error) {
+func (r *DAGRepository) SearchMatches(ctx context.Context, id string, opts DAGMatchSearchOptions) (*pagination.CursorResult[*textsearch.Match], error) {
 	if opts.Query == "" {
 		return &pagination.CursorResult[*textsearch.Match]{Items: []*textsearch.Match{}}, nil
 	}

@@ -142,7 +142,7 @@ func NewDefinitionStore(baseDir string, opts ...Option) *DefinitionStore {
 }
 
 // NewRepository creates a shared repository backed by local DAG files.
-func NewRepository(baseDir string, opts ...Option) persis.DAGRepository {
+func NewRepository(baseDir string, opts ...Option) *persis.DAGRepository {
 	definitions := NewDefinitionStore(baseDir, opts...)
 	return persis.NewDAGRepository(definitions, persis.DAGRepositoryOptions{
 		BaseConfigPath:         definitions.baseConfigPath,

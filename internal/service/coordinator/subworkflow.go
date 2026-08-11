@@ -21,12 +21,12 @@ import (
 )
 
 // DAGRepositoryFactory creates the DAG definition store used by local child workflows.
-type DAGRepositoryFactory func(context.Context) (persis.DAGRepository, error)
+type DAGRepositoryFactory func(context.Context) (*persis.DAGRepository, error)
 
 // SubWorkflowRunnerConfig contains dependencies for child workflow execution.
 type SubWorkflowRunnerConfig struct {
 	DAGRunMgr            runtime.Manager
-	DAGRepository        persis.DAGRepository
+	DAGRepository        *persis.DAGRepository
 	DAGRepositoryFactory DAGRepositoryFactory
 	DAGRunStore          dagrun.DAGRunStore
 	RunStateStore        runstate.Store
@@ -81,7 +81,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 	return factory
 }
 
-func subWorkflowDAGRepository(ctx context.Context, cfg SubWorkflowRunnerConfig) (persis.DAGRepository, error) {
+func subWorkflowDAGRepository(ctx context.Context, cfg SubWorkflowRunnerConfig) (*persis.DAGRepository, error) {
 	if cfg.DAGRepositoryFactory != nil {
 		return cfg.DAGRepositoryFactory(ctx)
 	}

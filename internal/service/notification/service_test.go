@@ -24,10 +24,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
-	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
-	"github.com/dagucloud/dagu/v2/internal/textsearch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -193,68 +191,13 @@ func (s *memoryStore) DeleteChannel(_ context.Context, channelID string) error {
 	return nil
 }
 
-type testDAGStore struct {
-	dag *ir.DAG
+type testDAGDefinitionStore struct {
+	persis.DAGDefinitionStore
+	definition persis.DAGDefinition
 }
 
-func (s testDAGStore) Create(context.Context, string, []byte) error {
-	return nil
-}
-
-func (s testDAGStore) Delete(context.Context, string) error {
-	return nil
-}
-
-func (s testDAGStore) List(context.Context, persis.DAGListOptions) (pagination.PaginatedResult[persis.DAGListItem], []string, error) {
-	return pagination.PaginatedResult[persis.DAGListItem]{}, nil, nil
-}
-
-func (s testDAGStore) GetMetadata(context.Context, string) (*ir.DAG, error) {
-	return s.dag, nil
-}
-
-func (s testDAGStore) GetDetails(context.Context, string, persis.DAGLoadOptions) (*ir.DAG, error) {
-	return s.dag, nil
-}
-
-func (s testDAGStore) Grep(context.Context, string) ([]*persis.DAGGrepResult, []string, error) {
-	return nil, nil, nil
-}
-
-func (s testDAGStore) SearchCursor(context.Context, persis.DAGSearchOptions) (*pagination.CursorResult[persis.DAGSearchResult], []string, error) {
-	return &pagination.CursorResult[persis.DAGSearchResult]{}, nil, nil
-}
-
-func (s testDAGStore) SearchMatches(context.Context, string, persis.DAGMatchSearchOptions) (*pagination.CursorResult[*textsearch.Match], error) {
-	return &pagination.CursorResult[*textsearch.Match]{}, nil
-}
-
-func (s testDAGStore) Rename(context.Context, string, string) error {
-	return nil
-}
-
-func (s testDAGStore) GetSpec(context.Context, string) (string, error) {
-	return "", nil
-}
-
-func (s testDAGStore) UpdateSpec(context.Context, string, []byte) error {
-	return nil
-}
-
-func (s testDAGStore) LoadSpec(context.Context, []byte, string, persis.DAGLoadOptions) (*ir.DAG, error) {
-	return s.dag, nil
-}
-
-func (s testDAGStore) LabelList(context.Context) ([]string, []string, error) {
-	return nil, nil, nil
-}
-
-func (s testDAGStore) SetSuspended(context.Context, string, bool) error {
-	return nil
-}
-
-func (s testDAGStore) IsSuspended(context.Context, string) (bool, error) {
-	return false, nil
+func (s testDAGDefinitionStore) Get(context.Context, string) (persis.DAGDefinition, error) {
+	return s.definition, nil
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -1212,10 +1155,18 @@ func TestService_SendTestUsesEffectiveWorkspaceRouteFromDAGLabels(t *testing.T) 
 		require.NoError(t, err)
 		require.NoError(t, store.SaveChannel(context.Background(), normalized))
 	}
-	svc := New(store, testDAGStore{dag: &ir.DAG{
-		Name:   "daily-report",
-		Labels: ir.NewLabels([]string{"workspace=ops"}),
-	}}, WithHTTPClient(httpClient))
+	dagRepository := persis.NewDAGRepository(testDAGDefinitionStore{
+		definition: persis.DAGDefinition{
+			ID: "daily-report",
+			Source: []byte(`
+name: daily-report
+labels:
+  - workspace=ops
+steps: []
+`),
+		},
+	}, persis.DAGRepositoryOptions{})
+	svc := New(store, dagRepository, WithHTTPClient(httpClient))
 	_, err := svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
 		Scope:         notificationmodel.RouteScopeGlobal,
 		Enabled:       true,

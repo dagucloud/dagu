@@ -62,7 +62,7 @@ func WithDAGSkipDirectoryCreation(skip bool) DAGRepositoryOption {
 }
 
 // NewDAGRepository connects the file-backed definition store to the shared repository.
-func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (persis.DAGRepository, error) {
+func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.DAGRepository, error) {
 	options := DAGRepositoryOptions{Symlinks: cfg.DAGDiscovery.Symlinks}
 	for _, opt := range opts {
 		if opt != nil {

@@ -53,7 +53,7 @@ type RemoteTaskHandlerConfig struct {
 	// CoordinatorClient is the coordinator client with load balancing support
 	CoordinatorClient coordinator.Client
 	// DAGRepository is the store for DAG definitions
-	DAGRepository persis.DAGRepository
+	DAGRepository *persis.DAGRepository
 	// DAGRunMgr is the manager for DAG runs
 	DAGRunMgr runtime.Manager
 	// StateStore is the persistent state store shared across DAG runs.
@@ -106,7 +106,7 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 type remoteTaskHandler struct {
 	workerID          string
 	coordinatorClient coordinator.Client
-	dagRepository     persis.DAGRepository
+	dagRepository     *persis.DAGRepository
 	dagRunMgr         runtime.Manager
 	stateStore        dagrun.StateStore
 	serviceRegistry   serviceregistry.ServiceRegistry

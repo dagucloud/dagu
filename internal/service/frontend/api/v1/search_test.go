@@ -22,10 +22,10 @@ import (
 
 type searchTestSetup struct {
 	api           *apiv1.API
-	dagRepository persis.DAGRepository
+	dagRepository *persis.DAGRepository
 }
 
-func newSearchAPI(dagRepository persis.DAGRepository, extraOptions ...apiv1.APIOption) *apiv1.API {
+func newSearchAPI(dagRepository *persis.DAGRepository, extraOptions ...apiv1.APIOption) *apiv1.API {
 	cfg := &config.Config{}
 
 	options := append([]apiv1.APIOption{}, extraOptions...)

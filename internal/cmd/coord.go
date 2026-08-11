@@ -149,7 +149,7 @@ func newCoordinator(
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore,
 	dagRunLeaseStore dispatch.DAGRunLeaseStore,
 	activeDistributedRunStore dispatch.ActiveDistributedRunStore,
-	dagRepository persis.DAGRepository,
+	dagRepository *persis.DAGRepository,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	// Generate instance ID
 	hostname, err := os.Hostname()

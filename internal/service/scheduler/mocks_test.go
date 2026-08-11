@@ -35,6 +35,6 @@ func (er *mockJobManager) DAGs() []*ir.DAG {
 	return er.LoadedDAGs
 }
 
-func (*mockJobManager) DAGRepository() persis.DAGRepository {
+func (*mockJobManager) DAGRepository() *persis.DAGRepository {
 	return nil
 }

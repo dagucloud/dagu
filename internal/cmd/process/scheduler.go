@@ -128,7 +128,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 func newNotificationMonitor(
 	ctx context.Context,
 	cfg *config.Config,
-	dagRepository persis.DAGRepository,
+	dagRepository *persis.DAGRepository,
 	eventService *eventstore.Service,
 ) *chatbridge.NotificationMonitor {
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
@@ -160,7 +160,7 @@ func newNotificationMonitor(
 func newSchedulerNotificationService(
 	cfg *config.Config,
 	store notificationmodel.Store,
-	dagRepository persis.DAGRepository,
+	dagRepository *persis.DAGRepository,
 	opts ...notificationservice.Option,
 ) *notificationservice.Service {
 	opts = append([]notificationservice.Option{

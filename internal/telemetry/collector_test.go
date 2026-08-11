@@ -16,7 +16,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
-	"github.com/dagucloud/dagu/v2/internal/textsearch"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
@@ -25,103 +24,14 @@ import (
 )
 
 // Mock implementations
-type mockDAGStore struct {
+type mockDAGLister struct {
 	mock.Mock
 }
 
-var _ persis.DAGRepository = (*mockDAGStore)(nil)
-
-func (m *mockDAGStore) Create(ctx context.Context, fileName string, spec []byte) error {
-	args := m.Called(ctx, fileName, spec)
-	return args.Error(0)
-}
-
-func (m *mockDAGStore) Delete(ctx context.Context, fileName string) error {
-	args := m.Called(ctx, fileName)
-	return args.Error(0)
-}
-
-func (m *mockDAGStore) List(ctx context.Context, params persis.DAGListOptions) (pagination.PaginatedResult[persis.DAGListItem], []string, error) {
+func (m *mockDAGLister) List(ctx context.Context, params persis.DAGListOptions) (pagination.PaginatedResult[persis.DAGListItem], []string, error) {
 	args := m.Called(ctx, params)
 	return args.Get(0).(pagination.PaginatedResult[persis.DAGListItem]), args.Get(1).([]string), args.Error(2)
 }
-
-func (m *mockDAGStore) GetMetadata(ctx context.Context, fileName string) (*ir.DAG, error) {
-	args := m.Called(ctx, fileName)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*ir.DAG), args.Error(1)
-}
-
-func (m *mockDAGStore) GetDetails(ctx context.Context, fileName string, opts persis.DAGLoadOptions) (*ir.DAG, error) {
-	args := m.Called(ctx, fileName, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*ir.DAG), args.Error(1)
-}
-
-func (m *mockDAGStore) Grep(ctx context.Context, pattern string) ([]*persis.DAGGrepResult, []string, error) {
-	args := m.Called(ctx, pattern)
-	return args.Get(0).([]*persis.DAGGrepResult), args.Get(1).([]string), args.Error(2)
-}
-
-func (m *mockDAGStore) SearchCursor(ctx context.Context, opts persis.DAGSearchOptions) (*pagination.CursorResult[persis.DAGSearchResult], []string, error) {
-	args := m.Called(ctx, opts)
-	if args.Get(0) == nil {
-		return nil, args.Get(1).([]string), args.Error(2)
-	}
-	return args.Get(0).(*pagination.CursorResult[persis.DAGSearchResult]), args.Get(1).([]string), args.Error(2)
-}
-
-func (m *mockDAGStore) SearchMatches(ctx context.Context, fileName string, opts persis.DAGMatchSearchOptions) (*pagination.CursorResult[*textsearch.Match], error) {
-	args := m.Called(ctx, fileName, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*pagination.CursorResult[*textsearch.Match]), args.Error(1)
-}
-
-func (m *mockDAGStore) Rename(ctx context.Context, oldID, newID string) error {
-	args := m.Called(ctx, oldID, newID)
-	return args.Error(0)
-}
-
-func (m *mockDAGStore) GetSpec(ctx context.Context, fileName string) (string, error) {
-	args := m.Called(ctx, fileName)
-	return args.String(0), args.Error(1)
-}
-
-func (m *mockDAGStore) UpdateSpec(ctx context.Context, fileName string, spec []byte) error {
-	args := m.Called(ctx, fileName, spec)
-	return args.Error(0)
-}
-
-func (m *mockDAGStore) LoadSpec(ctx context.Context, source []byte, _ string, opts persis.DAGLoadOptions) (*ir.DAG, error) {
-	args := m.Called(ctx, source, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*ir.DAG), args.Error(1)
-}
-
-func (m *mockDAGStore) LabelList(ctx context.Context) ([]string, []string, error) {
-	args := m.Called(ctx)
-	return args.Get(0).([]string), args.Get(1).([]string), args.Error(2)
-}
-
-func (m *mockDAGStore) SetSuspended(ctx context.Context, fileName string, suspend bool) error {
-	args := m.Called(ctx, fileName, suspend)
-	return args.Error(0)
-}
-
-func (m *mockDAGStore) IsSuspended(ctx context.Context, fileName string) (bool, error) {
-	args := m.Called(ctx, fileName)
-	return args.Bool(0), args.Error(1)
-}
-
-var _ dagrun.DAGRunStore = (*mockDAGRunStore)(nil)
 
 type mockDAGRunStore struct {
 	mock.Mock
@@ -341,7 +251,7 @@ func TestNewCollector(t *testing.T) {
 
 	collector := NewCollector(
 		"1.0.0",
-		&mockDAGStore{},
+		&mockDAGLister{},
 		&mockDAGRunStore{},
 		&mockQueueStore{},
 		serviceRegistry,
@@ -354,7 +264,7 @@ func TestNewCollector(t *testing.T) {
 func TestCollector_Describe(t *testing.T) {
 	collector := NewCollector(
 		"1.0.0",
-		&mockDAGStore{},
+		&mockDAGLister{},
 		&mockDAGRunStore{},
 		&mockQueueStore{},
 		nil,
@@ -374,7 +284,7 @@ func TestCollector_Describe(t *testing.T) {
 }
 
 func TestCollector_Collect_BasicMetrics(t *testing.T) {
-	dagRepository := &mockDAGStore{}
+	dagRepository := &mockDAGLister{}
 	dagRunStore := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
@@ -409,7 +319,7 @@ func TestCollector_Collect_BasicMetrics(t *testing.T) {
 }
 
 func TestCollector_Collect_WithDAGRuns(t *testing.T) {
-	dagRepository := &mockDAGStore{}
+	dagRepository := &mockDAGLister{}
 	dagRunStore := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
@@ -508,7 +418,7 @@ func TestCollector_Collect_WithDAGRuns(t *testing.T) {
 }
 
 func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
-	dagRepository := &mockDAGStore{}
+	dagRepository := &mockDAGLister{}
 	dagRunStore := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
@@ -594,7 +504,7 @@ func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
 }
 
 func TestCollector_Collect_WithWorkerInfoLabels(t *testing.T) {
-	dagRepository := &mockDAGStore{}
+	dagRepository := &mockDAGLister{}
 	dagRunStore := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
@@ -653,7 +563,7 @@ func TestCollector_Collect_WithWorkerInfoLabels(t *testing.T) {
 }
 
 func TestCollector_Collect_WithErrors(t *testing.T) {
-	dagRepository := &mockDAGStore{}
+	dagRepository := &mockDAGLister{}
 	dagRunStore := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
@@ -685,7 +595,7 @@ func TestCollector_Collect_WithErrors(t *testing.T) {
 }
 
 func TestNewRegistry(t *testing.T) {
-	dagRepository := &mockDAGStore{}
+	dagRepository := &mockDAGLister{}
 	dagRunStore := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
@@ -723,7 +633,7 @@ func TestNewRegistry(t *testing.T) {
 }
 
 func TestCollector_SchedulerStatus(t *testing.T) {
-	dagRepository := &mockDAGStore{}
+	dagRepository := &mockDAGLister{}
 	dagRunStore := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 

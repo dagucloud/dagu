@@ -19,7 +19,7 @@ type DAGRepositoryConfig struct {
 }
 
 // NewDAGRepository creates the file-backed DAG repository used by command process roles.
-func NewDAGRepository(cfg *config.Config, storeCfg DAGRepositoryConfig) (persis.DAGRepository, error) {
+func NewDAGRepository(cfg *config.Config, storeCfg DAGRepositoryConfig) (*persis.DAGRepository, error) {
 	searchPaths := append([]string{}, storeCfg.SearchPaths...)
 	if cfg.Paths.AltDAGsDir != "" {
 		searchPaths = append(searchPaths, cfg.Paths.AltDAGsDir)

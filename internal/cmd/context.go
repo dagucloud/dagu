@@ -70,7 +70,7 @@ type Context struct {
 	DAGRunLeaseStore          dispatch.DAGRunLeaseStore
 	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 
-	DAGRepository  persis.DAGRepository
+	DAGRepository  *persis.DAGRepository
 	Proc           proc.ProcHandle
 	LicenseManager *license.Manager
 	ContextStore   *cliContextStore
@@ -570,7 +570,7 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 	stores := c.runtimeStores()
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr: c.DAGRunMgr,
-		DAGRepositoryFactory: func(context.Context) (persis.DAGRepository, error) {
+		DAGRepositoryFactory: func(context.Context) (*persis.DAGRepository, error) {
 			return c.dagRepository(dagRepositoryConfig{})
 		},
 		DAGRunStore:       c.DAGRunStore,
@@ -636,7 +636,7 @@ type dagRepositoryConfig struct {
 }
 
 // dagRepository returns a new DAGRepository instance.
-func (c *Context) dagRepository(cfg dagRepositoryConfig) (persis.DAGRepository, error) {
+func (c *Context) dagRepository(cfg dagRepositoryConfig) (*persis.DAGRepository, error) {
 	return cmdprocess.NewDAGRepository(c.Config, cmdprocess.DAGRepositoryConfig{
 		Cache:                 cfg.Cache,
 		SearchPaths:           cfg.SearchPaths,

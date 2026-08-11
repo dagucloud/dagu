@@ -188,7 +188,7 @@ func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceF
 			ProcStore:       store.NewProcStore(backend.Collection("proc")),
 			StateStore:      store.NewDAGStateStore(backend.Collection("dag_state")),
 			ServiceRegistry: file.NewServiceRegistry(cfg),
-			DAGRepositoryFactory: func(_ context.Context, cfg *config.Config, opts engine.DAGRepositoryFactoryOptions) (persis.DAGRepository, error) {
+			DAGRepositoryFactory: func(_ context.Context, cfg *config.Config, opts engine.DAGRepositoryFactoryOptions) (*persis.DAGRepository, error) {
 				fileOpts := []file.DAGRepositoryOption{file.WithDAGSkipExamples(true)}
 				if len(opts.SearchPaths) > 0 {
 					fileOpts = append(fileOpts, file.WithDAGSearchPaths(opts.SearchPaths))

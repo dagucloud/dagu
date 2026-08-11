@@ -66,25 +66,6 @@ type DAGRepositoryOptions struct {
 	WorkspaceBaseConfigDir string
 }
 
-// DAGRepository provides application-level access to DAG definitions.
-type DAGRepository interface {
-	Create(ctx context.Context, id string, source []byte) error
-	Delete(ctx context.Context, id string) error
-	List(ctx context.Context, opts DAGListOptions) (pagination.PaginatedResult[DAGListItem], []string, error)
-	GetMetadata(ctx context.Context, id string) (*ir.DAG, error)
-	GetDetails(ctx context.Context, id string, opts DAGLoadOptions) (*ir.DAG, error)
-	Grep(ctx context.Context, pattern string) ([]*DAGGrepResult, []string, error)
-	SearchCursor(ctx context.Context, opts DAGSearchOptions) (*pagination.CursorResult[DAGSearchResult], []string, error)
-	SearchMatches(ctx context.Context, id string, opts DAGMatchSearchOptions) (*pagination.CursorResult[*textsearch.Match], error)
-	Rename(ctx context.Context, oldID, newID string) error
-	GetSpec(ctx context.Context, id string) (string, error)
-	UpdateSpec(ctx context.Context, id string, source []byte) error
-	LoadSpec(ctx context.Context, source []byte, name string, opts DAGLoadOptions) (*ir.DAG, error)
-	LabelList(ctx context.Context) ([]string, []string, error)
-	SetSuspended(ctx context.Context, id string, suspended bool) error
-	IsSuspended(ctx context.Context, id string) (bool, error)
-}
-
 // DAGListOptions contains parameters for paginated DAG listing.
 type DAGListOptions struct {
 	Paginator         *pagination.Paginator

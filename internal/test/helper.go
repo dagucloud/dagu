@@ -517,7 +517,7 @@ type Helper struct {
 	Config                    *config.Config
 	ChildEnv                  []string
 	LoggingOutput             *SyncBuffer
-	DAGRepository             persis.DAGRepository
+	DAGRepository             *persis.DAGRepository
 	DAGRunStore               dagrun.DAGRunStore
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 proc.ProcStore

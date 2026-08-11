@@ -85,8 +85,8 @@ type Agent struct {
 	// It is nil if it's not a retry execution.
 	retryTarget *ir.DAGRunStatus
 
-	// dagRepository is the database to store the DAG definitions.
-	dagRepository persis.DAGRepository
+	// dagLoader resolves DAG definitions for runtime lookups.
+	dagLoader dagDetailsLoader
 
 	// dagRunStore is the database to store the run history.
 	dagRunStore dagrun.DAGRunStore
@@ -386,9 +386,14 @@ func New(
 	logDir string,
 	logFile string,
 	drm runtime.Manager,
-	ds persis.DAGRepository,
+	dagRepository *persis.DAGRepository,
 	opts Options,
 ) *Agent {
+	var dagLoader dagDetailsLoader
+	if dagRepository != nil {
+		dagLoader = dagRepository
+	}
+
 	runStateStore := opts.RunStateStore
 	if runStateStore == nil && opts.PreparedAttempt != nil {
 		runStateStore = runstate.NewHistoryStore(opts.DAGRunStore, runstate.WithPreparedAttempt(opts.PreparedAttempt))
@@ -409,7 +414,7 @@ func New(
 		artifactDir:              opts.ArtifactDir,
 		artifactFinalizer:        opts.ArtifactFinalizer,
 		dagRunMgr:                drm,
-		dagRepository:            ds,
+		dagLoader:                dagLoader,
 		dagRunStore:              opts.DAGRunStore,
 		runStateStore:            runStateStore,
 		queueStore:               opts.QueueStore,
@@ -644,7 +649,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.lock.Unlock()
 
 	// Create a new environment for the dag-run.
-	dbClient := newDBClient(a.dagRunStore, a.dagRepository, a.remoteDAGLoader)
+	dbClient := newDBClient(a.dagRunStore, a.dagLoader, a.remoteDAGLoader)
 
 	subWorkflowRunner, err := a.createSubWorkflowRunner(ctx)
 	if err != nil {
@@ -2104,7 +2109,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		}
 	}()
 
-	db := newDBClient(a.dagRunStore, a.dagRepository, a.remoteDAGLoader)
+	db := newDBClient(a.dagRunStore, a.dagLoader, a.remoteDAGLoader)
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDatabase(db),
 		runtime.WithRootDAGRun(a.rootDAGRun),

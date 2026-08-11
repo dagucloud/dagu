@@ -41,7 +41,7 @@ type EntryReader interface {
 	// DAGs returns a snapshot of all currently loaded DAG definitions.
 	DAGs() []*ir.DAG
 	// DAGRepository returns the backing store used for loading DAG details and suspension state.
-	DAGRepository() persis.DAGRepository
+	DAGRepository() *persis.DAGRepository
 }
 
 var _ EntryReader = (*entryReaderImpl)(nil)
@@ -64,7 +64,7 @@ type entryReaderImpl struct {
 	stamps        map[string]dagFileStamp
 	watchedDirs   map[string]struct{}
 	lock          sync.Mutex
-	dagRepository persis.DAGRepository
+	dagRepository *persis.DAGRepository
 	dagSource     *dagFileSource
 	watcher       filenotify.FileWatcher
 	recursive     bool
@@ -74,7 +74,7 @@ type entryReaderImpl struct {
 }
 
 // NewEntryReader creates a new DAG manager with the given configuration.
-func NewEntryReader(dir string, dagCli persis.DAGRepository, recursive bool) EntryReader {
+func NewEntryReader(dir string, dagCli *persis.DAGRepository, recursive bool) EntryReader {
 	return &entryReaderImpl{
 		targetDir:     dir,
 		registry:      make(map[string]*ir.DAG),
@@ -348,7 +348,7 @@ func (er *entryReaderImpl) DAGs() []*ir.DAG {
 }
 
 // DAGRepository returns the repository used for full DAG details.
-func (er *entryReaderImpl) DAGRepository() persis.DAGRepository {
+func (er *entryReaderImpl) DAGRepository() *persis.DAGRepository {
 	return er.dagRepository
 }
 

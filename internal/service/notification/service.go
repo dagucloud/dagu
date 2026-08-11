@@ -37,7 +37,7 @@ import (
 
 type Service struct {
 	store                   notificationmodel.Store
-	dagRepository           persis.DAGRepository
+	dagRepository           *persis.DAGRepository
 	http                    *http.Client
 	logger                  *slog.Logger
 	retry                   DeliveryRetryConfig
@@ -115,7 +115,7 @@ func (s *Service) SetPublicURLResolver(resolver func() string) {
 	}
 }
 
-func New(store notificationmodel.Store, dagRepository persis.DAGRepository, opts ...Option) *Service {
+func New(store notificationmodel.Store, dagRepository *persis.DAGRepository, opts ...Option) *Service {
 	svc := &Service{
 		store:                   store,
 		dagRepository:           dagRepository,

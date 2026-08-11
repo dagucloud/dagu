@@ -32,7 +32,7 @@ type Engine struct {
 	stateStore      dagrun.StateStore
 	procStore       proc.ProcStore
 	serviceRegistry serviceregistry.ServiceRegistry
-	dagRepository   persis.DAGRepository
+	dagRepository   *persis.DAGRepository
 	dagRunMgr       runtime.Manager
 	defaultMode     ExecutionMode
 	distributed     DistributedOptions

@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -40,7 +41,7 @@ var _ prometheus.Collector = (*Collector)(nil)
 type Collector struct {
 	startTime            time.Time
 	version              string
-	dagRepository        persis.DAGRepository
+	dagRepository        dagLister
 	dagRunStore          dagrun.DAGRunStore
 	queueStore           queue.QueueStore
 	serviceRegistry      serviceregistry.ServiceRegistry
@@ -79,10 +80,14 @@ type Collector struct {
 	mu sync.RWMutex
 }
 
+type dagLister interface {
+	List(context.Context, persis.DAGListOptions) (pagination.PaginatedResult[persis.DAGListItem], []string, error)
+}
+
 // NewCollector creates a new metrics collector
 func NewCollector(
 	version string,
-	dagRepository persis.DAGRepository,
+	dagRepository dagLister,
 	dagRunStore dagrun.DAGRunStore,
 	queueStore queue.QueueStore,
 	serviceRegistry serviceregistry.ServiceRegistry,

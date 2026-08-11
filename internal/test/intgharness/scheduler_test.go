@@ -48,6 +48,6 @@ func (s staticEntryReader) DAGs() []*ir.DAG {
 	return s.dags
 }
 
-func (s staticEntryReader) DAGRepository() persis.DAGRepository {
+func (s staticEntryReader) DAGRepository() *persis.DAGRepository {
 	return nil
 }

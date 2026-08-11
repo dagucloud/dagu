@@ -124,7 +124,7 @@ type Handler struct {
 	workerHeartbeatStore      dispatch.WorkerHeartbeatStore      // Shared worker presence
 	dagRunLeaseStore          dispatch.DAGRunLeaseStore          // Shared distributed run leases
 	activeDistributedRunStore dispatch.ActiveDistributedRunStore // Shared active distributed attempt index
-	dagRepository             persis.DAGRepository               // DAG definitions for the GetDAG RPC
+	dagRepository             *persis.DAGRepository              // DAG definitions for the GetDAG RPC
 	secretStore               secretpkg.Store                    // Secret registry for workers
 
 	// Open attempts cache for status persistence
@@ -192,7 +192,7 @@ type HandlerConfig struct {
 
 	// DAGRepository serves DAG definitions for the GetDAG RPC.
 	// Optional - when nil, GetDAG returns Unimplemented.
-	DAGRepository persis.DAGRepository
+	DAGRepository *persis.DAGRepository
 
 	// SecretStore resolves Dagu-managed secret registry refs for workers.
 	// Optional - when nil, ResolveSecretReference returns FailedPrecondition.

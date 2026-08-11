@@ -452,7 +452,7 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 	}, nil
 }
 
-func fileEngineDAGRepository(_ context.Context, cfg *config.Config, opts iengine.DAGRepositoryFactoryOptions) (persis.DAGRepository, error) {
+func fileEngineDAGRepository(_ context.Context, cfg *config.Config, opts iengine.DAGRepositoryFactoryOptions) (*persis.DAGRepository, error) {
 	var fileOpts []file.DAGRepositoryOption
 	if len(opts.SearchPaths) > 0 {
 		fileOpts = append(fileOpts, file.WithDAGSearchPaths(opts.SearchPaths))

@@ -23,7 +23,7 @@ type PersistenceFactory func(context.Context, *config.Config) (Persistence, erro
 
 // Persistence contains the storage dependencies required by Engine.
 type Persistence struct {
-	DAGRepository        persis.DAGRepository
+	DAGRepository        *persis.DAGRepository
 	DAGRunStore          dagrun.DAGRunStore
 	RunStateStore        runstate.Store
 	ProcStore            proc.ProcStore
@@ -39,7 +39,7 @@ type DAGRepositoryFactoryOptions struct {
 }
 
 // DAGRepositoryFactory creates repositories needed by execution-scoped loaders.
-type DAGRepositoryFactory func(context.Context, *config.Config, DAGRepositoryFactoryOptions) (persis.DAGRepository, error)
+type DAGRepositoryFactory func(context.Context, *config.Config, DAGRepositoryFactoryOptions) (*persis.DAGRepository, error)
 
 // RuntimeStoresFactory creates stores for local workflow execution.
 type RuntimeStoresFactory func(context.Context, *config.Config) RuntimeStores

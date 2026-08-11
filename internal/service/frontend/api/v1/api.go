@@ -63,7 +63,7 @@ import (
 var _ api.StrictServerInterface = (*API)(nil)
 
 type API struct {
-	dagRepository        persis.DAGRepository
+	dagRepository        *persis.DAGRepository
 	dagRunStore          dagrun.DAGRunStore
 	dagRunMgr            runtime.Manager
 	queueStore           queue.QueueStore
@@ -361,7 +361,7 @@ func WithLeaseStaleThreshold(threshold time.Duration) APIOption {
 // and resource service. It builds the remote node map and base path, then
 // applies any supplied APIOption functions to customize the instance.
 func New(
-	dr persis.DAGRepository,
+	dr *persis.DAGRepository,
 	drs dagrun.DAGRunStore,
 	qs queue.QueueStore,
 	ps proc.ProcStore,

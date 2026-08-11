@@ -36,7 +36,7 @@ import (
 // Local runs child workflows in the current process through the runtime agent.
 type Local struct {
 	dagRunMgr                runtime.Manager
-	dagRepository            persis.DAGRepository
+	dagRepository            *persis.DAGRepository
 	dagRunStore              dagrun.DAGRunStore
 	runStateStore            runstate.Store
 	queueStore               queue.QueueStore
@@ -162,7 +162,7 @@ func WithLocalDAGRunDirs(logDir, artifactDir string) LocalOption {
 }
 
 // NewLocal creates an in-process child workflow runner.
-func NewLocal(dagRunMgr runtime.Manager, dagRepository persis.DAGRepository, opts ...LocalOption) *Local {
+func NewLocal(dagRunMgr runtime.Manager, dagRepository *persis.DAGRepository, opts ...LocalOption) *Local {
 	r := &Local{
 		dagRunMgr:     dagRunMgr,
 		dagRepository: dagRepository,
@@ -456,7 +456,7 @@ func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent
 	return result, nil
 }
 
-func (r *Local) dagRepositoryFromContext(_ context.Context) persis.DAGRepository {
+func (r *Local) dagRepositoryFromContext(_ context.Context) *persis.DAGRepository {
 	return r.dagRepository
 }
 

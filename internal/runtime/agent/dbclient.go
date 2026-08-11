@@ -19,19 +19,23 @@ import (
 var _ runtime.Database = &dbClient{}
 
 type dbClient struct {
-	ds              persis.DAGRepository
+	dagLoader       dagDetailsLoader
 	drs             dagrun.DAGRunStore
 	remoteDAGLoader RemoteDAGLoader
 }
 
-func newDBClient(drs dagrun.DAGRunStore, ds persis.DAGRepository, remoteDAGLoader RemoteDAGLoader) *dbClient {
-	return &dbClient{drs: drs, ds: ds, remoteDAGLoader: remoteDAGLoader}
+type dagDetailsLoader interface {
+	GetDetails(context.Context, string, persis.DAGLoadOptions) (*ir.DAG, error)
+}
+
+func newDBClient(drs dagrun.DAGRunStore, dagLoader dagDetailsLoader, remoteDAGLoader RemoteDAGLoader) *dbClient {
+	return &dbClient{drs: drs, dagLoader: dagLoader, remoteDAGLoader: remoteDAGLoader}
 }
 
 // GetDAG implements ir.DBClient.
 func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 	// Guard against nil DAG store
-	if o.ds == nil {
+	if o.dagLoader == nil {
 		logger.Info(ctx, "No local DAG store, trying remote fallback", tag.SubDAG(name))
 		if o.remoteDAGLoader == nil {
 			return nil, fmt.Errorf("no local DAG store and no remote loader configured for DAG %s", name)
@@ -48,7 +52,7 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 		return remoteDAG, nil
 	}
 
-	dag, err := o.ds.GetDetails(ctx, name, persis.DAGLoadOptions{})
+	dag, err := o.dagLoader.GetDetails(ctx, name, persis.DAGLoadOptions{})
 	if err == nil {
 		return dag, nil
 	}
