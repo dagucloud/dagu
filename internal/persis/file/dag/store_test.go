@@ -653,7 +653,7 @@ steps:
 
 func TestGenerateFilePathPreventsTraversal(t *testing.T) {
 	baseDir := filepath.FromSlash("/base/dir")
-	store := NewDefinitionStore(baseDir, WithSkipExamples(true)).Storage
+	store := NewDefinitionStore(baseDir, WithSkipExamples(true))
 
 	tests := []struct {
 		name  string

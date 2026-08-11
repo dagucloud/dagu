@@ -108,19 +108,6 @@ func WithSkipDirectoryCreation(skip bool) Option {
 
 // NewDefinitionStore creates a filesystem-backed DAG definition store.
 func NewDefinitionStore(baseDir string, opts ...Option) *DefinitionStore {
-	return &DefinitionStore{Storage: newStorage(baseDir, opts...)}
-}
-
-// NewRepository creates a shared repository backed by local DAG files.
-func NewRepository(baseDir string, opts ...Option) persis.DAGRepository {
-	definitions := NewDefinitionStore(baseDir, opts...)
-	return persis.NewDAGRepository(definitions, persis.DAGRepositoryOptions{
-		BaseConfigPath:         definitions.baseConfigPath,
-		WorkspaceBaseConfigDir: definitions.workspaceBaseConfigDir,
-	})
-}
-
-func newStorage(baseDir string, opts ...Option) *Storage {
 	options := &Options{}
 	for _, opt := range opts {
 		opt(options)
@@ -139,7 +126,7 @@ func newStorage(baseDir string, opts ...Option) *Storage {
 		searchPaths = append(searchPaths, p)
 	}
 
-	return &Storage{
+	return &DefinitionStore{
 		baseDir:                baseDir,
 		flagsBaseDir:           options.FlagsBaseDir,
 		fileCache:              options.FileCache,
@@ -154,9 +141,30 @@ func newStorage(baseDir string, opts ...Option) *Storage {
 	}
 }
 
+// NewRepository creates a shared repository backed by local DAG files.
+func NewRepository(baseDir string, opts ...Option) persis.DAGRepository {
+	definitions := NewDefinitionStore(baseDir, opts...)
+	return persis.NewDAGRepository(definitions, persis.DAGRepositoryOptions{
+		BaseConfigPath:         definitions.baseConfigPath,
+		WorkspaceBaseConfigDir: definitions.workspaceBaseConfigDir,
+	})
+}
+
 // DefinitionStore exposes filesystem persistence without repository queries.
 type DefinitionStore struct {
-	*Storage
+	baseDir                string                   // Base directory for DAG storage
+	flagsBaseDir           string                   // Base directory for flag store
+	fileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
+	searchPaths            []string                 // Additional search paths for DAG files
+	baseConfigPath         string                   // Optional base config file applied when loading DAGs
+	workspaceBaseConfigDir string                   // Optional directory containing workspace base configs
+	baseConfigState        string                   // Last observed base config state for cache/index invalidation
+	skipExamples           bool                     // Skip creating example DAGs
+	recursive              bool                     // Discover DAG definitions in subdirectories
+	symlinks               bool                     // Include recursive file symlinks and external targets
+	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
+	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
+	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
 }
 
 func (store *DefinitionStore) Get(ctx context.Context, id string) (persis.DAGDefinition, error) {
@@ -175,10 +183,6 @@ func (store *DefinitionStore) Get(ctx context.Context, id string) (persis.DAGDef
 		return persis.DAGDefinition{}, err
 	}
 	return persis.DAGDefinition{ID: id, Source: source, SourcePath: resolved.ResolvedPath}, nil
-}
-
-func (store *DefinitionStore) Update(ctx context.Context, id string, source []byte) error {
-	return store.update(ctx, id, source)
 }
 
 func (store *DefinitionStore) Catalog(ctx context.Context) (persis.DAGCatalog, error) {
@@ -220,28 +224,7 @@ func (store *DefinitionStore) IsSuspended(_ context.Context, id string) (bool, e
 	return store.flagExistsResult(fileName(id))
 }
 
-// Storage holds filesystem state shared by DAG definition operations.
-type Storage struct {
-	baseDir                string                   // Base directory for DAG storage
-	flagsBaseDir           string                   // Base directory for flag store
-	fileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
-	searchPaths            []string                 // Additional search paths for DAG files
-	baseConfigPath         string                   // Optional base config file applied when loading DAGs
-	workspaceBaseConfigDir string                   // Optional directory containing workspace base configs
-	baseConfigState        string                   // Last observed base config state for cache/index invalidation
-	skipExamples           bool                     // Skip creating example DAGs
-	recursive              bool                     // Discover DAG definitions in subdirectories
-	symlinks               bool                     // Include recursive file symlinks and external targets
-	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
-	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
-	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
-}
-
-func (store *Storage) useCachedLoads() bool {
-	return store.fileCache != nil
-}
-
-func (store *Storage) readSuspendFlags(ctx context.Context) (dagindex.SuspendFlags, error) {
+func (store *DefinitionStore) readSuspendFlags(ctx context.Context) (dagindex.SuspendFlags, error) {
 	flags := make(dagindex.SuspendFlags)
 	flagEntries, err := os.ReadDir(store.flagsBaseDir)
 	if err != nil {
@@ -259,7 +242,7 @@ func (store *Storage) readSuspendFlags(ctx context.Context) (dagindex.SuspendFla
 	return flags, nil
 }
 
-func (store *Storage) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOption {
+func (store *DefinitionStore) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOption {
 	loadOpts := make([]spec.LoadOption, 0, len(opts)+1)
 	if store.baseConfigPath != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(store.baseConfigPath))
@@ -271,7 +254,7 @@ func (store *Storage) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOpt
 	return loadOpts
 }
 
-func (store *Storage) refreshBaseConfigState() {
+func (store *DefinitionStore) refreshBaseConfigState() {
 	if store.baseConfigPath == "" && store.workspaceBaseConfigDir == "" {
 		return
 	}
@@ -354,12 +337,12 @@ func describeWorkspaceBaseConfigState(dir string) string {
 }
 
 // Initialize ensures the storage is ready and creates example DAGs if needed
-func (store *Storage) Initialize() error {
+func (store *DefinitionStore) Initialize() error {
 	return store.ensureDirExist()
 }
 
 // GetMetadata retrieves the metadata of a DAG by its name.
-func (store *Storage) GetMetadata(ctx context.Context, name string) (*ir.DAG, error) {
+func (store *DefinitionStore) GetMetadata(ctx context.Context, name string) (*ir.DAG, error) {
 	resolved, err := store.locateDAG(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate DAG %s in search paths (%v): %w", name, store.searchPaths, err)
@@ -370,7 +353,7 @@ func (store *Storage) GetMetadata(ctx context.Context, name string) (*ir.DAG, er
 		spec.WithoutEval(),
 		spec.SkipSchemaValidation(),
 	)
-	if !store.useCachedLoads() {
+	if store.fileCache == nil {
 		return spec.Load(ctx, resolved.ResolvedPath, loadOpts...)
 	}
 	return store.fileCache.LoadLatest(resolved.ResolvedPath, func() (*ir.DAG, error) {
@@ -381,7 +364,7 @@ func (store *Storage) GetMetadata(ctx context.Context, name string) (*ir.DAG, er
 // FileMode used for newly created DAG files
 const defaultPerm os.FileMode = 0600
 
-func (store *Storage) update(ctx context.Context, name string, yamlSpec []byte) error {
+func (store *DefinitionStore) Update(ctx context.Context, name string, yamlSpec []byte) error {
 	resolved, err := store.locateDAG(ctx, name)
 	if err != nil {
 		return fmt.Errorf("failed to locate DAG %s: %w", name, err)
@@ -400,7 +383,7 @@ func (store *Storage) update(ctx context.Context, name string, yamlSpec []byte) 
 }
 
 // Create creates a new DAG with the given name and specification.
-func (store *Storage) Create(_ context.Context, name string, spec []byte) error {
+func (store *DefinitionStore) Create(_ context.Context, name string, spec []byte) error {
 	if err := store.ensureDirExist(); err != nil {
 		return fmt.Errorf("failed to create DAGs directory %s: %w", store.baseDir, err)
 	}
@@ -416,7 +399,7 @@ func (store *Storage) Create(_ context.Context, name string, spec []byte) error 
 }
 
 // Delete deletes a DAG by its name.
-func (store *Storage) Delete(ctx context.Context, name string) error {
+func (store *DefinitionStore) Delete(ctx context.Context, name string) error {
 	resolved, err := store.locateDAG(ctx, name)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -438,7 +421,7 @@ func (store *Storage) Delete(ctx context.Context, name string) error {
 }
 
 // ensureDirExist ensures that the base directory exists.
-func (store *Storage) ensureDirExist() error {
+func (store *DefinitionStore) ensureDirExist() error {
 	if store.skipDirectoryCreation {
 		return nil
 	}
@@ -458,7 +441,7 @@ func (store *Storage) ensureDirExist() error {
 }
 
 // loadIndex returns validated index entries, rebuilding the index when needed.
-func (store *Storage) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*indexv1.DAGIndexEntry, error) {
+func (store *DefinitionStore) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*indexv1.DAGIndexEntry, error) {
 	store.refreshBaseConfigState()
 
 	store.indexMu.Lock()
@@ -504,7 +487,7 @@ func (store *Storage) loadIndex(ctx context.Context, files []DiscoveredFile) ([]
 }
 
 // invalidateIndex removes the index file so the next read triggers a rebuild.
-func (store *Storage) invalidateIndex() {
+func (store *DefinitionStore) invalidateIndex() {
 	store.indexMu.Lock()
 	defer store.indexMu.Unlock()
 	_ = fileutil.Remove(filepath.Join(store.baseDir, dagindex.IndexFileName))
@@ -515,7 +498,7 @@ func fileName(id string) string {
 }
 
 // Rename renames a DAG from oldID to newID.
-func (store *Storage) Rename(ctx context.Context, oldID, newID string) error {
+func (store *DefinitionStore) Rename(ctx context.Context, oldID, newID string) error {
 	resolved, err := store.locateDAG(ctx, oldID)
 	if err != nil {
 		return fmt.Errorf("failed to locate DAG %s: %w", oldID, err)
@@ -545,7 +528,7 @@ func (store *Storage) Rename(ctx context.Context, oldID, newID string) error {
 // generateFilePath generates the file path for a DAG by its name.
 // It uses filepath.Base to strip directory components and verifies
 // the result stays inside baseDir to prevent path traversal.
-func (store *Storage) generateFilePath(name string) string {
+func (store *DefinitionStore) generateFilePath(name string) string {
 	safeName := filepath.Base(name)
 	filePath := fileutil.EnsureYAMLExtension(path.Join(store.baseDir, safeName))
 	filePath = filepath.Clean(filePath)
@@ -558,7 +541,7 @@ func (store *Storage) generateFilePath(name string) string {
 }
 
 // locateDAG resolves a DAG beneath the configured DAG directories.
-func (store *Storage) locateDAG(ctx context.Context, nameOrPath string) (ResolvedFile, error) {
+func (store *DefinitionStore) locateDAG(ctx context.Context, nameOrPath string) (ResolvedFile, error) {
 	relativePath := filepath.FromSlash(nameOrPath)
 	explicitPath := filepath.IsAbs(relativePath) || strings.ContainsAny(nameOrPath, `/\`)
 
@@ -631,7 +614,7 @@ func locateDAGInDirectories(
 	return ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 }
 
-func (store *Storage) stemExists(name, exceptPath string) bool {
+func (store *DefinitionStore) stemExists(name, exceptPath string) bool {
 	scan, err := Discover(store.baseDir, DiscoveryOptions{
 		Recursive: true,
 		Symlinks:  store.symlinks,
@@ -687,14 +670,14 @@ func dagFileCandidates(name string) []string {
 }
 
 // CreateFlag creates the given file.
-func (store *Storage) createFlag(file string) error {
+func (store *DefinitionStore) createFlag(file string) error {
 	if err := os.MkdirAll(store.flagsBaseDir, flagPermission); err != nil {
 		return err
 	}
 	return fileutil.WriteFileAtomic(path.Join(store.flagsBaseDir, file), []byte{}, flagPermission)
 }
 
-func (store *Storage) flagExistsResult(file string) (bool, error) {
+func (store *DefinitionStore) flagExistsResult(file string) (bool, error) {
 	_, err := os.Stat(path.Join(store.flagsBaseDir, file))
 	if err == nil {
 		return true, nil
@@ -706,7 +689,7 @@ func (store *Storage) flagExistsResult(file string) (bool, error) {
 }
 
 // deleteFlag deletes the given file.
-func (store *Storage) deleteFlag(file string) error {
+func (store *DefinitionStore) deleteFlag(file string) error {
 	return fileutil.Remove(path.Join(store.flagsBaseDir, file))
 }
 
@@ -738,7 +721,7 @@ func shouldCreateExamples(dir string, recursive, symlinks bool) bool {
 }
 
 // createExampleDAGs creates example DAG files for first-time users
-func (store *Storage) createExampleDAGs() error {
+func (store *DefinitionStore) createExampleDAGs() error {
 	// Check if we should skip example creation
 	if store.skipExamples {
 		return nil

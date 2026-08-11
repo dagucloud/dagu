@@ -19,7 +19,7 @@ type catalog struct {
 	errors  []string
 }
 
-func (store *Storage) loadCatalog(ctx context.Context) (*catalog, error) {
+func (store *DefinitionStore) loadCatalog(ctx context.Context) (*catalog, error) {
 	scan, err := Discover(store.baseDir, DiscoveryOptions{
 		Recursive: store.recursive,
 		Symlinks:  store.symlinks,
