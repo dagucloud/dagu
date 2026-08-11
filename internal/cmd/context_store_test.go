@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package clicontext
+package cmd
 
 import (
 	"context"
@@ -20,14 +20,14 @@ func TestStore_CRUDAndCurrent(t *testing.T) {
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
 
-	store, err := NewStore(t.TempDir(), enc)
+	store, err := newCLIContextStoreWithEncryptor(t.TempDir(), enc)
 	require.NoError(t, err)
 
 	current, err := store.Current(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, LocalContextName, current)
+	assert.Equal(t, localContextName, current)
 
-	err = store.Create(context.Background(), &Context{
+	err = store.Create(context.Background(), &cliContext{
 		Name:           "prod",
 		ServerURL:      "https://example.com",
 		APIKey:         "dagu_test_123",
@@ -56,7 +56,7 @@ func TestStore_CRUDAndCurrent(t *testing.T) {
 	require.NoError(t, store.Delete(context.Background(), "prod"))
 	current, err = store.Current(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, LocalContextName, current)
+	assert.Equal(t, localContextName, current)
 }
 
 func TestStore_ValidateContext(t *testing.T) {
@@ -65,17 +65,17 @@ func TestStore_ValidateContext(t *testing.T) {
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
 
-	store, err := NewStore(t.TempDir(), enc)
+	store, err := newCLIContextStoreWithEncryptor(t.TempDir(), enc)
 	require.NoError(t, err)
 
 	tests := []struct {
 		name    string
-		ctx     *Context
+		ctx     *cliContext
 		wantErr string
 	}{
 		{
 			name: "missing name",
-			ctx: &Context{
+			ctx: &cliContext{
 				ServerURL: "https://example.com",
 				APIKey:    "dagu_test",
 			},
@@ -83,8 +83,8 @@ func TestStore_ValidateContext(t *testing.T) {
 		},
 		{
 			name: "reserved local",
-			ctx: &Context{
-				Name:      LocalContextName,
+			ctx: &cliContext{
+				Name:      localContextName,
 				ServerURL: "https://example.com",
 				APIKey:    "dagu_test",
 			},
@@ -92,7 +92,7 @@ func TestStore_ValidateContext(t *testing.T) {
 		},
 		{
 			name: "reserved current",
-			ctx: &Context{
+			ctx: &cliContext{
 				Name:      "current",
 				ServerURL: "https://example.com",
 				APIKey:    "dagu_test",
@@ -101,7 +101,7 @@ func TestStore_ValidateContext(t *testing.T) {
 		},
 		{
 			name: "invalid url",
-			ctx: &Context{
+			ctx: &cliContext{
 				Name:      "prod",
 				ServerURL: "://bad",
 				APIKey:    "dagu_test",
@@ -110,7 +110,7 @@ func TestStore_ValidateContext(t *testing.T) {
 		},
 		{
 			name: "invalid api key",
-			ctx: &Context{
+			ctx: &cliContext{
 				Name:      "prod",
 				ServerURL: "https://example.com",
 				APIKey:    "token",
@@ -119,7 +119,7 @@ func TestStore_ValidateContext(t *testing.T) {
 		},
 		{
 			name: "path separator",
-			ctx: &Context{
+			ctx: &cliContext{
 				Name:      "prod/east",
 				ServerURL: "https://example.com",
 				APIKey:    "dagu_test",
@@ -143,10 +143,10 @@ func TestStore_CreateNormalizesValues(t *testing.T) {
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
 
-	store, err := NewStore(t.TempDir(), enc)
+	store, err := newCLIContextStoreWithEncryptor(t.TempDir(), enc)
 	require.NoError(t, err)
 
-	item := &Context{
+	item := &cliContext{
 		Name:      " prod ",
 		ServerURL: " https://example.com ",
 		APIKey:    " dagu_test ",
@@ -170,10 +170,10 @@ func TestStore_ListReturnsPartialResultsAndErrorOnCorruptEntry(t *testing.T) {
 	require.NoError(t, err)
 
 	baseDir := t.TempDir()
-	store, err := NewStore(baseDir, enc)
+	store, err := newCLIContextStoreWithEncryptor(baseDir, enc)
 	require.NoError(t, err)
 
-	require.NoError(t, store.Create(context.Background(), &Context{
+	require.NoError(t, store.Create(context.Background(), &cliContext{
 		Name:      "prod",
 		ServerURL: "https://example.com",
 		APIKey:    "dagu_test",
@@ -194,7 +194,7 @@ func TestStore_RejectsNamesOutsideStoreDir(t *testing.T) {
 	require.NoError(t, err)
 
 	root := t.TempDir()
-	store, err := NewStore(filepath.Join(root, "contexts"), enc)
+	store, err := newCLIContextStoreWithEncryptor(filepath.Join(root, "contexts"), enc)
 	require.NoError(t, err)
 
 	outside := filepath.Join(root, "outside.json")
@@ -211,7 +211,7 @@ func TestStore_RejectsNamesOutsideStoreDir(t *testing.T) {
 	require.Error(t, store.Use(context.Background(), escaping))
 	current, err := store.Current(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, LocalContextName, current)
+	assert.Equal(t, localContextName, current)
 }
 
 func TestStore_DeleteKeepsUnrelatedCurrentMarker(t *testing.T) {
@@ -220,11 +220,11 @@ func TestStore_DeleteKeepsUnrelatedCurrentMarker(t *testing.T) {
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
 
-	store, err := NewStore(t.TempDir(), enc)
+	store, err := newCLIContextStoreWithEncryptor(t.TempDir(), enc)
 	require.NoError(t, err)
 
 	for _, name := range []string{"prod", "staging"} {
-		require.NoError(t, store.Create(context.Background(), &Context{
+		require.NoError(t, store.Create(context.Background(), &cliContext{
 			Name:      name,
 			ServerURL: "https://example.com",
 			APIKey:    "dagu_test",
@@ -246,10 +246,10 @@ func TestStore_DeleteIgnoresNonRegularEntries(t *testing.T) {
 	require.NoError(t, err)
 
 	baseDir := t.TempDir()
-	store, err := NewStore(baseDir, enc)
+	store, err := newCLIContextStoreWithEncryptor(baseDir, enc)
 	require.NoError(t, err)
 
-	require.NoError(t, store.Create(context.Background(), &Context{
+	require.NoError(t, store.Create(context.Background(), &cliContext{
 		Name:      "prod",
 		ServerURL: "https://example.com",
 		APIKey:    "dagu_test",
@@ -259,7 +259,7 @@ func TestStore_DeleteIgnoresNonRegularEntries(t *testing.T) {
 	strayDir := filepath.Join(baseDir, "staging"+fileExtension)
 	require.NoError(t, os.Mkdir(strayDir, 0o750))
 
-	require.ErrorIs(t, store.Delete(context.Background(), "staging"), ErrNotFound)
+	require.ErrorIs(t, store.Delete(context.Background(), "staging"), errCLIContextNotFound)
 	assert.DirExists(t, strayDir)
 
 	current, err := store.Current(context.Background())
@@ -274,7 +274,7 @@ func TestStore_GetReportsCorruptFile(t *testing.T) {
 	require.NoError(t, err)
 
 	baseDir := t.TempDir()
-	store, err := NewStore(baseDir, enc)
+	store, err := newCLIContextStoreWithEncryptor(baseDir, enc)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(baseDir, "prod.json"), []byte("not-json"), 0o600))
 

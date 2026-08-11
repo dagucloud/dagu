@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/clicontext"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +31,7 @@ func TestNewContext_StaticCommandIgnoresBrokenContextStore(t *testing.T) {
 	ctx, err := NewContext(command, nil)
 	require.NoError(t, err)
 	assert.Nil(t, ctx.ContextStore)
-	assert.Equal(t, clicontext.LocalContextName, ctx.ContextName)
+	assert.Equal(t, localContextName, ctx.ContextName)
 }
 
 func TestNewContext_CommandWithoutContextFlagDefaultsToLocal(t *testing.T) {
@@ -47,7 +46,7 @@ func TestNewContext_CommandWithoutContextFlagDefaultsToLocal(t *testing.T) {
 
 	ctx, err := NewContext(command, nil)
 	require.NoError(t, err)
-	assert.Equal(t, clicontext.LocalContextName, ctx.ContextName)
+	assert.Equal(t, localContextName, ctx.ContextName)
 	assert.False(t, ctx.IsRemote())
 }
 
@@ -65,7 +64,7 @@ func TestNewContext_ContextSubcommandInitializesContextStore(t *testing.T) {
 	ctx, err := NewContext(command, nil)
 	require.NoError(t, err)
 	require.NotNil(t, ctx.ContextStore)
-	assert.Equal(t, clicontext.LocalContextName, ctx.ContextName)
+	assert.Equal(t, localContextName, ctx.ContextName)
 }
 
 func TestNewContext_FallsBackToLocalWhenCurrentContextCannotResolve(t *testing.T) {
@@ -84,7 +83,7 @@ func TestNewContext_FallsBackToLocalWhenCurrentContextCannotResolve(t *testing.T
 
 	ctx, err := NewContext(command, nil)
 	require.NoError(t, err)
-	assert.Equal(t, clicontext.LocalContextName, ctx.ContextName)
+	assert.Equal(t, localContextName, ctx.ContextName)
 	assert.False(t, ctx.IsRemote())
 }
 
@@ -105,7 +104,7 @@ func TestNewContext_LocalExplicitSurvivesBrokenContextStore(t *testing.T) {
 
 	ctx, err := NewContext(command, nil)
 	require.NoError(t, err)
-	assert.Equal(t, clicontext.LocalContextName, ctx.ContextName)
+	assert.Equal(t, localContextName, ctx.ContextName)
 	assert.False(t, ctx.IsRemote())
 }
 

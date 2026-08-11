@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"text/tabwriter"
 
-	"github.com/dagucloud/dagu/v2/internal/clicontext"
 	"golang.org/x/term"
 
 	"github.com/spf13/cobra"
@@ -65,7 +64,7 @@ func contextListCommand() *cobra.Command {
 		if _, err := fmt.Fprintln(w, "CURRENT\tNAME\tSERVER\tDESCRIPTION"); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", currentMarker(current == clicontext.LocalContextName), clicontext.LocalContextName, "-", "Built-in local context"); err != nil {
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", currentMarker(current == localContextName), localContextName, "-", "Built-in local context"); err != nil {
 			return err
 		}
 		for _, item := range contexts {
@@ -159,7 +158,7 @@ func contextTestCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if item.Name == clicontext.LocalContextName {
+		if item.Name == localContextName {
 			fmt.Println("local context is always available")
 			return nil
 		}
@@ -175,7 +174,7 @@ func contextTestCommand() *cobra.Command {
 	})
 }
 
-func readContextInput(ctx *Context, name string, allowPartial bool) (*clicontext.Context, error) {
+func readContextInput(ctx *Context, name string, allowPartial bool) (*cliContext, error) {
 	server, err := ctx.StringParam("server")
 	if err != nil {
 		return nil, err
@@ -209,7 +208,7 @@ func readContextInput(ctx *Context, name string, allowPartial bool) (*clicontext
 		}
 		apiKey = string(bytes)
 	}
-	item := &clicontext.Context{
+	item := &cliContext{
 		Name:           name,
 		ServerURL:      server,
 		APIKey:         apiKey,

@@ -6,7 +6,6 @@ package cmd
 import (
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/clicontext"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +53,7 @@ func TestContextUpdate_CanClearDescriptionWithoutOverwritingOtherFields(t *testi
 	t.Parallel()
 
 	store := mustTestContextStore(t)
-	require.NoError(t, store.Create(t.Context(), &clicontext.Context{
+	require.NoError(t, store.Create(t.Context(), &cliContext{
 		Name:           "prod",
 		ServerURL:      "https://example.com",
 		APIKey:         "dagu_test_123",
@@ -98,7 +97,7 @@ func TestContextUpdate_CanClearDescriptionWithoutOverwritingOtherFields(t *testi
 	assert.Equal(t, current.TimeoutSeconds, updated.TimeoutSeconds)
 }
 
-func mustTestContextStore(t *testing.T) *clicontext.Store {
+func mustTestContextStore(t *testing.T) *cliContextStore {
 	t.Helper()
 	store, err := newCLIContextStore(t.TempDir(), t.TempDir())
 	require.NoError(t, err)

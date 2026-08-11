@@ -58,7 +58,7 @@ The module root is package `dagu` — an experimental embedded API (`engine.go`,
 - **`llm/`** — Provider-agnostic LLM abstraction (anthropic, openai, openrouter, gemini, zai, local) used by `chat` executor and controller DAGs.
 - **`engine/`** — Internal implementation behind the root `dagu` package.
 - **`cmd/`** — Cobra CLI implementations; entry point `cmd/main.go` at repo root registers 27 commands: `start`, `exec`, `enqueue`, `stop`, `restart`, `retry`, `dry`, `validate`, `status`, `server`, `scheduler`, `coordinator`, `worker`, `start-all` (server+scheduler+coordinator in one process), `sync`, `context`, `profile`, `license`, `human-task`, etc.
-- Domain feature packages, one concern each: `gitsync` (git-backed DAG sync), `humantask`, `incident`, `notification`, `dagsettings`, `profile`, `secret` (managed secrets and provider backends), `telemetry` (metrics and tracing), `workspace`, `remotenode`, `view`, `tunnel` (Tailscale), `license`, `upgrade`, `clicontext` (named remote CLI contexts), and `dispatch` (local-vs-coordinator policy).
+- Domain feature packages, one concern each: `gitsync` (git-backed DAG sync), `humantask`, `incident`, `notification`, `dagsettings`, `profile`, `secret` (managed secrets and provider backends), `telemetry` (metrics and tracing), `workspace`, `remotenode`, `view`, `tunnel` (Tailscale), `license`, `upgrade`, and `dispatch` (local-vs-coordinator policy).
 - **`cmn/`** — Low-level shared utilities for configuration, logging, files, backoff, values, and similar cross-domain primitives. Domain imports are prohibited except for the documented configuration exception.
 
 ### Frontend (`ui/`)

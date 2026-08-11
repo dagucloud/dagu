@@ -18,10 +18,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/dagucloud/dagu/v2/internal/clicontext"
 	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -75,8 +73,8 @@ type Context struct {
 	DAGStore       dagstore.DAGStore
 	Proc           proc.ProcHandle
 	LicenseManager *license.Manager
-	ContextStore   *clicontext.Store
-	CLIContext     *clicontext.Context
+	ContextStore   *cliContextStore
+	CLIContext     *cliContext
 	ContextName    string
 	Remote         *remoteClient
 }
@@ -196,10 +194,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	if err != nil {
 		return nil, err
 	}
-	selectedContextName := clicontext.LocalContextName
-	selectedContext := &clicontext.Context{Name: clicontext.LocalContextName}
+	selectedContextName := localContextName
+	selectedContext := &cliContext{Name: localContextName}
 	var (
-		contextStore        *clicontext.Store
+		contextStore        *cliContextStore
 		contextStoreWarning error
 	)
 
@@ -217,12 +215,12 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 					return nil, err
 				}
 				contextStoreWarning = fmt.Errorf("failed to resolve context selection, using local context: %w", err)
-				selectedContextName = clicontext.LocalContextName
-				selectedContext = &clicontext.Context{Name: clicontext.LocalContextName}
+				selectedContextName = localContextName
+				selectedContext = &cliContext{Name: localContextName}
 			}
 		}
 	}
-	if scope == commandScopeLocalOnly && selectedContextName != clicontext.LocalContextName {
+	if scope == commandScopeLocalOnly && selectedContextName != localContextName {
 		commandPath := strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()))
 		return nil, fmt.Errorf("command %q only supports the local context", commandPath)
 	}
@@ -272,7 +270,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		}
 	}
 
-	if scope == commandScopeContextAware && selectedContextName != clicontext.LocalContextName {
+	if scope == commandScopeContextAware && selectedContextName != localContextName {
 		remote, err := newRemoteClient(selectedContext)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize remote context %q: %w", selectedContextName, err)
@@ -429,18 +427,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	}, nil
 }
 
-func newCLIContextStore(dataDir, contextsDir string) (*clicontext.Store, error) {
-	encKey, err := crypto.ResolveKey(dataDir)
-	if err != nil {
-		return nil, err
-	}
-	enc, err := crypto.NewEncryptor(encKey)
-	if err != nil {
-		return nil, err
-	}
-	return clicontext.NewStore(contextsDir, enc)
-}
-
 func commandFamilyName(cmd *cobra.Command) string {
 	if isContextCommand(cmd) {
 		return "context"
@@ -468,7 +454,7 @@ func requestedCLIContextName(cmd *cobra.Command) (string, error) {
 	return strings.TrimSpace(contextName), nil
 }
 
-func resolveCLIContext(cmd *cobra.Command, store *clicontext.Store, requested string) (string, *clicontext.Context, error) {
+func resolveCLIContext(cmd *cobra.Command, store *cliContextStore, requested string) (string, *cliContext, error) {
 	contextName := strings.TrimSpace(requested)
 	var err error
 	if contextName == "" {
@@ -478,7 +464,7 @@ func resolveCLIContext(cmd *cobra.Command, store *clicontext.Store, requested st
 		}
 	}
 	if contextName == "" {
-		contextName = clicontext.LocalContextName
+		contextName = localContextName
 	}
 	ctx, err := store.Get(cmd.Context(), contextName)
 	if err != nil {
@@ -494,21 +480,21 @@ func shouldFailForContextStoreError(cmd *cobra.Command, scope commandScope, requ
 	if scope == commandScopeStatic {
 		return false
 	}
-	return requested != "" && requested != clicontext.LocalContextName
+	return requested != "" && requested != localContextName
 }
 
 func shouldFailForContextResolutionError(scope commandScope, requested string) bool {
 	if requested == "" {
 		return false
 	}
-	if requested == clicontext.LocalContextName {
+	if requested == localContextName {
 		return false
 	}
 	return scope != commandScopeStatic
 }
 
 func (c *Context) IsRemote() bool {
-	return c != nil && c.Remote != nil && c.ContextName != clicontext.LocalContextName
+	return c != nil && c.Remote != nil && c.ContextName != localContextName
 }
 
 func eventSourceServiceForCommand(cmdName string) string {

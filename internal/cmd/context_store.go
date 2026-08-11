@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package clicontext
+package cmd
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	LocalContextName = "local"
+	localContextName = "local"
 
 	fileExtension   = ".json"
 	currentFileName = "current"
@@ -29,11 +29,11 @@ const (
 )
 
 var (
-	ErrNotFound      = errors.New("context not found")
-	ErrAlreadyExists = errors.New("context already exists")
+	errCLIContextNotFound      = errors.New("context not found")
+	errCLIContextAlreadyExists = errors.New("context already exists")
 )
 
-type Context struct {
+type cliContext struct {
 	Name           string `json:"name"`
 	Description    string `json:"description,omitempty"`
 	ServerURL      string `json:"server_url"`
@@ -51,12 +51,12 @@ type storedContext struct {
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
-func (s storedContext) toContext(enc *crypto.Encryptor) (*Context, error) {
+func (s storedContext) toContext(enc *crypto.Encryptor) (*cliContext, error) {
 	apiKey, err := enc.Decrypt(s.APIKeyEnc)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt api key: %w", err)
 	}
-	return &Context{
+	return &cliContext{
 		Name:           s.Name,
 		Description:    s.Description,
 		ServerURL:      s.ServerURL,
@@ -66,7 +66,7 @@ func (s storedContext) toContext(enc *crypto.Encryptor) (*Context, error) {
 	}, nil
 }
 
-func newStoredContext(ctx *Context, enc *crypto.Encryptor) (*storedContext, error) {
+func newStoredContext(ctx *cliContext, enc *crypto.Encryptor) (*storedContext, error) {
 	apiKeyEnc, err := enc.Encrypt(ctx.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt api key: %w", err)
@@ -81,13 +81,25 @@ func newStoredContext(ctx *Context, enc *crypto.Encryptor) (*storedContext, erro
 	}, nil
 }
 
-type Store struct {
+type cliContextStore struct {
 	baseDir   string
 	encryptor *crypto.Encryptor
 	mu        sync.RWMutex
 }
 
-func NewStore(baseDir string, enc *crypto.Encryptor) (*Store, error) {
+func newCLIContextStore(dataDir, contextsDir string) (*cliContextStore, error) {
+	encKey, err := crypto.ResolveKey(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	enc, err := crypto.NewEncryptor(encKey)
+	if err != nil {
+		return nil, err
+	}
+	return newCLIContextStoreWithEncryptor(contextsDir, enc)
+}
+
+func newCLIContextStoreWithEncryptor(baseDir string, enc *crypto.Encryptor) (*cliContextStore, error) {
 	if baseDir == "" {
 		return nil, errors.New("clicontext: baseDir cannot be empty")
 	}
@@ -97,10 +109,10 @@ func NewStore(baseDir string, enc *crypto.Encryptor) (*Store, error) {
 	if err := os.MkdirAll(baseDir, dirPermissions); err != nil {
 		return nil, fmt.Errorf("clicontext: create directory: %w", err)
 	}
-	return &Store{baseDir: baseDir, encryptor: enc}, nil
+	return &cliContextStore{baseDir: baseDir, encryptor: enc}, nil
 }
 
-func (s *Store) ValidateContext(ctx *Context) error {
+func (s *cliContextStore) ValidateContext(ctx *cliContext) error {
 	if ctx == nil {
 		return errors.New("context is required")
 	}
@@ -127,7 +139,7 @@ func (s *Store) ValidateContext(ctx *Context) error {
 	return nil
 }
 
-func (s *Store) Create(_ context.Context, ctx *Context) error {
+func (s *cliContextStore) Create(_ context.Context, ctx *cliContext) error {
 	if err := s.ValidateContext(ctx); err != nil {
 		return err
 	}
@@ -135,14 +147,14 @@ func (s *Store) Create(_ context.Context, ctx *Context) error {
 	defer s.mu.Unlock()
 	path := s.contextPath(ctx.Name)
 	if _, err := os.Stat(path); err == nil {
-		return ErrAlreadyExists
+		return errCLIContextAlreadyExists
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return s.writeContext(path, ctx)
 }
 
-func (s *Store) Update(_ context.Context, ctx *Context) error {
+func (s *cliContextStore) Update(_ context.Context, ctx *cliContext) error {
 	if err := s.ValidateContext(ctx); err != nil {
 		return err
 	}
@@ -150,16 +162,16 @@ func (s *Store) Update(_ context.Context, ctx *Context) error {
 	defer s.mu.Unlock()
 	path := s.contextPath(ctx.Name)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return ErrNotFound
+		return errCLIContextNotFound
 	} else if err != nil {
 		return err
 	}
 	return s.writeContext(path, ctx)
 }
 
-func (s *Store) Delete(_ context.Context, name string) error {
-	if name == "" || name == LocalContextName {
-		return ErrNotFound
+func (s *cliContextStore) Delete(_ context.Context, name string) error {
+	if name == "" || name == localContextName {
+		return errCLIContextNotFound
 	}
 	if err := validateStoredName(name); err != nil {
 		return err
@@ -169,37 +181,37 @@ func (s *Store) Delete(_ context.Context, name string) error {
 	path := s.contextPath(name)
 	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return ErrNotFound
+		return errCLIContextNotFound
 	} else if err != nil {
 		return err
 	}
 	// A directory or other non-regular entry at this path is not a stored
 	// context, so it must not be removed or drive a marker change.
 	if !info.Mode().IsRegular() {
-		return ErrNotFound
+		return errCLIContextNotFound
 	}
 	// Move the current marker off the context before the file disappears, so a
 	// failure to update the marker cannot leave it naming a deleted context.
 	current, err := s.currentLocked()
 	switch {
 	case err == nil && current == name:
-		if err := s.writeCurrentLocked(LocalContextName); err != nil {
+		if err := s.writeCurrentLocked(localContextName); err != nil {
 			return err
 		}
 	case err != nil && !errors.Is(err, os.ErrNotExist):
 		return err
 	}
 	if err := os.Remove(path); errors.Is(err, os.ErrNotExist) {
-		return ErrNotFound
+		return errCLIContextNotFound
 	} else if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Store) Get(_ context.Context, name string) (*Context, error) {
-	if name == LocalContextName {
-		return &Context{Name: LocalContextName}, nil
+func (s *cliContextStore) Get(_ context.Context, name string) (*cliContext, error) {
+	if name == localContextName {
+		return &cliContext{Name: localContextName}, nil
 	}
 	if err := validateStoredName(name); err != nil {
 		return nil, err
@@ -209,14 +221,14 @@ func (s *Store) Get(_ context.Context, name string) (*Context, error) {
 	return s.readContext(s.contextPath(name))
 }
 
-func (s *Store) List(_ context.Context) ([]*Context, error) {
+func (s *cliContextStore) List(_ context.Context) ([]*cliContext, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	entries, err := os.ReadDir(s.baseDir)
 	if err != nil {
 		return nil, err
 	}
-	var contexts []*Context
+	var contexts []*cliContext
 	var readErrs []error
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != fileExtension {
@@ -239,21 +251,21 @@ func (s *Store) List(_ context.Context) ([]*Context, error) {
 	return contexts, nil
 }
 
-func (s *Store) Current(_ context.Context) (string, error) {
+func (s *cliContextStore) Current(_ context.Context) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	current, err := s.currentLocked()
 	if errors.Is(err, os.ErrNotExist) {
-		return LocalContextName, nil
+		return localContextName, nil
 	}
 	return current, err
 }
 
-func (s *Store) Use(_ context.Context, name string) error {
-	if name == "" || name == LocalContextName {
+func (s *cliContextStore) Use(_ context.Context, name string) error {
+	if name == "" || name == localContextName {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		return s.writeCurrentLocked(LocalContextName)
+		return s.writeCurrentLocked(localContextName)
 	}
 	if err := validateStoredName(name); err != nil {
 		return err
@@ -276,8 +288,8 @@ func validateStoredName(name string) error {
 	if name == "" {
 		return errors.New("context name is required")
 	}
-	if name == LocalContextName || name == currentFileName {
-		return fmt.Errorf("%q and %q are reserved", LocalContextName, currentFileName)
+	if name == localContextName || name == currentFileName {
+		return fmt.Errorf("%q and %q are reserved", localContextName, currentFileName)
 	}
 	if strings.ContainsAny(name, `/\`) {
 		return errors.New("context name cannot contain path separators")
@@ -288,11 +300,11 @@ func validateStoredName(name string) error {
 	return nil
 }
 
-func (s *Store) contextPath(name string) string {
+func (s *cliContextStore) contextPath(name string) string {
 	return filepath.Join(s.baseDir, name+fileExtension)
 }
 
-func (s *Store) writeContext(path string, ctx *Context) error {
+func (s *cliContextStore) writeContext(path string, ctx *cliContext) error {
 	stored, err := newStoredContext(ctx, s.encryptor)
 	if err != nil {
 		return err
@@ -300,10 +312,10 @@ func (s *Store) writeContext(path string, ctx *Context) error {
 	return fileutil.WriteJSONAtomic(path, stored, filePermissions)
 }
 
-func (s *Store) readContext(path string) (*Context, error) {
+func (s *cliContextStore) readContext(path string) (*cliContext, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is built from a validated context name
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrNotFound
+		return nil, errCLIContextNotFound
 	}
 	file := filepath.Base(path)
 	if err != nil {
@@ -320,7 +332,7 @@ func (s *Store) readContext(path string) (*Context, error) {
 	return ctx, nil
 }
 
-func normalizeContext(ctx *Context) {
+func normalizeContext(ctx *cliContext) {
 	if ctx == nil {
 		return
 	}
@@ -329,18 +341,18 @@ func normalizeContext(ctx *Context) {
 	ctx.APIKey = strings.TrimSpace(ctx.APIKey)
 }
 
-func (s *Store) currentLocked() (string, error) {
+func (s *cliContextStore) currentLocked() (string, error) {
 	data, err := os.ReadFile(filepath.Join(s.baseDir, currentFileName))
 	if err != nil {
 		return "", err
 	}
 	name := strings.TrimSpace(string(data))
 	if name == "" {
-		return LocalContextName, nil
+		return localContextName, nil
 	}
 	return name, nil
 }
 
-func (s *Store) writeCurrentLocked(name string) error {
+func (s *cliContextStore) writeCurrentLocked(name string) error {
 	return fileutil.WriteFileAtomic(filepath.Join(s.baseDir, currentFileName), []byte(name), filePermissions)
 }
