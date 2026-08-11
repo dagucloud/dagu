@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
-	"github.com/dagucloud/dagu/v2/internal/clicontext"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -90,22 +89,6 @@ func NewProfileStore(ctx context.Context, cfg *config.Config) profile.Store {
 		return nil
 	}
 	return profileStore
-}
-
-// NewContextStore wires the encrypted file-backed CLI context store from config paths.
-func NewContextStore(cfg *config.Config) (*clicontext.Store, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("file: config cannot be nil")
-	}
-	encKey, err := crypto.ResolveKey(cfg.Paths.DataDir)
-	if err != nil {
-		return nil, err
-	}
-	enc, err := crypto.NewEncryptor(encKey)
-	if err != nil {
-		return nil, err
-	}
-	return clicontext.NewStore(cfg.Paths.ContextsDir, enc)
 }
 
 // AuditStore is a file-backed audit store with an optional background cleaner.

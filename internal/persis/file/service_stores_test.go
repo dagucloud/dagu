@@ -18,16 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
 
-func TestNewContextStoreRejectsNilConfig(t *testing.T) {
-	t.Parallel()
-
-	store, err := file.NewContextStore(nil)
-
-	require.Error(t, err)
-	assert.Nil(t, store)
-	assert.Contains(t, err.Error(), "config cannot be nil")
-}
-
 func TestNewEventCollectorDisabledWhenConfigNilOrEventStoreDisabled(t *testing.T) {
 	t.Parallel()
 
