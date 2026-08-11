@@ -107,7 +107,7 @@ func overridePersistence(base, override Persistence) Persistence {
 func validatePersistence(ctx context.Context, p Persistence) error {
 	var errs []error
 	if p.DAGRepository == nil {
-		errs = append(errs, errors.New("DAG store is not configured"))
+		errs = append(errs, errors.New("DAG repository is not configured"))
 	}
 	if p.DAGRunStore == nil && p.RunStateStore == nil {
 		errs = append(errs, errors.New("DAG-run store or run-state store is not configured"))
@@ -122,7 +122,7 @@ func validatePersistence(ctx context.Context, p Persistence) error {
 		errs = append(errs, errors.New("service registry is not configured"))
 	}
 	if p.DAGRepositoryFactory == nil {
-		errs = append(errs, errors.New("DAG store factory is not configured"))
+		errs = append(errs, errors.New("DAG repository factory is not configured"))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("engine persistence: %w", errors.Join(errs...))

@@ -5,6 +5,7 @@ package persis
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -18,6 +19,7 @@ type dagDefinitionStoreStub struct {
 	definition  DAGDefinition
 	definitions map[string]DAGDefinition
 	catalog     DAGCatalog
+	update      func(context.Context, string, []byte) error
 }
 
 func (s dagDefinitionStoreStub) Get(_ context.Context, id string) (DAGDefinition, error) {
@@ -29,6 +31,13 @@ func (s dagDefinitionStoreStub) Get(_ context.Context, id string) (DAGDefinition
 
 func (s dagDefinitionStoreStub) Catalog(context.Context) (DAGCatalog, error) {
 	return s.catalog, nil
+}
+
+func (s dagDefinitionStoreStub) Update(ctx context.Context, id string, source []byte) error {
+	if s.update == nil {
+		return nil
+	}
+	return s.update(ctx, id, source)
 }
 
 func TestDAGRepositoryLoadsDefinitionWithoutSourcePath(t *testing.T) {
@@ -60,6 +69,34 @@ func TestDAGRepositoryLoadsStoredSourceWithAuthoredPath(t *testing.T) {
 	assert.Equal(t, sourcePath, dag.Location)
 	assert.Equal(t, sourcePath, dag.SourceFile)
 	assert.Equal(t, filepath.Dir(sourcePath), dag.WorkingDir)
+}
+
+func TestDAGRepositoryUpdateValidatesFromStoredSourcePath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "stored.yaml")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), []byte(`{"type":"object"}`), 0o600))
+
+	updated := false
+	repository := NewDAGRepository(dagDefinitionStoreStub{
+		definition: DAGDefinition{ID: "stored", SourcePath: sourcePath},
+		update: func(_ context.Context, id string, source []byte) error {
+			updated = true
+			assert.Equal(t, "stored", id)
+			assert.Contains(t, string(source), "params.schema.json")
+			return nil
+		},
+	}, DAGRepositoryOptions{})
+
+	err := repository.UpdateSpec(context.Background(), "stored", []byte(`
+name: stored
+params:
+  schema: params.schema.json
+steps: []
+`))
+	require.NoError(t, err)
+	assert.True(t, updated)
 }
 
 func TestDAGRepositoryListsByBackendIdentity(t *testing.T) {

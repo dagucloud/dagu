@@ -1872,6 +1872,40 @@ func TestTickPlanner_DispatchRunSuspensionReadErrorSkipped(t *testing.T) {
 	assert.False(t, dispatched, "scheduler-managed run should not dispatch when suspension state is unavailable")
 }
 
+func TestTickPlanner_DispatchRunCatchupSuspensionReadErrorRequeues(t *testing.T) {
+	t.Parallel()
+
+	dag := newHourlyCatchupDAG(t, "catchup-dag")
+	scheduledTime := time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC)
+	tp := NewTickPlanner(TickPlannerConfig{
+		QueuesEnabled: true,
+		IsSuspended: func(_ context.Context, _ string) (bool, error) {
+			return false, errors.New("read suspend flag")
+		},
+		Enqueue: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+			t.Fatal("catch-up run must not enqueue when suspension state is unavailable")
+			return nil
+		},
+		Events: make(chan DAGChangeEvent, 1),
+	})
+	require.NoError(t, tp.Init(context.Background(), nil))
+
+	tp.DispatchRun(context.Background(), PlannedRun{
+		DAG:           dag,
+		RunID:         "run-1",
+		ScheduledTime: scheduledTime,
+		ScheduleType:  ScheduleTypeStart,
+		TriggerType:   ir.TriggerTypeCatchUp,
+	})
+
+	buf, ok := tp.buffers[dag.Name]
+	require.True(t, ok)
+	require.Equal(t, 1, buf.Len())
+	item, ok := buf.Peek()
+	require.True(t, ok)
+	assert.Equal(t, scheduledTime, item.ScheduledTime)
+}
+
 func TestTickPlanner_DispatchRunSuspendedCatchupAdvancesWatermark(t *testing.T) {
 	t.Parallel()
 

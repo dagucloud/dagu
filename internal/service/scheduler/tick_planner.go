@@ -1467,6 +1467,9 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 		if err != nil {
 			logger.Error(ctx, "Failed to check DAG suspension; skipping dispatch",
 				tag.DAG(run.DAG.Name), tag.Error(err))
+			if run.TriggerType == ir.TriggerTypeCatchUp {
+				tp.reinsertCatchupItem(ctx, run)
+			}
 			return
 		}
 		if suspended {

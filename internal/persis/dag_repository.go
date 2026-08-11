@@ -102,10 +102,19 @@ func (r *DAGRepository) LoadSpec(ctx context.Context, source []byte, name string
 }
 
 func (r *DAGRepository) UpdateSpec(ctx context.Context, id string, source []byte) error {
-	dag, err := spec.LoadYAML(ctx, source, r.loadOptions(
-		spec.WithName(id),
-		spec.WithoutEval(),
-	)...)
+	definition, err := r.definitions.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	loadOpts := r.loadOptions(spec.WithoutEval())
+	var dag *ir.DAG
+	if definition.SourcePath != "" {
+		dag, err = spec.LoadYAMLAt(ctx, source, definition.SourcePath, loadOpts...)
+	} else {
+		loadOpts = append(loadOpts, spec.WithName(id))
+		dag, err = spec.LoadYAML(ctx, source, loadOpts...)
+	}
 	if err != nil {
 		return err
 	}
