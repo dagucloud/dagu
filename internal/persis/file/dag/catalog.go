@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
+	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 )
 
@@ -21,7 +21,7 @@ type catalog struct {
 }
 
 func (store *Storage) loadCatalog(ctx context.Context) (*catalog, error) {
-	scan, err := dagdiscovery.Scan(store.baseDir, dagdiscovery.Options{
+	scan, err := dagstore.Discover(store.baseDir, dagstore.DiscoveryOptions{
 		Recursive: store.recursive,
 		Symlinks:  store.symlinks,
 	})
@@ -103,7 +103,7 @@ func entryStem(entry *indexv1.DAGIndexEntry) string {
 }
 
 func (store *Storage) entryLoadPath(entry *indexv1.DAGIndexEntry) (string, error) {
-	resolved, err := dagdiscovery.ResolveFile(store.baseDir, filepath.FromSlash(entry.FilePath))
+	resolved, err := dagstore.ResolveFile(store.baseDir, filepath.FromSlash(entry.FilePath))
 	if err != nil {
 		return "", err
 	}

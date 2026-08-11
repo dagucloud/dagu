@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -75,7 +74,7 @@ func (s *dagFileSource) snapshot(ctx context.Context, fileName string) (dagFileS
 			return dagFileSnapshot{dag: dag, exists: true}, nil
 		}
 
-		if errors.Is(err, dagdiscovery.ErrExternalSymlinkDisabled) || !errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, dagstore.ErrExternalSymlinkDisabled) || !errors.Is(err, os.ErrNotExist) {
 			return dagFileSnapshot{}, err
 		}
 		if attempt >= dagFileSnapshotRetries {

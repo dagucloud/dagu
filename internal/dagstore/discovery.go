@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package dagdiscovery enumerates DAG definition files and watchable directories.
-package dagdiscovery
+package dagstore
 
 import (
 	"errors"
@@ -20,16 +19,16 @@ import (
 // ErrExternalSymlinkDisabled indicates that a DAG file symlink needs the discovery opt-in.
 var ErrExternalSymlinkDisabled = errors.New("external DAG file symlinks are disabled")
 
-// File describes a discovered DAG definition.
-type File struct {
+// DiscoveredFile describes a discovered DAG definition.
+type DiscoveredFile struct {
 	RelPath      string
 	ResolvedPath string
 	Size         int64
 	ModTime      int64
 }
 
-// Options controls which DAG definition files are discoverable.
-type Options struct {
+// DiscoveryOptions controls which DAG definition files are discoverable.
+type DiscoveryOptions struct {
 	Recursive bool
 	Symlinks  bool
 }
@@ -42,15 +41,15 @@ type ResolvedFile struct {
 	ExternalSymlink bool
 }
 
-// Result contains discoverable files, directories, and non-fatal traversal errors.
-type Result struct {
-	Files  []File
+// DiscoveryResult contains discoverable files, directories, and non-fatal traversal errors.
+type DiscoveryResult struct {
+	Files  []DiscoveredFile
 	Dirs   []string
 	Errors []error
 }
 
-// Scan enumerates DAG definitions beneath root.
-func Scan(root string, opts Options) (Result, error) {
+// Discover enumerates DAG definitions beneath root.
+func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 	root = filepath.Clean(root)
 	if !opts.Recursive {
 		return scanRoot(root, opts.Symlinks)
@@ -58,17 +57,17 @@ func Scan(root string, opts Options) (Result, error) {
 
 	walkRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return Result{}, err
+		return DiscoveryResult{}, err
 	}
 	info, err := os.Stat(walkRoot)
 	if err != nil {
-		return Result{}, err
+		return DiscoveryResult{}, err
 	}
 	if !info.IsDir() {
-		return Result{}, fmt.Errorf("%s is not a directory", root)
+		return DiscoveryResult{}, fmt.Errorf("%s is not a directory", root)
 	}
 
-	result := Result{}
+	result := DiscoveryResult{}
 	err = filepath.WalkDir(walkRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		relPath, err := filepath.Rel(walkRoot, path)
 		if err != nil {
@@ -131,20 +130,20 @@ func Scan(root string, opts Options) (Result, error) {
 		return nil
 	})
 	if err != nil {
-		return Result{}, err
+		return DiscoveryResult{}, err
 	}
 
 	sortResult(&result)
 	return result, nil
 }
 
-func scanRoot(root string, symlinks bool) (Result, error) {
+func scanRoot(root string, symlinks bool) (DiscoveryResult, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return Result{}, err
+		return DiscoveryResult{}, err
 	}
 
-	result := Result{Dirs: []string{root}}
+	result := DiscoveryResult{Dirs: []string{root}}
 	for _, entry := range entries {
 		if entry.IsDir() || !fileutil.IsYAMLFile(entry.Name()) {
 			continue
@@ -258,13 +257,13 @@ func pathWithinRoot(path, root string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-func appendResolvedFile(result *Result, relPath string, resolved ResolvedFile) {
+func appendResolvedFile(result *DiscoveryResult, relPath string, resolved ResolvedFile) {
 	info, err := os.Stat(resolved.ResolvedPath)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Errorf("%s: %w", relPath, err))
 		return
 	}
-	result.Files = append(result.Files, File{
+	result.Files = append(result.Files, DiscoveredFile{
 		RelPath:      filepath.ToSlash(relPath),
 		ResolvedPath: resolved.ResolvedPath,
 		Size:         info.Size(),
@@ -280,7 +279,7 @@ func externalSymlinkDisabledError(relPath string) error {
 	)
 }
 
-func sortResult(result *Result) {
+func sortResult(result *DiscoveryResult) {
 	sort.Slice(result.Files, func(i, j int) bool {
 		return result.Files[i].RelPath < result.Files[j].RelPath
 	})

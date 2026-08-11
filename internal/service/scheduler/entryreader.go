@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -355,7 +354,7 @@ func (er *entryReaderImpl) DAGStore() dagstore.DAGStore {
 func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 	er.watcher = filenotify.New(time.Minute)
 
-	scan, err := dagdiscovery.Scan(er.targetDir, dagdiscovery.Options{Recursive: true})
+	scan, err := dagstore.Discover(er.targetDir, dagstore.DiscoveryOptions{Recursive: true})
 	if err != nil {
 		_ = er.watcher.Close()
 		return fmt.Errorf("failed to initialize recursive DAGs: %w", err)
@@ -389,7 +388,7 @@ func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 }
 
 func (er *entryReaderImpl) refreshRecursive(ctx context.Context) error {
-	scan, err := dagdiscovery.Scan(er.targetDir, dagdiscovery.Options{Recursive: true})
+	scan, err := dagstore.Discover(er.targetDir, dagstore.DiscoveryOptions{Recursive: true})
 	if err != nil {
 		return err
 	}

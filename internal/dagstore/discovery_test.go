@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package dagdiscovery
+package dagstore
 
 import (
 	"os"
@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestScanRecursive(t *testing.T) {
+func TestDiscoverRecursive(t *testing.T) {
 	baseDir := t.TempDir()
 	root := filepath.Join(baseDir, "dags")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "team", "nested"), 0750))
@@ -40,7 +40,7 @@ func TestScanRecursive(t *testing.T) {
 	}
 	require.NoError(t, os.Symlink(externalFile, filepath.Join(root, "linked-file.yaml")))
 
-	result, err := Scan(root, Options{Recursive: true})
+	result, err := Discover(root, DiscoveryOptions{Recursive: true})
 	require.NoError(t, err)
 	require.Len(t, result.Errors, 1)
 	assert.ErrorIs(t, result.Errors[0], ErrExternalSymlinkDisabled)
@@ -60,7 +60,7 @@ func TestScanRecursive(t *testing.T) {
 		filepath.Join(root, "team", "nested"),
 	}, result.Dirs)
 
-	result, err = Scan(root, Options{Recursive: true, Symlinks: true})
+	result, err = Discover(root, DiscoveryOptions{Recursive: true, Symlinks: true})
 	require.NoError(t, err)
 	require.Empty(t, result.Errors)
 	files = files[:0]
@@ -83,13 +83,13 @@ func TestScanRecursive(t *testing.T) {
 	}, result.Dirs)
 }
 
-func TestScanNonRecursiveOnlyReadsRoot(t *testing.T) {
+func TestDiscoverNonRecursiveOnlyReadsRoot(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested"), 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "root.yaml"), []byte("steps: []\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "nested", "child.yaml"), []byte("steps: []\n"), 0600))
 
-	result, err := Scan(root, Options{})
+	result, err := Discover(root, DiscoveryOptions{})
 	require.NoError(t, err)
 	require.Empty(t, result.Errors)
 	require.Len(t, result.Files, 1)
@@ -97,7 +97,7 @@ func TestScanNonRecursiveOnlyReadsRoot(t *testing.T) {
 	assert.Equal(t, []string{root}, result.Dirs)
 }
 
-func TestScanNonRecursiveAllowsInternalFileSymlinkByDefault(t *testing.T) {
+func TestDiscoverNonRecursiveAllowsInternalFileSymlinkByDefault(t *testing.T) {
 	root := t.TempDir()
 	nestedDir := filepath.Join(root, "nested")
 	require.NoError(t, os.MkdirAll(nestedDir, 0750))
@@ -107,14 +107,14 @@ func TestScanNonRecursiveAllowsInternalFileSymlinkByDefault(t *testing.T) {
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
 
-	result, err := Scan(root, Options{})
+	result, err := Discover(root, DiscoveryOptions{})
 	require.NoError(t, err)
 	require.Empty(t, result.Errors)
 	require.Len(t, result.Files, 1)
 	assert.Equal(t, "linked.yaml", result.Files[0].RelPath)
 }
 
-func TestScanNonRecursiveExternalFileSymlink(t *testing.T) {
+func TestDiscoverNonRecursiveExternalFileSymlink(t *testing.T) {
 	root := t.TempDir()
 	externalDir := t.TempDir()
 	externalFile := filepath.Join(externalDir, "external.yaml")
@@ -123,13 +123,13 @@ func TestScanNonRecursiveExternalFileSymlink(t *testing.T) {
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
 
-	result, err := Scan(root, Options{})
+	result, err := Discover(root, DiscoveryOptions{})
 	require.NoError(t, err)
 	require.Empty(t, result.Files)
 	require.Len(t, result.Errors, 1)
 	assert.ErrorIs(t, result.Errors[0], ErrExternalSymlinkDisabled)
 
-	result, err = Scan(root, Options{Symlinks: true})
+	result, err = Discover(root, DiscoveryOptions{Symlinks: true})
 	require.NoError(t, err)
 	require.Empty(t, result.Errors)
 	require.Len(t, result.Files, 1)
@@ -139,7 +139,7 @@ func TestScanNonRecursiveExternalFileSymlink(t *testing.T) {
 	assert.Equal(t, expectedExternalFile, result.Files[0].ResolvedPath)
 }
 
-func TestScanRecursiveAllowsConfiguredSymlinkRoot(t *testing.T) {
+func TestDiscoverRecursiveAllowsConfiguredSymlinkRoot(t *testing.T) {
 	baseDir := t.TempDir()
 	realRoot := filepath.Join(baseDir, "real")
 	require.NoError(t, os.MkdirAll(filepath.Join(realRoot, "nested"), 0750))
@@ -150,7 +150,7 @@ func TestScanRecursiveAllowsConfiguredSymlinkRoot(t *testing.T) {
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
 
-	result, err := Scan(linkRoot, Options{Recursive: true})
+	result, err := Discover(linkRoot, DiscoveryOptions{Recursive: true})
 	require.NoError(t, err)
 	require.Empty(t, result.Errors)
 	require.Len(t, result.Files, 1)

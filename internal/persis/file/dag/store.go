@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
 	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -443,7 +442,7 @@ func (store *Storage) ensureDirExist() error {
 }
 
 // loadIndex returns validated index entries, rebuilding the index when needed.
-func (store *Storage) loadIndex(ctx context.Context, files []dagdiscovery.File) []*indexv1.DAGIndexEntry {
+func (store *Storage) loadIndex(ctx context.Context, files []dagstore.DiscoveredFile) []*indexv1.DAGIndexEntry {
 	store.refreshBaseConfigState()
 
 	store.indexMu.Lock()
@@ -1032,18 +1031,18 @@ func (store *Storage) generateFilePath(name string) string {
 }
 
 // locateDAG resolves a DAG beneath the configured DAG directories.
-func (store *Storage) locateDAG(ctx context.Context, nameOrPath string) (dagdiscovery.ResolvedFile, error) {
+func (store *Storage) locateDAG(ctx context.Context, nameOrPath string) (dagstore.ResolvedFile, error) {
 	relativePath := filepath.FromSlash(nameOrPath)
 	explicitPath := filepath.IsAbs(relativePath) || strings.ContainsAny(nameOrPath, `/\`)
 
 	if store.recursive && !explicitPath {
 		catalog, err := store.loadCatalog(ctx)
 		if err != nil {
-			return dagdiscovery.ResolvedFile{}, fmt.Errorf("failed to discover DAGs: %w", err)
+			return dagstore.ResolvedFile{}, fmt.Errorf("failed to discover DAGs: %w", err)
 		}
 		fileName := fileutil.TrimYAMLFileExtension(filepath.Base(relativePath))
 		if entry, ok := catalog.byStem[fileName]; ok {
-			resolved, err := dagdiscovery.ResolveFile(
+			resolved, err := dagstore.ResolveFile(
 				store.baseDir,
 				filepath.FromSlash(entry.FilePath),
 			)
@@ -1054,7 +1053,7 @@ func (store *Storage) locateDAG(ctx context.Context, nameOrPath string) (dagdisc
 		if len(store.searchPaths) > 1 {
 			return locateDAGInDirectories(nameOrPath, store.searchPaths[1:], store.symlinks)
 		}
-		return dagdiscovery.ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
+		return dagstore.ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 	}
 
 	return locateDAGInDirectories(nameOrPath, store.searchPaths, store.symlinks)
@@ -1064,7 +1063,7 @@ func locateDAGInDirectories(
 	nameOrPath string,
 	directories []string,
 	symlinks bool,
-) (dagdiscovery.ResolvedFile, error) {
+) (dagstore.ResolvedFile, error) {
 	var externalSymlinkDisabled bool
 	for _, dir := range directories {
 		absDir, err := filepath.Abs(dir)
@@ -1081,7 +1080,7 @@ func locateDAGInDirectories(
 		}
 
 		for _, candidatePath := range dagFileCandidates(relativePath) {
-			resolved, err := dagdiscovery.ResolveFile(absDir, candidatePath)
+			resolved, err := dagstore.ResolveFile(absDir, candidatePath)
 			if err != nil {
 				continue
 			}
@@ -1094,19 +1093,19 @@ func locateDAGInDirectories(
 	}
 
 	if externalSymlinkDisabled {
-		return dagdiscovery.ResolvedFile{}, fmt.Errorf(
+		return dagstore.ResolvedFile{}, fmt.Errorf(
 			"DAG %s uses an external file symlink; enable dag_discovery.symlinks: %w",
 			nameOrPath,
-			errors.Join(dagdiscovery.ErrExternalSymlinkDisabled, os.ErrNotExist),
+			errors.Join(dagstore.ErrExternalSymlinkDisabled, os.ErrNotExist),
 		)
 	}
 
 	// DAG not found
-	return dagdiscovery.ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
+	return dagstore.ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 }
 
 func (store *Storage) stemExists(name, exceptPath string) bool {
-	scan, err := dagdiscovery.Scan(store.baseDir, dagdiscovery.Options{
+	scan, err := dagstore.Discover(store.baseDir, dagstore.DiscoveryOptions{
 		Recursive: true,
 		Symlinks:  store.symlinks,
 	})
@@ -1255,7 +1254,7 @@ func shouldCreateExamples(dir string, recursive, symlinks bool) bool {
 		return false
 	}
 
-	scan, err := dagdiscovery.Scan(dir, dagdiscovery.Options{
+	scan, err := dagstore.Discover(dir, dagstore.DiscoveryOptions{
 		Recursive: recursive,
 		Symlinks:  symlinks,
 	})
