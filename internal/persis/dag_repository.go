@@ -104,7 +104,7 @@ func (r *DAGRepository) LoadSpec(ctx context.Context, source []byte, name string
 func (r *DAGRepository) UpdateSpec(ctx context.Context, id string, source []byte) error {
 	definition, err := r.definitions.Get(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to locate DAG %s: %w", id, err)
 	}
 
 	loadOpts := r.loadOptions(spec.WithoutEval())
