@@ -13,9 +13,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/spf13/cobra"
@@ -82,13 +82,13 @@ func runLs(ctx *Context, args []string) error {
 		pattern = args[0]
 	}
 
-	if ctx.DAGStore == nil {
+	if ctx.DAGRepository == nil {
 		return fmt.Errorf("DAG store is not available")
 	}
 
 	now := time.Now()
 	pg := pagination.NewPaginator(1, math.MaxInt)
-	listOpts := dagstore.ListDAGsOptions{
+	listOpts := persis.DAGListOptions{
 		Paginator: &pg,
 		Name:      pattern,
 		Sort:      "name",
@@ -109,7 +109,7 @@ func runLs(ctx *Context, args []string) error {
 		listOpts.Order = "desc"
 	}
 
-	result, errs, err := ctx.DAGStore.List(ctx, listOpts)
+	result, errs, err := ctx.DAGRepository.List(ctx, listOpts)
 	if err != nil {
 		return fmt.Errorf("failed to list DAGs: %w", err)
 	}
@@ -119,10 +119,10 @@ func runLs(ctx *Context, args []string) error {
 
 	needEnrich := showLast || showHistory || sortLast
 	rows := make([]lsRow, 0, len(result.Items))
-	for _, dag := range result.Items {
-		row := lsRow{dag: dag}
-		if showNext {
-			row.nextRun = nextRunProjection(dag, now)
+	for _, item := range result.Items {
+		row := lsRow{dag: item.DAG}
+		if showNext && !item.Suspended {
+			row.nextRun = nextRunProjection(item.DAG, now)
 		}
 		if needEnrich {
 			enrichLsRow(ctx, &row, showLast || sortLast, showHistory)
@@ -148,12 +148,7 @@ func lsNextRunProjection(ctx *Context) func(*ir.DAG, time.Time) time.Time {
 	}
 
 	projectNextRun := scheduler.NewNextRunProjection(ctx.Config.Core.Location, state)
-	return func(dag *ir.DAG, now time.Time) time.Time {
-		if ctx.DAGStore.IsSuspended(ctx, dag.FileName()) {
-			return time.Time{}
-		}
-		return projectNextRun(dag, now)
-	}
+	return projectNextRun
 }
 
 func sortLsRowsByLastRun(rows []lsRow, reverse bool) {

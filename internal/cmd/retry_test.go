@@ -45,10 +45,10 @@ steps:
 		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: args})
 
 		// Find the dag-run ID.
-		dagStore := th.DAGStore
+		dagRepository := th.DAGRepository
 		ctx := context.Background()
 
-		dag, err := dagStore.GetMetadata(ctx, dagFile.Location)
+		dag, err := dagRepository.GetMetadata(ctx, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(ctx, dag)
@@ -80,10 +80,10 @@ steps:
 		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: args})
 
 		// Find the dag-run ID.
-		dagStore := th.DAGStore
+		dagRepository := th.DAGRepository
 		ctx := context.Background()
 
-		dag, err := dagStore.GetMetadata(ctx, dagFile.Location)
+		dag, err := dagRepository.GetMetadata(ctx, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(ctx, dag)

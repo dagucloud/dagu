@@ -589,8 +589,8 @@ func TestQueueProcessor_SuspendedSchedulerManagedQueuedRunsAreAbortedAndDequeued
 			dagName := "suspended-" + trigger.String() + "-dag"
 			f := newQueueFixture(t).
 				withDAG(dagName, 1).
-				withProcessor(config.Queues{}, WithIsSuspended(func(_ context.Context, name string) bool {
-					return name == dagName
+				withProcessor(config.Queues{}, WithIsSuspended(func(_ context.Context, name string) (bool, error) {
+					return name == dagName, nil
 				})).
 				simulateQueue(1, false)
 
@@ -614,6 +614,29 @@ func TestQueueProcessor_SuspendedSchedulerManagedQueuedRunsAreAbortedAndDequeued
 	}
 }
 
+func TestQueueProcessor_LeavesSchedulerManagedRunQueuedWhenSuspensionReadFails(t *testing.T) {
+	dagName := "suspension-read-error-dag"
+	f := newQueueFixture(t).
+		withDAG(dagName, 1).
+		withProcessor(config.Queues{}, WithIsSuspended(func(context.Context, string) (bool, error) {
+			return false, errors.New("read suspend flag")
+		})).
+		simulateQueue(1, false)
+
+	f.enqueueRunWithTrigger("run-1", ir.TriggerTypeScheduler)
+	f.processor.ProcessQueueItems(f.ctx, dagName)
+
+	items, err := f.queueStore.List(f.ctx, dagName)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	attempt, err := f.dagRunStore.FindAttempt(f.ctx, ir.NewDAGRunRef(dagName, "run-1"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Queued, status.Status)
+}
+
 func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 	dagName := "suspended-manual-dag"
 	f := newQueueFixture(t).withDAG(dagName, 1)
@@ -634,7 +657,7 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 		dagRunStore: f.dagRunStore,
 		procStore:   procStore,
 		dagExecutor: NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, ""),
-		isSuspended: func(_ context.Context, name string) bool { return name == dagName },
+		isSuspended: func(_ context.Context, name string) (bool, error) { return name == dagName, nil },
 		backoffConfig: BackoffConfig{
 			InitialInterval:    10 * time.Millisecond,
 			MaxInterval:        50 * time.Millisecond,

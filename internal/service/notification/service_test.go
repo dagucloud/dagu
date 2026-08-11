@@ -21,12 +21,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
+	"github.com/dagucloud/dagu/v2/internal/textsearch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -204,28 +205,28 @@ func (s testDAGStore) Delete(context.Context, string) error {
 	return nil
 }
 
-func (s testDAGStore) List(context.Context, dagstore.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
-	return pagination.PaginatedResult[*ir.DAG]{}, nil, nil
+func (s testDAGStore) List(context.Context, persis.DAGListOptions) (pagination.PaginatedResult[persis.DAGListItem], []string, error) {
+	return pagination.PaginatedResult[persis.DAGListItem]{}, nil, nil
 }
 
 func (s testDAGStore) GetMetadata(context.Context, string) (*ir.DAG, error) {
 	return s.dag, nil
 }
 
-func (s testDAGStore) GetDetails(context.Context, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
+func (s testDAGStore) GetDetails(context.Context, string, persis.DAGLoadOptions) (*ir.DAG, error) {
 	return s.dag, nil
 }
 
-func (s testDAGStore) Grep(context.Context, string) ([]*dagstore.GrepDAGsResult, []string, error) {
+func (s testDAGStore) Grep(context.Context, string) ([]*persis.DAGGrepResult, []string, error) {
 	return nil, nil, nil
 }
 
-func (s testDAGStore) SearchCursor(context.Context, dagstore.SearchDAGsOptions) (*pagination.CursorResult[dagstore.SearchDAGResult], []string, error) {
-	return &pagination.CursorResult[dagstore.SearchDAGResult]{}, nil, nil
+func (s testDAGStore) SearchCursor(context.Context, persis.DAGSearchOptions) (*pagination.CursorResult[persis.DAGSearchResult], []string, error) {
+	return &pagination.CursorResult[persis.DAGSearchResult]{}, nil, nil
 }
 
-func (s testDAGStore) SearchMatches(context.Context, string, dagstore.SearchDAGMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error) {
-	return &pagination.CursorResult[*dagstore.Match]{}, nil
+func (s testDAGStore) SearchMatches(context.Context, string, persis.DAGMatchSearchOptions) (*pagination.CursorResult[*textsearch.Match], error) {
+	return &pagination.CursorResult[*textsearch.Match]{}, nil
 }
 
 func (s testDAGStore) Rename(context.Context, string, string) error {
@@ -240,7 +241,7 @@ func (s testDAGStore) UpdateSpec(context.Context, string, []byte) error {
 	return nil
 }
 
-func (s testDAGStore) LoadSpec(context.Context, []byte, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
+func (s testDAGStore) LoadSpec(context.Context, []byte, string, persis.DAGLoadOptions) (*ir.DAG, error) {
 	return s.dag, nil
 }
 
@@ -248,12 +249,12 @@ func (s testDAGStore) LabelList(context.Context) ([]string, []string, error) {
 	return nil, nil, nil
 }
 
-func (s testDAGStore) ToggleSuspend(context.Context, string, bool) error {
+func (s testDAGStore) SetSuspended(context.Context, string, bool) error {
 	return nil
 }
 
-func (s testDAGStore) IsSuspended(context.Context, string) bool {
-	return false
+func (s testDAGStore) IsSuspended(context.Context, string) (bool, error) {
+	return false, nil
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

@@ -19,9 +19,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler/filenotify"
 
 	"github.com/fsnotify/fsnotify"
@@ -39,8 +40,8 @@ type EntryReader interface {
 	Stop()
 	// DAGs returns a snapshot of all currently loaded DAG definitions.
 	DAGs() []*ir.DAG
-	// DAGStore returns the backing store used for loading DAG details and suspension state.
-	DAGStore() dagstore.DAGStore
+	// DAGRepository returns the backing store used for loading DAG details and suspension state.
+	DAGRepository() persis.DAGRepository
 }
 
 var _ EntryReader = (*entryReaderImpl)(nil)
@@ -58,31 +59,31 @@ type registryState struct {
 
 // entryReaderImpl manages DAGs on local filesystem.
 type entryReaderImpl struct {
-	targetDir   string
-	registry    map[string]*ir.DAG
-	stamps      map[string]dagFileStamp
-	watchedDirs map[string]struct{}
-	lock        sync.Mutex
-	dagStore    dagstore.DAGStore
-	dagSource   *dagFileSource
-	watcher     filenotify.FileWatcher
-	recursive   bool
-	quit        chan struct{}
-	closeOnce   sync.Once
-	events      chan DAGChangeEvent
+	targetDir     string
+	registry      map[string]*ir.DAG
+	stamps        map[string]dagFileStamp
+	watchedDirs   map[string]struct{}
+	lock          sync.Mutex
+	dagRepository persis.DAGRepository
+	dagSource     *dagFileSource
+	watcher       filenotify.FileWatcher
+	recursive     bool
+	quit          chan struct{}
+	closeOnce     sync.Once
+	events        chan DAGChangeEvent
 }
 
 // NewEntryReader creates a new DAG manager with the given configuration.
-func NewEntryReader(dir string, dagCli dagstore.DAGStore, recursive bool) EntryReader {
+func NewEntryReader(dir string, dagCli persis.DAGRepository, recursive bool) EntryReader {
 	return &entryReaderImpl{
-		targetDir:   dir,
-		registry:    make(map[string]*ir.DAG),
-		stamps:      make(map[string]dagFileStamp),
-		watchedDirs: make(map[string]struct{}),
-		dagStore:    dagCli,
-		dagSource:   newDAGFileSource(dir, dagCli),
-		recursive:   recursive,
-		quit:        make(chan struct{}),
+		targetDir:     dir,
+		registry:      make(map[string]*ir.DAG),
+		stamps:        make(map[string]dagFileStamp),
+		watchedDirs:   make(map[string]struct{}),
+		dagRepository: dagCli,
+		dagSource:     newDAGFileSource(dir, dagCli),
+		recursive:     recursive,
+		quit:          make(chan struct{}),
 	}
 }
 
@@ -346,15 +347,15 @@ func (er *entryReaderImpl) DAGs() []*ir.DAG {
 	return dags
 }
 
-// DAGStore returns the backing DAG store for full DAG details.
-func (er *entryReaderImpl) DAGStore() dagstore.DAGStore {
-	return er.dagStore
+// DAGRepository returns the repository used for full DAG details.
+func (er *entryReaderImpl) DAGRepository() persis.DAGRepository {
+	return er.dagRepository
 }
 
 func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 	er.watcher = filenotify.New(time.Minute)
 
-	scan, err := dagstore.Discover(er.targetDir, dagstore.DiscoveryOptions{Recursive: true})
+	scan, err := filedag.Discover(er.targetDir, filedag.DiscoveryOptions{Recursive: true})
 	if err != nil {
 		_ = er.watcher.Close()
 		return fmt.Errorf("failed to initialize recursive DAGs: %w", err)
@@ -388,7 +389,7 @@ func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 }
 
 func (er *entryReaderImpl) refreshRecursive(ctx context.Context) error {
-	scan, err := dagstore.Discover(er.targetDir, dagstore.DiscoveryOptions{Recursive: true})
+	scan, err := filedag.Discover(er.targetDir, filedag.DiscoveryOptions{Recursive: true})
 	if err != nil {
 		return err
 	}
@@ -434,7 +435,7 @@ func (er *entryReaderImpl) syncWatches(ctx context.Context, dirs []string) {
 
 func (er *entryReaderImpl) loadRegistry(ctx context.Context) (registryState, error) {
 	paginator := pagination.NewPaginator(1, math.MaxInt)
-	result, issues, err := er.dagStore.List(ctx, dagstore.ListDAGsOptions{Paginator: &paginator})
+	result, issues, err := er.dagRepository.List(ctx, persis.DAGListOptions{Paginator: &paginator})
 	if err != nil {
 		return registryState{}, err
 	}
@@ -459,7 +460,7 @@ func (er *entryReaderImpl) loadRegistry(ctx context.Context) (registryState, err
 		if !strings.Contains(locator, "/") {
 			locator = "./" + locator
 		}
-		dag, err := er.dagStore.GetMetadata(ctx, locator)
+		dag, err := er.dagRepository.GetMetadata(ctx, locator)
 		if err != nil {
 			issues = append(issues, fmt.Sprintf("reading %s failed: %s", key, err))
 			continue

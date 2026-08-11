@@ -23,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -125,7 +124,7 @@ type Handler struct {
 	workerHeartbeatStore      dispatch.WorkerHeartbeatStore      // Shared worker presence
 	dagRunLeaseStore          dispatch.DAGRunLeaseStore          // Shared distributed run leases
 	activeDistributedRunStore dispatch.ActiveDistributedRunStore // Shared active distributed attempt index
-	dagStore                  dagstore.DAGStore                  // DAG definitions for the GetDAG RPC
+	dagRepository             persis.DAGRepository               // DAG definitions for the GetDAG RPC
 	secretStore               secretpkg.Store                    // Secret registry for workers
 
 	// Open attempts cache for status persistence
@@ -191,9 +190,9 @@ type HandlerConfig struct {
 	// active distributed attempt index used by zombie detection.
 	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 
-	// DAGStore serves DAG definitions for the GetDAG RPC.
+	// DAGRepository serves DAG definitions for the GetDAG RPC.
 	// Optional - when nil, GetDAG returns Unimplemented.
-	DAGStore dagstore.DAGStore
+	DAGRepository persis.DAGRepository
 
 	// SecretStore resolves Dagu-managed secret registry refs for workers.
 	// Optional - when nil, ResolveSecretReference returns FailedPrecondition.
@@ -256,7 +255,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		workerHeartbeatStore:      cfg.WorkerHeartbeatStore,
 		dagRunLeaseStore:          cfg.DAGRunLeaseStore,
 		activeDistributedRunStore: cfg.ActiveDistributedRunStore,
-		dagStore:                  cfg.DAGStore,
+		dagRepository:             cfg.DAGRepository,
 		secretStore:               cfg.SecretStore,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
@@ -2389,10 +2388,10 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 // GetDAG retrieves the raw specification of a DAG by name.
 // Workers use this to obtain DAG definitions that may not be available locally.
 func (h *Handler) GetDAG(ctx context.Context, req *coordinatorv1.GetDAGRequest) (*coordinatorv1.GetDAGResponse, error) {
-	if h.dagStore == nil {
+	if h.dagRepository == nil {
 		return nil, status.Error(codes.Unimplemented, "DAG store not configured: GetDAG is not available")
 	}
-	spec, err := h.dagStore.GetSpec(ctx, req.Name)
+	spec, err := h.dagRepository.GetSpec(ctx, req.Name)
 	if err != nil {
 		return &coordinatorv1.GetDAGResponse{Error: err.Error()}, nil
 	}

@@ -28,10 +28,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -281,7 +281,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		require.NoError(t, baseConfigStore.Initialize())
 	}
 
-	dagStore, err := file.NewDAGStore(cfg, file.WithDAGSkipExamples(true))
+	dagRepository, err := file.NewDAGRepository(cfg, file.WithDAGSkipExamples(true))
 	require.NoError(t, err)
 	runStore := file.NewDAGRunStore(cfg)
 	procStore := newProcStore(cfg)
@@ -309,7 +309,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		Config:                    cfg,
 		ChildEnv:                  cfg.Core.BaseEnv.AsSlice(),
 		DAGRunMgr:                 drm,
-		DAGStore:                  dagStore,
+		DAGRepository:             dagRepository,
 		DAGRunStore:               runStore,
 		ProcStore:                 procStore,
 		QueueStore:                queueStore,
@@ -517,7 +517,7 @@ type Helper struct {
 	Config                    *config.Config
 	ChildEnv                  []string
 	LoggingOutput             *SyncBuffer
-	DAGStore                  dagstore.DAGStore
+	DAGRepository             persis.DAGRepository
 	DAGRunStore               dagrun.DAGRunStore
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 proc.ProcStore
@@ -795,7 +795,7 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	if helper.opts.SubWorkflowRunnerFactory == nil {
 		helper.opts.SubWorkflowRunnerFactory = coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 			DAGRunMgr:         d.DAGRunMgr,
-			DAGStore:          d.DAGStore,
+			DAGRepository:     d.DAGRepository,
 			DAGRunStore:       d.DAGRunStore,
 			QueueStore:        d.QueueStore,
 			StateStore:        d.StateStore,
@@ -816,7 +816,7 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 		logDir,
 		logFile,
 		d.DAGRunMgr,
-		d.DAGStore,
+		d.DAGRepository,
 		helper.opts,
 	)
 

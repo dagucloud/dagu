@@ -14,8 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -32,13 +32,13 @@ type Engine struct {
 	stateStore      dagrun.StateStore
 	procStore       proc.ProcStore
 	serviceRegistry serviceregistry.ServiceRegistry
-	dagStore        dagstore.DAGStore
+	dagRepository   persis.DAGRepository
 	dagRunMgr       runtime.Manager
 	defaultMode     ExecutionMode
 	distributed     DistributedOptions
 	logger          logger.Logger
 
-	dagStoreFactory      DAGStoreFactory
+	dagRepositoryFactory DAGRepositoryFactory
 	runtimeStoresFactory RuntimeStoresFactory
 }
 
@@ -84,13 +84,13 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		stateStore:      persistence.StateStore,
 		procStore:       persistence.ProcStore,
 		serviceRegistry: persistence.ServiceRegistry,
-		dagStore:        persistence.DAGStore,
+		dagRepository:   persistence.DAGRepository,
 		dagRunMgr:       dagRunMgr,
 		defaultMode:     mode,
 		distributed:     distributed,
 		logger:          log,
 
-		dagStoreFactory:      persistence.DAGStoreFactory,
+		dagRepositoryFactory: persistence.DAGRepositoryFactory,
 		runtimeStoresFactory: persistence.RuntimeStoresFactory,
 	}, nil
 }
@@ -208,7 +208,7 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 func (e *Engine) subWorkflowRunnerFactory(stores RuntimeStores) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr:         e.dagRunMgr,
-		DAGStore:          e.dagStore,
+		DAGRepository:     e.dagRepository,
 		DAGRunStore:       e.dagRunStore,
 		RunStateStore:     e.runStateStore,
 		StateStore:        e.stateStore,

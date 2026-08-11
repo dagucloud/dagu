@@ -20,8 +20,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -263,7 +263,7 @@ func TestGetDAGRunSpec(t *testing.T) {
 		Spec: &dagSpec,
 	}).ExpectStatus(http.StatusCreated).Send(t)
 
-	dag, err := server.DAGStore.GetDetails(server.Context, dagName, dagstore.DAGLoadOptions{})
+	dag, err := server.DAGRepository.GetDetails(server.Context, dagName, persis.DAGLoadOptions{})
 	require.NoError(t, err)
 	seedLatestDAGRunStatus(t, server, dag, dagRunID, ir.Succeeded, seedDAGRunStatusOptions{})
 

@@ -236,7 +236,7 @@ func (f *testFixture) setupWorkerWithAfterAckHook(
 	handlerCfg := worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: f.coordinatorClient,
-		DAGStore:          f.coord.DAGStore,
+		DAGRepository:     f.coord.DAGRepository,
 		DAGRunMgr:         f.coord.DAGRunMgr,
 		ServiceRegistry:   f.coord.ServiceRegistry,
 		PeerConfig:        f.coord.Config.Core.Peer,
@@ -313,7 +313,7 @@ func (f *testFixture) startSchedulerWithOptions(
 
 	em := scheduler.NewEntryReader(
 		f.coord.Config.Paths.DAGsDir,
-		f.coord.DAGStore,
+		f.coord.DAGRepository,
 		f.coord.Config.DAGDiscovery.Recursive,
 	)
 

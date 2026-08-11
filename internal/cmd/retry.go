@@ -622,7 +622,7 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 		}
 	}
 
-	dr, err := ctx.dagStore(dagStoreConfig{
+	dr, err := ctx.dagRepository(dagRepositoryConfig{
 		SearchPaths:           []string{filepath.Dir(dag.Location)},
 		SkipDirectoryCreation: opts.workerID != "local",
 	})

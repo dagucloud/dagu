@@ -27,11 +27,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -70,7 +70,7 @@ type Context struct {
 	DAGRunLeaseStore          dispatch.DAGRunLeaseStore
 	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 
-	DAGStore       dagstore.DAGStore
+	DAGRepository  persis.DAGRepository
 	Proc           proc.ProcHandle
 	LicenseManager *license.Manager
 	ContextStore   *cliContextStore
@@ -100,7 +100,7 @@ func (c *Context) WithContext(ctx context.Context) *Context {
 		WorkerHeartbeatStore:      c.WorkerHeartbeatStore,
 		DAGRunLeaseStore:          c.DAGRunLeaseStore,
 		ActiveDistributedRunStore: c.ActiveDistributedRunStore,
-		DAGStore:                  c.DAGStore,
+		DAGRepository:             c.DAGRepository,
 		Proc:                      c.Proc,
 		LicenseManager:            c.LicenseManager,
 		ContextStore:              c.ContextStore,
@@ -348,7 +348,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		store.WithDispatchAdmissionLiveness(dagRunLeaseStore, activeDistributedRunStore),
 	)
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
-	dagStore, err := cmdprocess.NewDAGStore(cfg, cmdprocess.DAGStoreConfig{})
+	dagRepository, err := cmdprocess.NewDAGRepository(cfg, cmdprocess.DAGRepositoryConfig{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DAG store: %w", err)
 	}
@@ -418,7 +418,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		WorkerHeartbeatStore:      workerHeartbeatStore,
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
-		DAGStore:                  dagStore,
+		DAGRepository:             dagRepository,
 		LicenseManager:            licMgr,
 		ContextStore:              contextStore,
 		CLIContext:                selectedContext,
@@ -570,8 +570,8 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 	stores := c.runtimeStores()
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr: c.DAGRunMgr,
-		DAGStoreFactory: func(context.Context) (dagstore.DAGStore, error) {
-			return c.dagStore(dagStoreConfig{})
+		DAGRepositoryFactory: func(context.Context) (persis.DAGRepository, error) {
+			return c.dagRepository(dagRepositoryConfig{})
 		},
 		DAGRunStore:       c.DAGRunStore,
 		QueueStore:        c.QueueStore,
@@ -628,16 +628,16 @@ func getWorkerID(ctx *Context) string {
 	return workerID
 }
 
-// dagStoreConfig contains options for creating a DAG store.
-type dagStoreConfig struct {
+// dagRepositoryConfig contains options for creating a DAG repository.
+type dagRepositoryConfig struct {
 	Cache                 *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
 	SearchPaths           []string                 // Additional search paths for DAG files
 	SkipDirectoryCreation bool                     // Skip directory creation (for distributed worker execution)
 }
 
-// dagStore returns a new DAGRepository instance.
-func (c *Context) dagStore(cfg dagStoreConfig) (dagstore.DAGStore, error) {
-	return cmdprocess.NewDAGStore(c.Config, cmdprocess.DAGStoreConfig{
+// dagRepository returns a new DAGRepository instance.
+func (c *Context) dagRepository(cfg dagRepositoryConfig) (persis.DAGRepository, error) {
+	return cmdprocess.NewDAGRepository(c.Config, cmdprocess.DAGRepositoryConfig{
 		Cache:                 cfg.Cache,
 		SearchPaths:           cfg.SearchPaths,
 		SkipDirectoryCreation: cfg.SkipDirectoryCreation,

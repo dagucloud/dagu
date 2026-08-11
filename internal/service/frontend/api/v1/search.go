@@ -12,8 +12,9 @@ import (
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/textsearch"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
 )
 
@@ -65,7 +66,7 @@ func scopedDAGSearchLabels(labelsParam *string) []string {
 	return parseCommaSeparatedLabels(labelsParam)
 }
 
-func toSearchMatchItems(matches []*dagstore.Match) []api.SearchMatchItem {
+func toSearchMatchItems(matches []*textsearch.Match) []api.SearchMatchItem {
 	items := make([]api.SearchMatchItem, 0, len(matches))
 	for _, match := range matches {
 		items = append(items, api.SearchMatchItem{
@@ -85,7 +86,7 @@ func mapCursorItems[TIn any, TOut any](result *pagination.CursorResult[TIn], map
 	return items, result.HasMore, optionalString(result.NextCursor)
 }
 
-func toDAGSearchPageItem(item dagstore.SearchDAGResult) api.DAGSearchPageItem {
+func toDAGSearchPageItem(item persis.DAGSearchResult) api.DAGSearchPageItem {
 	name := item.Name
 	if name == "" {
 		// File-backed DAG search uses the DAG file name as its display label.
@@ -101,7 +102,7 @@ func toDAGSearchPageItem(item dagstore.SearchDAGResult) api.DAGSearchPageItem {
 	}
 }
 
-func toDAGSearchFeedResponse(result *pagination.CursorResult[dagstore.SearchDAGResult]) api.DAGSearchFeedResponse {
+func toDAGSearchFeedResponse(result *pagination.CursorResult[persis.DAGSearchResult]) api.DAGSearchFeedResponse {
 	items, hasMore, nextCursor := mapCursorItems(result, toDAGSearchPageItem)
 	return api.DAGSearchFeedResponse{
 		Results:    items,
@@ -146,7 +147,7 @@ func toWikiPageSearchFeedResponse(
 	}
 }
 
-func toSearchMatchesResponse(result *pagination.CursorResult[*dagstore.Match]) api.SearchMatchesResponse {
+func toSearchMatchesResponse(result *pagination.CursorResult[*textsearch.Match]) api.SearchMatchesResponse {
 	return api.SearchMatchesResponse{
 		Matches:    toSearchMatchItems(result.Items),
 		HasMore:    result.HasMore,
@@ -166,7 +167,7 @@ func (a *API) SearchDAGFeed(ctx context.Context, request api.SearchDAGFeedReques
 		return nil, err
 	}
 
-	result, errs, err := a.dagStore.SearchCursor(ctx, dagstore.SearchDAGsOptions{
+	result, errs, err := a.dagRepository.SearchCursor(ctx, persis.DAGSearchOptions{
 		Cursor:          valueOf(request.Params.Cursor),
 		Limit:           normalizeSearchLimit(valueOf(request.Params.Limit), searchDefaultLimit),
 		Query:           query,
@@ -253,7 +254,7 @@ func (a *API) SearchDagMatches(ctx context.Context, request api.SearchDagMatches
 		return nil, err
 	}
 
-	result, err := a.dagStore.SearchMatches(ctx, request.FileName, dagstore.SearchDAGMatchesOptions{
+	result, err := a.dagRepository.SearchMatches(ctx, request.FileName, persis.DAGMatchSearchOptions{
 		Cursor:          valueOf(request.Params.Cursor),
 		Limit:           normalizeSearchLimit(valueOf(request.Params.Limit), searchDefaultMatchLimit),
 		Query:           query,
@@ -262,7 +263,7 @@ func (a *API) SearchDagMatches(ctx context.Context, request api.SearchDagMatches
 	})
 	if err != nil {
 		switch {
-		case errors.Is(err, dagstore.ErrDAGNotFound):
+		case errors.Is(err, persis.ErrDAGNotFound):
 			return nil, &Error{
 				Code:       api.ErrorCodeNotFound,
 				Message:    "DAG not found",

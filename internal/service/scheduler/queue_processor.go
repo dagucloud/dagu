@@ -207,7 +207,7 @@ func NewQueueProcessor(
 		prevTime:            time.Now().Add(-queueProcessMinInterval),
 		backoffConfig:       DefaultBackoffConfig(),
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
-		isSuspended:         func(context.Context, string) bool { return false },
+		isSuspended:         func(context.Context, string) (bool, error) { return false, nil },
 	}
 
 	for _, opt := range opts {

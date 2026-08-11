@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -42,7 +42,7 @@ func TestServerExposesCompactToolSurface(t *testing.T) {
 
 func TestChangeToolRenamesAndDeletesDAG(t *testing.T) {
 	ctx := context.Background()
-	store := filedag.New(t.TempDir(), filedag.WithSkipExamples(true))
+	store := filedag.NewRepository(t.TempDir(), filedag.WithSkipExamples(true))
 	require.NoError(t, store.Create(ctx, "mcp-original", []byte(`
 name: mcp-original
 steps:
@@ -88,7 +88,7 @@ steps:
 	_, err := store.GetSpec(ctx, rename.Name)
 	require.NoError(t, err)
 	_, err = store.GetSpec(ctx, rename.NewName)
-	require.ErrorIs(t, err, dagstore.ErrDAGNotFound)
+	require.ErrorIs(t, err, persis.ErrDAGNotFound)
 
 	rename.Mode = changeModeApply
 	applied := callTool(t, ctx, session, toolChange, rename)
@@ -97,7 +97,7 @@ steps:
 	require.Equal(t, dagSpecURI(rename.NewName), structuredMap(t, applied)["newDagUri"])
 	require.NotContains(t, structuredMap(t, applied), "dagUri")
 	_, err = store.GetSpec(ctx, rename.Name)
-	require.ErrorIs(t, err, dagstore.ErrDAGNotFound)
+	require.ErrorIs(t, err, persis.ErrDAGNotFound)
 	spec, err := store.GetSpec(ctx, rename.NewName)
 	require.NoError(t, err)
 	require.Contains(t, spec, "name: mcp-original")
@@ -114,7 +114,7 @@ steps:
 	require.Equal(t, true, structuredMap(t, deleted)["applied"])
 	require.NotContains(t, structuredMap(t, deleted), "dagUri")
 	_, err = store.GetSpec(ctx, remove.Name)
-	require.ErrorIs(t, err, dagstore.ErrDAGNotFound)
+	require.ErrorIs(t, err, persis.ErrDAGNotFound)
 
 	missing := callTool(t, ctx, session, toolChange, remove)
 	require.True(t, missing.IsError)

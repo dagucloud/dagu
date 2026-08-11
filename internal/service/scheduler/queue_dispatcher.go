@@ -286,7 +286,7 @@ func maxConcurrencyReachedWithAssignmentPendingConditionDefs() []queuedCondition
 
 func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 	if deps.isSuspended == nil {
-		deps.isSuspended = func(context.Context, string) bool { return false }
+		deps.isSuspended = func(context.Context, string) (bool, error) { return false, nil }
 	}
 	if deps.isClosed == nil {
 		deps.isClosed = func() bool { return false }
@@ -685,11 +685,18 @@ func (d *queueDispatcher) dispatchQueuedItem(
 		return false
 	}
 
-	if isSchedulerManagedTriggerType(status.TriggerType) && isSuspendedDAG(ctx, d.isSuspended, status, dag) {
-		if err := d.dropSuspendedQueuedRun(ctx, queueName, runRef, attempt.ID(), status); err != nil {
-			logger.Error(ctx, "Failed to drop suspended queued DAG run", tag.Error(err))
+	if isSchedulerManagedTriggerType(status.TriggerType) {
+		suspended, err := isSuspendedDAG(ctx, d.isSuspended, status, dag)
+		if err != nil {
+			logger.Error(ctx, "Failed to check DAG suspension; leaving queued run pending", tag.Error(err))
+			return false
 		}
-		return false
+		if suspended {
+			if err := d.dropSuspendedQueuedRun(ctx, queueName, runRef, attempt.ID(), status); err != nil {
+				logger.Error(ctx, "Failed to drop suspended queued DAG run", tag.Error(err))
+			}
+			return false
+		}
 	}
 
 	if schedTime, err := time.Parse(time.RFC3339, status.ScheduleTime); err == nil {

@@ -115,7 +115,7 @@ schedule:
 steps:
   - run: echo suspended
 `)
-		require.NoError(t, th.DAGStore.ToggleSuspend(th.Context, suspended.FileName(), true))
+		require.NoError(t, th.DAGRepository.SetSuspended(th.Context, suspended.FileName(), true))
 
 		future := scheduledAt.Add(24 * time.Hour)
 		stateStore := scheduler.NewWatermarkStore(

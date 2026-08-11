@@ -27,17 +27,17 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 type Service struct {
 	store                   notificationmodel.Store
-	dagStore                dagstore.DAGStore
+	dagRepository           persis.DAGRepository
 	http                    *http.Client
 	logger                  *slog.Logger
 	retry                   DeliveryRetryConfig
@@ -115,10 +115,10 @@ func (s *Service) SetPublicURLResolver(resolver func() string) {
 	}
 }
 
-func New(store notificationmodel.Store, dagStore dagstore.DAGStore, opts ...Option) *Service {
+func New(store notificationmodel.Store, dagRepository persis.DAGRepository, opts ...Option) *Service {
 	svc := &Service{
 		store:                   store,
-		dagStore:                dagStore,
+		dagRepository:           dagRepository,
 		http:                    &http.Client{Timeout: 30 * time.Second},
 		logger:                  slog.Default(),
 		reusableChannelsEnabled: func() bool { return true },
@@ -831,8 +831,8 @@ func (s *Service) deliverTestTargets(ctx context.Context, targets []resolvedTarg
 
 func (s *Service) testEvent(ctx context.Context, dagName string, eventType eventstore.EventType) chatbridge.NotificationEvent {
 	status := testStatus(dagName, eventType)
-	if s.dagStore != nil {
-		if dag, err := s.dagStore.GetDetails(ctx, dagName, dagstore.DAGLoadOptions{}); err == nil && dag != nil {
+	if s.dagRepository != nil {
+		if dag, err := s.dagRepository.GetDetails(ctx, dagName, persis.DAGLoadOptions{}); err == nil && dag != nil {
 			if dag.Name != "" {
 				status.Name = dag.Name
 			}

@@ -59,7 +59,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	helper.Config.Scheduler.LockRetryInterval = 50 * time.Millisecond
 
 	// Create additional stores needed for scheduler
-	ds, err := file.NewDAGStore(helper.Config, file.WithDAGSkipExamples(true))
+	ds, err := file.NewDAGRepository(helper.Config, file.WithDAGSkipExamples(true))
 	require.NoError(t, err)
 	drs := file.NewDAGRunStore(helper.Config)
 	ps := newProcStore(helper.Config)
@@ -77,7 +77,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	)
 
 	// Update helper with scheduler-specific stores
-	helper.DAGStore = ds
+	helper.DAGRepository = ds
 	helper.DAGRunStore = drs
 	helper.ProcStore = ps
 	helper.DAGRunMgr = drm

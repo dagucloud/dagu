@@ -88,7 +88,7 @@ func runRm(ctx *Context, args []string) error {
 	var dagName string
 	definitionID := ""
 	if deleteDef {
-		dag, err := ctx.DAGStore.GetMetadata(ctx, args[0])
+		dag, err := ctx.DAGRepository.GetMetadata(ctx, args[0])
 		if err != nil {
 			return fmt.Errorf("failed to resolve DAG definition %q: %w", args[0], err)
 		}
@@ -154,7 +154,7 @@ func executeRm(ctx *Context, opts rmOptions) error {
 		if err := ensureNoActiveRuns(ctx, opts.dagName); err != nil {
 			return err
 		}
-		if err := ctx.DAGStore.Delete(ctx, opts.definitionID); err != nil {
+		if err := ctx.DAGRepository.Delete(ctx, opts.definitionID); err != nil {
 			return fmt.Errorf("failed to delete DAG definition %q: %w", opts.dagName, err)
 		}
 		if !ctx.Quiet {

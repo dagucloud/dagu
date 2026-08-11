@@ -640,7 +640,7 @@ steps:
 		Profile: &protectedProfile,
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
 
-	dag, err := server.DAGStore.GetMetadata(server.Context, dagName)
+	dag, err := server.DAGRepository.GetMetadata(server.Context, dagName)
 	require.NoError(t, err)
 
 	seedLatestDAGRunStatus(t, server, dag, "protected-profile-source-run", ir.Failed, seedDAGRunStatusOptions{

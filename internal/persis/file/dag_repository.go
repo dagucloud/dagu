@@ -8,17 +8,17 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
-// DAGStoreOption configures the file-backed DAG definition store.
-type DAGStoreOption func(*DAGStoreOptions)
+// DAGRepositoryOption configures the file-backed DAG repository.
+type DAGRepositoryOption func(*DAGRepositoryOptions)
 
-// DAGStoreOptions contains file-backed DAG definition store settings.
-type DAGStoreOptions struct {
+// DAGRepositoryOptions contains file-backed DAG repository settings.
+type DAGRepositoryOptions struct {
 	Cache                 *fileutil.Cache[*ir.DAG]
 	SearchPaths           []string
 	SkipExamples          *bool
@@ -27,43 +27,43 @@ type DAGStoreOptions struct {
 }
 
 // WithDAGFileCache sets the cache used for loading DAG definitions.
-func WithDAGFileCache(cache *fileutil.Cache[*ir.DAG]) DAGStoreOption {
-	return func(o *DAGStoreOptions) {
+func WithDAGFileCache(cache *fileutil.Cache[*ir.DAG]) DAGRepositoryOption {
+	return func(o *DAGRepositoryOptions) {
 		o.Cache = cache
 	}
 }
 
 // WithDAGSearchPaths sets additional directories used to resolve DAG definitions.
-func WithDAGSearchPaths(paths []string) DAGStoreOption {
-	return func(o *DAGStoreOptions) {
+func WithDAGSearchPaths(paths []string) DAGRepositoryOption {
+	return func(o *DAGRepositoryOptions) {
 		o.SearchPaths = append([]string{}, paths...)
 	}
 }
 
 // WithDAGSkipExamples controls whether example DAG files are created.
-func WithDAGSkipExamples(skip bool) DAGStoreOption {
-	return func(o *DAGStoreOptions) {
+func WithDAGSkipExamples(skip bool) DAGRepositoryOption {
+	return func(o *DAGRepositoryOptions) {
 		o.SkipExamples = &skip
 	}
 }
 
 // WithDAGSymlinks includes file symlinks in recursive discovery and permits external targets.
-func WithDAGSymlinks(enabled bool) DAGStoreOption {
-	return func(o *DAGStoreOptions) {
+func WithDAGSymlinks(enabled bool) DAGRepositoryOption {
+	return func(o *DAGRepositoryOptions) {
 		o.Symlinks = enabled
 	}
 }
 
 // WithDAGSkipDirectoryCreation controls whether the DAG directory is created on startup.
-func WithDAGSkipDirectoryCreation(skip bool) DAGStoreOption {
-	return func(o *DAGStoreOptions) {
+func WithDAGSkipDirectoryCreation(skip bool) DAGRepositoryOption {
+	return func(o *DAGRepositoryOptions) {
 		o.SkipDirectoryCreation = skip
 	}
 }
 
-// NewDAGStore wires the file-backed DAG definition store from application config.
-func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (dagstore.DAGStore, error) {
-	options := DAGStoreOptions{Symlinks: cfg.DAGDiscovery.Symlinks}
+// NewDAGRepository connects the file-backed definition store to the shared repository.
+func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (persis.DAGRepository, error) {
+	options := DAGRepositoryOptions{Symlinks: cfg.DAGDiscovery.Symlinks}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&options)
@@ -74,22 +74,24 @@ func NewDAGStore(cfg *config.Config, opts ...DAGStoreOption) (dagstore.DAGStore,
 	if options.SkipExamples != nil {
 		skipExamples = *options.SkipExamples
 	}
-	store := filedag.New(
+	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)
+	definitions := filedag.NewDefinitionStore(
 		cfg.Paths.DAGsDir,
 		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
 		filedag.WithSearchPaths(options.SearchPaths),
 		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
-		filedag.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)),
+		filedag.WithWorkspaceBaseConfigDir(workspaceBaseConfigDir),
 		filedag.WithFileCache(options.Cache),
 		filedag.WithSkipExamples(skipExamples),
 		filedag.WithRecursiveDiscovery(cfg.DAGDiscovery.Recursive),
 		filedag.WithSymlinks(options.Symlinks),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
 	)
-	if s, ok := store.(*filedag.Storage); ok {
-		if err := s.Initialize(); err != nil {
-			return nil, fmt.Errorf("initialize DAG store: %w", err)
-		}
+	if err := definitions.Initialize(); err != nil {
+		return nil, fmt.Errorf("initialize DAG definition store: %w", err)
 	}
-	return store, nil
+	return persis.NewDAGRepository(definitions, persis.DAGRepositoryOptions{
+		BaseConfigPath:         cfg.Paths.BaseConfig,
+		WorkspaceBaseConfigDir: workspaceBaseConfigDir,
+	}), nil
 }

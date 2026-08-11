@@ -10,7 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -23,23 +23,23 @@ type PersistenceFactory func(context.Context, *config.Config) (Persistence, erro
 
 // Persistence contains the storage dependencies required by Engine.
 type Persistence struct {
-	DAGStore             dagstore.DAGStore
+	DAGRepository        persis.DAGRepository
 	DAGRunStore          dagrun.DAGRunStore
 	RunStateStore        runstate.Store
 	ProcStore            proc.ProcStore
 	StateStore           dagrun.StateStore
 	ServiceRegistry      serviceregistry.ServiceRegistry
-	DAGStoreFactory      DAGStoreFactory
+	DAGRepositoryFactory DAGRepositoryFactory
 	RuntimeStoresFactory RuntimeStoresFactory
 }
 
-// DAGStoreFactoryOptions configures a backend-specific DAG definition store.
-type DAGStoreFactoryOptions struct {
+// DAGRepositoryFactoryOptions configures an execution-scoped DAG repository.
+type DAGRepositoryFactoryOptions struct {
 	SearchPaths []string
 }
 
-// DAGStoreFactory creates DAG stores needed by execution-scoped loaders.
-type DAGStoreFactory func(context.Context, *config.Config, DAGStoreFactoryOptions) (dagstore.DAGStore, error)
+// DAGRepositoryFactory creates repositories needed by execution-scoped loaders.
+type DAGRepositoryFactory func(context.Context, *config.Config, DAGRepositoryFactoryOptions) (persis.DAGRepository, error)
 
 // RuntimeStoresFactory creates stores for local workflow execution.
 type RuntimeStoresFactory func(context.Context, *config.Config) RuntimeStores
@@ -77,8 +77,8 @@ func buildPersistence(ctx context.Context, cfg *config.Config, opts Options) (Pe
 }
 
 func overridePersistence(base, override Persistence) Persistence {
-	if override.DAGStore != nil {
-		base.DAGStore = override.DAGStore
+	if override.DAGRepository != nil {
+		base.DAGRepository = override.DAGRepository
 	}
 	if override.DAGRunStore != nil {
 		base.DAGRunStore = override.DAGRunStore
@@ -95,8 +95,8 @@ func overridePersistence(base, override Persistence) Persistence {
 	if override.ServiceRegistry != nil {
 		base.ServiceRegistry = override.ServiceRegistry
 	}
-	if override.DAGStoreFactory != nil {
-		base.DAGStoreFactory = override.DAGStoreFactory
+	if override.DAGRepositoryFactory != nil {
+		base.DAGRepositoryFactory = override.DAGRepositoryFactory
 	}
 	if override.RuntimeStoresFactory != nil {
 		base.RuntimeStoresFactory = override.RuntimeStoresFactory
@@ -106,7 +106,7 @@ func overridePersistence(base, override Persistence) Persistence {
 
 func validatePersistence(ctx context.Context, p Persistence) error {
 	var errs []error
-	if p.DAGStore == nil {
+	if p.DAGRepository == nil {
 		errs = append(errs, errors.New("DAG store is not configured"))
 	}
 	if p.DAGRunStore == nil && p.RunStateStore == nil {
@@ -121,7 +121,7 @@ func validatePersistence(ctx context.Context, p Persistence) error {
 	if p.ServiceRegistry == nil {
 		errs = append(errs, errors.New("service registry is not configured"))
 	}
-	if p.DAGStoreFactory == nil {
+	if p.DAGRepositoryFactory == nil {
 		errs = append(errs, errors.New("DAG store factory is not configured"))
 	}
 	if len(errs) > 0 {

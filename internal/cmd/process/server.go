@@ -51,7 +51,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	dagCache := fileutil.NewCache[*ir.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
 	dagCache.StartEviction(ctx)
 
-	dagStore, err := NewDAGStore(cfg.Config, DAGStoreConfig{Cache: dagCache})
+	dagRepository, err := NewDAGRepository(cfg.Config, DAGRepositoryConfig{Cache: dagCache})
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.ServiceRegistry)
 	collector := telemetry.NewCollector(
 		config.Version,
-		dagStore,
+		dagRepository,
 		cfg.DAGRunStore,
 		cfg.QueueStore,
 		cfg.ServiceRegistry,
@@ -87,7 +87,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	return frontend.NewServer(
 		ctx,
 		cfg.Config,
-		dagStore,
+		dagRepository,
 		cfg.DAGRunStore,
 		cfg.QueueStore,
 		cfg.ProcStore,

@@ -152,7 +152,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunI
 		return fmt.Errorf("failed to initialize artifact directory: %w", err)
 	}
 
-	dr, err := ctx.dagStore(dagStoreConfig{
+	dr, err := ctx.dagRepository(dagRepositoryConfig{
 		SearchPaths: []string{filepath.Dir(dag.Location)},
 	})
 	if err != nil {

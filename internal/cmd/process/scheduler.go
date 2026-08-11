@@ -15,12 +15,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -56,7 +56,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	dagCache := fileutil.NewCache[*ir.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
 	dagCache.StartEviction(ctx)
 
-	dagStore, err := NewDAGStore(cfg.Config, DAGStoreConfig{Cache: dagCache})
+	dagRepository, err := NewDAGRepository(cfg.Config, DAGRepositoryConfig{Cache: dagCache})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize DAG client: %w", err)
 	}
@@ -64,7 +64,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.ServiceRegistry)
 	entryReader := scheduler.NewEntryReader(
 		cfg.Config.Paths.DAGsDir,
-		dagStore,
+		dagRepository,
 		cfg.Config.DAGDiscovery.Recursive,
 	)
 	watermarkStore := scheduler.NewWatermarkStore(
@@ -109,7 +109,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		} else {
 			sched.SetEventCollector(collector)
 		}
-		if notificationMonitor := newNotificationMonitor(ctx, cfg.Config, dagStore, cfg.EventService); notificationMonitor != nil {
+		if notificationMonitor := newNotificationMonitor(ctx, cfg.Config, dagRepository, cfg.EventService); notificationMonitor != nil {
 			sched.SetNotificationMonitor(notificationMonitor)
 		}
 		if incidentMonitor := newIncidentMonitor(ctx, cfg.Config, cfg.LicenseManager, cfg.EventService); incidentMonitor != nil {
@@ -128,7 +128,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 func newNotificationMonitor(
 	ctx context.Context,
 	cfg *config.Config,
-	dagStore dagstore.DAGStore,
+	dagRepository persis.DAGRepository,
 	eventService *eventstore.Service,
 ) *chatbridge.NotificationMonitor {
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
@@ -146,7 +146,7 @@ func newNotificationMonitor(
 		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 		return nil
 	}
-	notificationService := newSchedulerNotificationService(cfg, store, dagStore)
+	notificationService := newSchedulerNotificationService(cfg, store, dagRepository)
 	stateFile := file.NotificationMonitorStateFile(cfg)
 	return chatbridge.NewNotificationMonitor(
 		eventService,
@@ -160,7 +160,7 @@ func newNotificationMonitor(
 func newSchedulerNotificationService(
 	cfg *config.Config,
 	store notificationmodel.Store,
-	dagStore dagstore.DAGStore,
+	dagRepository persis.DAGRepository,
 	opts ...notificationservice.Option,
 ) *notificationservice.Service {
 	opts = append([]notificationservice.Option{
@@ -168,7 +168,7 @@ func newSchedulerNotificationService(
 	}, opts...)
 	return notificationservice.New(
 		store,
-		dagStore,
+		dagRepository,
 		opts...,
 	)
 }

@@ -39,13 +39,13 @@ func isSuspendedDAG(
 	isSuspended IsSuspendedFunc,
 	status *ir.DAGRunStatus,
 	dag *ir.DAG,
-) bool {
+) (bool, error) {
 	if isSuspended == nil {
-		return false
+		return false, nil
 	}
 	name := suspendFlagName(status, dag)
 	if name == "" {
-		return false
+		return false, nil
 	}
 	return isSuspended(ctx, name)
 }

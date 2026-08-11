@@ -10,19 +10,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type warningDAGStore struct {
-	dagstore.DAGStore
+	persis.DAGRepository
 }
 
-func (warningDAGStore) List(_ context.Context, opts dagstore.ListDAGsOptions) (pagination.PaginatedResult[*ir.DAG], []string, error) {
-	return pagination.NewPaginatedResult([]*ir.DAG{}, 0, *opts.Paginator), []string{"catalog warning"}, nil
+func (warningDAGStore) List(_ context.Context, opts persis.DAGListOptions) (pagination.PaginatedResult[persis.DAGListItem], []string, error) {
+	return pagination.NewPaginatedResult([]persis.DAGListItem{}, 0, *opts.Paginator), []string{"catalog warning"}, nil
 }
 
 func TestRunLsWritesWarningsToCommandErrorStream(t *testing.T) {
@@ -34,9 +34,9 @@ func TestRunLsWritesWarningsToCommandErrorStream(t *testing.T) {
 	command.SetErr(&stderr)
 
 	err := runLs(&Context{
-		Context:  context.Background(),
-		Command:  command,
-		DAGStore: warningDAGStore{},
+		Context:       context.Background(),
+		Command:       command,
+		DAGRepository: warningDAGStore{},
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "warning: catalog warning\n", stderr.String())

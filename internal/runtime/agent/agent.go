@@ -38,9 +38,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -85,8 +85,8 @@ type Agent struct {
 	// It is nil if it's not a retry execution.
 	retryTarget *ir.DAGRunStatus
 
-	// dagStore is the database to store the DAG definitions.
-	dagStore dagstore.DAGStore
+	// dagRepository is the database to store the DAG definitions.
+	dagRepository persis.DAGRepository
 
 	// dagRunStore is the database to store the run history.
 	dagRunStore dagrun.DAGRunStore
@@ -386,7 +386,7 @@ func New(
 	logDir string,
 	logFile string,
 	drm runtime.Manager,
-	ds dagstore.DAGStore,
+	ds persis.DAGRepository,
 	opts Options,
 ) *Agent {
 	runStateStore := opts.RunStateStore
@@ -409,7 +409,7 @@ func New(
 		artifactDir:              opts.ArtifactDir,
 		artifactFinalizer:        opts.ArtifactFinalizer,
 		dagRunMgr:                drm,
-		dagStore:                 ds,
+		dagRepository:            ds,
 		dagRunStore:              opts.DAGRunStore,
 		runStateStore:            runStateStore,
 		queueStore:               opts.QueueStore,
@@ -644,7 +644,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.lock.Unlock()
 
 	// Create a new environment for the dag-run.
-	dbClient := newDBClient(a.dagRunStore, a.dagStore, a.remoteDAGLoader)
+	dbClient := newDBClient(a.dagRunStore, a.dagRepository, a.remoteDAGLoader)
 
 	subWorkflowRunner, err := a.createSubWorkflowRunner(ctx)
 	if err != nil {
@@ -2104,7 +2104,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		}
 	}()
 
-	db := newDBClient(a.dagRunStore, a.dagStore, a.remoteDAGLoader)
+	db := newDBClient(a.dagRunStore, a.dagRepository, a.remoteDAGLoader)
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDatabase(db),
 		runtime.WithRootDAGRun(a.rootDAGRun),

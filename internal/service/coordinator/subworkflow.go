@@ -8,7 +8,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -20,36 +20,36 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
-// DAGStoreFactory creates the DAG definition store used by local child workflows.
-type DAGStoreFactory func(context.Context) (dagstore.DAGStore, error)
+// DAGRepositoryFactory creates the DAG definition store used by local child workflows.
+type DAGRepositoryFactory func(context.Context) (persis.DAGRepository, error)
 
 // SubWorkflowRunnerConfig contains dependencies for child workflow execution.
 type SubWorkflowRunnerConfig struct {
-	DAGRunMgr         runtime.Manager
-	DAGStore          dagstore.DAGStore
-	DAGStoreFactory   DAGStoreFactory
-	DAGRunStore       dagrun.DAGRunStore
-	RunStateStore     runstate.Store
-	QueueStore        queue.QueueStore
-	StateStore        dagrun.StateStore
-	SecretStore       secret.Store
-	ProfileStore      profile.Store
-	ServiceRegistry   serviceregistry.ServiceRegistry
-	PeerConfig        config.Peer
-	DefaultExecMode   config.ExecutionMode
-	StatusPusher      runtime.StatusPusher
-	LogWriterFactory  runctx.LogWriterFactory
-	ArtifactFinalizer runtime.ArtifactFinalizer
-	WorkerID          string
-	DAGRunLogDir      string
-	DAGRunArtifactDir string
+	DAGRunMgr            runtime.Manager
+	DAGRepository        persis.DAGRepository
+	DAGRepositoryFactory DAGRepositoryFactory
+	DAGRunStore          dagrun.DAGRunStore
+	RunStateStore        runstate.Store
+	QueueStore           queue.QueueStore
+	StateStore           dagrun.StateStore
+	SecretStore          secret.Store
+	ProfileStore         profile.Store
+	ServiceRegistry      serviceregistry.ServiceRegistry
+	PeerConfig           config.Peer
+	DefaultExecMode      config.ExecutionMode
+	StatusPusher         runtime.StatusPusher
+	LogWriterFactory     runctx.LogWriterFactory
+	ArtifactFinalizer    runtime.ArtifactFinalizer
+	WorkerID             string
+	DAGRunLogDir         string
+	DAGRunArtifactDir    string
 }
 
 // NewSubWorkflowRunnerFactory creates recursive child workflow runners.
 func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	var factory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
 	factory = func(ctx context.Context) (runtimeexec.SubWorkflowRunner, error) {
-		dagStore, err := subWorkflowDAGStore(ctx, cfg)
+		dagRepository, err := subWorkflowDAGRepository(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -61,7 +61,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 			subflow.New(dispatcher, cfg.DefaultExecMode),
 			subflow.NewLocal(
 				cfg.DAGRunMgr,
-				dagStore,
+				dagRepository,
 				subflow.WithLocalDAGRunStore(cfg.DAGRunStore),
 				subflow.WithLocalRunStateStore(cfg.RunStateStore),
 				subflow.WithLocalQueueStore(cfg.QueueStore),
@@ -81,9 +81,9 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 	return factory
 }
 
-func subWorkflowDAGStore(ctx context.Context, cfg SubWorkflowRunnerConfig) (dagstore.DAGStore, error) {
-	if cfg.DAGStoreFactory != nil {
-		return cfg.DAGStoreFactory(ctx)
+func subWorkflowDAGRepository(ctx context.Context, cfg SubWorkflowRunnerConfig) (persis.DAGRepository, error) {
+	if cfg.DAGRepositoryFactory != nil {
+		return cfg.DAGRepositoryFactory(ctx)
 	}
-	return cfg.DAGStore, nil
+	return cfg.DAGRepository, nil
 }

@@ -17,9 +17,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/grep"
+	"github.com/dagucloud/dagu/v2/internal/textsearch"
 	wikimodel "github.com/dagucloud/dagu/v2/internal/wiki"
 )
 
@@ -47,10 +46,10 @@ func (s *Store) Search(ctx context.Context, query string) ([]*wikimodel.PageSear
 			continue
 		}
 
-		matches, matchCount, err := grep.GrepWithCount(data, wikiPageSearchPattern(query), grep.GrepOptions{
+		matches, matchCount, err := textsearch.GrepWithCount(data, wikiPageSearchPattern(query), textsearch.GrepOptions{
 			IsRegexp: true,
-			Before:   grep.DefaultGrepOptions.Before,
-			After:    grep.DefaultGrepOptions.After,
+			Before:   textsearch.DefaultGrepOptions.Before,
+			After:    textsearch.DefaultGrepOptions.After,
 		})
 		if err != nil {
 			continue
@@ -269,14 +268,14 @@ func (s *Store) SearchCursor(ctx context.Context, opts wikimodel.SearchPagesOpti
 			continue
 		}
 
-		window, err := grep.GrepWindow(data, pattern, grep.GrepOptions{
+		window, err := textsearch.GrepWindow(data, pattern, textsearch.GrepOptions{
 			IsRegexp: true,
-			Before:   grep.DefaultGrepOptions.Before,
-			After:    grep.DefaultGrepOptions.After,
+			Before:   textsearch.DefaultGrepOptions.Before,
+			After:    textsearch.DefaultGrepOptions.After,
 			Limit:    matchLimit,
 		})
 		if err != nil {
-			if errors.Is(err, grep.ErrNoMatch) {
+			if errors.Is(err, textsearch.ErrNoMatch) {
 				continue
 			}
 			logger.Warn(ctx, "Failed to search page", tag.File(candidate.RelPath), tag.Error(err))
@@ -335,12 +334,12 @@ func (s *Store) SearchCursor(ctx context.Context, opts wikimodel.SearchPagesOpti
 }
 
 // SearchMatches returns cursor-based snippets for one page.
-func (s *Store) SearchMatches(_ context.Context, id string, opts wikimodel.SearchPageMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error) {
+func (s *Store) SearchMatches(_ context.Context, id string, opts wikimodel.SearchPageMatchesOptions) (*pagination.CursorResult[*textsearch.Match], error) {
 	if err := wikimodel.ValidatePageID(id); err != nil {
 		return nil, err
 	}
 	if opts.Query == "" {
-		return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
+		return &pagination.CursorResult[*textsearch.Match]{Items: []*textsearch.Match{}}, nil
 	}
 	pathPrefix, err := cleanPagePathPrefix(opts.PathPrefix)
 	if err != nil {
@@ -371,21 +370,21 @@ func (s *Store) SearchMatches(_ context.Context, id string, opts wikimodel.Searc
 		return nil, err
 	}
 
-	window, err := grep.GrepWindow(data, wikiPageSearchPattern(opts.Query), grep.GrepOptions{
+	window, err := textsearch.GrepWindow(data, wikiPageSearchPattern(opts.Query), textsearch.GrepOptions{
 		IsRegexp: true,
-		Before:   grep.DefaultGrepOptions.Before,
-		After:    grep.DefaultGrepOptions.After,
+		Before:   textsearch.DefaultGrepOptions.Before,
+		After:    textsearch.DefaultGrepOptions.After,
 		Offset:   cursor.Offset,
 		Limit:    max(opts.Limit, 1),
 	})
 	if err != nil {
-		if errors.Is(err, grep.ErrNoMatch) {
-			return &pagination.CursorResult[*dagstore.Match]{Items: []*dagstore.Match{}}, nil
+		if errors.Is(err, textsearch.ErrNoMatch) {
+			return &pagination.CursorResult[*textsearch.Match]{Items: []*textsearch.Match{}}, nil
 		}
 		return nil, err
 	}
 
-	result := &pagination.CursorResult[*dagstore.Match]{
+	result := &pagination.CursorResult[*textsearch.Match]{
 		Items:   window.Matches,
 		HasMore: window.HasMore,
 	}

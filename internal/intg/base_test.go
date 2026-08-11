@@ -81,7 +81,7 @@ func TestBaseDAGSpecialEnvVarsInHandler(t *testing.T) {
 		logDir,
 		logFile,
 		drm,
-		th.DAGStore,
+		th.DAGRepository,
 		agent.Options{
 			DAGRunStore:     th.DAGRunStore,
 			ServiceRegistry: th.ServiceRegistry,
@@ -199,7 +199,7 @@ steps:
 		logDir,
 		logFile,
 		drm,
-		th.DAGStore,
+		th.DAGRepository,
 		agent.Options{
 			DAGRunStore:     th.DAGRunStore,
 			ServiceRegistry: th.ServiceRegistry,

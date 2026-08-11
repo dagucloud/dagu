@@ -11,20 +11,20 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 var _ runtime.Database = &dbClient{}
 
 type dbClient struct {
-	ds              dagstore.DAGStore
+	ds              persis.DAGRepository
 	drs             dagrun.DAGRunStore
 	remoteDAGLoader RemoteDAGLoader
 }
 
-func newDBClient(drs dagrun.DAGRunStore, ds dagstore.DAGStore, remoteDAGLoader RemoteDAGLoader) *dbClient {
+func newDBClient(drs dagrun.DAGRunStore, ds persis.DAGRepository, remoteDAGLoader RemoteDAGLoader) *dbClient {
 	return &dbClient{drs: drs, ds: ds, remoteDAGLoader: remoteDAGLoader}
 }
 
@@ -48,12 +48,12 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 		return remoteDAG, nil
 	}
 
-	dag, err := o.ds.GetDetails(ctx, name, dagstore.DAGLoadOptions{})
+	dag, err := o.ds.GetDetails(ctx, name, persis.DAGLoadOptions{})
 	if err == nil {
 		return dag, nil
 	}
 	// Only fallback to remote for not-found errors; propagate other errors directly
-	if !errors.Is(err, dagstore.ErrDAGNotFound) {
+	if !errors.Is(err, persis.ErrDAGNotFound) {
 		return nil, err
 	}
 	// Try remote fallback if configured

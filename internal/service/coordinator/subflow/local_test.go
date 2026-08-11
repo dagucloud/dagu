@@ -167,7 +167,7 @@ steps:
     run: echo ok
 `)
 	root := ir.NewDAGRunRef("root", uuid.Must(uuid.NewV7()).String())
-	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGStore)
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGRepository)
 
 	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
 		DAG:          child.DAG,
@@ -218,7 +218,7 @@ steps:
 		filepath.Join(t.TempDir(), "parent.log"),
 		runctx.WithMaterializationStore(filematerialization.New(filepath.Join(t.TempDir(), "materializations"))),
 	)
-	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGStore)
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGRepository)
 	result, err := runner.Run(ctx, executor.SubWorkflowRequest{
 		DAG:          child,
 		RootDAGRun:   root,
@@ -264,7 +264,7 @@ steps:
 	root := ir.NewDAGRunRef("root", uuid.Must(uuid.NewV7()).String())
 	runner := subflow.NewLocal(
 		th.DAGRunMgr,
-		th.DAGStore,
+		th.DAGRepository,
 		subflow.WithLocalToolInstaller(installer),
 	)
 
@@ -314,7 +314,7 @@ steps:
 	rootRef := ir.NewDAGRunRef(rootDAG.Name, rootRunID)
 	runner := subflow.NewLocal(
 		th.DAGRunMgr,
-		th.DAGStore,
+		th.DAGRepository,
 		subflow.WithLocalDAGRunStore(th.DAGRunStore),
 	)
 	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
@@ -358,7 +358,7 @@ steps:
 	createStoredRunningChildAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
 	rootRef := ir.NewDAGRunRef(rootDAG.Name, rootRunID)
-	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGStore, subflow.WithLocalDAGRunStore(th.DAGRunStore))
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGRepository, subflow.WithLocalDAGRunStore(th.DAGRunStore))
 
 	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
 		DAG:          childDAG.DAG,

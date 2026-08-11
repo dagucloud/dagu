@@ -102,7 +102,7 @@ func newPanickingScheduler(t *testing.T) (*Scheduler, <-chan struct{}) {
 
 	panicTriggered := make(chan struct{}, 1)
 	planner := NewTickPlanner(TickPlannerConfig{
-		IsSuspended: func(context.Context, string) bool {
+		IsSuspended: func(context.Context, string) (bool, error) {
 			panicTriggered <- struct{}{}
 			panic("test tick panic")
 		},

@@ -20,8 +20,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/google/uuid"
@@ -90,8 +90,8 @@ func (a *API) CreateDAGWebhook(ctx context.Context, request api.CreateDAGWebhook
 	}
 
 	// Check if DAG exists
-	if _, err := a.dagStore.GetDetails(ctx, string(request.FileName), dagstore.DAGLoadOptions{}); err != nil {
-		if errors.Is(err, dagstore.ErrDAGNotFound) {
+	if _, err := a.dagRepository.GetDetails(ctx, string(request.FileName), persis.DAGLoadOptions{}); err != nil {
+		if errors.Is(err, persis.ErrDAGNotFound) {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,
@@ -607,7 +607,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	}
 
 	// Load the DAG (we need it for enqueuing)
-	dag, err := a.dagStore.GetDetails(ctx, string(request.FileName), dagstore.DAGLoadOptions{})
+	dag, err := a.dagRepository.GetDetails(ctx, string(request.FileName), persis.DAGLoadOptions{})
 	if err != nil {
 		logger.Warn(ctx, "Webhook: DAG not found",
 			tag.Name(request.FileName),

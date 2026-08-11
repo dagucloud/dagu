@@ -27,11 +27,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -42,7 +42,7 @@ const defaultHistoryLimit = 30
 
 // resolveDAGName returns the DAG name from metadata, or falls back to fileName if metadata lookup fails.
 func (a *API) resolveDAGName(ctx context.Context, fileName string) string {
-	dag, err := a.dagStore.GetMetadata(ctx, fileName)
+	dag, err := a.dagRepository.GetMetadata(ctx, fileName)
 	if err != nil {
 		return fileName
 	}
@@ -97,10 +97,10 @@ func (a *API) ValidateDAGSpec(ctx context.Context, request api.ValidateDAGSpecRe
 	}
 
 	// Load the DAG spec
-	dag, err := a.dagStore.LoadSpec(ctx,
+	dag, err := a.dagRepository.LoadSpec(ctx,
 		[]byte(request.Body.Spec),
 		name,
-		dagstore.DAGLoadOptions{AllowBuildErrors: true},
+		persis.DAGLoadOptions{AllowBuildErrors: true},
 	)
 
 	var errs []string
@@ -147,10 +147,10 @@ func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestO
 	var yamlSpec []byte
 	var workspaceName string
 	if request.Body.Spec != nil && strings.TrimSpace(*request.Body.Spec) != "" {
-		dag, err := a.dagStore.LoadSpec(ctx,
+		dag, err := a.dagRepository.LoadSpec(ctx,
 			[]byte(*request.Body.Spec),
 			request.Body.Name,
-			dagstore.DAGLoadOptions{},
+			persis.DAGLoadOptions{},
 		)
 
 		if err != nil {
@@ -179,8 +179,8 @@ func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestO
 		return nil, err
 	}
 
-	if err := a.dagStore.Create(ctx, request.Body.Name, yamlSpec); err != nil {
-		if errors.Is(err, dagstore.ErrDAGAlreadyExists) {
+	if err := a.dagRepository.Create(ctx, request.Body.Name, yamlSpec); err != nil {
+		if errors.Is(err, persis.ErrDAGAlreadyExists) {
 			return nil, &Error{
 				HTTPStatus: http.StatusConflict,
 				Code:       api.ErrorCodeAlreadyExists,
@@ -200,7 +200,7 @@ func (a *API) DeleteDAG(ctx context.Context, request api.DeleteDAGRequestObject)
 	if a.dagWritesDisabled {
 		return nil, errDAGWritesDisabled
 	}
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, dagstore.DAGLoadOptions{AllowBuildErrors: true})
+	dag, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -211,7 +211,7 @@ func (a *API) DeleteDAG(ctx context.Context, request api.DeleteDAGRequestObject)
 	if err := a.requireDAGWriteForWorkspace(ctx, dagWorkspaceName(dag)); err != nil {
 		return nil, err
 	}
-	if err := a.dagStore.Delete(ctx, request.FileName); err != nil {
+	if err := a.dagRepository.Delete(ctx, request.FileName); err != nil {
 		return nil, fmt.Errorf("error deleting DAG: %w", err)
 	}
 
@@ -230,7 +230,7 @@ func (a *API) DeleteDAG(ctx context.Context, request api.DeleteDAGRequestObject)
 }
 
 func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObject) (api.GetDAGSpecResponseObject, error) {
-	yamlSpec, err := a.dagStore.GetSpec(ctx, request.FileName)
+	yamlSpec, err := a.dagRepository.GetSpec(ctx, request.FileName)
 	if err != nil {
 		return nil, err
 	}
@@ -323,17 +323,17 @@ func (a *API) UpdateDAGSpec(ctx context.Context, request api.UpdateDAGSpecReques
 	if a.dagWritesDisabled {
 		return nil, errDAGWritesDisabled
 	}
-	currentDAG, err := a.dagStore.GetDetails(ctx, request.FileName, dagstore.DAGLoadOptions{AllowBuildErrors: true})
+	currentDAG, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, err
 	}
 	if err := a.requireDAGWriteForWorkspace(ctx, dagWorkspaceName(currentDAG)); err != nil {
 		return nil, err
 	}
-	nextDAG, err := a.dagStore.LoadSpec(ctx,
+	nextDAG, err := a.dagRepository.LoadSpec(ctx,
 		[]byte(request.Body.Spec),
 		string(request.FileName),
-		dagstore.DAGLoadOptions{AllowBuildErrors: true},
+		persis.DAGLoadOptions{AllowBuildErrors: true},
 	)
 	if err != nil {
 		return nil, err
@@ -344,7 +344,7 @@ func (a *API) UpdateDAGSpec(ctx context.Context, request api.UpdateDAGSpecReques
 		}
 	}
 
-	err = a.dagStore.UpdateSpec(ctx, request.FileName, []byte(request.Body.Spec))
+	err = a.dagRepository.UpdateSpec(ctx, request.FileName, []byte(request.Body.Spec))
 
 	var loadErrs ir.ErrorList
 	var errs []string
@@ -377,7 +377,7 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 		}
 	}
 
-	dag, err := a.dagStore.GetMetadata(ctx, request.FileName)
+	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -406,7 +406,7 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 		}
 	}
 
-	if err := a.dagStore.Rename(ctx, request.FileName, request.Body.NewFileName); err != nil {
+	if err := a.dagRepository.Rename(ctx, request.FileName, request.Body.NewFileName); err != nil {
 		return nil, fmt.Errorf("failed to move DAG: %w", err)
 	}
 	a.migrateDAGSettingsAfterRename(ctx, request.FileName, request.Body.NewFileName)
@@ -420,7 +420,7 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 }
 
 func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunHistoryRequestObject) (api.GetDAGDAGRunHistoryResponseObject, error) {
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, dagstore.DAGLoadOptions{AllowBuildErrors: true})
+	dag, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -453,7 +453,7 @@ func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsReques
 		if errors.As(err, &apiErr) {
 			return nil, apiErr
 		}
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, persis.ErrDAGNotFound) {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,
@@ -471,7 +471,7 @@ func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsReques
 
 // getDAGDetailsData returns DAG details data. Used by both HTTP handler and SSE fetcher.
 func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDAGDetails200JSONResponse, error) {
-	dag, err := a.dagStore.GetDetails(ctx, fileName, dagstore.DAGLoadOptions{AllowBuildErrors: true})
+	dag, err := a.dagRepository.GetDetails(ctx, fileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return api.GetDAGDetails200JSONResponse{}, fmt.Errorf("failed to load DAG %s: %w", fileName, err)
 	}
@@ -486,7 +486,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	// If ErrNoStatusData, dagStatus will be zero-value (empty), which is fine for DAGs with no runs
 
 	// Get the raw spec YAML for SSE updates
-	yamlSpec, err := a.dagStore.GetSpec(ctx, fileName)
+	yamlSpec, err := a.dagRepository.GetSpec(ctx, fileName)
 	if err != nil {
 		// Continue even if spec fetch fails - it's optional for SSE
 		yamlSpec = ""
@@ -505,11 +505,15 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	sort.Slice(localDAGs, func(i, j int) bool {
 		return localDAGs[i].Name < localDAGs[j].Name
 	})
+	suspended, err := a.dagRepository.IsSuspended(ctx, fileName)
+	if err != nil {
+		return api.GetDAGDetails200JSONResponse{}, fmt.Errorf("failed to read suspension state for DAG %s: %w", fileName, err)
+	}
 
 	return api.GetDAGDetails200JSONResponse{
 		Dag:          details,
 		LatestDAGRun: ToDAGRunDetails(dagStatus),
-		Suspended:    a.dagStore.IsSuspended(ctx, fileName),
+		Suspended:    suspended,
 		LocalDags:    localDAGs,
 		Errors:       extractBuildErrors(dag.BuildErrors),
 		Spec:         &yamlSpec,
@@ -802,7 +806,7 @@ func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.listDAGsData(ctx, dagstore.ListDAGsOptions{
+	resp, err := a.listDAGsData(ctx, persis.DAGListOptions{
 		Paginator:       &pg,
 		Name:            valueOf(request.Params.Name),
 		Labels:          labels,
@@ -822,7 +826,7 @@ func (a *API) GetAllDAGLabels(ctx context.Context, request api.GetAllDAGLabelsRe
 		return nil, err
 	} else if filter != nil {
 		pg := pagination.NewPaginator(1, int(^uint(0)>>1))
-		result, errs, err := a.dagStore.List(ctx, dagstore.ListDAGsOptions{
+		result, errs, err := a.dagRepository.List(ctx, persis.DAGListOptions{
 			Paginator:       &pg,
 			WorkspaceFilter: filter,
 		})
@@ -846,7 +850,7 @@ func (a *API) GetAllDAGLabels(ctx context.Context, request api.GetAllDAGLabelsRe
 			Errors: errs,
 		}, nil
 	}
-	labels, errs, err := a.dagStore.LabelList(ctx)
+	labels, errs, err := a.dagRepository.LabelList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting labels: %w", err)
 	}
@@ -861,7 +865,7 @@ func (a *API) GetAllDAGTags(ctx context.Context, request api.GetAllDAGTagsReques
 		return nil, err
 	} else if filter != nil {
 		pg := pagination.NewPaginator(1, int(^uint(0)>>1))
-		result, errs, err := a.dagStore.List(ctx, dagstore.ListDAGsOptions{
+		result, errs, err := a.dagRepository.List(ctx, persis.DAGListOptions{
 			Paginator:       &pg,
 			WorkspaceFilter: filter,
 		})
@@ -885,7 +889,7 @@ func (a *API) GetAllDAGTags(ctx context.Context, request api.GetAllDAGTagsReques
 			Errors: errs,
 		}, nil
 	}
-	labels, errs, err := a.dagStore.LabelList(ctx)
+	labels, errs, err := a.dagRepository.LabelList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting labels: %w", err)
 	}
@@ -900,10 +904,10 @@ func (a *API) GetDAGDAGRunDetails(ctx context.Context, request api.GetDAGDAGRunD
 	dagRunId := request.DagRunId
 
 	// Try to get metadata first
-	dag, err := a.dagStore.GetMetadata(ctx, dagFileName)
+	dag, err := a.dagRepository.GetMetadata(ctx, dagFileName)
 	if err != nil {
 		// For DAGs with errors, try to load with AllowBuildErrors
-		dag, err = a.dagStore.GetDetails(ctx, dagFileName, dagstore.DAGLoadOptions{AllowBuildErrors: true})
+		dag, err = a.dagRepository.GetDetails(ctx, dagFileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 		if err != nil {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
@@ -977,7 +981,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
 	}
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, dagstore.DAGLoadOptions{AllowBuildErrors: true})
+	dag, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -1081,7 +1085,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 		}
 	}
 
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, dagstore.DAGLoadOptions{AllowBuildErrors: true})
+	dag, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -1635,7 +1639,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 		return nil, err
 	}
 
-	dag, err := a.dagStore.GetDetails(ctx, request.FileName, dagstore.DAGLoadOptions{AllowBuildErrors: true})
+	dag, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -1795,7 +1799,7 @@ func (a *API) UpdateDAGSuspensionState(ctx context.Context, request api.UpdateDA
 		return nil, err
 	}
 
-	dag, err := a.dagStore.GetMetadata(ctx, request.FileName)
+	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -1807,7 +1811,7 @@ func (a *API) UpdateDAGSuspensionState(ctx context.Context, request api.UpdateDA
 		return nil, err
 	}
 
-	if err := a.dagStore.ToggleSuspend(ctx, request.FileName, request.Body.Suspend); err != nil {
+	if err := a.dagRepository.SetSuspended(ctx, request.FileName, request.Body.Suspend); err != nil {
 		return nil, fmt.Errorf("error toggling suspend: %w", err)
 	}
 
@@ -1825,7 +1829,7 @@ func (a *API) UpdateDAGSuspensionState(ctx context.Context, request api.UpdateDA
 }
 
 func (a *API) SearchDAGs(ctx context.Context, request api.SearchDAGsRequestObject) (api.SearchDAGsResponseObject, error) {
-	ret, errs, err := a.dagStore.Grep(ctx, request.Params.Q)
+	ret, errs, err := a.dagRepository.Grep(ctx, request.Params.Q)
 	if err != nil {
 		return nil, fmt.Errorf("error searching DAGs: %w", err)
 	}
@@ -1863,7 +1867,7 @@ func (a *API) StopAllDAGRuns(ctx context.Context, request api.StopAllDAGRunsRequ
 	}
 
 	// Get the DAG metadata to ensure it exists
-	dag, err := a.dagStore.GetMetadata(ctx, request.FileName)
+	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -1929,7 +1933,7 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		endpoint: "/dags/{fileName}/dag-runs",
 		dagName:  fileName,
 	}, func(readCtx context.Context) (api.GetDAGDAGRunHistory200JSONResponse, error) {
-		dag, err := a.dagStore.GetDetails(readCtx, fileName, dagstore.DAGLoadOptions{AllowBuildErrors: true})
+		dag, err := a.dagRepository.GetDetails(readCtx, fileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 		if err != nil {
 			return api.GetDAGDAGRunHistory200JSONResponse{}, err
 		}
@@ -2004,7 +2008,7 @@ func (a *API) GetDAGsListData(ctx context.Context, queryString string) (any, err
 		if err != nil {
 			return nil, err
 		}
-		listOpts := dagstore.ListDAGsOptions{
+		listOpts := persis.DAGListOptions{
 			Paginator:       &pg,
 			Name:            params.Get("name"),
 			Labels:          labels,
@@ -2018,32 +2022,35 @@ func (a *API) GetDAGsListData(ctx context.Context, queryString string) (any, err
 	})
 }
 
-func (a *API) listDAGsData(ctx context.Context, listOpts dagstore.ListDAGsOptions) (api.ListDAGs200JSONResponse, error) {
+func (a *API) listDAGsData(ctx context.Context, listOpts persis.DAGListOptions) (api.ListDAGs200JSONResponse, error) {
 	projectionTime := time.Now()
 	nextRunProjection := a.nextRunProjection(ctx)
 
 	listOpts.Time = &projectionTime
 	listOpts.NextRunProjection = nextRunProjection
 
-	result, errList, err := a.dagStore.List(ctx, listOpts)
+	result, errList, err := a.dagRepository.List(ctx, listOpts)
 	if err != nil {
 		return api.ListDAGs200JSONResponse{}, fmt.Errorf("error listing DAGs: %w", err)
 	}
 
 	dagFiles := make([]api.DAGFile, 0, len(result.Items))
 	for _, item := range result.Items {
-		dagStatus, statusErr := a.dagRunMgr.GetLatestStatus(ctx, item)
-		nextRun := nextRunProjection(item, projectionTime)
+		dagStatus, statusErr := a.dagRunMgr.GetLatestStatus(ctx, item.DAG)
+		var nextRun time.Time
+		if !item.Suspended {
+			nextRun = nextRunProjection(item.DAG, projectionTime)
+		}
 		var nextRunAt *time.Time
 		if !nextRun.IsZero() {
 			nextRunAt = &nextRun
 		}
 
 		dagFile := api.DAGFile{
-			FileName:     item.FileName(),
+			FileName:     item.ID,
 			LatestDAGRun: toDAGRunSummary(dagStatus),
-			Suspended:    a.dagStore.IsSuspended(ctx, item.FileName()),
-			Dag:          toDAG(item),
+			Suspended:    item.Suspended,
+			Dag:          toDAG(item.DAG),
 			NextRun:      nextRunAt,
 			Errors:       extractBuildErrors(item.BuildErrors),
 		}

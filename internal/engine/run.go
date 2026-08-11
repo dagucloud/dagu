@@ -423,7 +423,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 		_ = logFile.Close()
 		return nil, err
 	}
-	dagStore, err := e.dagStoreFactory(ctx, e.cfg, DAGStoreFactoryOptions{
+	dagRepository, err := e.dagRepositoryFactory(ctx, e.cfg, DAGRepositoryFactoryOptions{
 		SearchPaths: []string{filepath.Dir(dag.Location)},
 	})
 	if err != nil {
@@ -447,7 +447,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 		filepath.Dir(logFile.Name()),
 		logFile.Name(),
 		e.dagRunMgr,
-		dagStore,
+		dagRepository,
 		rtagent.Options{
 			Dry:                      opts.DryRun,
 			WorkerID:                 "local",

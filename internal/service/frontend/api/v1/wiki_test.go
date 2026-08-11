@@ -18,10 +18,10 @@ import (
 
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/textsearch"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
 	workspacepkg "github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/prometheus/client_golang/prometheus"
@@ -324,10 +324,10 @@ func (m *mockWikiStore) Search(_ context.Context, query string) ([]*wiki.PageSea
 	for _, doc := range m.pages {
 		if strings.Contains(doc.Content, query) {
 			// Build matches from content lines containing the query.
-			var matches []*dagstore.Match
+			var matches []*textsearch.Match
 			for i, line := range strings.Split(doc.Content, "\n") {
 				if strings.Contains(line, query) {
-					matches = append(matches, &dagstore.Match{
+					matches = append(matches, &textsearch.Match{
 						Line:       line,
 						LineNumber: i + 1,
 						StartLine:  i + 1,
@@ -447,7 +447,7 @@ func (m *mockWikiStore) SearchCursor(_ context.Context, opts wiki.SearchPagesOpt
 	return result, nil
 }
 
-func (m *mockWikiStore) SearchMatches(_ context.Context, id string, opts wiki.SearchPageMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error) {
+func (m *mockWikiStore) SearchMatches(_ context.Context, id string, opts wiki.SearchPageMatchesOptions) (*pagination.CursorResult[*textsearch.Match], error) {
 	if err := wiki.ValidatePageID(id); err != nil {
 		return nil, wiki.ErrInvalidPageID
 	}
@@ -461,11 +461,11 @@ func (m *mockWikiStore) SearchMatches(_ context.Context, id string, opts wiki.Se
 		return nil, wiki.ErrPageNotFound
 	}
 
-	var matches []*dagstore.Match
+	var matches []*textsearch.Match
 	if opts.Query != "" {
 		for i, line := range strings.Split(doc.Content, "\n") {
 			if strings.Contains(line, opts.Query) {
-				matches = append(matches, &dagstore.Match{
+				matches = append(matches, &textsearch.Match{
 					Line:       line,
 					LineNumber: i + 1,
 					StartLine:  i + 1,
@@ -494,7 +494,7 @@ func (m *mockWikiStore) SearchMatches(_ context.Context, id string, opts wiki.Se
 	offset = max(offset, 0)
 	offset = min(offset, len(matches))
 	end := min(offset+limit, len(matches))
-	cursorResult := &pagination.CursorResult[*dagstore.Match]{
+	cursorResult := &pagination.CursorResult[*textsearch.Match]{
 		Items:   matches[offset:end],
 		HasMore: end < len(matches),
 	}

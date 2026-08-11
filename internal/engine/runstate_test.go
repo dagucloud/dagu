@@ -10,9 +10,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/engine"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -179,21 +179,21 @@ steps:
 func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceFactory {
 	return func(_ context.Context, cfg *config.Config) (engine.Persistence, error) {
 		backend := testutil.NewMemoryBackend()
-		dagStore, err := file.NewDAGStore(cfg, file.WithDAGSkipExamples(true))
+		dagRepository, err := file.NewDAGRepository(cfg, file.WithDAGSkipExamples(true))
 		if err != nil {
 			return engine.Persistence{}, err
 		}
 		persistence := engine.Persistence{
-			DAGStore:        dagStore,
+			DAGRepository:   dagRepository,
 			ProcStore:       store.NewProcStore(backend.Collection("proc")),
 			StateStore:      store.NewDAGStateStore(backend.Collection("dag_state")),
 			ServiceRegistry: file.NewServiceRegistry(cfg),
-			DAGStoreFactory: func(_ context.Context, cfg *config.Config, opts engine.DAGStoreFactoryOptions) (dagstore.DAGStore, error) {
-				fileOpts := []file.DAGStoreOption{file.WithDAGSkipExamples(true)}
+			DAGRepositoryFactory: func(_ context.Context, cfg *config.Config, opts engine.DAGRepositoryFactoryOptions) (persis.DAGRepository, error) {
+				fileOpts := []file.DAGRepositoryOption{file.WithDAGSkipExamples(true)}
 				if len(opts.SearchPaths) > 0 {
 					fileOpts = append(fileOpts, file.WithDAGSearchPaths(opts.SearchPaths))
 				}
-				return file.NewDAGStore(cfg, fileOpts...)
+				return file.NewDAGRepository(cfg, fileOpts...)
 			},
 		}
 		if runStateStore != nil {

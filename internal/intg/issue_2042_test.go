@@ -95,9 +95,9 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 	firstDispatch := runScheduledTick(time.Date(2026, 2, 7, 12, 34, 0, 0, time.UTC))
 	require.Equal(t, time.Date(2026, 2, 7, 12, 34, 0, 0, time.UTC), firstDispatch)
 
-	require.NoError(t, th.DAGStore.ToggleSuspend(th.Context, dagName, true))
+	require.NoError(t, th.DAGRepository.SetSuspended(th.Context, dagName, true))
 	require.NoError(t, os.WriteFile(dagFile, []byte(issue2042DAGSpec(dagName, "43 * * * *")), 0o600))
-	require.NoError(t, th.DAGStore.ToggleSuspend(th.Context, dagName, false))
+	require.NoError(t, th.DAGRepository.SetSuspended(th.Context, dagName, false))
 
 	secondDispatch := runScheduledTick(time.Date(2026, 2, 7, 12, 43, 0, 0, time.UTC))
 	require.Equal(t, time.Date(2026, 2, 7, 12, 43, 0, 0, time.UTC), secondDispatch)

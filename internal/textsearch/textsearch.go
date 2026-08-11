@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package grep
+package textsearch
 
 import (
 	"bufio"
@@ -10,9 +10,6 @@ import (
 	"math"
 	"regexp"
 	"strings"
-
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
-	"github.com/samber/lo"
 )
 
 var (
@@ -48,20 +45,27 @@ var DefaultGrepOptions = GrepOptions{
 
 // WindowResult contains a bounded snippet window and its continuation state.
 type WindowResult struct {
-	Matches    []*dagstore.Match
+	Matches    []*Match
 	HasMore    bool
 	NextOffset int
 }
 
+// Match contains a matching line and its surrounding text.
+type Match struct {
+	Line       string
+	LineNumber int
+	StartLine  int
+}
+
 // Grep reads data and returns lines that match the given pattern.
 // If opts is nil, default options will be used.
-func Grep(dat []byte, pattern string, opts GrepOptions) ([]*dagstore.Match, error) {
+func Grep(dat []byte, pattern string, opts GrepOptions) ([]*Match, error) {
 	matches, _, err := GrepWithCount(dat, pattern, opts)
 	return matches, err
 }
 
 // GrepWithCount reads data and returns matching snippets and the total match count.
-func GrepWithCount(dat []byte, pattern string, opts GrepOptions) ([]*dagstore.Match, int, error) {
+func GrepWithCount(dat []byte, pattern string, opts GrepOptions) ([]*Match, int, error) {
 	if pattern == "" {
 		return nil, 0, ErrEmptyPattern
 	}
@@ -98,12 +102,12 @@ func GrepWindow(dat []byte, pattern string, opts GrepOptions) (*WindowResult, er
 	}
 
 	type pendingMatch struct {
-		match          *dagstore.Match
+		match          *Match
 		lines          []string
 		afterRemaining int
 	}
 
-	finalizePending := func(pending []*pendingMatch, force bool, out []*dagstore.Match) ([]*pendingMatch, []*dagstore.Match) {
+	finalizePending := func(pending []*pendingMatch, force bool, out []*Match) ([]*pendingMatch, []*Match) {
 		next := pending[:0]
 		for _, item := range pending {
 			if force || item.afterRemaining == 0 {
@@ -118,7 +122,7 @@ func GrepWindow(dat []byte, pattern string, opts GrepOptions) (*WindowResult, er
 
 	scanner := bufio.NewScanner(bytes.NewReader(dat))
 	beforeBuf := make([]string, 0, opts.Before)
-	results := make([]*dagstore.Match, 0, min(limit, 8))
+	results := make([]*Match, 0, min(limit, 8))
 	pending := make([]*pendingMatch, 0, min(limit, 4))
 	lineNumber := 0
 	matchedCount := 0
@@ -148,7 +152,7 @@ func GrepWindow(dat []byte, pattern string, opts GrepOptions) (*WindowResult, er
 				contextLines := append([]string(nil), beforeBuf...)
 				contextLines = append(contextLines, line)
 				item := &pendingMatch{
-					match: &dagstore.Match{
+					match: &Match{
 						StartLine:  lineNumber - len(beforeBuf),
 						LineNumber: lineNumber,
 					},
@@ -227,8 +231,8 @@ func scanLines(dat []byte, matcher Matcher) ([]string, []int, error) {
 }
 
 // buildMatches constructs Match objects from matched line indices.
-func buildMatches(lines []string, matches []int, opts GrepOptions) []*dagstore.Match {
-	var ret []*dagstore.Match
+func buildMatches(lines []string, matches []int, opts GrepOptions) []*Match {
+	var ret []*Match
 	start := max(opts.Offset, 0)
 	end := len(matches)
 	if opts.Limit > 0 && start+opts.Limit < end {
@@ -239,11 +243,11 @@ func buildMatches(lines []string, matches []int, opts GrepOptions) []*dagstore.M
 	}
 
 	for _, m := range matches[start:end] {
-		low := lo.Max([]int{0, m - opts.Before})
-		high := lo.Min([]int{len(lines), m + opts.After + 1})
+		low := max(0, m-opts.Before)
+		high := min(len(lines), m+opts.After+1)
 		matchText := strings.Join(lines[low:high], "\n")
 
-		ret = append(ret, &dagstore.Match{
+		ret = append(ret, &Match{
 			StartLine:  low + 1,
 			LineNumber: m + 1,
 			Line:       matchText,

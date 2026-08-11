@@ -16,8 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 )
 
@@ -201,9 +201,9 @@ func (a *API) runProfileForDAG(ctx context.Context, dagName string, workspaceNam
 }
 
 func (a *API) getDAGForSettings(ctx context.Context, fileName string) (*ir.DAG, error) {
-	dag, err := a.dagStore.GetMetadata(ctx, fileName)
+	dag, err := a.dagRepository.GetMetadata(ctx, fileName)
 	if err != nil {
-		if errors.Is(err, dagstore.ErrDAGNotFound) {
+		if errors.Is(err, persis.ErrDAGNotFound) {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,

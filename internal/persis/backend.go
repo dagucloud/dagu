@@ -1,14 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package persis defines the storage backend interface for Dagu's control plane.
+// Package persis defines persistence contracts for Dagu's control plane.
 //
-// All control-plane data (dag runs, users, secrets, queues, heartbeats, etc.)
-// flows through [Backend] → [Collection] → [Record]. Domain model changes live
-// inside Record.Data (an opaque blob); the physical schema never changes.
+// Collection-backed records flow through [Backend] → [Collection] → [Record].
+// DAG definitions use [DAGDefinitionStore] because their persistence contract
+// includes source locations, discovery issues, and suspension state.
 //
-// To add a new database backend, implement [Backend] and [Collection] only.
-// All store adapters (dagrun, queue, proc, user, secret, …) work immediately.
+// Domain model changes for collection-backed records live inside Record.Data,
+// leaving their physical schema unchanged.
 package persis
 
 import (
@@ -95,8 +95,7 @@ type Collection interface {
 	CompareAndSwap(ctx context.Context, id string, expected, next []byte) error
 }
 
-// Backend is the factory for storage [Collection]s and the sole interface
-// a new database driver must implement.
+// Backend is the factory for storage [Collection]s.
 //
 // Collections are created lazily; calling Collection("foo") never returns an
 // error — failures surface on the first operation against the collection.

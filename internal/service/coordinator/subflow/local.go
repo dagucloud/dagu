@@ -15,9 +15,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -36,7 +36,7 @@ import (
 // Local runs child workflows in the current process through the runtime agent.
 type Local struct {
 	dagRunMgr                runtime.Manager
-	dagStore                 dagstore.DAGStore
+	dagRepository            persis.DAGRepository
 	dagRunStore              dagrun.DAGRunStore
 	runStateStore            runstate.Store
 	queueStore               queue.QueueStore
@@ -162,12 +162,12 @@ func WithLocalDAGRunDirs(logDir, artifactDir string) LocalOption {
 }
 
 // NewLocal creates an in-process child workflow runner.
-func NewLocal(dagRunMgr runtime.Manager, dagStore dagstore.DAGStore, opts ...LocalOption) *Local {
+func NewLocal(dagRunMgr runtime.Manager, dagRepository persis.DAGRepository, opts ...LocalOption) *Local {
 	r := &Local{
-		dagRunMgr: dagRunMgr,
-		dagStore:  dagStore,
-		installer: daguaqua.New(),
-		active:    make(map[string]*rtagent.Agent),
+		dagRunMgr:     dagRunMgr,
+		dagRepository: dagRepository,
+		installer:     daguaqua.New(),
+		active:        make(map[string]*rtagent.Agent),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -419,7 +419,7 @@ func (r *Local) newAgent(
 		logDir,
 		logFile,
 		r.dagRunMgr,
-		r.dagStoreFromContext(ctx),
+		r.dagRepositoryFromContext(ctx),
 		opts,
 	), nil
 }
@@ -456,8 +456,8 @@ func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent
 	return result, nil
 }
 
-func (r *Local) dagStoreFromContext(_ context.Context) dagstore.DAGStore {
-	return r.dagStore
+func (r *Local) dagRepositoryFromContext(_ context.Context) persis.DAGRepository {
+	return r.dagRepository
 }
 
 func (r *Local) dagRunStoreFromContext(ctx context.Context) dagrun.DAGRunStore {

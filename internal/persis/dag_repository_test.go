@@ -1,0 +1,84 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package persis
+
+import (
+	"context"
+	"testing"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+type dagDefinitionStoreStub struct {
+	DAGDefinitionStore
+	definition  DAGDefinition
+	definitions map[string]DAGDefinition
+	catalog     DAGCatalog
+}
+
+func (s dagDefinitionStoreStub) Get(_ context.Context, id string) (DAGDefinition, error) {
+	if s.definitions != nil {
+		return s.definitions[id], nil
+	}
+	return s.definition, nil
+}
+
+func (s dagDefinitionStoreStub) Catalog(context.Context) (DAGCatalog, error) {
+	return s.catalog, nil
+}
+
+func TestDAGRepositoryLoadsDefinitionWithoutFileLocation(t *testing.T) {
+	repository := NewDAGRepository(dagDefinitionStoreStub{
+		definition: DAGDefinition{
+			ID:     "in-memory",
+			Source: []byte("name: in-memory\nsteps: []\n"),
+		},
+	}, DAGRepositoryOptions{})
+
+	dag, err := repository.GetDetails(context.Background(), "in-memory", DAGLoadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "in-memory", dag.Name)
+}
+
+func TestDAGRepositoryListsByBackendIdentity(t *testing.T) {
+	repository := NewDAGRepository(dagDefinitionStoreStub{
+		catalog: DAGCatalog{Items: []DAGListItem{
+			{ID: "beta-file", DAG: &ir.DAG{Name: "unrelated"}, Suspended: true},
+			{ID: "alpha-file", DAG: &ir.DAG{Name: "also-unrelated"}},
+		}},
+	}, DAGRepositoryOptions{})
+
+	result, issues, err := repository.List(context.Background(), DAGListOptions{Name: "file"})
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+	require.Len(t, result.Items, 2)
+	assert.Equal(t, "alpha-file", result.Items[0].ID)
+	assert.Equal(t, "beta-file", result.Items[1].ID)
+	assert.True(t, result.Items[1].Suspended)
+}
+
+func TestDAGRepositorySearchOrdersBackendResultsByIdentity(t *testing.T) {
+	repository := NewDAGRepository(dagDefinitionStoreStub{
+		definitions: map[string]DAGDefinition{
+			"alpha": {ID: "alpha", Source: []byte("needle alpha")},
+			"beta":  {ID: "beta", Source: []byte("needle beta")},
+		},
+		catalog: DAGCatalog{Items: []DAGListItem{
+			{ID: "beta", DAG: &ir.DAG{Name: "Beta"}},
+			{ID: "alpha", DAG: &ir.DAG{Name: "Alpha"}},
+		}},
+	}, DAGRepositoryOptions{})
+
+	result, issues, err := repository.SearchCursor(context.Background(), DAGSearchOptions{
+		Query: "needle",
+		Limit: 1,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "alpha", result.Items[0].FileName)
+	assert.True(t, result.HasMore)
+}

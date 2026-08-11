@@ -57,7 +57,7 @@ func NewRetryScanner(
 		clock = time.Now
 	}
 	if isSuspended == nil {
-		isSuspended = func(context.Context, string) bool { return false }
+		isSuspended = func(context.Context, string) (bool, error) { return false, nil }
 	}
 	return &RetryScanner{
 		dagRunStore: dagRunStore,
@@ -150,7 +150,11 @@ func (s *RetryScanner) processFailedRunFromSummary(
 	if !listed.Parent.Zero() {
 		return nil
 	}
-	if isSuspendedDAG(ctx, s.isSuspended, listed, nil) {
+	suspended, err := isSuspendedDAG(ctx, s.isSuspended, listed, nil)
+	if err != nil {
+		return err
+	}
+	if suspended {
 		logger.Debug(ctx, "Retry scanner skipped DAG run",
 			tag.DAG(listed.Name),
 			tag.RunID(listed.DAGRunID),
@@ -171,7 +175,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 		return nil
 	}
 
-	_, err := queuedomain.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, nil, listed, queuedomain.EnqueueRetryOptions{
+	_, err = queuedomain.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, nil, listed, queuedomain.EnqueueRetryOptions{
 		AutoRetry: true,
 	})
 	if err != nil {
@@ -221,7 +225,11 @@ func (s *RetryScanner) processFailedRunLegacy(
 	if err != nil {
 		return err
 	}
-	if isSuspendedDAG(ctx, s.isSuspended, latestStatus, dagSnapshot) {
+	suspended, err := isSuspendedDAG(ctx, s.isSuspended, latestStatus, dagSnapshot)
+	if err != nil {
+		return err
+	}
+	if suspended {
 		logger.Debug(ctx, "Retry scanner skipped DAG run",
 			tag.DAG(latestStatus.Name),
 			tag.RunID(latestStatus.DAGRunID),

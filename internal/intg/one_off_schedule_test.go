@@ -14,8 +14,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -45,7 +45,7 @@ steps:
 	th := test.SetupScheduler(t, test.WithDAGsDir(dagsDir))
 	th.Config.Scheduler.RetryFailureWindow = 0
 
-	dag, err := th.DAGStore.GetDetails(th.Context, "one-off-restart-test", dagstore.DAGLoadOptions{})
+	dag, err := th.DAGRepository.GetDetails(th.Context, "one-off-restart-test", persis.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.Len(t, dag.Schedule, 1)
 
@@ -152,7 +152,7 @@ steps:
 
 	th := test.SetupScheduler(t, test.WithBuiltExecutable(), test.WithDAGsDir(dagsDir))
 
-	dag, err := th.DAGStore.GetDetails(th.Context, "one-off-env-secret-test", dagstore.DAGLoadOptions{})
+	dag, err := th.DAGRepository.GetDetails(th.Context, "one-off-env-secret-test", persis.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.Len(t, dag.Schedule, 1)
 

@@ -16,9 +16,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
@@ -109,7 +109,7 @@ func runCoordinator(ctx *Context, _ []string) error {
 		coordCtx.WorkerHeartbeatStore,
 		coordCtx.DAGRunLeaseStore,
 		coordCtx.ActiveDistributedRunStore,
-		coordCtx.DAGStore,
+		coordCtx.DAGRepository,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
@@ -149,7 +149,7 @@ func newCoordinator(
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore,
 	dagRunLeaseStore dispatch.DAGRunLeaseStore,
 	activeDistributedRunStore dispatch.ActiveDistributedRunStore,
-	dagStore dagstore.DAGStore,
+	dagRepository persis.DAGRepository,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	// Generate instance ID
 	hostname, err := os.Hostname()
@@ -240,7 +240,7 @@ func newCoordinator(
 		WorkerHeartbeatStore:      workerHeartbeatStore,
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
-		DAGStore:                  dagStore,
+		DAGRepository:             dagRepository,
 		SecretStore:               runtimeStores.SecretStore,
 		EventService:              ctx.EventService,
 		EventSourceInstance:       ctx.EventSourceInstance,

@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	iengine "github.com/dagucloud/dagu/v2/internal/engine"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 
@@ -435,29 +435,29 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 	}
 
 	procStore := file.NewProcStore(cfg)
-	dagStore, err := fileEngineDAGStore(ctx, cfg, iengine.DAGStoreFactoryOptions{})
+	dagRepository, err := fileEngineDAGRepository(ctx, cfg, iengine.DAGRepositoryFactoryOptions{})
 	if err != nil {
 		return iengine.Persistence{}, err
 	}
 
 	return iengine.Persistence{
-		DAGStore:        dagStore,
+		DAGRepository:   dagRepository,
 		DAGRunStore:     file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false)),
 		ProcStore:       procStore,
 		StateStore:      store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir)),
 		ServiceRegistry: file.NewServiceRegistry(cfg),
 
-		DAGStoreFactory:      fileEngineDAGStore,
+		DAGRepositoryFactory: fileEngineDAGRepository,
 		RuntimeStoresFactory: fileEngineRuntimeStores,
 	}, nil
 }
 
-func fileEngineDAGStore(_ context.Context, cfg *config.Config, opts iengine.DAGStoreFactoryOptions) (dagstore.DAGStore, error) {
-	var fileOpts []file.DAGStoreOption
+func fileEngineDAGRepository(_ context.Context, cfg *config.Config, opts iengine.DAGRepositoryFactoryOptions) (persis.DAGRepository, error) {
+	var fileOpts []file.DAGRepositoryOption
 	if len(opts.SearchPaths) > 0 {
 		fileOpts = append(fileOpts, file.WithDAGSearchPaths(opts.SearchPaths))
 	}
-	return file.NewDAGStore(cfg, fileOpts...)
+	return file.NewDAGRepository(cfg, fileOpts...)
 }
 
 func fileEngineRuntimeStores(ctx context.Context, cfg *config.Config) iengine.RuntimeStores {

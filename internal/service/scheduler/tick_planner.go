@@ -60,7 +60,7 @@ type IsRunningFunc func(ctx context.Context, dag *ir.DAG) (bool, error)
 type GetLatestStatusFunc func(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error)
 
 // IsSuspendedFunc checks whether a DAG is currently suspended.
-type IsSuspendedFunc func(ctx context.Context, dagName string) bool
+type IsSuspendedFunc func(ctx context.Context, dagName string) (bool, error)
 
 // StopFunc stops a running DAG.
 type StopFunc func(ctx context.Context, dag *ir.DAG) error
@@ -179,7 +179,7 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 		cfg.WatermarkStore = noopWatermarkStore{}
 	}
 	if cfg.IsSuspended == nil {
-		cfg.IsSuspended = func(context.Context, string) bool { return false }
+		cfg.IsSuspended = func(context.Context, string) (bool, error) { return false, nil }
 	}
 	if cfg.IsRunning == nil {
 		cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) { return false, nil }
@@ -513,7 +513,13 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 		// Check suspension.
 		// IsSuspended is keyed by filename stem (not dag.Name), matching the
 		// file-based suspension flag system in filedag/store.go.
-		if isSuspendedDAG(ctx, tp.cfg.IsSuspended, nil, entry.dag) {
+		suspended, err := isSuspendedDAG(ctx, tp.cfg.IsSuspended, nil, entry.dag)
+		if err != nil {
+			logger.Error(ctx, "Failed to check DAG suspension; skipping this cycle",
+				tag.DAG(dagName), tag.Error(err))
+			continue
+		}
+		if suspended {
 			tp.reconcileNextRun(dagName, nil, now, true)
 			tp.dropSuspendedCatchupState(dagName, entry.dag, now)
 			continue
@@ -1456,16 +1462,23 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 	)
 
 	if run.ScheduleType == ScheduleTypeStart &&
-		isSchedulerManagedTriggerType(run.TriggerType) &&
-		isSuspendedDAG(ctx, tp.cfg.IsSuspended, nil, run.DAG) {
-		logger.Info(ctx, "Skipping suspended scheduler-managed run dispatch",
-			tag.DAG(run.DAG.Name),
-			slog.String("trigger_type", run.TriggerType.String()),
-		)
-		if run.TriggerType == ir.TriggerTypeCatchUp {
-			tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+		isSchedulerManagedTriggerType(run.TriggerType) {
+		suspended, err := isSuspendedDAG(ctx, tp.cfg.IsSuspended, nil, run.DAG)
+		if err != nil {
+			logger.Error(ctx, "Failed to check DAG suspension; skipping dispatch",
+				tag.DAG(run.DAG.Name), tag.Error(err))
+			return
 		}
-		return
+		if suspended {
+			logger.Info(ctx, "Skipping suspended scheduler-managed run dispatch",
+				tag.DAG(run.DAG.Name),
+				slog.String("trigger_type", run.TriggerType.String()),
+			)
+			if run.TriggerType == ir.TriggerTypeCatchUp {
+				tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+			}
+			return
+		}
 	}
 
 	if run.ScheduleType == ScheduleTypeStart && run.Schedule.IsOneOff() {

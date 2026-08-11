@@ -24,7 +24,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
@@ -33,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -63,7 +63,7 @@ import (
 var _ api.StrictServerInterface = (*API)(nil)
 
 type API struct {
-	dagStore             dagstore.DAGStore
+	dagRepository        persis.DAGRepository
 	dagRunStore          dagrun.DAGRunStore
 	dagRunMgr            runtime.Manager
 	queueStore           queue.QueueStore
@@ -361,7 +361,7 @@ func WithLeaseStaleThreshold(threshold time.Duration) APIOption {
 // and resource service. It builds the remote node map and base path, then
 // applies any supplied APIOption functions to customize the instance.
 func New(
-	dr dagstore.DAGStore,
+	dr persis.DAGRepository,
 	drs dagrun.DAGRunStore,
 	qs queue.QueueStore,
 	ps proc.ProcStore,
@@ -374,7 +374,7 @@ func New(
 	opts ...APIOption,
 ) *API {
 	a := &API{
-		dagStore:            dr,
+		dagRepository:       dr,
 		dagRunStore:         drs,
 		queueStore:          qs,
 		procStore:           ps,
@@ -759,16 +759,16 @@ func (a *API) resolveError(err error) (api.ErrorCode, string, int) {
 		return apiErr.Code, apiErr.Message, apiErr.HTTPStatus
 	}
 
-	if errors.Is(err, dagstore.ErrDAGNotFound) {
+	if errors.Is(err, persis.ErrDAGNotFound) {
 		return api.ErrorCodeNotFound, "DAG not found", http.StatusNotFound
 	}
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return api.ErrorCodeNotFound, "dag-run ID not found", http.StatusNotFound
 	}
-	if errors.Is(err, dagstore.ErrDAGAlreadyExists) {
+	if errors.Is(err, persis.ErrDAGAlreadyExists) {
 		return api.ErrorCodeAlreadyExists, "DAG already exists", http.StatusConflict
 	}
-	if errors.Is(err, dagstore.ErrDAGReadOnly) {
+	if errors.Is(err, persis.ErrDAGReadOnly) {
 		return api.ErrorCodeForbidden, "DAG definition is read-only because it is managed through an external file symlink", http.StatusForbidden
 	}
 

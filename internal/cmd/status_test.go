@@ -111,7 +111,7 @@ func TestStatusCommand(t *testing.T) {
   - name: "error"
     run: exit 1
 `)
-		dag, err := th.DAGStore.GetMetadata(th.Context, dagFile.Location)
+		dag, err := th.DAGRepository.GetMetadata(th.Context, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -224,7 +224,7 @@ steps:
     preconditions:
       - condition: "test -f /nonexistent"
 `)
-		dag, err := th.DAGStore.GetMetadata(th.Context, dagFile.Location)
+		dag, err := th.DAGRepository.GetMetadata(th.Context, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
@@ -369,7 +369,7 @@ steps:
 		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		ctx := context.Background()
-		dag, err := th.DAGStore.GetMetadata(ctx, dagFile.Location)
+		dag, err := th.DAGRepository.GetMetadata(ctx, dagFile.Location)
 		require.NoError(t, err)
 
 		status, err := th.DAGRunMgr.GetLatestStatus(ctx, dag)
@@ -405,7 +405,7 @@ steps:
   - name: "success"
     run: "echo 'Success!'"
 `)
-		dag, err := th.DAGStore.GetMetadata(th.Context, dagFile.Location)
+		dag, err := th.DAGRepository.GetMetadata(th.Context, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()

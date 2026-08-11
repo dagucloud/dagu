@@ -306,7 +306,7 @@ steps:
     command: echo hello
 `), 0600))
 
-	store := filedag.New(
+	store := filedag.NewRepository(
 		tmpDir,
 		filedag.WithSkipExamples(true),
 		filedag.WithRecursiveDiscovery(true),
@@ -374,7 +374,7 @@ func TestEntryReaderExternalDAGFileSymlink(t *testing.T) {
 				t.Skipf("symlink creation is unavailable: %v", err)
 			}
 
-			store := filedag.New(
+			store := filedag.NewRepository(
 				root,
 				filedag.WithSkipExamples(true),
 				filedag.WithRecursiveDiscovery(tc.recursive),
@@ -395,7 +395,7 @@ func TestEntryReaderExternalDAGFileSymlink(t *testing.T) {
 
 func TestRecursiveEntryReaderWatchesNewDirectories(t *testing.T) {
 	tmpDir := t.TempDir()
-	store := filedag.New(
+	store := filedag.NewRepository(
 		tmpDir,
 		filedag.WithSkipExamples(true),
 		filedag.WithRecursiveDiscovery(true),

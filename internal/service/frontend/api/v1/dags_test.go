@@ -17,8 +17,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -996,15 +996,15 @@ func (stubSchedulerStateStore) Save(context.Context, *scheduler.SchedulerState) 
 var errLoadSpecFatal = errors.New("load spec fatal")
 
 type loadSpecErrorDAGStore struct {
-	dagstore.DAGStore
+	persis.DAGRepository
 	updateCalled bool
 }
 
-func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
+func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, persis.DAGLoadOptions) (*ir.DAG, error) {
 	return &ir.DAG{Name: "load-spec-error"}, nil
 }
 
-func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
+func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, string, persis.DAGLoadOptions) (*ir.DAG, error) {
 	return nil, errLoadSpecFatal
 }
 
@@ -1042,7 +1042,7 @@ steps:
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1098,7 +1098,7 @@ steps:
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1141,7 +1141,7 @@ steps:
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1182,7 +1182,7 @@ func TestNextRunProjectionUsesConfiguredLocation(t *testing.T) {
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1218,7 +1218,7 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1271,10 +1271,10 @@ name: active-filter-unscheduled
 steps:
   - run: echo unscheduled
 `)
-	require.NoError(t, helper.DAGStore.ToggleSuspend(context.Background(), suspended.FileName(), true))
+	require.NoError(t, helper.DAGRepository.SetSuspended(context.Background(), suspended.FileName(), true))
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1319,7 +1319,7 @@ func TestGetDAGDetails_InvalidYAML_Returns200WithErrors(t *testing.T) {
 	fileName = fileName[:len(fileName)-len(".yaml")]
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1355,7 +1355,7 @@ steps:
 `))
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1424,7 +1424,7 @@ steps:
 `))
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1468,7 +1468,7 @@ steps:
 `))
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1508,9 +1508,9 @@ func TestUpdateDAGSpec_ReturnsFatalLoadSpecError(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t, test.WithStatusPersistence())
-	dagStore := &loadSpecErrorDAGStore{}
+	dagRepository := &loadSpecErrorDAGStore{}
 	apiImpl := localapi.New(
-		dagStore,
+		dagRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1531,7 +1531,7 @@ func TestUpdateDAGSpec_ReturnsFatalLoadSpecError(t *testing.T) {
 
 	require.ErrorIs(t, err, errLoadSpecFatal)
 	require.Nil(t, respObj)
-	require.False(t, dagStore.updateCalled)
+	require.False(t, dagRepository.updateCalled)
 }
 
 func TestUpdateDAGSpec_NotifiesDAGMutation(t *testing.T) {
@@ -1547,7 +1547,7 @@ steps:
 
 	var notified []string
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1594,7 +1594,7 @@ steps:
 
 	var notified []string
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1668,7 +1668,7 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1749,7 +1749,7 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1805,7 +1805,7 @@ step_types:
 	fileName = fileName[:len(fileName)-len(".yaml")]
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1836,7 +1836,7 @@ func TestGetDAGDetails_NonExistent_Returns404(t *testing.T) {
 	helper := test.Setup(t, test.WithStatusPersistence())
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1886,7 +1886,7 @@ steps:
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1934,7 +1934,7 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -1978,7 +1978,7 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,
@@ -2014,7 +2014,7 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
+		helper.DAGRepository,
 		helper.DAGRunStore,
 		helper.QueueStore,
 		helper.ProcStore,

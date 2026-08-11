@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/textsearch"
 )
 
 // Sentinel errors for page store operations.
@@ -109,15 +109,15 @@ type SearchPageMatchesOptions struct {
 
 // PageSearchResult holds a page ID/title and its grep matches.
 type PageSearchResult struct {
-	ID                string            `json:"id"`
-	Title             string            `json:"title"`
-	Description       string            `json:"description,omitempty"`
-	Tags              []string          `json:"tags,omitempty"`
-	ModTime           time.Time         `json:"modTime"`
-	Matches           []*dagstore.Match `json:"matches"`
-	MatchCount        int               `json:"matchCount,omitempty"`
-	HasMoreMatches    bool              `json:"hasMoreMatches"`
-	NextMatchesCursor string            `json:"nextMatchesCursor,omitempty"`
+	ID                string              `json:"id"`
+	Title             string              `json:"title"`
+	Description       string              `json:"description,omitempty"`
+	Tags              []string            `json:"tags,omitempty"`
+	ModTime           time.Time           `json:"modTime"`
+	Matches           []*textsearch.Match `json:"matches"`
+	MatchCount        int                 `json:"matchCount,omitempty"`
+	HasMoreMatches    bool                `json:"hasMoreMatches"`
+	NextMatchesCursor string              `json:"nextMatchesCursor,omitempty"`
 }
 
 // PageRevision is a stored prior version of a page.
@@ -170,7 +170,7 @@ type PageStore interface {
 	OpenAttachment(ctx context.Context, id, name string) (io.ReadCloser, *PageAttachment, error)
 	Search(ctx context.Context, query string) ([]*PageSearchResult, error)
 	SearchCursor(ctx context.Context, opts SearchPagesOptions) (*pagination.CursorResult[PageSearchResult], error)
-	SearchMatches(ctx context.Context, id string, opts SearchPageMatchesOptions) (*pagination.CursorResult[*dagstore.Match], error)
+	SearchMatches(ctx context.Context, id string, opts SearchPageMatchesOptions) (*pagination.CursorResult[*textsearch.Match], error)
 }
 
 // validPageIDRegexp matches a valid page ID: segments separated by slashes.
