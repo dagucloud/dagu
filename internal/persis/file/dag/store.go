@@ -682,10 +682,21 @@ func (store *DefinitionStore) flagExistsResult(file string) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
-	if errors.Is(err, os.ErrNotExist) {
+	if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+
+	info, baseErr := os.Stat(store.flagsBaseDir)
+	if errors.Is(baseErr, os.ErrNotExist) {
 		return false, nil
 	}
-	return false, err
+	if baseErr != nil {
+		return false, baseErr
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("suspend flags path %s is not a directory", store.flagsBaseDir)
+	}
+	return false, nil
 }
 
 // deleteFlag deletes the given file.
