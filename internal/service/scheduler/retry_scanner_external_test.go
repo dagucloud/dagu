@@ -30,6 +30,11 @@ func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from 
 	return nil, nil
 }
 
+func (s *retryCandidateDAGRunStore) QueryStatuses(context.Context, persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+	s.listCalls++
+	return persis.DAGRunStatusPage{}, nil
+}
+
 type fallbackRetryDAGRunStore struct {
 	testutil.DAGRunStoreStub
 

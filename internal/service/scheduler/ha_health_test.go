@@ -62,6 +62,7 @@ func TestScheduler_StandbyHealthServerStartsBeforeLockAndStopsCleanly(t *testing
 
 type haSchedulerFixture struct {
 	cfg              *config.Config
+	dagRepository    *persis.DAGRepository
 	dagRunRepository *persis.DAGRunRepository
 	queueStore       queuedomain.QueueStore
 	procStore        procdomain.ProcStore
@@ -108,6 +109,7 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 
 	return &haSchedulerFixture{
 		cfg:              cfg,
+		dagRepository:    testutil.NewFileDAGRepository(cfg.Paths.DAGsDir),
 		dagRunRepository: dagRunRepository,
 		queueStore:       queueStore,
 		procStore:        procStore,
@@ -122,6 +124,7 @@ func newHASchedulerForTest(t *testing.T, fixture *haSchedulerFixture, hooks Test
 		fixture.cfg,
 		&staticEntryReader{},
 		fixture.dagRunMgr,
+		fixture.dagRepository,
 		fixture.dagRunRepository,
 		fixture.queueStore,
 		fixture.procStore,

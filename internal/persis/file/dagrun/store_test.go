@@ -109,6 +109,18 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	assert.Equal(t, filepath.Join(runDir, subDAGWorkDirName("child-run")), childWorkDir)
 	require.DirExists(t, childWorkDir)
 
+	_, err = repository.CreateAttempt(ctx, &ir.DAG{Name: "child-with-shared-id"}, childTS, rootRef.ID, persis.DAGRunCreateAttemptOptions{
+		RootDAGRun: rootRef,
+		AttemptID:  "shared-id-child-attempt",
+	})
+	require.NoError(t, err)
+	sharedIDChildWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.DAGRunWorkspaceRef{
+		RootDAGRun: rootRef,
+		DAGRun:     ir.NewDAGRunRef("child-with-shared-id", rootRef.ID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(runDir, subDAGWorkDirName(rootRef.ID)), sharedIDChildWorkDir)
+
 	assert.NoDirExists(t, filepath.Join(baseDir, "dag_runs"))
 	assert.NoDirExists(t, filepath.Join(baseDir, "dagruns"))
 
@@ -245,12 +257,10 @@ func TestRepository(t *testing.T) {
 			LatestStatusToday: false,
 			Location:          time.Local,
 		})
-		attempt, err := repository.LatestAttempt(th.Context, "test_DAG", persis.DAGRunLatestAttemptOptions{
-
-			// Verify the attempt is the most recent
-		})
+		attempt, err := repository.LatestAttempt(th.Context, "test_DAG", persis.DAGRunLatestAttemptOptions{})
 		require.NoError(t, err)
 
+		// Verify the attempt is the most recent.
 		dagRunStatus, err := attempt.ReadStatus(th.Context)
 		require.NoError(t, err)
 

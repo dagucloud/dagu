@@ -64,7 +64,7 @@ func (s *DAGRunWorkspaceStore) workspaceDir(ctx context.Context, ref dagrun.DAGR
 	if err != nil {
 		return "", fmt.Errorf("find root dag-run %s: %w", ref.RootDAGRun.ID, err)
 	}
-	if ref.DAGRun.ID != ref.RootDAGRun.ID {
+	if ref.DAGRun != ref.RootDAGRun {
 		run, err = run.FindSubDAGRun(ctx, ref.DAGRun.ID)
 		if err != nil {
 			return "", fmt.Errorf("find child dag-run %s: %w", ref.DAGRun.ID, err)

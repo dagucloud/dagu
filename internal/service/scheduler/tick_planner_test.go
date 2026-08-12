@@ -150,6 +150,15 @@ func TestTickPlanner_InitLoadError(t *testing.T) {
 	tp.mu.RUnlock()
 }
 
+func TestTickPlanner_InitSkipsEntriesWithoutDAGs(t *testing.T) {
+	t.Parallel()
+
+	tp, _ := newTestTickPlanner(&mockWatermarkStore{})
+	require.NoError(t, tp.Init(context.Background(), []DAGEntry{{DefinitionID: "invalid.yaml"}}))
+	assert.Empty(t, tp.entries)
+	assert.Empty(t, tp.buffers)
+}
+
 func TestTickPlanner_InitWithMissedRuns(t *testing.T) {
 	t.Parallel()
 

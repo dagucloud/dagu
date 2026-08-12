@@ -79,6 +79,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		cfg.Config,
 		entryReader,
 		schedulerRunManager,
+		cfg.DAGRepository,
 		cfg.DAGRunRepository,
 		cfg.QueueStore,
 		cfg.ProcStore,
@@ -86,7 +87,6 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		coordinatorClient,
 		watermarkStore,
 		scheduler.WithDAGProfileResolver(scheduler.NewDAGProfileResolver(dagSettingsStore, profileStore)),
-		scheduler.WithDAGRepository(cfg.DAGRepository),
 	)
 	if err != nil {
 		return nil, err

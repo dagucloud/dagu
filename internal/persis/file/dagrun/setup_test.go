@@ -71,7 +71,9 @@ func (th RepositoryTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRun
 	err = attempt.Write(th.Context, dagRunStatus)
 	require.NoError(t, err)
 
-	return attempt.(*Attempt)
+	concrete, ok := attempt.(*Attempt)
+	require.True(t, ok, "expected *Attempt, got %T", attempt)
+	return concrete
 }
 
 func (th RepositoryTest) DAG(name string) DAGTest {

@@ -100,6 +100,7 @@ func (s *Scheduler) NewSchedulerInstance(t *testing.T) (*scheduler.Scheduler, er
 		s.Config,
 		s.EntryReader,
 		s.DAGRunMgr,
+		s.DAGRepository,
 		s.DAGRunRepository,
 		s.QueueStore,
 		s.ProcStore,

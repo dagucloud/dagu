@@ -344,13 +344,22 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
 	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
+	status := &ir.DAGRunStatus{
+		Name:      req.DAGRun.Name,
+		DAGRunID:  req.DAGRun.ID,
+		AttemptID: req.ExpectedAttemptID,
+		Status:    req.ExpectedStatus,
+	}
+	if err := req.Mutate(status); err != nil {
+		return nil, false, err
+	}
 	args := m.MethodCalled(
 		"CompareAndSwapLatestAttemptStatus",
 		ctx,
 		req.DAGRun,
 		req.ExpectedAttemptID,
 		req.ExpectedStatus,
-		mock.Anything,
+		status,
 	)
 	if args.Get(0) == nil {
 		return nil, args.Bool(1), args.Error(2)

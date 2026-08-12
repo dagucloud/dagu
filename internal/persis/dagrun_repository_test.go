@@ -21,15 +21,17 @@ import (
 func TestRepositoryNormalizesStatusQueries(t *testing.T) {
 	t.Parallel()
 
-	now := time.Date(2026, 8, 12, 15, 4, 5, 0, time.UTC)
+	location := time.FixedZone("UTC-7", -7*60*60)
+	now := time.Date(2026, 8, 12, 5, 4, 3, 0, time.UTC)
 	backend := &recordingDAGRunStore{}
 	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{
-		Now: func() time.Time { return now },
+		Location: location,
+		Now:      func() time.Time { return now },
 	})
 
 	_, err := repository.ListStatuses(context.Background(), persis.DAGRunListOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, persis.NewUTC(now.Truncate(24*time.Hour)), backend.statusQuery.From)
+	assert.Equal(t, persis.NewUTC(time.Date(2026, 8, 11, 0, 0, 0, 0, location)), backend.statusQuery.From)
 	assert.Equal(t, 1000, backend.statusQuery.Limit)
 
 	for _, limit := range []int{-1, 2000} {
@@ -66,8 +68,7 @@ func TestRepositoryNormalizesStatusQueries(t *testing.T) {
 func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
 	t.Parallel()
 
-	location, err := time.LoadLocation("Asia/Tokyo")
-	require.NoError(t, err)
+	location := time.FixedZone("JST", 9*60*60)
 	now := time.Date(2026, 8, 12, 1, 2, 3, 0, time.UTC)
 	backend := &recordingDAGRunStore{}
 	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{
@@ -76,7 +77,7 @@ func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
 		Now:               func() time.Time { return now },
 	})
 
-	_, err = repository.LatestAttempt(context.Background(), "daily", persis.DAGRunLatestAttemptOptions{})
+	_, err := repository.LatestAttempt(context.Background(), "daily", persis.DAGRunLatestAttemptOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "daily", backend.latestQuery.Name)
 	assert.Equal(t, persis.NewUTC(time.Date(2026, 8, 12, 0, 0, 0, 0, location)), backend.latestQuery.NotBefore)

@@ -315,6 +315,14 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	tp.entryMu.Lock()
 	defer tp.entryMu.Unlock()
 
+	validEntries := make([]DAGEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.DAG != nil {
+			validEntries = append(validEntries, entry)
+		}
+	}
+	entries = validEntries
+
 	for _, entry := range entries {
 		tp.entries[entry.DAG.Name] = &plannerEntry{DAGEntry: entry}
 	}
@@ -1442,12 +1450,12 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, dag *ir.DAG, active 
 	}
 
 	watermarkAdvanced := false
+	entry := tp.entries[dag.Name]
+	if entry == nil {
+		return false
+	}
 	q := NewScheduleBuffer(dag.Name, dag.OverlapPolicy)
 	for _, interval := range missed {
-		entry := tp.entries[dag.Name]
-		if entry == nil {
-			break
-		}
 		if !q.Send(QueueItem{
 			DAGEntry:      entry.DAGEntry,
 			ScheduledTime: interval.ScheduledTime,

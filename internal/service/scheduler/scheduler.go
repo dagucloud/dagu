@@ -72,7 +72,6 @@ type schedulerHooks struct {
 
 type schedulerOptions struct {
 	profileResolver DAGProfileResolver
-	dagRepository   *persis.DAGRepository
 }
 
 type Option func(*schedulerOptions)
@@ -80,13 +79,6 @@ type Option func(*schedulerOptions)
 func WithDAGProfileResolver(resolver DAGProfileResolver) Option {
 	return func(opts *schedulerOptions) {
 		opts.profileResolver = resolver
-	}
-}
-
-// WithDAGRepository supplies definition persistence used by scheduler policies.
-func WithDAGRepository(repository *persis.DAGRepository) Option {
-	return func(opts *schedulerOptions) {
-		opts.dagRepository = repository
 	}
 }
 
@@ -114,6 +106,7 @@ func New(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
+	dagRepository *persis.DAGRepository,
 	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
@@ -128,13 +121,14 @@ func New(
 			opt(&options)
 		}
 	}
-	return newScheduler(cfg, er, drm, dagRunRepository, queueStore, procStore, reg, coordinatorCli, watermarkStore, schedulerHooks{}, options)
+	return newScheduler(cfg, er, drm, dagRepository, dagRunRepository, queueStore, procStore, reg, coordinatorCli, watermarkStore, schedulerHooks{}, options)
 }
 
 func newScheduler(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
+	dagRepository *persis.DAGRepository,
 	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
@@ -144,6 +138,9 @@ func newScheduler(
 	hooks schedulerHooks,
 	options schedulerOptions,
 ) (*Scheduler, error) {
+	if dagRepository == nil {
+		return nil, fmt.Errorf("DAG repository is required")
+	}
 	timeLoc := cfg.Core.Location
 	if timeLoc == nil {
 		timeLoc = time.Local
@@ -156,7 +153,6 @@ func newScheduler(
 	lockDir := filepath.Join(cfg.Paths.DataDir, "scheduler", "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
 	subCmdBuilder := launcher.NewSubCmdBuilder(cfg)
-	dagRepository := options.dagRepository
 	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)
 	dagExecutor := NewDAGExecutor(
 		coordinatorCli,
@@ -170,10 +166,7 @@ func newScheduler(
 
 	// Resolve IsSuspended once at construction time.
 	eventCh := er.Events()
-	var isSuspended IsSuspendedFunc
-	if dagRepository != nil {
-		isSuspended = dagRepository.IsSuspended
-	}
+	isSuspended := dagRepository.IsSuspended
 	processor := NewQueueProcessor(
 		queueStore,
 		dagRunRepository,

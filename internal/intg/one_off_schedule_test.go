@@ -83,6 +83,7 @@ steps:
 		th.Config,
 		th.EntryReader,
 		th.DAGRunMgr,
+		th.DAGRepository,
 		th.DAGRunRepository,
 		th.QueueStore,
 		th.ProcStore,

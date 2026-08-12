@@ -322,6 +322,7 @@ func (f *testFixture) startSchedulerWithOptions(
 		f.coord.Config,
 		em,
 		f.coord.DAGRunMgr,
+		f.coord.DAGRepository,
 		f.coord.DAGRunRepository,
 		f.coord.QueueStore,
 		f.coord.ProcStore,

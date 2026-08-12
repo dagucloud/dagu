@@ -38,6 +38,29 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 	assert.True(t, errors.Is(err, dagrun.ErrNoStatusData))
 }
 
+func TestEnqueueCatchupRunPropagatesFindAttemptErrors(t *testing.T) {
+	t.Parallel()
+
+	storeErr := dagrun.ErrNoStatusData
+	err := EnqueueCatchupRun(
+		context.Background(),
+		persis.NewDAGRunRepository(&findAttemptErrStore{err: storeErr}, nil, persis.DAGRunRepositoryOptions{}),
+		nil,
+		t.TempDir(),
+		t.TempDir(),
+		"",
+		"",
+		"ci.yaml",
+		&ir.DAG{Name: "ci"},
+		"run-1",
+		ir.TriggerTypeCatchUp,
+		time.Now(),
+		"",
+	)
+	require.ErrorIs(t, err, storeErr)
+	assert.Contains(t, err.Error(), "failed to check existing catchup run")
+}
+
 type findAttemptErrStore struct {
 	testutil.DAGRunStoreStub
 	err error

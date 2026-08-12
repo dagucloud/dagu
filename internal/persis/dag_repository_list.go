@@ -24,6 +24,7 @@ func (r *DAGRepository) List(ctx context.Context, opts DAGListOptions) (paginati
 		return pagination.NewPaginatedResult([]DAGListItem{}, 0, *opts.Paginator), catalog.Issues, err
 	}
 
+	labelFilters := parseLabelFilters(opts.Labels)
 	items := make([]DAGListItem, 0, len(catalog.Items))
 	for _, item := range catalog.Items {
 		if err := ctx.Err(); err != nil {
@@ -35,7 +36,7 @@ func (r *DAGRepository) List(ctx context.Context, opts DAGListOptions) (paginati
 		if opts.Name != "" && !matchesDAGListSearch(item.Name, item.ID, opts.Name) {
 			continue
 		}
-		if !containsAllLabels(item.Labels, opts.Labels) || !opts.WorkspaceFilter.MatchesLabels(item.Labels) {
+		if !containsAllLabels(item.Labels, labelFilters) || !opts.WorkspaceFilter.MatchesLabels(item.Labels) {
 			continue
 		}
 		items = append(items, item)
@@ -135,12 +136,16 @@ func matchesDAGListSearch(name, id, query string) bool {
 	return strings.Contains(strings.ToLower(name), query) || strings.Contains(strings.ToLower(id), query)
 }
 
-func containsAllLabels(labels ir.Labels, filters []string) bool {
+func parseLabelFilters(filters []string) []ir.LabelFilter {
 	parsed := make([]ir.LabelFilter, 0, len(filters))
 	for _, filter := range filters {
 		if filter = strings.TrimSpace(filter); filter != "" {
 			parsed = append(parsed, ir.ParseLabelFilter(filter))
 		}
 	}
-	return labels.MatchesFilters(parsed)
+	return parsed
+}
+
+func containsAllLabels(labels ir.Labels, filters []ir.LabelFilter) bool {
+	return labels.MatchesFilters(filters)
 }

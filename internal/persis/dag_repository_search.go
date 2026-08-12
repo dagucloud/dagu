@@ -87,6 +87,7 @@ func (r *DAGRepository) SearchCursor(ctx context.Context, opts DAGSearchOptions)
 	limit := max(opts.Limit, 1)
 	matchLimit := max(opts.MatchLimit, 1)
 	pattern := dagSearchPattern(opts.Query)
+	labelFilters := parseLabelFilters(opts.Labels)
 	issues := append([]string(nil), catalog.Issues...)
 	results := make([]DAGSearchResult, 0, limit)
 	var hasMore bool
@@ -100,7 +101,7 @@ func (r *DAGRepository) SearchCursor(ctx context.Context, opts DAGSearchOptions)
 		if cursor.FileName != "" && id <= cursor.FileName {
 			continue
 		}
-		if !containsAllLabels(item.Labels, opts.Labels) || !opts.WorkspaceFilter.MatchesLabels(item.Labels) {
+		if !containsAllLabels(item.Labels, labelFilters) || !opts.WorkspaceFilter.MatchesLabels(item.Labels) {
 			continue
 		}
 		definition, err := r.store.Get(ctx, id)
@@ -169,7 +170,7 @@ func (r *DAGRepository) SearchMatches(ctx context.Context, id string, opts DAGMa
 		if err != nil {
 			return nil, err
 		}
-		if !containsAllLabels(dag.Labels, opts.Labels) || !opts.WorkspaceFilter.MatchesLabels(dag.Labels) {
+		if !containsAllLabels(dag.Labels, parseLabelFilters(opts.Labels)) || !opts.WorkspaceFilter.MatchesLabels(dag.Labels) {
 			return &pagination.CursorResult[*textsearch.Match]{Items: []*textsearch.Match{}}, nil
 		}
 	}

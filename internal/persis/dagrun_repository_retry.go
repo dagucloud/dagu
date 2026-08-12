@@ -103,7 +103,7 @@ func (r *DAGRunRepository) ResolveRetryPath(
 			parentAttempt, findErr := r.FindSubAttempt(ctx, root, parentRef.ID)
 			if findErr != nil {
 				return dagrun.RetryPath{}, nil, fmt.Errorf(
-					"%w: find parent DAG run %s: %v",
+					"%w: find parent DAG run %s: %w",
 					dagrun.ErrInvalidRetryPath,
 					parentRef.ID,
 					findErr,
@@ -112,7 +112,7 @@ func (r *DAGRunRepository) ResolveRetryPath(
 			parentStatus, err = readRetryStatus(ctx, parentAttempt)
 			if err != nil {
 				return dagrun.RetryPath{}, nil, fmt.Errorf(
-					"%w: read parent DAG run %s: %v",
+					"%w: read parent DAG run %s: %w",
 					dagrun.ErrInvalidRetryPath,
 					parentRef.ID,
 					err,

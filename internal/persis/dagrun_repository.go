@@ -87,9 +87,7 @@ func (r *DAGRunRepository) LatestAttempt(
 ) (dagrun.Attempt, error) {
 	query := DAGRunLatestAttemptQuery{Name: name}
 	if r.latestStatusToday && !options.AllHistory {
-		now := r.now().In(r.location)
-		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, r.location)
-		query.NotBefore = NewUTC(startOfDay)
+		query.NotBefore = NewUTC(r.startOfDay())
 	}
 	return r.store.LatestAttempt(ctx, query)
 }
@@ -122,7 +120,7 @@ func (r *DAGRunRepository) statusQuery(options DAGRunListOptions) DAGRunStatusQu
 		WorkspaceFilter: options.WorkspaceFilter,
 	}
 	if !options.AllHistory && query.From.IsZero() && query.To.IsZero() {
-		query.From = NewUTC(r.now().Truncate(24 * time.Hour))
+		query.From = NewUTC(r.startOfDay())
 	}
 	if options.Unbounded {
 		query.Limit = 0
@@ -130,6 +128,11 @@ func (r *DAGRunRepository) statusQuery(options DAGRunListOptions) DAGRunStatusQu
 		query.Limit = 1000
 	}
 	return query
+}
+
+func (r *DAGRunRepository) startOfDay() time.Time {
+	now := r.now().In(r.location)
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, r.location)
 }
 
 // CompareAndSwapLatestAttemptStatus atomically updates a matching latest attempt.
