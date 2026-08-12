@@ -38,7 +38,7 @@ type Options struct {
 	Persistence        Persistence
 	PersistenceFactory PersistenceFactory
 	RunStateStore      runstate.Store
-	DAGRunStore        dagrun.DAGRunStore
+	DAGRunStore        *dagrun.Repository
 	DefaultMode        ExecutionMode
 	Distributed        *DistributedOptions
 }
@@ -123,6 +123,6 @@ type Worker struct {
 }
 
 type localPreparation struct {
-	attempt dagrun.DAGRunAttempt
+	attempt dagrun.Attempt
 	proc    proc.ProcHandle
 }

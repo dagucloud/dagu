@@ -29,7 +29,7 @@ import (
 type ServerConfig struct {
 	Context              context.Context
 	Config               *config.Config
-	DAGRunStore          dagrun.DAGRunStore
+	DAGRunStore          *dagrun.Repository
 	QueueStore           queue.QueueStore
 	ProcStore            proc.ProcStore
 	DAGRunManager        runtime.Manager

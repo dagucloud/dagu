@@ -54,7 +54,7 @@ type queueFixture struct {
 	t              *testing.T
 	ctx            context.Context
 	logBuffer      *syncBuffer
-	dagRunStore    dagrun.DAGRunStore
+	dagRunStore    *dagrun.Repository
 	leaseStore     dispatch.DAGRunLeaseStore
 	dispatchStore  dispatch.DispatchTaskStore
 	distributedDir string
@@ -79,7 +79,7 @@ func newQueueFixture(t *testing.T) *queueFixture {
 	return &queueFixture{
 		t: t, ctx: ctx, logBuffer: logBuffer,
 		distributedDir: distributedDir,
-		dagRunStore:    filedagrun.New(filepath.Join(tmpDir, "dag-runs")),
+		dagRunStore:    filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true}),
 		leaseStore:     store.NewDAGRunLeaseStore(leaseCollection),
 		dispatchStore:  store.NewDispatchTaskStore(file.NewCollection(distributedDir)),
 		queueStore:     store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue"))),
@@ -136,7 +136,7 @@ func (f *queueFixture) withDAG(name string, maxActiveRuns int) *queueFixture {
 func (f *queueFixture) enqueueRuns(n int) *queueFixture {
 	for i := 1; i <= n; i++ {
 		runID := fmt.Sprintf("run-%d", i)
-		run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
 		require.NoError(f.t, err)
 		require.NoError(f.t, run.Open(f.ctx))
 		st := ir.InitialStatus(f.dag)
@@ -191,7 +191,7 @@ func (f *queueFixture) enqueueToQueue(queueName, runID string, priority queuedom
 }
 
 func (f *queueFixture) enqueueToQueueWithTrigger(queueName, runID string, priority queuedomain.QueuePriority, triggerType ir.TriggerType) {
-	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	require.NoError(f.t, err)
 	require.NoError(f.t, run.Open(f.ctx))
 	st := ir.InitialStatus(f.dag)
@@ -339,7 +339,7 @@ func TestQueueProcessor_CountsFreshDistributedRunsAgainstQueueConcurrency(t *tes
 		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
 		simulateQueue(1, false)
 
-	runningAttempt, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-run", dagrun.NewDAGRunAttemptOptions{})
+	runningAttempt, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-run", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, runningAttempt.Open(f.ctx))
 	runningStatus := ir.InitialStatus(f.dag)
@@ -725,7 +725,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testin
 	f := newQueueFixture(t).withDAG("startup-running-dag", 1).
 		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold))
 
-	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-startup-run", dagrun.NewDAGRunAttemptOptions{})
+	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "running-startup-run", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, run.Open(f.ctx))
 	status := ir.InitialStatus(f.dag)
@@ -749,7 +749,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsFreshDistributedLeaseAsStarted(t
 	f := newQueueFixture(t).withDAG("startup-lease-dag", 1).
 		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold))
 
-	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "lease-startup-run", dagrun.NewDAGRunAttemptOptions{})
+	run, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), "lease-startup-run", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, run.Open(f.ctx))
 	status := ir.InitialStatus(f.dag)

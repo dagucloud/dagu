@@ -32,14 +32,10 @@ type dagRetryMetadata struct {
 	maxInterval time.Duration
 }
 
-type retryCandidateLister interface {
-	ListRetryCandidates(ctx context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error)
-}
-
 // RetryScanner periodically discovers failed latest attempts and enqueues
 // DAG-level retries once their backoff has elapsed.
 type RetryScanner struct {
-	dagRunStore dagrun.DAGRunStore
+	dagRunStore *dagrun.Repository
 	queueStore  queuedomain.QueueStore
 	isSuspended IsSuspendedFunc
 	retryWindow time.Duration
@@ -47,7 +43,7 @@ type RetryScanner struct {
 }
 
 func NewRetryScanner(
-	dagRunStore dagrun.DAGRunStore,
+	dagRunStore *dagrun.Repository,
 	queueStore queuedomain.QueueStore,
 	isSuspended IsSuspendedFunc,
 	retryWindow time.Duration,
@@ -117,14 +113,7 @@ func (s *RetryScanner) scan(ctx context.Context) error {
 }
 
 func (s *RetryScanner) listFailedRuns(ctx context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
-	if lister, ok := s.dagRunStore.(retryCandidateLister); ok {
-		return lister.ListRetryCandidates(ctx, from)
-	}
-	return s.dagRunStore.ListStatuses(ctx,
-		dagrun.WithStatuses([]ir.Status{ir.Failed}),
-		dagrun.WithFrom(from),
-		dagrun.WithoutLimit(),
-	)
+	return s.dagRunStore.ListRetryCandidates(ctx, from)
 }
 
 func (s *RetryScanner) processFailedRun(

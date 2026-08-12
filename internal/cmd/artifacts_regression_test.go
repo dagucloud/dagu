@@ -42,7 +42,7 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 	}
 	const dagRunID = "run-cleanup-1"
 
-	attempt, err := ctx.DAGRunStore.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := ctx.DAGRunStore.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx.Context))
 

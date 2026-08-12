@@ -63,7 +63,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(f.dag.Name, dagRunID)
-	attempt, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	status := ir.NewStatusBuilder(f.dag).Create(

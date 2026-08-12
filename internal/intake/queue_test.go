@@ -24,7 +24,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	f := newQueueFixture(t)
 
 	queued, err := EnqueueRun(f.ctx, QueueRequest{
-		DAGRunStore:     f.runStore,
+		DAGRunStore:     f.runRepo,
 		QueueStore:      f.queueStore,
 		DAG:             f.dag,
 		DAGRunID:        "run-1",
@@ -58,7 +58,7 @@ func TestEnqueueRunRollsBackCreatedAttemptWhenQueuePublishFails(t *testing.T) {
 	f.queueStore.err = errors.New("queue offline")
 
 	_, err := EnqueueRun(f.ctx, QueueRequest{
-		DAGRunStore:     f.runStore,
+		DAGRunStore:     f.runRepo,
 		QueueStore:      f.queueStore,
 		DAG:             f.dag,
 		DAGRunID:        "run-1",
@@ -79,7 +79,7 @@ func TestEnqueueRunCanProceedWhenAttemptCloseFails(t *testing.T) {
 	f.attempt.closeErr = errors.New("sync failed")
 
 	queued, err := EnqueueRun(f.ctx, QueueRequest{
-		DAGRunStore:             f.runStore,
+		DAGRunStore:             f.runRepo,
 		QueueStore:              f.queueStore,
 		DAG:                     f.dag,
 		DAGRunID:                "run-1",
@@ -108,6 +108,7 @@ type queueFixture struct {
 	dag         *ir.DAG
 	attempt     *queueAttempt
 	runStore    *queueRunStore
+	runRepo     *dagrun.Repository
 	queueStore  *queueStore
 }
 
@@ -126,66 +127,33 @@ func newQueueFixture(t *testing.T) queueFixture {
 	}
 	ir.InitializeDefaults(dag)
 
+	runStore := &queueRunStore{attempt: attempt}
 	return queueFixture{
 		ctx:         context.Background(),
 		logDir:      filepath.Join(tmp, "logs"),
 		artifactDir: filepath.Join(tmp, "artifacts"),
 		dag:         dag,
 		attempt:     attempt,
-		runStore:    &queueRunStore{attempt: attempt},
+		runStore:    runStore,
+		runRepo:     dagrun.NewRepository(runStore, dagrun.RepositoryOptions{}),
 		queueStore:  &queueStore{attempt: attempt},
 	}
 }
 
 type queueRunStore struct {
+	dagrun.Store
 	attempt    *queueAttempt
 	removed    bool
 	removedRef ir.DAGRunRef
 }
 
-func (s *queueRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
+func (s *queueRunStore) CreateAttempt(context.Context, dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
 	return s.attempt, nil
 }
 
-func (s *queueRunStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
-	return nil
-}
-
-func (s *queueRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAttempt, error) {
-	return nil, dagrun.ErrDAGRunIDNotFound
-}
-
-func (s *queueRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
-	return nil, nil
-}
-
-func (s *queueRunStore) ListStatusesPage(context.Context, ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
-	return dagrun.DAGRunStatusPage{}, nil
-}
-
-func (s *queueRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*ir.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*ir.DAGRunStatus, bool, error) {
-	return nil, false, nil
-}
-
-func (s *queueRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
-	return nil, dagrun.ErrDAGRunIDNotFound
-}
-
-func (s *queueRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	return nil, dagrun.ErrDAGRunIDNotFound
-}
-
-func (s *queueRunStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (s *queueRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
-	return nil, nil
-}
-
-func (s *queueRunStore) RemoveDAGRun(_ context.Context, ref ir.DAGRunRef, _ ...dagrun.RemoveDAGRunOption) error {
+func (s *queueRunStore) RemoveDAGRun(_ context.Context, req dagrun.RemoveDAGRunRequest) error {
 	s.removed = true
-	s.removedRef = ref
+	s.removedRef = req.DAGRun
 	return nil
 }
 

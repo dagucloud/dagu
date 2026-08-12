@@ -11,34 +11,32 @@ import (
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 )
 
-const DAGRunOutputsFileName = filedagrun.OutputsFile
+// DAGRunRepositoryOption configures the file-backed DAG-run repository.
+type DAGRunRepositoryOption func(*DAGRunRepositoryOptions)
 
-// DAGRunStoreOption configures the file-backed DAG-run store.
-type DAGRunStoreOption func(*DAGRunStoreOptions)
-
-// DAGRunStoreOptions contains file-backed DAG-run store settings.
-type DAGRunStoreOptions struct {
+// DAGRunRepositoryOptions contains file-backed DAG-run repository settings.
+type DAGRunRepositoryOptions struct {
 	HistoryFileCache  *fileutil.Cache[*ir.DAGRunStatus]
 	LatestStatusToday bool
 }
 
 // WithDAGRunHistoryFileCache sets the cache used for reading DAG-run history files.
-func WithDAGRunHistoryFileCache(cache *fileutil.Cache[*ir.DAGRunStatus]) DAGRunStoreOption {
-	return func(o *DAGRunStoreOptions) {
+func WithDAGRunHistoryFileCache(cache *fileutil.Cache[*ir.DAGRunStatus]) DAGRunRepositoryOption {
+	return func(o *DAGRunRepositoryOptions) {
 		o.HistoryFileCache = cache
 	}
 }
 
 // WithDAGRunLatestStatusToday controls whether latest status lookups are limited to today.
-func WithDAGRunLatestStatusToday(latestStatusToday bool) DAGRunStoreOption {
-	return func(o *DAGRunStoreOptions) {
+func WithDAGRunLatestStatusToday(latestStatusToday bool) DAGRunRepositoryOption {
+	return func(o *DAGRunRepositoryOptions) {
 		o.LatestStatusToday = latestStatusToday
 	}
 }
 
-// NewDAGRunStore wires the file-backed DAG-run store from application config.
-func NewDAGRunStore(cfg *config.Config, opts ...DAGRunStoreOption) dagrun.DAGRunStore {
-	options := DAGRunStoreOptions{
+// NewDAGRunRepository connects file storage to the shared DAG-run repository.
+func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *dagrun.Repository {
+	options := DAGRunRepositoryOptions{
 		LatestStatusToday: cfg.Server.LatestStatusToday,
 	}
 	for _, opt := range opts {
@@ -47,13 +45,15 @@ func NewDAGRunStore(cfg *config.Config, opts ...DAGRunStoreOption) dagrun.DAGRun
 		}
 	}
 
-	storeOpts := []filedagrun.DAGRunStoreOption{
+	storeOpts := []filedagrun.StoreOption{
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
-		filedagrun.WithLatestStatusToday(options.LatestStatusToday),
-		filedagrun.WithLocation(cfg.Core.Location),
 	}
 	if options.HistoryFileCache != nil {
 		storeOpts = append(storeOpts, filedagrun.WithHistoryFileCache(options.HistoryFileCache))
 	}
-	return filedagrun.New(cfg.Paths.DAGRunsDir, storeOpts...)
+	store := filedagrun.NewStore(cfg.Paths.DAGRunsDir, storeOpts...)
+	return dagrun.NewRepository(store, dagrun.RepositoryOptions{
+		LatestStatusToday: options.LatestStatusToday,
+		Location:          cfg.Core.Location,
+	})
 }

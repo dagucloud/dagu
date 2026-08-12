@@ -28,7 +28,7 @@ import (
 
 type queueDispatchDeps struct {
 	queueStore             queuedomain.QueueStore
-	dagRunStore            dagrun.DAGRunStore
+	dagRunStore            *dagrun.Repository
 	procStore              proc.ProcStore
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
@@ -44,7 +44,7 @@ type queueDispatchDeps struct {
 // queueDispatcher owns queue-item dispatch decisions after a queue has capacity.
 type queueDispatcher struct {
 	queueStore             queuedomain.QueueStore
-	dagRunStore            dagrun.DAGRunStore
+	dagRunStore            *dagrun.Repository
 	procStore              proc.ProcStore
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
@@ -345,7 +345,7 @@ func (d *queueDispatcher) newQueuedConditionStage(
 	runRef ir.DAGRunRef,
 	queueName string,
 	itemID string,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	status *ir.DAGRunStatus,
 ) *queuedConditionStage {
 	if d == nil || d.dagRunStore == nil || status == nil || status.Status != ir.Queued {
@@ -414,7 +414,7 @@ func (d *queueDispatcher) newQueuedConditionStageFromItem(
 func (d *queueDispatcher) readQueuedConditionStatus(
 	ctx context.Context,
 	runRef ir.DAGRunRef,
-) (dagrun.DAGRunAttempt, *ir.DAGRunStatus, bool) {
+) (dagrun.Attempt, *ir.DAGRunStatus, bool) {
 	attempt, err := d.dagRunStore.FindAttempt(ctx, runRef)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
@@ -903,7 +903,7 @@ func (d *queueDispatcher) reserveDistributedAdmission(
 	ctx context.Context,
 	queueName string,
 	runRef ir.DAGRunRef,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	input dispatchAdmissionInput,
 	conditionStage *queuedConditionStage,
 ) (string, bool) {
@@ -1597,7 +1597,7 @@ func (d *queueDispatcher) hasFreshDistributedLease(
 	ctx context.Context,
 	queueName string,
 	runRef ir.DAGRunRef,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	status *ir.DAGRunStatus,
 ) (bool, error) {
 	if d.dagRunLeaseStore == nil || status == nil {

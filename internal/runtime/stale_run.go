@@ -21,7 +21,7 @@ const staleLocalRunError = "process terminated unexpectedly - stale local proces
 // have confirmed the local proc file is stale or missing.
 func RepairStaleLocalRun(
 	ctx context.Context,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	dag *ir.DAG,
 ) (*ir.DAGRunStatus, bool, error) {
 	fullStatus, err := attempt.ReadStatus(ctx)
@@ -98,7 +98,7 @@ func markActiveStatusFailed(status *ir.DAGRunStatus, reason string, finishedAt t
 	}
 }
 
-func writeAttemptStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus) error {
+func writeAttemptStatus(ctx context.Context, attempt dagrun.Attempt, status ir.DAGRunStatus) error {
 	if err := attempt.Open(ctx); err != nil {
 		return fmt.Errorf("open attempt: %w", err)
 	}

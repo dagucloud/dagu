@@ -63,7 +63,7 @@ func TestScheduler_StandbyHealthServerStartsBeforeLockAndStopsCleanly(t *testing
 
 type haSchedulerFixture struct {
 	cfg         *config.Config
-	dagRunStore dagrun.DAGRunStore
+	dagRunStore *dagrun.Repository
 	queueStore  queuedomain.QueueStore
 	procStore   procdomain.ProcStore
 	dagRunMgr   runtime.Manager
@@ -99,8 +99,9 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 		DefaultExecMode: config.ExecutionModeLocal,
 	}
 
-	dagRunStore := filedagrun.New(
+	dagRunStore := filedagrun.NewRepository(
 		cfg.Paths.DAGRunsDir,
+		dagrun.RepositoryOptions{LatestStatusToday: true},
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
 	)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))

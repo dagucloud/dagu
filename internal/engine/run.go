@@ -593,10 +593,10 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, ro
 	}
 	defer e.procStore.Unlock(ctx, dag.ProcGroup())
 
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	attemptID := runID
 	if e.dagRunStore != nil {
-		created, err := e.dagRunStore.CreateAttempt(ctx, dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		created, err := e.dagRunStore.CreateAttempt(ctx, dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
 		if err != nil {
 			if errors.Is(err, dagrun.ErrDAGRunAlreadyExists) {
 				return nil, fmt.Errorf("dag-run ID %s already exists for DAG %s: %w", runID, dag.Name, err)
@@ -632,7 +632,7 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, ro
 
 func (e *Engine) recordPreparedFailure(
 	ctx context.Context,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	dag *ir.DAG,
 	runID string,
 	root ir.DAGRunRef,
@@ -695,7 +695,7 @@ func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
 	return e.runtimeStoresFactory(ctx, e.cfg)
 }
 
-func preparedAttempt(prepared *localPreparation) dagrun.DAGRunAttempt {
+func preparedAttempt(prepared *localPreparation) dagrun.Attempt {
 	if prepared == nil {
 		return nil
 	}

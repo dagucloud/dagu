@@ -58,10 +58,11 @@ func TestDispatchBindErrorCode(t *testing.T) {
 	assert.Equal(t, codes.Internal, dispatchBindErrorCode(errors.New("disk full")))
 }
 
-// mockDAGRunStore is a test implementation of execution.DAGRunStore
 type mockDAGRunStore struct {
-	attempts            map[string]*mockDAGRunAttempt
-	subAttempts         map[string]*mockDAGRunAttempt // key: rootID:subID
+	dagrun.Store
+	repository          *dagrun.Repository
+	attempts            map[string]*mockAttempt
+	subAttempts         map[string]*mockAttempt // key: rootID:subID
 	findAttemptErr      error
 	createAttemptErr    error
 	createSubAttemptErr error
@@ -72,10 +73,12 @@ type mockDAGRunStore struct {
 }
 
 func newMockDAGRunStore() *mockDAGRunStore {
-	return &mockDAGRunStore{
-		attempts:    make(map[string]*mockDAGRunAttempt),
-		subAttempts: make(map[string]*mockDAGRunAttempt),
+	store := &mockDAGRunStore{
+		attempts:    make(map[string]*mockAttempt),
+		subAttempts: make(map[string]*mockAttempt),
 	}
+	store.repository = dagrun.NewRepository(store, dagrun.RepositoryOptions{})
+	return store
 }
 
 func registerCommandExecutorCapsForCoordinatorTest() {
@@ -90,10 +93,10 @@ func registerCommandExecutorCapsForCoordinatorTest() {
 	registry.RegisterExecutorCapabilities("command", caps)
 }
 
-func (m *mockDAGRunStore) addSubAttempt(rootRef ir.DAGRunRef, subDAGRunID string, status *ir.DAGRunStatus) *mockDAGRunAttempt {
+func (m *mockDAGRunStore) addSubAttempt(rootRef ir.DAGRunRef, subDAGRunID string, status *ir.DAGRunStatus) *mockAttempt {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	attempt := &mockDAGRunAttempt{
+	attempt := &mockAttempt{
 		status: status,
 	}
 	key := rootRef.ID + ":" + subDAGRunID
@@ -101,20 +104,20 @@ func (m *mockDAGRunStore) addSubAttempt(rootRef ir.DAGRunRef, subDAGRunID string
 	return attempt
 }
 
-func (m *mockDAGRunStore) addAttempt(ref ir.DAGRunRef, status *ir.DAGRunStatus) *mockDAGRunAttempt {
+func (m *mockDAGRunStore) addAttempt(ref ir.DAGRunRef, status *ir.DAGRunStatus) *mockAttempt {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	attempt := &mockDAGRunAttempt{
+	attempt := &mockAttempt{
 		status: status,
 	}
 	m.attempts[ref.ID] = attempt
 	return attempt
 }
 
-func (m *mockDAGRunStore) addAbortingAttempt(ref ir.DAGRunRef, status *ir.DAGRunStatus) *mockDAGRunAttempt {
+func (m *mockDAGRunStore) addAbortingAttempt(ref ir.DAGRunRef, status *ir.DAGRunStatus) *mockAttempt {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	attempt := &mockDAGRunAttempt{
+	attempt := &mockAttempt{
 		status:   status,
 		aborting: true,
 	}
@@ -122,7 +125,7 @@ func (m *mockDAGRunStore) addAbortingAttempt(ref ir.DAGRunRef, status *ir.DAGRun
 	return attempt
 }
 
-func (m *mockDAGRunStore) FindAttempt(_ context.Context, dagRun ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) FindAttempt(_ context.Context, dagRun ir.DAGRunRef) (dagrun.Attempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.findAttemptErr != nil {
@@ -134,35 +137,42 @@ func (m *mockDAGRunStore) FindAttempt(_ context.Context, dagRun ir.DAGRunRef) (d
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-// Implement other required interface methods (unused in tests)
-// These methods return sentinel errors or panic to make test failures obvious if accidentally called.
-func (m *mockDAGRunStore) CreateAttempt(_ context.Context, dag *ir.DAG, _ time.Time, dagRunID string, _ dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) CreateAttempt(_ context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if req.RootDAGRun != nil {
+		if m.createSubAttemptErr != nil {
+			return nil, m.createSubAttemptErr
+		}
+		key := req.RootDAGRun.ID + ":" + req.DAGRunID
+		attempt := &mockAttempt{
+			dag:        req.DAG,
+			status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID},
+			writeError: m.attemptWriteErr,
+		}
+		m.subAttempts[key] = attempt
+		return attempt, nil
+	}
 	if m.createAttemptErr != nil {
 		return nil, m.createAttemptErr
 	}
-	attempt := &mockDAGRunAttempt{
-		status:     &ir.DAGRunStatus{Name: dag.Name, DAGRunID: dagRunID},
+	attempt := &mockAttempt{
+		dag:        req.DAG,
+		status:     &ir.DAGRunStatus{Name: req.DAG.Name, DAGRunID: req.DAGRunID},
 		writeError: m.attemptWriteErr,
 	}
-	m.attempts[dagRunID] = attempt
+	m.attempts[req.DAGRunID] = attempt
 	return attempt, nil
 }
-func (m *mockDAGRunStore) RecentAttempts(_ context.Context, _ string, _ int) []dagrun.DAGRunAttempt {
-	return nil // Empty slice is valid
+func (m *mockDAGRunStore) RecentAttempts(_ context.Context, _ string, _ int) ([]dagrun.Attempt, error) {
+	return nil, nil
 }
-func (m *mockDAGRunStore) LatestAttempt(_ context.Context, _ string) (dagrun.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) LatestAttempt(_ context.Context, _ dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
-func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
+func (m *mockDAGRunStore) QueryStatuses(ctx context.Context, options dagrun.StatusQuery) (dagrun.DAGRunStatusPage, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	var options dagrun.ListDAGRunStatusesOptions
-	for _, opt := range opts {
-		opt(&options)
+		return dagrun.DAGRunStatusPage{}, err
 	}
 
 	statusFilter := make(map[ir.Status]struct{}, len(options.Statuses))
@@ -205,7 +215,7 @@ func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...dagrun.ListD
 		appendStatus(attempt.status)
 	}
 
-	return statuses, nil
+	return dagrun.DAGRunStatusPage{Items: statuses}, nil
 }
 
 func (m *mockDAGRunStore) ListStatusesCallCount() int {
@@ -220,20 +230,9 @@ func (m *mockDAGRunStore) CompareAndSwapCallCount() int {
 	return m.compareAndSwapCalls
 }
 
-func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
-	items, err := m.ListStatuses(ctx, opts...)
-	if err != nil {
-		return dagrun.DAGRunStatusPage{}, err
-	}
-	return dagrun.DAGRunStatusPage{Items: items}, nil
-}
 func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	dagRun ir.DAGRunRef,
-	expectedAttemptID string,
-	expectedStatus ir.Status,
-	mutate func(*ir.DAGRunStatus) error,
-	opts ...dagrun.CompareAndSwapStatusOption,
+	req dagrun.CompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
@@ -243,45 +242,41 @@ func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	defer m.mu.Unlock()
 	m.compareAndSwapCalls++
 
-	cfg := dagrun.NewCompareAndSwapStatusOptions(opts...)
-	root := cfg.RootDAGRun
-	if root.Zero() {
-		root = dagRun
-	}
-	isSubDAG := root.ID != "" && (root.ID != dagRun.ID || root.Name != dagRun.Name)
+	root := req.RootDAGRun
+	isSubDAG := root.ID != "" && (root.ID != req.DAGRun.ID || root.Name != req.DAGRun.Name)
 
 	var (
-		attempt *mockDAGRunAttempt
+		attempt *mockAttempt
 		ok      bool
 	)
 	if isSubDAG {
-		key := root.ID + ":" + dagRun.ID
+		key := root.ID + ":" + req.DAGRun.ID
 		attempt, ok = m.subAttempts[key]
 	} else {
-		attempt, ok = m.attempts[dagRun.ID]
+		attempt, ok = m.attempts[req.DAGRun.ID]
 	}
 	if !ok || attempt.status == nil {
 		return nil, false, nil
 	}
 
 	current := *attempt.status
-	if expectedAttemptID != "" && current.AttemptID != expectedAttemptID {
+	if req.ExpectedAttemptID != "" && current.AttemptID != req.ExpectedAttemptID {
 		return &current, false, nil
 	}
-	if cfg.ExpectedAttemptKey != "" && current.AttemptKey != cfg.ExpectedAttemptKey {
+	if req.ExpectedAttemptKey != "" && current.AttemptKey != req.ExpectedAttemptKey {
 		return &current, false, nil
 	}
-	if current.Status != expectedStatus {
+	if current.Status != req.ExpectedStatus {
 		return &current, false, nil
 	}
-	if err := mutate(&current); err != nil {
+	if err := req.Mutate(&current); err != nil {
 		return nil, false, err
 	}
 	attempt.status = &current
 	attempt.written = true
 	return &current, true, nil
 }
-func (m *mockDAGRunStore) FindSubAttempt(_ context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
+func (m *mockDAGRunStore) FindSubAttempt(_ context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.Attempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := rootRef.ID + ":" + subDAGRunID
@@ -290,29 +285,15 @@ func (m *mockDAGRunStore) FindSubAttempt(_ context.Context, rootRef ir.DAGRunRef
 	}
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
-func (m *mockDAGRunStore) CreateSubAttempt(_ context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.createSubAttemptErr != nil {
-		return nil, m.createSubAttemptErr
-	}
-	key := rootRef.ID + ":" + subDAGRunID
-	attempt := &mockDAGRunAttempt{
-		status:     &ir.DAGRunStatus{},
-		writeError: m.attemptWriteErr,
-	}
-	m.subAttempts[key] = attempt
-	return attempt, nil
-}
-func (m *mockDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ string, _ int, _ ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
+func (m *mockDAGRunStore) RemoveOldDAGRuns(_ context.Context, _ dagrun.RetentionRequest) ([]string, error) {
 	return nil, nil
 }
-func (m *mockDAGRunStore) RemoveDAGRun(_ context.Context, _ ir.DAGRunRef, _ ...dagrun.RemoveDAGRunOption) error {
+func (m *mockDAGRunStore) RemoveDAGRun(_ context.Context, _ dagrun.RemoveDAGRunRequest) error {
 	return nil
 }
 
-// mockDAGRunAttempt is a test implementation of execution.DAGRunAttempt
-type mockDAGRunAttempt struct {
+// mockAttempt is a test implementation of execution.Attempt
+type mockAttempt struct {
 	dag                    *ir.DAG
 	status                 *ir.DAGRunStatus
 	opened                 bool
@@ -329,7 +310,7 @@ type mockDAGRunAttempt struct {
 	mu                     sync.Mutex
 }
 
-func (m *mockDAGRunAttempt) ID() string {
+func (m *mockAttempt) ID() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.status != nil && m.status.AttemptID != "" {
@@ -337,7 +318,7 @@ func (m *mockDAGRunAttempt) ID() string {
 	}
 	return "test-attempt"
 }
-func (m *mockDAGRunAttempt) Open(_ context.Context) error {
+func (m *mockAttempt) Open(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.openError != nil {
@@ -346,7 +327,7 @@ func (m *mockDAGRunAttempt) Open(_ context.Context) error {
 	m.opened = true
 	return nil
 }
-func (m *mockDAGRunAttempt) Write(_ context.Context, s ir.DAGRunStatus) error {
+func (m *mockAttempt) Write(_ context.Context, s ir.DAGRunStatus) error {
 	m.mu.Lock()
 	writeStarted := m.writeStarted
 	releaseWrite := m.releaseWrite
@@ -371,13 +352,13 @@ func (m *mockDAGRunAttempt) Write(_ context.Context, s ir.DAGRunStatus) error {
 	m.written = true
 	return nil
 }
-func (m *mockDAGRunAttempt) Close(_ context.Context) error {
+func (m *mockAttempt) Close(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.closed = true
 	return nil
 }
-func (m *mockDAGRunAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
+func (m *mockAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.readStatusError != nil {
@@ -389,32 +370,32 @@ func (m *mockDAGRunAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, err
 	cloned := *m.status
 	return &cloned, nil
 }
-func (m *mockDAGRunAttempt) ReadDAG(_ context.Context) (*ir.DAG, error) { return m.dag, nil }
-func (m *mockDAGRunAttempt) SetDAG(dag *ir.DAG) {
+func (m *mockAttempt) ReadDAG(_ context.Context) (*ir.DAG, error) { return m.dag, nil }
+func (m *mockAttempt) SetDAG(dag *ir.DAG) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dag = dag
 }
-func (m *mockDAGRunAttempt) Abort(_ context.Context) error {
+func (m *mockAttempt) Abort(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.aborting = true
 	return nil
 }
-func (m *mockDAGRunAttempt) IsAborting(_ context.Context) (bool, error) {
+func (m *mockAttempt) IsAborting(_ context.Context) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.aborting, nil
 }
-func (m *mockDAGRunAttempt) Hide(_ context.Context) error { return nil }
-func (m *mockDAGRunAttempt) Hidden() bool                 { return false }
-func (m *mockDAGRunAttempt) WriteOutputs(_ context.Context, _ *ir.DAGRunOutputs) error {
+func (m *mockAttempt) Hide(_ context.Context) error { return nil }
+func (m *mockAttempt) Hidden() bool                 { return false }
+func (m *mockAttempt) WriteOutputs(_ context.Context, _ *ir.DAGRunOutputs) error {
 	return nil
 }
-func (m *mockDAGRunAttempt) ReadOutputs(_ context.Context) (*ir.DAGRunOutputs, error) {
+func (m *mockAttempt) ReadOutputs(_ context.Context) (*ir.DAGRunOutputs, error) {
 	return nil, nil
 }
-func (m *mockDAGRunAttempt) WriteStepMessages(_ context.Context, stepName string, messages []ir.LLMMessage) error {
+func (m *mockAttempt) WriteStepMessages(_ context.Context, stepName string, messages []ir.LLMMessage) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.writeStepMessagesError != nil {
@@ -426,7 +407,7 @@ func (m *mockDAGRunAttempt) WriteStepMessages(_ context.Context, stepName string
 	m.stepMessages[stepName] = messages
 	return nil
 }
-func (m *mockDAGRunAttempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
+func (m *mockAttempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.stepMessages == nil {
@@ -435,10 +416,10 @@ func (m *mockDAGRunAttempt) ReadStepMessages(_ context.Context, stepName string)
 	return m.stepMessages[stepName], nil
 }
 
-func (m *mockDAGRunAttempt) WorkDir() string { return "" }
+func (m *mockAttempt) WorkDir() string { return "" }
 
 // GetStepMessages returns the messages written for a step (for test assertions)
-func (m *mockDAGRunAttempt) GetStepMessages(stepName string) []ir.LLMMessage {
+func (m *mockAttempt) GetStepMessages(stepName string) []ir.LLMMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.stepMessages == nil {
@@ -452,7 +433,7 @@ func TestTransformArtifactPathsCreatesDirectory(t *testing.T) {
 
 	baseDir := t.TempDir()
 	handler := &Handler{artifactDir: baseDir}
-	attempt := &mockDAGRunAttempt{
+	attempt := &mockAttempt{
 		dag: &ir.DAG{
 			Name: "test-dag",
 			Artifacts: &ir.ArtifactsConfig{
@@ -479,7 +460,7 @@ func TestTransformArtifactPathsSanitizesDAGName(t *testing.T) {
 
 	baseDir := t.TempDir()
 	handler := &Handler{artifactDir: baseDir}
-	attempt := &mockDAGRunAttempt{
+	attempt := &mockAttempt{
 		dag: &ir.DAG{
 			Name: "../weird/..-dag--name",
 			Artifacts: &ir.ArtifactsConfig{
@@ -525,7 +506,7 @@ func TestTransformArtifactPathsRejectsEmptyExpandedBaseDir(t *testing.T) {
 	t.Setenv("EMPTY_ARTIFACT_DIR", "")
 
 	handler := &Handler{artifactDir: t.TempDir()}
-	attempt := &mockDAGRunAttempt{
+	attempt := &mockAttempt{
 		dag: &ir.DAG{
 			Name: "test-dag",
 			Artifacts: &ir.ArtifactsConfig{
@@ -548,7 +529,7 @@ func TestTransformArtifactPathsUsesDAGSpecificDirWithoutGlobalArtifactDir(t *tes
 
 	baseDir := t.TempDir()
 	handler := &Handler{}
-	attempt := &mockDAGRunAttempt{
+	attempt := &mockAttempt{
 		dag: &ir.DAG{
 			Name: "test-dag",
 			Artifacts: &ir.ArtifactsConfig{
@@ -570,7 +551,7 @@ func TestTransformArtifactPathsUsesDAGSpecificDirWithoutGlobalArtifactDir(t *tes
 func TestCreateAttemptForTaskCarriesDAGLabels(t *testing.T) {
 	registerCommandExecutorCapsForCoordinatorTest()
 
-	h := NewHandler(HandlerConfig{DAGRunStore: newMockDAGRunStore()})
+	h := NewHandler(HandlerConfig{DAGRunStore: newMockDAGRunStore().repository})
 	task := &coordinatorv1.Task{
 		DagRunId:   "run-123",
 		Target:     "daily",
@@ -603,7 +584,7 @@ func TestCreateAttemptForTaskReturnsStorageErrors(t *testing.T) {
 		store := newMockDAGRunStore()
 		store.findAttemptErr = storeErr
 
-		_, err := NewHandler(HandlerConfig{DAGRunStore: store}).createAttemptForTask(context.Background(), newTask("run-find"))
+		_, err := NewHandler(HandlerConfig{DAGRunStore: store.repository}).createAttemptForTask(context.Background(), newTask("run-find"))
 		require.ErrorIs(t, err, storeErr)
 	})
 
@@ -613,7 +594,7 @@ func TestCreateAttemptForTaskReturnsStorageErrors(t *testing.T) {
 		attempt := store.addAttempt(ir.DAGRunRef{Name: "daily", ID: "run-read"}, &ir.DAGRunStatus{Status: ir.Running})
 		attempt.readStatusError = storeErr
 
-		_, err := NewHandler(HandlerConfig{DAGRunStore: store}).createAttemptForTask(context.Background(), newTask("run-read"))
+		_, err := NewHandler(HandlerConfig{DAGRunStore: store.repository}).createAttemptForTask(context.Background(), newTask("run-read"))
 		require.ErrorIs(t, err, storeErr)
 	})
 }
@@ -631,7 +612,7 @@ func TestAttemptInitializationClosesAfterWriteFailure(t *testing.T) {
 			Definition: "name: daily\nsteps:\n  - name: step1\n    run: echo hello",
 		}
 
-		_, err := NewHandler(HandlerConfig{DAGRunStore: store}).createAttemptForTask(context.Background(), task)
+		_, err := NewHandler(HandlerConfig{DAGRunStore: store.repository}).createAttemptForTask(context.Background(), task)
 		require.ErrorIs(t, err, writeErr)
 		assert.True(t, store.attempts[task.DagRunId].WasClosed())
 	})
@@ -648,26 +629,26 @@ func TestAttemptInitializationClosesAfterWriteFailure(t *testing.T) {
 			RootDagRunId:   "run-root",
 		}
 
-		_, err := NewHandler(HandlerConfig{DAGRunStore: store}).createSubAttemptForTask(context.Background(), task)
+		_, err := NewHandler(HandlerConfig{DAGRunStore: store.repository}).createSubAttemptForTask(context.Background(), task)
 		require.ErrorIs(t, err, writeErr)
 		assert.True(t, store.subAttempts[task.RootDagRunId+":"+task.DagRunId].WasClosed())
 	})
 }
 
 // Thread-safe getters for test assertions
-func (m *mockDAGRunAttempt) WasOpened() bool {
+func (m *mockAttempt) WasOpened() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.opened
 }
 
-func (m *mockDAGRunAttempt) WasWritten() bool {
+func (m *mockAttempt) WasWritten() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.written
 }
 
-func (m *mockDAGRunAttempt) WasClosed() bool {
+func (m *mockAttempt) WasClosed() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.closed
@@ -777,7 +758,7 @@ func TestHandler_Poll(t *testing.T) {
 		t.Parallel()
 
 		h := NewHandler(HandlerConfig{})
-		attempt := &mockDAGRunAttempt{}
+		attempt := &mockAttempt{}
 
 		err := h.writeInitialStatus(
 			context.Background(),
@@ -815,7 +796,7 @@ func TestHandler_Poll(t *testing.T) {
 		store := newMockDAGRunStore()
 		store.createAttemptErr = errors.New("prepare failed")
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:          store,
+			DAGRunStore:          store.repository,
 			DispatchTaskStore:    dispatchStore,
 			WorkerHeartbeatStore: heartbeatStore,
 		})
@@ -855,7 +836,7 @@ func TestHandler_Poll(t *testing.T) {
 
 		dagRunStore := newMockDAGRunStore()
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               dagRunStore,
+			DAGRunStore:               dagRunStore.repository,
 			DispatchTaskStore:         dispatchStore,
 			WorkerHeartbeatStore:      heartbeatStore,
 			DAGRunLeaseStore:          leaseStore,
@@ -920,7 +901,7 @@ func TestHandler_Poll(t *testing.T) {
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 		}))
 
-		store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+		store := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 		h := NewHandler(HandlerConfig{
 			DAGRunStore:          store,
 			DispatchTaskStore:    &failingDispatchTaskStore{enqueueErr: errors.New("disk full")},
@@ -970,7 +951,7 @@ func TestHandler_Poll(t *testing.T) {
 		})
 
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:          store,
+			DAGRunStore:          store.repository,
 			DispatchTaskStore:    &failingDispatchTaskStore{enqueueErr: errors.New("disk full")},
 			WorkerHeartbeatStore: heartbeatStore,
 		})
@@ -1064,7 +1045,7 @@ func TestHandler_DispatchRejectsStaleQueueDispatchRetry(t *testing.T) {
 	require.NoError(t, err)
 
 	h := NewHandler(HandlerConfig{
-		DAGRunStore:          store,
+		DAGRunStore:          store.repository,
 		DispatchTaskStore:    dispatchStore,
 		WorkerHeartbeatStore: heartbeatStore,
 	})
@@ -1213,7 +1194,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store, StaleLeaseThreshold: 10 * time.Second})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository, StaleLeaseThreshold: 10 * time.Second})
 		ctx := context.Background()
 
 		initialLease := time.Now().Add(-10 * time.Second).UnixMilli()
@@ -1248,7 +1229,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store, StaleLeaseThreshold: 10 * time.Second})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository, StaleLeaseThreshold: 10 * time.Second})
 		ctx := context.Background()
 
 		initialLease := time.Now().Add(-10 * time.Second).UnixMilli()
@@ -1399,7 +1380,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			Owner:                     dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
@@ -1492,7 +1473,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		store := newMockDAGRunStore()
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:      store,
+			DAGRunStore:      store.repository,
 			DAGRunLeaseStore: leaseStore,
 			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		})
@@ -1546,7 +1527,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		store := newMockDAGRunStore()
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:      store,
+			DAGRunStore:      store.repository,
 			DAGRunLeaseStore: leaseStore,
 			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		})
@@ -1594,7 +1575,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		store := newMockDAGRunStore()
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:      store,
+			DAGRunStore:      store.repository,
 			DAGRunLeaseStore: leaseStore,
 			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		})
@@ -1713,7 +1694,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store, StaleLeaseThreshold: 10 * time.Second})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository, StaleLeaseThreshold: 10 * time.Second})
 		ctx := context.Background()
 
 		initialLease := time.Now().Add(-10 * time.Second).UnixMilli()
@@ -1748,7 +1729,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store, StaleLeaseThreshold: 10 * time.Second})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository, StaleLeaseThreshold: 10 * time.Second})
 		ctx := context.Background()
 
 		initialLease := time.Now().Add(-10 * time.Second).UnixMilli()
@@ -1937,7 +1918,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 	t.Run("MarkRunFailedUpdatesStatus", func(t *testing.T) {
 		t.Parallel()
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create a running DAG run
@@ -1979,7 +1960,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create an already completed DAG run
@@ -2025,7 +2006,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		info := &heartbeatInfo{
@@ -2041,7 +2022,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create a running DAG run
@@ -2082,7 +2063,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create two running DAG runs
@@ -2139,7 +2120,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 
 		// Create a running DAG run
 		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-123"}
@@ -2185,7 +2166,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		threshold := coordinatorTestTimeout(300 * time.Millisecond)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:         store,
+			DAGRunStore:         store.repository,
 			DAGRunLeaseStore:    leaseStore,
 			StaleLeaseThreshold: threshold,
 			Owner: dispatch.CoordinatorEndpoint{
@@ -2239,7 +2220,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:             store,
+			DAGRunStore:             store.repository,
 			StaleLeaseThreshold:     time.Second,
 			StaleHeartbeatThreshold: time.Second,
 		})
@@ -2306,7 +2287,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 				store := newMockDAGRunStore()
 				leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 				h := NewHandler(HandlerConfig{
-					DAGRunStore:         store,
+					DAGRunStore:         store.repository,
 					DAGRunLeaseStore:    leaseStore,
 					StaleLeaseThreshold: time.Second,
 				})
@@ -2361,7 +2342,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			StaleLeaseThreshold:       time.Second,
@@ -2415,7 +2396,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			StaleLeaseThreshold:       time.Second,
@@ -2469,7 +2450,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:             store,
+			DAGRunStore:             store.repository,
 			DAGRunLeaseStore:        leaseStore,
 			WorkerHeartbeatStore:    heartbeatStore,
 			StaleHeartbeatThreshold: time.Minute,
@@ -2588,7 +2569,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:             store,
+			DAGRunStore:             store.repository,
 			DAGRunLeaseStore:        leaseStore,
 			WorkerHeartbeatStore:    heartbeatStore,
 			StaleHeartbeatThreshold: time.Minute,
@@ -2653,7 +2634,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:             store,
+			DAGRunStore:             store.repository,
 			WorkerHeartbeatStore:    heartbeatStore,
 			DAGRunLeaseStore:        leaseStore,
 			StaleHeartbeatThreshold: time.Minute,
@@ -2724,7 +2705,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:             store,
+			DAGRunStore:             store.repository,
 			WorkerHeartbeatStore:    heartbeatStore,
 			DAGRunLeaseStore:        leaseStore,
 			StaleHeartbeatThreshold: time.Minute,
@@ -2783,7 +2764,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:             store,
+			DAGRunStore:             store.repository,
 			WorkerHeartbeatStore:    heartbeatStore,
 			DAGRunLeaseStore:        leaseStore,
 			StaleHeartbeatThreshold: time.Minute,
@@ -2841,7 +2822,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		store := newMockDAGRunStore()
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:         store,
+			DAGRunStore:         store.repository,
 			DAGRunLeaseStore:    leaseStore,
 			StaleLeaseThreshold: time.Second,
 		})
@@ -2879,7 +2860,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			WorkerHeartbeatStore:      heartbeatStore,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
@@ -2953,7 +2934,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			StaleLeaseThreshold:       time.Minute,
@@ -3008,7 +2989,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			StaleLeaseThreshold:       time.Second,
@@ -3056,7 +3037,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			StaleLeaseThreshold:       time.Second,
@@ -3096,7 +3077,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			StaleLeaseThreshold:       time.Second,
@@ -3151,7 +3132,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create an attempt for the DAG run
@@ -3184,7 +3165,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-123"}
@@ -3215,7 +3196,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-123"}
@@ -3248,7 +3229,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-123"}
@@ -3294,7 +3275,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ref := ir.NewDAGRunRef("test-dag", "run-123")
 		completedAt := time.Now().UTC().Format(time.RFC3339)
 		outputs := `{"environment":"production"}`
@@ -3347,7 +3328,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ref := ir.NewDAGRunRef("test-dag", "run-123")
 		approvedAt := time.Now().UTC().Format(time.RFC3339)
 		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
@@ -3399,7 +3380,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ref := ir.NewDAGRunRef("test-dag", "run-123")
 		pushedBackAt := time.Now().UTC().Format(time.RFC3339)
 		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
@@ -3461,7 +3442,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ref := ir.NewDAGRunRef("test-dag", "run-123")
 		pushedBackAt := time.Now().UTC().Format(time.RFC3339)
 		history := []ir.PushBackEntry{{
@@ -3523,7 +3504,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ref := ir.NewDAGRunRef("test-dag", "run-123")
 		completedAt := time.Now().UTC().Format(time.RFC3339)
 		completedNode := &ir.Node{
@@ -3569,7 +3550,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		store := newMockDAGRunStore()
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:      store,
+			DAGRunStore:      store.repository,
 			DAGRunLeaseStore: leaseStore,
 			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a"},
 		})
@@ -3618,7 +3599,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		store := newMockDAGRunStore()
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:      store,
+			DAGRunStore:      store.repository,
 			DAGRunLeaseStore: leaseStore,
 			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a"},
 		})
@@ -3665,7 +3646,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			Owner:                     dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
@@ -3780,7 +3761,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		store := newMockDAGRunStore()
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:      store,
+			DAGRunStore:      store.repository,
 			DAGRunLeaseStore: leaseStore,
 			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a"},
 		})
@@ -3825,7 +3806,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		logDir := filepath.Join(t.TempDir(), "logs")
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:      store,
+			DAGRunStore:      store.repository,
 			DAGRunLeaseStore: leaseStore,
 			LogDir:           logDir,
 			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a"},
@@ -3896,7 +3877,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		rootRef := ir.DAGRunRef{Name: "root-dag", ID: "missing-root-run"}
@@ -3926,7 +3907,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		rootRef := ir.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
@@ -3963,7 +3944,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		rootRef := ir.DAGRunRef{Name: "root-dag", ID: "root-run-123"}
@@ -4004,7 +3985,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			Owner:                     dispatch.CoordinatorEndpoint{ID: "coord-a"},
@@ -4058,7 +4039,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-123"}
@@ -4100,7 +4081,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			Owner:                     dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
@@ -4184,7 +4165,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		req := &coordinatorv1.ReportStatusRequest{
@@ -4226,7 +4207,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create an attempt for the DAG run
@@ -4296,7 +4277,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create an existing attempt
@@ -4357,7 +4338,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create an existing attempt with error injection
@@ -4410,7 +4391,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		store := newMockDAGRunStore()
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:      store,
+			DAGRunStore:      store.repository,
 			DAGRunLeaseStore: leaseStore,
 			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		})
@@ -4460,7 +4441,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		store := newMockDAGRunStore()
 		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:      store,
+			DAGRunStore:      store.repository,
 			DAGRunLeaseStore: leaseStore,
 			Owner:            dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
 		})
@@ -4514,7 +4495,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		leaseStore := newTestDAGRunLeaseStore(baseDir)
 		activeStore := newTestActiveDistributedRunStore(baseDir)
 		h := NewHandler(HandlerConfig{
-			DAGRunStore:               store,
+			DAGRunStore:               store.repository,
 			DAGRunLeaseStore:          leaseStore,
 			ActiveDistributedRunStore: activeStore,
 			Owner:                     dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
@@ -4753,7 +4734,7 @@ func TestHandler_GetDAGRunStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create an attempt with status
@@ -4780,7 +4761,7 @@ func TestHandler_GetDAGRunStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		req := &coordinatorv1.GetDAGRunStatusRequest{
@@ -4799,7 +4780,7 @@ func TestHandler_GetDAGRunStatus(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		store.findAttemptErr = errors.New("storage unavailable")
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 
 		_, err := h.GetDAGRunStatus(context.Background(), &coordinatorv1.GetDAGRunStatusRequest{
 			DagName:  "test-dag",
@@ -4815,7 +4796,7 @@ func TestHandler_GetDAGRunStatus(t *testing.T) {
 		store := newMockDAGRunStore()
 		attempt := store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &ir.DAGRunStatus{})
 		attempt.readStatusError = errors.New("status read failed")
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 
 		_, err := h.GetDAGRunStatus(context.Background(), &coordinatorv1.GetDAGRunStatusRequest{
 			DagName:  "test-dag",
@@ -4847,7 +4828,7 @@ func TestHandler_GetDAGRunStatus(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Missing DagName
@@ -5005,7 +4986,7 @@ func TestHandler_Close(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create and cache an attempt
@@ -5057,7 +5038,7 @@ func TestHandler_GetCancelledRunsForWorker(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		result := h.getCancelledRunsForWorker(ctx, nil)
@@ -5068,7 +5049,7 @@ func TestHandler_GetCancelledRunsForWorker(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		stats := &coordinatorv1.WorkerStats{
@@ -5087,9 +5068,9 @@ func TestHandlerOptions(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 
-		require.Same(t, store, h.dagRunStore)
+		require.Same(t, store.repository, h.dagRunStore)
 	})
 
 	t.Run("WithLogDir", func(t *testing.T) {
@@ -5106,9 +5087,9 @@ func TestHandlerOptions(t *testing.T) {
 
 		store := newMockDAGRunStore()
 		logDir := "/var/log/test"
-		h := NewHandler(HandlerConfig{DAGRunStore: store, LogDir: logDir})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository, LogDir: logDir})
 
-		require.Same(t, store, h.dagRunStore)
+		require.Same(t, store.repository, h.dagRunStore)
 		require.Equal(t, logDir, h.logDir)
 	})
 }
@@ -5317,7 +5298,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create an attempt that is aborting (cancelled)
@@ -5344,7 +5325,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Create an attempt that is running (not cancelled)
@@ -5369,7 +5350,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-789"}
@@ -5396,7 +5377,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-999"}
@@ -5423,7 +5404,7 @@ func TestHandler_GetCancelledRunsForWorker_Full(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-success"}
@@ -5453,7 +5434,7 @@ func TestHandler_RequestCancel(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		rootRef := ir.DAGRunRef{Name: "parent-dag", ID: "root-run"}
@@ -5489,7 +5470,7 @@ func TestHandler_RequestCancel(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		rootRef := ir.DAGRunRef{Name: "parent-dag", ID: "root-run"}
@@ -5527,7 +5508,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Add a sub-attempt
@@ -5545,7 +5526,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		require.NotNil(t, attempt)
 
 		// Verify it was opened
-		mockAttempt := attempt.(*mockDAGRunAttempt)
+		mockAttempt := attempt.(*mockAttempt)
 		assert.True(t, mockAttempt.WasOpened())
 	})
 
@@ -5553,7 +5534,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		// Add a sub-attempt
@@ -5580,7 +5561,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		t.Parallel()
 
 		store := newMockDAGRunStore()
-		h := NewHandler(HandlerConfig{DAGRunStore: store})
+		h := NewHandler(HandlerConfig{DAGRunStore: store.repository})
 		ctx := context.Background()
 
 		rootRef := ir.DAGRunRef{Name: "parent-dag", ID: "root-999"}

@@ -18,7 +18,8 @@ import (
 
 type StoreTest struct {
 	Context context.Context
-	Store   dagrun.DAGRunStore
+	Store   *dagrun.Repository
+	Backend *Store
 	TmpDir  string
 }
 
@@ -26,9 +27,14 @@ func setupTestStore(t *testing.T) StoreTest {
 	tmpDir, err := os.MkdirTemp("", "test")
 	require.NoError(t, err)
 
+	backend := NewStore(tmpDir, WithArtifactDir(filepath.Join(tmpDir, "artifacts")))
 	th := StoreTest{
 		Context: context.Background(),
-		Store:   New(tmpDir, WithArtifactDir(filepath.Join(tmpDir, "artifacts"))),
+		Store: dagrun.NewRepository(backend, dagrun.RepositoryOptions{
+			LatestStatusToday: true,
+			Location:          time.Local,
+		}),
+		Backend: backend,
 		TmpDir:  tmpDir,
 	}
 
@@ -48,7 +54,7 @@ func (th StoreTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID string, s
 func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s ir.Status, dag *ir.DAG) *Attempt {
 	t.Helper()
 
-	attempt, err := th.Store.CreateAttempt(th.Context, dag, ts, dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.Store.CreateAttempt(th.Context, dag, ts, dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	err = attempt.Open(th.Context)
@@ -90,8 +96,7 @@ func (d DAGTest) Writer(t *testing.T, dagRunID string, startedAt time.Time) Writ
 	dagRun, err := root.CreateDAGRun(dagrun.NewUTC(startedAt), dagRunID)
 	require.NoError(t, err)
 
-	store := d.th.Store.(*Store)
-	attempt, err := dagRun.CreateAttempt(d.th.Context, dagrun.NewUTC(startedAt), store.cache, "", WithDAG(d.DAG))
+	attempt, err := dagRun.CreateAttempt(d.th.Context, dagrun.NewUTC(startedAt), d.th.Backend.cache, "", WithDAG(d.DAG))
 	require.NoError(t, err)
 
 	writer := NewWriter(attempt.file)

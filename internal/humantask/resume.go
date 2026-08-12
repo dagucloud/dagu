@@ -94,7 +94,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 
 func (s *Service) waitForCompletionReady(
 	ctx context.Context,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 	stepID string,
@@ -160,7 +160,7 @@ func (s *Service) waitForPoll(ctx context.Context) error {
 	}
 }
 
-func reloadStatus(ctx context.Context, attempt dagrun.DAGRunAttempt) (*ir.DAGRunStatus, error) {
+func reloadStatus(ctx context.Context, attempt dagrun.Attempt) (*ir.DAGRunStatus, error) {
 	latest, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return nil, errorf(ErrorInternal, "failed to reload DAG-run status after waiting for the attempt to settle: %v", err)

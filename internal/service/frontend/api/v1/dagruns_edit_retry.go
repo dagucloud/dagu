@@ -43,7 +43,7 @@ type editRetryOptions struct {
 }
 
 type editRetryPlan struct {
-	sourceAttempt   dagrun.DAGRunAttempt
+	sourceAttempt   dagrun.Attempt
 	sourceDAGRunID  string
 	sourceStatus    *ir.DAGRunStatus
 	editedDAG       *ir.DAG
@@ -632,7 +632,7 @@ func (a *API) seedEditRetryAttempt(
 	sourceWorkDir string,
 ) (*ir.DAGRunStatus, error) {
 	now := time.Now()
-	attempt, err := a.dagRunStore.CreateAttempt(ctx, dag, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := a.dagRunStore.CreateAttempt(ctx, dag, now, dagRunID, dagrun.CreateAttemptOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create edit retry attempt: %w", err)
 	}

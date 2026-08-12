@@ -76,7 +76,7 @@ func (e *ResumeError) Unwrap() error { return e.Err }
 
 // Service completes human tasks and queues recoverable retries.
 type Service struct {
-	DAGRunStore    dagrun.DAGRunStore
+	DAGRunStore    *dagrun.Repository
 	QueueStore     queue.QueueStore
 	ProcStore      proc.ProcStore
 	Now            func() time.Time

@@ -38,7 +38,7 @@ func WithManagerClock(now func() time.Time) ManagerOption {
 
 // NewManager creates a new Manager instance.
 // The Manager is used to interact with the DAG.
-func NewManager(drs dagrun.DAGRunStore, ps proc.ProcStore, cfg *config.Config, opts ...ManagerOption) Manager {
+func NewManager(drs *dagrun.Repository, ps proc.ProcStore, cfg *config.Config, opts ...ManagerOption) Manager {
 	m := Manager{
 		dagRunStore:   drs,
 		procStore:     ps,
@@ -55,7 +55,7 @@ func NewManager(drs dagrun.DAGRunStore, ps proc.ProcStore, cfg *config.Config, o
 // restarting, and retrieving status information. It communicates with the DAG
 // through a socket interface and manages dag-run data.
 type Manager struct {
-	dagRunStore   dagrun.DAGRunStore      // Store interface for persisting run data
+	dagRunStore   *dagrun.Repository      // Repository for persisted run data
 	procStore     proc.ProcStore          // Store interface for process management
 	subCmdBuilder *launcher.SubCmdBuilder // Command builder for constructing command specs
 	nowFunc       func() time.Time
@@ -376,7 +376,7 @@ func isLocalWorkerID(workerID string) bool {
 	return workerID == "" || workerID == "local"
 }
 
-func (m *Manager) findAttemptForProcEntry(ctx context.Context, entry proc.ProcEntry) (dagrun.DAGRunAttempt, error) {
+func (m *Manager) findAttemptForProcEntry(ctx context.Context, entry proc.ProcEntry) (dagrun.Attempt, error) {
 	if entry.IsRoot() {
 		return m.dagRunStore.FindAttempt(ctx, entry.DAGRun())
 	}
@@ -386,7 +386,7 @@ func (m *Manager) findAttemptForProcEntry(ctx context.Context, entry proc.ProcEn
 func (m *Manager) resolveRunningStatus(
 	ctx context.Context,
 	dag *ir.DAG,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	status *ir.DAGRunStatus,
 	isRoot bool,
 ) *ir.DAGRunStatus {
@@ -470,7 +470,7 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunSt
 // heartbeats are not authoritative for remote workers.
 func (m *Manager) repairStaleLocalRunIfDead(
 	ctx context.Context,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	dag *ir.DAG,
 	st *ir.DAGRunStatus,
 ) (*ir.DAGRunStatus, error) {
@@ -566,22 +566,13 @@ func (m *Manager) currentTime() time.Time {
 // ListRecentStatus retrieves the n most recent statuses for a DAG by name.
 // It returns a slice of Status objects, filtering out any that cannot be read.
 func (m *Manager) ListRecentStatus(ctx context.Context, name string, n int) []ir.DAGRunStatus {
-	attempts := m.dagRunStore.RecentAttempts(ctx, name, n)
-
-	var statuses []ir.DAGRunStatus
-	for _, att := range attempts {
-		if status, err := att.ReadStatus(ctx); err == nil {
-			statuses = append(statuses, *status)
-		}
-	}
-
-	return statuses
+	return m.dagRunStore.RecentStatuses(ctx, name, n)
 }
 
 // UpdateStatus updates the status of a dag-run.
 func (m *Manager) UpdateStatus(ctx context.Context, rootDAGRun ir.DAGRunRef, newStatus ir.DAGRunStatus) error {
 	// Find the attempt for the status.
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 
 	if rootDAGRun.ID == newStatus.DAGRunID {
 		// If the dag-run ID matches the root dag-run ID, find the attempt by the root dag-run ID

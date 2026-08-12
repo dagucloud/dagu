@@ -24,7 +24,7 @@ import (
 type SubWorkflowRunnerConfig struct {
 	DAGRunMgr         runtime.Manager
 	DAGRepository     *persis.DAGRepository
-	DAGRunStore       dagrun.DAGRunStore
+	DAGRunStore       *dagrun.Repository
 	RunStateStore     runstate.Store
 	QueueStore        queue.QueueStore
 	StateStore        dagrun.StateStore

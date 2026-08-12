@@ -117,7 +117,7 @@ steps:
 }
 
 // getSubDAGWorkingDir retrieves the working directory from a subDAG's stdout log.
-func getSubDAGWorkingDir(t *testing.T, ctx context.Context, subAttempt dagrun.DAGRunAttempt) string {
+func getSubDAGWorkingDir(t *testing.T, ctx context.Context, subAttempt dagrun.Attempt) string {
 	t.Helper()
 
 	subStatus, err := subAttempt.ReadStatus(ctx)

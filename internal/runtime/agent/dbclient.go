@@ -20,7 +20,7 @@ var _ runtime.Database = &dbClient{}
 
 type dbClient struct {
 	dagLoader       dagDetailsLoader
-	drs             dagrun.DAGRunStore
+	drs             *dagrun.Repository
 	remoteDAGLoader RemoteDAGLoader
 }
 
@@ -28,7 +28,7 @@ type dagDetailsLoader interface {
 	GetDetails(context.Context, string, persis.DAGLoadOptions) (*ir.DAG, error)
 }
 
-func newDBClient(drs dagrun.DAGRunStore, dagLoader dagDetailsLoader, remoteDAGLoader RemoteDAGLoader) *dbClient {
+func newDBClient(drs *dagrun.Repository, dagLoader dagDetailsLoader, remoteDAGLoader RemoteDAGLoader) *dbClient {
 	return &dbClient{drs: drs, dagLoader: dagLoader, remoteDAGLoader: remoteDAGLoader}
 }
 

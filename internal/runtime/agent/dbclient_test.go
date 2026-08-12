@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -29,100 +28,8 @@ func (m *mockDAGLoader) GetDetails(ctx context.Context, fileName string, opts pe
 	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-var _ dagrun.DAGRunStore = (*mockDAGRunStore)(nil)
-
-// mockDAGRunStore implements models.DAGRunStore
 type mockDAGRunStore struct {
-	mock.Mock
-}
-
-// RemoveDAGRun implements models.DAGRunStore.
-func (m *mockDAGRunStore) RemoveDAGRun(ctx context.Context, dagRun ir.DAGRunRef, _ ...dagrun.RemoveDAGRunOption) error {
-	panic("unimplemented")
-}
-
-func (m *mockDAGRunStore) CreateAttempt(ctx context.Context, dag *ir.DAG, ts time.Time, dagRunID string, opts dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
-	args := m.Called(ctx, dag, ts, dagRunID, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
-}
-
-func (m *mockDAGRunStore) RecentAttempts(ctx context.Context, name string, itemLimit int) []dagrun.DAGRunAttempt {
-	args := m.Called(ctx, name, itemLimit)
-	return args.Get(0).([]dagrun.DAGRunAttempt)
-}
-
-func (m *mockDAGRunStore) LatestAttempt(ctx context.Context, name string) (dagrun.DAGRunAttempt, error) {
-	args := m.Called(ctx, name)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
-}
-
-func (m *mockDAGRunStore) ListStatuses(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
-	args := m.Called(ctx, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*ir.DAGRunStatus), args.Error(1)
-}
-
-func (m *mockDAGRunStore) ListStatusesPage(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
-	args := m.Called(ctx, opts)
-	if args.Get(0) == nil {
-		return dagrun.DAGRunStatusPage{}, args.Error(1)
-	}
-	return args.Get(0).(dagrun.DAGRunStatusPage), args.Error(1)
-}
-
-func (m *mockDAGRunStore) CompareAndSwapLatestAttemptStatus(
-	ctx context.Context,
-	dagRun ir.DAGRunRef,
-	expectedAttemptID string,
-	expectedStatus ir.Status,
-	mutate func(*ir.DAGRunStatus) error,
-	_ ...dagrun.CompareAndSwapStatusOption,
-) (*ir.DAGRunStatus, bool, error) {
-	args := m.Called(ctx, dagRun, expectedAttemptID, expectedStatus, mutate)
-	if args.Get(0) == nil {
-		return nil, args.Bool(1), args.Error(2)
-	}
-	return args.Get(0).(*ir.DAGRunStatus), args.Bool(1), args.Error(2)
-}
-
-func (m *mockDAGRunStore) FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
-	args := m.Called(ctx, dagRun)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
-}
-
-func (m *mockDAGRunStore) FindSubAttempt(ctx context.Context, rootDAGRun ir.DAGRunRef, dagRunID string) (dagrun.DAGRunAttempt, error) {
-	args := m.Called(ctx, rootDAGRun, dagRunID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
-}
-
-func (m *mockDAGRunStore) CreateSubAttempt(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
-	args := m.Called(ctx, rootRef, subDAGRunID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(dagrun.DAGRunAttempt), args.Error(1)
-}
-
-func (m *mockDAGRunStore) RemoveOldDAGRuns(ctx context.Context, name string, retentionDays int, opts ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
-	args := m.Called(ctx, name, retentionDays, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]string), args.Error(1)
+	dagrun.Store
 }
 
 func TestDBClient_GetDAG(t *testing.T) {
@@ -232,7 +139,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			mockDRS := new(mockDAGRunStore)
-			client := newDBClient(mockDRS, tt.dagLoader, tt.remoteLoader)
+			client := newDBClient(dagrun.NewRepository(mockDRS, dagrun.RepositoryOptions{}), tt.dagLoader, tt.remoteLoader)
 
 			dag, err := client.GetDAG(ctx, "test-dag")
 

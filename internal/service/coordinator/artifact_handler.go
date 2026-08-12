@@ -23,7 +23,7 @@ import (
 )
 
 type artifactHandler struct {
-	dagRunStore      dagrun.DAGRunStore
+	dagRunStore      *dagrun.Repository
 	attemptValidator func(context.Context, attemptIdentity) error
 }
 
@@ -37,7 +37,7 @@ type artifactWriter struct {
 
 const artifactFlushThreshold = 64 * 1024
 
-func newArtifactHandler(dagRunStore dagrun.DAGRunStore) *artifactHandler {
+func newArtifactHandler(dagRunStore *dagrun.Repository) *artifactHandler {
 	return &artifactHandler{dagRunStore: dagRunStore}
 }
 
@@ -195,7 +195,7 @@ func (h *artifactHandler) artifactFilePath(ctx context.Context, chunk *coordinat
 
 func (h *artifactHandler) archiveDir(ctx context.Context, chunk *coordinatorv1.ArtifactChunk) (string, error) {
 	var (
-		attempt dagrun.DAGRunAttempt
+		attempt dagrun.Attempt
 		err     error
 	)
 	if chunk.RootDagRunId != "" && chunk.RootDagRunId != chunk.DagRunId {

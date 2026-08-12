@@ -132,7 +132,7 @@ func seedFailedAutoRetryPendingRun(t *testing.T, th test.Command, dag test.DAG, 
 		dag.DAG,
 		time.Now(),
 		dagRunID,
-		dagrun.NewDAGRunAttemptOptions{},
+		dagrun.CreateAttemptOptions{},
 	)
 	require.NoError(t, err)
 

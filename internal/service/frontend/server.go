@@ -271,7 +271,7 @@ func (srv *Server) RegisterRoutes(fn RouteRegistrar) {
 
 // NewServer constructs a Server from the provided configuration, stores, and services.
 // Returns an error if initialization fails (e.g., when builtin auth fails to initialize).
-func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository, drs dagrun.DAGRunStore, qs queue.QueueStore, ps proc.ProcStore, drm runtime.Manager, cc coordinator.Client, sr serviceregistry.ServiceRegistry, mr *prometheus.Registry, rs *resource.Service, stores StoreFactories, opts ...ServerOption) (*Server, error) {
+func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository, drs *dagrun.Repository, qs queue.QueueStore, ps proc.ProcStore, drm runtime.Manager, cc coordinator.Client, sr serviceregistry.ServiceRegistry, mr *prometheus.Registry, rs *resource.Service, stores StoreFactories, opts ...ServerOption) (*Server, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

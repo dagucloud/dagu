@@ -22,7 +22,7 @@ import (
 func TestEnsureQueueDispatchRetryTarget_MissingRunReturnsNotQueued(t *testing.T) {
 	t.Parallel()
 
-	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	store := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	err := ensureQueueDispatchRetryTarget(
 		context.Background(),
 		store,
@@ -47,7 +47,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 	t.Parallel()
 
 	ctx := context.Background()
-	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	store := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := &ir.DAG{
 		Name: "retry-test",
 		Steps: []ir.Step{
@@ -55,7 +55,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 		},
 	}
 
-	_, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.NewDAGRunAttemptOptions{})
+	_, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	err = ensureQueueDispatchRetryTarget(
@@ -101,7 +101,7 @@ func TestRestoreRetryExecutionContext_BackfillsAttemptWorkDirSnapshot(t *testing
 		WorkingDir: dagDir,
 	}
 	status := &ir.DAGRunStatus{}
-	attempt := &testutil.MockDAGRunAttempt{}
+	attempt := &testutil.MockAttempt{}
 	attempt.On("WorkDir").Return(attemptWorkDir).Once()
 
 	restoreRetryExecutionContext(dag, status, attempt)

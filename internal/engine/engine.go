@@ -27,7 +27,7 @@ import (
 
 type Engine struct {
 	cfg             *config.Config
-	dagRunStore     dagrun.DAGRunStore
+	dagRunStore     *dagrun.Repository
 	runStateStore   runstate.Store
 	stateStore      dagrun.StateStore
 	procStore       proc.ProcStore

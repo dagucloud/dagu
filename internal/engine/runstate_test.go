@@ -209,7 +209,7 @@ func dagRunPersistenceFactory() engine.PersistenceFactory {
 		if err != nil {
 			return engine.Persistence{}, err
 		}
-		persistence.DAGRunStore = file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false))
+		persistence.DAGRunStore = file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false))
 		return persistence, nil
 	}
 }
@@ -220,7 +220,7 @@ func hybridPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceF
 		if err != nil {
 			return engine.Persistence{}, err
 		}
-		persistence.DAGRunStore = file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false))
+		persistence.DAGRunStore = file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false))
 		return persistence, nil
 	}
 }

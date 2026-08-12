@@ -17,14 +17,14 @@ import (
 type historyStoreOption func(*historyStore)
 
 // WithPreparedAttempt reuses an attempt that was opened by Dagu before runtime execution.
-func WithPreparedAttempt(attempt dagrun.DAGRunAttempt) historyStoreOption {
+func WithPreparedAttempt(attempt dagrun.Attempt) historyStoreOption {
 	return func(s *historyStore) {
 		s.preparedAttempt = attempt
 	}
 }
 
 // NewHistoryStore uses Dagu's run history store as the runtime run-state store.
-func NewHistoryStore(store dagrun.DAGRunStore, opts ...historyStoreOption) Store {
+func NewHistoryStore(store *dagrun.Repository, opts ...historyStoreOption) Store {
 	s := &historyStore{store: store}
 	for _, opt := range opts {
 		opt(s)
@@ -33,13 +33,13 @@ func NewHistoryStore(store dagrun.DAGRunStore, opts ...historyStoreOption) Store
 }
 
 type historyStore struct {
-	store           dagrun.DAGRunStore
-	preparedAttempt dagrun.DAGRunAttempt
+	store           *dagrun.Repository
+	preparedAttempt dagrun.Attempt
 }
 
 func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest) (Attempt, error) {
 	if s.store == nil {
-		return wrapDAGRunAttempt(dagrun.NewNoopDAGRunAttempt(noopAttemptID(req), req.DAG)), nil
+		return wrapAttempt(dagrun.NewNoopAttempt(noopAttemptID(req), req.DAG)), nil
 	}
 
 	if req.DAG != nil && req.DAG.HistRetentionRuns == 0 {
@@ -48,7 +48,7 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 		}
 	}
 
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	if s.preparedAttempt != nil {
 		if req.AttemptID != "" && s.preparedAttempt.ID() != req.AttemptID {
 			return nil, fmt.Errorf(
@@ -73,7 +73,7 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 		}
 	}
 
-	return wrapDAGRunAttempt(attempt), nil
+	return wrapAttempt(attempt), nil
 }
 
 func (s *historyStore) OpenAttempt(ctx context.Context, ref ir.DAGRunRef) (Attempt, error) {
@@ -84,7 +84,7 @@ func (s *historyStore) OpenAttempt(ctx context.Context, ref ir.DAGRunRef) (Attem
 	if err != nil {
 		return nil, err
 	}
-	return wrapDAGRunAttempt(attempt), nil
+	return wrapAttempt(attempt), nil
 }
 
 func (s *historyStore) OpenChildAttempt(ctx context.Context, root ir.DAGRunRef, childRunID string) (Attempt, error) {
@@ -95,11 +95,11 @@ func (s *historyStore) OpenChildAttempt(ctx context.Context, root ir.DAGRunRef, 
 	if err != nil {
 		return nil, err
 	}
-	return wrapDAGRunAttempt(attempt), nil
+	return wrapAttempt(attempt), nil
 }
 
-func dagRunAttemptOptions(req BeginAttemptRequest) dagrun.NewDAGRunAttemptOptions {
-	opts := dagrun.NewDAGRunAttemptOptions{
+func dagRunAttemptOptions(req BeginAttemptRequest) dagrun.CreateAttemptOptions {
+	opts := dagrun.CreateAttemptOptions{
 		Retry:     req.Retry,
 		AttemptID: req.AttemptID,
 	}

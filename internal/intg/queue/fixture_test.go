@@ -190,7 +190,7 @@ func (f *fixture) enqueueOne() string {
 
 func (f *fixture) enqueueWithPriority(priority queue.QueuePriority) string {
 	id := uuid.New().String()
-	att, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), id, dagrun.NewDAGRunAttemptOptions{})
+	att, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), id, dagrun.CreateAttemptOptions{})
 	require.NoError(f.t, err)
 	logFile := filepath.Join(f.th.Config.Paths.LogDir, f.dag.Name, id+".log")
 	require.NoError(f.t, os.MkdirAll(filepath.Dir(logFile), 0755))
@@ -365,7 +365,7 @@ func (f *fixture) Status(runID string) (*ir.DAGRunStatus, error) {
 	defer cancel()
 
 	ref := ir.NewDAGRunRef(f.dag.Name, runID)
-	store := file.NewDAGRunStore(f.th.Config)
+	store := file.NewDAGRunRepository(f.th.Config)
 	attempt, err := store.FindAttempt(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -467,7 +467,7 @@ func (f *fixture) writeRunStatus(status ir.Status, opts runStatusOptions) string
 		runID = uuid.New().String()
 	}
 
-	att, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+	att, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	require.NoError(f.t, err)
 	logFile := filepath.Join(f.th.Config.Paths.LogDir, f.dag.Name, runID+".log")
 	require.NoError(f.t, os.MkdirAll(filepath.Dir(logFile), 0755))
@@ -506,7 +506,7 @@ func (f *fixture) writeRunStatus(status ir.Status, opts runStatusOptions) string
 	return runID
 }
 
-// FailedRun creates a DAGRunAttempt with Failed status, simulating a completed but failed run.
+// FailedRun creates a failed attempt, simulating a completed but failed run.
 func (f *fixture) FailedRun() *fixture {
 	f.FailedRunWithMetadata(runStatusOptions{
 		StartedAt:  time.Now(),

@@ -28,7 +28,7 @@ type queryCursorPayload struct {
 	DAGRunID   string `json:"r"`
 }
 
-func encodeQueryCursor(opts dagrun.ListDAGRunStatusesOptions, key dagRunListKey) (string, error) {
+func encodeQueryCursor(opts dagrun.StatusQuery, key dagRunListKey) (string, error) {
 	payload := queryCursorPayload{
 		Version:    queryCursorVersion,
 		FilterHash: queryFilterHash(opts),
@@ -43,7 +43,7 @@ func encodeQueryCursor(opts dagrun.ListDAGRunStatusesOptions, key dagRunListKey)
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
-func decodeQueryCursor(cursor string, opts dagrun.ListDAGRunStatusesOptions) (dagRunListKey, error) {
+func decodeQueryCursor(cursor string, opts dagrun.StatusQuery) (dagRunListKey, error) {
 	if cursor == "" {
 		return dagRunListKey{}, nil
 	}
@@ -79,7 +79,7 @@ func decodeQueryCursor(cursor string, opts dagrun.ListDAGRunStatusesOptions) (da
 	}, nil
 }
 
-func queryFilterHash(opts dagrun.ListDAGRunStatusesOptions) string {
+func queryFilterHash(opts dagrun.StatusQuery) string {
 	statuses := make([]int, 0, len(opts.Statuses))
 	for _, status := range opts.Statuses {
 		statuses = append(statuses, int(status))

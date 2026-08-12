@@ -129,7 +129,7 @@ func TestResumeBoundsStatusVerificationAfterQueueFailure(t *testing.T) {
 	fixture.service.EnqueueTimeout = 10 * time.Millisecond
 
 	findCalls := 0
-	fixture.store.findAttempt = func(ctx context.Context, _ ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+	fixture.store.findAttempt = func(ctx context.Context, _ ir.DAGRunRef) (dagrun.Attempt, error) {
 		findCalls++
 		if findCalls == 1 {
 			return fixture.store.attempt, nil
@@ -392,7 +392,7 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 	return &serviceFixture{
 		dag: dag, status: status, store: store, queue: queue,
 		service: &Service{
-			DAGRunStore: store,
+			DAGRunStore: dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
 			QueueStore:  queue,
 			ProcStore:   serviceProcStore{},
 			Now:         func() time.Time { return now },
@@ -401,13 +401,13 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 }
 
 type serviceAttempt struct {
-	dagrun.DAGRunAttempt
+	dagrun.Attempt
 	dag    *ir.DAG
 	status *ir.DAGRunStatus
 }
 
 type sequenceAttempt struct {
-	dagrun.DAGRunAttempt
+	dagrun.Attempt
 	statuses []*ir.DAGRunStatus
 	calls    int
 }
@@ -429,16 +429,16 @@ func (a *serviceAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 }
 
 type serviceDAGRunStore struct {
-	dagrun.DAGRunStore
+	dagrun.Store
 	attempt              *serviceAttempt
 	status               *ir.DAGRunStatus
 	findErr              error
-	findAttempt          func(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error)
+	findAttempt          func(context.Context, ir.DAGRunRef) (dagrun.Attempt, error)
 	beforeCompareAndSwap func()
 	compareAndSwapErrors []error
 }
 
-func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error) {
 	if s.findAttempt != nil {
 		return s.findAttempt(ctx, ref)
 	}
@@ -450,11 +450,7 @@ func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref ir.DAGRunRef) 
 
 func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	_ ir.DAGRunRef,
-	expectedAttemptID string,
-	expectedStatus ir.Status,
-	mutate func(*ir.DAGRunStatus) error,
-	_ ...dagrun.CompareAndSwapStatusOption,
+	req dagrun.CompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	if len(s.compareAndSwapErrors) > 0 {
 		err := s.compareAndSwapErrors[0]
@@ -466,10 +462,10 @@ func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	if s.beforeCompareAndSwap != nil {
 		s.beforeCompareAndSwap()
 	}
-	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
+	if s.status.AttemptID != req.ExpectedAttemptID || s.status.Status != req.ExpectedStatus {
 		return s.status, false, nil
 	}
-	if err := mutate(s.status); err != nil {
+	if err := req.Mutate(s.status); err != nil {
 		return nil, false, err
 	}
 	return s.status, true, nil

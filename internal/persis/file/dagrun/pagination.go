@@ -50,13 +50,9 @@ func compareDagRunListKeys(a, b dagRunListKey) int {
 	}
 }
 
-func (store *Store) ListStatusesPage(ctx context.Context, opts ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
-	options, err := prepareListOptions(opts)
-	if err != nil {
-		return dagrun.DAGRunStatusPage{}, fmt.Errorf("failed to prepare options: %w", err)
-	}
-
-	items, nextCursor, err := store.listStatusesOrdered(ctx, options, options.Limit, true)
+// QueryStatuses executes a normalized status query.
+func (store *Store) QueryStatuses(ctx context.Context, query dagrun.StatusQuery) (dagrun.DAGRunStatusPage, error) {
+	items, nextCursor, err := store.listStatusesOrdered(ctx, query, query.Limit)
 	if err != nil {
 		return dagrun.DAGRunStatusPage{}, err
 	}
@@ -69,9 +65,8 @@ func (store *Store) ListStatusesPage(ctx context.Context, opts ...dagrun.ListDAG
 
 func (store *Store) listStatusesOrdered(
 	ctx context.Context,
-	opts dagrun.ListDAGRunStatusesOptions,
+	opts dagrun.StatusQuery,
 	limit int,
-	returnCursor bool,
 ) ([]*ir.DAGRunStatus, string, error) {
 	cursorKey, err := decodeQueryCursor(opts.Cursor, opts)
 	if err != nil {
@@ -94,7 +89,7 @@ func (store *Store) listStatusesOrdered(
 	if target <= 0 {
 		target = 1
 	}
-	if returnCursor && target < math.MaxInt {
+	if target < math.MaxInt {
 		target++
 	}
 
@@ -134,7 +129,7 @@ func (store *Store) listStatusesOrdered(
 		}
 	}
 
-	if !returnCursor || limit <= 0 || len(statuses) <= limit {
+	if limit <= 0 || len(statuses) <= limit {
 		return statuses, "", nil
 	}
 
@@ -145,7 +140,7 @@ func (store *Store) listStatusesOrdered(
 	return statuses[:limit], nextCursor, nil
 }
 
-func (store *Store) newStatusIterators(ctx context.Context, opts dagrun.ListDAGRunStatusesOptions) ([]*dagRunStatusIterator, error) {
+func (store *Store) newStatusIterators(ctx context.Context, opts dagrun.StatusQuery) ([]*dagRunStatusIterator, error) {
 	var roots []DataRoot
 	if opts.ExactName == "" {
 		listed, err := store.listRoot(ctx, "")
@@ -172,7 +167,7 @@ func (store *Store) newStatusIterators(ctx context.Context, opts dagrun.ListDAGR
 type dagRunStatusIterator struct {
 	store           *Store
 	root            DataRoot
-	opts            dagrun.ListDAGRunStatusesOptions
+	opts            dagrun.StatusQuery
 	dayPaths        []string
 	dayIndex        int
 	dayItems        []dagRunListItem
@@ -182,7 +177,7 @@ type dagRunStatusIterator struct {
 	hasStatusFilter bool
 }
 
-func newDAGRunStatusIterator(store *Store, root DataRoot, opts dagrun.ListDAGRunStatusesOptions) (*dagRunStatusIterator, error) {
+func newDAGRunStatusIterator(store *Store, root DataRoot, opts dagrun.StatusQuery) (*dagRunStatusIterator, error) {
 	dayPaths, err := listDayPathsInRange(root, opts.From, opts.To)
 	if err != nil {
 		return nil, err

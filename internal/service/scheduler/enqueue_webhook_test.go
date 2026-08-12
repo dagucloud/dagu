@@ -21,7 +21,7 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 	store := &findAttemptErrStore{err: dagrun.ErrNoStatusData}
 	err := EnqueueWebhookRun(
 		context.Background(),
-		store,
+		dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
 		nil,
 		t.TempDir(),
 		t.TempDir(),
@@ -37,10 +37,10 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 }
 
 type findAttemptErrStore struct {
-	dagrun.DAGRunStore
+	dagrun.Store
 	err error
 }
 
-func (s *findAttemptErrStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *findAttemptErrStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	return nil, s.err
 }

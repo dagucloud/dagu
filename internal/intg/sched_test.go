@@ -113,7 +113,7 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	suspendFlag := filepath.Join(th.Config.Paths.SuspendFlagsDir, dag.SuspendFlagName())
 	require.NoError(t, os.WriteFile(suspendFlag, []byte{}, 0o644))
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, oldSlot, "old-success", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, oldSlot, "old-success", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	status := ir.InitialStatus(dag)

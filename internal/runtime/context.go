@@ -66,7 +66,7 @@ var (
 	WithLogWriterFactory = runctx.WithLogWriterFactory
 	// WithDefaultExecMode sets the server-level default execution mode.
 	WithDefaultExecMode = runctx.WithDefaultExecMode
-	// WithDAGRunStore sets the dag-run store.
+	// WithDAGRunStore sets the DAG-run repository.
 	WithDAGRunStore = runctx.WithDAGRunStore
 	// WithQueueStore sets the queue store.
 	WithQueueStore = runctx.WithQueueStore

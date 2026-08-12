@@ -18,7 +18,7 @@ const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
 // StaleRunRepairConfig provides the stores, thresholds, and clock used to
 // confirm and repair stale remote runs.
 type StaleRunRepairConfig struct {
-	DAGRunStore                   dagrun.DAGRunStore
+	DAGRunStore                   *dagrun.Repository
 	DAGRunLeaseStore              dispatch.DAGRunLeaseStore
 	WorkerHeartbeatStore          dispatch.WorkerHeartbeatStore
 	StaleLeaseThreshold           time.Duration

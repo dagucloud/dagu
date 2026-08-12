@@ -115,10 +115,10 @@ func displayTreeStatus(dag *ir.DAG, dagStatus *ir.DAGRunStatus) {
 	fmt.Print(renderer.RenderDAGStatus(dag, dagStatus))
 }
 
-// extractAttemptForStatus returns the appropriate DAGRunAttempt based on the provided IDs.
+// extractAttemptForStatus returns the appropriate Attempt based on the provided IDs.
 // For sub DAG runs, it finds the nested attempt under the root run.
 // For root runs, it finds either the specified run or the latest run.
-func extractAttemptForStatus(ctx *Context, name, dagRunID, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
+func extractAttemptForStatus(ctx *Context, name, dagRunID, subDAGRunID string) (dagrun.Attempt, error) {
 	if subDAGRunID != "" {
 		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
 		attempt, err := ctx.DAGRunStore.FindSubAttempt(ctx, dagRunRef, subDAGRunID)

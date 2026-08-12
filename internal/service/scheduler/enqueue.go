@@ -31,7 +31,7 @@ import (
 // unix pipe conflicts for concurrent runs).
 func EnqueueCatchupRun(
 	ctx context.Context,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunStore *dagrun.Repository,
 	queueStore queuedomain.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,

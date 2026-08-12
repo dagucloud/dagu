@@ -312,7 +312,7 @@ steps:
 `)
 
 	runID := "existing-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	status := ir.InitialStatus(dag.DAG)

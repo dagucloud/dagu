@@ -419,7 +419,7 @@ func (f *testFixture) enqueueDirect() error {
 	dagCopy := f.dagWrapper.Clone()
 	dagCopy.Location = ""
 
-	att, err := f.coord.DAGRunStore.CreateAttempt(f.coord.Context, dagCopy, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+	att, err := f.coord.DAGRunStore.CreateAttempt(f.coord.Context, dagCopy, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	if err != nil {
 		return err
 	}
@@ -601,7 +601,7 @@ func (f *testFixture) latestStatus() (ir.DAGRunStatus, error) {
 }
 
 func (f *testFixture) latestStoredStatus() (ir.DAGRunStatus, error) {
-	store := file.NewDAGRunStore(f.coord.Config)
+	store := file.NewDAGRunRepository(f.coord.Config)
 
 	attempt, err := store.LatestAttempt(f.coord.Context, f.dagWrapper.Name)
 	if err != nil {

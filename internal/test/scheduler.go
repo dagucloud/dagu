@@ -61,7 +61,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	// Create additional stores needed for scheduler
 	ds, err := file.NewDAGRepository(helper.Config, file.WithDAGSkipExamples(true))
 	require.NoError(t, err)
-	drs := file.NewDAGRunStore(helper.Config)
+	drs := file.NewDAGRunRepository(helper.Config)
 	ps := newProcStore(helper.Config)
 	qs := store.NewQueueStore(file.NewCollection(helper.Config.Paths.QueueDir))
 

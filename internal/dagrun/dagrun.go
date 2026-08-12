@@ -4,7 +4,6 @@
 package dagrun
 
 import (
-	"context"
 	"errors"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 // Errors related to dag-run management
 var (
 	ErrDAGRunIDNotFound    = errors.New("dag-run ID not found")
+	ErrDAGRunIDEmpty       = errors.New("dag-run ID is empty")
 	ErrDAGRunAlreadyExists = errors.New("dag-run already exists")
 	ErrDAGRunActive        = errors.New("dag-run is active")
 	ErrNoStatusData        = errors.New("no status data")
@@ -22,52 +22,8 @@ var (
 	ErrInvalidQueryCursor  = errors.New("dagrun: invalid query cursor")
 )
 
-// DAGRunStore provides an interface for interacting with the underlying database
-// for storing and retrieving dag-run data.
-// It abstracts the details of the storage mechanism, allowing for different
-// implementations (e.g., file-based, in-memory, etc.) to be used interchangeably.
-type DAGRunStore interface {
-	// CreateAttempt creates a new execution record for a dag-run.
-	CreateAttempt(ctx context.Context, dag *ir.DAG, ts time.Time, dagRunID string, opts NewDAGRunAttemptOptions) (DAGRunAttempt, error)
-	// RecentAttempts returns the most recent dag-run's attempt for the DAG name, limited by itemLimit
-	RecentAttempts(ctx context.Context, name string, itemLimit int) []DAGRunAttempt
-	// LatestAttempt returns the most recent dag-run's attempt for the DAG name.
-	LatestAttempt(ctx context.Context, name string) (DAGRunAttempt, error)
-	// ListStatuses returns a list of statuses.
-	ListStatuses(ctx context.Context, opts ...ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error)
-	// ListStatusesPage returns one forward-only page of statuses in canonical list order.
-	ListStatusesPage(ctx context.Context, opts ...ListDAGRunStatusesOption) (DAGRunStatusPage, error)
-	// CompareAndSwapLatestAttemptStatus atomically updates the latest attempt status
-	// when both the latest attempt ID and status still match the expected values.
-	CompareAndSwapLatestAttemptStatus(
-		ctx context.Context,
-		dagRun ir.DAGRunRef,
-		expectedAttemptID string,
-		expectedStatus ir.Status,
-		mutate func(*ir.DAGRunStatus) error,
-		opts ...CompareAndSwapStatusOption,
-	) (*ir.DAGRunStatus, bool, error)
-	// FindAttempt finds the latest attempt for the dag-run.
-	FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (DAGRunAttempt, error)
-	// FindSubAttempt finds a sub dag-run record by dag-run ID.
-	FindSubAttempt(ctx context.Context, dagRun ir.DAGRunRef, subDAGRunID string) (DAGRunAttempt, error)
-	// CreateSubAttempt creates a new sub dag-run attempt under the root dag-run.
-	// This is used for distributed sub-DAG execution where the coordinator needs
-	// to create the attempt directory before the worker reports status.
-	CreateSubAttempt(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (DAGRunAttempt, error)
-	// RemoveOldDAGRuns deletes dag-run records older than retentionDays, by absolute
-	// cutoff (WithOlderThan), or by run count (WithRetentionRuns).
-	// If retentionDays is negative and OlderThan is not set, it won't delete any records.
-	// If retentionDays is zero, it will delete all records for the DAG name.
-	// But it will not delete the records with non-final statuses (e.g., running, queued).
-	// Returns a list of dag-run IDs that were removed (or would be removed in dry-run mode).
-	RemoveOldDAGRuns(ctx context.Context, name string, retentionDays int, opts ...RemoveOldDAGRunsOption) ([]string, error)
-	// RemoveDAGRun removes a dag-run record by its reference.
-	RemoveDAGRun(ctx context.Context, dagRun ir.DAGRunRef, opts ...RemoveDAGRunOption) error
-}
-
-// ListDAGRunStatusesOptions contains options for listing runs
-type ListDAGRunStatusesOptions struct {
+// StatusQuery contains normalized filters for listing runs.
+type StatusQuery struct {
 	DAGRunID        string
 	Name            string
 	ExactName       string
@@ -82,75 +38,75 @@ type ListDAGRunStatusesOptions struct {
 	AllHistory      bool
 }
 
-// ListRunsOption is a functional option for configuring ListRunsOptions
-type ListDAGRunStatusesOption func(*ListDAGRunStatusesOptions)
+// ListDAGRunStatusesOption configures a status query.
+type ListDAGRunStatusesOption func(*StatusQuery)
 
 // WithFrom sets the start time for listing dag-runs
 func WithFrom(from TimeInUTC) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.From = from
 	}
 }
 
 // WithTo sets the end time for listing dag-runs
 func WithTo(to TimeInUTC) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.To = to
 	}
 }
 
 // WithStatuses sets the statuses for listing dag-runs
 func WithStatuses(statuses []ir.Status) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.Statuses = statuses
 	}
 }
 
 // WithExactName sets the name for listing dag-runs
 func WithExactName(name string) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.ExactName = name
 	}
 }
 
 // WithName sets the name for listing dag-runs
 func WithName(name string) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.Name = name
 	}
 }
 
 // WithDAGRunID sets the dag-run ID for listing dag-runs
 func WithDAGRunID(dagRunID string) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.DAGRunID = dagRunID
 	}
 }
 
 // WithLabels sets the labels filter for listing dag-runs (AND logic - all labels must match)
 func WithLabels(labels []string) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.Labels = labels
 	}
 }
 
 // WithWorkspaceFilter sets the workspace visibility filter for listing dag-runs.
 func WithWorkspaceFilter(filter *workspace.WorkspaceFilter) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.WorkspaceFilter = filter
 	}
 }
 
 // WithLimit sets the maximum number of results to return when listing dag-runs
 func WithLimit(limit int) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.Limit = limit
 	}
 }
 
 // WithCursor sets the opaque cursor for forward-only DAG-run pagination.
 func WithCursor(cursor string) ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.Cursor = cursor
 	}
 }
@@ -158,7 +114,7 @@ func WithCursor(cursor string) ListDAGRunStatusesOption {
 // WithoutLimit disables the default 1000-item cap for internal callers that
 // need to scan the full recent result set.
 func WithoutLimit() ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.Unlimited = true
 	}
 }
@@ -166,7 +122,7 @@ func WithoutLimit() ListDAGRunStatusesOption {
 // WithAllHistory disables the default implicit "today only" time window when
 // no explicit range is supplied.
 func WithAllHistory() ListDAGRunStatusesOption {
-	return func(o *ListDAGRunStatusesOptions) {
+	return func(o *StatusQuery) {
 		o.AllHistory = true
 	}
 }
@@ -177,24 +133,22 @@ type DAGRunStatusPage struct {
 	NextCursor string
 }
 
-// RemoveDAGRunOptions contains options for removing a dag-run.
-type RemoveDAGRunOptions struct {
+type removeDAGRunOptions struct {
 	// RejectActive if true, refuses to remove dag-runs with an active status.
 	RejectActive bool
 }
 
-// RemoveDAGRunOption is a functional option for configuring RemoveDAGRunOptions.
-type RemoveDAGRunOption func(*RemoveDAGRunOptions)
+// RemoveDAGRunOption configures DAG-run removal.
+type RemoveDAGRunOption func(*removeDAGRunOptions)
 
 // WithRejectActiveDAGRun refuses to remove dag-runs that are still active.
 func WithRejectActiveDAGRun() RemoveDAGRunOption {
-	return func(o *RemoveDAGRunOptions) {
+	return func(o *removeDAGRunOptions) {
 		o.RejectActive = true
 	}
 }
 
-// RemoveOldDAGRunsOptions contains options for removing old dag-runs
-type RemoveOldDAGRunsOptions struct {
+type removeOldDAGRunsOptions struct {
 	// DryRun if true, only returns the paths that would be removed without actually deleting
 	DryRun bool
 	// RetentionRuns keeps the most recent number of dag-runs when set.
@@ -204,19 +158,19 @@ type RemoveOldDAGRunsOptions struct {
 	OlderThan *time.Time
 }
 
-// RemoveOldDAGRunsOption is a functional option for configuring RemoveOldDAGRunsOptions
-type RemoveOldDAGRunsOption func(*RemoveOldDAGRunsOptions)
+// RemoveOldDAGRunsOption configures retention cleanup.
+type RemoveOldDAGRunsOption func(*removeOldDAGRunsOptions)
 
 // WithDryRun sets the dry-run mode for removing old dag-runs
 func WithDryRun() RemoveOldDAGRunsOption {
-	return func(o *RemoveOldDAGRunsOptions) {
+	return func(o *removeOldDAGRunsOptions) {
 		o.DryRun = true
 	}
 }
 
 // WithRetentionRuns keeps the most recent number of dag-runs.
 func WithRetentionRuns(runs int) RemoveOldDAGRunsOption {
-	return func(o *RemoveOldDAGRunsOptions) {
+	return func(o *removeOldDAGRunsOptions) {
 		o.RetentionRuns = &runs
 	}
 }
@@ -225,26 +179,24 @@ func WithRetentionRuns(runs int) RemoveOldDAGRunsOption {
 // removes no dag-runs.
 // When set, the retentionDays argument to RemoveOldDAGRuns is ignored.
 func WithOlderThan(t time.Time) RemoveOldDAGRunsOption {
-	return func(o *RemoveOldDAGRunsOptions) {
+	return func(o *removeOldDAGRunsOptions) {
 		cutoff := t.UTC()
 		o.OlderThan = &cutoff
 	}
 }
 
-// CompareAndSwapStatusOptions configures additional identity guards for
-// CompareAndSwapLatestAttemptStatus.
-type CompareAndSwapStatusOptions struct {
+type compareAndSwapStatusOptions struct {
 	RootDAGRun         ir.DAGRunRef
 	ExpectedAttemptKey string
 }
 
 // CompareAndSwapStatusOption configures CompareAndSwapLatestAttemptStatus.
-type CompareAndSwapStatusOption func(*CompareAndSwapStatusOptions)
+type CompareAndSwapStatusOption func(*compareAndSwapStatusOptions)
 
 // WithCompareAndSwapRootDAGRun routes CompareAndSwapLatestAttemptStatus
 // through a root dag-run when the target dag-run is stored as a sub-DAG attempt.
 func WithCompareAndSwapRootDAGRun(root ir.DAGRunRef) CompareAndSwapStatusOption {
-	return func(opts *CompareAndSwapStatusOptions) {
+	return func(opts *compareAndSwapStatusOptions) {
 		opts.RootDAGRun = root
 	}
 }
@@ -252,14 +204,13 @@ func WithCompareAndSwapRootDAGRun(root ir.DAGRunRef) CompareAndSwapStatusOption 
 // WithCompareAndSwapExpectedAttemptKey requires the current status attempt key
 // to match.
 func WithCompareAndSwapExpectedAttemptKey(attemptKey string) CompareAndSwapStatusOption {
-	return func(opts *CompareAndSwapStatusOptions) {
+	return func(opts *compareAndSwapStatusOptions) {
 		opts.ExpectedAttemptKey = attemptKey
 	}
 }
 
-// NewCompareAndSwapStatusOptions applies CompareAndSwapLatestAttemptStatus options.
-func NewCompareAndSwapStatusOptions(opts ...CompareAndSwapStatusOption) CompareAndSwapStatusOptions {
-	var cfg CompareAndSwapStatusOptions
+func newCompareAndSwapStatusOptions(opts ...CompareAndSwapStatusOption) compareAndSwapStatusOptions {
+	var cfg compareAndSwapStatusOptions
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)

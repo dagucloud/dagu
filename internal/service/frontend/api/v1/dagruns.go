@@ -964,7 +964,7 @@ func (a *API) DownloadDAGRunArtifact(ctx context.Context, request api.DownloadDA
 }
 
 func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputsRequestObject) (api.GetDAGRunOutputsResponseObject, error) {
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	var err error
 
 	if request.DagRunId == "latest" {
@@ -1339,7 +1339,7 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 	if err := a.requireDAGRunStatusExecute(ctx, dagStatus); err != nil {
 		return nil, err
 	}
-	attempt, err := a.getReferencedDAGRunAttempt(ctx, rootRef, request.SubDAGRunId, dagStatus.Name)
+	attempt, err := a.getReferencedAttempt(ctx, rootRef, request.SubDAGRunId, dagStatus.Name)
 	if err != nil {
 		return &api.ApproveSubDAGRunStep404JSONResponse{
 			Code:    api.ErrorCodeNotFound,
@@ -1518,7 +1518,7 @@ func (a *API) GetSubDAGRunStepMessages(ctx context.Context, request api.GetSubDA
 		}, nil
 	}
 
-	attempt, err := a.getReferencedDAGRunAttempt(ctx, rootRef, request.SubDAGRunId, "")
+	attempt, err := a.getReferencedAttempt(ctx, rootRef, request.SubDAGRunId, "")
 	if err != nil {
 		return api.GetSubDAGRunStepMessages404JSONResponse{
 			Code:    api.ErrorCodeNotFound,
@@ -1659,7 +1659,7 @@ func (a *API) RejectSubDAGRunStep(ctx context.Context, request api.RejectSubDAGR
 	if err := a.requireDAGRunStatusExecute(ctx, dagStatus); err != nil {
 		return nil, err
 	}
-	attempt, err := a.getReferencedDAGRunAttempt(ctx, rootRef, request.SubDAGRunId, dagStatus.Name)
+	attempt, err := a.getReferencedAttempt(ctx, rootRef, request.SubDAGRunId, dagStatus.Name)
 	if err != nil {
 		return &api.RejectSubDAGRunStep404JSONResponse{
 			Code:    api.ErrorCodeNotFound,
@@ -1910,7 +1910,7 @@ func (a *API) PushBackSubDAGRunStep(ctx context.Context, request api.PushBackSub
 	if err := a.requireDAGRunStatusExecute(ctx, dagStatus); err != nil {
 		return nil, err
 	}
-	attempt, err := a.getReferencedDAGRunAttempt(ctx, rootRef, request.SubDAGRunId, dagStatus.Name)
+	attempt, err := a.getReferencedAttempt(ctx, rootRef, request.SubDAGRunId, dagStatus.Name)
 	if err != nil {
 		return &api.PushBackSubDAGRunStep404JSONResponse{
 			Code:    api.ErrorCodeNotFound,
@@ -2145,7 +2145,7 @@ func (a *API) getDAGRunDetailsData(ctx context.Context, dagName, dagRunId string
 func (a *API) loadRootDAGRunDetailsAttemptAndStatus(
 	ctx context.Context,
 	dagName, dagRunId string,
-) (dagrun.DAGRunAttempt, *ir.DAGRunStatus, error) {
+) (dagrun.Attempt, *ir.DAGRunStatus, error) {
 	if dagRunId == "latest" {
 		attempt, err := a.dagRunStore.LatestAttempt(ctx, dagName)
 		if err != nil {
@@ -2256,7 +2256,7 @@ func (a *API) workerIDFromClaim(
 	return lease.WorkerID
 }
 
-func (a *API) toDAGRunDetailsWithSpecSource(ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus) api.DAGRunDetails {
+func (a *API) toDAGRunDetailsWithSpecSource(ctx context.Context, attempt dagrun.Attempt, status ir.DAGRunStatus) api.DAGRunDetails {
 	details := ToDAGRunDetails(status)
 	specFromFile, sourceFileName := a.dagRunSourceInfo(ctx, attempt)
 	details.SpecFromFile = ptrOf(specFromFile)
@@ -2270,7 +2270,7 @@ func (a *API) toDAGRunDetailsWithSpecSource(ctx context.Context, attempt dagrun.
 // It reads from the DAG-run attempt's YamlData field to ensure we return
 // the exact spec used at execution time, not the current spec.
 func (a *API) GetDAGRunSpec(ctx context.Context, request api.GetDAGRunSpecRequestObject) (api.GetDAGRunSpecResponseObject, error) {
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	var err error
 	var notFoundMsg string
 
@@ -2349,7 +2349,7 @@ func (a *API) GetSubDAGRunDetails(ctx context.Context, request api.GetSubDAGRunD
 // GetSubDAGRunSpec returns the YAML spec used for a specific sub-DAG run.
 func (a *API) GetSubDAGRunSpec(ctx context.Context, request api.GetSubDAGRunSpecRequestObject) (api.GetSubDAGRunSpecResponseObject, error) {
 	root := ir.NewDAGRunRef(request.Name, request.DagRunId)
-	attempt, err := a.getReferencedDAGRunAttempt(ctx, root, request.SubDAGRunId, "")
+	attempt, err := a.getReferencedAttempt(ctx, root, request.SubDAGRunId, "")
 	if err != nil {
 		return &api.GetSubDAGRunSpec404JSONResponse{
 			Code:    api.ErrorCodeNotFound,
@@ -2379,7 +2379,7 @@ func (a *API) GetSubDAGRunSpec(ctx context.Context, request api.GetSubDAGRunSpec
 
 // getSpecFromAttempt reads YAML spec from DAG run attempt.
 // Returns spec string and nil error on success, or empty string and error on failure.
-func (a *API) getSpecFromAttempt(ctx context.Context, attempt dagrun.DAGRunAttempt) (string, error) {
+func (a *API) getSpecFromAttempt(ctx context.Context, attempt dagrun.Attempt) (string, error) {
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil || dag == nil || len(dag.YamlData) == 0 {
 		return "", fmt.Errorf("DAG spec not found")
@@ -2862,7 +2862,7 @@ type retryDAGRunResult struct {
 func (a *API) resolveAttemptForDAGRun(
 	ctx context.Context,
 	dagName, dagRunID string,
-) (dagrun.DAGRunAttempt, string, error) {
+) (dagrun.Attempt, string, error) {
 	if dagRunID != "latest" {
 		attempt, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
 		if err != nil {
@@ -3068,7 +3068,7 @@ func retryPathRequestError(err error) error {
 // enqueueRetry enqueues the retry and persists Queued status via queue.EnqueueRetry.
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
-func (a *API) enqueueRetry(ctx context.Context, attempt dagrun.DAGRunAttempt, dag *ir.DAG) error {
+func (a *API) enqueueRetry(ctx context.Context, attempt dagrun.Attempt, dag *ir.DAG) error {
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return fmt.Errorf("error reading status: %w", err)
@@ -3678,7 +3678,7 @@ func (a *API) getReferencedDAGRunStatusWithRef(ctx context.Context, parentRef ir
 	return ref, status, nil
 }
 
-func (a *API) getReferencedDAGRunAttempt(ctx context.Context, parentRef ir.DAGRunRef, subRunID string, dagName string) (dagrun.DAGRunAttempt, error) {
+func (a *API) getReferencedAttempt(ctx context.Context, parentRef ir.DAGRunRef, subRunID string, dagName string) (dagrun.Attempt, error) {
 	attempt, err := a.dagRunStore.FindSubAttempt(ctx, parentRef, subRunID)
 	if err == nil {
 		return attempt, nil
@@ -3731,7 +3731,7 @@ func findDAGNameInSubRuns(subRuns []ir.SubDAGRun, subRunID string) (string, bool
 
 func (a *API) waitForManualStepMutationReady(
 	ctx context.Context,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	status *ir.DAGRunStatus,
 ) (*ir.DAGRunStatus, error) {
 	if status == nil {
@@ -3858,7 +3858,7 @@ func (a *API) resumeDAGRun(ctx context.Context, ref ir.DAGRunRef, dagRunID strin
 }
 
 func (a *API) resumeSubDAGRun(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) error {
-	attempt, err := a.getReferencedDAGRunAttempt(ctx, rootRef, subDAGRunID, "")
+	attempt, err := a.getReferencedAttempt(ctx, rootRef, subDAGRunID, "")
 	if err != nil {
 		return fmt.Errorf("find sub-attempt: %w", err)
 	}
@@ -4380,7 +4380,7 @@ func (a *API) getStepLogData(ctx context.Context, ref ir.DAGRunRef, stepName str
 
 func (a *API) getDAGRunArtifactStatus(ctx context.Context, dagName, dagRunID string) (*ir.DAGRunStatus, error) {
 	var (
-		attempt dagrun.DAGRunAttempt
+		attempt dagrun.Attempt
 		err     error
 	)
 	if dagRunID == "latest" {
@@ -4403,7 +4403,7 @@ func (a *API) getDAGRunArtifactStatus(ctx context.Context, dagName, dagRunID str
 }
 
 func (a *API) getSubDAGRunArtifactStatus(ctx context.Context, dagName, dagRunID, subDAGRunID string) (*ir.DAGRunStatus, error) {
-	attempt, err := a.getReferencedDAGRunAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID), subDAGRunID, "")
+	attempt, err := a.getReferencedAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID), subDAGRunID, "")
 	if err != nil {
 		return nil, err
 	}
@@ -4888,7 +4888,7 @@ func (a *API) loadCurrentRescheduleDAG(ctx context.Context, sourceFile, nameOver
 	return dag, nil
 }
 
-func (a *API) dagRunSourceInfo(ctx context.Context, attempt dagrun.DAGRunAttempt) (specFromFile bool, sourceFileName string) {
+func (a *API) dagRunSourceInfo(ctx context.Context, attempt dagrun.Attempt) (specFromFile bool, sourceFileName string) {
 	if attempt == nil {
 		return false, ""
 	}

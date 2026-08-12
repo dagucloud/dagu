@@ -31,7 +31,7 @@ func TestGetQueueFiltersDistributedRunsByLeaseFreshness(t *testing.T) {
 
 	ctx := context.Background()
 	tmpDir := t.TempDir()
-	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
@@ -63,7 +63,7 @@ func TestGetQueueFallsBackToDAGNameWhenLeaseQueueIsEmpty(t *testing.T) {
 
 	ctx := context.Background()
 	tmpDir := t.TempDir()
-	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
@@ -105,7 +105,7 @@ func TestGetQueueCountsFreshLeaseForClaimedAttemptAsRunning(t *testing.T) {
 
 			ctx := context.Background()
 			tmpDir := t.TempDir()
-			dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
+			dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 			leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 			procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
@@ -141,7 +141,7 @@ func TestGetQueueCountsQueuedItemsSeparatelyFromRunningItems(t *testing.T) {
 
 	ctx := context.Background()
 	tmpDir := t.TempDir()
-	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
@@ -174,7 +174,7 @@ func TestListQueueItemsUsesCursorPaginationAndSkipsRunningEntries(t *testing.T) 
 
 	ctx := context.Background()
 	tmpDir := t.TempDir()
-	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 
@@ -249,7 +249,7 @@ func TestListQueuesReturnsDeterministicQueueOrder(t *testing.T) {
 func createDistributedQueueRun(
 	t *testing.T,
 	ctx context.Context,
-	store dagrun.DAGRunStore,
+	store *dagrun.Repository,
 	leaseStore dispatch.DAGRunLeaseStore,
 	name string,
 	dagRunID string,
@@ -263,7 +263,7 @@ func createDistributedQueueRun(
 func createDistributedQueueRunWithStatus(
 	t *testing.T,
 	ctx context.Context,
-	store dagrun.DAGRunStore,
+	store *dagrun.Repository,
 	leaseStore dispatch.DAGRunLeaseStore,
 	name string,
 	dagRunID string,
@@ -280,7 +280,7 @@ func createDistributedQueueRunWithStatus(
 		},
 	}
 
-	attempt, err := store.CreateAttempt(ctx, dag, time.Now().UTC(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now().UTC(), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	defer func() {
@@ -324,7 +324,7 @@ func createDistributedQueueRunWithStatus(
 func createQueuedQueueRun(
 	t *testing.T,
 	ctx context.Context,
-	store dagrun.DAGRunStore,
+	store *dagrun.Repository,
 	queueStore queue.QueueStore,
 	name string,
 	dagRunID string,
@@ -339,7 +339,7 @@ func createQueuedQueueRun(
 		},
 	}
 
-	attempt, err := store.CreateAttempt(ctx, dag, time.Now().UTC(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now().UTC(), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	defer func() {

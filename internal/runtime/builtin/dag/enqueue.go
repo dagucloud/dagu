@@ -281,7 +281,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}, nil
 }
 
-func (e *enqueueExecutor) outputFromExisting(ctx context.Context, attempt dagrun.DAGRunAttempt, dagName string, params executor.RunParams, queueName string) enqueueRunOutput {
+func (e *enqueueExecutor) outputFromExisting(ctx context.Context, attempt dagrun.Attempt, dagName string, params executor.RunParams, queueName string) enqueueRunOutput {
 	statusText := ir.Queued.String()
 	if status, err := attempt.ReadStatus(ctx); err == nil && status != nil {
 		statusText = status.Status.String()

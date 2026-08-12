@@ -59,7 +59,7 @@ type Context struct {
 
 	EventService              *eventstore.Service
 	EventSourceInstance       string
-	DAGRunStore               dagrun.DAGRunStore
+	DAGRunStore               *dagrun.Repository
 	DAGRunMgr                 runtime.Manager
 	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore
@@ -315,7 +315,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	}
 
 	// Initialize history repository and history manager
-	hrOpts := []file.DAGRunStoreOption{}
+	hrOpts := []file.DAGRunRepositoryOption{}
 
 	switch cmd.Name() {
 	case "server", "scheduler", "start-all", "coordinator":
@@ -330,7 +330,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	if err := ps.Validate(ctx); err != nil {
 		return nil, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
 	}
-	drs := file.NewDAGRunStore(cfg, hrOpts...)
+	drs := file.NewDAGRunRepository(cfg, hrOpts...)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
 	// Lease and active-run stores use CompareAndSwap-based optimistic
 	// concurrency, so plain collections suffice — the previous lockRoot
@@ -770,7 +770,7 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 		return fmt.Errorf("DAG and dag-run ID are required to record failure")
 	}
 
-	// 1. Check if a DAGRunAttempt already exists for the given run-id.
+	// 1. Check whether an attempt already exists for the run ID.
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 	attempt, findErr := c.DAGRunStore.FindAttempt(c, ref)
 	if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
@@ -779,7 +779,7 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 
 	if attempt == nil {
 		// 2. Create the attempt if not exists
-		att, createErr := c.DAGRunStore.CreateAttempt(c, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+		att, createErr := c.DAGRunStore.CreateAttempt(c, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 		if createErr != nil {
 			return fmt.Errorf("failed to create run to record failure: %w", createErr)
 		}

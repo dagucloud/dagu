@@ -42,7 +42,7 @@ type Collector struct {
 	startTime            time.Time
 	version              string
 	dagRepository        dagLister
-	dagRunStore          dagrun.DAGRunStore
+	dagRunStore          *dagrun.Repository
 	queueStore           queue.QueueStore
 	serviceRegistry      serviceregistry.ServiceRegistry
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore
@@ -88,7 +88,7 @@ type dagLister interface {
 func NewCollector(
 	version string,
 	dagRepository dagLister,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunStore *dagrun.Repository,
 	queueStore queue.QueueStore,
 	serviceRegistry serviceregistry.ServiceRegistry,
 ) *Collector {

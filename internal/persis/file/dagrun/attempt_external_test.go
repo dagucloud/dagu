@@ -22,11 +22,11 @@ import (
 func TestAttemptCloseKeepsSingleStatusFile(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	store := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "single-status-close"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
@@ -57,11 +57,11 @@ func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	store := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "runtime-conditions"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	defer func() {
@@ -104,11 +104,11 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	store := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "conditions-return"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-conditions", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-conditions", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	closed := false

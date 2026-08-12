@@ -20,11 +20,11 @@ import (
 func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	store := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "latest-pointer"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
@@ -72,11 +72,11 @@ func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
 func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 	ctx := context.Background()
 	baseDir := b.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	store := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "latest-pointer-bench"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.CreateAttemptOptions{})
 	require.NoError(b, err)
 	require.NoError(b, attempt.Open(ctx))
 	require.NoError(b, attempt.Write(ctx, ir.DAGRunStatus{

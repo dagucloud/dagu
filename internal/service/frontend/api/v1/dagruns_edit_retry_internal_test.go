@@ -275,7 +275,7 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 	tmpDir := t.TempDir()
 	api, dag := setupEditRetryAPI(t, tmpDir, editRetrySourceYAML())
 
-	attempt, err := api.dagRunStore.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), "source-run", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := api.dagRunStore.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), "source-run", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	sourceWorkDir := attempt.WorkDir()
 	sourceOutputPath := filepath.Join(sourceWorkDir, "result.txt")
@@ -427,7 +427,7 @@ func setupEditRetryAPI(t *testing.T, tmpDir string, yamlContent string) (*API, *
 	dag, err := spec.LoadYAML(context.Background(), []byte(yamlContent))
 	require.NoError(t, err)
 
-	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
+	dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	api := &API{
 		dagRunStore: dagRunStore,
 		config: &config.Config{
@@ -450,7 +450,7 @@ func setupEditRetryAPI(t *testing.T, tmpDir string, yamlContent string) (*API, *
 func seedEditRetrySourceAttempt(
 	t *testing.T,
 	ctx context.Context,
-	store dagrun.DAGRunStore,
+	store *dagrun.Repository,
 	dag *ir.DAG,
 	dagRunID string,
 ) {
@@ -461,13 +461,13 @@ func seedEditRetrySourceAttempt(
 func seedEditRetrySourceAttemptWithProfileName(
 	t *testing.T,
 	ctx context.Context,
-	store dagrun.DAGRunStore,
+	store *dagrun.Repository,
 	dag *ir.DAG,
 	dagRunID string,
 	profileName string,
 ) {
 	t.Helper()
-	attempt, err := store.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	opts := []ir.StatusOption{
@@ -507,13 +507,13 @@ func seedEditRetrySourceAttemptWithProfileName(
 func seedEditRetrySkippedSourceAttempt(
 	t *testing.T,
 	ctx context.Context,
-	store dagrun.DAGRunStore,
+	store *dagrun.Repository,
 	dag *ir.DAG,
 	dagRunID string,
 ) {
 	t.Helper()
 
-	attempt, err := store.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	status := ir.NewStatusBuilder(dag).Create(
@@ -545,13 +545,13 @@ func seedEditRetrySkippedSourceAttempt(
 func seedEditRetrySourceAttemptWithParams(
 	t *testing.T,
 	ctx context.Context,
-	store dagrun.DAGRunStore,
+	store *dagrun.Repository,
 	dag *ir.DAG,
 	dagRunID string,
 ) {
 	t.Helper()
 
-	attempt, err := store.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	status := ir.NewStatusBuilder(dag).Create(

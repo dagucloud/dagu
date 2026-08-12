@@ -21,7 +21,7 @@ import (
 // QueueRequest describes a DAG-run intake operation that persists a queued
 // attempt before publishing the queue item.
 type QueueRequest struct {
-	DAGRunStore dagrun.DAGRunStore
+	DAGRunStore *dagrun.Repository
 	QueueStore  queue.QueueStore
 	DAG         *ir.DAG
 	DAGRunID    string
@@ -39,7 +39,7 @@ type QueueRequest struct {
 	ProfileName  string
 	NoReuse      bool
 
-	AttemptOptions dagrun.NewDAGRunAttemptOptions
+	AttemptOptions dagrun.CreateAttemptOptions
 
 	// ProceedOnStatusCloseErr preserves legacy CLI enqueue behavior: publish
 	// the queue item after best-effort close so readers can see the queued status.
@@ -51,7 +51,7 @@ type QueueRequest struct {
 // QueuedRun is the result of successful DAG-run queue intake.
 type QueuedRun struct {
 	DAGRun      ir.DAGRunRef
-	Attempt     dagrun.DAGRunAttempt
+	Attempt     dagrun.Attempt
 	Status      ir.DAGRunStatus
 	QueueName   string
 	LogFile     string
@@ -201,7 +201,7 @@ type queuedStatusWriteResult struct {
 	closeErr error
 }
 
-func writeQueuedStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus, proceedOnCloseErr bool) (queuedStatusWriteResult, error) {
+func writeQueuedStatus(ctx context.Context, attempt dagrun.Attempt, status ir.DAGRunStatus, proceedOnCloseErr bool) (queuedStatusWriteResult, error) {
 	if err := attempt.Open(ctx); err != nil {
 		return queuedStatusWriteResult{}, fmt.Errorf("failed to open queued DAG run: %w", err)
 	}

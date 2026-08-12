@@ -34,7 +34,7 @@ type EnqueueRetryOptions struct {
 // call added the queue item.
 func EnqueueRetry(
 	ctx context.Context,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunStore *dagrun.Repository,
 	queueStore QueueStore,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
@@ -112,7 +112,7 @@ func EnqueueRetry(
 
 func rollbackQueuedRetry(
 	ctx context.Context,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunStore *dagrun.Repository,
 	dagRun ir.DAGRunRef,
 	queued *ir.DAGRunStatus,
 	original *ir.DAGRunStatus,

@@ -248,7 +248,7 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 	current.Nodes[1].HumanTaskInput = json.RawMessage(`{"confirmed":true}`)
 
 	store := &manualCASStore{status: current}
-	a := &API{dagRunStore: store}
+	a := &API{dagRunStore: dagrun.NewRepository(store, dagrun.RepositoryOptions{})}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.NoError(t, a.rollbackPushBack(ctx, current.DAGRun(), applied, original))
@@ -260,12 +260,12 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 }
 
 type manualCASStore struct {
-	dagrun.DAGRunStore
+	dagrun.Store
 	status *ir.DAGRunStatus
 }
 
 type manualStepAttempt struct {
-	dagrun.DAGRunAttempt
+	dagrun.Attempt
 	dag      *ir.DAG
 	statuses []*ir.DAGRunStatus
 	reads    int
@@ -295,36 +295,33 @@ func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunR
 }
 
 type failingManualCASStore struct {
-	dagrun.DAGRunStore
-	err error
+	dagrun.Store
+	base *dagrun.Repository
+	err  error
 }
 
 func (s *failingManualCASStore) CompareAndSwapLatestAttemptStatus(
 	context.Context,
-	ir.DAGRunRef,
-	string,
-	ir.Status,
-	func(*ir.DAGRunStatus) error,
-	...dagrun.CompareAndSwapStatusOption,
+	dagrun.CompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	return nil, false, s.err
 }
 
+func (s *failingManualCASStore) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error) {
+	return s.base.FindAttempt(ctx, ref)
+}
+
 func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	_ ir.DAGRunRef,
-	expectedAttemptID string,
-	expectedStatus ir.Status,
-	mutate func(*ir.DAGRunStatus) error,
-	_ ...dagrun.CompareAndSwapStatusOption,
+	req dagrun.CompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
+	if s.status.AttemptID != req.ExpectedAttemptID || s.status.Status != req.ExpectedStatus {
 		return s.status, false, nil
 	}
-	if err := mutate(s.status); err != nil {
+	if err := req.Mutate(s.status); err != nil {
 		return nil, false, err
 	}
 	return s.status, true, nil
@@ -411,7 +408,7 @@ func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
 
 func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T) {
 	ctx := t.Context()
-	store := filedagrun.New(t.TempDir())
+	store := filedagrun.NewRepository(t.TempDir(), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := &ir.DAG{
 		Name: "approval-write-failure",
 		Steps: []ir.Step{{
@@ -419,7 +416,7 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 			Approval: &ir.ApprovalConfig{Prompt: "Approve"},
 		}},
 	}
-	attempt, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	status := ir.InitialStatus(dag)
 	status.DAGRunID = "run-1"
@@ -432,13 +429,14 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 	require.NoError(t, attempt.Close(ctx))
 
 	writeErr := errors.New("status store unavailable")
-	failingStore := &failingManualCASStore{DAGRunStore: store, err: writeErr}
+	failingStore := &failingManualCASStore{base: store, err: writeErr}
+	repository := dagrun.NewRepository(failingStore, dagrun.RepositoryOptions{})
 	cfg := &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
 		config.PermissionRunDAGs: true,
 	}}}
 	a := &API{
-		dagRunStore: failingStore,
-		dagRunMgr:   runtimepkg.NewManager(failingStore, nil, cfg),
+		dagRunStore: repository,
+		dagRunMgr:   runtimepkg.NewManager(repository, nil, cfg),
 		procStore:   &manualStepProcStore{},
 		config:      cfg,
 	}
@@ -721,7 +719,7 @@ func TestDAGRunListOptionsFromQueryStringParsesMultipleStatuses(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	var applied dagrun.ListDAGRunStatusesOptions
+	var applied dagrun.StatusQuery
 	for _, opt := range opts.query {
 		opt(&applied)
 	}
@@ -751,61 +749,20 @@ func TestDAGRunListOptionsFromQueryStringRejectsInvalidStatuses(t *testing.T) {
 	require.Contains(t, apiErr.Message, "invalid status parameter")
 }
 
-var _ dagrun.DAGRunStore = (*blockingDAGRunStore)(nil)
-
-type blockingDAGRunStore struct{}
-
-func (blockingDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
-	panic("not implemented")
+type blockingDAGRunStore struct {
+	dagrun.Store
 }
 
-func (blockingDAGRunStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
-	panic("not implemented")
-}
-
-func (blockingDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAttempt, error) {
-	panic("not implemented")
-}
-
-func (blockingDAGRunStore) ListStatuses(ctx context.Context, _ ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
-	<-ctx.Done()
-	return nil, ctx.Err()
-}
-
-func (blockingDAGRunStore) ListStatusesPage(ctx context.Context, _ ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
+func (blockingDAGRunStore) QueryStatuses(ctx context.Context, _ dagrun.StatusQuery) (dagrun.DAGRunStatusPage, error) {
 	<-ctx.Done()
 	return dagrun.DAGRunStatusPage{}, ctx.Err()
-}
-
-func (blockingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*ir.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*ir.DAGRunStatus, bool, error) {
-	panic("not implemented")
-}
-
-func (blockingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
-	panic("not implemented")
-}
-
-func (blockingDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	panic("not implemented")
-}
-
-func (blockingDAGRunStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	panic("not implemented")
-}
-
-func (blockingDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
-	panic("not implemented")
-}
-
-func (blockingDAGRunStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
-	panic("not implemented")
 }
 
 func TestAPIListDAGRunsReturnsGatewayTimeoutWhenReadDeadlineExpires(t *testing.T) {
 	t.Parallel()
 
 	api := &API{
-		dagRunStore: blockingDAGRunStore{},
+		dagRunStore: dagrun.NewRepository(blockingDAGRunStore{}, dagrun.RepositoryOptions{}),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
@@ -835,7 +792,7 @@ func TestDAGRunListOptionsFromQueryStringIncludesWorkspaceFilter(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		var listOpts dagrun.ListDAGRunStatusesOptions
+		var listOpts dagrun.StatusQuery
 		for _, opt := range opts.query {
 			opt(&listOpts)
 		}
@@ -855,7 +812,7 @@ func TestDAGRunListOptionsFromQueryStringIncludesWorkspaceFilter(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		var listOpts dagrun.ListDAGRunStatusesOptions
+		var listOpts dagrun.StatusQuery
 		for _, opt := range opts.query {
 			opt(&listOpts)
 		}
@@ -875,7 +832,7 @@ func TestDAGRunListOptionsFromQueryStringIncludesWorkspaceFilter(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		var listOpts dagrun.ListDAGRunStatusesOptions
+		var listOpts dagrun.StatusQuery
 		for _, opt := range opts.query {
 			opt(&listOpts)
 		}
@@ -885,10 +842,10 @@ func TestDAGRunListOptionsFromQueryStringIncludesWorkspaceFilter(t *testing.T) {
 }
 
 type blockingLatestAttemptStore struct {
-	blockingDAGRunStore
+	dagrun.Store
 }
 
-func (blockingLatestAttemptStore) LatestAttempt(ctx context.Context, _ string) (dagrun.DAGRunAttempt, error) {
+func (blockingLatestAttemptStore) LatestAttempt(ctx context.Context, _ dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
@@ -913,7 +870,7 @@ func TestGetDAGRunDetailsReturnsClientClosedRequestWhenReadCanceled(t *testing.T
 	t.Parallel()
 
 	api := &API{
-		dagRunStore: blockingLatestAttemptStore{},
+		dagRunStore: dagrun.NewRepository(blockingLatestAttemptStore{}, dagrun.RepositoryOptions{}),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

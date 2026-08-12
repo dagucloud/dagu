@@ -50,15 +50,11 @@ func boundedWaitTimeout(t *testing.T, want time.Duration) time.Duration {
 func waitForDAGRunning(t *testing.T, th test.Command, dagLocation string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		attempts := th.DAGRunStore.RecentAttempts(th.Context, dagLocation, 1)
-		if len(attempts) < 1 {
+		statuses := th.DAGRunStore.RecentStatuses(th.Context, dagLocation, 1)
+		if len(statuses) < 1 {
 			return false
 		}
-		status, err := attempts[0].ReadStatus(th.Context)
-		if err != nil {
-			return false
-		}
-		return status.Status == ir.Running
+		return statuses[0].Status == ir.Running
 	}, boundedWaitTimeout(t, time.Minute), time.Millisecond*50)
 }
 
@@ -115,7 +111,7 @@ func TestStatusCommand(t *testing.T) {
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
@@ -228,7 +224,7 @@ steps:
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
@@ -409,7 +405,7 @@ steps:
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
@@ -468,7 +464,7 @@ steps:
 		require.NoError(t, err)
 
 		parentRef := ir.NewDAGRunRef(dagFile.Location, parentRunID)
-		var parentAttempt dagrun.DAGRunAttempt
+		var parentAttempt dagrun.Attempt
 		require.Eventually(t, func() bool {
 			var err error
 			parentAttempt, err = th.DAGRunStore.FindAttempt(th.Context, parentRef)

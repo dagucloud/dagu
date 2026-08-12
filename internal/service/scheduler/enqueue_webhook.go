@@ -21,7 +21,7 @@ import (
 // runtime-param semantics as direct webhook execution.
 func EnqueueWebhookRun(
 	ctx context.Context,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunStore *dagrun.Repository,
 	queueStore queuedomain.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,

@@ -111,7 +111,7 @@ steps:
 `)
 
 		runID := "queued-catchup-run"
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		scheduleTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
@@ -153,7 +153,7 @@ steps:
 `)
 
 		runID := "queued-retry-run"
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queued-retry-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -203,7 +203,7 @@ steps:
 
 		runID := "queued-retry-live-source-run"
 		startedAt := time.Now().Add(-time.Minute)
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, startedAt, runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, startedAt, runID, dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queued-retry-live-source-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -272,7 +272,7 @@ steps:
 `)
 
 		runID := "queue-dispatch-run"
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -313,7 +313,7 @@ steps:
 `)
 
 		runID := "queue-dispatch-retry-run"
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-retry-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -574,7 +574,7 @@ steps:
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, retriedStatus, "RESULT"))
 }
 
-func writeStatus(t *testing.T, ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus) {
+func writeStatus(t *testing.T, ctx context.Context, attempt dagrun.Attempt, status ir.DAGRunStatus) {
 	t.Helper()
 
 	require.NoError(t, attempt.Open(ctx))

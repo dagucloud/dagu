@@ -33,6 +33,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -120,7 +121,7 @@ func WithConfigMutator(mutator func(*config.Config)) HelperOption {
 	}
 }
 
-// WithStatusPersistence enables status persistence via DAGRunStore on the coordinator handler.
+// WithStatusPersistence enables status persistence through the coordinator's DAG-run repository.
 // Use this for testing remote status pushing from workers.
 func WithStatusPersistence() HelperOption {
 	return func(opts *Options) {
@@ -283,7 +284,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 
 	dagRepository, err := file.NewDAGRepository(cfg, file.WithDAGSkipExamples(true))
 	require.NoError(t, err)
-	runStore := file.NewDAGRunStore(cfg)
+	runStore := file.NewDAGRunRepository(cfg)
 	procStore := newProcStore(cfg)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
@@ -518,7 +519,7 @@ type Helper struct {
 	ChildEnv                  []string
 	LoggingOutput             *SyncBuffer
 	DAGRepository             *persis.DAGRepository
-	DAGRunStore               dagrun.DAGRunStore
+	DAGRunStore               *dagrun.Repository
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore
@@ -725,7 +726,7 @@ func (d *DAG) ReadOutputs(t *testing.T) map[string]string {
 		if err != nil {
 			return err
 		}
-		if info.Name() == file.DAGRunOutputsFileName {
+		if info.Name() == filedagrun.OutputsFile {
 			outputsPath = path
 			return filepath.SkipAll
 		}

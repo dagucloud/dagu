@@ -32,7 +32,7 @@ func panicToError(r any) error {
 
 // ZombieDetector finds and cleans up zombie DAG runs
 type ZombieDetector struct {
-	dagRunStore      dagrun.DAGRunStore
+	dagRunStore      *dagrun.Repository
 	procStore        proc.ProcStore
 	interval         time.Duration
 	failureThreshold int
@@ -45,7 +45,7 @@ type ZombieDetector struct {
 
 // NewZombieDetector creates a new zombie detector
 func NewZombieDetector(
-	dagRunStore dagrun.DAGRunStore,
+	dagRunStore *dagrun.Repository,
 	procStore proc.ProcStore,
 	interval time.Duration,
 	failureThreshold int,
@@ -117,7 +117,7 @@ func (z *ZombieDetector) clearAttemptState(attemptKey string) {
 	delete(z.staleCounters, attemptKey)
 }
 
-func (z *ZombieDetector) findAttempt(ctx context.Context, entry proc.ProcEntry) (dagrun.DAGRunAttempt, error) {
+func (z *ZombieDetector) findAttempt(ctx context.Context, entry proc.ProcEntry) (dagrun.Attempt, error) {
 	if entry.IsRoot() {
 		return z.dagRunStore.FindAttempt(ctx, entry.Meta.DAGRun())
 	}

@@ -349,7 +349,7 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		ctx: &Context{
 			Context:     t.Context(),
 			Command:     command,
-			DAGRunStore: store,
+			DAGRunStore: dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
 			QueueStore:  queue,
 			ProcStore:   humanTaskCompletionProcStore{},
 		},
@@ -384,7 +384,7 @@ func humanTaskTestForm() json.RawMessage {
 }
 
 type humanTaskCompletionAttempt struct {
-	dagrun.DAGRunAttempt
+	dagrun.Attempt
 	dag    *ir.DAG
 	status *ir.DAGRunStatus
 }
@@ -414,35 +414,30 @@ func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, ir.D
 }
 
 type humanTaskCompletionStore struct {
-	dagrun.DAGRunStore
+	dagrun.Store
 	attempt      *humanTaskCompletionAttempt
 	status       *ir.DAGRunStatus
 	beforeMutate func()
 }
 
-func (s *humanTaskCompletionStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *humanTaskCompletionStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	return s.attempt, nil
 }
 
 func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	_ ir.DAGRunRef,
-	expectedAttemptID string,
-	expectedStatus ir.Status,
-	mutate func(*ir.DAGRunStatus) error,
-	opts ...dagrun.CompareAndSwapStatusOption,
+	req dagrun.CompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
-	options := dagrun.NewCompareAndSwapStatusOptions(opts...)
 	if s.beforeMutate != nil {
 		s.beforeMutate()
 	}
-	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
+	if s.status.AttemptID != req.ExpectedAttemptID || s.status.Status != req.ExpectedStatus {
 		return s.status, false, nil
 	}
-	if options.ExpectedAttemptKey != "" && s.status.AttemptKey != options.ExpectedAttemptKey {
+	if req.ExpectedAttemptKey != "" && s.status.AttemptKey != req.ExpectedAttemptKey {
 		return s.status, false, nil
 	}
-	if err := mutate(s.status); err != nil {
+	if err := req.Mutate(s.status); err != nil {
 		return nil, false, err
 	}
 	return s.status, true, nil

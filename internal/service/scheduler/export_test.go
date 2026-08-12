@@ -24,7 +24,7 @@ func NewWithHooksForTest(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunStore *dagrun.Repository,
 	queueStore queuedomain.QueueStore,
 	procStore procdomain.ProcStore,
 	reg serviceregistry.ServiceRegistry,

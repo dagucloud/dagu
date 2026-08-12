@@ -29,7 +29,7 @@ func TestPrepareLocalExecutionAcquiresProcWithPreparedAttempt(t *testing.T) {
 		DAGRunID:    "run-1",
 		Root:        root,
 		TriggerType: ir.TriggerTypeManual,
-		BuildAttempt: func(context.Context) (dagrun.DAGRunAttempt, error) {
+		BuildAttempt: func(context.Context) (dagrun.Attempt, error) {
 			return attempt, nil
 		},
 	})
@@ -62,7 +62,7 @@ func TestPrepareLocalExecutionRecordsFailedStatusWhenProcAcquireFails(t *testing
 		DAG:         dag,
 		DAGRunID:    "run-1",
 		TriggerType: ir.TriggerTypeManual,
-		BuildAttempt: func(context.Context) (dagrun.DAGRunAttempt, error) {
+		BuildAttempt: func(context.Context) (dagrun.Attempt, error) {
 			return attempt, nil
 		},
 	})
@@ -93,7 +93,7 @@ func TestPrepareLocalExecutionReturnsFailureRecordingErrorWhenRecordFails(t *tes
 		DAG:         dag,
 		DAGRunID:    "run-1",
 		TriggerType: ir.TriggerTypeManual,
-		BuildAttempt: func(context.Context) (dagrun.DAGRunAttempt, error) {
+		BuildAttempt: func(context.Context) (dagrun.Attempt, error) {
 			return attempt, nil
 		},
 	})

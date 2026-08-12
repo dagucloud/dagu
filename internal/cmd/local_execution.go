@@ -24,7 +24,7 @@ type runOptions struct {
 	profileName     string
 	step            string
 	retryPath       dagrun.RetryPath
-	preparedAttempt dagrun.DAGRunAttempt
+	preparedAttempt dagrun.Attempt
 	noReuse         bool
 }
 
@@ -33,8 +33,8 @@ func withPreparedLocalExecution(
 	dag *ir.DAG,
 	dagRunID string,
 	opts runOptions,
-	buildAttempt func(context.Context) (dagrun.DAGRunAttempt, error),
-	run func(dagrun.DAGRunAttempt) error,
+	buildAttempt func(context.Context) (dagrun.Attempt, error),
+	run func(dagrun.Attempt) error,
 ) error {
 	prepared, err := intake.PrepareLocalExecution(ctx.Context, intake.LocalRequest{
 		ProcStore:       ctx.ProcStore,

@@ -89,7 +89,7 @@ var (
 )
 
 type preparedDispatchAttempt struct {
-	attempt      dagrun.DAGRunAttempt
+	attempt      dagrun.Attempt
 	newlyCreated bool
 }
 
@@ -114,7 +114,7 @@ type Handler struct {
 	dispatchPollMaxWait     time.Duration
 
 	// Optional worker runtime services.
-	dagRunStore               dagrun.DAGRunStore                 // For status persistence
+	dagRunStore               *dagrun.Repository                 // For status persistence
 	logDir                    string                             // For log storage
 	artifactDir               string                             // For artifact storage
 	stateStore                dagrun.StateStore                  // For persistent DAG state shared across DAG runs
@@ -129,7 +129,7 @@ type Handler struct {
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
-	openAttempts map[string]dagrun.DAGRunAttempt // dagRunID -> open attempt
+	openAttempts map[string]dagrun.Attempt // dagRunID -> open attempt
 
 	// Per-run mutexes to prevent concurrent access to the same DAG run
 	// This prevents races between ReportStatus and markRunFailed
@@ -153,9 +153,9 @@ type Handler struct {
 
 // HandlerConfig holds configuration for creating a Handler.
 type HandlerConfig struct {
-	// DAGRunStore is the storage backend for DAG run status persistence.
+	// DAGRunStore provides application access to persisted DAG-run statuses.
 	// Required for worker status reporting.
-	DAGRunStore dagrun.DAGRunStore
+	DAGRunStore *dagrun.Repository
 
 	// LogDir is the directory for streamed worker log storage.
 	// Required for worker log streaming.
@@ -242,7 +242,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		dispatchWakeCh:            make(chan struct{}),
 		dispatchPollInitialWait:   defaultDispatchPollInitialWait,
 		dispatchPollMaxWait:       defaultDispatchPollMaxWait,
-		openAttempts:              make(map[string]dagrun.DAGRunAttempt),
+		openAttempts:              make(map[string]dagrun.Attempt),
 		runMutexes:                make(map[string]*sync.Mutex),
 		owner:                     cfg.Owner,
 		dagRunStore:               cfg.DAGRunStore,
@@ -580,7 +580,7 @@ func (h *Handler) finalizeAdmissionForStatus(ctx context.Context, status *ir.DAG
 	}
 }
 
-func (h *Handler) finalizeAdmissionForAttempt(ctx context.Context, attempt dagrun.DAGRunAttempt) {
+func (h *Handler) finalizeAdmissionForAttempt(ctx context.Context, attempt dagrun.Attempt) {
 	if h.dispatchAdmissionStore == nil || attempt == nil {
 		return
 	}
@@ -705,7 +705,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 
 	// Create new attempt (either first attempt or retry)
 	isRetry := task.Operation == coordinatorv1.Operation_OPERATION_RETRY || findErr == nil
-	opts := dagrun.NewDAGRunAttemptOptions{Retry: isRetry}
+	opts := dagrun.CreateAttemptOptions{Retry: isRetry}
 
 	attempt, err := h.dagRunStore.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, opts)
 	if err != nil {
@@ -792,11 +792,12 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 	labels := labelsForInitialStatus(task, dag)
 	task.Labels = strings.Join(labels, ",")
 
-	attempt, err := h.dagRunStore.CreateSubAttempt(ctx, rootRef, task.DagRunId)
+	attempt, err := h.dagRunStore.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, dagrun.CreateAttemptOptions{
+		RootDAGRun: &rootRef,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sub-attempt: %w", err)
 	}
-	attempt.SetDAG(dag)
 
 	task.AttemptId = attempt.ID()
 	task.AttemptKey = ir.GenerateAttemptKey(
@@ -829,7 +830,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 
 // writeInitialStatus writes an initial NotStarted status to the attempt.
 // This ensures the status file is not empty when read before the worker reports its first status.
-func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, task *coordinatorv1.Task, dagName string, root ir.DAGRunRef, labels []string) error {
+func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt, task *coordinatorv1.Task, dagName string, root ir.DAGRunRef, labels []string) error {
 	initialStatus := ir.DAGRunStatus{
 		Name:         dagName,
 		DAGRunID:     task.DagRunId,
@@ -1004,7 +1005,7 @@ func (h *Handler) markPreparedAttemptDispatchFailed(ctx context.Context, task *c
 	)
 }
 
-func (h *Handler) releasePreparedDispatchAttempt(ctx context.Context, dagRunID string, attempt dagrun.DAGRunAttempt) {
+func (h *Handler) releasePreparedDispatchAttempt(ctx context.Context, dagRunID string, attempt dagrun.Attempt) {
 	if attempt == nil {
 		return
 	}
@@ -1469,7 +1470,7 @@ func (h *Handler) refreshLeaseForRunningTask(ctx context.Context, workerID strin
 	}
 }
 
-func (h *Handler) getOrOpenAttemptForRunningTask(ctx context.Context, task *coordinatorv1.RunningTask) (dagrun.DAGRunAttempt, error) {
+func (h *Handler) getOrOpenAttemptForRunningTask(ctx context.Context, task *coordinatorv1.RunningTask) (dagrun.Attempt, error) {
 	if task == nil {
 		return nil, fmt.Errorf("running task is nil")
 	}
@@ -1862,7 +1863,7 @@ func equalOptionalString(left, right *string) bool {
 func (h *Handler) closeCachedWaitingAttempt(
 	ctx context.Context,
 	status *ir.DAGRunStatus,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 ) {
 	if status == nil || attempt == nil || status.Status != ir.Waiting {
 		return
@@ -1876,7 +1877,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 	sourceFile string,
 	runStatus *ir.DAGRunStatus,
 	resolveErr error,
-) (dagrun.DAGRunAttempt, bool, error) {
+) (dagrun.Attempt, bool, error) {
 	if !errors.Is(resolveErr, dagrun.ErrDAGRunIDNotFound) || runStatus == nil {
 		return nil, false, nil
 	}
@@ -1912,11 +1913,13 @@ func (h *Handler) bootstrapMissingSubAttempt(
 		return nil, false, nil
 	}
 
-	attempt, err := h.dagRunStore.CreateSubAttempt(ctx, rootRef, runStatus.DAGRunID)
+	dag := &ir.DAG{Name: runStatus.Name, SourceFile: sourceFile}
+	attempt, err := h.dagRunStore.CreateAttempt(ctx, dag, time.Now(), runStatus.DAGRunID, dagrun.CreateAttemptOptions{
+		RootDAGRun: &rootRef,
+	})
 	if err != nil {
 		return nil, false, fmt.Errorf("create sub-attempt: %w", err)
 	}
-	attempt.SetDAG(&ir.DAG{Name: runStatus.Name, SourceFile: sourceFile})
 	if err := attempt.Open(ctx); err != nil {
 		return nil, false, fmt.Errorf("open sub-attempt: %w", err)
 	}
@@ -1965,7 +1968,7 @@ func remoteWorkerIDForBootstrap(runStatus *ir.DAGRunStatus, fallbackWorkerID str
 
 func (h *Handler) sameAttemptCancellationRequested(
 	ctx context.Context,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	latest *ir.DAGRunStatus,
 	incoming *ir.DAGRunStatus,
 ) bool {
@@ -2061,7 +2064,7 @@ func (h *Handler) transformLogPaths(status *ir.DAGRunStatus) {
 // transformArtifactPaths rewrites worker-local artifact directories to coordinator paths.
 func (h *Handler) transformArtifactPaths(
 	ctx context.Context,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	latestStatus *ir.DAGRunStatus,
 	incoming *ir.DAGRunStatus,
 ) error {
@@ -2126,7 +2129,7 @@ func (h *Handler) transformArtifactPaths(
 
 // persistChatMessages writes chat messages from status to the attempt.
 // Errors are logged but don't fail the status update since messages are auxiliary data.
-func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.DAGRunAttempt, status *ir.DAGRunStatus) {
+func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.Attempt, status *ir.DAGRunStatus) {
 	// Helper to persist messages for a single node
 	persistNode := func(node *ir.Node, fallbackName string) {
 		if node == nil || len(node.ChatMessages) == 0 {
@@ -2161,9 +2164,9 @@ func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.DAGRun
 
 // getOrOpenAttempt retrieves an open attempt from cache or opens a new one.
 // Uses double-check locking to avoid holding the mutex during blocking I/O.
-func (h *Handler) getOrOpenAttempt(ctx context.Context, dagName, dagRunID string) (dagrun.DAGRunAttempt, error) {
+func (h *Handler) getOrOpenAttempt(ctx context.Context, dagName, dagRunID string) (dagrun.Attempt, error) {
 	ref := ir.DAGRunRef{Name: dagName, ID: dagRunID}
-	return h.getOrOpenAttemptWithFinder(ctx, dagRunID, func() (dagrun.DAGRunAttempt, error) {
+	return h.getOrOpenAttemptWithFinder(ctx, dagRunID, func() (dagrun.Attempt, error) {
 		return h.dagRunStore.FindAttempt(ctx, ref)
 	})
 }
@@ -2172,13 +2175,13 @@ func (h *Handler) resolveLatestAttempt(
 	ctx context.Context,
 	dagName, dagRunID string,
 	rootRef ir.DAGRunRef,
-) (dagrun.DAGRunAttempt, *ir.DAGRunStatus, error) {
+) (dagrun.Attempt, *ir.DAGRunStatus, error) {
 	if h.dagRunStore == nil {
 		return nil, nil, dagrun.ErrDAGRunIDNotFound
 	}
 
 	var (
-		attempt dagrun.DAGRunAttempt
+		attempt dagrun.Attempt
 		err     error
 	)
 	if rootRef.ID != "" && rootRef.ID != dagRunID {
@@ -2200,7 +2203,7 @@ func (h *Handler) resolveLatestAttempt(
 	return attempt, runStatus, nil
 }
 
-func (h *Handler) resolveLatestAttemptForRunningTask(ctx context.Context, task *coordinatorv1.RunningTask) (dagrun.DAGRunAttempt, *ir.DAGRunStatus, error) {
+func (h *Handler) resolveLatestAttemptForRunningTask(ctx context.Context, task *coordinatorv1.RunningTask) (dagrun.Attempt, *ir.DAGRunStatus, error) {
 	rootRef := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 	return h.resolveLatestAttempt(ctx, task.DagName, task.DagRunId, rootRef)
 }
@@ -2208,9 +2211,9 @@ func (h *Handler) resolveLatestAttemptForRunningTask(ctx context.Context, task *
 func (h *Handler) replaceOpenAttempt(
 	ctx context.Context,
 	cacheKey string,
-	latestAttempt dagrun.DAGRunAttempt,
+	latestAttempt dagrun.Attempt,
 	expectedAttemptID string,
-) (dagrun.DAGRunAttempt, error) {
+) (dagrun.Attempt, error) {
 	h.attemptsMu.Lock()
 	cachedAttempt, ok := h.openAttempts[cacheKey]
 	if ok && cachedAttempt.ID() == expectedAttemptID {
@@ -2244,8 +2247,8 @@ func (h *Handler) replaceOpenAttempt(
 
 // getOrOpenSubAttempt retrieves an open sub-attempt from cache or opens a new one.
 // This is used for sub-DAG status reporting in distributed execution.
-func (h *Handler) getOrOpenSubAttempt(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.DAGRunAttempt, error) {
-	return h.getOrOpenAttemptWithFinder(ctx, subDAGRunID, func() (dagrun.DAGRunAttempt, error) {
+func (h *Handler) getOrOpenSubAttempt(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.Attempt, error) {
+	return h.getOrOpenAttemptWithFinder(ctx, subDAGRunID, func() (dagrun.Attempt, error) {
 		return h.dagRunStore.FindSubAttempt(ctx, rootRef, subDAGRunID)
 	})
 }
@@ -2254,7 +2257,7 @@ func (h *Handler) getOrOpenSubAttempt(ctx context.Context, rootRef ir.DAGRunRef,
 // or uses the provided finder function to locate and open a new one.
 // Uses per-run mutex to prevent concurrent I/O operations on the same DAG run,
 // avoiding races between ReportStatus and markRunFailed.
-func (h *Handler) getOrOpenAttemptWithFinder(ctx context.Context, cacheKey string, finder func() (dagrun.DAGRunAttempt, error)) (dagrun.DAGRunAttempt, error) {
+func (h *Handler) getOrOpenAttemptWithFinder(ctx context.Context, cacheKey string, finder func() (dagrun.Attempt, error)) (dagrun.Attempt, error) {
 	// First check: fast path with read lock (no per-run mutex needed for cache hit)
 	h.attemptsMu.RLock()
 	if attempt, ok := h.openAttempts[cacheKey]; ok {
@@ -2344,7 +2347,7 @@ func (h *Handler) GetDAGRunStatus(ctx context.Context, req *coordinatorv1.GetDAG
 		return nil, status.Error(codes.InvalidArgument, "dag_name and dag_run_id are required")
 	}
 
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	var err error
 
 	// Always read the latest attempt from disk rather than using the openAttempts
@@ -3081,7 +3084,7 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 	runMu.Lock()
 	defer runMu.Unlock()
 
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	var needsOpen bool
 
 	h.attemptsMu.RLock()
@@ -3186,7 +3189,7 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 	)
 
 	// Find the attempt (either root or sub-DAG)
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	var err error
 
 	isSubDAG := req.RootDagRunId != "" && req.RootDagRunId != req.DagRunId
@@ -3232,7 +3235,7 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 	return &coordinatorv1.RequestCancelResponse{Accepted: true}, nil
 }
 
-func finalizeNotStartedCancellation(ctx context.Context, attempt dagrun.DAGRunAttempt) error {
+func finalizeNotStartedCancellation(ctx context.Context, attempt dagrun.Attempt) error {
 	if attempt == nil {
 		return nil
 	}

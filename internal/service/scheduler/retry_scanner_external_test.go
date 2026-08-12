@@ -16,12 +16,11 @@ import (
 )
 
 type retryCandidateDAGRunStore struct {
-	dagrun.DAGRunStore
+	dagrun.Store
 
 	candidateCalls int
 	candidateFrom  dagrun.TimeInUTC
 	listCalls      int
-	listOptions    dagrun.ListDAGRunStatusesOptions
 }
 
 func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
@@ -30,27 +29,17 @@ func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from 
 	return nil, nil
 }
 
-func (s *retryCandidateDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
-	s.listCalls++
-	for _, opt := range opts {
-		opt(&s.listOptions)
-	}
-	return nil, nil
-}
-
 type fallbackRetryDAGRunStore struct {
-	dagrun.DAGRunStore
+	dagrun.Store
 
 	listCalls   int
-	listOptions dagrun.ListDAGRunStatusesOptions
+	listOptions dagrun.StatusQuery
 }
 
-func (s *fallbackRetryDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
+func (s *fallbackRetryDAGRunStore) QueryStatuses(_ context.Context, query dagrun.StatusQuery) (dagrun.DAGRunStatusPage, error) {
 	s.listCalls++
-	for _, opt := range opts {
-		opt(&s.listOptions)
-	}
-	return nil, nil
+	s.listOptions = query
+	return dagrun.DAGRunStatusPage{}, nil
 }
 
 func TestRetryScannerUsesRetryCandidateListerWhenAvailable(t *testing.T) {
@@ -59,7 +48,7 @@ func TestRetryScannerUsesRetryCandidateListerWhenAvailable(t *testing.T) {
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &retryCandidateDAGRunStore{}
 	scanner, err := scheduler.NewRetryScanner(
-		store,
+		dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
 		nil,
 		nil,
 		time.Hour,
@@ -80,7 +69,7 @@ func TestRetryScannerFallsBackToStatusListingWithoutCandidateLister(t *testing.T
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &fallbackRetryDAGRunStore{}
 	scanner, err := scheduler.NewRetryScanner(
-		store,
+		dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
 		nil,
 		nil,
 		time.Hour,

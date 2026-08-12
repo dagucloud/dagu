@@ -227,7 +227,7 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRun
 	}
 
 	var (
-		attempt dagrun.DAGRunAttempt
+		attempt dagrun.Attempt
 		err     error
 	)
 	if !lease.Root.Zero() && lease.Root != lease.DAGRun {

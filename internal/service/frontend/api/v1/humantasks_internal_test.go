@@ -34,7 +34,8 @@ func TestAuthorizeHumanTaskMutationClassifiesLookupErrors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			apiServer := &API{dagRunStore: lookupErrorDAGRunStore{err: tc.err}}
+			store := lookupErrorDAGRunStore{err: tc.err}
+			apiServer := &API{dagRunStore: dagrun.NewRepository(store, dagrun.RepositoryOptions{})}
 
 			_, err := apiServer.authorizeHumanTaskMutation(t.Context(), "deploy", "run-1")
 
@@ -193,11 +194,11 @@ type trackingReadCloser struct {
 }
 
 type lookupErrorDAGRunStore struct {
-	dagrun.DAGRunStore
+	dagrun.Store
 	err error
 }
 
-func (s lookupErrorDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s lookupErrorDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	return nil, s.err
 }
 

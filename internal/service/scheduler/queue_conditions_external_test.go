@@ -469,7 +469,7 @@ func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T)
 		if err != nil {
 			return err
 		}
-		queued, err := queuedomain.EnqueueRetry(ctx, f.dagRunStore, f.queueStore, f.dag, status, queuedomain.EnqueueRetryOptions{})
+		queued, err := queuedomain.EnqueueRetry(ctx, f.dagRunStore.repository, f.queueStore, f.dag, status, queuedomain.EnqueueRetryOptions{})
 		if err != nil {
 			return err
 		}
@@ -608,7 +608,7 @@ func newQueueConditionFixtureWithConfig(
 		Steps:    []ir.Step{{Name: "test", Command: "echo hello"}},
 	}
 	ir.InitializeDefaults(dag)
-	dagRunStore := newCountingDAGRunStore(filedagrun.New(filepath.Join(tmp, "dag-runs"), filedagrun.WithLatestStatusToday(false)))
+	dagRunStore := newCountingDAGRunStore(filedagrun.NewStore(filepath.Join(tmp, "dag-runs")))
 	var queueStore queuedomain.QueueStore = store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
 	if fixtureConfig.queueStore != nil {
 		queueStore = fixtureConfig.queueStore(queueStore)
@@ -650,7 +650,7 @@ func newQueueConditionFixtureWithConfig(
 	opts = append(opts, extraOptions...)
 	processor := scheduler.NewQueueProcessor(
 		queueStore,
-		dagRunStore,
+		dagRunStore.repository,
 		processorProcStore,
 		executor,
 		config.Queues{
@@ -670,8 +670,8 @@ func newQueueConditionFixtureWithConfig(
 	}
 }
 
-func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []ir.DAGRunCondition) dagrun.DAGRunAttempt {
-	attempt, err := f.dagRunStore.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
+	attempt, err := f.dagRunStore.repository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	if err != nil {
 		panic(err)
 	}
@@ -692,7 +692,7 @@ func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []i
 	return attempt
 }
 
-func (f *queueConditionFixture) enqueueRun(runID string, conditions []ir.DAGRunCondition) dagrun.DAGRunAttempt {
+func (f *queueConditionFixture) enqueueRun(runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
 	attempt := f.createQueuedAttempt(runID, conditions)
 	if err := f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityHigh, ir.NewDAGRunRef(f.dag.Name, runID)); err != nil {
 		panic(err)
@@ -713,7 +713,7 @@ func (f *queueConditionFixture) readStatus(runID string) *ir.DAGRunStatus {
 }
 
 func (f *queueConditionFixture) updateStatus(runID string, mutate func(*ir.DAGRunStatus)) {
-	attempt, err := f.dagRunStore.DAGRunStore.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+	attempt, err := f.dagRunStore.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
 	if err != nil {
 		panic(err)
 	}
@@ -1063,7 +1063,8 @@ func (s *queueConditionQueueStore) DeleteByItemIDs(ctx context.Context, queueNam
 }
 
 type countingDAGRunStore struct {
-	dagrun.DAGRunStore
+	dagrun.Store
+	repository *dagrun.Repository
 
 	mu                 sync.Mutex
 	casByRun           map[string]int
@@ -1071,31 +1072,31 @@ type countingDAGRunStore struct {
 	readDAGErrByRun    map[string]error
 }
 
-func newCountingDAGRunStore(store dagrun.DAGRunStore) *countingDAGRunStore {
-	return &countingDAGRunStore{
-		DAGRunStore:        store,
+func newCountingDAGRunStore(store dagrun.Store) *countingDAGRunStore {
+	counting := &countingDAGRunStore{
+		Store:              store,
 		casByRun:           make(map[string]int),
 		blankAttemptIDRuns: make(map[string]struct{}),
 		readDAGErrByRun:    make(map[string]error),
 	}
+	counting.repository = dagrun.NewRepository(counting, dagrun.RepositoryOptions{
+		LatestStatusToday: false,
+	})
+	return counting
 }
 
 func (s *countingDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	dagRun ir.DAGRunRef,
-	expectedAttemptID string,
-	expectedStatus ir.Status,
-	mutate func(*ir.DAGRunStatus) error,
-	opts ...dagrun.CompareAndSwapStatusOption,
+	req dagrun.CompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	s.mu.Lock()
-	s.casByRun[dagRun.ID]++
+	s.casByRun[req.DAGRun.ID]++
 	s.mu.Unlock()
-	return s.DAGRunStore.CompareAndSwapLatestAttemptStatus(ctx, dagRun, expectedAttemptID, expectedStatus, mutate, opts...)
+	return s.Store.CompareAndSwapLatestAttemptStatus(ctx, req)
 }
 
-func (s *countingDAGRunStore) FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
-	attempt, err := s.DAGRunStore.FindAttempt(ctx, dagRun)
+func (s *countingDAGRunStore) FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (dagrun.Attempt, error) {
+	attempt, err := s.Store.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return nil, err
 	}
@@ -1107,9 +1108,9 @@ func (s *countingDAGRunStore) FindAttempt(ctx context.Context, dagRun ir.DAGRunR
 		return attempt, nil
 	}
 	return &queueConditionAttempt{
-		DAGRunAttempt: attempt,
-		blankID:       blankID,
-		readDAGErr:    readDAGErr,
+		Attempt:    attempt,
+		blankID:    blankID,
+		readDAGErr: readDAGErr,
 	}, nil
 }
 
@@ -1132,7 +1133,7 @@ func (s *countingDAGRunStore) casCount(runID string) int {
 }
 
 type queueConditionAttempt struct {
-	dagrun.DAGRunAttempt
+	dagrun.Attempt
 	blankID    bool
 	readDAGErr error
 }
@@ -1141,14 +1142,14 @@ func (a *queueConditionAttempt) ID() string {
 	if a.blankID {
 		return ""
 	}
-	return a.DAGRunAttempt.ID()
+	return a.Attempt.ID()
 }
 
 func (a *queueConditionAttempt) ReadDAG(ctx context.Context) (*ir.DAG, error) {
 	if a.readDAGErr != nil {
 		return nil, a.readDAGErr
 	}
-	return a.DAGRunAttempt.ReadDAG(ctx)
+	return a.Attempt.ReadDAG(ctx)
 }
 
 type queueConditionProcStore struct {

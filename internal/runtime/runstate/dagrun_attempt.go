@@ -10,12 +10,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-func wrapDAGRunAttempt(attempt dagrun.DAGRunAttempt) Attempt {
+func wrapAttempt(attempt dagrun.Attempt) Attempt {
 	return dagRunAttempt{attempt: attempt}
 }
 
 type dagRunAttempt struct {
-	attempt dagrun.DAGRunAttempt
+	attempt dagrun.Attempt
 }
 
 func (a dagRunAttempt) ID() string {

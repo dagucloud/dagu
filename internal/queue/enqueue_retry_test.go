@@ -331,7 +331,8 @@ func TestEnqueueRetry(t *testing.T) {
 				tt.setupQueue(qs)
 			}
 
-			queued, err := queue.EnqueueRetry(ctx, tt.store, qs, tt.dag, tt.status, tt.opts)
+			repository := dagrun.NewRepository(tt.store, dagrun.RepositoryOptions{})
+			queued, err := queue.EnqueueRetry(ctx, repository, qs, tt.dag, tt.status, tt.opts)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -354,39 +355,16 @@ func TestEnqueueRetry(t *testing.T) {
 }
 
 type stubDAGRunStore struct {
+	dagrun.Store
 	status    *ir.DAGRunStatus
 	firstErr  error
 	secondErr error
 	casCalls  int
 }
 
-func (s *stubDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
-	return nil, errors.New("unexpected call")
-}
-
-func (s *stubDAGRunStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
-	return nil
-}
-
-func (s *stubDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAttempt, error) {
-	return nil, errors.New("unexpected call")
-}
-
-func (s *stubDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
-	return nil, nil
-}
-
-func (s *stubDAGRunStore) ListStatusesPage(context.Context, ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
-	return dagrun.DAGRunStatusPage{}, nil
-}
-
 func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	_ ir.DAGRunRef,
-	expectedAttemptID string,
-	expectedStatus ir.Status,
-	mutate func(*ir.DAGRunStatus) error,
-	_ ...dagrun.CompareAndSwapStatusOption,
+	req dagrun.CompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	s.casCalls++
 	if s.casCalls == 1 && s.firstErr != nil {
@@ -400,39 +378,23 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 		return nil, false, nil
 	}
 
-	if expectedAttemptID != s.status.AttemptID || expectedStatus != s.status.Status {
+	if req.ExpectedAttemptID != s.status.AttemptID || req.ExpectedStatus != s.status.Status {
 		return s.cloneStatus(), false, nil
 	}
 
 	updated := s.cloneStatus()
-	if err := mutate(updated); err != nil {
+	if err := req.Mutate(updated); err != nil {
 		return nil, false, err
 	}
 	s.status = updated
 	return s.cloneStatus(), true, nil
 }
 
-func (s *stubDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *stubDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	if s.status == nil {
 		return nil, dagrun.ErrDAGRunIDNotFound
 	}
-	return &testutil.MockDAGRunAttempt{Status: s.cloneStatus()}, nil
-}
-
-func (s *stubDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	return nil, errors.New("unexpected call")
-}
-
-func (s *stubDAGRunStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	return nil, errors.New("unexpected call")
-}
-
-func (s *stubDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
-	return nil, nil
-}
-
-func (s *stubDAGRunStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
-	return nil
+	return &testutil.MockAttempt{Status: s.cloneStatus()}, nil
 }
 
 func (s *stubDAGRunStore) cloneStatus() *ir.DAGRunStatus {

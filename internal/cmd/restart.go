@@ -57,7 +57,7 @@ func runRestart(ctx *Context, args []string) error {
 
 	name := args[0]
 
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	if dagRunID != "" {
 		// Retrieve the previous run for the specified dag-run ID.
 		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
@@ -122,17 +122,17 @@ func handleRestartProcess(ctx *Context, d *ir.DAG, oldDagRunID string, scheduleT
 			scheduleTime: scheduleTime,
 			noReuse:      noReuse,
 		},
-		func(execCtx context.Context) (dagrun.DAGRunAttempt, error) {
-			return ctx.DAGRunStore.CreateAttempt(execCtx, d, time.Now(), newDagRunID, dagrun.NewDAGRunAttemptOptions{})
+		func(execCtx context.Context) (dagrun.Attempt, error) {
+			return ctx.DAGRunStore.CreateAttempt(execCtx, d, time.Now(), newDagRunID, dagrun.CreateAttemptOptions{})
 		},
-		func(preparedAttempt dagrun.DAGRunAttempt) error {
+		func(preparedAttempt dagrun.Attempt) error {
 			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, noReuse, preparedAttempt)
 		},
 	)
 }
 
 // executeDAGWithRunID executes a DAG with a pre-generated run ID.
-func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunID string, scheduleTime string, noReuse bool, preparedAttempt dagrun.DAGRunAttempt) error {
+func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunID string, scheduleTime string, noReuse bool, preparedAttempt dagrun.Attempt) error {
 	logFile, err := ctx.OpenLogFile(dag, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log file: %w", err)

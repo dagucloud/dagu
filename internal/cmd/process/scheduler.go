@@ -73,7 +73,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 
 	statusCache := fileutil.NewCache[*ir.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 	statusCache.StartEviction(ctx)
-	schedulerRunStore := file.NewDAGRunStore(
+	schedulerRunStore := file.NewDAGRunRepository(
 		cfg.Config,
 		file.WithDAGRunLatestStatusToday(false),
 		file.WithDAGRunHistoryFileCache(statusCache),

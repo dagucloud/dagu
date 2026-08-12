@@ -51,7 +51,7 @@ const MessagesDir = "messages"
 // CancelRequestedFlag is a special flag used to indicate that a cancel request has been made.
 const CancelRequestedFlag = "CANCEL_REQUESTED"
 
-var _ dagrun.DAGRunAttempt = (*Attempt)(nil)
+var _ dagrun.Attempt = (*Attempt)(nil)
 
 // Attempt manages an append-only status file with read, write, and compaction capabilities.
 // It provides thread-safe operations and supports metrics collection.
@@ -77,7 +77,7 @@ func WithDAG(dag *ir.DAG) AttemptOption {
 	}
 }
 
-// ID implements models.DAGRunAttempt.
+// ID implements models.Attempt.
 func (att *Attempt) ID() string {
 	return att.id
 }
@@ -118,7 +118,7 @@ func (att *Attempt) ModTime() (time.Time, error) {
 	return info.ModTime(), nil
 }
 
-// ReadDAG implements models.DAGRunAttempt.
+// ReadDAG implements models.Attempt.
 func (att *Attempt) ReadDAG(_ context.Context) (*ir.DAG, error) {
 	// Determine the path to the DAG definition file
 	dir := filepath.Dir(att.file)
@@ -613,7 +613,7 @@ func isTransientStatusReadError(err error) bool {
 		strings.Contains(msg, "sharing violation")
 }
 
-// Abort implements models.DAGRunAttempt.
+// Abort implements models.Attempt.
 // It creates a flag to indicate that the attempt should be canceled.
 func (att *Attempt) Abort(ctx context.Context) error {
 	dir := filepath.Dir(att.file)

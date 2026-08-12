@@ -103,10 +103,12 @@ func waitForStoredDAGRunStatus(
 	require.Eventually(t, func() bool {
 		// Create the store inside the poll so attempt discovery can observe a
 		// retry/resume attempt created after polling starts.
-		store := filedagrun.New(
+		store := filedagrun.NewRepository(
 			server.Config.Paths.DAGRunsDir,
-			filedagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
-			filedagrun.WithLocation(server.Config.Core.Location),
+			dagrun.RepositoryOptions{
+				LatestStatusToday: server.Config.Server.LatestStatusToday,
+				Location:          server.Config.Core.Location,
+			},
 		)
 		attempt, err := store.FindAttempt(server.Context, ref)
 		if err != nil {
@@ -135,10 +137,12 @@ func waitForStoredSubDAGRunStatus(
 
 	var status *ir.DAGRunStatus
 	require.Eventually(t, func() bool {
-		store := filedagrun.New(
+		store := filedagrun.NewRepository(
 			server.Config.Paths.DAGRunsDir,
-			filedagrun.WithLatestStatusToday(server.Config.Server.LatestStatusToday),
-			filedagrun.WithLocation(server.Config.Core.Location),
+			dagrun.RepositoryOptions{
+				LatestStatusToday: server.Config.Server.LatestStatusToday,
+				Location:          server.Config.Core.Location,
+			},
 		)
 		attempt, err := store.FindSubAttempt(server.Context, root, subDAGRunID)
 		if err != nil {
@@ -2157,7 +2161,7 @@ func seedLatestDAGRunStatus(
 		dag,
 		time.Now().Add(-2*time.Minute),
 		dagRunID,
-		dagrun.NewDAGRunAttemptOptions{},
+		dagrun.CreateAttemptOptions{},
 	)
 	require.NoError(t, err)
 

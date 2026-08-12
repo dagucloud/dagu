@@ -11,31 +11,31 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-var _ dagrun.DAGRunAttempt = (*MockDAGRunAttempt)(nil)
+var _ dagrun.Attempt = (*MockAttempt)(nil)
 
-// MockDAGRunAttempt is a configurable DAG-run attempt for tests.
-type MockDAGRunAttempt struct {
+// MockAttempt is a configurable DAG-run attempt for tests.
+type MockAttempt struct {
 	mock.Mock
 	Status *ir.DAGRunStatus
 }
 
-func (m *MockDAGRunAttempt) ID() string {
+func (m *MockAttempt) ID() string {
 	return m.Called().String(0)
 }
 
-func (m *MockDAGRunAttempt) Open(ctx context.Context) error {
+func (m *MockAttempt) Open(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }
 
-func (m *MockDAGRunAttempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
+func (m *MockAttempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 	return m.Called(ctx, status).Error(0)
 }
 
-func (m *MockDAGRunAttempt) Close(ctx context.Context) error {
+func (m *MockAttempt) Close(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }
 
-func (m *MockDAGRunAttempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) {
+func (m *MockAttempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) {
 	if m.Status != nil {
 		return m.Status, nil
 	}
@@ -46,7 +46,7 @@ func (m *MockDAGRunAttempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, e
 	return args.Get(0).(*ir.DAGRunStatus), args.Error(1)
 }
 
-func (m *MockDAGRunAttempt) ReadDAG(ctx context.Context) (*ir.DAG, error) {
+func (m *MockAttempt) ReadDAG(ctx context.Context) (*ir.DAG, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -54,32 +54,32 @@ func (m *MockDAGRunAttempt) ReadDAG(ctx context.Context) (*ir.DAG, error) {
 	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-func (m *MockDAGRunAttempt) SetDAG(dag *ir.DAG) {
+func (m *MockAttempt) SetDAG(dag *ir.DAG) {
 	m.Called(dag)
 }
 
-func (m *MockDAGRunAttempt) Abort(ctx context.Context) error {
+func (m *MockAttempt) Abort(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }
 
-func (m *MockDAGRunAttempt) IsAborting(ctx context.Context) (bool, error) {
+func (m *MockAttempt) IsAborting(ctx context.Context) (bool, error) {
 	args := m.Called(ctx)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockDAGRunAttempt) Hide(ctx context.Context) error {
+func (m *MockAttempt) Hide(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }
 
-func (m *MockDAGRunAttempt) Hidden() bool {
+func (m *MockAttempt) Hidden() bool {
 	return m.Called().Bool(0)
 }
 
-func (m *MockDAGRunAttempt) WriteOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error {
+func (m *MockAttempt) WriteOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error {
 	return m.Called(ctx, outputs).Error(0)
 }
 
-func (m *MockDAGRunAttempt) ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error) {
+func (m *MockAttempt) ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -87,11 +87,11 @@ func (m *MockDAGRunAttempt) ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs,
 	return args.Get(0).(*ir.DAGRunOutputs), args.Error(1)
 }
 
-func (m *MockDAGRunAttempt) WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error {
+func (m *MockAttempt) WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error {
 	return m.Called(ctx, stepName, messages).Error(0)
 }
 
-func (m *MockDAGRunAttempt) ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error) {
+func (m *MockAttempt) ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error) {
 	args := m.Called(ctx, stepName)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -99,6 +99,6 @@ func (m *MockDAGRunAttempt) ReadStepMessages(ctx context.Context, stepName strin
 	return args.Get(0).([]ir.LLMMessage), args.Error(1)
 }
 
-func (m *MockDAGRunAttempt) WorkDir() string {
+func (m *MockAttempt) WorkDir() string {
 	return m.Called().String(0)
 }

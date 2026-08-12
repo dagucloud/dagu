@@ -98,19 +98,19 @@ func ParseRetryPath(value string) (RetryPath, error) {
 // ResolveRetryPath resolves the ancestry of a persisted child DAG run.
 func ResolveRetryPath(
 	ctx context.Context,
-	store DAGRunStore,
+	repository *Repository,
 	root ir.DAGRunRef,
 	targetRunID string,
 	stepName string,
 ) (RetryPath, *ir.DAGRunStatus, error) {
-	if store == nil {
+	if repository == nil {
 		return RetryPath{}, nil, errors.New("retry path: DAG-run store is not configured")
 	}
 	if root.Zero() || targetRunID == "" || stepName == "" {
 		return RetryPath{}, nil, fmt.Errorf("%w: root run, child run, and step are required", ErrInvalidRetryPath)
 	}
 
-	rootAttempt, err := store.FindAttempt(ctx, root)
+	rootAttempt, err := repository.FindAttempt(ctx, root)
 	if err != nil {
 		return RetryPath{}, nil, fmt.Errorf("find root DAG run: %w", err)
 	}
@@ -119,7 +119,7 @@ func ResolveRetryPath(
 		return RetryPath{}, nil, fmt.Errorf("read root DAG run: %w", err)
 	}
 
-	targetAttempt, err := store.FindSubAttempt(ctx, root, targetRunID)
+	targetAttempt, err := repository.FindSubAttempt(ctx, root, targetRunID)
 	if err != nil {
 		return RetryPath{}, nil, fmt.Errorf("find child DAG run %s: %w", targetRunID, err)
 	}
@@ -151,7 +151,7 @@ func ResolveRetryPath(
 		if parentRef.ID == root.ID {
 			parentStatus = rootStatus
 		} else {
-			parentAttempt, findErr := store.FindSubAttempt(ctx, root, parentRef.ID)
+			parentAttempt, findErr := repository.FindSubAttempt(ctx, root, parentRef.ID)
 			if findErr != nil {
 				return RetryPath{}, nil, fmt.Errorf("%w: find parent DAG run %s: %v", ErrInvalidRetryPath, parentRef.ID, findErr)
 			}
@@ -185,7 +185,7 @@ func ResolveRetryPath(
 	return RetryPath{Hops: reversed, Step: targetNode.Step.Name}, targetStatus, nil
 }
 
-func readRetryStatus(ctx context.Context, attempt DAGRunAttempt) (*ir.DAGRunStatus, error) {
+func readRetryStatus(ctx context.Context, attempt Attempt) (*ir.DAGRunStatus, error) {
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return nil, err

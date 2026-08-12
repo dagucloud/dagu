@@ -9,8 +9,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// NewDAGRunAttemptOptions contains options for creating a new run record
-type NewDAGRunAttemptOptions struct {
+// CreateAttemptOptions contains options for creating a new run record
+type CreateAttemptOptions struct {
 	// RootDAGRun is the root dag-run reference for this attempt.
 	RootDAGRun *ir.DAGRunRef
 	// Retry indicates whether this is a retry of a previous run.
@@ -21,8 +21,8 @@ type NewDAGRunAttemptOptions struct {
 	AttemptID string
 }
 
-// DAGRunAttempt represents a single execution of a dag-run to record the status and execution details.
-type DAGRunAttempt interface {
+// Attempt represents a single execution of a dag-run to record the status and execution details.
+type Attempt interface {
 	// ID returns the identifier for the attempt that is unique within the dag-run.
 	ID() string
 	// Open prepares the attempt for writing status updates

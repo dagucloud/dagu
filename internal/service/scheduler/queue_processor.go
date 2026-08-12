@@ -91,7 +91,7 @@ func (e startupExecutionError) Unwrap() error {
 // QueueProcessor is responsible for processing queued DAG runs.
 type QueueProcessor struct {
 	queueStore             queuedomain.QueueStore
-	dagRunStore            dagrun.DAGRunStore
+	dagRunStore            *dagrun.Repository
 	procStore              proc.ProcStore
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
@@ -189,7 +189,7 @@ func WithIsSuspended(isSuspended IsSuspendedFunc) QueueProcessorOption {
 // NewQueueProcessor creates a new QueueProcessor.
 func NewQueueProcessor(
 	queueStore queuedomain.QueueStore,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunStore *dagrun.Repository,
 	procStore proc.ProcStore,
 	dagExecutor *DAGExecutor,
 	queuesConfig config.Queues,
@@ -465,7 +465,7 @@ func readStartupExecutionError(execErrCh <-chan error) error {
 	}
 }
 
-func queueAttemptKey(runRef ir.DAGRunRef, attempt dagrun.DAGRunAttempt, status *ir.DAGRunStatus) string {
+func queueAttemptKey(runRef ir.DAGRunRef, attempt dagrun.Attempt, status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}

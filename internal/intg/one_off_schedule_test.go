@@ -69,7 +69,7 @@ steps:
 		},
 	}))
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, scheduledAt, runID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, scheduledAt, runID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	initialStatus := ir.InitialStatus(dag)
 	initialStatus.DAGRunID = runID
@@ -120,7 +120,7 @@ steps:
 	})
 
 	assert.Equal(t, int32(0), dispatchCount.Load())
-	assert.Len(t, th.DAGRunStore.RecentAttempts(th.Context, dag.Name, 10), 1)
+	assert.Len(t, th.DAGRunStore.RecentStatuses(th.Context, dag.Name, 10), 1)
 
 	probe.Stop(context.Background(), cancel, 5*time.Second)
 }

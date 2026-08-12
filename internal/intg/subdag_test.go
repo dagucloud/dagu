@@ -648,7 +648,7 @@ steps:
 		parentAttempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
-		updateStatus := func(rec dagrun.DAGRunAttempt, dagRunStatus *ir.DAGRunStatus) {
+		updateStatus := func(rec dagrun.Attempt, dagRunStatus *ir.DAGRunStatus) {
 			err = rec.Open(ctx)
 			require.NoError(t, err)
 			err = rec.Write(ctx, *dagRunStatus)

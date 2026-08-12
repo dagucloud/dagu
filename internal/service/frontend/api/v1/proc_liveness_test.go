@@ -152,7 +152,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
@@ -214,7 +214,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
@@ -285,7 +285,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")

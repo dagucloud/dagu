@@ -89,7 +89,7 @@ type Agent struct {
 	dagLoader dagDetailsLoader
 
 	// dagRunStore is the database to store the run history.
-	dagRunStore dagrun.DAGRunStore
+	dagRunStore *dagrun.Repository
 
 	// runStateStore opens execution state for this run.
 	runStateStore runstate.Store
@@ -328,11 +328,11 @@ type Options struct {
 	AttemptID string
 	// PreparedAttempt is an exact attempt that was created or reopened before proc acquisition.
 	// This is used for local execution so the proc heartbeat can include the final attempt ID.
-	PreparedAttempt dagrun.DAGRunAttempt
+	PreparedAttempt dagrun.Attempt
 	// RunStateStore records execution state for this DAG run.
 	RunStateStore runstate.Store
-	// DAGRunStore is the store for dag-run data. Nil for remote worker execution.
-	DAGRunStore dagrun.DAGRunStore
+	// DAGRunStore provides access to DAG-run data. Nil for remote worker execution.
+	DAGRunStore *dagrun.Repository
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
 	QueueStore queue.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
@@ -605,7 +605,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if !a.dry {
 		// Setup the attempt for the dag-run.
 		// It's not required for dry-run mode.
-		att, err := a.setupDAGRunAttempt(ctx)
+		att, err := a.setupAttempt(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to setup execution history: %w", err)
 		}
@@ -2312,7 +2312,7 @@ func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node
 	return plan, nil
 }
 
-func (a *Agent) setupDAGRunAttempt(ctx context.Context) (runstate.Attempt, error) {
+func (a *Agent) setupAttempt(ctx context.Context) (runstate.Attempt, error) {
 	if a.runStateStore == nil {
 		a.runStateStore = runstate.NewHistoryStore(a.dagRunStore)
 	}
