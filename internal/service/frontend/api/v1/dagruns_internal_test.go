@@ -75,6 +75,52 @@ type failingHistoryDAGRunStore struct {
 	err error
 }
 
+type pagedStopDAGRunStore struct {
+	testutil.DAGRunStoreStub
+
+	attempts map[string]*stopDAGRunAttempt
+	queries  []persis.DAGRunStatusQuery
+}
+
+type stopDAGRunAttempt struct {
+	dagrun.Attempt
+
+	status  *ir.DAGRunStatus
+	aborted bool
+}
+
+type stopDAGRunProcStore struct {
+	proc.ProcStore
+}
+
+func (s *pagedStopDAGRunStore) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+	s.queries = append(s.queries, query)
+	if query.Cursor == "" {
+		return persis.DAGRunStatusPage{
+			Items:      []*ir.DAGRunStatus{s.attempts["run-1"].status},
+			NextCursor: "next-page",
+		}, nil
+	}
+	return persis.DAGRunStatusPage{Items: []*ir.DAGRunStatus{s.attempts["run-2"].status}}, nil
+}
+
+func (s *pagedStopDAGRunStore) FindAttempt(_ context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error) {
+	return s.attempts[ref.ID], nil
+}
+
+func (a *stopDAGRunAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
+	return a.status, nil
+}
+
+func (a *stopDAGRunAttempt) Abort(context.Context) error {
+	a.aborted = true
+	return nil
+}
+
+func (stopDAGRunProcStore) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
+	return false, nil
+}
+
 func (s failingHistoryDAGRunStore) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
 	return nil, s.err
 }
@@ -125,6 +171,45 @@ func TestDAGHistoryReturnsRecentStatusStoreErrors(t *testing.T) {
 	_, err = a.GetDAGHistoryData(context.Background(), "daily.yaml")
 	require.ErrorIs(t, err, storeErr)
 	require.ErrorContains(t, err, "list recent DAG runs for daily")
+}
+
+func TestStopAllDAGRunsProcessesBoundedPages(t *testing.T) {
+	t.Parallel()
+
+	store := &pagedStopDAGRunStore{attempts: map[string]*stopDAGRunAttempt{}}
+	for _, runID := range []string{"run-1", "run-2"} {
+		store.attempts[runID] = &stopDAGRunAttempt{status: &ir.DAGRunStatus{
+			Name:      "daily",
+			DAGRunID:  runID,
+			AttemptID: "attempt-1",
+			Status:    ir.Running,
+		}}
+	}
+
+	cfg := &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
+		config.PermissionRunDAGs: true,
+	}}}
+	repository := persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})
+	a := &API{
+		dagRepository:    persis.NewDAGRepository(historyDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
+		dagRunRepository: repository,
+		dagRunMgr:        runtimepkg.NewManager(repository, stopDAGRunProcStore{}, cfg),
+		config:           cfg,
+	}
+
+	response, err := a.StopAllDAGRuns(t.Context(), openapiv1.StopAllDAGRunsRequestObject{FileName: "daily.yaml"})
+	require.NoError(t, err)
+	result, ok := response.(*openapiv1.StopAllDAGRuns200JSONResponse)
+	require.True(t, ok)
+	assert.Empty(t, result.Errors)
+	assert.True(t, store.attempts["run-1"].aborted)
+	assert.True(t, store.attempts["run-2"].aborted)
+	require.Len(t, store.queries, 2)
+	assert.Equal(t, "daily", store.queries[0].ExactName)
+	assert.Equal(t, []ir.Status{ir.Running}, store.queries[0].Statuses)
+	assert.Positive(t, store.queries[0].Limit)
+	assert.Empty(t, store.queries[0].Cursor)
+	assert.Equal(t, "next-page", store.queries[1].Cursor)
 }
 
 func TestDeriveManualDAGRunStatusRetryingIsRunning(t *testing.T) {

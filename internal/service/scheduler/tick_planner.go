@@ -1241,7 +1241,7 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 		// Remove existing buffer and recompute if catchupWindow > 0
 		delete(tp.buffers, dagName)
 		if activeOK && event.DAG.CatchupWindow > 0 {
-			flushNow = tp.recomputeBuffer(ctx, event.DAG, active)
+			flushNow = tp.recomputeBuffer(ctx, event.DAGEntry, active)
 		}
 		if activeOK {
 			flushNow = tp.reconcileStartScheduleState(event.DAG, active) || flushNow
@@ -1422,13 +1422,14 @@ func (tp *TickPlanner) reinsertCatchupItem(ctx context.Context, run PlannedRun) 
 }
 
 // recomputeBuffer creates a new catch-up buffer for a DAG using the existing watermark.
-func (tp *TickPlanner) recomputeBuffer(ctx context.Context, dag *ir.DAG, active activeDAGSchedules) bool {
+func (tp *TickPlanner) recomputeBuffer(ctx context.Context, entry DAGEntry, active activeDAGSchedules) bool {
 	if !tp.cfg.QueuesEnabled {
 		return false
 	}
 	if len(active.start) == 0 {
 		return false
 	}
+	dag := entry.DAG
 
 	// Snapshot needed values under the lock to avoid reading the shared map
 	// after releasing it (Advance and handleEvent can modify DAGs concurrently).
@@ -1450,14 +1451,10 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, dag *ir.DAG, active 
 	}
 
 	watermarkAdvanced := false
-	entry := tp.entries[dag.Name]
-	if entry == nil {
-		return false
-	}
 	q := NewScheduleBuffer(dag.Name, dag.OverlapPolicy)
 	for _, interval := range missed {
 		if !q.Send(QueueItem{
-			DAGEntry:      entry.DAGEntry,
+			DAGEntry:      entry,
 			ScheduledTime: interval.ScheduledTime,
 			TriggerType:   ir.TriggerTypeCatchUp,
 			ScheduleType:  ScheduleTypeStart,

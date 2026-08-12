@@ -15,6 +15,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -41,6 +42,14 @@ func TestNewRequiresDAGRepository(t *testing.T) {
 
 	_, err := scheduler.New(&config.Config{}, nil, runtimepkg.Manager{}, nil, nil, nil, nil, nil, nil, nil)
 	require.EqualError(t, err, "DAG repository is required")
+}
+
+func TestNewRequiresDAGRunRepository(t *testing.T) {
+	t.Parallel()
+
+	dagRepository := persis.NewDAGRepository(nil, persis.DAGRepositoryOptions{})
+	_, err := scheduler.New(&config.Config{}, nil, runtimepkg.Manager{}, dagRepository, nil, nil, nil, nil, nil, nil)
+	require.EqualError(t, err, "DAG-run repository is required")
 }
 
 func TestScheduler(t *testing.T) {

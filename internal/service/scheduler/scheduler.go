@@ -141,6 +141,9 @@ func newScheduler(
 	if dagRepository == nil {
 		return nil, fmt.Errorf("DAG repository is required")
 	}
+	if dagRunRepository == nil {
+		return nil, fmt.Errorf("DAG-run repository is required")
+	}
 	timeLoc := cfg.Core.Location
 	if timeLoc == nil {
 		timeLoc = time.Local

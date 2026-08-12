@@ -1897,32 +1897,43 @@ func (a *API) StopAllDAGRuns(ctx context.Context, request api.StopAllDAGRunsRequ
 		return nil, err
 	}
 
-	// Get all running DAG-runs for this DAG
-	runningStatuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{
+	listOptions := persis.DAGRunListOptions{
 		ExactName:  dag.Name,
 		Statuses:   []ir.Status{ir.Running},
 		AllHistory: true,
-		Unbounded:  true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error listing running DAG-runs: %w", err)
+		Limit:      1000,
 	}
 
-	// Stop each running DAG-run
 	var stopErrors []string
 	var stoppedRunIDs []string
-	for _, runningStatus := range runningStatuses {
-		runID := runningStatus.DAGRunID
-		stopErr := a.dagRunMgr.Stop(ctx, dag, runID)
-		if stopErr != nil {
-			stopErrors = append(stopErrors, fmt.Sprintf("failed to stop run %q: %s", runID, stopErr))
-		} else {
-			stoppedRunIDs = append(stoppedRunIDs, runID)
-		}
-		if ctx.Err() != nil {
-			stopErrors = append(stopErrors, fmt.Sprintf("context is cancelled: %s", ctx.Err()))
+
+stopRuns:
+	for {
+		if err := ctx.Err(); err != nil {
+			stopErrors = append(stopErrors, fmt.Sprintf("context is cancelled: %s", err))
 			break
 		}
+
+		page, err := a.dagRunRepository.ListStatusesPage(ctx, listOptions)
+		if err != nil {
+			return nil, fmt.Errorf("error listing running DAG-runs: %w", err)
+		}
+		for _, runningStatus := range page.Items {
+			runID := runningStatus.DAGRunID
+			if stopErr := a.dagRunMgr.Stop(ctx, dag, runID); stopErr != nil {
+				stopErrors = append(stopErrors, fmt.Sprintf("failed to stop run %q: %s", runID, stopErr))
+			} else {
+				stoppedRunIDs = append(stoppedRunIDs, runID)
+			}
+			if err := ctx.Err(); err != nil {
+				stopErrors = append(stopErrors, fmt.Sprintf("context is cancelled: %s", err))
+				break stopRuns
+			}
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		listOptions.Cursor = page.NextCursor
 	}
 
 	if len(stoppedRunIDs) > 0 {
