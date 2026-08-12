@@ -20,8 +20,8 @@ func isSchedulerManagedTriggerType(triggerType ir.TriggerType) bool {
 }
 
 func suspendFlagName(status *ir.DAGRunStatus, dag *ir.DAG, definitionID string) string {
-	if status != nil && status.SuspendFlagName != "" {
-		return status.SuspendFlagName
+	if statusDefinitionID := status.DAGDefinitionID(); statusDefinitionID != "" {
+		return statusDefinitionID
 	}
 	if definitionID != "" {
 		return definitionID

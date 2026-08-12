@@ -157,7 +157,7 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 func newFileRepository(baseDir string, options dagrun.RepositoryOptions) *dagrun.Repository {
 	return dagrun.NewRepository(
 		filedagrun.NewStore(baseDir),
-		filedagrun.NewWorkspaceStore(baseDir),
+		filedagrun.NewDAGRunWorkspaceStore(baseDir),
 		options,
 	)
 }

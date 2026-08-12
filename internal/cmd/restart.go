@@ -90,7 +90,7 @@ func runRestart(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
 
-	definitionID := dagStatus.SuspendFlagName
+	definitionID := dagStatus.DAGDefinitionID()
 	if definitionID == "" {
 		definitionID = dagDefinitionIDFromEnv()
 	}

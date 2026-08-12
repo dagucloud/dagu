@@ -16,7 +16,7 @@ func NewFileDAGRunRepository(
 ) *dagrun.Repository {
 	return dagrun.NewRepository(
 		filedagrun.NewStore(baseDir, storeOptions...),
-		filedagrun.NewWorkspaceStore(baseDir),
+		filedagrun.NewDAGRunWorkspaceStore(baseDir),
 		options,
 	)
 }

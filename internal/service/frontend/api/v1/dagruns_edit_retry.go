@@ -560,7 +560,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		plan.params,
 		plan.profileName,
 		nodes,
-		dagrun.WorkspaceRef{RootDAGRun: plan.sourceStatus.Root, DAGRun: plan.sourceStatus.DAGRun()},
+		dagrun.DAGRunWorkspaceRef{RootDAGRun: plan.sourceStatus.Root, DAGRun: plan.sourceStatus.DAGRun()},
 	)
 	if err != nil {
 		return false, err
@@ -637,7 +637,7 @@ func (a *API) seedEditRetryAttempt(
 	params string,
 	profileName string,
 	nodes []runtime.NodeData,
-	sourceWorkspace dagrun.WorkspaceRef,
+	sourceWorkspace dagrun.DAGRunWorkspaceRef,
 ) (*ir.DAGRunStatus, error) {
 	now := time.Now()
 	attempt, err := a.dagRunRepository.CreateAttempt(ctx, dag, now, dagRunID, dagrun.CreateAttemptOptions{})
@@ -685,7 +685,7 @@ func (a *API) seedEditRetryAttempt(
 	status := ir.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
 	status.Params = params
 	status.ParamsList = dag.Params
-	targetWorkspace := dagrun.WorkspaceRef{DAGRun: ir.NewDAGRunRef(dag.Name, dagRunID)}
+	targetWorkspace := dagrun.DAGRunWorkspaceRef{DAGRun: ir.NewDAGRunRef(dag.Name, dagRunID)}
 	targetWorkDir, err := a.dagRunRepository.MaterializeWorkspace(ctx, targetWorkspace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to materialize edit retry workspace: %w", err)

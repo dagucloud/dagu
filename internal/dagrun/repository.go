@@ -25,14 +25,14 @@ type RepositoryOptions struct {
 // Repository provides application-level access to persisted DAG runs.
 type Repository struct {
 	store             Store
-	workspaces        WorkspaceStore
+	dagRunWorkspaces  DAGRunWorkspaceStore
 	latestStatusToday bool
 	location          *time.Location
 	now               func() time.Time
 }
 
 // NewRepository creates a repository backed by store.
-func NewRepository(store Store, workspaces WorkspaceStore, options RepositoryOptions) *Repository {
+func NewRepository(store Store, dagRunWorkspaces DAGRunWorkspaceStore, options RepositoryOptions) *Repository {
 	location := options.Location
 	if location == nil {
 		location = time.Local
@@ -41,12 +41,12 @@ func NewRepository(store Store, workspaces WorkspaceStore, options RepositoryOpt
 	if now == nil {
 		now = time.Now
 	}
-	if workspaces == nil {
-		workspaces = noopWorkspaceStore{}
+	if dagRunWorkspaces == nil {
+		dagRunWorkspaces = noopDAGRunWorkspaceStore{}
 	}
 	return &Repository{
 		store:             store,
-		workspaces:        workspaces,
+		dagRunWorkspaces:  dagRunWorkspaces,
 		latestStatusToday: options.LatestStatusToday,
 		location:          location,
 		now:               now,
@@ -93,19 +93,20 @@ func (r *Repository) RecentStatuses(ctx context.Context, name string, limit int)
 }
 
 // LatestAttempt returns the newest visible attempt for a DAG.
-func (r *Repository) LatestAttempt(ctx context.Context, name string) (Attempt, error) {
+func (r *Repository) LatestAttempt(ctx context.Context, name string, opts ...LatestAttemptOption) (Attempt, error) {
+	var options latestAttemptOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
+	}
 	query := LatestAttemptQuery{Name: name}
-	if r.latestStatusToday {
+	if r.latestStatusToday && !options.allHistory {
 		now := r.now().In(r.location)
 		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, r.location)
 		query.NotBefore = NewUTC(startOfDay)
 	}
 	return r.store.LatestAttempt(ctx, query)
-}
-
-// LatestAttemptAllHistory returns the newest visible attempt without a date boundary.
-func (r *Repository) LatestAttemptAllHistory(ctx context.Context, name string) (Attempt, error) {
-	return r.store.LatestAttempt(ctx, LatestAttemptQuery{Name: name})
 }
 
 // ListStatuses returns statuses in canonical list order.
@@ -248,12 +249,12 @@ func (r *Repository) removeOldDAGRuns(ctx context.Context, request RetentionRequ
 		return ids, err
 	}
 	for _, ref := range refs {
-		workspaceRef, normalizeErr := normalizeWorkspaceRef(WorkspaceRef{DAGRun: ref})
+		workspaceRef, normalizeErr := normalizeWorkspaceRef(DAGRunWorkspaceRef{DAGRun: ref})
 		if normalizeErr != nil {
 			err = errors.Join(err, normalizeErr)
 			continue
 		}
-		if removeErr := r.workspaces.Remove(ctx, workspaceRef); removeErr != nil {
+		if removeErr := r.dagRunWorkspaces.Remove(ctx, workspaceRef); removeErr != nil {
 			err = errors.Join(err, fmt.Errorf("remove workspace for dag-run %s: %w", ref.ID, removeErr))
 		}
 	}
@@ -278,11 +279,11 @@ func (r *Repository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, opts ..
 	if err != nil && !errors.Is(err, ErrDAGRunIDNotFound) {
 		return err
 	}
-	workspaceRef, normalizeErr := normalizeWorkspaceRef(WorkspaceRef{DAGRun: ref})
+	workspaceRef, normalizeErr := normalizeWorkspaceRef(DAGRunWorkspaceRef{DAGRun: ref})
 	if normalizeErr != nil {
 		return errors.Join(err, normalizeErr)
 	}
-	removeErr := r.workspaces.Remove(ctx, workspaceRef)
+	removeErr := r.dagRunWorkspaces.Remove(ctx, workspaceRef)
 	if removeErr != nil {
 		removeErr = fmt.Errorf("remove workspace for dag-run %s: %w", ref.ID, removeErr)
 	}
@@ -290,21 +291,21 @@ func (r *Repository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, opts ..
 }
 
 // MaterializeWorkspace makes a DAG-run workspace available locally.
-func (r *Repository) MaterializeWorkspace(ctx context.Context, ref WorkspaceRef) (string, error) {
+func (r *Repository) MaterializeWorkspace(ctx context.Context, ref DAGRunWorkspaceRef) (string, error) {
 	normalized, err := normalizeWorkspaceRef(ref)
 	if err != nil {
 		return "", err
 	}
-	return r.workspaces.Materialize(ctx, normalized)
+	return r.dagRunWorkspaces.Materialize(ctx, normalized)
 }
 
 // SnapshotWorkspace persists the current state of a DAG-run workspace.
-func (r *Repository) SnapshotWorkspace(ctx context.Context, ref WorkspaceRef, localDir string) error {
+func (r *Repository) SnapshotWorkspace(ctx context.Context, ref DAGRunWorkspaceRef, localDir string) error {
 	normalized, err := normalizeWorkspaceRef(ref)
 	if err != nil {
 		return err
 	}
-	return r.workspaces.Snapshot(ctx, normalized, localDir)
+	return r.dagRunWorkspaces.Snapshot(ctx, normalized, localDir)
 }
 
 // ListRetryCandidates returns failed latest attempts eligible for retry scanning.

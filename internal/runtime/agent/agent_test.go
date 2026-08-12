@@ -330,7 +330,7 @@ func TestAgent_Run(t *testing.T) {
 `)
 		runID := "snapshot-failure"
 		snapshotErr := errors.New("snapshot unavailable")
-		workspaces := &failingWorkspaceStore{dir: t.TempDir(), snapshotErr: snapshotErr}
+		workspaces := &failingDAGRunWorkspaceStore{dir: t.TempDir(), snapshotErr: snapshotErr}
 		repository := dagrun.NewRepository(
 			filedagrun.NewStore(th.Config.Paths.DAGRunsDir),
 			workspaces,
@@ -1711,21 +1711,21 @@ func subDAGVisibleTimeout() time.Duration {
 	return 10 * time.Second
 }
 
-type failingWorkspaceStore struct {
+type failingDAGRunWorkspaceStore struct {
 	dir           string
 	snapshotErr   error
 	snapshotCalls int
 }
 
-func (s *failingWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
+func (s *failingDAGRunWorkspaceStore) Materialize(context.Context, dagrun.DAGRunWorkspaceRef) (string, error) {
 	return s.dir, nil
 }
 
-func (s *failingWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
+func (s *failingDAGRunWorkspaceStore) Snapshot(context.Context, dagrun.DAGRunWorkspaceRef, string) error {
 	s.snapshotCalls++
 	return s.snapshotErr
 }
 
-func (*failingWorkspaceStore) Remove(context.Context, dagrun.WorkspaceRef) error {
+func (*failingDAGRunWorkspaceStore) Remove(context.Context, dagrun.DAGRunWorkspaceRef) error {
 	return nil
 }

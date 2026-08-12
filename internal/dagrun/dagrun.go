@@ -22,6 +22,20 @@ var (
 	ErrInvalidQueryCursor  = errors.New("dagrun: invalid query cursor")
 )
 
+type latestAttemptOptions struct {
+	allHistory bool
+}
+
+// LatestAttemptOption configures a latest-attempt lookup.
+type LatestAttemptOption func(*latestAttemptOptions)
+
+// WithLatestAttemptAllHistory searches all retained DAG runs.
+func WithLatestAttemptAllHistory() LatestAttemptOption {
+	return func(o *latestAttemptOptions) {
+		o.allHistory = true
+	}
+}
+
 type listStatusesOptions struct {
 	query      StatusQuery
 	allHistory bool

@@ -24,7 +24,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
-	repository := dagrun.NewRepository(store, NewWorkspaceStore(baseDir), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := dagrun.NewRepository(store, NewDAGRunWorkspaceStore(baseDir), dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",
@@ -36,7 +36,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	})
 	require.NoError(t, err)
 	rootRef := ir.NewDAGRunRef(parentDAG.Name, "run-compat")
-	parentWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{DAGRun: rootRef})
+	parentWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.DAGRunWorkspaceRef{DAGRun: rootRef})
 	require.NoError(t, err)
 	require.NoError(t, parentAttempt.Open(ctx))
 
@@ -72,7 +72,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 		AttemptID:  "child-attempt",
 	})
 	require.NoError(t, err)
-	childWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{
+	childWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.DAGRunWorkspaceRef{
 		RootDAGRun: rootRef,
 		DAGRun:     ir.NewDAGRunRef(childDAG.Name, "child-run"),
 	})
@@ -152,7 +152,7 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
-	repository := dagrun.NewRepository(store, NewWorkspaceStore(baseDir), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := dagrun.NewRepository(store, NewDAGRunWorkspaceStore(baseDir), dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",

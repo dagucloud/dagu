@@ -23,10 +23,10 @@ func WithPreparedAttempt(attempt dagrun.Attempt) historyStoreOption {
 	}
 }
 
-// WithWorkspaceStore supplies workspace persistence when execution history is remote.
-func WithWorkspaceStore(store dagrun.WorkspaceStore) historyStoreOption {
+// WithDAGRunWorkspaceStore supplies workspace persistence when execution history is remote.
+func WithDAGRunWorkspaceStore(store dagrun.DAGRunWorkspaceStore) historyStoreOption {
 	return func(s *historyStore) {
-		s.workspaces = store
+		s.dagRunWorkspaces = store
 	}
 }
 
@@ -40,9 +40,9 @@ func NewHistoryStore(repository *dagrun.Repository, opts ...historyStoreOption) 
 }
 
 type historyStore struct {
-	repository      *dagrun.Repository
-	workspaces      dagrun.WorkspaceStore
-	preparedAttempt dagrun.Attempt
+	repository       *dagrun.Repository
+	dagRunWorkspaces dagrun.DAGRunWorkspaceStore
+	preparedAttempt  dagrun.Attempt
 }
 
 func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest) (Attempt, error) {
@@ -50,8 +50,8 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 		return wrapAttempt(
 			dagrun.NewNoopAttempt(noopAttemptID(req), req.DAG),
 			nil,
-			s.workspaces,
-			workspaceRef(req),
+			s.dagRunWorkspaces,
+			dagRunWorkspaceRef(req),
 		), nil
 	}
 
@@ -86,7 +86,7 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 		}
 	}
 
-	return wrapAttempt(attempt, s.repository, s.workspaces, workspaceRef(req)), nil
+	return wrapAttempt(attempt, s.repository, s.dagRunWorkspaces, dagRunWorkspaceRef(req)), nil
 }
 
 func (s *historyStore) OpenAttempt(ctx context.Context, ref ir.DAGRunRef) (Attempt, error) {
@@ -97,7 +97,7 @@ func (s *historyStore) OpenAttempt(ctx context.Context, ref ir.DAGRunRef) (Attem
 	if err != nil {
 		return nil, err
 	}
-	return wrapAttempt(attempt, s.repository, s.workspaces, dagrun.WorkspaceRef{
+	return wrapAttempt(attempt, s.repository, s.dagRunWorkspaces, dagrun.DAGRunWorkspaceRef{
 		RootDAGRun: ref,
 		DAGRun:     ref,
 	}), nil
@@ -111,13 +111,13 @@ func (s *historyStore) OpenChildAttempt(ctx context.Context, root ir.DAGRunRef, 
 	if err != nil {
 		return nil, err
 	}
-	return wrapAttempt(attempt, s.repository, s.workspaces, dagrun.WorkspaceRef{
+	return wrapAttempt(attempt, s.repository, s.dagRunWorkspaces, dagrun.DAGRunWorkspaceRef{
 		RootDAGRun: root,
 		DAGRun:     ir.DAGRunRef{ID: childRunID},
 	}), nil
 }
 
-func workspaceRef(req BeginAttemptRequest) dagrun.WorkspaceRef {
+func dagRunWorkspaceRef(req BeginAttemptRequest) dagrun.DAGRunWorkspaceRef {
 	name := ""
 	if req.DAG != nil {
 		name = req.DAG.Name
@@ -127,7 +127,7 @@ func workspaceRef(req BeginAttemptRequest) dagrun.WorkspaceRef {
 	if root.Zero() {
 		root = ref
 	}
-	return dagrun.WorkspaceRef{RootDAGRun: root, DAGRun: ref}
+	return dagrun.DAGRunWorkspaceRef{RootDAGRun: root, DAGRun: ref}
 }
 
 func dagRunAttemptOptions(req BeginAttemptRequest) dagrun.CreateAttemptOptions {

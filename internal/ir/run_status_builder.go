@@ -176,7 +176,7 @@ func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) 
 func WithDAGDefinitionID(id string) StatusOption {
 	return func(status *DAGRunStatus) {
 		if id != "" {
-			status.SuspendFlagName = id
+			status.DefinitionID = id
 		}
 	}
 }

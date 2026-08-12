@@ -85,7 +85,7 @@ type DAGRunSummary struct {
 	AutoRetryBackoff     float64
 	AutoRetryMaxInterval time.Duration
 	ProcGroup            string
-	SuspendFlagName      string
+	DefinitionID         string
 	ArchiveDir           string
 }
 

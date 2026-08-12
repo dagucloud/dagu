@@ -51,7 +51,7 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *da
 		storeOpts = append(storeOpts, filedagrun.WithHistoryFileCache(options.HistoryFileCache))
 	}
 	store := filedagrun.NewStore(cfg.Paths.DAGRunsDir, storeOpts...)
-	workspaces := filedagrun.NewWorkspaceStore(cfg.Paths.DAGRunsDir)
+	workspaces := filedagrun.NewDAGRunWorkspaceStore(cfg.Paths.DAGRunsDir)
 	return dagrun.NewRepository(store, workspaces, dagrun.RepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
 		Location:          cfg.Core.Location,

@@ -190,7 +190,6 @@ func (store *Store) Catalog(ctx context.Context) (persis.DAGCatalog, error) {
 			ID:        entryStem(entry),
 			DAG:       dagindex.DAGFromEntry(entry, store.baseDir),
 			Suspended: entry.Suspended,
-			Revision:  fmt.Sprintf("%d:%d:%t", entry.FileSize, entry.ModTime, entry.Suspended),
 		})
 	}
 	return result, nil

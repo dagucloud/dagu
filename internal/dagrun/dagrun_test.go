@@ -92,7 +92,7 @@ func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
 	assert.Equal(t, "daily", backend.latestQuery.Name)
 	assert.Equal(t, dagrun.NewUTC(time.Date(2026, 8, 12, 0, 0, 0, 0, location)), backend.latestQuery.NotBefore)
 
-	_, err = repository.LatestAttemptAllHistory(context.Background(), "daily")
+	_, err = repository.LatestAttempt(context.Background(), "daily", dagrun.WithLatestAttemptAllHistory())
 	require.NoError(t, err)
 	assert.Equal(t, "daily", backend.latestQuery.Name)
 	assert.True(t, backend.latestQuery.NotBefore.IsZero())
@@ -191,13 +191,13 @@ func TestRepositoryCleansWorkspacesAfterRunMetadata(t *testing.T) {
 			ir.NewDAGRunRef("daily", "run-2"),
 		},
 	}
-	workspaces := &recordingWorkspaceStore{removeErr: workspaceErr}
+	workspaces := &recordingDAGRunWorkspaceStore{removeErr: workspaceErr}
 	repository := dagrun.NewRepository(backend, workspaces, dagrun.RepositoryOptions{})
 
 	removed, err := repository.RemoveOldDAGRuns(context.Background(), "daily", 7)
 	assert.Equal(t, []string{"run-1", "run-2"}, removed)
 	require.ErrorIs(t, err, workspaceErr)
-	assert.Equal(t, []dagrun.WorkspaceRef{
+	assert.Equal(t, []dagrun.DAGRunWorkspaceRef{
 		{RootDAGRun: ir.NewDAGRunRef("daily", "run-1"), DAGRun: ir.NewDAGRunRef("daily", "run-1")},
 		{RootDAGRun: ir.NewDAGRunRef("daily", "run-2"), DAGRun: ir.NewDAGRunRef("daily", "run-2")},
 	}, workspaces.removed)
@@ -209,7 +209,7 @@ func TestRepositoryRetentionDryRunDoesNotRemoveWorkspaces(t *testing.T) {
 	backend := &recordingDAGRunBackend{
 		removedRefs: []ir.DAGRunRef{ir.NewDAGRunRef("daily", "run-1")},
 	}
-	workspaces := &recordingWorkspaceStore{}
+	workspaces := &recordingDAGRunWorkspaceStore{}
 	repository := dagrun.NewRepository(backend, workspaces, dagrun.RepositoryOptions{})
 
 	removed, err := repository.RemoveOldDAGRuns(context.Background(), "daily", 7, dagrun.WithDryRun())
@@ -289,20 +289,20 @@ func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req dagrun.
 	return s.removedRefs, nil
 }
 
-type recordingWorkspaceStore struct {
-	removed   []dagrun.WorkspaceRef
+type recordingDAGRunWorkspaceStore struct {
+	removed   []dagrun.DAGRunWorkspaceRef
 	removeErr error
 }
 
-func (*recordingWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
+func (*recordingDAGRunWorkspaceStore) Materialize(context.Context, dagrun.DAGRunWorkspaceRef) (string, error) {
 	return "", nil
 }
 
-func (*recordingWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
+func (*recordingDAGRunWorkspaceStore) Snapshot(context.Context, dagrun.DAGRunWorkspaceRef, string) error {
 	return nil
 }
 
-func (s *recordingWorkspaceStore) Remove(_ context.Context, ref dagrun.WorkspaceRef) error {
+func (s *recordingDAGRunWorkspaceStore) Remove(_ context.Context, ref dagrun.DAGRunWorkspaceRef) error {
 	s.removed = append(s.removed, ref)
 	return s.removeErr
 }

@@ -13,22 +13,22 @@ import (
 func wrapAttempt(
 	attempt dagrun.Attempt,
 	repository *dagrun.Repository,
-	workspaces dagrun.WorkspaceStore,
-	workspaceRef dagrun.WorkspaceRef,
+	dagRunWorkspaces dagrun.DAGRunWorkspaceStore,
+	workspaceRef dagrun.DAGRunWorkspaceRef,
 ) Attempt {
 	return dagRunAttempt{
-		attempt:      attempt,
-		repository:   repository,
-		workspaces:   workspaces,
-		workspaceRef: workspaceRef,
+		attempt:          attempt,
+		repository:       repository,
+		dagRunWorkspaces: dagRunWorkspaces,
+		workspaceRef:     workspaceRef,
 	}
 }
 
 type dagRunAttempt struct {
-	attempt      dagrun.Attempt
-	repository   *dagrun.Repository
-	workspaces   dagrun.WorkspaceStore
-	workspaceRef dagrun.WorkspaceRef
+	attempt          dagrun.Attempt
+	repository       *dagrun.Repository
+	dagRunWorkspaces dagrun.DAGRunWorkspaceStore
+	workspaceRef     dagrun.DAGRunWorkspaceRef
 }
 
 func (a dagRunAttempt) ID() string {
@@ -75,8 +75,8 @@ func (a dagRunAttempt) MaterializeWorkspace(ctx context.Context) (string, error)
 	if a.repository != nil {
 		return a.repository.MaterializeWorkspace(ctx, a.workspaceRef)
 	}
-	if a.workspaces != nil {
-		return a.workspaces.Materialize(ctx, a.workspaceRef)
+	if a.dagRunWorkspaces != nil {
+		return a.dagRunWorkspaces.Materialize(ctx, a.workspaceRef)
 	}
 	return "", nil
 }
@@ -85,8 +85,8 @@ func (a dagRunAttempt) SnapshotWorkspace(ctx context.Context, localDir string) e
 	if a.repository != nil {
 		return a.repository.SnapshotWorkspace(ctx, a.workspaceRef, localDir)
 	}
-	if a.workspaces != nil {
-		return a.workspaces.Snapshot(ctx, a.workspaceRef, localDir)
+	if a.dagRunWorkspaces != nil {
+		return a.dagRunWorkspaces.Snapshot(ctx, a.workspaceRef, localDir)
 	}
 	return nil
 }

@@ -35,7 +35,7 @@ func TestInitialStatusSnapshotsDAGRetryMetadata(t *testing.T) {
 	assert.Equal(t, 2.0, status.AutoRetryBackoff)
 	assert.Equal(t, 10*time.Minute, status.AutoRetryMaxInterval)
 	assert.Equal(t, "shared-queue", status.ProcGroup)
-	assert.Equal(t, "retry-dag", status.SuspendFlagName)
+	assert.Equal(t, "retry-dag", status.DefinitionID)
 }
 
 func TestInitialStatusSnapshotsDisabledDAGRetryPolicy(t *testing.T) {
@@ -60,7 +60,17 @@ func TestInitialStatusSnapshotsDisabledDAGRetryPolicy(t *testing.T) {
 	assert.Equal(t, 0.0, status.AutoRetryBackoff)
 	assert.Equal(t, time.Hour, status.AutoRetryMaxInterval)
 	assert.Equal(t, "shared-queue", status.ProcGroup)
-	assert.Equal(t, "retry-disabled-dag", status.SuspendFlagName)
+	assert.Equal(t, "retry-disabled-dag", status.DefinitionID)
+}
+
+func TestDAGDefinitionIDSupportsLegacyStatus(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "current", (&ir.DAGRunStatus{
+		DefinitionID:    "current",
+		SuspendFlagName: "legacy",
+	}).DAGDefinitionID())
+	assert.Equal(t, "legacy", (&ir.DAGRunStatus{SuspendFlagName: "legacy"}).DAGDefinitionID())
 }
 
 func TestPendingStepRetriesFromStatus(t *testing.T) {

@@ -49,7 +49,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	assert.Equal(t, ir.TriggerTypeManual, f.attempt.status.TriggerType)
 	assert.Equal(t, "alice", f.attempt.status.TriggerActor)
 	assert.Equal(t, "prod", f.attempt.status.ProfileName)
-	assert.Equal(t, "ops/daily", f.attempt.status.SuspendFlagName)
+	assert.Equal(t, "ops/daily", f.attempt.status.DefinitionID)
 	assert.Equal(t, f.attempt.status.Log, queued.LogFile)
 	assert.Equal(t, f.attempt.status.ArchiveDir, queued.ArtifactDir)
 }

@@ -39,7 +39,7 @@ func WithManagerClock(now func() time.Time) ManagerOption {
 // WithLatestStatusAllHistory makes latest-status lookups search all retained runs.
 func WithLatestStatusAllHistory() ManagerOption {
 	return func(m *Manager) {
-		m.latestStatusAllHistory = true
+		m.latestAttemptOptions = []dagrun.LatestAttemptOption{dagrun.WithLatestAttemptAllHistory()}
 	}
 }
 
@@ -62,11 +62,11 @@ func NewManager(dagRunRepository *dagrun.Repository, ps proc.ProcStore, cfg *con
 // restarting, and retrieving status information. It communicates with the DAG
 // through a socket interface and manages dag-run data.
 type Manager struct {
-	dagRunRepository       *dagrun.Repository      // Repository for persisted run data
-	procStore              proc.ProcStore          // Store interface for process management
-	subCmdBuilder          *launcher.SubCmdBuilder // Command builder for constructing command specs
-	nowFunc                func() time.Time
-	latestStatusAllHistory bool
+	dagRunRepository     *dagrun.Repository      // Repository for persisted run data
+	procStore            proc.ProcStore          // Store interface for process management
+	subCmdBuilder        *launcher.SubCmdBuilder // Command builder for constructing command specs
+	nowFunc              func() time.Time
+	latestAttemptOptions []dagrun.LatestAttemptOption
 }
 
 // Stop stops running DAG-runs and can cancel an explicit failed DAG-run that is
@@ -433,13 +433,7 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunSt
 	}
 
 	// Find the latest status by name
-	var attempt dagrun.Attempt
-	var err error
-	if m.latestStatusAllHistory {
-		attempt, err = m.dagRunRepository.LatestAttemptAllHistory(ctx, dag.Name)
-	} else {
-		attempt, err = m.dagRunRepository.LatestAttempt(ctx, dag.Name)
-	}
+	attempt, err := m.dagRunRepository.LatestAttempt(ctx, dag.Name, m.latestAttemptOptions...)
 	if err != nil {
 		// If the latest status is not found, return the default status
 		ret := ir.InitialStatus(dag)

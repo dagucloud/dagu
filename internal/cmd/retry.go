@@ -244,7 +244,7 @@ func runRetry(ctx *Context, args []string) error {
 		triggerActor: triggerActor,
 		scheduleTime: status.ScheduleTime,
 		profileName:  profileName,
-		definitionID: status.SuspendFlagName,
+		definitionID: status.DAGDefinitionID(),
 		noReuse:      status.NoReuse,
 		step:         stepName,
 		retryPath:    retryPath,
@@ -314,7 +314,7 @@ func restoreRetryExecutionContext(
 	repository *dagrun.Repository,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
-	workspaceRef dagrun.WorkspaceRef,
+	workspaceRef dagrun.DAGRunWorkspaceRef,
 ) error {
 	// Most retry inputs are already restored before this point: attempt.ReadDAG
 	// provides the original DAG snapshot, restoreDAGFromStatus restores runtime
@@ -323,7 +323,7 @@ func restoreRetryExecutionContext(
 	return backfillMissingRunWorkingDirSnapshot(ctx, repository, dag, status, workspaceRef)
 }
 
-func retryWorkspaceRef(status *ir.DAGRunStatus, fallback, fallbackRoot ir.DAGRunRef) dagrun.WorkspaceRef {
+func retryWorkspaceRef(status *ir.DAGRunStatus, fallback, fallbackRoot ir.DAGRunRef) dagrun.DAGRunWorkspaceRef {
 	ref := fallback
 	root := fallbackRoot
 	if status != nil {
@@ -340,7 +340,7 @@ func retryWorkspaceRef(status *ir.DAGRunStatus, fallback, fallbackRoot ir.DAGRun
 	if root.Zero() {
 		root = ref
 	}
-	return dagrun.WorkspaceRef{RootDAGRun: root, DAGRun: ref}
+	return dagrun.DAGRunWorkspaceRef{RootDAGRun: root, DAGRun: ref}
 }
 
 func applyRetryDefaultWorkingDir(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus) error {
@@ -365,7 +365,7 @@ func backfillMissingRunWorkingDirSnapshot(
 	repository *dagrun.Repository,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
-	workspaceRef dagrun.WorkspaceRef,
+	workspaceRef dagrun.DAGRunWorkspaceRef,
 ) error {
 	if dag == nil || status == nil || status.WorkingDir != "" {
 		return nil

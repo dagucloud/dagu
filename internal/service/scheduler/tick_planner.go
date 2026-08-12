@@ -517,9 +517,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 		if !ok || entry.DAG != snapshot.DAG {
 			continue
 		}
-		// Check suspension.
-		// IsSuspended is keyed by filename stem (not dag.Name), matching the
-		// file-based suspension flag system in filedag/store.go.
+		// Suspension is keyed by the persisted definition identity.
 		suspended, err := isSuspendedDAG(ctx, tp.cfg.IsSuspended, nil, entry.DAG, entry.DefinitionID)
 		if err != nil {
 			logger.Error(ctx, "Failed to check DAG suspension; skipping this cycle",

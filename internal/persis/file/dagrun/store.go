@@ -124,7 +124,7 @@ func (store *Store) resolveStatus(
 			AutoRetryBackoff:     s.AutoRetryBackoff,
 			AutoRetryMaxInterval: s.AutoRetryMaxInterval,
 			ProcGroup:            s.ProcGroup,
-			SuspendFlagName:      s.SuspendFlagName,
+			DefinitionID:         s.DefinitionID,
 			ArchiveDir:           s.ArchiveDir,
 		}
 	}

@@ -27,11 +27,11 @@ func InitialStatus(dag *DAG) DAGRunStatus {
 		autoRetryBackoff     float64
 		autoRetryMaxInterval time.Duration
 		procGroup            string
-		suspendFlagName      string
+		definitionID         string
 	)
 	if dag != nil {
 		procGroup = dag.ProcGroup()
-		suspendFlagName = dag.SuspendFlagName()
+		definitionID = dag.SuspendFlagName()
 		if dag.RetryPolicy != nil {
 			autoRetryLimit = dag.RetryPolicy.Limit
 			autoRetryInterval = dag.RetryPolicy.Interval
@@ -59,7 +59,7 @@ func InitialStatus(dag *DAG) DAGRunStatus {
 		AutoRetryBackoff:     autoRetryBackoff,
 		AutoRetryMaxInterval: autoRetryMaxInterval,
 		ProcGroup:            procGroup,
-		SuspendFlagName:      suspendFlagName,
+		DefinitionID:         definitionID,
 		CreatedAt:            time.Now().UnixMilli(),
 		StartedAt:            stringutil.FormatTime(time.Time{}),
 		FinishedAt:           stringutil.FormatTime(time.Time{}),
@@ -183,23 +183,25 @@ type DAGRunStatus struct {
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
 	// AutoRetryMaxInterval is stored as a duration snapshot for retry scanner decisions.
-	AutoRetryMaxInterval time.Duration         `json:"autoRetryMaxInterval,omitempty"`
-	ProcGroup            string                `json:"procGroup,omitempty"`
-	SuspendFlagName      string                `json:"suspendFlagName,omitempty"`
-	Log                  string                `json:"log,omitempty"`
-	WorkingDir           string                `json:"workingDir,omitempty"`
-	ArchiveDir           string                `json:"archiveDir,omitempty"`
-	Error                string                `json:"error,omitempty"`
-	Params               string                `json:"params,omitempty"`
-	ParamsList           []string              `json:"paramsList,omitempty"`
-	ProfileName          string                `json:"profileName,omitempty"`
-	ProfileResolvedAt    string                `json:"profileResolvedAt,omitempty"`
-	ProfileEntries       []RuntimeProfileEntry `json:"profileEntries,omitempty"`
-	NoReuse              bool                  `json:"noReuse,omitempty"`
-	PendingStepRetries   []PendingStepRetry    `json:"pendingStepRetries"`
-	Preconditions        []ConditionResult     `json:"preconditions,omitempty"`
-	Labels               []string              `json:"labels,omitempty"`
-	LeaseAt              int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
+	AutoRetryMaxInterval time.Duration `json:"autoRetryMaxInterval,omitempty"`
+	ProcGroup            string        `json:"procGroup,omitempty"`
+	DefinitionID         string        `json:"definitionId,omitempty"`
+	// SuspendFlagName is retained for histories written before DefinitionID was introduced.
+	SuspendFlagName    string                `json:"suspendFlagName,omitempty"`
+	Log                string                `json:"log,omitempty"`
+	WorkingDir         string                `json:"workingDir,omitempty"`
+	ArchiveDir         string                `json:"archiveDir,omitempty"`
+	Error              string                `json:"error,omitempty"`
+	Params             string                `json:"params,omitempty"`
+	ParamsList         []string              `json:"paramsList,omitempty"`
+	ProfileName        string                `json:"profileName,omitempty"`
+	ProfileResolvedAt  string                `json:"profileResolvedAt,omitempty"`
+	ProfileEntries     []RuntimeProfileEntry `json:"profileEntries,omitempty"`
+	NoReuse            bool                  `json:"noReuse,omitempty"`
+	PendingStepRetries []PendingStepRetry    `json:"pendingStepRetries"`
+	Preconditions      []ConditionResult     `json:"preconditions,omitempty"`
+	Labels             []string              `json:"labels,omitempty"`
+	LeaseAt            int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
 }
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim
@@ -229,6 +231,17 @@ func NormalizeDAGRunConditions(status *DAGRunStatus) {
 // DAGRun returns a reference to the dag-run associated with this status
 func (st *DAGRunStatus) DAGRun() DAGRunRef {
 	return NewDAGRunRef(st.Name, st.DAGRunID)
+}
+
+// DAGDefinitionID returns the persisted definition identity for this run.
+func (st *DAGRunStatus) DAGDefinitionID() string {
+	if st == nil {
+		return ""
+	}
+	if st.DefinitionID != "" {
+		return st.DefinitionID
+	}
+	return st.SuspendFlagName
 }
 
 // NodesInRunOrder returns the run's step nodes together with the lifecycle

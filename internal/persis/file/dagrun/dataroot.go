@@ -784,7 +784,7 @@ func summaryFromIndexEntry(ie dagrunindex.Entry) *DAGRunSummary {
 		AutoRetryBackoff:     ie.AutoRetryBackoff,
 		AutoRetryMaxInterval: ie.AutoRetryMaxInterval,
 		ProcGroup:            ie.ProcGroup,
-		SuspendFlagName:      ie.SuspendFlagName,
+		DefinitionID:         ie.DefinitionID,
 		ArchiveDir:           ie.ArchiveDir,
 	}
 }

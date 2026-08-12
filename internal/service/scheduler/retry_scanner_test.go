@@ -560,6 +560,7 @@ func TestRetryScannerScanSkipsSuspendedLegacyStatuses(t *testing.T) {
 	legacy := store.attempts[status.DAGRun().String()]
 	require.NotNil(t, legacy)
 	legacy.status.ProcGroup = ""
+	legacy.status.DefinitionID = ""
 	legacy.status.SuspendFlagName = ""
 	legacy.status.AutoRetryLimit = 0
 	legacy.status.AutoRetryInterval = 0
@@ -610,6 +611,7 @@ func TestRetryScannerScanFallsBackToDAGNameWhenSuspendSnapshotMissing(t *testing
 		ScheduleTime:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 	}
 	store := newRetryScannerStore(dag, status)
+	store.attempts[status.DAGRun().String()].status.DefinitionID = ""
 	store.attempts[status.DAGRun().String()].status.SuspendFlagName = ""
 
 	var checked string
@@ -879,7 +881,7 @@ func applyRetrySnapshot(status *ir.DAGRunStatus, dag *ir.DAG) {
 		return
 	}
 	status.ProcGroup = dag.ProcGroup()
-	status.SuspendFlagName = dag.SuspendFlagName()
+	status.DefinitionID = dag.SuspendFlagName()
 	if dag.RetryPolicy != nil {
 		status.AutoRetryLimit = dag.RetryPolicy.Limit
 		status.AutoRetryInterval = dag.RetryPolicy.Interval

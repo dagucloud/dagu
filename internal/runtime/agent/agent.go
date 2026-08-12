@@ -94,8 +94,8 @@ type Agent struct {
 	// runStateStore opens execution state for this run.
 	runStateStore runstate.Store
 
-	// workspaceStore persists workspaces when execution history is remote.
-	workspaceStore dagrun.WorkspaceStore
+	// dagRunWorkspaceStore persists workspaces when execution history is remote.
+	dagRunWorkspaceStore dagrun.DAGRunWorkspaceStore
 
 	// queueStore is the database to store queued dag-run items.
 	queueStore queue.QueueStore
@@ -339,8 +339,8 @@ type Options struct {
 	RunStateStore runstate.Store
 	// DAGRunRepository provides access to DAG-run data. Nil for remote worker execution.
 	DAGRunRepository *dagrun.Repository
-	// WorkspaceStore persists workspaces when DAG-run history is remote.
-	WorkspaceStore dagrun.WorkspaceStore
+	// DAGRunWorkspaceStore persists workspaces when DAG-run history is remote.
+	DAGRunWorkspaceStore dagrun.DAGRunWorkspaceStore
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
 	QueueStore queue.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
@@ -409,10 +409,13 @@ func New(
 		runStateStore = runstate.NewHistoryStore(
 			opts.DAGRunRepository,
 			runstate.WithPreparedAttempt(opts.PreparedAttempt),
-			runstate.WithWorkspaceStore(opts.WorkspaceStore),
+			runstate.WithDAGRunWorkspaceStore(opts.DAGRunWorkspaceStore),
 		)
 	} else if runStateStore == nil {
-		runStateStore = runstate.NewHistoryStore(opts.DAGRunRepository, runstate.WithWorkspaceStore(opts.WorkspaceStore))
+		runStateStore = runstate.NewHistoryStore(
+			opts.DAGRunRepository,
+			runstate.WithDAGRunWorkspaceStore(opts.DAGRunWorkspaceStore),
+		)
 	}
 
 	a := &Agent{
@@ -431,7 +434,7 @@ func New(
 		dagLoader:                dagLoader,
 		dagRunRepository:         opts.DAGRunRepository,
 		runStateStore:            runStateStore,
-		workspaceStore:           opts.WorkspaceStore,
+		dagRunWorkspaceStore:     opts.DAGRunWorkspaceStore,
 		queueStore:               opts.QueueStore,
 		stateStore:               opts.StateStore,
 		materializationStore:     opts.MaterializationStore,
@@ -2356,7 +2359,7 @@ func (a *Agent) setupAttempt(ctx context.Context) (runstate.Attempt, error) {
 	if a.runStateStore == nil {
 		a.runStateStore = runstate.NewHistoryStore(
 			a.dagRunRepository,
-			runstate.WithWorkspaceStore(a.workspaceStore),
+			runstate.WithDAGRunWorkspaceStore(a.dagRunWorkspaceStore),
 		)
 	}
 	if a.attemptID != "" && a.dagRunAttemptID != "" && a.attemptID != a.dagRunAttemptID {

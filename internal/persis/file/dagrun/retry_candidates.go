@@ -331,6 +331,6 @@ func retryCandidateStatus(status ir.DAGRunStatus) ir.DAGRunStatus {
 		AutoRetryBackoff:     status.AutoRetryBackoff,
 		AutoRetryMaxInterval: status.AutoRetryMaxInterval,
 		ProcGroup:            status.ProcGroup,
-		SuspendFlagName:      status.SuspendFlagName,
+		DefinitionID:         status.DAGDefinitionID(),
 	}
 }

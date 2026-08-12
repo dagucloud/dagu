@@ -148,7 +148,7 @@ func resolveRetryPathForChild(
 func newRetryPathRepository(baseDir string) *dagrun.Repository {
 	return dagrun.NewRepository(
 		filedagrun.NewStore(baseDir),
-		filedagrun.NewWorkspaceStore(baseDir),
+		filedagrun.NewDAGRunWorkspaceStore(baseDir),
 		dagrun.RepositoryOptions{LatestStatusToday: true},
 	)
 }

@@ -278,7 +278,7 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 	attempt, err := api.dagRunRepository.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), "source-run", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	sourceRef := ir.NewDAGRunRef(dag.Name, "source-run")
-	sourceWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{DAGRun: sourceRef})
+	sourceWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.DAGRunWorkspaceRef{DAGRun: sourceRef})
 	require.NoError(t, err)
 	sourceOutputPath := filepath.Join(sourceWorkDir, "result.txt")
 
@@ -319,7 +319,7 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 
 	newAttempt, err := api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "edit-run"))
 	require.NoError(t, err)
-	newWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{
+	newWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.DAGRunWorkspaceRef{
 		DAGRun: ir.NewDAGRunRef(dag.Name, "edit-run"),
 	})
 	require.NoError(t, err)

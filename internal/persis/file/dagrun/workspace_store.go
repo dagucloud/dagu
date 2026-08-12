@@ -16,19 +16,19 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
-var _ dagrun.WorkspaceStore = (*WorkspaceStore)(nil)
+var _ dagrun.DAGRunWorkspaceStore = (*DAGRunWorkspaceStore)(nil)
 
-// WorkspaceStore manages DAG-run workspaces in the local run directory tree.
-type WorkspaceStore struct {
+// DAGRunWorkspaceStore manages DAG-run workspaces in the local run directory tree.
+type DAGRunWorkspaceStore struct {
 	baseDir string
 }
 
-// NewWorkspaceStore creates a file-backed DAG-run workspace store.
-func NewWorkspaceStore(baseDir string) *WorkspaceStore {
-	return &WorkspaceStore{baseDir: baseDir}
+// NewDAGRunWorkspaceStore creates a file-backed DAG-run workspace store.
+func NewDAGRunWorkspaceStore(baseDir string) *DAGRunWorkspaceStore {
+	return &DAGRunWorkspaceStore{baseDir: baseDir}
 }
 
-func (s *WorkspaceStore) Materialize(ctx context.Context, ref dagrun.WorkspaceRef) (string, error) {
+func (s *DAGRunWorkspaceStore) Materialize(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) (string, error) {
 	dir, err := s.workspaceDir(ctx, ref)
 	if err != nil {
 		return "", err
@@ -39,11 +39,11 @@ func (s *WorkspaceStore) Materialize(ctx context.Context, ref dagrun.WorkspaceRe
 	return dir, nil
 }
 
-func (*WorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
+func (*DAGRunWorkspaceStore) Snapshot(context.Context, dagrun.DAGRunWorkspaceRef, string) error {
 	return nil
 }
 
-func (s *WorkspaceStore) Remove(ctx context.Context, ref dagrun.WorkspaceRef) error {
+func (s *DAGRunWorkspaceStore) Remove(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) error {
 	dir, err := s.workspaceDir(ctx, ref)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
@@ -57,7 +57,7 @@ func (s *WorkspaceStore) Remove(ctx context.Context, ref dagrun.WorkspaceRef) er
 	return nil
 }
 
-func (s *WorkspaceStore) workspaceDir(ctx context.Context, ref dagrun.WorkspaceRef) (string, error) {
+func (s *DAGRunWorkspaceStore) workspaceDir(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) (string, error) {
 	root := NewDataRoot(s.baseDir, ref.RootDAGRun.Name)
 	run, err := root.FindByDAGRunID(ctx, ref.RootDAGRun.ID)
 	if err != nil {

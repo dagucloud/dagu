@@ -246,18 +246,18 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		tag.Error(loadErr),
 	)
 	status := ir.DAGRunStatus{
-		Root:            run.root,
-		Parent:          run.parent,
-		Name:            task.Target,
-		DAGRunID:        task.DagRunId,
-		AttemptID:       task.AttemptId,
-		Status:          ir.Failed,
-		FinishedAt:      finishedAt,
-		Error:           sanitizeTaskLoadError(task.Target, loadErr),
-		Params:          task.Params,
-		ProfileName:     run.profileName,
-		SuspendFlagName: task.DefinitionId,
-		TriggerActor:    task.TriggerActor,
+		Root:         run.root,
+		Parent:       run.parent,
+		Name:         task.Target,
+		DAGRunID:     task.DagRunId,
+		AttemptID:    task.AttemptId,
+		Status:       ir.Failed,
+		FinishedAt:   finishedAt,
+		Error:        sanitizeTaskLoadError(task.Target, loadErr),
+		Params:       task.Params,
+		ProfileName:  run.profileName,
+		DefinitionID: task.DefinitionId,
+		TriggerActor: task.TriggerActor,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {
@@ -301,18 +301,18 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		tag.Error(initErr),
 	)
 	status := ir.DAGRunStatus{
-		Root:            run.root,
-		Parent:          run.parent,
-		Name:            target,
-		DAGRunID:        task.DagRunId,
-		AttemptID:       task.AttemptId,
-		Status:          ir.Failed,
-		FinishedAt:      finishedAt,
-		Error:           initErr.Error(),
-		Params:          params,
-		ProfileName:     run.profileName,
-		SuspendFlagName: task.DefinitionId,
-		TriggerActor:    task.TriggerActor,
+		Root:         run.root,
+		Parent:       run.parent,
+		Name:         target,
+		DAGRunID:     task.DagRunId,
+		AttemptID:    task.AttemptId,
+		Status:       ir.Failed,
+		FinishedAt:   finishedAt,
+		Error:        initErr.Error(),
+		Params:       params,
+		ProfileName:  run.profileName,
+		DefinitionID: task.DefinitionId,
+		TriggerActor: task.TriggerActor,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {

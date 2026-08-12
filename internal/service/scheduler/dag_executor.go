@@ -185,7 +185,7 @@ func (e *DAGExecutor) ExecuteDAG(
 	triggerType ir.TriggerType,
 	scheduleTime string,
 ) error {
-	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", definitionIDFromStatus(previousStatus), "")
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), "")
 }
 
 func (e *DAGExecutor) ExecuteDAGWithAdmission(
@@ -198,7 +198,7 @@ func (e *DAGExecutor) ExecuteDAGWithAdmission(
 	scheduleTime string,
 	admissionReservationToken string,
 ) error {
-	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", definitionIDFromStatus(previousStatus), admissionReservationToken)
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), admissionReservationToken)
 }
 
 func (e *DAGExecutor) executeDAG(
@@ -326,13 +326,6 @@ func (e *DAGExecutor) defaultProfileName(ctx context.Context, definitionID strin
 		return "", err
 	}
 	return e.profileResolver.ResolveProfile(ctx, definitionID, workspaceName)
-}
-
-func definitionIDFromStatus(status *ir.DAGRunStatus) string {
-	if status == nil {
-		return ""
-	}
-	return status.SuspendFlagName
 }
 
 func profileNameFromStatus(status *ir.DAGRunStatus) string {
