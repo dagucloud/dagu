@@ -449,7 +449,7 @@ func (att *Attempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) {
 
 	if parseErr != nil {
 		if errors.Is(parseErr, io.EOF) {
-			return nil, dagrun.ErrCorruptedStatusFile // This means no valid status was found in the file
+			return nil, dagrun.ErrCorruptedStatusData
 		}
 		return nil, fmt.Errorf("failed to parse status file: %w", parseErr)
 	}

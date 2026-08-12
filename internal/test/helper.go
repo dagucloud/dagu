@@ -635,7 +635,8 @@ func (d *DAG) AssertDAGRunCount(t *testing.T, expected int) {
 
 	// the +1 to the limit is needed to ensure that the number of dag-run
 	// entries is exactly the expected number
-	statuses := d.DAGRunRepository.RecentStatuses(d.Context, d.Name, expected+1)
+	statuses, err := d.DAGRunRepository.RecentStatuses(d.Context, d.Name, expected+1)
+	require.NoError(t, err)
 	require.Len(t, statuses, expected)
 }
 

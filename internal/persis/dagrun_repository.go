@@ -8,11 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -73,18 +71,12 @@ func (r *DAGRunRepository) CreateAttempt(
 }
 
 // RecentStatuses returns the newest readable status for recent DAG runs.
-func (r *DAGRunRepository) RecentStatuses(ctx context.Context, name string, limit int) []ir.DAGRunStatus {
+func (r *DAGRunRepository) RecentStatuses(ctx context.Context, name string, limit int) ([]ir.DAGRunStatus, error) {
 	if limit <= 0 {
-		logger.Warn(ctx, "Invalid itemLimit, using default of 10", tag.Limit(limit))
+		logger.Warn(ctx, "Non-positive recent DAG-run limit, using default of 10", slog.Int("limit", limit))
 		limit = 10
 	}
-	statuses, err := r.store.RecentStatuses(ctx, name, limit)
-	if err != nil {
-		logger.Error(ctx, "Failed to list recent runs", tag.Error(err))
-		return nil
-	}
-
-	return statuses
+	return r.store.RecentStatuses(ctx, name, limit)
 }
 
 // LatestAttempt returns the newest visible attempt for a DAG.
@@ -209,7 +201,7 @@ func (r *DAGRunRepository) RemoveOldDAGRuns(
 	request := DAGRunRetentionRequest{Name: name, DryRun: options.DryRun}
 	if options.RetentionRuns != nil {
 		if *options.RetentionRuns <= 0 {
-			logger.Warn(ctx, "Non-positive retentionRuns, no files will be removed",
+			logger.Warn(ctx, "Non-positive retentionRuns, no DAG runs will be removed",
 				slog.Int("retention-runs", *options.RetentionRuns))
 			return nil, nil
 		}
@@ -221,7 +213,7 @@ func (r *DAGRunRepository) RemoveOldDAGRuns(
 		return r.removeOldDAGRuns(ctx, request)
 	}
 	if retentionDays < 0 {
-		logger.Warn(ctx, "Negative retentionDays, no files will be removed",
+		logger.Warn(ctx, "Negative retentionDays, no DAG runs will be removed",
 			slog.Int("retention-days", retentionDays))
 		return nil, nil
 	}
@@ -272,264 +264,4 @@ func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, o
 		removeErr = fmt.Errorf("remove workspace for dag-run %s: %w", ref.ID, removeErr)
 	}
 	return errors.Join(err, removeErr)
-}
-
-// MaterializeWorkspace makes a DAG-run workspace available locally.
-func (r *DAGRunRepository) MaterializeWorkspace(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) (string, error) {
-	normalized, err := normalizeWorkspaceRef(ref)
-	if err != nil {
-		return "", err
-	}
-	return r.dagRunWorkspaces.Materialize(ctx, normalized)
-}
-
-// SnapshotWorkspace persists the current state of a DAG-run workspace.
-func (r *DAGRunRepository) SnapshotWorkspace(ctx context.Context, ref dagrun.DAGRunWorkspaceRef, localDir string) error {
-	normalized, err := normalizeWorkspaceRef(ref)
-	if err != nil {
-		return err
-	}
-	return r.dagRunWorkspaces.Snapshot(ctx, normalized, localDir)
-}
-
-// ListRetryCandidates returns failed latest attempts eligible for retry scanning.
-func (r *DAGRunRepository) ListRetryCandidates(ctx context.Context, from TimeInUTC) ([]*ir.DAGRunStatus, error) {
-	if lister, ok := r.store.(DAGRunRetryCandidateLister); ok {
-		return lister.ListRetryCandidates(ctx, from)
-	}
-	return r.ListStatuses(ctx, DAGRunListOptions{
-		From:      from,
-		Statuses:  []ir.Status{ir.Failed},
-		Unbounded: true,
-	})
-}
-
-// ResolveRetryPath resolves the ancestry of a persisted child DAG run.
-func (r *DAGRunRepository) ResolveRetryPath(
-	ctx context.Context,
-	root ir.DAGRunRef,
-	targetRunID string,
-	stepName string,
-) (dagrun.RetryPath, *ir.DAGRunStatus, error) {
-	if r == nil {
-		return dagrun.RetryPath{}, nil, errors.New("retry path: DAG-run repository is not configured")
-	}
-	if root.Zero() || targetRunID == "" || stepName == "" {
-		return dagrun.RetryPath{}, nil, fmt.Errorf(
-			"%w: root run, child run, and step are required",
-			dagrun.ErrInvalidRetryPath,
-		)
-	}
-
-	rootAttempt, err := r.FindAttempt(ctx, root)
-	if err != nil {
-		return dagrun.RetryPath{}, nil, fmt.Errorf("find root DAG run: %w", err)
-	}
-	rootStatus, err := readRetryStatus(ctx, rootAttempt)
-	if err != nil {
-		return dagrun.RetryPath{}, nil, fmt.Errorf("read root DAG run: %w", err)
-	}
-
-	targetAttempt, err := r.FindSubAttempt(ctx, root, targetRunID)
-	if err != nil {
-		return dagrun.RetryPath{}, nil, fmt.Errorf("find child DAG run %s: %w", targetRunID, err)
-	}
-	targetStatus, err := readRetryStatus(ctx, targetAttempt)
-	if err != nil {
-		return dagrun.RetryPath{}, nil, fmt.Errorf("read child DAG run %s: %w", targetRunID, err)
-	}
-
-	targetNode, err := targetStatus.NodeByName(stepName)
-	if err != nil {
-		return dagrun.RetryPath{}, nil, fmt.Errorf(
-			"%w: %s in DAG run %s",
-			dagrun.ErrRetryStepNotFound,
-			stepName,
-			targetRunID,
-		)
-	}
-
-	var reversed []dagrun.RetryHop
-	current := targetStatus
-	seen := make(map[string]struct{})
-	for current.DAGRunID != root.ID {
-		if _, ok := seen[current.DAGRunID]; ok {
-			return dagrun.RetryPath{}, nil, fmt.Errorf(
-				"%w: cycle at DAG run %s",
-				dagrun.ErrInvalidRetryPath,
-				current.DAGRunID,
-			)
-		}
-		seen[current.DAGRunID] = struct{}{}
-
-		parentRef := current.Parent
-		if parentRef.ID == "" {
-			return dagrun.RetryPath{}, nil, fmt.Errorf(
-				"%w: DAG run %s has no parent",
-				dagrun.ErrInvalidRetryPath,
-				current.DAGRunID,
-			)
-		}
-
-		var parentStatus *ir.DAGRunStatus
-		if parentRef.ID == root.ID {
-			parentStatus = rootStatus
-		} else {
-			parentAttempt, findErr := r.FindSubAttempt(ctx, root, parentRef.ID)
-			if findErr != nil {
-				return dagrun.RetryPath{}, nil, fmt.Errorf(
-					"%w: find parent DAG run %s: %v",
-					dagrun.ErrInvalidRetryPath,
-					parentRef.ID,
-					findErr,
-				)
-			}
-			parentStatus, err = readRetryStatus(ctx, parentAttempt)
-			if err != nil {
-				return dagrun.RetryPath{}, nil, fmt.Errorf(
-					"%w: read parent DAG run %s: %v",
-					dagrun.ErrInvalidRetryPath,
-					parentRef.ID,
-					err,
-				)
-			}
-		}
-
-		node := retryParentNode(parentStatus, current.DAGRunID)
-		if node == nil {
-			return dagrun.RetryPath{}, nil, fmt.Errorf(
-				"%w: parent DAG run %s does not reference child %s",
-				dagrun.ErrInvalidRetryPath,
-				parentRef.ID,
-				current.DAGRunID,
-			)
-		}
-		if node.Step.SubDAG == nil {
-			return dagrun.RetryPath{}, nil, fmt.Errorf(
-				"%w: step %s in DAG run %s is not a sub-DAG",
-				dagrun.ErrInvalidRetryPath,
-				node.Step.Name,
-				parentRef.ID,
-			)
-		}
-		if node.Step.RepeatPolicy.RepeatMode != "" || len(node.SubRunsRepeated) > 0 {
-			return dagrun.RetryPath{}, nil, fmt.Errorf(
-				"%w: step %s in DAG run %s repeats",
-				dagrun.ErrRepeatingStepTarget,
-				node.Step.Name,
-				parentRef.ID,
-			)
-		}
-		reversed = append(reversed, dagrun.RetryHop{
-			Step:  node.Step.Name,
-			RunID: current.DAGRunID,
-		})
-		current = parentStatus
-	}
-
-	if len(reversed) == 0 {
-		return dagrun.RetryPath{}, nil, fmt.Errorf(
-			"%w: target %s is not a child DAG run",
-			dagrun.ErrInvalidRetryPath,
-			targetRunID,
-		)
-	}
-	slices.Reverse(reversed)
-	return dagrun.RetryPath{Hops: reversed, Step: targetNode.Step.Name}, targetStatus, nil
-}
-
-// CancelFailedAutoRetryPendingRun marks the latest eligible failed attempt as aborted.
-func (r *DAGRunRepository) CancelFailedAutoRetryPendingRun(
-	ctx context.Context,
-	status *ir.DAGRunStatus,
-) error {
-	if !dagrun.CanCancelFailedAutoRetryPendingRun(status) {
-		return errors.New("dag-run is not eligible for failed auto-retry cancel")
-	}
-
-	updatedStatus, swapped, err := r.CompareAndSwapLatestAttemptStatus(
-		ctx,
-		status.DAGRun(),
-		status.AttemptID,
-		ir.Failed,
-		func(latest *ir.DAGRunStatus) error {
-			latest.Status = ir.Aborted
-			return nil
-		},
-		DAGRunCompareAndSwapOptions{},
-	)
-	if err != nil {
-		return fmt.Errorf("cancel failed auto-retry pending DAG-run: %w", err)
-	}
-	if swapped {
-		return nil
-	}
-
-	return &dagrun.FailedAutoRetryCancelStateChangedError{CurrentStatus: updatedStatus}
-}
-
-func readRetryStatus(ctx context.Context, attempt dagrun.Attempt) (*ir.DAGRunStatus, error) {
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if status == nil {
-		return nil, dagrun.ErrNoStatusData
-	}
-	return status, nil
-}
-
-func retryParentNode(status *ir.DAGRunStatus, childRunID string) *ir.Node {
-	for _, node := range status.Nodes {
-		if node == nil {
-			continue
-		}
-		for _, run := range node.SubRuns {
-			if run.DAGRunID == childRunID {
-				return node
-			}
-		}
-		for _, run := range node.SubRunsRepeated {
-			if run.DAGRunID == childRunID {
-				return node
-			}
-		}
-	}
-	return nil
-}
-
-type noopDAGRunWorkspaceStore struct{}
-
-func (noopDAGRunWorkspaceStore) Materialize(context.Context, dagrun.DAGRunWorkspaceRef) (string, error) {
-	return "", nil
-}
-
-func (noopDAGRunWorkspaceStore) Snapshot(context.Context, dagrun.DAGRunWorkspaceRef, string) error {
-	return nil
-}
-
-func (noopDAGRunWorkspaceStore) Remove(context.Context, dagrun.DAGRunWorkspaceRef) error {
-	return nil
-}
-
-func normalizeWorkspaceRef(ref dagrun.DAGRunWorkspaceRef) (dagrun.DAGRunWorkspaceRef, error) {
-	if ref.DAGRun.ID == "" {
-		return dagrun.DAGRunWorkspaceRef{}, dagrun.ErrDAGRunIDEmpty
-	}
-	if ref.RootDAGRun.Zero() {
-		ref.RootDAGRun = ref.DAGRun
-	}
-	if ref.RootDAGRun.ID == "" {
-		return dagrun.DAGRunWorkspaceRef{}, dagrun.ErrDAGRunIDEmpty
-	}
-	if ref.RootDAGRun.Name == "" {
-		return dagrun.DAGRunWorkspaceRef{}, fmt.Errorf(
-			"missing root dag-run name for workspace %s",
-			ref.DAGRun.ID,
-		)
-	}
-	if ref.DAGRun.Name == "" && ref.DAGRun.ID == ref.RootDAGRun.ID {
-		ref.DAGRun.Name = ref.RootDAGRun.Name
-	}
-	return ref, nil
 }

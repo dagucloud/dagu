@@ -164,13 +164,15 @@ func TestRepositoryNormalizesCompareAndSwapRequest(t *testing.T) {
 	assert.Empty(t, updated.Conditions)
 }
 
-func TestRepositoryRecentStatusesHidesBackendErrors(t *testing.T) {
+func TestRepositoryRecentStatusesReturnsStoreErrors(t *testing.T) {
 	t.Parallel()
 
 	backend := &recordingDAGRunBackend{recentStatusesErr: errors.New("list failed")}
 	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
 
-	assert.Nil(t, repository.RecentStatuses(context.Background(), "daily", 10))
+	statuses, err := repository.RecentStatuses(context.Background(), "daily", 10)
+	assert.Nil(t, statuses)
+	require.EqualError(t, err, "list failed")
 }
 
 func TestRepositoryCleansWorkspacesAfterRunMetadata(t *testing.T) {
@@ -211,7 +213,7 @@ func TestRepositoryRetentionDryRunDoesNotRemoveWorkspaces(t *testing.T) {
 }
 
 type recordingDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	createRequest         persis.DAGRunCreateAttemptRequest
 	latestQuery           persis.DAGRunLatestAttemptQuery
 	statusQuery           persis.DAGRunStatusQuery

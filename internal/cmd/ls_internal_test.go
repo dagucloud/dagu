@@ -6,12 +6,14 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,6 +24,26 @@ type warningDAGDefinitionStore struct {
 
 func (warningDAGDefinitionStore) Catalog(context.Context) (persis.DAGCatalog, error) {
 	return persis.DAGCatalog{Issues: []string{"catalog warning"}}, nil
+}
+
+type listedDAGDefinitionStore struct {
+	persis.DAGDefinitionStore
+}
+
+func (listedDAGDefinitionStore) Catalog(context.Context) (persis.DAGCatalog, error) {
+	return persis.DAGCatalog{Items: []persis.DAGListItem{{
+		ID:  "daily.yaml",
+		DAG: &ir.DAG{Name: "daily"},
+	}}}, nil
+}
+
+type failingRecentDAGRunStore struct {
+	testutil.DAGRunStoreStub
+	err error
+}
+
+func (s failingRecentDAGRunStore) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
+	return nil, s.err
 }
 
 func TestRunLsWritesWarningsToCommandErrorStream(t *testing.T) {
@@ -39,6 +61,24 @@ func TestRunLsWritesWarningsToCommandErrorStream(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "warning: catalog warning\n", stderr.String())
+}
+
+func TestRunLsReturnsRecentHistoryStoreErrors(t *testing.T) {
+	t.Parallel()
+
+	command := Ls()
+	command.SetOut(io.Discard)
+	require.NoError(t, command.Flags().Set("history", "true"))
+
+	storeErr := errors.New("storage unavailable")
+	err := runLs(&Context{
+		Context:          context.Background(),
+		Command:          command,
+		DAGRepository:    persis.NewDAGRepository(listedDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
+		DAGRunRepository: persis.NewDAGRunRepository(failingRecentDAGRunStore{err: storeErr}, nil, persis.DAGRunRepositoryOptions{}),
+	}, nil)
+	require.ErrorIs(t, err, storeErr)
+	require.ErrorContains(t, err, "load recent DAG-run history for daily")
 }
 
 func TestSortLsRowsByLastRun(t *testing.T) {

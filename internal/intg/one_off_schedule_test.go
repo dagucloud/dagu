@@ -119,7 +119,9 @@ steps:
 	})
 
 	assert.Equal(t, int32(0), dispatchCount.Load())
-	assert.Len(t, th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 10), 1)
+	statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 10)
+	require.NoError(t, err)
+	assert.Len(t, statuses, 1)
 
 	probe.Stop(context.Background(), cancel, 5*time.Second)
 }
@@ -166,7 +168,10 @@ steps:
 	probe := h.StartScheduler(ctx, sc, th.EntryReader)
 
 	probe.RequireEventually("expected one-off env secret run to succeed", 30*time.Second, func() bool {
-		statuses := th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 5)
+		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 5)
+		if err != nil {
+			return false
+		}
 		return len(statuses) > 0 && statuses[0].Status == ir.Succeeded
 	})
 

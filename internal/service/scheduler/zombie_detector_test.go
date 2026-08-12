@@ -306,7 +306,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithCorruptedStatusIsRemo
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 
 	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
-	dagRunRepository.On("FindAttempt", mock.Anything, ir.NewDAGRunRef("test-dag", "run-1")).Return(nil, dagrun.ErrCorruptedStatusFile).Once()
+	dagRunRepository.On("FindAttempt", mock.Anything, ir.NewDAGRunRef("test-dag", "run-1")).Return(nil, dagrun.ErrCorruptedStatusData).Once()
 	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
@@ -332,7 +332,7 @@ func testRootProcEntry(groupName, dagName, dagRunID, attemptID string, fresh boo
 }
 
 type mockDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	mock.Mock
 }
 

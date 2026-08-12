@@ -299,9 +299,9 @@ func TestAttempt_EmptyFile(t *testing.T) {
 	att, err := NewAttempt(file, nil)
 	require.NoError(t, err)
 
-	// Reading an empty file should return ErrCorruptedStatusFile
+	// Reading an empty file returns ErrCorruptedStatusData.
 	_, err = att.ReadStatus(context.Background())
-	assert.ErrorIs(t, err, dagrun.ErrCorruptedStatusFile)
+	assert.ErrorIs(t, err, dagrun.ErrCorruptedStatusData)
 
 	// Compacting an empty file should be safe
 	err = att.Compact(context.Background())
@@ -344,9 +344,9 @@ func TestAttempt_CorruptedStatusFile(t *testing.T) {
 		att, err := NewAttempt(file, nil)
 		require.NoError(t, err)
 
-		// Should return ErrCorruptedStatusFile
+		// An empty status file returns ErrCorruptedStatusData.
 		_, err = att.ReadStatus(context.Background())
-		assert.ErrorIs(t, err, dagrun.ErrCorruptedStatusFile)
+		assert.ErrorIs(t, err, dagrun.ErrCorruptedStatusData)
 	})
 
 	t.Run("OnlyWhitespace", func(t *testing.T) {
@@ -360,9 +360,9 @@ func TestAttempt_CorruptedStatusFile(t *testing.T) {
 		att, err := NewAttempt(file, nil)
 		require.NoError(t, err)
 
-		// Should return ErrCorruptedStatusFile
+		// Status data without a complete record returns ErrCorruptedStatusData.
 		_, err = att.ReadStatus(context.Background())
-		assert.ErrorIs(t, err, dagrun.ErrCorruptedStatusFile)
+		assert.ErrorIs(t, err, dagrun.ErrCorruptedStatusData)
 	})
 
 	t.Run("NoValidJSON", func(t *testing.T) {
@@ -376,9 +376,9 @@ func TestAttempt_CorruptedStatusFile(t *testing.T) {
 		att, err := NewAttempt(file, nil)
 		require.NoError(t, err)
 
-		// Should return ErrCorruptedStatusFile
+		// Status data without a valid record returns ErrCorruptedStatusData.
 		_, err = att.ReadStatus(context.Background())
-		assert.ErrorIs(t, err, dagrun.ErrCorruptedStatusFile)
+		assert.ErrorIs(t, err, dagrun.ErrCorruptedStatusData)
 	})
 }
 

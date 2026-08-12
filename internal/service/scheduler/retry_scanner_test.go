@@ -683,7 +683,7 @@ func TestRetryScannerScanIsIdempotentForQueuedRun(t *testing.T) {
 }
 
 type retryScannerStore struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	attempts           map[string]*retryScannerAttempt
 	latestByName       map[string]*retryScannerAttempt
 	latestAttemptCalls int

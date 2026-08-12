@@ -356,7 +356,7 @@ func TestEnqueueRetry(t *testing.T) {
 }
 
 type stubDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	status    *ir.DAGRunStatus
 	firstErr  error
 	secondErr error

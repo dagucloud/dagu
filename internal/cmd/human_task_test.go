@@ -416,7 +416,7 @@ func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, ir.D
 }
 
 type humanTaskCompletionStore struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	attempt      *humanTaskCompletionAttempt
 	status       *ir.DAGRunStatus
 	beforeMutate func()

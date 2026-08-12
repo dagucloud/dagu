@@ -236,7 +236,7 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRun
 		attempt, err = h.dagRunRepository.FindAttempt(ctx, lease.DAGRun)
 	}
 	if err != nil {
-		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
 			return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
 		}
 		return nil, status.Error(codes.Internal, err.Error())

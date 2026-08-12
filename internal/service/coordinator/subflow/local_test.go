@@ -428,7 +428,7 @@ func createStoredRunningChildAttempt(
 }
 
 type localDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	subAttempt dagrun.Attempt
 	findErr    error
 	findRoot   ir.DAGRunRef

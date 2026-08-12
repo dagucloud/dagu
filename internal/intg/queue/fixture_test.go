@@ -439,7 +439,11 @@ func (f *fixture) waitForRecentStatus(timeout time.Duration, match func(ir.DAGRu
 	var matched ir.DAGRunStatus
 	timeout = queueTestTimeout(timeout)
 	f.h.Wait.EventuallyEveryWithin("timed out waiting for recent status match", timeout, 200*time.Millisecond, func() bool {
-		for _, status := range f.th.DAGRunRepository.RecentStatuses(f.th.Context, f.dag.Name, 10) {
+		statuses, err := f.th.DAGRunRepository.RecentStatuses(f.th.Context, f.dag.Name, 10)
+		if err != nil {
+			return false
+		}
+		for _, status := range statuses {
 			if match(status) {
 				matched = status
 				return true

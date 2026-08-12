@@ -222,7 +222,7 @@ func isQueueAbortSkippable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
 		return true
 	}
 	var notQueuedErr *queue.DAGRunNotQueuedError
@@ -232,5 +232,5 @@ func isQueueAbortSkippable(err error) bool {
 func isQueueLookupFallbackAllowed(err error) bool {
 	return errors.Is(err, dagrun.ErrDAGRunIDNotFound) ||
 		errors.Is(err, dagrun.ErrNoStatusData) ||
-		errors.Is(err, dagrun.ErrCorruptedStatusFile)
+		errors.Is(err, dagrun.ErrCorruptedStatusData)
 }

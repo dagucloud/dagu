@@ -17,7 +17,7 @@ import (
 )
 
 type retryCandidateDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 
 	candidateCalls int
 	candidateFrom  persis.TimeInUTC
@@ -31,7 +31,7 @@ func (s *retryCandidateDAGRunBackend) ListRetryCandidates(_ context.Context, fro
 }
 
 type fallbackRetryDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 
 	listCalls   int
 	listOptions persis.DAGRunStatusQuery

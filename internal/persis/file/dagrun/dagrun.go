@@ -536,7 +536,7 @@ func subDAGRunIDFromDir(parentDirName, dirName string) (string, bool) {
 	}
 }
 
-// formatDAGRunTimestamp formats a models.TimeInUTC instance into a string representation (without milliseconds).
+// formatDAGRunTimestamp formats a UTC timestamp without milliseconds.
 // The format is "YYYYMMDD_HHMMSSZ".
 // This is used for generating 'run' directory names.
 func formatDAGRunTimestamp(t persis.TimeInUTC) string {
@@ -556,7 +556,7 @@ func parseDAGRunTimestamp(s string) (time.Time, error) {
 // dateTimeFormatUTC is the format for run timestamps.
 const dateTimeFormatUTC = "20060102_150405Z"
 
-// formatAttemptTimestamp formats a models.TimeInUTC instance into a string representation with milliseconds.
+// formatAttemptTimestamp formats a UTC timestamp with milliseconds.
 // The format is "YYYYMMDD_HHMMSS_mmmZ" where "mmm" is the milliseconds part.
 func formatAttemptTimestamp(t persis.TimeInUTC) string {
 	const format = "20060102_150405"

@@ -196,7 +196,7 @@ type trackingReadCloser struct {
 }
 
 type lookupErrorDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	err error
 }
 

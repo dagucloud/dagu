@@ -39,7 +39,7 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 }
 
 type findAttemptErrStore struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	err error
 }
 

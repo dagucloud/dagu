@@ -431,7 +431,7 @@ func (a *serviceAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 }
 
 type serviceDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	attempt              *serviceAttempt
 	status               *ir.DAGRunStatus
 	findErr              error

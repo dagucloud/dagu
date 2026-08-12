@@ -432,17 +432,35 @@ func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunH
 		return nil, err
 	}
 	dagName := a.resolveDAGName(ctx, request.FileName)
-	recentHistory := a.dagRunRepository.RecentStatuses(ctx, dagName, defaultHistoryLimit)
+	response, err := a.buildDAGRunHistoryResponse(ctx, dag, dagName)
+	if err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       api.ErrorCodeInternalError,
+			Message:    err.Error(),
+		}
+	}
+	return response, nil
+}
 
-	var dagRuns []api.DAGRunDetails
+func (a *API) buildDAGRunHistoryResponse(
+	ctx context.Context,
+	dag *ir.DAG,
+	dagName string,
+) (api.GetDAGDAGRunHistory200JSONResponse, error) {
+	recentHistory, err := a.dagRunRepository.RecentStatuses(ctx, dagName, defaultHistoryLimit)
+	if err != nil {
+		return api.GetDAGDAGRunHistory200JSONResponse{}, fmt.Errorf("list recent DAG runs for %s: %w", dagName, err)
+	}
+
+	dagRuns := make([]api.DAGRunDetails, 0, len(recentHistory))
 	for _, status := range recentHistory {
 		dagRuns = append(dagRuns, ToDAGRunDetails(status))
 	}
 
-	gridData := a.readHistoryData(ctx, dag, recentHistory)
 	return api.GetDAGDAGRunHistory200JSONResponse{
 		DagRuns:  dagRuns,
-		GridData: gridData,
+		GridData: a.readHistoryData(ctx, dag, recentHistory),
 	}, nil
 }
 
@@ -1939,18 +1957,7 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		recentHistory := a.dagRunRepository.RecentStatuses(readCtx, dagName, defaultHistoryLimit)
-
-		var dagRuns []api.DAGRunDetails
-		for _, status := range recentHistory {
-			dagRuns = append(dagRuns, ToDAGRunDetails(status))
-		}
-
-		gridData := a.readHistoryData(readCtx, dag, recentHistory)
-		return api.GetDAGDAGRunHistory200JSONResponse{
-			DagRuns:  dagRuns,
-			GridData: gridData,
-		}, nil
+		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName)
 	})
 }
 

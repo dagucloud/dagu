@@ -34,7 +34,7 @@ func (m *mockDAGLister) List(ctx context.Context, params persis.DAGListOptions) 
 }
 
 type mockDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	mock.Mock
 }
 

@@ -14,8 +14,7 @@ import (
 var ErrNoopAttemptNotSupported = errors.New("operation not supported by no-op DAG run attempt")
 
 // noopAttempt is a no-op implementation of Attempt for remote workers.
-// Status is pushed via statusPusher to the coordinator, so local attempt file
-// operations are not needed.
+// Status is pushed to the coordinator, so persistent attempt operations are not needed.
 type noopAttempt struct {
 	id  string
 	dag *ir.DAG

@@ -885,7 +885,7 @@ func createRunningSubAttempt(
 }
 
 type managerDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	subAttempt dagrun.Attempt
 }
 

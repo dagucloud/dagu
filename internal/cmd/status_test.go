@@ -51,7 +51,10 @@ func boundedWaitTimeout(t *testing.T, want time.Duration) time.Duration {
 func waitForDAGRunning(t *testing.T, th test.Command, dagLocation string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		statuses := th.DAGRunRepository.RecentStatuses(th.Context, dagLocation, 1)
+		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dagLocation, 1)
+		if err != nil {
+			return false
+		}
 		if len(statuses) < 1 {
 			return false
 		}
@@ -199,7 +202,10 @@ steps:
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
-			statuses := dagFile.DAGRunRepository.RecentStatuses(th.Context, dagFile.Name, 3)
+			statuses, err := dagFile.DAGRunRepository.RecentStatuses(th.Context, dagFile.Name, 3)
+			if err != nil {
+				return false
+			}
 			return len(statuses) == 2
 		}, 5*time.Second, 50*time.Millisecond)
 

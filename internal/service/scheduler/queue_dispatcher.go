@@ -432,7 +432,7 @@ func (d *queueDispatcher) readQueuedConditionStatus(
 	}
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
+		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
 			return nil, nil, false
 		}
 		logger.Warn(ctx, "Failed to read queued DAG-run status while staging condition",
@@ -664,7 +664,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		if errors.Is(err, dagrun.ErrCorruptedStatusFile) {
+		if errors.Is(err, dagrun.ErrCorruptedStatusData) {
 			logger.Error(ctx, "Status file is corrupted, marking as invalid", tag.Error(err))
 			return true
 		}
@@ -1546,7 +1546,7 @@ func (d *queueDispatcher) hasOutstandingDispatchReservation(ctx context.Context,
 
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
+		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
 			return false, nil
 		}
 		return false, err

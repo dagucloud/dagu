@@ -51,6 +51,63 @@ func requireNoDeprecatedTagsKey(t *testing.T, data []byte) {
 	require.False(t, ok)
 }
 
+type historyDAGDefinitionStore struct {
+	persis.DAGDefinitionStore
+}
+
+func (historyDAGDefinitionStore) Get(context.Context, string) (persis.DAGDefinition, error) {
+	return persis.DAGDefinition{
+		ID: "daily.yaml",
+		Source: []byte(`name: daily
+steps:
+  - name: run
+    command: echo ok
+`),
+	}, nil
+}
+
+func (historyDAGDefinitionStore) GetMetadata(context.Context, string) (*ir.DAG, error) {
+	return &ir.DAG{Name: "daily"}, nil
+}
+
+type failingHistoryDAGRunStore struct {
+	testutil.DAGRunStoreStub
+	err error
+}
+
+func (s failingHistoryDAGRunStore) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
+	return nil, s.err
+}
+
+func TestDAGHistoryReturnsRecentStatusStoreErrors(t *testing.T) {
+	t.Parallel()
+
+	storeErr := errors.New("storage unavailable")
+	a := &API{
+		dagRepository: persis.NewDAGRepository(historyDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
+		dagRunRepository: persis.NewDAGRunRepository(
+			failingHistoryDAGRunStore{err: storeErr},
+			nil,
+			persis.DAGRunRepositoryOptions{},
+		),
+	}
+
+	response, err := a.GetDAGDAGRunHistory(context.Background(), openapiv1.GetDAGDAGRunHistoryRequestObject{
+		FileName: "daily.yaml",
+	})
+	require.Nil(t, response)
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusInternalServerError, apiErr.HTTPStatus)
+	assert.Equal(t, openapiv1.ErrorCodeInternalError, apiErr.Code)
+	assert.Contains(t, apiErr.Message, "list recent DAG runs for daily")
+	assert.Contains(t, apiErr.Message, storeErr.Error())
+
+	_, err = a.GetDAGHistoryData(context.Background(), "daily.yaml")
+	require.ErrorIs(t, err, storeErr)
+	require.ErrorContains(t, err, "list recent DAG runs for daily")
+}
+
 func TestDeriveManualDAGRunStatusRetryingIsRunning(t *testing.T) {
 	t.Parallel()
 
@@ -261,7 +318,7 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 }
 
 type manualCASStore struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	status *ir.DAGRunStatus
 }
 
@@ -296,7 +353,7 @@ func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunR
 }
 
 type failingManualCASStore struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	base *persis.DAGRunRepository
 	err  error
 }
@@ -748,11 +805,11 @@ func TestDAGRunListOptionsFromQueryStringRejectsInvalidStatuses(t *testing.T) {
 }
 
 type blockingDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 }
 
 type queryCapturingDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	query persis.DAGRunStatusQuery
 }
 
@@ -853,7 +910,7 @@ func TestDAGRunListOptionsFromQueryStringIncludesWorkspaceFilter(t *testing.T) {
 }
 
 type blockingLatestAttemptStore struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 }
 
 func (blockingLatestAttemptStore) LatestAttempt(ctx context.Context, _ persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {

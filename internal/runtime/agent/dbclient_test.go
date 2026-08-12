@@ -29,7 +29,7 @@ func (m *mockDAGLoader) GetDetails(ctx context.Context, fileName string, opts pe
 }
 
 type mockDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 }
 
 func TestDBClient_GetDAG(t *testing.T) {

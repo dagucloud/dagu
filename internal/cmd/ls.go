@@ -125,7 +125,9 @@ func runLs(ctx *Context, args []string) error {
 			row.nextRun = nextRunProjection(item.DAG, now)
 		}
 		if needEnrich {
-			enrichLsRow(ctx, &row, showLast || sortLast, showHistory)
+			if err := enrichLsRow(ctx, &row, showLast || sortLast, showHistory); err != nil {
+				return err
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -175,7 +177,7 @@ func sortLsRowsByLastRun(rows []lsRow, reverse bool) {
 	})
 }
 
-func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) {
+func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) error {
 	if wantLast {
 		st, err := ctx.DAGRunMgr.GetLatestStatus(ctx, row.dag)
 		if err == nil && st.Status != ir.NotStarted {
@@ -191,10 +193,13 @@ func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) {
 	}
 
 	if wantHistory {
-		statuses := ctx.DAGRunRepository.RecentStatuses(ctx, row.dag.Name, 5)
+		statuses, err := ctx.DAGRunRepository.RecentStatuses(ctx, row.dag.Name, 5)
+		if err != nil {
+			return fmt.Errorf("load recent DAG-run history for %s: %w", row.dag.Name, err)
+		}
 		if len(statuses) == 0 {
 			row.history = "-"
-			return
+			return nil
 		}
 		parts := make([]string, 0, len(statuses))
 		for _, st := range statuses {
@@ -202,6 +207,7 @@ func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) {
 		}
 		row.history = strings.Join(parts, ",")
 	}
+	return nil
 }
 
 func renderLsTable(out io.Writer, rows []lsRow, showNext, showLast, showHistory bool) error {

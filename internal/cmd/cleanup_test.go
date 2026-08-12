@@ -262,7 +262,8 @@ func TestCleanupCommandRepository(t *testing.T) {
 		setOldModTime(t, th.Config.Paths.DAGRunsDir, dagName, "", oldTime)
 
 		// Verify both runs exist
-		statuses := th.DAGRunRepository.RecentStatuses(th.Context, dagName, 10)
+		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dagName, 10)
+		require.NoError(t, err)
 		require.Len(t, statuses, 2)
 
 		// Remove runs older than 7 days
@@ -271,7 +272,8 @@ func TestCleanupCommandRepository(t *testing.T) {
 		assert.Len(t, removedIDs, 1)
 
 		// Verify old run is deleted, recent run remains
-		statuses = th.DAGRunRepository.RecentStatuses(th.Context, dagName, 10)
+		statuses, err = th.DAGRunRepository.RecentStatuses(th.Context, dagName, 10)
+		require.NoError(t, err)
 		require.Len(t, statuses, 1)
 		assert.Equal(t, "recent-run-id", statuses[0].DAGRunID)
 	})

@@ -14,5 +14,5 @@ var (
 	ErrDAGRunAlreadyExists = errors.New("dag-run already exists")
 	ErrDAGRunActive        = errors.New("dag-run is active")
 	ErrNoStatusData        = errors.New("no status data")
-	ErrCorruptedStatusFile = errors.New("corrupted status file") // Status file exists but contains no valid data or is corrupted
+	ErrCorruptedStatusData = errors.New("corrupted status data")
 )

@@ -646,7 +646,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 			return nil, staleQueueDispatchError("queued attempt ID is missing")
 		}
 		if findErr != nil {
-			if errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) || errors.Is(findErr, dagrun.ErrNoStatusData) || errors.Is(findErr, dagrun.ErrCorruptedStatusFile) {
+			if errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) || errors.Is(findErr, dagrun.ErrNoStatusData) || errors.Is(findErr, dagrun.ErrCorruptedStatusData) {
 				return nil, staleQueueDispatchError("dag-run is no longer queued")
 			}
 			return nil, findErr
@@ -662,7 +662,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		existingStatus, readErr = existingAttempt.ReadStatus(ctx)
 		if readErr != nil {
 			if queueDispatchStatus != nil {
-				if errors.Is(readErr, dagrun.ErrNoStatusData) || errors.Is(readErr, dagrun.ErrCorruptedStatusFile) {
+				if errors.Is(readErr, dagrun.ErrNoStatusData) || errors.Is(readErr, dagrun.ErrCorruptedStatusData) {
 					return nil, staleQueueDispatchError("dag-run is no longer queued")
 				}
 				return nil, readErr
@@ -2534,7 +2534,7 @@ func (h *Handler) reconcileLease(ctx context.Context, lease dispatch.DAGRunLease
 	case err == nil:
 	case errors.Is(err, dagrun.ErrDAGRunIDNotFound),
 		errors.Is(err, dagrun.ErrNoStatusData),
-		errors.Is(err, dagrun.ErrCorruptedStatusFile):
+		errors.Is(err, dagrun.ErrCorruptedStatusData):
 		ownership.deleteTracking(ctx, context.WithoutCancel(ctx), lease.DAGRun, lease.AttemptKey,
 			"Failed to delete distributed lease for missing leased run",
 			"Failed to delete active distributed run for missing leased run",
@@ -2745,7 +2745,7 @@ func (h *Handler) reconcileActiveRuns(ctx context.Context, now time.Time) {
 		case err == nil:
 		case errors.Is(err, dagrun.ErrDAGRunIDNotFound),
 			errors.Is(err, dagrun.ErrNoStatusData),
-			errors.Is(err, dagrun.ErrCorruptedStatusFile):
+			errors.Is(err, dagrun.ErrCorruptedStatusData):
 			ownership.deleteTracking(ctx, context.WithoutCancel(ctx), record.DAGRun, record.AttemptKey,
 				"Failed to delete distributed lease for missing indexed run",
 				"Failed to delete active distributed run for missing indexed run",

@@ -203,21 +203,25 @@ func TestRepository(t *testing.T) {
 		th.CreateAttempt(t, ts3, "dagrun-id-3", ir.Succeeded)
 
 		// Request 2 most recent statuses
-		statuses := th.Repository.RecentStatuses(th.Context, "test_DAG", 2)
+		statuses, err := th.Repository.RecentStatuses(th.Context, "test_DAG", 2)
+		require.NoError(t, err)
 		require.Len(t, statuses, 2)
 		assert.Equal(t, "dagrun-id-3", statuses[0].DAGRunID)
 		assert.Equal(t, "dagrun-id-2", statuses[1].DAGRunID)
 
 		// Verify all attempts are returned if the number requested is equal to the number of attempts
-		statuses = th.Repository.RecentStatuses(th.Context, "test_DAG", 3)
+		statuses, err = th.Repository.RecentStatuses(th.Context, "test_DAG", 3)
+		require.NoError(t, err)
 		require.Len(t, statuses, 3)
 
 		// Verify all attempts are returned if the number requested is greater than the number of attempts
-		statuses = th.Repository.RecentStatuses(th.Context, "test_DAG", 4)
+		statuses, err = th.Repository.RecentStatuses(th.Context, "test_DAG", 4)
+		require.NoError(t, err)
 		require.Len(t, statuses, 3)
 
 		require.NoError(t, os.WriteFile(unreadable.file, []byte("{"), 0o600))
-		statuses = th.Repository.RecentStatuses(th.Context, "test_DAG", 4)
+		statuses, err = th.Repository.RecentStatuses(th.Context, "test_DAG", 4)
+		require.NoError(t, err)
 		require.Len(t, statuses, 2)
 		assert.Equal(t, []string{"dagrun-id-3", "dagrun-id-1"}, []string{
 			statuses[0].DAGRunID,
@@ -294,7 +298,8 @@ func TestRepository(t *testing.T) {
 		th.CreateAttempt(t, ts3, "dagrun-id-3", ir.Succeeded)
 
 		// Verify attempts are present
-		statuses := th.Repository.RecentStatuses(th.Context, "test_DAG", 3)
+		statuses, err := th.Repository.RecentStatuses(th.Context, "test_DAG", 3)
+		require.NoError(t, err)
 		require.Len(t, statuses, 3)
 
 		// Remove attempts older than 0 days
@@ -304,7 +309,8 @@ func TestRepository(t *testing.T) {
 		assert.Len(t, removedIDs, 2) // 2 non-active runs should be removed
 
 		// Verify non active attempts are removed
-		statuses = th.Repository.RecentStatuses(th.Context, "test_DAG", 3)
+		statuses, err = th.Repository.RecentStatuses(th.Context, "test_DAG", 3)
+		require.NoError(t, err)
 		require.Len(t, statuses, 1)
 
 		// Verify the remaining status is the active one
@@ -333,7 +339,8 @@ func TestRepository(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"old-run"}, removedIDs)
 
-		statuses := th.Repository.RecentStatuses(th.Context, "test_DAG", 3)
+		statuses, err := th.Repository.RecentStatuses(th.Context, "test_DAG", 3)
+		require.NoError(t, err)
 		require.Len(t, statuses, 1)
 		assert.Equal(t, "recent-run", statuses[0].DAGRunID)
 	})
@@ -352,7 +359,8 @@ func TestRepository(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, removedIDs)
 
-		statuses := th.Repository.RecentStatuses(th.Context, "test_DAG", 1)
+		statuses, err := th.Repository.RecentStatuses(th.Context, "test_DAG", 1)
+		require.NoError(t, err)
 		require.Len(t, statuses, 1)
 		assert.Equal(t, "completed-run", statuses[0].DAGRunID)
 	})

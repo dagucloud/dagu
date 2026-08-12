@@ -38,7 +38,7 @@ type Attempt interface {
 	// Does nothing if outputs is nil or has no output entries.
 	WriteOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error
 	// ReadOutputs reads the collected step outputs for the dag-run.
-	// Returns nil if no outputs file exists or if the file is in v1 format.
+	// Returns nil when outputs are unavailable or use the legacy representation.
 	ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error)
 	// WriteStepMessages writes LLM messages for a single step.
 	WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error

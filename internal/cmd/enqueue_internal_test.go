@@ -78,7 +78,7 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 }
 
 type enqueueTrackingDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	attempt *enqueueTrackingAttempt
 }
 

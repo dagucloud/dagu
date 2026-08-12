@@ -104,7 +104,7 @@ func TestRestoreRetryExecutionContext_BackfillsWorkspaceSnapshot(t *testing.T) {
 	}
 	status := &ir.DAGRunStatus{}
 	repository := persis.NewDAGRunRepository(
-		testutil.DAGRunBackendStub{},
+		testutil.DAGRunStoreStub{},
 		&retryDAGRunWorkspaceStore{dir: attemptWorkDir},
 		persis.DAGRunRepositoryOptions{},
 	)

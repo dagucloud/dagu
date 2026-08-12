@@ -615,7 +615,7 @@ func (f *testFixture) latestStoredStatus() (ir.DAGRunStatus, error) {
 		return ir.DAGRunStatus{}, err
 	}
 	if status == nil {
-		return ir.DAGRunStatus{}, dagrun.ErrCorruptedStatusFile
+		return ir.DAGRunStatus{}, dagrun.ErrCorruptedStatusData
 	}
 
 	return *status, nil

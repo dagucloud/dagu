@@ -59,7 +59,8 @@ steps:
 	require.NoError(t, err)
 
 	// Check parameter was the same as the first execution
-	recentHistory := th.DAGRunRepository.RecentStatuses(th.Context, loaded.Name, 2)
+	recentHistory, err := th.DAGRunRepository.RecentStatuses(th.Context, loaded.Name, 2)
+	require.NoError(t, err)
 
 	require.Len(t, recentHistory, 2)
 	require.Equal(t, recentHistory[0].Params, recentHistory[1].Params)

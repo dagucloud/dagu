@@ -191,7 +191,7 @@ func TestAttemptDelegatesStateOperations(t *testing.T) {
 }
 
 type recordingDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	createAttempt  dagrun.Attempt
 	subAttempt     dagrun.Attempt
 	createCalls    int

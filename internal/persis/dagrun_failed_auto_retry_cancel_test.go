@@ -17,7 +17,7 @@ import (
 )
 
 type failedAutoRetryCancelStoreStub struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	compareAndSwap func(
 		ctx context.Context,
 		req persis.DAGRunCompareAndSwapStatusRequest,

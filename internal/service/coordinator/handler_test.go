@@ -59,7 +59,7 @@ func TestDispatchBindErrorCode(t *testing.T) {
 }
 
 type mockDAGRunBackend struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	repository          *persis.DAGRunRepository
 	attempts            map[string]*mockAttempt
 	subAttempts         map[string]*mockAttempt // key: rootID:subID
@@ -3090,7 +3090,7 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			Status:     ir.Running,
 			WorkerID:   "worker-1",
 		})
-		attempt.readStatusError = dagrun.ErrCorruptedStatusFile
+		attempt.readStatusError = dagrun.ErrCorruptedStatusData
 
 		staleAt := time.Now().Add(-10 * time.Second).UTC()
 		require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{

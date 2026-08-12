@@ -1429,7 +1429,10 @@ steps:
 	// SubRuns must be visible in persisted history before the child DAG completes.
 	// RecentStatuses observes the same persisted status returned by the API.
 	require.Eventually(t, func() bool {
-		statuses := th.DAGRunRepository.RecentStatuses(th.Context, parent.Name, 1)
+		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, parent.Name, 1)
+		if err != nil {
+			return false
+		}
 		if len(statuses) == 0 || statuses[0].Status != ir.Running {
 			return false
 		}

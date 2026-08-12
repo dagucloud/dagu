@@ -145,7 +145,7 @@ func newQueueFixture(t *testing.T) queueFixture {
 }
 
 type queueRunStore struct {
-	testutil.DAGRunBackendStub
+	testutil.DAGRunStoreStub
 	attempt    *queueAttempt
 	removed    bool
 	removedRef ir.DAGRunRef
