@@ -20,9 +20,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
@@ -320,6 +322,37 @@ func TestAgent_Run(t *testing.T) {
 
 		// Check if the status is saved correctly
 		require.Equal(t, ir.Failed, dagAgent.Status(th.Context).Status)
+	})
+	t.Run("WorkspaceSnapshotFailureFailsSuccessfulRun", func(t *testing.T) {
+		th := test.Setup(t)
+		dag := th.DAG(t, `steps:
+  - run: exit 0
+`)
+		runID := "snapshot-failure"
+		snapshotErr := errors.New("snapshot unavailable")
+		workspaces := &failingWorkspaceStore{dir: t.TempDir(), snapshotErr: snapshotErr}
+		repository := dagrun.NewRepository(
+			filedagrun.NewStore(th.Config.Paths.DAGRunsDir),
+			workspaces,
+			dagrun.RepositoryOptions{},
+		)
+		dagAgent := dag.Agent(
+			test.WithDAGRunID(runID),
+			test.WithAgentOptions(agent.Options{
+				DAGRunRepository:    repository,
+				SocketServerFactory: fakeSocketServerFactory(nil),
+			}),
+		)
+
+		err := dagAgent.Run(th.Context)
+		require.ErrorIs(t, err, snapshotErr)
+		attempt, findErr := repository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+		require.NoError(t, findErr)
+		status, readErr := attempt.ReadStatus(th.Context)
+		require.NoError(t, readErr)
+		require.Equal(t, ir.Failed, status.Status)
+		require.ErrorContains(t, errors.New(status.Error), "snapshot DAG-run workspace")
+		require.Equal(t, 1, workspaces.snapshotCalls)
 	})
 	t.Run("InitFailurePersistsFinishedAt", func(t *testing.T) {
 		th := test.Setup(t)
@@ -1676,4 +1709,23 @@ func subDAGVisibleTimeout() time.Duration {
 		return 90 * time.Second
 	}
 	return 10 * time.Second
+}
+
+type failingWorkspaceStore struct {
+	dir           string
+	snapshotErr   error
+	snapshotCalls int
+}
+
+func (s *failingWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
+	return s.dir, nil
+}
+
+func (s *failingWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
+	s.snapshotCalls++
+	return s.snapshotErr
+}
+
+func (*failingWorkspaceStore) Remove(context.Context, dagrun.WorkspaceRef) error {
+	return nil
 }

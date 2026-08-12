@@ -107,7 +107,7 @@ func newPanickingScheduler(t *testing.T) (*Scheduler, <-chan struct{}) {
 			panic("test tick panic")
 		},
 	})
-	require.NoError(t, planner.Init(t.Context(), []*ir.DAG{{Name: "panic-dag"}}))
+	require.NoError(t, planner.Init(t.Context(), testDAGEntries(&ir.DAG{Name: "panic-dag"})))
 
 	return &Scheduler{planner: planner}, panicTriggered
 }

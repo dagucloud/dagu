@@ -39,7 +39,7 @@ func TestLocalCancelRequestsStoredChildAttemptWhenInactive(t *testing.T) {
 	attempt := new(testutil.MockAttempt)
 	attempt.On("Abort", ctx).Return(nil).Once()
 	store := &localDAGRunBackend{subAttempt: attempt}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -59,7 +59,7 @@ func TestLocalCancelIgnoresMissingStoredChildAttemptWhenInactive(t *testing.T) {
 	ctx := context.Background()
 	root := ir.NewDAGRunRef("root", "root-run")
 	store := &localDAGRunBackend{}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -79,7 +79,7 @@ func TestLocalCancelReturnsStoredChildAttemptLookupError(t *testing.T) {
 	root := ir.NewDAGRunRef("root", "root-run")
 	findErr := errors.New("store unavailable")
 	store := &localDAGRunBackend{findErr: findErr}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -140,7 +140,7 @@ func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
 	attempt := new(testutil.MockAttempt)
 	attempt.On("ReadStatus", ctx).Return(nil, readErr).Once()
 	store := &localDAGRunBackend{subAttempt: attempt}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})))
 
 	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
 		SubWorkflowRequest: executor.SubWorkflowRequest{

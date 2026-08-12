@@ -162,16 +162,16 @@ func TestNewRetryScanner(t *testing.T) {
 	})
 }
 
-func TestDAGSuspendFlagName(t *testing.T) {
+func TestSuspendFlagName(t *testing.T) {
 	t.Parallel()
 
 	t.Run("UsesFilenameStem", func(t *testing.T) {
 		t.Parallel()
 
-		got := dagSuspendFlagName(&ir.DAG{
+		got := suspendFlagName(nil, &ir.DAG{
 			Name:     "logical-name",
 			Location: "/tmp/example-dag.yaml",
-		})
+		}, "")
 
 		assert.Equal(t, "example-dag", got)
 	})
@@ -179,9 +179,9 @@ func TestDAGSuspendFlagName(t *testing.T) {
 	t.Run("FallsBackToDAGNameWhenLocationMissing", func(t *testing.T) {
 		t.Parallel()
 
-		got := dagSuspendFlagName(&ir.DAG{
+		got := suspendFlagName(nil, &ir.DAG{
 			Name: "logical-name",
-		})
+		}, "")
 
 		assert.Equal(t, "logical-name", got)
 	})
@@ -724,7 +724,7 @@ func newRetryScannerStoreWithEntries(entries ...retryScannerStoreEntry) *retrySc
 }
 
 func (s *retryScannerStore) repository() *dagrun.Repository {
-	return dagrun.NewRepository(s, dagrun.RepositoryOptions{})
+	return dagrun.NewRepository(s, nil, dagrun.RepositoryOptions{})
 }
 
 func (s *retryScannerStore) CreateAttempt(context.Context, dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
@@ -835,8 +835,6 @@ func (a *retryScannerAttempt) WriteStepMessages(context.Context, string, []ir.LL
 func (a *retryScannerAttempt) ReadStepMessages(context.Context, string) ([]ir.LLMMessage, error) {
 	return nil, nil
 }
-func (a *retryScannerAttempt) WorkDir() string { return "" }
-
 func cloneRetryStatus(status *ir.DAGRunStatus) *ir.DAGRunStatus {
 	if status == nil {
 		return nil

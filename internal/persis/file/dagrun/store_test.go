@@ -23,7 +23,8 @@ import (
 func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := NewRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true}, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
+	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
+	repository := dagrun.NewRepository(store, NewWorkspaceStore(baseDir), dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",
@@ -33,6 +34,9 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	parentAttempt, err := repository.CreateAttempt(ctx, parentDAG, parentTS, "run-compat", dagrun.CreateAttemptOptions{
 		AttemptID: "attempt-compat",
 	})
+	require.NoError(t, err)
+	rootRef := ir.NewDAGRunRef(parentDAG.Name, "run-compat")
+	parentWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{DAGRun: rootRef})
 	require.NoError(t, err)
 	require.NoError(t, parentAttempt.Open(ctx))
 
@@ -58,7 +62,6 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	}))
 	require.NoError(t, parentAttempt.Close(ctx))
 
-	rootRef := ir.NewDAGRunRef(parentDAG.Name, parentStatus.DAGRunID)
 	childDAG := &ir.DAG{
 		Name:     "child-dag",
 		Location: filepath.Join(baseDir, "child-dag.yaml"),
@@ -67,6 +70,11 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	childAttempt, err := repository.CreateAttempt(ctx, childDAG, childTS, "child-run", dagrun.CreateAttemptOptions{
 		RootDAGRun: rootRef,
 		AttemptID:  "child-attempt",
+	})
+	require.NoError(t, err)
+	childWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{
+		RootDAGRun: rootRef,
+		DAGRun:     ir.NewDAGRunRef(childDAG.Name, "child-run"),
 	})
 	require.NoError(t, err)
 	require.NoError(t, childAttempt.Open(ctx))
@@ -83,7 +91,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	attemptDir := filepath.Join(runDir, "a_20260527_010203_456Z_attempt-compat")
 	statusFile := filepath.Join(attemptDir, JSONLStatusFile)
 	assert.Equal(t, statusFile, parentAttempt.(*Attempt).file)
-	assert.Equal(t, filepath.Join(runDir, "work"), parentAttempt.(*Attempt).WorkDir())
+	assert.Equal(t, filepath.Join(runDir, "work"), parentWorkDir)
 	require.DirExists(t, runDir)
 	require.DirExists(t, attemptDir)
 	require.FileExists(t, statusFile)
@@ -97,8 +105,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	require.FileExists(t, filepath.Join(childAttemptDir, JSONLStatusFile))
 	require.FileExists(t, filepath.Join(childAttemptDir, DAGDefinition))
 	require.NoDirExists(t, filepath.Join(runDir, SubDAGRunsDir, "child-run", "work"))
-	childWorkDir := filepath.Join(runDir, subDAGWorkDirName("child-run"))
-	assert.Equal(t, childWorkDir, childAttempt.(*Attempt).WorkDir())
+	assert.Equal(t, filepath.Join(runDir, subDAGWorkDirName("child-run")), childWorkDir)
 	require.DirExists(t, childWorkDir)
 
 	assert.NoDirExists(t, filepath.Join(baseDir, "dag_runs"))
@@ -144,7 +151,8 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := NewRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true}, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
+	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
+	repository := dagrun.NewRepository(store, NewWorkspaceStore(baseDir), dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",
@@ -228,7 +236,7 @@ func TestRepository(t *testing.T) {
 		th.CreateAttempt(t, ts2, "dagrun-id-2", ir.Failed)
 		th.CreateAttempt(t, ts3, "dagrun-id-3", ir.Succeeded)
 
-		repository := dagrun.NewRepository(th.Backend, dagrun.RepositoryOptions{
+		repository := dagrun.NewRepository(th.Backend, nil, dagrun.RepositoryOptions{
 			LatestStatusToday: false,
 			Location:          time.Local,
 		})
@@ -967,7 +975,7 @@ func TestLatestStatusTimezone(t *testing.T) {
 
 	now := time.Date(2025, 6, 8, 10, 0, 0, 0, time.UTC)
 	backend := NewStore(t.TempDir())
-	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{
+	repository := dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{
 		LatestStatusToday: true,
 		Location:          paris,
 		Now:               func() time.Time { return now },

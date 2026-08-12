@@ -902,19 +902,6 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 	})
 }
 
-func TestAttempt_WorkDir(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	dagRunDir := filepath.Join(dir, "dag-run_20250101_000000Z_abc")
-	attemptDir := filepath.Join(dagRunDir, "a_20250101_000000_000Z_xyz")
-	require.NoError(t, os.MkdirAll(attemptDir, 0750))
-	statusFile := filepath.Join(attemptDir, "status.jsonl")
-	require.NoError(t, os.WriteFile(statusFile, nil, 0600))
-	att, err := NewAttempt(statusFile, nil)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(dagRunDir, "work"), att.WorkDir())
-}
-
 func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 	t.Parallel()
 

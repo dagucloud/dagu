@@ -35,6 +35,7 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 
 	task := &dispatch.DispatchTask{
 		ProfileName:  "prod",
+		DefinitionID: "ops/daily",
 		TriggerActor: "alice",
 	}
 
@@ -42,12 +43,14 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, protoTask)
 	assert.Equal(t, "prod", protoTask.ProfileName)
+	assert.Equal(t, "ops/daily", protoTask.DefinitionId)
 	assert.Equal(t, "alice", protoTask.TriggerActor)
 
 	got, err := convert.ProtoToDispatchTask(protoTask)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "prod", got.ProfileName)
+	assert.Equal(t, "ops/daily", got.DefinitionID)
 	assert.Equal(t, "alice", got.TriggerActor)
 }
 

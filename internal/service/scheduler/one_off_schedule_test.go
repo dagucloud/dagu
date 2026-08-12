@@ -107,7 +107,7 @@ func TestTickPlanner_PlanPendingOneOffRun(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
 	require.Len(t, runs, 1)
@@ -122,7 +122,7 @@ func TestTickPlanner_DispatchRun_ExistingOneOffAttemptConsumesState(t *testing.T
 	store := &mockWatermarkStore{}
 	tp := NewTickPlanner(TickPlannerConfig{
 		WatermarkStore: store,
-		Dispatch: func(context.Context, *ir.DAG, string, ir.TriggerType, time.Time) error {
+		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
 			t.Fatal("dispatch should not be called when the run already exists")
 			return nil
 		},
@@ -149,9 +149,9 @@ func TestTickPlanner_DispatchRun_ExistingOneOffAttemptConsumesState(t *testing.T
 			},
 		},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
-	run, ok := tp.createPlannedRun(context.Background(), dag, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
+	run, ok := tp.createPlannedRun(context.Background(), DAGEntry{DAG: dag}, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
 	require.True(t, ok)
 	tp.DispatchRun(context.Background(), run)
 
@@ -172,7 +172,7 @@ func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) 
 	var checkedRunIDs []string
 	tp := NewTickPlanner(TickPlannerConfig{
 		WatermarkStore: store,
-		Dispatch: func(context.Context, *ir.DAG, string, ir.TriggerType, time.Time) error {
+		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
 			t.Fatal("dispatch should not be called when the legacy run already exists")
 			return nil
 		},
@@ -198,9 +198,9 @@ func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) 
 			},
 		},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
-	run, ok := tp.createPlannedRun(context.Background(), dag, schedule, scheduledTime, ir.TriggerTypeScheduler)
+	run, ok := tp.createPlannedRun(context.Background(), DAGEntry{DAG: dag}, schedule, scheduledTime, ir.TriggerTypeScheduler)
 	require.True(t, ok)
 	tp.DispatchRun(context.Background(), run)
 
@@ -216,7 +216,7 @@ func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
 	store := &mockWatermarkStore{}
 	tp := NewTickPlanner(TickPlannerConfig{
 		WatermarkStore: store,
-		Dispatch: func(context.Context, *ir.DAG, string, ir.TriggerType, time.Time) error {
+		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
 			return assert.AnError
 		},
 		RunExists: func(context.Context, *ir.DAG, string) (bool, error) {
@@ -242,9 +242,9 @@ func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
-	run, ok := tp.createPlannedRun(context.Background(), dag, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
+	run, ok := tp.createPlannedRun(context.Background(), DAGEntry{DAG: dag}, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
 	require.True(t, ok)
 	tp.DispatchRun(context.Background(), run)
 
@@ -281,7 +281,7 @@ func TestTickPlanner_PlanOneOffChoosesEarliestStartCandidate(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
 	require.Len(t, runs, 1)
@@ -297,7 +297,7 @@ func TestTickPlanner_DispatchRun_OneOffRequiresRunExists(t *testing.T) {
 	dispatched := false
 	tp := NewTickPlanner(TickPlannerConfig{
 		WatermarkStore: store,
-		Dispatch: func(context.Context, *ir.DAG, string, ir.TriggerType, time.Time) error {
+		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
 			dispatched = true
 			return nil
 		},
@@ -322,9 +322,9 @@ func TestTickPlanner_DispatchRun_OneOffRequiresRunExists(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
-	run, ok := tp.createPlannedRun(context.Background(), dag, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
+	run, ok := tp.createPlannedRun(context.Background(), DAGEntry{DAG: dag}, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
 	require.True(t, ok)
 	tp.DispatchRun(context.Background(), run)
 

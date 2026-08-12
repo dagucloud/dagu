@@ -23,7 +23,7 @@ func TestRepositoryNormalizesStatusQueries(t *testing.T) {
 
 	now := time.Date(2026, 8, 12, 15, 4, 5, 0, time.UTC)
 	backend := &recordingDAGRunBackend{}
-	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{
+	repository := dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{
 		Now: func() time.Time { return now },
 	})
 
@@ -81,7 +81,7 @@ func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
 	require.NoError(t, err)
 	now := time.Date(2026, 8, 12, 1, 2, 3, 0, time.UTC)
 	backend := &recordingDAGRunBackend{}
-	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{
+	repository := dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{
 		LatestStatusToday: true,
 		Location:          location,
 		Now:               func() time.Time { return now },
@@ -91,6 +91,11 @@ func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "daily", backend.latestQuery.Name)
 	assert.Equal(t, dagrun.NewUTC(time.Date(2026, 8, 12, 0, 0, 0, 0, location)), backend.latestQuery.NotBefore)
+
+	_, err = repository.LatestAttemptAllHistory(context.Background(), "daily")
+	require.NoError(t, err)
+	assert.Equal(t, "daily", backend.latestQuery.Name)
+	assert.True(t, backend.latestQuery.NotBefore.IsZero())
 
 	_, err = repository.RemoveOldDAGRuns(context.Background(), "daily", 7)
 	require.NoError(t, err)
@@ -107,7 +112,7 @@ func TestRepositoryCreatesChildAttemptThroughBackend(t *testing.T) {
 	t.Parallel()
 
 	backend := &recordingDAGRunBackend{}
-	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{})
+	repository := dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "child"}
 	root := ir.NewDAGRunRef("root", "root-run")
 	timestamp := time.Date(2026, 8, 12, 1, 2, 3, 0, time.UTC)
@@ -146,7 +151,7 @@ func TestRepositoryNormalizesCompareAndSwapRequest(t *testing.T) {
 			},
 		},
 	}
-	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{})
+	repository := dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{})
 	ref := ir.NewDAGRunRef("daily", "run-1")
 
 	updated, swapped, err := repository.CompareAndSwapLatestAttemptStatus(
@@ -171,9 +176,46 @@ func TestRepositoryRecentStatusesHidesBackendErrors(t *testing.T) {
 	t.Parallel()
 
 	backend := &recordingDAGRunBackend{recentStatusesErr: errors.New("list failed")}
-	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{})
+	repository := dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{})
 
 	assert.Nil(t, repository.RecentStatuses(context.Background(), "daily", 10))
+}
+
+func TestRepositoryCleansWorkspacesAfterRunMetadata(t *testing.T) {
+	t.Parallel()
+
+	workspaceErr := errors.New("workspace unavailable")
+	backend := &recordingDAGRunBackend{
+		removedRefs: []ir.DAGRunRef{
+			ir.NewDAGRunRef("daily", "run-1"),
+			ir.NewDAGRunRef("daily", "run-2"),
+		},
+	}
+	workspaces := &recordingWorkspaceStore{removeErr: workspaceErr}
+	repository := dagrun.NewRepository(backend, workspaces, dagrun.RepositoryOptions{})
+
+	removed, err := repository.RemoveOldDAGRuns(context.Background(), "daily", 7)
+	assert.Equal(t, []string{"run-1", "run-2"}, removed)
+	require.ErrorIs(t, err, workspaceErr)
+	assert.Equal(t, []dagrun.WorkspaceRef{
+		{RootDAGRun: ir.NewDAGRunRef("daily", "run-1"), DAGRun: ir.NewDAGRunRef("daily", "run-1")},
+		{RootDAGRun: ir.NewDAGRunRef("daily", "run-2"), DAGRun: ir.NewDAGRunRef("daily", "run-2")},
+	}, workspaces.removed)
+}
+
+func TestRepositoryRetentionDryRunDoesNotRemoveWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingDAGRunBackend{
+		removedRefs: []ir.DAGRunRef{ir.NewDAGRunRef("daily", "run-1")},
+	}
+	workspaces := &recordingWorkspaceStore{}
+	repository := dagrun.NewRepository(backend, workspaces, dagrun.RepositoryOptions{})
+
+	removed, err := repository.RemoveOldDAGRuns(context.Background(), "daily", 7, dagrun.WithDryRun())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"run-1"}, removed)
+	assert.Empty(t, workspaces.removed)
 }
 
 func TestNormalizeStateValueCompactsJSON(t *testing.T) {
@@ -209,6 +251,7 @@ type recordingDAGRunBackend struct {
 	recentStatusesErr     error
 	compareAndSwapRequest dagrun.CompareAndSwapStatusRequest
 	compareAndSwapStatus  *ir.DAGRunStatus
+	removedRefs           []ir.DAGRunRef
 }
 
 func (s *recordingDAGRunBackend) CreateAttempt(_ context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
@@ -241,7 +284,25 @@ func (s *recordingDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	return s.compareAndSwapStatus, true, nil
 }
 
-func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req dagrun.RetentionRequest) ([]string, error) {
+func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req dagrun.RetentionRequest) ([]ir.DAGRunRef, error) {
 	s.retentionRequest = req
-	return nil, nil
+	return s.removedRefs, nil
+}
+
+type recordingWorkspaceStore struct {
+	removed   []dagrun.WorkspaceRef
+	removeErr error
+}
+
+func (*recordingWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
+	return "", nil
+}
+
+func (*recordingWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
+	return nil
+}
+
+func (s *recordingWorkspaceStore) Remove(_ context.Context, ref dagrun.WorkspaceRef) error {
+	s.removed = append(s.removed, ref)
+	return s.removeErr
 }

@@ -37,6 +37,7 @@ type QueueRequest struct {
 	TriggerActor string
 	ScheduleTime string
 	ProfileName  string
+	DefinitionID string
 	NoReuse      bool
 
 	AttemptOptions dagrun.CreateAttemptOptions
@@ -185,6 +186,7 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 		ir.WithTriggerType(req.TriggerType),
 		ir.WithTriggerActor(req.TriggerActor),
 		ir.WithRuntimeProfile(req.ProfileName, "", nil),
+		ir.WithDAGDefinitionID(req.DefinitionID),
 		ir.WithNoReuse(req.NoReuse),
 	}
 	if req.ScheduleTime != "" {

@@ -21,7 +21,7 @@ func TestStoreListRetryCandidatesTracksFailedRunWrites(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	repository := filedagrun.NewRepository(t.TempDir(), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := newFileRepository(t.TempDir(), dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	dag := retryCandidateDAG()
@@ -53,7 +53,7 @@ func TestStoreListRetryCandidatesRebuildsMissingCandidateDirectory(t *testing.T)
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	dag := retryCandidateDAG()
@@ -76,7 +76,7 @@ func TestStoreListRetryCandidatesRebuildsDirtyCandidateDirectory(t *testing.T) {
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	dag := retryCandidateDAG()
@@ -99,7 +99,7 @@ func TestStoreListRetryCandidatesRebuildsCorruptedCandidateFile(t *testing.T) {
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	dag := retryCandidateDAG()
@@ -124,7 +124,7 @@ func TestStoreListRetryCandidatesRemovesCandidateWhenRunIsGone(t *testing.T) {
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	dag := retryCandidateDAG()
@@ -143,7 +143,7 @@ func TestStoreListRetryCandidatesIgnoresChildAttemptStatusFiles(t *testing.T) {
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{LatestStatusToday: true})
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	parentDAG := retryCandidateDAG()

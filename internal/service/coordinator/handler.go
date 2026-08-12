@@ -832,16 +832,17 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 // This ensures the status file is not empty when read before the worker reports its first status.
 func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt, task *coordinatorv1.Task, dagName string, root ir.DAGRunRef, labels []string) error {
 	initialStatus := ir.DAGRunStatus{
-		Name:         dagName,
-		DAGRunID:     task.DagRunId,
-		AttemptID:    attempt.ID(),
-		AttemptKey:   task.AttemptKey,
-		Status:       ir.NotStarted,
-		StartedAt:    time.Now().UTC().Format(time.RFC3339),
-		Root:         root,
-		Labels:       labels,
-		TriggerActor: task.TriggerActor,
-		ScheduleTime: task.ScheduleTime,
+		Name:            dagName,
+		DAGRunID:        task.DagRunId,
+		AttemptID:       attempt.ID(),
+		AttemptKey:      task.AttemptKey,
+		Status:          ir.NotStarted,
+		StartedAt:       time.Now().UTC().Format(time.RFC3339),
+		Root:            root,
+		Labels:          labels,
+		TriggerActor:    task.TriggerActor,
+		ScheduleTime:    task.ScheduleTime,
+		SuspendFlagName: task.DefinitionId,
 	}
 	return attempt.Write(ctx, initialStatus)
 }

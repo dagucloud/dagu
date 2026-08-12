@@ -94,6 +94,9 @@ type Agent struct {
 	// runStateStore opens execution state for this run.
 	runStateStore runstate.Store
 
+	// workspaceStore persists workspaces when execution history is remote.
+	workspaceStore dagrun.WorkspaceStore
+
 	// queueStore is the database to store queued dag-run items.
 	queueStore queue.QueueStore
 
@@ -233,6 +236,9 @@ type Agent struct {
 	extraEnvs []string
 	// profileName is the selected runtime profile name for this run.
 	profileName string
+
+	// definitionID identifies the persisted DAG definition that started this run.
+	definitionID string
 	// profileResolvedAt records when the selected runtime profile was resolved.
 	profileResolvedAt string
 	// profileEntries records non-secret injected key metadata for status/history.
@@ -333,6 +339,8 @@ type Options struct {
 	RunStateStore runstate.Store
 	// DAGRunRepository provides access to DAG-run data. Nil for remote worker execution.
 	DAGRunRepository *dagrun.Repository
+	// WorkspaceStore persists workspaces when DAG-run history is remote.
+	WorkspaceStore dagrun.WorkspaceStore
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
 	QueueStore queue.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.
@@ -348,6 +356,8 @@ type Options struct {
 	ProfileStore profilepkg.Store
 	// ProfileName selects the runtime profile for this DAG run.
 	ProfileName string
+	// DAGDefinitionID identifies the persisted definition that started this run.
+	DAGDefinitionID string
 	// ServiceRegistry is the registry for service discovery.
 	ServiceRegistry serviceregistry.ServiceRegistry
 	// RootDAGRun is the root dag-run reference for sub-DAG runs.
@@ -396,9 +406,13 @@ func New(
 
 	runStateStore := opts.RunStateStore
 	if runStateStore == nil && opts.PreparedAttempt != nil {
-		runStateStore = runstate.NewHistoryStore(opts.DAGRunRepository, runstate.WithPreparedAttempt(opts.PreparedAttempt))
+		runStateStore = runstate.NewHistoryStore(
+			opts.DAGRunRepository,
+			runstate.WithPreparedAttempt(opts.PreparedAttempt),
+			runstate.WithWorkspaceStore(opts.WorkspaceStore),
+		)
 	} else if runStateStore == nil {
-		runStateStore = runstate.NewHistoryStore(opts.DAGRunRepository)
+		runStateStore = runstate.NewHistoryStore(opts.DAGRunRepository, runstate.WithWorkspaceStore(opts.WorkspaceStore))
 	}
 
 	a := &Agent{
@@ -417,6 +431,7 @@ func New(
 		dagLoader:                dagLoader,
 		dagRunRepository:         opts.DAGRunRepository,
 		runStateStore:            runStateStore,
+		workspaceStore:           opts.WorkspaceStore,
 		queueStore:               opts.QueueStore,
 		stateStore:               opts.StateStore,
 		materializationStore:     opts.MaterializationStore,
@@ -426,6 +441,7 @@ func New(
 		registry:                 opts.ServiceRegistry,
 		extraEnvs:                append([]string{}, opts.ExtraEnvs...),
 		profileName:              opts.ProfileName,
+		definitionID:             opts.DAGDefinitionID,
 		stepRetry:                opts.StepRetry,
 		retryPath:                opts.RetryPath,
 		peerConfig:               opts.PeerConfig,
@@ -484,7 +500,7 @@ func workspaceNameFromDAG(dag *ir.DAG) string {
 }
 
 // Run setups the runner and runs the DAG.
-func (a *Agent) Run(ctx context.Context) error {
+func (a *Agent) Run(ctx context.Context) (runErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	runningStatusDone := make(chan struct{})
 	close(runningStatusDone)
@@ -762,6 +778,13 @@ func (a *Agent) Run(ctx context.Context) error {
 			st.Status = ir.Failed
 			if st.FinishedAt == "" {
 				st.FinishedAt = stringutil.FormatTime(time.Now())
+			}
+			if a.workDir != "" {
+				if err := attempt.SnapshotWorkspace(context.WithoutCancel(ctx), a.workDir); err != nil {
+					snapshotErr := fmt.Errorf("snapshot DAG-run workspace: %w", err)
+					st.Error = appendDAGRunError(st.Error, snapshotErr)
+					runErr = errors.Join(runErr, snapshotErr)
+				}
 			}
 			a.writeStatus(ctx, attempt, st)
 		}
@@ -1165,6 +1188,14 @@ func (a *Agent) Run(ctx context.Context) error {
 			logger.Error(ctx, "Failed to write outputs", tag.Error(err))
 		}
 	}
+	if err := attempt.SnapshotWorkspace(context.WithoutCancel(ctx), a.workDir); err != nil {
+		snapshotErr := fmt.Errorf("snapshot DAG-run workspace: %w", err)
+		if finishedStatus.Status.IsSuccess() {
+			finishedStatus.Status = ir.Failed
+		}
+		finishedStatus.Error = appendDAGRunError(finishedStatus.Error, snapshotErr)
+		lastErr = errors.Join(lastErr, snapshotErr)
+	}
 
 	// Finalize status (after outputs are written)
 	a.writeStatus(ctx, attempt, finishedStatus)
@@ -1402,6 +1433,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 			ir.WithPIDStartedAt(currentPIDStartedAt()),
 			ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
+			ir.WithDAGDefinitionID(a.definitionID),
 			ir.WithNoReuse(a.noReuse),
 		}
 		if source != nil {
@@ -1450,6 +1482,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 		ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 		ir.WithPIDStartedAt(currentPIDStartedAt()),
 		ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
+		ir.WithDAGDefinitionID(a.definitionID),
 		ir.WithNoReuse(a.noReuse),
 	}
 
@@ -1535,7 +1568,11 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 		return nil, nil
 	}
 
-	a.workDir = attempt.WorkDir()
+	var err error
+	a.workDir, err = attempt.MaterializeWorkspace(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("materialize DAG-run workspace: %w", err)
+	}
 	if a.workDir != "" {
 		return nil, nil
 	}
@@ -1547,10 +1584,6 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 	if err := os.MkdirAll(a.workDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create work directory: %w", err)
 	}
-	if a.dagRunRepository != nil {
-		return nil, nil
-	}
-
 	return func() {
 		if a.workDir == "" {
 			return
@@ -1559,6 +1592,13 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 			logger.Warn(ctx, "Failed to remove temp work dir", tag.Error(err))
 		}
 	}, nil
+}
+
+func appendDAGRunError(current string, err error) string {
+	if current == "" {
+		return err.Error()
+	}
+	return current + "; " + err.Error()
 }
 
 // writeStatus writes the current status to storage.
@@ -2314,7 +2354,10 @@ func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node
 
 func (a *Agent) setupAttempt(ctx context.Context) (runstate.Attempt, error) {
 	if a.runStateStore == nil {
-		a.runStateStore = runstate.NewHistoryStore(a.dagRunRepository)
+		a.runStateStore = runstate.NewHistoryStore(
+			a.dagRunRepository,
+			runstate.WithWorkspaceStore(a.workspaceStore),
+		)
 	}
 	if a.attemptID != "" && a.dagRunAttemptID != "" && a.attemptID != a.dagRunAttemptID {
 		return nil, fmt.Errorf(

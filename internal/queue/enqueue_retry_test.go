@@ -331,7 +331,7 @@ func TestEnqueueRetry(t *testing.T) {
 				tt.setupQueue(qs)
 			}
 
-			repository := dagrun.NewRepository(tt.backend, dagrun.RepositoryOptions{})
+			repository := dagrun.NewRepository(tt.backend, nil, dagrun.RepositoryOptions{})
 			queued, err := queue.EnqueueRetry(ctx, repository, qs, tt.dag, tt.status, tt.opts)
 			if tt.wantErr != "" {
 				require.Error(t, err)

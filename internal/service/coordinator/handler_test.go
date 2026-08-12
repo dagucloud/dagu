@@ -22,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -78,7 +77,7 @@ func newMockDAGRunBackend() *mockDAGRunBackend {
 		attempts:    make(map[string]*mockAttempt),
 		subAttempts: make(map[string]*mockAttempt),
 	}
-	backend.repository = dagrun.NewRepository(backend, dagrun.RepositoryOptions{})
+	backend.repository = dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{})
 	return backend
 }
 
@@ -286,7 +285,7 @@ func (m *mockDAGRunBackend) FindSubAttempt(_ context.Context, rootRef ir.DAGRunR
 	}
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
-func (m *mockDAGRunBackend) RemoveOldDAGRuns(_ context.Context, _ dagrun.RetentionRequest) ([]string, error) {
+func (m *mockDAGRunBackend) RemoveOldDAGRuns(_ context.Context, _ dagrun.RetentionRequest) ([]ir.DAGRunRef, error) {
 	return nil, nil
 }
 func (m *mockDAGRunBackend) RemoveDAGRun(_ context.Context, _ dagrun.RemoveDAGRunRequest) error {
@@ -416,8 +415,6 @@ func (m *mockAttempt) ReadStepMessages(_ context.Context, stepName string) ([]ir
 	}
 	return m.stepMessages[stepName], nil
 }
-
-func (m *mockAttempt) WorkDir() string { return "" }
 
 // GetStepMessages returns the messages written for a step (for test assertions)
 func (m *mockAttempt) GetStepMessages(stepName string) []ir.LLMMessage {
@@ -902,7 +899,7 @@ func TestHandler_Poll(t *testing.T) {
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 		}))
 
-		repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+		repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 		h := NewHandler(HandlerConfig{
 			DAGRunRepository:     repository,
 			DispatchTaskStore:    &failingDispatchTaskStore{enqueueErr: errors.New("disk full")},

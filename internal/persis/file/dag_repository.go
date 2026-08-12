@@ -75,7 +75,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		skipExamples = *options.SkipExamples
 	}
 	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)
-	definitions := filedag.NewDefinitionStore(
+	dagStore := filedag.NewStore(
 		cfg.Paths.DAGsDir,
 		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
 		filedag.WithSearchPaths(options.SearchPaths),
@@ -87,10 +87,10 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		filedag.WithSymlinks(options.Symlinks),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
 	)
-	if err := definitions.Initialize(); err != nil {
+	if err := dagStore.Initialize(); err != nil {
 		return nil, fmt.Errorf("initialize DAG definition store: %w", err)
 	}
-	return persis.NewDAGRepository(definitions, persis.DAGRepositoryOptions{
+	return persis.NewDAGRepository(dagStore, persis.DAGRepositoryOptions{
 		BaseConfigPath:         cfg.Paths.BaseConfig,
 		WorkspaceBaseConfigDir: workspaceBaseConfigDir,
 	}), nil

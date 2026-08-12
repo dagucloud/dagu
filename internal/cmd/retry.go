@@ -192,7 +192,10 @@ func runRetry(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
-	restoreRetryExecutionContext(dag, status, attempt)
+	workspaceRef := retryWorkspaceRef(status, ref, rootRun)
+	if err := restoreRetryExecutionContext(ctx.Context, ctx.DAGRunRepository, dag, status, workspaceRef); err != nil {
+		return err
+	}
 	if err := applyRetryDefaultWorkingDir(ctx, dag, status); err != nil {
 		return err
 	}
@@ -241,6 +244,7 @@ func runRetry(ctx *Context, args []string) error {
 		triggerActor: triggerActor,
 		scheduleTime: status.ScheduleTime,
 		profileName:  profileName,
+		definitionID: status.SuspendFlagName,
 		noReuse:      status.NoReuse,
 		step:         stepName,
 		retryPath:    retryPath,
@@ -305,12 +309,38 @@ func runRetry(ctx *Context, args []string) error {
 	)
 }
 
-func restoreRetryExecutionContext(dag *ir.DAG, status *ir.DAGRunStatus, attempt dagrun.Attempt) {
+func restoreRetryExecutionContext(
+	ctx context.Context,
+	repository *dagrun.Repository,
+	dag *ir.DAG,
+	status *ir.DAGRunStatus,
+	workspaceRef dagrun.WorkspaceRef,
+) error {
 	// Most retry inputs are already restored before this point: attempt.ReadDAG
 	// provides the original DAG snapshot, restoreDAGFromStatus restores runtime
 	// params and JSON-excluded config, and retry nodes carry persisted state.
 	// This backfills only metadata that older run histories did not record.
-	backfillMissingRunWorkingDirSnapshot(dag, status, attempt)
+	return backfillMissingRunWorkingDirSnapshot(ctx, repository, dag, status, workspaceRef)
+}
+
+func retryWorkspaceRef(status *ir.DAGRunStatus, fallback, fallbackRoot ir.DAGRunRef) dagrun.WorkspaceRef {
+	ref := fallback
+	root := fallbackRoot
+	if status != nil {
+		if status.Name != "" {
+			ref.Name = status.Name
+		}
+		if status.DAGRunID != "" {
+			ref.ID = status.DAGRunID
+		}
+		if !status.Root.Zero() {
+			root = status.Root
+		}
+	}
+	if root.Zero() {
+		root = ref
+	}
+	return dagrun.WorkspaceRef{RootDAGRun: root, DAGRun: ref}
 }
 
 func applyRetryDefaultWorkingDir(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus) error {
@@ -330,27 +360,37 @@ func applyRetryDefaultWorkingDir(ctx *Context, dag *ir.DAG, status *ir.DAGRunSta
 	return nil
 }
 
-func backfillMissingRunWorkingDirSnapshot(dag *ir.DAG, status *ir.DAGRunStatus, attempt dagrun.Attempt) {
+func backfillMissingRunWorkingDirSnapshot(
+	ctx context.Context,
+	repository *dagrun.Repository,
+	dag *ir.DAG,
+	status *ir.DAGRunStatus,
+	workspaceRef dagrun.WorkspaceRef,
+) error {
 	if dag == nil || status == nil || status.WorkingDir != "" {
-		return
+		return nil
 	}
 
 	if dag.WorkingDir != "" && (dag.WorkingDirExplicit || storedDAGHasNonDefaultWorkingDir(dag)) {
 		dag.WorkingDirExplicit = true
 		status.WorkingDir = dag.WorkingDir
-		return
+		return nil
 	}
 
-	if attempt == nil {
-		return
+	if repository == nil {
+		return nil
 	}
-	attemptWorkDir := attempt.WorkDir()
-	if attemptWorkDir == "" {
-		return
+	workDir, err := repository.MaterializeWorkspace(ctx, workspaceRef)
+	if err != nil {
+		return fmt.Errorf("failed to materialize retry workspace: %w", err)
 	}
-	status.WorkingDir = attemptWorkDir
-	dag.WorkingDir = attemptWorkDir
+	if workDir == "" {
+		return nil
+	}
+	status.WorkingDir = workDir
+	dag.WorkingDir = workDir
 	dag.WorkingDirExplicit = true
+	return nil
 }
 
 func storedDAGHasNonDefaultWorkingDir(dag *ir.DAG) bool {
@@ -665,6 +705,7 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ProfileName:              opts.profileName,
+			DAGDefinitionID:          opts.definitionID,
 			ServiceRegistry:          ctx.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:               opts.root,

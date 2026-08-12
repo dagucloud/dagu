@@ -236,6 +236,7 @@ func runStart(ctx *Context, args []string) error {
 		triggerActor: triggerActor,
 		scheduleTime: scheduleTime,
 		profileName:  profileName,
+		definitionID: dagDefinitionIDFromEnv(),
 		noReuse:      noReuse,
 	}
 
@@ -580,6 +581,7 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ProfileName:              opts.profileName,
+			DAGDefinitionID:          opts.definitionID,
 			ServiceRegistry:          ctx.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:               opts.root,

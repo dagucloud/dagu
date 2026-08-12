@@ -350,7 +350,7 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		ctx: &Context{
 			Context:          t.Context(),
 			Command:          command,
-			DAGRunRepository: dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
+			DAGRunRepository: dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{}),
 			QueueStore:       queue,
 			ProcStore:        humanTaskCompletionProcStore{},
 		},

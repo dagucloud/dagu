@@ -24,7 +24,7 @@ func TestFirstLaunchExamplesLoadAndRun(t *testing.T) {
 	ctx := context.Background()
 
 	dagsDir := t.TempDir()
-	store := filedag.NewDefinitionStore(dagsDir)
+	store := filedag.NewStore(dagsDir)
 	require.NoError(t, store.Initialize())
 
 	files := yamlFiles(t, dagsDir)

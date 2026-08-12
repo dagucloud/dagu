@@ -393,7 +393,7 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 	return &serviceFixture{
 		dag: dag, status: status, backend: backend, queue: queue,
 		service: &Service{
-			DAGRunRepository: dagrun.NewRepository(backend, dagrun.RepositoryOptions{}),
+			DAGRunRepository: dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{}),
 			QueueStore:       queue,
 			ProcStore:        serviceProcStore{},
 			Now:              func() time.Time { return now },

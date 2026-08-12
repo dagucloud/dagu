@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 )
 
@@ -31,10 +30,14 @@ func (er *mockJobManager) Start(_ context.Context) {
 func (er *mockJobManager) Stop() {
 }
 
-func (er *mockJobManager) DAGs() []*ir.DAG {
-	return er.LoadedDAGs
+func (er *mockJobManager) Entries() []scheduler.DAGEntry {
+	entries := make([]scheduler.DAGEntry, 0, len(er.LoadedDAGs))
+	for _, dag := range er.LoadedDAGs {
+		entries = append(entries, scheduler.DAGEntry{DefinitionID: dag.SuspendFlagName(), DAG: dag})
+	}
+	return entries
 }
 
-func (*mockJobManager) DAGRepository() *persis.DAGRepository {
+func (*mockJobManager) Events() <-chan scheduler.DAGChangeEvent {
 	return nil
 }

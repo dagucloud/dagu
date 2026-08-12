@@ -277,17 +277,27 @@ func (dr DataRoot) removeOldBefore(ctx context.Context, keepTime dagrun.TimeInUT
 
 	dagRuns := dr.listDAGRunsInRange(ctx, dagrun.TimeInUTC{}, keepTime, &listDAGRunsInRangeOpts{})
 
-	var removedRunIDs []string
+	var (
+		removedRunIDs []string
+		removeErrs    []error
+	)
 
 	for _, r := range dagRuns {
 		removable, err := dr.canRemoveDAGRun(ctx, r, keepTime.Time)
-		if err != nil || !removable {
+		if err != nil {
+			removeErrs = append(removeErrs, err)
+			continue
+		}
+		if !removable {
+			continue
+		}
+		if err := dr.removeDAGRun(ctx, r, dryRun); err != nil {
+			removeErrs = append(removeErrs, err)
 			continue
 		}
 		removedRunIDs = append(removedRunIDs, r.dagRunID)
-		dr.removeDAGRun(ctx, r, dryRun)
 	}
-	return removedRunIDs, nil
+	return removedRunIDs, errors.Join(removeErrs...)
 }
 
 // RemoveOldByRuns removes dag-runs beyond the most recent retentionRuns.
@@ -302,16 +312,26 @@ func (dr DataRoot) RemoveOldByRuns(ctx context.Context, retentionRuns int, dryRu
 		return nil, nil
 	}
 
-	var removedRunIDs []string
+	var (
+		removedRunIDs []string
+		removeErrs    []error
+	)
 	for _, r := range dagRuns[retentionRuns:] {
 		removable, err := dr.canRemoveDAGRun(ctx, r, time.Time{})
-		if err != nil || !removable {
+		if err != nil {
+			removeErrs = append(removeErrs, err)
+			continue
+		}
+		if !removable {
+			continue
+		}
+		if err := dr.removeDAGRun(ctx, r, dryRun); err != nil {
+			removeErrs = append(removeErrs, err)
 			continue
 		}
 		removedRunIDs = append(removedRunIDs, r.dagRunID)
-		dr.removeDAGRun(ctx, r, dryRun)
 	}
-	return removedRunIDs, nil
+	return removedRunIDs, errors.Join(removeErrs...)
 }
 
 func (dr DataRoot) canRemoveDAGRun(ctx context.Context, r *DAGRun, keepTime time.Time) (bool, error) {
@@ -387,38 +407,37 @@ func hasNewerStatuslessAttempt(ctx context.Context, r *DAGRun, latestAttempt *At
 	return false, nil
 }
 
-func (dr DataRoot) removeDAGRun(ctx context.Context, r *DAGRun, dryRun bool) {
+func (dr DataRoot) removeDAGRun(ctx context.Context, r *DAGRun, dryRun bool) error {
 	if dryRun {
-		return
+		return nil
 	}
 
-	runCtx := logger.WithValues(ctx, tag.Dir(r.baseDir))
 	if err := r.Remove(ctx); err != nil {
-		logger.Error(runCtx, "Failed to remove run", tag.Error(err))
+		return fmt.Errorf("remove dag-run %s: %w", r.dagRunID, err)
 	}
 	dayDir := filepath.Dir(r.baseDir)
 	dagrunindex.DeleteIndex(dayDir)
-	dr.removeEmptyDir(ctx, dayDir)
+	return dr.removeEmptyDir(dayDir)
 }
 
-func (dr DataRoot) removeEmptyDir(ctx context.Context, dayDir string) {
+func (dr DataRoot) removeEmptyDir(dayDir string) error {
 	monthDir := filepath.Dir(dayDir)
 	yearDir := filepath.Dir(monthDir)
 
-	// Helper function to remove directory with context-enriched logging
-	removeDir := func(dirPath, dirType string) {
-		dirCtx := logger.WithValues(ctx, tag.Dir(dirPath))
+	removeDir := func(dirPath, dirType string) error {
 		if isDirEmpty(dirPath) {
 			if err := fileutil.Remove(dirPath); err != nil {
-				logger.Error(dirCtx, fmt.Sprintf("Failed to remove %s directory", dirType),
-					tag.Error(err))
+				return fmt.Errorf("remove empty %s directory %s: %w", dirType, dirPath, err)
 			}
 		}
+		return nil
 	}
 
-	removeDir(dayDir, "day")
-	removeDir(monthDir, "month")
-	removeDir(yearDir, "year")
+	return errors.Join(
+		removeDir(dayDir, "day"),
+		removeDir(monthDir, "month"),
+		removeDir(yearDir, "year"),
+	)
 }
 
 // listDAGRunsInRangeOpts contains options for listing dag-runs in a range

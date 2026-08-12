@@ -17,6 +17,7 @@ import (
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
@@ -42,7 +43,7 @@ func TestServerExposesCompactToolSurface(t *testing.T) {
 
 func TestChangeToolRenamesAndDeletesDAG(t *testing.T) {
 	ctx := context.Background()
-	store := filedag.NewRepository(t.TempDir(), filedag.WithSkipExamples(true))
+	store := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
 	require.NoError(t, store.Create(ctx, "mcp-original", []byte(`
 name: mcp-original
 steps:

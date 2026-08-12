@@ -87,7 +87,3 @@ func (n *noopAttempt) WriteStepMessages(_ context.Context, _ string, _ []ir.LLMM
 func (n *noopAttempt) ReadStepMessages(_ context.Context, _ string) ([]ir.LLMMessage, error) {
 	return nil, nil
 }
-
-func (n *noopAttempt) WorkDir() string {
-	return ""
-}

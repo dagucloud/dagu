@@ -5,9 +5,11 @@ package cmd
 
 import (
 	"context"
+	"os"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -22,10 +24,15 @@ type runOptions struct {
 	triggerActor    string
 	scheduleTime    string
 	profileName     string
+	definitionID    string
 	step            string
 	retryPath       dagrun.RetryPath
 	preparedAttempt dagrun.Attempt
 	noReuse         bool
+}
+
+func dagDefinitionIDFromEnv() string {
+	return os.Getenv(runenv.EnvKeyDAGDefinitionID)
 }
 
 func withPreparedLocalExecution(

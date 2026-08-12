@@ -17,7 +17,8 @@ import (
 
 func TestResolveRetryPathNestedRun(t *testing.T) {
 	ctx := context.Background()
-	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	baseDir := filepath.Join(t.TempDir(), "dag-runs")
+	repository := newRetryPathRepository(baseDir)
 	rootRef := ir.NewDAGRunRef("root", "root-run")
 
 	rootStep := ir.Step{Name: "run-middle", SubDAG: &ir.SubDAG{Name: "middle"}, Parallel: &ir.ParallelConfig{}}
@@ -118,7 +119,8 @@ func resolveRetryPathForChild(
 ) (dagrun.RetryPath, *ir.DAGRunStatus, error) {
 	t.Helper()
 	ctx := context.Background()
-	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	baseDir := filepath.Join(t.TempDir(), "dag-runs")
+	repository := newRetryPathRepository(baseDir)
 	rootRef := ir.NewDAGRunRef("root", "root-run")
 	targetStep := ir.Step{Name: "target-step"}
 
@@ -141,6 +143,14 @@ func resolveRetryPathForChild(
 	})
 
 	return dagrun.ResolveRetryPath(ctx, repository, rootRef, "child-target", targetStep.Name)
+}
+
+func newRetryPathRepository(baseDir string) *dagrun.Repository {
+	return dagrun.NewRepository(
+		filedagrun.NewStore(baseDir),
+		filedagrun.NewWorkspaceStore(baseDir),
+		dagrun.RepositoryOptions{LatestStatusToday: true},
+	)
 }
 
 func createRetryTestAttempt(

@@ -150,6 +150,8 @@ message Task {
   string retry_path = 33;
   // Attributable actor that initiated the DAG run.
   string trigger_actor = 34;
+  // Stable identity of the persisted DAG definition.
+  string definition_id = 35;
 }
 
 enum Operation {

@@ -15,6 +15,7 @@ import (
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,7 +49,7 @@ func newSearchAPI(dagRepository *persis.DAGRepository, extraOptions ...apiv1.API
 func newSearchTestSetup(t *testing.T) *searchTestSetup {
 	t.Helper()
 
-	dagRepository := filedag.NewRepository(t.TempDir(), filedag.WithSkipExamples(true))
+	dagRepository := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
 
 	return &searchTestSetup{
 		api:           newSearchAPI(dagRepository),
@@ -225,7 +226,7 @@ func TestSearchDAGFeedReturnsErrorWhenSearchRootIsBroken(t *testing.T) {
 	basePath := filepath.Join(t.TempDir(), "not-a-directory")
 	require.NoError(t, os.WriteFile(basePath, []byte("x"), 0600))
 
-	api := newSearchAPI(filedag.NewRepository(basePath, filedag.WithSkipExamples(true)))
+	api := newSearchAPI(testutil.NewFileDAGRepository(basePath, filedag.WithSkipExamples(true)))
 	resp, err := api.SearchDAGFeed(adminCtx(), apigen.SearchDAGFeedRequestObject{
 		Params: apigen.SearchDAGFeedParams{Q: "needle"},
 	})

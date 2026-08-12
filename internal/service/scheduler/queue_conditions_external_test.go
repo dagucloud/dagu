@@ -1079,7 +1079,7 @@ func newCountingDAGRunBackend(store dagrun.Store) *countingDAGRunBackend {
 		blankAttemptIDRuns: make(map[string]struct{}),
 		readDAGErrByRun:    make(map[string]error),
 	}
-	counting.repository = dagrun.NewRepository(counting, dagrun.RepositoryOptions{
+	counting.repository = dagrun.NewRepository(counting, nil, dagrun.RepositoryOptions{
 		LatestStatusToday: false,
 	})
 	return counting

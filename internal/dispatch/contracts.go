@@ -51,6 +51,7 @@ type DispatchTask struct {
 	QueueName    string
 	WorkerID     string
 	ProfileName  string
+	DefinitionID string
 	TriggerActor string
 
 	PreviousStatus *ir.DAGRunStatus

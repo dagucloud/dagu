@@ -98,7 +98,3 @@ func (m *MockAttempt) ReadStepMessages(ctx context.Context, stepName string) ([]
 	}
 	return args.Get(0).([]ir.LLMMessage), args.Error(1)
 }
-
-func (m *MockAttempt) WorkDir() string {
-	return m.Called().String(0)
-}

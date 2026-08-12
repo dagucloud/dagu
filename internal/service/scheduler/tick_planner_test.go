@@ -70,6 +70,14 @@ func newHourlyCatchupDAG(t *testing.T, name string) *ir.DAG {
 	}
 }
 
+func testDAGEntries(dags ...*ir.DAG) []DAGEntry {
+	entries := make([]DAGEntry, 0, len(dags))
+	for _, dag := range dags {
+		entries = append(entries, DAGEntry{DefinitionID: dag.SuspendFlagName(), DAG: dag})
+	}
+	return entries
+}
+
 type testProfileResolver struct {
 	profile       string
 	err           error
@@ -101,7 +109,7 @@ func newTestTickPlanner(store WatermarkStore) (*TickPlanner, chan DAGChangeEvent
 		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{}, nil
 		},
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
 		},
 		GenRunID: func(_ context.Context) (string, error) {
@@ -151,7 +159,7 @@ func TestTickPlanner_InitWithMissedRuns(t *testing.T) {
 	tp, _ := newTestTickPlanner(store)
 
 	dag := newHourlyCatchupDAG(t, "test-dag")
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	buf, ok := tp.buffers["test-dag"]
 	require.True(t, ok)
@@ -233,7 +241,7 @@ func TestTickPlanner_PlanCatchupDispatches(t *testing.T) {
 	tp, _ := newTestTickPlanner(store)
 
 	dag := newHourlyCatchupDAG(t, "my-dag")
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -261,7 +269,7 @@ func TestTickPlanner_PlanCatchupSkipOverlap(t *testing.T) {
 		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{}, nil
 		},
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
 		},
 		GenRunID: func(_ context.Context) (string, error) {
@@ -278,7 +286,7 @@ func TestTickPlanner_PlanCatchupSkipOverlap(t *testing.T) {
 
 	dag := newHourlyCatchupDAG(t, "skip-dag")
 	dag.OverlapPolicy = ir.OverlapPolicySkip
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	initialLen := tp.buffers["skip-dag"].Len()
 
@@ -305,7 +313,7 @@ func TestTickPlanner_PlanLiveRun(t *testing.T) {
 		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{}, nil
 		},
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
 		},
 		GenRunID: func(_ context.Context) (string, error) {
@@ -324,7 +332,7 @@ func TestTickPlanner_PlanLiveRun(t *testing.T) {
 		Name:     "live-dag",
 		Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	// Tick at 12:00 — hourly schedule should fire
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
@@ -346,7 +354,7 @@ func TestTickPlanner_PlanSuspendedDAGSkipped(t *testing.T) {
 		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{}, nil
 		},
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
 		},
 		GenRunID: func(_ context.Context) (string, error) {
@@ -365,7 +373,7 @@ func TestTickPlanner_PlanSuspendedDAGSkipped(t *testing.T) {
 		Name:     "suspended-dag",
 		Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -402,7 +410,7 @@ func TestTickPlanner_PlanSuspendedCatchupDropsBufferAndAdvancesWatermark(t *test
 	})
 
 	dag := newHourlyCatchupDAG(t, "suspended-catchup-dag")
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 	_, ok := tp.buffers[dag.Name]
 	require.True(t, ok, "catchup buffer should exist before planning while suspended")
 
@@ -432,9 +440,8 @@ func TestTickPlanner_HandleEvent_Added(t *testing.T) {
 
 	tp.entryMu.Lock()
 	tp.handleEvent(context.Background(), DAGChangeEvent{
-		Type:    DAGChangeAdded,
-		DAG:     newDAG,
-		DAGName: "new-dag",
+		Type:     DAGChangeAdded,
+		DAGEntry: DAGEntry{DAG: newDAG},
 	})
 	tp.entryMu.Unlock()
 
@@ -460,7 +467,7 @@ func TestTickPlanner_HandleEvent_Deleted(t *testing.T) {
 		Name:     "del-dag",
 		Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	// Verify it exists
 	_, ok := tp.entries["del-dag"]
@@ -468,8 +475,8 @@ func TestTickPlanner_HandleEvent_Deleted(t *testing.T) {
 
 	tp.entryMu.Lock()
 	tp.handleEvent(context.Background(), DAGChangeEvent{
-		Type:    DAGChangeDeleted,
-		DAGName: "del-dag",
+		Type:     DAGChangeDeleted,
+		DAGEntry: DAGEntry{DAG: dag},
 	})
 	tp.entryMu.Unlock()
 
@@ -501,7 +508,7 @@ func TestTickPlanner_DeletedWatermarkExpiresAfterGraceWindow(t *testing.T) {
 		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{}, nil
 		},
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
 		},
 		GenRunID: func(_ context.Context) (string, error) {
@@ -523,12 +530,12 @@ func TestTickPlanner_DeletedWatermarkExpiresAfterGraceWindow(t *testing.T) {
 		Name:     "deleted-after-grace",
 		Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	tp.entryMu.Lock()
 	tp.handleEvent(context.Background(), DAGChangeEvent{
-		Type:    DAGChangeDeleted,
-		DAGName: dag.Name,
+		Type:     DAGChangeDeleted,
+		DAGEntry: DAGEntry{DAG: dag},
 	})
 	tp.entryMu.Unlock()
 
@@ -561,7 +568,7 @@ func TestTickPlanner_HandleEvent_Updated(t *testing.T) {
 	tp, _ := newTestTickPlanner(store)
 
 	dag := newHourlyCatchupDAG(t, "upd-dag")
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	// Should have a buffer from init
 	_, hasBuf := tp.buffers["upd-dag"]
@@ -576,16 +583,15 @@ func TestTickPlanner_HandleEvent_Updated(t *testing.T) {
 
 	tp.entryMu.Lock()
 	tp.handleEvent(context.Background(), DAGChangeEvent{
-		Type:    DAGChangeUpdated,
-		DAG:     updatedDAG,
-		DAGName: "upd-dag",
+		Type:     DAGChangeUpdated,
+		DAGEntry: DAGEntry{DAG: updatedDAG},
 	})
 	tp.entryMu.Unlock()
 
 	// Entry should be updated
 	entry, ok := tp.entries["upd-dag"]
 	require.True(t, ok)
-	assert.Equal(t, "*/30 * * * *", entry.dag.Schedule[0].Expression)
+	assert.Equal(t, "*/30 * * * *", entry.DAG.Schedule[0].Expression)
 }
 
 func TestTickPlanner_HandleEvent_UpdatedFlushesWatermarkMutationsImmediately(t *testing.T) {
@@ -602,18 +608,19 @@ func TestTickPlanner_HandleEvent_UpdatedFlushesWatermarkMutationsImmediately(t *
 		Schedule:      []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 		OverlapPolicy: ir.OverlapPolicyLatest,
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	tp.entryMu.Lock()
 	tp.handleEvent(context.Background(), DAGChangeEvent{
 		Type: DAGChangeUpdated,
-		DAG: &ir.DAG{
-			Name:          "upd-latest-dag",
-			CatchupWindow: 6 * time.Hour,
-			Schedule:      []ir.Schedule{mustParseSchedule(t, "*/30 * * * *")},
-			OverlapPolicy: ir.OverlapPolicyLatest,
+		DAGEntry: DAGEntry{
+			DAG: &ir.DAG{
+				Name:          "upd-latest-dag",
+				CatchupWindow: 6 * time.Hour,
+				Schedule:      []ir.Schedule{mustParseSchedule(t, "*/30 * * * *")},
+				OverlapPolicy: ir.OverlapPolicyLatest,
+			},
 		},
-		DAGName: "upd-latest-dag",
 	})
 	tp.entryMu.Unlock()
 
@@ -655,7 +662,7 @@ func TestTickPlanner_PrunesStaleDAGEntries(t *testing.T) {
 	tp, _ := newTestTickPlanner(store)
 
 	dags := []*ir.DAG{{Name: "active-dag"}}
-	require.NoError(t, tp.Init(context.Background(), dags))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dags...)))
 
 	tp.mu.RLock()
 	_, hasActive := tp.watermarkState.DAGs["active-dag"]
@@ -676,7 +683,7 @@ func TestTickPlanner_NilWatermarkStoreFullPath(t *testing.T) {
 		Events: eventCh,
 	})
 
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{{Name: "any-dag"}}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(&ir.DAG{Name: "any-dag"})))
 
 	tp.Advance(time.Now())
 	tp.Plan(context.Background(), time.Now())
@@ -698,7 +705,7 @@ func TestTickPlanner_AdvanceUpdatesPerDAGWatermarks(t *testing.T) {
 	scheduledTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	tp.lastPlanResult = []PlannedRun{
 		{
-			DAG:           &ir.DAG{Name: "test-dag"},
+			DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "test-dag"}},
 			RunID:         "run-1",
 			ScheduledTime: scheduledTime,
 			TriggerType:   ir.TriggerTypeScheduler,
@@ -725,7 +732,7 @@ func TestTickPlanner_PlanBufferCleansEmpty(t *testing.T) {
 	tp, _ := newTestTickPlanner(store)
 
 	dag := newHourlyCatchupDAG(t, "drain-dag")
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	_, exists := tp.buffers["drain-dag"]
 	require.True(t, exists, "buffer should exist after init")
@@ -751,7 +758,7 @@ func TestTickPlanner_ShouldRunGuardRunning(t *testing.T) {
 		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{Status: ir.Running}, nil
 		},
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
 		},
 		GenRunID: func(_ context.Context) (string, error) {
@@ -770,7 +777,7 @@ func TestTickPlanner_ShouldRunGuardRunning(t *testing.T) {
 		Name:     "running-dag",
 		Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -805,7 +812,7 @@ func TestTickPlanner_PlanStopSchedule(t *testing.T) {
 		Name:         "stop-dag",
 		StopSchedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -843,7 +850,7 @@ func TestTickPlanner_PlanStopSkipsNotRunning(t *testing.T) {
 		Name:         "stop-dag-not-running",
 		StopSchedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -878,7 +885,7 @@ func TestTickPlanner_PlanRestartSchedule(t *testing.T) {
 		Name:            "restart-dag",
 		RestartSchedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -916,7 +923,7 @@ func TestTickPlanner_PlanSuspendedStopSkipped(t *testing.T) {
 		Name:         "suspended-stop-dag",
 		StopSchedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -936,19 +943,19 @@ func TestTickPlanner_AdvanceIgnoresStopRestartWatermarks(t *testing.T) {
 
 	tp.lastPlanResult = []PlannedRun{
 		{
-			DAG:           &ir.DAG{Name: "test-dag"},
+			DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "test-dag"}},
 			RunID:         "run-1",
 			ScheduledTime: startTime,
 			ScheduleType:  ScheduleTypeStart,
 			Schedule:      mustParseSchedule(t, "0 * * * *"),
 		},
 		{
-			DAG:           &ir.DAG{Name: "test-dag"},
+			DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "test-dag"}},
 			ScheduledTime: stopTime,
 			ScheduleType:  ScheduleTypeStop,
 		},
 		{
-			DAG:           &ir.DAG{Name: "test-dag"},
+			DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "test-dag"}},
 			ScheduledTime: restartTime,
 			ScheduleType:  ScheduleTypeRestart,
 		},
@@ -996,7 +1003,7 @@ func TestTickPlanner_PlanStopRestartWithNonUTCTimezone(t *testing.T) {
 		Name:         "tz-stop-dag",
 		StopSchedule: []ir.Schedule{mustParseSchedule(t, "0 15 * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	// Tick at 20:00 UTC = 15:00 EST — should match the stop schedule
 	now := time.Date(2026, 2, 7, 20, 0, 0, 0, time.UTC)
@@ -1036,7 +1043,7 @@ func TestTickPlanner_IsRunningErrorAssumesNotRunning(t *testing.T) {
 	})
 
 	dag := newHourlyCatchupDAG(t, "err-running-dag")
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1079,7 +1086,7 @@ func TestTickPlanner_IsQueuedErrorDefersCatchupWithoutDroppingState(t *testing.T
 
 	dag := newHourlyCatchupDAG(t, "queue-error-dag")
 	dag.OverlapPolicy = ir.OverlapPolicySkip
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	initialBuf, ok := tp.buffers["queue-error-dag"]
 	require.True(t, ok)
@@ -1140,7 +1147,7 @@ func TestTickPlanner_GetLatestStatusErrorSkipsStop(t *testing.T) {
 		Name:         "status-err-dag",
 		StopSchedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1175,7 +1182,7 @@ func TestTickPlanner_GenRunIDErrorSkipsStartRun(t *testing.T) {
 		Name:     "genid-err-dag",
 		Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1197,7 +1204,7 @@ func TestTickPlanner_DispatchRunStopError(t *testing.T) {
 
 	// Should not panic; error is logged internally
 	tp.DispatchRun(context.Background(), PlannedRun{
-		DAG:           &ir.DAG{Name: "stop-err-dag"},
+		DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "stop-err-dag"}},
 		ScheduledTime: time.Now(),
 		ScheduleType:  ScheduleTypeStop,
 	})
@@ -1208,7 +1215,7 @@ func TestTickPlanner_DispatchRunRestartError(t *testing.T) {
 
 	eventCh := make(chan DAGChangeEvent, 256)
 	tp := NewTickPlanner(TickPlannerConfig{
-		Restart: func(_ context.Context, _ *ir.DAG, _ time.Time) error {
+		Restart: func(_ context.Context, _ DAGEntry, _ time.Time) error {
 			return errors.New("restart failed")
 		},
 		Events: eventCh,
@@ -1217,7 +1224,7 @@ func TestTickPlanner_DispatchRunRestartError(t *testing.T) {
 
 	// Should not panic; error is logged internally
 	tp.DispatchRun(context.Background(), PlannedRun{
-		DAG:           &ir.DAG{Name: "restart-err-dag"},
+		DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "restart-err-dag"}},
 		ScheduledTime: time.Now(),
 		ScheduleType:  ScheduleTypeRestart,
 	})
@@ -1261,7 +1268,7 @@ func TestTickPlanner_StopRestartRunsHaveEmptyRunID(t *testing.T) {
 		Events:   eventCh,
 	})
 
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{startDAG, stopRestartDAG}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(startDAG, stopRestartDAG)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1326,7 +1333,7 @@ func TestTickPlanner_CatchupBlocksStopRestartSchedules(t *testing.T) {
 		StopSchedule:    []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 		RestartSchedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1380,9 +1387,8 @@ func TestTickPlanner_ConcurrentPlanAndEvents(t *testing.T) {
 	wg.Go(func() {
 		for i := range 50 {
 			eventCh <- DAGChangeEvent{
-				Type:    DAGChangeAdded,
-				DAG:     dags[i],
-				DAGName: fmt.Sprintf("dag-%d", i),
+				Type:     DAGChangeAdded,
+				DAGEntry: DAGEntry{DAG: dags[i]},
 			}
 		}
 	})
@@ -1434,7 +1440,7 @@ func TestTickPlanner_ShouldRunSkipIfSuccessful(t *testing.T) {
 		SkipIfSuccessful: true,
 		Schedule:         []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1466,7 +1472,7 @@ func TestTickPlanner_ShouldRunSkipIfSuccessfulIgnoresStaleEditedScheduleSlot(t *
 		SkipIfSuccessful: true,
 		Schedule:         []ir.Schedule{mustParseSchedule(t, "43 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 43, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1497,7 +1503,7 @@ func TestTickPlanner_ShouldRunSkipIfSuccessfulFallsBackToManualRunStartTime(t *t
 		SkipIfSuccessful: true,
 		Schedule:         []ir.Schedule{mustParseSchedule(t, "43 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 43, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1538,7 +1544,7 @@ func TestTickPlanner_ProfileScopedStartSchedules(t *testing.T) {
 			mustParseProfileSchedule(t, "0 * * * *", "dev"),
 		},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
 	require.Len(t, runs, 1)
@@ -1566,7 +1572,7 @@ func TestTickPlanner_ProfileScopedStartSchedulesWithoutDefaultProfile(t *testing
 			mustParseSchedule(t, "0 * * * *"),
 		},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
 	require.Len(t, runs, 1)
@@ -1591,7 +1597,7 @@ func TestTickPlanner_ProfileScopedSchedulesResolveErrorFailsClosed(t *testing.T)
 		Location: "/tmp/profile-resolve-error-dag.yaml",
 		Schedule: []ir.Schedule{mustParseProfileSchedule(t, "0 * * * *", "prod")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
 	assert.Empty(t, runs)
@@ -1622,7 +1628,7 @@ func TestTickPlanner_ProfileScopedStopRestartSchedules(t *testing.T) {
 			mustParseProfileSchedule(t, "0 * * * *", "dev"),
 		},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
 	require.Len(t, runs, 2)
@@ -1668,7 +1674,7 @@ func TestTickPlanner_ProfileScopedCatchupSchedules(t *testing.T) {
 			mustParseProfileSchedule(t, "30 * * * *", "dev"),
 		},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	buf, ok := tp.buffers[dag.Name]
 	require.True(t, ok)
@@ -1708,7 +1714,7 @@ func TestTickPlanner_ProfileChangeDropsInactiveCatchupSchedules(t *testing.T) {
 			mustParseProfileSchedule(t, "30 * * * *", "dev"),
 		},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	buf, ok := tp.buffers[dag.Name]
 	require.True(t, ok)
@@ -1750,7 +1756,7 @@ func TestTickPlanner_ShouldRunAlreadyFinished(t *testing.T) {
 		Name:     "already-finished-dag",
 		Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1781,7 +1787,7 @@ func TestTickPlanner_ShouldRunFailedPreviousRunNotSkipped(t *testing.T) {
 		SkipIfSuccessful: true,
 		Schedule:         []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -1796,7 +1802,7 @@ func TestTickPlanner_DispatchRunStart(t *testing.T) {
 		gotScheduleTime time.Time
 	)
 	tp := NewTickPlanner(TickPlannerConfig{
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, scheduleTime time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, scheduleTime time.Time) error {
 			dispatched = true
 			gotScheduleTime = scheduleTime
 			return nil
@@ -1807,7 +1813,7 @@ func TestTickPlanner_DispatchRunStart(t *testing.T) {
 
 	scheduledTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	tp.DispatchRun(context.Background(), PlannedRun{
-		DAG:           &ir.DAG{Name: "start-dag"},
+		DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "start-dag"}},
 		RunID:         "run-1",
 		ScheduledTime: scheduledTime,
 		ScheduleType:  ScheduleTypeStart,
@@ -1823,7 +1829,7 @@ func TestTickPlanner_DispatchRunSuspendedStartSkipped(t *testing.T) {
 	dispatched := false
 	tp := NewTickPlanner(TickPlannerConfig{
 		IsSuspended: func(_ context.Context, _ string) (bool, error) { return true, nil },
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			dispatched = true
 			return nil
 		},
@@ -1832,7 +1838,7 @@ func TestTickPlanner_DispatchRunSuspendedStartSkipped(t *testing.T) {
 	require.NoError(t, tp.Init(context.Background(), nil))
 
 	tp.DispatchRun(context.Background(), PlannedRun{
-		DAG:           &ir.DAG{Name: "start-dag"},
+		DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "start-dag"}},
 		RunID:         "run-1",
 		ScheduledTime: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
 		ScheduleType:  ScheduleTypeStart,
@@ -1852,7 +1858,7 @@ func TestTickPlanner_DispatchRunSuspensionReadErrorSkipped(t *testing.T) {
 			checkedName = name
 			return false, errors.New("read suspend flag")
 		},
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			dispatched = true
 			return nil
 		},
@@ -1861,7 +1867,7 @@ func TestTickPlanner_DispatchRunSuspensionReadErrorSkipped(t *testing.T) {
 	require.NoError(t, tp.Init(context.Background(), nil))
 
 	tp.DispatchRun(context.Background(), PlannedRun{
-		DAG:           &ir.DAG{Name: "start-dag"},
+		DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "start-dag"}},
 		RunID:         "run-1",
 		ScheduledTime: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
 		ScheduleType:  ScheduleTypeStart,
@@ -1882,7 +1888,7 @@ func TestTickPlanner_DispatchRunCatchupSuspensionReadErrorRequeues(t *testing.T)
 		IsSuspended: func(_ context.Context, _ string) (bool, error) {
 			return false, errors.New("read suspend flag")
 		},
-		Enqueue: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Enqueue: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			t.Fatal("catch-up run must not enqueue when suspension state is unavailable")
 			return nil
 		},
@@ -1891,7 +1897,7 @@ func TestTickPlanner_DispatchRunCatchupSuspensionReadErrorRequeues(t *testing.T)
 	require.NoError(t, tp.Init(context.Background(), nil))
 
 	tp.DispatchRun(context.Background(), PlannedRun{
-		DAG:           dag,
+		DAGEntry:      DAGEntry{DAG: dag},
 		RunID:         "run-1",
 		ScheduledTime: scheduledTime,
 		ScheduleType:  ScheduleTypeStart,
@@ -1915,7 +1921,7 @@ func TestTickPlanner_DispatchRunSuspendedCatchupAdvancesWatermark(t *testing.T) 
 		WatermarkStore: store,
 		QueuesEnabled:  true,
 		IsSuspended:    func(_ context.Context, _ string) (bool, error) { return true, nil },
-		Enqueue: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Enqueue: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			enqueued = true
 			return nil
 		},
@@ -1926,7 +1932,7 @@ func TestTickPlanner_DispatchRunSuspendedCatchupAdvancesWatermark(t *testing.T) 
 	scheduledTime := time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC)
 	dag := newHourlyCatchupDAG(t, "suspended-catchup-dag")
 	tp.DispatchRun(context.Background(), PlannedRun{
-		DAG:           dag,
+		DAGEntry:      DAGEntry{DAG: dag},
 		RunID:         "run-1",
 		ScheduledTime: scheduledTime,
 		ScheduleType:  ScheduleTypeStart,
@@ -1953,7 +1959,7 @@ func TestTickPlanner_DispatchRunLegacyCatchupAttemptAdvancesWatermark(t *testing
 	tp := NewTickPlanner(TickPlannerConfig{
 		WatermarkStore: store,
 		QueuesEnabled:  true,
-		Enqueue: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Enqueue: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			t.Fatal("enqueue should not be called when the legacy run already exists")
 			return nil
 		},
@@ -1965,7 +1971,7 @@ func TestTickPlanner_DispatchRunLegacyCatchupAttemptAdvancesWatermark(t *testing
 	})
 	require.NoError(t, tp.Init(context.Background(), nil))
 
-	run, ok := tp.createPlannedRun(context.Background(), dag, ir.Schedule{}, scheduledTime, ir.TriggerTypeCatchUp)
+	run, ok := tp.createPlannedRun(context.Background(), DAGEntry{DAG: dag}, ir.Schedule{}, scheduledTime, ir.TriggerTypeCatchUp)
 	require.True(t, ok)
 	tp.DispatchRun(context.Background(), run)
 
@@ -1982,7 +1988,7 @@ func TestTickPlanner_DispatchRunRestartForwardsScheduledTime(t *testing.T) {
 
 	var gotScheduleTime time.Time
 	tp := NewTickPlanner(TickPlannerConfig{
-		Restart: func(_ context.Context, _ *ir.DAG, scheduleTime time.Time) error {
+		Restart: func(_ context.Context, _ DAGEntry, scheduleTime time.Time) error {
 			gotScheduleTime = scheduleTime
 			return nil
 		},
@@ -1992,7 +1998,7 @@ func TestTickPlanner_DispatchRunRestartForwardsScheduledTime(t *testing.T) {
 
 	scheduledTime := time.Date(2026, 2, 7, 13, 0, 0, 0, time.UTC)
 	tp.DispatchRun(context.Background(), PlannedRun{
-		DAG:           &ir.DAG{Name: "restart-dag"},
+		DAGEntry:      DAGEntry{DAG: &ir.DAG{Name: "restart-dag"}},
 		ScheduledTime: scheduledTime,
 		ScheduleType:  ScheduleTypeRestart,
 	})
@@ -2041,7 +2047,7 @@ func TestTickPlanner_InitBuffersLatestCollapse(t *testing.T) {
 		Schedule:      []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 		OverlapPolicy: ir.OverlapPolicyLatest,
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	buf, ok := tp.buffers["latest-init-dag"]
 	require.True(t, ok, "buffer should exist")
@@ -2078,7 +2084,7 @@ func TestTickPlanner_PlanLatestNotRunning(t *testing.T) {
 		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{}, nil
 		},
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
 		},
 		GenRunID: func(_ context.Context) (string, error) {
@@ -2099,7 +2105,7 @@ func TestTickPlanner_PlanLatestNotRunning(t *testing.T) {
 		Schedule:      []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 		OverlapPolicy: ir.OverlapPolicyLatest,
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)
@@ -2132,7 +2138,7 @@ func TestTickPlanner_PlanLatestRunning(t *testing.T) {
 		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{}, nil
 		},
-		Dispatch: func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			return nil
 		},
 		GenRunID: func(_ context.Context) (string, error) {
@@ -2153,7 +2159,7 @@ func TestTickPlanner_PlanLatestRunning(t *testing.T) {
 		Schedule:      []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
 		OverlapPolicy: ir.OverlapPolicyLatest,
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	runs := tp.Plan(context.Background(), now)

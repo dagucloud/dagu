@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -249,7 +248,7 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 	current.Nodes[1].HumanTaskInput = json.RawMessage(`{"confirmed":true}`)
 
 	repository := &manualCASStore{status: current}
-	a := &API{dagRunRepository: dagrun.NewRepository(repository, dagrun.RepositoryOptions{})}
+	a := &API{dagRunRepository: dagrun.NewRepository(repository, nil, dagrun.RepositoryOptions{})}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.NoError(t, a.rollbackPushBack(ctx, current.DAGRun(), applied, original))
@@ -409,7 +408,7 @@ func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
 
 func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T) {
 	ctx := t.Context()
-	persistedRepository := filedagrun.NewRepository(t.TempDir(), dagrun.RepositoryOptions{LatestStatusToday: true})
+	persistedRepository := testutil.NewFileDAGRunRepository(t.TempDir(), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := &ir.DAG{
 		Name: "approval-write-failure",
 		Steps: []ir.Step{{
@@ -431,7 +430,7 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 
 	writeErr := errors.New("status repository unavailable")
 	failingStore := &failingManualCASStore{base: persistedRepository, err: writeErr}
-	repository := dagrun.NewRepository(failingStore, dagrun.RepositoryOptions{})
+	repository := dagrun.NewRepository(failingStore, nil, dagrun.RepositoryOptions{})
 	cfg := &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
 		config.PermissionRunDAGs: true,
 	}}}
@@ -767,7 +766,7 @@ func (b *queryCapturingDAGRunBackend) QueryStatuses(
 func statusQueryFromOptions(t *testing.T, opts []dagrun.ListStatusesOption) dagrun.StatusQuery {
 	t.Helper()
 	backend := &queryCapturingDAGRunBackend{}
-	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{})
+	repository := dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{})
 	_, err := repository.ListStatuses(context.Background(), opts...)
 	require.NoError(t, err)
 	return backend.query
@@ -782,7 +781,7 @@ func TestAPIListDAGRunsReturnsGatewayTimeoutWhenReadDeadlineExpires(t *testing.T
 	t.Parallel()
 
 	api := &API{
-		dagRunRepository: dagrun.NewRepository(blockingDAGRunBackend{}, dagrun.RepositoryOptions{}),
+		dagRunRepository: dagrun.NewRepository(blockingDAGRunBackend{}, nil, dagrun.RepositoryOptions{}),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
@@ -881,7 +880,7 @@ func TestGetDAGRunDetailsReturnsClientClosedRequestWhenReadCanceled(t *testing.T
 	t.Parallel()
 
 	api := &API{
-		dagRunRepository: dagrun.NewRepository(blockingLatestAttemptStore{}, dagrun.RepositoryOptions{}),
+		dagRunRepository: dagrun.NewRepository(blockingLatestAttemptStore{}, nil, dagrun.RepositoryOptions{}),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

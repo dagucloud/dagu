@@ -120,6 +120,13 @@ func WithProfileName(profileName string) TaskOption {
 	}
 }
 
+// WithDefinitionID sets the stable DAG definition identity on a dispatched task.
+func WithDefinitionID(id string) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.DefinitionID = id
+	}
+}
+
 // WithTriggerActor sets the attributable trigger actor for a dispatched task.
 func WithTriggerActor(actor string) TaskOption {
 	return func(task *dispatch.DispatchTask) {

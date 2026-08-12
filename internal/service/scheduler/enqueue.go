@@ -37,6 +37,7 @@ func EnqueueCatchupRun(
 	baseArtifactDir string,
 	baseConfig string,
 	workspaceBaseConfigDir string,
+	definitionID string,
 	dag *ir.DAG,
 	runID string,
 	triggerType ir.TriggerType,
@@ -77,6 +78,7 @@ func EnqueueCatchupRun(
 		TriggerType:      triggerType,
 		ScheduleTime:     stringutil.FormatTime(scheduleTime),
 		ProfileName:      profileName,
+		DefinitionID:     definitionID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)

@@ -69,4 +69,7 @@ const (
 	// EnvKeyQueueDispatchRetry marks an internal retry invocation that is consuming
 	// an already-queued run from the scheduler/worker queue dispatch path.
 	EnvKeyQueueDispatchRetry = "DAGU_QUEUE_DISPATCH_RETRY"
+
+	// EnvKeyDAGDefinitionID carries the stable persistence identity into subprocesses.
+	EnvKeyDAGDefinitionID = "DAGU_DAG_DEFINITION_ID"
 )

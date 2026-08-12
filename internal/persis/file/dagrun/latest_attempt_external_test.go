@@ -20,7 +20,7 @@ import (
 func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "latest-pointer"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
@@ -72,7 +72,7 @@ func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
 func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 	ctx := context.Background()
 	baseDir := b.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "latest-pointer-bench"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 

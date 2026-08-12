@@ -71,6 +71,7 @@ type Context struct {
 	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 
 	DAGRepository  *persis.DAGRepository
+	Caches         []fileutil.CacheMetrics
 	Proc           proc.ProcHandle
 	LicenseManager *license.Manager
 	ContextStore   *cliContextStore
@@ -101,6 +102,7 @@ func (c *Context) WithContext(ctx context.Context) *Context {
 		DAGRunLeaseStore:          c.DAGRunLeaseStore,
 		ActiveDistributedRunStore: c.ActiveDistributedRunStore,
 		DAGRepository:             c.DAGRepository,
+		Caches:                    c.Caches,
 		Proc:                      c.Proc,
 		LicenseManager:            c.LicenseManager,
 		ContextStore:              c.ContextStore,
@@ -316,14 +318,19 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 
 	// Initialize history repository and history manager
 	hrOpts := []file.DAGRunRepositoryOption{}
+	var dagCache *fileutil.Cache[*ir.DAG]
+	var caches []fileutil.CacheMetrics
 
 	switch cmd.Name() {
 	case "server", "scheduler", "start-all", "coordinator":
-		// For long-running process, we setup file cache for better performance
+		// Long-running processes share caches across their service roles.
 		limits := cfg.Cache.Limits()
 		hc := fileutil.NewCache[*ir.DAGRunStatus]("dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 		hc.StartEviction(ctx)
 		hrOpts = append(hrOpts, file.WithDAGRunHistoryFileCache(hc))
+		dagCache = fileutil.NewCache[*ir.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
+		dagCache.StartEviction(ctx)
+		caches = append(caches, dagCache, hc)
 	}
 
 	ps := file.NewProcStore(cfg)
@@ -348,7 +355,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		store.WithDispatchAdmissionLiveness(dagRunLeaseStore, activeDistributedRunStore),
 	)
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
-	dagRepository, err := cmdprocess.NewDAGRepository(cfg, cmdprocess.DAGRepositoryConfig{})
+	dagRepository, err := cmdprocess.NewDAGRepository(cfg, cmdprocess.DAGRepositoryConfig{Cache: dagCache})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DAG store: %w", err)
 	}
@@ -419,6 +426,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
 		DAGRepository:             dagRepository,
+		Caches:                    caches,
 		LicenseManager:            licMgr,
 		ContextStore:              contextStore,
 		CLIContext:                selectedContext,
@@ -548,7 +556,9 @@ func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption)
 	return cmdprocess.NewServer(cmdprocess.ServerConfig{
 		Context:              c.Context,
 		Config:               c.Config,
+		DAGRepository:        c.DAGRepository,
 		DAGRunRepository:     c.DAGRunRepository,
+		Caches:               c.Caches,
 		QueueStore:           c.QueueStore,
 		ProcStore:            c.ProcStore,
 		DAGRunManager:        c.DAGRunMgr,
@@ -590,6 +600,8 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 	return cmdprocess.NewScheduler(cmdprocess.SchedulerConfig{
 		Context:           c.Context,
 		Config:            c.Config,
+		DAGRepository:     c.DAGRepository,
+		DAGRunRepository:  c.DAGRunRepository,
 		QueueStore:        c.QueueStore,
 		ProcStore:         c.ProcStore,
 		ServiceRegistry:   c.ServiceRegistry,

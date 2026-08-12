@@ -109,7 +109,11 @@ steps:
 			assertSameWorkingDir(t, childDir, subDir,
 				"SubDAG with explicit workingDir should run in childDir")
 		case "call_child_no_wd":
-			subWorkDir := subAttempt.WorkDir()
+			subWorkDir, err := th.DAGRunRepository.MaterializeWorkspace(th.Context, dagrun.WorkspaceRef{
+				RootDAGRun: ref,
+				DAGRun:     ir.NewDAGRunRef(node.SubRuns[0].DAGName, node.SubRuns[0].DAGRunID),
+			})
+			require.NoError(t, err)
 			assertSameWorkingDir(t, subWorkDir, subDir,
 				"SubDAG without workingDir should run in its own DAG-run work directory")
 		}

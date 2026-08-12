@@ -94,6 +94,24 @@ func TestSubCmdBuilderFilteredCommandsUseBaseEnv(t *testing.T) {
 	assert.NotContains(t, dequeueSpec.Env, "SUBCMD_PARENT_ENV=from-parent")
 }
 
+func TestSubCmdBuilderPropagatesDefinitionID(t *testing.T) {
+	t.Setenv(runenv.EnvKeyDAGDefinitionID, "inherited")
+
+	builder := launcher.NewSubCmdBuilder(&config.Config{
+		Paths: config.PathsConfig{Executable: "/path/to/dagu"},
+	})
+	dag := &ir.DAG{Location: "/tmp/test.yaml"}
+	want := runenv.EnvKeyDAGDefinitionID + "=definition-1"
+
+	start := builder.Start(dag, launcher.StartOptions{DefinitionID: "definition-1"})
+	enqueue := builder.Enqueue(dag, launcher.EnqueueOptions{DefinitionID: "definition-1"})
+	restart := builder.Restart(dag, launcher.RestartOptions{DefinitionID: "definition-1"})
+	for _, spec := range []launcher.CmdSpec{start, enqueue, restart} {
+		assert.Contains(t, spec.Env, want)
+		assert.NotContains(t, spec.Env, runenv.EnvKeyDAGDefinitionID+"=inherited")
+	}
+}
+
 func TestRunRetryWithBuiltExecutable(t *testing.T) {
 	th := test.Setup(t, test.WithBuiltExecutable())
 

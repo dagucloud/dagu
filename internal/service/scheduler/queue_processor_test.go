@@ -21,11 +21,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -79,7 +79,7 @@ func newQueueFixture(t *testing.T) *queueFixture {
 	return &queueFixture{
 		t: t, ctx: ctx, logBuffer: logBuffer,
 		distributedDir:   distributedDir,
-		dagRunRepository: filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true}),
+		dagRunRepository: testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true}),
 		leaseStore:       store.NewDAGRunLeaseStore(leaseCollection),
 		dispatchStore:    store.NewDispatchTaskStore(file.NewCollection(distributedDir)),
 		queueStore:       store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue"))),

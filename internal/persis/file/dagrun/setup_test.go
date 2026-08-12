@@ -30,7 +30,7 @@ func setupTestRepository(t *testing.T) RepositoryTest {
 	backend := NewStore(tmpDir, WithArtifactDir(filepath.Join(tmpDir, "artifacts")))
 	th := RepositoryTest{
 		Context: context.Background(),
-		Repository: dagrun.NewRepository(backend, dagrun.RepositoryOptions{
+		Repository: dagrun.NewRepository(backend, NewWorkspaceStore(tmpDir), dagrun.RepositoryOptions{
 			LatestStatusToday: true,
 			Location:          time.Local,
 		}),

@@ -46,7 +46,7 @@ steps:
 
 		err := dagExecutor.HandleJob(
 			context.Background(),
-			dag,
+			scheduler.DAGEntry{DefinitionID: testDAG.Location, DAG: dag},
 			dispatch.DispatchOperationStart,
 			"handle-job-test-123",
 			ir.TriggerTypeScheduler,
@@ -109,7 +109,7 @@ steps:
 
 		err = localExecutor.HandleJob(
 			context.Background(),
-			dag,
+			scheduler.DAGEntry{DefinitionID: testDAG.Location, DAG: dag},
 			dispatch.DispatchOperationStart,
 			"handle-job-local-789",
 			ir.TriggerTypeScheduler,
@@ -123,7 +123,7 @@ steps:
 
 		err := dagExecutor.HandleJob(
 			context.Background(),
-			dag,
+			scheduler.DAGEntry{DefinitionID: testDAG.Location, DAG: dag},
 			dispatch.DispatchOperationRetry,
 			"handle-job-retry-999",
 			ir.TriggerTypeScheduler,

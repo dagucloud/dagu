@@ -71,11 +71,6 @@ func NewStore(baseDir string, opts ...StoreOption) *Store {
 	}
 }
 
-// NewRepository creates an application repository backed by local files.
-func NewRepository(baseDir string, repositoryOptions dagrun.RepositoryOptions, opts ...StoreOption) *dagrun.Repository {
-	return dagrun.NewRepository(NewStore(baseDir, opts...), repositoryOptions)
-}
-
 // resolveStatus resolves and filters a DAGRunStatus for a single dagRun.
 // Uses the index summary for fast filtering when available, falling back to
 // reading status.jsonl directly.
@@ -434,12 +429,22 @@ func (store *Store) FindSubAttempt(ctx context.Context, ref ir.DAGRunRef, subDAG
 }
 
 // RemoveOldDAGRuns removes final runs outside a normalized retention policy.
-func (store *Store) RemoveOldDAGRuns(ctx context.Context, req dagrun.RetentionRequest) ([]string, error) {
+func (store *Store) RemoveOldDAGRuns(ctx context.Context, req dagrun.RetentionRequest) ([]ir.DAGRunRef, error) {
 	root := NewDataRootWithArtifactDir(store.baseDir, req.Name, store.artifactDir)
+	var (
+		ids []string
+		err error
+	)
 	if req.KeepRuns > 0 {
-		return root.RemoveOldByRuns(ctx, req.KeepRuns, req.DryRun)
+		ids, err = root.RemoveOldByRuns(ctx, req.KeepRuns, req.DryRun)
+	} else {
+		ids, err = root.removeOldBefore(ctx, req.OlderThan, req.DryRun)
 	}
-	return root.removeOldBefore(ctx, req.OlderThan, req.DryRun)
+	refs := make([]ir.DAGRunRef, 0, len(ids))
+	for _, id := range ids {
+		refs = append(refs, ir.NewDAGRunRef(req.Name, id))
+	}
+	return refs, err
 }
 
 // RemoveDAGRun removes a DAG run and all of its attempts.

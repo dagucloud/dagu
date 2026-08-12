@@ -217,6 +217,7 @@ func (f *fixture) enqueueCatchup(scheduleTime time.Time) string {
 		f.th.Config.Paths.ArtifactDir,
 		f.th.Config.Paths.BaseConfig,
 		"",
+		f.dag.FileName(),
 		f.dag,
 		runID,
 		ir.TriggerTypeCatchUp,

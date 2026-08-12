@@ -15,7 +15,7 @@ const DefaultMaxBufferItems = 1000
 
 // QueueItem represents a scheduled or catch-up run to be dispatched.
 type QueueItem struct {
-	DAG           *ir.DAG
+	DAGEntry
 	ScheduledTime time.Time
 	TriggerType   ir.TriggerType
 	ScheduleType  ScheduleType

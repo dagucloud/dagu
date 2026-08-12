@@ -246,17 +246,18 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		tag.Error(loadErr),
 	)
 	status := ir.DAGRunStatus{
-		Root:         run.root,
-		Parent:       run.parent,
-		Name:         task.Target,
-		DAGRunID:     task.DagRunId,
-		AttemptID:    task.AttemptId,
-		Status:       ir.Failed,
-		FinishedAt:   finishedAt,
-		Error:        sanitizeTaskLoadError(task.Target, loadErr),
-		Params:       task.Params,
-		ProfileName:  run.profileName,
-		TriggerActor: task.TriggerActor,
+		Root:            run.root,
+		Parent:          run.parent,
+		Name:            task.Target,
+		DAGRunID:        task.DagRunId,
+		AttemptID:       task.AttemptId,
+		Status:          ir.Failed,
+		FinishedAt:      finishedAt,
+		Error:           sanitizeTaskLoadError(task.Target, loadErr),
+		Params:          task.Params,
+		ProfileName:     run.profileName,
+		SuspendFlagName: task.DefinitionId,
+		TriggerActor:    task.TriggerActor,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {
@@ -300,17 +301,18 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		tag.Error(initErr),
 	)
 	status := ir.DAGRunStatus{
-		Root:         run.root,
-		Parent:       run.parent,
-		Name:         target,
-		DAGRunID:     task.DagRunId,
-		AttemptID:    task.AttemptId,
-		Status:       ir.Failed,
-		FinishedAt:   finishedAt,
-		Error:        initErr.Error(),
-		Params:       params,
-		ProfileName:  run.profileName,
-		TriggerActor: task.TriggerActor,
+		Root:            run.root,
+		Parent:          run.parent,
+		Name:            target,
+		DAGRunID:        task.DagRunId,
+		AttemptID:       task.AttemptId,
+		Status:          ir.Failed,
+		FinishedAt:      finishedAt,
+		Error:           initErr.Error(),
+		Params:          params,
+		ProfileName:     run.profileName,
+		SuspendFlagName: task.DefinitionId,
+		TriggerActor:    task.TriggerActor,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {
@@ -711,6 +713,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		SecretReferenceResolver:  h.secretReferenceResolver(dag, run.owner, coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID}),
 		ProfileStore:             runtimeStores.ProfileStore,
 		ProfileName:              run.profileName,
+		DAGDefinitionID:          task.DefinitionId,
 		TriggerActor:             task.TriggerActor,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,

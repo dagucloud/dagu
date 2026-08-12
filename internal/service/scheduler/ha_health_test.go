@@ -13,14 +13,13 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -99,7 +98,7 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 		DefaultExecMode: config.ExecutionModeLocal,
 	}
 
-	dagRunRepository := filedagrun.NewRepository(
+	dagRunRepository := testutil.NewFileDAGRunRepository(
 		cfg.Paths.DAGRunsDir,
 		dagrun.RepositoryOptions{LatestStatusToday: true},
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
@@ -263,10 +262,10 @@ func (*staticEntryReader) Start(context.Context) {}
 
 func (*staticEntryReader) Stop() {}
 
-func (*staticEntryReader) DAGs() []*ir.DAG {
+func (*staticEntryReader) Entries() []DAGEntry {
 	return nil
 }
 
-func (*staticEntryReader) DAGRepository() *persis.DAGRepository {
+func (*staticEntryReader) Events() <-chan DAGChangeEvent {
 	return nil
 }

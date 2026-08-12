@@ -140,7 +140,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			mockDRS := new(mockDAGRunBackend)
-			client := newDBClient(dagrun.NewRepository(mockDRS, dagrun.RepositoryOptions{}), tt.dagLoader, tt.remoteLoader)
+			client := newDBClient(dagrun.NewRepository(mockDRS, nil, dagrun.RepositoryOptions{}), tt.dagLoader, tt.remoteLoader)
 
 			dag, err := client.GetDAG(ctx, "test-dag")
 

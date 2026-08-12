@@ -28,7 +28,7 @@ type Store interface {
 	// FindSubAttempt returns the latest visible attempt for a child DAG run.
 	FindSubAttempt(ctx context.Context, root ir.DAGRunRef, childRunID string) (Attempt, error)
 	// RemoveOldDAGRuns removes final runs outside the normalized retention request and preserves active runs.
-	RemoveOldDAGRuns(ctx context.Context, req RetentionRequest) ([]string, error)
+	RemoveOldDAGRuns(ctx context.Context, req RetentionRequest) ([]ir.DAGRunRef, error)
 	// RemoveDAGRun removes a DAG run according to the request's safety policy.
 	RemoveDAGRun(ctx context.Context, req RemoveDAGRunRequest) error
 }

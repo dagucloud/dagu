@@ -34,6 +34,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 		TriggerType:      ir.TriggerTypeManual,
 		TriggerActor:     "alice",
 		ProfileName:      "prod",
+		DefinitionID:     "ops/daily",
 		Now:              fixedQueueNow,
 	})
 
@@ -48,6 +49,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	assert.Equal(t, ir.TriggerTypeManual, f.attempt.status.TriggerType)
 	assert.Equal(t, "alice", f.attempt.status.TriggerActor)
 	assert.Equal(t, "prod", f.attempt.status.ProfileName)
+	assert.Equal(t, "ops/daily", f.attempt.status.SuspendFlagName)
 	assert.Equal(t, f.attempt.status.Log, queued.LogFile)
 	assert.Equal(t, f.attempt.status.ArchiveDir, queued.ArtifactDir)
 }
@@ -136,7 +138,7 @@ func newQueueFixture(t *testing.T) queueFixture {
 		dag:              dag,
 		attempt:          attempt,
 		runStore:         runStore,
-		dagRunRepository: dagrun.NewRepository(runStore, dagrun.RepositoryOptions{}),
+		dagRunRepository: dagrun.NewRepository(runStore, nil, dagrun.RepositoryOptions{}),
 		queueStore:       &queueStore{attempt: attempt},
 	}
 }
@@ -218,7 +220,6 @@ func (a *queueAttempt) WriteStepMessages(context.Context, string, []ir.LLMMessag
 func (a *queueAttempt) ReadStepMessages(context.Context, string) ([]ir.LLMMessage, error) {
 	return nil, nil
 }
-func (a *queueAttempt) WorkDir() string { return "" }
 
 type queueStore struct {
 	attempt  *queueAttempt

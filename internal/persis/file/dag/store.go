@@ -25,7 +25,7 @@ import (
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 )
 
-var _ persis.DAGDefinitionStore = (*DefinitionStore)(nil)
+var _ persis.DAGDefinitionStore = (*Store)(nil)
 
 // Option configures filesystem DAG definition storage.
 type Option func(*Options)
@@ -106,8 +106,8 @@ func WithSkipDirectoryCreation(skip bool) Option {
 	}
 }
 
-// NewDefinitionStore creates a filesystem-backed DAG definition store.
-func NewDefinitionStore(baseDir string, opts ...Option) *DefinitionStore {
+// NewStore creates a filesystem-backed DAG definition store.
+func NewStore(baseDir string, opts ...Option) *Store {
 	options := &Options{}
 	for _, opt := range opts {
 		opt(options)
@@ -126,7 +126,7 @@ func NewDefinitionStore(baseDir string, opts ...Option) *DefinitionStore {
 		searchPaths = append(searchPaths, p)
 	}
 
-	return &DefinitionStore{
+	return &Store{
 		baseDir:                baseDir,
 		flagsBaseDir:           options.FlagsBaseDir,
 		fileCache:              options.FileCache,
@@ -141,17 +141,8 @@ func NewDefinitionStore(baseDir string, opts ...Option) *DefinitionStore {
 	}
 }
 
-// NewRepository creates a shared repository backed by local DAG files.
-func NewRepository(baseDir string, opts ...Option) *persis.DAGRepository {
-	definitions := NewDefinitionStore(baseDir, opts...)
-	return persis.NewDAGRepository(definitions, persis.DAGRepositoryOptions{
-		BaseConfigPath:         definitions.baseConfigPath,
-		WorkspaceBaseConfigDir: definitions.workspaceBaseConfigDir,
-	})
-}
-
-// DefinitionStore exposes filesystem persistence without repository queries.
-type DefinitionStore struct {
+// Store persists DAG definitions in local files.
+type Store struct {
 	baseDir                string                   // Base directory for DAG storage
 	flagsBaseDir           string                   // Base directory for flag store
 	fileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
@@ -167,7 +158,7 @@ type DefinitionStore struct {
 	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
 }
 
-func (store *DefinitionStore) Get(ctx context.Context, id string) (persis.DAGDefinition, error) {
+func (store *Store) Get(ctx context.Context, id string) (persis.DAGDefinition, error) {
 	resolved, err := store.locateDAG(ctx, id)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -185,7 +176,7 @@ func (store *DefinitionStore) Get(ctx context.Context, id string) (persis.DAGDef
 	return persis.DAGDefinition{ID: id, Source: source, SourcePath: resolved.ResolvedPath}, nil
 }
 
-func (store *DefinitionStore) Catalog(ctx context.Context) (persis.DAGCatalog, error) {
+func (store *Store) Catalog(ctx context.Context) (persis.DAGCatalog, error) {
 	catalog, err := store.loadCatalog(ctx)
 	if err != nil {
 		return persis.DAGCatalog{}, fmt.Errorf("failed to read DAGs directory %s: %w", store.baseDir, err)
@@ -199,12 +190,13 @@ func (store *DefinitionStore) Catalog(ctx context.Context) (persis.DAGCatalog, e
 			ID:        entryStem(entry),
 			DAG:       dagindex.DAGFromEntry(entry, store.baseDir),
 			Suspended: entry.Suspended,
+			Revision:  fmt.Sprintf("%d:%d:%t", entry.FileSize, entry.ModTime, entry.Suspended),
 		})
 	}
 	return result, nil
 }
 
-func (store *DefinitionStore) SetSuspended(_ context.Context, id string, suspended bool) error {
+func (store *Store) SetSuspended(_ context.Context, id string, suspended bool) error {
 	var err error
 	if suspended {
 		err = store.createFlag(fileName(id))
@@ -220,11 +212,11 @@ func (store *DefinitionStore) SetSuspended(_ context.Context, id string, suspend
 	return err
 }
 
-func (store *DefinitionStore) IsSuspended(_ context.Context, id string) (bool, error) {
+func (store *Store) IsSuspended(_ context.Context, id string) (bool, error) {
 	return store.flagExistsResult(fileName(id))
 }
 
-func (store *DefinitionStore) readSuspendFlags(ctx context.Context) (dagindex.SuspendFlags, error) {
+func (store *Store) readSuspendFlags(ctx context.Context) (dagindex.SuspendFlags, error) {
 	flags := make(dagindex.SuspendFlags)
 	flagEntries, err := os.ReadDir(store.flagsBaseDir)
 	if err != nil {
@@ -248,7 +240,7 @@ func (store *DefinitionStore) readSuspendFlags(ctx context.Context) (dagindex.Su
 	return flags, nil
 }
 
-func (store *DefinitionStore) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOption {
+func (store *Store) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOption {
 	loadOpts := make([]spec.LoadOption, 0, len(opts)+1)
 	if store.baseConfigPath != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(store.baseConfigPath))
@@ -260,7 +252,7 @@ func (store *DefinitionStore) defaultLoadOptions(opts ...spec.LoadOption) []spec
 	return loadOpts
 }
 
-func (store *DefinitionStore) refreshBaseConfigState() {
+func (store *Store) refreshBaseConfigState() {
 	if store.baseConfigPath == "" && store.workspaceBaseConfigDir == "" {
 		return
 	}
@@ -343,12 +335,12 @@ func describeWorkspaceBaseConfigState(dir string) string {
 }
 
 // Initialize ensures the storage is ready and creates example DAGs if needed
-func (store *DefinitionStore) Initialize() error {
+func (store *Store) Initialize() error {
 	return store.ensureDirExist()
 }
 
 // GetMetadata retrieves the metadata of a DAG by its name.
-func (store *DefinitionStore) GetMetadata(ctx context.Context, name string) (*ir.DAG, error) {
+func (store *Store) GetMetadata(ctx context.Context, name string) (*ir.DAG, error) {
 	resolved, err := store.locateDAG(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate DAG %s in search paths (%v): %w", name, store.searchPaths, err)
@@ -370,7 +362,7 @@ func (store *DefinitionStore) GetMetadata(ctx context.Context, name string) (*ir
 // FileMode used for newly created DAG files
 const defaultPerm os.FileMode = 0600
 
-func (store *DefinitionStore) Update(ctx context.Context, name string, yamlSpec []byte) error {
+func (store *Store) Update(ctx context.Context, name string, yamlSpec []byte) error {
 	resolved, err := store.locateDAG(ctx, name)
 	if err != nil {
 		return fmt.Errorf("failed to locate DAG %s: %w", name, err)
@@ -389,7 +381,7 @@ func (store *DefinitionStore) Update(ctx context.Context, name string, yamlSpec 
 }
 
 // Create creates a new DAG with the given name and specification.
-func (store *DefinitionStore) Create(_ context.Context, name string, spec []byte) error {
+func (store *Store) Create(_ context.Context, name string, spec []byte) error {
 	if err := store.ensureDirExist(); err != nil {
 		return fmt.Errorf("failed to create DAGs directory %s: %w", store.baseDir, err)
 	}
@@ -405,7 +397,7 @@ func (store *DefinitionStore) Create(_ context.Context, name string, spec []byte
 }
 
 // Delete deletes a DAG by its name.
-func (store *DefinitionStore) Delete(ctx context.Context, name string) error {
+func (store *Store) Delete(ctx context.Context, name string) error {
 	resolved, err := store.locateDAG(ctx, name)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -427,7 +419,7 @@ func (store *DefinitionStore) Delete(ctx context.Context, name string) error {
 }
 
 // ensureDirExist ensures that the base directory exists.
-func (store *DefinitionStore) ensureDirExist() error {
+func (store *Store) ensureDirExist() error {
 	if store.skipDirectoryCreation {
 		return nil
 	}
@@ -447,7 +439,7 @@ func (store *DefinitionStore) ensureDirExist() error {
 }
 
 // loadIndex returns validated index entries, rebuilding the index when needed.
-func (store *DefinitionStore) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*indexv1.DAGIndexEntry, error) {
+func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*indexv1.DAGIndexEntry, error) {
 	store.refreshBaseConfigState()
 
 	store.indexMu.Lock()
@@ -493,7 +485,7 @@ func (store *DefinitionStore) loadIndex(ctx context.Context, files []DiscoveredF
 }
 
 // invalidateIndex removes the index file so the next read triggers a rebuild.
-func (store *DefinitionStore) invalidateIndex() {
+func (store *Store) invalidateIndex() {
 	store.indexMu.Lock()
 	defer store.indexMu.Unlock()
 	_ = fileutil.Remove(filepath.Join(store.baseDir, dagindex.IndexFileName))
@@ -504,7 +496,7 @@ func fileName(id string) string {
 }
 
 // Rename renames a DAG from oldID to newID.
-func (store *DefinitionStore) Rename(ctx context.Context, oldID, newID string) error {
+func (store *Store) Rename(ctx context.Context, oldID, newID string) error {
 	resolved, err := store.locateDAG(ctx, oldID)
 	if err != nil {
 		return fmt.Errorf("failed to locate DAG %s: %w", oldID, err)
@@ -534,7 +526,7 @@ func (store *DefinitionStore) Rename(ctx context.Context, oldID, newID string) e
 // generateFilePath generates the file path for a DAG by its name.
 // It uses filepath.Base to strip directory components and verifies
 // the result stays inside baseDir to prevent path traversal.
-func (store *DefinitionStore) generateFilePath(name string) string {
+func (store *Store) generateFilePath(name string) string {
 	safeName := filepath.Base(name)
 	filePath := fileutil.EnsureYAMLExtension(path.Join(store.baseDir, safeName))
 	filePath = filepath.Clean(filePath)
@@ -547,7 +539,7 @@ func (store *DefinitionStore) generateFilePath(name string) string {
 }
 
 // locateDAG resolves a DAG beneath the configured DAG directories.
-func (store *DefinitionStore) locateDAG(ctx context.Context, nameOrPath string) (ResolvedFile, error) {
+func (store *Store) locateDAG(ctx context.Context, nameOrPath string) (ResolvedFile, error) {
 	relativePath := filepath.FromSlash(nameOrPath)
 	explicitPath := filepath.IsAbs(relativePath) || strings.ContainsAny(nameOrPath, `/\`)
 
@@ -620,7 +612,7 @@ func locateDAGInDirectories(
 	return ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 }
 
-func (store *DefinitionStore) stemExists(name, exceptPath string) bool {
+func (store *Store) stemExists(name, exceptPath string) bool {
 	scan, err := Discover(store.baseDir, DiscoveryOptions{
 		Recursive: true,
 		Symlinks:  store.symlinks,
@@ -676,14 +668,14 @@ func dagFileCandidates(name string) []string {
 }
 
 // CreateFlag creates the given file.
-func (store *DefinitionStore) createFlag(file string) error {
+func (store *Store) createFlag(file string) error {
 	if err := os.MkdirAll(store.flagsBaseDir, flagPermission); err != nil {
 		return err
 	}
 	return fileutil.WriteFileAtomic(path.Join(store.flagsBaseDir, file), []byte{}, flagPermission)
 }
 
-func (store *DefinitionStore) flagExistsResult(file string) (bool, error) {
+func (store *Store) flagExistsResult(file string) (bool, error) {
 	_, err := os.Stat(path.Join(store.flagsBaseDir, file))
 	if err == nil {
 		return true, nil
@@ -696,7 +688,7 @@ func (store *DefinitionStore) flagExistsResult(file string) (bool, error) {
 	return false, err
 }
 
-func (store *DefinitionStore) suspendFlagsDirExists() (bool, error) {
+func (store *Store) suspendFlagsDirExists() (bool, error) {
 	info, err := os.Stat(store.flagsBaseDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -711,7 +703,7 @@ func (store *DefinitionStore) suspendFlagsDirExists() (bool, error) {
 }
 
 // deleteFlag deletes the given file.
-func (store *DefinitionStore) deleteFlag(file string) error {
+func (store *Store) deleteFlag(file string) error {
 	return fileutil.Remove(path.Join(store.flagsBaseDir, file))
 }
 
@@ -743,7 +735,7 @@ func shouldCreateExamples(dir string, recursive, symlinks bool) bool {
 }
 
 // createExampleDAGs creates example DAG files for first-time users
-func (store *DefinitionStore) createExampleDAGs() error {
+func (store *Store) createExampleDAGs() error {
 	// Check if we should skip example creation
 	if store.skipExamples {
 		return nil

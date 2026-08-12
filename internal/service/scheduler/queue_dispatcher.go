@@ -686,7 +686,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 	}
 
 	if isSchedulerManagedTriggerType(status.TriggerType) {
-		suspended, err := isSuspendedDAG(ctx, d.isSuspended, status, dag)
+		suspended, err := isSuspendedDAG(ctx, d.isSuspended, status, dag, "")
 		if err != nil {
 			logger.Error(ctx, "Failed to check DAG suspension; leaving queued run pending", tag.Error(err))
 			return false

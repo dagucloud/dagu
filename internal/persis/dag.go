@@ -33,6 +33,7 @@ type DAGListItem struct {
 	ID string
 	*ir.DAG
 	Suspended bool
+	Revision  string
 }
 
 // DAGCatalog is the unfiltered set of stored DAG definitions. Item order is unspecified.

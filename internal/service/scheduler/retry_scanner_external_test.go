@@ -49,7 +49,7 @@ func TestRetryScannerUsesRetryCandidateListerWhenAvailable(t *testing.T) {
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &retryCandidateDAGRunBackend{}
 	scanner, err := scheduler.NewRetryScanner(
-		dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
+		dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{}),
 		nil,
 		nil,
 		time.Hour,
@@ -70,7 +70,7 @@ func TestRetryScannerFallsBackToStatusListingWithoutCandidateLister(t *testing.T
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &fallbackRetryDAGRunBackend{}
 	scanner, err := scheduler.NewRetryScanner(
-		dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
+		dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{}),
 		nil,
 		nil,
 		time.Hour,

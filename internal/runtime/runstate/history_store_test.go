@@ -222,7 +222,7 @@ func (s *recordingDAGRunBackend) FindSubAttempt(context.Context, ir.DAGRunRef, s
 	return s.subAttempt, nil
 }
 
-func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req dagrun.RetentionRequest) ([]string, error) {
+func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req dagrun.RetentionRequest) ([]ir.DAGRunRef, error) {
 	s.removeOldCalls = append(s.removeOldCalls, req)
 	return nil, s.removeOldErr
 }
@@ -230,7 +230,7 @@ func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req dagrun.
 var historyStoreNow = time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 
 func testDAGRunRepository(backend dagrun.Store) *dagrun.Repository {
-	return dagrun.NewRepository(backend, dagrun.RepositoryOptions{
+	return dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{
 		Now: func() time.Time { return historyStoreNow },
 	})
 }
@@ -310,5 +310,3 @@ func (a *recordingAttempt) WriteStepMessages(_ context.Context, stepName string,
 func (a *recordingAttempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
 	return append([]ir.LLMMessage(nil), a.messages[stepName]...), nil
 }
-
-func (a *recordingAttempt) WorkDir() string { return "" }

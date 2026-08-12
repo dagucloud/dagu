@@ -64,7 +64,7 @@ func TestScheduler(t *testing.T) {
 		// Track restart calls via the planner's Restart function
 		var restartCount atomic.Int32
 		restartScheduleTimeCh := make(chan time.Time, 1)
-		sc.SetRestartFunc(func(_ context.Context, _ *ir.DAG, scheduleTime time.Time) error {
+		sc.SetRestartFunc(func(_ context.Context, _ scheduler.DAGEntry, scheduleTime time.Time) error {
 			restartCount.Add(1)
 			select {
 			case restartScheduleTimeCh <- scheduleTime:
@@ -110,7 +110,7 @@ func TestScheduler(t *testing.T) {
 		sc.SetClock(func() time.Time { return now })
 
 		var dispatchCount atomic.Int32
-		sc.SetDispatchFunc(func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+		sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 			dispatchCount.Add(1)
 			return nil
 		})
@@ -240,7 +240,7 @@ func TestScheduler_StopSchedule(t *testing.T) {
 	sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc.SetClock(func() time.Time { return now })
-	sc.SetDispatchFunc(func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
 		return nil
 	})
 

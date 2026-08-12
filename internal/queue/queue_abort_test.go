@@ -13,8 +13,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +23,7 @@ func TestAbortQueuedDAGRun_PreservesPreviousVisibleAttempt(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := testQueueAbortDAG()
 	runRef := ir.NewDAGRunRef(dag.Name, "run-1")
 
@@ -43,7 +43,7 @@ func TestAbortQueuedDAGRun_RemovesRunWhenQueuedAttemptIsOnlyVisibleAttempt(t *te
 	t.Parallel()
 
 	ctx := context.Background()
-	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := testQueueAbortDAG()
 	runRef := ir.NewDAGRunRef(dag.Name, "run-2")
 
@@ -60,7 +60,7 @@ func TestAbortQueuedDAGRun_RejectsNonQueuedStatus(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := testQueueAbortDAG()
 	runRef := ir.NewDAGRunRef(dag.Name, "run-3")
 

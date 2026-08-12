@@ -57,7 +57,4 @@ type Attempt interface {
 	// ReadStepMessages reads LLM messages for a single step.
 	// Returns nil if no messages exist for the step.
 	ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error)
-	// WorkDir returns the path to the per-DAG-run working directory.
-	// Returns "" if the attempt does not support local storage.
-	WorkDir() string
 }

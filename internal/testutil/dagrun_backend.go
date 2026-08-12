@@ -46,7 +46,7 @@ func (DAGRunBackendStub) FindSubAttempt(context.Context, ir.DAGRunRef, string) (
 	panic("unexpected DAG-run backend call: FindSubAttempt")
 }
 
-func (DAGRunBackendStub) RemoveOldDAGRuns(context.Context, dagrun.RetentionRequest) ([]string, error) {
+func (DAGRunBackendStub) RemoveOldDAGRuns(context.Context, dagrun.RetentionRequest) ([]ir.DAGRunRef, error) {
 	panic("unexpected DAG-run backend call: RemoveOldDAGRuns")
 }
 

@@ -139,7 +139,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 	if !listed.Parent.Zero() {
 		return nil
 	}
-	suspended, err := isSuspendedDAG(ctx, s.isSuspended, listed, nil)
+	suspended, err := isSuspendedDAG(ctx, s.isSuspended, listed, nil, "")
 	if err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 	if err != nil {
 		return err
 	}
-	suspended, err := isSuspendedDAG(ctx, s.isSuspended, latestStatus, dagSnapshot)
+	suspended, err := isSuspendedDAG(ctx, s.isSuspended, latestStatus, dagSnapshot, "")
 	if err != nil {
 		return err
 	}

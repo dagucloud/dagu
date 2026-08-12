@@ -22,8 +22,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -103,7 +103,7 @@ func waitForStoredDAGRunStatus(
 	require.Eventually(t, func() bool {
 		// Create the repository inside the poll so attempt discovery can observe a
 		// retry/resume attempt created after polling starts.
-		repository := filedagrun.NewRepository(
+		repository := testutil.NewFileDAGRunRepository(
 			server.Config.Paths.DAGRunsDir,
 			dagrun.RepositoryOptions{
 				LatestStatusToday: server.Config.Server.LatestStatusToday,
@@ -137,7 +137,7 @@ func waitForStoredSubDAGRunStatus(
 
 	var status *ir.DAGRunStatus
 	require.Eventually(t, func() bool {
-		repository := filedagrun.NewRepository(
+		repository := testutil.NewFileDAGRunRepository(
 			server.Config.Paths.DAGRunsDir,
 			dagrun.RepositoryOptions{
 				LatestStatusToday: server.Config.Server.LatestStatusToday,

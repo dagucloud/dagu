@@ -480,6 +480,7 @@ steps:
 			th.Config.Paths.ArtifactDir,
 			th.Config.Paths.BaseConfig,
 			"",
+			metadataOnly.FileName(),
 			metadataOnly,
 			runID,
 			ir.TriggerTypeCatchUp,

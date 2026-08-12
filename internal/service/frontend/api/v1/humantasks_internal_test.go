@@ -36,7 +36,7 @@ func TestAuthorizeHumanTaskMutationClassifiesLookupErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			store := lookupErrorDAGRunBackend{err: tc.err}
-			apiServer := &API{dagRunRepository: dagrun.NewRepository(store, dagrun.RepositoryOptions{})}
+			apiServer := &API{dagRunRepository: dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})}
 
 			_, err := apiServer.authorizeHumanTaskMutation(t.Context(), "deploy", "run-1")
 

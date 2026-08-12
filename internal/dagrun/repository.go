@@ -5,6 +5,7 @@ package dagrun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -24,13 +25,14 @@ type RepositoryOptions struct {
 // Repository provides application-level access to persisted DAG runs.
 type Repository struct {
 	store             Store
+	workspaces        WorkspaceStore
 	latestStatusToday bool
 	location          *time.Location
 	now               func() time.Time
 }
 
 // NewRepository creates a repository backed by store.
-func NewRepository(store Store, options RepositoryOptions) *Repository {
+func NewRepository(store Store, workspaces WorkspaceStore, options RepositoryOptions) *Repository {
 	location := options.Location
 	if location == nil {
 		location = time.Local
@@ -39,8 +41,12 @@ func NewRepository(store Store, options RepositoryOptions) *Repository {
 	if now == nil {
 		now = time.Now
 	}
+	if workspaces == nil {
+		workspaces = noopWorkspaceStore{}
+	}
 	return &Repository{
 		store:             store,
+		workspaces:        workspaces,
 		latestStatusToday: options.LatestStatusToday,
 		location:          location,
 		now:               now,
@@ -95,6 +101,11 @@ func (r *Repository) LatestAttempt(ctx context.Context, name string) (Attempt, e
 		query.NotBefore = NewUTC(startOfDay)
 	}
 	return r.store.LatestAttempt(ctx, query)
+}
+
+// LatestAttemptAllHistory returns the newest visible attempt without a date boundary.
+func (r *Repository) LatestAttemptAllHistory(ctx context.Context, name string) (Attempt, error) {
+	return r.store.LatestAttempt(ctx, LatestAttemptQuery{Name: name})
 }
 
 // ListStatuses returns statuses in canonical list order.
@@ -212,11 +223,11 @@ func (r *Repository) RemoveOldDAGRuns(
 			return nil, nil
 		}
 		request.KeepRuns = *options.RetentionRuns
-		return r.store.RemoveOldDAGRuns(ctx, request)
+		return r.removeOldDAGRuns(ctx, request)
 	}
 	if options.OlderThan != nil {
 		request.OlderThan = NewUTC(*options.OlderThan)
-		return r.store.RemoveOldDAGRuns(ctx, request)
+		return r.removeOldDAGRuns(ctx, request)
 	}
 	if retentionDays < 0 {
 		logger.Warn(ctx, "Negative retentionDays, no files will be removed",
@@ -224,7 +235,29 @@ func (r *Repository) RemoveOldDAGRuns(
 		return nil, nil
 	}
 	request.OlderThan = NewUTC(r.now().AddDate(0, 0, -retentionDays))
-	return r.store.RemoveOldDAGRuns(ctx, request)
+	return r.removeOldDAGRuns(ctx, request)
+}
+
+func (r *Repository) removeOldDAGRuns(ctx context.Context, request RetentionRequest) ([]string, error) {
+	refs, err := r.store.RemoveOldDAGRuns(ctx, request)
+	ids := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		ids = append(ids, ref.ID)
+	}
+	if request.DryRun {
+		return ids, err
+	}
+	for _, ref := range refs {
+		workspaceRef, normalizeErr := normalizeWorkspaceRef(WorkspaceRef{DAGRun: ref})
+		if normalizeErr != nil {
+			err = errors.Join(err, normalizeErr)
+			continue
+		}
+		if removeErr := r.workspaces.Remove(ctx, workspaceRef); removeErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove workspace for dag-run %s: %w", ref.ID, removeErr))
+		}
+	}
+	return ids, err
 }
 
 // RemoveDAGRun removes a DAG run and all of its attempts.
@@ -238,10 +271,40 @@ func (r *Repository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, opts ..
 			opt(&options)
 		}
 	}
-	return r.store.RemoveDAGRun(ctx, RemoveDAGRunRequest{
+	err := r.store.RemoveDAGRun(ctx, RemoveDAGRunRequest{
 		DAGRun:       ref,
 		RejectActive: options.RejectActive,
 	})
+	if err != nil && !errors.Is(err, ErrDAGRunIDNotFound) {
+		return err
+	}
+	workspaceRef, normalizeErr := normalizeWorkspaceRef(WorkspaceRef{DAGRun: ref})
+	if normalizeErr != nil {
+		return errors.Join(err, normalizeErr)
+	}
+	removeErr := r.workspaces.Remove(ctx, workspaceRef)
+	if removeErr != nil {
+		removeErr = fmt.Errorf("remove workspace for dag-run %s: %w", ref.ID, removeErr)
+	}
+	return errors.Join(err, removeErr)
+}
+
+// MaterializeWorkspace makes a DAG-run workspace available locally.
+func (r *Repository) MaterializeWorkspace(ctx context.Context, ref WorkspaceRef) (string, error) {
+	normalized, err := normalizeWorkspaceRef(ref)
+	if err != nil {
+		return "", err
+	}
+	return r.workspaces.Materialize(ctx, normalized)
+}
+
+// SnapshotWorkspace persists the current state of a DAG-run workspace.
+func (r *Repository) SnapshotWorkspace(ctx context.Context, ref WorkspaceRef, localDir string) error {
+	normalized, err := normalizeWorkspaceRef(ref)
+	if err != nil {
+		return err
+	}
+	return r.workspaces.Snapshot(ctx, normalized, localDir)
 }
 
 // ListRetryCandidates returns failed latest attempts eligible for retry scanning.

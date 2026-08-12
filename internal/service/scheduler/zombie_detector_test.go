@@ -336,7 +336,7 @@ type mockDAGRunBackend struct {
 }
 
 func (m *mockDAGRunBackend) repository() *dagrun.Repository {
-	return dagrun.NewRepository(m, dagrun.RepositoryOptions{})
+	return dagrun.NewRepository(m, nil, dagrun.RepositoryOptions{})
 }
 
 func (m *mockDAGRunBackend) CompareAndSwapLatestAttemptStatus(

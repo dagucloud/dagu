@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -52,7 +53,8 @@ steps:
 	require.NoError(t, err)
 
 	var dispatchCount atomic.Int32
-	schedulerInstance.SetDispatchFunc(func(_ context.Context, dag *ir.DAG, _ string, trigger ir.TriggerType, _ time.Time) error {
+	schedulerInstance.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, _ time.Time) error {
+		dag := entry.DAG
 		if dag != nil && dag.Name == "cron-test" && trigger == ir.TriggerTypeScheduler {
 			dispatchCount.Add(1)
 		}
@@ -138,7 +140,8 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 		lastDispatchTime time.Time
 		lastDispatchType ir.TriggerType
 	)
-	sc.SetDispatchFunc(func(_ context.Context, dag *ir.DAG, _ string, trigger ir.TriggerType, scheduleTime time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, scheduleTime time.Time) error {
+		dag := entry.DAG
 		if dag != nil && dag.Name == dagName {
 			dispatchCount.Add(1)
 			lastDispatchMu.Lock()

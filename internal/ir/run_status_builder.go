@@ -172,6 +172,15 @@ func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) 
 	}
 }
 
+// WithDAGDefinitionID records the stable identity of the persisted DAG definition.
+func WithDAGDefinitionID(id string) StatusOption {
+	return func(status *DAGRunStatus) {
+		if id != "" {
+			status.SuspendFlagName = id
+		}
+	}
+}
+
 // WithNoReuse records whether manifest reuse is disabled.
 func WithNoReuse(disabled bool) StatusOption {
 	return func(status *DAGRunStatus) {

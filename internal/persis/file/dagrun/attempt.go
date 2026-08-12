@@ -6,8 +6,6 @@ package dagrun
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -164,11 +162,6 @@ func (att *Attempt) Open(ctx context.Context) error {
 		case !errors.Is(err, os.ErrNotExist):
 			return fmt.Errorf("failed to restore DAG definition: %w", err)
 		}
-	}
-
-	// Create the per-run work directory so steps can use DAG_RUN_WORK_DIR immediately
-	if err := fileutil.MkdirAll(att.WorkDir(), 0750); err != nil {
-		return fmt.Errorf("failed to create work directory %s: %w", att.WorkDir(), err)
 	}
 
 	logger.Debug(ctx, "Initializing status file",
@@ -695,38 +688,9 @@ func (att *Attempt) Hide(ctx context.Context) error {
 	return nil
 }
 
-// dagRunDir returns the dag-run directory (parent of the attempt directory).
-// The dag-run dir contains attempt dirs, messages, work dir, etc.
+// dagRunDir returns the directory shared by all attempts in the DAG run.
 func (att *Attempt) dagRunDir() string {
 	return filepath.Dir(filepath.Dir(att.file))
-}
-
-// WorkDir returns the path to the per-DAG-run working directory.
-func (att *Attempt) WorkDir() string {
-	return workDirForDAGRunDir(att.dagRunDir())
-}
-
-func workDirForDAGRunDir(dagRunDir string) string {
-	if rootDir, childRunID, ok := subDAGWorkDirParts(dagRunDir); ok {
-		return filepath.Join(rootDir, subDAGWorkDirName(childRunID))
-	}
-	return filepath.Join(dagRunDir, "work")
-}
-
-func subDAGWorkDirName(childRunID string) string {
-	sum := sha256.Sum256([]byte(childRunID))
-	return SubDAGWorkDirPrefix + strings.ToLower(
-		base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:8]),
-	)
-}
-
-func subDAGWorkDirParts(dagRunDir string) (rootDir, childRunID string, ok bool) {
-	parentDir := filepath.Dir(dagRunDir)
-	childRunID, ok = subDAGRunIDFromDir(filepath.Base(parentDir), filepath.Base(dagRunDir))
-	if !ok {
-		return "", "", false
-	}
-	return filepath.Dir(parentDir), childRunID, true
 }
 
 // readLineFrom reads a line from the file starting at the specified offset.

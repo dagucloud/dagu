@@ -344,7 +344,7 @@ steps:
 		attempt := new(testutil.MockAttempt)
 		attempt.On("ReadStatus", ctx).Return(nil, nil).Once()
 		store := &managerDAGRunBackend{subAttempt: attempt}
-		repository := dagrun.NewRepository(store, dagrun.RepositoryOptions{})
+		repository := dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})
 		mgr := runtime.NewManager(repository, th.ProcStore, th.Config)
 
 		status, err := mgr.FindSubDAGRunStatus(ctx, ir.NewDAGRunRef("root", "root-run"), "child-run")

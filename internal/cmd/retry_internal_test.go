@@ -11,7 +11,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -22,7 +21,7 @@ import (
 func TestEnsureQueueDispatchRetryTarget_MissingRunReturnsNotQueued(t *testing.T) {
 	t.Parallel()
 
-	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	err := ensureQueueDispatchRetryTarget(
 		context.Background(),
 		repository,
@@ -47,7 +46,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 	t.Parallel()
 
 	ctx := context.Background()
-	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := &ir.DAG{
 		Name: "retry-test",
 		Steps: []ir.Step{
@@ -83,14 +82,16 @@ func TestRestoreRetryExecutionContext_BackfillsStoredWorkingDirSnapshot(t *testi
 	}
 	status := &ir.DAGRunStatus{}
 
-	restoreRetryExecutionContext(dag, status, nil)
+	require.NoError(t, restoreRetryExecutionContext(
+		context.Background(), nil, dag, status, dagrun.WorkspaceRef{},
+	))
 
 	assert.Equal(t, workDir, status.WorkingDir)
 	assert.Equal(t, workDir, dag.WorkingDir)
 	assert.True(t, dag.WorkingDirExplicit)
 }
 
-func TestRestoreRetryExecutionContext_BackfillsAttemptWorkDirSnapshot(t *testing.T) {
+func TestRestoreRetryExecutionContext_BackfillsWorkspaceSnapshot(t *testing.T) {
 	t.Parallel()
 
 	dagDir := t.TempDir()
@@ -101,15 +102,36 @@ func TestRestoreRetryExecutionContext_BackfillsAttemptWorkDirSnapshot(t *testing
 		WorkingDir: dagDir,
 	}
 	status := &ir.DAGRunStatus{}
-	attempt := &testutil.MockAttempt{}
-	attempt.On("WorkDir").Return(attemptWorkDir).Once()
+	repository := dagrun.NewRepository(
+		testutil.DAGRunBackendStub{},
+		&retryWorkspaceStore{dir: attemptWorkDir},
+		dagrun.RepositoryOptions{},
+	)
 
-	restoreRetryExecutionContext(dag, status, attempt)
+	require.NoError(t, restoreRetryExecutionContext(
+		context.Background(), repository, dag, status,
+		dagrun.WorkspaceRef{DAGRun: ir.NewDAGRunRef(dag.Name, "run-1")},
+	))
 
 	assert.Equal(t, attemptWorkDir, status.WorkingDir)
 	assert.Equal(t, attemptWorkDir, dag.WorkingDir)
 	assert.True(t, dag.WorkingDirExplicit)
-	attempt.AssertExpectations(t)
+}
+
+type retryWorkspaceStore struct {
+	dir string
+}
+
+func (s *retryWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
+	return s.dir, nil
+}
+
+func (*retryWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
+	return nil
+}
+
+func (*retryWorkspaceStore) Remove(context.Context, dagrun.WorkspaceRef) error {
+	return nil
 }
 
 func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {

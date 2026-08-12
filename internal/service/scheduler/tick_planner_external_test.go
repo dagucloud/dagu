@@ -37,6 +37,14 @@ type countingProfileResolver struct {
 	calls   int
 }
 
+func testDAGEntries(dags ...*ir.DAG) []scheduler.DAGEntry {
+	entries := make([]scheduler.DAGEntry, 0, len(dags))
+	for _, dag := range dags {
+		entries = append(entries, scheduler.DAGEntry{DefinitionID: dag.SuspendFlagName(), DAG: dag})
+	}
+	return entries
+}
+
 func (r *countingProfileResolver) ResolveProfile(context.Context, string, string) (string, error) {
 	r.calls++
 	return r.profile, nil
@@ -71,7 +79,7 @@ func TestTickPlanner_ProfileScopedSchedulesUseDAGFileName(t *testing.T) {
 		Location: "/tmp/settings-key.yaml",
 		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Len(t, runs, 1)
@@ -108,7 +116,7 @@ func TestTickPlanner_ProfileScopedSchedulesUseWorkspaceDefaultProfile(t *testing
 		Labels:   ir.NewLabels([]string{"workspace=ops"}),
 		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Len(t, runs, 1)
@@ -145,7 +153,7 @@ func TestTickPlanner_ProfileScopedSchedulesRejectInvalidWorkspaceLabel(t *testin
 		Labels:   ir.NewLabels([]string{"workspace="}),
 		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Empty(t, runs)
@@ -180,7 +188,7 @@ func TestTickPlanner_UnprofiledSchedulesSkipProfileResolver(t *testing.T) {
 		Location: "/tmp/unprofiled-dag.yaml",
 		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Len(t, runs, 1)
@@ -218,7 +226,7 @@ func TestTickPlanner_InactiveProfileSchedulePersistsNoNextRunProjection(t *testi
 		Location: "/tmp/inactive-profile-dag.yaml",
 		Schedule: []ir.Schedule{schedule},
 	}
-	require.NoError(t, tp.Init(context.Background(), []*ir.DAG{dag}))
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Empty(t, runs)

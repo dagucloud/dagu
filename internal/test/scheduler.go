@@ -70,7 +70,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 
 	// Create entry reader
 	coordinatorCli := coordinator.New(helper.ServiceRegistry, coordinator.DefaultConfig())
-	em := scheduler.NewEntryReader(
+	em := scheduler.NewFileEntryReader(
 		helper.Config.Paths.DAGsDir,
 		ds,
 		helper.Config.DAGDiscovery.Recursive,

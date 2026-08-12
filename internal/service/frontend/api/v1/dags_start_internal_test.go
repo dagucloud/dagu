@@ -19,9 +19,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -112,7 +112,7 @@ func newLocalStartTestAPI(t *testing.T) *API {
 	t.Helper()
 
 	tmpDir := t.TempDir()
-	dagRunRepository := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 	return &API{
 		dagRunMgr: runtime.NewManager(dagRunRepository, procStore, &config.Config{}),

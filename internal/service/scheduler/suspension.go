@@ -19,12 +19,15 @@ func isSchedulerManagedTriggerType(triggerType ir.TriggerType) bool {
 	return false
 }
 
-func suspendFlagName(status *ir.DAGRunStatus, dag *ir.DAG) string {
+func suspendFlagName(status *ir.DAGRunStatus, dag *ir.DAG, definitionID string) string {
 	if status != nil && status.SuspendFlagName != "" {
 		return status.SuspendFlagName
 	}
+	if definitionID != "" {
+		return definitionID
+	}
 	if dag != nil {
-		if name := dagSuspendFlagName(dag); name != "" {
+		if name := dag.SuspendFlagName(); name != "" {
 			return name
 		}
 	}
@@ -39,11 +42,12 @@ func isSuspendedDAG(
 	isSuspended IsSuspendedFunc,
 	status *ir.DAGRunStatus,
 	dag *ir.DAG,
+	definitionID string,
 ) (bool, error) {
 	if isSuspended == nil {
 		return false, nil
 	}
-	name := suspendFlagName(status, dag)
+	name := suspendFlagName(status, dag, definitionID)
 	if name == "" {
 		return false, nil
 	}

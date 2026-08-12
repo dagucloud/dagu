@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -71,6 +72,7 @@ type schedulerHooks struct {
 
 type schedulerOptions struct {
 	profileResolver DAGProfileResolver
+	dagRepository   *persis.DAGRepository
 }
 
 type Option func(*schedulerOptions)
@@ -78,6 +80,13 @@ type Option func(*schedulerOptions)
 func WithDAGProfileResolver(resolver DAGProfileResolver) Option {
 	return func(opts *schedulerOptions) {
 		opts.profileResolver = resolver
+	}
+}
+
+// WithDAGRepository supplies definition persistence used by scheduler policies.
+func WithDAGRepository(repository *persis.DAGRepository) Option {
+	return func(opts *schedulerOptions) {
+		opts.dagRepository = repository
 	}
 }
 
@@ -147,7 +156,7 @@ func newScheduler(
 	lockDir := filepath.Join(cfg.Paths.DataDir, "scheduler", "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
 	subCmdBuilder := launcher.NewSubCmdBuilder(cfg)
-	dagRepository := er.DAGRepository()
+	dagRepository := options.dagRepository
 	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)
 	dagExecutor := NewDAGExecutor(
 		coordinatorCli,
@@ -159,14 +168,11 @@ func newScheduler(
 	)
 	healthServer := NewHealthServer(cfg.Scheduler.Port)
 
-	// Resolve IsSuspended once at construction time and wire the event channel.
-	eventCh := make(chan DAGChangeEvent)
+	// Resolve IsSuspended once at construction time.
+	eventCh := er.Events()
 	var isSuspended IsSuspendedFunc
 	if dagRepository != nil {
 		isSuspended = dagRepository.IsSuspended
-	}
-	if impl, ok := er.(*entryReaderImpl); ok {
-		impl.setEvents(eventCh)
 	}
 	processor := NewQueueProcessor(
 		queueStore,
@@ -190,8 +196,9 @@ func newScheduler(
 			}
 			return len(items) > 0, nil
 		}
-		enqueueFunc = func(ctx context.Context, dag *ir.DAG, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
-			profileName, err := dagExecutor.defaultProfileName(ctx, dag)
+		enqueueFunc = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
+			dag := entry.DAG
+			profileName, err := dagExecutor.defaultProfileName(ctx, entry.DefinitionID, dag)
 			if err != nil {
 				return fmt.Errorf("failed to resolve DAG profile: %w", err)
 			}
@@ -203,6 +210,7 @@ func newScheduler(
 				cfg.Paths.ArtifactDir,
 				cfg.Paths.BaseConfig,
 				workspaceBaseConfigDir,
+				entry.DefinitionID,
 				dag,
 				runID,
 				triggerType,
@@ -226,9 +234,9 @@ func newScheduler(
 		GenRunID: func(context.Context) (string, error) {
 			return ir.NewDAGRunID()
 		},
-		Dispatch: func(ctx context.Context, dag *ir.DAG, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
+		Dispatch: func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			return dagExecutor.HandleJob(
-				ctx, dag,
+				ctx, entry,
 				dispatch.DispatchOperationStart,
 				runID, triggerType, scheduleTime,
 			)
@@ -236,8 +244,8 @@ func newScheduler(
 		Stop: func(ctx context.Context, dag *ir.DAG) error {
 			return drm.Stop(ctx, dag, "")
 		},
-		Restart: func(ctx context.Context, dag *ir.DAG, scheduleTime time.Time) error {
-			return dagExecutor.Restart(ctx, dag, scheduleTime)
+		Restart: func(ctx context.Context, entry DAGEntry, scheduleTime time.Time) error {
+			return dagExecutor.Restart(ctx, entry, scheduleTime)
 		},
 		Clock:           defaultClock,
 		Location:        timeLoc,
@@ -606,7 +614,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	// planner.Init is best-effort: if watermark loading fails, Init falls back
 	// to an empty state internally, so catch-up windows replay from scratch.
-	if err := s.planner.Init(ctx, s.entryReader.DAGs()); err != nil {
+	if err := s.planner.Init(ctx, s.entryReader.Entries()); err != nil {
 		logger.Error(ctx, "Failed to initialize tick planner", tag.Error(err))
 	}
 

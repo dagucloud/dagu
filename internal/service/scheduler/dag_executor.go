@@ -116,16 +116,17 @@ func NewDAGExecutor(
 // - No jobs are lost due to temporary system failures
 func (e *DAGExecutor) HandleJob(
 	ctx context.Context,
-	dag *ir.DAG,
+	entry DAGEntry,
 	operation dispatch.DispatchOperation,
 	runID string,
 	triggerType ir.TriggerType,
 	scheduleTime time.Time,
 ) error {
+	dag := entry.DAG
 	profileName := ""
 	if operation == dispatch.DispatchOperationStart {
 		var err error
-		profileName, err = e.defaultProfileName(ctx, dag)
+		profileName, err = e.defaultProfileName(ctx, entry.DefinitionID, dag)
 		if err != nil {
 			return fmt.Errorf("failed to resolve DAG profile: %w", err)
 		}
@@ -154,6 +155,7 @@ func (e *DAGExecutor) HandleJob(
 			TriggerType:  triggerType.String(),
 			ScheduleTime: stringutil.FormatTime(scheduleTime),
 			ProfileName:  profileName,
+			DefinitionID: entry.DefinitionID,
 		})
 		if err := launcher.Run(ctx, spec); err != nil {
 			return fmt.Errorf("failed to enqueue DAG run: %w", err)
@@ -162,7 +164,7 @@ func (e *DAGExecutor) HandleJob(
 	}
 
 	// For all other cases (local execution or non-START operations), use ExecuteDAG
-	return e.executeDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime), profileName, "")
+	return e.executeDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime), profileName, entry.DefinitionID, "")
 }
 
 // ExecuteDAG executes or dispatches an already-persisted DAG.
@@ -183,7 +185,7 @@ func (e *DAGExecutor) ExecuteDAG(
 	triggerType ir.TriggerType,
 	scheduleTime string,
 ) error {
-	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", "")
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", definitionIDFromStatus(previousStatus), "")
 }
 
 func (e *DAGExecutor) ExecuteDAGWithAdmission(
@@ -196,7 +198,7 @@ func (e *DAGExecutor) ExecuteDAGWithAdmission(
 	scheduleTime string,
 	admissionReservationToken string,
 ) error {
-	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", admissionReservationToken)
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", definitionIDFromStatus(previousStatus), admissionReservationToken)
 }
 
 func (e *DAGExecutor) executeDAG(
@@ -208,6 +210,7 @@ func (e *DAGExecutor) executeDAG(
 	triggerType ir.TriggerType,
 	scheduleTime string,
 	defaultProfileName string,
+	definitionID string,
 	admissionReservationToken string,
 ) error {
 	if err := validateDispatchOperation(operation); err != nil {
@@ -228,6 +231,9 @@ func (e *DAGExecutor) executeDAG(
 			executor.WithWorkerSelector(dag.WorkerSelector),
 			executor.WithPreviousStatus(previousStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, e.baseConfigPath)),
+		}
+		if definitionID != "" {
+			taskOpts = append(taskOpts, executor.WithDefinitionID(definitionID))
 		}
 		profileName := profileNameFromStatus(previousStatus)
 		if profileName == "" {
@@ -283,6 +289,7 @@ func (e *DAGExecutor) executeDAG(
 			TriggerActor: triggerActor,
 			ScheduleTime: scheduleTime,
 			ProfileName:  fallbackProfileName(profileNameFromStatus(previousStatus), defaultProfileName),
+			DefinitionID: definitionID,
 			NoReuse:      previousStatus != nil && previousStatus.NoReuse,
 		})
 		return launcher.Start(ctx, spec)
@@ -307,19 +314,25 @@ func fallbackProfileName(profileName, fallback string) string {
 	return fallback
 }
 
-func (e *DAGExecutor) defaultProfileName(ctx context.Context, dag *ir.DAG) (string, error) {
+func (e *DAGExecutor) defaultProfileName(ctx context.Context, definitionID string, dag *ir.DAG) (string, error) {
 	if e.profileResolver == nil || dag == nil {
 		return "", nil
 	}
-	fileName := dag.FileName()
-	if fileName == "" {
-		return "", fmt.Errorf("DAG file name is required to resolve default profile")
+	if definitionID == "" {
+		return "", fmt.Errorf("DAG definition ID is required to resolve default profile")
 	}
 	workspaceName, err := dagWorkspaceName(dag)
 	if err != nil {
 		return "", err
 	}
-	return e.profileResolver.ResolveProfile(ctx, fileName, workspaceName)
+	return e.profileResolver.ResolveProfile(ctx, definitionID, workspaceName)
+}
+
+func definitionIDFromStatus(status *ir.DAGRunStatus) string {
+	if status == nil {
+		return ""
+	}
+	return status.SuspendFlagName
 }
 
 func profileNameFromStatus(status *ir.DAGRunStatus) string {
@@ -383,7 +396,8 @@ func (e *DAGExecutor) dispatchToCoordinator(ctx context.Context, req dispatch.Di
 }
 
 // Restart restarts a DAG unconditionally.
-func (e *DAGExecutor) Restart(ctx context.Context, dag *ir.DAG, scheduleTime time.Time) error {
+func (e *DAGExecutor) Restart(ctx context.Context, entry DAGEntry, scheduleTime time.Time) error {
+	dag := entry.DAG
 	prepared, err := e.prepareDAGForSubprocess(ctx, dag, "")
 	if err != nil {
 		return fmt.Errorf("failed to prepare DAG env for restart: %w", err)
@@ -391,6 +405,7 @@ func (e *DAGExecutor) Restart(ctx context.Context, dag *ir.DAG, scheduleTime tim
 	spec := e.subCmdBuilder.Restart(prepared, launcher.RestartOptions{
 		Quiet:        true,
 		ScheduleTime: stringutil.FormatTime(scheduleTime),
+		DefinitionID: entry.DefinitionID,
 	})
 	return launcher.Start(ctx, spec)
 }

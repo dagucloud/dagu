@@ -22,7 +22,7 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 	store := &findAttemptErrStore{err: dagrun.ErrNoStatusData}
 	err := EnqueueWebhookRun(
 		context.Background(),
-		dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
+		dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{}),
 		nil,
 		t.TempDir(),
 		t.TempDir(),

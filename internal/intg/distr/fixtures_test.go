@@ -311,7 +311,7 @@ func (f *testFixture) startSchedulerWithOptions(
 ) {
 	f.t.Helper()
 
-	em := scheduler.NewEntryReader(
+	em := scheduler.NewFileEntryReader(
 		f.coord.Config.Paths.DAGsDir,
 		f.coord.DAGRepository,
 		f.coord.Config.DAGDiscovery.Recursive,
@@ -475,6 +475,7 @@ func (f *testFixture) enqueueCatchup(scheduleTime time.Time) (string, error) {
 		f.coord.Config.Paths.ArtifactDir,
 		f.coord.Config.Paths.BaseConfig,
 		"",
+		f.dagWrapper.FileName(),
 		f.dagWrapper.DAG,
 		runID,
 		ir.TriggerTypeCatchUp,

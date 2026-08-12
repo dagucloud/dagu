@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,10 +44,14 @@ func (s staticEntryReader) Start(context.Context) {}
 
 func (s staticEntryReader) Stop() {}
 
-func (s staticEntryReader) DAGs() []*ir.DAG {
-	return s.dags
+func (s staticEntryReader) Entries() []scheduler.DAGEntry {
+	entries := make([]scheduler.DAGEntry, 0, len(s.dags))
+	for _, dag := range s.dags {
+		entries = append(entries, scheduler.DAGEntry{DefinitionID: dag.SuspendFlagName(), DAG: dag})
+	}
+	return entries
 }
 
-func (s staticEntryReader) DAGRepository() *persis.DAGRepository {
+func (s staticEntryReader) Events() <-chan scheduler.DAGChangeEvent {
 	return nil
 }

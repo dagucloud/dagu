@@ -19,11 +19,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	runtestutil "github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -277,7 +277,9 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 
 	attempt, err := api.dagRunRepository.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), "source-run", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
-	sourceWorkDir := attempt.WorkDir()
+	sourceRef := ir.NewDAGRunRef(dag.Name, "source-run")
+	sourceWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{DAGRun: sourceRef})
+	require.NoError(t, err)
 	sourceOutputPath := filepath.Join(sourceWorkDir, "result.txt")
 
 	status := ir.NewStatusBuilder(dag).Create(
@@ -317,7 +319,10 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 
 	newAttempt, err := api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "edit-run"))
 	require.NoError(t, err)
-	newWorkDir := newAttempt.WorkDir()
+	newWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{
+		DAGRun: ir.NewDAGRunRef(dag.Name, "edit-run"),
+	})
+	require.NoError(t, err)
 	require.NotEqual(t, sourceWorkDir, newWorkDir)
 
 	newStatus, err := newAttempt.ReadStatus(ctx)
@@ -427,7 +432,7 @@ func setupEditRetryAPI(t *testing.T, tmpDir string, yamlContent string) (*API, *
 	dag, err := spec.LoadYAML(context.Background(), []byte(yamlContent))
 	require.NoError(t, err)
 
-	dagRunRepository := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	dagRunRepository := runtestutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	api := &API{
 		dagRunRepository: dagRunRepository,
 		config: &config.Config{

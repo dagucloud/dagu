@@ -785,7 +785,9 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	logFile := filepath.Join(d.Config.Paths.LogDir, dagRunID+".log")
 	root := ir.NewDAGRunRef(d.Name, dagRunID)
 
-	helper.opts.DAGRunRepository = d.DAGRunRepository
+	if helper.opts.DAGRunRepository == nil {
+		helper.opts.DAGRunRepository = d.DAGRunRepository
+	}
 	helper.opts.QueueStore = d.QueueStore
 	helper.opts.ServiceRegistry = d.ServiceRegistry
 	helper.opts.RootDAGRun = root

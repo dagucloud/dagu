@@ -13,8 +13,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +25,7 @@ func TestEnqueueRunDoesNotSeedQueuedCondition(t *testing.T) {
 	tmp := t.TempDir()
 	dag := &ir.DAG{Name: "queued-condition"}
 	ir.InitializeDefaults(dag)
-	dagRunRepository := filedagrun.NewRepository(filepath.Join(tmp, "dag-runs"), dagrun.RepositoryOptions{})
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmp, "dag-runs"), dagrun.RepositoryOptions{})
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
 	now := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 

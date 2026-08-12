@@ -64,7 +64,7 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 	ctx := &Context{
 		Context:          th.Context,
 		Config:           th.Config,
-		DAGRunRepository: dagrun.NewRepository(runStore, dagrun.RepositoryOptions{}),
+		DAGRunRepository: dagrun.NewRepository(runStore, nil, dagrun.RepositoryOptions{}),
 		QueueStore:       queueStore,
 	}
 
@@ -164,10 +164,6 @@ func (a *enqueueTrackingAttempt) WriteStepMessages(context.Context, string, []ir
 
 func (a *enqueueTrackingAttempt) ReadStepMessages(context.Context, string) ([]ir.LLMMessage, error) {
 	return nil, nil
-}
-
-func (a *enqueueTrackingAttempt) WorkDir() string {
-	return ""
 }
 
 type enqueueObservingQueueStore struct {

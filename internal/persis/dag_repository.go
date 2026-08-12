@@ -23,13 +23,13 @@ const dagSearchCursorVersion = 1
 
 // DAGRepository provides application-level access to DAG definitions.
 type DAGRepository struct {
-	definitions DAGDefinitionStore
-	options     DAGRepositoryOptions
+	store   DAGDefinitionStore
+	options DAGRepositoryOptions
 }
 
 // NewDAGRepository creates a repository backed by the given definition store.
-func NewDAGRepository(definitions DAGDefinitionStore, options DAGRepositoryOptions) *DAGRepository {
-	return &DAGRepository{definitions: definitions, options: options}
+func NewDAGRepository(store DAGDefinitionStore, options DAGRepositoryOptions) *DAGRepository {
+	return &DAGRepository{store: store, options: options}
 }
 
 func (r *DAGRepository) loadOptions(opts ...spec.LoadOption) []spec.LoadOption {
@@ -51,23 +51,23 @@ func repositoryLoadOptions(opts DAGLoadOptions) []spec.LoadOption {
 }
 
 func (r *DAGRepository) Create(ctx context.Context, id string, source []byte) error {
-	return r.definitions.Create(ctx, id, source)
+	return r.store.Create(ctx, id, source)
 }
 
 func (r *DAGRepository) Delete(ctx context.Context, id string) error {
-	return r.definitions.Delete(ctx, id)
+	return r.store.Delete(ctx, id)
 }
 
 func (r *DAGRepository) Rename(ctx context.Context, oldID, newID string) error {
-	return r.definitions.Rename(ctx, oldID, newID)
+	return r.store.Rename(ctx, oldID, newID)
 }
 
 func (r *DAGRepository) GetMetadata(ctx context.Context, id string) (*ir.DAG, error) {
-	return r.definitions.GetMetadata(ctx, id)
+	return r.store.GetMetadata(ctx, id)
 }
 
 func (r *DAGRepository) GetDetails(ctx context.Context, id string, opts DAGLoadOptions) (*ir.DAG, error) {
-	definition, err := r.definitions.Get(ctx, id)
+	definition, err := r.store.Get(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate DAG %s: %w", id, err)
 	}
@@ -88,7 +88,7 @@ func (r *DAGRepository) GetDetails(ctx context.Context, id string, opts DAGLoadO
 }
 
 func (r *DAGRepository) GetSpec(ctx context.Context, id string) (string, error) {
-	definition, err := r.definitions.Get(ctx, id)
+	definition, err := r.store.Get(ctx, id)
 	if err != nil {
 		return "", err
 	}
@@ -102,7 +102,7 @@ func (r *DAGRepository) LoadSpec(ctx context.Context, source []byte, name string
 }
 
 func (r *DAGRepository) UpdateSpec(ctx context.Context, id string, source []byte) error {
-	definition, err := r.definitions.Get(ctx, id)
+	definition, err := r.store.Get(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to locate DAG %s: %w", id, err)
 	}
@@ -121,15 +121,15 @@ func (r *DAGRepository) UpdateSpec(ctx context.Context, id string, source []byte
 	if err := dag.Validate(); err != nil {
 		return err
 	}
-	return r.definitions.Update(ctx, id, source)
+	return r.store.Update(ctx, id, source)
 }
 
 func (r *DAGRepository) SetSuspended(ctx context.Context, id string, suspended bool) error {
-	return r.definitions.SetSuspended(ctx, id, suspended)
+	return r.store.SetSuspended(ctx, id, suspended)
 }
 
 func (r *DAGRepository) IsSuspended(ctx context.Context, id string) (bool, error) {
-	return r.definitions.IsSuspended(ctx, id)
+	return r.store.IsSuspended(ctx, id)
 }
 
 func (r *DAGRepository) List(ctx context.Context, opts DAGListOptions) (pagination.PaginatedResult[DAGListItem], []string, error) {
@@ -138,7 +138,7 @@ func (r *DAGRepository) List(ctx context.Context, opts DAGListOptions) (paginati
 		opts.Paginator = &paginator
 	}
 
-	catalog, err := r.definitions.Catalog(ctx)
+	catalog, err := r.store.Catalog(ctx)
 	if err != nil {
 		return pagination.NewPaginatedResult([]DAGListItem{}, 0, *opts.Paginator), catalog.Issues, err
 	}
@@ -222,7 +222,7 @@ func sortDAGList(items []DAGListItem, opts DAGListOptions) {
 }
 
 func (r *DAGRepository) LabelList(ctx context.Context) ([]string, []string, error) {
-	catalog, err := r.definitions.Catalog(ctx)
+	catalog, err := r.store.Catalog(ctx)
 	if err != nil {
 		return nil, catalog.Issues, err
 	}
@@ -253,7 +253,7 @@ func (r *DAGRepository) Grep(ctx context.Context, pattern string) ([]*DAGGrepRes
 	if pattern == "" {
 		return nil, nil, nil
 	}
-	catalog, err := r.definitions.Catalog(ctx)
+	catalog, err := r.store.Catalog(ctx)
 	if err != nil {
 		return nil, catalog.Issues, err
 	}
@@ -262,7 +262,7 @@ func (r *DAGRepository) Grep(ctx context.Context, pattern string) ([]*DAGGrepRes
 	results := make([]*DAGGrepResult, 0)
 	for _, item := range sortedDAGCatalogItems(catalog.Items) {
 		id := item.ID
-		definition, err := r.definitions.Get(ctx, id)
+		definition, err := r.store.Get(ctx, id)
 		if err != nil {
 			issues = append(issues, fmt.Sprintf("read %s failed: %s", id, err))
 			continue
@@ -275,7 +275,7 @@ func (r *DAGRepository) Grep(ctx context.Context, pattern string) ([]*DAGGrepRes
 			issues = append(issues, fmt.Sprintf("grep %s failed: %s", id, err))
 			continue
 		}
-		dag, err := r.definitions.GetMetadata(ctx, id)
+		dag, err := r.store.GetMetadata(ctx, id)
 		if err != nil {
 			issues = append(issues, fmt.Sprintf("check %s failed: %s", id, err))
 			continue
@@ -310,7 +310,7 @@ func (r *DAGRepository) SearchCursor(ctx context.Context, opts DAGSearchOptions)
 	if err != nil {
 		return nil, nil, err
 	}
-	catalog, err := r.definitions.Catalog(ctx)
+	catalog, err := r.store.Catalog(ctx)
 	if err != nil {
 		return nil, catalog.Issues, err
 	}
@@ -334,7 +334,7 @@ func (r *DAGRepository) SearchCursor(ctx context.Context, opts DAGSearchOptions)
 		if !containsAllLabels(item.Labels, opts.Labels) || !opts.WorkspaceFilter.MatchesLabels(item.Labels) {
 			continue
 		}
-		definition, err := r.definitions.Get(ctx, id)
+		definition, err := r.store.Get(ctx, id)
 		if err != nil {
 			issues = append(issues, fmt.Sprintf("read %s failed: %s", id, err))
 			continue
@@ -391,12 +391,12 @@ func (r *DAGRepository) SearchMatches(ctx context.Context, id string, opts DAGMa
 	if err != nil {
 		return nil, err
 	}
-	definition, err := r.definitions.Get(ctx, id)
+	definition, err := r.store.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if len(opts.Labels) > 0 || opts.WorkspaceFilter != nil {
-		dag, err := r.definitions.GetMetadata(ctx, id)
+		dag, err := r.store.GetMetadata(ctx, id)
 		if err != nil {
 			return nil, err
 		}

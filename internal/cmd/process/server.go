@@ -11,8 +11,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -29,7 +29,9 @@ import (
 type ServerConfig struct {
 	Context              context.Context
 	Config               *config.Config
+	DAGRepository        *persis.DAGRepository
 	DAGRunRepository     *dagrun.Repository
+	Caches               []fileutil.CacheMetrics
 	QueueStore           queue.QueueStore
 	ProcStore            proc.ProcStore
 	DAGRunManager        runtime.Manager
@@ -47,25 +49,18 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 		ctx = context.Background()
 	}
 
-	limits := cfg.Config.Cache.Limits()
-	dagCache := fileutil.NewCache[*ir.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
-	dagCache.StartEviction(ctx)
-
-	dagRepository, err := NewDAGRepository(cfg.Config, DAGRepositoryConfig{Cache: dagCache})
-	if err != nil {
-		return nil, err
-	}
-
 	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.ServiceRegistry)
 	collector := telemetry.NewCollector(
 		config.Version,
-		dagRepository,
+		cfg.DAGRepository,
 		cfg.DAGRunRepository,
 		cfg.QueueStore,
 		cfg.ServiceRegistry,
 	)
 	collector.SetWorkerHeartbeatStore(cfg.WorkerHeartbeatStore)
-	collector.RegisterCache(dagCache)
+	for _, cache := range cfg.Caches {
+		collector.RegisterCache(cache)
+	}
 
 	metricsRegistry := telemetry.NewRegistry(collector)
 
@@ -87,7 +82,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	return frontend.NewServer(
 		ctx,
 		cfg.Config,
-		dagRepository,
+		cfg.DAGRepository,
 		cfg.DAGRunRepository,
 		cfg.QueueStore,
 		cfg.ProcStore,

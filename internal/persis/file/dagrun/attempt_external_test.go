@@ -22,7 +22,7 @@ import (
 func TestAttemptCloseKeepsSingleStatusFile(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "single-status-close"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
@@ -57,7 +57,7 @@ func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "runtime-conditions"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
@@ -104,7 +104,7 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	repository := filedagrun.NewRepository(baseDir, dagrun.RepositoryOptions{})
+	repository := newFileRepository(baseDir, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "conditions-return"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
@@ -152,6 +152,14 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 	require.NotNil(t, updated)
 	require.Equal(t, ir.Failed, updated.Status)
 	require.Empty(t, updated.Conditions)
+}
+
+func newFileRepository(baseDir string, options dagrun.RepositoryOptions) *dagrun.Repository {
+	return dagrun.NewRepository(
+		filedagrun.NewStore(baseDir),
+		filedagrun.NewWorkspaceStore(baseDir),
+		options,
+	)
 }
 
 func findOnlyStatusFile(t *testing.T, root string) string {
