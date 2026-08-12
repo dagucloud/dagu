@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -21,7 +22,7 @@ import (
 func TestEnsureQueueDispatchRetryTarget_MissingRunReturnsNotQueued(t *testing.T) {
 	t.Parallel()
 
-	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	err := ensureQueueDispatchRetryTarget(
 		context.Background(),
 		repository,
@@ -46,7 +47,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 	t.Parallel()
 
 	ctx := context.Background()
-	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	dag := &ir.DAG{
 		Name: "retry-test",
 		Steps: []ir.Step{
@@ -54,7 +55,7 @@ func TestEnsureQueueDispatchRetryTarget_MissingStatusReturnsNotQueued(t *testing
 		},
 	}
 
-	_, err := repository.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+	_, err := repository.CreateAttempt(ctx, dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	err = ensureQueueDispatchRetryTarget(
@@ -102,10 +103,10 @@ func TestRestoreRetryExecutionContext_BackfillsWorkspaceSnapshot(t *testing.T) {
 		WorkingDir: dagDir,
 	}
 	status := &ir.DAGRunStatus{}
-	repository := dagrun.NewRepository(
+	repository := persis.NewDAGRunRepository(
 		testutil.DAGRunBackendStub{},
 		&retryDAGRunWorkspaceStore{dir: attemptWorkDir},
-		dagrun.RepositoryOptions{},
+		persis.DAGRunRepositoryOptions{},
 	)
 
 	require.NoError(t, restoreRetryExecutionContext(

@@ -14,9 +14,9 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -152,7 +152,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
@@ -214,7 +214,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
@@ -285,7 +285,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")

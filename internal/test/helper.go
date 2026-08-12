@@ -519,7 +519,7 @@ type Helper struct {
 	ChildEnv                  []string
 	LoggingOutput             *SyncBuffer
 	DAGRepository             *persis.DAGRepository
-	DAGRunRepository          *dagrun.Repository
+	DAGRunRepository          *persis.DAGRunRepository
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore

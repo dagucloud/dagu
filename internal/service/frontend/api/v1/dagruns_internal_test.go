@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -248,7 +249,7 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 	current.Nodes[1].HumanTaskInput = json.RawMessage(`{"confirmed":true}`)
 
 	repository := &manualCASStore{status: current}
-	a := &API{dagRunRepository: dagrun.NewRepository(repository, nil, dagrun.RepositoryOptions{})}
+	a := &API{dagRunRepository: persis.NewDAGRunRepository(repository, nil, persis.DAGRunRepositoryOptions{})}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.NoError(t, a.rollbackPushBack(ctx, current.DAGRun(), applied, original))
@@ -296,13 +297,13 @@ func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunR
 
 type failingManualCASStore struct {
 	testutil.DAGRunBackendStub
-	base *dagrun.Repository
+	base *persis.DAGRunRepository
 	err  error
 }
 
 func (s *failingManualCASStore) CompareAndSwapLatestAttemptStatus(
 	context.Context,
-	dagrun.CompareAndSwapStatusRequest,
+	persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	return nil, false, s.err
 }
@@ -313,7 +314,7 @@ func (s *failingManualCASStore) FindAttempt(ctx context.Context, ref ir.DAGRunRe
 
 func (s *manualCASStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	req dagrun.CompareAndSwapStatusRequest,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
@@ -408,7 +409,7 @@ func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
 
 func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T) {
 	ctx := t.Context()
-	persistedRepository := testutil.NewFileDAGRunRepository(t.TempDir(), dagrun.RepositoryOptions{LatestStatusToday: true})
+	persistedRepository := testutil.NewFileDAGRunRepository(t.TempDir(), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	dag := &ir.DAG{
 		Name: "approval-write-failure",
 		Steps: []ir.Step{{
@@ -416,7 +417,7 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 			Approval: &ir.ApprovalConfig{Prompt: "Approve"},
 		}},
 	}
-	attempt, err := persistedRepository.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+	attempt, err := persistedRepository.CreateAttempt(ctx, dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	status := ir.InitialStatus(dag)
 	status.DAGRunID = "run-1"
@@ -430,7 +431,7 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 
 	writeErr := errors.New("status repository unavailable")
 	failingStore := &failingManualCASStore{base: persistedRepository, err: writeErr}
-	repository := dagrun.NewRepository(failingStore, nil, dagrun.RepositoryOptions{})
+	repository := persis.NewDAGRunRepository(failingStore, nil, persis.DAGRunRepositoryOptions{})
 	cfg := &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
 		config.PermissionRunDAGs: true,
 	}}}
@@ -752,36 +753,36 @@ type blockingDAGRunBackend struct {
 
 type queryCapturingDAGRunBackend struct {
 	testutil.DAGRunBackendStub
-	query dagrun.StatusQuery
+	query persis.DAGRunStatusQuery
 }
 
 func (b *queryCapturingDAGRunBackend) QueryStatuses(
 	_ context.Context,
-	query dagrun.StatusQuery,
-) (dagrun.StatusPage, error) {
+	query persis.DAGRunStatusQuery,
+) (persis.DAGRunStatusPage, error) {
 	b.query = query
-	return dagrun.StatusPage{}, nil
+	return persis.DAGRunStatusPage{}, nil
 }
 
-func statusQueryFromOptions(t *testing.T, opts []dagrun.ListStatusesOption) dagrun.StatusQuery {
+func statusQueryFromOptions(t *testing.T, options persis.DAGRunListOptions) persis.DAGRunStatusQuery {
 	t.Helper()
 	backend := &queryCapturingDAGRunBackend{}
-	repository := dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{})
-	_, err := repository.ListStatuses(context.Background(), opts...)
+	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
+	_, err := repository.ListStatuses(context.Background(), options)
 	require.NoError(t, err)
 	return backend.query
 }
 
-func (blockingDAGRunBackend) QueryStatuses(ctx context.Context, _ dagrun.StatusQuery) (dagrun.StatusPage, error) {
+func (blockingDAGRunBackend) QueryStatuses(ctx context.Context, _ persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	<-ctx.Done()
-	return dagrun.StatusPage{}, ctx.Err()
+	return persis.DAGRunStatusPage{}, ctx.Err()
 }
 
 func TestAPIListDAGRunsReturnsGatewayTimeoutWhenReadDeadlineExpires(t *testing.T) {
 	t.Parallel()
 
 	api := &API{
-		dagRunRepository: dagrun.NewRepository(blockingDAGRunBackend{}, nil, dagrun.RepositoryOptions{}),
+		dagRunRepository: persis.NewDAGRunRepository(blockingDAGRunBackend{}, nil, persis.DAGRunRepositoryOptions{}),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
@@ -855,7 +856,7 @@ type blockingLatestAttemptStore struct {
 	testutil.DAGRunBackendStub
 }
 
-func (blockingLatestAttemptStore) LatestAttempt(ctx context.Context, _ dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
+func (blockingLatestAttemptStore) LatestAttempt(ctx context.Context, _ persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
@@ -880,7 +881,7 @@ func TestGetDAGRunDetailsReturnsClientClosedRequestWhenReadCanceled(t *testing.T
 	t.Parallel()
 
 	api := &API{
-		dagRunRepository: dagrun.NewRepository(blockingLatestAttemptStore{}, nil, dagrun.RepositoryOptions{}),
+		dagRunRepository: persis.NewDAGRunRepository(blockingLatestAttemptStore{}, nil, persis.DAGRunRepositoryOptions{}),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

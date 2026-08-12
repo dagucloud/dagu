@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
@@ -18,7 +19,7 @@ const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
 // StaleRunRepairConfig provides the stores, thresholds, and clock used to
 // confirm and repair stale remote runs.
 type StaleRunRepairConfig struct {
-	DAGRunRepository              *dagrun.Repository
+	DAGRunRepository              *persis.DAGRunRepository
 	DAGRunLeaseStore              dispatch.DAGRunLeaseStore
 	WorkerHeartbeatStore          dispatch.WorkerHeartbeatStore
 	StaleLeaseThreshold           time.Duration
@@ -108,9 +109,7 @@ func RepairStaleRemoteRun(
 		func(current *ir.DAGRunStatus) error {
 			markActiveStatusFailed(current, reason, now)
 			return nil
-		},
-		dagrun.WithCompareAndSwapRootDAGRun(status.Root),
-		dagrun.WithCompareAndSwapExpectedAttemptKey(attemptKey),
+		}, persis.DAGRunCompareAndSwapOptions{RootDAGRun: status.Root, ExpectedAttemptKey: attemptKey},
 	)
 	if err != nil {
 		return nil, false, err

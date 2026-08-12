@@ -59,7 +59,7 @@ type Context struct {
 
 	EventService              *eventstore.Service
 	EventSourceInstance       string
-	DAGRunRepository          *dagrun.Repository
+	DAGRunRepository          *persis.DAGRunRepository
 	DAGRunMgr                 runtime.Manager
 	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore
@@ -791,7 +791,7 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 
 	if attempt == nil {
 		// 2. Create the attempt if not exists
-		att, createErr := c.DAGRunRepository.CreateAttempt(c, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+		att, createErr := c.DAGRunRepository.CreateAttempt(c, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		if createErr != nil {
 			return fmt.Errorf("failed to create run to record failure: %w", createErr)
 		}

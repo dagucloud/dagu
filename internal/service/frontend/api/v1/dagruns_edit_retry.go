@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -619,7 +620,7 @@ func (a *API) markEditRetrySeedFailed(ctx context.Context, status *ir.DAGRunStat
 			latest.FinishedAt = stringutil.FormatTime(time.Now())
 			latest.Error = cause.Error()
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if err != nil {
 		logger.Warn(ctx, "Failed to mark edit retry seed as failed",
@@ -640,7 +641,7 @@ func (a *API) seedEditRetryAttempt(
 	sourceWorkspace dagrun.DAGRunWorkspaceRef,
 ) (*ir.DAGRunStatus, error) {
 	now := time.Now()
-	attempt, err := a.dagRunRepository.CreateAttempt(ctx, dag, now, dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := a.dagRunRepository.CreateAttempt(ctx, dag, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create edit retry attempt: %w", err)
 	}
@@ -649,7 +650,7 @@ func (a *API) seedEditRetryAttempt(
 		if committed {
 			return
 		}
-		if rmErr := a.dagRunRepository.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, dagRunID)); rmErr != nil {
+		if rmErr := a.dagRunRepository.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, dagRunID), persis.DAGRunRemoveOptions{}); rmErr != nil {
 			logger.Error(ctx, "Failed to rollback edit retry attempt",
 				tag.DAG(dag.Name),
 				tag.RunID(dagRunID),

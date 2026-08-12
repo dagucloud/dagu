@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -54,13 +55,13 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	attempt, err := dagRunRepository.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-2*time.Minute),
 		"distributed-run",
-		dagrun.CreateAttemptOptions{},
+		persis.DAGRunCreateAttemptOptions{},
 	)
 	require.NoError(t, err)
 
@@ -133,13 +134,13 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	attempt, err := dagRunRepository.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-2*time.Minute),
 		"build-run",
-		dagrun.CreateAttemptOptions{},
+		persis.DAGRunCreateAttemptOptions{},
 	)
 	require.NoError(t, err)
 	status := ir.NewStatusBuilder(dag).Create(
@@ -217,13 +218,13 @@ func TestRetryDAGRun_RejectsWaitingDAGAndStepRetry(t *testing.T) {
 		Name:  "waiting_retry_dag",
 		Steps: []ir.Step{{Name: "approve"}},
 	}
-	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	attempt, err := dagRunRepository.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-time.Minute),
 		"waiting-run",
-		dagrun.CreateAttemptOptions{},
+		persis.DAGRunCreateAttemptOptions{},
 	)
 	require.NoError(t, err)
 
@@ -292,13 +293,13 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	attempt, err := dagRunRepository.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-time.Minute),
 		"latest-run",
-		dagrun.CreateAttemptOptions{},
+		persis.DAGRunCreateAttemptOptions{},
 	)
 	require.NoError(t, err)
 
@@ -357,9 +358,9 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	}
 	childStep := ir.Step{Name: "target-step"}
 	childDAG := &ir.DAG{Name: "child_retry_dag", Steps: []ir.Step{childStep}}
-	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 
-	rootAttempt, err := repository.CreateAttempt(ctx, rootDAG, time.Now().Add(-time.Minute), rootRef.ID, dagrun.CreateAttemptOptions{})
+	rootAttempt, err := repository.CreateAttempt(ctx, rootDAG, time.Now().Add(-time.Minute), rootRef.ID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	rootStatus := ir.DAGRunStatus{
 		Root:      rootRef,
@@ -380,7 +381,7 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
 	require.NoError(t, rootAttempt.Close(ctx))
 
-	childAttempt, err := repository.CreateAttempt(ctx, childDAG, time.Now(), "child-target", dagrun.CreateAttemptOptions{RootDAGRun: rootRef})
+	childAttempt, err := repository.CreateAttempt(ctx, childDAG, time.Now(), "child-target", persis.DAGRunCreateAttemptOptions{RootDAGRun: rootRef})
 	require.NoError(t, err)
 	childStatus := ir.DAGRunStatus{
 		Root:      rootRef,

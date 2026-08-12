@@ -15,7 +15,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -115,7 +114,7 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	suspendFlag := filepath.Join(th.Config.Paths.SuspendFlagsDir, dag.SuspendFlagName())
 	require.NoError(t, os.WriteFile(suspendFlag, []byte{}, 0o644))
 
-	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, oldSlot, "old-success", dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, oldSlot, "old-success", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	status := ir.InitialStatus(dag)

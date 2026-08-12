@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -393,7 +394,7 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 	return &serviceFixture{
 		dag: dag, status: status, backend: backend, queue: queue,
 		service: &Service{
-			DAGRunRepository: dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{}),
+			DAGRunRepository: persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{}),
 			QueueStore:       queue,
 			ProcStore:        serviceProcStore{},
 			Now:              func() time.Time { return now },
@@ -451,7 +452,7 @@ func (s *serviceDAGRunBackend) FindAttempt(ctx context.Context, ref ir.DAGRunRef
 
 func (s *serviceDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	req dagrun.CompareAndSwapStatusRequest,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	if len(s.compareAndSwapErrors) > 0 {
 		err := s.compareAndSwapErrors[0]

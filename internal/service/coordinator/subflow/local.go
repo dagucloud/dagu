@@ -37,7 +37,7 @@ import (
 type Local struct {
 	dagRunMgr                runtime.Manager
 	dagRepository            *persis.DAGRepository
-	dagRunRepository         *dagrun.Repository
+	dagRunRepository         *persis.DAGRunRepository
 	runStateStore            runstate.Store
 	queueStore               queue.QueueStore
 	stateStore               dagrun.StateStore
@@ -70,7 +70,7 @@ func WithLocalToolInstaller(installer dagutools.Installer) LocalOption {
 }
 
 // WithLocalDAGRunRepository sets the DAG-run repository used by child workflow agents.
-func WithLocalDAGRunRepository(repository *dagrun.Repository) LocalOption {
+func WithLocalDAGRunRepository(repository *persis.DAGRunRepository) LocalOption {
 	return func(r *Local) {
 		r.dagRunRepository = repository
 	}
@@ -460,7 +460,7 @@ func (r *Local) dagRepositoryFromContext(_ context.Context) *persis.DAGRepositor
 	return r.dagRepository
 }
 
-func (r *Local) dagRunRepositoryFromContext(ctx context.Context) *dagrun.Repository {
+func (r *Local) dagRunRepositoryFromContext(ctx context.Context) *persis.DAGRunRepository {
 	if r.dagRunRepository != nil {
 		return r.dagRunRepository
 	}

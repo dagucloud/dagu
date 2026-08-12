@@ -15,13 +15,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 // QueueRequest describes a DAG-run intake operation that persists a queued
 // attempt before publishing the queue item.
 type QueueRequest struct {
-	DAGRunRepository *dagrun.Repository
+	DAGRunRepository *persis.DAGRunRepository
 	QueueStore       queue.QueueStore
 	DAG              *ir.DAG
 	DAGRunID         string
@@ -40,7 +41,7 @@ type QueueRequest struct {
 	DefinitionID string
 	NoReuse      bool
 
-	AttemptOptions dagrun.CreateAttemptOptions
+	AttemptOptions persis.DAGRunCreateAttemptOptions
 
 	// ProceedOnStatusCloseErr preserves legacy CLI enqueue behavior: publish
 	// the queue item after best-effort close so readers can see the queued status.
@@ -94,7 +95,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		if committed {
 			return
 		}
-		if rmErr := req.DAGRunRepository.RemoveDAGRun(context.WithoutCancel(ctx), dagRun); rmErr != nil {
+		if rmErr := req.DAGRunRepository.RemoveDAGRun(context.WithoutCancel(ctx), dagRun, persis.DAGRunRemoveOptions{}); rmErr != nil {
 			logger.Error(ctx, "Failed to rollback queued DAG run",
 				tag.DAG(req.DAG.Name),
 				tag.RunID(req.DAGRunID),

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -230,7 +230,7 @@ func TestCleanupCommandRepository(t *testing.T) {
 			testDAG,
 			oldTime,
 			"old-run-id",
-			dagrun.CreateAttemptOptions{},
+			persis.DAGRunCreateAttemptOptions{},
 		)
 		require.NoError(t, err)
 		require.NoError(t, oldAttempt.Open(th.Context))
@@ -247,7 +247,7 @@ func TestCleanupCommandRepository(t *testing.T) {
 			testDAG,
 			recentTime,
 			"recent-run-id",
-			dagrun.CreateAttemptOptions{},
+			persis.DAGRunCreateAttemptOptions{},
 		)
 		require.NoError(t, err)
 		require.NoError(t, recentAttempt.Open(th.Context))
@@ -266,7 +266,7 @@ func TestCleanupCommandRepository(t *testing.T) {
 		require.Len(t, statuses, 2)
 
 		// Remove runs older than 7 days
-		removedIDs, err := th.DAGRunRepository.RemoveOldDAGRuns(th.Context, dagName, 7)
+		removedIDs, err := th.DAGRunRepository.RemoveOldDAGRuns(th.Context, dagName, 7, persis.DAGRunRetentionOptions{})
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 1)
 

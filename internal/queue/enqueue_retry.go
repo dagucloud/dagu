@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // ErrRetryStaleLatest indicates the caller tried to retry a non-latest attempt.
@@ -34,7 +34,7 @@ type EnqueueRetryOptions struct {
 // call added the queue item.
 func EnqueueRetry(
 	ctx context.Context,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore QueueStore,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
@@ -78,7 +78,7 @@ func EnqueueRetry(
 				latest.Root = status.Root
 			}
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if err != nil {
 		return false, fmt.Errorf("persist queued retry status: %w", err)
@@ -112,7 +112,7 @@ func EnqueueRetry(
 
 func rollbackQueuedRetry(
 	ctx context.Context,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	dagRun ir.DAGRunRef,
 	queued *ir.DAGRunStatus,
 	original *ir.DAGRunStatus,
@@ -133,7 +133,7 @@ func rollbackQueuedRetry(
 			latest.AutoRetryCount = original.AutoRetryCount
 			latest.Root = original.Root
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if err != nil {
 		return err

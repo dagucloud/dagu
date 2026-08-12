@@ -17,8 +17,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/proto"
@@ -117,7 +117,7 @@ func TryLoadForDay(ctx context.Context, dayDir string, dagRunDirs []os.DirEntry)
 		return dayLoadResult{entries: entries, fromIndex: fromIndex}, nil
 	}
 
-	batchID, batched := dagrun.DAGRunListReadBatchID(ctx)
+	batchID, batched := persis.DAGRunListReadBatchID(ctx)
 	if !batched {
 		result, err := load()
 		return result.entries, result.fromIndex, err

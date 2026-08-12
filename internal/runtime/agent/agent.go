@@ -89,13 +89,13 @@ type Agent struct {
 	dagLoader dagDetailsLoader
 
 	// dagRunRepository persists DAG-run history.
-	dagRunRepository *dagrun.Repository
+	dagRunRepository *persis.DAGRunRepository
 
 	// runStateStore opens execution state for this run.
 	runStateStore runstate.Store
 
 	// dagRunWorkspaceStore persists workspaces when execution history is remote.
-	dagRunWorkspaceStore dagrun.DAGRunWorkspaceStore
+	dagRunWorkspaceStore persis.DAGRunWorkspaceStore
 
 	// queueStore is the database to store queued dag-run items.
 	queueStore queue.QueueStore
@@ -338,9 +338,9 @@ type Options struct {
 	// RunStateStore records execution state for this DAG run.
 	RunStateStore runstate.Store
 	// DAGRunRepository provides access to DAG-run data. Nil for remote worker execution.
-	DAGRunRepository *dagrun.Repository
+	DAGRunRepository *persis.DAGRunRepository
 	// DAGRunWorkspaceStore persists workspaces when DAG-run history is remote.
-	DAGRunWorkspaceStore dagrun.DAGRunWorkspaceStore
+	DAGRunWorkspaceStore persis.DAGRunWorkspaceStore
 	// QueueStore is the store for queued dag-run items. Nil when queues are unavailable.
 	QueueStore queue.QueueStore
 	// StateStore is the persistent state store shared across DAG runs.

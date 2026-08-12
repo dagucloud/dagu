@@ -9,7 +9,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -30,7 +29,7 @@ type ServerConfig struct {
 	Context              context.Context
 	Config               *config.Config
 	DAGRepository        *persis.DAGRepository
-	DAGRunRepository     *dagrun.Repository
+	DAGRunRepository     *persis.DAGRunRepository
 	Caches               []fileutil.CacheMetrics
 	QueueStore           queue.QueueStore
 	ProcStore            proc.ProcStore

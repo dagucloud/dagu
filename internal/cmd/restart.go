@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/spf13/cobra"
@@ -66,7 +67,7 @@ func runRestart(ctx *Context, args []string) error {
 			return fmt.Errorf("failed to find the run for dag-run ID %s: %w", dagRunID, err)
 		}
 	} else {
-		attempt, err = ctx.DAGRunRepository.LatestAttempt(ctx, name)
+		attempt, err = ctx.DAGRunRepository.LatestAttempt(ctx, name, persis.DAGRunLatestAttemptOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to find the latest execution history for DAG %s: %w", name, err)
 		}
@@ -135,7 +136,7 @@ func handleRestartProcess(
 			noReuse:      noReuse,
 		},
 		func(execCtx context.Context) (dagrun.Attempt, error) {
-			return ctx.DAGRunRepository.CreateAttempt(execCtx, d, time.Now(), newDagRunID, dagrun.CreateAttemptOptions{})
+			return ctx.DAGRunRepository.CreateAttempt(execCtx, d, time.Now(), newDagRunID, persis.DAGRunCreateAttemptOptions{})
 		},
 		func(preparedAttempt dagrun.Attempt) error {
 			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, definitionID, noReuse, preparedAttempt)

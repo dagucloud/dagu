@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"google.golang.org/grpc/codes"
@@ -28,7 +29,7 @@ import (
 
 type queueDispatchDeps struct {
 	queueStore             queuedomain.QueueStore
-	dagRunRepository       *dagrun.Repository
+	dagRunRepository       *persis.DAGRunRepository
 	procStore              proc.ProcStore
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
@@ -44,7 +45,7 @@ type queueDispatchDeps struct {
 // queueDispatcher owns queue-item dispatch decisions after a queue has capacity.
 type queueDispatcher struct {
 	queueStore             queuedomain.QueueStore
-	dagRunRepository       *dagrun.Repository
+	dagRunRepository       *persis.DAGRunRepository
 	procStore              proc.ProcStore
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
@@ -509,7 +510,7 @@ func (s *queuedConditionStage) flushErr(ctx context.Context) error {
 			}
 			latest.Conditions = mergeQueuedConditionObservations(latest.Conditions, observations)
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if errors.Is(err, errQueuedConditionFresh) {
 		return nil
@@ -779,7 +780,7 @@ func (d *queueDispatcher) dropSuspendedQueuedRun(
 			latest.PIDStartedAt = 0
 			latest.LeaseAt = 0
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if err != nil {
 		return fmt.Errorf("abort suspended queued DAG run: %w", err)
@@ -1073,7 +1074,7 @@ func (d *queueDispatcher) failQueuedRunBeforeStartup(
 			latest.PIDStartedAt = 0
 			latest.LeaseAt = 0
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if err != nil {
 		return fmt.Errorf("mark queued DAG run as failed: %w", err)

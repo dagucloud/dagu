@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // Complete validates and durably completes one human task, then queues the run when possible.
@@ -93,7 +94,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 			latestNode.FinishedAt = completedAt
 			latestNode.Status = ir.NodeSucceeded
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if errors.Is(err, errCompletionAlreadyApplied) {
 		return s.queueCompletedTaskResume(ctx, target.withStatus(concurrentlyCompleted))

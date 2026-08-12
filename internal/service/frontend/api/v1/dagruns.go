@@ -36,6 +36,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -607,7 +608,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 	if err != nil {
 		return nil, err
 	}
-	opts.query = append(opts.query, dagrun.WithWorkspaceFilter(workspaceFilter))
+	opts.query.WorkspaceFilter = workspaceFilter
 	var dagName, dagRunID string
 	if request.Params.Name != nil {
 		dagName = *request.Params.Name
@@ -651,7 +652,7 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 	if err != nil {
 		return nil, err
 	}
-	opts.query = append(opts.query, dagrun.WithWorkspaceFilter(workspaceFilter))
+	opts.query.WorkspaceFilter = workspaceFilter
 	var dagRunID string
 	if request.Params.DagRunId != nil {
 		dagRunID = *request.Params.DagRunId
@@ -679,7 +680,7 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 }
 
 type dagRunListOptions struct {
-	query []dagrun.ListStatusesOption
+	query persis.DAGRunListOptions
 }
 
 type dagRunListFilterInput struct {
@@ -704,55 +705,55 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	limit := defaultLimit
 
 	if statuses := toCoreStatuses(input.statuses); len(statuses) > 0 {
-		opts.query = append(opts.query, dagrun.WithStatuses(statuses))
+		opts.query.Statuses = statuses
 	}
 	if input.fromDate != nil {
-		opts.query = append(opts.query, dagrun.WithFrom(dagrun.NewUTC(time.Unix(*input.fromDate, 0))))
+		opts.query.From = persis.NewUTC(time.Unix(*input.fromDate, 0))
 	}
 	if input.toDate != nil {
-		opts.query = append(opts.query, dagrun.WithTo(dagrun.NewUTC(time.Unix(*input.toDate, 0))))
+		opts.query.To = persis.NewUTC(time.Unix(*input.toDate, 0))
 	}
 	if input.exactName != nil && *input.exactName != "" {
-		opts.query = append(opts.query, dagrun.WithExactName(*input.exactName))
+		opts.query.ExactName = *input.exactName
 	} else if input.name != nil && *input.name != "" {
-		opts.query = append(opts.query, dagrun.WithName(*input.name))
+		opts.query.Name = *input.name
 	}
 	if input.dagRunID != nil && *input.dagRunID != "" {
-		opts.query = append(opts.query, dagrun.WithDAGRunID(*input.dagRunID))
+		opts.query.DAGRunID = *input.dagRunID
 	}
 	if labels := parseCommaSeparatedLabels(input.labels); len(labels) > 0 {
-		opts.query = append(opts.query, dagrun.WithLabels(labels))
+		opts.query.Labels = labels
 	}
 	if input.limit != nil {
 		limit = clampInt(*input.limit, 1, maxLimit)
 	}
 	if input.cursor != nil && *input.cursor != "" {
-		opts.query = append(opts.query, dagrun.WithCursor(*input.cursor))
+		opts.query.Cursor = *input.cursor
 	}
-	opts.query = append(opts.query, dagrun.WithLimit(limit))
+	opts.query.Limit = limit
 	return opts
 }
 
 func (a *API) readDAGRunsPage(
 	ctx context.Context,
 	info dagRunReadRequestInfo,
-	opts []dagrun.ListStatusesOption,
-) (dagrun.StatusPage, error) {
-	page, err := withDAGRunReadTimeout(ctx, info, func(readCtx context.Context) (dagrun.StatusPage, error) {
-		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, opts...)
+	opts persis.DAGRunListOptions,
+) (persis.DAGRunStatusPage, error) {
+	page, err := withDAGRunReadTimeout(ctx, info, func(readCtx context.Context) (persis.DAGRunStatusPage, error) {
+		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, opts)
 		if listErr != nil {
-			return dagrun.StatusPage{}, fmt.Errorf("error listing dag-runs: %w", listErr)
+			return persis.DAGRunStatusPage{}, fmt.Errorf("error listing dag-runs: %w", listErr)
 		}
 		return page, nil
 	})
 	if err != nil {
-		return dagrun.StatusPage{}, err
+		return persis.DAGRunStatusPage{}, err
 	}
 	return page, nil
 }
 
 func dagRunListBadRequest(err error) *Error {
-	if !errors.Is(err, dagrun.ErrInvalidQueryCursor) {
+	if !errors.Is(err, persis.ErrInvalidDAGRunQueryCursor) {
 		return nil
 	}
 	return &Error{
@@ -968,7 +969,7 @@ func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputs
 	var err error
 
 	if request.DagRunId == "latest" {
-		attempt, err = a.dagRunRepository.LatestAttempt(ctx, request.Name)
+		attempt, err = a.dagRunRepository.LatestAttempt(ctx, request.Name, persis.DAGRunLatestAttemptOptions{})
 		if err != nil {
 			return api.GetDAGRunOutputs404JSONResponse{
 				Code:    api.ErrorCodeNotFound,
@@ -2096,7 +2097,7 @@ func (a *API) DeleteDAGRun(ctx context.Context, request api.DeleteDAGRunRequestO
 	if err := a.requireDAGWriteForWorkspace(ctx, workspaceName); err != nil {
 		return nil, err
 	}
-	if err := a.dagRunRepository.RemoveDAGRun(ctx, ref, dagrun.WithRejectActiveDAGRun()); err != nil {
+	if err := a.dagRunRepository.RemoveDAGRun(ctx, ref, persis.DAGRunRemoveOptions{RejectActive: true}); err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
 			return api.DeleteDAGRun404JSONResponse{
 				Code:    api.ErrorCodeNotFound,
@@ -2147,7 +2148,7 @@ func (a *API) loadRootDAGRunDetailsAttemptAndStatus(
 	dagName, dagRunId string,
 ) (dagrun.Attempt, *ir.DAGRunStatus, error) {
 	if dagRunId == "latest" {
-		attempt, err := a.dagRunRepository.LatestAttempt(ctx, dagName)
+		attempt, err := a.dagRunRepository.LatestAttempt(ctx, dagName, persis.DAGRunLatestAttemptOptions{})
 		if err != nil {
 			return nil, nil, fmt.Errorf("no dag-runs found for DAG %s", dagName)
 		}
@@ -2275,7 +2276,7 @@ func (a *API) GetDAGRunSpec(ctx context.Context, request api.GetDAGRunSpecReques
 	var notFoundMsg string
 
 	if request.DagRunId == "latest" {
-		attempt, err = a.dagRunRepository.LatestAttempt(ctx, request.Name)
+		attempt, err = a.dagRunRepository.LatestAttempt(ctx, request.Name, persis.DAGRunLatestAttemptOptions{})
 		notFoundMsg = fmt.Sprintf("no dag-runs found for DAG %s", request.Name)
 	} else {
 		attempt, err = a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId))
@@ -2875,7 +2876,7 @@ func (a *API) resolveAttemptForDAGRun(
 		return attempt, dagRunID, nil
 	}
 
-	attempt, err := a.dagRunRepository.LatestAttempt(ctx, dagName)
+	attempt, err := a.dagRunRepository.LatestAttempt(ctx, dagName, persis.DAGRunLatestAttemptOptions{})
 	if err != nil {
 		return nil, "", &Error{
 			HTTPStatus: http.StatusNotFound,
@@ -2951,9 +2952,8 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 	retryValidationStatus := prevStatus
 	if subDAGRunID != "" {
 		var targetStatus *ir.DAGRunStatus
-		retryPath, targetStatus, err = dagrun.ResolveRetryPath(
+		retryPath, targetStatus, err = a.dagRunRepository.ResolveRetryPath(
 			ctx,
-			a.dagRunRepository,
 			ir.NewDAGRunRef(dagName, sourceDagRunID),
 			subDAGRunID,
 			stepName,
@@ -3208,7 +3208,7 @@ func (a *API) TerminateDAGRun(ctx context.Context, request api.TerminateDAGRunRe
 		if !dagrun.CanCancelFailedAutoRetryPendingRun(savedStatus) {
 			return nil, failedAutoRetryCancelError(savedStatus)
 		}
-		if err := dagrun.CancelFailedAutoRetryPendingRun(ctx, a.dagRunRepository, savedStatus); err != nil {
+		if err := a.dagRunRepository.CancelFailedAutoRetryPendingRun(ctx, savedStatus); err != nil {
 			var stateChangedErr *dagrun.FailedAutoRetryCancelStateChangedError
 			if errors.As(err, &stateChangedErr) {
 				return nil, failedAutoRetryCancelStateChangedError(stateChangedErr.CurrentStatus)
@@ -4384,7 +4384,7 @@ func (a *API) getDAGRunArtifactStatus(ctx context.Context, dagName, dagRunID str
 		err     error
 	)
 	if dagRunID == "latest" {
-		attempt, err = a.dagRunRepository.LatestAttempt(ctx, dagName)
+		attempt, err = a.dagRunRepository.LatestAttempt(ctx, dagName, persis.DAGRunLatestAttemptOptions{})
 	} else {
 		attempt, err = a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
 	}
@@ -4675,9 +4675,9 @@ func (a *API) GetDAGRunsListData(ctx context.Context, queryString string) (any, 
 			return nil, err
 		}
 
-		page, err := a.dagRunRepository.ListStatusesPage(readCtx, opts.query...)
+		page, err := a.dagRunRepository.ListStatusesPage(readCtx, opts.query)
 		if err != nil {
-			if errors.Is(err, dagrun.ErrInvalidQueryCursor) {
+			if errors.Is(err, persis.ErrInvalidDAGRunQueryCursor) {
 				return nil, err
 			}
 			return nil, fmt.Errorf("error listing dag-runs: %w", err)
@@ -4781,7 +4781,7 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 	if err != nil {
 		return dagRunListOptions{}, err
 	}
-	opts.query = append(opts.query, dagrun.WithWorkspaceFilter(workspaceFilter))
+	opts.query.WorkspaceFilter = workspaceFilter
 
 	return opts, nil
 }

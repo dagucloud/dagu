@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -596,7 +597,7 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, ro
 	var attempt dagrun.Attempt
 	attemptID := runID
 	if e.dagRunRepository != nil {
-		created, err := e.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
+		created, err := e.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		if err != nil {
 			if errors.Is(err, dagrun.ErrDAGRunAlreadyExists) {
 				return nil, fmt.Errorf("dag-run ID %s already exists for DAG %s: %w", runID, dag.Name, err)

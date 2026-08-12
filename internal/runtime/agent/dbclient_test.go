@@ -8,7 +8,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -140,7 +139,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			mockDRS := new(mockDAGRunBackend)
-			client := newDBClient(dagrun.NewRepository(mockDRS, nil, dagrun.RepositoryOptions{}), tt.dagLoader, tt.remoteLoader)
+			client := newDBClient(persis.NewDAGRunRepository(mockDRS, nil, persis.DAGRunRepositoryOptions{}), tt.dagLoader, tt.remoteLoader)
 
 			dag, err := client.GetDAG(ctx, "test-dag")
 

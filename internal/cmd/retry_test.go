@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -111,7 +112,7 @@ steps:
 `)
 
 		runID := "queued-catchup-run"
-		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		scheduleTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
@@ -153,7 +154,7 @@ steps:
 `)
 
 		runID := "queued-retry-run"
-		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queued-retry-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -203,7 +204,7 @@ steps:
 
 		runID := "queued-retry-live-source-run"
 		startedAt := time.Now().Add(-time.Minute)
-		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, startedAt, runID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, startedAt, runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queued-retry-live-source-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -272,7 +273,7 @@ steps:
 `)
 
 		runID := "queue-dispatch-run"
-		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -313,7 +314,7 @@ steps:
 `)
 
 		runID := "queue-dispatch-retry-run"
-		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-retry-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))

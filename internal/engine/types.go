@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -38,7 +39,7 @@ type Options struct {
 	Persistence        Persistence
 	PersistenceFactory PersistenceFactory
 	RunStateStore      runstate.Store
-	DAGRunRepository   *dagrun.Repository
+	DAGRunRepository   *persis.DAGRunRepository
 	DefaultMode        ExecutionMode
 	Distributed        *DistributedOptions
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
@@ -671,7 +672,7 @@ func newQueueConditionFixtureWithConfig(
 }
 
 func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
-	attempt, err := f.dagRunRepository.repository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := f.dagRunRepository.repository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	if err != nil {
 		panic(err)
 	}
@@ -1063,8 +1064,8 @@ func (s *queueConditionQueueStore) DeleteByItemIDs(ctx context.Context, queueNam
 }
 
 type countingDAGRunBackend struct {
-	dagrun.Store
-	repository *dagrun.Repository
+	persis.DAGRunStore
+	repository *persis.DAGRunRepository
 
 	mu                 sync.Mutex
 	casByRun           map[string]int
@@ -1072,14 +1073,14 @@ type countingDAGRunBackend struct {
 	readDAGErrByRun    map[string]error
 }
 
-func newCountingDAGRunBackend(store dagrun.Store) *countingDAGRunBackend {
+func newCountingDAGRunBackend(store persis.DAGRunStore) *countingDAGRunBackend {
 	counting := &countingDAGRunBackend{
-		Store:              store,
+		DAGRunStore:        store,
 		casByRun:           make(map[string]int),
 		blankAttemptIDRuns: make(map[string]struct{}),
 		readDAGErrByRun:    make(map[string]error),
 	}
-	counting.repository = dagrun.NewRepository(counting, nil, dagrun.RepositoryOptions{
+	counting.repository = persis.NewDAGRunRepository(counting, nil, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: false,
 	})
 	return counting
@@ -1087,16 +1088,16 @@ func newCountingDAGRunBackend(store dagrun.Store) *countingDAGRunBackend {
 
 func (s *countingDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	req dagrun.CompareAndSwapStatusRequest,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	s.mu.Lock()
 	s.casByRun[req.DAGRun.ID]++
 	s.mu.Unlock()
-	return s.Store.CompareAndSwapLatestAttemptStatus(ctx, req)
+	return s.DAGRunStore.CompareAndSwapLatestAttemptStatus(ctx, req)
 }
 
 func (s *countingDAGRunBackend) FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (dagrun.Attempt, error) {
-	attempt, err := s.Store.FindAttempt(ctx, dagRun)
+	attempt, err := s.DAGRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return nil, err
 	}

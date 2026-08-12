@@ -10,7 +10,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -20,7 +19,7 @@ var _ runtime.Database = &dbClient{}
 
 type dbClient struct {
 	dagLoader        dagDetailsLoader
-	dagRunRepository *dagrun.Repository
+	dagRunRepository *persis.DAGRunRepository
 	remoteDAGLoader  RemoteDAGLoader
 }
 
@@ -28,7 +27,7 @@ type dagDetailsLoader interface {
 	GetDetails(context.Context, string, persis.DAGLoadOptions) (*ir.DAG, error)
 }
 
-func newDBClient(dagRunRepository *dagrun.Repository, dagLoader dagDetailsLoader, remoteDAGLoader RemoteDAGLoader) *dbClient {
+func newDBClient(dagRunRepository *persis.DAGRunRepository, dagLoader dagDetailsLoader, remoteDAGLoader RemoteDAGLoader) *dbClient {
 	return &dbClient{dagRunRepository: dagRunRepository, dagLoader: dagLoader, remoteDAGLoader: remoteDAGLoader}
 }
 

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -132,7 +132,7 @@ func seedFailedAutoRetryPendingRun(t *testing.T, th test.Command, dag test.DAG, 
 		dag.DAG,
 		time.Now(),
 		dagRunID,
-		dagrun.CreateAttemptOptions{},
+		persis.DAGRunCreateAttemptOptions{},
 	)
 	require.NoError(t, err)
 

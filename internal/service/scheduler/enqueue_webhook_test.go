@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 	store := &findAttemptErrStore{err: dagrun.ErrNoStatusData}
 	err := EnqueueWebhookRun(
 		context.Background(),
-		dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{}),
+		persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 		nil,
 		t.TempDir(),
 		t.TempDir(),

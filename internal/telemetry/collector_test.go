@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -39,20 +38,20 @@ type mockDAGRunBackend struct {
 	mock.Mock
 }
 
-func (m *mockDAGRunBackend) repository() *dagrun.Repository {
-	return dagrun.NewRepository(m, nil, dagrun.RepositoryOptions{})
+func (m *mockDAGRunBackend) repository() *persis.DAGRunRepository {
+	return persis.NewDAGRunRepository(m, nil, persis.DAGRunRepositoryOptions{})
 }
 
-func newMockDAGRunRepository() *dagrun.Repository {
+func newMockDAGRunRepository() *persis.DAGRunRepository {
 	return (&mockDAGRunBackend{}).repository()
 }
 
-func (m *mockDAGRunBackend) QueryStatuses(ctx context.Context, query dagrun.StatusQuery) (dagrun.StatusPage, error) {
+func (m *mockDAGRunBackend) QueryStatuses(ctx context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	args := m.MethodCalled("ListStatuses", ctx, query)
 	if args.Get(0) == nil {
-		return dagrun.StatusPage{}, args.Error(1)
+		return persis.DAGRunStatusPage{}, args.Error(1)
 	}
-	return dagrun.StatusPage{Items: args.Get(0).([]*ir.DAGRunStatus)}, args.Error(1)
+	return persis.DAGRunStatusPage{Items: args.Get(0).([]*ir.DAGRunStatus)}, args.Error(1)
 }
 
 type mockQueueStore struct {

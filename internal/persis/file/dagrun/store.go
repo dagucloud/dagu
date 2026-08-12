@@ -15,10 +15,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
-var _ dagrun.Store = (*Store)(nil)
+var _ persis.DAGRunStore = (*Store)(nil)
 
 // Store manages DAG run status files on the local filesystem.
 type Store struct {
@@ -165,7 +166,7 @@ func (store *Store) resolveStatus(
 
 func (store *Store) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	req dagrun.CompareAndSwapStatusRequest,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	dagRun := req.DAGRun
 	rootRef := req.RootDAGRun
@@ -239,13 +240,13 @@ func formatUnixToRFC3339(unix int64) string {
 }
 
 // CreateAttempt creates an attempt within a root or child DAG run.
-func (store *Store) CreateAttempt(ctx context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (store *Store) CreateAttempt(ctx context.Context, req persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	if !req.RootDAGRun.Zero() {
 		return store.newChildAttempt(ctx, req)
 	}
 
 	dataRoot := NewDataRoot(store.baseDir, req.DAG.Name)
-	ts := dagrun.NewUTC(req.Timestamp)
+	ts := persis.NewUTC(req.Timestamp)
 
 	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -289,7 +290,7 @@ func (store *Store) CreateAttempt(ctx context.Context, req dagrun.CreateAttemptR
 	return attempt, nil
 }
 
-func (store *Store) newChildAttempt(ctx context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (store *Store) newChildAttempt(ctx context.Context, req persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	dataRoot := NewDataRoot(store.baseDir, req.RootDAGRun.Name)
 	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -307,7 +308,7 @@ func (store *Store) newChildAttempt(ctx context.Context, req dagrun.CreateAttemp
 		return nil, fmt.Errorf("failed to find root execution: %w", err)
 	}
 
-	ts := dagrun.NewUTC(req.Timestamp)
+	ts := persis.NewUTC(req.Timestamp)
 
 	var run *DAGRun
 	if req.Retry {
@@ -361,7 +362,7 @@ func (store *Store) RecentStatuses(ctx context.Context, dagName string, itemLimi
 }
 
 // LatestAttempt returns the newest visible attempt matching the query.
-func (store *Store) LatestAttempt(ctx context.Context, query dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
+func (store *Store) LatestAttempt(ctx context.Context, query persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {
 	root := NewDataRoot(store.baseDir, query.Name)
 
 	if !query.NotBefore.IsZero() {
@@ -383,7 +384,7 @@ func (store *Store) LatestAttempt(ctx context.Context, query dagrun.LatestAttemp
 		return attempt, err
 	}
 
-	if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, dagrun.TimeInUTC{}); err == nil {
+	if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, persis.TimeInUTC{}); err == nil {
 		return attempt, nil
 	}
 
@@ -429,7 +430,7 @@ func (store *Store) FindSubAttempt(ctx context.Context, ref ir.DAGRunRef, subDAG
 }
 
 // RemoveOldDAGRuns removes final runs outside a normalized retention policy.
-func (store *Store) RemoveOldDAGRuns(ctx context.Context, req dagrun.RetentionRequest) ([]ir.DAGRunRef, error) {
+func (store *Store) RemoveOldDAGRuns(ctx context.Context, req persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
 	root := NewDataRootWithArtifactDir(store.baseDir, req.Name, store.artifactDir)
 	var (
 		ids []string
@@ -448,7 +449,7 @@ func (store *Store) RemoveOldDAGRuns(ctx context.Context, req dagrun.RetentionRe
 }
 
 // RemoveDAGRun removes a DAG run and all of its attempts.
-func (store *Store) RemoveDAGRun(ctx context.Context, req dagrun.RemoveDAGRunRequest) error {
+func (store *Store) RemoveDAGRun(ctx context.Context, req persis.DAGRunRemoveRequest) error {
 	dagRun := req.DAGRun
 	root := NewDataRootWithArtifactDir(store.baseDir, dagRun.Name, store.artifactDir)
 	if err := root.Lock(ctx); err != nil {

@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/stretchr/testify/require"
@@ -142,7 +142,7 @@ func CreateStaleLegacyProcFileWithAttempt(
 }
 
 // ReadRunStatus loads the persisted status for the given dag-run reference.
-func ReadRunStatus(ctx context.Context, t *testing.T, repository *dagrun.Repository, dagRun ir.DAGRunRef) *ir.DAGRunStatus {
+func ReadRunStatus(ctx context.Context, t *testing.T, repository *persis.DAGRunRepository, dagRun ir.DAGRunRef) *ir.DAGRunStatus {
 	t.Helper()
 
 	attempt, err := repository.FindAttempt(ctx, dagRun)

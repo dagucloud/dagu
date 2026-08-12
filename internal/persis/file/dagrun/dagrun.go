@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // Error definitions for directory structure validation
@@ -134,7 +135,7 @@ func newDAGRun(dir, artifactDir string) (*DAGRun, error) {
 // CreateAttempt creates a new Attempt for the dag-run with the given timestamp.
 // It creates a new Attempt directory and initializes a record within it.
 // If attemptID is provided, it uses that ID instead of generating a new one.
-func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fileutil.Cache[*ir.DAGRunStatus], attemptID string) (*Attempt, error) {
+func (dr DAGRun) CreateAttempt(_ context.Context, ts persis.TimeInUTC, cache *fileutil.Cache[*ir.DAGRunStatus], attemptID string) (*Attempt, error) {
 	attID := attemptID
 	if attID == "" {
 		var err error
@@ -490,7 +491,7 @@ func (dr DAGRun) validatedArtifactDir(dir string) (string, bool) {
 var reDAGRunDir = regexp.MustCompile(`^` + DAGRunDirPrefix + `(\d{8}_\d{6}Z)_(.*)$`)
 var reAttemptDir = regexp.MustCompile(`^(?:` + regexp.QuoteMeta(AttemptDirPrefix) + `|` + regexp.QuoteMeta(LegacyAttemptDirPrefix) + `)(\d{8}_\d{6}_\d{3}Z)_(.*)$`)
 
-func attemptDirName(ts dagrun.TimeInUTC, attemptID string) string {
+func attemptDirName(ts persis.TimeInUTC, attemptID string) string {
 	return AttemptDirPrefix + formatAttemptTimestamp(ts) + "_" + attemptID
 }
 
@@ -538,7 +539,7 @@ func subDAGRunIDFromDir(parentDirName, dirName string) (string, bool) {
 // formatDAGRunTimestamp formats a models.TimeInUTC instance into a string representation (without milliseconds).
 // The format is "YYYYMMDD_HHMMSSZ".
 // This is used for generating 'run' directory names.
-func formatDAGRunTimestamp(t dagrun.TimeInUTC) string {
+func formatDAGRunTimestamp(t persis.TimeInUTC) string {
 	return t.Format(dateTimeFormatUTC)
 }
 
@@ -557,7 +558,7 @@ const dateTimeFormatUTC = "20060102_150405Z"
 
 // formatAttemptTimestamp formats a models.TimeInUTC instance into a string representation with milliseconds.
 // The format is "YYYYMMDD_HHMMSS_mmmZ" where "mmm" is the milliseconds part.
-func formatAttemptTimestamp(t dagrun.TimeInUTC) string {
+func formatAttemptTimestamp(t persis.TimeInUTC) string {
 	const format = "20060102_150405"
 	mill := t.UnixMilli()
 	return t.Format(format) + "_" + fmt.Sprintf("%03d", mill%1000) + "Z"

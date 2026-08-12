@@ -143,7 +143,7 @@ func newCoordinator(
 	ctx *Context,
 	cfg *config.Config,
 	registry serviceregistry.ServiceRegistry,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	stateStore dagrun.StateStore,
 	dispatchTaskStore dispatch.DispatchTaskStore,
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore,

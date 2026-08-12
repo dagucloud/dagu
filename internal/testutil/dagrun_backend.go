@@ -8,14 +8,15 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-var _ dagrun.Store = DAGRunBackendStub{}
+var _ persis.DAGRunStore = DAGRunBackendStub{}
 
 // DAGRunBackendStub fails when a test calls a backend method it did not override.
 type DAGRunBackendStub struct{}
 
-func (DAGRunBackendStub) CreateAttempt(context.Context, dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (DAGRunBackendStub) CreateAttempt(context.Context, persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	panic("unexpected DAG-run backend call: CreateAttempt")
 }
 
@@ -23,17 +24,17 @@ func (DAGRunBackendStub) RecentStatuses(context.Context, string, int) ([]ir.DAGR
 	panic("unexpected DAG-run backend call: RecentStatuses")
 }
 
-func (DAGRunBackendStub) LatestAttempt(context.Context, dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
+func (DAGRunBackendStub) LatestAttempt(context.Context, persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {
 	panic("unexpected DAG-run backend call: LatestAttempt")
 }
 
-func (DAGRunBackendStub) QueryStatuses(context.Context, dagrun.StatusQuery) (dagrun.StatusPage, error) {
+func (DAGRunBackendStub) QueryStatuses(context.Context, persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	panic("unexpected DAG-run backend call: QueryStatuses")
 }
 
 func (DAGRunBackendStub) CompareAndSwapLatestAttemptStatus(
 	context.Context,
-	dagrun.CompareAndSwapStatusRequest,
+	persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	panic("unexpected DAG-run backend call: CompareAndSwapLatestAttemptStatus")
 }
@@ -46,10 +47,10 @@ func (DAGRunBackendStub) FindSubAttempt(context.Context, ir.DAGRunRef, string) (
 	panic("unexpected DAG-run backend call: FindSubAttempt")
 }
 
-func (DAGRunBackendStub) RemoveOldDAGRuns(context.Context, dagrun.RetentionRequest) ([]ir.DAGRunRef, error) {
+func (DAGRunBackendStub) RemoveOldDAGRuns(context.Context, persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
 	panic("unexpected DAG-run backend call: RemoveOldDAGRuns")
 }
 
-func (DAGRunBackendStub) RemoveDAGRun(context.Context, dagrun.RemoveDAGRunRequest) error {
+func (DAGRunBackendStub) RemoveDAGRun(context.Context, persis.DAGRunRemoveRequest) error {
 	panic("unexpected DAG-run backend call: RemoveDAGRun")
 }

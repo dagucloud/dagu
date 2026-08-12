@@ -60,7 +60,7 @@ func TestDispatchBindErrorCode(t *testing.T) {
 
 type mockDAGRunBackend struct {
 	testutil.DAGRunBackendStub
-	repository          *dagrun.Repository
+	repository          *persis.DAGRunRepository
 	attempts            map[string]*mockAttempt
 	subAttempts         map[string]*mockAttempt // key: rootID:subID
 	findAttemptErr      error
@@ -77,7 +77,7 @@ func newMockDAGRunBackend() *mockDAGRunBackend {
 		attempts:    make(map[string]*mockAttempt),
 		subAttempts: make(map[string]*mockAttempt),
 	}
-	backend.repository = dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{})
+	backend.repository = persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
 	return backend
 }
 
@@ -137,7 +137,7 @@ func (m *mockDAGRunBackend) FindAttempt(_ context.Context, dagRun ir.DAGRunRef) 
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 
-func (m *mockDAGRunBackend) CreateAttempt(_ context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (m *mockDAGRunBackend) CreateAttempt(_ context.Context, req persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !req.RootDAGRun.Zero() {
@@ -167,12 +167,12 @@ func (m *mockDAGRunBackend) CreateAttempt(_ context.Context, req dagrun.CreateAt
 func (m *mockDAGRunBackend) RecentStatuses(_ context.Context, _ string, _ int) ([]ir.DAGRunStatus, error) {
 	return nil, nil
 }
-func (m *mockDAGRunBackend) LatestAttempt(_ context.Context, _ dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
+func (m *mockDAGRunBackend) LatestAttempt(_ context.Context, _ persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
-func (m *mockDAGRunBackend) QueryStatuses(ctx context.Context, options dagrun.StatusQuery) (dagrun.StatusPage, error) {
+func (m *mockDAGRunBackend) QueryStatuses(ctx context.Context, options persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	if err := ctx.Err(); err != nil {
-		return dagrun.StatusPage{}, err
+		return persis.DAGRunStatusPage{}, err
 	}
 
 	statusFilter := make(map[ir.Status]struct{}, len(options.Statuses))
@@ -215,7 +215,7 @@ func (m *mockDAGRunBackend) QueryStatuses(ctx context.Context, options dagrun.St
 		appendStatus(attempt.status)
 	}
 
-	return dagrun.StatusPage{Items: statuses}, nil
+	return persis.DAGRunStatusPage{Items: statuses}, nil
 }
 
 func (m *mockDAGRunBackend) ListStatusesCallCount() int {
@@ -232,7 +232,7 @@ func (m *mockDAGRunBackend) CompareAndSwapCallCount() int {
 
 func (m *mockDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	req dagrun.CompareAndSwapStatusRequest,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
@@ -285,10 +285,10 @@ func (m *mockDAGRunBackend) FindSubAttempt(_ context.Context, rootRef ir.DAGRunR
 	}
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
-func (m *mockDAGRunBackend) RemoveOldDAGRuns(_ context.Context, _ dagrun.RetentionRequest) ([]ir.DAGRunRef, error) {
+func (m *mockDAGRunBackend) RemoveOldDAGRuns(_ context.Context, _ persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
 	return nil, nil
 }
-func (m *mockDAGRunBackend) RemoveDAGRun(_ context.Context, _ dagrun.RemoveDAGRunRequest) error {
+func (m *mockDAGRunBackend) RemoveDAGRun(_ context.Context, _ persis.DAGRunRemoveRequest) error {
 	return nil
 }
 
@@ -899,7 +899,7 @@ func TestHandler_Poll(t *testing.T) {
 			LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 		}))
 
-		repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+		repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 		h := NewHandler(HandlerConfig{
 			DAGRunRepository:     repository,
 			DispatchTaskStore:    &failingDispatchTaskStore{enqueueErr: errors.New("disk full")},

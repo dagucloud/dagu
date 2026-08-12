@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -76,7 +77,7 @@ func (e *ResumeError) Unwrap() error { return e.Err }
 
 // Service completes human tasks and queues recoverable retries.
 type Service struct {
-	DAGRunRepository *dagrun.Repository
+	DAGRunRepository *persis.DAGRunRepository
 	QueueStore       queue.QueueStore
 	ProcStore        proc.ProcStore
 	Now              func() time.Time

@@ -11,8 +11,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -35,7 +35,7 @@ type dagRetryMetadata struct {
 // RetryScanner periodically discovers failed latest attempts and enqueues
 // DAG-level retries once their backoff has elapsed.
 type RetryScanner struct {
-	dagRunRepository *dagrun.Repository
+	dagRunRepository *persis.DAGRunRepository
 	queueStore       queuedomain.QueueStore
 	isSuspended      IsSuspendedFunc
 	retryWindow      time.Duration
@@ -43,7 +43,7 @@ type RetryScanner struct {
 }
 
 func NewRetryScanner(
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
 	isSuspended IsSuspendedFunc,
 	retryWindow time.Duration,
@@ -90,7 +90,7 @@ func (s *RetryScanner) Start(ctx context.Context) {
 
 func (s *RetryScanner) scan(ctx context.Context) error {
 	now := s.clock().UTC()
-	from := dagrun.NewUTC(now.Add(-s.retryWindow))
+	from := persis.NewUTC(now.Add(-s.retryWindow))
 
 	failedRuns, err := s.listFailedRuns(ctx, from)
 	if err != nil {
@@ -112,7 +112,7 @@ func (s *RetryScanner) scan(ctx context.Context) error {
 	return nil
 }
 
-func (s *RetryScanner) listFailedRuns(ctx context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
+func (s *RetryScanner) listFailedRuns(ctx context.Context, from persis.TimeInUTC) ([]*ir.DAGRunStatus, error) {
 	return s.dagRunRepository.ListRetryCandidates(ctx, from)
 }
 

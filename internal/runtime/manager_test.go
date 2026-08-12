@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	procctrl "github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
@@ -81,7 +82,7 @@ func TestManager(t *testing.T) {
 `)
 		ctx := th.Context
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(ctx))
 		require.NoError(t, attempt.Write(ctx, testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)))
@@ -151,7 +152,7 @@ func TestManager(t *testing.T) {
 		cli := th.DAGRunMgr
 
 		// Open the Attempt data and write a status before updating it.
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = att.Open(ctx)
@@ -344,7 +345,7 @@ steps:
 		attempt := new(testutil.MockAttempt)
 		attempt.On("ReadStatus", ctx).Return(nil, nil).Once()
 		store := &managerDAGRunBackend{subAttempt: attempt}
-		repository := dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})
+		repository := persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})
 		mgr := runtime.NewManager(repository, th.ProcStore, th.Config)
 
 		status, err := mgr.FindSubDAGRunStatus(ctx, ir.NewDAGRunRef("root", "root-run"), "child-run")
@@ -379,7 +380,7 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -411,7 +412,7 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -439,7 +440,7 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -486,7 +487,7 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -526,7 +527,7 @@ steps:
 		ctx := th.Context
 		ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -560,7 +561,7 @@ steps:
 			runtime.WithManagerClock(func() time.Time { return statusTime }),
 		)
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -598,7 +599,7 @@ steps:
 			runtime.WithManagerClock(func() time.Time { return statusTime }),
 		)
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -624,7 +625,7 @@ steps:
 		ctx := th.Context
 		ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -652,7 +653,7 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -682,7 +683,7 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -712,7 +713,7 @@ steps:
 		now := time.Now()
 		ctx := th.Context
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -739,7 +740,7 @@ steps:
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		attemptID := "attempt-no-socket"
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{
 			AttemptID: attemptID,
 		})
 		require.NoError(t, err)
@@ -822,7 +823,7 @@ steps:
 			runtime.WithManagerClock(func() time.Time { return time.Now() }),
 		)
 
-		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, startedAt, dagRunID, dagrun.CreateAttemptOptions{})
+		att, err := th.DAGRunRepository.CreateAttempt(ctx, dag.DAG, startedAt, dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, att.Open(ctx))
 
@@ -859,7 +860,7 @@ func createRunningSubAttempt(
 	ctx := th.Context
 	rootRef := ir.NewDAGRunRef(rootDAG.Name, rootRunID)
 
-	rootAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, dagrun.CreateAttemptOptions{})
+	rootAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, rootAttempt.Open(ctx))
 	rootStatus := testNewStatus(rootDAG, rootRunID, ir.Running, ir.NodeRunning)
@@ -868,7 +869,7 @@ func createRunningSubAttempt(
 	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
 	require.NoError(t, rootAttempt.Close(ctx))
 
-	childAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, childDAG, time.Now(), childRunID, dagrun.CreateAttemptOptions{
+	childAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, childDAG, time.Now(), childRunID, persis.DAGRunCreateAttemptOptions{
 		RootDAGRun: rootRef,
 	})
 	require.NoError(t, err)

@@ -6,8 +6,8 @@ package file
 import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 )
 
@@ -34,7 +34,7 @@ func WithDAGRunLatestStatusToday(latestStatusToday bool) DAGRunRepositoryOption 
 }
 
 // NewDAGRunRepository connects file storage to the shared DAG-run repository.
-func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *dagrun.Repository {
+func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *persis.DAGRunRepository {
 	options := dagRunRepositoryOptions{
 		LatestStatusToday: cfg.Server.LatestStatusToday,
 	}
@@ -52,7 +52,7 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *da
 	}
 	store := filedagrun.NewStore(cfg.Paths.DAGRunsDir, storeOpts...)
 	workspaces := filedagrun.NewDAGRunWorkspaceStore(cfg.Paths.DAGRunsDir)
-	return dagrun.NewRepository(store, workspaces, dagrun.RepositoryOptions{
+	return persis.NewDAGRunRepository(store, workspaces, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
 		Location:          cfg.Core.Location,
 	})

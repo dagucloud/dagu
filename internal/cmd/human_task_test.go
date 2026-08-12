@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -350,7 +351,7 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		ctx: &Context{
 			Context:          t.Context(),
 			Command:          command,
-			DAGRunRepository: dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{}),
+			DAGRunRepository: persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 			QueueStore:       queue,
 			ProcStore:        humanTaskCompletionProcStore{},
 		},
@@ -427,7 +428,7 @@ func (s *humanTaskCompletionStore) FindAttempt(context.Context, ir.DAGRunRef) (d
 
 func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	req dagrun.CompareAndSwapStatusRequest,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	if s.beforeMutate != nil {
 		s.beforeMutate()

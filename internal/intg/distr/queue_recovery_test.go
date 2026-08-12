@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/stretchr/testify/require"
 )
 
@@ -244,9 +244,7 @@ func requireAllQueuedRunsConsumed(t *testing.T, f *testFixture, expectedRuns int
 
 func dagRunStatusCounts(f *testFixture) (map[ir.Status]int, int, error) {
 	statuses, err := f.coord.DAGRunRepository.ListStatuses(
-		f.coord.Context,
-		dagrun.WithExactName(f.dagWrapper.Name),
-		dagrun.WithoutLimit(),
+		f.coord.Context, persis.DAGRunListOptions{ExactName: f.dagWrapper.Name, Unbounded: true},
 	)
 	if err != nil {
 		return nil, 0, err

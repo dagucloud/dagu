@@ -14,9 +14,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newStartupTestDispatcher(dagRunRepository *dagrun.Repository, procStore procdomain.ProcStore, cfg BackoffConfig) *queueDispatcher {
+func newStartupTestDispatcher(dagRunRepository *persis.DAGRunRepository, procStore procdomain.ProcStore, cfg BackoffConfig) *queueDispatcher {
 	return newQueueDispatcher(queueDispatchDeps{
 		dagRunRepository: dagRunRepository,
 		procStore:        procStore,

@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -331,7 +332,7 @@ func TestEnqueueRetry(t *testing.T) {
 				tt.setupQueue(qs)
 			}
 
-			repository := dagrun.NewRepository(tt.backend, nil, dagrun.RepositoryOptions{})
+			repository := persis.NewDAGRunRepository(tt.backend, nil, persis.DAGRunRepositoryOptions{})
 			queued, err := queue.EnqueueRetry(ctx, repository, qs, tt.dag, tt.status, tt.opts)
 			if tt.wantErr != "" {
 				require.Error(t, err)
@@ -364,7 +365,7 @@ type stubDAGRunBackend struct {
 
 func (s *stubDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	req dagrun.CompareAndSwapStatusRequest,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	s.casCalls++
 	if s.casCalls == 1 && s.firstErr != nil {

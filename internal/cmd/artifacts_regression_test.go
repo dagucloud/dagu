@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +42,7 @@ func TestNewContext_DAGRunRepositoryUsesConfiguredArtifactDirForCleanup(t *testi
 	}
 	const dagRunID = "run-cleanup-1"
 
-	attempt, err := ctx.DAGRunRepository.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := ctx.DAGRunRepository.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx.Context))
 
@@ -59,7 +59,7 @@ func TestNewContext_DAGRunRepositoryUsesConfiguredArtifactDirForCleanup(t *testi
 
 	require.DirExists(t, archiveDir)
 
-	err = ctx.DAGRunRepository.RemoveDAGRun(ctx.Context, ir.NewDAGRunRef(dag.Name, dagRunID))
+	err = ctx.DAGRunRepository.RemoveDAGRun(ctx.Context, ir.NewDAGRunRef(dag.Name, dagRunID), persis.DAGRunRemoveOptions{})
 	require.NoError(t, err)
 	assert.NoDirExists(t, archiveDir)
 }

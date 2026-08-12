@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -483,7 +484,7 @@ func createTempDir(t *testing.T) string {
 	attemptID, err := genAttemptID()
 	require.NoError(t, err)
 
-	dir, err := os.MkdirTemp("", attemptDirName(dagrun.NewUTC(time.Now()), attemptID))
+	dir, err := os.MkdirTemp("", attemptDirName(persis.NewUTC(time.Now()), attemptID))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = os.RemoveAll(dir)
@@ -748,7 +749,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-messages")
 
-		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		messages := []ir.LLMMessage{
@@ -772,7 +773,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-empty-messages")
 
-		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = att.WriteStepMessages(ctx, "step1", []ir.LLMMessage{})
@@ -788,7 +789,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-nonexistent-messages")
 
-		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		readMsgs, err := att.ReadStepMessages(ctx, "nonexistent-step")
@@ -800,7 +801,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-update-messages")
 
-		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		// Write initial messages
@@ -828,7 +829,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-multiple-steps")
 
-		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		// Write messages for step1
@@ -865,7 +866,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		dagRunID := "retry-run-1"
 
 		// First attempt writes messages
-		att1, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+		att1, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		step1Msgs := []ir.LLMMessage{
@@ -876,7 +877,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		require.NoError(t, err)
 
 		// Second attempt (retry) should be able to read the same messages
-		att2, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now().Add(time.Second), dagRunID, dagrun.CreateAttemptOptions{Retry: true})
+		att2, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now().Add(time.Second), dagRunID, persis.DAGRunCreateAttemptOptions{Retry: true})
 		require.NoError(t, err)
 
 		readMsgs, err := att2.ReadStepMessages(ctx, "step1")

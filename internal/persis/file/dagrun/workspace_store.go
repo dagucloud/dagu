@@ -14,9 +14,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-var _ dagrun.DAGRunWorkspaceStore = (*DAGRunWorkspaceStore)(nil)
+var _ persis.DAGRunWorkspaceStore = (*DAGRunWorkspaceStore)(nil)
 
 // DAGRunWorkspaceStore manages DAG-run workspaces in the local run directory tree.
 type DAGRunWorkspaceStore struct {

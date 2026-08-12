@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -36,7 +35,7 @@ type SchedulerConfig struct {
 	Context           context.Context
 	Config            *config.Config
 	DAGRepository     *persis.DAGRepository
-	DAGRunRepository  *dagrun.Repository
+	DAGRunRepository  *persis.DAGRunRepository
 	QueueStore        queue.QueueStore
 	ProcStore         proc.ProcStore
 	ServiceRegistry   serviceregistry.ServiceRegistry

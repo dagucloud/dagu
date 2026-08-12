@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -64,7 +65,7 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 	ctx := &Context{
 		Context:          th.Context,
 		Config:           th.Config,
-		DAGRunRepository: dagrun.NewRepository(runStore, nil, dagrun.RepositoryOptions{}),
+		DAGRunRepository: persis.NewDAGRunRepository(runStore, nil, persis.DAGRunRepositoryOptions{}),
 		QueueStore:       queueStore,
 	}
 
@@ -81,7 +82,7 @@ type enqueueTrackingDAGRunBackend struct {
 	attempt *enqueueTrackingAttempt
 }
 
-func (s *enqueueTrackingDAGRunBackend) CreateAttempt(context.Context, dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *enqueueTrackingDAGRunBackend) CreateAttempt(context.Context, persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	return s.attempt, nil
 }
 

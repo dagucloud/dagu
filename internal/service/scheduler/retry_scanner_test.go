@@ -12,6 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -686,7 +687,7 @@ type retryScannerStore struct {
 	attempts           map[string]*retryScannerAttempt
 	latestByName       map[string]*retryScannerAttempt
 	latestAttemptCalls int
-	listCalls          []dagrun.StatusQuery
+	listCalls          []persis.DAGRunStatusQuery
 	findAttemptCalls   int
 }
 
@@ -725,11 +726,11 @@ func newRetryScannerStoreWithEntries(entries ...retryScannerStoreEntry) *retrySc
 	return &retryScannerStore{attempts: attempts, latestByName: latestByName}
 }
 
-func (s *retryScannerStore) repository() *dagrun.Repository {
-	return dagrun.NewRepository(s, nil, dagrun.RepositoryOptions{})
+func (s *retryScannerStore) repository() *persis.DAGRunRepository {
+	return persis.NewDAGRunRepository(s, nil, persis.DAGRunRepositoryOptions{})
 }
 
-func (s *retryScannerStore) CreateAttempt(context.Context, dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *retryScannerStore) CreateAttempt(context.Context, persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	return nil, errors.New("unexpected CreateAttempt call")
 }
 
@@ -737,7 +738,7 @@ func (s *retryScannerStore) RecentStatuses(context.Context, string, int) ([]ir.D
 	return nil, nil
 }
 
-func (s *retryScannerStore) LatestAttempt(_ context.Context, query dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
+func (s *retryScannerStore) LatestAttempt(_ context.Context, query persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {
 	s.latestAttemptCalls++
 	attempt, ok := s.latestByName[query.Name]
 	if !ok {
@@ -746,7 +747,7 @@ func (s *retryScannerStore) LatestAttempt(_ context.Context, query dagrun.Latest
 	return attempt, nil
 }
 
-func (s *retryScannerStore) QueryStatuses(_ context.Context, cfg dagrun.StatusQuery) (dagrun.StatusPage, error) {
+func (s *retryScannerStore) QueryStatuses(_ context.Context, cfg persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	s.listCalls = append(s.listCalls, cfg)
 
 	var ret []*ir.DAGRunStatus
@@ -763,12 +764,12 @@ func (s *retryScannerStore) QueryStatuses(_ context.Context, cfg dagrun.StatusQu
 		}
 		ret = append(ret, cloneRetryStatus(status))
 	}
-	return dagrun.StatusPage{Items: ret}, nil
+	return persis.DAGRunStatusPage{Items: ret}, nil
 }
 
 func (s *retryScannerStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	req dagrun.CompareAndSwapStatusRequest,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	attempt, ok := s.attempts[req.DAGRun.String()]
 	if !ok {

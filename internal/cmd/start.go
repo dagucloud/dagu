@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -297,7 +298,7 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 				}
 				return attempt, nil
 			}
-			return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+			return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		},
 		func(preparedAttempt dagrun.Attempt) error {
 			run := opts
@@ -475,7 +476,7 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 			dagRunID,
 			opts,
 			func(execCtx context.Context) (dagrun.Attempt, error) {
-				return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{
+				return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{
 					RootDAGRun: opts.root,
 				})
 			},
@@ -511,7 +512,7 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 				subAttempt.SetDAG(dag)
 				return subAttempt, nil
 			}
-			return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{
+			return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{
 				Retry:      true,
 				RootDAGRun: opts.root,
 			})

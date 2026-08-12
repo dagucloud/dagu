@@ -17,7 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -42,7 +41,7 @@ type Collector struct {
 	startTime            time.Time
 	version              string
 	dagRepository        dagLister
-	dagRunRepository     *dagrun.Repository
+	dagRunRepository     *persis.DAGRunRepository
 	queueStore           queue.QueueStore
 	serviceRegistry      serviceregistry.ServiceRegistry
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore
@@ -88,7 +87,7 @@ type dagLister interface {
 func NewCollector(
 	version string,
 	dagRepository dagLister,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore queue.QueueStore,
 	serviceRegistry serviceregistry.ServiceRegistry,
 ) *Collector {
@@ -348,7 +347,7 @@ func (c *Collector) collectCacheMetrics(ch chan<- prometheus.Metric) {
 func (c *Collector) collectDAGRunMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
 	// Get all DAG run statuses
 	// NOTE: ListStatuses by default returns only today's data (from midnight)
-	statuses, err := c.dagRunRepository.ListStatuses(ctx)
+	statuses, err := c.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{})
 	if err != nil {
 		return
 	}

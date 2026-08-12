@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // DAGRunNotQueuedError reports that the latest visible attempt is no longer queued.
@@ -30,7 +31,7 @@ func (e *DAGRunNotQueuedError) Error() string {
 
 // AbortQueuedDAGRun marks the latest visible queued attempt as aborted, hides it,
 // and removes the dag-run record only when no visible attempts remain.
-func AbortQueuedDAGRun(ctx context.Context, dagRunRepository *dagrun.Repository, dagRun ir.DAGRunRef) error {
+func AbortQueuedDAGRun(ctx context.Context, dagRunRepository *persis.DAGRunRepository, dagRun ir.DAGRunRef) error {
 	attempt, err := dagRunRepository.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return err
@@ -58,7 +59,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunRepository *dagrun.Repository,
 			latest.PIDStartedAt = 0
 			latest.LeaseAt = 0
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if err != nil {
 		return err
@@ -79,7 +80,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunRepository *dagrun.Repository,
 
 	_, err = dagRunRepository.FindAttempt(ctx, dagRun)
 	if errors.Is(err, dagrun.ErrNoStatusData) {
-		if err := dagRunRepository.RemoveDAGRun(ctx, dagRun); err != nil {
+		if err := dagRunRepository.RemoveDAGRun(ctx, dagRun, persis.DAGRunRemoveOptions{}); err != nil {
 			return fmt.Errorf("remove empty dag-run record: %w", err)
 		}
 		return nil

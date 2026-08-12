@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
@@ -39,13 +40,13 @@ func WithManagerClock(now func() time.Time) ManagerOption {
 // WithLatestStatusAllHistory makes latest-status lookups search all retained runs.
 func WithLatestStatusAllHistory() ManagerOption {
 	return func(m *Manager) {
-		m.latestAttemptOptions = []dagrun.LatestAttemptOption{dagrun.WithLatestAttemptAllHistory()}
+		m.latestAttemptOptions.AllHistory = true
 	}
 }
 
 // NewManager creates a new Manager instance.
 // The Manager is used to interact with the DAG.
-func NewManager(dagRunRepository *dagrun.Repository, ps proc.ProcStore, cfg *config.Config, opts ...ManagerOption) Manager {
+func NewManager(dagRunRepository *persis.DAGRunRepository, ps proc.ProcStore, cfg *config.Config, opts ...ManagerOption) Manager {
 	m := Manager{
 		dagRunRepository: dagRunRepository,
 		procStore:        ps,
@@ -62,11 +63,11 @@ func NewManager(dagRunRepository *dagrun.Repository, ps proc.ProcStore, cfg *con
 // restarting, and retrieving status information. It communicates with the DAG
 // through a socket interface and manages dag-run data.
 type Manager struct {
-	dagRunRepository     *dagrun.Repository      // Repository for persisted run data
-	procStore            proc.ProcStore          // Store interface for process management
-	subCmdBuilder        *launcher.SubCmdBuilder // Command builder for constructing command specs
+	dagRunRepository     *persis.DAGRunRepository // Repository for persisted run data
+	procStore            proc.ProcStore           // Store interface for process management
+	subCmdBuilder        *launcher.SubCmdBuilder  // Command builder for constructing command specs
 	nowFunc              func() time.Time
-	latestAttemptOptions []dagrun.LatestAttemptOption
+	latestAttemptOptions persis.DAGRunLatestAttemptOptions
 }
 
 // Stop stops running DAG-runs and can cancel an explicit failed DAG-run that is
@@ -159,7 +160,7 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 	if findErr == nil {
 		status, statusErr := run.ReadStatus(ctx)
 		if statusErr == nil && dagrun.CanCancelFailedAutoRetryPendingRun(status) {
-			if err := dagrun.CancelFailedAutoRetryPendingRun(ctx, m.dagRunRepository, status); err != nil {
+			if err := m.dagRunRepository.CancelFailedAutoRetryPendingRun(ctx, status); err != nil {
 				return fmt.Errorf("failed to cancel pending auto-retry for dag-run %s: %w", dagRunID, err)
 			}
 			logger.Info(ctx, "Canceled pending auto-retry for failed DAG run")
@@ -433,7 +434,7 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunSt
 	}
 
 	// Find the latest status by name
-	attempt, err := m.dagRunRepository.LatestAttempt(ctx, dag.Name, m.latestAttemptOptions...)
+	attempt, err := m.dagRunRepository.LatestAttempt(ctx, dag.Name, m.latestAttemptOptions)
 	if err != nil {
 		// If the latest status is not found, return the default status
 		ret := ir.InitialStatus(dag)

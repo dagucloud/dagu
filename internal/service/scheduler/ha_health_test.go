@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -62,7 +62,7 @@ func TestScheduler_StandbyHealthServerStartsBeforeLockAndStopsCleanly(t *testing
 
 type haSchedulerFixture struct {
 	cfg              *config.Config
-	dagRunRepository *dagrun.Repository
+	dagRunRepository *persis.DAGRunRepository
 	queueStore       queuedomain.QueueStore
 	procStore        procdomain.ProcStore
 	dagRunMgr        runtime.Manager
@@ -100,7 +100,7 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 
 	dagRunRepository := testutil.NewFileDAGRunRepository(
 		cfg.Paths.DAGRunsDir,
-		dagrun.RepositoryOptions{LatestStatusToday: true},
+		persis.DAGRunRepositoryOptions{LatestStatusToday: true},
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
 	)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))

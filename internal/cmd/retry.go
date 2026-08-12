@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -166,7 +167,7 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	if subDAGRunID != "" {
 		var targetStatus *ir.DAGRunStatus
-		retryPath, targetStatus, err = dagrun.ResolveRetryPath(ctx, ctx.DAGRunRepository, ref, subDAGRunID, stepName)
+		retryPath, targetStatus, err = ctx.DAGRunRepository.ResolveRetryPath(ctx, ref, subDAGRunID, stepName)
 		if err != nil {
 			return err
 		}
@@ -266,7 +267,7 @@ func runRetry(ctx *Context, args []string) error {
 						return queuedAttempt, nil
 					}
 				}
-				opts := dagrun.CreateAttemptOptions{Retry: true}
+				opts := persis.DAGRunCreateAttemptOptions{Retry: true}
 				if !rootRun.Zero() && rootRun.ID != dagRunID {
 					opts.RootDAGRun = rootRun
 				}
@@ -311,7 +312,7 @@ func runRetry(ctx *Context, args []string) error {
 
 func restoreRetryExecutionContext(
 	ctx context.Context,
-	repository *dagrun.Repository,
+	repository *persis.DAGRunRepository,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 	workspaceRef dagrun.DAGRunWorkspaceRef,
@@ -362,7 +363,7 @@ func applyRetryDefaultWorkingDir(ctx *Context, dag *ir.DAG, status *ir.DAGRunSta
 
 func backfillMissingRunWorkingDirSnapshot(
 	ctx context.Context,
-	repository *dagrun.Repository,
+	repository *persis.DAGRunRepository,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 	workspaceRef dagrun.DAGRunWorkspaceRef,
@@ -406,7 +407,7 @@ func queueDispatchRetryRequested() bool {
 
 func ensureQueueDispatchRetryTarget(
 	ctx context.Context,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	ref ir.DAGRunRef,
 	rootRun ir.DAGRunRef,
 ) error {
@@ -416,7 +417,7 @@ func ensureQueueDispatchRetryTarget(
 
 func queueDispatchRetryAttempt(
 	ctx context.Context,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	ref ir.DAGRunRef,
 	rootRun ir.DAGRunRef,
 	expectedAttemptID string,
@@ -427,7 +428,7 @@ func queueDispatchRetryAttempt(
 
 func queueDispatchRetryTarget(
 	ctx context.Context,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	ref ir.DAGRunRef,
 	rootRun ir.DAGRunRef,
 	expectedAttemptID string,
@@ -473,7 +474,7 @@ func normalizeQueueDispatchRetryLookupError(err error) error {
 
 func findRetryAttempt(
 	ctx context.Context,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	ref ir.DAGRunRef,
 	rootRun ir.DAGRunRef,
 ) (dagrun.Attempt, error) {

@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -419,7 +420,7 @@ func (f *testFixture) enqueueDirect() error {
 	dagCopy := f.dagWrapper.Clone()
 	dagCopy.Location = ""
 
-	att, err := f.coord.DAGRunRepository.CreateAttempt(f.coord.Context, dagCopy, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	att, err := f.coord.DAGRunRepository.CreateAttempt(f.coord.Context, dagCopy, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	if err != nil {
 		return err
 	}
@@ -604,7 +605,7 @@ func (f *testFixture) latestStatus() (ir.DAGRunStatus, error) {
 func (f *testFixture) latestStoredStatus() (ir.DAGRunStatus, error) {
 	repository := file.NewDAGRunRepository(f.coord.Config)
 
-	attempt, err := repository.LatestAttempt(f.coord.Context, f.dagWrapper.Name)
+	attempt, err := repository.LatestAttempt(f.coord.Context, f.dagWrapper.Name, persis.DAGRunLatestAttemptOptions{})
 	if err != nil {
 		return ir.DAGRunStatus{}, err
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
@@ -32,7 +33,7 @@ func panicToError(r any) error {
 
 // ZombieDetector finds and cleans up zombie DAG runs
 type ZombieDetector struct {
-	dagRunRepository *dagrun.Repository
+	dagRunRepository *persis.DAGRunRepository
 	procStore        proc.ProcStore
 	interval         time.Duration
 	failureThreshold int
@@ -45,7 +46,7 @@ type ZombieDetector struct {
 
 // NewZombieDetector creates a new zombie detector
 func NewZombieDetector(
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	procStore proc.ProcStore,
 	interval time.Duration,
 	failureThreshold int,

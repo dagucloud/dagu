@@ -105,7 +105,7 @@ func waitForStoredDAGRunStatus(
 		// retry/resume attempt created after polling starts.
 		repository := testutil.NewFileDAGRunRepository(
 			server.Config.Paths.DAGRunsDir,
-			dagrun.RepositoryOptions{
+			persis.DAGRunRepositoryOptions{
 				LatestStatusToday: server.Config.Server.LatestStatusToday,
 				Location:          server.Config.Core.Location,
 			},
@@ -139,7 +139,7 @@ func waitForStoredSubDAGRunStatus(
 	require.Eventually(t, func() bool {
 		repository := testutil.NewFileDAGRunRepository(
 			server.Config.Paths.DAGRunsDir,
-			dagrun.RepositoryOptions{
+			persis.DAGRunRepositoryOptions{
 				LatestStatusToday: server.Config.Server.LatestStatusToday,
 				Location:          server.Config.Core.Location,
 			},
@@ -2161,7 +2161,7 @@ func seedLatestDAGRunStatus(
 		dag,
 		time.Now().Add(-2*time.Minute),
 		dagRunID,
-		dagrun.CreateAttemptOptions{},
+		persis.DAGRunCreateAttemptOptions{},
 	)
 	require.NoError(t, err)
 

@@ -921,7 +921,7 @@ func (a *API) GetDAGDAGRunDetails(ctx context.Context, request api.GetDAGDAGRunD
 	}
 
 	if dagRunId == "latest" {
-		attempt, err := a.dagRunRepository.LatestAttempt(ctx, dag.Name)
+		attempt, err := a.dagRunRepository.LatestAttempt(ctx, dag.Name, persis.DAGRunLatestAttemptOptions{})
 		if err != nil {
 			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 				return nil, &Error{
@@ -1880,10 +1880,7 @@ func (a *API) StopAllDAGRuns(ctx context.Context, request api.StopAllDAGRunsRequ
 	}
 
 	// Get all running DAG-runs for this DAG
-	runningStatuses, err := a.dagRunRepository.ListStatuses(ctx,
-		dagrun.WithExactName(dag.Name),
-		dagrun.WithStatuses([]ir.Status{ir.Running}),
-	)
+	runningStatuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{ExactName: dag.Name, Statuses: []ir.Status{ir.Running}})
 	if err != nil {
 		return nil, fmt.Errorf("error listing running DAG-runs: %w", err)
 	}

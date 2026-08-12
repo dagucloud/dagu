@@ -12,7 +12,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // queryCursorVersion 3 binds cursors to workspace visibility filters.
@@ -26,7 +26,7 @@ type queryCursorPayload struct {
 	DAGRunID   string `json:"r"`
 }
 
-func encodeQueryCursor(opts dagrun.StatusQuery, key dagRunListKey) (string, error) {
+func encodeQueryCursor(opts persis.DAGRunStatusQuery, key dagRunListKey) (string, error) {
 	payload := queryCursorPayload{
 		Version:    queryCursorVersion,
 		FilterHash: queryFilterHash(opts),
@@ -41,7 +41,7 @@ func encodeQueryCursor(opts dagrun.StatusQuery, key dagRunListKey) (string, erro
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
-func decodeQueryCursor(cursor string, opts dagrun.StatusQuery) (dagRunListKey, error) {
+func decodeQueryCursor(cursor string, opts persis.DAGRunStatusQuery) (dagRunListKey, error) {
 	if cursor == "" {
 		return dagRunListKey{}, nil
 	}
@@ -77,7 +77,7 @@ func decodeQueryCursor(cursor string, opts dagrun.StatusQuery) (dagRunListKey, e
 	}, nil
 }
 
-func queryFilterHash(opts dagrun.StatusQuery) string {
+func queryFilterHash(opts persis.DAGRunStatusQuery) string {
 	statuses := make([]int, 0, len(opts.Statuses))
 	for _, status := range opts.Statuses {
 		statuses = append(statuses, int(status))
@@ -130,5 +130,5 @@ func queryFilterHash(opts dagrun.StatusQuery) string {
 }
 
 func invalidQueryCursor(reason string) error {
-	return fmt.Errorf("%w: %s", dagrun.ErrInvalidQueryCursor, reason)
+	return fmt.Errorf("%w: %s", persis.ErrInvalidDAGRunQueryCursor, reason)
 }

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -20,11 +20,11 @@ type retryCandidateDAGRunBackend struct {
 	testutil.DAGRunBackendStub
 
 	candidateCalls int
-	candidateFrom  dagrun.TimeInUTC
+	candidateFrom  persis.TimeInUTC
 	listCalls      int
 }
 
-func (s *retryCandidateDAGRunBackend) ListRetryCandidates(_ context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
+func (s *retryCandidateDAGRunBackend) ListRetryCandidates(_ context.Context, from persis.TimeInUTC) ([]*ir.DAGRunStatus, error) {
 	s.candidateCalls++
 	s.candidateFrom = from
 	return nil, nil
@@ -34,13 +34,13 @@ type fallbackRetryDAGRunBackend struct {
 	testutil.DAGRunBackendStub
 
 	listCalls   int
-	listOptions dagrun.StatusQuery
+	listOptions persis.DAGRunStatusQuery
 }
 
-func (s *fallbackRetryDAGRunBackend) QueryStatuses(_ context.Context, query dagrun.StatusQuery) (dagrun.StatusPage, error) {
+func (s *fallbackRetryDAGRunBackend) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	s.listCalls++
 	s.listOptions = query
-	return dagrun.StatusPage{}, nil
+	return persis.DAGRunStatusPage{}, nil
 }
 
 func TestRetryScannerUsesRetryCandidateListerWhenAvailable(t *testing.T) {
@@ -49,7 +49,7 @@ func TestRetryScannerUsesRetryCandidateListerWhenAvailable(t *testing.T) {
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &retryCandidateDAGRunBackend{}
 	scanner, err := scheduler.NewRetryScanner(
-		dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{}),
+		persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 		nil,
 		nil,
 		time.Hour,
@@ -70,7 +70,7 @@ func TestRetryScannerFallsBackToStatusListingWithoutCandidateLister(t *testing.T
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &fallbackRetryDAGRunBackend{}
 	scanner, err := scheduler.NewRetryScanner(
-		dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{}),
+		persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 		nil,
 		nil,
 		time.Hour,

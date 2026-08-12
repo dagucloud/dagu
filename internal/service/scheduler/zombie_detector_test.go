@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -335,13 +336,13 @@ type mockDAGRunBackend struct {
 	mock.Mock
 }
 
-func (m *mockDAGRunBackend) repository() *dagrun.Repository {
-	return dagrun.NewRepository(m, nil, dagrun.RepositoryOptions{})
+func (m *mockDAGRunBackend) repository() *persis.DAGRunRepository {
+	return persis.NewDAGRunRepository(m, nil, persis.DAGRunRepositoryOptions{})
 }
 
 func (m *mockDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
-	req dagrun.CompareAndSwapStatusRequest,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
 	args := m.MethodCalled(
 		"CompareAndSwapLatestAttemptStatus",

@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type RepositoryTest struct {
 	Context    context.Context
-	Repository *dagrun.Repository
+	Repository *persis.DAGRunRepository
 	Backend    *Store
 	TmpDir     string
 }
@@ -30,7 +30,7 @@ func setupTestRepository(t *testing.T) RepositoryTest {
 	backend := NewStore(tmpDir, WithArtifactDir(filepath.Join(tmpDir, "artifacts")))
 	th := RepositoryTest{
 		Context: context.Background(),
-		Repository: dagrun.NewRepository(backend, NewDAGRunWorkspaceStore(tmpDir), dagrun.RepositoryOptions{
+		Repository: persis.NewDAGRunRepository(backend, NewDAGRunWorkspaceStore(tmpDir), persis.DAGRunRepositoryOptions{
 			LatestStatusToday: true,
 			Location:          time.Local,
 		}),
@@ -54,7 +54,7 @@ func (th RepositoryTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID stri
 func (th RepositoryTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s ir.Status, dag *ir.DAG) *Attempt {
 	t.Helper()
 
-	attempt, err := th.Repository.CreateAttempt(th.Context, dag, ts, dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.Repository.CreateAttempt(th.Context, dag, ts, dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	err = attempt.Open(th.Context)
@@ -93,10 +93,10 @@ func (d DAGTest) Writer(t *testing.T, dagRunID string, startedAt time.Time) Writ
 	t.Helper()
 
 	root := NewDataRoot(d.th.TmpDir, d.Name)
-	dagRun, err := root.CreateDAGRun(dagrun.NewUTC(startedAt), dagRunID)
+	dagRun, err := root.CreateDAGRun(persis.NewUTC(startedAt), dagRunID)
 	require.NoError(t, err)
 
-	attempt, err := dagRun.CreateAttempt(d.th.Context, dagrun.NewUTC(startedAt), d.th.Backend.cache, "")
+	attempt, err := dagRun.CreateAttempt(d.th.Context, persis.NewUTC(startedAt), d.th.Backend.cache, "")
 	require.NoError(t, err)
 	attempt.SetDAG(d.DAG)
 

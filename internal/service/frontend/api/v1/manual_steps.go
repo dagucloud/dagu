@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 var (
@@ -61,9 +61,9 @@ func (a *API) compareAndSwapManualStatus(
 	if targetRef.Zero() {
 		return nil, false, errors.New("manual step DAG-run identity is incomplete")
 	}
-	var opts []dagrun.CompareAndSwapStatusOption
+	var options persis.DAGRunCompareAndSwapOptions
 	if mutationRef != targetRef {
-		opts = append(opts, dagrun.WithCompareAndSwapRootDAGRun(mutationRef))
+		options.RootDAGRun = mutationRef
 	}
 	wrappedMutate := func(latest *ir.DAGRunStatus) error {
 		if err := mutate(latest); err != nil {
@@ -77,7 +77,7 @@ func (a *API) compareAndSwapManualStatus(
 		status.AttemptID,
 		status.Status,
 		wrappedMutate,
-		opts...,
+		options,
 	)
 }
 

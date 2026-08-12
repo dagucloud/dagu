@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -331,10 +332,10 @@ func TestAgent_Run(t *testing.T) {
 		runID := "snapshot-failure"
 		snapshotErr := errors.New("snapshot unavailable")
 		workspaces := &failingDAGRunWorkspaceStore{dir: t.TempDir(), snapshotErr: snapshotErr}
-		repository := dagrun.NewRepository(
+		repository := persis.NewDAGRunRepository(
 			filedagrun.NewStore(th.Config.Paths.DAGRunsDir),
 			workspaces,
-			dagrun.RepositoryOptions{},
+			persis.DAGRunRepositoryOptions{},
 		)
 		dagAgent := dag.Agent(
 			test.WithDAGRunID(runID),

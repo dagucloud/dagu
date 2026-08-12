@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -69,7 +68,7 @@ steps:
 		},
 	}))
 
-	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, scheduledAt, runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, scheduledAt, runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	initialStatus := ir.InitialStatus(dag)
 	initialStatus.DAGRunID = runID

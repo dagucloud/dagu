@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -39,7 +40,7 @@ func TestLocalCancelRequestsStoredChildAttemptWhenInactive(t *testing.T) {
 	attempt := new(testutil.MockAttempt)
 	attempt.On("Abort", ctx).Return(nil).Once()
 	store := &localDAGRunBackend{subAttempt: attempt}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})))
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -59,7 +60,7 @@ func TestLocalCancelIgnoresMissingStoredChildAttemptWhenInactive(t *testing.T) {
 	ctx := context.Background()
 	root := ir.NewDAGRunRef("root", "root-run")
 	store := &localDAGRunBackend{}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})))
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -79,7 +80,7 @@ func TestLocalCancelReturnsStoredChildAttemptLookupError(t *testing.T) {
 	root := ir.NewDAGRunRef("root", "root-run")
 	findErr := errors.New("store unavailable")
 	store := &localDAGRunBackend{findErr: findErr}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})))
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -140,7 +141,7 @@ func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
 	attempt := new(testutil.MockAttempt)
 	attempt.On("ReadStatus", ctx).Return(nil, readErr).Once()
 	store := &localDAGRunBackend{subAttempt: attempt}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, nil, dagrun.RepositoryOptions{})))
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})))
 
 	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
 		SubWorkflowRequest: executor.SubWorkflowRequest{
@@ -402,7 +403,7 @@ func createStoredRunningChildAttempt(
 	ctx := th.Context
 	rootRef := ir.NewDAGRunRef(rootDAG.Name, rootRunID)
 
-	rootAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, dagrun.CreateAttemptOptions{})
+	rootAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, rootAttempt.Open(ctx))
 	rootStatus := localRunStatus(rootDAG, rootRunID, ir.Running, ir.NodeRunning)
@@ -411,7 +412,7 @@ func createStoredRunningChildAttempt(
 	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
 	require.NoError(t, rootAttempt.Close(ctx))
 
-	childAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, childDAG, time.Now(), childRunID, dagrun.CreateAttemptOptions{
+	childAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, childDAG, time.Now(), childRunID, persis.DAGRunCreateAttemptOptions{
 		RootDAGRun: rootRef,
 	})
 	require.NoError(t, err)

@@ -24,7 +24,7 @@ type PersistenceFactory func(context.Context, *config.Config) (Persistence, erro
 // Persistence contains the storage dependencies required by Engine.
 type Persistence struct {
 	DAGRepository        *persis.DAGRepository
-	DAGRunRepository     *dagrun.Repository
+	DAGRunRepository     *persis.DAGRunRepository
 	RunStateStore        runstate.Store
 	ProcStore            proc.ProcStore
 	StateStore           dagrun.StateStore

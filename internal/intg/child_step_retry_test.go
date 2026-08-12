@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -71,7 +70,7 @@ steps:
 	require.NotEmpty(t, target, "no failed child DAG run")
 	require.NotEmpty(t, sibling, "no succeeded child DAG run")
 
-	path, _, err := dagrun.ResolveRetryPath(th.Context, th.DAGRunRepository, rootRef, target, "work")
+	path, _, err := th.DAGRunRepository.ResolveRetryPath(th.Context, rootRef, target, "work")
 	require.NoError(t, err)
 	require.Equal(t, "parallel_2", path.RootStep())
 	require.Equal(t, "work", path.Step)

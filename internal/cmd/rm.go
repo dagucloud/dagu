@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/spf13/cobra"
 )
 
@@ -216,9 +216,9 @@ func previewRm(ctx *Context, opts rmOptions) error {
 
 func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 	retentionDays := 0
-	var removeOpts []dagrun.RemoveOldDAGRunsOption
+	var removeOptions persis.DAGRunRetentionOptions
 	if opts.dryRun {
-		removeOpts = append(removeOpts, dagrun.WithDryRun())
+		removeOptions.DryRun = true
 	}
 
 	switch {
@@ -230,10 +230,10 @@ func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 			return nil, fmt.Errorf("invalid --older-than value %q: %w. Valid formats: 7d, 24h, 1w", opts.olderThan, err)
 		}
 		cutoff := time.Now().UTC().Add(-dur)
-		removeOpts = append(removeOpts, dagrun.WithOlderThan(cutoff))
+		removeOptions.OlderThan = &cutoff
 	}
 
-	runIDs, err := ctx.DAGRunRepository.RemoveOldDAGRuns(ctx, opts.dagName, retentionDays, removeOpts...)
+	runIDs, err := ctx.DAGRunRepository.RemoveOldDAGRuns(ctx, opts.dagName, retentionDays, removeOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to remove history for %q: %w", opts.dagName, err)
 	}

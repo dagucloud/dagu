@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
@@ -91,7 +92,7 @@ func (e startupExecutionError) Unwrap() error {
 // QueueProcessor is responsible for processing queued DAG runs.
 type QueueProcessor struct {
 	queueStore             queuedomain.QueueStore
-	dagRunRepository       *dagrun.Repository
+	dagRunRepository       *persis.DAGRunRepository
 	procStore              proc.ProcStore
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
@@ -189,7 +190,7 @@ func WithIsSuspended(isSuspended IsSuspendedFunc) QueueProcessorOption {
 // NewQueueProcessor creates a new QueueProcessor.
 func NewQueueProcessor(
 	queueStore queuedomain.QueueStore,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	procStore proc.ProcStore,
 	dagExecutor *DAGExecutor,
 	queuesConfig config.Queues,

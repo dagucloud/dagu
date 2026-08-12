@@ -114,7 +114,7 @@ type Handler struct {
 	dispatchPollMaxWait     time.Duration
 
 	// Optional worker runtime services.
-	dagRunRepository          *dagrun.Repository                 // For status persistence
+	dagRunRepository          *persis.DAGRunRepository           // For status persistence
 	logDir                    string                             // For log storage
 	artifactDir               string                             // For artifact storage
 	stateStore                dagrun.StateStore                  // For persistent DAG state shared across DAG runs
@@ -155,7 +155,7 @@ type Handler struct {
 type HandlerConfig struct {
 	// DAGRunRepository provides application access to persisted DAG-run statuses.
 	// Required for worker status reporting.
-	DAGRunRepository *dagrun.Repository
+	DAGRunRepository *persis.DAGRunRepository
 
 	// LogDir is the directory for streamed worker log storage.
 	// Required for worker log streaming.
@@ -705,7 +705,7 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 
 	// Create new attempt (either first attempt or retry)
 	isRetry := task.Operation == coordinatorv1.Operation_OPERATION_RETRY || findErr == nil
-	opts := dagrun.CreateAttemptOptions{Retry: isRetry}
+	opts := persis.DAGRunCreateAttemptOptions{Retry: isRetry}
 
 	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, opts)
 	if err != nil {
@@ -792,7 +792,7 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 	labels := labelsForInitialStatus(task, dag)
 	task.Labels = strings.Join(labels, ",")
 
-	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, dagrun.CreateAttemptOptions{
+	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), task.DagRunId, persis.DAGRunCreateAttemptOptions{
 		RootDAGRun: rootRef,
 	})
 	if err != nil {
@@ -1311,9 +1311,7 @@ func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
 			}
 			restoreStaleLeaseFailure(status, lease, workerID, reason)
 			return nil
-		},
-		dagrun.WithCompareAndSwapRootDAGRun(lease.Root),
-		dagrun.WithCompareAndSwapExpectedAttemptKey(lease.AttemptKey),
+		}, persis.DAGRunCompareAndSwapOptions{RootDAGRun: lease.Root, ExpectedAttemptKey: lease.AttemptKey},
 	)
 	if err != nil {
 		if errors.Is(err, errRunHeartbeatRepairSkipped) {
@@ -1745,9 +1743,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 				}
 				*current = *dagRunStatus
 				return nil
-			},
-			dagrun.WithCompareAndSwapRootDAGRun(dagRunStatus.Root),
-			dagrun.WithCompareAndSwapExpectedAttemptKey(dagRunStatus.AttemptKey),
+			}, persis.DAGRunCompareAndSwapOptions{RootDAGRun: dagRunStatus.Root, ExpectedAttemptKey: dagRunStatus.AttemptKey},
 		)
 		if errors.Is(err, errManualActionCheckpointChange) {
 			logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, remoteAttemptRejectedManualAction)
@@ -1915,7 +1911,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 	}
 
 	dag := &ir.DAG{Name: runStatus.Name, SourceFile: sourceFile}
-	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), runStatus.DAGRunID, dagrun.CreateAttemptOptions{
+	attempt, err := h.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), runStatus.DAGRunID, persis.DAGRunCreateAttemptOptions{
 		RootDAGRun: rootRef,
 	})
 	if err != nil {
@@ -2483,10 +2479,7 @@ func (h *Handler) detectStaleLeases(ctx context.Context) {
 	}
 	if h.dagRunLeaseStore == nil {
 		activeStatuses := []ir.Status{ir.Running}
-		statuses, err := h.dagRunRepository.ListStatuses(ctx,
-			dagrun.WithStatuses(activeStatuses),
-			dagrun.WithoutLimit(),
-		)
+		statuses, err := h.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{Statuses: activeStatuses, Unbounded: true})
 		if err != nil {
 			logger.Error(ctx, "Failed to list active statuses for lease check", tag.Error(err))
 			return
@@ -2674,10 +2667,7 @@ func (h *Handler) repairStaleRun(
 
 func (h *Handler) reconcileRemoteStatuses(ctx context.Context, now time.Time) {
 	ownership := h.attemptOwnership()
-	statuses, err := h.dagRunRepository.ListStatuses(ctx,
-		dagrun.WithStatuses([]ir.Status{ir.Running, ir.NotStarted}),
-		dagrun.WithoutLimit(),
-	)
+	statuses, err := h.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{Statuses: []ir.Status{ir.Running, ir.NotStarted}, Unbounded: true})
 	if err != nil {
 		logger.Error(ctx, "Failed to list distributed statuses for orphaned lease check", tag.Error(err))
 		return
@@ -2993,9 +2983,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 			dagRun,
 			attemptID,
 			expectedStatus,
-			mutate,
-			dagrun.WithCompareAndSwapRootDAGRun(root),
-			dagrun.WithCompareAndSwapExpectedAttemptKey(attemptKey),
+			mutate, persis.DAGRunCompareAndSwapOptions{RootDAGRun: root, ExpectedAttemptKey: attemptKey},
 		)
 		if err != nil {
 			logger.Error(ctx, "Failed to fail stale distributed run",

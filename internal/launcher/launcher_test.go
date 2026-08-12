@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -122,7 +122,7 @@ steps:
 `)
 
 	runID := "built-exec-retry-run"
-	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, "built-exec-retry.log")
@@ -158,7 +158,7 @@ steps:
 `)
 
 	runID := "built-exec-queue-retry-run"
-	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
@@ -193,7 +193,7 @@ steps:
 `)
 
 	runID := "built-exec-command-queue-retry-run"
-	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
@@ -228,7 +228,7 @@ steps:
 `)
 
 	runID := "built-exec-fresh-config-retry-run"
-	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")

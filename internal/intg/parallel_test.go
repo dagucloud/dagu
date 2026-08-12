@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -562,7 +563,7 @@ steps:
 	startedRunID := ""
 	rootRun := ir.DAGRunRef{}
 	require.Eventually(t, func() bool {
-		attempt, err := dag.DAGRunRepository.LatestAttempt(dag.Context, dag.Name)
+		attempt, err := dag.DAGRunRepository.LatestAttempt(dag.Context, dag.Name, persis.DAGRunLatestAttemptOptions{})
 		if err != nil {
 			return false
 		}

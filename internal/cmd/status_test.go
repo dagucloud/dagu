@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -111,7 +112,7 @@ func TestStatusCommand(t *testing.T) {
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
@@ -224,7 +225,7 @@ steps:
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
@@ -405,7 +406,7 @@ steps:
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)

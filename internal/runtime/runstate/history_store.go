@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 type historyStoreOption func(*historyStore)
@@ -24,14 +25,14 @@ func WithPreparedAttempt(attempt dagrun.Attempt) historyStoreOption {
 }
 
 // WithDAGRunWorkspaceStore supplies workspace persistence when execution history is remote.
-func WithDAGRunWorkspaceStore(store dagrun.DAGRunWorkspaceStore) historyStoreOption {
+func WithDAGRunWorkspaceStore(store persis.DAGRunWorkspaceStore) historyStoreOption {
 	return func(s *historyStore) {
 		s.dagRunWorkspaces = store
 	}
 }
 
 // NewHistoryStore adapts a DAG-run repository to the runtime run-state store.
-func NewHistoryStore(repository *dagrun.Repository, opts ...historyStoreOption) Store {
+func NewHistoryStore(repository *persis.DAGRunRepository, opts ...historyStoreOption) Store {
 	s := &historyStore{repository: repository}
 	for _, opt := range opts {
 		opt(s)
@@ -40,8 +41,8 @@ func NewHistoryStore(repository *dagrun.Repository, opts ...historyStoreOption) 
 }
 
 type historyStore struct {
-	repository       *dagrun.Repository
-	dagRunWorkspaces dagrun.DAGRunWorkspaceStore
+	repository       *persis.DAGRunRepository
+	dagRunWorkspaces persis.DAGRunWorkspaceStore
 	preparedAttempt  dagrun.Attempt
 }
 
@@ -56,7 +57,7 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 	}
 
 	if req.DAG != nil && req.DAG.HistRetentionRuns == 0 {
-		if _, err := s.repository.RemoveOldDAGRuns(ctx, req.DAG.Name, req.DAG.HistRetentionDays); err != nil {
+		if _, err := s.repository.RemoveOldDAGRuns(ctx, req.DAG.Name, req.DAG.HistRetentionDays, persis.DAGRunRetentionOptions{}); err != nil {
 			logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
 		}
 	}
@@ -81,7 +82,10 @@ func (s *historyStore) BeginAttempt(ctx context.Context, req BeginAttemptRequest
 	}
 
 	if req.DAG != nil && req.DAG.HistRetentionRuns > 0 {
-		if _, err := s.repository.RemoveOldDAGRuns(ctx, req.DAG.Name, 0, dagrun.WithRetentionRuns(req.DAG.HistRetentionRuns)); err != nil {
+		retentionRuns := req.DAG.HistRetentionRuns
+		if _, err := s.repository.RemoveOldDAGRuns(ctx, req.DAG.Name, 0, persis.DAGRunRetentionOptions{
+			RetentionRuns: &retentionRuns,
+		}); err != nil {
 			logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
 		}
 	}
@@ -130,8 +134,8 @@ func dagRunWorkspaceRef(req BeginAttemptRequest) dagrun.DAGRunWorkspaceRef {
 	return dagrun.DAGRunWorkspaceRef{RootDAGRun: root, DAGRun: ref}
 }
 
-func dagRunAttemptOptions(req BeginAttemptRequest) dagrun.CreateAttemptOptions {
-	opts := dagrun.CreateAttemptOptions{
+func dagRunAttemptOptions(req BeginAttemptRequest) persis.DAGRunCreateAttemptOptions {
+	opts := persis.DAGRunCreateAttemptOptions{
 		Retry:     req.Retry,
 		AttemptID: req.AttemptID,
 	}

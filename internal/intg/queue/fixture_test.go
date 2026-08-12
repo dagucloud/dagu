@@ -15,8 +15,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -190,7 +190,7 @@ func (f *fixture) enqueueOne() string {
 
 func (f *fixture) enqueueWithPriority(priority queue.QueuePriority) string {
 	id := uuid.New().String()
-	att, err := f.th.DAGRunRepository.CreateAttempt(f.th.Context, f.dag, time.Now(), id, dagrun.CreateAttemptOptions{})
+	att, err := f.th.DAGRunRepository.CreateAttempt(f.th.Context, f.dag, time.Now(), id, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(f.t, err)
 	logFile := filepath.Join(f.th.Config.Paths.LogDir, f.dag.Name, id+".log")
 	require.NoError(f.t, os.MkdirAll(filepath.Dir(logFile), 0755))
@@ -468,7 +468,7 @@ func (f *fixture) writeRunStatus(status ir.Status, opts runStatusOptions) string
 		runID = uuid.New().String()
 	}
 
-	att, err := f.th.DAGRunRepository.CreateAttempt(f.th.Context, f.dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	att, err := f.th.DAGRunRepository.CreateAttempt(f.th.Context, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(f.t, err)
 	logFile := filepath.Join(f.th.Config.Paths.LogDir, f.dag.Name, runID+".log")
 	require.NoError(f.t, os.MkdirAll(filepath.Dir(logFile), 0755))

@@ -17,13 +17,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type artifactHandler struct {
-	dagRunRepository *dagrun.Repository
+	dagRunRepository *persis.DAGRunRepository
 	attemptValidator func(context.Context, attemptIdentity) error
 }
 
@@ -37,7 +38,7 @@ type artifactWriter struct {
 
 const artifactFlushThreshold = 64 * 1024
 
-func newArtifactHandler(dagRunRepository *dagrun.Repository) *artifactHandler {
+func newArtifactHandler(dagRunRepository *persis.DAGRunRepository) *artifactHandler {
 	return &artifactHandler{dagRunRepository: dagRunRepository}
 }
 

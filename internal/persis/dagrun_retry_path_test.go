@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package dagrun_test
+package persis_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +65,7 @@ func TestResolveRetryPathNestedRun(t *testing.T) {
 		Nodes:    []*ir.Node{{Step: targetStep, Status: ir.NodeSucceeded}},
 	})
 
-	path, targetStatus, err := dagrun.ResolveRetryPath(ctx, repository, rootRef, "leaf-target", "target-step")
+	path, targetStatus, err := repository.ResolveRetryPath(ctx, rootRef, "leaf-target", "target-step")
 	require.NoError(t, err)
 	require.Equal(t, ir.Succeeded, targetStatus.Status)
 	require.Equal(t, "target-step", path.Step)
@@ -142,28 +143,28 @@ func resolveRetryPathForChild(
 		Nodes:    []*ir.Node{{Step: targetStep, Status: ir.NodeFailed}},
 	})
 
-	return dagrun.ResolveRetryPath(ctx, repository, rootRef, "child-target", targetStep.Name)
+	return repository.ResolveRetryPath(ctx, rootRef, "child-target", targetStep.Name)
 }
 
-func newRetryPathRepository(baseDir string) *dagrun.Repository {
-	return dagrun.NewRepository(
+func newRetryPathRepository(baseDir string) *persis.DAGRunRepository {
+	return persis.NewDAGRunRepository(
 		filedagrun.NewStore(baseDir),
 		filedagrun.NewDAGRunWorkspaceStore(baseDir),
-		dagrun.RepositoryOptions{LatestStatusToday: true},
+		persis.DAGRunRepositoryOptions{LatestStatusToday: true},
 	)
 }
 
 func createRetryTestAttempt(
 	t *testing.T,
 	ctx context.Context,
-	repository *dagrun.Repository,
+	repository *persis.DAGRunRepository,
 	dag *ir.DAG,
 	runID string,
 	root ir.DAGRunRef,
 	status ir.DAGRunStatus,
 ) dagrun.Attempt {
 	t.Helper()
-	attempt, err := repository.CreateAttempt(ctx, dag, time.Now(), runID, dagrun.CreateAttemptOptions{RootDAGRun: root})
+	attempt, err := repository.CreateAttempt(ctx, dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{RootDAGRun: root})
 	require.NoError(t, err)
 	status.AttemptID = attempt.ID()
 	require.NoError(t, attempt.Open(ctx))

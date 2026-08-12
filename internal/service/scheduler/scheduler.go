@@ -40,7 +40,7 @@ type Scheduler struct {
 	entryReader         EntryReader
 	quit                chan any
 	running             atomic.Bool
-	dagRunRepository    *dagrun.Repository
+	dagRunRepository    *persis.DAGRunRepository
 	queueStore          queuedomain.QueueStore
 	procStore           proc.ProcStore
 	config              *config.Config
@@ -114,7 +114,7 @@ func New(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
 	reg serviceregistry.ServiceRegistry,
@@ -135,7 +135,7 @@ func newScheduler(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
 	reg serviceregistry.ServiceRegistry,

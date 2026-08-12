@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 )
@@ -130,7 +131,7 @@ func TestHistoryStoreBeginAttemptIgnoresRetentionCleanupFailure(t *testing.T) {
 	require.Equal(t, "attempt-1", got.ID())
 	require.Equal(t, 1, store.createCalls)
 	require.Len(t, store.removeOldCalls, 1)
-	require.Equal(t, dagrun.NewUTC(historyStoreNow.AddDate(0, 0, -7)), store.removeOldCalls[0].OlderThan)
+	require.Equal(t, persis.NewUTC(historyStoreNow.AddDate(0, 0, -7)), store.removeOldCalls[0].OlderThan)
 }
 
 func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
@@ -195,15 +196,15 @@ type recordingDAGRunBackend struct {
 	subAttempt     dagrun.Attempt
 	createCalls    int
 	createRunID    string
-	createOpts     dagrun.CreateAttemptOptions
+	createOpts     persis.DAGRunCreateAttemptOptions
 	removeOldErr   error
-	removeOldCalls []dagrun.RetentionRequest
+	removeOldCalls []persis.DAGRunRetentionRequest
 }
 
-func (s *recordingDAGRunBackend) CreateAttempt(_ context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *recordingDAGRunBackend) CreateAttempt(_ context.Context, req persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	s.createCalls++
 	s.createRunID = req.DAGRunID
-	s.createOpts = dagrun.CreateAttemptOptions{
+	s.createOpts = persis.DAGRunCreateAttemptOptions{
 		RootDAGRun: req.RootDAGRun,
 		Retry:      req.Retry,
 		AttemptID:  req.AttemptID,
@@ -222,15 +223,15 @@ func (s *recordingDAGRunBackend) FindSubAttempt(context.Context, ir.DAGRunRef, s
 	return s.subAttempt, nil
 }
 
-func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req dagrun.RetentionRequest) ([]ir.DAGRunRef, error) {
+func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
 	s.removeOldCalls = append(s.removeOldCalls, req)
 	return nil, s.removeOldErr
 }
 
 var historyStoreNow = time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 
-func testDAGRunRepository(backend dagrun.Store) *dagrun.Repository {
-	return dagrun.NewRepository(backend, nil, dagrun.RepositoryOptions{
+func testDAGRunRepository(backend persis.DAGRunStore) *persis.DAGRunRepository {
+	return persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{
 		Now: func() time.Time { return historyStoreNow },
 	})
 }

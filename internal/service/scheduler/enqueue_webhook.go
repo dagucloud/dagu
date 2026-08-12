@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -21,7 +22,7 @@ import (
 // runtime-param semantics as direct webhook execution.
 func EnqueueWebhookRun(
 	ctx context.Context,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,

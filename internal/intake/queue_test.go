@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -111,7 +112,7 @@ type queueFixture struct {
 	dag              *ir.DAG
 	attempt          *queueAttempt
 	runStore         *queueRunStore
-	dagRunRepository *dagrun.Repository
+	dagRunRepository *persis.DAGRunRepository
 	queueStore       *queueStore
 }
 
@@ -138,7 +139,7 @@ func newQueueFixture(t *testing.T) queueFixture {
 		dag:              dag,
 		attempt:          attempt,
 		runStore:         runStore,
-		dagRunRepository: dagrun.NewRepository(runStore, nil, dagrun.RepositoryOptions{}),
+		dagRunRepository: persis.NewDAGRunRepository(runStore, nil, persis.DAGRunRepositoryOptions{}),
 		queueStore:       &queueStore{attempt: attempt},
 	}
 }
@@ -150,11 +151,11 @@ type queueRunStore struct {
 	removedRef ir.DAGRunRef
 }
 
-func (s *queueRunStore) CreateAttempt(context.Context, dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *queueRunStore) CreateAttempt(context.Context, persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	return s.attempt, nil
 }
 
-func (s *queueRunStore) RemoveDAGRun(_ context.Context, req dagrun.RemoveDAGRunRequest) error {
+func (s *queueRunStore) RemoveDAGRun(_ context.Context, req persis.DAGRunRemoveRequest) error {
 	s.removed = true
 	s.removedRef = req.DAGRun
 	return nil

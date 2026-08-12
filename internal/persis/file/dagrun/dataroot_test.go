@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,7 +70,7 @@ func TestDataRootRuns(t *testing.T) {
 	t.Parallel()
 
 	t.Run("FindByDAGRunID", func(t *testing.T) {
-		ts := dagrun.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
+		ts := persis.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
 		ctx := context.Background()
 
 		dr := setupTestDataRoot(t)
@@ -86,8 +87,8 @@ func TestDataRootRuns(t *testing.T) {
 		ctx := context.Background()
 		dr := setupTestDataRoot(t)
 
-		oldRun := dr.CreateTestDAGRun(t, "duplicate-id", dagrun.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)))
-		newRun := dr.CreateTestDAGRun(t, "duplicate-id", dagrun.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)))
+		oldRun := dr.CreateTestDAGRun(t, "duplicate-id", persis.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)))
+		newRun := dr.CreateTestDAGRun(t, "duplicate-id", persis.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)))
 
 		actual, err := dr.FindByDAGRunID(ctx, "duplicate-id")
 		require.NoError(t, err)
@@ -100,8 +101,8 @@ func TestDataRootRuns(t *testing.T) {
 		ctx := context.Background()
 		dr := setupTestDataRoot(t)
 
-		oldRun := dr.CreateTestDAGRun(t, "same-day-duplicate-id", dagrun.NewUTC(time.Date(2021, 1, 2, 1, 0, 0, 0, time.UTC)))
-		newRun := dr.CreateTestDAGRun(t, "same-day-duplicate-id", dagrun.NewUTC(time.Date(2021, 1, 2, 2, 0, 0, 0, time.UTC)))
+		oldRun := dr.CreateTestDAGRun(t, "same-day-duplicate-id", persis.NewUTC(time.Date(2021, 1, 2, 1, 0, 0, 0, time.UTC)))
+		newRun := dr.CreateTestDAGRun(t, "same-day-duplicate-id", persis.NewUTC(time.Date(2021, 1, 2, 2, 0, 0, 0, time.UTC)))
 
 		actual, err := dr.FindByDAGRunID(ctx, "same-day-duplicate-id")
 		require.NoError(t, err)
@@ -114,8 +115,8 @@ func TestDataRootRuns(t *testing.T) {
 		ctx := context.Background()
 		dr := setupTestDataRoot(t)
 
-		exactRun := dr.CreateTestDAGRun(t, "123", dagrun.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)))
-		_ = dr.CreateTestDAGRun(t, "foo_123", dagrun.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC)))
+		exactRun := dr.CreateTestDAGRun(t, "123", persis.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)))
+		_ = dr.CreateTestDAGRun(t, "foo_123", persis.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC)))
 
 		actual, err := dr.FindByDAGRunID(ctx, "123")
 		require.NoError(t, err)
@@ -136,7 +137,7 @@ func TestDataRootRuns(t *testing.T) {
 		cancel()
 
 		dr := setupTestDataRoot(t)
-		_ = dr.CreateTestDAGRun(t, "test-id1", dagrun.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)))
+		_ = dr.CreateTestDAGRun(t, "test-id1", persis.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)))
 
 		_, err := dr.FindByDAGRunID(ctx, "test-id1")
 		require.ErrorIs(t, err, context.Canceled)
@@ -145,9 +146,9 @@ func TestDataRootRuns(t *testing.T) {
 	t.Run("Latest", func(t *testing.T) {
 		root := setupTestDataRoot(t)
 
-		ts1 := dagrun.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
-		ts2 := dagrun.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC))
-		ts3 := dagrun.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC))
+		ts1 := persis.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
+		ts2 := persis.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC))
+		ts3 := persis.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC))
 
 		_ = root.CreateTestDAGRun(t, "test-id1", ts1)
 		_ = root.CreateTestDAGRun(t, "test-id2", ts2)
@@ -162,10 +163,10 @@ func TestDataRootRuns(t *testing.T) {
 	t.Run("LatestAfter", func(t *testing.T) {
 		root := setupTestDataRoot(t)
 
-		ts1 := dagrun.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
-		ts2 := dagrun.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC))
-		ts3 := dagrun.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC))
-		ts4 := dagrun.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 1, time.UTC))
+		ts1 := persis.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
+		ts2 := persis.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC))
+		ts3 := persis.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC))
+		ts4 := persis.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 1, time.UTC))
 
 		_ = root.CreateTestDAGRun(t, "test-id1", ts1)
 		_ = root.CreateTestDAGRun(t, "test-id2", ts2)
@@ -185,14 +186,14 @@ func TestDataRootRuns(t *testing.T) {
 
 		for date := 1; date <= 31; date++ {
 			for hour := range 24 {
-				ts := dagrun.NewUTC(time.Date(2021, 1, date, hour, 0, 0, 0, time.UTC))
+				ts := persis.NewUTC(time.Date(2021, 1, date, hour, 0, 0, 0, time.UTC))
 				_ = root.CreateTestDAGRun(t, fmt.Sprintf("test-id-%d-%d", date, hour), ts)
 			}
 		}
 
 		// list between 2021-01-01 05:00 and 2021-01-02 02:00
-		start := dagrun.NewUTC(time.Date(2021, 1, 1, 5, 0, 0, 0, time.UTC))
-		end := dagrun.NewUTC(time.Date(2021, 1, 2, 2, 0, 0, 0, time.UTC))
+		start := persis.NewUTC(time.Date(2021, 1, 1, 5, 0, 0, 0, time.UTC))
+		end := persis.NewUTC(time.Date(2021, 1, 2, 2, 0, 0, 0, time.UTC))
 
 		result := root.listDAGRunsInRange(context.Background(), start, end, &listDAGRunsInRangeOpts{})
 		require.Len(t, result, 21, "ListInRange should return the correct")
@@ -215,12 +216,12 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		ts2 := time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)
 
 		// Create dag-runs with old timestamps
-		dagRun1 := root.CreateTestDAGRun(t, "dag-run-1", dagrun.NewUTC(ts1))
-		dagRun2 := root.CreateTestDAGRun(t, "dag-run-2", dagrun.NewUTC(ts2))
+		dagRun1 := root.CreateTestDAGRun(t, "dag-run-1", persis.NewUTC(ts1))
+		dagRun2 := root.CreateTestDAGRun(t, "dag-run-2", persis.NewUTC(ts2))
 
 		// Create actual attempts with status data using old timestamps
 		createAttemptWithStatus := func(dagRunTest DAGRunTest, ts time.Time) *Attempt {
-			attempt, err := dagRunTest.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
+			attempt, err := dagRunTest.CreateAttempt(root.Context, persis.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
 			status := ir.DAGRunStatus{
@@ -246,7 +247,7 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		assert.True(t, fileutil.FileExists(dagRun2.baseDir), "dag-run 2 should exist before cleanup")
 
 		// Remove all DAG runs before the current time
-		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now()), false)
+		removedIDs, err := root.removeOldBefore(root.Context, persis.NewUTC(time.Now()), false)
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 2)
 
@@ -262,12 +263,12 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		oldTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 		recentTime := time.Now().AddDate(0, 0, -1) // 1 day ago
 
-		dagRun1 := root.CreateTestDAGRun(t, "old-dag-run", dagrun.NewUTC(oldTime))
-		dagRun2 := root.CreateTestDAGRun(t, "recent-dag-run", dagrun.NewUTC(recentTime))
+		dagRun1 := root.CreateTestDAGRun(t, "old-dag-run", persis.NewUTC(oldTime))
+		dagRun2 := root.CreateTestDAGRun(t, "recent-dag-run", persis.NewUTC(recentTime))
 
 		// Create actual attempts with status data
 		createAttemptWithStatus := func(dagRunTest DAGRunTest, ts time.Time) *Attempt {
-			attempt, err := dagRunTest.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
+			attempt, err := dagRunTest.CreateAttempt(root.Context, persis.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
 			status := ir.DAGRunStatus{
@@ -293,7 +294,7 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		assert.True(t, fileutil.FileExists(dagRun2.baseDir), "Recent dag-run should exist before cleanup")
 
 		// Remove DAG runs before the seven-day cutoff (should remove old but keep recent)
-		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now().AddDate(0, 0, -7)), false)
+		removedIDs, err := root.removeOldBefore(root.Context, persis.NewUTC(time.Now().AddDate(0, 0, -7)), false)
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 1)
 
@@ -313,8 +314,8 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		}
 		dagRuns := make([]DAGRunTest, 0, len(times))
 		for i, ts := range times {
-			dagRun := root.CreateTestDAGRun(t, fmt.Sprintf("dag-run-%d", i+1), dagrun.NewUTC(ts))
-			attempt, err := dagRun.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
+			dagRun := root.CreateTestDAGRun(t, fmt.Sprintf("dag-run-%d", i+1), persis.NewUTC(ts))
+			attempt, err := dagRun.CreateAttempt(root.Context, persis.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
 			status := ir.DAGRunStatus{
@@ -343,8 +344,8 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 
 		oldTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 		newTime := time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)
-		oldRun := root.CreateTestDAGRun(t, "old-dag-run", dagrun.NewUTC(oldTime))
-		newRun := root.CreateTestDAGRun(t, "new-dag-run", dagrun.NewUTC(newTime))
+		oldRun := root.CreateTestDAGRun(t, "old-dag-run", persis.NewUTC(oldTime))
+		newRun := root.CreateTestDAGRun(t, "new-dag-run", persis.NewUTC(newTime))
 
 		for _, item := range []struct {
 			run DAGRunTest
@@ -353,7 +354,7 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 			{run: oldRun, ts: oldTime},
 			{run: newRun, ts: newTime},
 		} {
-			attempt, err := item.run.CreateAttempt(root.Context, dagrun.NewUTC(item.ts), nil, "")
+			attempt, err := item.run.CreateAttempt(root.Context, persis.NewUTC(item.ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
 			require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
@@ -376,10 +377,10 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 
 		oldTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 		newTime := time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)
-		activeRun := root.CreateTestDAGRun(t, "active-old-run", dagrun.NewUTC(oldTime))
-		newRun := root.CreateTestDAGRun(t, "new-dag-run", dagrun.NewUTC(newTime))
+		activeRun := root.CreateTestDAGRun(t, "active-old-run", persis.NewUTC(oldTime))
+		newRun := root.CreateTestDAGRun(t, "new-dag-run", persis.NewUTC(newTime))
 
-		attempt, err := activeRun.CreateAttempt(root.Context, dagrun.NewUTC(oldTime), nil, "")
+		attempt, err := activeRun.CreateAttempt(root.Context, persis.NewUTC(oldTime), nil, "")
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
 		require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
@@ -389,7 +390,7 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		}))
 		require.NoError(t, attempt.Close(root.Context))
 
-		attempt, err = newRun.CreateAttempt(root.Context, dagrun.NewUTC(newTime), nil, "")
+		attempt, err = newRun.CreateAttempt(root.Context, persis.NewUTC(newTime), nil, "")
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
 		require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
@@ -411,10 +412,10 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 
 		oldTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 		newTime := time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC)
-		oldRun := root.CreateTestDAGRun(t, "old-dag-run", dagrun.NewUTC(oldTime))
-		newRun := root.CreateTestDAGRun(t, "new-dag-run", dagrun.NewUTC(newTime))
+		oldRun := root.CreateTestDAGRun(t, "old-dag-run", persis.NewUTC(oldTime))
+		newRun := root.CreateTestDAGRun(t, "new-dag-run", persis.NewUTC(newTime))
 
-		attempt, err := oldRun.CreateAttempt(root.Context, dagrun.NewUTC(oldTime), nil, "")
+		attempt, err := oldRun.CreateAttempt(root.Context, persis.NewUTC(oldTime), nil, "")
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
 		require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
@@ -424,10 +425,10 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		}))
 		require.NoError(t, attempt.Close(root.Context))
 
-		_, err = oldRun.CreateAttempt(root.Context, dagrun.NewUTC(oldTime.Add(time.Hour)), nil, "")
+		_, err = oldRun.CreateAttempt(root.Context, persis.NewUTC(oldTime.Add(time.Hour)), nil, "")
 		require.NoError(t, err)
 
-		attempt, err = newRun.CreateAttempt(root.Context, dagrun.NewUTC(newTime), nil, "")
+		attempt, err = newRun.CreateAttempt(root.Context, persis.NewUTC(newTime), nil, "")
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
 		require.NoError(t, attempt.Write(root.Context, ir.DAGRunStatus{
@@ -451,12 +452,12 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		date1 := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 		date2 := time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC)
 
-		dagRun1 := root.CreateTestDAGRun(t, "dag-run-1", dagrun.NewUTC(date1))
-		dagRun2 := root.CreateTestDAGRun(t, "dag-run-2", dagrun.NewUTC(date2))
+		dagRun1 := root.CreateTestDAGRun(t, "dag-run-1", persis.NewUTC(date1))
+		dagRun2 := root.CreateTestDAGRun(t, "dag-run-2", persis.NewUTC(date2))
 
 		// Create actual attempts with status data
 		createAttemptWithStatus := func(dagRunTest DAGRunTest, ts time.Time) *Attempt {
-			attempt, err := dagRunTest.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
+			attempt, err := dagRunTest.CreateAttempt(root.Context, persis.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
 			status := ir.DAGRunStatus{
@@ -482,7 +483,7 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		assert.True(t, fileutil.FileExists(dagRun2.baseDir), "dag-run 2 should exist")
 
 		// Remove all DAG runs before the current time
-		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now()), false)
+		removedIDs, err := root.removeOldBefore(root.Context, persis.NewUTC(time.Now()), false)
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 2)
 
@@ -501,12 +502,12 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		// Create old dag-runs: one completed (should be deleted), one waiting (should be preserved)
 		oldTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
-		completedRun := root.CreateTestDAGRun(t, "completed-run", dagrun.NewUTC(oldTime))
-		waitingRun := root.CreateTestDAGRun(t, "waiting-run", dagrun.NewUTC(oldTime))
+		completedRun := root.CreateTestDAGRun(t, "completed-run", persis.NewUTC(oldTime))
+		waitingRun := root.CreateTestDAGRun(t, "waiting-run", persis.NewUTC(oldTime))
 
 		// Create attempts with different statuses
 		createAttemptWithStatusType := func(dagRunTest DAGRunTest, ts time.Time, status ir.Status) *Attempt {
-			attempt, err := dagRunTest.CreateAttempt(root.Context, dagrun.NewUTC(ts), nil, "")
+			attempt, err := dagRunTest.CreateAttempt(root.Context, persis.NewUTC(ts), nil, "")
 			require.NoError(t, err)
 			require.NoError(t, attempt.Open(root.Context))
 			dagStatus := ir.DAGRunStatus{
@@ -533,7 +534,7 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 
 		// Remove all DAG runs before the current time
 		// Wait status should be preserved because it's considered "active"
-		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now()), false)
+		removedIDs, err := root.removeOldBefore(root.Context, persis.NewUTC(time.Now()), false)
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 1, "Only completed run should be removed")
 		assert.Contains(t, removedIDs, "completed-run", "Completed run should be in removed list")
@@ -546,13 +547,13 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 		root := setupTestDataRoot(t)
 
 		oldTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-		dagRun := root.CreateTestDAGRun(t, "artifact-run", dagrun.NewUTC(oldTime))
+		dagRun := root.CreateTestDAGRun(t, "artifact-run", persis.NewUTC(oldTime))
 
 		artifactDir := filepath.Join(root.artifactDir, "artifact-run")
 		require.NoError(t, os.MkdirAll(artifactDir, 0o750))
 		require.NoError(t, os.WriteFile(filepath.Join(artifactDir, "report.md"), []byte("artifact"), 0o600))
 
-		attempt, err := dagRun.CreateAttempt(root.Context, dagrun.NewUTC(oldTime), nil, "")
+		attempt, err := dagRun.CreateAttempt(root.Context, persis.NewUTC(oldTime), nil, "")
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(root.Context))
 
@@ -570,7 +571,7 @@ func TestDataRootRetentionCleanup(t *testing.T) {
 
 		require.DirExists(t, artifactDir)
 
-		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now()), false)
+		removedIDs, err := root.removeOldBefore(root.Context, persis.NewUTC(time.Now()), false)
 		require.NoError(t, err)
 		assert.Contains(t, removedIDs, "artifact-run")
 		assert.NoDirExists(t, artifactDir)
@@ -598,7 +599,7 @@ func TestDataRootUtils(t *testing.T) {
 	assert.True(t, isEmpty, "IsEmpty should return true for empty directory")
 
 	// Add a file to the directory
-	root.CreateTestDAGRun(t, "test-id", dagrun.NewUTC(time.Now()))
+	root.CreateTestDAGRun(t, "test-id", persis.NewUTC(time.Now()))
 	require.NoError(t, err)
 
 	// IsEmpty should return false for non-empty directory
@@ -682,13 +683,13 @@ func TestListDAGRunsInRange_IndexPath(t *testing.T) {
 	// Create 12 runs on the same day with actual status files to trigger index.
 	baseTime := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
 	for i := range 12 {
-		ts := dagrun.NewUTC(baseTime.Add(time.Duration(i) * time.Hour))
+		ts := persis.NewUTC(baseTime.Add(time.Duration(i) * time.Hour))
 		run := root.CreateTestDAGRun(t, fmt.Sprintf("idx-run-%d", i), ts)
 		run.WriteStatus(t, ts, ir.Succeeded)
 	}
 
-	start := dagrun.NewUTC(baseTime)
-	end := dagrun.NewUTC(baseTime.Add(12 * time.Hour))
+	start := persis.NewUTC(baseTime)
+	end := persis.NewUTC(baseTime.Add(12 * time.Hour))
 
 	result := root.listDAGRunsInRange(context.Background(), start, end, nil)
 	assert.Len(t, result, 12, "should find all 12 runs via index-accelerated path")
@@ -705,13 +706,13 @@ func TestListDAGRunsInRange_FallbackPath(t *testing.T) {
 	// Create fewer than MinRunsForIndex (10) runs to stay on fallback path.
 	baseTime := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
 	for i := range 5 {
-		ts := dagrun.NewUTC(baseTime.Add(time.Duration(i) * time.Hour))
+		ts := persis.NewUTC(baseTime.Add(time.Duration(i) * time.Hour))
 		run := root.CreateTestDAGRun(t, fmt.Sprintf("fb-run-%d", i), ts)
 		run.WriteStatus(t, ts, ir.Succeeded)
 	}
 
-	start := dagrun.NewUTC(baseTime)
-	end := dagrun.NewUTC(baseTime.Add(5 * time.Hour))
+	start := persis.NewUTC(baseTime)
+	end := persis.NewUTC(baseTime.Add(5 * time.Hour))
 
 	result := root.listDAGRunsInRange(context.Background(), start, end, nil)
 	assert.Len(t, result, 5, "should find all 5 runs via fallback path")
@@ -720,8 +721,8 @@ func TestListDAGRunsInRange_FallbackPath(t *testing.T) {
 func TestListDAGRunsInRange_StartAfterEnd(t *testing.T) {
 	root := setupTestDataRoot(t)
 
-	start := dagrun.NewUTC(time.Date(2024, 6, 16, 0, 0, 0, 0, time.UTC))
-	end := dagrun.NewUTC(time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC))
+	start := persis.NewUTC(time.Date(2024, 6, 16, 0, 0, 0, 0, time.UTC))
+	end := persis.NewUTC(time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC))
 
 	result := root.listDAGRunsInRange(context.Background(), start, end, nil)
 	assert.Nil(t, result, "should return nil when start is after end")
@@ -745,7 +746,7 @@ type DataRootTest struct {
 
 // CreateTestDAGRun creates a test dag-run with the specified ID and timestamp.
 // It ensures the DataRoot directory exists before creating the dag-run.
-func (drt *DataRootTest) CreateTestDAGRun(t *testing.T, dagRunID string, ts dagrun.TimeInUTC) DAGRunTest {
+func (drt *DataRootTest) CreateTestDAGRun(t *testing.T, dagRunID string, ts persis.TimeInUTC) DAGRunTest {
 	t.Helper()
 
 	err := os.MkdirAll(drt.dagRunsDir, 0o750)

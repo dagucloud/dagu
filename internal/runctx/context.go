@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -37,7 +38,7 @@ type Context struct {
 	BaseEnv              *config.BaseEnv
 	EnvScope             *cmnvalue.EnvScope // Unified environment scope for runtime variables
 	CoordinatorCli       dispatch.Dispatcher
-	DAGRunRepository     *dagrun.Repository
+	DAGRunRepository     *persis.DAGRunRepository
 	QueueStore           queue.QueueStore
 	StateStore           dagrun.StateStore
 	MaterializationStore build.MaterializationStore
@@ -245,7 +246,7 @@ func WithDefaultExecMode(mode config.ExecutionMode) ContextOption {
 }
 
 // WithDAGRunRepository sets the DAG-run repository for executors that persist DAG runs.
-func WithDAGRunRepository(repository *dagrun.Repository) ContextOption {
+func WithDAGRunRepository(repository *persis.DAGRunRepository) ContextOption {
 	return func(o *contextOptions) {
 		o.DAGRunRepository = repository
 	}

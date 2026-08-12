@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -138,7 +139,7 @@ func extractAttemptForStatus(ctx *Context, name, dagRunID, subDAGRunID string) (
 		return attempt, nil
 	}
 
-	attempt, err := ctx.DAGRunRepository.LatestAttempt(ctx, name)
+	attempt, err := ctx.DAGRunRepository.LatestAttempt(ctx, name, persis.DAGRunLatestAttemptOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to find the latest run data for DAG %s: %w", name, err)
 	}

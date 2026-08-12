@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 const defaultDAGRunInvalidationPollInterval = time.Second
@@ -174,7 +174,7 @@ func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[ir.Status]struc
 	}
 	mux.mu.RUnlock()
 
-	batch := dagrun.NewDAGRunListReadBatch()
+	batch := persis.NewDAGRunListReadBatch()
 	for _, topic := range topics {
 		topic.requestPoll(batch)
 	}

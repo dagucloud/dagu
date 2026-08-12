@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -451,9 +451,7 @@ steps:
 
 	require.Eventually(t, func() bool {
 		statuses, err := f.coord.DAGRunRepository.ListStatuses(
-			f.coord.Context,
-			dagrun.WithExactName("queue-concurrency-test"),
-			dagrun.WithoutLimit(),
+			f.coord.Context, persis.DAGRunListOptions{ExactName: "queue-concurrency-test", Unbounded: true},
 		)
 		if err != nil || len(statuses) < 2 {
 			return false
@@ -480,9 +478,7 @@ steps:
 	if runtime.GOOS != "windows" {
 		require.Never(t, func() bool {
 			statuses, err := f.coord.DAGRunRepository.ListStatuses(
-				f.coord.Context,
-				dagrun.WithExactName("queue-concurrency-test"),
-				dagrun.WithoutLimit(),
+				f.coord.Context, persis.DAGRunListOptions{ExactName: "queue-concurrency-test", Unbounded: true},
 			)
 			if err != nil {
 				return false
@@ -515,9 +511,7 @@ steps:
 	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0600))
 	require.Eventually(t, func() bool {
 		statuses, err := f.coord.DAGRunRepository.ListStatuses(
-			f.coord.Context,
-			dagrun.WithExactName("queue-concurrency-test"),
-			dagrun.WithoutLimit(),
+			f.coord.Context, persis.DAGRunListOptions{ExactName: "queue-concurrency-test", Unbounded: true},
 		)
 		if err != nil || len(statuses) < 2 {
 			return false
@@ -557,10 +551,7 @@ steps:
 	status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 	require.Equal(t, ir.Succeeded, status.Status)
 
-	activeStatuses, err := f.coord.DAGRunRepository.ListStatuses(f.coord.Context,
-		dagrun.WithStatuses([]ir.Status{ir.Running}),
-		dagrun.WithoutLimit(),
-	)
+	activeStatuses, err := f.coord.DAGRunRepository.ListStatuses(f.coord.Context, persis.DAGRunListOptions{Statuses: []ir.Status{ir.Running}, Unbounded: true})
 	require.NoError(t, err)
 
 	var offendingStatus string

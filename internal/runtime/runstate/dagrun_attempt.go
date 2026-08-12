@@ -8,12 +8,13 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 func wrapAttempt(
 	attempt dagrun.Attempt,
-	repository *dagrun.Repository,
-	dagRunWorkspaces dagrun.DAGRunWorkspaceStore,
+	repository *persis.DAGRunRepository,
+	dagRunWorkspaces persis.DAGRunWorkspaceStore,
 	workspaceRef dagrun.DAGRunWorkspaceRef,
 ) Attempt {
 	return dagRunAttempt{
@@ -26,8 +27,8 @@ func wrapAttempt(
 
 type dagRunAttempt struct {
 	attempt          dagrun.Attempt
-	repository       *dagrun.Repository
-	dagRunWorkspaces dagrun.DAGRunWorkspaceStore
+	repository       *persis.DAGRunRepository
+	dagRunWorkspaces persis.DAGRunWorkspaceStore
 	workspaceRef     dagrun.DAGRunWorkspaceRef
 }
 

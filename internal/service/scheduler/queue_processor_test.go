@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -54,7 +55,7 @@ type queueFixture struct {
 	t                *testing.T
 	ctx              context.Context
 	logBuffer        *syncBuffer
-	dagRunRepository *dagrun.Repository
+	dagRunRepository *persis.DAGRunRepository
 	leaseStore       dispatch.DAGRunLeaseStore
 	dispatchStore    dispatch.DispatchTaskStore
 	distributedDir   string
@@ -79,7 +80,7 @@ func newQueueFixture(t *testing.T) *queueFixture {
 	return &queueFixture{
 		t: t, ctx: ctx, logBuffer: logBuffer,
 		distributedDir:   distributedDir,
-		dagRunRepository: testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true}),
+		dagRunRepository: testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true}),
 		leaseStore:       store.NewDAGRunLeaseStore(leaseCollection),
 		dispatchStore:    store.NewDispatchTaskStore(file.NewCollection(distributedDir)),
 		queueStore:       store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue"))),
@@ -136,7 +137,7 @@ func (f *queueFixture) withDAG(name string, maxActiveRuns int) *queueFixture {
 func (f *queueFixture) enqueueRuns(n int) *queueFixture {
 	for i := 1; i <= n; i++ {
 		runID := fmt.Sprintf("run-%d", i)
-		run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
+		run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(f.t, err)
 		require.NoError(f.t, run.Open(f.ctx))
 		st := ir.InitialStatus(f.dag)
@@ -191,7 +192,7 @@ func (f *queueFixture) enqueueToQueue(queueName, runID string, priority queuedom
 }
 
 func (f *queueFixture) enqueueToQueueWithTrigger(queueName, runID string, priority queuedomain.QueuePriority, triggerType ir.TriggerType) {
-	run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(f.t, err)
 	require.NoError(f.t, run.Open(f.ctx))
 	st := ir.InitialStatus(f.dag)
@@ -339,7 +340,7 @@ func TestQueueProcessor_CountsFreshDistributedRunsAgainstQueueConcurrency(t *tes
 		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
 		simulateQueue(1, false)
 
-	runningAttempt, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), "running-run", dagrun.CreateAttemptOptions{})
+	runningAttempt, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), "running-run", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, runningAttempt.Open(f.ctx))
 	runningStatus := ir.InitialStatus(f.dag)
@@ -725,7 +726,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testin
 	f := newQueueFixture(t).withDAG("startup-running-dag", 1).
 		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold))
 
-	run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), "running-startup-run", dagrun.CreateAttemptOptions{})
+	run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), "running-startup-run", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, run.Open(f.ctx))
 	status := ir.InitialStatus(f.dag)
@@ -749,7 +750,7 @@ func TestQueueProcessor_CheckStartupStatusTreatsFreshDistributedLeaseAsStarted(t
 	f := newQueueFixture(t).withDAG("startup-lease-dag", 1).
 		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold))
 
-	run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), "lease-startup-run", dagrun.CreateAttemptOptions{})
+	run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), "lease-startup-run", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, run.Open(f.ctx))
 	status := ir.InitialStatus(f.dag)

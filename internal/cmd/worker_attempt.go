@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 var attemptIDFlag = commandLineFlag{
@@ -38,7 +39,7 @@ func requireWorkerAttemptID(ctx *Context, workerID string) (string, error) {
 
 func resolveWorkerPreparedAttempt(
 	ctx context.Context,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	dagName, dagRunID string,
 	root ir.DAGRunRef,
 	requestedAttemptID string,
@@ -55,7 +56,7 @@ func resolveWorkerPreparedAttempt(
 
 func readLatestAttempt(
 	ctx context.Context,
-	dagRunRepository *dagrun.Repository,
+	dagRunRepository *persis.DAGRunRepository,
 	dagName, dagRunID string,
 	root ir.DAGRunRef,
 ) (dagrun.Attempt, *ir.DAGRunStatus, error) {
