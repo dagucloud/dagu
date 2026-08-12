@@ -36,7 +36,7 @@ func TestAuthorizeHumanTaskMutationClassifiesLookupErrors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			store := lookupErrorDAGRunBackend{err: tc.err}
+			store := lookupErrorDAGRunStore{err: tc.err}
 			apiServer := &API{dagRunRepository: persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})}
 
 			_, err := apiServer.authorizeHumanTaskMutation(t.Context(), "deploy", "run-1")
@@ -195,12 +195,12 @@ type trackingReadCloser struct {
 	closed bool
 }
 
-type lookupErrorDAGRunBackend struct {
+type lookupErrorDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	err error
 }
 
-func (s lookupErrorDAGRunBackend) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
+func (s lookupErrorDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	return nil, s.err
 }
 

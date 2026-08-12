@@ -22,7 +22,7 @@ func TestRepositoryNormalizesStatusQueries(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 8, 12, 15, 4, 5, 0, time.UTC)
-	backend := &recordingDAGRunBackend{}
+	backend := &recordingDAGRunStore{}
 	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{
 		Now: func() time.Time { return now },
 	})
@@ -69,7 +69,7 @@ func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
 	location, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
 	now := time.Date(2026, 8, 12, 1, 2, 3, 0, time.UTC)
-	backend := &recordingDAGRunBackend{}
+	backend := &recordingDAGRunStore{}
 	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: true,
 		Location:          location,
@@ -103,7 +103,7 @@ func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
 func TestRepositoryCreatesChildAttemptThroughBackend(t *testing.T) {
 	t.Parallel()
 
-	backend := &recordingDAGRunBackend{}
+	backend := &recordingDAGRunStore{}
 	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
 	dag := &ir.DAG{Name: "child"}
 	root := ir.NewDAGRunRef("root", "root-run")
@@ -132,7 +132,7 @@ func TestRepositoryCreatesChildAttemptThroughBackend(t *testing.T) {
 func TestRepositoryNormalizesCompareAndSwapRequest(t *testing.T) {
 	t.Parallel()
 
-	backend := &recordingDAGRunBackend{
+	backend := &recordingDAGRunStore{
 		compareAndSwapStatus: &ir.DAGRunStatus{
 			Name:      "daily",
 			DAGRunID:  "run-1",
@@ -167,7 +167,7 @@ func TestRepositoryNormalizesCompareAndSwapRequest(t *testing.T) {
 func TestRepositoryRecentStatusesReturnsStoreErrors(t *testing.T) {
 	t.Parallel()
 
-	backend := &recordingDAGRunBackend{recentStatusesErr: errors.New("list failed")}
+	backend := &recordingDAGRunStore{recentStatusesErr: errors.New("list failed")}
 	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
 
 	statuses, err := repository.RecentStatuses(context.Background(), "daily", 10)
@@ -179,7 +179,7 @@ func TestRepositoryCleansWorkspacesAfterRunMetadata(t *testing.T) {
 	t.Parallel()
 
 	workspaceErr := errors.New("workspace unavailable")
-	backend := &recordingDAGRunBackend{
+	backend := &recordingDAGRunStore{
 		removedRefs: []ir.DAGRunRef{
 			ir.NewDAGRunRef("daily", "run-1"),
 			ir.NewDAGRunRef("daily", "run-2"),
@@ -200,7 +200,7 @@ func TestRepositoryCleansWorkspacesAfterRunMetadata(t *testing.T) {
 func TestRepositoryRetentionDryRunDoesNotRemoveWorkspaces(t *testing.T) {
 	t.Parallel()
 
-	backend := &recordingDAGRunBackend{
+	backend := &recordingDAGRunStore{
 		removedRefs: []ir.DAGRunRef{ir.NewDAGRunRef("daily", "run-1")},
 	}
 	workspaces := &recordingDAGRunWorkspaceStore{}
@@ -212,7 +212,7 @@ func TestRepositoryRetentionDryRunDoesNotRemoveWorkspaces(t *testing.T) {
 	assert.Empty(t, workspaces.removed)
 }
 
-type recordingDAGRunBackend struct {
+type recordingDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	createRequest         persis.DAGRunCreateAttemptRequest
 	latestQuery           persis.DAGRunLatestAttemptQuery
@@ -225,26 +225,26 @@ type recordingDAGRunBackend struct {
 	removedRefs           []ir.DAGRunRef
 }
 
-func (s *recordingDAGRunBackend) CreateAttempt(_ context.Context, req persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	s.createRequest = req
 	return dagrun.NewNoopAttempt(req.AttemptID, req.DAG), nil
 }
 
-func (s *recordingDAGRunBackend) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
+func (s *recordingDAGRunStore) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
 	return s.recentStatuses, s.recentStatusesErr
 }
 
-func (s *recordingDAGRunBackend) LatestAttempt(_ context.Context, query persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {
+func (s *recordingDAGRunStore) LatestAttempt(_ context.Context, query persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {
 	s.latestQuery = query
 	return dagrun.NewNoopAttempt("latest", nil), nil
 }
 
-func (s *recordingDAGRunBackend) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+func (s *recordingDAGRunStore) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	s.statusQuery = query
 	return persis.DAGRunStatusPage{}, nil
 }
 
-func (s *recordingDAGRunBackend) CompareAndSwapLatestAttemptStatus(
+func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
 	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
@@ -255,7 +255,7 @@ func (s *recordingDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	return s.compareAndSwapStatus, true, nil
 }
 
-func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
+func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, req persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
 	s.retentionRequest = req
 	return s.removedRefs, nil
 }

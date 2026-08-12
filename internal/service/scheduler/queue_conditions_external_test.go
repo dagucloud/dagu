@@ -559,7 +559,7 @@ func TestQueueProcessorRecordsQueueStateUnavailableConditionOnCountError(t *test
 type queueConditionFixture struct {
 	ctx              context.Context
 	dag              *ir.DAG
-	dagRunRepository *countingDAGRunBackend
+	dagRunRepository *countingDAGRunStore
 	queueStore       queuedomain.QueueStore
 	leaseStore       dispatch.DAGRunLeaseStore
 	dispatchStore    dispatch.DispatchTaskStore
@@ -609,7 +609,7 @@ func newQueueConditionFixtureWithConfig(
 		Steps:    []ir.Step{{Name: "test", Command: "echo hello"}},
 	}
 	ir.InitializeDefaults(dag)
-	dagRunRepository := newCountingDAGRunBackend(filedagrun.NewStore(filepath.Join(tmp, "dag-runs")))
+	dagRunRepository := newCountingDAGRunStore(filedagrun.NewStore(filepath.Join(tmp, "dag-runs")))
 	var queueStore queuedomain.QueueStore = store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
 	if fixtureConfig.queueStore != nil {
 		queueStore = fixtureConfig.queueStore(queueStore)
@@ -1063,7 +1063,7 @@ func (s *queueConditionQueueStore) DeleteByItemIDs(ctx context.Context, queueNam
 	return s.QueueStore.DeleteByItemIDs(ctx, queueName, itemIDs)
 }
 
-type countingDAGRunBackend struct {
+type countingDAGRunStore struct {
 	persis.DAGRunStore
 	repository *persis.DAGRunRepository
 
@@ -1073,8 +1073,8 @@ type countingDAGRunBackend struct {
 	readDAGErrByRun    map[string]error
 }
 
-func newCountingDAGRunBackend(store persis.DAGRunStore) *countingDAGRunBackend {
-	counting := &countingDAGRunBackend{
+func newCountingDAGRunStore(store persis.DAGRunStore) *countingDAGRunStore {
+	counting := &countingDAGRunStore{
 		DAGRunStore:        store,
 		casByRun:           make(map[string]int),
 		blankAttemptIDRuns: make(map[string]struct{}),
@@ -1086,7 +1086,7 @@ func newCountingDAGRunBackend(store persis.DAGRunStore) *countingDAGRunBackend {
 	return counting
 }
 
-func (s *countingDAGRunBackend) CompareAndSwapLatestAttemptStatus(
+func (s *countingDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	ctx context.Context,
 	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
@@ -1096,7 +1096,7 @@ func (s *countingDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	return s.DAGRunStore.CompareAndSwapLatestAttemptStatus(ctx, req)
 }
 
-func (s *countingDAGRunBackend) FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (dagrun.Attempt, error) {
+func (s *countingDAGRunStore) FindAttempt(ctx context.Context, dagRun ir.DAGRunRef) (dagrun.Attempt, error) {
 	attempt, err := s.DAGRunStore.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return nil, err
@@ -1115,19 +1115,19 @@ func (s *countingDAGRunBackend) FindAttempt(ctx context.Context, dagRun ir.DAGRu
 	}, nil
 }
 
-func (s *countingDAGRunBackend) blankAttemptID(runID string) {
+func (s *countingDAGRunStore) blankAttemptID(runID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.blankAttemptIDRuns[runID] = struct{}{}
 }
 
-func (s *countingDAGRunBackend) failReadDAG(runID string, err error) {
+func (s *countingDAGRunStore) failReadDAG(runID string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.readDAGErrByRun[runID] = err
 }
 
-func (s *countingDAGRunBackend) casCount(runID string) int {
+func (s *countingDAGRunStore) casCount(runID string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.casByRun[runID]

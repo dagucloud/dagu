@@ -55,7 +55,7 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 		id:       "attempt-1",
 		closeErr: closeErr,
 	}
-	runStore := &enqueueTrackingDAGRunBackend{attempt: attempt}
+	runStore := &enqueueTrackingDAGRunStore{attempt: attempt}
 	queueStore := &enqueueObservingQueueStore{attempt: attempt}
 	dag := th.DAG(t, `steps:
   - name: "step"
@@ -77,16 +77,16 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 	}
 }
 
-type enqueueTrackingDAGRunBackend struct {
+type enqueueTrackingDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	attempt *enqueueTrackingAttempt
 }
 
-func (s *enqueueTrackingDAGRunBackend) CreateAttempt(context.Context, persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *enqueueTrackingDAGRunStore) CreateAttempt(context.Context, persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	return s.attempt, nil
 }
 
-func (s *enqueueTrackingDAGRunBackend) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
+func (s *enqueueTrackingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 

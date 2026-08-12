@@ -370,7 +370,7 @@ func TestWaitForCompletionReadyRejectsUnknownStep(t *testing.T) {
 type serviceFixture struct {
 	dag     *ir.DAG
 	status  *ir.DAGRunStatus
-	backend *serviceDAGRunBackend
+	backend *serviceDAGRunStore
 	queue   *serviceQueueStore
 	service *Service
 }
@@ -388,7 +388,7 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 		Nodes: []*ir.Node{{Step: step, Status: ir.NodeWaiting}},
 	}
 	attempt := &serviceAttempt{dag: dag, status: status}
-	backend := &serviceDAGRunBackend{attempt: attempt, status: status}
+	backend := &serviceDAGRunStore{attempt: attempt, status: status}
 	queue := &serviceQueueStore{}
 	now := time.Date(2026, 7, 21, 1, 2, 3, 0, time.UTC)
 	return &serviceFixture{
@@ -430,7 +430,7 @@ func (a *serviceAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
 }
 
-type serviceDAGRunBackend struct {
+type serviceDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	attempt              *serviceAttempt
 	status               *ir.DAGRunStatus
@@ -440,7 +440,7 @@ type serviceDAGRunBackend struct {
 	compareAndSwapErrors []error
 }
 
-func (s *serviceDAGRunBackend) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error) {
+func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error) {
 	if s.findAttempt != nil {
 		return s.findAttempt(ctx, ref)
 	}
@@ -450,7 +450,7 @@ func (s *serviceDAGRunBackend) FindAttempt(ctx context.Context, ref ir.DAGRunRef
 	return s.attempt, nil
 }
 
-func (s *serviceDAGRunBackend) CompareAndSwapLatestAttemptStatus(
+func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
 	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {

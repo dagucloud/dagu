@@ -804,16 +804,16 @@ func TestDAGRunListOptionsFromQueryStringRejectsInvalidStatuses(t *testing.T) {
 	require.Contains(t, apiErr.Message, "invalid status parameter")
 }
 
-type blockingDAGRunBackend struct {
+type blockingDAGRunStore struct {
 	testutil.DAGRunStoreStub
 }
 
-type queryCapturingDAGRunBackend struct {
+type queryCapturingDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	query persis.DAGRunStatusQuery
 }
 
-func (b *queryCapturingDAGRunBackend) QueryStatuses(
+func (b *queryCapturingDAGRunStore) QueryStatuses(
 	_ context.Context,
 	query persis.DAGRunStatusQuery,
 ) (persis.DAGRunStatusPage, error) {
@@ -823,14 +823,14 @@ func (b *queryCapturingDAGRunBackend) QueryStatuses(
 
 func statusQueryFromOptions(t *testing.T, options persis.DAGRunListOptions) persis.DAGRunStatusQuery {
 	t.Helper()
-	backend := &queryCapturingDAGRunBackend{}
+	backend := &queryCapturingDAGRunStore{}
 	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
 	_, err := repository.ListStatuses(context.Background(), options)
 	require.NoError(t, err)
 	return backend.query
 }
 
-func (blockingDAGRunBackend) QueryStatuses(ctx context.Context, _ persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+func (blockingDAGRunStore) QueryStatuses(ctx context.Context, _ persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	<-ctx.Done()
 	return persis.DAGRunStatusPage{}, ctx.Err()
 }
@@ -839,7 +839,7 @@ func TestAPIListDAGRunsReturnsGatewayTimeoutWhenReadDeadlineExpires(t *testing.T
 	t.Parallel()
 
 	api := &API{
-		dagRunRepository: persis.NewDAGRunRepository(blockingDAGRunBackend{}, nil, persis.DAGRunRepositoryOptions{}),
+		dagRunRepository: persis.NewDAGRunRepository(blockingDAGRunStore{}, nil, persis.DAGRunRepositoryOptions{}),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)

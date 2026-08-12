@@ -344,7 +344,7 @@ steps:
 		ctx := th.Context
 		attempt := new(testutil.MockAttempt)
 		attempt.On("ReadStatus", ctx).Return(nil, nil).Once()
-		store := &managerDAGRunBackend{subAttempt: attempt}
+		store := &managerDAGRunStore{subAttempt: attempt}
 		repository := persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})
 		mgr := runtime.NewManager(repository, th.ProcStore, th.Config)
 
@@ -884,12 +884,12 @@ func createRunningSubAttempt(
 	return childAttempt
 }
 
-type managerDAGRunBackend struct {
+type managerDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	subAttempt dagrun.Attempt
 }
 
-func (s *managerDAGRunBackend) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.Attempt, error) {
+func (s *managerDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.Attempt, error) {
 	if s.subAttempt == nil {
 		return nil, dagrun.ErrDAGRunIDNotFound
 	}

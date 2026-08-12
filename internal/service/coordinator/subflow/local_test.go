@@ -39,7 +39,7 @@ func TestLocalCancelRequestsStoredChildAttemptWhenInactive(t *testing.T) {
 	root := ir.NewDAGRunRef("root", "root-run")
 	attempt := new(testutil.MockAttempt)
 	attempt.On("Abort", ctx).Return(nil).Once()
-	store := &localDAGRunBackend{subAttempt: attempt}
+	store := &localDAGRunStore{subAttempt: attempt}
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
@@ -59,7 +59,7 @@ func TestLocalCancelIgnoresMissingStoredChildAttemptWhenInactive(t *testing.T) {
 
 	ctx := context.Background()
 	root := ir.NewDAGRunRef("root", "root-run")
-	store := &localDAGRunBackend{}
+	store := &localDAGRunStore{}
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
@@ -79,7 +79,7 @@ func TestLocalCancelReturnsStoredChildAttemptLookupError(t *testing.T) {
 	ctx := context.Background()
 	root := ir.NewDAGRunRef("root", "root-run")
 	findErr := errors.New("store unavailable")
-	store := &localDAGRunBackend{findErr: findErr}
+	store := &localDAGRunStore{findErr: findErr}
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
@@ -140,7 +140,7 @@ func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
 	readErr := errors.New("read status failed")
 	attempt := new(testutil.MockAttempt)
 	attempt.On("ReadStatus", ctx).Return(nil, readErr).Once()
-	store := &localDAGRunBackend{subAttempt: attempt}
+	store := &localDAGRunStore{subAttempt: attempt}
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})))
 
 	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
@@ -427,7 +427,7 @@ func createStoredRunningChildAttempt(
 	return childAttempt
 }
 
-type localDAGRunBackend struct {
+type localDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	subAttempt dagrun.Attempt
 	findErr    error
@@ -447,7 +447,7 @@ func (i *staticInstaller) Install(
 	return i.manifest, nil
 }
 
-func (s *localDAGRunBackend) FindSubAttempt(_ context.Context, root ir.DAGRunRef, childRunID string) (dagrun.Attempt, error) {
+func (s *localDAGRunStore) FindSubAttempt(_ context.Context, root ir.DAGRunRef, childRunID string) (dagrun.Attempt, error) {
 	s.findRoot = root
 	s.findRunID = childRunID
 	if s.findErr != nil {

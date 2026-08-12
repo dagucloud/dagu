@@ -58,7 +58,7 @@ func (m *mockStreamArtifactsServer) RecvMsg(_ any) error            { return nil
 func TestArtifactHandlerHandleStreamCreatesEmptyFileOnFinalChunk(t *testing.T) {
 	t.Parallel()
 
-	store := newMockDAGRunBackend()
+	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
 	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &ir.DAGRunStatus{
 		Name:       "test-dag",
@@ -94,7 +94,7 @@ func TestArtifactHandlerHandleStreamCreatesEmptyFileOnFinalChunk(t *testing.T) {
 func TestArtifactHandlerHandleStreamWritesFinalChunkPayload(t *testing.T) {
 	t.Parallel()
 
-	store := newMockDAGRunBackend()
+	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
 	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &ir.DAGRunStatus{
 		Name:       "test-dag",
@@ -131,7 +131,7 @@ func TestArtifactHandlerHandleStreamWritesFinalChunkPayload(t *testing.T) {
 func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtDifferentCoordinatorEndpoint(t *testing.T) {
 	t.Parallel()
 
-	store := newMockDAGRunBackend()
+	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
 	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &ir.DAGRunStatus{
 		Name:       "test-dag",
@@ -180,7 +180,7 @@ func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtDifferentCoordinatorEndpoin
 func TestArtifactHandlerHandleStreamRejectsMismatchedAttempt(t *testing.T) {
 	t.Parallel()
 
-	store := newMockDAGRunBackend()
+	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
 	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &ir.DAGRunStatus{
 		Name:       "test-dag",
@@ -215,7 +215,7 @@ func TestArtifactHandlerHandleStreamRejectsMismatchedAttempt(t *testing.T) {
 func TestArtifactHandlerHandleStreamDiscardsPartialFileOnRecvError(t *testing.T) {
 	t.Parallel()
 
-	store := newMockDAGRunBackend()
+	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
 	store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &ir.DAGRunStatus{
 		Name:       "test-dag",
@@ -267,7 +267,7 @@ func TestArtifactHandlerHandleStreamDiscardsPartialFileOnRecvError(t *testing.T)
 func TestArtifactHandlerHandleStreamRevalidatesAttemptBeforeFinalizing(t *testing.T) {
 	t.Parallel()
 
-	store := newMockDAGRunBackend()
+	store := newMockDAGRunStore()
 	archiveDir := t.TempDir()
 	attempt := store.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: "run-123"}, &ir.DAGRunStatus{
 		Name:       "test-dag",

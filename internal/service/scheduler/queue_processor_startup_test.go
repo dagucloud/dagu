@@ -58,7 +58,7 @@ func (m *mockLeaseStore) ListByQueue(ctx context.Context, queueName string) ([]d
 func (m *mockLeaseStore) ListAll(context.Context) ([]dispatch.DAGRunLease, error) { return nil, nil }
 
 func TestQueueDispatcher_CheckStartupStatus_WithinGraceSkipsAttemptLookup(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
@@ -80,7 +80,7 @@ func TestQueueDispatcher_CheckStartupStatus_WithinGraceSkipsAttemptLookup(t *tes
 }
 
 func TestQueueDispatcher_CheckStartupStatus_HeartbeatSkipsAttemptLookup(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
@@ -102,7 +102,7 @@ func TestQueueDispatcher_CheckStartupStatus_HeartbeatSkipsAttemptLookup(t *testi
 }
 
 func TestQueueDispatcher_CheckStartupStatus_PreStartExecutionErrorIsPermanent(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	execErrCh := make(chan error, 1)
@@ -124,7 +124,7 @@ func TestQueueDispatcher_CheckStartupStatus_PreStartExecutionErrorIsPermanent(t 
 }
 
 func TestQueueDispatcher_WaitForStartupKeepsLocalLaunchInFlightUntilDone(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	attempt := &testutil.MockAttempt{
@@ -161,7 +161,7 @@ func TestQueueDispatcher_WaitForStartupKeepsLocalLaunchInFlightUntilDone(t *test
 }
 
 func TestQueueDispatcher_WaitForStartupBoundsLocalObservationErrors(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	storeErr := errors.New("status store unavailable")
@@ -205,7 +205,7 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGraceFallsBackToStatus(t *testi
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			dagRunRepository := &mockDAGRunBackend{}
+			dagRunRepository := &mockDAGRunStore{}
 			procStore := &mockProcStore{}
 			runRef := ir.NewDAGRunRef("test-dag", "run-1")
 			attempt := &testutil.MockAttempt{
@@ -238,7 +238,7 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGraceFallsBackToStatus(t *testi
 }
 
 func TestQueueDispatcher_CheckStartupStatus_AfterGracePropagatesLeaseLookupError(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 	leaseStore := &mockLeaseStore{
 		getFunc: func(context.Context, string) (*dispatch.DAGRunLease, error) {
@@ -330,7 +330,7 @@ func (m *mockDispatcher) RequestCancel(_ context.Context, _, _ string, _ *ir.DAG
 }
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
@@ -370,7 +370,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *
 }
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 
 	disp := &mockDispatcher{
@@ -405,7 +405,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded
 }
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRetry(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 
 	disp := &mockDispatcher{
@@ -438,7 +438,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 }
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *testing.T) {
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	procStore := &mockProcStore{}
 	attempt := &testutil.MockAttempt{}
 

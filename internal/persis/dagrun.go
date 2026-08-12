@@ -29,11 +29,6 @@ type DAGRunStore interface {
 	RemoveDAGRun(ctx context.Context, req DAGRunRemoveRequest) error
 }
 
-// DAGRunRetryCandidateLister provides an optimized lookup for automatic retry candidates.
-type DAGRunRetryCandidateLister interface {
-	ListRetryCandidates(ctx context.Context, from TimeInUTC) ([]*ir.DAGRunStatus, error)
-}
-
 // DAGRunWorkspaceStore manages durable execution workspaces for DAG runs.
 type DAGRunWorkspaceStore interface {
 	Materialize(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) (string, error)

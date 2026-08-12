@@ -13,9 +13,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
+type dagRunRetryCandidateLister interface {
+	ListRetryCandidates(ctx context.Context, from TimeInUTC) ([]*ir.DAGRunStatus, error)
+}
+
 // ListRetryCandidates returns failed latest attempts eligible for retry scanning.
 func (r *DAGRunRepository) ListRetryCandidates(ctx context.Context, from TimeInUTC) ([]*ir.DAGRunStatus, error) {
-	if lister, ok := r.store.(DAGRunRetryCandidateLister); ok {
+	if lister, ok := r.store.(dagRunRetryCandidateLister); ok {
 		return lister.ListRetryCandidates(ctx, from)
 	}
 	return r.ListStatuses(ctx, DAGRunListOptions{

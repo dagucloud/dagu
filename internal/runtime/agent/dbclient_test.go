@@ -28,7 +28,7 @@ func (m *mockDAGLoader) GetDetails(ctx context.Context, fileName string, opts pe
 	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-type mockDAGRunBackend struct {
+type mockDAGRunStore struct {
 	testutil.DAGRunStoreStub
 }
 
@@ -138,7 +138,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			mockDRS := new(mockDAGRunBackend)
+			mockDRS := new(mockDAGRunStore)
 			client := newDBClient(persis.NewDAGRunRepository(mockDRS, nil, persis.DAGRunRepositoryOptions{}), tt.dagLoader, tt.remoteLoader)
 
 			dag, err := client.GetDAG(ctx, "test-dag")

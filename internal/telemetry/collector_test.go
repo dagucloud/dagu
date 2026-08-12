@@ -33,20 +33,20 @@ func (m *mockDAGLister) List(ctx context.Context, params persis.DAGListOptions) 
 	return args.Get(0).(pagination.PaginatedResult[persis.DAGListItem]), args.Get(1).([]string), args.Error(2)
 }
 
-type mockDAGRunBackend struct {
+type mockDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	mock.Mock
 }
 
-func (m *mockDAGRunBackend) repository() *persis.DAGRunRepository {
+func (m *mockDAGRunStore) repository() *persis.DAGRunRepository {
 	return persis.NewDAGRunRepository(m, nil, persis.DAGRunRepositoryOptions{})
 }
 
 func newMockDAGRunRepository() *persis.DAGRunRepository {
-	return (&mockDAGRunBackend{}).repository()
+	return (&mockDAGRunStore{}).repository()
 }
 
-func (m *mockDAGRunBackend) QueryStatuses(ctx context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+func (m *mockDAGRunStore) QueryStatuses(ctx context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	args := m.MethodCalled("ListStatuses", ctx, query)
 	if args.Get(0) == nil {
 		return persis.DAGRunStatusPage{}, args.Error(1)
@@ -211,7 +211,7 @@ func TestCollector_Describe(t *testing.T) {
 
 func TestCollector_Collect_BasicMetrics(t *testing.T) {
 	dagRepository := &mockDAGLister{}
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
 	dagRepository.On("List", mock.Anything, mock.Anything).Return(
@@ -246,7 +246,7 @@ func TestCollector_Collect_BasicMetrics(t *testing.T) {
 
 func TestCollector_Collect_WithDAGRuns(t *testing.T) {
 	dagRepository := &mockDAGLister{}
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
 	// Mock DAG store response
@@ -345,7 +345,7 @@ func TestCollector_Collect_WithDAGRuns(t *testing.T) {
 
 func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
 	dagRepository := &mockDAGLister{}
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
 	dagRepository.On("List", mock.Anything, mock.Anything).Return(
@@ -431,7 +431,7 @@ func TestCollector_Collect_WithWorkerHeartbeatMetrics(t *testing.T) {
 
 func TestCollector_Collect_WithWorkerInfoLabels(t *testing.T) {
 	dagRepository := &mockDAGLister{}
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
 	dagRepository.On("List", mock.Anything, mock.Anything).Return(
@@ -490,7 +490,7 @@ func TestCollector_Collect_WithWorkerInfoLabels(t *testing.T) {
 
 func TestCollector_Collect_WithErrors(t *testing.T) {
 	dagRepository := &mockDAGLister{}
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
 	dagRepository.On("List", mock.Anything, mock.Anything).Return(
@@ -522,7 +522,7 @@ func TestCollector_Collect_WithErrors(t *testing.T) {
 
 func TestNewRegistry(t *testing.T) {
 	dagRepository := &mockDAGLister{}
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
 	// Setup mocks
@@ -560,7 +560,7 @@ func TestNewRegistry(t *testing.T) {
 
 func TestCollector_SchedulerStatus(t *testing.T) {
 	dagRepository := &mockDAGLister{}
-	dagRunRepository := &mockDAGRunBackend{}
+	dagRunRepository := &mockDAGRunStore{}
 	queueStore := &mockQueueStore{}
 
 	// Set up default mock responses

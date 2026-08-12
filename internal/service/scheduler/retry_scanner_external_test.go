@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type retryCandidateDAGRunBackend struct {
+type retryCandidateDAGRunStore struct {
 	testutil.DAGRunStoreStub
 
 	candidateCalls int
@@ -24,20 +24,20 @@ type retryCandidateDAGRunBackend struct {
 	listCalls      int
 }
 
-func (s *retryCandidateDAGRunBackend) ListRetryCandidates(_ context.Context, from persis.TimeInUTC) ([]*ir.DAGRunStatus, error) {
+func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from persis.TimeInUTC) ([]*ir.DAGRunStatus, error) {
 	s.candidateCalls++
 	s.candidateFrom = from
 	return nil, nil
 }
 
-type fallbackRetryDAGRunBackend struct {
+type fallbackRetryDAGRunStore struct {
 	testutil.DAGRunStoreStub
 
 	listCalls   int
 	listOptions persis.DAGRunStatusQuery
 }
 
-func (s *fallbackRetryDAGRunBackend) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+func (s *fallbackRetryDAGRunStore) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	s.listCalls++
 	s.listOptions = query
 	return persis.DAGRunStatusPage{}, nil
@@ -47,7 +47,7 @@ func TestRetryScannerUsesRetryCandidateListerWhenAvailable(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
-	store := &retryCandidateDAGRunBackend{}
+	store := &retryCandidateDAGRunStore{}
 	scanner, err := scheduler.NewRetryScanner(
 		persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 		nil,
@@ -68,7 +68,7 @@ func TestRetryScannerFallsBackToStatusListingWithoutCandidateLister(t *testing.T
 	t.Parallel()
 
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
-	store := &fallbackRetryDAGRunBackend{}
+	store := &fallbackRetryDAGRunStore{}
 	scanner, err := scheduler.NewRetryScanner(
 		persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 		nil,
