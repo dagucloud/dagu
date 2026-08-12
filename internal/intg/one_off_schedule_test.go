@@ -69,7 +69,7 @@ steps:
 		},
 	}))
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, scheduledAt, runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, scheduledAt, runID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	initialStatus := ir.InitialStatus(dag)
 	initialStatus.DAGRunID = runID
@@ -84,7 +84,7 @@ steps:
 		th.Config,
 		th.EntryReader,
 		th.DAGRunMgr,
-		th.DAGRunStore,
+		th.DAGRunRepository,
 		th.QueueStore,
 		th.ProcStore,
 		th.ServiceRegistry,
@@ -120,7 +120,7 @@ steps:
 	})
 
 	assert.Equal(t, int32(0), dispatchCount.Load())
-	assert.Len(t, th.DAGRunStore.RecentStatuses(th.Context, dag.Name, 10), 1)
+	assert.Len(t, th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 10), 1)
 
 	probe.Stop(context.Background(), cancel, 5*time.Second)
 }
@@ -167,7 +167,7 @@ steps:
 	probe := h.StartScheduler(ctx, sc, th.EntryReader)
 
 	probe.RequireEventually("expected one-off env secret run to succeed", 30*time.Second, func() bool {
-		statuses := th.DAGRunMgr.ListRecentStatus(th.Context, dag.Name, 5)
+		statuses := th.DAGRunMgr.ListRecentStatuses(th.Context, dag.Name, 5)
 		return len(statuses) > 0 && statuses[0].Status == ir.Succeeded
 	})
 

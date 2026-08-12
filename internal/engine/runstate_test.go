@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunYAMLUsesRunStateStoreWithoutDAGRunStore(t *testing.T) {
+func TestRunYAMLUsesRunStateStoreWithoutDAGRunRepository(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -59,7 +59,7 @@ steps:
 	require.Equal(t, "succeeded", persisted.Status.String())
 }
 
-func TestRunYAMLUsesRunStateStoreWhenDAGRunStoreAlsoConfigured(t *testing.T) {
+func TestRunYAMLUsesRunStateStoreWhenDAGRunRepositoryAlsoConfigured(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -92,7 +92,7 @@ steps:
 	require.Equal(t, map[string]string{"result": "hybrid-state"}, outputs)
 }
 
-func TestStatusAndOutputsFallBackToDAGRunStoreWhenRunStateMissing(t *testing.T) {
+func TestStatusAndOutputsFallBackToDAGRunRepositoryWhenRunStateMissing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -146,7 +146,7 @@ steps:
 	require.NoError(t, hybridEngine.Stop(ctx, ref))
 }
 
-func TestRunYAMLRejectsDuplicateRunIDWithoutDAGRunStore(t *testing.T) {
+func TestRunYAMLRejectsDuplicateRunIDWithoutDAGRunRepository(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -209,7 +209,7 @@ func dagRunPersistenceFactory() engine.PersistenceFactory {
 		if err != nil {
 			return engine.Persistence{}, err
 		}
-		persistence.DAGRunStore = file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false))
+		persistence.DAGRunRepository = file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false))
 		return persistence, nil
 	}
 }
@@ -220,7 +220,7 @@ func hybridPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceF
 		if err != nil {
 			return engine.Persistence{}, err
 		}
-		persistence.DAGRunStore = file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false))
+		persistence.DAGRunRepository = file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false))
 		return persistence, nil
 	}
 }

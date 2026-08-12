@@ -206,18 +206,18 @@ func TestCleanupCommand(t *testing.T) {
 	})
 }
 
-func TestCleanupCommandDirectStore(t *testing.T) {
+func TestCleanupCommandRepository(t *testing.T) {
 	t.Parallel()
 
 	// Test cleanup through the DAG-run repository to verify the public behavior.
-	t.Run("RemoveOldDAGRunsWithStore", func(t *testing.T) {
+	t.Run("RemoveOldDAGRuns", func(t *testing.T) {
 		t.Parallel()
 
 		th := test.Setup(t)
 
 		dagName := "test-cleanup-dag"
 
-		// Create old DAG runs directly in the store
+		// Create old DAG runs through the repository.
 		oldTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 		recentTime := time.Now()
 
@@ -225,7 +225,7 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 		testDAG := &ir.DAG{Name: dagName}
 
 		// Create an old run
-		oldAttempt, err := th.DAGRunStore.CreateAttempt(
+		oldAttempt, err := th.DAGRunRepository.CreateAttempt(
 			th.Context,
 			testDAG,
 			oldTime,
@@ -242,7 +242,7 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 		require.NoError(t, oldAttempt.Close(th.Context))
 
 		// Create a recent run
-		recentAttempt, err := th.DAGRunStore.CreateAttempt(
+		recentAttempt, err := th.DAGRunRepository.CreateAttempt(
 			th.Context,
 			testDAG,
 			recentTime,
@@ -262,16 +262,16 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 		setOldModTime(t, th.Config.Paths.DAGRunsDir, dagName, "", oldTime)
 
 		// Verify both runs exist
-		statuses := th.DAGRunStore.RecentStatuses(th.Context, dagName, 10)
+		statuses := th.DAGRunRepository.RecentStatuses(th.Context, dagName, 10)
 		require.Len(t, statuses, 2)
 
 		// Remove runs older than 7 days
-		removedIDs, err := th.DAGRunStore.RemoveOldDAGRuns(th.Context, dagName, 7)
+		removedIDs, err := th.DAGRunRepository.RemoveOldDAGRuns(th.Context, dagName, 7)
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 1)
 
 		// Verify old run is deleted, recent run remains
-		statuses = th.DAGRunStore.RecentStatuses(th.Context, dagName, 10)
+		statuses = th.DAGRunRepository.RecentStatuses(th.Context, dagName, 10)
 		require.Len(t, statuses, 1)
 		assert.Equal(t, "recent-run-id", statuses[0].DAGRunID)
 	})

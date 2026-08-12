@@ -91,7 +91,7 @@ func (e startupExecutionError) Unwrap() error {
 // QueueProcessor is responsible for processing queued DAG runs.
 type QueueProcessor struct {
 	queueStore             queuedomain.QueueStore
-	dagRunStore            *dagrun.Repository
+	dagRunRepository       *dagrun.Repository
 	procStore              proc.ProcStore
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
@@ -189,19 +189,19 @@ func WithIsSuspended(isSuspended IsSuspendedFunc) QueueProcessorOption {
 // NewQueueProcessor creates a new QueueProcessor.
 func NewQueueProcessor(
 	queueStore queuedomain.QueueStore,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	procStore proc.ProcStore,
 	dagExecutor *DAGExecutor,
 	queuesConfig config.Queues,
 	opts ...QueueProcessorOption,
 ) *QueueProcessor {
 	p := &QueueProcessor{
-		queueStore:  queueStore,
-		dagRunStore: dagRunStore,
-		procStore:   procStore,
-		dagExecutor: dagExecutor,
-		wakeUpCh:    make(chan struct{}, 1),
-		quit:        make(chan struct{}),
+		queueStore:       queueStore,
+		dagRunRepository: dagRunRepository,
+		procStore:        procStore,
+		dagExecutor:      dagExecutor,
+		wakeUpCh:         make(chan struct{}, 1),
+		quit:             make(chan struct{}),
 		// Seed prevTime in the past so Start()'s initial wake-up is not
 		// throttled by the minimum processing interval.
 		prevTime:            time.Now().Add(-queueProcessMinInterval),
@@ -340,7 +340,7 @@ func (p *QueueProcessor) isClosed() bool {
 func (p *QueueProcessor) newQueueDispatcher() *queueDispatcher {
 	return newQueueDispatcher(queueDispatchDeps{
 		queueStore:             p.queueStore,
-		dagRunStore:            p.dagRunStore,
+		dagRunRepository:       p.dagRunRepository,
 		procStore:              p.procStore,
 		dagRunLeaseStore:       p.dagRunLeaseStore,
 		dispatchTaskStore:      p.dispatchTaskStore,

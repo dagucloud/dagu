@@ -38,7 +38,7 @@ type Options struct {
 	Persistence        Persistence
 	PersistenceFactory PersistenceFactory
 	RunStateStore      runstate.Store
-	DAGRunStore        *dagrun.Repository
+	DAGRunRepository   *dagrun.Repository
 	DefaultMode        ExecutionMode
 	Distributed        *DistributedOptions
 }

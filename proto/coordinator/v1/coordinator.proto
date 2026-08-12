@@ -114,7 +114,7 @@ message Task {
   string definition = 11; // Optional: DAG definition (YAML) for local DAGs
   string worker_id = 12; // ID of the worker that will execute this task
   // Previous status for OPERATION_RETRY.
-  // When set, workers can retry without needing local DAGRunStore access.
+  // When set, workers can retry without needing local DAG-run persistence.
   DAGRunStatusProto previous_status = 13;
   // Attempt ID created by coordinator. Workers use this to create attempts with the same ID.
   string attempt_id = 14;

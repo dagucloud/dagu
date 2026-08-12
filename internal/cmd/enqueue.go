@@ -112,12 +112,12 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 
 	dagRun := ir.NewDAGRunRef(dag.Name, dagRunID)
 
-	if _, err := ctx.DAGRunStore.FindAttempt(ctx, dagRun); err == nil {
+	if _, err := ctx.DAGRunRepository.FindAttempt(ctx, dagRun); err == nil {
 		return fmt.Errorf("DAG %q with ID %q already exists", dag.Name, dagRunID)
 	}
 
 	queued, err := intake.EnqueueRun(ctx.Context, intake.QueueRequest{
-		DAGRunStore:             ctx.DAGRunStore,
+		DAGRunRepository:        ctx.DAGRunRepository,
 		QueueStore:              ctx.QueueStore,
 		DAG:                     dag,
 		DAGRunID:                dagRunID,

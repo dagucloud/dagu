@@ -21,10 +21,10 @@ import (
 // QueueRequest describes a DAG-run intake operation that persists a queued
 // attempt before publishing the queue item.
 type QueueRequest struct {
-	DAGRunStore *dagrun.Repository
-	QueueStore  queue.QueueStore
-	DAG         *ir.DAG
-	DAGRunID    string
+	DAGRunRepository *dagrun.Repository
+	QueueStore       queue.QueueStore
+	DAG              *ir.DAG
+	DAGRunID         string
 
 	QueueName string
 
@@ -83,7 +83,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		return nil, err
 	}
 
-	attempt, err := req.DAGRunStore.CreateAttempt(ctx, req.DAG, now, req.DAGRunID, req.AttemptOptions)
+	attempt, err := req.DAGRunRepository.CreateAttempt(ctx, req.DAG, now, req.DAGRunID, req.AttemptOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create queued DAG run: %w", err)
 	}
@@ -93,7 +93,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		if committed {
 			return
 		}
-		if rmErr := req.DAGRunStore.RemoveDAGRun(context.WithoutCancel(ctx), dagRun); rmErr != nil {
+		if rmErr := req.DAGRunRepository.RemoveDAGRun(context.WithoutCancel(ctx), dagRun); rmErr != nil {
 			logger.Error(ctx, "Failed to rollback queued DAG run",
 				tag.DAG(req.DAG.Name),
 				tag.RunID(req.DAGRunID),
@@ -128,8 +128,8 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 }
 
 func (r QueueRequest) validate() error {
-	if r.DAGRunStore == nil {
-		return fmt.Errorf("dag-run store is required")
+	if r.DAGRunRepository == nil {
+		return fmt.Errorf("DAG-run repository is required")
 	}
 	if r.QueueStore == nil {
 		return fmt.Errorf("queue store is required")

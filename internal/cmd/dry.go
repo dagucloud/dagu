@@ -90,7 +90,7 @@ func runDry(ctx *Context, args []string) error {
 		dagRepository,
 		agent.Options{
 			Dry:                      true,
-			DAGRunStore:              ctx.DAGRunStore,
+			DAGRunRepository:         ctx.DAGRunRepository,
 			QueueStore:               ctx.QueueStore,
 			StateStore:               ctx.StateStore,
 			MaterializationStore:     localMaterializationStore(ctx),

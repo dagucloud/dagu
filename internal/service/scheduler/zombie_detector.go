@@ -32,7 +32,7 @@ func panicToError(r any) error {
 
 // ZombieDetector finds and cleans up zombie DAG runs
 type ZombieDetector struct {
-	dagRunStore      *dagrun.Repository
+	dagRunRepository *dagrun.Repository
 	procStore        proc.ProcStore
 	interval         time.Duration
 	failureThreshold int
@@ -45,7 +45,7 @@ type ZombieDetector struct {
 
 // NewZombieDetector creates a new zombie detector
 func NewZombieDetector(
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	procStore proc.ProcStore,
 	interval time.Duration,
 	failureThreshold int,
@@ -57,7 +57,7 @@ func NewZombieDetector(
 		failureThreshold = 3
 	}
 	return &ZombieDetector{
-		dagRunStore:      dagRunStore,
+		dagRunRepository: dagRunRepository,
 		procStore:        procStore,
 		interval:         interval,
 		failureThreshold: failureThreshold,
@@ -119,9 +119,9 @@ func (z *ZombieDetector) clearAttemptState(attemptKey string) {
 
 func (z *ZombieDetector) findAttempt(ctx context.Context, entry proc.ProcEntry) (dagrun.Attempt, error) {
 	if entry.IsRoot() {
-		return z.dagRunStore.FindAttempt(ctx, entry.Meta.DAGRun())
+		return z.dagRunRepository.FindAttempt(ctx, entry.Meta.DAGRun())
 	}
-	return z.dagRunStore.FindSubAttempt(ctx, entry.Meta.Root(), entry.Meta.DAGRunID)
+	return z.dagRunRepository.FindSubAttempt(ctx, entry.Meta.Root(), entry.Meta.DAGRunID)
 }
 
 // detectAndCleanZombies finds stale proc entries and repairs only the matching persisted attempt.

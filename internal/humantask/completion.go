@@ -17,8 +17,8 @@ import (
 // Complete validates and durably completes one human task, then queues the run when possible.
 func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result, error) {
 	s.defaults()
-	if s.DAGRunStore == nil {
-		return Result{}, errorf(ErrorInternal, "DAG-run store is not configured")
+	if s.DAGRunRepository == nil {
+		return Result{}, errorf(ErrorInternal, "DAG-run repository is not configured")
 	}
 	request.StepID = strings.TrimSpace(request.StepID)
 	if request.StepID == "" {
@@ -56,7 +56,7 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 
 	completedAt := s.Now().UTC().Format(time.RFC3339)
 	var concurrentlyCompleted *ir.DAGRunStatus
-	updated, swapped, err := s.DAGRunStore.CompareAndSwapLatestAttemptStatus(
+	updated, swapped, err := s.DAGRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		target.ref,
 		target.status.AttemptID,

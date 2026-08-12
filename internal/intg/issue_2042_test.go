@@ -34,7 +34,7 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 
 	dispatchedAt := make(chan time.Time, 4)
 	dispatchStub := func(ctx context.Context, dag *ir.DAG, runID string, trigger ir.TriggerType, scheduleTime time.Time) error {
-		attempt, err := th.DAGRunStore.CreateAttempt(ctx, dag, scheduleTime, runID, dagrun.CreateAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(ctx, dag, scheduleTime, runID, dagrun.CreateAttemptOptions{})
 		if err != nil {
 			return err
 		}

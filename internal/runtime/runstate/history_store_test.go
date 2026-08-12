@@ -14,13 +14,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 )
 
 func TestHistoryStoreBeginAttemptUsesPreparedAttempt(t *testing.T) {
 	ctx := context.Background()
 	dag := &ir.DAG{Name: "parent"}
 	attempt := newRecordingAttempt("attempt-1")
-	store := &recordingDAGRunStore{}
+	store := &recordingDAGRunBackend{}
 
 	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store), runstate.WithPreparedAttempt(attempt))
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
@@ -38,7 +39,7 @@ func TestHistoryStoreBeginAttemptUsesPreparedAttempt(t *testing.T) {
 func TestHistoryStoreBeginAttemptRejectsPreparedAttemptIDMismatch(t *testing.T) {
 	ctx := context.Background()
 	attempt := newRecordingAttempt("prepared-attempt")
-	store := &recordingDAGRunStore{}
+	store := &recordingDAGRunBackend{}
 
 	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store), runstate.WithPreparedAttempt(attempt))
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
@@ -69,7 +70,7 @@ func TestHistoryStoreBeginAttemptUsesNoopAttemptWhenStoreMissing(t *testing.T) {
 func TestHistoryStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T) {
 	ctx := context.Background()
 	dag := &ir.DAG{Name: "parent", HistRetentionRuns: 3}
-	store := &recordingDAGRunStore{
+	store := &recordingDAGRunBackend{
 		createAttempt: newRecordingAttempt("attempt-2"),
 	}
 
@@ -88,15 +89,14 @@ func TestHistoryStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T)
 	require.Equal(t, "run-2", store.createRunID)
 	require.True(t, store.createOpts.Retry)
 	require.Equal(t, "attempt-2", store.createOpts.AttemptID)
-	require.NotNil(t, store.createOpts.RootDAGRun)
-	require.Equal(t, ir.NewDAGRunRef("root", "root-run"), *store.createOpts.RootDAGRun)
+	require.Equal(t, ir.NewDAGRunRef("root", "root-run"), store.createOpts.RootDAGRun)
 	require.Len(t, store.removeOldCalls, 1)
 	require.Equal(t, 3, store.removeOldCalls[0].KeepRuns)
 }
 
 func TestHistoryStoreBeginAttemptOmitsRootDAGRunForRootAttempt(t *testing.T) {
 	ctx := context.Background()
-	store := &recordingDAGRunStore{
+	store := &recordingDAGRunBackend{
 		createAttempt: newRecordingAttempt("attempt-1"),
 	}
 
@@ -109,13 +109,13 @@ func TestHistoryStoreBeginAttemptOmitsRootDAGRunForRootAttempt(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "attempt-1", got.ID())
-	require.Nil(t, store.createOpts.RootDAGRun)
+	require.True(t, store.createOpts.RootDAGRun.Zero())
 }
 
 func TestHistoryStoreBeginAttemptIgnoresRetentionCleanupFailure(t *testing.T) {
 	ctx := context.Background()
 	dag := &ir.DAG{Name: "parent", HistRetentionDays: 7}
-	store := &recordingDAGRunStore{
+	store := &recordingDAGRunBackend{
 		createAttempt: newRecordingAttempt("attempt-1"),
 		removeOldErr:  errors.New("cleanup failed"),
 	}
@@ -138,7 +138,7 @@ func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
 	status := &ir.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Succeeded}
 	attempt := newRecordingAttempt("child-attempt")
 	attempt.status = status
-	store := &recordingDAGRunStore{
+	store := &recordingDAGRunBackend{
 		subAttempt: attempt,
 	}
 
@@ -157,7 +157,7 @@ func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
 func TestAttemptDelegatesStateOperations(t *testing.T) {
 	ctx := context.Background()
 	attempt := newRecordingAttempt("attempt-1")
-	store := &recordingDAGRunStore{
+	store := &recordingDAGRunBackend{
 		createAttempt: attempt,
 	}
 	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store))
@@ -189,8 +189,8 @@ func TestAttemptDelegatesStateOperations(t *testing.T) {
 	require.Equal(t, 1, attempt.closeCalls)
 }
 
-type recordingDAGRunStore struct {
-	dagrun.Store
+type recordingDAGRunBackend struct {
+	testutil.DAGRunBackendStub
 	createAttempt  dagrun.Attempt
 	subAttempt     dagrun.Attempt
 	createCalls    int
@@ -200,7 +200,7 @@ type recordingDAGRunStore struct {
 	removeOldCalls []dagrun.RetentionRequest
 }
 
-func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *recordingDAGRunBackend) CreateAttempt(_ context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
 	s.createCalls++
 	s.createRunID = req.DAGRunID
 	s.createOpts = dagrun.CreateAttemptOptions{
@@ -215,22 +215,22 @@ func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, req dagrun.Creat
 	return s.createAttempt, nil
 }
 
-func (s *recordingDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.Attempt, error) {
+func (s *recordingDAGRunBackend) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.Attempt, error) {
 	if s.subAttempt == nil {
 		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return s.subAttempt, nil
 }
 
-func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, req dagrun.RetentionRequest) ([]string, error) {
+func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req dagrun.RetentionRequest) ([]string, error) {
 	s.removeOldCalls = append(s.removeOldCalls, req)
 	return nil, s.removeOldErr
 }
 
 var historyStoreNow = time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 
-func testDAGRunRepository(store dagrun.Store) *dagrun.Repository {
-	return dagrun.NewRepository(store, dagrun.RepositoryOptions{
+func testDAGRunRepository(backend dagrun.Store) *dagrun.Repository {
+	return dagrun.NewRepository(backend, dagrun.RepositoryOptions{
 		Now: func() time.Time { return historyStoreNow },
 	})
 }

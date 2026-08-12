@@ -190,8 +190,8 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 	if h.dagRunLeaseStore == nil {
 		return status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
 	}
-	if h.dagRunStore == nil {
-		return status.Error(codes.FailedPrecondition, "dag-run store is not configured")
+	if h.dagRunRepository == nil {
+		return status.Error(codes.FailedPrecondition, "DAG-run repository is not configured")
 	}
 
 	lease, err := h.dagRunLeaseStore.Get(ctx, req.GetAttemptKey())
@@ -231,9 +231,9 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRun
 		err     error
 	)
 	if !lease.Root.Zero() && lease.Root != lease.DAGRun {
-		attempt, err = h.dagRunStore.FindSubAttempt(ctx, lease.Root, lease.DAGRun.ID)
+		attempt, err = h.dagRunRepository.FindSubAttempt(ctx, lease.Root, lease.DAGRun.ID)
 	} else {
-		attempt, err = h.dagRunStore.FindAttempt(ctx, lease.DAGRun)
+		attempt, err = h.dagRunRepository.FindAttempt(ctx, lease.DAGRun)
 	}
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {

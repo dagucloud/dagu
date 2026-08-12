@@ -37,7 +37,7 @@ type Context struct {
 	BaseEnv              *config.BaseEnv
 	EnvScope             *cmnvalue.EnvScope // Unified environment scope for runtime variables
 	CoordinatorCli       dispatch.Dispatcher
-	DAGRunStore          *dagrun.Repository
+	DAGRunRepository     *dagrun.Repository
 	QueueStore           queue.QueueStore
 	StateStore           dagrun.StateStore
 	MaterializationStore build.MaterializationStore
@@ -244,10 +244,10 @@ func WithDefaultExecMode(mode config.ExecutionMode) ContextOption {
 	}
 }
 
-// WithDAGRunStore sets the DAG-run repository for executors that persist DAG runs.
-func WithDAGRunStore(store *dagrun.Repository) ContextOption {
+// WithDAGRunRepository sets the DAG-run repository for executors that persist DAG runs.
+func WithDAGRunRepository(repository *dagrun.Repository) ContextOption {
 	return func(o *contextOptions) {
-		o.DAGRunStore = store
+		o.DAGRunRepository = repository
 	}
 }
 

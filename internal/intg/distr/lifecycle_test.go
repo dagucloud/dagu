@@ -178,7 +178,7 @@ steps:
 		var subRunID string
 		subDAGCancelTimeout := distrTestTimeout(30 * time.Second)
 		require.Eventually(t, func() bool {
-			attempt, err := f.dagWrapper.DAGRunStore.FindAttempt(ctx, rootRef)
+			attempt, err := f.dagWrapper.DAGRunRepository.FindAttempt(ctx, rootRef)
 			if err != nil {
 				return false
 			}

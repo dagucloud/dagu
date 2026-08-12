@@ -73,13 +73,7 @@ func NewStore(baseDir string, opts ...StoreOption) *Store {
 
 // NewRepository creates an application repository backed by local files.
 func NewRepository(baseDir string, repositoryOptions dagrun.RepositoryOptions, opts ...StoreOption) *dagrun.Repository {
-	cfg := newOptions(baseDir, opts)
-	store := &Store{
-		baseDir:     baseDir,
-		artifactDir: cfg.artifactDir,
-		cache:       cfg.fileCache,
-	}
-	return dagrun.NewRepository(store, repositoryOptions)
+	return dagrun.NewRepository(NewStore(baseDir, opts...), repositoryOptions)
 }
 
 // resolveStatus resolves and filters a DAGRunStatus for a single dagRun.
@@ -251,8 +245,8 @@ func formatUnixToRFC3339(unix int64) string {
 
 // CreateAttempt creates an attempt within a root or child DAG run.
 func (store *Store) CreateAttempt(ctx context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
-	if req.RootDAGRun != nil {
-		return store.newChildRecord(ctx, req)
+	if !req.RootDAGRun.Zero() {
+		return store.newChildAttempt(ctx, req)
 	}
 
 	dataRoot := NewDataRoot(store.baseDir, req.DAG.Name)
@@ -291,16 +285,15 @@ func (store *Store) CreateAttempt(ctx context.Context, req dagrun.CreateAttemptR
 		run = r
 	}
 
-	record, err := run.CreateAttempt(ctx, ts, store.cache, req.AttemptID, WithDAG(req.DAG))
+	attempt, err := run.CreateAttempt(ctx, ts, store.cache, req.AttemptID, WithDAG(req.DAG))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create record: %w", err)
+		return nil, fmt.Errorf("failed to create attempt: %w", err)
 	}
 
-	return record, nil
+	return attempt, nil
 }
 
-// newChildRecord creates a new history record for a sub dag-run.
-func (store *Store) newChildRecord(ctx context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (store *Store) newChildAttempt(ctx context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
 	dataRoot := NewDataRoot(store.baseDir, req.RootDAGRun.Name)
 	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -324,7 +317,7 @@ func (store *Store) newChildRecord(ctx context.Context, req dagrun.CreateAttempt
 	if req.Retry {
 		r, err := root.FindSubDAGRun(ctx, req.DAGRunID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to find sub dag-run record: %w", err)
+			return nil, fmt.Errorf("failed to find sub dag-run attempt: %w", err)
 		}
 		run = r
 	} else {
@@ -335,34 +328,39 @@ func (store *Store) newChildRecord(ctx context.Context, req dagrun.CreateAttempt
 		run = r
 	}
 
-	record, err := run.CreateAttempt(ctx, ts, store.cache, req.AttemptID, WithDAG(req.DAG))
+	attempt, err := run.CreateAttempt(ctx, ts, store.cache, req.AttemptID, WithDAG(req.DAG))
 	if err != nil {
-		logger.Error(ctx, "Failed to create sub dag-run record", tag.Error(err))
+		logger.Error(ctx, "Failed to create sub dag-run attempt", tag.Error(err))
 		return nil, err
 	}
 
-	return record, nil
+	return attempt, nil
 }
 
-// RecentAttempts returns the most recent history records for the specified DAG name.
-func (store *Store) RecentAttempts(ctx context.Context, dagName string, itemLimit int) ([]dagrun.Attempt, error) {
+// RecentStatuses returns the newest readable status for recent DAG runs.
+func (store *Store) RecentStatuses(ctx context.Context, dagName string, itemLimit int) ([]ir.DAGRunStatus, error) {
 	root := NewDataRoot(store.baseDir, dagName)
 	items, err := root.listRecentDAGRuns(ctx, itemLimit)
 	if err != nil {
 		return nil, err
 	}
 
-	records := make([]dagrun.Attempt, 0, len(items))
+	statuses := make([]ir.DAGRunStatus, 0, len(items))
 	for _, item := range items {
-		record, err := item.LatestAttempt(ctx, store.cache)
+		attempt, err := item.LatestAttempt(ctx, store.cache)
 		if err != nil {
-			logger.Error(ctx, "Failed to get latest record", tag.Error(err))
+			logger.Error(ctx, "Failed to get latest attempt", tag.Error(err))
 			continue
 		}
-		records = append(records, record)
+		status, err := attempt.ReadStatus(ctx)
+		if err != nil {
+			logger.Error(ctx, "Failed to read recent DAG-run status", tag.Error(err))
+			continue
+		}
+		statuses = append(statuses, *status)
 	}
 
-	return records, nil
+	return statuses, nil
 }
 
 // LatestAttempt returns the newest visible attempt matching the query.
@@ -406,7 +404,7 @@ func (store *Store) LatestAttempt(ctx context.Context, query dagrun.LatestAttemp
 	return attempt, err
 }
 
-// FindAttempt finds a history record by dag-run ID.
+// FindAttempt finds the latest attempt by DAG-run ID.
 func (store *Store) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error) {
 	root := NewDataRoot(store.baseDir, ref.Name)
 	run, err := root.FindByDAGRunID(ctx, ref.ID)
@@ -418,7 +416,7 @@ func (store *Store) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.A
 }
 
 // FindSubAttempt finds a sub dag-run by its ID.
-// It returns the latest record for the specified sub dag-run ID.
+// It returns the latest attempt for the specified sub DAG-run ID.
 func (store *Store) FindSubAttempt(ctx context.Context, ref ir.DAGRunRef, subDAGRunID string) (dagrun.Attempt, error) {
 	root := NewDataRoot(store.baseDir, ref.Name)
 	dagRun, err := root.FindByDAGRunID(ctx, ref.ID)

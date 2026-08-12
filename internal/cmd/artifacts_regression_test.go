@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T) {
+func TestNewContext_DAGRunRepositoryUsesConfiguredArtifactDirForCleanup(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
@@ -42,7 +42,7 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 	}
 	const dagRunID = "run-cleanup-1"
 
-	attempt, err := ctx.DAGRunStore.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := ctx.DAGRunRepository.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx.Context))
 
@@ -59,7 +59,7 @@ func TestNewContext_DAGRunStoreUsesConfiguredArtifactDirForCleanup(t *testing.T)
 
 	require.DirExists(t, archiveDir)
 
-	err = ctx.DAGRunStore.RemoveDAGRun(ctx.Context, ir.NewDAGRunRef(dag.Name, dagRunID))
+	err = ctx.DAGRunRepository.RemoveDAGRun(ctx.Context, ir.NewDAGRunRef(dag.Name, dagRunID))
 	require.NoError(t, err)
 	assert.NoDirExists(t, archiveDir)
 }

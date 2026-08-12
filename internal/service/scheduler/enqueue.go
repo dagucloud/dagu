@@ -31,7 +31,7 @@ import (
 // unix pipe conflicts for concurrent runs).
 func EnqueueCatchupRun(
 	ctx context.Context,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	queueStore queuedomain.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,
@@ -46,7 +46,7 @@ func EnqueueCatchupRun(
 	dagRun := ir.NewDAGRunRef(dag.Name, runID)
 
 	// Idempotency: skip if a run with this ID already exists.
-	if _, err := dagRunStore.FindAttempt(ctx, dagRun); err == nil {
+	if _, err := dagRunRepository.FindAttempt(ctx, dagRun); err == nil {
 		logger.Info(ctx, "Catchup run already exists; skipping",
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
@@ -68,15 +68,15 @@ func EnqueueCatchupRun(
 	dagCopy.Location = ""
 
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunStore:     dagRunStore,
-		QueueStore:      queueStore,
-		DAG:             dagCopy,
-		DAGRunID:        runID,
-		LogBaseDir:      baseLogDir,
-		ArtifactBaseDir: baseArtifactDir,
-		TriggerType:     triggerType,
-		ScheduleTime:    stringutil.FormatTime(scheduleTime),
-		ProfileName:     profileName,
+		DAGRunRepository: dagRunRepository,
+		QueueStore:       queueStore,
+		DAG:              dagCopy,
+		DAGRunID:         runID,
+		LogBaseDir:       baseLogDir,
+		ArtifactBaseDir:  baseArtifactDir,
+		TriggerType:      triggerType,
+		ScheduleTime:     stringutil.FormatTime(scheduleTime),
+		ProfileName:      profileName,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)

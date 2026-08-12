@@ -15,10 +15,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
-var ErrInvalidQueryCursor = dagrun.ErrInvalidQueryCursor
-
-// queryCursorVersion 2 reflects the filter hash JSON key migration from tags to labels.
-const queryCursorVersion = 2
+// queryCursorVersion 3 binds cursors to workspace visibility filters.
+const queryCursorVersion = 3
 
 type queryCursorPayload struct {
 	Version    int    `json:"v"`
@@ -88,23 +86,36 @@ func queryFilterHash(opts dagrun.StatusQuery) string {
 
 	labels := append([]string(nil), opts.Labels...)
 	sort.Strings(labels)
+	var workspaces []string
+	var workspaceEnabled bool
+	var includeUnlabelled bool
+	if opts.WorkspaceFilter != nil && opts.WorkspaceFilter.Enabled {
+		workspaceEnabled = true
+		workspaces = append([]string(nil), opts.WorkspaceFilter.Workspaces...)
+		sort.Strings(workspaces)
+		includeUnlabelled = opts.WorkspaceFilter.IncludeUnlabelled
+	}
 
 	normalized := struct {
-		DAGRunID   string   `json:"dag_run_id,omitempty"`
-		Name       string   `json:"name,omitempty"`
-		ExactName  string   `json:"exact_name,omitempty"`
-		From       string   `json:"from,omitempty"`
-		To         string   `json:"to,omitempty"`
-		Statuses   []int    `json:"statuses,omitempty"`
-		Labels     []string `json:"labels,omitempty"`
-		AllHistory bool     `json:"all_history,omitempty"`
+		DAGRunID          string   `json:"dag_run_id,omitempty"`
+		Name              string   `json:"name,omitempty"`
+		ExactName         string   `json:"exact_name,omitempty"`
+		From              string   `json:"from,omitempty"`
+		To                string   `json:"to,omitempty"`
+		Statuses          []int    `json:"statuses,omitempty"`
+		Labels            []string `json:"labels,omitempty"`
+		WorkspaceEnabled  bool     `json:"workspace_enabled,omitempty"`
+		Workspaces        []string `json:"workspaces,omitempty"`
+		IncludeUnlabelled bool     `json:"include_unlabelled,omitempty"`
 	}{
-		DAGRunID:   opts.DAGRunID,
-		Name:       opts.Name,
-		ExactName:  opts.ExactName,
-		Statuses:   statuses,
-		Labels:     labels,
-		AllHistory: opts.AllHistory,
+		DAGRunID:          opts.DAGRunID,
+		Name:              opts.Name,
+		ExactName:         opts.ExactName,
+		Statuses:          statuses,
+		Labels:            labels,
+		WorkspaceEnabled:  workspaceEnabled,
+		Workspaces:        workspaces,
+		IncludeUnlabelled: includeUnlabelled,
 	}
 	if !opts.From.IsZero() {
 		normalized.From = opts.From.UTC().Format(time.RFC3339Nano)
@@ -119,5 +130,5 @@ func queryFilterHash(opts dagrun.StatusQuery) string {
 }
 
 func invalidQueryCursor(reason string) error {
-	return fmt.Errorf("%w: %s", ErrInvalidQueryCursor, reason)
+	return fmt.Errorf("%w: %s", dagrun.ErrInvalidQueryCursor, reason)
 }

@@ -29,7 +29,7 @@ import (
 type ServerConfig struct {
 	Context              context.Context
 	Config               *config.Config
-	DAGRunStore          *dagrun.Repository
+	DAGRunRepository     *dagrun.Repository
 	QueueStore           queue.QueueStore
 	ProcStore            proc.ProcStore
 	DAGRunManager        runtime.Manager
@@ -60,7 +60,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	collector := telemetry.NewCollector(
 		config.Version,
 		dagRepository,
-		cfg.DAGRunStore,
+		cfg.DAGRunRepository,
 		cfg.QueueStore,
 		cfg.ServiceRegistry,
 	)
@@ -88,7 +88,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 		ctx,
 		cfg.Config,
 		dagRepository,
-		cfg.DAGRunStore,
+		cfg.DAGRunRepository,
 		cfg.QueueStore,
 		cfg.ProcStore,
 		cfg.DAGRunManager,

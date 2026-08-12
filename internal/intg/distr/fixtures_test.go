@@ -321,7 +321,7 @@ func (f *testFixture) startSchedulerWithOptions(
 		f.coord.Config,
 		em,
 		f.coord.DAGRunMgr,
-		f.coord.DAGRunStore,
+		f.coord.DAGRunRepository,
 		f.coord.QueueStore,
 		f.coord.ProcStore,
 		f.coord.ServiceRegistry,
@@ -419,7 +419,7 @@ func (f *testFixture) enqueueDirect() error {
 	dagCopy := f.dagWrapper.Clone()
 	dagCopy.Location = ""
 
-	att, err := f.coord.DAGRunStore.CreateAttempt(f.coord.Context, dagCopy, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	att, err := f.coord.DAGRunRepository.CreateAttempt(f.coord.Context, dagCopy, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	if err != nil {
 		return err
 	}
@@ -469,7 +469,7 @@ func (f *testFixture) enqueueCatchup(scheduleTime time.Time) (string, error) {
 
 	err = scheduler.EnqueueCatchupRun(
 		f.coord.Context,
-		f.coord.DAGRunStore,
+		f.coord.DAGRunRepository,
 		f.coord.QueueStore,
 		f.coord.Config.Paths.LogDir,
 		f.coord.Config.Paths.ArtifactDir,
@@ -601,9 +601,9 @@ func (f *testFixture) latestStatus() (ir.DAGRunStatus, error) {
 }
 
 func (f *testFixture) latestStoredStatus() (ir.DAGRunStatus, error) {
-	store := file.NewDAGRunRepository(f.coord.Config)
+	repository := file.NewDAGRunRepository(f.coord.Config)
 
-	attempt, err := store.LatestAttempt(f.coord.Context, f.dagWrapper.Name)
+	attempt, err := repository.LatestAttempt(f.coord.Context, f.dagWrapper.Name)
 	if err != nil {
 		return ir.DAGRunStatus{}, err
 	}

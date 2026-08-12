@@ -38,12 +38,12 @@ func requireWorkerAttemptID(ctx *Context, workerID string) (string, error) {
 
 func resolveWorkerPreparedAttempt(
 	ctx context.Context,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	dagName, dagRunID string,
 	root ir.DAGRunRef,
 	requestedAttemptID string,
 ) (dagrun.Attempt, *ir.DAGRunStatus, error) {
-	attempt, runStatus, err := readLatestAttempt(ctx, dagRunStore, dagName, dagRunID, root)
+	attempt, runStatus, err := readLatestAttempt(ctx, dagRunRepository, dagName, dagRunID, root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -55,7 +55,7 @@ func resolveWorkerPreparedAttempt(
 
 func readLatestAttempt(
 	ctx context.Context,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	dagName, dagRunID string,
 	root ir.DAGRunRef,
 ) (dagrun.Attempt, *ir.DAGRunStatus, error) {
@@ -64,9 +64,9 @@ func readLatestAttempt(
 		err     error
 	)
 	if root.ID != "" && root.ID != dagRunID {
-		attempt, err = dagRunStore.FindSubAttempt(ctx, root, dagRunID)
+		attempt, err = dagRunRepository.FindSubAttempt(ctx, root, dagRunID)
 	} else {
-		attempt, err = dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
+		attempt, err = dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
 	}
 	if err != nil {
 		return nil, nil, err

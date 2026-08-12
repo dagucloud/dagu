@@ -103,7 +103,7 @@ func runCoordinator(ctx *Context, _ []string) error {
 		coordCtx,
 		coordCtx.Config,
 		coordCtx.ServiceRegistry,
-		coordCtx.DAGRunStore,
+		coordCtx.DAGRunRepository,
 		coordCtx.StateStore,
 		coordCtx.DispatchTaskStore,
 		coordCtx.WorkerHeartbeatStore,
@@ -143,7 +143,7 @@ func newCoordinator(
 	ctx *Context,
 	cfg *config.Config,
 	registry serviceregistry.ServiceRegistry,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	stateStore dagrun.StateStore,
 	dispatchTaskStore dispatch.DispatchTaskStore,
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore,
@@ -230,7 +230,7 @@ func newCoordinator(
 	// Create the handler with DAG-run status persistence and streamed log storage.
 	runtimeStores := cmdprocess.NewRuntimeStoresForConfig(ctx.Context, cfg)
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
-		DAGRunStore:               dagRunStore,
+		DAGRunRepository:          dagRunRepository,
 		StateStore:                stateStore,
 		LogDir:                    cfg.Paths.LogDir,
 		ArtifactDir:               cfg.Paths.ArtifactDir,

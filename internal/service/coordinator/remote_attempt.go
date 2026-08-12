@@ -155,7 +155,7 @@ func (h *Handler) validateSubDAGRootLease(
 	workerID string,
 	rootRef ir.DAGRunRef,
 ) (string, error) {
-	rootAttempt, err := h.dagRunStore.FindAttempt(ctx, rootRef)
+	rootAttempt, err := h.dagRunRepository.FindAttempt(ctx, rootRef)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)

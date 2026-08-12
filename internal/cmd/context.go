@@ -59,7 +59,7 @@ type Context struct {
 
 	EventService              *eventstore.Service
 	EventSourceInstance       string
-	DAGRunStore               *dagrun.Repository
+	DAGRunRepository          *dagrun.Repository
 	DAGRunMgr                 runtime.Manager
 	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore
@@ -90,7 +90,7 @@ func (c *Context) WithContext(ctx context.Context) *Context {
 		Quiet:                     c.Quiet,
 		EventService:              c.EventService,
 		EventSourceInstance:       c.EventSourceInstance,
-		DAGRunStore:               c.DAGRunStore,
+		DAGRunRepository:          c.DAGRunRepository,
 		DAGRunMgr:                 c.DAGRunMgr,
 		ProcStore:                 c.ProcStore,
 		QueueStore:                c.QueueStore,
@@ -330,7 +330,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	if err := ps.Validate(ctx); err != nil {
 		return nil, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
 	}
-	drs := file.NewDAGRunRepository(cfg, hrOpts...)
+	dagRunRepository := file.NewDAGRunRepository(cfg, hrOpts...)
 	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
 	// Lease and active-run stores use CompareAndSwap-based optimistic
 	// concurrency, so plain collections suffice — the previous lockRoot
@@ -339,7 +339,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	activeRunCollection := file.NewCollection(filepath.Join(distributedDir, "active-runs"))
 	dagRunLeaseStore := store.NewDAGRunLeaseStore(leaseCollection)
 	activeDistributedRunStore := store.NewActiveDistributedRunStore(activeRunCollection)
-	drm := runtime.NewManager(drs, ps, cfg)
+	drm := runtime.NewManager(dagRunRepository, ps, cfg)
 	qs := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	sm := file.NewServiceRegistry(cfg)
@@ -407,7 +407,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		Quiet:                     quiet,
 		EventService:              eventSvc,
 		EventSourceInstance:       eventSourceInstance,
-		DAGRunStore:               drs,
+		DAGRunRepository:          dagRunRepository,
 		DAGRunMgr:                 drm,
 		Flags:                     flags,
 		ProcStore:                 ps,
@@ -548,7 +548,7 @@ func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption)
 	return cmdprocess.NewServer(cmdprocess.ServerConfig{
 		Context:              c.Context,
 		Config:               c.Config,
-		DAGRunStore:          c.DAGRunStore,
+		DAGRunRepository:     c.DAGRunRepository,
 		QueueStore:           c.QueueStore,
 		ProcStore:            c.ProcStore,
 		DAGRunManager:        c.DAGRunMgr,
@@ -571,7 +571,7 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr:         c.DAGRunMgr,
 		DAGRepository:     c.DAGRepository,
-		DAGRunStore:       c.DAGRunStore,
+		DAGRunRepository:  c.DAGRunRepository,
 		QueueStore:        c.QueueStore,
 		StateStore:        c.StateStore,
 		SecretStore:       stores.SecretStore,
@@ -772,14 +772,14 @@ func (c *Context) RecordEarlyFailure(dag *ir.DAG, dagRunID string, err error) er
 
 	// 1. Check whether an attempt already exists for the run ID.
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, findErr := c.DAGRunStore.FindAttempt(c, ref)
+	attempt, findErr := c.DAGRunRepository.FindAttempt(c, ref)
 	if findErr != nil && !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
 		return fmt.Errorf("failed to check for existing attempt: %w", findErr)
 	}
 
 	if attempt == nil {
 		// 2. Create the attempt if not exists
-		att, createErr := c.DAGRunStore.CreateAttempt(c, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+		att, createErr := c.DAGRunRepository.CreateAttempt(c, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 		if createErr != nil {
 			return fmt.Errorf("failed to create run to record failure: %w", createErr)
 		}

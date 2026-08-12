@@ -180,7 +180,7 @@ func ResolveBaseConfig(baseConfigData []byte, fallbackPath string) string {
 }
 
 // WithPreviousStatus sets the previous status for retry operations.
-// When set, workers can retry without needing local DAGRunStore access.
+// When set, workers can retry without querying local DAG-run persistence.
 func WithPreviousStatus(status *ir.DAGRunStatus) TaskOption {
 	return func(task *dispatch.DispatchTask) {
 		if status != nil {

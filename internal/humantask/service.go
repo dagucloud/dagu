@@ -76,13 +76,13 @@ func (e *ResumeError) Unwrap() error { return e.Err }
 
 // Service completes human tasks and queues recoverable retries.
 type Service struct {
-	DAGRunStore    *dagrun.Repository
-	QueueStore     queue.QueueStore
-	ProcStore      proc.ProcStore
-	Now            func() time.Time
-	SettleTimeout  time.Duration
-	PollInterval   time.Duration
-	EnqueueTimeout time.Duration
+	DAGRunRepository *dagrun.Repository
+	QueueStore       queue.QueueStore
+	ProcStore        proc.ProcStore
+	Now              func() time.Time
+	SettleTimeout    time.Duration
+	PollInterval     time.Duration
+	EnqueueTimeout   time.Duration
 }
 
 // CompleteRequest identifies one human task and its typed input.
@@ -129,7 +129,7 @@ func (s *Service) defaults() {
 
 func (s *Service) loadTarget(ctx context.Context, dagName, dagRunID, stepID string) (*target, error) {
 	ref := ir.NewDAGRunRef(dagName, dagRunID)
-	attempt, err := s.DAGRunStore.FindAttempt(ctx, ref)
+	attempt, err := s.DAGRunRepository.FindAttempt(ctx, ref)
 	if err != nil {
 		kind := ErrorInternal
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {

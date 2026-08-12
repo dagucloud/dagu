@@ -441,11 +441,11 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 	}
 
 	return iengine.Persistence{
-		DAGRepository:   dagRepository,
-		DAGRunStore:     file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false)),
-		ProcStore:       procStore,
-		StateStore:      store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir)),
-		ServiceRegistry: file.NewServiceRegistry(cfg),
+		DAGRepository:    dagRepository,
+		DAGRunRepository: file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false)),
+		ProcStore:        procStore,
+		StateStore:       store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir)),
+		ServiceRegistry:  file.NewServiceRegistry(cfg),
 
 		DAGRepositoryFactory: fileEngineDAGRepository,
 		RuntimeStoresFactory: fileEngineRuntimeStores,

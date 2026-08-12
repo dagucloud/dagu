@@ -100,7 +100,7 @@ steps:
 			continue
 		}
 
-		subAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, ref, node.SubRuns[0].DAGRunID)
+		subAttempt, err := th.DAGRunRepository.FindSubAttempt(th.Context, ref, node.SubRuns[0].DAGRunID)
 		require.NoError(t, err)
 		subDir := getSubDAGWorkingDir(t, th.Context, subAttempt)
 

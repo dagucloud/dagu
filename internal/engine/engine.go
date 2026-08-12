@@ -26,17 +26,17 @@ import (
 )
 
 type Engine struct {
-	cfg             *config.Config
-	dagRunStore     *dagrun.Repository
-	runStateStore   runstate.Store
-	stateStore      dagrun.StateStore
-	procStore       proc.ProcStore
-	serviceRegistry serviceregistry.ServiceRegistry
-	dagRepository   *persis.DAGRepository
-	dagRunMgr       runtime.Manager
-	defaultMode     ExecutionMode
-	distributed     DistributedOptions
-	logger          logger.Logger
+	cfg              *config.Config
+	dagRunRepository *dagrun.Repository
+	runStateStore    runstate.Store
+	stateStore       dagrun.StateStore
+	procStore        proc.ProcStore
+	serviceRegistry  serviceregistry.ServiceRegistry
+	dagRepository    *persis.DAGRepository
+	dagRunMgr        runtime.Manager
+	defaultMode      ExecutionMode
+	distributed      DistributedOptions
+	logger           logger.Logger
 
 	dagRepositoryFactory DAGRepositoryFactory
 	runtimeStoresFactory RuntimeStoresFactory
@@ -66,7 +66,7 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	dagRunMgr := runtime.NewManager(persistence.DAGRunStore, persistence.ProcStore, cfg)
+	dagRunMgr := runtime.NewManager(persistence.DAGRunRepository, persistence.ProcStore, cfg)
 
 	mode := opts.DefaultMode
 	if mode == "" {
@@ -78,17 +78,17 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 	}
 
 	return &Engine{
-		cfg:             cfg,
-		dagRunStore:     persistence.DAGRunStore,
-		runStateStore:   persistence.RunStateStore,
-		stateStore:      persistence.StateStore,
-		procStore:       persistence.ProcStore,
-		serviceRegistry: persistence.ServiceRegistry,
-		dagRepository:   persistence.DAGRepository,
-		dagRunMgr:       dagRunMgr,
-		defaultMode:     mode,
-		distributed:     distributed,
-		logger:          log,
+		cfg:              cfg,
+		dagRunRepository: persistence.DAGRunRepository,
+		runStateStore:    persistence.RunStateStore,
+		stateStore:       persistence.StateStore,
+		procStore:        persistence.ProcStore,
+		serviceRegistry:  persistence.ServiceRegistry,
+		dagRepository:    persistence.DAGRepository,
+		dagRunMgr:        dagRunMgr,
+		defaultMode:      mode,
+		distributed:      distributed,
+		logger:           log,
 
 		dagRepositoryFactory: persistence.DAGRepositoryFactory,
 		runtimeStoresFactory: persistence.RuntimeStoresFactory,
@@ -209,7 +209,7 @@ func (e *Engine) subWorkflowRunnerFactory(stores RuntimeStores) func(context.Con
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr:         e.dagRunMgr,
 		DAGRepository:     e.dagRepository,
-		DAGRunStore:       e.dagRunStore,
+		DAGRunRepository:  e.dagRunRepository,
 		RunStateStore:     e.runStateStore,
 		StateStore:        e.stateStore,
 		SecretStore:       stores.SecretStore,

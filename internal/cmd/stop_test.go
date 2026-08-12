@@ -127,7 +127,7 @@ steps:
 func seedFailedAutoRetryPendingRun(t *testing.T, th test.Command, dag test.DAG, dagRunID string, autoRetryCount int) {
 	t.Helper()
 
-	attempt, err := th.DAGRunStore.CreateAttempt(
+	attempt, err := th.DAGRunRepository.CreateAttempt(
 		th.Context,
 		dag.DAG,
 		time.Now(),

@@ -54,8 +54,8 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
-	attempt, err := dagRunStore.CreateAttempt(
+	dagRunRepository := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	attempt, err := dagRunRepository.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-2*time.Minute),
@@ -84,7 +84,7 @@ steps:
 
 	coordinatorCli := &retryCoordinatorRecorder{}
 	api := &API{
-		dagRunStore: dagRunStore,
+		dagRunRepository: dagRunRepository,
 		config: &config.Config{
 			Server: config.Server{
 				Permissions: map[config.Permission]bool{
@@ -133,8 +133,8 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
-	attempt, err := dagRunStore.CreateAttempt(
+	dagRunRepository := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	attempt, err := dagRunRepository.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-2*time.Minute),
@@ -159,7 +159,7 @@ steps:
 
 	coordinatorCli := &retryCoordinatorRecorder{}
 	api := &API{
-		dagRunStore: dagRunStore,
+		dagRunRepository: dagRunRepository,
 		config: &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
 			config.PermissionRunDAGs: true,
 		}}},
@@ -217,8 +217,8 @@ func TestRetryDAGRun_RejectsWaitingDAGAndStepRetry(t *testing.T) {
 		Name:  "waiting_retry_dag",
 		Steps: []ir.Step{{Name: "approve"}},
 	}
-	dagRunStore := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
-	attempt, err := dagRunStore.CreateAttempt(
+	dagRunRepository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	attempt, err := dagRunRepository.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-time.Minute),
@@ -241,7 +241,7 @@ func TestRetryDAGRun_RejectsWaitingDAGAndStepRetry(t *testing.T) {
 	require.NoError(t, attempt.Close(ctx))
 
 	apiServer := &API{
-		dagRunStore: dagRunStore,
+		dagRunRepository: dagRunRepository,
 		config: &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
 			config.PermissionRunDAGs: true,
 		}}},
@@ -292,8 +292,8 @@ steps:
 	dag, err := spec.Load(ctx, dagFile)
 	require.NoError(t, err)
 
-	dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
-	attempt, err := dagRunStore.CreateAttempt(
+	dagRunRepository := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	attempt, err := dagRunRepository.CreateAttempt(
 		ctx,
 		dag,
 		time.Now().Add(-time.Minute),
@@ -317,7 +317,7 @@ steps:
 
 	coordinatorCli := &retryCoordinatorRecorder{}
 	api := &API{
-		dagRunStore: dagRunStore,
+		dagRunRepository: dagRunRepository,
 		config: &config.Config{
 			Server: config.Server{
 				Permissions: map[config.Permission]bool{
@@ -357,9 +357,9 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	}
 	childStep := ir.Step{Name: "target-step"}
 	childDAG := &ir.DAG{Name: "child_retry_dag", Steps: []ir.Step{childStep}}
-	store := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 
-	rootAttempt, err := store.CreateAttempt(ctx, rootDAG, time.Now().Add(-time.Minute), rootRef.ID, dagrun.CreateAttemptOptions{})
+	rootAttempt, err := repository.CreateAttempt(ctx, rootDAG, time.Now().Add(-time.Minute), rootRef.ID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	rootStatus := ir.DAGRunStatus{
 		Root:      rootRef,
@@ -380,7 +380,7 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
 	require.NoError(t, rootAttempt.Close(ctx))
 
-	childAttempt, err := store.CreateAttempt(ctx, childDAG, time.Now(), "child-target", dagrun.CreateAttemptOptions{RootDAGRun: &rootRef})
+	childAttempt, err := repository.CreateAttempt(ctx, childDAG, time.Now(), "child-target", dagrun.CreateAttemptOptions{RootDAGRun: rootRef})
 	require.NoError(t, err)
 	childStatus := ir.DAGRunStatus{
 		Root:      rootRef,
@@ -397,7 +397,7 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 
 	coordinatorCli := &retryCoordinatorRecorder{}
 	apiServer := &API{
-		dagRunStore: store,
+		dagRunRepository: repository,
 		config: &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
 			config.PermissionRunDAGs: true,
 		}}},

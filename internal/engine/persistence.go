@@ -24,7 +24,7 @@ type PersistenceFactory func(context.Context, *config.Config) (Persistence, erro
 // Persistence contains the storage dependencies required by Engine.
 type Persistence struct {
 	DAGRepository        *persis.DAGRepository
-	DAGRunStore          *dagrun.Repository
+	DAGRunRepository     *dagrun.Repository
 	RunStateStore        runstate.Store
 	ProcStore            proc.ProcStore
 	StateStore           dagrun.StateStore
@@ -64,8 +64,8 @@ func buildPersistence(ctx context.Context, cfg *config.Config, opts Options) (Pe
 		p = factoryPersistence
 	}
 	p = overridePersistence(p, opts.Persistence)
-	if opts.DAGRunStore != nil {
-		p.DAGRunStore = opts.DAGRunStore
+	if opts.DAGRunRepository != nil {
+		p.DAGRunRepository = opts.DAGRunRepository
 	}
 	if opts.RunStateStore != nil {
 		p.RunStateStore = opts.RunStateStore
@@ -80,8 +80,8 @@ func overridePersistence(base, override Persistence) Persistence {
 	if override.DAGRepository != nil {
 		base.DAGRepository = override.DAGRepository
 	}
-	if override.DAGRunStore != nil {
-		base.DAGRunStore = override.DAGRunStore
+	if override.DAGRunRepository != nil {
+		base.DAGRunRepository = override.DAGRunRepository
 	}
 	if override.RunStateStore != nil {
 		base.RunStateStore = override.RunStateStore
@@ -109,8 +109,8 @@ func validatePersistence(ctx context.Context, p Persistence) error {
 	if p.DAGRepository == nil {
 		errs = append(errs, errors.New("DAG repository is not configured"))
 	}
-	if p.DAGRunStore == nil && p.RunStateStore == nil {
-		errs = append(errs, errors.New("DAG-run store or run-state store is not configured"))
+	if p.DAGRunRepository == nil && p.RunStateStore == nil {
+		errs = append(errs, errors.New("DAG-run repository or run-state store is not configured"))
 	}
 	if p.ProcStore == nil {
 		errs = append(errs, errors.New("proc store is not configured"))

@@ -206,8 +206,8 @@ func TestDataRootRuns(t *testing.T) {
 	})
 }
 
-func TestDataRootRemoveOld(t *testing.T) {
-	t.Run("RemoveAllWhenRetentionIsZero", func(t *testing.T) {
+func TestDataRootRetentionCleanup(t *testing.T) {
+	t.Run("RemoveAllBeforeCurrentTime", func(t *testing.T) {
 		root := setupTestDataRoot(t)
 
 		// Use old timestamps like the working store_test.go
@@ -245,8 +245,8 @@ func TestDataRootRemoveOld(t *testing.T) {
 		assert.True(t, fileutil.FileExists(dagRun1.baseDir), "dag-run 1 should exist before cleanup")
 		assert.True(t, fileutil.FileExists(dagRun2.baseDir), "dag-run 2 should exist before cleanup")
 
-		// Remove all dag-runs (retention = 0)
-		removedIDs, err := root.RemoveOld(root.Context, 0, false)
+		// Remove all DAG runs before the current time
+		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now()), false)
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 2)
 
@@ -255,7 +255,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		assert.False(t, fileutil.FileExists(dagRun2.baseDir), "dag-run 2 should be removed")
 	})
 
-	t.Run("KeepRecentWhenRetentionIsPositive", func(t *testing.T) {
+	t.Run("KeepRunsAfterCutoff", func(t *testing.T) {
 		root := setupTestDataRoot(t)
 
 		// Create dag-runs: one old and one recent
@@ -292,8 +292,8 @@ func TestDataRootRemoveOld(t *testing.T) {
 		assert.True(t, fileutil.FileExists(dagRun1.baseDir), "Old dag-run should exist before cleanup")
 		assert.True(t, fileutil.FileExists(dagRun2.baseDir), "Recent dag-run should exist before cleanup")
 
-		// Remove dag-runs older than 7 days (should remove old but keep recent)
-		removedIDs, err := root.RemoveOld(root.Context, 7, false)
+		// Remove DAG runs before the seven-day cutoff (should remove old but keep recent)
+		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now().AddDate(0, 0, -7)), false)
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 1)
 
@@ -481,8 +481,8 @@ func TestDataRootRemoveOld(t *testing.T) {
 		assert.True(t, fileutil.FileExists(dagRun1.baseDir), "dag-run 1 should exist")
 		assert.True(t, fileutil.FileExists(dagRun2.baseDir), "dag-run 2 should exist")
 
-		// Remove all old dag-runs (retention = 0)
-		removedIDs, err := root.RemoveOld(root.Context, 0, false)
+		// Remove all DAG runs before the current time
+		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now()), false)
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 2)
 
@@ -531,9 +531,9 @@ func TestDataRootRemoveOld(t *testing.T) {
 		assert.True(t, fileutil.FileExists(completedRun.baseDir), "Completed dag-run should exist before cleanup")
 		assert.True(t, fileutil.FileExists(waitingRun.baseDir), "Waiting dag-run should exist before cleanup")
 
-		// Remove all old dag-runs (retention = 0)
+		// Remove all DAG runs before the current time
 		// Wait status should be preserved because it's considered "active"
-		removedIDs, err := root.RemoveOld(root.Context, 0, false)
+		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now()), false)
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 1, "Only completed run should be removed")
 		assert.Contains(t, removedIDs, "completed-run", "Completed run should be in removed list")
@@ -542,7 +542,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 		assert.False(t, fileutil.FileExists(completedRun.baseDir), "Completed dag-run should be removed")
 		assert.True(t, fileutil.FileExists(waitingRun.baseDir), "Waiting dag-run should be preserved")
 	})
-	t.Run("RemoveOldRemovesArtifactDirs", func(t *testing.T) {
+	t.Run("CleanupRemovesArtifactDirs", func(t *testing.T) {
 		root := setupTestDataRoot(t)
 
 		oldTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -570,7 +570,7 @@ func TestDataRootRemoveOld(t *testing.T) {
 
 		require.DirExists(t, artifactDir)
 
-		removedIDs, err := root.RemoveOld(root.Context, 0, false)
+		removedIDs, err := root.removeOldBefore(root.Context, dagrun.NewUTC(time.Now()), false)
 		require.NoError(t, err)
 		assert.Contains(t, removedIDs, "artifact-run")
 		assert.NoDirExists(t, artifactDir)

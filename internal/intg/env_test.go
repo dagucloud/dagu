@@ -317,7 +317,7 @@ steps:
 	})
 
 	rootRef := ir.NewDAGRunRef("subdag-env-parent", runID)
-	parentAttempt, err := th.DAGRunStore.FindAttempt(th.Context, rootRef)
+	parentAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, rootRef)
 	require.NoError(t, err)
 
 	parentStatus, err := parentAttempt.ReadStatus(th.Context)

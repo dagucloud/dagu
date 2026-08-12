@@ -38,8 +38,8 @@ func TestLocalCancelRequestsStoredChildAttemptWhenInactive(t *testing.T) {
 	root := ir.NewDAGRunRef("root", "root-run")
 	attempt := new(testutil.MockAttempt)
 	attempt.On("Abort", ctx).Return(nil).Once()
-	store := &localDAGRunStore{subAttempt: attempt}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
+	store := &localDAGRunBackend{subAttempt: attempt}
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -58,8 +58,8 @@ func TestLocalCancelIgnoresMissingStoredChildAttemptWhenInactive(t *testing.T) {
 
 	ctx := context.Background()
 	root := ir.NewDAGRunRef("root", "root-run")
-	store := &localDAGRunStore{}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
+	store := &localDAGRunBackend{}
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -78,8 +78,8 @@ func TestLocalCancelReturnsStoredChildAttemptLookupError(t *testing.T) {
 	ctx := context.Background()
 	root := ir.NewDAGRunRef("root", "root-run")
 	findErr := errors.New("store unavailable")
-	store := &localDAGRunStore{findErr: findErr}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
+	store := &localDAGRunBackend{findErr: findErr}
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
 
 	err := runner.Cancel(ctx, executor.SubWorkflowCancelRequest{
 		DAG:        &ir.DAG{Name: "child"},
@@ -139,8 +139,8 @@ func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
 	readErr := errors.New("read status failed")
 	attempt := new(testutil.MockAttempt)
 	attempt.On("ReadStatus", ctx).Return(nil, readErr).Once()
-	store := &localDAGRunStore{subAttempt: attempt}
-	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunStore(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
+	store := &localDAGRunBackend{subAttempt: attempt}
+	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(dagrun.NewRepository(store, dagrun.RepositoryOptions{})))
 
 	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
 		SubWorkflowRequest: executor.SubWorkflowRequest{
@@ -315,7 +315,7 @@ steps:
 	runner := subflow.NewLocal(
 		th.DAGRunMgr,
 		th.DAGRepository,
-		subflow.WithLocalDAGRunStore(th.DAGRunStore),
+		subflow.WithLocalDAGRunRepository(th.DAGRunRepository),
 	)
 	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
 		DAG:               childDAG.DAG,
@@ -330,7 +330,7 @@ steps:
 	require.Equal(t, ir.Succeeded, result.Status)
 	require.Equal(t, "ok", result.Outputs["RESULT"])
 
-	latestAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, rootRef, childRunID)
+	latestAttempt, err := th.DAGRunRepository.FindSubAttempt(th.Context, rootRef, childRunID)
 	require.NoError(t, err)
 	require.Equal(t, originalAttempt.ID(), latestAttempt.ID())
 }
@@ -358,7 +358,7 @@ steps:
 	createStoredRunningChildAttempt(t, th, rootDAG.DAG, childDAG.DAG, rootRunID, childRunID, childStatus)
 
 	rootRef := ir.NewDAGRunRef(rootDAG.Name, rootRunID)
-	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGRepository, subflow.WithLocalDAGRunStore(th.DAGRunStore))
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGRepository, subflow.WithLocalDAGRunRepository(th.DAGRunRepository))
 
 	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
 		DAG:          childDAG.DAG,
@@ -402,7 +402,7 @@ func createStoredRunningChildAttempt(
 	ctx := th.Context
 	rootRef := ir.NewDAGRunRef(rootDAG.Name, rootRunID)
 
-	rootAttempt, err := th.DAGRunStore.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, dagrun.CreateAttemptOptions{})
+	rootAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, rootDAG, time.Now(), rootRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, rootAttempt.Open(ctx))
 	rootStatus := localRunStatus(rootDAG, rootRunID, ir.Running, ir.NodeRunning)
@@ -411,8 +411,8 @@ func createStoredRunningChildAttempt(
 	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
 	require.NoError(t, rootAttempt.Close(ctx))
 
-	childAttempt, err := th.DAGRunStore.CreateAttempt(ctx, childDAG, time.Now(), childRunID, dagrun.CreateAttemptOptions{
-		RootDAGRun: &rootRef,
+	childAttempt, err := th.DAGRunRepository.CreateAttempt(ctx, childDAG, time.Now(), childRunID, dagrun.CreateAttemptOptions{
+		RootDAGRun: rootRef,
 	})
 	require.NoError(t, err)
 	require.NoError(t, childAttempt.Open(ctx))
@@ -426,8 +426,8 @@ func createStoredRunningChildAttempt(
 	return childAttempt
 }
 
-type localDAGRunStore struct {
-	dagrun.Store
+type localDAGRunBackend struct {
+	testutil.DAGRunBackendStub
 	subAttempt dagrun.Attempt
 	findErr    error
 	findRoot   ir.DAGRunRef
@@ -446,7 +446,7 @@ func (i *staticInstaller) Install(
 	return i.manifest, nil
 }
 
-func (s *localDAGRunStore) FindSubAttempt(_ context.Context, root ir.DAGRunRef, childRunID string) (dagrun.Attempt, error) {
+func (s *localDAGRunBackend) FindSubAttempt(_ context.Context, root ir.DAGRunRef, childRunID string) (dagrun.Attempt, error) {
 	s.findRoot = root
 	s.findRunID = childRunID
 	if s.findErr != nil {

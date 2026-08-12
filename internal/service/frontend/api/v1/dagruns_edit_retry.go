@@ -601,7 +601,7 @@ func (a *API) markEditRetrySeedFailed(ctx context.Context, status *ir.DAGRunStat
 	if status == nil || cause == nil {
 		return
 	}
-	_, _, err := a.dagRunStore.CompareAndSwapLatestAttemptStatus(
+	_, _, err := a.dagRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		status.DAGRun(),
 		status.AttemptID,
@@ -632,7 +632,7 @@ func (a *API) seedEditRetryAttempt(
 	sourceWorkDir string,
 ) (*ir.DAGRunStatus, error) {
 	now := time.Now()
-	attempt, err := a.dagRunStore.CreateAttempt(ctx, dag, now, dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := a.dagRunRepository.CreateAttempt(ctx, dag, now, dagRunID, dagrun.CreateAttemptOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create edit retry attempt: %w", err)
 	}
@@ -641,7 +641,7 @@ func (a *API) seedEditRetryAttempt(
 		if committed {
 			return
 		}
-		if rmErr := a.dagRunStore.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, dagRunID)); rmErr != nil {
+		if rmErr := a.dagRunRepository.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, dagRunID)); rmErr != nil {
 			logger.Error(ctx, "Failed to rollback edit retry attempt",
 				tag.DAG(dag.Name),
 				tag.RunID(dagRunID),

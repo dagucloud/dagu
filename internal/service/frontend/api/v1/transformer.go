@@ -356,7 +356,7 @@ func toDAGRunSummary(s ir.DAGRunStatus) api.DAGRunSummary {
 	}
 }
 
-func toDAGRunsPageResponse(page dagrun.DAGRunStatusPage) api.DAGRunsPageResponse {
+func toDAGRunsPageResponse(page dagrun.StatusPage) api.DAGRunsPageResponse {
 	dagRuns := make([]api.DAGRunSummary, 0, len(page.Items))
 	for _, item := range page.Items {
 		if item == nil {

@@ -71,7 +71,7 @@ func (a *API) compareAndSwapManualStatus(
 		}
 		return nil
 	}
-	return a.dagRunStore.CompareAndSwapLatestAttemptStatus(
+	return a.dagRunRepository.CompareAndSwapLatestAttemptStatus(
 		a.withEventContext(ctx),
 		targetRef,
 		status.AttemptID,

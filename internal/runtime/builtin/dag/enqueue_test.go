@@ -49,7 +49,7 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 		parentRun.ID,
 		filepath.Join(th.Config.Paths.LogDir, "parent.log"),
 		runtime.WithRootDAGRun(parentRun),
-		runtime.WithDAGRunStore(th.DAGRunStore),
+		runtime.WithDAGRunRepository(th.DAGRunRepository),
 		runtime.WithQueueStore(th.QueueStore),
 		runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
 		runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),
@@ -72,7 +72,7 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 	execImpl.SetStdout(&stdout)
 	require.NoError(t, execImpl.Run(ctx))
 
-	attempt, err := th.DAGRunStore.FindAttempt(ctx, ir.NewDAGRunRef("child", "child-run"))
+	attempt, err := th.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef("child", "child-run"))
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
@@ -111,7 +111,7 @@ func TestEnqueueWorkerSelector(t *testing.T) {
 		parentRun.ID,
 		filepath.Join(th.Config.Paths.LogDir, "parent.log"),
 		runtime.WithRootDAGRun(parentRun),
-		runtime.WithDAGRunStore(th.DAGRunStore),
+		runtime.WithDAGRunRepository(th.DAGRunRepository),
 		runtime.WithQueueStore(th.QueueStore),
 		runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
 		runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),
@@ -138,7 +138,7 @@ func TestEnqueueWorkerSelector(t *testing.T) {
 
 	require.NoError(t, execImpl.Run(ctx))
 
-	attempt, err := th.DAGRunStore.FindAttempt(ctx, ir.NewDAGRunRef("child", "child-run"))
+	attempt, err := th.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef("child", "child-run"))
 	require.NoError(t, err)
 	child, err := attempt.ReadDAG(ctx)
 	require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestSubDAGExecutorsRejectHumanTasks(t *testing.T) {
 		root.ID,
 		"",
 		runtime.WithRootDAGRun(root),
-		runtime.WithDAGRunStore(th.DAGRunStore),
+		runtime.WithDAGRunRepository(th.DAGRunRepository),
 		runtime.WithQueueStore(th.QueueStore),
 	)
 
@@ -231,7 +231,7 @@ func TestEnqueueExecutorParallelHonorsMaxConcurrent(t *testing.T) {
 		parentRun.ID,
 		filepath.Join(th.Config.Paths.LogDir, "parent.log"),
 		runtime.WithRootDAGRun(parentRun),
-		runtime.WithDAGRunStore(th.DAGRunStore),
+		runtime.WithDAGRunRepository(th.DAGRunRepository),
 		runtime.WithQueueStore(queueStore),
 		runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
 		runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),

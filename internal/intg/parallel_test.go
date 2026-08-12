@@ -562,7 +562,7 @@ steps:
 	startedRunID := ""
 	rootRun := ir.DAGRunRef{}
 	require.Eventually(t, func() bool {
-		attempt, err := dag.DAGRunStore.LatestAttempt(dag.Context, dag.Name)
+		attempt, err := dag.DAGRunRepository.LatestAttempt(dag.Context, dag.Name)
 		if err != nil {
 			return false
 		}

@@ -105,7 +105,7 @@ func releaseHoldFileWhenRecentStatusCountAtLeastWithin(
 	go func() {
 		deadline := time.Now().Add(timeout)
 		for time.Now().Before(deadline) {
-			if len(th.DAGRunMgr.ListRecentStatus(th.Context, dagName, count)) >= count {
+			if len(th.DAGRunMgr.ListRecentStatuses(th.Context, dagName, count)) >= count {
 				done <- os.WriteFile(path, []byte("release"), 0o600)
 				return
 			}

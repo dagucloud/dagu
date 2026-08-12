@@ -23,16 +23,16 @@ func TestAbortQueuedDAGRun_PreservesPreviousVisibleAttempt(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := testQueueAbortDAG()
 	runRef := ir.NewDAGRunRef(dag.Name, "run-1")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Succeeded, dagrun.CreateAttemptOptions{}, time.Now().Add(-time.Minute))
-	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Queued, dagrun.CreateAttemptOptions{Retry: true}, time.Now())
+	writeAttemptStatus(t, ctx, repository, dag, "run-1", ir.Succeeded, dagrun.CreateAttemptOptions{}, time.Now().Add(-time.Minute))
+	writeAttemptStatus(t, ctx, repository, dag, "run-1", ir.Queued, dagrun.CreateAttemptOptions{Retry: true}, time.Now())
 
-	require.NoError(t, queue.AbortQueuedDAGRun(ctx, store, runRef))
+	require.NoError(t, queue.AbortQueuedDAGRun(ctx, repository, runRef))
 
-	attempt, err := store.FindAttempt(ctx, runRef)
+	attempt, err := repository.FindAttempt(ctx, runRef)
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
@@ -43,15 +43,15 @@ func TestAbortQueuedDAGRun_RemovesRunWhenQueuedAttemptIsOnlyVisibleAttempt(t *te
 	t.Parallel()
 
 	ctx := context.Background()
-	store := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := testQueueAbortDAG()
 	runRef := ir.NewDAGRunRef(dag.Name, "run-2")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-2", ir.Queued, dagrun.CreateAttemptOptions{}, time.Now())
+	writeAttemptStatus(t, ctx, repository, dag, "run-2", ir.Queued, dagrun.CreateAttemptOptions{}, time.Now())
 
-	require.NoError(t, queue.AbortQueuedDAGRun(ctx, store, runRef))
+	require.NoError(t, queue.AbortQueuedDAGRun(ctx, repository, runRef))
 
-	_, err := store.FindAttempt(ctx, runRef)
+	_, err := repository.FindAttempt(ctx, runRef)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData))
 }
@@ -60,13 +60,13 @@ func TestAbortQueuedDAGRun_RejectsNonQueuedStatus(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	repository := filedagrun.NewRepository(filepath.Join(t.TempDir(), "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := testQueueAbortDAG()
 	runRef := ir.NewDAGRunRef(dag.Name, "run-3")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-3", ir.Running, dagrun.CreateAttemptOptions{}, time.Now())
+	writeAttemptStatus(t, ctx, repository, dag, "run-3", ir.Running, dagrun.CreateAttemptOptions{}, time.Now())
 
-	err := queue.AbortQueuedDAGRun(ctx, store, runRef)
+	err := queue.AbortQueuedDAGRun(ctx, repository, runRef)
 	require.Error(t, err)
 
 	var notQueuedErr *queue.DAGRunNotQueuedError
@@ -86,7 +86,7 @@ func testQueueAbortDAG() *ir.DAG {
 func writeAttemptStatus(
 	t *testing.T,
 	ctx context.Context,
-	store *dagrun.Repository,
+	repository *dagrun.Repository,
 	dag *ir.DAG,
 	runID string,
 	status ir.Status,
@@ -95,7 +95,7 @@ func writeAttemptStatus(
 ) {
 	t.Helper()
 
-	attempt, err := store.CreateAttempt(ctx, dag, ts, runID, opts)
+	attempt, err := repository.CreateAttempt(ctx, dag, ts, runID, opts)
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 

@@ -39,7 +39,7 @@ type Scheduler struct {
 	entryReader         EntryReader
 	quit                chan any
 	running             atomic.Bool
-	dagRunStore         *dagrun.Repository
+	dagRunRepository    *dagrun.Repository
 	queueStore          queuedomain.QueueStore
 	procStore           proc.ProcStore
 	config              *config.Config
@@ -105,7 +105,7 @@ func New(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
 	reg serviceregistry.ServiceRegistry,
@@ -119,14 +119,14 @@ func New(
 			opt(&options)
 		}
 	}
-	return newScheduler(cfg, er, drm, dagRunStore, queueStore, procStore, reg, coordinatorCli, watermarkStore, schedulerHooks{}, options)
+	return newScheduler(cfg, er, drm, dagRunRepository, queueStore, procStore, reg, coordinatorCli, watermarkStore, schedulerHooks{}, options)
 }
 
 func newScheduler(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	queueStore queuedomain.QueueStore,
 	procStore proc.ProcStore,
 	reg serviceregistry.ServiceRegistry,
@@ -170,7 +170,7 @@ func newScheduler(
 	}
 	processor := NewQueueProcessor(
 		queueStore,
-		dagRunStore,
+		dagRunRepository,
 		procStore,
 		dagExecutor,
 		cfg.Queues,
@@ -197,7 +197,7 @@ func newScheduler(
 			}
 			return EnqueueCatchupRun(
 				ctx,
-				dagRunStore,
+				dagRunRepository,
 				queueStore,
 				cfg.Paths.LogDir,
 				cfg.Paths.ArtifactDir,
@@ -245,7 +245,7 @@ func newScheduler(
 		Enqueue:         enqueueFunc,
 		IsQueued:        isQueued,
 		RunExists: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
-			_, err := dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
+			_, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
 			switch {
 			case err == nil:
 				return true, nil
@@ -260,7 +260,7 @@ func newScheduler(
 	})
 
 	retryScanner, err := NewRetryScanner(
-		dagRunStore,
+		dagRunRepository,
 		queueStore,
 		isSuspended,
 		cfg.Scheduler.RetryFailureWindow,
@@ -271,20 +271,20 @@ func newScheduler(
 	}
 
 	return &Scheduler{
-		quit:            make(chan any),
-		entryReader:     er,
-		dagRunStore:     dagRunStore,
-		queueStore:      queueStore,
-		procStore:       procStore,
-		config:          cfg,
-		dirLock:         dirLock,
-		dagExecutor:     dagExecutor,
-		healthServer:    healthServer,
-		serviceRegistry: reg,
-		queueProcessor:  processor,
-		retryScanner:    retryScanner,
-		planner:         planner,
-		clock:           defaultClock,
+		quit:             make(chan any),
+		entryReader:      er,
+		dagRunRepository: dagRunRepository,
+		queueStore:       queueStore,
+		procStore:        procStore,
+		config:           cfg,
+		dirLock:          dirLock,
+		dagExecutor:      dagExecutor,
+		healthServer:     healthServer,
+		serviceRegistry:  reg,
+		queueProcessor:   processor,
+		retryScanner:     retryScanner,
+		planner:          planner,
+		clock:            defaultClock,
 	}, nil
 }
 
@@ -670,7 +670,7 @@ func (s *Scheduler) startZombieDetector(ctx context.Context) {
 	default:
 	}
 	s.zombieDetector = NewZombieDetector(
-		s.dagRunStore,
+		s.dagRunRepository,
 		s.procStore,
 		s.config.Scheduler.ZombieDetectionInterval,
 		s.config.Scheduler.FailureThreshold,

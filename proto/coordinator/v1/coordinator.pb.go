@@ -463,7 +463,7 @@ type Task struct {
 	Definition       string                 `protobuf:"bytes,11,opt,name=definition,proto3" json:"definition,omitempty"`                                                                                                         // Optional: DAG definition (YAML) for local DAGs
 	WorkerId         string                 `protobuf:"bytes,12,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`                                                                                             // ID of the worker that will execute this task
 	// Previous status for OPERATION_RETRY.
-	// When set, workers can retry without needing local DAGRunStore access.
+	// When set, workers can retry without needing local DAG-run persistence.
 	PreviousStatus *DAGRunStatusProto `protobuf:"bytes,13,opt,name=previous_status,json=previousStatus,proto3" json:"previous_status,omitempty"`
 	// Attempt ID created by coordinator. Workers use this to create attempts with the same ID.
 	AttemptId string `protobuf:"bytes,14,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
@@ -918,7 +918,7 @@ type Task_builder struct {
 	Definition       string
 	WorkerId         string
 	// Previous status for OPERATION_RETRY.
-	// When set, workers can retry without needing local DAGRunStore access.
+	// When set, workers can retry without needing local DAG-run persistence.
 	PreviousStatus *DAGRunStatusProto
 	// Attempt ID created by coordinator. Workers use this to create attempts with the same ID.
 	AttemptId string

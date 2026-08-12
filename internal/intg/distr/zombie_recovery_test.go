@@ -450,7 +450,7 @@ steps:
 	f.startScheduler(30 * time.Second)
 
 	require.Eventually(t, func() bool {
-		statuses, err := f.coord.DAGRunStore.ListStatuses(
+		statuses, err := f.coord.DAGRunRepository.ListStatuses(
 			f.coord.Context,
 			dagrun.WithExactName("queue-concurrency-test"),
 			dagrun.WithoutLimit(),
@@ -479,7 +479,7 @@ steps:
 	// is still consistent, so assert on the scheduler-visible run state instead.
 	if runtime.GOOS != "windows" {
 		require.Never(t, func() bool {
-			statuses, err := f.coord.DAGRunStore.ListStatuses(
+			statuses, err := f.coord.DAGRunRepository.ListStatuses(
 				f.coord.Context,
 				dagrun.WithExactName("queue-concurrency-test"),
 				dagrun.WithoutLimit(),
@@ -514,7 +514,7 @@ steps:
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0600))
 	require.Eventually(t, func() bool {
-		statuses, err := f.coord.DAGRunStore.ListStatuses(
+		statuses, err := f.coord.DAGRunRepository.ListStatuses(
 			f.coord.Context,
 			dagrun.WithExactName("queue-concurrency-test"),
 			dagrun.WithoutLimit(),
@@ -557,7 +557,7 @@ steps:
 	status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 	require.Equal(t, ir.Succeeded, status.Status)
 
-	activeStatuses, err := f.coord.DAGRunStore.ListStatuses(f.coord.Context,
+	activeStatuses, err := f.coord.DAGRunRepository.ListStatuses(f.coord.Context,
 		dagrun.WithStatuses([]ir.Status{ir.Running}),
 		dagrun.WithoutLimit(),
 	)
@@ -1017,7 +1017,7 @@ func readSubDAGRunStatus(
 	rootRef ir.DAGRunRef,
 	subRunID string,
 ) (*ir.DAGRunStatus, error) {
-	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)
+	attempt, err := f.coord.DAGRunRepository.FindSubAttempt(f.coord.Context, rootRef, subRunID)
 	if err != nil {
 		return nil, err
 	}

@@ -432,7 +432,7 @@ func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunH
 		return nil, err
 	}
 	dagName := a.resolveDAGName(ctx, request.FileName)
-	recentHistory := a.dagRunMgr.ListRecentStatus(ctx, dagName, defaultHistoryLimit)
+	recentHistory := a.dagRunMgr.ListRecentStatuses(ctx, dagName, defaultHistoryLimit)
 
 	var dagRuns []api.DAGRunDetails
 	for _, status := range recentHistory {
@@ -921,7 +921,7 @@ func (a *API) GetDAGDAGRunDetails(ctx context.Context, request api.GetDAGDAGRunD
 	}
 
 	if dagRunId == "latest" {
-		attempt, err := a.dagRunStore.LatestAttempt(ctx, dag.Name)
+		attempt, err := a.dagRunRepository.LatestAttempt(ctx, dag.Name)
 		if err != nil {
 			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 				return nil, &Error{
@@ -946,7 +946,7 @@ func (a *API) GetDAGDAGRunDetails(ctx context.Context, request api.GetDAGDAGRunD
 		}, nil
 	}
 
-	attempt, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunId))
+	attempt, err := a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunId))
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, &Error{
@@ -1239,7 +1239,7 @@ func (a *API) waitForDAGCompletion(
 }
 
 func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *ir.DAG, dagRunID string) (*ir.DAGRunStatus, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunID))
+	attempt, err := a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find dag-run attempt: %w", err)
 	}
@@ -1322,7 +1322,7 @@ func (a *API) ensureDAGRunIDUnique(ctx context.Context, dag *ir.DAG, dagRunID st
 	if dagRunID == "" {
 		return fmt.Errorf("dagRunID must be non-empty")
 	}
-	if _, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunID)); err == nil {
+	if _, err := a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunID)); err == nil {
 		return &Error{
 			HTTPStatus: http.StatusConflict,
 			Code:       api.ErrorCodeAlreadyExists,
@@ -1880,7 +1880,7 @@ func (a *API) StopAllDAGRuns(ctx context.Context, request api.StopAllDAGRunsRequ
 	}
 
 	// Get all running DAG-runs for this DAG
-	runningStatuses, err := a.dagRunStore.ListStatuses(ctx,
+	runningStatuses, err := a.dagRunRepository.ListStatuses(ctx,
 		dagrun.WithExactName(dag.Name),
 		dagrun.WithStatuses([]ir.Status{ir.Running}),
 	)
@@ -1942,7 +1942,7 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		recentHistory := a.dagRunMgr.ListRecentStatus(readCtx, dagName, defaultHistoryLimit)
+		recentHistory := a.dagRunMgr.ListRecentStatuses(readCtx, dagName, defaultHistoryLimit)
 
 		var dagRuns []api.DAGRunDetails
 		for _, status := range recentHistory {

@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -28,8 +29,8 @@ func (m *mockDAGLoader) GetDetails(ctx context.Context, fileName string, opts pe
 	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-type mockDAGRunStore struct {
-	dagrun.Store
+type mockDAGRunBackend struct {
+	testutil.DAGRunBackendStub
 }
 
 func TestDBClient_GetDAG(t *testing.T) {
@@ -138,7 +139,7 @@ func TestDBClient_GetDAG(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			mockDRS := new(mockDAGRunStore)
+			mockDRS := new(mockDAGRunBackend)
 			client := newDBClient(dagrun.NewRepository(mockDRS, dagrun.RepositoryOptions{}), tt.dagLoader, tt.remoteLoader)
 
 			dag, err := client.GetDAG(ctx, "test-dag")

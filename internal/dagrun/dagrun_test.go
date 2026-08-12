@@ -5,75 +5,73 @@ package dagrun_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestStatusQuery(t *testing.T) {
-	from := dagrun.NewUTC(time.Now().Add(-24 * time.Hour))
-	to := dagrun.NewUTC(time.Now())
-	statuses := []ir.Status{ir.Succeeded, ir.Failed}
-
-	opts := dagrun.StatusQuery{}
-
-	// Apply options
-	dagrun.WithFrom(from)(&opts)
-	dagrun.WithTo(to)(&opts)
-	dagrun.WithStatuses(statuses)(&opts)
-	dagrun.WithExactName("test-dag")(&opts)
-	dagrun.WithName("partial-name")(&opts)
-	dagrun.WithDAGRunID("run-123")(&opts)
-	dagrun.WithAllHistory()(&opts)
-
-	// Verify options were set correctly
-	assert.Equal(t, from, opts.From)
-	assert.Equal(t, to, opts.To)
-	assert.Equal(t, statuses, opts.Statuses)
-	assert.Equal(t, "test-dag", opts.ExactName)
-	assert.Equal(t, "partial-name", opts.Name)
-	assert.Equal(t, "run-123", opts.DAGRunID)
-	assert.True(t, opts.AllHistory)
-}
-
-func TestCreateAttemptOptions(t *testing.T) {
-	rootDAGRun := &ir.DAGRunRef{
-		Name: "root-dag",
-		ID:   "root-run-123",
-	}
-
-	opts := dagrun.CreateAttemptOptions{
-		RootDAGRun: rootDAGRun,
-		Retry:      true,
-	}
-
-	assert.Equal(t, rootDAGRun, opts.RootDAGRun)
-	assert.True(t, opts.Retry)
-}
 
 func TestRepositoryNormalizesStatusQueries(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 8, 12, 15, 4, 5, 0, time.UTC)
-	store := &recordingStore{}
-	repository := dagrun.NewRepository(store, dagrun.RepositoryOptions{
+	backend := &recordingDAGRunBackend{}
+	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{
 		Now: func() time.Time { return now },
 	})
 
-	_, err := repository.ListStatuses(context.Background(), dagrun.WithLimit(2000))
+	_, err := repository.ListStatuses(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, dagrun.NewUTC(now.Truncate(24*time.Hour)), store.statusQuery.From)
-	assert.Equal(t, 1000, store.statusQuery.Limit)
+	assert.Equal(t, dagrun.NewUTC(now.Truncate(24*time.Hour)), backend.statusQuery.From)
+	assert.Equal(t, 1000, backend.statusQuery.Limit)
+
+	for _, limit := range []int{-1, 2000} {
+		_, err = repository.ListStatuses(context.Background(), dagrun.WithLimit(limit))
+		require.NoError(t, err)
+		assert.Equal(t, 1000, backend.statusQuery.Limit)
+	}
 
 	_, err = repository.ListStatuses(context.Background(), dagrun.WithAllHistory(), dagrun.WithoutLimit())
 	require.NoError(t, err)
-	assert.True(t, store.statusQuery.From.IsZero())
-	assert.True(t, store.statusQuery.Unlimited)
+	assert.True(t, backend.statusQuery.From.IsZero())
+	assert.Zero(t, backend.statusQuery.Limit)
+
+	from := dagrun.NewUTC(now.Add(-24 * time.Hour))
+	to := dagrun.NewUTC(now)
+	statuses := []ir.Status{ir.Succeeded, ir.Failed}
+	filter := &workspace.WorkspaceFilter{Enabled: true, Workspaces: []string{"ops"}}
+	_, err = repository.ListStatuses(context.Background(),
+		dagrun.WithFrom(from),
+		dagrun.WithTo(to),
+		dagrun.WithStatuses(statuses),
+		dagrun.WithExactName("test-dag"),
+		dagrun.WithName("partial-name"),
+		dagrun.WithDAGRunID("run-123"),
+		dagrun.WithLabels([]string{"env=prod"}),
+		dagrun.WithWorkspaceFilter(filter),
+		dagrun.WithLimit(25),
+		dagrun.WithCursor("cursor"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, dagrun.StatusQuery{
+		DAGRunID:        "run-123",
+		Name:            "partial-name",
+		ExactName:       "test-dag",
+		From:            from,
+		To:              to,
+		Statuses:        statuses,
+		Limit:           25,
+		Cursor:          "cursor",
+		Labels:          []string{"env=prod"},
+		WorkspaceFilter: filter,
+	}, backend.statusQuery)
 }
 
 func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
@@ -82,8 +80,8 @@ func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
 	location, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
 	now := time.Date(2026, 8, 12, 1, 2, 3, 0, time.UTC)
-	store := &recordingStore{}
-	repository := dagrun.NewRepository(store, dagrun.RepositoryOptions{
+	backend := &recordingDAGRunBackend{}
+	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{
 		LatestStatusToday: true,
 		Location:          location,
 		Now:               func() time.Time { return now },
@@ -91,47 +89,91 @@ func TestRepositoryNormalizesLatestAndRetentionRequests(t *testing.T) {
 
 	_, err = repository.LatestAttempt(context.Background(), "daily")
 	require.NoError(t, err)
-	assert.Equal(t, "daily", store.latestQuery.Name)
-	assert.Equal(t, dagrun.NewUTC(time.Date(2026, 8, 12, 0, 0, 0, 0, location)), store.latestQuery.NotBefore)
+	assert.Equal(t, "daily", backend.latestQuery.Name)
+	assert.Equal(t, dagrun.NewUTC(time.Date(2026, 8, 12, 0, 0, 0, 0, location)), backend.latestQuery.NotBefore)
 
 	_, err = repository.RemoveOldDAGRuns(context.Background(), "daily", 7)
 	require.NoError(t, err)
-	assert.Equal(t, "daily", store.retentionRequest.Name)
-	assert.Equal(t, dagrun.NewUTC(now.AddDate(0, 0, -7)), store.retentionRequest.OlderThan)
+	assert.Equal(t, "daily", backend.retentionRequest.Name)
+	assert.Equal(t, dagrun.NewUTC(now.AddDate(0, 0, -7)), backend.retentionRequest.OlderThan)
 
 	_, err = repository.RemoveOldDAGRuns(context.Background(), "daily", 0, dagrun.WithRetentionRuns(3))
 	require.NoError(t, err)
-	assert.Equal(t, 3, store.retentionRequest.KeepRuns)
-	assert.True(t, store.retentionRequest.OlderThan.IsZero())
+	assert.Equal(t, 3, backend.retentionRequest.KeepRuns)
+	assert.True(t, backend.retentionRequest.OlderThan.IsZero())
 }
 
-func TestRepositoryCreatesChildAttemptThroughStore(t *testing.T) {
+func TestRepositoryCreatesChildAttemptThroughBackend(t *testing.T) {
 	t.Parallel()
 
-	store := &recordingStore{}
-	repository := dagrun.NewRepository(store, dagrun.RepositoryOptions{})
+	backend := &recordingDAGRunBackend{}
+	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{})
 	dag := &ir.DAG{Name: "child"}
 	root := ir.NewDAGRunRef("root", "root-run")
 	timestamp := time.Date(2026, 8, 12, 1, 2, 3, 0, time.UTC)
 
 	attempt, err := repository.CreateAttempt(context.Background(), dag, timestamp, "child-run", dagrun.CreateAttemptOptions{
-		RootDAGRun: &root,
+		RootDAGRun: root,
 		Retry:      true,
 		AttemptID:  "attempt-1",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "attempt-1", attempt.ID())
-	assert.Same(t, dag, store.createRequest.DAG)
-	assert.Equal(t, timestamp, store.createRequest.Timestamp)
-	assert.Equal(t, "child-run", store.createRequest.DAGRunID)
-	assert.Equal(t, root, *store.createRequest.RootDAGRun)
-	assert.True(t, store.createRequest.Retry)
-	assert.Equal(t, "attempt-1", store.createRequest.AttemptID)
+	assert.Same(t, dag, backend.createRequest.DAG)
+	assert.Equal(t, timestamp, backend.createRequest.Timestamp)
+	assert.Equal(t, "child-run", backend.createRequest.DAGRunID)
+	assert.Equal(t, root, backend.createRequest.RootDAGRun)
+	assert.True(t, backend.createRequest.Retry)
+	assert.Equal(t, "attempt-1", backend.createRequest.AttemptID)
 
 	_, err = repository.CreateAttempt(context.Background(), dag, timestamp, "child-run", dagrun.CreateAttemptOptions{
-		RootDAGRun: &ir.DAGRunRef{Name: "root"},
+		RootDAGRun: ir.DAGRunRef{Name: "root"},
 	})
 	require.ErrorIs(t, err, dagrun.ErrDAGRunIDEmpty)
+}
+
+func TestRepositoryNormalizesCompareAndSwapRequest(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingDAGRunBackend{
+		compareAndSwapStatus: &ir.DAGRunStatus{
+			Name:      "daily",
+			DAGRunID:  "run-1",
+			AttemptID: "attempt-1",
+			Status:    ir.Queued,
+			Conditions: []ir.DAGRunCondition{
+				ir.NewDAGRunCondition("Runnable", "False", "Blocked", "Waiting", time.Now()),
+			},
+		},
+	}
+	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{})
+	ref := ir.NewDAGRunRef("daily", "run-1")
+
+	updated, swapped, err := repository.CompareAndSwapLatestAttemptStatus(
+		context.Background(),
+		ref,
+		"attempt-1",
+		ir.Queued,
+		func(status *ir.DAGRunStatus) error {
+			status.Status = ir.Failed
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.True(t, swapped)
+	require.NotNil(t, updated)
+	assert.Equal(t, ref, backend.compareAndSwapRequest.RootDAGRun)
+	assert.Equal(t, ir.Failed, updated.Status)
+	assert.Empty(t, updated.Conditions)
+}
+
+func TestRepositoryRecentStatusesHidesBackendErrors(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingDAGRunBackend{recentStatusesErr: errors.New("list failed")}
+	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{})
+
+	assert.Nil(t, repository.RecentStatuses(context.Background(), "daily", 10))
 }
 
 func TestNormalizeStateValueCompactsJSON(t *testing.T) {
@@ -157,30 +199,49 @@ func TestNormalizeStateValuePreservesNumericPrecision(t *testing.T) {
 	assert.Equal(t, `{"decimal":1.2300,"id":9007199254740993}`, string(value))
 }
 
-type recordingStore struct {
-	dagrun.Store
-	createRequest    dagrun.CreateAttemptRequest
-	latestQuery      dagrun.LatestAttemptQuery
-	statusQuery      dagrun.StatusQuery
-	retentionRequest dagrun.RetentionRequest
+type recordingDAGRunBackend struct {
+	testutil.DAGRunBackendStub
+	createRequest         dagrun.CreateAttemptRequest
+	latestQuery           dagrun.LatestAttemptQuery
+	statusQuery           dagrun.StatusQuery
+	retentionRequest      dagrun.RetentionRequest
+	recentStatuses        []ir.DAGRunStatus
+	recentStatusesErr     error
+	compareAndSwapRequest dagrun.CompareAndSwapStatusRequest
+	compareAndSwapStatus  *ir.DAGRunStatus
 }
 
-func (s *recordingStore) CreateAttempt(_ context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *recordingDAGRunBackend) CreateAttempt(_ context.Context, req dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
 	s.createRequest = req
 	return dagrun.NewNoopAttempt(req.AttemptID, req.DAG), nil
 }
 
-func (s *recordingStore) LatestAttempt(_ context.Context, query dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
+func (s *recordingDAGRunBackend) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
+	return s.recentStatuses, s.recentStatusesErr
+}
+
+func (s *recordingDAGRunBackend) LatestAttempt(_ context.Context, query dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
 	s.latestQuery = query
 	return dagrun.NewNoopAttempt("latest", nil), nil
 }
 
-func (s *recordingStore) QueryStatuses(_ context.Context, query dagrun.StatusQuery) (dagrun.DAGRunStatusPage, error) {
+func (s *recordingDAGRunBackend) QueryStatuses(_ context.Context, query dagrun.StatusQuery) (dagrun.StatusPage, error) {
 	s.statusQuery = query
-	return dagrun.DAGRunStatusPage{}, nil
+	return dagrun.StatusPage{}, nil
 }
 
-func (s *recordingStore) RemoveOldDAGRuns(_ context.Context, req dagrun.RetentionRequest) ([]string, error) {
+func (s *recordingDAGRunBackend) CompareAndSwapLatestAttemptStatus(
+	_ context.Context,
+	req dagrun.CompareAndSwapStatusRequest,
+) (*ir.DAGRunStatus, bool, error) {
+	s.compareAndSwapRequest = req
+	if err := req.Mutate(s.compareAndSwapStatus); err != nil {
+		return nil, false, err
+	}
+	return s.compareAndSwapStatus, true, nil
+}
+
+func (s *recordingDAGRunBackend) RemoveOldDAGRuns(_ context.Context, req dagrun.RetentionRequest) ([]string, error) {
 	s.retentionRequest = req
 	return nil, nil
 }

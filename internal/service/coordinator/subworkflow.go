@@ -24,7 +24,7 @@ import (
 type SubWorkflowRunnerConfig struct {
 	DAGRunMgr         runtime.Manager
 	DAGRepository     *persis.DAGRepository
-	DAGRunStore       *dagrun.Repository
+	DAGRunRepository  *dagrun.Repository
 	RunStateStore     runstate.Store
 	QueueStore        queue.QueueStore
 	StateStore        dagrun.StateStore
@@ -54,7 +54,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 			subflow.NewLocal(
 				cfg.DAGRunMgr,
 				cfg.DAGRepository,
-				subflow.WithLocalDAGRunStore(cfg.DAGRunStore),
+				subflow.WithLocalDAGRunRepository(cfg.DAGRunRepository),
 				subflow.WithLocalRunStateStore(cfg.RunStateStore),
 				subflow.WithLocalQueueStore(cfg.QueueStore),
 				subflow.WithLocalStateStore(cfg.StateStore),

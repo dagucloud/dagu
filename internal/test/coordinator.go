@@ -66,7 +66,7 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	// Build handler config based on coordinator test options
 	cfg := coordinator.HandlerConfig{}
 	if options.WithStatusPersistence {
-		cfg.DAGRunStore = helper.DAGRunStore
+		cfg.DAGRunRepository = helper.DAGRunRepository
 	}
 	if options.WithLogPersistence {
 		cfg.LogDir = helper.Config.Paths.LogDir

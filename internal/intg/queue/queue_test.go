@@ -196,7 +196,7 @@ steps:
 	runID := f.runIDs[0]
 
 	ref := ir.NewDAGRunRef(f.dag.Name, runID)
-	att, err := f.th.DAGRunStore.FindAttempt(f.th.Context, ref)
+	att, err := f.th.DAGRunRepository.FindAttempt(f.th.Context, ref)
 	require.NoError(t, err)
 	status, err := att.ReadStatus(f.th.Context)
 	require.NoError(t, err)
@@ -204,7 +204,7 @@ steps:
 
 	f.RetryEnqueue(runID)
 
-	att, err = f.th.DAGRunStore.FindAttempt(f.th.Context, ref)
+	att, err = f.th.DAGRunRepository.FindAttempt(f.th.Context, ref)
 	require.NoError(t, err)
 	status, err = att.ReadStatus(f.th.Context)
 	require.NoError(t, err)
@@ -263,7 +263,7 @@ steps:
 
 	queueProcessor := scheduler.NewQueueProcessor(
 		f.th.QueueStore,
-		f.th.DAGRunStore,
+		f.th.DAGRunRepository,
 		f.th.ProcStore,
 		scheduler.NewDAGExecutor(
 			coordinator.New(f.th.ServiceRegistry, coordinator.DefaultConfig()),

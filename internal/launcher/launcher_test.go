@@ -104,7 +104,7 @@ steps:
 `)
 
 	runID := "built-exec-retry-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, "built-exec-retry.log")
@@ -140,7 +140,7 @@ steps:
 `)
 
 	runID := "built-exec-queue-retry-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
@@ -175,7 +175,7 @@ steps:
 `)
 
 	runID := "built-exec-command-queue-retry-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
@@ -210,7 +210,7 @@ steps:
 `)
 
 	runID := "built-exec-fresh-config-retry-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")

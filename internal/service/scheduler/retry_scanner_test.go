@@ -680,7 +680,7 @@ func TestRetryScannerScanIsIdempotentForQueuedRun(t *testing.T) {
 }
 
 type retryScannerStore struct {
-	dagrun.Store
+	testutil.DAGRunBackendStub
 	attempts           map[string]*retryScannerAttempt
 	latestByName       map[string]*retryScannerAttempt
 	latestAttemptCalls int
@@ -731,7 +731,7 @@ func (s *retryScannerStore) CreateAttempt(context.Context, dagrun.CreateAttemptR
 	return nil, errors.New("unexpected CreateAttempt call")
 }
 
-func (s *retryScannerStore) RecentAttempts(context.Context, string, int) ([]dagrun.Attempt, error) {
+func (s *retryScannerStore) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
 	return nil, nil
 }
 
@@ -744,7 +744,7 @@ func (s *retryScannerStore) LatestAttempt(_ context.Context, query dagrun.Latest
 	return attempt, nil
 }
 
-func (s *retryScannerStore) QueryStatuses(_ context.Context, cfg dagrun.StatusQuery) (dagrun.DAGRunStatusPage, error) {
+func (s *retryScannerStore) QueryStatuses(_ context.Context, cfg dagrun.StatusQuery) (dagrun.StatusPage, error) {
 	s.listCalls = append(s.listCalls, cfg)
 
 	var ret []*ir.DAGRunStatus
@@ -761,7 +761,7 @@ func (s *retryScannerStore) QueryStatuses(_ context.Context, cfg dagrun.StatusQu
 		}
 		ret = append(ret, cloneRetryStatus(status))
 	}
-	return dagrun.DAGRunStatusPage{Items: ret}, nil
+	return dagrun.StatusPage{Items: ret}, nil
 }
 
 func (s *retryScannerStore) CompareAndSwapLatestAttemptStatus(

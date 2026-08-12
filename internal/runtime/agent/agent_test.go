@@ -382,7 +382,7 @@ steps:
 		waitForTestFile(t, startedFile, 2*time.Minute)
 		runRef := ir.NewDAGRunRef(dag.Name, dagRunID)
 		require.Eventually(t, func() bool {
-			_, err := th.DAGRunStore.FindAttempt(th.Context, runRef)
+			_, err := th.DAGRunRepository.FindAttempt(th.Context, runRef)
 			return err == nil
 		}, agentRunStartTimeout(), 100*time.Millisecond, "DAG run should be registered before stop")
 
@@ -1392,14 +1392,10 @@ steps:
 		runErr <- a.Run(parent.Context)
 	}()
 
-	// SubRuns must be visible in the *stored* status BEFORE the child DAG completes.
-	// We use ListRecentStatus which reads from the status.jsonl file on disk, not from
-	// the live socket, so it accurately reflects what the API handler would return.
-	// Before the fix, this would never become true because SetSubRuns() was called
-	// after the progressCh notification, so the children field was never written
-	// to status.jsonl while the subdag was running.
+	// SubRuns must be visible in persisted history before the child DAG completes.
+	// ListRecentStatuses observes the same persisted status returned by the API.
 	require.Eventually(t, func() bool {
-		statuses := th.DAGRunMgr.ListRecentStatus(th.Context, parent.Name, 1)
+		statuses := th.DAGRunMgr.ListRecentStatuses(th.Context, parent.Name, 1)
 		if len(statuses) == 0 || statuses[0].Status != ir.Running {
 			return false
 		}
@@ -1455,7 +1451,7 @@ steps:
 	require.Len(t, status.Nodes[0].SubRuns, 1)
 
 	subRun := status.Nodes[0].SubRuns[0]
-	attempt, err := th.DAGRunStore.FindSubAttempt(
+	attempt, err := th.DAGRunRepository.FindSubAttempt(
 		th.Context,
 		ir.NewDAGRunRef(parent.Name, parentRunID),
 		subRun.DAGRunID,
@@ -1510,7 +1506,7 @@ steps:
 	require.Len(t, status.Nodes[0].SubRuns, 1)
 
 	subRun := status.Nodes[0].SubRuns[0]
-	attempt, err := th.DAGRunStore.FindSubAttempt(
+	attempt, err := th.DAGRunRepository.FindSubAttempt(
 		th.Context,
 		ir.NewDAGRunRef(parent.Name, parentRunID),
 		subRun.DAGRunID,
@@ -1575,7 +1571,7 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, ir.NewDAGRunRef("child-enqueued", subRun.DAGRunID), *ref)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, *ref)
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, *ref)
 	require.NoError(t, err)
 	childStatus, err := attempt.ReadStatus(th.Context)
 	require.NoError(t, err)
@@ -1646,7 +1642,7 @@ steps:
 	)
 	processor := scheduler.NewQueueProcessor(
 		th.QueueStore,
-		th.DAGRunStore,
+		th.DAGRunRepository,
 		th.ProcStore,
 		dagExecutor,
 		th.Config.Queues,

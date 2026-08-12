@@ -65,7 +65,7 @@ steps:
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		statuses, err := f.coord.DAGRunStore.ListStatuses(
+		statuses, err := f.coord.DAGRunRepository.ListStatuses(
 			ctx,
 			dagrun.WithExactName(f.dagWrapper.Name),
 			dagrun.WithAllHistory(),

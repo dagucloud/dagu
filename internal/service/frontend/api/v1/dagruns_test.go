@@ -101,16 +101,16 @@ func waitForStoredDAGRunStatus(
 	ref := ir.NewDAGRunRef(dagName, dagRunID)
 	var status *ir.DAGRunStatus
 	require.Eventually(t, func() bool {
-		// Create the store inside the poll so attempt discovery can observe a
+		// Create the repository inside the poll so attempt discovery can observe a
 		// retry/resume attempt created after polling starts.
-		store := filedagrun.NewRepository(
+		repository := filedagrun.NewRepository(
 			server.Config.Paths.DAGRunsDir,
 			dagrun.RepositoryOptions{
 				LatestStatusToday: server.Config.Server.LatestStatusToday,
 				Location:          server.Config.Core.Location,
 			},
 		)
-		attempt, err := store.FindAttempt(server.Context, ref)
+		attempt, err := repository.FindAttempt(server.Context, ref)
 		if err != nil {
 			return false
 		}
@@ -137,14 +137,14 @@ func waitForStoredSubDAGRunStatus(
 
 	var status *ir.DAGRunStatus
 	require.Eventually(t, func() bool {
-		store := filedagrun.NewRepository(
+		repository := filedagrun.NewRepository(
 			server.Config.Paths.DAGRunsDir,
 			dagrun.RepositoryOptions{
 				LatestStatusToday: server.Config.Server.LatestStatusToday,
 				Location:          server.Config.Core.Location,
 			},
 		)
-		attempt, err := store.FindSubAttempt(server.Context, root, subDAGRunID)
+		attempt, err := repository.FindSubAttempt(server.Context, root, subDAGRunID)
 		if err != nil {
 			return false
 		}
@@ -1688,7 +1688,7 @@ steps:
 		api.RetryDAGRunJSONRequestBody{DagRunId: "queued-run"},
 	).ExpectStatus(http.StatusOK).Send(t)
 
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dag.Name, "queued-run"))
+	attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dag.Name, "queued-run"))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(server.Context)
@@ -1788,7 +1788,7 @@ func TestUpdateSubDAGRunStepStatusHandlesTopLevelDagEnqueueRun(t *testing.T) {
 	)
 	require.Equal(t, ir.Failed, status.Status)
 
-	_, err := server.DAGRunStore.FindSubAttempt(server.Context, ir.NewDAGRunRef(parent.Name, parentRunID), childRunID)
+	_, err := server.DAGRunRepository.FindSubAttempt(server.Context, ir.NewDAGRunRef(parent.Name, parentRunID), childRunID)
 	require.Error(t, err)
 }
 
@@ -1920,7 +1920,7 @@ steps:
 	require.NotEmpty(t, sourceWorkDir)
 
 	staleWorkDir := filepath.Join(t.TempDir(), "stale-work")
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef("single_retry_local_dag", startBody.DagRunId))
+	attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef("single_retry_local_dag", startBody.DagRunId))
 	require.NoError(t, err)
 	persistedStatus, err := attempt.ReadStatus(server.Context)
 	require.NoError(t, err)
@@ -1980,7 +1980,7 @@ steps:
 		nil,
 	).ExpectStatus(http.StatusOK).Send(t)
 
-	persisted := test.ReadRunStatus(server.Context, t, server.DAGRunStore, ref)
+	persisted := test.ReadRunStatus(server.Context, t, server.DAGRunRepository, ref)
 	require.Equal(t, ir.Aborted, persisted.Status)
 	require.Equal(t, 1, persisted.AutoRetryCount)
 	require.Equal(t, 3, persisted.AutoRetryLimit)
@@ -2032,7 +2032,7 @@ steps:
 	require.Equal(t, api.ErrorCodeBadRequest, errBody.Code)
 	require.Contains(t, errBody.Message, "not pending auto-retry")
 
-	persisted := test.ReadRunStatus(server.Context, t, server.DAGRunStore, ref)
+	persisted := test.ReadRunStatus(server.Context, t, server.DAGRunRepository, ref)
 	require.Equal(t, ir.Failed, persisted.Status)
 	require.Equal(t, 3, persisted.AutoRetryCount)
 }
@@ -2156,7 +2156,7 @@ func seedLatestDAGRunStatus(
 ) ir.DAGRunRef {
 	t.Helper()
 
-	attempt, err := server.DAGRunStore.CreateAttempt(
+	attempt, err := server.DAGRunRepository.CreateAttempt(
 		server.Context,
 		dag,
 		time.Now().Add(-2*time.Minute),
@@ -2289,7 +2289,7 @@ func TestDeleteDAGRun(t *testing.T) {
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s", ref.Name, ref.ID),
 	).ExpectStatus(http.StatusNoContent).Send(t)
 
-	_, err := server.DAGRunStore.FindAttempt(server.Context, ref)
+	_, err := server.DAGRunRepository.FindAttempt(server.Context, ref)
 	require.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 
 	server.Client().Get(
@@ -2331,7 +2331,7 @@ func TestDeleteDAGRunRejectsActiveRun(t *testing.T) {
 	require.Equal(t, api.ErrorCodeBadRequest, body.Code)
 	require.Contains(t, body.Message, "stop or dequeue it before deleting")
 
-	_, err := server.DAGRunStore.FindAttempt(server.Context, ref)
+	_, err := server.DAGRunRepository.FindAttempt(server.Context, ref)
 	require.NoError(t, err)
 }
 

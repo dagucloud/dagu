@@ -233,7 +233,7 @@ func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 		removeOpts = append(removeOpts, dagrun.WithOlderThan(cutoff))
 	}
 
-	runIDs, err := ctx.DAGRunStore.RemoveOldDAGRuns(ctx, opts.dagName, retentionDays, removeOpts...)
+	runIDs, err := ctx.DAGRunRepository.RemoveOldDAGRuns(ctx, opts.dagName, retentionDays, removeOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to remove history for %q: %w", opts.dagName, err)
 	}

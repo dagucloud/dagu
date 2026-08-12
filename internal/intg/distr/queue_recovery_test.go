@@ -243,7 +243,7 @@ func requireAllQueuedRunsConsumed(t *testing.T, f *testFixture, expectedRuns int
 }
 
 func dagRunStatusCounts(f *testFixture) (map[ir.Status]int, int, error) {
-	statuses, err := f.coord.DAGRunStore.ListStatuses(
+	statuses, err := f.coord.DAGRunRepository.ListStatuses(
 		f.coord.Context,
 		dagrun.WithExactName(f.dagWrapper.Name),
 		dagrun.WithoutLimit(),

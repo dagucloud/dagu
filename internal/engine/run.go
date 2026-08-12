@@ -88,14 +88,14 @@ func (e *Engine) Stop(ctx context.Context, ref RunRef) error {
 		if err == nil {
 			return attempt.RequestCancel(ctx)
 		}
-		if !e.shouldFallbackToDAGRunStore(err) {
+		if !e.shouldFallbackToDAGRunRepository(err) {
 			return err
 		}
 	}
-	if e.dagRunStore == nil {
-		return fmt.Errorf("DAG-run store is not configured")
+	if e.dagRunRepository == nil {
+		return fmt.Errorf("DAG-run repository is not configured")
 	}
-	return e.stopDAGRunStore(ctx, ref.ID, runRef)
+	return e.stopDAGRunRepository(ctx, ref.ID, runRef)
 }
 
 func (e *Engine) readStatus(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
@@ -104,18 +104,18 @@ func (e *Engine) readStatus(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunSt
 		if err == nil {
 			return status, nil
 		}
-		if !e.shouldFallbackToDAGRunStore(err) {
+		if !e.shouldFallbackToDAGRunRepository(err) {
 			return nil, err
 		}
 	}
-	if e.dagRunStore != nil {
+	if e.dagRunRepository != nil {
 		return e.dagRunMgr.GetSavedStatus(ctx, ref)
 	}
-	return nil, fmt.Errorf("neither run-state store nor DAG-run store is configured")
+	return nil, fmt.Errorf("neither run-state store nor DAG-run repository is configured")
 }
 
-func (e *Engine) stopDAGRunStore(ctx context.Context, dagRunID string, ref ir.DAGRunRef) error {
-	attempt, err := e.dagRunStore.FindAttempt(ctx, ref)
+func (e *Engine) stopDAGRunRepository(ctx context.Context, dagRunID string, ref ir.DAGRunRef) error {
+	attempt, err := e.dagRunRepository.FindAttempt(ctx, ref)
 	if err != nil {
 		return err
 	}
@@ -209,14 +209,14 @@ func (e *Engine) readOutputs(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunO
 		if err == nil {
 			return outputs, nil
 		}
-		if !e.shouldFallbackToDAGRunStore(err) {
+		if !e.shouldFallbackToDAGRunRepository(err) {
 			return nil, err
 		}
 	}
-	if e.dagRunStore != nil {
+	if e.dagRunRepository != nil {
 		return e.readDAGRunOutputs(ctx, ref)
 	}
-	return nil, fmt.Errorf("neither run-state store nor DAG-run store is configured")
+	return nil, fmt.Errorf("neither run-state store nor DAG-run repository is configured")
 }
 
 func (e *Engine) readRunStateOutputs(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunOutputs, error) {
@@ -228,15 +228,15 @@ func (e *Engine) readRunStateOutputs(ctx context.Context, ref ir.DAGRunRef) (*ir
 }
 
 func (e *Engine) readDAGRunOutputs(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunOutputs, error) {
-	attempt, err := e.dagRunStore.FindAttempt(ctx, ref)
+	attempt, err := e.dagRunRepository.FindAttempt(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 	return attempt.ReadOutputs(ctx)
 }
 
-func (e *Engine) shouldFallbackToDAGRunStore(err error) bool {
-	return e.dagRunStore != nil && errors.Is(err, dagrun.ErrDAGRunIDNotFound)
+func (e *Engine) shouldFallbackToDAGRunRepository(err error) bool {
+	return e.dagRunRepository != nil && errors.Is(err, dagrun.ErrDAGRunIDNotFound)
 }
 
 func (r *Run) waitLocal(ctx context.Context) (*Status, error) {
@@ -453,7 +453,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 			WorkerID:                 "local",
 			PreparedAttempt:          preparedAttempt(prepared),
 			RunStateStore:            e.runStateStore,
-			DAGRunStore:              e.dagRunStore,
+			DAGRunRepository:         e.dagRunRepository,
 			StateStore:               e.stateStore,
 			MaterializationStore:     filematerialization.New(filepath.Join(e.cfg.Paths.DataDir, "materializations")),
 			NoReuse:                  opts.NoReuse,
@@ -595,15 +595,14 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, ro
 
 	var attempt dagrun.Attempt
 	attemptID := runID
-	if e.dagRunStore != nil {
-		created, err := e.dagRunStore.CreateAttempt(ctx, dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	if e.dagRunRepository != nil {
+		created, err := e.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), runID, dagrun.CreateAttemptOptions{})
 		if err != nil {
 			if errors.Is(err, dagrun.ErrDAGRunAlreadyExists) {
 				return nil, fmt.Errorf("dag-run ID %s already exists for DAG %s: %w", runID, dag.Name, err)
 			}
 			return nil, fmt.Errorf("create DAG run attempt: %w", err)
 		}
-		created.SetDAG(dag)
 		attempt = created
 		attemptID = created.ID()
 	} else if e.runStateStore != nil {

@@ -78,14 +78,14 @@ type latestAttemptStatusSwapper interface {
 // aborted so the retry scanner stops treating it as pending auto-retry.
 func CancelFailedAutoRetryPendingRun(
 	ctx context.Context,
-	dagRunStore latestAttemptStatusSwapper,
+	dagRunRepository latestAttemptStatusSwapper,
 	status *ir.DAGRunStatus,
 ) error {
 	if !CanCancelFailedAutoRetryPendingRun(status) {
 		return fmt.Errorf("dag-run is not eligible for failed auto-retry cancel")
 	}
 
-	updatedStatus, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
+	updatedStatus, swapped, err := dagRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		status.DAGRun(),
 		status.AttemptID,

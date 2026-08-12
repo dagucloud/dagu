@@ -191,7 +191,7 @@ func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) {
 	}
 
 	if wantHistory {
-		statuses := ctx.DAGRunMgr.ListRecentStatus(ctx, row.dag.Name, 5)
+		statuses := ctx.DAGRunMgr.ListRecentStatuses(ctx, row.dag.Name, 5)
 		if len(statuses) == 0 {
 			row.history = "-"
 			return

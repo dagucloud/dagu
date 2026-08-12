@@ -744,10 +744,10 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("WriteAndReadStepMessages", func(t *testing.T) {
-		th := setupTestStore(t)
+		th := setupTestRepository(t)
 		dag := th.DAG("test-messages")
 
-		att, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		messages := []ir.LLMMessage{
@@ -768,10 +768,10 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 	})
 
 	t.Run("WriteEmptyMessages", func(t *testing.T) {
-		th := setupTestStore(t)
+		th := setupTestRepository(t)
 		dag := th.DAG("test-empty-messages")
 
-		att, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = att.WriteStepMessages(ctx, "step1", []ir.LLMMessage{})
@@ -784,10 +784,10 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 	})
 
 	t.Run("ReadNonExistentStepMessages", func(t *testing.T) {
-		th := setupTestStore(t)
+		th := setupTestRepository(t)
 		dag := th.DAG("test-nonexistent-messages")
 
-		att, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		readMsgs, err := att.ReadStepMessages(ctx, "nonexistent-step")
@@ -796,10 +796,10 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 	})
 
 	t.Run("UpdateStepMessages", func(t *testing.T) {
-		th := setupTestStore(t)
+		th := setupTestRepository(t)
 		dag := th.DAG("test-update-messages")
 
-		att, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		// Write initial messages
@@ -824,10 +824,10 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 	})
 
 	t.Run("MultipleSteps", func(t *testing.T) {
-		th := setupTestStore(t)
+		th := setupTestRepository(t)
 		dag := th.DAG("test-multiple-steps")
 
-		att, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		// Write messages for step1
@@ -859,12 +859,12 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 	})
 
 	t.Run("MessagesSharedAcrossRetryAttempts", func(t *testing.T) {
-		th := setupTestStore(t)
+		th := setupTestRepository(t)
 		dag := th.DAG("test-retry-messages")
 		dagRunID := "retry-run-1"
 
 		// First attempt writes messages
-		att1, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+		att1, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 		require.NoError(t, err)
 
 		step1Msgs := []ir.LLMMessage{
@@ -875,7 +875,7 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		require.NoError(t, err)
 
 		// Second attempt (retry) should be able to read the same messages
-		att2, err := th.Store.CreateAttempt(ctx, dag.DAG, time.Now().Add(time.Second), dagRunID, dagrun.CreateAttemptOptions{Retry: true})
+		att2, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now().Add(time.Second), dagRunID, dagrun.CreateAttemptOptions{Retry: true})
 		require.NoError(t, err)
 
 		readMsgs, err := att2.ReadStepMessages(ctx, "step1")

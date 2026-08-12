@@ -580,7 +580,7 @@ steps:
 
 		ctx := context.Background()
 		ref := ir.NewDAGRunRef("parent_basic", dagRunID)
-		parentAttempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
+		parentAttempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
 		parentStatus, err := parentAttempt.ReadStatus(ctx)
@@ -590,7 +590,7 @@ steps:
 		subNode := parentStatus.Nodes[0]
 		require.Equal(t, ir.NodeSucceeded.String(), subNode.Status.String())
 
-		subAttempt, err := th.DAGRunStore.FindSubAttempt(ctx, ref, subNode.SubRuns[0].DAGRunID)
+		subAttempt, err := th.DAGRunRepository.FindSubAttempt(ctx, ref, subNode.SubRuns[0].DAGRunID)
 		require.NoError(t, err)
 
 		subStatus, err := subAttempt.ReadStatus(ctx)
@@ -645,7 +645,7 @@ steps:
 		// Update the sub_2 status to "failed" to simulate a retry
 		ctx := context.Background()
 		ref := ir.NewDAGRunRef("parent", dagRunID)
-		parentAttempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
+		parentAttempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
 		updateStatus := func(rec dagrun.Attempt, dagRunStatus *ir.DAGRunStatus) {
@@ -666,7 +666,7 @@ steps:
 		updateStatus(parentAttempt, parentStatus)
 
 		// Find and update sub_1 dag-run status
-		sub1Attempt, err := th.DAGRunStore.FindSubAttempt(ctx, ref, sub1Node.SubRuns[0].DAGRunID)
+		sub1Attempt, err := th.DAGRunRepository.FindSubAttempt(ctx, ref, sub1Node.SubRuns[0].DAGRunID)
 		require.NoError(t, err)
 
 		sub1Status, err := sub1Attempt.ReadStatus(ctx)
@@ -678,7 +678,7 @@ steps:
 		updateStatus(sub1Attempt, sub1Status)
 
 		// Find and update sub_2 dag-run status
-		sub2Attempt, err := th.DAGRunStore.FindSubAttempt(ctx, ref, sub2Node.SubRuns[0].DAGRunID)
+		sub2Attempt, err := th.DAGRunRepository.FindSubAttempt(ctx, ref, sub2Node.SubRuns[0].DAGRunID)
 		require.NoError(t, err)
 
 		sub2Status, err := sub2Attempt.ReadStatus(ctx)
@@ -702,7 +702,7 @@ steps:
 		})
 
 		// Check if the sub_2 status is now "success"
-		sub2Attempt, err = th.DAGRunStore.FindSubAttempt(ctx, ref, sub2Node.SubRuns[0].DAGRunID)
+		sub2Attempt, err = th.DAGRunRepository.FindSubAttempt(ctx, ref, sub2Node.SubRuns[0].DAGRunID)
 		require.NoError(t, err)
 		sub2Status, err = sub2Attempt.ReadStatus(ctx)
 		require.NoError(t, err)
@@ -793,7 +793,7 @@ steps:
 		require.Equal(t, "1", strings.TrimSpace(string(counter)), "parent retry should not rerun child steps that already succeeded")
 
 		ref := ir.NewDAGRunRef("parent_retry_child_state", dagRunID)
-		parentAttempt, err := th.DAGRunStore.FindAttempt(context.Background(), ref)
+		parentAttempt, err := th.DAGRunRepository.FindAttempt(context.Background(), ref)
 		require.NoError(t, err)
 		parentStatus, err := parentAttempt.ReadStatus(context.Background())
 		require.NoError(t, err)
@@ -835,7 +835,7 @@ steps:
 
 		ctx := context.Background()
 		ref := ir.NewDAGRunRef("parent_retry", dagRunID)
-		parentAttempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
+		parentAttempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
 		parentStatus, err := parentAttempt.ReadStatus(ctx)
@@ -845,7 +845,7 @@ steps:
 		subNode := parentStatus.Nodes[0]
 		require.Equal(t, ir.NodeSucceeded.String(), subNode.Status.String())
 
-		subAttempt, err := th.DAGRunStore.FindSubAttempt(ctx, ref, subNode.SubRuns[0].DAGRunID)
+		subAttempt, err := th.DAGRunRepository.FindSubAttempt(ctx, ref, subNode.SubRuns[0].DAGRunID)
 		require.NoError(t, err)
 
 		subStatus, err := subAttempt.ReadStatus(ctx)
@@ -889,7 +889,7 @@ steps:
 
 		ctx := context.Background()
 		ref := ir.NewDAGRunRef("basic_retry", dagRunID)
-		attempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
+		attempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
 		dagRunStatus, err := attempt.ReadStatus(ctx)
@@ -924,7 +924,7 @@ steps:
 
 		ctx := context.Background()
 		ref := ir.NewDAGRunRef("no_retry", dagRunID)
-		attempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
+		attempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
 		require.NoError(t, err)
 
 		dagRunStatus, err := attempt.ReadStatus(ctx)

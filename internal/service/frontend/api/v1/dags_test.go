@@ -775,7 +775,7 @@ steps:
 
 		ref := ir.NewDAGRunRef(dagName, body.DagRunId)
 		require.Eventually(t, func() bool {
-			attempt, err := server.DAGRunStore.FindAttempt(server.Context, ref)
+			attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ref)
 			if err != nil {
 				return false
 			}
@@ -786,7 +786,7 @@ steps:
 			return status.Status == ir.Succeeded
 		}, dagRunEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
-		attempt, err := server.DAGRunStore.FindAttempt(server.Context, ref)
+		attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ref)
 		require.NoError(t, err)
 		status, err := attempt.ReadStatus(server.Context)
 		require.NoError(t, err)
@@ -822,7 +822,7 @@ steps:
 		resp.Unmarshal(t, &body)
 		require.NotEmpty(t, body.DagRunId)
 
-		attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
+		attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
 		require.NoError(t, err)
 
 		status, err := attempt.ReadStatus(server.Context)
@@ -831,7 +831,7 @@ steps:
 
 		queueProcessor := scheduler.NewQueueProcessor(
 			server.QueueStore,
-			server.DAGRunStore,
+			server.DAGRunRepository,
 			server.ProcStore,
 			scheduler.NewDAGExecutor(
 				coordinator.New(server.ServiceRegistry, coordinator.DefaultConfig()),
@@ -849,7 +849,7 @@ steps:
 		queueProcessor.ProcessQueueItems(server.Context, dagName)
 
 		require.Eventually(t, func() bool {
-			latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
+			latestAttempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
 			if err != nil {
 				return false
 			}
@@ -860,7 +860,7 @@ steps:
 			return latestStatus.Status == ir.Succeeded
 		}, dagRunEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
-		latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
+		latestAttempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
 		require.NoError(t, err)
 		latestStatus, err := latestAttempt.ReadStatus(server.Context)
 		require.NoError(t, err)
@@ -1021,7 +1021,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1077,7 +1077,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1120,7 +1120,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1161,7 +1161,7 @@ func TestNextRunProjectionUsesConfiguredLocation(t *testing.T) {
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1197,7 +1197,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1253,7 +1253,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1298,7 +1298,7 @@ func TestGetDAGDetails_InvalidYAML_Returns200WithErrors(t *testing.T) {
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1334,7 +1334,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1403,7 +1403,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1447,7 +1447,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1496,7 +1496,7 @@ steps:
 	var notified []string
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1543,7 +1543,7 @@ steps:
 	var notified []string
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1617,7 +1617,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1698,7 +1698,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1754,7 +1754,7 @@ step_types:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1785,7 +1785,7 @@ func TestGetDAGDetails_NonExistent_Returns404(t *testing.T) {
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1835,7 +1835,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1883,7 +1883,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1927,7 +1927,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,
@@ -1963,7 +1963,7 @@ steps:
 
 	apiImpl := localapi.New(
 		helper.DAGRepository,
-		helper.DAGRunStore,
+		helper.DAGRunRepository,
 		helper.QueueStore,
 		helper.ProcStore,
 		helper.DAGRunMgr,

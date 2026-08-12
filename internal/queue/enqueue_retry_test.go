@@ -23,22 +23,22 @@ func TestEnqueueRetry(t *testing.T) {
 
 	triggerActor := "alice"
 	tests := []struct {
-		name        string
-		dag         *ir.DAG
-		status      *ir.DAGRunStatus
-		opts        queue.EnqueueRetryOptions
-		store       *stubDAGRunStore
-		setupQueue  func(qs *testutil.MockQueueStore)
-		assertErr   func(t *testing.T, err error)
-		assertStore func(t *testing.T, store *stubDAGRunStore)
-		wantQueued  bool
-		wantErr     string
+		name          string
+		dag           *ir.DAG
+		status        *ir.DAGRunStatus
+		opts          queue.EnqueueRetryOptions
+		backend       *stubDAGRunBackend
+		setupQueue    func(qs *testutil.MockQueueStore)
+		assertErr     func(t *testing.T, err error)
+		assertBackend func(t *testing.T, backend *stubDAGRunBackend)
+		wantQueued    bool
+		wantErr       string
 	}{
 		{
-			name:   "AlreadyQueued",
-			dag:    &ir.DAG{Name: "test-dag"},
-			status: &ir.DAGRunStatus{Status: ir.Queued},
-			store:  &stubDAGRunStore{},
+			name:    "AlreadyQueued",
+			dag:     &ir.DAG{Name: "test-dag"},
+			status:  &ir.DAGRunStatus{Status: ir.Queued},
+			backend: &stubDAGRunBackend{},
 			setupQueue: func(qs *testutil.MockQueueStore) {
 				qs.AssertNotCalled(t, "Enqueue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 			},
@@ -54,7 +54,7 @@ func TestEnqueueRetry(t *testing.T) {
 				AutoRetryCount: 2,
 			},
 			opts: queue.EnqueueRetryOptions{TriggerActor: &triggerActor},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status: &ir.DAGRunStatus{
 					Name:           "test-dag",
 					DAGRunID:       "run-1",
@@ -74,18 +74,18 @@ func TestEnqueueRetry(t *testing.T) {
 				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-1")).
 					Return(nil)
 			},
-			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				require.NotNil(t, store.status)
-				assert.Equal(t, ir.Queued, store.status.Status)
-				assert.Equal(t, ir.TriggerTypeRetry, store.status.TriggerType)
-				assert.Equal(t, "alice", store.status.TriggerActor)
-				assert.NotEmpty(t, store.status.QueuedAt)
-				assert.Empty(t, store.status.Conditions)
-				assert.Equal(t, 2, store.status.AutoRetryCount)
-				assert.Equal(t, "old-profile", store.status.ProfileName)
-				assert.Equal(t, "/tmp/test-dag/run-1.log", store.status.Log)
-				assert.Equal(t, "/tmp/test-dag/run-1", store.status.WorkingDir)
-				assert.NotEmpty(t, store.status.ProfileResolvedAt)
+			assertBackend: func(t *testing.T, backend *stubDAGRunBackend) {
+				require.NotNil(t, backend.status)
+				assert.Equal(t, ir.Queued, backend.status.Status)
+				assert.Equal(t, ir.TriggerTypeRetry, backend.status.TriggerType)
+				assert.Equal(t, "alice", backend.status.TriggerActor)
+				assert.NotEmpty(t, backend.status.QueuedAt)
+				assert.Empty(t, backend.status.Conditions)
+				assert.Equal(t, 2, backend.status.AutoRetryCount)
+				assert.Equal(t, "old-profile", backend.status.ProfileName)
+				assert.Equal(t, "/tmp/test-dag/run-1.log", backend.status.Log)
+				assert.Equal(t, "/tmp/test-dag/run-1", backend.status.WorkingDir)
+				assert.NotEmpty(t, backend.status.ProfileResolvedAt)
 			},
 			wantQueued: true,
 		},
@@ -100,7 +100,7 @@ func TestEnqueueRetry(t *testing.T) {
 				AutoRetryCount: 2,
 			},
 			opts: queue.EnqueueRetryOptions{AutoRetry: true},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status: &ir.DAGRunStatus{
 					Name:           "test-dag",
 					DAGRunID:       "run-auto",
@@ -114,10 +114,10 @@ func TestEnqueueRetry(t *testing.T) {
 				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-auto")).
 					Return(nil)
 			},
-			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				require.NotNil(t, store.status)
-				assert.Equal(t, 3, store.status.AutoRetryCount)
-				assert.Equal(t, "bob", store.status.TriggerActor)
+			assertBackend: func(t *testing.T, backend *stubDAGRunBackend) {
+				require.NotNil(t, backend.status)
+				assert.Equal(t, 3, backend.status.AutoRetryCount)
+				assert.Equal(t, "bob", backend.status.TriggerActor)
 			},
 			wantQueued: true,
 		},
@@ -131,7 +131,7 @@ func TestEnqueueRetry(t *testing.T) {
 				AutoRetryCount: 1,
 				ProcGroup:      "input-queue",
 			},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status: &ir.DAGRunStatus{
 					Name:           "test-dag",
 					DAGRunID:       "run-fast-path",
@@ -146,10 +146,10 @@ func TestEnqueueRetry(t *testing.T) {
 				qs.On("Enqueue", mock.Anything, "custom-queue", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-fast-path")).
 					Return(nil)
 			},
-			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				require.NotNil(t, store.status)
-				assert.Equal(t, ir.Queued, store.status.Status)
-				assert.Equal(t, "custom-queue", store.status.ProcGroup)
+			assertBackend: func(t *testing.T, backend *stubDAGRunBackend) {
+				require.NotNil(t, backend.status)
+				assert.Equal(t, ir.Queued, backend.status.Status)
+				assert.Equal(t, "custom-queue", backend.status.ProcGroup)
 			},
 			wantQueued: true,
 		},
@@ -163,7 +163,7 @@ func TestEnqueueRetry(t *testing.T) {
 				Status:    ir.Failed,
 				Root:      ir.NewDAGRunRef("root-dag", "root-run"),
 			},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status: &ir.DAGRunStatus{
 					Name:      "child-dag",
 					DAGRunID:  "run-root",
@@ -175,9 +175,9 @@ func TestEnqueueRetry(t *testing.T) {
 				qs.On("Enqueue", mock.Anything, "child-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("child-dag", "run-root")).
 					Return(nil)
 			},
-			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				require.NotNil(t, store.status)
-				assert.Equal(t, ir.NewDAGRunRef("root-dag", "root-run"), store.status.Root)
+			assertBackend: func(t *testing.T, backend *stubDAGRunBackend) {
+				require.NotNil(t, backend.status)
+				assert.Equal(t, ir.NewDAGRunRef("root-dag", "root-run"), backend.status.Root)
 			},
 			wantQueued: true,
 		},
@@ -190,7 +190,7 @@ func TestEnqueueRetry(t *testing.T) {
 				AttemptID: "att-2",
 				Status:    ir.Failed,
 			},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status:   &ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-2", AttemptID: "att-2", Status: ir.Failed},
 				firstErr: errors.New("cas error"),
 			},
@@ -206,7 +206,7 @@ func TestEnqueueRetry(t *testing.T) {
 				AttemptKey: "key-3",
 				Status:     ir.Failed,
 			},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status: &ir.DAGRunStatus{
 					Name: "test-dag", DAGRunID: "run-3", AttemptID: "att-3", AttemptKey: "key-3", Status: ir.Queued,
 				},
@@ -221,7 +221,7 @@ func TestEnqueueRetry(t *testing.T) {
 				AttemptID: "att-3b",
 				Status:    ir.Failed,
 			},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status: &ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3b", AttemptID: "att-other", Status: ir.Running},
 			},
 			assertErr: func(t *testing.T, err error) {
@@ -238,7 +238,7 @@ func TestEnqueueRetry(t *testing.T) {
 				Status:         ir.Failed,
 				AutoRetryCount: 1,
 			},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status: &ir.DAGRunStatus{
 					Name:           "test-dag",
 					DAGRunID:       "run-4",
@@ -253,13 +253,13 @@ func TestEnqueueRetry(t *testing.T) {
 				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-4")).
 					Return(errors.New("enqueue error"))
 			},
-			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				require.NotNil(t, store.status)
-				assert.Equal(t, ir.Failed, store.status.Status)
-				assert.Empty(t, store.status.QueuedAt)
-				assert.Equal(t, ir.TriggerTypeUnknown, store.status.TriggerType)
-				assert.Equal(t, 1, store.status.AutoRetryCount)
-				assert.Equal(t, "bob", store.status.TriggerActor)
+			assertBackend: func(t *testing.T, backend *stubDAGRunBackend) {
+				require.NotNil(t, backend.status)
+				assert.Equal(t, ir.Failed, backend.status.Status)
+				assert.Empty(t, backend.status.QueuedAt)
+				assert.Equal(t, ir.TriggerTypeUnknown, backend.status.TriggerType)
+				assert.Equal(t, 1, backend.status.AutoRetryCount)
+				assert.Equal(t, "bob", backend.status.TriggerActor)
 			},
 			wantErr: "enqueue retry",
 		},
@@ -272,7 +272,7 @@ func TestEnqueueRetry(t *testing.T) {
 				AttemptID: "att-rollback-failure",
 				Status:    ir.Waiting,
 			},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status: &ir.DAGRunStatus{
 					Name:      "test-dag",
 					DAGRunID:  "run-rollback-failure",
@@ -285,9 +285,9 @@ func TestEnqueueRetry(t *testing.T) {
 				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-rollback-failure")).
 					Return(errors.New("enqueue error"))
 			},
-			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				require.NotNil(t, store.status)
-				assert.Equal(t, ir.Queued, store.status.Status)
+			assertBackend: func(t *testing.T, backend *stubDAGRunBackend) {
+				require.NotNil(t, backend.status)
+				assert.Equal(t, ir.Queued, backend.status.Status)
 			},
 			wantErr: "enqueue retry: enqueue error; rollback queued retry status: rollback error",
 		},
@@ -299,7 +299,7 @@ func TestEnqueueRetry(t *testing.T) {
 				Status:         ir.Failed,
 				AutoRetryCount: 1,
 			},
-			store: &stubDAGRunStore{
+			backend: &stubDAGRunBackend{
 				status: &ir.DAGRunStatus{
 					DAGRunID:       "run-empty-group",
 					AttemptID:      "att-empty-group",
@@ -309,13 +309,13 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			opts: queue.EnqueueRetryOptions{TriggerActor: &triggerActor},
-			assertStore: func(t *testing.T, store *stubDAGRunStore) {
-				require.NotNil(t, store.status)
-				assert.Equal(t, ir.Failed, store.status.Status)
-				assert.Empty(t, store.status.QueuedAt)
-				assert.Equal(t, ir.TriggerTypeUnknown, store.status.TriggerType)
-				assert.Equal(t, 1, store.status.AutoRetryCount)
-				assert.Equal(t, "bob", store.status.TriggerActor)
+			assertBackend: func(t *testing.T, backend *stubDAGRunBackend) {
+				require.NotNil(t, backend.status)
+				assert.Equal(t, ir.Failed, backend.status.Status)
+				assert.Empty(t, backend.status.QueuedAt)
+				assert.Equal(t, ir.TriggerTypeUnknown, backend.status.TriggerType)
+				assert.Equal(t, 1, backend.status.AutoRetryCount)
+				assert.Equal(t, "bob", backend.status.TriggerActor)
 			},
 			wantErr: "proc group is empty",
 		},
@@ -331,7 +331,7 @@ func TestEnqueueRetry(t *testing.T) {
 				tt.setupQueue(qs)
 			}
 
-			repository := dagrun.NewRepository(tt.store, dagrun.RepositoryOptions{})
+			repository := dagrun.NewRepository(tt.backend, dagrun.RepositoryOptions{})
 			queued, err := queue.EnqueueRetry(ctx, repository, qs, tt.dag, tt.status, tt.opts)
 			if tt.wantErr != "" {
 				require.Error(t, err)
@@ -346,23 +346,23 @@ func TestEnqueueRetry(t *testing.T) {
 			}
 			assert.Equal(t, tt.wantQueued, queued)
 
-			if tt.assertStore != nil {
-				tt.assertStore(t, tt.store)
+			if tt.assertBackend != nil {
+				tt.assertBackend(t, tt.backend)
 			}
 			qs.AssertExpectations(t)
 		})
 	}
 }
 
-type stubDAGRunStore struct {
-	dagrun.Store
+type stubDAGRunBackend struct {
+	testutil.DAGRunBackendStub
 	status    *ir.DAGRunStatus
 	firstErr  error
 	secondErr error
 	casCalls  int
 }
 
-func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
+func (s *stubDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
 	req dagrun.CompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
@@ -390,14 +390,14 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	return s.cloneStatus(), true, nil
 }
 
-func (s *stubDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
+func (s *stubDAGRunBackend) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	if s.status == nil {
 		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return &testutil.MockAttempt{Status: s.cloneStatus()}, nil
 }
 
-func (s *stubDAGRunStore) cloneStatus() *ir.DAGRunStatus {
+func (s *stubDAGRunBackend) cloneStatus() *ir.DAGRunStatus {
 	return cloneDAGRunStatus(s.status)
 }
 

@@ -30,8 +30,8 @@ func (e *DAGRunNotQueuedError) Error() string {
 
 // AbortQueuedDAGRun marks the latest visible queued attempt as aborted, hides it,
 // and removes the dag-run record only when no visible attempts remain.
-func AbortQueuedDAGRun(ctx context.Context, dagRunStore *dagrun.Repository, dagRun ir.DAGRunRef) error {
-	attempt, err := dagRunStore.FindAttempt(ctx, dagRun)
+func AbortQueuedDAGRun(ctx context.Context, dagRunRepository *dagrun.Repository, dagRun ir.DAGRunRef) error {
+	attempt, err := dagRunRepository.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunStore *dagrun.Repository, dagR
 	}
 
 	finishedAt := time.Now().UTC().Format(time.RFC3339)
-	currentStatus, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
+	currentStatus, swapped, err := dagRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		dagRun,
 		attempt.ID(),
@@ -77,9 +77,9 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunStore *dagrun.Repository, dagR
 		return fmt.Errorf("hide aborted attempt: %w", err)
 	}
 
-	_, err = dagRunStore.FindAttempt(ctx, dagRun)
+	_, err = dagRunRepository.FindAttempt(ctx, dagRun)
 	if errors.Is(err, dagrun.ErrNoStatusData) {
-		if err := dagRunStore.RemoveDAGRun(ctx, dagRun); err != nil {
+		if err := dagRunRepository.RemoveDAGRun(ctx, dagRun); err != nil {
 			return fmt.Errorf("remove empty dag-run record: %w", err)
 		}
 		return nil

@@ -73,12 +73,12 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 
 	statusCache := fileutil.NewCache[*ir.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
 	statusCache.StartEviction(ctx)
-	schedulerRunStore := file.NewDAGRunRepository(
+	dagRunRepository := file.NewDAGRunRepository(
 		cfg.Config,
 		file.WithDAGRunLatestStatusToday(false),
 		file.WithDAGRunHistoryFileCache(statusCache),
 	)
-	schedulerRunManager := runtime.NewManager(schedulerRunStore, cfg.ProcStore, cfg.Config)
+	schedulerRunManager := runtime.NewManager(dagRunRepository, cfg.ProcStore, cfg.Config)
 
 	dagSettingsStore, err := file.NewDAGSettingsStore(cfg.Config)
 	if err != nil {
@@ -90,7 +90,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		cfg.Config,
 		entryReader,
 		schedulerRunManager,
-		schedulerRunStore,
+		dagRunRepository,
 		cfg.QueueStore,
 		cfg.ProcStore,
 		cfg.ServiceRegistry,

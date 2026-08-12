@@ -635,7 +635,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	if request.Body != nil && request.Body.DagRunId != nil && *request.Body.DagRunId != "" {
 		dagRunID = *request.Body.DagRunId
 		// Check if a dag-run with this ID already exists
-		statuses, err := a.dagRunStore.ListStatuses(ctx, dagrun.WithDAGRunID(dagRunID))
+		statuses, err := a.dagRunRepository.ListStatuses(ctx, dagrun.WithDAGRunID(dagRunID))
 		if err == nil && len(statuses) > 0 {
 			// DAG run already exists - return 409 Conflict
 			logger.Info(ctx, "Webhook: DAG run already exists (idempotency)",

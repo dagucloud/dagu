@@ -381,7 +381,7 @@ func (a *API) requireExecuteForWorkspace(ctx context.Context, workspaceName stri
 }
 
 func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun ir.DAGRunRef) (string, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
+	attempt, err := a.dagRunRepository.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
 	}

@@ -31,9 +31,9 @@ steps:
 
 		// Create Context with required stores
 		ctx := &cmd.Context{
-			Context:     th.Context,
-			Config:      th.Config,
-			DAGRunStore: th.DAGRunStore,
+			Context:          th.Context,
+			Config:           th.Config,
+			DAGRunRepository: th.DAGRunRepository,
 		}
 
 		// Record the early failure
@@ -42,7 +42,7 @@ steps:
 
 		// Verify the failure was recorded
 		ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-		attempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
+		attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ref)
 		require.NoError(t, err)
 		require.NotNil(t, attempt)
 
@@ -77,9 +77,9 @@ steps:
 		testErr := errors.New("retry failed due to lock contention")
 
 		ctx := &cmd.Context{
-			Context:     th.Context,
-			Config:      th.Config,
-			DAGRunStore: th.DAGRunStore,
+			Context:          th.Context,
+			Config:           th.Config,
+			DAGRunRepository: th.DAGRunRepository,
 		}
 
 		err = ctx.RecordEarlyFailure(dag.DAG, dagRunID, testErr)
@@ -87,7 +87,7 @@ steps:
 
 		// Verify the failure was recorded (status should be updated)
 		ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-		attempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
+		attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ref)
 		require.NoError(t, err)
 		require.NotNil(t, attempt)
 
@@ -103,9 +103,9 @@ steps:
 		th := test.SetupCommand(t)
 
 		ctx := &cmd.Context{
-			Context:     th.Context,
-			Config:      th.Config,
-			DAGRunStore: th.DAGRunStore,
+			Context:          th.Context,
+			Config:           th.Config,
+			DAGRunRepository: th.DAGRunRepository,
 		}
 
 		err := ctx.RecordEarlyFailure(nil, "some-run-id", errors.New("test error"))
@@ -125,9 +125,9 @@ steps:
 `)
 
 		ctx := &cmd.Context{
-			Context:     th.Context,
-			Config:      th.Config,
-			DAGRunStore: th.DAGRunStore,
+			Context:          th.Context,
+			Config:           th.Config,
+			DAGRunRepository: th.DAGRunRepository,
 		}
 
 		err := ctx.RecordEarlyFailure(dag.DAG, "", errors.New("test error"))
@@ -151,9 +151,9 @@ steps:
 
 		// Create Context and record early failure
 		ctx := &cmd.Context{
-			Context:     th.Context,
-			Config:      th.Config,
-			DAGRunStore: th.DAGRunStore,
+			Context:          th.Context,
+			Config:           th.Config,
+			DAGRunRepository: th.DAGRunRepository,
 		}
 
 		err := ctx.RecordEarlyFailure(dag.DAG, dagRunID, testErr)
@@ -161,7 +161,7 @@ steps:
 
 		// Verify initial failure status
 		ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-		attempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
+		attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ref)
 		require.NoError(t, err)
 		require.NotNil(t, attempt)
 

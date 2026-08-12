@@ -12,31 +12,30 @@ import (
 )
 
 // DAGRunRepositoryOption configures the file-backed DAG-run repository.
-type DAGRunRepositoryOption func(*DAGRunRepositoryOptions)
+type DAGRunRepositoryOption func(*dagRunRepositoryOptions)
 
-// DAGRunRepositoryOptions contains file-backed DAG-run repository settings.
-type DAGRunRepositoryOptions struct {
+type dagRunRepositoryOptions struct {
 	HistoryFileCache  *fileutil.Cache[*ir.DAGRunStatus]
 	LatestStatusToday bool
 }
 
 // WithDAGRunHistoryFileCache sets the cache used for reading DAG-run history files.
 func WithDAGRunHistoryFileCache(cache *fileutil.Cache[*ir.DAGRunStatus]) DAGRunRepositoryOption {
-	return func(o *DAGRunRepositoryOptions) {
+	return func(o *dagRunRepositoryOptions) {
 		o.HistoryFileCache = cache
 	}
 }
 
 // WithDAGRunLatestStatusToday controls whether latest status lookups are limited to today.
 func WithDAGRunLatestStatusToday(latestStatusToday bool) DAGRunRepositoryOption {
-	return func(o *DAGRunRepositoryOptions) {
+	return func(o *dagRunRepositoryOptions) {
 		o.LatestStatusToday = latestStatusToday
 	}
 }
 
 // NewDAGRunRepository connects file storage to the shared DAG-run repository.
 func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *dagrun.Repository {
-	options := DAGRunRepositoryOptions{
+	options := dagRunRepositoryOptions{
 		LatestStatusToday: cfg.Server.LatestStatusToday,
 	}
 	for _, opt := range opts {
@@ -51,9 +50,8 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *da
 	if options.HistoryFileCache != nil {
 		storeOpts = append(storeOpts, filedagrun.WithHistoryFileCache(options.HistoryFileCache))
 	}
-	store := filedagrun.NewStore(cfg.Paths.DAGRunsDir, storeOpts...)
-	return dagrun.NewRepository(store, dagrun.RepositoryOptions{
+	return filedagrun.NewRepository(cfg.Paths.DAGRunsDir, dagrun.RepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
 		Location:          cfg.Core.Location,
-	})
+	}, storeOpts...)
 }

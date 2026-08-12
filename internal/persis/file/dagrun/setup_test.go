@@ -16,21 +16,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type StoreTest struct {
-	Context context.Context
-	Store   *dagrun.Repository
-	Backend *Store
-	TmpDir  string
+type RepositoryTest struct {
+	Context    context.Context
+	Repository *dagrun.Repository
+	Backend    *Store
+	TmpDir     string
 }
 
-func setupTestStore(t *testing.T) StoreTest {
+func setupTestRepository(t *testing.T) RepositoryTest {
 	tmpDir, err := os.MkdirTemp("", "test")
 	require.NoError(t, err)
 
 	backend := NewStore(tmpDir, WithArtifactDir(filepath.Join(tmpDir, "artifacts")))
-	th := StoreTest{
+	th := RepositoryTest{
 		Context: context.Background(),
-		Store: dagrun.NewRepository(backend, dagrun.RepositoryOptions{
+		Repository: dagrun.NewRepository(backend, dagrun.RepositoryOptions{
 			LatestStatusToday: true,
 			Location:          time.Local,
 		}),
@@ -44,17 +44,17 @@ func setupTestStore(t *testing.T) StoreTest {
 	return th
 }
 
-func (th StoreTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID string, s ir.Status) *Attempt {
+func (th RepositoryTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID string, s ir.Status) *Attempt {
 	t.Helper()
 
 	dag := th.DAG("test_DAG")
 	return th.CreateAttemptWithDAG(t, ts, dagRunID, s, dag.DAG)
 }
 
-func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s ir.Status, dag *ir.DAG) *Attempt {
+func (th RepositoryTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s ir.Status, dag *ir.DAG) *Attempt {
 	t.Helper()
 
-	attempt, err := th.Store.CreateAttempt(th.Context, dag, ts, dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.Repository.CreateAttempt(th.Context, dag, ts, dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	err = attempt.Open(th.Context)
@@ -74,7 +74,7 @@ func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID st
 	return attempt.(*Attempt)
 }
 
-func (th StoreTest) DAG(name string) DAGTest {
+func (th RepositoryTest) DAG(name string) DAGTest {
 	return DAGTest{
 		th: th,
 		DAG: &ir.DAG{
@@ -85,7 +85,7 @@ func (th StoreTest) DAG(name string) DAGTest {
 }
 
 type DAGTest struct {
-	th StoreTest
+	th RepositoryTest
 	*ir.DAG
 }
 
@@ -140,7 +140,7 @@ func (w WriterTest) Close(t *testing.T) {
 }
 
 type WriterTest struct {
-	th StoreTest
+	th RepositoryTest
 
 	DAGRunID string
 	FilePath string

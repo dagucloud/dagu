@@ -57,7 +57,7 @@ func TestScheduler(t *testing.T) {
 		}
 
 		th := test.SetupScheduler(t)
-		sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+		sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 		require.NoError(t, err)
 		sc.SetClock(func() time.Time { return now })
 
@@ -105,7 +105,7 @@ func TestScheduler(t *testing.T) {
 		}
 
 		th := test.SetupScheduler(t)
-		sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+		sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 		require.NoError(t, err)
 		sc.SetClock(func() time.Time { return now })
 
@@ -124,7 +124,7 @@ func TestScheduler(t *testing.T) {
 	})
 	t.Run("NextTick", func(t *testing.T) {
 		th := test.SetupScheduler(t)
-		schedulerInstance, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+		schedulerInstance, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 		require.NoError(t, err)
 
 		tests := []struct {
@@ -162,7 +162,7 @@ func TestFileLockPreventsMultipleInstances(t *testing.T) {
 	th := setupSchedulerWithoutDAGs(t)
 
 	// Create first scheduler instance
-	sc1, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc1, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc1.SetClock(clock)
 
@@ -176,7 +176,7 @@ func TestFileLockPreventsMultipleInstances(t *testing.T) {
 		th.Config,
 		newMockJobManager(),
 		th.DAGRunMgr,
-		th.DAGRunStore,
+		th.DAGRunRepository,
 		th.QueueStore,
 		th.ProcStore,
 		th.ServiceRegistry,
@@ -237,7 +237,7 @@ func TestScheduler_StopSchedule(t *testing.T) {
 	}
 
 	th := setupSchedulerWithoutDAGs(t)
-	sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc.SetClock(func() time.Time { return now })
 	sc.SetDispatchFunc(func(_ context.Context, _ *ir.DAG, _ string, _ ir.TriggerType, _ time.Time) error {
@@ -282,7 +282,7 @@ func TestScheduler_GracefulShutdown(t *testing.T) {
 	}
 
 	th := setupSchedulerWithoutDAGs(t)
-	sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc, err := scheduler.New(th.Config, entryReader, th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc.SetClock(func() time.Time { return now })
 
@@ -323,7 +323,7 @@ func TestScheduler_StopReleasesLock(t *testing.T) {
 	ctx := context.Background()
 
 	// Start and stop first scheduler.
-	sc1, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc1, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc1.SetClock(clock)
 
@@ -332,7 +332,7 @@ func TestScheduler_StopReleasesLock(t *testing.T) {
 
 	// A second scheduler must be able to acquire the lock immediately
 	// (no 30s stale wait) because Stop() released it.
-	sc2, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc2, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc2.SetClock(clock)
 
@@ -346,7 +346,7 @@ func TestScheduler_StopAfterContextCancellation(t *testing.T) {
 
 	th := setupSchedulerWithoutDAGs(t)
 
-	sc, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc.SetClock(clock)
 
@@ -377,7 +377,7 @@ func TestScheduler_StopAfterContextCancellation(t *testing.T) {
 	}
 
 	// Verify lock was released: a new scheduler can start immediately.
-	sc2, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc2, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc2.SetClock(clock)
 
@@ -391,7 +391,7 @@ func TestScheduler_StopWhileWaitingForLock(t *testing.T) {
 
 	th := setupSchedulerWithoutDAGs(t)
 
-	sc1, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc1, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc1.SetClock(clock)
 
@@ -404,7 +404,7 @@ func TestScheduler_StopWhileWaitingForLock(t *testing.T) {
 		th.Config,
 		newMockJobManager(),
 		th.DAGRunMgr,
-		th.DAGRunStore,
+		th.DAGRunRepository,
 		th.QueueStore,
 		th.ProcStore,
 		th.ServiceRegistry,
@@ -455,7 +455,7 @@ func TestScheduler_StartFailureCleansUpPartialStartup(t *testing.T) {
 		th.Config,
 		&failingInitEntryReader{mockJobManager: newMockJobManager(), initErr: errors.New("init failed")},
 		th.DAGRunMgr,
-		th.DAGRunStore,
+		th.DAGRunRepository,
 		th.QueueStore,
 		th.ProcStore,
 		th.ServiceRegistry,
@@ -470,7 +470,7 @@ func TestScheduler_StartFailureCleansUpPartialStartup(t *testing.T) {
 	require.ErrorContains(t, err, "init failed")
 	require.False(t, sc1.IsRunning())
 
-	sc2, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc2, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc2.SetClock(clock)
 
@@ -486,7 +486,7 @@ func TestScheduler_SelfFencesOnOwnershipLoss(t *testing.T) {
 	th := setupSchedulerWithoutDAGs(t)
 	ctx := context.Background()
 
-	sc, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunStore, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
+	sc, err := scheduler.New(th.Config, newMockJobManager(), th.DAGRunMgr, th.DAGRunRepository, th.QueueStore, th.ProcStore, th.ServiceRegistry, th.CoordinatorCli, nil)
 	require.NoError(t, err)
 	sc.SetClock(clock)
 

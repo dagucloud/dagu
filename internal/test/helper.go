@@ -80,7 +80,7 @@ type Options struct {
 	ServerOptions        []frontend.ServerOption
 	UseBuiltExecutable   bool // UseBuiltExecutable builds the current ./cmd binary for subprocess-based tests
 	// Coordinator handler options for worker tests
-	WithStatusPersistence   bool          // Enable status persistence via DAGRunStore
+	WithStatusPersistence   bool          // Enable status persistence via DAGRunRepository
 	WithLogPersistence      bool          // Enable log persistence to filesystem
 	WithArtifactPersistence bool          // Enable artifact persistence to filesystem
 	StaleHeartbeatThreshold time.Duration // Override for handler's stale heartbeat threshold
@@ -284,7 +284,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 
 	dagRepository, err := file.NewDAGRepository(cfg, file.WithDAGSkipExamples(true))
 	require.NoError(t, err)
-	runStore := file.NewDAGRunRepository(cfg)
+	dagRunRepository := file.NewDAGRunRepository(cfg)
 	procStore := newProcStore(cfg)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
@@ -303,7 +303,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	}
 	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir), dispatchStoreOpts...)
 
-	drm := runtimepkg.NewManager(runStore, procStore, cfg)
+	drm := runtimepkg.NewManager(dagRunRepository, procStore, cfg)
 
 	helper := Helper{
 		Context:                   ctx,
@@ -311,7 +311,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		ChildEnv:                  cfg.Core.BaseEnv.AsSlice(),
 		DAGRunMgr:                 drm,
 		DAGRepository:             dagRepository,
-		DAGRunStore:               runStore,
+		DAGRunRepository:          dagRunRepository,
 		ProcStore:                 procStore,
 		QueueStore:                queueStore,
 		StateStore:                stateStore,
@@ -519,7 +519,7 @@ type Helper struct {
 	ChildEnv                  []string
 	LoggingOutput             *SyncBuffer
 	DAGRepository             *persis.DAGRepository
-	DAGRunStore               *dagrun.Repository
+	DAGRunRepository          *dagrun.Repository
 	DAGRunMgr                 runtimepkg.Manager
 	ProcStore                 proc.ProcStore
 	QueueStore                queue.QueueStore
@@ -635,8 +635,8 @@ func (d *DAG) AssertDAGRunCount(t *testing.T, expected int) {
 
 	// the +1 to the limit is needed to ensure that the number of dag-run
 	// entries is exactly the expected number
-	runstore := d.DAGRunMgr.ListRecentStatus(d.Context, d.Name, expected+1)
-	require.Len(t, runstore, expected)
+	statuses := d.DAGRunMgr.ListRecentStatuses(d.Context, d.Name, expected+1)
+	require.Len(t, statuses, expected)
 }
 
 func (d *DAG) AssertCurrentStatus(t *testing.T, expected ir.Status) {
@@ -785,7 +785,7 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	logFile := filepath.Join(d.Config.Paths.LogDir, dagRunID+".log")
 	root := ir.NewDAGRunRef(d.Name, dagRunID)
 
-	helper.opts.DAGRunStore = d.DAGRunStore
+	helper.opts.DAGRunRepository = d.DAGRunRepository
 	helper.opts.QueueStore = d.QueueStore
 	helper.opts.ServiceRegistry = d.ServiceRegistry
 	helper.opts.RootDAGRun = root
@@ -797,7 +797,7 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 		helper.opts.SubWorkflowRunnerFactory = coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 			DAGRunMgr:         d.DAGRunMgr,
 			DAGRepository:     d.DAGRepository,
-			DAGRunStore:       d.DAGRunStore,
+			DAGRunRepository:  d.DAGRunRepository,
 			QueueStore:        d.QueueStore,
 			StateStore:        d.StateStore,
 			SecretStore:       helper.opts.SecretStore,

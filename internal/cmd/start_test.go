@@ -312,7 +312,7 @@ steps:
 `)
 
 	runID := "existing-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	status := ir.InitialStatus(dag.DAG)
@@ -326,7 +326,7 @@ steps:
 	require.Error(t, err)
 	require.ErrorContains(t, err, "already exists")
 
-	latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+	latestAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 	require.Equal(t, attempt.ID(), latestAttempt.ID())
 

@@ -35,15 +35,15 @@ type dagRetryMetadata struct {
 // RetryScanner periodically discovers failed latest attempts and enqueues
 // DAG-level retries once their backoff has elapsed.
 type RetryScanner struct {
-	dagRunStore *dagrun.Repository
-	queueStore  queuedomain.QueueStore
-	isSuspended IsSuspendedFunc
-	retryWindow time.Duration
-	clock       Clock
+	dagRunRepository *dagrun.Repository
+	queueStore       queuedomain.QueueStore
+	isSuspended      IsSuspendedFunc
+	retryWindow      time.Duration
+	clock            Clock
 }
 
 func NewRetryScanner(
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	queueStore queuedomain.QueueStore,
 	isSuspended IsSuspendedFunc,
 	retryWindow time.Duration,
@@ -56,11 +56,11 @@ func NewRetryScanner(
 		isSuspended = func(context.Context, string) (bool, error) { return false, nil }
 	}
 	return &RetryScanner{
-		dagRunStore: dagRunStore,
-		queueStore:  queueStore,
-		isSuspended: isSuspended,
-		retryWindow: retryWindow,
-		clock:       clock,
+		dagRunRepository: dagRunRepository,
+		queueStore:       queueStore,
+		isSuspended:      isSuspended,
+		retryWindow:      retryWindow,
+		clock:            clock,
 	}, nil
 }
 
@@ -113,7 +113,7 @@ func (s *RetryScanner) scan(ctx context.Context) error {
 }
 
 func (s *RetryScanner) listFailedRuns(ctx context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
-	return s.dagRunStore.ListRetryCandidates(ctx, from)
+	return s.dagRunRepository.ListRetryCandidates(ctx, from)
 }
 
 func (s *RetryScanner) processFailedRun(
@@ -164,7 +164,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 		return nil
 	}
 
-	_, err = queuedomain.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, nil, listed, queuedomain.EnqueueRetryOptions{
+	_, err = queuedomain.EnqueueRetry(ctx, s.dagRunRepository, s.queueStore, nil, listed, queuedomain.EnqueueRetryOptions{
 		AutoRetry: true,
 	})
 	if err != nil {
@@ -194,7 +194,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 	now time.Time,
 ) error {
 	ref := listed.DAGRun()
-	attempt, err := s.dagRunStore.FindAttempt(ctx, ref)
+	attempt, err := s.dagRunRepository.FindAttempt(ctx, ref)
 	if err != nil {
 		return err
 	}
@@ -249,7 +249,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 		return nil
 	}
 
-	_, err = queuedomain.EnqueueRetry(ctx, s.dagRunStore, s.queueStore, dagSnapshot, latestStatus, queuedomain.EnqueueRetryOptions{
+	_, err = queuedomain.EnqueueRetry(ctx, s.dagRunRepository, s.queueStore, dagSnapshot, latestStatus, queuedomain.EnqueueRetryOptions{
 		AutoRetry: true,
 	})
 	if err != nil {

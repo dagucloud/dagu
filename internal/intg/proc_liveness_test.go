@@ -113,7 +113,7 @@ func runCommandAsync(ctx context.Context, command *cobra.Command, args []string)
 func createFailedRun(t *testing.T, th test.Command, dag *ir.DAG, dagRunID string) {
 	t.Helper()
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(th.Config.Paths.LogDir, dag.Name, dagRunID+".log")

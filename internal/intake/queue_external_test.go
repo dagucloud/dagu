@@ -25,21 +25,21 @@ func TestEnqueueRunDoesNotSeedQueuedCondition(t *testing.T) {
 	tmp := t.TempDir()
 	dag := &ir.DAG{Name: "queued-condition"}
 	ir.InitializeDefaults(dag)
-	dagRunStore := filedagrun.NewRepository(filepath.Join(tmp, "dag-runs"), dagrun.RepositoryOptions{})
+	dagRunRepository := filedagrun.NewRepository(filepath.Join(tmp, "dag-runs"), dagrun.RepositoryOptions{})
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
 	now := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
 	_, err := intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunStore: dagRunStore,
-		QueueStore:  queueStore,
-		DAG:         dag,
-		DAGRunID:    "run-1",
-		LogBaseDir:  filepath.Join(tmp, "logs"),
-		Now:         func() time.Time { return now },
+		DAGRunRepository: dagRunRepository,
+		QueueStore:       queueStore,
+		DAG:              dag,
+		DAGRunID:         "run-1",
+		LogBaseDir:       filepath.Join(tmp, "logs"),
+		Now:              func() time.Time { return now },
 	})
 	require.NoError(t, err)
 
-	attempt, err := dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "run-1"))
+	attempt, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "run-1"))
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)

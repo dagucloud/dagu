@@ -56,7 +56,7 @@ steps:
 	// Verify the initial run completed successfully
 	ctx := context.Background()
 	ref := ir.NewDAGRunRef("test_retry", dagRunID)
-	attempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
+	attempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
 	require.NoError(t, err)
 
 	firstRunStatus, err := attempt.ReadStatus(ctx)
@@ -87,7 +87,7 @@ steps:
 	// Actual: The retry fails or doesn't properly execute the failed nodes
 
 	// Get the status after retry
-	retryAttempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
+	retryAttempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
 	require.NoError(t, err)
 	retryStatus, err := retryAttempt.ReadStatus(ctx)
 	require.NoError(t, err)
@@ -147,7 +147,7 @@ if (-not (Test-Path marker)) {
 	require.Error(t, err)
 
 	ref := ir.NewDAGRunRef("retry_working_dir", dagRunID)
-	failedAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
+	failedAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ref)
 	require.NoError(t, err)
 	failedStatus, err := failedAttempt.ReadStatus(th.Context)
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ if (-not (Test-Path marker)) {
 		Args: []string{"retry", "--run-id", dagRunID, "--step", "target", "retry_working_dir"},
 	})
 
-	retryAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ref)
+	retryAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ref)
 	require.NoError(t, err)
 	retryStatus, err := retryAttempt.ReadStatus(th.Context)
 	require.NoError(t, err)

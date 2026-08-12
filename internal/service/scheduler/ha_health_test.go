@@ -62,11 +62,11 @@ func TestScheduler_StandbyHealthServerStartsBeforeLockAndStopsCleanly(t *testing
 }
 
 type haSchedulerFixture struct {
-	cfg         *config.Config
-	dagRunStore *dagrun.Repository
-	queueStore  queuedomain.QueueStore
-	procStore   procdomain.ProcStore
-	dagRunMgr   runtime.Manager
+	cfg              *config.Config
+	dagRunRepository *dagrun.Repository
+	queueStore       queuedomain.QueueStore
+	procStore        procdomain.ProcStore
+	dagRunMgr        runtime.Manager
 }
 
 func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
@@ -99,7 +99,7 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 		DefaultExecMode: config.ExecutionModeLocal,
 	}
 
-	dagRunStore := filedagrun.NewRepository(
+	dagRunRepository := filedagrun.NewRepository(
 		cfg.Paths.DAGRunsDir,
 		dagrun.RepositoryOptions{LatestStatusToday: true},
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
@@ -108,11 +108,11 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 	procStore := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)
 
 	return &haSchedulerFixture{
-		cfg:         cfg,
-		dagRunStore: dagRunStore,
-		queueStore:  queueStore,
-		procStore:   procStore,
-		dagRunMgr:   runtime.NewManager(dagRunStore, procStore, cfg),
+		cfg:              cfg,
+		dagRunRepository: dagRunRepository,
+		queueStore:       queueStore,
+		procStore:        procStore,
+		dagRunMgr:        runtime.NewManager(dagRunRepository, procStore, cfg),
 	}
 }
 
@@ -123,7 +123,7 @@ func newHASchedulerForTest(t *testing.T, fixture *haSchedulerFixture, hooks Test
 		fixture.cfg,
 		&staticEntryReader{},
 		fixture.dagRunMgr,
-		fixture.dagRunStore,
+		fixture.dagRunRepository,
 		fixture.queueStore,
 		fixture.procStore,
 		nil,

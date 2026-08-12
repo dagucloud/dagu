@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,7 +54,7 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 		id:       "attempt-1",
 		closeErr: closeErr,
 	}
-	runStore := &enqueueTrackingDAGRunStore{attempt: attempt}
+	runStore := &enqueueTrackingDAGRunBackend{attempt: attempt}
 	queueStore := &enqueueObservingQueueStore{attempt: attempt}
 	dag := th.DAG(t, `steps:
   - name: "step"
@@ -61,10 +62,10 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 `).DAG
 
 	ctx := &Context{
-		Context:     th.Context,
-		Config:      th.Config,
-		DAGRunStore: dagrun.NewRepository(runStore, dagrun.RepositoryOptions{}),
-		QueueStore:  queueStore,
+		Context:          th.Context,
+		Config:           th.Config,
+		DAGRunRepository: dagrun.NewRepository(runStore, dagrun.RepositoryOptions{}),
+		QueueStore:       queueStore,
 	}
 
 	return enqueueDAGRunFixture{
@@ -75,16 +76,16 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 	}
 }
 
-type enqueueTrackingDAGRunStore struct {
-	dagrun.Store
+type enqueueTrackingDAGRunBackend struct {
+	testutil.DAGRunBackendStub
 	attempt *enqueueTrackingAttempt
 }
 
-func (s *enqueueTrackingDAGRunStore) CreateAttempt(context.Context, dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *enqueueTrackingDAGRunBackend) CreateAttempt(context.Context, dagrun.CreateAttemptRequest) (dagrun.Attempt, error) {
 	return s.attempt, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
+func (s *enqueueTrackingDAGRunBackend) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	return nil, dagrun.ErrDAGRunIDNotFound
 }
 

@@ -18,7 +18,7 @@ const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
 // StaleRunRepairConfig provides the stores, thresholds, and clock used to
 // confirm and repair stale remote runs.
 type StaleRunRepairConfig struct {
-	DAGRunStore                   *dagrun.Repository
+	DAGRunRepository              *dagrun.Repository
 	DAGRunLeaseStore              dispatch.DAGRunLeaseStore
 	WorkerHeartbeatStore          dispatch.WorkerHeartbeatStore
 	StaleLeaseThreshold           time.Duration
@@ -35,7 +35,7 @@ func RepairStaleRemoteRun(
 	fallbackAttemptID string,
 	fallbackWorkerID string,
 ) (*ir.DAGRunStatus, bool, error) {
-	if status == nil || cfg.DAGRunStore == nil || cfg.DAGRunLeaseStore == nil || cfg.WorkerHeartbeatStore == nil {
+	if status == nil || cfg.DAGRunRepository == nil || cfg.DAGRunLeaseStore == nil || cfg.WorkerHeartbeatStore == nil {
 		return status, false, nil
 	}
 
@@ -100,7 +100,7 @@ func RepairStaleRemoteRun(
 	}
 
 	reason := dispatch.DistributedLeaseExpiredReason(workerID)
-	currentStatus, swapped, err := cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
+	currentStatus, swapped, err := cfg.DAGRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		status.DAGRun(),
 		attemptID,

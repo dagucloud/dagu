@@ -104,7 +104,7 @@ func ResolveRetryPath(
 	stepName string,
 ) (RetryPath, *ir.DAGRunStatus, error) {
 	if repository == nil {
-		return RetryPath{}, nil, errors.New("retry path: DAG-run store is not configured")
+		return RetryPath{}, nil, errors.New("retry path: DAG-run repository is not configured")
 	}
 	if root.Zero() || targetRunID == "" || stepName == "" {
 		return RetryPath{}, nil, fmt.Errorf("%w: root run, child run, and step are required", ErrInvalidRetryPath)

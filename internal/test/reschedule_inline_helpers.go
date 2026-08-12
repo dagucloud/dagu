@@ -113,9 +113,9 @@ func AssertInlineRescheduledRunParams(t *testing.T, server Server, dagName, dagR
 }
 
 func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*ir.DAGRunStatus, error) {
-	store := file.NewDAGRunRepository(server.Config)
+	repository := file.NewDAGRunRepository(server.Config)
 
-	attempt, err := store.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, dagRunID))
+	attempt, err := repository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, dagRunID))
 	if err != nil {
 		return nil, err
 	}
@@ -126,12 +126,12 @@ func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*ir.DAG
 func WaitForAttemptSnapshot(t *testing.T, server Server, dagName, dagRunID string) dagrun.Attempt {
 	t.Helper()
 
-	store := file.NewDAGRunRepository(server.Config)
+	repository := file.NewDAGRunRepository(server.Config)
 
 	var attempt dagrun.Attempt
 	require.Eventually(t, func() bool {
 		var err error
-		attempt, err = store.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, dagRunID))
+		attempt, err = repository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, dagRunID))
 		return err == nil
 	}, rescheduleEventuallyTimeout(10*time.Second), 100*time.Millisecond)
 
@@ -163,7 +163,7 @@ func ProcessQueuedInlineRun(t *testing.T, server Server, queueName string) {
 	// This keeps queue execution isolated to the test path without mirroring full server wiring.
 	queueProcessor := scheduler.NewQueueProcessor(
 		server.QueueStore,
-		server.DAGRunStore,
+		server.DAGRunRepository,
 		server.ProcStore,
 		scheduler.NewDAGExecutor(
 			coordinator.New(server.ServiceRegistry, coordinator.DefaultConfig()),

@@ -17,8 +17,8 @@ import (
 // Resume retries a pending human-task enqueue without requiring the submitted form values.
 func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result, error) {
 	s.defaults()
-	if s.DAGRunStore == nil {
-		return Result{}, errorf(ErrorInternal, "DAG-run store is not configured")
+	if s.DAGRunRepository == nil {
+		return Result{}, errorf(ErrorInternal, "DAG-run repository is not configured")
 	}
 	target, err := s.loadTarget(ctx, dagName, dagRunID, "")
 	if err != nil {
@@ -53,7 +53,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 	defer cancel()
 	queued, err := queue.EnqueueRetry(
 		enqueueCtx,
-		s.DAGRunStore,
+		s.DAGRunRepository,
 		s.QueueStore,
 		target.dag,
 		target.status,
@@ -63,7 +63,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 		var latest *ir.DAGRunStatus
 		readCtx, readCancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
 		defer readCancel()
-		attempt, readErr := s.DAGRunStore.FindAttempt(readCtx, target.ref)
+		attempt, readErr := s.DAGRunRepository.FindAttempt(readCtx, target.ref)
 		if readErr == nil {
 			latest, readErr = attempt.ReadStatus(readCtx)
 			if readErr == nil && latest != nil && ResumePending(latest) {

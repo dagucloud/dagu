@@ -280,22 +280,6 @@ func (dr DataRoot) Remove() error {
 	return nil
 }
 
-// RemoveOld removes old dag-runs older than the specified retention days.
-// It only removes records older than the specified retention days.
-// If retentionDays is negative, no files will be removed.
-// If retentionDays is zero, all files will be removed.
-// If retentionDays is positive, only files older than the specified number of days will be removed.
-// It also removes empty directories in the hierarchy.
-// If dryRun is true, it returns the run IDs that would be removed without actually deleting them.
-// Returns a list of dag-run IDs that were removed (or would be removed in dry-run mode).
-func (dr DataRoot) RemoveOld(ctx context.Context, retentionDays int, dryRun bool) ([]string, error) {
-	if retentionDays < 0 {
-		return nil, nil
-	}
-	keepTime := dagrun.NewUTC(time.Now().AddDate(0, 0, -retentionDays))
-	return dr.removeOldBefore(ctx, keepTime, dryRun)
-}
-
 // removeOldBefore removes dag-runs whose recorded time is strictly before keepTime.
 // Active (non-final) runs are never removed. If dryRun is true, it returns the run
 // IDs that would be removed without actually deleting them.

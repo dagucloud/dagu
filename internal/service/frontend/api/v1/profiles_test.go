@@ -653,7 +653,7 @@ steps:
 		apigen.RetryDAGRunJSONRequestBody{DagRunId: "protected-profile-source-run"},
 	).WithBearerToken(operatorToken).ExpectStatus(http.StatusOK).Send(t)
 
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, "protected-profile-source-run"))
+	attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, "protected-profile-source-run"))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(server.Context)

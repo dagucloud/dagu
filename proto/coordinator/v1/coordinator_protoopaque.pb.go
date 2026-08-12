@@ -902,7 +902,7 @@ type Task_builder struct {
 	Definition       string
 	WorkerId         string
 	// Previous status for OPERATION_RETRY.
-	// When set, workers can retry without needing local DAGRunStore access.
+	// When set, workers can retry without needing local DAG-run persistence.
 	PreviousStatus *DAGRunStatusProto
 	// Attempt ID created by coordinator. Workers use this to create attempts with the same ID.
 	AttemptId string

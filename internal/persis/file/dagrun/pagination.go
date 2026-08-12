@@ -51,13 +51,13 @@ func compareDagRunListKeys(a, b dagRunListKey) int {
 }
 
 // QueryStatuses executes a normalized status query.
-func (store *Store) QueryStatuses(ctx context.Context, query dagrun.StatusQuery) (dagrun.DAGRunStatusPage, error) {
-	items, nextCursor, err := store.listStatusesOrdered(ctx, query, query.Limit)
+func (store *Store) QueryStatuses(ctx context.Context, query dagrun.StatusQuery) (dagrun.StatusPage, error) {
+	items, nextCursor, err := store.listStatusesOrdered(ctx, query)
 	if err != nil {
-		return dagrun.DAGRunStatusPage{}, err
+		return dagrun.StatusPage{}, err
 	}
 
-	return dagrun.DAGRunStatusPage{
+	return dagrun.StatusPage{
 		Items:      items,
 		NextCursor: nextCursor,
 	}, nil
@@ -66,7 +66,6 @@ func (store *Store) QueryStatuses(ctx context.Context, query dagrun.StatusQuery)
 func (store *Store) listStatusesOrdered(
 	ctx context.Context,
 	opts dagrun.StatusQuery,
-	limit int,
 ) ([]*ir.DAGRunStatus, string, error) {
 	cursorKey, err := decodeQueryCursor(opts.Cursor, opts)
 	if err != nil {
@@ -78,16 +77,10 @@ func (store *Store) listStatusesOrdered(
 		return nil, "", err
 	}
 
+	limit := opts.Limit
 	target := limit
-	if target <= 0 {
-		if opts.Unlimited {
-			target = math.MaxInt
-		} else {
-			target = opts.Limit
-		}
-	}
-	if target <= 0 {
-		target = 1
+	if target == 0 {
+		target = math.MaxInt
 	}
 	if target < math.MaxInt {
 		target++

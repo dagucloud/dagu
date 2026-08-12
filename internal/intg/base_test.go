@@ -73,7 +73,7 @@ func TestBaseDAGSpecialEnvVarsInHandler(t *testing.T) {
 	logFile := filepath.Join(logDir, dagRunID+".log")
 	root := ir.NewDAGRunRef(dag.Name, dagRunID)
 
-	drm := runtimepkg.NewManager(th.DAGRunStore, th.ProcStore, th.Config)
+	drm := runtimepkg.NewManager(th.DAGRunRepository, th.ProcStore, th.Config)
 
 	a := agent.New(
 		dagRunID,
@@ -83,10 +83,10 @@ func TestBaseDAGSpecialEnvVarsInHandler(t *testing.T) {
 		drm,
 		th.DAGRepository,
 		agent.Options{
-			DAGRunStore:     th.DAGRunStore,
-			ServiceRegistry: th.ServiceRegistry,
-			RootDAGRun:      root,
-			PeerConfig:      th.Config.Core.Peer,
+			DAGRunRepository: th.DAGRunRepository,
+			ServiceRegistry:  th.ServiceRegistry,
+			RootDAGRun:       root,
+			PeerConfig:       th.Config.Core.Peer,
 		},
 	)
 
@@ -191,7 +191,7 @@ steps:
 	logFile := filepath.Join(logDir, dagRunID+".log")
 	root := ir.NewDAGRunRef(dag.Name, dagRunID)
 
-	drm := runtimepkg.NewManager(th.DAGRunStore, th.ProcStore, th.Config)
+	drm := runtimepkg.NewManager(th.DAGRunRepository, th.ProcStore, th.Config)
 
 	a := agent.New(
 		dagRunID,
@@ -201,10 +201,10 @@ steps:
 		drm,
 		th.DAGRepository,
 		agent.Options{
-			DAGRunStore:     th.DAGRunStore,
-			ServiceRegistry: th.ServiceRegistry,
-			RootDAGRun:      root,
-			PeerConfig:      th.Config.Core.Peer,
+			DAGRunRepository: th.DAGRunRepository,
+			ServiceRegistry:  th.ServiceRegistry,
+			RootDAGRun:       root,
+			PeerConfig:       th.Config.Core.Peer,
 		},
 	)
 

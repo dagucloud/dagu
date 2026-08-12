@@ -103,7 +103,7 @@ func runHistory(ctx *Context, args []string) error {
 	}
 
 	// Query DAG run history
-	statuses, err := ctx.DAGRunStore.ListStatuses(ctx, opts...)
+	statuses, err := ctx.DAGRunRepository.ListStatuses(ctx, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to query DAG run history: %w", err)
 	}
@@ -158,8 +158,8 @@ func renderHistory(format string, statuses []*ir.DAGRunStatus) error {
 }
 
 // buildHistoryOptions constructs query options from command-line flags.
-func buildHistoryOptions(ctx *Context, args []string) ([]dagrun.ListDAGRunStatusesOption, error) {
-	var opts []dagrun.ListDAGRunStatusesOption
+func buildHistoryOptions(ctx *Context, args []string) ([]dagrun.ListStatusesOption, error) {
+	var opts []dagrun.ListStatusesOption
 
 	// DAG name filter
 	if len(args) > 0 {
@@ -209,8 +209,8 @@ func buildHistoryOptions(ctx *Context, args []string) ([]dagrun.ListDAGRunStatus
 }
 
 // buildDateRangeOptions constructs date range filtering options.
-func buildDateRangeOptions(ctx *Context) ([]dagrun.ListDAGRunStatusesOption, error) {
-	var opts []dagrun.ListDAGRunStatusesOption
+func buildDateRangeOptions(ctx *Context) ([]dagrun.ListStatusesOption, error) {
+	var opts []dagrun.ListStatusesOption
 
 	lastDuration, _ := ctx.StringParam("last")
 	fromDate, _ := ctx.StringParam("from")
@@ -265,7 +265,7 @@ func buildDateRangeOptions(ctx *Context) ([]dagrun.ListDAGRunStatusesOption, err
 }
 
 // buildStatusOption constructs status filtering option.
-func buildStatusOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
+func buildStatusOption(ctx *Context) (dagrun.ListStatusesOption, error) {
 	statusStr, err := ctx.StringParam("status")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get 'status' parameter: %w", err)
@@ -284,7 +284,7 @@ func buildStatusOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 }
 
 // buildRunIDOption constructs run ID filtering option.
-func buildRunIDOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
+func buildRunIDOption(ctx *Context) (dagrun.ListStatusesOption, error) {
 	runID, err := ctx.StringParam("run-id")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get 'run-id' parameter: %w", err)
@@ -298,7 +298,7 @@ func buildRunIDOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 }
 
 // buildLabelsOption constructs labels filtering option.
-func buildLabelsOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
+func buildLabelsOption(ctx *Context) (dagrun.ListStatusesOption, error) {
 	labelsStr, err := labelsParam(ctx)
 	if err != nil {
 		return nil, err
@@ -316,7 +316,7 @@ func buildLabelsOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 }
 
 // buildLimitOption constructs limit option with validation.
-func buildLimitOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
+func buildLimitOption(ctx *Context) (dagrun.ListStatusesOption, error) {
 	const (
 		defaultLimit = 100
 		maxLimit     = 1000

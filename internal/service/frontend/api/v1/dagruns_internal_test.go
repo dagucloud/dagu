@@ -21,6 +21,7 @@ import (
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -247,8 +248,8 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 	current.Nodes[1].Status = ir.NodeSucceeded
 	current.Nodes[1].HumanTaskInput = json.RawMessage(`{"confirmed":true}`)
 
-	store := &manualCASStore{status: current}
-	a := &API{dagRunStore: dagrun.NewRepository(store, dagrun.RepositoryOptions{})}
+	repository := &manualCASStore{status: current}
+	a := &API{dagRunRepository: dagrun.NewRepository(repository, dagrun.RepositoryOptions{})}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.NoError(t, a.rollbackPushBack(ctx, current.DAGRun(), applied, original))
@@ -260,7 +261,7 @@ func TestRollbackPushBackIgnoresCancellationAndPreservesConcurrentUnrelatedNodeC
 }
 
 type manualCASStore struct {
-	dagrun.Store
+	testutil.DAGRunBackendStub
 	status *ir.DAGRunStatus
 }
 
@@ -295,7 +296,7 @@ func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunR
 }
 
 type failingManualCASStore struct {
-	dagrun.Store
+	testutil.DAGRunBackendStub
 	base *dagrun.Repository
 	err  error
 }
@@ -408,7 +409,7 @@ func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
 
 func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T) {
 	ctx := t.Context()
-	store := filedagrun.NewRepository(t.TempDir(), dagrun.RepositoryOptions{LatestStatusToday: true})
+	persistedRepository := filedagrun.NewRepository(t.TempDir(), dagrun.RepositoryOptions{LatestStatusToday: true})
 	dag := &ir.DAG{
 		Name: "approval-write-failure",
 		Steps: []ir.Step{{
@@ -416,7 +417,7 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 			Approval: &ir.ApprovalConfig{Prompt: "Approve"},
 		}},
 	}
-	attempt, err := store.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
+	attempt, err := persistedRepository.CreateAttempt(ctx, dag, time.Now(), "run-1", dagrun.CreateAttemptOptions{})
 	require.NoError(t, err)
 	status := ir.InitialStatus(dag)
 	status.DAGRunID = "run-1"
@@ -428,17 +429,17 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 	require.NoError(t, attempt.Write(ctx, status))
 	require.NoError(t, attempt.Close(ctx))
 
-	writeErr := errors.New("status store unavailable")
-	failingStore := &failingManualCASStore{base: store, err: writeErr}
+	writeErr := errors.New("status repository unavailable")
+	failingStore := &failingManualCASStore{base: persistedRepository, err: writeErr}
 	repository := dagrun.NewRepository(failingStore, dagrun.RepositoryOptions{})
 	cfg := &config.Config{Server: config.Server{Permissions: map[config.Permission]bool{
 		config.PermissionRunDAGs: true,
 	}}}
 	a := &API{
-		dagRunStore: repository,
-		dagRunMgr:   runtimepkg.NewManager(repository, nil, cfg),
-		procStore:   &manualStepProcStore{},
-		config:      cfg,
+		dagRunRepository: repository,
+		dagRunMgr:        runtimepkg.NewManager(repository, nil, cfg),
+		procStore:        &manualStepProcStore{},
+		config:           cfg,
 	}
 
 	response, err := a.ApproveDAGRunStep(ctx, openapiv1.ApproveDAGRunStepRequestObject{
@@ -719,10 +720,7 @@ func TestDAGRunListOptionsFromQueryStringParsesMultipleStatuses(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	var applied dagrun.StatusQuery
-	for _, opt := range opts.query {
-		opt(&applied)
-	}
+	applied := statusQueryFromOptions(t, opts.query)
 
 	require.Equal(t, []ir.Status{
 		ir.Status(openapiv1.StatusQueued),
@@ -749,20 +747,42 @@ func TestDAGRunListOptionsFromQueryStringRejectsInvalidStatuses(t *testing.T) {
 	require.Contains(t, apiErr.Message, "invalid status parameter")
 }
 
-type blockingDAGRunStore struct {
-	dagrun.Store
+type blockingDAGRunBackend struct {
+	testutil.DAGRunBackendStub
 }
 
-func (blockingDAGRunStore) QueryStatuses(ctx context.Context, _ dagrun.StatusQuery) (dagrun.DAGRunStatusPage, error) {
+type queryCapturingDAGRunBackend struct {
+	testutil.DAGRunBackendStub
+	query dagrun.StatusQuery
+}
+
+func (b *queryCapturingDAGRunBackend) QueryStatuses(
+	_ context.Context,
+	query dagrun.StatusQuery,
+) (dagrun.StatusPage, error) {
+	b.query = query
+	return dagrun.StatusPage{}, nil
+}
+
+func statusQueryFromOptions(t *testing.T, opts []dagrun.ListStatusesOption) dagrun.StatusQuery {
+	t.Helper()
+	backend := &queryCapturingDAGRunBackend{}
+	repository := dagrun.NewRepository(backend, dagrun.RepositoryOptions{})
+	_, err := repository.ListStatuses(context.Background(), opts...)
+	require.NoError(t, err)
+	return backend.query
+}
+
+func (blockingDAGRunBackend) QueryStatuses(ctx context.Context, _ dagrun.StatusQuery) (dagrun.StatusPage, error) {
 	<-ctx.Done()
-	return dagrun.DAGRunStatusPage{}, ctx.Err()
+	return dagrun.StatusPage{}, ctx.Err()
 }
 
 func TestAPIListDAGRunsReturnsGatewayTimeoutWhenReadDeadlineExpires(t *testing.T) {
 	t.Parallel()
 
 	api := &API{
-		dagRunStore: dagrun.NewRepository(blockingDAGRunStore{}, dagrun.RepositoryOptions{}),
+		dagRunRepository: dagrun.NewRepository(blockingDAGRunBackend{}, dagrun.RepositoryOptions{}),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
@@ -792,10 +812,7 @@ func TestDAGRunListOptionsFromQueryStringIncludesWorkspaceFilter(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		var listOpts dagrun.StatusQuery
-		for _, opt := range opts.query {
-			opt(&listOpts)
-		}
+		listOpts := statusQueryFromOptions(t, opts.query)
 
 		require.NotNil(t, listOpts.WorkspaceFilter)
 		assert.True(t, listOpts.WorkspaceFilter.Enabled)
@@ -812,10 +829,7 @@ func TestDAGRunListOptionsFromQueryStringIncludesWorkspaceFilter(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		var listOpts dagrun.StatusQuery
-		for _, opt := range opts.query {
-			opt(&listOpts)
-		}
+		listOpts := statusQueryFromOptions(t, opts.query)
 
 		require.NotNil(t, listOpts.WorkspaceFilter)
 		assert.True(t, listOpts.WorkspaceFilter.Enabled)
@@ -832,17 +846,14 @@ func TestDAGRunListOptionsFromQueryStringIncludesWorkspaceFilter(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		var listOpts dagrun.StatusQuery
-		for _, opt := range opts.query {
-			opt(&listOpts)
-		}
+		listOpts := statusQueryFromOptions(t, opts.query)
 
 		assert.Nil(t, listOpts.WorkspaceFilter)
 	})
 }
 
 type blockingLatestAttemptStore struct {
-	dagrun.Store
+	testutil.DAGRunBackendStub
 }
 
 func (blockingLatestAttemptStore) LatestAttempt(ctx context.Context, _ dagrun.LatestAttemptQuery) (dagrun.Attempt, error) {
@@ -870,7 +881,7 @@ func TestGetDAGRunDetailsReturnsClientClosedRequestWhenReadCanceled(t *testing.T
 	t.Parallel()
 
 	api := &API{
-		dagRunStore: dagrun.NewRepository(blockingLatestAttemptStore{}, dagrun.RepositoryOptions{}),
+		dagRunRepository: dagrun.NewRepository(blockingLatestAttemptStore{}, dagrun.RepositoryOptions{}),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

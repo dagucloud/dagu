@@ -112,10 +112,10 @@ func newLocalStartTestAPI(t *testing.T) *API {
 	t.Helper()
 
 	tmpDir := t.TempDir()
-	dagRunStore := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
+	dagRunRepository := filedagrun.NewRepository(filepath.Join(tmpDir, "dag-runs"), dagrun.RepositoryOptions{LatestStatusToday: true})
 	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
 	return &API{
-		dagRunMgr: runtime.NewManager(dagRunStore, procStore, &config.Config{}),
+		dagRunMgr: runtime.NewManager(dagRunRepository, procStore, &config.Config{}),
 	}
 }
 

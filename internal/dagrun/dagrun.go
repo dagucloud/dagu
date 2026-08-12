@@ -22,115 +22,99 @@ var (
 	ErrInvalidQueryCursor  = errors.New("dagrun: invalid query cursor")
 )
 
-// StatusQuery contains normalized filters for listing runs.
-type StatusQuery struct {
-	DAGRunID        string
-	Name            string
-	ExactName       string
-	From            TimeInUTC
-	To              TimeInUTC
-	Statuses        []ir.Status
-	Limit           int
-	Cursor          string
-	Labels          []string // Filter by DAG labels (AND logic - all labels must match)
-	WorkspaceFilter *workspace.WorkspaceFilter
-	Unlimited       bool
-	AllHistory      bool
+type listStatusesOptions struct {
+	query      StatusQuery
+	allHistory bool
+	unbounded  bool
 }
 
-// ListDAGRunStatusesOption configures a status query.
-type ListDAGRunStatusesOption func(*StatusQuery)
+// ListStatusesOption configures status listing.
+type ListStatusesOption func(*listStatusesOptions)
 
 // WithFrom sets the start time for listing dag-runs
-func WithFrom(from TimeInUTC) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.From = from
+func WithFrom(from TimeInUTC) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.From = from
 	}
 }
 
 // WithTo sets the end time for listing dag-runs
-func WithTo(to TimeInUTC) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.To = to
+func WithTo(to TimeInUTC) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.To = to
 	}
 }
 
 // WithStatuses sets the statuses for listing dag-runs
-func WithStatuses(statuses []ir.Status) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.Statuses = statuses
+func WithStatuses(statuses []ir.Status) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.Statuses = statuses
 	}
 }
 
 // WithExactName sets the name for listing dag-runs
-func WithExactName(name string) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.ExactName = name
+func WithExactName(name string) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.ExactName = name
 	}
 }
 
 // WithName sets the name for listing dag-runs
-func WithName(name string) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.Name = name
+func WithName(name string) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.Name = name
 	}
 }
 
 // WithDAGRunID sets the dag-run ID for listing dag-runs
-func WithDAGRunID(dagRunID string) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.DAGRunID = dagRunID
+func WithDAGRunID(dagRunID string) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.DAGRunID = dagRunID
 	}
 }
 
 // WithLabels sets the labels filter for listing dag-runs (AND logic - all labels must match)
-func WithLabels(labels []string) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.Labels = labels
+func WithLabels(labels []string) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.Labels = labels
 	}
 }
 
 // WithWorkspaceFilter sets the workspace visibility filter for listing dag-runs.
-func WithWorkspaceFilter(filter *workspace.WorkspaceFilter) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.WorkspaceFilter = filter
+func WithWorkspaceFilter(filter *workspace.WorkspaceFilter) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.WorkspaceFilter = filter
 	}
 }
 
 // WithLimit sets the maximum number of results to return when listing dag-runs
-func WithLimit(limit int) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.Limit = limit
+func WithLimit(limit int) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.Limit = limit
 	}
 }
 
 // WithCursor sets the opaque cursor for forward-only DAG-run pagination.
-func WithCursor(cursor string) ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.Cursor = cursor
+func WithCursor(cursor string) ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.query.Cursor = cursor
 	}
 }
 
 // WithoutLimit disables the default 1000-item cap for internal callers that
 // need to scan the full recent result set.
-func WithoutLimit() ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.Unlimited = true
+func WithoutLimit() ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.unbounded = true
 	}
 }
 
 // WithAllHistory disables the default implicit "today only" time window when
 // no explicit range is supplied.
-func WithAllHistory() ListDAGRunStatusesOption {
-	return func(o *StatusQuery) {
-		o.AllHistory = true
+func WithAllHistory() ListStatusesOption {
+	return func(o *listStatusesOptions) {
+		o.allHistory = true
 	}
-}
-
-// DAGRunStatusPage is one forward-only page of DAG-run statuses.
-type DAGRunStatusPage struct {
-	Items      []*ir.DAGRunStatus
-	NextCursor string
 }
 
 type removeDAGRunOptions struct {

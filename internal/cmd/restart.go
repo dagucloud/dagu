@@ -61,12 +61,12 @@ func runRestart(ctx *Context, args []string) error {
 	if dagRunID != "" {
 		// Retrieve the previous run for the specified dag-run ID.
 		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
-		attempt, err = ctx.DAGRunStore.FindAttempt(ctx, dagRunRef)
+		attempt, err = ctx.DAGRunRepository.FindAttempt(ctx, dagRunRef)
 		if err != nil {
 			return fmt.Errorf("failed to find the run for dag-run ID %s: %w", dagRunID, err)
 		}
 	} else {
-		attempt, err = ctx.DAGRunStore.LatestAttempt(ctx, name)
+		attempt, err = ctx.DAGRunRepository.LatestAttempt(ctx, name)
 		if err != nil {
 			return fmt.Errorf("failed to find the latest execution history for DAG %s: %w", name, err)
 		}
@@ -123,7 +123,7 @@ func handleRestartProcess(ctx *Context, d *ir.DAG, oldDagRunID string, scheduleT
 			noReuse:      noReuse,
 		},
 		func(execCtx context.Context) (dagrun.Attempt, error) {
-			return ctx.DAGRunStore.CreateAttempt(execCtx, d, time.Now(), newDagRunID, dagrun.CreateAttemptOptions{})
+			return ctx.DAGRunRepository.CreateAttempt(execCtx, d, time.Now(), newDagRunID, dagrun.CreateAttemptOptions{})
 		},
 		func(preparedAttempt dagrun.Attempt) error {
 			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, noReuse, preparedAttempt)
@@ -176,7 +176,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunI
 			Dry:                      false,
 			ExtraEnvs:                extraEnvs,
 			PreparedAttempt:          preparedAttempt,
-			DAGRunStore:              ctx.DAGRunStore,
+			DAGRunRepository:         ctx.DAGRunRepository,
 			QueueStore:               ctx.QueueStore,
 			StateStore:               ctx.StateStore,
 			MaterializationStore:     localMaterializationStore(ctx),

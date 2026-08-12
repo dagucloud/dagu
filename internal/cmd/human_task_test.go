@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -347,11 +348,11 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 	return &humanTaskCompleteFixture{
 		command: command,
 		ctx: &Context{
-			Context:     t.Context(),
-			Command:     command,
-			DAGRunStore: dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
-			QueueStore:  queue,
-			ProcStore:   humanTaskCompletionProcStore{},
+			Context:          t.Context(),
+			Command:          command,
+			DAGRunRepository: dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
+			QueueStore:       queue,
+			ProcStore:        humanTaskCompletionProcStore{},
 		},
 		dag:         dag,
 		status:      status,
@@ -414,7 +415,7 @@ func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, ir.D
 }
 
 type humanTaskCompletionStore struct {
-	dagrun.Store
+	testutil.DAGRunBackendStub
 	attempt      *humanTaskCompletionAttempt
 	status       *ir.DAGRunStatus
 	beforeMutate func()

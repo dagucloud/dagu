@@ -347,7 +347,7 @@ steps:
 		Args: []string{"history", "--labels=prod"},
 	})
 
-	statuses, err := th.DAGRunStore.ListStatuses(ctx, dagrun.WithLabels([]string{"prod"}), dagrun.WithAllHistory())
+	statuses, err := th.DAGRunRepository.ListStatuses(ctx, dagrun.WithLabels([]string{"prod"}), dagrun.WithAllHistory())
 	require.NoError(t, err)
 	names := make(map[string]bool, len(statuses))
 	for _, status := range statuses {
@@ -409,7 +409,7 @@ steps:
 		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
 		expected := i + 1
 		require.Eventually(t, func() bool {
-			statuses := th.DAGRunMgr.ListRecentStatus(ctx, dag.Name, expected)
+			statuses := th.DAGRunMgr.ListRecentStatuses(ctx, dag.Name, expected)
 			count := 0
 			for _, s := range statuses {
 				if s.Status == ir.Succeeded {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +38,7 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 }
 
 type findAttemptErrStore struct {
-	dagrun.Store
+	testutil.DAGRunBackendStub
 	err error
 }
 

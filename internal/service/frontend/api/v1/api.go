@@ -64,7 +64,7 @@ var _ api.StrictServerInterface = (*API)(nil)
 
 type API struct {
 	dagRepository        *persis.DAGRepository
-	dagRunStore          *dagrun.Repository
+	dagRunRepository     *dagrun.Repository
 	dagRunMgr            runtime.Manager
 	queueStore           queue.QueueStore
 	procStore            proc.ProcStore
@@ -362,7 +362,7 @@ func WithLeaseStaleThreshold(threshold time.Duration) APIOption {
 // applies any supplied APIOption functions to customize the instance.
 func New(
 	dr *persis.DAGRepository,
-	drs *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	qs queue.QueueStore,
 	ps proc.ProcStore,
 	drm runtime.Manager,
@@ -375,7 +375,7 @@ func New(
 ) *API {
 	a := &API{
 		dagRepository:       dr,
-		dagRunStore:         drs,
+		dagRunRepository:    dagRunRepository,
 		queueStore:          qs,
 		procStore:           ps,
 		dagRunMgr:           drm,

@@ -38,12 +38,12 @@ func WithManagerClock(now func() time.Time) ManagerOption {
 
 // NewManager creates a new Manager instance.
 // The Manager is used to interact with the DAG.
-func NewManager(drs *dagrun.Repository, ps proc.ProcStore, cfg *config.Config, opts ...ManagerOption) Manager {
+func NewManager(dagRunRepository *dagrun.Repository, ps proc.ProcStore, cfg *config.Config, opts ...ManagerOption) Manager {
 	m := Manager{
-		dagRunStore:   drs,
-		procStore:     ps,
-		subCmdBuilder: launcher.NewSubCmdBuilder(cfg),
-		nowFunc:       time.Now,
+		dagRunRepository: dagRunRepository,
+		procStore:        ps,
+		subCmdBuilder:    launcher.NewSubCmdBuilder(cfg),
+		nowFunc:          time.Now,
 	}
 	for _, opt := range opts {
 		opt(&m)
@@ -55,10 +55,10 @@ func NewManager(drs *dagrun.Repository, ps proc.ProcStore, cfg *config.Config, o
 // restarting, and retrieving status information. It communicates with the DAG
 // through a socket interface and manages dag-run data.
 type Manager struct {
-	dagRunStore   *dagrun.Repository      // Repository for persisted run data
-	procStore     proc.ProcStore          // Store interface for process management
-	subCmdBuilder *launcher.SubCmdBuilder // Command builder for constructing command specs
-	nowFunc       func() time.Time
+	dagRunRepository *dagrun.Repository      // Repository for persisted run data
+	procStore        proc.ProcStore          // Store interface for process management
+	subCmdBuilder    *launcher.SubCmdBuilder // Command builder for constructing command specs
+	nowFunc          func() time.Time
 }
 
 // Stop stops running DAG-runs and can cancel an explicit failed DAG-run that is
@@ -86,7 +86,7 @@ func (m *Manager) Stop(ctx context.Context, dag *ir.DAG, dagRunID string) error 
 		var matchingRunIDs []string
 		for _, runRef := range aliveRuns {
 			// Find the attempt for this run
-			attempt, err := m.dagRunStore.FindAttempt(ctx, runRef)
+			attempt, err := m.dagRunRepository.FindAttempt(ctx, runRef)
 			if err != nil {
 				logger.Warn(ctx, "Failed to find attempt for running DAG",
 					slog.String("run-ref", runRef.String()),
@@ -146,12 +146,12 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 	// Set run ID in context for all logs in this function
 	ctx = logger.WithValues(ctx, tag.RunID(dagRunID))
 	runRef := ir.NewDAGRunRef(dag.Name, dagRunID)
-	run, findErr := m.dagRunStore.FindAttempt(ctx, runRef)
+	run, findErr := m.dagRunRepository.FindAttempt(ctx, runRef)
 
 	if findErr == nil {
 		status, statusErr := run.ReadStatus(ctx)
 		if statusErr == nil && dagrun.CanCancelFailedAutoRetryPendingRun(status) {
-			if err := dagrun.CancelFailedAutoRetryPendingRun(ctx, m.dagRunStore, status); err != nil {
+			if err := dagrun.CancelFailedAutoRetryPendingRun(ctx, m.dagRunRepository, status); err != nil {
 				return fmt.Errorf("failed to cancel pending auto-retry for dag-run %s: %w", dagRunID, err)
 			}
 			logger.Info(ctx, "Canceled pending auto-retry for failed DAG run")
@@ -232,7 +232,7 @@ func (m *Manager) IsRunning(ctx context.Context, dag *ir.DAG, dagRunID string) b
 	if st != nil && st.DAGRunID == dagRunID && st.Status == ir.Running {
 		return true
 	}
-	if m.procStore == nil || m.dagRunStore == nil {
+	if m.procStore == nil || m.dagRunRepository == nil {
 		return false
 	}
 
@@ -274,7 +274,7 @@ func (m *Manager) GetCurrentStatus(ctx context.Context, dag *ir.DAG, dagRunID st
 // GetSavedStatus retrieves the saved status of a dag-run by its ir.DAGRun reference.
 // For stale local runs, it repairs the persisted status before returning it.
 func (m *Manager) GetSavedStatus(ctx context.Context, dagRun ir.DAGRunRef) (*ir.DAGRunStatus, error) {
-	attempt, err := m.dagRunStore.FindAttempt(ctx, dagRun)
+	attempt, err := m.dagRunRepository.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find status by run reference: %w", err)
 	}
@@ -304,7 +304,7 @@ func (m *Manager) getPersistedOrCurrentStatus(ctx context.Context, dag *ir.DAG, 
 	*ir.DAGRunStatus, error,
 ) {
 	dagRunRef := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := m.dagRunStore.FindAttempt(ctx, dagRunRef)
+	attempt, err := m.dagRunRepository.FindAttempt(ctx, dagRunRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find status by dag-run ID: %w", err)
 	}
@@ -323,11 +323,11 @@ func (m *Manager) getPersistedOrCurrentStatus(ctx context.Context, dag *ir.DAG, 
 // FindSubDAGRunStatus retrieves the status of a sub dag-run by its ID.
 // It repairs stale local child runs before returning their status.
 func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun ir.DAGRunRef, subRunID string) (*ir.DAGRunStatus, error) {
-	if m == nil || m.dagRunStore == nil {
+	if m == nil || m.dagRunRepository == nil {
 		return nil, dagrun.ErrNoStatusData
 	}
 
-	attempt, err := m.dagRunStore.FindSubAttempt(ctx, rootDAGRun, subRunID)
+	attempt, err := m.dagRunRepository.FindSubAttempt(ctx, rootDAGRun, subRunID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find sub dag-run attempt: %w", err)
 	}
@@ -378,9 +378,9 @@ func isLocalWorkerID(workerID string) bool {
 
 func (m *Manager) findAttemptForProcEntry(ctx context.Context, entry proc.ProcEntry) (dagrun.Attempt, error) {
 	if entry.IsRoot() {
-		return m.dagRunStore.FindAttempt(ctx, entry.DAGRun())
+		return m.dagRunRepository.FindAttempt(ctx, entry.DAGRun())
 	}
-	return m.dagRunStore.FindSubAttempt(ctx, entry.Meta.Root(), entry.Meta.DAGRunID)
+	return m.dagRunRepository.FindSubAttempt(ctx, entry.Meta.Root(), entry.Meta.DAGRunID)
 }
 
 func (m *Manager) resolveRunningStatus(
@@ -414,7 +414,7 @@ func (m *Manager) resolveRunningStatus(
 // If the DAG is running, it attempts to get the current status from the socket.
 // If that fails and the local proc is dead, it repairs the stale run before returning it.
 func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
-	if m.dagRunStore == nil {
+	if m.dagRunRepository == nil {
 		return ir.InitialStatus(dag), nil
 	}
 
@@ -434,7 +434,7 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunSt
 	}
 
 	// Find the latest status by name
-	attempt, err := m.dagRunStore.LatestAttempt(ctx, dag.Name)
+	attempt, err := m.dagRunRepository.LatestAttempt(ctx, dag.Name)
 	if err != nil {
 		// If the latest status is not found, return the default status
 		ret := ir.InitialStatus(dag)
@@ -563,10 +563,10 @@ func (m *Manager) currentTime() time.Time {
 	return m.nowFunc()
 }
 
-// ListRecentStatus retrieves the n most recent statuses for a DAG by name.
+// ListRecentStatuses retrieves the n most recent statuses for a DAG by name.
 // It returns a slice of Status objects, filtering out any that cannot be read.
-func (m *Manager) ListRecentStatus(ctx context.Context, name string, n int) []ir.DAGRunStatus {
-	return m.dagRunStore.RecentStatuses(ctx, name, n)
+func (m *Manager) ListRecentStatuses(ctx context.Context, name string, n int) []ir.DAGRunStatus {
+	return m.dagRunRepository.RecentStatuses(ctx, name, n)
 }
 
 // UpdateStatus updates the status of a dag-run.
@@ -576,7 +576,7 @@ func (m *Manager) UpdateStatus(ctx context.Context, rootDAGRun ir.DAGRunRef, new
 
 	if rootDAGRun.ID == newStatus.DAGRunID {
 		// If the dag-run ID matches the root dag-run ID, find the attempt by the root dag-run ID
-		att, err := m.dagRunStore.FindAttempt(ctx, rootDAGRun)
+		att, err := m.dagRunRepository.FindAttempt(ctx, rootDAGRun)
 		if err != nil {
 			return fmt.Errorf("failed to find the dag-run: %w", err)
 		}
@@ -584,7 +584,7 @@ func (m *Manager) UpdateStatus(ctx context.Context, rootDAGRun ir.DAGRunRef, new
 	} else {
 		// If the dag-run ID does not match the root dag-run ID,
 		// find the attempt by the sub dag-run ID
-		att, err := m.dagRunStore.FindSubAttempt(ctx, rootDAGRun, newStatus.DAGRunID)
+		att, err := m.dagRunRepository.FindSubAttempt(ctx, rootDAGRun, newStatus.DAGRunID)
 		if err != nil {
 			return fmt.Errorf("failed to find sub dag-run: %w", err)
 		}

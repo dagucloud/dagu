@@ -58,7 +58,7 @@ func (r *Repository) CreateAttempt(
 	if dagRunID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
-	if options.RootDAGRun != nil && options.RootDAGRun.ID == "" {
+	if !options.RootDAGRun.Zero() && options.RootDAGRun.ID == "" {
 		return nil, ErrDAGRunIDEmpty
 	}
 	return r.store.CreateAttempt(ctx, CreateAttemptRequest{
@@ -77,19 +77,12 @@ func (r *Repository) RecentStatuses(ctx context.Context, name string, limit int)
 		logger.Warn(ctx, "Invalid itemLimit, using default of 10", tag.Limit(limit))
 		limit = 10
 	}
-	attempts, err := r.store.RecentAttempts(ctx, name, limit)
+	statuses, err := r.store.RecentStatuses(ctx, name, limit)
 	if err != nil {
 		logger.Error(ctx, "Failed to list recent runs", tag.Error(err))
 		return nil
 	}
 
-	statuses := make([]ir.DAGRunStatus, 0, len(attempts))
-	for _, attempt := range attempts {
-		status, err := attempt.ReadStatus(ctx)
-		if err == nil {
-			statuses = append(statuses, *status)
-		}
-	}
 	return statuses
 }
 
@@ -105,7 +98,7 @@ func (r *Repository) LatestAttempt(ctx context.Context, name string) (Attempt, e
 }
 
 // ListStatuses returns statuses in canonical list order.
-func (r *Repository) ListStatuses(ctx context.Context, opts ...ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
+func (r *Repository) ListStatuses(ctx context.Context, opts ...ListStatusesOption) ([]*ir.DAGRunStatus, error) {
 	page, err := r.store.QueryStatuses(ctx, r.statusQuery(opts))
 	if err != nil {
 		return nil, err
@@ -114,21 +107,24 @@ func (r *Repository) ListStatuses(ctx context.Context, opts ...ListDAGRunStatuse
 }
 
 // ListStatusesPage returns one forward-only page in canonical list order.
-func (r *Repository) ListStatusesPage(ctx context.Context, opts ...ListDAGRunStatusesOption) (DAGRunStatusPage, error) {
+func (r *Repository) ListStatusesPage(ctx context.Context, opts ...ListStatusesOption) (StatusPage, error) {
 	return r.store.QueryStatuses(ctx, r.statusQuery(opts))
 }
 
-func (r *Repository) statusQuery(opts []ListDAGRunStatusesOption) StatusQuery {
-	var query StatusQuery
+func (r *Repository) statusQuery(opts []ListStatusesOption) StatusQuery {
+	var options listStatusesOptions
 	for _, opt := range opts {
 		if opt != nil {
-			opt(&query)
+			opt(&options)
 		}
 	}
-	if !query.AllHistory && query.From.IsZero() && query.To.IsZero() {
+	query := options.query
+	if !options.allHistory && query.From.IsZero() && query.To.IsZero() {
 		query.From = NewUTC(r.now().Truncate(24 * time.Hour))
 	}
-	if !query.Unlimited && (query.Limit == 0 || query.Limit > 1000) {
+	if options.unbounded {
+		query.Limit = 0
+	} else if query.Limit <= 0 || query.Limit > 1000 {
 		query.Limit = 1000
 	}
 	return query
@@ -250,8 +246,8 @@ func (r *Repository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, opts ..
 
 // ListRetryCandidates returns failed latest attempts eligible for retry scanning.
 func (r *Repository) ListRetryCandidates(ctx context.Context, from TimeInUTC) ([]*ir.DAGRunStatus, error) {
-	if store, ok := r.store.(RetryCandidateStore); ok {
-		return store.ListRetryCandidates(ctx, from)
+	if lister, ok := r.store.(RetryCandidateLister); ok {
+		return lister.ListRetryCandidates(ctx, from)
 	}
 	return r.ListStatuses(ctx,
 		WithStatuses([]ir.Status{ir.Failed}),

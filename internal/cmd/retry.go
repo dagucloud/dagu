@@ -127,7 +127,7 @@ func runRetry(ctx *Context, args []string) error {
 
 	ref := ir.NewDAGRunRef(name, dagRunID)
 	queueDispatchRetry := queueDispatchRetryRequested()
-	attempt, err := findRetryAttempt(ctx, ctx.DAGRunStore, ref, rootRun)
+	attempt, err := findRetryAttempt(ctx, ctx.DAGRunRepository, ref, rootRun)
 	if queueDispatchRetry {
 		err = normalizeQueueDispatchRetryLookupError(err)
 	}
@@ -166,7 +166,7 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	if subDAGRunID != "" {
 		var targetStatus *ir.DAGRunStatus
-		retryPath, targetStatus, err = dagrun.ResolveRetryPath(ctx, ctx.DAGRunStore, ref, subDAGRunID, stepName)
+		retryPath, targetStatus, err = dagrun.ResolveRetryPath(ctx, ctx.DAGRunRepository, ref, subDAGRunID, stepName)
 		if err != nil {
 			return err
 		}
@@ -254,7 +254,7 @@ func runRetry(ctx *Context, args []string) error {
 			run,
 			func(execCtx context.Context) (dagrun.Attempt, error) {
 				if queueDispatchRetry {
-					queuedAttempt, queuedStatus, err := queueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun, attempt.ID())
+					queuedAttempt, queuedStatus, err := queueDispatchRetryTarget(execCtx, ctx.DAGRunRepository, ref, rootRun, attempt.ID())
 					if err != nil {
 						return nil, err
 					}
@@ -264,9 +264,9 @@ func runRetry(ctx *Context, args []string) error {
 				}
 				opts := dagrun.CreateAttemptOptions{Retry: true}
 				if !rootRun.Zero() && rootRun.ID != dagRunID {
-					opts.RootDAGRun = &rootRun
+					opts.RootDAGRun = rootRun
 				}
-				return ctx.DAGRunStore.CreateAttempt(execCtx, dag, time.Now(), dagRunID, opts)
+				return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, opts)
 			},
 			func(preparedAttempt dagrun.Attempt) error {
 				prepared := run
@@ -276,7 +276,7 @@ func runRetry(ctx *Context, args []string) error {
 		)
 	}
 
-	if ctx.DAGRunStore == nil {
+	if ctx.DAGRunRepository == nil {
 		return executeRetry(ctx, dag, status, run)
 	}
 
@@ -291,7 +291,7 @@ func runRetry(ctx *Context, args []string) error {
 		run,
 		func(execCtx context.Context) (dagrun.Attempt, error) {
 			if queueDispatchRetry {
-				if err := ensureQueueDispatchRetryTarget(execCtx, ctx.DAGRunStore, ref, rootRun); err != nil {
+				if err := ensureQueueDispatchRetryTarget(execCtx, ctx.DAGRunRepository, ref, rootRun); err != nil {
 					return nil, err
 				}
 			}
@@ -366,37 +366,37 @@ func queueDispatchRetryRequested() bool {
 
 func ensureQueueDispatchRetryTarget(
 	ctx context.Context,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	ref ir.DAGRunRef,
 	rootRun ir.DAGRunRef,
 ) error {
-	_, err := queueDispatchRetryAttempt(ctx, dagRunStore, ref, rootRun, "")
+	_, err := queueDispatchRetryAttempt(ctx, dagRunRepository, ref, rootRun, "")
 	return err
 }
 
 func queueDispatchRetryAttempt(
 	ctx context.Context,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	ref ir.DAGRunRef,
 	rootRun ir.DAGRunRef,
 	expectedAttemptID string,
 ) (dagrun.Attempt, error) {
-	attempt, _, err := queueDispatchRetryTarget(ctx, dagRunStore, ref, rootRun, expectedAttemptID)
+	attempt, _, err := queueDispatchRetryTarget(ctx, dagRunRepository, ref, rootRun, expectedAttemptID)
 	return attempt, err
 }
 
 func queueDispatchRetryTarget(
 	ctx context.Context,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	ref ir.DAGRunRef,
 	rootRun ir.DAGRunRef,
 	expectedAttemptID string,
 ) (dagrun.Attempt, *ir.DAGRunStatus, error) {
-	if dagRunStore == nil {
+	if dagRunRepository == nil {
 		return nil, nil, nil
 	}
 
-	attempt, err := findRetryAttempt(ctx, dagRunStore, ref, rootRun)
+	attempt, err := findRetryAttempt(ctx, dagRunRepository, ref, rootRun)
 	err = normalizeQueueDispatchRetryLookupError(err)
 	if err != nil {
 		return nil, nil, err
@@ -433,14 +433,14 @@ func normalizeQueueDispatchRetryLookupError(err error) error {
 
 func findRetryAttempt(
 	ctx context.Context,
-	dagRunStore *dagrun.Repository,
+	dagRunRepository *dagrun.Repository,
 	ref ir.DAGRunRef,
 	rootRun ir.DAGRunRef,
 ) (dagrun.Attempt, error) {
 	if rootRun.Zero() || rootRun.ID == ref.ID {
-		return dagRunStore.FindAttempt(ctx, ref)
+		return dagRunRepository.FindAttempt(ctx, ref)
 	}
-	return dagRunStore.FindSubAttempt(ctx, rootRun, ref.ID)
+	return dagRunRepository.FindSubAttempt(ctx, rootRun, ref.ID)
 }
 
 func newQueueDispatchNotQueuedError(status *ir.DAGRunStatus) *queue.DAGRunNotQueuedError {
@@ -454,7 +454,7 @@ func newQueueDispatchNotQueuedError(status *ir.DAGRunStatus) *queue.DAGRunNotQue
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func enqueueRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, triggerActor string) error {
-	if _, err := queue.EnqueueRetry(ctx.Context, ctx.DAGRunStore, ctx.QueueStore, dag, status, queue.EnqueueRetryOptions{
+	if _, err := queue.EnqueueRetry(ctx.Context, ctx.DAGRunRepository, ctx.QueueStore, dag, status, queue.EnqueueRetryOptions{
 		TriggerActor: &triggerActor,
 	}); err != nil {
 		if errors.Is(err, queue.ErrRetryStaleLatest) {
@@ -657,7 +657,7 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 			WorkerID:                 opts.workerID,
 			AttemptID:                opts.attemptID,
 			PreparedAttempt:          opts.preparedAttempt,
-			DAGRunStore:              ctx.DAGRunStore,
+			DAGRunRepository:         ctx.DAGRunRepository,
 			QueueStore:               ctx.QueueStore,
 			StateStore:               ctx.StateStore,
 			MaterializationStore:     localMaterializationStore(ctx),

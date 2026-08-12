@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,10 +130,10 @@ func TestResumeBoundsStatusVerificationAfterQueueFailure(t *testing.T) {
 	fixture.service.EnqueueTimeout = 10 * time.Millisecond
 
 	findCalls := 0
-	fixture.store.findAttempt = func(ctx context.Context, _ ir.DAGRunRef) (dagrun.Attempt, error) {
+	fixture.backend.findAttempt = func(ctx context.Context, _ ir.DAGRunRef) (dagrun.Attempt, error) {
 		findCalls++
 		if findCalls == 1 {
-			return fixture.store.attempt, nil
+			return fixture.backend.attempt, nil
 		}
 		if _, ok := ctx.Deadline(); !ok {
 			return nil, errors.New("status verification context has no deadline")
@@ -154,7 +155,7 @@ func TestResumeBoundsStatusVerificationAfterQueueFailure(t *testing.T) {
 func TestCompleteDoesNotReportRetryableWhenQueueRollbackFails(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
-	fixture.store.compareAndSwapErrors = []error{nil, nil, errors.New("rollback unavailable")}
+	fixture.backend.compareAndSwapErrors = []error{nil, nil, errors.New("rollback unavailable")}
 
 	_, err := fixture.service.Complete(t.Context(), CompleteRequest{
 		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
@@ -170,7 +171,7 @@ func TestCompleteDoesNotReportRetryableWhenQueueRollbackFails(t *testing.T) {
 func TestCompleteAcceptsConcurrentRetryDispatch(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	compareAndSwapCalls := 0
-	fixture.store.beforeCompareAndSwap = func() {
+	fixture.backend.beforeCompareAndSwap = func() {
 		compareAndSwapCalls++
 		if compareAndSwapCalls == 2 {
 			fixture.status.Status = ir.Running
@@ -202,7 +203,7 @@ func TestCompleteClassifiesDAGRunLookupErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture := newServiceFixture(t, nil)
-			fixture.store.findErr = tc.err
+			fixture.backend.findErr = tc.err
 
 			_, err := fixture.service.Complete(t.Context(), CompleteRequest{
 				DAGName:  fixture.dag.Name,
@@ -311,7 +312,7 @@ func TestWaitForCompletionReadyWaitsForLocalAttemptExit(t *testing.T) {
 
 	status, err := fixture.service.waitForCompletionReady(
 		t.Context(),
-		fixture.store.attempt,
+		fixture.backend.attempt,
 		fixture.dag,
 		fixture.status,
 		"review",
@@ -368,7 +369,7 @@ func TestWaitForCompletionReadyRejectsUnknownStep(t *testing.T) {
 type serviceFixture struct {
 	dag     *ir.DAG
 	status  *ir.DAGRunStatus
-	store   *serviceDAGRunStore
+	backend *serviceDAGRunBackend
 	queue   *serviceQueueStore
 	service *Service
 }
@@ -386,16 +387,16 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 		Nodes: []*ir.Node{{Step: step, Status: ir.NodeWaiting}},
 	}
 	attempt := &serviceAttempt{dag: dag, status: status}
-	store := &serviceDAGRunStore{attempt: attempt, status: status}
+	backend := &serviceDAGRunBackend{attempt: attempt, status: status}
 	queue := &serviceQueueStore{}
 	now := time.Date(2026, 7, 21, 1, 2, 3, 0, time.UTC)
 	return &serviceFixture{
-		dag: dag, status: status, store: store, queue: queue,
+		dag: dag, status: status, backend: backend, queue: queue,
 		service: &Service{
-			DAGRunStore: dagrun.NewRepository(store, dagrun.RepositoryOptions{}),
-			QueueStore:  queue,
-			ProcStore:   serviceProcStore{},
-			Now:         func() time.Time { return now },
+			DAGRunRepository: dagrun.NewRepository(backend, dagrun.RepositoryOptions{}),
+			QueueStore:       queue,
+			ProcStore:        serviceProcStore{},
+			Now:              func() time.Time { return now },
 		},
 	}
 }
@@ -428,8 +429,8 @@ func (a *serviceAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
 }
 
-type serviceDAGRunStore struct {
-	dagrun.Store
+type serviceDAGRunBackend struct {
+	testutil.DAGRunBackendStub
 	attempt              *serviceAttempt
 	status               *ir.DAGRunStatus
 	findErr              error
@@ -438,7 +439,7 @@ type serviceDAGRunStore struct {
 	compareAndSwapErrors []error
 }
 
-func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error) {
+func (s *serviceDAGRunBackend) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error) {
 	if s.findAttempt != nil {
 		return s.findAttempt(ctx, ref)
 	}
@@ -448,7 +449,7 @@ func (s *serviceDAGRunStore) FindAttempt(ctx context.Context, ref ir.DAGRunRef) 
 	return s.attempt, nil
 }
 
-func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
+func (s *serviceDAGRunBackend) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
 	req dagrun.CompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {

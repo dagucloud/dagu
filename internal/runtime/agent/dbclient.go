@@ -19,17 +19,17 @@ import (
 var _ runtime.Database = &dbClient{}
 
 type dbClient struct {
-	dagLoader       dagDetailsLoader
-	drs             *dagrun.Repository
-	remoteDAGLoader RemoteDAGLoader
+	dagLoader        dagDetailsLoader
+	dagRunRepository *dagrun.Repository
+	remoteDAGLoader  RemoteDAGLoader
 }
 
 type dagDetailsLoader interface {
 	GetDetails(context.Context, string, persis.DAGLoadOptions) (*ir.DAG, error)
 }
 
-func newDBClient(drs *dagrun.Repository, dagLoader dagDetailsLoader, remoteDAGLoader RemoteDAGLoader) *dbClient {
-	return &dbClient{drs: drs, dagLoader: dagLoader, remoteDAGLoader: remoteDAGLoader}
+func newDBClient(dagRunRepository *dagrun.Repository, dagLoader dagDetailsLoader, remoteDAGLoader RemoteDAGLoader) *dbClient {
+	return &dbClient{dagRunRepository: dagRunRepository, dagLoader: dagLoader, remoteDAGLoader: remoteDAGLoader}
 }
 
 // GetDAG implements ir.DBClient.
@@ -85,7 +85,7 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 }
 
 func (o *dbClient) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun ir.DAGRunRef) error {
-	subAttempt, err := o.drs.FindSubAttempt(ctx, rootDAGRun, dagRunID)
+	subAttempt, err := o.dagRunRepository.FindSubAttempt(ctx, rootDAGRun, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to find child attempt for dag-run ID %s: %w", dagRunID, err)
 	}
