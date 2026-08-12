@@ -308,12 +308,8 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		dag.Queue = *request.Body.Queue
 	}
 
-	if _, err := a.dagRunRepository.FindAttempt(ctx, ir.DAGRunRef{Name: dag.Name, ID: dagRunId}); !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-		return nil, &Error{
-			HTTPStatus: http.StatusConflict,
-			Code:       api.ErrorCodeAlreadyExists,
-			Message:    fmt.Sprintf("dag-run ID %s already exists for DAG %s", dagRunId, dag.Name),
-		}
+	if err := a.ensureDAGRunIDUnique(ctx, dag, dagRunId); err != nil {
+		return nil, err
 	}
 
 	if singleton {
@@ -3459,6 +3455,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			return rescheduleDAGRunResult{}, fmt.Errorf("failed to prepare reschedule snapshot: %w", err)
 		}
 		dag.SourceFile = snapshotDAG.SourceFile
+		dag.WorkingDir = snapshotDAG.WorkingDir
 	}
 
 	if err := a.ensureDAGRunIDUnique(ctx, dag, newDagRunID); err != nil {
@@ -3522,6 +3519,7 @@ func (a *API) enqueuePreparedDAGRun(
 			Message:    err.Error(),
 		}
 	}
+	resolvedDAG.WorkingDir = dag.WorkingDir
 	dag = resolvedDAG
 
 	if err := buildErrorsToAPIError(dag.BuildErrors); err != nil {

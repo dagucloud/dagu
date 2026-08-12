@@ -48,10 +48,10 @@ func boundedWaitTimeout(t *testing.T, want time.Duration) time.Duration {
 // waitForDAGRunning waits until the DAG is in running state. Reaching it means
 // spawning a process and writing the first status file, and that cost varies
 // widely with host load, so the budget is generous rather than fixed.
-func waitForDAGRunning(t *testing.T, th test.Command, dagLocation string) {
+func waitForDAGRunning(t *testing.T, th test.Command, dagName string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dagLocation, 1)
+		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dagName, 1)
 		if err != nil {
 			return false
 		}
@@ -77,7 +77,7 @@ func TestStatusCommand(t *testing.T) {
 			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
 		}()
 
-		waitForDAGRunning(t, th, dagFile.Location)
+		waitForDAGRunning(t, th, dagFile.Name)
 
 		err := executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -285,7 +285,7 @@ steps:
 			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
 		}()
 
-		waitForDAGRunning(t, th, dagFile.Location)
+		waitForDAGRunning(t, th, dagFile.Name)
 
 		th.RunCommand(t, cmd.Stop(), test.CmdTest{Args: []string{"stop", dagFile.Location}})
 		require.NoError(t, <-done)
@@ -349,7 +349,7 @@ steps:
 			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
 		}()
 
-		waitForDAGRunning(t, th, dagFile.Location)
+		waitForDAGRunning(t, th, dagFile.Name)
 
 		err := executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)

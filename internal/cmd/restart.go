@@ -92,9 +92,6 @@ func runRestart(ctx *Context, args []string) error {
 	}
 
 	definitionID := dagStatus.DAGDefinitionID()
-	if definitionID == "" {
-		definitionID = dagDefinitionIDFromEnv()
-	}
 	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime, definitionID, dagStatus.NoReuse); err != nil {
 		return fmt.Errorf("restart process failed for DAG %s: %w", dag.Name, err)
 	}

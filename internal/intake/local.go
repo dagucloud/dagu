@@ -36,9 +36,10 @@ type LocalProcStore interface {
 
 // LocalRequest describes local DAG-run intake before execution starts.
 type LocalRequest struct {
-	ProcStore LocalProcStore
-	DAG       *ir.DAG
-	DAGRunID  string
+	ProcStore    LocalProcStore
+	DAG          *ir.DAG
+	DAGRunID     string
+	DefinitionID string
 
 	Root         ir.DAGRunRef
 	Parent       ir.DAGRunRef
@@ -154,6 +155,7 @@ func recordPreparedAttemptFailure(
 
 	opts := []ir.StatusOption{
 		ir.WithAttemptID(attempt.ID()),
+		ir.WithDAGDefinitionID(req.DefinitionID),
 		ir.WithHierarchyRefs(req.Root, req.Parent),
 		ir.WithLogFilePath(logFile),
 		ir.WithArchiveDir(archiveDir),

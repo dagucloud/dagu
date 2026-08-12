@@ -179,39 +179,44 @@ func buildHistoryOptions(ctx *Context, args []string) (persis.DAGRunListOptions,
 	opts.To = dateOpts.To
 
 	// Status filter
-	if statuses, err := buildStatusFilter(ctx); err != nil {
+	statuses, err := buildStatusFilter(ctx)
+	if err != nil {
 		return persis.DAGRunListOptions{}, err
-	} else {
-		opts.Statuses = statuses
 	}
+	opts.Statuses = statuses
 
 	// Run ID filter
-	if runID, err := buildRunIDFilter(ctx); err != nil {
+	runID, err := buildRunIDFilter(ctx)
+	if err != nil {
 		return persis.DAGRunListOptions{}, err
-	} else {
-		opts.DAGRunID = runID
 	}
+	opts.DAGRunID = runID
 
 	// Labels filter
-	if labels, err := buildLabelsFilter(ctx); err != nil {
+	labels, err := buildLabelsFilter(ctx)
+	if err != nil {
 		return persis.DAGRunListOptions{}, err
-	} else {
-		opts.Labels = labels
 	}
+	opts.Labels = labels
 
 	// Limit filter
-	if limit, err := buildLimitFilter(ctx); err != nil {
+	limit, err := buildLimitFilter(ctx)
+	if err != nil {
 		return persis.DAGRunListOptions{}, err
-	} else {
-		opts.Limit = limit
 	}
+	opts.Limit = limit
 
 	return opts, nil
 }
 
+type historyDateRange struct {
+	From persis.TimeInUTC
+	To   persis.TimeInUTC
+}
+
 // buildDateRangeOptions constructs date range filtering options.
-func buildDateRangeOptions(ctx *Context) (persis.DAGRunListOptions, error) {
-	var opts persis.DAGRunListOptions
+func buildDateRangeOptions(ctx *Context) (historyDateRange, error) {
+	var dateRange historyDateRange
 
 	lastDuration, _ := ctx.StringParam("last")
 	fromDate, _ := ctx.StringParam("from")
@@ -219,18 +224,18 @@ func buildDateRangeOptions(ctx *Context) (persis.DAGRunListOptions, error) {
 
 	// Validate conflicting flags
 	if lastDuration != "" && (fromDate != "" || toDate != "") {
-		return persis.DAGRunListOptions{}, fmt.Errorf("cannot use --last with --from or --to (conflicting time range specifications)")
+		return historyDateRange{}, fmt.Errorf("cannot use --last with --from or --to (conflicting time range specifications)")
 	}
 
 	if lastDuration != "" {
 		// Handle relative duration
 		duration, err := parseRelativeDuration(lastDuration)
 		if err != nil {
-			return persis.DAGRunListOptions{}, fmt.Errorf("invalid --last value '%s': %w. Valid formats: 7d, 24h, 1w, 30d", lastDuration, err)
+			return historyDateRange{}, fmt.Errorf("invalid --last value '%s': %w. Valid formats: 7d, 24h, 1w, 30d", lastDuration, err)
 		}
 		fromTime := time.Now().UTC().Add(-duration)
-		opts.From = persis.NewUTC(fromTime)
-		return opts, nil
+		dateRange.From = persis.NewUTC(fromTime)
+		return dateRange, nil
 	}
 
 	// Handle absolute dates
@@ -240,29 +245,29 @@ func buildDateRangeOptions(ctx *Context) (persis.DAGRunListOptions, error) {
 	if fromDate != "" {
 		fromTime, err = parseAbsoluteDateTime(fromDate)
 		if err != nil {
-			return persis.DAGRunListOptions{}, fmt.Errorf("invalid --from date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", fromDate, err)
+			return historyDateRange{}, fmt.Errorf("invalid --from date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", fromDate, err)
 		}
-		opts.From = persis.NewUTC(fromTime)
+		dateRange.From = persis.NewUTC(fromTime)
 	} else if toDate == "" {
 		// Default: last 30 days if no date filters specified
 		defaultFrom := time.Now().UTC().AddDate(0, 0, -30)
-		opts.From = persis.NewUTC(defaultFrom)
+		dateRange.From = persis.NewUTC(defaultFrom)
 	}
 
 	if toDate != "" {
 		toTime, err = parseAbsoluteDateTime(toDate)
 		if err != nil {
-			return persis.DAGRunListOptions{}, fmt.Errorf("invalid --to date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", toDate, err)
+			return historyDateRange{}, fmt.Errorf("invalid --to date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", toDate, err)
 		}
-		opts.To = persis.NewUTC(toTime)
+		dateRange.To = persis.NewUTC(toTime)
 
 		// Validate date range if both dates are provided
 		if fromDate != "" && fromTime.After(toTime) {
-			return persis.DAGRunListOptions{}, fmt.Errorf("--from date (%s) must be before --to date (%s)", fromDate, toDate)
+			return historyDateRange{}, fmt.Errorf("--from date (%s) must be before --to date (%s)", fromDate, toDate)
 		}
 	}
 
-	return opts, nil
+	return dateRange, nil
 }
 
 // buildStatusFilter constructs the status filter.

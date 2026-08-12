@@ -47,6 +47,7 @@ func withPreparedLocalExecution(
 		ProcStore:       ctx.ProcStore,
 		DAG:             dag,
 		DAGRunID:        dagRunID,
+		DefinitionID:    opts.definitionID,
 		Root:            opts.root,
 		Parent:          opts.parent,
 		TriggerType:     opts.triggerType,

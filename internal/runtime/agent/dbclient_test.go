@@ -161,3 +161,11 @@ func TestDBClient_GetDAG(t *testing.T) {
 		})
 	}
 }
+
+func TestDBClientRequestChildCancelRequiresDAGRunRepository(t *testing.T) {
+	t.Parallel()
+
+	client := newDBClient(nil, nil, nil)
+	err := client.RequestChildCancel(context.Background(), "child-run", ir.NewDAGRunRef("root", "root-run"))
+	require.EqualError(t, err, "DAG-run repository is not configured")
+}

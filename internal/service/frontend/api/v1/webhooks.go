@@ -635,7 +635,14 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		dagRunID = *request.Body.DagRunId
 		// Check if a dag-run with this ID already exists
 		statuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{DAGRunID: dagRunID})
-		if err == nil && len(statuses) > 0 {
+		if err != nil {
+			return nil, &Error{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       api.ErrorCodeInternalError,
+				Message:    "failed to verify webhook DAG-run ID",
+			}
+		}
+		if len(statuses) > 0 {
 			// DAG run already exists - return 409 Conflict
 			logger.Info(ctx, "Webhook: DAG run already exists (idempotency)",
 				tag.DAG(dag.Name),
@@ -646,7 +653,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 				Message: fmt.Sprintf("dag-run with ID %s already exists", dagRunID),
 			}, nil
 		}
-		// If no results or error, proceed with creating
+		// If no results, proceed with creating.
 	} else {
 		dagRunID = uuid.Must(uuid.NewV7()).String()
 	}

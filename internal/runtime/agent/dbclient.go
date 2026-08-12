@@ -84,6 +84,9 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 }
 
 func (o *dbClient) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun ir.DAGRunRef) error {
+	if o.dagRunRepository == nil {
+		return errors.New("DAG-run repository is not configured")
+	}
 	subAttempt, err := o.dagRunRepository.FindSubAttempt(ctx, rootDAGRun, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to find child attempt for dag-run ID %s: %w", dagRunID, err)

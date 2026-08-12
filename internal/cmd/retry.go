@@ -87,6 +87,9 @@ func runRetry(ctx *Context, args []string) error {
 		}
 		return remoteRunRetry(ctx, args)
 	}
+	if ctx.DAGRunRepository == nil {
+		return fmt.Errorf("DAG-run repository is not available")
+	}
 	dagRunID, _ := ctx.StringParam("run-id")
 	stepName, _ := ctx.StringParam("step")
 	subDAGRunID, _ := ctx.StringParam("sub-run-id")
@@ -281,10 +284,6 @@ func runRetry(ctx *Context, args []string) error {
 		)
 	}
 
-	if ctx.DAGRunRepository == nil {
-		return executeRetry(ctx, dag, status, run)
-	}
-
 	if err := validateWorkerAttemptBinding(dagRunID, attemptID, attempt, status); err != nil {
 		return err
 	}
@@ -324,9 +323,9 @@ func restoreRetryExecutionContext(
 	return backfillMissingRunWorkingDirSnapshot(ctx, repository, dag, status, workspaceRef)
 }
 
-func retryWorkspaceRef(status *ir.DAGRunStatus, fallback, fallbackRoot ir.DAGRunRef) dagrun.DAGRunWorkspaceRef {
-	ref := fallback
-	root := fallbackRoot
+func retryWorkspaceRef(status *ir.DAGRunStatus, defaultRef, defaultRoot ir.DAGRunRef) dagrun.DAGRunWorkspaceRef {
+	ref := defaultRef
+	root := defaultRoot
 	if status != nil {
 		if status.Name != "" {
 			ref.Name = status.Name

@@ -63,11 +63,14 @@ func TestRunLsWritesWarningsToCommandErrorStream(t *testing.T) {
 	assert.Equal(t, "warning: catalog warning\n", stderr.String())
 }
 
-func TestRunLsReturnsRecentHistoryStoreErrors(t *testing.T) {
+func TestRunLsWarnsAndKeepsRowsWhenRecentHistoryFails(t *testing.T) {
 	t.Parallel()
 
 	command := Ls()
-	command.SetOut(io.Discard)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(&stderr)
 	require.NoError(t, command.Flags().Set("history", "true"))
 
 	storeErr := errors.New("storage unavailable")
@@ -77,8 +80,26 @@ func TestRunLsReturnsRecentHistoryStoreErrors(t *testing.T) {
 		DAGRepository:    persis.NewDAGRepository(listedDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
 		DAGRunRepository: persis.NewDAGRunRepository(failingRecentDAGRunStore{err: storeErr}, nil, persis.DAGRunRepositoryOptions{}),
 	}, nil)
-	require.ErrorIs(t, err, storeErr)
-	require.ErrorContains(t, err, "load recent DAG-run history for daily")
+	require.NoError(t, err)
+	assert.Contains(t, stdout.String(), "daily")
+	assert.Contains(t, stdout.String(), "-")
+	assert.Contains(t, stderr.String(), "warning: failed to load recent DAG-run history for daily")
+	assert.Contains(t, stderr.String(), storeErr.Error())
+}
+
+func TestRunLsRequiresDAGRunRepositoryForHistory(t *testing.T) {
+	t.Parallel()
+
+	command := Ls()
+	command.SetOut(io.Discard)
+	require.NoError(t, command.Flags().Set("history", "true"))
+
+	err := runLs(&Context{
+		Context:       context.Background(),
+		Command:       command,
+		DAGRepository: persis.NewDAGRepository(listedDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
+	}, nil)
+	require.EqualError(t, err, "DAG-run repository is not available")
 }
 
 func TestSortLsRowsByLastRun(t *testing.T) {

@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -303,6 +304,7 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 	require.NoError(t, os.WriteFile(sourceOutputPath, []byte("from-source-work-dir"), 0o600))
 	require.NoError(t, attempt.Write(ctx, status))
 	require.NoError(t, attempt.Close(ctx))
+	require.NoError(t, api.dagRunRepository.SnapshotWorkspace(ctx, dagrun.DAGRunWorkspaceRef{DAGRun: sourceRef}, sourceWorkDir))
 
 	recorder := &retryCoordinatorRecorder{}
 	api.coordinatorCli = recorder
@@ -425,6 +427,45 @@ steps:
 
 	require.False(t, dag.WorkingDirExplicit)
 	require.Empty(t, dag.WorkingDir)
+}
+
+func TestRescheduleDAGRunPreservesSnapshotWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	yamlWorkingDir := filepath.Join(tmpDir, "from-yaml")
+	snapshotWorkingDir := filepath.Join(tmpDir, "from-snapshot")
+	api, dag := setupEditRetryAPI(t, tmpDir, fmt.Sprintf(`
+name: reschedule_workdir
+working_dir: %q
+steps:
+  - name: run
+    run: echo ok
+`, yamlWorkingDir))
+	dag.WorkingDir = snapshotWorkingDir
+
+	attempt, err := api.dagRunRepository.CreateAttempt(ctx, dag, time.Now(), "source-run", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	status := ir.NewStatusBuilder(dag).Create("source-run", ir.Succeeded, 0, time.Now(), ir.WithAttemptID(attempt.ID()))
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	api.config.Queues.Enabled = true
+	api.queueStore = persiststore.NewQueueStore(testutil.NewMemoryBackend().Collection("queue"))
+	result, err := api.rescheduleDAGRun(ctx, dag.Name, "source-run", rescheduleDAGRunOptions{newDagRunID: "rescheduled-run"})
+	require.NoError(t, err)
+	require.True(t, result.queued)
+
+	rescheduled, err := api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, result.newDagRunID))
+	require.NoError(t, err)
+	rescheduledDAG, err := rescheduled.ReadDAG(ctx)
+	require.NoError(t, err)
+	rescheduledDAG, err = spec.RebuildFromYAML(ctx, rescheduledDAG)
+	require.NoError(t, err)
+	require.Equal(t, snapshotWorkingDir, rescheduledDAG.WorkingDir)
+	require.True(t, rescheduledDAG.WorkingDirExplicit)
 }
 
 func setupEditRetryAPI(t *testing.T, tmpDir string, yamlContent string) (*API, *ir.DAG) {

@@ -1898,7 +1898,12 @@ func (a *API) StopAllDAGRuns(ctx context.Context, request api.StopAllDAGRunsRequ
 	}
 
 	// Get all running DAG-runs for this DAG
-	runningStatuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{ExactName: dag.Name, Statuses: []ir.Status{ir.Running}})
+	runningStatuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{
+		ExactName:  dag.Name,
+		Statuses:   []ir.Status{ir.Running},
+		AllHistory: true,
+		Unbounded:  true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("error listing running DAG-runs: %w", err)
 	}

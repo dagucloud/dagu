@@ -79,6 +79,25 @@ func (s failingHistoryDAGRunStore) RecentStatuses(context.Context, string, int) 
 	return nil, s.err
 }
 
+func (s failingHistoryDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
+	return nil, s.err
+}
+
+func TestEnsureDAGRunIDUniquePropagatesRepositoryErrors(t *testing.T) {
+	t.Parallel()
+
+	storeErr := errors.New("storage unavailable")
+	a := &API{dagRunRepository: persis.NewDAGRunRepository(
+		failingHistoryDAGRunStore{err: storeErr},
+		nil,
+		persis.DAGRunRepositoryOptions{},
+	)}
+
+	err := a.ensureDAGRunIDUnique(context.Background(), &ir.DAG{Name: "daily"}, "run-1")
+	require.ErrorIs(t, err, storeErr)
+	require.ErrorContains(t, err, "failed to verify dag-run ID uniqueness")
+}
+
 func TestDAGHistoryReturnsRecentStatusStoreErrors(t *testing.T) {
 	t.Parallel()
 
