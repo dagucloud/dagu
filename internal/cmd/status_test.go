@@ -198,7 +198,7 @@ steps:
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
-			statuses := dagFile.DAGRunMgr.ListRecentStatuses(th.Context, dagFile.Name, 3)
+			statuses := dagFile.DAGRunRepository.RecentStatuses(th.Context, dagFile.Name, 3)
 			return len(statuses) == 2
 		}, 5*time.Second, 50*time.Millisecond)
 

@@ -134,7 +134,7 @@ func newDAGRun(dir, artifactDir string) (*DAGRun, error) {
 // CreateAttempt creates a new Attempt for the dag-run with the given timestamp.
 // It creates a new Attempt directory and initializes a record within it.
 // If attemptID is provided, it uses that ID instead of generating a new one.
-func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fileutil.Cache[*ir.DAGRunStatus], attemptID string, opts ...AttemptOption) (*Attempt, error) {
+func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fileutil.Cache[*ir.DAGRunStatus], attemptID string) (*Attempt, error) {
 	attID := attemptID
 	if attID == "" {
 		var err error
@@ -151,7 +151,7 @@ func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fi
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create the run directory: %w", err)
 	}
-	return NewAttempt(filepath.Join(dir, JSONLStatusFile), cache, opts...)
+	return NewAttempt(filepath.Join(dir, JSONLStatusFile), cache)
 }
 
 // CreateSubDAGRun creates a new sub dag-run with the given timestamp and dag-run ID.

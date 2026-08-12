@@ -207,7 +207,7 @@ func (f *fixture) enqueueWithPriority(priority queue.QueuePriority) string {
 }
 
 func (f *fixture) enqueueCatchup(scheduleTime time.Time) string {
-	runID, err := f.th.DAGRunMgr.GenDAGRunID(f.th.Context)
+	runID, err := ir.NewDAGRunID()
 	require.NoError(f.t, err)
 	require.NoError(f.t, scheduler.EnqueueCatchupRun(
 		f.th.Context,
@@ -438,7 +438,7 @@ func (f *fixture) waitForRecentStatus(timeout time.Duration, match func(ir.DAGRu
 	var matched ir.DAGRunStatus
 	timeout = queueTestTimeout(timeout)
 	f.h.Wait.EventuallyEveryWithin("timed out waiting for recent status match", timeout, 200*time.Millisecond, func() bool {
-		for _, status := range f.th.DAGRunMgr.ListRecentStatuses(f.th.Context, f.dag.Name, 10) {
+		for _, status := range f.th.DAGRunRepository.RecentStatuses(f.th.Context, f.dag.Name, 10) {
 			if match(status) {
 				matched = status
 				return true

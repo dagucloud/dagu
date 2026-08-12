@@ -87,19 +87,6 @@ func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 	return root
 }
 
-// NewDataRootWithPrefix creates a new DataRoot instance with a specified prefix.
-// This is useful for creating a DataRoot with a specific directory structure
-func NewDataRootWithPrefix(baseDir, prefix string) DataRoot {
-	dagRunsDir := filepath.Join(baseDir, prefix, "dag-runs")
-	return DataRoot{
-		baseDir:     baseDir,
-		artifactDir: filepath.Join(filepath.Dir(filepath.Clean(baseDir)), "artifacts"),
-		prefix:      prefix,
-		dagRunsDir:  dagRunsDir,
-		globPattern: filepath.Join(dagRunsDir, "*", "*", "*", DAGRunDirPrefix+"*"),
-	}
-}
-
 const dagRunTimestampLen = len("20060102_150405Z")
 
 // FindByDAGRunID locates a dag-run by its ID.

@@ -388,7 +388,7 @@ func (e *Engine) runLoaded(ctx context.Context, dag *ir.DAG, opts RunOptions) (*
 	}
 	runID := opts.RunID
 	if runID == "" {
-		id, err := e.dagRunMgr.GenDAGRunID(ctx)
+		id, err := ir.NewDAGRunID()
 		if err != nil {
 			return nil, err
 		}

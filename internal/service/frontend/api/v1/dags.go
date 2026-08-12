@@ -432,7 +432,7 @@ func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunH
 		return nil, err
 	}
 	dagName := a.resolveDAGName(ctx, request.FileName)
-	recentHistory := a.dagRunMgr.ListRecentStatuses(ctx, dagName, defaultHistoryLimit)
+	recentHistory := a.dagRunRepository.RecentStatuses(ctx, dagName, defaultHistoryLimit)
 
 	var dagRuns []api.DAGRunDetails
 	for _, status := range recentHistory {
@@ -1027,7 +1027,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 
 	if dagRunId == "" {
 		var err error
-		dagRunId, err = a.dagRunMgr.GenDAGRunID(ctx)
+		dagRunId, err = ir.NewDAGRunID()
 		if err != nil {
 			return nil, fmt.Errorf("error generating dag-run ID: %w", err)
 		}
@@ -1124,7 +1124,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 
 	if dagRunId == "" {
 		var err error
-		dagRunId, err = a.dagRunMgr.GenDAGRunID(ctx)
+		dagRunId, err = ir.NewDAGRunID()
 		if err != nil {
 			return nil, fmt.Errorf("error generating dag-run ID: %w", err)
 		}
@@ -1685,7 +1685,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	}
 	if dagRunId == "" {
 		var err error
-		dagRunId, err = a.dagRunMgr.GenDAGRunID(ctx)
+		dagRunId, err = ir.NewDAGRunID()
 		if err != nil {
 			return nil, fmt.Errorf("error generating dag-run ID: %w", err)
 		}
@@ -1942,7 +1942,7 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		recentHistory := a.dagRunMgr.ListRecentStatuses(readCtx, dagName, defaultHistoryLimit)
+		recentHistory := a.dagRunRepository.RecentStatuses(readCtx, dagName, defaultHistoryLimit)
 
 		var dagRuns []api.DAGRunDetails
 		for _, status := range recentHistory {

@@ -411,7 +411,7 @@ func (f *testFixture) enqueueWithParams(params string) error {
 func (f *testFixture) enqueueDirect() error {
 	f.t.Helper()
 
-	runID, err := f.coord.DAGRunMgr.GenDAGRunID(f.coord.Context)
+	runID, err := ir.NewDAGRunID()
 	if err != nil {
 		return err
 	}
@@ -462,7 +462,7 @@ func (f *testFixture) enqueueDirect() error {
 func (f *testFixture) enqueueCatchup(scheduleTime time.Time) (string, error) {
 	f.t.Helper()
 
-	runID, err := f.coord.DAGRunMgr.GenDAGRunID(f.coord.Context)
+	runID, err := ir.NewDAGRunID()
 	if err != nil {
 		return "", err
 	}

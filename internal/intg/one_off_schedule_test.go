@@ -167,7 +167,7 @@ steps:
 	probe := h.StartScheduler(ctx, sc, th.EntryReader)
 
 	probe.RequireEventually("expected one-off env secret run to succeed", 30*time.Second, func() bool {
-		statuses := th.DAGRunMgr.ListRecentStatuses(th.Context, dag.Name, 5)
+		statuses := th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 5)
 		return len(statuses) > 0 && statuses[0].Status == ir.Succeeded
 	})
 

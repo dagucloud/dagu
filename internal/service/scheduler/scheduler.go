@@ -223,7 +223,9 @@ func newScheduler(
 			}
 			return count > 0, nil
 		},
-		GenRunID: drm.GenDAGRunID,
+		GenRunID: func(context.Context) (string, error) {
+			return ir.NewDAGRunID()
+		},
 		Dispatch: func(ctx context.Context, dag *ir.DAG, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			return dagExecutor.HandleJob(
 				ctx, dag,

@@ -66,17 +66,6 @@ type Attempt struct {
 	lastEmittedEventType eventstore.EventType
 }
 
-// AttemptOption defines a functional option for configuring an Attempt.
-type AttemptOption func(*Attempt)
-
-// WithDAG sets the DAG associated with the Attempt.
-// This allows the Attempt to store DAG metadata alongside the status data.
-func WithDAG(dag *ir.DAG) AttemptOption {
-	return func(att *Attempt) {
-		att.dag = dag
-	}
-}
-
 // ID implements models.Attempt.
 func (att *Attempt) ID() string {
 	return att.id
@@ -88,18 +77,13 @@ func (att *Attempt) SetDAG(dag *ir.DAG) {
 }
 
 // NewAttempt creates a new Run for the specified file.
-func NewAttempt(file string, cache *fileutil.Cache[*ir.DAGRunStatus], opts ...AttemptOption) (*Attempt, error) {
+func NewAttempt(file string, cache *fileutil.Cache[*ir.DAGRunStatus]) (*Attempt, error) {
 	dirName := filepath.Base(filepath.Dir(file))
 	attemptID, ok := attemptIDFromDir(dirName)
 	if !ok {
 		return nil, fmt.Errorf("invalid file path for run data: %s", file)
 	}
-	att := &Attempt{id: attemptID, file: file, cache: cache}
-	for _, opt := range opts {
-		opt(att)
-	}
-
-	return att, nil
+	return &Attempt{id: attemptID, file: file, cache: cache}, nil
 }
 
 // Exists returns true if the status file exists.

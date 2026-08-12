@@ -29,7 +29,7 @@ func assertEquivalentPath(t *testing.T, expected, actual string) {
 func dagAgentWithProc(t *testing.T, th test.Helper, dag test.DAG) *test.Agent {
 	t.Helper()
 
-	dagRunID, err := th.DAGRunMgr.GenDAGRunID(th.Context)
+	dagRunID, err := ir.NewDAGRunID()
 	require.NoError(t, err)
 
 	compactRunID := strings.ReplaceAll(dagRunID, "-", "")

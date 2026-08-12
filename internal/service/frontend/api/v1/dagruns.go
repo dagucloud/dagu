@@ -190,7 +190,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	}
 	if dagRunId == "" {
 		var genErr error
-		dagRunId, genErr = a.dagRunMgr.GenDAGRunID(ctx)
+		dagRunId, genErr = ir.NewDAGRunID()
 		if genErr != nil {
 			return nil, fmt.Errorf("error generating dag-run ID: %w", genErr)
 		}
@@ -282,7 +282,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 	}
 	if dagRunId == "" {
 		var genErr error
-		dagRunId, genErr = a.dagRunMgr.GenDAGRunID(ctx)
+		dagRunId, genErr = ir.NewDAGRunID()
 		if genErr != nil {
 			return nil, fmt.Errorf("error generating dag-run ID: %w", genErr)
 		}
@@ -3416,7 +3416,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		return rescheduleDAGRunResult{}, err
 	}
 	if newDagRunID == "" {
-		id, genErr := a.dagRunMgr.GenDAGRunID(ctx)
+		id, genErr := ir.NewDAGRunID()
 		if genErr != nil {
 			return rescheduleDAGRunResult{}, fmt.Errorf("error generating dag-run ID: %w", genErr)
 		}

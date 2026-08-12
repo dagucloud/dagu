@@ -149,7 +149,7 @@ func (a *API) EditRetryDAGRun(ctx context.Context, request api.EditRetryDAGRunRe
 	}
 
 	if plan.newDAGRunID == "" {
-		id, genErr := a.dagRunMgr.GenDAGRunID(ctx)
+		id, genErr := ir.NewDAGRunID()
 		if genErr != nil {
 			return nil, fmt.Errorf("error generating dag-run ID: %w", genErr)
 		}

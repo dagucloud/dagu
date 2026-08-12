@@ -216,15 +216,6 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 	return fmt.Errorf("failed to find dag-run attempt: %w", findErr)
 }
 
-// GenDAGRunID generates a unique ID for a dag-run.
-func (m *Manager) GenDAGRunID(_ context.Context) (string, error) {
-	id, err := ir.NewDAGRunID()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate dag-run ID: %w", err)
-	}
-	return id, nil
-}
-
 // IsRunning checks if a dag-run is currently running. It prefers the live socket
 // status and falls back to a fresh proc heartbeat plus persisted running status.
 func (m *Manager) IsRunning(ctx context.Context, dag *ir.DAG, dagRunID string) bool {
@@ -561,12 +552,6 @@ func (m *Manager) currentTime() time.Time {
 		return time.Now()
 	}
 	return m.nowFunc()
-}
-
-// ListRecentStatuses retrieves the n most recent statuses for a DAG by name.
-// It returns a slice of Status objects, filtering out any that cannot be read.
-func (m *Manager) ListRecentStatuses(ctx context.Context, name string, n int) []ir.DAGRunStatus {
-	return m.dagRunRepository.RecentStatuses(ctx, name, n)
 }
 
 // UpdateStatus updates the status of a dag-run.

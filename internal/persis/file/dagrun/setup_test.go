@@ -96,8 +96,9 @@ func (d DAGTest) Writer(t *testing.T, dagRunID string, startedAt time.Time) Writ
 	dagRun, err := root.CreateDAGRun(dagrun.NewUTC(startedAt), dagRunID)
 	require.NoError(t, err)
 
-	attempt, err := dagRun.CreateAttempt(d.th.Context, dagrun.NewUTC(startedAt), d.th.Backend.cache, "", WithDAG(d.DAG))
+	attempt, err := dagRun.CreateAttempt(d.th.Context, dagrun.NewUTC(startedAt), d.th.Backend.cache, "")
 	require.NoError(t, err)
+	attempt.SetDAG(d.DAG)
 
 	writer := NewWriter(attempt.file)
 	require.NoError(t, writer.Open())

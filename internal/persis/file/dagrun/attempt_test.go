@@ -45,8 +45,9 @@ func TestAttempt_OpenRejectsCorruptDAGDefinition(t *testing.T) {
 	file := filepath.Join(dir, "status.dat")
 	ctx := context.Background()
 
-	att, err := NewAttempt(file, nil, WithDAG(&ir.DAG{Name: "test"}))
+	att, err := NewAttempt(file, nil)
 	require.NoError(t, err)
+	att.SetDAG(&ir.DAG{Name: "test"})
 	require.NoError(t, att.Open(ctx))
 	require.NoError(t, att.Close(ctx))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, DAGDefinition), []byte("{"), 0600))
@@ -928,8 +929,9 @@ func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 		Location: filepath.Join(dir, "test-dag.yaml"),
 		Labels:   ir.NewLabels([]string{"workspace=ops"}),
 	}
-	att, err := NewAttempt(file, nil, WithDAG(dag))
+	att, err := NewAttempt(file, nil)
 	require.NoError(t, err)
+	att.SetDAG(dag)
 	require.NoError(t, att.Open(ctx))
 
 	queued := createTestStatus(ir.Queued)
@@ -978,8 +980,9 @@ func TestAttempt_OpenRestoresLastEmittedLifecycleState(t *testing.T) {
 	ctx := eventstore.WithContext(context.Background(), service, eventstore.Source{Service: eventstore.SourceServiceServer})
 
 	dag := &ir.DAG{Name: "TestDAG", Location: filepath.Join(dir, "test-dag.yaml")}
-	att, err := NewAttempt(file, nil, WithDAG(dag))
+	att, err := NewAttempt(file, nil)
 	require.NoError(t, err)
+	att.SetDAG(dag)
 	require.NoError(t, att.Open(ctx))
 
 	queued := createTestStatus(ir.Queued)

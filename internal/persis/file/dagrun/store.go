@@ -285,10 +285,11 @@ func (store *Store) CreateAttempt(ctx context.Context, req dagrun.CreateAttemptR
 		run = r
 	}
 
-	attempt, err := run.CreateAttempt(ctx, ts, store.cache, req.AttemptID, WithDAG(req.DAG))
+	attempt, err := run.CreateAttempt(ctx, ts, store.cache, req.AttemptID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create attempt: %w", err)
 	}
+	attempt.SetDAG(req.DAG)
 
 	return attempt, nil
 }
@@ -328,11 +329,12 @@ func (store *Store) newChildAttempt(ctx context.Context, req dagrun.CreateAttemp
 		run = r
 	}
 
-	attempt, err := run.CreateAttempt(ctx, ts, store.cache, req.AttemptID, WithDAG(req.DAG))
+	attempt, err := run.CreateAttempt(ctx, ts, store.cache, req.AttemptID)
 	if err != nil {
 		logger.Error(ctx, "Failed to create sub dag-run attempt", tag.Error(err))
 		return nil, err
 	}
+	attempt.SetDAG(req.DAG)
 
 	return attempt, nil
 }
