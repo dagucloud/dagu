@@ -88,7 +88,7 @@ func runRm(ctx *Context, args []string) error {
 	var dagName string
 	definitionID := ""
 	if deleteDef {
-		dag, err := ctx.DAGRepository.GetMetadata(ctx, args[0])
+		dag, err := ctx.Persistence.DAGRepository.GetMetadata(ctx, args[0])
 		if err != nil {
 			return fmt.Errorf("failed to resolve DAG definition %q: %w", args[0], err)
 		}
@@ -154,7 +154,7 @@ func executeRm(ctx *Context, opts rmOptions) error {
 		if err := ensureNoActiveRuns(ctx, opts.dagName); err != nil {
 			return err
 		}
-		if err := ctx.DAGRepository.Delete(ctx, opts.definitionID); err != nil {
+		if err := ctx.Persistence.DAGRepository.Delete(ctx, opts.definitionID); err != nil {
 			return fmt.Errorf("failed to delete DAG definition %q: %w", opts.dagName, err)
 		}
 		if !ctx.Quiet {
@@ -233,7 +233,7 @@ func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 		removeOptions.OlderThan = &cutoff
 	}
 
-	runIDs, err := ctx.DAGRunRepository.RemoveOldDAGRuns(ctx, opts.dagName, retentionDays, removeOptions)
+	runIDs, err := ctx.Persistence.DAGRunRepository.RemoveOldDAGRuns(ctx, opts.dagName, retentionDays, removeOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to remove history for %q: %w", opts.dagName, err)
 	}
@@ -241,8 +241,8 @@ func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 }
 
 func ensureNoActiveRuns(ctx *Context, dagName string) error {
-	if ctx.ProcRepository != nil {
-		entries, err := ctx.ProcRepository.ListAllEntries(ctx)
+	if ctx.Persistence.ProcRepository != nil {
+		entries, err := ctx.Persistence.ProcRepository.ListAllEntries(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to check alive processes for %q: %w", dagName, err)
 		}
@@ -254,11 +254,11 @@ func ensureNoActiveRuns(ctx *Context, dagName string) error {
 		}
 	}
 
-	if ctx.ActiveDistributedRunStore == nil {
+	if ctx.Persistence.ActiveDistributedRunStore == nil {
 		return nil
 	}
 
-	runs, err := ctx.ActiveDistributedRunStore.ListAll(ctx)
+	runs, err := ctx.Persistence.ActiveDistributedRunStore.ListAll(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to check active distributed runs for %q: %w", dagName, err)
 	}

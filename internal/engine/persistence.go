@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -45,8 +46,9 @@ type RuntimeStoresFactory func(context.Context, *config.Config) RuntimeStores
 
 // RuntimeStores contains the stores used by workflow execution.
 type RuntimeStores struct {
-	SecretStore  secret.Store
-	ProfileStore profile.Store
+	SecretStore          secret.Store
+	ProfileStore         profile.Store
+	MaterializationStore build.MaterializationStore
 }
 
 func buildPersistence(ctx context.Context, cfg *config.Config, opts Options) (Persistence, error) {

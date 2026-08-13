@@ -102,14 +102,14 @@ func runCoordinator(ctx *Context, _ []string) error {
 	svc, _, err := newCoordinator(
 		coordCtx,
 		coordCtx.Config,
-		coordCtx.ServiceRegistry,
-		coordCtx.DAGRunRepository,
-		coordCtx.StateStore,
-		coordCtx.DispatchTaskStore,
-		coordCtx.WorkerHeartbeatStore,
-		coordCtx.DAGRunLeaseStore,
-		coordCtx.ActiveDistributedRunStore,
-		coordCtx.DAGRepository,
+		coordCtx.Persistence.ServiceRegistry,
+		coordCtx.Persistence.DAGRunRepository,
+		coordCtx.Persistence.StateStore,
+		coordCtx.Persistence.DispatchTaskStore,
+		coordCtx.Persistence.WorkerHeartbeatStore,
+		coordCtx.Persistence.DAGRunLeaseStore,
+		coordCtx.Persistence.ActiveDistributedRunStore,
+		coordCtx.Persistence.DAGRepository,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
@@ -228,7 +228,7 @@ func newCoordinator(
 	}
 
 	// Create the handler with DAG-run status persistence and streamed log storage.
-	runtimeStores := cmdprocess.NewRuntimeStoresForConfig(ctx.Context, cfg)
+	runtimeStores := cmdprocess.NewFileRuntimeStores(ctx.Context, cfg)
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		DAGRunRepository:          dagRunRepository,
 		StateStore:                stateStore,

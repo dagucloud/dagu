@@ -130,14 +130,14 @@ func runStartAll(ctx *Context, _ []string) error {
 		coord, _, err = newCoordinator(
 			ctx,
 			ctx.Config,
-			ctx.ServiceRegistry,
-			ctx.DAGRunRepository,
-			ctx.StateStore,
-			ctx.DispatchTaskStore,
-			ctx.WorkerHeartbeatStore,
-			ctx.DAGRunLeaseStore,
-			ctx.ActiveDistributedRunStore,
-			ctx.DAGRepository,
+			ctx.Persistence.ServiceRegistry,
+			ctx.Persistence.DAGRunRepository,
+			ctx.Persistence.StateStore,
+			ctx.Persistence.DispatchTaskStore,
+			ctx.Persistence.WorkerHeartbeatStore,
+			ctx.Persistence.DAGRunLeaseStore,
+			ctx.Persistence.ActiveDistributedRunStore,
+			ctx.Persistence.DAGRepository,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to initialize coordinator: %w", err)

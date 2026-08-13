@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -456,7 +455,7 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 			RunStateStore:            e.runStateStore,
 			DAGRunRepository:         e.dagRunRepository,
 			StateStore:               e.stateStore,
-			MaterializationStore:     filematerialization.New(filepath.Join(e.cfg.Paths.DataDir, "materializations")),
+			MaterializationStore:     stores.MaterializationStore,
 			NoReuse:                  opts.NoReuse,
 			SecretStore:              stores.SecretStore,
 			ProfileStore:             stores.ProfileStore,

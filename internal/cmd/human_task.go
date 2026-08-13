@@ -83,7 +83,7 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	if ctx.IsRemote() {
 		return fmt.Errorf("human-task complete only supports the local context")
 	}
-	if ctx.DAGRunRepository == nil {
+	if ctx.Persistence.DAGRunRepository == nil {
 		return fmt.Errorf("DAG-run repository is not configured")
 	}
 
@@ -109,9 +109,9 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	}
 
 	service := humantask.Service{
-		DAGRunRepository: ctx.DAGRunRepository,
-		QueueStore:       ctx.QueueStore,
-		ProcRepository:   ctx.ProcRepository,
+		DAGRunRepository: ctx.Persistence.DAGRunRepository,
+		QueueStore:       ctx.Persistence.QueueStore,
+		ProcRepository:   ctx.Persistence.ProcRepository,
 		Now:              deps.now,
 	}
 	completedBy, completedByID := localHumanTaskSubject(deps)

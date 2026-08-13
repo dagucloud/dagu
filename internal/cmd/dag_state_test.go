@@ -32,12 +32,12 @@ func TestNewContext_InitializesConfiguredDAGStateStore(t *testing.T) {
 
 	ctx, err := NewContext(command, nil)
 	require.NoError(t, err)
-	require.NotNil(t, ctx.StateStore)
+	require.NotNil(t, ctx.Persistence.StateStore)
 
 	ref := dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: "cursor"}
 	value, err := dagrun.NormalizeStateValue([]byte(`{"last_id":123}`))
 	require.NoError(t, err)
-	_, err = ctx.StateStore.Put(ctx.Context, ref, value, dagrun.StatePutOptions{})
+	_, err = ctx.Persistence.StateStore.Put(ctx.Context, ref, value, dagrun.StatePutOptions{})
 	require.NoError(t, err)
 
 	var stateFiles []string
@@ -55,7 +55,7 @@ func TestNewContext_InitializesConfiguredDAGStateStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"last_id":123`)
 
-	got, err := ctx.StateStore.Get(ctx.Context, ref)
+	got, err := ctx.Persistence.StateStore.Get(ctx.Context, ref)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"last_id":123}`, string(got.Value))
 }
@@ -90,7 +90,7 @@ steps:
 
 	require.NoError(t, runStart(ctx, []string{dagFile}))
 
-	got, err := ctx.StateStore.Get(ctx.Context, dagrun.StateRef{
+	got, err := ctx.Persistence.StateStore.Get(ctx.Context, dagrun.StateRef{
 		Scope:     dagrun.StateScopeDAG,
 		Namespace: "state-action-start-test",
 		Key:       "cursor",

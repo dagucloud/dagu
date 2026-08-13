@@ -162,7 +162,7 @@ func runStart(ctx *Context, args []string) error {
 			return fmt.Errorf("failed to resolve DAG name: %w", err)
 		}
 
-		attempt, err := ctx.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dagName, fromRunID))
+		attempt, err := ctx.Persistence.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dagName, fromRunID))
 		if err != nil {
 			return fmt.Errorf("failed to find historic dag-run %s for DAG %s: %w", fromRunID, dagName, err)
 		}
@@ -281,7 +281,7 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		}
 	}
 
-	if opts.workerID != "local" && ctx.DAGRunRepository == nil {
+	if opts.workerID != "local" && ctx.Persistence.DAGRunRepository == nil {
 		return executeDAGRun(ctx, dag, dagRunID, opts)
 	}
 
@@ -292,13 +292,13 @@ func tryExecuteDAG(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		opts,
 		func(execCtx context.Context) (dagrun.Attempt, error) {
 			if opts.workerID != "local" {
-				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunRepository, dag.Name, dagRunID, opts.root, opts.attemptID)
+				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.Persistence.DAGRunRepository, dag.Name, dagRunID, opts.root, opts.attemptID)
 				if err != nil {
 					return nil, err
 				}
 				return attempt, nil
 			}
-			return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
+			return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		},
 		func(preparedAttempt dagrun.Attempt) error {
 			run := opts
@@ -443,7 +443,7 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 
 	// For distributed execution, the coordinator already created the sub-attempt record.
 	if opts.workerID != "local" {
-		if ctx.DAGRunRepository == nil {
+		if ctx.Persistence.DAGRunRepository == nil {
 			return executeDAGRun(ctx, dag, dagRunID, opts)
 		}
 		return withPreparedLocalExecution(
@@ -452,7 +452,7 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 			dagRunID,
 			opts,
 			func(execCtx context.Context) (dagrun.Attempt, error) {
-				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.DAGRunRepository, dag.Name, dagRunID, opts.root, opts.attemptID)
+				attempt, _, err := resolveWorkerPreparedAttempt(execCtx, ctx.Persistence.DAGRunRepository, dag.Name, dagRunID, opts.root, opts.attemptID)
 				if err != nil {
 					return nil, err
 				}
@@ -468,7 +468,7 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 
 	logger.Debug(ctx, "Checking for previous sub dag-run with the dag-run ID")
 
-	subAttempt, err := ctx.DAGRunRepository.FindSubAttempt(ctx, opts.root, dagRunID)
+	subAttempt, err := ctx.Persistence.DAGRunRepository.FindSubAttempt(ctx, opts.root, dagRunID)
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return withPreparedLocalExecution(
 			ctx,
@@ -476,7 +476,7 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 			dagRunID,
 			opts,
 			func(execCtx context.Context) (dagrun.Attempt, error) {
-				return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{
+				return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{
 					RootDAGRun: opts.root,
 				})
 			},
@@ -512,7 +512,7 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 				subAttempt.SetDAG(dag)
 				return subAttempt, nil
 			}
-			return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{
+			return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{
 				Retry:      true,
 				RootDAGRun: opts.root,
 			})
@@ -574,16 +574,16 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			AttemptID:                opts.attemptID,
 			QueuedRun:                queuedRun,
 			PreparedAttempt:          opts.preparedAttempt,
-			DAGRunRepository:         ctx.DAGRunRepository,
-			QueueStore:               ctx.QueueStore,
-			StateStore:               ctx.StateStore,
-			MaterializationStore:     localMaterializationStore(ctx),
+			DAGRunRepository:         ctx.Persistence.DAGRunRepository,
+			QueueStore:               ctx.Persistence.QueueStore,
+			StateStore:               ctx.Persistence.StateStore,
+			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,
-			ServiceRegistry:          ctx.ServiceRegistry,
+			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:               opts.root,
 			PeerConfig:               ctx.Config.Core.Peer,

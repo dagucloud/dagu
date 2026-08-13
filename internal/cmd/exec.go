@@ -137,7 +137,7 @@ func runExec(ctx *Context, args []string) error {
 
 	dagRunRef := ir.NewDAGRunRef(dag.Name, runID)
 
-	attempt, err := ctx.DAGRunRepository.FindAttempt(ctx, dagRunRef)
+	attempt, err := ctx.Persistence.DAGRunRepository.FindAttempt(ctx, dagRunRef)
 	if err != nil && !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return fmt.Errorf("failed to check for existing dag-run: %w", err)
 	}

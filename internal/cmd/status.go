@@ -122,7 +122,7 @@ func displayTreeStatus(dag *ir.DAG, dagStatus *ir.DAGRunStatus) {
 func extractAttemptForStatus(ctx *Context, name, dagRunID, subDAGRunID string) (dagrun.Attempt, error) {
 	if subDAGRunID != "" {
 		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
-		attempt, err := ctx.DAGRunRepository.FindSubAttempt(ctx, dagRunRef, subDAGRunID)
+		attempt, err := ctx.Persistence.DAGRunRepository.FindSubAttempt(ctx, dagRunRef, subDAGRunID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find sub dag-run with ID %s under root %s: %w",
 				subDAGRunID, dagRunID, err)
@@ -132,14 +132,14 @@ func extractAttemptForStatus(ctx *Context, name, dagRunID, subDAGRunID string) (
 
 	if dagRunID != "" {
 		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
-		attempt, err := ctx.DAGRunRepository.FindAttempt(ctx, dagRunRef)
+		attempt, err := ctx.Persistence.DAGRunRepository.FindAttempt(ctx, dagRunRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find run data for dag-run ID %s: %w", dagRunID, err)
 		}
 		return attempt, nil
 	}
 
-	attempt, err := ctx.DAGRunRepository.LatestAttempt(ctx, name, persis.DAGRunLatestAttemptOptions{})
+	attempt, err := ctx.Persistence.DAGRunRepository.LatestAttempt(ctx, name, persis.DAGRunLatestAttemptOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to find the latest run data for DAG %s: %w", name, err)
 	}

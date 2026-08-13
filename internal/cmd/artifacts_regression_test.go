@@ -42,7 +42,7 @@ func TestNewContext_DAGRunRepositoryUsesConfiguredArtifactDirForCleanup(t *testi
 	}
 	const dagRunID = "run-cleanup-1"
 
-	attempt, err := ctx.DAGRunRepository.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
+	attempt, err := ctx.Persistence.DAGRunRepository.CreateAttempt(ctx.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx.Context))
 
@@ -59,7 +59,7 @@ func TestNewContext_DAGRunRepositoryUsesConfiguredArtifactDirForCleanup(t *testi
 
 	require.DirExists(t, archiveDir)
 
-	err = ctx.DAGRunRepository.RemoveDAGRun(ctx.Context, ir.NewDAGRunRef(dag.Name, dagRunID), persis.DAGRunRemoveOptions{})
+	err = ctx.Persistence.DAGRunRepository.RemoveDAGRun(ctx.Context, ir.NewDAGRunRef(dag.Name, dagRunID), persis.DAGRunRemoveOptions{})
 	require.NoError(t, err)
 	assert.NoDirExists(t, archiveDir)
 }

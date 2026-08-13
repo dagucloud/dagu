@@ -103,7 +103,7 @@ func runHistory(ctx *Context, args []string) error {
 	}
 
 	// Query DAG run history
-	statuses, err := ctx.DAGRunRepository.ListStatuses(ctx, opts)
+	statuses, err := ctx.Persistence.DAGRunRepository.ListStatuses(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("failed to query DAG run history: %w", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	iengine "github.com/dagucloud/dagu/v2/internal/engine"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin" // Register built-in executors for embedded use.
@@ -462,8 +464,9 @@ func fileEngineDAGRepository(_ context.Context, cfg *config.Config, opts iengine
 
 func fileEngineRuntimeStores(ctx context.Context, cfg *config.Config) iengine.RuntimeStores {
 	return iengine.RuntimeStores{
-		SecretStore:  file.NewSecretStore(ctx, cfg),
-		ProfileStore: file.NewProfileStore(ctx, cfg),
+		SecretStore:          file.NewSecretStore(ctx, cfg),
+		ProfileStore:         file.NewProfileStore(ctx, cfg),
+		MaterializationStore: filematerialization.New(filepath.Join(cfg.Paths.DataDir, "materializations")),
 	}
 }
 

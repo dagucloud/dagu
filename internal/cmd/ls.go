@@ -82,10 +82,10 @@ func runLs(ctx *Context, args []string) error {
 		pattern = args[0]
 	}
 
-	if ctx.DAGRepository == nil {
+	if ctx.Persistence.DAGRepository == nil {
 		return fmt.Errorf("DAG store is not available")
 	}
-	if showHistory && ctx.DAGRunRepository == nil {
+	if showHistory && ctx.Persistence.DAGRunRepository == nil {
 		return fmt.Errorf("DAG-run repository is not available")
 	}
 
@@ -112,7 +112,7 @@ func runLs(ctx *Context, args []string) error {
 		listOpts.Order = "desc"
 	}
 
-	result, errs, err := ctx.DAGRepository.List(ctx, listOpts)
+	result, errs, err := ctx.Persistence.DAGRepository.List(ctx, listOpts)
 	if err != nil {
 		return fmt.Errorf("failed to list DAGs: %w", err)
 	}
@@ -196,7 +196,7 @@ func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) error {
 	}
 
 	if wantHistory {
-		statuses, err := ctx.DAGRunRepository.RecentStatuses(ctx, row.dag.Name, 5)
+		statuses, err := ctx.Persistence.DAGRunRepository.RecentStatuses(ctx, row.dag.Name, 5)
 		if err != nil {
 			_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "warning: failed to load recent DAG-run history for %s: %s\n", row.dag.Name, err)
 			row.history = "-"

@@ -26,8 +26,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/view"
 )
 
-// NewFrontendStoreFactories returns the file-backed persistence wiring for the frontend server.
-func NewFrontendStoreFactories() frontend.StoreFactories {
+// NewFileFrontendStoreFactories returns the file-backed persistence wiring for the frontend server.
+func NewFileFrontendStoreFactories() frontend.StoreFactories {
 	return frontend.StoreFactories{
 		WorkspaceBaseConfigStoreFactory:  file.NewWorkspaceBaseConfigStore,
 		BaseConfigStoreFactory:           newBaseConfigStore,

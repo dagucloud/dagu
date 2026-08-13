@@ -14,34 +14,25 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
-	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // SchedulerConfig contains the wiring needed to construct the scheduler process role.
 type SchedulerConfig struct {
-	Context           context.Context
-	Config            *config.Config
-	DAGRepository     *persis.DAGRepository
-	DAGRunRepository  *persis.DAGRunRepository
-	QueueStore        queue.QueueStore
-	ProcRepository    *persis.ProcRepository
-	ServiceRegistry   serviceregistry.ServiceRegistry
-	DispatchTaskStore dispatch.DispatchTaskStore
-	DAGRunLeaseStore  dispatch.DAGRunLeaseStore
-	EventService      *eventstore.Service
-	LicenseManager    *license.Manager
+	Context        context.Context
+	Config         *config.Config
+	Persistence    CorePersistence
+	EventService   *eventstore.Service
+	LicenseManager *license.Manager
 }
 
 // NewScheduler creates the scheduler from the process repositories and services.
@@ -51,10 +42,10 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		ctx = context.Background()
 	}
 
-	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.ServiceRegistry)
+	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.Persistence.ServiceRegistry)
 	entryReader := scheduler.NewFileEntryReader(
 		cfg.Config.Paths.DAGsDir,
-		cfg.DAGRepository,
+		cfg.Persistence.DAGRepository,
 		cfg.Config.DAGDiscovery.Recursive,
 	)
 	watermarkStore := scheduler.NewWatermarkStore(
@@ -62,8 +53,8 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	)
 
 	schedulerRunManager := runtime.NewManager(
-		cfg.DAGRunRepository,
-		cfg.ProcRepository,
+		cfg.Persistence.DAGRunRepository,
+		cfg.Persistence.ProcRepository,
 		cfg.Config,
 		runtime.WithLatestStatusAllHistory(),
 	)
@@ -78,11 +69,11 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		cfg.Config,
 		entryReader,
 		schedulerRunManager,
-		cfg.DAGRepository,
-		cfg.DAGRunRepository,
-		cfg.QueueStore,
-		cfg.ProcRepository,
-		cfg.ServiceRegistry,
+		cfg.Persistence.DAGRepository,
+		cfg.Persistence.DAGRunRepository,
+		cfg.Persistence.QueueStore,
+		cfg.Persistence.ProcRepository,
+		cfg.Persistence.ServiceRegistry,
 		coordinatorClient,
 		watermarkStore,
 		scheduler.WithDAGProfileResolver(scheduler.NewDAGProfileResolver(dagSettingsStore, profileStore)),
@@ -98,7 +89,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		} else {
 			sched.SetEventCollector(collector)
 		}
-		if notificationMonitor := newNotificationMonitor(ctx, cfg.Config, cfg.DAGRepository, cfg.EventService); notificationMonitor != nil {
+		if notificationMonitor := newNotificationMonitor(ctx, cfg.Config, cfg.Persistence.DAGRepository, cfg.EventService); notificationMonitor != nil {
 			sched.SetNotificationMonitor(notificationMonitor)
 		}
 		if incidentMonitor := newIncidentMonitor(ctx, cfg.Config, cfg.LicenseManager, cfg.EventService); incidentMonitor != nil {
@@ -106,8 +97,8 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		}
 	}
 
-	sched.SetDAGRunLeaseStore(cfg.DAGRunLeaseStore)
-	sched.SetDispatchTaskStore(cfg.DispatchTaskStore)
+	sched.SetDAGRunLeaseStore(cfg.Persistence.DAGRunLeaseStore)
+	sched.SetDispatchTaskStore(cfg.Persistence.DispatchTaskStore)
 
 	return sched, nil
 }

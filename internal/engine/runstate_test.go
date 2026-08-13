@@ -5,9 +5,11 @@ package engine_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/engine"
@@ -19,6 +21,22 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate/memstore"
 	"github.com/stretchr/testify/require"
 )
+
+type failingMaterializationStore struct {
+	err error
+}
+
+func (*failingMaterializationStore) Get(context.Context, string) (*build.Materialization, error) {
+	return nil, build.ErrMaterializationNotFound
+}
+
+func (s *failingMaterializationStore) AcquirePaths(context.Context, []build.PathLockRequest) (build.MaterializationLock, error) {
+	return nil, s.err
+}
+
+func (s *failingMaterializationStore) Commit(context.Context, build.MaterializationLock, build.MaterializationCommit) error {
+	return s.err
+}
 
 func TestRunYAMLUsesRunStateStoreWithoutDAGRunRepository(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -174,6 +192,49 @@ steps:
 	secondRun, err := eng.RunYAML(ctx, dagYAML, engine.RunOptions{RunID: "duplicate-run"})
 	require.ErrorIs(t, err, dagrun.ErrDAGRunAlreadyExists)
 	require.Nil(t, secondRun)
+}
+
+func TestRunYAMLUsesRuntimeMaterializationStore(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	storeErr := errors.New("materialization backend unavailable")
+	persistenceFactory := memoryPersistenceFactory(memstore.New())
+	eng, err := engine.New(ctx, engine.Options{
+		HomeDir: t.TempDir(),
+		PersistenceFactory: func(ctx context.Context, cfg *config.Config) (engine.Persistence, error) {
+			persistence, err := persistenceFactory(ctx, cfg)
+			if err != nil {
+				return engine.Persistence{}, err
+			}
+			persistence.RuntimeStoresFactory = func(context.Context, *config.Config) engine.RuntimeStores {
+				return engine.RuntimeStores{MaterializationStore: &failingMaterializationStore{err: storeErr}}
+			}
+			return persistence, nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, eng.Close(context.Background()))
+	})
+
+	run, err := eng.RunYAML(ctx, []byte(`
+name: embedded-materialization-store
+type: build
+steps:
+  - id: build
+    command: echo build
+    outputs:
+      - name: result
+        path: result.txt
+`), engine.RunOptions{
+		RunID:             "materialization-run",
+		DefaultWorkingDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	_, err = run.Wait(ctx)
+	require.ErrorIs(t, err, storeErr)
 }
 
 func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceFactory {

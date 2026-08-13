@@ -87,7 +87,7 @@ func runRetry(ctx *Context, args []string) error {
 		}
 		return remoteRunRetry(ctx, args)
 	}
-	if ctx.DAGRunRepository == nil {
+	if ctx.Persistence.DAGRunRepository == nil {
 		return fmt.Errorf("DAG-run repository is not available")
 	}
 	dagRunID, _ := ctx.StringParam("run-id")
@@ -131,7 +131,7 @@ func runRetry(ctx *Context, args []string) error {
 
 	ref := ir.NewDAGRunRef(name, dagRunID)
 	queueDispatchRetry := queueDispatchRetryRequested()
-	attempt, err := findRetryAttempt(ctx, ctx.DAGRunRepository, ref, rootRun)
+	attempt, err := findRetryAttempt(ctx, ctx.Persistence.DAGRunRepository, ref, rootRun)
 	if queueDispatchRetry {
 		err = normalizeQueueDispatchRetryLookupError(err)
 	}
@@ -170,7 +170,7 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	if subDAGRunID != "" {
 		var targetStatus *ir.DAGRunStatus
-		retryPath, targetStatus, err = ctx.DAGRunRepository.ResolveRetryPath(ctx, ref, subDAGRunID, stepName)
+		retryPath, targetStatus, err = ctx.Persistence.DAGRunRepository.ResolveRetryPath(ctx, ref, subDAGRunID, stepName)
 		if err != nil {
 			return err
 		}
@@ -197,7 +197,7 @@ func runRetry(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
 	workspaceRef := retryWorkspaceRef(status, ref, rootRun)
-	if err := restoreRetryExecutionContext(ctx.Context, ctx.DAGRunRepository, dag, status, workspaceRef); err != nil {
+	if err := restoreRetryExecutionContext(ctx.Context, ctx.Persistence.DAGRunRepository, dag, status, workspaceRef); err != nil {
 		return err
 	}
 	if err := applyRetryDefaultWorkingDir(ctx, dag, status); err != nil {
@@ -262,7 +262,7 @@ func runRetry(ctx *Context, args []string) error {
 			run,
 			func(execCtx context.Context) (dagrun.Attempt, error) {
 				if queueDispatchRetry {
-					queuedAttempt, queuedStatus, err := queueDispatchRetryTarget(execCtx, ctx.DAGRunRepository, ref, rootRun, attempt.ID())
+					queuedAttempt, queuedStatus, err := queueDispatchRetryTarget(execCtx, ctx.Persistence.DAGRunRepository, ref, rootRun, attempt.ID())
 					if err != nil {
 						return nil, err
 					}
@@ -274,7 +274,7 @@ func runRetry(ctx *Context, args []string) error {
 				if !rootRun.Zero() && rootRun.ID != dagRunID {
 					opts.RootDAGRun = rootRun
 				}
-				return ctx.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, opts)
+				return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), dagRunID, opts)
 			},
 			func(preparedAttempt dagrun.Attempt) error {
 				prepared := run
@@ -295,7 +295,7 @@ func runRetry(ctx *Context, args []string) error {
 		run,
 		func(execCtx context.Context) (dagrun.Attempt, error) {
 			if queueDispatchRetry {
-				if err := ensureQueueDispatchRetryTarget(execCtx, ctx.DAGRunRepository, ref, rootRun); err != nil {
+				if err := ensureQueueDispatchRetryTarget(execCtx, ctx.Persistence.DAGRunRepository, ref, rootRun); err != nil {
 					return nil, err
 				}
 			}
@@ -494,7 +494,7 @@ func newQueueDispatchNotQueuedError(status *ir.DAGRunStatus) *queue.DAGRunNotQue
 // Retries respect global queue capacity because the queue processor picks them up
 // when capacity is available.
 func enqueueRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, triggerActor string) error {
-	if _, err := queue.EnqueueRetry(ctx.Context, ctx.DAGRunRepository, ctx.QueueStore, dag, status, queue.EnqueueRetryOptions{
+	if _, err := queue.EnqueueRetry(ctx.Context, ctx.Persistence.DAGRunRepository, ctx.Persistence.QueueStore, dag, status, queue.EnqueueRetryOptions{
 		TriggerActor: &triggerActor,
 	}); err != nil {
 		if errors.Is(err, queue.ErrRetryStaleLatest) {
@@ -554,7 +554,7 @@ func waitForRetrySourceRelease(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatu
 	}
 	return waitForRetrySourceReleaseFor(
 		ctx.Context,
-		ctx.ProcRepository,
+		ctx.Persistence.ProcRepository,
 		dag,
 		status,
 		retrySourceReleaseTimeout,
@@ -711,16 +711,16 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 			WorkerID:                 opts.workerID,
 			AttemptID:                opts.attemptID,
 			PreparedAttempt:          opts.preparedAttempt,
-			DAGRunRepository:         ctx.DAGRunRepository,
-			QueueStore:               ctx.QueueStore,
-			StateStore:               ctx.StateStore,
-			MaterializationStore:     localMaterializationStore(ctx),
+			DAGRunRepository:         ctx.Persistence.DAGRunRepository,
+			QueueStore:               ctx.Persistence.QueueStore,
+			StateStore:               ctx.Persistence.StateStore,
+			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,
-			ServiceRegistry:          ctx.ServiceRegistry,
+			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:               opts.root,
 			PeerConfig:               ctx.Config.Core.Peer,

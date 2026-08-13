@@ -62,12 +62,12 @@ func runRestart(ctx *Context, args []string) error {
 	if dagRunID != "" {
 		// Retrieve the previous run for the specified dag-run ID.
 		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
-		attempt, err = ctx.DAGRunRepository.FindAttempt(ctx, dagRunRef)
+		attempt, err = ctx.Persistence.DAGRunRepository.FindAttempt(ctx, dagRunRef)
 		if err != nil {
 			return fmt.Errorf("failed to find the run for dag-run ID %s: %w", dagRunID, err)
 		}
 	} else {
-		attempt, err = ctx.DAGRunRepository.LatestAttempt(ctx, name, persis.DAGRunLatestAttemptOptions{})
+		attempt, err = ctx.Persistence.DAGRunRepository.LatestAttempt(ctx, name, persis.DAGRunLatestAttemptOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to find the latest execution history for DAG %s: %w", name, err)
 		}
@@ -133,7 +133,7 @@ func handleRestartProcess(
 			noReuse:      noReuse,
 		},
 		func(execCtx context.Context) (dagrun.Attempt, error) {
-			return ctx.DAGRunRepository.CreateAttempt(execCtx, d, time.Now(), newDagRunID, persis.DAGRunCreateAttemptOptions{})
+			return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, d, time.Now(), newDagRunID, persis.DAGRunCreateAttemptOptions{})
 		},
 		func(preparedAttempt dagrun.Attempt) error {
 			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, definitionID, noReuse, preparedAttempt)
@@ -195,15 +195,15 @@ func executeDAGWithRunID(
 			Dry:                      false,
 			ExtraEnvs:                extraEnvs,
 			PreparedAttempt:          preparedAttempt,
-			DAGRunRepository:         ctx.DAGRunRepository,
-			QueueStore:               ctx.QueueStore,
-			StateStore:               ctx.StateStore,
-			MaterializationStore:     localMaterializationStore(ctx),
+			DAGRunRepository:         ctx.Persistence.DAGRunRepository,
+			QueueStore:               ctx.Persistence.QueueStore,
+			StateStore:               ctx.Persistence.StateStore,
+			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  noReuse,
 			DAGDefinitionID:          definitionID,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
-			ServiceRegistry:          ctx.ServiceRegistry,
+			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,

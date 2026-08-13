@@ -4,6 +4,9 @@
 package cmd_test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -56,6 +59,29 @@ func TestWorkerCommand(t *testing.T) {
 		assert.Contains(t, cli.Long, "Example:")
 		assert.Contains(t, cli.Long, "dagu worker")
 	})
+}
+
+func TestWorkerContextSkipsLocalPersistence(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	blockedProcDir := filepath.Join(home, "blocked-proc")
+	require.NoError(t, os.WriteFile(blockedProcDir, []byte("not a directory"), 0o600))
+	configPath := filepath.Join(home, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, fmt.Appendf(nil, `
+paths:
+  proc_dir: %q
+`, blockedProcDir), 0o600))
+
+	command := cmd.CmdWorker()
+	command.SetContext(t.Context())
+	require.NoError(t, command.Flags().Set("dagu-home", home))
+	require.NoError(t, command.Flags().Set("config", configPath))
+
+	ctx, err := cmd.NewContext(command, nil)
+	require.NoError(t, err)
+	assert.Zero(t, ctx.Persistence)
+	assert.Nil(t, ctx.EventService)
 }
 
 func TestBuildCoordinatorClientConfig(t *testing.T) {

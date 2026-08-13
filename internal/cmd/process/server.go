@@ -9,35 +9,25 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/license"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
-	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 )
 
 // ServerConfig contains the wiring needed to construct the frontend process role.
 type ServerConfig struct {
-	Context              context.Context
-	Config               *config.Config
-	DAGRepository        *persis.DAGRepository
-	DAGRunRepository     *persis.DAGRunRepository
-	Caches               []fileutil.CacheMetrics
-	QueueStore           queue.QueueStore
-	ProcRepository       *persis.ProcRepository
-	DAGRunManager        runtime.Manager
-	ServiceRegistry      serviceregistry.ServiceRegistry
-	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
-	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
-	LicenseManager       *license.Manager
-	ResourceService      *resource.Service
+	Context         context.Context
+	Config          *config.Config
+	Persistence     CorePersistence
+	Caches          []fileutil.CacheMetrics
+	DAGRunManager   runtime.Manager
+	LicenseManager  *license.Manager
+	ResourceService *resource.Service
 }
 
 // NewServer creates the frontend server and process-local telemetry wiring.
@@ -47,15 +37,15 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 		ctx = context.Background()
 	}
 
-	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.ServiceRegistry)
+	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.Persistence.ServiceRegistry)
 	collector := telemetry.NewCollector(
 		config.Version,
-		cfg.DAGRepository,
-		cfg.DAGRunRepository,
-		cfg.QueueStore,
-		cfg.ServiceRegistry,
+		cfg.Persistence.DAGRepository,
+		cfg.Persistence.DAGRunRepository,
+		cfg.Persistence.QueueStore,
+		cfg.Persistence.ServiceRegistry,
 	)
-	collector.SetWorkerHeartbeatStore(cfg.WorkerHeartbeatStore)
+	collector.SetWorkerHeartbeatStore(cfg.Persistence.WorkerHeartbeatStore)
 	for _, cache := range cfg.Caches {
 		collector.RegisterCache(cache)
 	}
@@ -65,11 +55,11 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	if cfg.LicenseManager != nil {
 		opts = append(opts, frontend.WithLicenseManager(cfg.LicenseManager))
 	}
-	if cfg.DAGRunLeaseStore != nil {
-		opts = append(opts, frontend.WithAPIOption(apiv1.WithDAGRunLeaseStore(cfg.DAGRunLeaseStore)))
+	if cfg.Persistence.DAGRunLeaseStore != nil {
+		opts = append(opts, frontend.WithAPIOption(apiv1.WithDAGRunLeaseStore(cfg.Persistence.DAGRunLeaseStore)))
 	}
-	if cfg.WorkerHeartbeatStore != nil {
-		opts = append(opts, frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(cfg.WorkerHeartbeatStore)))
+	if cfg.Persistence.WorkerHeartbeatStore != nil {
+		opts = append(opts, frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(cfg.Persistence.WorkerHeartbeatStore)))
 	}
 	opts = append(opts, frontend.WithAPIOption(apiv1.WithSchedulerStateStore(
 		scheduler.NewWatermarkStore(
@@ -80,16 +70,16 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	return frontend.NewServer(
 		ctx,
 		cfg.Config,
-		cfg.DAGRepository,
-		cfg.DAGRunRepository,
-		cfg.QueueStore,
-		cfg.ProcRepository,
+		cfg.Persistence.DAGRepository,
+		cfg.Persistence.DAGRunRepository,
+		cfg.Persistence.QueueStore,
+		cfg.Persistence.ProcRepository,
 		cfg.DAGRunManager,
 		coordinatorClient,
-		cfg.ServiceRegistry,
+		cfg.Persistence.ServiceRegistry,
 		metricsRegistry,
 		cfg.ResourceService,
-		NewFrontendStoreFactories(),
+		NewFileFrontendStoreFactories(),
 		opts...,
 	)
 }
