@@ -314,7 +314,7 @@ func restoreRetryExecutionContext(
 	repository *persis.DAGRunRepository,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
-	workspaceRef dagrun.DAGRunWorkspaceRef,
+	workspaceRef dagrun.WorkspaceRef,
 ) error {
 	// Most retry inputs are already restored before this point: attempt.ReadDAG
 	// provides the original DAG snapshot, restoreDAGFromStatus restores runtime
@@ -323,7 +323,7 @@ func restoreRetryExecutionContext(
 	return backfillMissingRunWorkingDirSnapshot(ctx, repository, dag, status, workspaceRef)
 }
 
-func retryWorkspaceRef(status *ir.DAGRunStatus, defaultRef, defaultRoot ir.DAGRunRef) dagrun.DAGRunWorkspaceRef {
+func retryWorkspaceRef(status *ir.DAGRunStatus, defaultRef, defaultRoot ir.DAGRunRef) dagrun.WorkspaceRef {
 	ref := defaultRef
 	root := defaultRoot
 	if status != nil {
@@ -340,7 +340,7 @@ func retryWorkspaceRef(status *ir.DAGRunStatus, defaultRef, defaultRoot ir.DAGRu
 	if root.Zero() {
 		root = ref
 	}
-	return dagrun.DAGRunWorkspaceRef{RootDAGRun: root, DAGRun: ref}
+	return dagrun.WorkspaceRef{RootDAGRun: root, DAGRun: ref}
 }
 
 func applyRetryDefaultWorkingDir(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus) error {
@@ -365,7 +365,7 @@ func backfillMissingRunWorkingDirSnapshot(
 	repository *persis.DAGRunRepository,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
-	workspaceRef dagrun.DAGRunWorkspaceRef,
+	workspaceRef dagrun.WorkspaceRef,
 ) error {
 	if dag == nil || status == nil || status.WorkingDir != "" {
 		return nil
@@ -709,10 +709,8 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 			StepRetry:                opts.step,
 			RetryPath:                opts.retryPath,
 			WorkerID:                 opts.workerID,
-			AttemptID:                opts.attemptID,
-			PreparedAttempt:          opts.preparedAttempt,
-			DAGRunRepository:         ctx.Persistence.DAGRunRepository,
-			QueueStore:               ctx.Persistence.QueueStore,
+			AttemptID:                agentAttemptID(opts.attemptID, opts.preparedAttempt),
+			RunStateStore:            persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, opts.preparedAttempt),
 			StateStore:               ctx.Persistence.StateStore,
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,

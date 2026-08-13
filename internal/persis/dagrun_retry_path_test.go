@@ -149,7 +149,7 @@ func resolveRetryPathForChild(
 func newRetryPathRepository(baseDir string) *persis.DAGRunRepository {
 	return persis.NewDAGRunRepository(
 		filedagrun.NewStore(baseDir),
-		filedagrun.NewDAGRunWorkspaceStore(baseDir),
+		filedagrun.NewWorkspaceStore(baseDir),
 		persis.DAGRunRepositoryOptions{LatestStatusToday: true},
 	)
 }

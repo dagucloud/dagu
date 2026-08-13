@@ -94,7 +94,7 @@ func TestLocalCancelReturnsStoredChildAttemptLookupError(t *testing.T) {
 	require.Equal(t, "child-run", store.findRunID)
 }
 
-func TestLocalRetryRejectsMissingRunDatabase(t *testing.T) {
+func TestLocalRetryRejectsMissingRunStateStore(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()

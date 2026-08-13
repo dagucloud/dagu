@@ -280,7 +280,7 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 	attempt, err := api.dagRunRepository.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), "source-run", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	sourceRef := ir.NewDAGRunRef(dag.Name, "source-run")
-	sourceWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.DAGRunWorkspaceRef{DAGRun: sourceRef})
+	sourceWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{DAGRun: sourceRef})
 	require.NoError(t, err)
 	sourceOutputPath := filepath.Join(sourceWorkDir, "result.txt")
 
@@ -304,7 +304,7 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 	require.NoError(t, os.WriteFile(sourceOutputPath, []byte("from-source-work-dir"), 0o600))
 	require.NoError(t, attempt.Write(ctx, status))
 	require.NoError(t, attempt.Close(ctx))
-	require.NoError(t, api.dagRunRepository.SnapshotWorkspace(ctx, dagrun.DAGRunWorkspaceRef{DAGRun: sourceRef}, sourceWorkDir))
+	require.NoError(t, api.dagRunRepository.SnapshotWorkspace(ctx, dagrun.WorkspaceRef{DAGRun: sourceRef}, sourceWorkDir))
 
 	recorder := &retryCoordinatorRecorder{}
 	api.coordinatorCli = recorder
@@ -322,7 +322,7 @@ func TestEditRetryDAGRun_CopiesWorkDirAndRewritesSkippedOutputs(t *testing.T) {
 
 	newAttempt, err := api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "edit-run"))
 	require.NoError(t, err)
-	newWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.DAGRunWorkspaceRef{
+	newWorkDir, err := api.dagRunRepository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{
 		DAGRun: ir.NewDAGRunRef(dag.Name, "edit-run"),
 	})
 	require.NoError(t, err)

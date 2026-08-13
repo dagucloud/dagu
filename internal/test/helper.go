@@ -786,10 +786,9 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	logFile := filepath.Join(d.Config.Paths.LogDir, dagRunID+".log")
 	root := ir.NewDAGRunRef(d.Name, dagRunID)
 
-	if helper.opts.DAGRunRepository == nil {
-		helper.opts.DAGRunRepository = d.DAGRunRepository
+	if helper.opts.RunStateStore == nil {
+		helper.opts.RunStateStore = persis.NewRunStateStore(d.DAGRunRepository, nil)
 	}
-	helper.opts.QueueStore = d.QueueStore
 	helper.opts.ServiceRegistry = d.ServiceRegistry
 	helper.opts.RootDAGRun = root
 	helper.opts.PeerConfig = d.Config.Core.Peer
@@ -801,6 +800,7 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 			DAGRunMgr:         d.DAGRunMgr,
 			DAGRepository:     d.DAGRepository,
 			DAGRunRepository:  d.DAGRunRepository,
+			RunStateStore:     helper.opts.RunStateStore,
 			QueueStore:        d.QueueStore,
 			StateStore:        d.StateStore,
 			SecretStore:       helper.opts.SecretStore,

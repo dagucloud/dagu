@@ -100,10 +100,10 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 	}
 
 	// If not found as local DAG, look it up in the database
-	if rCtx.DB == nil {
+	if rCtx.DAGLoader == nil {
 		return nil, fmt.Errorf("cannot resolve sub-DAG %q: no local DAG store available (hint: parent DAG was dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, persis.ErrDAGNotFound)
 	}
-	dag, err := rCtx.DB.GetDAG(ctx, childName)
+	dag, err := rCtx.DAGLoader.GetDAG(ctx, childName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find DAG %q: %w", childName, err)
 	}
@@ -388,18 +388,22 @@ func (e *SubDAGExecutor) Stop(intent cmdutil.TerminationIntent) error {
 					tag.SubDAG(e.DAG.Name),
 				)
 			}
-		} else if e.dagCtx.DB != nil {
-			if err := e.dagCtx.DB.RequestChildCancel(ctx, run.runID, e.dagCtx.RootDAGRun); err != nil {
+		} else if e.dagCtx.RunStateStore != nil {
+			attempt, err := e.dagCtx.RunStateStore.OpenChildAttempt(ctx, e.dagCtx.RootDAGRun, run.runID)
+			if err == nil {
+				err = attempt.RequestCancel(ctx)
+			}
+			if err != nil {
 				if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 					errs = append(errs, err)
-					logger.Warn(ctx, "Failed to request child cancel via local DB",
+					logger.Warn(ctx, "Failed to request child DAG cancellation",
 						tag.SubRunID(run.runID),
 						tag.SubDAG(e.DAG.Name),
 						tag.Error(err),
 					)
 				}
 			} else {
-				logger.Info(ctx, "Requested sub DAG cancellation via local DB",
+				logger.Info(ctx, "Requested sub DAG cancellation",
 					tag.SubRunID(run.runID),
 					tag.SubDAG(e.DAG.Name),
 				)

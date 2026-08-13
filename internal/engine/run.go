@@ -442,6 +442,15 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 	}
 
 	stores := e.runtimeStores(ctx)
+	attempt := preparedAttempt(prepared)
+	runStateStore := e.runStateStore
+	if runStateStore == nil {
+		runStateStore = persis.NewRunStateStore(e.dagRunRepository, attempt)
+	}
+	attemptID := ""
+	if attempt != nil {
+		attemptID = attempt.ID()
+	}
 	agentInstance := rtagent.New(
 		runID,
 		dag,
@@ -452,9 +461,8 @@ func (e *Engine) runLocal(ctx context.Context, dag *ir.DAG, runID string, opts R
 		rtagent.Options{
 			Dry:                      opts.DryRun,
 			WorkerID:                 "local",
-			PreparedAttempt:          preparedAttempt(prepared),
-			RunStateStore:            e.runStateStore,
-			DAGRunRepository:         e.dagRunRepository,
+			AttemptID:                attemptID,
+			RunStateStore:            runStateStore,
 			StateStore:               e.stateStore,
 			MaterializationStore:     stores.MaterializationStore,
 			NoReuse:                  opts.NoReuse,

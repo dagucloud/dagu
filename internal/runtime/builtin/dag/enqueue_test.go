@@ -13,10 +13,12 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator/subflow"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,12 +51,11 @@ func TestEnqueueExecutorPersistsInheritedProfile(t *testing.T) {
 		parentRun.ID,
 		filepath.Join(th.Config.Paths.LogDir, "parent.log"),
 		runtime.WithRootDAGRun(parentRun),
-		runtime.WithDAGRunRepository(th.DAGRunRepository),
-		runtime.WithQueueStore(th.QueueStore),
 		runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
 		runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),
 		runtime.WithRuntimeProfile("prod", "", nil),
 	)
+	ctx = withEnqueuer(ctx, th.DAGRunRepository, th.QueueStore, th.Config)
 
 	step := ir.Step{
 		Name:           "enqueue-child",
@@ -111,11 +112,10 @@ func TestEnqueueWorkerSelector(t *testing.T) {
 		parentRun.ID,
 		filepath.Join(th.Config.Paths.LogDir, "parent.log"),
 		runtime.WithRootDAGRun(parentRun),
-		runtime.WithDAGRunRepository(th.DAGRunRepository),
-		runtime.WithQueueStore(th.QueueStore),
 		runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
 		runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),
 	)
+	ctx = withEnqueuer(ctx, th.DAGRunRepository, th.QueueStore, th.Config)
 
 	step := ir.Step{
 		Name:           "enqueue-child",
@@ -169,9 +169,8 @@ func TestSubDAGExecutorsRejectHumanTasks(t *testing.T) {
 		root.ID,
 		"",
 		runtime.WithRootDAGRun(root),
-		runtime.WithDAGRunRepository(th.DAGRunRepository),
-		runtime.WithQueueStore(th.QueueStore),
 	)
+	ctx = withEnqueuer(ctx, th.DAGRunRepository, th.QueueStore, th.Config)
 
 	for _, step := range []ir.Step{
 		{
@@ -231,11 +230,10 @@ func TestEnqueueExecutorParallelHonorsMaxConcurrent(t *testing.T) {
 		parentRun.ID,
 		filepath.Join(th.Config.Paths.LogDir, "parent.log"),
 		runtime.WithRootDAGRun(parentRun),
-		runtime.WithDAGRunRepository(th.DAGRunRepository),
-		runtime.WithQueueStore(queueStore),
 		runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
 		runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),
 	)
+	ctx = withEnqueuer(ctx, th.DAGRunRepository, queueStore, th.Config)
 
 	step := ir.Step{
 		Name:           "enqueue-child",
@@ -295,6 +293,22 @@ func enqueueConcurrencyWaitTimeout(t *testing.T) time.Duration {
 		}
 	}
 	return timeout
+}
+
+func withEnqueuer(
+	ctx context.Context,
+	repository *persis.DAGRunRepository,
+	queueStore queue.QueueStore,
+	cfg *config.Config,
+) context.Context {
+	runner := subflow.NewLocal(
+		runtime.Manager{},
+		nil,
+		subflow.WithLocalDAGRunRepository(repository),
+		subflow.WithLocalQueueStore(queueStore),
+		subflow.WithLocalDAGRunDirs(cfg.Paths.LogDir, cfg.Paths.ArtifactDir),
+	)
+	return executor.WithSubWorkflowRunner(ctx, runner)
 }
 
 type recordingQueueStore struct {

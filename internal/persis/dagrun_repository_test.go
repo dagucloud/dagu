@@ -186,13 +186,13 @@ func TestRepositoryCleansWorkspacesAfterRunMetadata(t *testing.T) {
 			ir.NewDAGRunRef("daily", "run-2"),
 		},
 	}
-	workspaces := &recordingDAGRunWorkspaceStore{removeErr: workspaceErr}
+	workspaces := &recordingWorkspaceStore{removeErr: workspaceErr}
 	repository := persis.NewDAGRunRepository(backend, workspaces, persis.DAGRunRepositoryOptions{})
 
 	removed, err := repository.RemoveOldDAGRuns(context.Background(), "daily", 7, persis.DAGRunRetentionOptions{})
 	assert.Equal(t, []string{"run-1", "run-2"}, removed)
 	require.ErrorIs(t, err, workspaceErr)
-	assert.Equal(t, []dagrun.DAGRunWorkspaceRef{
+	assert.Equal(t, []dagrun.WorkspaceRef{
 		{RootDAGRun: ir.NewDAGRunRef("daily", "run-1"), DAGRun: ir.NewDAGRunRef("daily", "run-1")},
 		{RootDAGRun: ir.NewDAGRunRef("daily", "run-2"), DAGRun: ir.NewDAGRunRef("daily", "run-2")},
 	}, workspaces.removed)
@@ -204,7 +204,7 @@ func TestRepositoryRetentionDryRunDoesNotRemoveWorkspaces(t *testing.T) {
 	backend := &recordingDAGRunStore{
 		removedRefs: []ir.DAGRunRef{ir.NewDAGRunRef("daily", "run-1")},
 	}
-	workspaces := &recordingDAGRunWorkspaceStore{}
+	workspaces := &recordingWorkspaceStore{}
 	repository := persis.NewDAGRunRepository(backend, workspaces, persis.DAGRunRepositoryOptions{})
 
 	removed, err := repository.RemoveOldDAGRuns(context.Background(), "daily", 7, persis.DAGRunRetentionOptions{DryRun: true})
@@ -261,20 +261,20 @@ func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, req persis.DA
 	return s.removedRefs, nil
 }
 
-type recordingDAGRunWorkspaceStore struct {
-	removed   []dagrun.DAGRunWorkspaceRef
+type recordingWorkspaceStore struct {
+	removed   []dagrun.WorkspaceRef
 	removeErr error
 }
 
-func (*recordingDAGRunWorkspaceStore) Materialize(context.Context, dagrun.DAGRunWorkspaceRef) (string, error) {
+func (*recordingWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
 	return "", nil
 }
 
-func (*recordingDAGRunWorkspaceStore) Snapshot(context.Context, dagrun.DAGRunWorkspaceRef, string) error {
+func (*recordingWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
 	return nil
 }
 
-func (s *recordingDAGRunWorkspaceStore) Remove(_ context.Context, ref dagrun.DAGRunWorkspaceRef) error {
+func (s *recordingWorkspaceStore) Remove(_ context.Context, ref dagrun.WorkspaceRef) error {
 	s.removed = append(s.removed, ref)
 	return s.removeErr
 }

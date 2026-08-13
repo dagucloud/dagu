@@ -241,10 +241,10 @@ func resolveChildDAG(ctx context.Context, dag *ir.DAG, name string) *ir.DAG {
 	}
 
 	rCtx := runctx.GetContext(ctx)
-	if rCtx.DB == nil {
+	if rCtx.DAGLoader == nil {
 		return nil
 	}
-	child, err := rCtx.DB.GetDAG(ctx, name)
+	child, err := rCtx.DAGLoader.GetDAG(ctx, name)
 	if err != nil {
 		return nil
 	}

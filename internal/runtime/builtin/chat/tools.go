@@ -61,11 +61,11 @@ func NewToolRegistry(ctx context.Context, dagNames []string) (*ToolRegistry, err
 
 		// If not found locally, fall back to database lookup
 		if dag == nil {
-			if rCtx.DB == nil {
+			if rCtx.DAGLoader == nil {
 				return nil, fmt.Errorf("database not available in context and tool DAG %q not found in local DAGs", dagName)
 			}
 			var err error
-			dag, err = rCtx.DB.GetDAG(ctx, dagName)
+			dag, err = rCtx.DAGLoader.GetDAG(ctx, dagName)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load tool DAG %q: %w", dagName, err)
 			}

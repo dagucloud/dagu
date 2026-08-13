@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -90,8 +91,7 @@ func runDry(ctx *Context, args []string) error {
 		dagRepository,
 		agent.Options{
 			Dry:                      true,
-			DAGRunRepository:         ctx.Persistence.DAGRunRepository,
-			QueueStore:               ctx.Persistence.QueueStore,
+			RunStateStore:            persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, nil),
 			StateStore:               ctx.Persistence.StateStore,
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  noReuse,

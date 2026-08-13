@@ -3,10 +3,21 @@
 
 package dagrun
 
-import "github.com/dagucloud/dagu/v2/internal/ir"
+import (
+	"context"
 
-// DAGRunWorkspaceRef identifies the execution workspace belonging to a DAG run.
-type DAGRunWorkspaceRef struct {
+	"github.com/dagucloud/dagu/v2/internal/ir"
+)
+
+// WorkspaceStore manages durable execution workspaces for DAG runs.
+type WorkspaceStore interface {
+	Materialize(ctx context.Context, ref WorkspaceRef) (string, error)
+	Snapshot(ctx context.Context, ref WorkspaceRef, localDir string) error
+	Remove(ctx context.Context, ref WorkspaceRef) error
+}
+
+// WorkspaceRef identifies the execution workspace belonging to a DAG run.
+type WorkspaceRef struct {
 	RootDAGRun ir.DAGRunRef
 	DAGRun     ir.DAGRunRef
 }

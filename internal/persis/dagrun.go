@@ -29,13 +29,6 @@ type DAGRunStore interface {
 	RemoveDAGRun(ctx context.Context, req DAGRunRemoveRequest) error
 }
 
-// DAGRunWorkspaceStore manages durable execution workspaces for DAG runs.
-type DAGRunWorkspaceStore interface {
-	Materialize(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) (string, error)
-	Snapshot(ctx context.Context, ref dagrun.DAGRunWorkspaceRef, localDir string) error
-	Remove(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) error
-}
-
 // DAGRunStatusQuery contains normalized backend filters for listing runs.
 // Limit is zero for an unbounded query and positive otherwise.
 type DAGRunStatusQuery struct {

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package runstate_test
+package persis_test
 
 import (
 	"context"
@@ -18,13 +18,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 )
 
-func TestHistoryStoreBeginAttemptUsesPreparedAttempt(t *testing.T) {
+func TestRunStateStoreBeginAttemptUsesPreparedAttempt(t *testing.T) {
 	ctx := context.Background()
 	dag := &ir.DAG{Name: "parent"}
 	attempt := newRecordingAttempt("attempt-1")
-	store := &recordingDAGRunStore{}
+	store := &recordingRunStateBackend{}
 
-	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store), runstate.WithPreparedAttempt(attempt))
+	stateStore := persis.NewRunStateStore(testDAGRunRepository(store), attempt)
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:       dag,
 		RunID:     "run-1",
@@ -37,12 +37,12 @@ func TestHistoryStoreBeginAttemptUsesPreparedAttempt(t *testing.T) {
 	require.Zero(t, store.createCalls)
 }
 
-func TestHistoryStoreBeginAttemptRejectsPreparedAttemptIDMismatch(t *testing.T) {
+func TestRunStateStoreBeginAttemptRejectsPreparedAttemptIDMismatch(t *testing.T) {
 	ctx := context.Background()
 	attempt := newRecordingAttempt("prepared-attempt")
-	store := &recordingDAGRunStore{}
+	store := &recordingRunStateBackend{}
 
-	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store), runstate.WithPreparedAttempt(attempt))
+	stateStore := persis.NewRunStateStore(testDAGRunRepository(store), attempt)
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:       &ir.DAG{Name: "parent"},
 		RunID:     "run-1",
@@ -54,10 +54,10 @@ func TestHistoryStoreBeginAttemptRejectsPreparedAttemptIDMismatch(t *testing.T) 
 	require.Zero(t, store.createCalls)
 }
 
-func TestHistoryStoreBeginAttemptUsesNoopAttemptWhenStoreMissing(t *testing.T) {
+func TestNoopRunStateStoreBeginsAttempt(t *testing.T) {
 	ctx := context.Background()
 
-	stateStore := runstate.NewHistoryStore(nil)
+	stateStore := runstate.NewNoopStore()
 	attempt, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:       &ir.DAG{Name: "parent"},
 		RunID:     "run-1",
@@ -68,14 +68,14 @@ func TestHistoryStoreBeginAttemptUsesNoopAttemptWhenStoreMissing(t *testing.T) {
 	require.Equal(t, "attempt-1", attempt.ID())
 }
 
-func TestHistoryStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T) {
+func TestRunStateStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T) {
 	ctx := context.Background()
 	dag := &ir.DAG{Name: "parent", HistRetentionRuns: 3}
-	store := &recordingDAGRunStore{
+	store := &recordingRunStateBackend{
 		createAttempt: newRecordingAttempt("attempt-2"),
 	}
 
-	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store))
+	stateStore := persis.NewRunStateStore(testDAGRunRepository(store), nil)
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:        dag,
 		RunID:      "run-2",
@@ -95,13 +95,13 @@ func TestHistoryStoreBeginAttemptCreatesAttemptAndAppliesRetention(t *testing.T)
 	require.Equal(t, 3, store.removeOldCalls[0].KeepRuns)
 }
 
-func TestHistoryStoreBeginAttemptOmitsRootDAGRunForRootAttempt(t *testing.T) {
+func TestRunStateStoreBeginAttemptOmitsRootDAGRunForRootAttempt(t *testing.T) {
 	ctx := context.Background()
-	store := &recordingDAGRunStore{
+	store := &recordingRunStateBackend{
 		createAttempt: newRecordingAttempt("attempt-1"),
 	}
 
-	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store))
+	stateStore := persis.NewRunStateStore(testDAGRunRepository(store), nil)
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:        &ir.DAG{Name: "parent"},
 		RunID:      "root-run",
@@ -113,15 +113,15 @@ func TestHistoryStoreBeginAttemptOmitsRootDAGRunForRootAttempt(t *testing.T) {
 	require.True(t, store.createOpts.RootDAGRun.Zero())
 }
 
-func TestHistoryStoreBeginAttemptIgnoresRetentionCleanupFailure(t *testing.T) {
+func TestRunStateStoreBeginAttemptIgnoresRetentionCleanupFailure(t *testing.T) {
 	ctx := context.Background()
 	dag := &ir.DAG{Name: "parent", HistRetentionDays: 7}
-	store := &recordingDAGRunStore{
+	store := &recordingRunStateBackend{
 		createAttempt: newRecordingAttempt("attempt-1"),
 		removeOldErr:  errors.New("cleanup failed"),
 	}
 
-	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store))
+	stateStore := persis.NewRunStateStore(testDAGRunRepository(store), nil)
 	got, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:   dag,
 		RunID: "run-1",
@@ -131,19 +131,19 @@ func TestHistoryStoreBeginAttemptIgnoresRetentionCleanupFailure(t *testing.T) {
 	require.Equal(t, "attempt-1", got.ID())
 	require.Equal(t, 1, store.createCalls)
 	require.Len(t, store.removeOldCalls, 1)
-	require.Equal(t, persis.NewUTC(historyStoreNow.AddDate(0, 0, -7)), store.removeOldCalls[0].OlderThan)
+	require.Equal(t, persis.NewUTC(runStateStoreNow.AddDate(0, 0, -7)), store.removeOldCalls[0].OlderThan)
 }
 
-func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
+func TestRunStateStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
 	ctx := context.Background()
 	status := &ir.DAGRunStatus{Name: "child", DAGRunID: "child-run", Status: ir.Succeeded}
 	attempt := newRecordingAttempt("child-attempt")
 	attempt.status = status
-	store := &recordingDAGRunStore{
+	store := &recordingRunStateBackend{
 		subAttempt: attempt,
 	}
 
-	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store))
+	stateStore := persis.NewRunStateStore(testDAGRunRepository(store), nil)
 	child, err := stateStore.OpenChildAttempt(ctx, ir.NewDAGRunRef("root", "root-run"), "child-run")
 	require.NoError(t, err)
 
@@ -158,10 +158,10 @@ func TestHistoryStoreOpenChildAttemptReturnsAttemptState(t *testing.T) {
 func TestAttemptDelegatesStateOperations(t *testing.T) {
 	ctx := context.Background()
 	attempt := newRecordingAttempt("attempt-1")
-	store := &recordingDAGRunStore{
+	store := &recordingRunStateBackend{
 		createAttempt: attempt,
 	}
-	stateStore := runstate.NewHistoryStore(testDAGRunRepository(store))
+	stateStore := persis.NewRunStateStore(testDAGRunRepository(store), nil)
 	stateAttempt, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
 		DAG:   &ir.DAG{Name: "parent"},
 		RunID: "run-1",
@@ -190,7 +190,7 @@ func TestAttemptDelegatesStateOperations(t *testing.T) {
 	require.Equal(t, 1, attempt.closeCalls)
 }
 
-type recordingDAGRunStore struct {
+type recordingRunStateBackend struct {
 	testutil.DAGRunStoreStub
 	createAttempt  dagrun.Attempt
 	subAttempt     dagrun.Attempt
@@ -201,7 +201,7 @@ type recordingDAGRunStore struct {
 	removeOldCalls []persis.DAGRunRetentionRequest
 }
 
-func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
+func (s *recordingRunStateBackend) CreateAttempt(_ context.Context, req persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	s.createCalls++
 	s.createRunID = req.DAGRunID
 	s.createOpts = persis.DAGRunCreateAttemptOptions{
@@ -216,23 +216,23 @@ func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRu
 	return s.createAttempt, nil
 }
 
-func (s *recordingDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.Attempt, error) {
+func (s *recordingRunStateBackend) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.Attempt, error) {
 	if s.subAttempt == nil {
 		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return s.subAttempt, nil
 }
 
-func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, req persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
+func (s *recordingRunStateBackend) RemoveOldDAGRuns(_ context.Context, req persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
 	s.removeOldCalls = append(s.removeOldCalls, req)
 	return nil, s.removeOldErr
 }
 
-var historyStoreNow = time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+var runStateStoreNow = time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 
 func testDAGRunRepository(backend persis.DAGRunStore) *persis.DAGRunRepository {
 	return persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{
-		Now: func() time.Time { return historyStoreNow },
+		Now: func() time.Time { return runStateStoreNow },
 	})
 }
 

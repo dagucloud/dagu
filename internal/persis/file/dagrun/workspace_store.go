@@ -14,22 +14,21 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-var _ persis.DAGRunWorkspaceStore = (*DAGRunWorkspaceStore)(nil)
+var _ dagrun.WorkspaceStore = (*WorkspaceStore)(nil)
 
-// DAGRunWorkspaceStore manages DAG-run workspaces in the local run directory tree.
-type DAGRunWorkspaceStore struct {
+// WorkspaceStore manages DAG-run workspaces in the local run directory tree.
+type WorkspaceStore struct {
 	baseDir string
 }
 
-// NewDAGRunWorkspaceStore creates a file-backed DAG-run workspace store.
-func NewDAGRunWorkspaceStore(baseDir string) *DAGRunWorkspaceStore {
-	return &DAGRunWorkspaceStore{baseDir: baseDir}
+// NewWorkspaceStore creates a file-backed DAG-run workspace store.
+func NewWorkspaceStore(baseDir string) *WorkspaceStore {
+	return &WorkspaceStore{baseDir: baseDir}
 }
 
-func (s *DAGRunWorkspaceStore) Materialize(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) (string, error) {
+func (s *WorkspaceStore) Materialize(ctx context.Context, ref dagrun.WorkspaceRef) (string, error) {
 	dir, err := s.workspaceDir(ctx, ref)
 	if err != nil {
 		return "", err
@@ -40,11 +39,11 @@ func (s *DAGRunWorkspaceStore) Materialize(ctx context.Context, ref dagrun.DAGRu
 	return dir, nil
 }
 
-func (*DAGRunWorkspaceStore) Snapshot(context.Context, dagrun.DAGRunWorkspaceRef, string) error {
+func (*WorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
 	return nil
 }
 
-func (s *DAGRunWorkspaceStore) Remove(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) error {
+func (s *WorkspaceStore) Remove(ctx context.Context, ref dagrun.WorkspaceRef) error {
 	dir, err := s.workspaceDir(ctx, ref)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
@@ -58,7 +57,7 @@ func (s *DAGRunWorkspaceStore) Remove(ctx context.Context, ref dagrun.DAGRunWork
 	return nil
 }
 
-func (s *DAGRunWorkspaceStore) workspaceDir(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) (string, error) {
+func (s *WorkspaceStore) workspaceDir(ctx context.Context, ref dagrun.WorkspaceRef) (string, error) {
 	root := NewDataRoot(s.baseDir, ref.RootDAGRun.Name)
 	run, err := root.FindByDAGRunID(ctx, ref.RootDAGRun.ID)
 	if err != nil {

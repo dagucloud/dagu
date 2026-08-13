@@ -10,7 +10,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -28,11 +27,7 @@ func (m *mockDAGLoader) GetDetails(ctx context.Context, fileName string, opts pe
 	return args.Get(0).(*ir.DAG), args.Error(1)
 }
 
-type mockDAGRunStore struct {
-	testutil.DAGRunStoreStub
-}
-
-func TestDBClient_GetDAG(t *testing.T) {
+func TestDAGLoaderFallbacks(t *testing.T) {
 	testDAG := &ir.DAG{Name: "test-dag"}
 
 	setupMockLoader := func(name string, dag *ir.DAG, err error) *mockDAGLoader {
@@ -138,10 +133,9 @@ func TestDBClient_GetDAG(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			mockDRS := new(mockDAGRunStore)
-			client := newDBClient(persis.NewDAGRunRepository(mockDRS, nil, persis.DAGRunRepositoryOptions{}), tt.dagLoader, tt.remoteLoader)
+			loader := newDAGLoader(tt.dagLoader, tt.remoteLoader)
 
-			dag, err := client.GetDAG(ctx, "test-dag")
+			dag, err := loader.GetDAG(ctx, "test-dag")
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -160,12 +154,4 @@ func TestDBClient_GetDAG(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestDBClientRequestChildCancelRequiresDAGRunRepository(t *testing.T) {
-	t.Parallel()
-
-	client := newDBClient(nil, nil, nil)
-	err := client.RequestChildCancel(context.Background(), "child-run", ir.NewDAGRunRef("root", "root-run"))
-	require.EqualError(t, err, "DAG-run repository is not configured")
 }

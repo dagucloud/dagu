@@ -20,6 +20,26 @@ type SubWorkflowRunner interface {
 	Cancel(ctx context.Context, req SubWorkflowCancelRequest) error
 }
 
+// Enqueuer admits child workflows to the control-plane queue.
+type Enqueuer interface {
+	Enqueue(ctx context.Context, req EnqueueRequest) (EnqueueResult, error)
+}
+
+// EnqueueRequest describes a child workflow queue admission.
+type EnqueueRequest struct {
+	DAG          *ir.DAG
+	RunID        string
+	QueueName    string
+	ProfileName  string
+	TriggerActor string
+}
+
+// EnqueueResult describes the persisted state after queue admission.
+type EnqueueResult struct {
+	Status        ir.Status
+	AlreadyExists bool
+}
+
 // SubWorkflowRequest describes a child workflow invocation.
 type SubWorkflowRequest struct {
 	DAG               *ir.DAG

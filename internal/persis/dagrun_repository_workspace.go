@@ -11,49 +11,49 @@ import (
 )
 
 // MaterializeWorkspace makes a DAG-run workspace available locally.
-func (r *DAGRunRepository) MaterializeWorkspace(ctx context.Context, ref dagrun.DAGRunWorkspaceRef) (string, error) {
+func (r *DAGRunRepository) MaterializeWorkspace(ctx context.Context, ref dagrun.WorkspaceRef) (string, error) {
 	normalized, err := normalizeWorkspaceRef(ref)
 	if err != nil {
 		return "", err
 	}
-	return r.dagRunWorkspaces.Materialize(ctx, normalized)
+	return r.workspaces.Materialize(ctx, normalized)
 }
 
 // SnapshotWorkspace persists the current state of a DAG-run workspace.
-func (r *DAGRunRepository) SnapshotWorkspace(ctx context.Context, ref dagrun.DAGRunWorkspaceRef, localDir string) error {
+func (r *DAGRunRepository) SnapshotWorkspace(ctx context.Context, ref dagrun.WorkspaceRef, localDir string) error {
 	normalized, err := normalizeWorkspaceRef(ref)
 	if err != nil {
 		return err
 	}
-	return r.dagRunWorkspaces.Snapshot(ctx, normalized, localDir)
+	return r.workspaces.Snapshot(ctx, normalized, localDir)
 }
 
-type noopDAGRunWorkspaceStore struct{}
+type noopWorkspaceStore struct{}
 
-func (noopDAGRunWorkspaceStore) Materialize(context.Context, dagrun.DAGRunWorkspaceRef) (string, error) {
+func (noopWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
 	return "", nil
 }
 
-func (noopDAGRunWorkspaceStore) Snapshot(context.Context, dagrun.DAGRunWorkspaceRef, string) error {
+func (noopWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
 	return nil
 }
 
-func (noopDAGRunWorkspaceStore) Remove(context.Context, dagrun.DAGRunWorkspaceRef) error {
+func (noopWorkspaceStore) Remove(context.Context, dagrun.WorkspaceRef) error {
 	return nil
 }
 
-func normalizeWorkspaceRef(ref dagrun.DAGRunWorkspaceRef) (dagrun.DAGRunWorkspaceRef, error) {
+func normalizeWorkspaceRef(ref dagrun.WorkspaceRef) (dagrun.WorkspaceRef, error) {
 	if ref.DAGRun.ID == "" {
-		return dagrun.DAGRunWorkspaceRef{}, dagrun.ErrDAGRunIDEmpty
+		return dagrun.WorkspaceRef{}, dagrun.ErrDAGRunIDEmpty
 	}
 	if ref.RootDAGRun.Zero() {
 		ref.RootDAGRun = ref.DAGRun
 	}
 	if ref.RootDAGRun.ID == "" {
-		return dagrun.DAGRunWorkspaceRef{}, dagrun.ErrDAGRunIDEmpty
+		return dagrun.WorkspaceRef{}, dagrun.ErrDAGRunIDEmpty
 	}
 	if ref.RootDAGRun.Name == "" {
-		return dagrun.DAGRunWorkspaceRef{}, fmt.Errorf(
+		return dagrun.WorkspaceRef{}, fmt.Errorf(
 			"missing root dag-run name for workspace %s",
 			ref.DAGRun.ID,
 		)

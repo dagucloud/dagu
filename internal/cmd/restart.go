@@ -194,9 +194,8 @@ func executeDAGWithRunID(
 		agent.Options{
 			Dry:                      false,
 			ExtraEnvs:                extraEnvs,
-			PreparedAttempt:          preparedAttempt,
-			DAGRunRepository:         ctx.Persistence.DAGRunRepository,
-			QueueStore:               ctx.Persistence.QueueStore,
+			AttemptID:                agentAttemptID("", preparedAttempt),
+			RunStateStore:            persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, preparedAttempt),
 			StateStore:               ctx.Persistence.StateStore,
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  noReuse,

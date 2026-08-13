@@ -23,6 +23,7 @@ type Router struct {
 }
 
 var _ executor.SubWorkflowRunner = (*Router)(nil)
+var _ executor.Enqueuer = (*Router)(nil)
 
 // NewRouter creates a child workflow runner that tries runners in order.
 func NewRouter(runners ...executor.SubWorkflowRunner) *Router {
@@ -63,6 +64,16 @@ func (r *Router) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest
 	r.remember(req.RunID, runner)
 	defer r.forget(req.RunID)
 	return runner.Retry(ctx, req)
+}
+
+// Enqueue delegates queue admission to the first runner that supports it.
+func (r *Router) Enqueue(ctx context.Context, req executor.EnqueueRequest) (executor.EnqueueResult, error) {
+	for _, runner := range r.runners {
+		if enqueuer, ok := runner.(executor.Enqueuer); ok {
+			return enqueuer.Enqueue(ctx, req)
+		}
+	}
+	return executor.EnqueueResult{}, errNoMatchingRunner
 }
 
 // Cancel routes cancellation to the runner that owns req.RunID.

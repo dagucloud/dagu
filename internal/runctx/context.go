@@ -9,18 +9,16 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
-	"github.com/dagucloud/dagu/v2/internal/persis"
-
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
 
 // Context contains the execution metadata for a dag-run.
@@ -34,12 +32,11 @@ type Context struct {
 	RunStartedAt         string
 	ScheduleTime         string
 	DAG                  *ir.DAG
-	DB                   Database
+	DAGLoader            DAGLoader
 	BaseEnv              *config.BaseEnv
 	EnvScope             *cmnvalue.EnvScope // Unified environment scope for runtime variables
 	CoordinatorCli       dispatch.Dispatcher
-	DAGRunRepository     *persis.DAGRunRepository
-	QueueStore           queue.QueueStore
+	RunStateStore        runstate.Store
 	StateStore           dagrun.StateStore
 	MaterializationStore build.MaterializationStore
 	DAGRunLogDir         string
@@ -95,13 +92,9 @@ func (e Context) AllEnvs() []string {
 	return e.EnvScope.ToSlice()
 }
 
-// Database is the interface for accessing the database to retrieve DAGs and dag-run statuses.
-// This interface abstracts the underlying storage mechanism, allowing for different implementations (e.g., SQL, NoSQL, in-memory).
-type Database interface {
-	// GetDAG retrieves a DAG by its name.
+// DAGLoader loads DAG definitions needed during execution.
+type DAGLoader interface {
 	GetDAG(ctx context.Context, name string) (*ir.DAG, error)
-	// RequestChildCancel requests cancellation of a sub dag-run.
-	RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun ir.DAGRunRef) error
 }
 
 // contextOptions holds optional configuration for NewContext.
@@ -125,10 +118,10 @@ type contextOptions struct {
 // ContextOption configures optional parameters for NewContext.
 type ContextOption func(*contextOptions)
 
-// WithDatabase sets the database interface.
-func WithDatabase(db Database) ContextOption {
+// WithDAGLoader sets the DAG loader.
+func WithDAGLoader(loader DAGLoader) ContextOption {
 	return func(o *contextOptions) {
-		o.DB = db
+		o.DAGLoader = loader
 	}
 }
 
@@ -245,17 +238,10 @@ func WithDefaultExecMode(mode config.ExecutionMode) ContextOption {
 	}
 }
 
-// WithDAGRunRepository sets the DAG-run repository for executors that persist DAG runs.
-func WithDAGRunRepository(repository *persis.DAGRunRepository) ContextOption {
+// WithRunStateStore sets the execution-state store.
+func WithRunStateStore(store runstate.Store) ContextOption {
 	return func(o *contextOptions) {
-		o.DAGRunRepository = repository
-	}
-}
-
-// WithQueueStore sets the queue store for executors that enqueue DAG runs.
-func WithQueueStore(store queue.QueueStore) ContextOption {
-	return func(o *contextOptions) {
-		o.QueueStore = store
+		o.RunStateStore = store
 	}
 }
 
@@ -319,7 +305,7 @@ func WithRuntimeProfile(name, resolvedAt string, entries []ir.RuntimeProfileEntr
 
 // NewContext creates a new context with DAG execution metadata.
 // Required: ctx, dag, dagRunID, logFile
-// Optional: use ContextOption functions (WithDatabase, WithParams, etc.)
+// Optional: use ContextOption functions (WithDAGLoader, WithParams, etc.)
 func NewContext(
 	ctx context.Context,
 	dag *ir.DAG,

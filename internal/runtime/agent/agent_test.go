@@ -331,7 +331,7 @@ func TestAgent_Run(t *testing.T) {
 `)
 		runID := "snapshot-failure"
 		snapshotErr := errors.New("snapshot unavailable")
-		workspaces := &failingDAGRunWorkspaceStore{dir: t.TempDir(), snapshotErr: snapshotErr}
+		workspaces := &failingWorkspaceStore{dir: t.TempDir(), snapshotErr: snapshotErr}
 		repository := persis.NewDAGRunRepository(
 			filedagrun.NewStore(th.Config.Paths.DAGRunsDir),
 			workspaces,
@@ -340,7 +340,7 @@ func TestAgent_Run(t *testing.T) {
 		dagAgent := dag.Agent(
 			test.WithDAGRunID(runID),
 			test.WithAgentOptions(agent.Options{
-				DAGRunRepository:    repository,
+				RunStateStore:       persis.NewRunStateStore(repository, nil),
 				SocketServerFactory: fakeSocketServerFactory(nil),
 			}),
 		)
@@ -1715,21 +1715,21 @@ func subDAGVisibleTimeout() time.Duration {
 	return 10 * time.Second
 }
 
-type failingDAGRunWorkspaceStore struct {
+type failingWorkspaceStore struct {
 	dir           string
 	snapshotErr   error
 	snapshotCalls int
 }
 
-func (s *failingDAGRunWorkspaceStore) Materialize(context.Context, dagrun.DAGRunWorkspaceRef) (string, error) {
+func (s *failingWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
 	return s.dir, nil
 }
 
-func (s *failingDAGRunWorkspaceStore) Snapshot(context.Context, dagrun.DAGRunWorkspaceRef, string) error {
+func (s *failingWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
 	s.snapshotCalls++
 	return s.snapshotErr
 }
 
-func (*failingDAGRunWorkspaceStore) Remove(context.Context, dagrun.DAGRunWorkspaceRef) error {
+func (*failingWorkspaceStore) Remove(context.Context, dagrun.WorkspaceRef) error {
 	return nil
 }

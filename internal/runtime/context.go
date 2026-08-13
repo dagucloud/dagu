@@ -16,8 +16,8 @@ import (
 type (
 	// Context is an alias for execution.Context
 	Context = runctx.Context
-	// Database is an alias for execution.Database
-	Database = runctx.Database
+	// DAGLoader is an alias for runctx.DAGLoader.
+	DAGLoader = runctx.DAGLoader
 	// Dispatcher is an alias for execution.Dispatcher
 	Dispatcher = dispatch.Dispatcher
 	// RunStatus is an alias for execution.RunStatus
@@ -32,8 +32,8 @@ var (
 	NewContext = runctx.NewContext
 	// LookupDAGContext returns the DAG execution metadata when it is present.
 	LookupDAGContext = runctx.LookupContext
-	// WithDatabase sets the database interface.
-	WithDatabase = runctx.WithDatabase
+	// WithDAGLoader sets the DAG loader.
+	WithDAGLoader = runctx.WithDAGLoader
 	// WithRootDAGRun sets the root DAG run reference for sub-DAG execution.
 	WithRootDAGRun = runctx.WithRootDAGRun
 	// WithRetryPath sets a targeted child DAG retry path.
@@ -66,10 +66,8 @@ var (
 	WithLogWriterFactory = runctx.WithLogWriterFactory
 	// WithDefaultExecMode sets the server-level default execution mode.
 	WithDefaultExecMode = runctx.WithDefaultExecMode
-	// WithDAGRunRepository sets the DAG-run repository.
-	WithDAGRunRepository = runctx.WithDAGRunRepository
-	// WithQueueStore sets the queue store.
-	WithQueueStore = runctx.WithQueueStore
+	// WithRunStateStore sets the execution-state store.
+	WithRunStateStore = runctx.WithRunStateStore
 	// WithStateStore sets the persistent DAG state store.
 	WithStateStore = runctx.WithStateStore
 	// WithMaterializationStore sets the build materialization store.

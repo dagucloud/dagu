@@ -68,6 +68,21 @@ func TestRouterFallsBackToLocalRunner(t *testing.T) {
 	assert.Equal(t, 1, local.runCount)
 }
 
+func TestRouterEnqueueUsesFirstEnqueuer(t *testing.T) {
+	t.Parallel()
+
+	enqueuer := &stubEnqueuer{stubRunner: &stubRunner{}}
+	router := subflow.NewRouter(&stubRunner{}, enqueuer)
+
+	got, err := router.Enqueue(context.Background(), executor.EnqueueRequest{
+		DAG:   &ir.DAG{Name: "child"},
+		RunID: "child-run",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, ir.Queued, got.Status)
+	assert.Equal(t, 1, enqueuer.enqueueCount)
+}
+
 func TestRouterCancelRoutesToSelectedRunner(t *testing.T) {
 	t.Parallel()
 
@@ -165,6 +180,16 @@ type stubRunner struct {
 	result      *ir.RunStatus
 	runCount    int
 	cancelCount int
+}
+
+type stubEnqueuer struct {
+	*stubRunner
+	enqueueCount int
+}
+
+func (r *stubEnqueuer) Enqueue(context.Context, executor.EnqueueRequest) (executor.EnqueueResult, error) {
+	r.enqueueCount++
+	return executor.EnqueueResult{Status: ir.Queued}, nil
 }
 
 func (r *stubRunner) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {

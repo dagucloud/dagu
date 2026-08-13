@@ -54,6 +54,16 @@ func resolveWorkerPreparedAttempt(
 	return attempt, runStatus, nil
 }
 
+func agentAttemptID(requested string, prepared dagrun.Attempt) string {
+	if requested != "" {
+		return requested
+	}
+	if prepared != nil {
+		return prepared.ID()
+	}
+	return ""
+}
+
 func readLatestAttempt(
 	ctx context.Context,
 	dagRunRepository *persis.DAGRunRepository,

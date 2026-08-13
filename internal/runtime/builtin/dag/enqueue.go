@@ -6,7 +6,6 @@ package dag
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,9 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
-	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -189,11 +186,13 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}
 
 	rCtx := runtime.GetDAGContext(ctx)
-	if rCtx.DAGRunRepository == nil {
+	runner, ok := executor.SubWorkflowRunnerFromContext(ctx)
+	if !ok {
 		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a DAG-run repository")
 	}
-	if rCtx.QueueStore == nil {
-		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a queue store")
+	enqueuer, ok := runner.(executor.Enqueuer)
+	if !ok {
+		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a DAG-run repository")
 	}
 	if !config.GetConfig(ctx).Queues.Enabled {
 		return enqueueRunOutput{}, fmt.Errorf("queues are disabled in configuration")
@@ -242,58 +241,34 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		queueName = queueOverride
 	}
 
-	dagRun := ir.NewDAGRunRef(dagCopy.Name, runParams.RunID)
-	if existing, err := rCtx.DAGRunRepository.FindAttempt(ctx, dagRun); err == nil {
-		return e.outputFromExisting(ctx, existing, dagCopy.Name, runParams, queueName), nil
-	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-		return enqueueRunOutput{}, fmt.Errorf("failed to check existing DAG run: %w", err)
-	}
-
-	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunRepository: rCtx.DAGRunRepository,
-		QueueStore:       rCtx.QueueStore,
-		DAG:              dagCopy,
-		DAGRunID:         runParams.RunID,
-		QueueName:        queueName,
-		LogBaseDir:       rCtx.DAGRunLogDir,
-		ArtifactBaseDir:  rCtx.DAGRunArtifactDir,
-		TriggerType:      ir.TriggerTypeSubDAG,
-		TriggerActor:     rCtx.TriggerActor,
-		ProfileName:      rCtx.ProfileName,
+	result, err := enqueuer.Enqueue(ctx, executor.EnqueueRequest{
+		DAG:          dagCopy,
+		RunID:        runParams.RunID,
+		QueueName:    queueName,
+		TriggerActor: rCtx.TriggerActor,
+		ProfileName:  rCtx.ProfileName,
 	})
 	if err != nil {
-		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
+		return enqueueRunOutput{}, err
 	}
 
-	logger.Info(ctx, "Enqueued sub DAG run",
-		tag.SubDAG(dagCopy.Name),
-		tag.SubRunID(runParams.RunID),
-		tag.Queue(queueName),
-		slog.Any("params", dagCopy.Params),
-	)
-
-	return enqueueRunOutput{
-		Name:     dagCopy.Name,
-		DAGRunID: runParams.RunID,
-		Params:   runParams.Params,
-		Queue:    queueName,
-		Status:   ir.Queued.String(),
-	}, nil
-}
-
-func (e *enqueueExecutor) outputFromExisting(ctx context.Context, attempt dagrun.Attempt, dagName string, params executor.RunParams, queueName string) enqueueRunOutput {
-	statusText := ir.Queued.String()
-	if status, err := attempt.ReadStatus(ctx); err == nil && status != nil {
-		statusText = status.Status.String()
+	if !result.AlreadyExists {
+		logger.Info(ctx, "Enqueued sub DAG run",
+			tag.SubDAG(dagCopy.Name),
+			tag.SubRunID(runParams.RunID),
+			tag.Queue(queueName),
+			slog.Any("params", dagCopy.Params),
+		)
 	}
+
 	return enqueueRunOutput{
-		Name:          dagName,
-		DAGRunID:      params.RunID,
-		Params:        params.Params,
+		Name:          dagCopy.Name,
+		DAGRunID:      runParams.RunID,
+		Params:        runParams.Params,
 		Queue:         queueName,
-		Status:        statusText,
-		AlreadyExists: true,
-	}
+		Status:        result.Status.String(),
+		AlreadyExists: result.AlreadyExists,
+	}, nil
 }
 
 func (e *enqueueExecutor) queueOverride() string {
