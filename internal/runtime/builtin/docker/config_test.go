@@ -154,3 +154,38 @@ func TestApplyResourceLimits(t *testing.T) {
 	require.Equal(t, int64(1_500_000_000), cfg.Host.Resources.NanoCPUs)
 	require.Equal(t, int64(512*1024*1024), cfg.Host.Resources.Memory)
 }
+
+func TestLoadConfigFromMap_HostEmbeddedResources(t *testing.T) {
+	// container.HostConfig EMBEDS container.Resources (Memory, CPUShares,
+	// NanoCPUs, PidsLimit, Devices, …). The docs show the flat form —
+	// host: {Memory: 536870912} — which requires DecoderConfig.Squash:
+	// without it, every Resources field silently decoded to its zero value
+	// while sibling direct fields (NetworkMode, SecurityOpt) worked, so
+	// containers ran WITHOUT their configured resource limits.
+	cfg, err := LoadConfigFromMap(map[string]any{
+		"image": "alpine",
+		"host": map[string]any{
+			"NetworkMode": "bridge",
+			"SecurityOpt": []string{"seccomp=unconfined"},
+			"Memory":      536870912,
+			"CPUShares":   512,
+			"PidsLimit":   128,
+			"Devices": []map[string]any{{
+				"PathOnHost":        "/dev/fuse",
+				"PathInContainer":   "/dev/fuse",
+				"CgroupPermissions": "rwm",
+			}},
+		},
+	}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Host)
+	require.Equal(t, int64(536870912), cfg.Host.Memory)
+	require.Equal(t, int64(512), cfg.Host.CPUShares)
+	require.NotNil(t, cfg.Host.PidsLimit)
+	require.Equal(t, int64(128), *cfg.Host.PidsLimit)
+	require.Len(t, cfg.Host.Devices, 1)
+	require.Equal(t, "/dev/fuse", cfg.Host.Devices[0].PathOnHost)
+	// direct HostConfig fields keep working alongside the squash
+	require.Equal(t, "bridge", string(cfg.Host.NetworkMode))
+	require.Equal(t, []string{"seccomp=unconfined"}, cfg.Host.SecurityOpt)
+}
