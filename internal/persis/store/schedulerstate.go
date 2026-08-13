@@ -77,6 +77,7 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 			logger.Warn(ctx, "scheduler state: corrupt state, starting fresh", tag.Error(err))
 			state := newSchedulerState()
 			s.cacheStateLocked(ctx, state)
+			s.cachedStatePayload = nil
 			return schedulerstate.Clone(state), nil
 		}
 		return nil, fmt.Errorf("scheduler state store: get: %w", err)

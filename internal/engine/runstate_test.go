@@ -237,6 +237,38 @@ steps:
 	require.ErrorIs(t, err, storeErr)
 }
 
+func TestRunYAMLBuildWorksWithoutRuntimeStoresFactory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	eng, err := engine.New(ctx, engine.Options{
+		HomeDir:            t.TempDir(),
+		PersistenceFactory: memoryPersistenceFactory(memstore.New()),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, eng.Close(context.Background()))
+	})
+
+	run, err := eng.RunYAML(ctx, []byte(`
+name: embedded-materialization-fallback
+type: build
+steps:
+  - id: build
+    run: echo build > "${outputs.result}"
+    outputs:
+      - name: result
+        path: result.txt
+`), engine.RunOptions{
+		RunID:             "materialization-fallback-run",
+		DefaultWorkingDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	_, err = run.Wait(ctx)
+	require.NoError(t, err)
+}
+
 func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceFactory {
 	return func(_ context.Context, cfg *config.Config) (engine.Persistence, error) {
 		backend := testutil.NewMemoryBackend()

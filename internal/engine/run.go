@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -699,10 +700,14 @@ func (e *Engine) artifactDir(ctx context.Context, dag *ir.DAG, runID string) (st
 }
 
 func (e *Engine) runtimeStores(ctx context.Context) RuntimeStores {
-	if e.runtimeStoresFactory == nil {
-		return RuntimeStores{}
+	var stores RuntimeStores
+	if e.runtimeStoresFactory != nil {
+		stores = e.runtimeStoresFactory(ctx, e.cfg)
 	}
-	return e.runtimeStoresFactory(ctx, e.cfg)
+	if stores.MaterializationStore == nil {
+		stores.MaterializationStore = filematerialization.New(filepath.Join(e.cfg.Paths.DataDir, "materializations"))
+	}
+	return stores
 }
 
 func preparedAttempt(prepared *localPreparation) dagrun.Attempt {

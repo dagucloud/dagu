@@ -412,4 +412,13 @@ func TestSchedulerStateLoadCorruptDataFallsBackToEmpty(t *testing.T) {
 	got, err := s.Load(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, got.DAGs)
+
+	lastTick := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	got.LastTick = lastTick
+	require.NoError(t, s.Save(ctx, got))
+
+	reloaded, err := store.NewSchedulerStateStore(col).Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, lastTick, reloaded.LastTick)
+	assert.Empty(t, reloaded.DAGs)
 }
