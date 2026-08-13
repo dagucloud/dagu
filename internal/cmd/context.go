@@ -69,25 +69,9 @@ type Context struct {
 // WithContext returns a new Context with a different underlying context.Context.
 // This is useful for creating a signal-aware context for service operations.
 func (c *Context) WithContext(ctx context.Context) *Context {
-	return &Context{
-		Context:             ctx,
-		Command:             c.Command,
-		Flags:               c.Flags,
-		Config:              c.Config,
-		Quiet:               c.Quiet,
-		EventService:        c.EventService,
-		EventSourceInstance: c.EventSourceInstance,
-		Persistence:         c.Persistence,
-		DAGRunMgr:           c.DAGRunMgr,
-		Caches:              c.Caches,
-		Proc:                c.Proc,
-		LicenseManager:      c.LicenseManager,
-		ContextStore:        c.ContextStore,
-		CLIContext:          c.CLIContext,
-		ContextName:         c.ContextName,
-		Remote:              c.Remote,
-		Scope:               c.Scope,
-	}
+	clone := *c
+	clone.Context = ctx
+	return &clone
 }
 
 // WithEventSource returns a shallow copy whose context carries the given event source.
