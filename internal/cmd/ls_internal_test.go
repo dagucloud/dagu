@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -58,7 +57,7 @@ func TestRunLsWritesWarningsToCommandErrorStream(t *testing.T) {
 	err := runLs(&Context{
 		Context: context.Background(),
 		Command: command,
-		Persistence: cmdprocess.CorePersistence{
+		Persistence: Persistence{
 			DAGRepository: persis.NewDAGRepository(warningDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
 		},
 	}, nil)
@@ -80,7 +79,7 @@ func TestRunLsWarnsAndKeepsRowsWhenRecentHistoryFails(t *testing.T) {
 	err := runLs(&Context{
 		Context: context.Background(),
 		Command: command,
-		Persistence: cmdprocess.CorePersistence{
+		Persistence: Persistence{
 			DAGRepository:    persis.NewDAGRepository(listedDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
 			DAGRunRepository: persis.NewDAGRunRepository(failingRecentDAGRunStore{err: storeErr}, nil, persis.DAGRunRepositoryOptions{}),
 		},
@@ -102,7 +101,7 @@ func TestRunLsRequiresDAGRunRepositoryForHistory(t *testing.T) {
 	err := runLs(&Context{
 		Context: context.Background(),
 		Command: command,
-		Persistence: cmdprocess.CorePersistence{
+		Persistence: Persistence{
 			DAGRepository: persis.NewDAGRepository(listedDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
 		},
 	}, nil)

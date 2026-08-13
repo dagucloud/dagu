@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package process
+package file
 
 import (
 	"os"
@@ -14,7 +14,7 @@ import (
 
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 )
 
@@ -73,7 +73,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "securepass123",
 		})
 
-		store, err := persiststore.NewUserStore(file.NewCollection(cfg.Paths.UsersDir))
+		store, err := persiststore.NewUserStore(persisfile.NewCollection(cfg.Paths.UsersDir))
 		require.NoError(t, err)
 		existing := authmodel.NewUser("existinguser", "$2a$12$K8gHXqrFdFvMwJBG0VlJGuAGz3FwBmTm8xnNQblN2tCxrQgPLmwHa", authmodel.RoleAdmin)
 		require.NoError(t, store.Create(t.Context(), existing))
@@ -179,38 +179,21 @@ func TestResolveTokenSecret(t *testing.T) {
 	})
 }
 
-func TestNewFileStoresAppliesRoleFailurePolicy(t *testing.T) {
+func TestNewStoresFailsWhenEventStorageIsUnavailable(t *testing.T) {
 	t.Parallel()
 
-	t.Run("event-only continues when event storage is unavailable", func(t *testing.T) {
-		t.Parallel()
-		blocker := filepath.Join(t.TempDir(), "blocker")
-		require.NoError(t, os.WriteFile(blocker, []byte("not a directory"), 0o600))
-		cfg := &config.Config{
-			EventStore: config.EventStoreConfig{Enabled: true},
-			Paths:      config.PathsConfig{EventStoreDir: filepath.Join(blocker, "events")},
-		}
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("not a directory"), 0o600))
+	cfg := &config.Config{
+		EventStore: config.EventStoreConfig{Enabled: true},
+		Paths:      config.PathsConfig{EventStoreDir: filepath.Join(blocker, "events")},
+	}
 
-		_, err := NewFileStores(t.Context(), cfg, StoreRoleEvents)
-		require.NoError(t, err)
-
-		_, err = NewFileStores(t.Context(), cfg, StoreRoleEvents|StoreRoleServer)
-		require.ErrorContains(t, err, "failed to initialize event store")
-	})
-
-	t.Run("scheduler requires DAG settings storage", func(t *testing.T) {
-		t.Parallel()
-		cfg := &config.Config{}
-
-		_, err := NewFileStores(t.Context(), cfg, StoreRoleEvents)
-		require.NoError(t, err)
-
-		_, err = NewFileStores(t.Context(), cfg, StoreRoleScheduler)
-		require.ErrorContains(t, err, "failed to initialize DAG settings store")
-	})
+	_, err := NewStores(t.Context(), cfg)
+	require.ErrorContains(t, err, "failed to initialize event store")
 }
 
-func TestNewFileStoresProvidesWorkspaceBaseConfig(t *testing.T) {
+func TestNewStoresProvidesWorkspaceBaseConfig(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -227,7 +210,7 @@ func TestNewFileStoresProvidesWorkspaceBaseConfig(t *testing.T) {
 		Server: config.Server{Auth: config.Auth{Mode: config.AuthModeNone}},
 	}
 
-	stores, err := NewFileStores(t.Context(), cfg, StoreRoleServer)
+	stores, err := NewStores(t.Context(), cfg)
 	require.NoError(t, err)
 	require.NotNil(t, stores.WorkspaceBaseConfig)
 

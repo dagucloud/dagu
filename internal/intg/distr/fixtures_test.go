@@ -320,21 +320,20 @@ func (f *testFixture) startSchedulerWithOptions(
 		f.coord.Config.DAGDiscovery.Recursive,
 	)
 
-	schedulerInst, err := scheduler.New(
-		f.coord.Config,
-		em,
-		f.coord.DAGRunMgr,
-		f.coord.DAGRepository,
-		f.coord.DAGRunRepository,
-		f.coord.QueueStore,
-		f.coord.ProcRepository,
-		f.coord.ServiceRegistry,
-		f.coordinatorClient,
-		stateStore,
-	)
+	schedulerInst, err := scheduler.New(f.coord.Config, scheduler.Dependencies{
+		EntryReader:         em,
+		DAGRunManager:       f.coord.DAGRunMgr,
+		DAGRepository:       f.coord.DAGRepository,
+		DAGRunRepository:    f.coord.DAGRunRepository,
+		QueueStore:          f.coord.QueueStore,
+		ProcRepository:      f.coord.ProcRepository,
+		ServiceRegistry:     f.coord.ServiceRegistry,
+		CoordinatorClient:   f.coordinatorClient,
+		SchedulerStateStore: stateStore,
+		DAGRunLeaseStore:    f.coord.DAGRunLeaseStore,
+		DispatchTaskStore:   f.coord.DispatchTaskStore,
+	})
 	require.NoError(f.t, err)
-	schedulerInst.SetDAGRunLeaseStore(f.coord.DAGRunLeaseStore)
-	schedulerInst.SetDispatchTaskStore(f.coord.DispatchTaskStore)
 	if clock != nil {
 		schedulerInst.SetClock(clock)
 	}

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"testing"
 
-	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -66,7 +65,7 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 	ctx := &Context{
 		Context: th.Context,
 		Config:  th.Config,
-		Persistence: cmdprocess.CorePersistence{
+		Persistence: Persistence{
 			DAGRunRepository: persis.NewDAGRunRepository(runStore, nil, persis.DAGRunRepositoryOptions{}),
 			QueueStore:       queueStore,
 		},

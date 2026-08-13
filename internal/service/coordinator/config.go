@@ -3,7 +3,11 @@
 
 package coordinator
 
-import "time"
+import (
+	"time"
+
+	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+)
 
 // Config holds configuration for the coordinator client
 type Config struct {
@@ -34,6 +38,23 @@ func DefaultConfig() *Config {
 		MaxRetries:       3,
 		RetryInterval:    time.Second,
 	}
+}
+
+// ConfigFromPeer maps application peer settings to coordinator client settings.
+func ConfigFromPeer(peer appconfig.Peer) *Config {
+	cfg := DefaultConfig()
+	cfg.CAFile = peer.ClientCaFile
+	cfg.CertFile = peer.CertFile
+	cfg.KeyFile = peer.KeyFile
+	cfg.SkipTLSVerify = peer.SkipTLSVerify
+	cfg.Insecure = peer.Insecure
+	if peer.MaxRetries > 0 {
+		cfg.MaxRetries = peer.MaxRetries
+	}
+	if peer.RetryInterval > 0 {
+		cfg.RetryInterval = peer.RetryInterval
+	}
+	return cfg
 }
 
 // Validate checks if the configuration is valid

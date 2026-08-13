@@ -12,13 +12,12 @@ import (
 	"testing"
 	"time"
 
-	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/api/pathutil"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/telemetry"
+	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/require"
 )
@@ -92,33 +91,30 @@ func SetupServer(t *testing.T, opts ...HelperOption) Server {
 func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, error) {
 	cc := coordinator.New(srv.ServiceRegistry, coordinator.DefaultConfig())
 
-	collector := telemetry.NewCollector(
-		config.Version,
-		srv.DAGRepository,
-		srv.DAGRunRepository,
-		srv.QueueStore,
-		srv.ServiceRegistry,
-	)
-	collector.SetWorkerHeartbeatStore(srv.WorkerHeartbeatStore)
-	mr := telemetry.NewRegistry(collector)
-
 	// Pass the pre-bound listener to the server to avoid port race conditions
 	serverOpts := append([]frontend.ServerOption{
 		frontend.WithListener(listener),
 		frontend.WithAPIOption(apiv1.WithDAGRunLeaseStore(srv.DAGRunLeaseStore)),
 		frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(srv.WorkerHeartbeatStore)),
 	}, srv.ServerOptions...)
-	stores, err := cmdprocess.NewFileStores(srv.Context, srv.Config, cmdprocess.StoreRoleEvents|cmdprocess.StoreRoleServer)
+	stores, err := frontendfile.NewStores(srv.Context, srv.Config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize server stores: %w", err)
 	}
-	server, err := frontend.NewServer(
-		srv.Context, srv.Config, srv.DAGRepository, srv.DAGRunRepository,
-		srv.QueueStore, srv.ProcRepository, srv.DAGRunMgr, cc,
-		srv.ServiceRegistry, mr, nil,
-		stores.Frontend(),
-		serverOpts...,
-	)
+	server, err := frontend.NewServer(frontend.ServerConfig{
+		Context:              srv.Context,
+		Config:               srv.Config,
+		DAGRepository:        srv.DAGRepository,
+		DAGRunRepository:     srv.DAGRunRepository,
+		ProcRepository:       srv.ProcRepository,
+		QueueStore:           srv.QueueStore,
+		DAGRunManager:        srv.DAGRunMgr,
+		CoordinatorClient:    cc,
+		ServiceRegistry:      srv.ServiceRegistry,
+		DAGRunLeaseStore:     srv.DAGRunLeaseStore,
+		WorkerHeartbeatStore: srv.WorkerHeartbeatStore,
+		Stores:               stores,
+	}, serverOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server: %w", err)
 	}

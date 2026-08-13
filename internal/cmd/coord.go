@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 
-	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -228,7 +227,7 @@ func newCoordinator(
 	}
 
 	// Create the handler with DAG-run status persistence and streamed log storage.
-	runtimeStores := cmdprocess.NewFileRuntimeStores(ctx.Context, cfg)
+	runtimeStores := newExecutionStores(ctx.Context, cfg)
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		DAGRunRepository:          dagRunRepository,
 		StateStore:                stateStore,

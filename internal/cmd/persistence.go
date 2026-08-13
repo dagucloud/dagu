@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package process
+package cmd
 
 import (
 	"context"
@@ -21,8 +21,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
-// CorePersistence contains the persistence dependencies shared by command process roles.
-type CorePersistence struct {
+// Persistence contains the persistence dependencies shared by commands and services.
+type Persistence struct {
 	DAGRepository             *persis.DAGRepository
 	DAGRunRepository          *persis.DAGRunRepository
 	ProcRepository            *persis.ProcRepository
@@ -36,21 +36,19 @@ type CorePersistence struct {
 	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 }
 
-// FileCorePersistenceOptions configures caches used by file-backed repositories.
-type FileCorePersistenceOptions struct {
+type filePersistenceOptions struct {
 	DAGCache          *fileutil.Cache[*ir.DAG]
 	DAGRunStatusCache *fileutil.Cache[*ir.DAGRunStatus]
 }
 
-// NewFileCorePersistence creates the file-backed persistence used by command process roles.
-func NewFileCorePersistence(
+func newFilePersistence(
 	ctx context.Context,
 	cfg *config.Config,
-	opts FileCorePersistenceOptions,
-) (CorePersistence, error) {
+	opts filePersistenceOptions,
+) (Persistence, error) {
 	procRepository := file.NewProcRepository(cfg)
 	if err := procRepository.Validate(ctx); err != nil {
-		return CorePersistence{}, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
+		return Persistence{}, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
 	}
 
 	var dagRunOpts []file.DAGRunRepositoryOption
@@ -79,12 +77,12 @@ func NewFileCorePersistence(
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(
 		file.NewCollection(filepath.Join(distributedDir, "workers")),
 	)
-	dagRepository, err := NewDAGRepository(cfg, DAGRepositoryConfig{Cache: opts.DAGCache})
+	dagRepository, err := newDAGRepository(cfg, dagRepositoryConfig{Cache: opts.DAGCache})
 	if err != nil {
-		return CorePersistence{}, fmt.Errorf("failed to create DAG store: %w", err)
+		return Persistence{}, fmt.Errorf("failed to create DAG store: %w", err)
 	}
 
-	return CorePersistence{
+	return Persistence{
 		DAGRepository:             dagRepository,
 		DAGRunRepository:          dagRunRepository,
 		ProcRepository:            procRepository,

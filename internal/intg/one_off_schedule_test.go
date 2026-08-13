@@ -80,18 +80,17 @@ steps:
 	require.NoError(t, attempt.Write(th.Context, initialStatus))
 	require.NoError(t, attempt.Close(th.Context))
 
-	sc, err := scheduler.New(
-		th.Config,
-		th.EntryReader,
-		th.DAGRunMgr,
-		th.DAGRepository,
-		th.DAGRunRepository,
-		th.QueueStore,
-		th.ProcRepository,
-		th.ServiceRegistry,
-		th.CoordinatorCli,
-		stateStore,
-	)
+	sc, err := scheduler.New(th.Config, scheduler.Dependencies{
+		EntryReader:         th.EntryReader,
+		DAGRunManager:       th.DAGRunMgr,
+		DAGRepository:       th.DAGRepository,
+		DAGRunRepository:    th.DAGRunRepository,
+		QueueStore:          th.QueueStore,
+		ProcRepository:      th.ProcRepository,
+		ServiceRegistry:     th.ServiceRegistry,
+		CoordinatorClient:   th.CoordinatorCli,
+		SchedulerStateStore: stateStore,
+	})
 	require.NoError(t, err)
 	sc.SetClock(func() time.Time { return scheduledAt })
 

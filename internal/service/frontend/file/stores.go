@@ -1,7 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package process
+// Package file creates file-backed dependencies for the frontend service.
+package file
 
 import (
 	"context"
@@ -20,7 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -28,88 +29,40 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 )
 
-// StoreRole identifies the process roles that need control-plane stores.
-type StoreRole uint8
+// NewStores creates the file-backed stores used by the frontend service.
+func NewStores(ctx context.Context, cfg *config.Config) (frontend.Stores, error) {
+	stores := frontend.Stores{}
 
-const (
-	StoreRoleEvents StoreRole = 1 << iota
-	StoreRoleServer
-	StoreRoleScheduler
-)
-
-func (r StoreRole) has(role StoreRole) bool {
-	return r&role != 0
-}
-
-// Stores contains optional control-plane persistence shared by process roles.
-type Stores struct {
-	frontend.Stores
-	EventCollector func(context.Context)
-}
-
-// Frontend returns the subset consumed by the frontend server.
-func (s Stores) Frontend() frontend.Stores {
-	return s.Stores
-}
-
-// NewFileStores creates the file-backed stores needed by the selected roles.
-func NewFileStores(ctx context.Context, cfg *config.Config, roles StoreRole) (Stores, error) {
-	stores := Stores{}
-
-	if roles.has(StoreRoleEvents) && cfg.EventStore.Enabled {
-		store, err := file.NewEventStore(cfg)
+	if cfg.EventStore.Enabled {
+		store, err := persisfile.NewEventStore(cfg)
 		if err != nil {
-			if roles.has(StoreRoleServer) {
-				return Stores{}, fmt.Errorf("failed to initialize event store: %w", err)
-			}
-			logger.Warn(ctx, "Failed to initialize event store; continuing without event persistence", tag.Error(err))
+			return frontend.Stores{}, fmt.Errorf("failed to initialize event store: %w", err)
 		} else if store != nil {
 			stores.Event = eventstore.New(store)
 		}
 	}
 
-	if roles.has(StoreRoleScheduler) && stores.Event != nil {
-		collector, err := file.NewEventCollector(cfg)
-		if err != nil {
-			logger.Warn(ctx, "Failed to initialize event collector; continuing without collection", tag.Error(err))
-		} else {
-			stores.EventCollector = collector.Start
-		}
-	}
-
-	if !roles.has(StoreRoleServer) && !roles.has(StoreRoleScheduler) {
-		return stores, nil
-	}
-
-	dagSettingsStore, err := file.NewDAGSettingsStore(cfg)
+	dagSettingsStore, err := persisfile.NewDAGSettingsStore(cfg)
 	if err != nil {
-		if roles.has(StoreRoleScheduler) {
-			return Stores{}, fmt.Errorf("failed to initialize DAG settings store: %w", err)
-		}
 		logger.Warn(ctx, "Failed to create DAG settings store", tag.Error(err))
 	} else {
 		stores.DAGSettings = dagSettingsStore
 	}
-	stores.Profile = file.NewProfileStore(ctx, cfg)
+	stores.Profile = persisfile.NewProfileStore(ctx, cfg)
 
-	if roles.has(StoreRoleServer) {
-		if err := initFileServerStores(ctx, cfg, &stores); err != nil {
-			return Stores{}, err
-		}
+	if err := initStores(ctx, cfg, &stores); err != nil {
+		return frontend.Stores{}, err
 	}
-
-	if roles.has(StoreRoleServer) || stores.Event != nil {
-		initEncryptedStores(ctx, cfg, &stores, roles.has(StoreRoleServer))
-	}
+	initEncryptedStores(ctx, cfg, &stores)
 	return stores, nil
 }
 
-func initFileServerStores(ctx context.Context, cfg *config.Config, stores *Stores) error {
+func initStores(ctx context.Context, cfg *config.Config, stores *frontend.Stores) error {
 	stores.WorkspaceBaseConfig = func(workspaceName string) (dagsettings.BaseConfigStore, error) {
-		return file.NewWorkspaceBaseConfigStore(cfg.Paths.DAGsDir, workspaceName)
+		return persisfile.NewWorkspaceBaseConfigStore(cfg.Paths.DAGsDir, workspaceName)
 	}
 	if cfg.Paths.BaseConfig != "" {
-		baseConfigStore, err := file.NewBaseConfigStore(cfg.Paths.BaseConfig)
+		baseConfigStore, err := persisfile.NewBaseConfigStore(cfg.Paths.BaseConfig)
 		if err != nil {
 			logger.Warn(ctx, "Failed to create base config store", tag.Error(err))
 		} else {
@@ -127,28 +80,28 @@ func initFileServerStores(ctx context.Context, cfg *config.Config, stores *Store
 		stores.AuthSetupRequired = builtinAuth.setupRequired
 	}
 
-	stores.Secret = file.NewSecretStore(ctx, cfg)
+	stores.Secret = persisfile.NewSecretStore(ctx, cfg)
 
-	wikiStore, err := file.NewWikiStore(cfg)
+	wikiStore, err := persisfile.NewWikiStore(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create Wiki store: %w", err)
 	}
 	stores.Wiki = wikiStore
 
-	workspaceStore, err := file.NewWorkspaceStore(cfg)
+	workspaceStore, err := persisfile.NewWorkspaceStore(cfg)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create workspace store", tag.Error(err))
 	} else {
 		stores.Workspace = workspaceStore
 	}
 
-	auditStore, err := file.NewAuditStore(cfg)
+	auditStore, err := persisfile.NewAuditStore(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize audit service: failed to create audit store: %w", err)
 	}
 	stores.Audit = auditStore
 
-	viewStore, err := store.NewViewStore(file.NewCollection(cfg.Paths.ViewsDir, file.WithIndentedJSON()))
+	viewStore, err := store.NewViewStore(persisfile.NewCollection(cfg.Paths.ViewsDir, persisfile.WithIndentedJSON()))
 	if err != nil {
 		logger.Warn(ctx, "Failed to create view store", tag.Error(err))
 	} else {
@@ -156,7 +109,7 @@ func initFileServerStores(ctx context.Context, cfg *config.Config, stores *Store
 	}
 
 	if cfg.Server.CheckUpdates {
-		upgradeStore, err := file.NewUpgradeCheckStore(cfg)
+		upgradeStore, err := persisfile.NewUpgradeCheckStore(cfg)
 		if err != nil {
 			logger.Warn(ctx, "Failed to create upgrade check store", tag.Error(err))
 		} else {
@@ -167,7 +120,7 @@ func initFileServerStores(ctx context.Context, cfg *config.Config, stores *Store
 	return nil
 }
 
-func initEncryptedStores(ctx context.Context, cfg *config.Config, stores *Stores, server bool) {
+func initEncryptedStores(ctx context.Context, cfg *config.Config, stores *frontend.Stores) {
 	encKey, err := crypto.ResolveKey(cfg.Paths.DataDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to resolve encryption key for encrypted stores", tag.Error(err))
@@ -183,40 +136,38 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, stores *Stores
 		return
 	}
 
-	if server {
-		remoteNodeStore, err := file.NewRemoteNodeStore(cfg, encryptor)
-		if err != nil {
-			logger.Warn(ctx, "Failed to create remote node store", tag.Error(err))
-		} else {
-			stores.RemoteNode = remoteNodeStore
-		}
+	remoteNodeStore, err := persisfile.NewRemoteNodeStore(cfg, encryptor)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create remote node store", tag.Error(err))
+	} else {
+		stores.RemoteNode = remoteNodeStore
 	}
 
-	notificationStore, err := file.NewNotificationStore(cfg, encryptor)
+	notificationStore, err := persisfile.NewNotificationStore(cfg, encryptor)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 	} else {
 		stores.Notification = notificationStore
-		stateFile := file.NotificationMonitorStateFile(cfg)
+		stateFile := persisfile.NotificationMonitorStateFile(cfg)
 		stores.NotificationState = filemonitor.NewStateStore(stateFile)
-		stores.NewNotificationLease = newFileMonitorLease(stateFile)
+		stores.NewNotificationLease = newMonitorLease(stateFile)
 	}
 
-	incidentStore, err := file.NewIncidentStore(cfg, encryptor)
+	incidentStore, err := persisfile.NewIncidentStore(cfg, encryptor)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
 	} else {
 		stores.Incident = incidentStore
-		stateFile := file.IncidentMonitorStateFile(cfg)
+		stateFile := persisfile.IncidentMonitorStateFile(cfg)
 		stores.IncidentState = filemonitor.NewStateStore(stateFile)
-		stores.NewIncidentLease = newFileMonitorLease(stateFile)
+		stores.NewIncidentLease = newMonitorLease(stateFile)
 	}
 }
 
-func newFileMonitorLease(stateFile string) func() chatbridge.Lease {
+func newMonitorLease(stateFile string) func() chatbridge.Lease {
 	lockDir := filepath.Clean(stateFile) + ".lock"
 	return func() chatbridge.Lease {
-		lease := filemonitor.NewLease(stateFile, &dirlock.LockOptions{
+		return filemonitor.NewLease(stateFile, &dirlock.LockOptions{
 			StaleThreshold: chatbridge.DefaultNotificationLockStaleThreshold,
 			RetryInterval:  chatbridge.DefaultNotificationLockRetryInterval,
 			OnWait: func() {
@@ -225,10 +176,6 @@ func newFileMonitorLease(stateFile string) func() chatbridge.Lease {
 				)
 			},
 		})
-		if lease == nil {
-			return nil
-		}
-		return lease
 	}
 }
 
@@ -244,12 +191,12 @@ func newBuiltinAuth(ctx context.Context, cfg *config.Config) (builtinAuth, error
 		return builtinAuth{}, fmt.Errorf("failed to resolve token secret: %w", err)
 	}
 
-	userStore, err := store.NewUserStore(file.NewCollection(cfg.Paths.UsersDir, file.WithIndentedJSON()))
+	userStore, err := store.NewUserStore(persisfile.NewCollection(cfg.Paths.UsersDir, persisfile.WithIndentedJSON()))
 	if err != nil {
 		return builtinAuth{}, fmt.Errorf("failed to create user store: %w", err)
 	}
 
-	apiKeyStore, err := store.NewAPIKeyStore(file.NewCollection(cfg.Paths.APIKeysDir, file.WithIndentedJSON()))
+	apiKeyStore, err := store.NewAPIKeyStore(persisfile.NewCollection(cfg.Paths.APIKeysDir, persisfile.WithIndentedJSON()))
 	if err != nil {
 		return builtinAuth{}, fmt.Errorf("failed to create API key store: %w", err)
 	}
@@ -264,7 +211,7 @@ func newBuiltinAuth(ctx context.Context, cfg *config.Config) (builtinAuth, error
 			logger.Warn(ctx, "Failed to create encryptor for webhook store", tag.Error(encErr))
 		}
 	}
-	webhookStore, err := store.NewWebhookStore(file.NewCollection(cfg.Paths.WebhooksDir, file.WithIndentedJSON()), webhookEncryptor)
+	webhookStore, err := store.NewWebhookStore(persisfile.NewCollection(cfg.Paths.WebhooksDir, persisfile.WithIndentedJSON()), webhookEncryptor)
 	if err != nil {
 		return builtinAuth{}, fmt.Errorf("failed to create webhook store: %w", err)
 	}
@@ -338,5 +285,5 @@ func resolveTokenSecret(ctx context.Context, cfg *config.Config) (authmodel.Toke
 		}
 	}
 
-	return file.ResolveTokenSecret(authDir)
+	return persisfile.ResolveTokenSecret(authDir)
 }

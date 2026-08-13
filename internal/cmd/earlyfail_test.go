@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -34,7 +33,7 @@ steps:
 		ctx := &cmd.Context{
 			Context: th.Context,
 			Config:  th.Config,
-			Persistence: cmdprocess.CorePersistence{
+			Persistence: cmd.Persistence{
 				DAGRunRepository: th.DAGRunRepository,
 			},
 		}
@@ -82,7 +81,7 @@ steps:
 		ctx := &cmd.Context{
 			Context: th.Context,
 			Config:  th.Config,
-			Persistence: cmdprocess.CorePersistence{
+			Persistence: cmd.Persistence{
 				DAGRunRepository: th.DAGRunRepository,
 			},
 		}
@@ -110,7 +109,7 @@ steps:
 		ctx := &cmd.Context{
 			Context: th.Context,
 			Config:  th.Config,
-			Persistence: cmdprocess.CorePersistence{
+			Persistence: cmd.Persistence{
 				DAGRunRepository: th.DAGRunRepository,
 			},
 		}
@@ -134,7 +133,7 @@ steps:
 		ctx := &cmd.Context{
 			Context: th.Context,
 			Config:  th.Config,
-			Persistence: cmdprocess.CorePersistence{
+			Persistence: cmd.Persistence{
 				DAGRunRepository: th.DAGRunRepository,
 			},
 		}
@@ -162,7 +161,7 @@ steps:
 		ctx := &cmd.Context{
 			Context: th.Context,
 			Config:  th.Config,
-			Persistence: cmdprocess.CorePersistence{
+			Persistence: cmd.Persistence{
 				DAGRunRepository: th.DAGRunRepository,
 			},
 		}

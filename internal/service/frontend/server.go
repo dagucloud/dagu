@@ -32,11 +32,13 @@ import (
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnschema "github.com/dagucloud/dagu/v2/internal/cmn/schema"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/gitsync"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -45,6 +47,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/dagucloud/dagu/v2/internal/service/authmapping"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
@@ -62,6 +65,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/trustedproxyprovision"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 	workspacepkg "github.com/dagucloud/dagu/v2/internal/workspace"
@@ -269,12 +273,60 @@ func (srv *Server) RegisterRoutes(fn RouteRegistrar) {
 	}
 }
 
+// ServerConfig contains the dependencies used by the frontend server.
+type ServerConfig struct {
+	Context              context.Context
+	Config               *config.Config
+	DAGRepository        *persis.DAGRepository
+	DAGRunRepository     *persis.DAGRunRepository
+	ProcRepository       *persis.ProcRepository
+	QueueStore           queue.QueueStore
+	DAGRunManager        runtime.Manager
+	CoordinatorClient    coordinator.Client
+	ServiceRegistry      serviceregistry.ServiceRegistry
+	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
+	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
+	SchedulerStateStore  schedulerstate.Store
+	Caches               []fileutil.CacheMetrics
+	LicenseManager       *license.Manager
+	ResourceService      *resource.Service
+	Stores               Stores
+}
+
 // NewServer constructs a Server from the provided configuration, stores, and services.
 // Returns an error if initialization fails (e.g., when builtin auth fails to initialize).
-func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository, dagRunRepository *persis.DAGRunRepository, qs queue.QueueStore, processes *persis.ProcRepository, drm runtime.Manager, cc coordinator.Client, sr serviceregistry.ServiceRegistry, mr *prometheus.Registry, rs *resource.Service, stores Stores, opts ...ServerOption) (*Server, error) {
+func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
+	ctx := setup.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	cfg := setup.Config
+	dr := setup.DAGRepository
+	dagRunRepository := setup.DAGRunRepository
+	qs := setup.QueueStore
+	processes := setup.ProcRepository
+	drm := setup.DAGRunManager
+	cc := setup.CoordinatorClient
+	sr := setup.ServiceRegistry
+	rs := setup.ResourceService
+	stores := setup.Stores
+
+	collector := telemetry.NewCollector(config.Version, dr, dagRunRepository, qs, sr)
+	collector.SetWorkerHeartbeatStore(setup.WorkerHeartbeatStore)
+	for _, cache := range setup.Caches {
+		collector.RegisterCache(cache)
+	}
+	mr := telemetry.NewRegistry(collector)
+	if setup.LicenseManager != nil {
+		opts = append(opts, WithLicenseManager(setup.LicenseManager))
+	}
+	if setup.DAGRunLeaseStore != nil {
+		opts = append(opts, WithAPIOption(apiv1.WithDAGRunLeaseStore(setup.DAGRunLeaseStore)))
+	}
+	if setup.WorkerHeartbeatStore != nil {
+		opts = append(opts, WithAPIOption(apiv1.WithWorkerHeartbeatStore(setup.WorkerHeartbeatStore)))
+	}
+	opts = append(opts, WithAPIOption(apiv1.WithSchedulerStateStore(setup.SchedulerStateStore)))
 
 	remoteNodes := make([]string, 0, len(cfg.Server.RemoteNodes))
 	for _, n := range cfg.Server.RemoteNodes {

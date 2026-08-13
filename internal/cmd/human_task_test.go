@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -352,7 +351,7 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		ctx: &Context{
 			Context: t.Context(),
 			Command: command,
-			Persistence: cmdprocess.CorePersistence{
+			Persistence: Persistence{
 				DAGRunRepository: persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 				QueueStore:       queue,
 				ProcRepository:   persis.NewProcRepository(fileproc.New(t.TempDir())),

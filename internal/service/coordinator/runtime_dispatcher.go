@@ -17,18 +17,9 @@ func NewRuntimeDispatcher(registry serviceregistry.ServiceRegistry, peerConfig c
 		return nil, nil
 	}
 
-	cfg := DefaultConfig()
-	cfg.MaxRetries = 50
-	cfg.CAFile = peerConfig.ClientCaFile
-	cfg.CertFile = peerConfig.CertFile
-	cfg.KeyFile = peerConfig.KeyFile
-	cfg.SkipTLSVerify = peerConfig.SkipTLSVerify
-	cfg.Insecure = peerConfig.Insecure
-	if peerConfig.MaxRetries > 0 {
-		cfg.MaxRetries = peerConfig.MaxRetries
-	}
-	if peerConfig.RetryInterval > 0 {
-		cfg.RetryInterval = peerConfig.RetryInterval
+	cfg := ConfigFromPeer(peerConfig)
+	if peerConfig.MaxRetries <= 0 {
+		cfg.MaxRetries = 50
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate runtime dispatcher config: %w", err)

@@ -4,9 +4,13 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
 )
 
 func TestContext_StringParam(t *testing.T) {
@@ -91,4 +95,26 @@ func TestContext_StringParam(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewFileStoresAllowsUnavailableEventStorageForCommands(t *testing.T) {
+	t.Parallel()
+
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("not a directory"), 0o600))
+	cfg := &config.Config{
+		EventStore: config.EventStoreConfig{Enabled: true},
+		Paths:      config.PathsConfig{EventStoreDir: filepath.Join(blocker, "events")},
+	}
+
+	stores, _, err := newFileStores(t.Context(), cfg, "status")
+	require.NoError(t, err)
+	require.Nil(t, stores.Event)
+}
+
+func TestNewFileStoresRequiresDAGSettingsStorageForStartAll(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := newFileStores(t.Context(), &config.Config{}, "start-all")
+	require.ErrorContains(t, err, "failed to initialize DAG settings store")
 }

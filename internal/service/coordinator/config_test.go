@@ -7,10 +7,33 @@ import (
 	"testing"
 	"time"
 
+	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestConfigFromPeer(t *testing.T) {
+	t.Parallel()
+
+	cfg := coordinator.ConfigFromPeer(appconfig.Peer{
+		Insecure:      false,
+		CertFile:      "client.crt",
+		KeyFile:       "client.key",
+		ClientCaFile:  "ca.crt",
+		SkipTLSVerify: true,
+		MaxRetries:    7,
+		RetryInterval: 3 * time.Second,
+	})
+
+	assert.False(t, cfg.Insecure)
+	assert.Equal(t, "client.crt", cfg.CertFile)
+	assert.Equal(t, "client.key", cfg.KeyFile)
+	assert.Equal(t, "ca.crt", cfg.CAFile)
+	assert.True(t, cfg.SkipTLSVerify)
+	assert.Equal(t, 7, cfg.MaxRetries)
+	assert.Equal(t, 3*time.Second, cfg.RetryInterval)
+}
 
 func TestDefaultConfig(t *testing.T) {
 	config := coordinator.DefaultConfig()

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package process
+package scheduler
 
 import (
 	"context"
@@ -10,15 +10,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type notificationRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -27,7 +26,7 @@ func (fn notificationRoundTripFunc) RoundTrip(req *http.Request) (*http.Response
 	return fn(req)
 }
 
-func TestNewSchedulerNotificationServiceUsesConfiguredPublicURL(t *testing.T) {
+func TestNotificationServiceUsesConfiguredPublicURL(t *testing.T) {
 	t.Parallel()
 
 	type receivedRequest struct {
@@ -74,7 +73,7 @@ func TestNewSchedulerNotificationServiceUsesConfiguredPublicURL(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.Save(context.Background(), settings))
 
-	service := newSchedulerNotificationService(
+	service := newNotificationService(
 		cfg,
 		store,
 		nil,
@@ -91,9 +90,5 @@ func TestNewSchedulerNotificationServiceUsesConfiguredPublicURL(t *testing.T) {
 	assert.True(t, results[0].Delivered)
 	request := <-received
 	require.NoError(t, request.err)
-	assert.Contains(
-		t,
-		request.body,
-		`"message":"https://dagu.example.com/workflows/dag-runs/daily-report/notification-test"`,
-	)
+	assert.Contains(t, request.body, `"message":"https://dagu.example.com/workflows/dag-runs/daily-report/notification-test"`)
 }

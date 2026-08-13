@@ -96,18 +96,16 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 func (s *Scheduler) NewSchedulerInstance(t *testing.T) (*scheduler.Scheduler, error) {
 	t.Helper()
 
-	return scheduler.New(
-		s.Config,
-		s.EntryReader,
-		s.DAGRunMgr,
-		s.DAGRepository,
-		s.DAGRunRepository,
-		s.QueueStore,
-		s.ProcRepository,
-		s.ServiceRegistry,
-		s.CoordinatorCli,
-		nil,
-	)
+	return scheduler.New(s.Config, scheduler.Dependencies{
+		EntryReader:       s.EntryReader,
+		DAGRunManager:     s.DAGRunMgr,
+		DAGRepository:     s.DAGRepository,
+		DAGRunRepository:  s.DAGRunRepository,
+		QueueStore:        s.QueueStore,
+		ProcRepository:    s.ProcRepository,
+		ServiceRegistry:   s.ServiceRegistry,
+		CoordinatorClient: s.CoordinatorCli,
+	})
 }
 
 // Start starts the scheduler instance

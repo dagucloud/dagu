@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package process
+package cmd
 
 import (
 	"context"
@@ -15,16 +15,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/secret"
 )
 
-// RuntimeStores contains runtime stores used by DAG execution.
-type RuntimeStores struct {
+type executionStores struct {
 	SecretStore          secret.Store
 	ProfileStore         profile.Store
 	MaterializationStore build.MaterializationStore
 }
 
-// NewFileRuntimeStores creates the file-backed stores used by workflow execution.
-func NewFileRuntimeStores(ctx context.Context, cfg *config.Config) RuntimeStores {
-	return RuntimeStores{
+func newExecutionStores(ctx context.Context, cfg *config.Config) executionStores {
+	return executionStores{
 		SecretStore:          file.NewSecretStore(ctx, cfg),
 		ProfileStore:         file.NewProfileStore(ctx, cfg),
 		MaterializationStore: filematerialization.New(filepath.Join(cfg.Paths.DataDir, "materializations")),

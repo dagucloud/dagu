@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 
-	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -105,7 +104,7 @@ func runWorker(ctx *Context, _ []string) error {
 		ctx.Config,
 	)
 
-	stores := cmdprocess.NewFileRuntimeStores(ctx.Context, ctx.Config)
+	stores := newExecutionStores(ctx.Context, ctx.Config)
 	handlerCfg := worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: coordinatorCli,
@@ -143,5 +142,5 @@ func runWorker(ctx *Context, _ []string) error {
 
 // createCoordinatorClient creates the worker coordinator client.
 func createCoordinatorClient(ctx *Context) (coordinator.Client, error) {
-	return cmdprocess.NewWorkerCoordinatorClient(ctx.Context, ctx.Config)
+	return worker.NewCoordinatorClient(ctx.Context, ctx.Config)
 }

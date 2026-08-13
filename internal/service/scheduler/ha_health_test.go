@@ -121,15 +121,14 @@ func newHASchedulerForTest(t *testing.T, fixture *haSchedulerFixture, hooks Test
 
 	sc, err := NewWithHooksForTest(
 		fixture.cfg,
-		&staticEntryReader{},
-		fixture.dagRunMgr,
-		fixture.dagRepository,
-		fixture.dagRunRepository,
-		fixture.queueStore,
-		fixture.procRepository,
-		nil,
-		nil,
-		nil,
+		Dependencies{
+			EntryReader:      &staticEntryReader{},
+			DAGRunManager:    fixture.dagRunMgr,
+			DAGRepository:    fixture.dagRepository,
+			DAGRunRepository: fixture.dagRunRepository,
+			QueueStore:       fixture.queueStore,
+			ProcRepository:   fixture.procRepository,
+		},
 		hooks,
 	)
 	require.NoError(t, err)
