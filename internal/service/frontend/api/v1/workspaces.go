@@ -26,22 +26,6 @@ func workspaceStoreUnavailable() *Error {
 	}
 }
 
-type workspaceWikiStore interface {
-	PathExists(ctx context.Context, id string) (fileExists, directoryExists bool, err error)
-	RenameDirectory(ctx context.Context, oldID, newID string) error
-}
-
-func (a *API) workspaceWikiStore() (workspaceWikiStore, error) {
-	if a.wikiStore == nil {
-		return nil, nil
-	}
-	store, ok := a.wikiStore.(workspaceWikiStore)
-	if !ok {
-		return nil, errors.New("wiki page store does not support workspace lifecycle operations")
-	}
-	return store, nil
-}
-
 // ListWorkspaces returns all workspaces.
 func (a *API) ListWorkspaces(ctx context.Context, _ api.ListWorkspacesRequestObject) (api.ListWorkspacesResponseObject, error) {
 	if a.workspaceStore == nil {
@@ -90,10 +74,7 @@ func (a *API) CreateWorkspace(ctx context.Context, request api.CreateWorkspaceRe
 	a.workspaceWikiMu.Lock()
 	defer a.workspaceWikiMu.Unlock()
 
-	wikiStore, err := a.workspaceWikiStore()
-	if err != nil {
-		return nil, err
-	}
+	wikiStore := a.wikiStore
 	if wikiStore != nil {
 		fileExists, directoryExists, err := wikiStore.PathExists(ctx, body.Name)
 		if err != nil {
@@ -199,10 +180,7 @@ func (a *API) UpdateWorkspace(ctx context.Context, request api.UpdateWorkspaceRe
 
 	updated.UpdatedAt = time.Now().UTC()
 
-	wikiStore, err := a.workspaceWikiStore()
-	if err != nil {
-		return nil, err
-	}
+	wikiStore := a.wikiStore
 	wikiMoved := false
 	if wikiStore != nil && updated.Name != existing.Name {
 		oldFileExists, oldDirectoryExists, err := wikiStore.PathExists(ctx, existing.Name)
@@ -293,10 +271,7 @@ func (a *API) DeleteWorkspace(ctx context.Context, request api.DeleteWorkspaceRe
 		}, nil
 	}
 
-	wikiStore, err := a.workspaceWikiStore()
-	if err != nil {
-		return nil, err
-	}
+	wikiStore := a.wikiStore
 	if wikiStore != nil {
 		fileExists, directoryExists, err := wikiStore.PathExists(ctx, ws.Name)
 		if err != nil {

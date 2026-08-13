@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"mime"
@@ -31,7 +32,6 @@ import (
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnschema "github.com/dagucloud/dagu/v2/internal/cmn/schema"
@@ -95,33 +95,35 @@ type RouteRegistrar func(context.Context, chi.Router, string)
 
 // Server represents the HTTP server for the frontend application.
 type Server struct {
-	apiV1                 *apiv1.API
-	config                *config.Config
-	httpServer            *http.Server
-	funcsConfig           funcsConfig
-	builtinOIDCCfg        *auth.BuiltinOIDCConfig
-	trustedProxyCfg       *auth.TrustedProxyLoginConfig
-	authService           *authservice.Service
-	auditService          *audit.Service
-	auditStore            AuditStore
-	eventService          *eventstore.Service
-	incidentService       *incidentservice.Service
-	notificationService   *notificationservice.Service
-	incidentStateFile     MonitorStateFileFunc
-	notificationStateFile MonitorStateFileFunc
-	syncService           gitsync.Service
-	listener              net.Listener
-	appStream             *sse.AppStreamService
-	sseMultiplexer        *sse.Multiplexer
-	terminalManager       *terminal.Manager
-	metricsRegistry       *prometheus.Registry
-	tunnelAPIOpts         []apiv1.APIOption
-	tunnelService         *tunnel.Service
-	dagRepository         *persis.DAGRepository
-	licenseManager        *license.Manager
-	remoteNodeResolver    *remotenode.Resolver
-	upgradeStore          upgrade.CacheStore
-	routeRegistrars       []RouteRegistrar
+	apiV1                *apiv1.API
+	config               *config.Config
+	httpServer           *http.Server
+	funcsConfig          funcsConfig
+	builtinOIDCCfg       *auth.BuiltinOIDCConfig
+	trustedProxyCfg      *auth.TrustedProxyLoginConfig
+	authService          *authservice.Service
+	auditService         *audit.Service
+	auditStore           io.Closer
+	eventService         *eventstore.Service
+	incidentService      *incidentservice.Service
+	notificationService  *notificationservice.Service
+	incidentState        chatbridge.StateStore
+	newIncidentLease     func() chatbridge.Lease
+	notificationState    chatbridge.StateStore
+	newNotificationLease func() chatbridge.Lease
+	syncService          gitsync.Service
+	listener             net.Listener
+	appStream            *sse.AppStreamService
+	sseMultiplexer       *sse.Multiplexer
+	terminalManager      *terminal.Manager
+	metricsRegistry      *prometheus.Registry
+	tunnelAPIOpts        []apiv1.APIOption
+	tunnelService        *tunnel.Service
+	dagRepository        *persis.DAGRepository
+	licenseManager       *license.Manager
+	remoteNodeResolver   *remotenode.Resolver
+	upgradeStore         upgrade.CacheStore
+	routeRegistrars      []RouteRegistrar
 }
 
 // ServerOption is a functional option for configuring the Server.
@@ -269,7 +271,7 @@ func (srv *Server) RegisterRoutes(fn RouteRegistrar) {
 
 // NewServer constructs a Server from the provided configuration, stores, and services.
 // Returns an error if initialization fails (e.g., when builtin auth fails to initialize).
-func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository, dagRunRepository *persis.DAGRunRepository, qs queue.QueueStore, processes *persis.ProcRepository, drm runtime.Manager, cc coordinator.Client, sr serviceregistry.ServiceRegistry, mr *prometheus.Registry, rs *resource.Service, stores StoreFactories, opts ...ServerOption) (*Server, error) {
+func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository, dagRunRepository *persis.DAGRunRepository, qs queue.QueueStore, processes *persis.ProcRepository, drm runtime.Manager, cc coordinator.Client, sr serviceregistry.ServiceRegistry, mr *prometheus.Registry, rs *resource.Service, stores Stores, opts ...ServerOption) (*Server, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -291,74 +293,60 @@ func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository
 		oidcButtonLabel string
 		setupRequired   bool
 	)
-	if stores.WorkspaceBaseConfigStoreFactory != nil {
-		apiOpts = append(apiOpts, apiv1.WithWorkspaceBaseConfigStoreFactory(stores.WorkspaceBaseConfigStoreFactory))
+	if stores.WorkspaceBaseConfig != nil {
+		apiOpts = append(apiOpts, apiv1.WithWorkspaceBaseConfigProvider(stores.WorkspaceBaseConfig))
 	}
 
-	auditSvc, auditStore, err := initAuditService(cfg, stores.AuditStoreFactory)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize audit service: %w", err)
+	var auditSvc *audit.Service
+	if stores.Audit != nil {
+		auditSvc = audit.New(stores.Audit)
 	}
-	eventSvc, err := initEventService(cfg, stores.EventStoreFactory)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize event service: %w", err)
+	var auditStore io.Closer
+	if closer, ok := stores.Audit.(io.Closer); ok {
+		auditStore = closer
 	}
+	eventSvc := stores.Event
 	syncSvc := initSyncService(ctx, cfg)
 	if syncSvc != nil {
 		apiOpts = append(apiOpts, apiv1.WithSyncService(syncSvc))
 	}
 
-	if cfg.Paths.BaseConfig != "" && stores.BaseConfigStoreFactory != nil {
-		baseConfigStore, bcErr := stores.BaseConfigStoreFactory(cfg.Paths.BaseConfig)
-		if bcErr != nil {
-			logger.Warn(ctx, "Failed to create base config store", tag.Error(bcErr))
-		} else {
-			apiOpts = append(apiOpts, apiv1.WithBaseConfigStore(baseConfigStore))
-		}
+	if stores.BaseConfig != nil {
+		apiOpts = append(apiOpts, apiv1.WithBaseConfigStore(stores.BaseConfig))
 	}
 
 	// Initialize the workspace store before OIDC provisioning so login-time
 	// mapping can report dormant grants without making workspace existence a
 	// prerequisite for authentication.
-	var wsStore workspacepkg.Store
+	wsStore := stores.Workspace
 	var workspaceExists func(context.Context, string) (bool, error)
-	if stores.WorkspaceStoreFactory != nil {
-		var wsErr error
-		wsStore, wsErr = stores.WorkspaceStoreFactory(cfg)
-		if wsErr != nil {
-			logger.Warn(ctx, "Failed to create workspace store", tag.Error(wsErr))
-		} else {
-			apiOpts = append(apiOpts, apiv1.WithWorkspaceStore(wsStore))
-			workspaceExists = func(ctx context.Context, name string) (bool, error) {
-				_, err := wsStore.GetByName(ctx, name)
-				switch {
-				case err == nil:
-					return true, nil
-				case errors.Is(err, workspacepkg.ErrWorkspaceNotFound):
-					return false, nil
-				default:
-					return false, err
-				}
+	if wsStore != nil {
+		apiOpts = append(apiOpts, apiv1.WithWorkspaceStore(wsStore))
+		workspaceExists = func(ctx context.Context, name string) (bool, error) {
+			_, err := wsStore.GetByName(ctx, name)
+			switch {
+			case err == nil:
+				return true, nil
+			case errors.Is(err, workspacepkg.ErrWorkspaceNotFound):
+				return false, nil
+			default:
+				return false, err
 			}
 		}
 	}
 
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
-		if stores.BuiltinAuthFactory == nil {
+		if stores.AuthService == nil || stores.UserStore == nil {
 			return nil, errors.New("builtin auth persistence is not configured")
 		}
-		result, isSetupRequired, err := stores.BuiltinAuthFactory(ctx, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize builtin auth service: %w", err)
-		}
-		authSvc = result.AuthService
-		setupRequired = isSetupRequired
-		apiOpts = append(apiOpts, apiv1.WithAuthService(result.AuthService))
+		authSvc = stores.AuthService
+		setupRequired = stores.AuthSetupRequired
+		apiOpts = append(apiOpts, apiv1.WithAuthService(stores.AuthService))
 
 		trustedProxy := cfg.Server.Auth.Proxy
 		if trustedProxy.Enabled {
-			trustedProvisionSvc, err := trustedproxyprovision.New(result.UserStore, trustedproxyprovision.Config{
+			trustedProvisionSvc, err := trustedproxyprovision.New(stores.UserStore, trustedproxyprovision.Config{
 				UsersDir:        cfg.Paths.UsersDir,
 				Source:          trustedProxy.Source,
 				AutoSignup:      trustedProxy.AutoSignup,
@@ -381,9 +369,9 @@ func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository
 				GroupsHeader:   trustedProxy.Headers.Groups,
 				GroupsRequired: len(trustedProxy.RoleMapping.GroupMappings) > 0 || len(trustedProxy.RoleMapping.WorkspaceMappings) > 0,
 				Provision:      trustedProvisionSvc,
-				AuthService:    result.AuthService,
+				AuthService:    stores.AuthService,
 				InitialSetupComplete: func(ctx context.Context) (bool, error) {
-					count, err := result.AuthService.CountUsers(ctx)
+					count, err := stores.AuthService.CountUsers(ctx)
 					return count > 0, err
 				},
 				LoginBasePath: evaluatedBasePath,
@@ -421,7 +409,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository
 				},
 			}
 			provisionCfg.WorkspaceExists = workspaceExists
-			provisionSvc, err := oidcprovision.New(result.UserStore, provisionCfg)
+			provisionSvc, err := oidcprovision.New(stores.UserStore, provisionCfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create OIDC provisioning service: %w", err)
 			}
@@ -434,7 +422,7 @@ func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository
 			builtinOIDCCfg, err = auth.InitBuiltinOIDCConfig(
 				ctx,
 				oidcCfg,
-				result.AuthService,
+				stores.AuthService,
 				provisionSvc,
 				evaluatedBasePath,
 			)
@@ -449,32 +437,16 @@ func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository
 		}
 	}
 
-	// Initialize remote node store and resolver
 	var (
 		remoteNodeResolver *remotenode.Resolver
-		encryptor          *crypto.Encryptor
 		licenseChecker     license.Checker
 	)
-	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
-	if encErr != nil {
-		logger.Warn(ctx, "Failed to resolve encryption key for encrypted stores", tag.Error(encErr))
-	}
-	if encErr == nil {
-		encryptor, encErr = crypto.NewEncryptor(encKey)
-		if encErr != nil {
-			logger.Warn(ctx, "Failed to create encryptor for encrypted stores", tag.Error(encErr))
-		} else if stores.RemoteNodeStoreFactory != nil {
-			rnStore, rnErr := stores.RemoteNodeStoreFactory(cfg, encryptor)
-			if rnErr != nil {
-				logger.Warn(ctx, "Failed to create remote node store", tag.Error(rnErr))
-			} else {
-				remoteNodeResolver = remotenode.NewResolver(cfg.Server.RemoteNodes, rnStore)
-				apiOpts = append(apiOpts,
-					apiv1.WithRemoteNodeResolver(remoteNodeResolver),
-					apiv1.WithRemoteNodeStore(rnStore),
-				)
-			}
-		}
+	if stores.RemoteNode != nil {
+		remoteNodeResolver = remotenode.NewResolver(cfg.Server.RemoteNodes, stores.RemoteNode)
+		apiOpts = append(apiOpts,
+			apiv1.WithRemoteNodeResolver(remoteNodeResolver),
+			apiv1.WithRemoteNodeStore(stores.RemoteNode),
+		)
 	}
 	if remoteNodeResolver == nil {
 		// Fallback: resolver with config nodes only (no store)
@@ -487,113 +459,74 @@ func NewServer(ctx context.Context, cfg *config.Config, dr *persis.DAGRepository
 		remoteNodes = names
 	}
 
-	if stores.SecretStoreFactory != nil {
-		if secretStore := stores.SecretStoreFactory(ctx, cfg); secretStore != nil {
-			apiOpts = append(apiOpts, apiv1.WithSecretStore(secretStore))
-		}
+	if stores.Secret != nil {
+		apiOpts = append(apiOpts, apiv1.WithSecretStore(stores.Secret))
 	}
-	if stores.ProfileStoreFactory != nil {
-		if profileStore := stores.ProfileStoreFactory(ctx, cfg); profileStore != nil {
-			apiOpts = append(apiOpts, apiv1.WithProfileStore(profileStore))
-		}
+	if stores.Profile != nil {
+		apiOpts = append(apiOpts, apiv1.WithProfileStore(stores.Profile))
 	}
 
-	if stores.DAGSettingsStoreFactory != nil {
-		store, err := stores.DAGSettingsStoreFactory(cfg)
-		if err != nil {
-			logger.Warn(ctx, "Failed to create DAG settings store", tag.Error(err))
-		} else {
-			apiOpts = append(apiOpts, apiv1.WithDAGSettingsStore(store))
-		}
+	if stores.DAGSettings != nil {
+		apiOpts = append(apiOpts, apiv1.WithDAGSettingsStore(stores.DAGSettings))
 	}
 
-	if stores.WikiStoreFactory != nil {
-		wikiStore, err := stores.WikiStoreFactory(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Wiki store: %w", err)
-		}
-		if wikiStore != nil {
-			apiOpts = append(apiOpts, apiv1.WithWikiStore(wikiStore))
-		}
+	if stores.Wiki != nil {
+		apiOpts = append(apiOpts, apiv1.WithWikiStore(stores.Wiki))
 	}
 
-	if stores.ViewStoreFactory != nil {
-		store, err := stores.ViewStoreFactory(cfg)
-		if err != nil {
-			logger.Warn(ctx, "Failed to create view store", tag.Error(err))
-		} else {
-			apiOpts = append(apiOpts, apiv1.WithViewStore(store))
-		}
+	if stores.View != nil {
+		apiOpts = append(apiOpts, apiv1.WithViewStore(stores.View))
 	}
 
 	var notificationSvc *notificationservice.Service
-	if encryptor != nil && stores.NotificationStoreFactory != nil {
-		store, err := stores.NotificationStoreFactory(cfg, encryptor)
-		if err != nil {
-			logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
-		} else {
-			notificationSvc = notificationservice.New(
-				store,
-				dr,
-				notificationservice.WithPublicURL(cfg.Server.PublicURL),
-			)
-			apiOpts = append(apiOpts, apiv1.WithNotificationService(notificationSvc))
-		}
-	} else if encryptor == nil {
-		logger.Warn(ctx, "Notification settings store is disabled because encrypted storage is not available")
+	if stores.Notification != nil {
+		notificationSvc = notificationservice.New(
+			stores.Notification,
+			dr,
+			notificationservice.WithPublicURL(cfg.Server.PublicURL),
+		)
+		apiOpts = append(apiOpts, apiv1.WithNotificationService(notificationSvc))
 	}
 
 	var incidentSvc *incidentservice.Service
-	if encryptor != nil && stores.IncidentStoreFactory != nil {
-		store, err := stores.IncidentStoreFactory(cfg, encryptor)
-		if err != nil {
-			logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
-		} else {
-			incidentSvc = incidentservice.New(
-				store,
-				incidentservice.WithIncidentsEnabled(func() bool {
-					return license.HasActiveLicense(licenseChecker)
-				}),
-				incidentservice.WithPublicURL(cfg.Server.PublicURL),
-			)
-			apiOpts = append(apiOpts, apiv1.WithIncidentService(incidentSvc))
-		}
-	} else if encryptor == nil {
-		logger.Warn(ctx, "Incident settings store is disabled because encrypted storage is not available")
+	if stores.Incident != nil {
+		incidentSvc = incidentservice.New(
+			stores.Incident,
+			incidentservice.WithIncidentsEnabled(func() bool {
+				return license.HasActiveLicense(licenseChecker)
+			}),
+			incidentservice.WithPublicURL(cfg.Server.PublicURL),
+		)
+		apiOpts = append(apiOpts, apiv1.WithIncidentService(incidentSvc))
 	}
 
-	var (
-		upgradeStore      upgrade.CacheStore
-		updateInfoChecker UpdateChecker
-	)
-	if cfg.Server.CheckUpdates && stores.UpgradeCheckStoreFactory != nil {
-		upgradeStore, err = stores.UpgradeCheckStoreFactory(cfg)
-		if err != nil {
-			logger.Warn(ctx, "Failed to create upgrade check store", tag.Error(err))
-		} else {
-			updateInfoChecker = &updateChecker{store: upgradeStore}
-		}
+	upgradeStore := stores.Upgrade
+	var updateInfoChecker UpdateChecker
+	if upgradeStore != nil {
+		updateInfoChecker = &updateChecker{store: upgradeStore}
 	}
 
 	// Note: SSO/OIDC gating is applied after opts are processed (see below)
 
 	srv := &Server{
-		config:                cfg,
-		builtinOIDCCfg:        builtinOIDCCfg,
-		trustedProxyCfg:       trustedProxyCfg,
-		authService:           authSvc,
-		auditService:          auditSvc,
-		auditStore:            auditStore,
-		eventService:          eventSvc,
-		incidentService:       incidentSvc,
-		notificationService:   notificationSvc,
-		incidentStateFile:     stores.IncidentMonitorStateFileFunc,
-		notificationStateFile: stores.NotificationMonitorStateFileFunc,
-		syncService:           syncSvc,
-		metricsRegistry:       mr,
-		dagRepository:         dr,
-		remoteNodeResolver:    remoteNodeResolver,
-		upgradeStore:          upgradeStore,
+		config:               cfg,
+		builtinOIDCCfg:       builtinOIDCCfg,
+		trustedProxyCfg:      trustedProxyCfg,
+		authService:          authSvc,
+		auditService:         auditSvc,
+		auditStore:           auditStore,
+		eventService:         eventSvc,
+		incidentService:      incidentSvc,
+		notificationService:  notificationSvc,
+		incidentState:        stores.IncidentState,
+		newIncidentLease:     stores.NewIncidentLease,
+		notificationState:    stores.NotificationState,
+		newNotificationLease: stores.NewNotificationLease,
+		syncService:          syncSvc,
+		metricsRegistry:      mr,
+		dagRepository:        dr,
+		remoteNodeResolver:   remoteNodeResolver,
+		upgradeStore:         upgradeStore,
 		funcsConfig: funcsConfig{
 			NavbarColor:           cfg.UI.NavbarColor,
 			NavbarTitle:           cfg.UI.NavbarTitle,
@@ -739,22 +672,6 @@ func (s *setupChecker) IsSetupRequired(ctx context.Context) bool {
 	return true
 }
 
-// initAuditService creates the configured audit store and service.
-func initAuditService(cfg *config.Config, factory AuditStoreFactory) (*audit.Service, AuditStore, error) {
-	if factory == nil {
-		return nil, nil, nil
-	}
-	store, err := factory(cfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create audit store: %w", err)
-	}
-	if store == nil {
-		return nil, nil, nil
-	}
-
-	return audit.New(store), store, nil
-}
-
 // initSyncService creates and returns a Git sync service if enabled.
 func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 	if !cfg.GitSync.Enabled {
@@ -780,20 +697,6 @@ func initSyncService(ctx context.Context, cfg *config.Config) gitsync.Service {
 		slog.String("branch", syncCfg.Branch))
 
 	return svc
-}
-
-func initEventService(cfg *config.Config, factory EventStoreFactory) (*eventstore.Service, error) {
-	if factory == nil {
-		return nil, nil
-	}
-	store, err := factory(cfg)
-	if err != nil {
-		return nil, err
-	}
-	if store == nil {
-		return nil, nil
-	}
-	return eventstore.New(store), nil
 }
 
 // sanitizedRequestLogger wraps httplog's RequestLogger with URL sanitization
@@ -970,16 +873,17 @@ func (srv *Server) startNotificationMonitor(ctx context.Context) {
 	if srv.notificationService == nil || srv.eventService == nil {
 		return
 	}
-	if srv.notificationStateFile == nil {
+	if srv.notificationState == nil {
 		return
 	}
-	stateFile := srv.notificationStateFile(srv.config)
-	if stateFile == "" {
-		return
+	var lease chatbridge.Lease
+	if srv.newNotificationLease != nil {
+		lease = srv.newNotificationLease()
 	}
 	monitor := chatbridge.NewNotificationMonitor(
 		srv.eventService,
-		stateFile,
+		srv.notificationState,
+		lease,
 		srv.notificationService,
 		slog.Default(),
 		chatbridge.DefaultNotificationMonitorConfig(),
@@ -991,16 +895,17 @@ func (srv *Server) startIncidentMonitor(ctx context.Context) {
 	if srv.incidentService == nil || srv.eventService == nil {
 		return
 	}
-	if srv.incidentStateFile == nil {
+	if srv.incidentState == nil {
 		return
 	}
-	stateFile := srv.incidentStateFile(srv.config)
-	if stateFile == "" {
-		return
+	var lease chatbridge.Lease
+	if srv.newIncidentLease != nil {
+		lease = srv.newIncidentLease()
 	}
 	monitor := chatbridge.NewNotificationMonitor(
 		srv.eventService,
-		stateFile,
+		srv.incidentState,
+		lease,
 		srv.incidentService,
 		slog.Default(),
 		incidentMonitorConfig(),

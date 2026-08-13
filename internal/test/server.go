@@ -108,11 +108,15 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		frontend.WithAPIOption(apiv1.WithDAGRunLeaseStore(srv.DAGRunLeaseStore)),
 		frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(srv.WorkerHeartbeatStore)),
 	}, srv.ServerOptions...)
+	stores, err := cmdprocess.NewFileStores(srv.Context, srv.Config, cmdprocess.StoreRoleEvents|cmdprocess.StoreRoleServer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize server stores: %w", err)
+	}
 	server, err := frontend.NewServer(
 		srv.Context, srv.Config, srv.DAGRepository, srv.DAGRunRepository,
 		srv.QueueStore, srv.ProcRepository, srv.DAGRunMgr, cc,
 		srv.ServiceRegistry, mr, nil,
-		cmdprocess.NewFileFrontendStoreFactories(),
+		stores.Frontend(),
 		serverOpts...,
 	)
 	if err != nil {

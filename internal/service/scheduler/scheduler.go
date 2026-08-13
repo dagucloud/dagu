@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -78,7 +79,7 @@ type Scheduler struct {
 	startupCancel       context.CancelFunc
 	lockHeld            atomic.Bool
 	clock               Clock // Clock function for getting current time
-	eventCollector      eventCollector
+	eventCollector      eventstore.Collector
 	notificationMonitor backgroundRunner
 	incidentMonitor     backgroundRunner
 }
@@ -101,10 +102,6 @@ func WithDAGProfileResolver(resolver DAGProfileResolver) Option {
 
 type backgroundRunner interface {
 	Run(ctx context.Context)
-}
-
-type eventCollector interface {
-	Start(context.Context)
 }
 
 type startupState struct {
@@ -323,7 +320,7 @@ func (s *Scheduler) SetClock(clock Clock) {
 
 // SetEventCollector configures the scheduler-owned collector loop.
 // This must be called before Start().
-func (s *Scheduler) SetEventCollector(collector eventCollector) {
+func (s *Scheduler) SetEventCollector(collector eventstore.Collector) {
 	if s == nil {
 		return
 	}

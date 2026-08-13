@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -129,7 +128,12 @@ func (a *API) GetWorkspaceBaseConfig(
 		return nil, err
 	}
 
-	yamlSpec, err := readWorkspaceBaseConfigSpec(a.config.Paths.DAGsDir, workspaceName)
+	store, err := a.workspaceBaseConfigStore(workspaceName)
+	if err != nil {
+		logger.Error(ctx, "Failed to initialize workspace base config store", tag.Name(workspaceName), tag.Error(err))
+		return nil, ErrFailedToLoadWorkspaceBaseConfig
+	}
+	yamlSpec, err := store.GetSpec(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to load workspace base config", tag.Name(workspaceName), tag.Error(err))
 		return nil, ErrFailedToLoadWorkspaceBaseConfig
@@ -170,7 +174,7 @@ func (a *API) UpdateWorkspaceBaseConfig(
 		}
 	}
 
-	store, err := a.workspaceBaseConfigStore(a.config.Paths.DAGsDir, workspaceName)
+	store, err := a.workspaceBaseConfigStore(workspaceName)
 	if err != nil {
 		logger.Error(ctx, "Failed to initialize workspace base config store", tag.Name(workspaceName), tag.Error(err))
 		return nil, ErrFailedToSaveWorkspaceBaseConfig
@@ -190,7 +194,7 @@ func (a *API) UpdateWorkspaceBaseConfig(
 }
 
 func (a *API) requireBaseConfigManagement() error {
-	if a.baseConfigStore == nil || a.baseConfigFactory == nil {
+	if a.baseConfigStore == nil || a.baseConfigProvider == nil {
 		return ErrBaseConfigNotAvailable
 	}
 	return nil
@@ -235,22 +239,11 @@ func (a *API) requireWorkspaceConfigWrite(ctx context.Context, workspaceName str
 	return nil
 }
 
-func readWorkspaceBaseConfigSpec(dagsDir, workspaceName string) (string, error) {
-	data, err := os.ReadFile(workspace.BaseConfigPath(dagsDir, workspaceName)) //nolint:gosec
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
+func (a *API) workspaceBaseConfigStore(workspaceName string) (dagsettings.BaseConfigStore, error) {
+	if a.baseConfigProvider == nil {
+		return nil, errors.New("workspace base config provider is not configured")
 	}
-	return string(data), nil
-}
-
-func (a *API) workspaceBaseConfigStore(dagsDir, workspaceName string) (dagsettings.BaseConfigStore, error) {
-	if a.baseConfigFactory == nil {
-		return nil, errors.New("workspace base config store factory is not configured")
-	}
-	return a.baseConfigFactory(dagsDir, workspaceName)
+	return a.baseConfigProvider(workspaceName)
 }
 
 // validateBaseConfig parses the YAML spec and returns any validation errors.

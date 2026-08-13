@@ -7,12 +7,10 @@ import (
 	"context"
 	"log/slog"
 	"maps"
-	"path/filepath"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -93,11 +91,27 @@ type NotificationBatchDeliveryPolicyTransport interface {
 	ShouldDeliverNotificationBatch(batch NotificationBatch) bool
 }
 
+// StateStore persists the monitor's encoded delivery state.
+type StateStore interface {
+	Load(ctx context.Context) (data []byte, found bool, err error)
+	Save(ctx context.Context, data []byte) error
+	Quarantine(ctx context.Context) (string, error)
+}
+
+// Lease coordinates a single active monitor across processes.
+type Lease interface {
+	Lock(ctx context.Context) error
+	Unlock() error
+	Heartbeat(ctx context.Context) error
+	IsHeldByMe() bool
+	Location() string
+}
+
 // NotificationMonitor owns source polling, batching, durable delivery state, and shutdown drain.
 type NotificationMonitor struct {
 	eventService *eventstore.Service
 	stateStore   *notificationStateStore
-	lock         dirlock.DirLock
+	lock         Lease
 	lockDir      string
 	transport    NotificationTransport
 	logger       *slog.Logger
@@ -125,33 +139,23 @@ type queuedNotification struct {
 // NewNotificationMonitor creates a shared notification monitor.
 func NewNotificationMonitor(
 	eventService *eventstore.Service,
-	stateFile string,
+	stateStore StateStore,
+	lease Lease,
 	transport NotificationTransport,
 	logger *slog.Logger,
 	cfg NotificationMonitorConfig,
 ) *NotificationMonitor {
 	normalizeNotificationMonitorConfig(&cfg)
 
-	stateStore := newNotificationStateStore(stateFile)
-	lockDir := notificationStateLockDir(stateFile)
-
-	var lock dirlock.DirLock
-	if lockDir != "" {
-		lock = dirlock.New(lockDir, &dirlock.LockOptions{
-			StaleThreshold: DefaultNotificationLockStaleThreshold,
-			RetryInterval:  DefaultNotificationLockRetryInterval,
-			OnWait: func() {
-				logger.Info("Notification lock is held by another process; DAG run notifications are on standby",
-					slog.String("lock_dir", lockDir),
-				)
-			},
-		})
+	lockDir := ""
+	if lease != nil {
+		lockDir = lease.Location()
 	}
 
 	return &NotificationMonitor{
 		eventService: eventService,
-		stateStore:   stateStore,
-		lock:         lock,
+		stateStore:   newNotificationStateStore(stateStore),
+		lock:         lease,
 		lockDir:      lockDir,
 		transport:    transport,
 		logger:       logger,
@@ -1128,13 +1132,6 @@ func (m *NotificationMonitor) discardPendingDestinations(destinations []string) 
 		return
 	}
 	m.currentBatcher().DiscardDestinations(destinations)
-}
-
-func notificationStateLockDir(stateFile string) string {
-	if stateFile == "" {
-		return ""
-	}
-	return filepath.Clean(stateFile) + ".lock"
 }
 
 func normalizeNotificationMonitorConfig(cfg *NotificationMonitorConfig) {

@@ -7,11 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 )
 
@@ -68,44 +65,44 @@ func (s *notificationMonitorState) normalize() {
 }
 
 type notificationStateStore struct {
-	path string
+	store StateStore
 }
 
-func newNotificationStateStore(path string) *notificationStateStore {
-	if path == "" {
+func newNotificationStateStore(store StateStore) *notificationStateStore {
+	if store == nil {
 		return nil
 	}
-	return &notificationStateStore{path: path}
+	return &notificationStateStore{store: store}
 }
 
-func (s *notificationStateStore) Load(_ context.Context) notificationStateLoadResult {
+func (s *notificationStateStore) Load(ctx context.Context) notificationStateLoadResult {
 	result := notificationStateLoadResult{State: newNotificationMonitorState()}
 	if s == nil {
 		return result
 	}
 
-	data, err := fileutil.ReadFile(filepath.Clean(s.path))
+	data, found, err := s.store.Load(ctx)
 	if err != nil {
-		if os.IsNotExist(err) {
-			result.Missing = true
-			return result
-		}
 		result.Recovered = true
-		result.QuarantinedPath, result.Warning = s.recoverUnreadableState(fmt.Errorf("read notification state: %w", err))
+		result.QuarantinedPath, result.Warning = s.recoverUnreadableState(ctx, fmt.Errorf("read notification state: %w", err))
+		return result
+	}
+	if !found {
+		result.Missing = true
 		return result
 	}
 
 	state := newNotificationMonitorState()
 	if err := json.Unmarshal(data, &state); err != nil {
 		result.Recovered = true
-		result.QuarantinedPath, result.Warning = s.recoverUnreadableState(fmt.Errorf("decode notification state: %w", err))
+		result.QuarantinedPath, result.Warning = s.recoverUnreadableState(ctx, fmt.Errorf("decode notification state: %w", err))
 		return result
 	}
 	switch state.Version {
 	case 0, notificationMonitorStateVersion:
 	default:
 		result.Recovered = true
-		result.QuarantinedPath, result.Warning = s.recoverUnreadableState(fmt.Errorf("unsupported notification state version %d", state.Version))
+		result.QuarantinedPath, result.Warning = s.recoverUnreadableState(ctx, fmt.Errorf("unsupported notification state version %d", state.Version))
 		return result
 	}
 
@@ -114,69 +111,22 @@ func (s *notificationStateStore) Load(_ context.Context) notificationStateLoadRe
 	return result
 }
 
-func (s *notificationStateStore) Save(_ context.Context, state notificationMonitorState) error {
+func (s *notificationStateStore) Save(ctx context.Context, state notificationMonitorState) error {
 	if s == nil {
 		return nil
 	}
 	state.normalize()
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o750); err != nil {
-		return fmt.Errorf("create notification state dir: %w", err)
-	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal notification state: %w", err)
 	}
 
-	tmp := s.path + ".tmp"
-	if err := writeNotificationStateFile(tmp, data); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := fileutil.ReplaceFile(tmp, s.path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("rename notification state: %w", err)
-	}
-	return nil
+	return s.store.Save(ctx, data)
 }
 
-func writeNotificationStateFile(path string, data []byte) error {
-	file, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // internal state path
-	if err != nil {
-		return fmt.Errorf("open notification state file: %w", err)
-	}
-
-	_, writeErr := file.Write(data)
-	syncErr := file.Sync()
-	closeErr := file.Close()
-	if writeErr != nil {
-		return fmt.Errorf("write notification state file: %w", writeErr)
-	}
-	if syncErr != nil {
-		return fmt.Errorf("sync notification state file: %w", syncErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("close notification state file: %w", closeErr)
-	}
-	return nil
-}
-
-func (s *notificationStateStore) quarantineCorruptStateFile() (string, error) {
-	if s == nil || s.path == "" {
-		return "", nil
-	}
-	quarantinedPath := fmt.Sprintf("%s.corrupt.%s", s.path, time.Now().UTC().Format("20060102T150405.000000000Z"))
-	if err := fileutil.Rename(s.path, quarantinedPath); err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("quarantine notification state: %w", err)
-	}
-	return quarantinedPath, nil
-}
-
-func (s *notificationStateStore) recoverUnreadableState(err error) (string, error) {
-	quarantinedPath, quarantineErr := s.quarantineCorruptStateFile()
+func (s *notificationStateStore) recoverUnreadableState(ctx context.Context, err error) (string, error) {
+	quarantinedPath, quarantineErr := s.store.Quarantine(ctx)
 	if quarantineErr != nil {
 		return "", fmt.Errorf("%w (quarantine failed: %v)", err, quarantineErr)
 	}

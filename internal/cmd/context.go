@@ -52,9 +52,9 @@ type Context struct {
 	Quiet   bool
 	Scope   commandScope
 
-	EventService        *eventstore.Service
 	EventSourceInstance string
 	Persistence         cmdprocess.CorePersistence
+	Stores              cmdprocess.Stores
 	DAGRunMgr           runtime.Manager
 
 	Caches         []fileutil.CacheMetrics
@@ -77,10 +77,10 @@ func (c *Context) WithContext(ctx context.Context) *Context {
 // WithEventSource returns a shallow copy whose context carries the given event source.
 // If the event store is not configured, the original context is preserved.
 func (c *Context) WithEventSource(service string) *Context {
-	if c == nil || c.EventService == nil {
+	if c == nil || c.Stores.Event == nil {
 		return c
 	}
-	return c.WithContext(eventstore.WithContext(c.Context, c.EventService, eventstore.Source{
+	return c.WithContext(eventstore.WithContext(c.Context, c.Stores.Event, eventstore.Source{
 		Service:  service,
 		Instance: c.EventSourceInstance,
 	}))
@@ -218,19 +218,16 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 
 	baseCtx := ctx
 	eventSourceInstance := eventstore.DefaultSourceInstance()
-	var eventSvc *eventstore.Service
 	workerCommand := isWorkerCommand(cmd)
-	if !workerCommand && cfg.EventStore.Enabled {
-		store, eventErr := file.NewEventStore(cfg)
-		if eventErr != nil {
-			logger.Warn(ctx, "Failed to initialize event store; continuing without event persistence", tag.Error(eventErr))
-		} else if store != nil {
-			eventSvc = eventstore.New(store)
-			ctx = eventstore.WithContext(ctx, eventSvc, eventstore.Source{
-				Service:  eventSourceServiceForCommand(cmd.Name()),
-				Instance: eventSourceInstance,
-			})
-		}
+	stores, err := cmdprocess.NewFileStores(ctx, cfg, storeRoles(cmd))
+	if err != nil {
+		return nil, err
+	}
+	if stores.Event != nil {
+		ctx = eventstore.WithContext(ctx, stores.Event, eventstore.Source{
+			Service:  eventSourceServiceForCommand(cmd.Name()),
+			Instance: eventSourceInstance,
+		})
 	}
 
 	if scope == commandScopeContextAware && selectedContextName != localContextName {
@@ -244,8 +241,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Config:              cfg,
 			Quiet:               quiet,
 			Flags:               flags,
-			EventService:        eventSvc,
 			EventSourceInstance: eventSourceInstance,
+			Stores:              stores,
 			ContextStore:        contextStore,
 			CLIContext:          selectedContext,
 			ContextName:         selectedContextName,
@@ -266,8 +263,8 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Config:              cfg,
 			Quiet:               quiet,
 			Flags:               flags,
-			EventService:        nil,
 			EventSourceInstance: eventSourceInstance,
+			Stores:              stores,
 			ContextStore:        contextStore,
 			CLIContext:          selectedContext,
 			ContextName:         selectedContextName,
@@ -355,9 +352,9 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		Command:             cmd,
 		Config:              cfg,
 		Quiet:               quiet,
-		EventService:        eventSvc,
 		EventSourceInstance: eventSourceInstance,
 		Persistence:         persistence,
+		Stores:              stores,
 		DAGRunMgr:           drm,
 		Flags:               flags,
 		Caches:              caches,
@@ -485,12 +482,29 @@ func isWorkerCommand(cmd *cobra.Command) bool {
 	return cmd.Name() == "worker"
 }
 
+func storeRoles(cmd *cobra.Command) cmdprocess.StoreRole {
+	if isWorkerCommand(cmd) {
+		return 0
+	}
+	roles := cmdprocess.StoreRoleEvents
+	switch cmd.Name() {
+	case "server":
+		roles |= cmdprocess.StoreRoleServer
+	case "scheduler":
+		roles |= cmdprocess.StoreRoleScheduler
+	case "start-all":
+		roles |= cmdprocess.StoreRoleServer | cmdprocess.StoreRoleScheduler
+	}
+	return roles
+}
+
 // NewServer creates and returns a new web UI server for this command context.
 func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption) (*frontend.Server, error) {
 	return cmdprocess.NewServer(cmdprocess.ServerConfig{
 		Context:         c.Context,
 		Config:          c.Config,
 		Persistence:     c.Persistence,
+		Stores:          c.Stores,
 		Caches:          c.Caches,
 		DAGRunManager:   c.DAGRunMgr,
 		LicenseManager:  c.LicenseManager,
@@ -529,7 +543,7 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 		Context:        c.Context,
 		Config:         c.Config,
 		Persistence:    c.Persistence,
-		EventService:   c.EventService,
+		Stores:         c.Stores,
 		LicenseManager: c.LicenseManager,
 	})
 }
@@ -578,7 +592,14 @@ func (c *Context) dagRepository(cfg dagRepositoryConfig) (*persis.DAGRepository,
 
 // runtimeStores creates the runtime store bundle for this command context.
 func (c *Context) runtimeStores() cmdprocess.RuntimeStores {
-	return cmdprocess.NewFileRuntimeStores(c.Context, c.Config)
+	stores := cmdprocess.NewFileRuntimeStores(c.Context, c.Config)
+	if c.Stores.Secret != nil {
+		stores.SecretStore = c.Stores.Secret
+	}
+	if c.Stores.Profile != nil {
+		stores.ProfileStore = c.Stores.Profile
+	}
+	return stores
 }
 
 // OpenLogFile creates and opens a log file for a given dag-run.

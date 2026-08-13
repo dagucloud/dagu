@@ -14,6 +14,9 @@ type BaseConfigStore interface {
 	UpdateSpec(ctx context.Context, spec []byte) error
 }
 
+// BaseConfigProvider returns the base configuration store for a workspace.
+type BaseConfigProvider func(workspaceName string) (BaseConfigStore, error)
+
 type Store interface {
 	Get(ctx context.Context, dagName string) (*Settings, error)
 	Upsert(ctx context.Context, settings *Settings) error

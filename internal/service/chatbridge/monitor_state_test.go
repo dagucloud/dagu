@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,26 @@ func newTestNotificationMonitorConfig() NotificationMonitorConfig {
 	cfg.UrgentWindow = 10 * time.Millisecond
 	cfg.SeenEvictInterval = time.Hour
 	return cfg
+}
+
+func newFileBackedMonitor(
+	eventService *eventstore.Service,
+	stateFile string,
+	transport NotificationTransport,
+	logger *slog.Logger,
+	cfg NotificationMonitorConfig,
+) *NotificationMonitor {
+	return NewNotificationMonitor(
+		eventService,
+		filemonitor.NewStateStore(stateFile),
+		filemonitor.NewLease(stateFile, filemonitor.LeaseOptions{
+			StaleThreshold: DefaultNotificationLockStaleThreshold,
+			RetryInterval:  DefaultNotificationLockRetryInterval,
+		}),
+		transport,
+		logger,
+		cfg,
+	)
 }
 
 func notificationMonitorEventuallyTimeout(base time.Duration) time.Duration {
@@ -91,7 +112,7 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 	}
 
 	cfg := newTestNotificationMonitorConfig()
-	monitor := NewNotificationMonitor(service, filepath.Join(t.TempDir(), "state.json"), transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := newFileBackedMonitor(service, filepath.Join(t.TempDir(), "state.json"), transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 	require.Eventually(t, func() bool {
@@ -163,7 +184,7 @@ func TestNotificationMonitor_RestartRequeuesPersistedPending(t *testing.T) {
 		},
 		Delivered: make(map[string]time.Time),
 	}
-	require.NoError(t, newNotificationStateStore(stateFile).Save(context.Background(), state))
+	require.NoError(t, newNotificationStateStore(filemonitor.NewStateStore(stateFile)).Save(context.Background(), state))
 
 	var (
 		mu    sync.Mutex
@@ -184,7 +205,7 @@ func TestNotificationMonitor_RestartRequeuesPersistedPending(t *testing.T) {
 		},
 	}
 
-	secondMonitor := NewNotificationMonitor(nil, stateFile, secondTransport, logger, cfg)
+	secondMonitor := newFileBackedMonitor(nil, stateFile, secondTransport, logger, cfg)
 	stopMonitor := testutil.StartContextRunner(t, secondMonitor)
 	defer stopMonitor()
 	require.Eventually(t, func() bool {
@@ -234,8 +255,8 @@ func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T
 		}
 	}
 
-	monitor1 := NewNotificationMonitor(service, stateFile, newTransport("monitor-1"), logger, newTestNotificationMonitorConfig())
-	monitor2 := NewNotificationMonitor(service, stateFile, newTransport("monitor-2"), logger, newTestNotificationMonitorConfig())
+	monitor1 := newFileBackedMonitor(service, stateFile, newTransport("monitor-1"), logger, newTestNotificationMonitorConfig())
+	monitor2 := newFileBackedMonitor(service, stateFile, newTransport("monitor-2"), logger, newTestNotificationMonitorConfig())
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	defer cancel1()
@@ -405,7 +426,7 @@ func TestNotificationMonitor_CorruptStateIsQuarantinedAndOnlyFutureEventsAreDeli
 		},
 	}
 
-	monitor := NewNotificationMonitor(service, stateFile, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
+	monitor := newFileBackedMonitor(service, stateFile, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
@@ -455,7 +476,7 @@ func TestNotificationStateStore_LoadUnsupportedVersionQuarantinesState(t *testin
 	stateFile := filepath.Join(t.TempDir(), "state.json")
 	require.NoError(t, os.WriteFile(stateFile, []byte(`{"version":99}`), 0o600))
 
-	result := newNotificationStateStore(stateFile).Load(context.Background())
+	result := newNotificationStateStore(filemonitor.NewStateStore(stateFile)).Load(context.Background())
 	require.Error(t, result.Warning)
 	assert.True(t, result.Recovered)
 	assert.NotEmpty(t, result.QuarantinedPath)
@@ -498,7 +519,7 @@ func TestNotificationMonitor_SaveFailureDoesNotLoseUnreadEvents(t *testing.T) {
 		},
 	}
 
-	monitor := NewNotificationMonitor(service, stateFile, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
+	monitor := newFileBackedMonitor(service, stateFile, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
@@ -558,7 +579,7 @@ func TestNotificationMonitor_NotifyCompletionSaveFailureDoesNotMutateLiveState(t
 
 	stateDir := t.TempDir()
 	stateFile := filepath.Join(stateDir, "state.json")
-	monitor := NewNotificationMonitor(
+	monitor := newFileBackedMonitor(
 		nil,
 		stateFile,
 		&fakeNotificationTransport{destinations: []string{"dest-1"}},
@@ -596,7 +617,7 @@ func TestNotificationMonitor_MarkBatchDeliveredSaveFailureDoesNotMutateLiveState
 
 	stateDir := t.TempDir()
 	stateFile := filepath.Join(stateDir, "state.json")
-	monitor := NewNotificationMonitor(
+	monitor := newFileBackedMonitor(
 		nil,
 		stateFile,
 		&fakeNotificationTransport{destinations: []string{"dest-1"}},
@@ -667,7 +688,7 @@ func TestNotificationMonitor_RemovedDestinationsArePurgedOnStartup(t *testing.T)
 			NotificationSeenKey(status): time.Now().UTC(),
 		},
 	}
-	require.NoError(t, newNotificationStateStore(stateFile).Save(context.Background(), state))
+	require.NoError(t, newNotificationStateStore(filemonitor.NewStateStore(stateFile)).Save(context.Background(), state))
 
 	var (
 		mu    sync.Mutex
@@ -683,7 +704,7 @@ func TestNotificationMonitor_RemovedDestinationsArePurgedOnStartup(t *testing.T)
 		},
 	}
 
-	monitor := NewNotificationMonitor(nil, stateFile, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
+	monitor := newFileBackedMonitor(nil, stateFile, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
@@ -695,7 +716,7 @@ func TestNotificationMonitor_RemovedDestinationsArePurgedOnStartup(t *testing.T)
 		return !removedExists && keepExists
 	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
-	result := newNotificationStateStore(stateFile).Load(context.Background())
+	result := newNotificationStateStore(filemonitor.NewStateStore(stateFile)).Load(context.Background())
 	require.NoError(t, result.Warning)
 	assert.NotContains(t, result.State.Destinations, "removed-dest")
 	assert.Contains(t, result.State.Destinations, "keep-dest")
@@ -733,7 +754,7 @@ func TestNotificationMonitor_LockTheftSelfFencesActiveOwner(t *testing.T) {
 		},
 	}
 
-	monitor := NewNotificationMonitor(service, stateFile, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
+	monitor := newFileBackedMonitor(service, stateFile, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), newTestNotificationMonitorConfig())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan struct{})
@@ -750,7 +771,7 @@ func TestNotificationMonitor_LockTheftSelfFencesActiveOwner(t *testing.T) {
 		return monitor.ownsNotificationLock() && monitor.notificationSessionActive()
 	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
 
-	lockDir := notificationStateLockDir(stateFile)
+	lockDir := filepath.Clean(stateFile) + ".lock"
 	lockTokenPath := filepath.Join(lockDir, ".dagu_lock", "owner")
 	require.NoError(t, os.WriteFile(lockTokenPath, []byte("replacement-owner"), 0o600))
 	require.Eventually(t, func() bool {

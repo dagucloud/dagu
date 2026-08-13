@@ -5,19 +5,15 @@ package process
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
@@ -30,7 +26,7 @@ type SchedulerConfig struct {
 	Context        context.Context
 	Config         *config.Config
 	Persistence    CorePersistence
-	EventService   *eventstore.Service
+	Stores         Stores
 	LicenseManager *license.Manager
 }
 
@@ -54,11 +50,9 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		runtime.WithLatestStatusAllHistory(),
 	)
 
-	dagSettingsStore, err := file.NewDAGSettingsStore(cfg.Config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize DAG settings store: %w", err)
+	if cfg.Stores.DAGSettings == nil {
+		return nil, errors.New("DAG settings store is not configured")
 	}
-	profileStore := file.NewProfileStore(ctx, cfg.Config)
 
 	sched, err := scheduler.New(
 		cfg.Config,
@@ -71,23 +65,20 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		cfg.Persistence.ServiceRegistry,
 		coordinatorClient,
 		cfg.Persistence.SchedulerStateStore,
-		scheduler.WithDAGProfileResolver(scheduler.NewDAGProfileResolver(dagSettingsStore, profileStore)),
+		scheduler.WithDAGProfileResolver(scheduler.NewDAGProfileResolver(cfg.Stores.DAGSettings, cfg.Stores.Profile)),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	if cfg.EventService != nil {
-		collector, eventErr := file.NewEventCollector(cfg.Config)
-		if eventErr != nil {
-			logger.Warn(ctx, "Failed to initialize event collector; continuing without collection", tag.Error(eventErr))
-		} else {
-			sched.SetEventCollector(collector)
+	if cfg.Stores.Event != nil {
+		if cfg.Stores.EventCollector != nil {
+			sched.SetEventCollector(cfg.Stores.EventCollector)
 		}
-		if notificationMonitor := newNotificationMonitor(ctx, cfg.Config, cfg.Persistence.DAGRepository, cfg.EventService); notificationMonitor != nil {
+		if notificationMonitor := newNotificationMonitor(cfg.Config, cfg.Persistence.DAGRepository, cfg.Stores); notificationMonitor != nil {
 			sched.SetNotificationMonitor(notificationMonitor)
 		}
-		if incidentMonitor := newIncidentMonitor(ctx, cfg.Config, cfg.LicenseManager, cfg.EventService); incidentMonitor != nil {
+		if incidentMonitor := newIncidentMonitor(cfg.Config, cfg.LicenseManager, cfg.Stores); incidentMonitor != nil {
 			sched.SetIncidentMonitor(incidentMonitor)
 		}
 	}
@@ -98,34 +89,24 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	return sched, nil
 }
 
-// newNotificationMonitor wires optional DAG notification delivery. It returns nil
-// when encrypted settings storage is unavailable so scheduler startup can continue.
+// newNotificationMonitor wires optional DAG notification delivery.
 func newNotificationMonitor(
-	ctx context.Context,
 	cfg *config.Config,
 	dagRepository *persis.DAGRepository,
-	eventService *eventstore.Service,
+	stores Stores,
 ) *chatbridge.NotificationMonitor {
-	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
-	if encErr != nil {
-		logger.Warn(ctx, "Notification settings store is disabled because encrypted storage is not available", tag.Error(encErr))
+	if stores.Notification == nil || stores.NotificationState == nil {
 		return nil
 	}
-	encryptor, encErr := crypto.NewEncryptor(encKey)
-	if encErr != nil {
-		logger.Warn(ctx, "Failed to create encryptor for notification settings store", tag.Error(encErr))
-		return nil
+	var lease chatbridge.Lease
+	if stores.NewNotificationLease != nil {
+		lease = stores.NewNotificationLease()
 	}
-	store, err := file.NewNotificationStore(cfg, encryptor)
-	if err != nil {
-		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
-		return nil
-	}
-	notificationService := newSchedulerNotificationService(cfg, store, dagRepository)
-	stateFile := file.NotificationMonitorStateFile(cfg)
+	notificationService := newSchedulerNotificationService(cfg, stores.Notification, dagRepository)
 	return chatbridge.NewNotificationMonitor(
-		eventService,
-		stateFile,
+		stores.Event,
+		stores.NotificationState,
+		lease,
 		notificationService,
 		slog.Default(),
 		chatbridge.DefaultNotificationMonitorConfig(),
@@ -148,41 +129,30 @@ func newSchedulerNotificationService(
 	)
 }
 
-// newIncidentMonitor wires optional incident notifications. It returns nil when
-// encrypted settings storage is unavailable so scheduler startup can continue.
+// newIncidentMonitor wires optional incident notifications.
 func newIncidentMonitor(
-	ctx context.Context,
 	cfg *config.Config,
 	licenseManager *license.Manager,
-	eventService *eventstore.Service,
+	stores Stores,
 ) *chatbridge.NotificationMonitor {
-	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
-	if encErr != nil {
-		logger.Warn(ctx, "Incident settings store is disabled because encrypted storage is not available", tag.Error(encErr))
+	if stores.Incident == nil || stores.IncidentState == nil {
 		return nil
 	}
-	encryptor, encErr := crypto.NewEncryptor(encKey)
-	if encErr != nil {
-		logger.Warn(ctx, "Failed to create encryptor for incident settings store", tag.Error(encErr))
-		return nil
-	}
-	store, err := file.NewIncidentStore(cfg, encryptor)
-	if err != nil {
-		logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
-		return nil
+	var lease chatbridge.Lease
+	if stores.NewIncidentLease != nil {
+		lease = stores.NewIncidentLease()
 	}
 	var checker license.Checker
 	if licenseManager != nil {
 		checker = licenseManager.Checker()
 	}
 	incidentService := incidentservice.New(
-		store,
+		stores.Incident,
 		incidentservice.WithIncidentsEnabled(func() bool {
 			return license.HasActiveLicense(checker)
 		}),
 		incidentservice.WithPublicURL(cfg.Server.PublicURL),
 	)
-	stateFile := file.IncidentMonitorStateFile(cfg)
 	monitorConfig := chatbridge.DefaultNotificationMonitorConfig()
 	monitorConfig.UrgentWindow = time.Second
 	monitorConfig.SuccessWindow = time.Second
@@ -192,8 +162,9 @@ func newIncidentMonitor(
 		eventstore.TypeDAGRunPartiallySucceeded,
 	}
 	return chatbridge.NewNotificationMonitor(
-		eventService,
-		stateFile,
+		stores.Event,
+		stores.IncidentState,
+		lease,
 		incidentService,
 		slog.Default(),
 		monitorConfig,

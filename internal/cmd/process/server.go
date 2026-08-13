@@ -21,6 +21,7 @@ type ServerConfig struct {
 	Context         context.Context
 	Config          *config.Config
 	Persistence     CorePersistence
+	Stores          Stores
 	Caches          []fileutil.CacheMetrics
 	DAGRunManager   runtime.Manager
 	LicenseManager  *license.Manager
@@ -74,7 +75,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 		cfg.Persistence.ServiceRegistry,
 		metricsRegistry,
 		cfg.ResourceService,
-		NewFileFrontendStoreFactories(),
+		cfg.Stores.Frontend(),
 		opts...,
 	)
 }

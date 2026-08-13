@@ -171,6 +171,8 @@ type PageStore interface {
 	Search(ctx context.Context, query string) ([]*PageSearchResult, error)
 	SearchCursor(ctx context.Context, opts SearchPagesOptions) (*pagination.CursorResult[PageSearchResult], error)
 	SearchMatches(ctx context.Context, id string, opts SearchPageMatchesOptions) (*pagination.CursorResult[*textsearch.Match], error)
+	PathExists(ctx context.Context, id string) (fileExists, directoryExists bool, err error)
+	RenameDirectory(ctx context.Context, oldID, newID string) error
 }
 
 // validPageIDRegexp matches a valid page ID: segments separated by slashes.

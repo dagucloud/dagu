@@ -177,6 +177,11 @@ type Store interface {
 	Query(ctx context.Context, filter QueryFilter) (*QueryResult, error)
 }
 
+// Collector moves pending events into the queryable event store.
+type Collector interface {
+	Start(ctx context.Context)
+}
+
 type Service struct {
 	store Store
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -32,6 +33,32 @@ type monitorEventStore struct {
 
 var _ eventstore.Store = (*monitorEventStore)(nil)
 var _ eventstore.DAGRunReader = (*monitorEventStore)(nil)
+
+func newFileNotificationMonitor(
+	eventService *eventstore.Service,
+	stateFile string,
+	transport chatbridge.NotificationTransport,
+	logger *slog.Logger,
+	cfg chatbridge.NotificationMonitorConfig,
+) *chatbridge.NotificationMonitor {
+	var stateStore chatbridge.StateStore
+	var lease chatbridge.Lease
+	if stateFile != "" {
+		stateStore = filemonitor.NewStateStore(stateFile)
+		lease = filemonitor.NewLease(stateFile, filemonitor.LeaseOptions{
+			StaleThreshold: chatbridge.DefaultNotificationLockStaleThreshold,
+			RetryInterval:  chatbridge.DefaultNotificationLockRetryInterval,
+		})
+	}
+	return chatbridge.NewNotificationMonitor(
+		eventService,
+		stateStore,
+		lease,
+		transport,
+		logger,
+		cfg,
+	)
+}
 
 func monitorEventuallyTimeout(base time.Duration) time.Duration {
 	if runtime.GOOS == "windows" {
@@ -149,7 +176,7 @@ func TestNotificationMonitorWithoutDestinationsAdvancesCursorWithoutReadingEvent
 	cfg.UrgentWindow = 5 * time.Millisecond
 	cfg.SuccessWindow = 5 * time.Millisecond
 
-	monitor := chatbridge.NewNotificationMonitor(
+	monitor := newFileNotificationMonitor(
 		service,
 		filepath.Join(t.TempDir(), "state.json"),
 		transport,
@@ -184,7 +211,7 @@ func TestNotificationMonitorDeliversOnlyFutureEventsAfterDestinationIsAdded(t *t
 	cfg.UrgentWindow = 5 * time.Millisecond
 	cfg.SuccessWindow = 5 * time.Millisecond
 
-	monitor := chatbridge.NewNotificationMonitor(
+	monitor := newFileNotificationMonitor(
 		service,
 		filepath.Join(t.TempDir(), "state.json"),
 		transport,
@@ -245,7 +272,7 @@ func TestNotificationMonitorDoesNotDeliverEventsReadAfterShutdown(t *testing.T) 
 	cfg.UrgentWindow = 5 * time.Millisecond
 	cfg.SuccessWindow = 5 * time.Millisecond
 
-	monitor := chatbridge.NewNotificationMonitor(
+	monitor := newFileNotificationMonitor(
 		service,
 		filepath.Join(t.TempDir(), "state.json"),
 		transport,

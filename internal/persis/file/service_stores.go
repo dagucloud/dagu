@@ -111,12 +111,7 @@ func NewEventStore(cfg *config.Config) (eventstore.Store, error) {
 	return fileeventstore.New(cfg.Paths.EventStoreDir)
 }
 
-// EventCollector drains inbox events into committed event log files.
-type EventCollector interface {
-	Start(context.Context)
-}
-
-func NewEventCollector(cfg *config.Config) (EventCollector, error) {
+func NewEventCollector(cfg *config.Config) (eventstore.Collector, error) {
 	if cfg == nil || !cfg.EventStore.Enabled {
 		return nil, nil
 	}

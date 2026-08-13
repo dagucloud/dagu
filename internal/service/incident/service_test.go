@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 )
@@ -293,7 +294,8 @@ func TestMonitorKeepsIncidentRecoveryWithinWorkspace(t *testing.T) {
 	cfg.SeenEvictInterval = time.Hour
 	monitor := chatbridge.NewNotificationMonitor(
 		eventService,
-		filepath.Join(t.TempDir(), "state.json"),
+		filemonitor.NewStateStore(filepath.Join(t.TempDir(), "state.json")),
+		nil,
 		svc,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		cfg,

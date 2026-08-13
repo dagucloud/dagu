@@ -242,7 +242,7 @@ func newCoordinator(
 		ActiveDistributedRunStore: activeDistributedRunStore,
 		DAGRepository:             dagRepository,
 		SecretStore:               runtimeStores.SecretStore,
-		EventService:              ctx.EventService,
+		EventService:              ctx.Stores.Event,
 		EventSourceInstance:       ctx.EventSourceInstance,
 	})
 

@@ -101,7 +101,7 @@ type API struct {
 	schedulerStateStore  schedulerstate.Store
 	dagMutationNotifier  func(fileName string)
 	wikiMutationNotifier func()
-	baseConfigFactory    WorkspaceBaseConfigStoreFactory
+	baseConfigProvider   dagsettings.BaseConfigProvider
 	oidcRoleMapping      func() config.OIDCRoleMapping
 }
 
@@ -111,8 +111,6 @@ type processRepository interface {
 	IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error)
 	ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRef, error)
 }
-
-type WorkspaceBaseConfigStoreFactory func(dagsDir, workspaceName string) (dagsettings.BaseConfigStore, error)
 
 type NotificationService interface {
 	GetByDAGName(ctx context.Context, dagName string) (*notificationmodel.Settings, error)
@@ -240,9 +238,9 @@ func WithBaseConfigStore(store dagsettings.BaseConfigStore) APIOption {
 	}
 }
 
-func WithWorkspaceBaseConfigStoreFactory(factory WorkspaceBaseConfigStoreFactory) APIOption {
+func WithWorkspaceBaseConfigProvider(provider dagsettings.BaseConfigProvider) APIOption {
 	return func(a *API) {
-		a.baseConfigFactory = factory
+		a.baseConfigProvider = provider
 	}
 }
 
@@ -409,8 +407,8 @@ func New(
 }
 
 func (a *API) requireValidBaseConfigWiring() {
-	if a.baseConfigStore != nil && a.baseConfigFactory == nil {
-		panic("api: workspace base config store factory must be configured when base config store is configured")
+	if a.baseConfigStore != nil && a.baseConfigProvider == nil {
+		panic("api: workspace base config provider must be configured when base config store is configured")
 	}
 }
 

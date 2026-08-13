@@ -171,7 +171,7 @@ func TestNotificationMonitor_ShutdownDrainRetriesInFlightBatchWithoutLLM(t *test
 	cfg.PollInterval = time.Hour
 	cfg.SeenEvictInterval = time.Hour
 
-	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(nil, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -238,7 +238,7 @@ func TestNotificationMonitor_NotifyCompletionSkipsFailedRunWithAutoRetryRemainin
 	cfg.PollInterval = time.Hour
 	cfg.SeenEvictInterval = time.Hour
 
-	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(nil, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
@@ -304,7 +304,7 @@ func TestNotificationMonitor_PollSourceRoutesEventsPerDestination(t *testing.T) 
 	cfg.UrgentWindow = 10 * time.Millisecond
 	cfg.SuccessWindow = 10 * time.Millisecond
 
-	monitor := NewNotificationMonitor(service, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(service, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
@@ -361,7 +361,7 @@ func TestNotificationMonitor_PollSourceSkipsFailedRunWithAutoRetryRemaining(t *t
 	cfg.UrgentWindow = 10 * time.Millisecond
 	cfg.SuccessWindow = 10 * time.Millisecond
 
-	monitor := NewNotificationMonitor(service, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(service, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
@@ -443,7 +443,7 @@ func TestNotificationMonitor_RequeuePendingDropsFailedRunWithAutoRetryRemaining(
 	cfg.PollInterval = time.Hour
 	cfg.SeenEvictInterval = time.Hour
 
-	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(nil, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	status := &ir.DAGRunStatus{
 		Name:           "briefing",
 		Status:         ir.Failed,
@@ -510,7 +510,7 @@ func TestNotificationMonitor_BootstrapFailureDoesNotReplayFromZeroCursor(t *test
 	cfg.UrgentWindow = 10 * time.Millisecond
 	cfg.SeenEvictInterval = time.Hour
 
-	monitor := NewNotificationMonitor(service, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(service, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan struct{})
@@ -608,7 +608,7 @@ func TestNotificationMonitor_ShutdownDrainFlushesPendingBatchWithoutLLM(t *testi
 	cfg.PollInterval = time.Hour
 	cfg.SeenEvictInterval = time.Hour
 
-	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(nil, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -662,7 +662,7 @@ func TestNotificationMonitor_SuccessEventsAreAcknowledgedWithoutDelivery(t *test
 	cfg.PollInterval = time.Hour
 	cfg.SeenEvictInterval = time.Hour
 
-	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(nil, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
@@ -719,7 +719,7 @@ func TestNotificationMonitor_PartiallySucceededEventsCanBeDeliveredByOptInTransp
 	cfg.PollInterval = time.Hour
 	cfg.SeenEvictInterval = time.Hour
 
-	monitor := NewNotificationMonitor(nil, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(nil, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
@@ -757,7 +757,7 @@ func TestNotificationMonitor_PollSourceFiltersInterestedEventTypes(t *testing.T)
 	cfg.SuccessWindow = 5 * time.Millisecond
 	cfg.InterestedEventTypes = []eventstore.EventType{eventstore.TypeDAGRunRunning}
 
-	monitor := NewNotificationMonitor(service, "", transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	monitor := NewNotificationMonitor(service, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	monitor.initializeSession(context.Background())
 
 	queued := &ir.DAGRunStatus{
