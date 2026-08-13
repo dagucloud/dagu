@@ -105,7 +105,7 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
 	)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
-	procRepository := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)
+	procRepository := newSchedulerTestProcRepository(cfg.Paths.ProcDir, cfg)
 
 	return &haSchedulerFixture{
 		cfg:              cfg,

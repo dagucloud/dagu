@@ -33,7 +33,7 @@ func TestGetQueueFiltersDistributedRunsByLeaseFreshness(t *testing.T) {
 	tmpDir := t.TempDir()
 	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
-	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
+	procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
 
 	createDistributedQueueRun(t, ctx, dagRunRepository, leaseStore, "lease-q", "fresh-run", "lease-q", time.Now())
 	createDistributedQueueRun(t, ctx, dagRunRepository, leaseStore, "lease-q", "stale-run", "lease-q", time.Now().Add(-2*time.Minute))
@@ -41,7 +41,7 @@ func TestGetQueueFiltersDistributedRunsByLeaseFreshness(t *testing.T) {
 	a := &API{
 		dagRunRepository:    dagRunRepository,
 		dagRunLeaseStore:    leaseStore,
-		procRepository:      procStore,
+		procRepository:      procRepository,
 		config:              &config.Config{},
 		leaseStaleThreshold: time.Minute,
 	}
@@ -65,14 +65,14 @@ func TestGetQueueFallsBackToDAGNameWhenLeaseQueueIsEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
-	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
+	procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
 
 	createDistributedQueueRun(t, ctx, dagRunRepository, leaseStore, "fallback-q", "fresh-run", "", time.Now())
 
 	a := &API{
 		dagRunRepository:    dagRunRepository,
 		dagRunLeaseStore:    leaseStore,
-		procRepository:      procStore,
+		procRepository:      procRepository,
 		config:              &config.Config{},
 		leaseStaleThreshold: time.Minute,
 	}
@@ -107,14 +107,14 @@ func TestGetQueueCountsFreshLeaseForClaimedAttemptAsRunning(t *testing.T) {
 			tmpDir := t.TempDir()
 			dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 			leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
-			procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
+			procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
 
 			createDistributedQueueRunWithStatus(t, ctx, dagRunRepository, leaseStore, "lease-q", "claimed-run", "lease-q", time.Now(), tt.status)
 
 			a := &API{
 				dagRunRepository:    dagRunRepository,
 				dagRunLeaseStore:    leaseStore,
-				procRepository:      procStore,
+				procRepository:      procRepository,
 				config:              &config.Config{},
 				leaseStaleThreshold: time.Minute,
 			}
@@ -144,7 +144,7 @@ func TestGetQueueCountsQueuedItemsSeparatelyFromRunningItems(t *testing.T) {
 	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	leaseStore := newTestDAGRunLeaseStore(filepath.Join(tmpDir, "distributed"))
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
-	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
+	procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
 
 	createDistributedQueueRun(t, ctx, dagRunRepository, leaseStore, "mixed-q", "running-run", "mixed-q", time.Now())
 	createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "mixed-q", "queued-run", ir.Queued)
@@ -153,7 +153,7 @@ func TestGetQueueCountsQueuedItemsSeparatelyFromRunningItems(t *testing.T) {
 		dagRunRepository:    dagRunRepository,
 		dagRunLeaseStore:    leaseStore,
 		queueStore:          queueStore,
-		procRepository:      procStore,
+		procRepository:      procRepository,
 		config:              &config.Config{},
 		leaseStaleThreshold: time.Minute,
 	}
@@ -176,7 +176,7 @@ func TestListQueueItemsUsesCursorPaginationAndSkipsRunningEntries(t *testing.T) 
 	tmpDir := t.TempDir()
 	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
-	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
+	procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
 
 	createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "cursor-q", "run-1", ir.Queued)
 	createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "cursor-q", "run-2", ir.Running)
@@ -186,7 +186,7 @@ func TestListQueueItemsUsesCursorPaginationAndSkipsRunningEntries(t *testing.T) 
 	a := &API{
 		dagRunRepository: dagRunRepository,
 		queueStore:       queueStore,
-		procRepository:   procStore,
+		procRepository:   procRepository,
 		config:           &config.Config{},
 	}
 

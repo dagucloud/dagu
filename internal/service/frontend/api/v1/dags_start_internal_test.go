@@ -114,13 +114,13 @@ func newLocalStartTestAPI(t *testing.T) *API {
 
 	tmpDir := t.TempDir()
 	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
-	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
+	procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
 	return &API{
-		dagRunMgr: runtime.NewManager(dagRunRepository, procStore, &config.Config{}),
+		dagRunMgr: runtime.NewManager(dagRunRepository, procRepository, &config.Config{}),
 	}
 }
 
-func newTestProcStore(procDir string) *proc.Repository {
+func newTestProcRepository(procDir string) *proc.Repository {
 	return proc.NewRepository(fileproc.New(procDir))
 }
 

@@ -84,11 +84,11 @@ func newQueueFixture(t *testing.T) *queueFixture {
 		leaseStore:       store.NewDAGRunLeaseStore(leaseCollection),
 		dispatchStore:    store.NewDispatchTaskStore(file.NewCollection(distributedDir)),
 		queueStore:       store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue"))),
-		procRepository:   newSchedulerTestProcStore(filepath.Join(tmpDir, "proc"), nil),
+		procRepository:   newSchedulerTestProcRepository(filepath.Join(tmpDir, "proc"), nil),
 	}
 }
 
-func newSchedulerTestProcStore(procDir string, cfg *config.Config) *procdomain.Repository {
+func newSchedulerTestProcRepository(procDir string, cfg *config.Config) *procdomain.Repository {
 	opts := []proc.StoreOption{}
 	if cfg != nil {
 		opts = append(opts,
@@ -308,7 +308,7 @@ func TestQueueProcessor_PreservesSameRunItemEnqueuedDuringDispatch(t *testing.T)
 	initialItemID := initialItems[0].ID()
 	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
 
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	procRepository.On("CountAlive", mock.Anything, f.dag.Name).Return(0, nil).Once()
 	procRepository.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
 	var enqueueErr error
@@ -553,7 +553,7 @@ func TestQueueDispatcher_DistributedDispatchHandsOffWithAdmissionToken(t *testin
 	require.Len(t, items, 1)
 
 	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	procRepository.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
 	dispatcher := &mockDispatcher{}
 
@@ -648,7 +648,7 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 	require.Len(t, items, 1)
 
 	runRef := ir.NewDAGRunRef(dagName, "run-1")
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	procRepository.On("IsRunAlive", mock.Anything, dagName, runRef).Return(false, nil).Once()
 	procRepository.On("IsRunAlive", mock.Anything, dagName, runRef).Return(true, nil).Once()
 	dispatcher := &mockDispatcher{}

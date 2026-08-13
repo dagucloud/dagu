@@ -277,7 +277,7 @@ func TestProcStoreRemoveIfStaleIgnoresEntryWithoutStoreIdentity(t *testing.T) {
 	}
 }
 
-func TestProcStoreLatestFreshEntryByDAGName(t *testing.T) {
+func TestProcRepositoryLatestFreshEntryByDAGName(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()

@@ -788,7 +788,7 @@ steps:
 
 		require.False(t, th.DAGRunMgr.IsRunning(ctx, dag.DAG, dagRunID))
 	})
-	t.Run("IsRunningWithoutProcStoreReturnsFalse", func(t *testing.T) {
+	t.Run("IsRunningWithoutProcRepositoryReturnsFalse", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
     run: "exit 0"
@@ -808,7 +808,7 @@ steps:
 		require.NoError(t, err)
 		require.Equal(t, ir.NotStarted, status.Status)
 	})
-	t.Run("GetCurrentStatusWithoutRunIDSkipsRepairWithoutProcStore", func(t *testing.T) {
+	t.Run("GetCurrentStatusWithoutRunIDSkipsRepairWithoutProcRepository", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
     run: "exit 0"

@@ -67,7 +67,7 @@ type ProcMeta struct {
 	RootDAGRunID string
 }
 
-// Validate checks whether the process metadata is complete and safe to persist.
+// Validate reports whether the process metadata is valid.
 func (m ProcMeta) Validate() error {
 	if m.Name == "" {
 		return fmt.Errorf("proc meta name is required")

@@ -305,8 +305,8 @@ func TestValidateRetryAllowsRunRetryWhileWaitingForApprovalAfterCompletedHumanTa
 
 func TestWaitForCompletionReadyWaitsForLocalAttemptExit(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
-	procStore := &sequenceProcStore{alive: []bool{true, false}}
-	fixture.service.ProcRepository = procStore
+	procRepository := &sequenceProcRepository{alive: []bool{true, false}}
+	fixture.service.ProcRepository = procRepository
 	fixture.service.PollInterval = time.Millisecond
 	fixture.service.SettleTimeout = time.Second
 
@@ -319,10 +319,10 @@ func TestWaitForCompletionReadyWaitsForLocalAttemptExit(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Same(t, fixture.status, status)
-	assert.Equal(t, 2, procStore.calls)
-	assert.Equal(t, fixture.dag.ProcGroup(), procStore.groupName)
-	assert.Equal(t, fixture.status.DAGRun(), procStore.dagRun)
-	assert.Equal(t, fixture.status.AttemptID, procStore.attemptID)
+	assert.Equal(t, 2, procRepository.calls)
+	assert.Equal(t, fixture.dag.ProcGroup(), procRepository.groupName)
+	assert.Equal(t, fixture.status.DAGRun(), procRepository.dagRun)
+	assert.Equal(t, fixture.status.AttemptID, procRepository.attemptID)
 }
 
 func TestWaitForCompletionReadyWaitsForRemoteCheckpointPersistence(t *testing.T) {
@@ -395,7 +395,7 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 		service: &Service{
 			DAGRunRepository: persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{}),
 			QueueStore:       queue,
-			ProcRepository:   serviceProcStore{},
+			ProcRepository:   serviceProcRepository{},
 			Now:              func() time.Time { return now },
 		},
 	}
@@ -472,13 +472,13 @@ func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	return s.status, true, nil
 }
 
-type serviceProcStore struct{}
+type serviceProcRepository struct{}
 
-func (serviceProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
+func (serviceProcRepository) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
 	return false, nil
 }
 
-type sequenceProcStore struct {
+type sequenceProcRepository struct {
 	alive     []bool
 	calls     int
 	groupName string
@@ -486,7 +486,7 @@ type sequenceProcStore struct {
 	attemptID string
 }
 
-func (s *sequenceProcStore) IsAttemptAlive(
+func (s *sequenceProcRepository) IsAttemptAlive(
 	_ context.Context,
 	groupName string,
 	dagRun ir.DAGRunRef,

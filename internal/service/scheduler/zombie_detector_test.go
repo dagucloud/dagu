@@ -24,7 +24,7 @@ func TestNewZombieDetector(t *testing.T) {
 	t.Parallel()
 
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, 0, 0)
 	require.NotNil(t, detector)
@@ -42,7 +42,7 @@ func TestZombieDetectorDetectAndCleanZombies_NoEntries(t *testing.T) {
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{}, nil).Once()
@@ -58,7 +58,7 @@ func TestZombieDetectorDetectAndCleanZombies_FreshEntrySkipsRepair(t *testing.T)
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", true)
@@ -75,7 +75,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	dag := &ir.DAG{
@@ -121,7 +121,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRep
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	dag := &ir.DAG{
@@ -165,7 +165,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithFreshSiblingRemovesOn
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	staleEntry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
@@ -185,7 +185,7 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	dag := &ir.DAG{
@@ -239,7 +239,7 @@ func TestZombieDetectorDetectAndCleanZombies_AttemptCounterDoesNotCarryAcrossRet
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 2)
 
 	firstAttempt := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
@@ -260,7 +260,7 @@ func TestZombieDetectorDetectAndCleanZombies_OrphanedStaleEntryIsRemoved(t *test
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
@@ -280,7 +280,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithMissingStatusIsRemove
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
@@ -300,7 +300,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithCorruptedStatusIsRemo
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procRepository := &mockProcStore{}
+	procRepository := &mockProcRepository{}
 	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
@@ -383,93 +383,28 @@ func (m *mockDAGRunStore) FindSubAttempt(ctx context.Context, dagRun ir.DAGRunRe
 	return args.Get(0).(dagrun.Attempt), args.Error(1)
 }
 
-var _ processRepository = (*mockProcStore)(nil)
+var _ processRepository = (*mockProcRepository)(nil)
 
-type mockProcStore struct {
+type mockProcRepository struct {
 	mock.Mock
 }
 
-func (m *mockProcStore) Lock(_ context.Context, _ string) error { return nil }
-
-func (m *mockProcStore) Unlock(_ context.Context, _ string) {}
-
-func (m *mockProcStore) Acquire(ctx context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error) {
-	args := m.Called(ctx, groupName, meta)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(proc.ProcHandle), args.Error(1)
-}
-
-func (m *mockProcStore) CountAlive(ctx context.Context, groupName string) (int, error) {
+func (m *mockProcRepository) CountAlive(ctx context.Context, groupName string) (int, error) {
 	args := m.Called(ctx, groupName)
 	return args.Int(0), args.Error(1)
 }
 
-func (m *mockProcStore) CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error) {
+func (m *mockProcRepository) CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error) {
 	args := m.Called(ctx, groupName, dagName)
 	return args.Int(0), args.Error(1)
 }
 
-func (m *mockProcStore) IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error) {
+func (m *mockProcRepository) IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error) {
 	args := m.Called(ctx, groupName, dagRun)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *mockProcStore) IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error) {
-	args := m.Called(ctx, groupName, dagRun, attemptID)
-	return args.Bool(0), args.Error(1)
-}
-
-func (m *mockProcStore) ListAlive(ctx context.Context, groupName string) ([]ir.DAGRunRef, error) {
-	args := m.Called(ctx, groupName)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]ir.DAGRunRef), args.Error(1)
-}
-
-func (m *mockProcStore) ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRef, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(map[string][]ir.DAGRunRef), args.Error(1)
-}
-
-func (m *mockProcStore) ListEntries(ctx context.Context, groupName string) ([]proc.ProcEntry, error) {
-	args := m.Called(ctx, groupName)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]proc.ProcEntry), args.Error(1)
-}
-
-func (m *mockProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*proc.ProcEntry, error) {
-	args := m.Called(ctx, groupName, dagName)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	if entry, ok := args.Get(0).(*proc.ProcEntry); ok {
-		return entry, args.Error(1)
-	}
-	entry := args.Get(0).(proc.ProcEntry)
-	return &entry, args.Error(1)
-}
-
-func (m *mockProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (*proc.ProcHeartbeat, error) {
-	args := m.Called(ctx, groupName, dagRun)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	if heartbeat, ok := args.Get(0).(*proc.ProcHeartbeat); ok {
-		return heartbeat, args.Error(1)
-	}
-	heartbeat := args.Get(0).(proc.ProcHeartbeat)
-	return &heartbeat, args.Error(1)
-}
-
-func (m *mockProcStore) ListAllEntries(ctx context.Context) ([]proc.ProcEntry, error) {
+func (m *mockProcRepository) ListAllEntries(ctx context.Context) ([]proc.ProcEntry, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -477,7 +412,7 @@ func (m *mockProcStore) ListAllEntries(ctx context.Context) ([]proc.ProcEntry, e
 	return args.Get(0).([]proc.ProcEntry), args.Error(1)
 }
 
-func (m *mockProcStore) RemoveIfStale(ctx context.Context, entry proc.ProcEntry) error {
+func (m *mockProcRepository) RemoveIfStale(ctx context.Context, entry proc.ProcEntry) error {
 	args := m.Called(ctx, entry)
 	return args.Error(0)
 }
