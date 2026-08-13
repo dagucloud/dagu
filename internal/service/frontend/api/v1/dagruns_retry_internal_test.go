@@ -384,13 +384,14 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	childAttempt, err := repository.CreateAttempt(ctx, childDAG, time.Now(), "child-target", persis.DAGRunCreateAttemptOptions{RootDAGRun: rootRef})
 	require.NoError(t, err)
 	childStatus := ir.DAGRunStatus{
-		Root:      rootRef,
-		Parent:    rootRef,
-		Name:      childDAG.Name,
-		DAGRunID:  "child-target",
-		AttemptID: childAttempt.ID(),
-		Status:    ir.Succeeded,
-		Nodes:     []*ir.Node{{Step: childStep, Status: ir.NodeSucceeded}},
+		Root:         rootRef,
+		Parent:       rootRef,
+		Name:         childDAG.Name,
+		DAGRunID:     "child-target",
+		AttemptID:    childAttempt.ID(),
+		Status:       ir.Succeeded,
+		ParallelItem: "item-two",
+		Nodes:        []*ir.Node{{Step: childStep, Status: ir.NodeSucceeded}},
 	}
 	require.NoError(t, childAttempt.Open(ctx))
 	require.NoError(t, childAttempt.Write(ctx, childStatus))
@@ -426,6 +427,8 @@ func TestRetryDAGRun_TargetsPersistedChildStepFromRoot(t *testing.T) {
 	require.Equal(t, rootStep.Name, task.Step)
 	require.NotNil(t, task.PreviousStatus)
 	require.Equal(t, ir.Failed, task.PreviousStatus.Status)
+	require.Empty(t, task.PreviousStatus.ParallelItem)
+	require.Equal(t, childStatus.ParallelItem, task.ParallelItem)
 	path, err := dagrun.ParseRetryPath(task.RetryPath)
 	require.NoError(t, err)
 	require.Equal(t, childStep.Name, path.Step)

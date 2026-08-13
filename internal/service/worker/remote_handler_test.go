@@ -1173,6 +1173,11 @@ func TestTaskExtraEnvs(t *testing.T) {
 		ExternalStepRetry: true,
 		ParallelItem:      "item-1",
 	}))
+	assert.Equal(t, []string{
+		ir.ParallelItemVariable + "=item-1",
+	}, taskExtraEnvs(&coordinatorv1.Task{
+		ParallelItem: "item-1",
+	}))
 }
 
 func TestHandleStart_ExternalStepRetryQueuesPendingRetry(t *testing.T) {

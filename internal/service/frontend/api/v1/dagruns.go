@@ -3016,8 +3016,8 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		if triggerActor := triggerActorFromContext(ctx); triggerActor != "" {
 			opts = append(opts, executor.WithTriggerActor(triggerActor))
 		}
-		if prevStatus.ParallelItem != "" {
-			opts = append(opts, executor.WithParallelItem(prevStatus.ParallelItem))
+		if retryValidationStatus.ParallelItem != "" {
+			opts = append(opts, executor.WithParallelItem(retryValidationStatus.ParallelItem))
 		}
 		task := executor.CreateTask(
 			dag.Name,
@@ -3037,7 +3037,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 
 	// Local retry path: launch the retry subprocess asynchronously so the API
 	// returns immediately instead of blocking until the DAG run completes.
-	prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, prevStatus)
+	retryStatus := *prevStatus
+	retryStatus.ParallelItem = retryValidationStatus.ParallelItem
+	prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, &retryStatus)
 	if err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error preparing DAG retry env: %w", err)
 	}
