@@ -54,17 +54,13 @@ func TestRunStateStoreBeginAttemptRejectsPreparedAttemptIDMismatch(t *testing.T)
 	require.Zero(t, store.createCalls)
 }
 
-func TestNoopRunStateStoreBeginsAttempt(t *testing.T) {
-	ctx := context.Background()
-
-	stateStore := runstate.NewNoopStore()
-	attempt, err := stateStore.BeginAttempt(ctx, runstate.BeginAttemptRequest{
+func TestNoopRunStateAttemptUsesRequestedID(t *testing.T) {
+	attempt := runstate.NewNoopAttempt(runstate.BeginAttemptRequest{
 		DAG:       &ir.DAG{Name: "parent"},
 		RunID:     "run-1",
 		AttemptID: "attempt-1",
 	})
 
-	require.NoError(t, err)
 	require.Equal(t, "attempt-1", attempt.ID())
 }
 

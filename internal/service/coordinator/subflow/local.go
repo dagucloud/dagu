@@ -174,6 +174,9 @@ func NewLocal(dagRunMgr runtime.Manager, dagRepository *persis.DAGRepository, op
 	for _, opt := range opts {
 		opt(r)
 	}
+	if r.runStateStore == nil && r.dagRunRepository != nil {
+		r.runStateStore = persis.NewRunStateStore(r.dagRunRepository, nil)
+	}
 	return r
 }
 
@@ -506,9 +509,6 @@ func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent
 func (r *Local) runStateStoreFromContext(ctx context.Context) runstate.Store {
 	if r.runStateStore != nil {
 		return r.runStateStore
-	}
-	if r.dagRunRepository != nil {
-		return persis.NewRunStateStore(r.dagRunRepository, nil)
 	}
 	return runctx.GetContext(ctx).RunStateStore
 }

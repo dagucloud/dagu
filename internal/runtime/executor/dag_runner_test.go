@@ -42,10 +42,10 @@ func TestNewSubDAGExecutor_LocalDAG(t *testing.T) {
 	}
 
 	// Set up the DAG context
-	mockDB := new(mockDAGLoader)
+	mockLoader := new(mockDAGLoader)
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
-		DAGLoader:  mockDB,
+		DAGLoader:  mockLoader,
 		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
@@ -88,21 +88,20 @@ func TestNewSubDAGExecutor_RegularDAG(t *testing.T) {
 	}
 
 	// Set up the DAG context
-	mockDB := new(mockDAGLoader)
+	mockLoader := new(mockDAGLoader)
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
-		DAGLoader:  mockDB,
+		DAGLoader:  mockLoader,
 		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
 
-	// Mock the database call
 	expectedDAG := &ir.DAG{
 		Name:     "regular-child",
 		Location: "/path/to/regular-child.yaml",
 	}
-	mockDB.On("GetDAG", ctx, "regular-child").Return(expectedDAG, nil)
+	mockLoader.On("GetDAG", ctx, "regular-child").Return(expectedDAG, nil)
 
 	// Test creating executor for regular DAG
 	executor, err := NewSubDAGExecutor(ctx, "regular-child")
@@ -117,7 +116,7 @@ func TestNewSubDAGExecutor_RegularDAG(t *testing.T) {
 	err = executor.Cleanup(ctx)
 	assert.NoError(t, err)
 
-	mockDB.AssertExpectations(t)
+	mockLoader.AssertExpectations(t)
 }
 
 func TestNewSubDAGExecutor_NotFound(t *testing.T) {
@@ -135,17 +134,16 @@ func TestNewSubDAGExecutor_NotFound(t *testing.T) {
 	}
 
 	// Set up the DAG context
-	mockDB := new(mockDAGLoader)
+	mockLoader := new(mockDAGLoader)
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
-		DAGLoader:  mockDB,
+		DAGLoader:  mockLoader,
 		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
 
-	// Mock the database call to return not found
-	mockDB.On("GetDAG", ctx, "non-existent").Return(nil, assert.AnError)
+	mockLoader.On("GetDAG", ctx, "non-existent").Return(nil, assert.AnError)
 
 	// Test creating executor for non-existent DAG
 	executor, err := NewSubDAGExecutor(ctx, "non-existent")
@@ -153,21 +151,15 @@ func TestNewSubDAGExecutor_NotFound(t *testing.T) {
 	assert.Nil(t, executor)
 	assert.Contains(t, err.Error(), "failed to find DAG")
 
-	mockDB.AssertExpectations(t)
+	mockLoader.AssertExpectations(t)
 }
 
-// TestNewSubDAGExecutor_NilDB verifies that NewSubDAGExecutor returns a
-// structured error wrapping persis.ErrDAGNotFound when the runtime context
-// has no DAG store, instead of panicking with a nil
-// pointer dereference. The error message must include the
-// worker_selector: local remediation hint.
-func TestNewSubDAGExecutor_NilDB(t *testing.T) {
+func TestNewSubDAGExecutor_MissingDAGLoader(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	parentDAG := &ir.DAG{Name: "parent"}
 
-	// Set up context with nil DB
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
 		DAGLoader:  nil,
@@ -193,17 +185,17 @@ func TestNewSubDAGExecutor_NilDAGReturn(t *testing.T) {
 	ctx := context.Background()
 	parentDAG := &ir.DAG{Name: "parent"}
 
-	mockDB := new(mockDAGLoader)
+	mockLoader := new(mockDAGLoader)
 	dagCtx := runctx.Context{
 		DAG:        parentDAG,
-		DAGLoader:  mockDB,
+		DAGLoader:  mockLoader,
 		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
 
 	// Mock returns nil DAG with nil error
-	mockDB.On("GetDAG", ctx, "child-dag").Return(nil, nil)
+	mockLoader.On("GetDAG", ctx, "child-dag").Return(nil, nil)
 
 	executor, err := NewSubDAGExecutor(ctx, "child-dag")
 	require.Error(t, err)
@@ -211,7 +203,7 @@ func TestNewSubDAGExecutor_NilDAGReturn(t *testing.T) {
 	assert.ErrorIs(t, err, persis.ErrDAGNotFound)
 	assert.Contains(t, err.Error(), "worker_selector: local")
 
-	mockDB.AssertExpectations(t)
+	mockLoader.AssertExpectations(t)
 }
 
 func TestExecute_NoRunID(t *testing.T) {
@@ -220,10 +212,10 @@ func TestExecute_NoRunID(t *testing.T) {
 	ctx := context.Background()
 
 	// Set up the DAG context
-	mockDB := new(mockDAGLoader)
+	mockLoader := new(mockDAGLoader)
 	dagCtx := runctx.Context{
 		DAG:        &ir.DAG{Name: "parent"},
-		DAGLoader:  mockDB,
+		DAGLoader:  mockLoader,
 		RootDAGRun: ir.NewDAGRunRef("parent", "root-123"),
 		DAGRunID:   "parent-456",
 	}
@@ -251,10 +243,10 @@ func TestExecute_NoRootDAGRun(t *testing.T) {
 	ctx := context.Background()
 
 	// Set up the DAG context without RootDAGRun
-	mockDB := new(mockDAGLoader)
+	mockLoader := new(mockDAGLoader)
 	dagCtx := runctx.Context{
 		DAG:       &ir.DAG{Name: "parent"},
-		DAGLoader: mockDB,
+		DAGLoader: mockLoader,
 		// RootDAGRun is zero value
 		DAGRunID: "parent-456",
 	}
@@ -450,10 +442,10 @@ func TestRetry_NoRootDAGRun(t *testing.T) {
 
 	ctx := context.Background()
 
-	mockDB := new(mockDAGLoader)
+	mockLoader := new(mockDAGLoader)
 	dagCtx := runctx.Context{
 		DAG:       &ir.DAG{Name: "parent"},
-		DAGLoader: mockDB,
+		DAGLoader: mockLoader,
 		DAGRunID:  "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)

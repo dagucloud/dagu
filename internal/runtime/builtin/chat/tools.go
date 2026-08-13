@@ -33,9 +33,7 @@ type toolInfo struct {
 	Params      []toolParam
 }
 
-// NewToolRegistry creates a ToolRegistry by loading the specified DAGs.
-// dagNames is a list of DAG names to load as tools.
-// Tools are first searched in LocalDAGs (inline definitions with ---), then in the database.
+// NewToolRegistry creates a registry for the named tool DAGs.
 func NewToolRegistry(ctx context.Context, dagNames []string) (*ToolRegistry, error) {
 	if len(dagNames) == 0 {
 		return nil, nil
@@ -59,7 +57,7 @@ func NewToolRegistry(ctx context.Context, dagNames []string) (*ToolRegistry, err
 			}
 		}
 
-		// If not found locally, fall back to database lookup
+		// Load the named DAG when no inline definition matched.
 		if dag == nil {
 			if rCtx.DAGLoader == nil {
 				return nil, fmt.Errorf("database not available in context and tool DAG %q not found in local DAGs", dagName)

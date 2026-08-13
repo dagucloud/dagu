@@ -10,27 +10,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// NewNoopStore creates execution state for runs persisted outside this process.
-func NewNoopStore() Store {
-	return noopStore{}
-}
-
-type noopStore struct{}
-
-func (noopStore) BeginAttempt(_ context.Context, req BeginAttemptRequest) (Attempt, error) {
+// NewNoopAttempt creates execution state for a run persisted outside this process.
+func NewNoopAttempt(req BeginAttemptRequest) Attempt {
 	id := req.AttemptID
 	if id == "" {
 		id = req.RunID
 	}
-	return noopAttempt{Attempt: dagrun.NewNoopAttempt(id, req.DAG)}, nil
-}
-
-func (noopStore) OpenAttempt(context.Context, ir.DAGRunRef) (Attempt, error) {
-	return nil, dagrun.ErrNoopAttemptNotSupported
-}
-
-func (noopStore) OpenChildAttempt(context.Context, ir.DAGRunRef, string) (Attempt, error) {
-	return nil, dagrun.ErrNoopAttemptNotSupported
+	return noopAttempt{Attempt: dagrun.NewNoopAttempt(id, req.DAG)}
 }
 
 type noopAttempt struct {

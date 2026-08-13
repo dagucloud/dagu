@@ -68,9 +68,7 @@ type WorkspaceSeed struct {
 	Archive    []byte
 }
 
-// NewSubDAGExecutor creates a new SubDAGExecutor.
-// It handles the logic for finding the DAG - either from the database
-// or from local DAGs defined in the parent.
+// NewSubDAGExecutor creates a SubDAGExecutor for childName.
 func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, error) {
 	rCtx := runctx.GetContext(ctx)
 
@@ -99,7 +97,7 @@ func NewSubDAGExecutor(ctx context.Context, childName string) (*SubDAGExecutor, 
 		}
 	}
 
-	// If not found as local DAG, look it up in the database
+	// Load the named DAG when no inline definition matched.
 	if rCtx.DAGLoader == nil {
 		return nil, fmt.Errorf("cannot resolve sub-DAG %q: no local DAG store available (hint: parent DAG was dispatched to a worker without local DAG cache — consider setting worker_selector: local on the parent DAG): %w", childName, persis.ErrDAGNotFound)
 	}

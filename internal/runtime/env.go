@@ -27,9 +27,7 @@ import (
 // including the variables (environment variables and DAG variables) that are
 // available to the step.
 type Env struct {
-	// Embedded execution metadata from parent DAG run containing DAGRunID,
-	// RootDAGRun reference, DAG configuration, database interface, and
-	// coordinator dispatcher
+	// Embedded execution metadata from the parent DAG run.
 	Context
 
 	// Unified scope chain for environment variable lookups.

@@ -2307,24 +2307,17 @@ func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node
 }
 
 func (a *Agent) setupAttempt(ctx context.Context) (runstate.Attempt, error) {
-	if a.attemptID != "" && a.dagRunAttemptID != "" && a.attemptID != a.dagRunAttemptID {
-		return nil, fmt.Errorf(
-			"prepared attempt ID %q does not match requested attempt ID %q",
-			a.dagRunAttemptID,
-			a.attemptID,
-		)
-	}
-	store := a.runStateStore
-	if store == nil {
-		store = runstate.NewNoopStore()
-	}
-	return store.BeginAttempt(ctx, runstate.BeginAttemptRequest{
+	req := runstate.BeginAttemptRequest{
 		DAG:        a.dag,
 		RunID:      a.dagRunID,
 		AttemptID:  a.attemptID,
 		Retry:      a.retryTarget != nil || a.queuedRun,
 		RootDAGRun: a.rootDAGRun,
-	})
+	}
+	if a.runStateStore == nil {
+		return runstate.NewNoopAttempt(req), nil
+	}
+	return a.runStateStore.BeginAttempt(ctx, req)
 }
 
 // setupSocketServer creates a socket server instance.
