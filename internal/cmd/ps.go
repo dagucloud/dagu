@@ -58,7 +58,7 @@ func runPs(ctx *Context, args []string) error {
 	}
 
 	if ctx.ProcRepository == nil {
-		return fmt.Errorf("process store is not available")
+		return fmt.Errorf("process persistence is not available")
 	}
 
 	entries, err := ctx.ProcRepository.ListAllEntries(ctx)
