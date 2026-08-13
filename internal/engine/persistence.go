@@ -108,7 +108,7 @@ func validatePersistence(ctx context.Context, p Persistence) error {
 		errs = append(errs, errors.New("DAG-run repository or run-state store is not configured"))
 	}
 	if p.ProcRepository == nil {
-		errs = append(errs, errors.New("proc store is not configured"))
+		errs = append(errs, errors.New("proc repository is not configured"))
 	}
 	if p.StateStore == nil {
 		errs = append(errs, errors.New("state store is not configured"))

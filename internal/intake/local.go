@@ -117,7 +117,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 
 func (r LocalRequest) validate() error {
 	if r.ProcRepository == nil {
-		return fmt.Errorf("proc store is required")
+		return fmt.Errorf("proc repository is required")
 	}
 	if r.DAG == nil {
 		return fmt.Errorf("dag is required")

@@ -9,8 +9,7 @@ import (
 	procstore "github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 )
 
-// NewProcRepository creates a repository backed by the released .proc file
-// layout under cfg.Paths.ProcDir.
+// NewProcRepository connects the released .proc file layout to the shared repository.
 func NewProcRepository(cfg *config.Config, opts ...procstore.StoreOption) *persis.ProcRepository {
 	storeOpts := []procstore.StoreOption{
 		procstore.WithStaleThreshold(cfg.Proc.StaleThreshold),
