@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -16,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/spf13/cobra"
 )
@@ -143,10 +141,7 @@ func runLs(ctx *Context, args []string) error {
 }
 
 func lsNextRunProjection(ctx *Context) func(*ir.DAG, time.Time) time.Time {
-	stateStore := scheduler.NewWatermarkStore(
-		file.NewCollection(filepath.Join(ctx.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
-	)
-	state, err := stateStore.Load(ctx)
+	state, err := ctx.Persistence.SchedulerStateStore.Load(ctx)
 	if err != nil {
 		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "warning: failed to load scheduler state: %s\n", err)
 		state = nil

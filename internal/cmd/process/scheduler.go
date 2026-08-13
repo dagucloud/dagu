@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -48,10 +47,6 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		cfg.Persistence.DAGRepository,
 		cfg.Config.DAGDiscovery.Recursive,
 	)
-	watermarkStore := scheduler.NewWatermarkStore(
-		file.NewCollection(filepath.Join(cfg.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
-	)
-
 	schedulerRunManager := runtime.NewManager(
 		cfg.Persistence.DAGRunRepository,
 		cfg.Persistence.ProcRepository,
@@ -75,7 +70,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		cfg.Persistence.ProcRepository,
 		cfg.Persistence.ServiceRegistry,
 		coordinatorClient,
-		watermarkStore,
+		cfg.Persistence.SchedulerStateStore,
 		scheduler.WithDAGProfileResolver(scheduler.NewDAGProfileResolver(dagSettingsStore, profileStore)),
 	)
 	if err != nil {

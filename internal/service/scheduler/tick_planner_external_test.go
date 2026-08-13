@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
@@ -199,9 +200,9 @@ func TestTickPlanner_InactiveProfileSchedulePersistsNoNextRunProjection(t *testi
 	t.Parallel()
 
 	scheduledAt := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
-	store := scheduler.NewWatermarkStore(testutil.NewMemoryBackend().Collection("watermark"))
+	stateStore := store.NewSchedulerStateStore(testutil.NewMemoryBackend().Collection("scheduler"))
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
-		WatermarkStore:  store,
+		WatermarkStore:  stateStore,
 		ProfileResolver: &countingProfileResolver{},
 		GetLatestStatus: func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{}, nil
@@ -231,7 +232,7 @@ func TestTickPlanner_InactiveProfileSchedulePersistsNoNextRunProjection(t *testi
 	runs := tp.Plan(context.Background(), scheduledAt)
 	require.Empty(t, runs)
 
-	state, err := store.Load(context.Background())
+	state, err := stateStore.Load(context.Background())
 	require.NoError(t, err)
 	watermark, ok := state.DAGs[dag.Name]
 	require.True(t, ok)

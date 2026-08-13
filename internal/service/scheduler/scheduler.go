@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -128,7 +129,7 @@ func New(
 	procRepository processRepository,
 	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
-	watermarkStore WatermarkStore,
+	watermarkStore schedulerstate.Store,
 	opts ...Option,
 ) (*Scheduler, error) {
 	var options schedulerOptions
@@ -150,7 +151,7 @@ func newScheduler(
 	procRepository processRepository,
 	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
-	watermarkStore WatermarkStore,
+	watermarkStore schedulerstate.Store,
 	hooks schedulerHooks,
 	options schedulerOptions,
 ) (*Scheduler, error) {

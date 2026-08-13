@@ -16,6 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -50,18 +52,18 @@ steps:
 
 	wmBackend, err := file.New(th.Config.Paths.DataDir)
 	require.NoError(t, err)
-	watermarkStore := scheduler.NewWatermarkStore(wmBackend.Collection("scheduler"))
+	watermarkStore := store.NewSchedulerStateStore(wmBackend.Collection("scheduler"))
 	fingerprint := dag.Schedule[0].Fingerprint()
 	runID := scheduler.GenerateOneOffRunID(dag.Name, fingerprint, scheduledAt)
 
-	require.NoError(t, watermarkStore.Save(th.Context, &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs: map[string]scheduler.DAGWatermark{
+	require.NoError(t, watermarkStore.Save(th.Context, &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
-				OneOffs: map[string]scheduler.OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					fingerprint: {
 						ScheduledTime: scheduledAt,
-						Status:        scheduler.OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -116,7 +118,7 @@ steps:
 			return false
 		}
 		oneOff, ok := entry.OneOffs[fingerprint]
-		return ok && oneOff.Status == scheduler.OneOffStatusConsumed
+		return ok && oneOff.Status == schedulerstate.OneOffStatusConsumed
 	})
 
 	assert.Equal(t, int32(0), dispatchCount.Load())

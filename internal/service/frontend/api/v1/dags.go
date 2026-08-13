@@ -33,6 +33,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -2101,7 +2102,7 @@ func (a *API) nextRunProjection(ctx context.Context) func(*ir.DAG, time.Time) ti
 		location = a.config.Core.Location
 	}
 
-	var schedulerState *scheduler.SchedulerState
+	var schedulerState *schedulerstate.State
 	if a.schedulerStateStore != nil {
 		state, loadErr := a.schedulerStateStore.Load(ctx)
 		if loadErr != nil {

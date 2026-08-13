@@ -37,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -45,7 +46,6 @@ import (
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
-	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 	"github.com/dagucloud/dagu/v2/internal/view"
@@ -98,7 +98,7 @@ type API struct {
 	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
-	schedulerStateStore  scheduler.WatermarkStore
+	schedulerStateStore  schedulerstate.Store
 	dagMutationNotifier  func(fileName string)
 	wikiMutationNotifier func()
 	baseConfigFactory    WorkspaceBaseConfigStoreFactory
@@ -317,7 +317,7 @@ func WithOIDCRoleMapping(load func() config.OIDCRoleMapping) APIOption {
 }
 
 // WithSchedulerStateStore sets the scheduler state store used for next-run projections.
-func WithSchedulerStateStore(store scheduler.WatermarkStore) APIOption {
+func WithSchedulerStateStore(store schedulerstate.Store) APIOption {
 	return func(a *API) {
 		a.schedulerStateStore = store
 	}

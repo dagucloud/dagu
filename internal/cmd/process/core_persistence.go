@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
@@ -27,6 +28,7 @@ type CorePersistence struct {
 	ProcRepository            *persis.ProcRepository
 	QueueStore                queue.QueueStore
 	StateStore                dagrun.StateStore
+	SchedulerStateStore       schedulerstate.Store
 	ServiceRegistry           serviceregistry.ServiceRegistry
 	DispatchTaskStore         dispatch.DispatchTaskStore
 	WorkerHeartbeatStore      dispatch.WorkerHeartbeatStore
@@ -66,6 +68,9 @@ func NewFileCorePersistence(
 	)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
+	schedulerStateStore := store.NewSchedulerStateStore(
+		file.NewCollection(filepath.Join(cfg.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
+	)
 	serviceRegistry := file.NewServiceRegistry(cfg)
 	dispatchTaskStore := store.NewDispatchTaskStore(
 		file.NewCollection(distributedDir),
@@ -85,6 +90,7 @@ func NewFileCorePersistence(
 		ProcRepository:            procRepository,
 		QueueStore:                queueStore,
 		StateStore:                stateStore,
+		SchedulerStateStore:       schedulerStateStore,
 		ServiceRegistry:           serviceRegistry,
 		DispatchTaskStore:         dispatchTaskStore,
 		WorkerHeartbeatStore:      workerHeartbeatStore,

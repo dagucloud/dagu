@@ -12,29 +12,33 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type mockWatermarkStore struct {
-	state   *SchedulerState
+	state   *schedulerstate.State
 	loadErr error
 	saveErr error
 	mu      sync.Mutex
-	saved   []*SchedulerState
+	saved   []*schedulerstate.State
 }
 
-func (m *mockWatermarkStore) Load(_ context.Context) (*SchedulerState, error) {
+func (m *mockWatermarkStore) Load(_ context.Context) (*schedulerstate.State, error) {
 	if m.loadErr != nil {
 		return nil, m.loadErr
 	}
 	if m.state == nil {
-		return &SchedulerState{Version: SchedulerStateVersion, DAGs: make(map[string]DAGWatermark)}, nil
+		return &schedulerstate.State{
+			Version: schedulerstate.CurrentVersion,
+			DAGs:    make(map[string]schedulerstate.DAGWatermark),
+		}, nil
 	}
 	return m.state, nil
 }
 
-func (m *mockWatermarkStore) Save(_ context.Context, state *SchedulerState) error {
+func (m *mockWatermarkStore) Save(_ context.Context, state *schedulerstate.State) error {
 	if m.saveErr != nil {
 		return m.saveErr
 	}
@@ -44,7 +48,7 @@ func (m *mockWatermarkStore) Save(_ context.Context, state *SchedulerState) erro
 	return nil
 }
 
-func (m *mockWatermarkStore) lastSaved() *SchedulerState {
+func (m *mockWatermarkStore) lastSaved() *schedulerstate.State {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.saved) == 0 {
@@ -53,11 +57,11 @@ func (m *mockWatermarkStore) lastSaved() *SchedulerState {
 	return m.saved[len(m.saved)-1]
 }
 
-func newMockWatermarkState(lastTick time.Time) *SchedulerState {
-	return &SchedulerState{
-		Version:  SchedulerStateVersion,
+func newMockWatermarkState(lastTick time.Time) *schedulerstate.State {
+	return &schedulerstate.State{
+		Version:  schedulerstate.CurrentVersion,
 		LastTick: lastTick,
-		DAGs:     make(map[string]DAGWatermark),
+		DAGs:     make(map[string]schedulerstate.DAGWatermark),
 	}
 }
 
@@ -98,7 +102,7 @@ func mustParseProfileSchedule(t *testing.T, expr, profile string) ir.Schedule {
 	return schedule
 }
 
-func newTestTickPlanner(store WatermarkStore) (*TickPlanner, chan DAGChangeEvent) {
+func newTestTickPlanner(store schedulerstate.Store) (*TickPlanner, chan DAGChangeEvent) {
 	eventCh := make(chan DAGChangeEvent, 256)
 	tp := NewTickPlanner(TickPlannerConfig{
 		WatermarkStore: store,
@@ -146,7 +150,7 @@ func TestTickPlanner_InitLoadError(t *testing.T) {
 	// Falls back to empty state on load error
 	tp.mu.RLock()
 	require.NotNil(t, tp.watermarkState)
-	require.Equal(t, SchedulerStateVersion, tp.watermarkState.Version)
+	require.Equal(t, schedulerstate.CurrentVersion, tp.watermarkState.Version)
 	tp.mu.RUnlock()
 }
 
@@ -662,7 +666,7 @@ func TestTickPlanner_PrunesStaleDAGEntries(t *testing.T) {
 	t.Parallel()
 
 	state := newMockWatermarkState(time.Date(2026, 2, 7, 9, 0, 0, 0, time.UTC))
-	state.DAGs = map[string]DAGWatermark{
+	state.DAGs = map[string]schedulerstate.DAGWatermark{
 		"active-dag":  {LastScheduledTime: time.Date(2026, 2, 7, 8, 0, 0, 0, time.UTC)},
 		"deleted-dag": {LastScheduledTime: time.Date(2026, 2, 7, 7, 0, 0, 0, time.UTC)},
 		"gone-dag":    {LastScheduledTime: time.Date(2026, 2, 7, 6, 0, 0, 0, time.UTC)},

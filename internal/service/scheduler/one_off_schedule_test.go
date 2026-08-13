@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,14 +28,14 @@ func TestNextPlannedRun_PendingOneOffOverridesMetadata(t *testing.T) {
 	oneOffSchedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	now := time.Date(2026, 2, 7, 12, 30, 0, 0, time.UTC)
 
-	state := &SchedulerState{
-		Version: SchedulerStateVersion,
-		DAGs: map[string]DAGWatermark{
+	state := &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			"mixed-dag": {
-				OneOffs: map[string]OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					oneOffSchedule.Fingerprint(): {
 						ScheduledTime: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
-						Status:        OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -61,11 +62,11 @@ func TestReconcileOneOffState_NewEntriesRespectAddSemantics(t *testing.T) {
 		Schedule: []ir.Schedule{future, past},
 	}
 
-	next, changed := reconcileOneOffState(DAGWatermark{}, dag.Schedule, now)
+	next, changed := reconcileOneOffState(schedulerstate.DAGWatermark{}, dag.Schedule, now)
 	require.True(t, changed)
 	require.Len(t, next.OneOffs, 2)
-	assert.Equal(t, OneOffStatusPending, next.OneOffs[future.Fingerprint()].Status)
-	assert.Equal(t, OneOffStatusConsumed, next.OneOffs[past.Fingerprint()].Status)
+	assert.Equal(t, schedulerstate.OneOffStatusPending, next.OneOffs[future.Fingerprint()].Status)
+	assert.Equal(t, schedulerstate.OneOffStatusConsumed, next.OneOffs[past.Fingerprint()].Status)
 }
 
 func TestReconcileOneOffState_ScheduledNowStaysPending(t *testing.T) {
@@ -79,10 +80,10 @@ func TestReconcileOneOffState_ScheduledNowStaysPending(t *testing.T) {
 		Schedule: []ir.Schedule{schedule},
 	}
 
-	next, changed := reconcileOneOffState(DAGWatermark{}, dag.Schedule, now)
+	next, changed := reconcileOneOffState(schedulerstate.DAGWatermark{}, dag.Schedule, now)
 	require.True(t, changed)
 	require.Len(t, next.OneOffs, 1)
-	assert.Equal(t, OneOffStatusPending, next.OneOffs[schedule.Fingerprint()].Status)
+	assert.Equal(t, schedulerstate.OneOffStatusPending, next.OneOffs[schedule.Fingerprint()].Status)
 }
 
 func TestTickPlanner_PlanPendingOneOffRun(t *testing.T) {
@@ -93,14 +94,14 @@ func TestTickPlanner_PlanPendingOneOffRun(t *testing.T) {
 
 	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
-	store.state = &SchedulerState{
-		Version: SchedulerStateVersion,
-		DAGs: map[string]DAGWatermark{
+	store.state = &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
-				OneOffs: map[string]OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					schedule.Fingerprint(): {
 						ScheduledTime: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
-						Status:        OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -136,14 +137,14 @@ func TestTickPlanner_DispatchRun_ExistingOneOffAttemptConsumesState(t *testing.T
 
 	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
-	store.state = &SchedulerState{
-		Version: SchedulerStateVersion,
-		DAGs: map[string]DAGWatermark{
+	store.state = &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
-				OneOffs: map[string]OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					schedule.Fingerprint(): {
 						ScheduledTime: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
-						Status:        OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -157,7 +158,7 @@ func TestTickPlanner_DispatchRun_ExistingOneOffAttemptConsumesState(t *testing.T
 
 	state := store.lastSaved()
 	require.NotNil(t, state)
-	assert.Equal(t, OneOffStatusConsumed, state.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
+	assert.Equal(t, schedulerstate.OneOffStatusConsumed, state.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
 }
 
 func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) {
@@ -185,14 +186,14 @@ func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) 
 		},
 	})
 
-	store.state = &SchedulerState{
-		Version: SchedulerStateVersion,
-		DAGs: map[string]DAGWatermark{
+	store.state = &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
-				OneOffs: map[string]OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					schedule.Fingerprint(): {
 						ScheduledTime: scheduledTime,
-						Status:        OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -207,7 +208,7 @@ func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) 
 	assert.Equal(t, []string{run.RunID, legacyRunID}, checkedRunIDs)
 	state := store.lastSaved()
 	require.NotNil(t, state)
-	assert.Equal(t, OneOffStatusConsumed, state.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
+	assert.Equal(t, schedulerstate.OneOffStatusConsumed, state.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
 }
 
 func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
@@ -229,14 +230,14 @@ func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
 
 	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
-	store.state = &SchedulerState{
-		Version: SchedulerStateVersion,
-		DAGs: map[string]DAGWatermark{
+	store.state = &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
-				OneOffs: map[string]OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					schedule.Fingerprint(): {
 						ScheduledTime: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
-						Status:        OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -250,7 +251,7 @@ func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
 
 	tp.mu.RLock()
 	defer tp.mu.RUnlock()
-	assert.Equal(t, OneOffStatusPending, tp.watermarkState.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
+	assert.Equal(t, schedulerstate.OneOffStatusPending, tp.watermarkState.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
 }
 
 func TestTickPlanner_PlanOneOffChoosesEarliestStartCandidate(t *testing.T) {
@@ -263,18 +264,18 @@ func TestTickPlanner_PlanOneOffChoosesEarliestStartCandidate(t *testing.T) {
 	later := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	cronSchedule := mustParseSchedule(t, "0 12 * * *")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{later, cronSchedule, earlier}}
-	store.state = &SchedulerState{
-		Version: SchedulerStateVersion,
-		DAGs: map[string]DAGWatermark{
+	store.state = &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
-				OneOffs: map[string]OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					earlier.Fingerprint(): {
 						ScheduledTime: time.Date(2026, 2, 7, 11, 59, 0, 0, time.UTC),
-						Status:        OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 					later.Fingerprint(): {
 						ScheduledTime: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
-						Status:        OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -308,14 +309,14 @@ func TestTickPlanner_DispatchRun_OneOffRequiresRunExists(t *testing.T) {
 
 	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
-	store.state = &SchedulerState{
-		Version: SchedulerStateVersion,
-		DAGs: map[string]DAGWatermark{
+	store.state = &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
-				OneOffs: map[string]OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					schedule.Fingerprint(): {
 						ScheduledTime: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
-						Status:        OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -332,5 +333,5 @@ func TestTickPlanner_DispatchRun_OneOffRequiresRunExists(t *testing.T) {
 
 	tp.mu.RLock()
 	defer tp.mu.RUnlock()
-	assert.Equal(t, OneOffStatusPending, tp.watermarkState.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
+	assert.Equal(t, schedulerstate.OneOffStatusPending, tp.watermarkState.DAGs[dag.Name].OneOffs[schedule.Fingerprint()].Status)
 }

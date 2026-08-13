@@ -5,17 +5,14 @@ package process
 
 import (
 	"context"
-	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/license"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
-	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 )
 
@@ -61,11 +58,9 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 	if cfg.Persistence.WorkerHeartbeatStore != nil {
 		opts = append(opts, frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(cfg.Persistence.WorkerHeartbeatStore)))
 	}
-	opts = append(opts, frontend.WithAPIOption(apiv1.WithSchedulerStateStore(
-		scheduler.NewWatermarkStore(
-			file.NewCollection(filepath.Join(cfg.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
-		),
-	)))
+	opts = append(opts, frontend.WithAPIOption(
+		apiv1.WithSchedulerStateStore(cfg.Persistence.SchedulerStateStore),
+	))
 
 	return frontend.NewServer(
 		ctx,

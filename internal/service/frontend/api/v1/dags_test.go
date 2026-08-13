@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -980,14 +981,14 @@ steps:
 }
 
 type stubSchedulerStateStore struct {
-	state *scheduler.SchedulerState
+	state *schedulerstate.State
 }
 
-func (s stubSchedulerStateStore) Load(context.Context) (*scheduler.SchedulerState, error) {
+func (s stubSchedulerStateStore) Load(context.Context) (*schedulerstate.State, error) {
 	return s.state, nil
 }
 
-func (stubSchedulerStateStore) Save(context.Context, *scheduler.SchedulerState) error {
+func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) error {
 	return nil
 }
 
@@ -1004,15 +1005,15 @@ steps:
   - run: echo hi
 `, scheduledAt.Format(time.RFC3339)))
 
-	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs: map[string]scheduler.DAGWatermark{
+	state := &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				NextRun: &scheduledAt,
-				OneOffs: map[string]scheduler.OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					dag.Schedule[0].Fingerprint(): {
 						ScheduledTime: scheduledAt,
-						Status:        scheduler.OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -1068,9 +1069,9 @@ steps:
   - run: echo hi
 `)
 
-	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs: map[string]scheduler.DAGWatermark{
+	state := &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {},
 		},
 	}
@@ -1113,9 +1114,9 @@ steps:
   - run: echo hi
 `)
 
-	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs:    map[string]scheduler.DAGWatermark{},
+	state := &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs:    map[string]schedulerstate.DAGWatermark{},
 	}
 
 	apiImpl := localapi.New(
@@ -1818,15 +1819,15 @@ steps:
   - run: echo hi
 `, scheduledAt.Format(time.RFC3339)))
 
-	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs: map[string]scheduler.DAGWatermark{
+	state := &schedulerstate.State{
+		Version: schedulerstate.CurrentVersion,
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				NextRun: &scheduledAt,
-				OneOffs: map[string]scheduler.OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					dag.Schedule[0].Fingerprint(): {
 						ScheduledTime: scheduledAt,
-						Status:        scheduler.OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
