@@ -10,13 +10,10 @@ import (
 	"time"
 )
 
-const CurrentVersion = 4
-
 // State holds persistent scheduler watermark state.
 type State struct {
-	Version  int                     `json:"version"`
-	LastTick time.Time               `json:"lastTick"`
-	DAGs     map[string]DAGWatermark `json:"dags,omitempty"`
+	LastTick time.Time
+	DAGs     map[string]DAGWatermark
 }
 
 // DAGWatermark tracks scheduler state for a single DAG.
@@ -42,7 +39,9 @@ type OneOffScheduleState struct {
 	Status        OneOffScheduleStatus `json:"status"`
 }
 
-// Store persists scheduler state.
+// Store persists scheduler state. Implementations must be safe for concurrent
+// use. Load returns an independent snapshot that callers may mutate, and Save
+// must not retain or mutate the provided state.
 type Store interface {
 	Load(ctx context.Context) (*State, error)
 	Save(ctx context.Context, state *State) error
@@ -54,7 +53,6 @@ func Clone(state *State) *State {
 		return nil
 	}
 	cloned := &State{
-		Version:  state.Version,
 		LastTick: state.LastTick,
 		DAGs:     make(map[string]DAGWatermark, len(state.DAGs)),
 	}

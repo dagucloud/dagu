@@ -202,7 +202,7 @@ func TestTickPlanner_InactiveProfileSchedulePersistsNoNextRunProjection(t *testi
 	scheduledAt := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	stateStore := store.NewSchedulerStateStore(testutil.NewMemoryBackend().Collection("scheduler"))
 	tp := scheduler.NewTickPlanner(scheduler.TickPlannerConfig{
-		WatermarkStore:  stateStore,
+		StateStore:      stateStore,
 		ProfileResolver: &countingProfileResolver{},
 		GetLatestStatus: func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
 			return ir.DAGRunStatus{}, nil

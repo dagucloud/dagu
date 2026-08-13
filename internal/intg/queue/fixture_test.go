@@ -557,11 +557,10 @@ func (f *fixture) cleanup() {
 func (f *fixture) seedWatermark(lastTick, lastScheduledTime time.Time) {
 	f.t.Helper()
 
-	wmBackend, err := file.New(f.th.Config.Paths.DataDir)
+	stateBackend, err := file.New(f.th.Config.Paths.DataDir)
 	require.NoError(f.t, err)
-	stateStore := persiststore.NewSchedulerStateStore(wmBackend.Collection("scheduler"))
+	stateStore := persiststore.NewSchedulerStateStore(stateBackend.Collection("scheduler"))
 	state := &schedulerstate.State{
-		Version:  1,
 		LastTick: lastTick,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			f.dag.Name: {LastScheduledTime: lastScheduledTime},

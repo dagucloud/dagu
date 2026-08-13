@@ -123,7 +123,6 @@ steps:
 			file.NewCollection(filepath.Join(th.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
 		)
 		require.NoError(t, stateStore.Save(th.Context, &schedulerstate.State{
-			Version: schedulerstate.CurrentVersion,
 			DAGs: map[string]schedulerstate.DAGWatermark{
 				overdue.Name: {
 					NextRun: &scheduledAt,

@@ -129,7 +129,7 @@ func New(
 	procRepository processRepository,
 	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
-	watermarkStore schedulerstate.Store,
+	stateStore schedulerstate.Store,
 	opts ...Option,
 ) (*Scheduler, error) {
 	var options schedulerOptions
@@ -138,7 +138,7 @@ func New(
 			opt(&options)
 		}
 	}
-	return newScheduler(cfg, er, drm, dagRepository, dagRunRepository, queueStore, procRepository, reg, coordinatorCli, watermarkStore, schedulerHooks{}, options)
+	return newScheduler(cfg, er, drm, dagRepository, dagRunRepository, queueStore, procRepository, reg, coordinatorCli, stateStore, schedulerHooks{}, options)
 }
 
 func newScheduler(
@@ -151,7 +151,7 @@ func newScheduler(
 	procRepository processRepository,
 	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
-	watermarkStore schedulerstate.Store,
+	stateStore schedulerstate.Store,
 	hooks schedulerHooks,
 	options schedulerOptions,
 ) (*Scheduler, error) {
@@ -234,7 +234,7 @@ func newScheduler(
 	}
 
 	planner := NewTickPlanner(TickPlannerConfig{
-		WatermarkStore:  watermarkStore,
+		StateStore:      stateStore,
 		IsSuspended:     isSuspended,
 		GetLatestStatus: drm.GetLatestStatus,
 		IsRunning: func(ctx context.Context, dag *ir.DAG) (bool, error) {

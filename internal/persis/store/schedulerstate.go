@@ -17,8 +17,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 )
 
-const schedulerStateID = "state"
-const schedulerCheckpointID = "checkpoint"
+const (
+	schedulerStateVersion = 4
+	schedulerStateID      = "state"
+	schedulerCheckpointID = "checkpoint"
+)
 
 type schedulerStateRecord struct {
 	SchemaVersion int                                    `json:"version"`
@@ -71,12 +74,12 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 	found, err := NewSingleRecord[schedulerStateCompatRecord](s.col, schedulerStateID).Load(ctx, &rawState)
 	if err != nil {
 		if errors.Is(err, ErrCorrupt) {
-			logger.Warn(ctx, "watermark: corrupt state, starting fresh", tag.Error(err))
+			logger.Warn(ctx, "scheduler state: corrupt state, starting fresh", tag.Error(err))
 			state := newSchedulerState()
 			s.cacheStateLocked(ctx, state)
 			return schedulerstate.Clone(state), nil
 		}
-		return nil, fmt.Errorf("watermark store: get: %w", err)
+		return nil, fmt.Errorf("scheduler state store: get: %w", err)
 	}
 	if !found {
 		state := newSchedulerState()
@@ -86,23 +89,13 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 
 	originalVersion := rawState.SchemaVersion
 	state := &schedulerstate.State{
-		Version:  rawState.SchemaVersion,
 		LastTick: rawState.LastTick,
 		DAGs:     rawState.DAGs,
 	}
-	switch state.Version {
-	case schedulerstate.CurrentVersion:
-	case 0, 1, 2, 3:
-		migrated, migrateErr := migrateSchedulerState(state.Version, state)
-		if migrateErr != nil {
-			logger.Warn(ctx, "watermark: failed to migrate state, starting fresh", tag.Error(migrateErr))
-			state = newSchedulerState()
-			s.cacheStateLocked(ctx, state)
-			return schedulerstate.Clone(state), nil
-		}
-		state = migrated
+	switch originalVersion {
+	case schedulerStateVersion, 0, 1, 2, 3:
 	default:
-		logger.Warn(ctx, "watermark: unknown version, starting fresh", tag.Version(fmt.Sprint(state.Version)))
+		logger.Warn(ctx, "scheduler state: unknown version, starting fresh", tag.Version(fmt.Sprint(originalVersion)))
 		state = newSchedulerState()
 		s.cacheStateLocked(ctx, state)
 		return schedulerstate.Clone(state), nil
@@ -117,7 +110,7 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 		state.LastTick = checkpoint.LastTick
 	}
 	s.cacheStateLocked(ctx, state)
-	if originalVersion != schedulerstate.CurrentVersion || !rawState.LastTick.IsZero() {
+	if originalVersion != schedulerStateVersion || !rawState.LastTick.IsZero() {
 		s.cachedStatePayload = nil
 	}
 	return schedulerstate.Clone(state), nil
@@ -126,7 +119,7 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 // Save writes scheduler state when its durable records have changed.
 func (s *SchedulerStateStore) Save(ctx context.Context, state *schedulerstate.State) error {
 	if state == nil {
-		return fmt.Errorf("watermark store: state is nil")
+		return fmt.Errorf("scheduler state store: state is nil")
 	}
 
 	s.mu.Lock()
@@ -135,12 +128,12 @@ func (s *SchedulerStateStore) Save(ctx context.Context, state *schedulerstate.St
 	stateRecord := newSchedulerStateRecord(state)
 	stateData, err := persis.Encode(&stateRecord)
 	if err != nil {
-		return fmt.Errorf("watermark store: encode state: %w", err)
+		return fmt.Errorf("scheduler state store: encode state: %w", err)
 	}
 	stateChanged := !bytes.Equal(stateData, s.cachedStatePayload)
 	if stateChanged {
 		if err := s.stateRec.Save(ctx, &stateRecord); err != nil {
-			return fmt.Errorf("watermark store: save: %w", err)
+			return fmt.Errorf("scheduler state store: save: %w", err)
 		}
 	}
 
@@ -148,7 +141,7 @@ func (s *SchedulerStateStore) Save(ctx context.Context, state *schedulerstate.St
 	checkpointChanged := stateChanged || s.cachedState == nil || !state.LastTick.Equal(s.cachedState.LastTick)
 	if checkpointChanged {
 		if err := s.checkpointRec.Save(ctx, &checkpoint); err != nil {
-			return fmt.Errorf("watermark store: save checkpoint: %w", err)
+			return fmt.Errorf("scheduler state store: save checkpoint: %w", err)
 		}
 	}
 
@@ -166,46 +159,19 @@ func (s *SchedulerStateStore) Save(ctx context.Context, state *schedulerstate.St
 
 func newSchedulerState() *schedulerstate.State {
 	return &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
-		DAGs:    make(map[string]schedulerstate.DAGWatermark),
+		DAGs: make(map[string]schedulerstate.DAGWatermark),
 	}
 }
 
 func newSchedulerStateRecord(state *schedulerstate.State) schedulerStateRecord {
 	record := schedulerStateRecord{
-		SchemaVersion: state.Version,
+		SchemaVersion: schedulerStateVersion,
 		DAGs:          make(map[string]schedulerstate.DAGWatermark, len(state.DAGs)),
 	}
 	for dagName, dagState := range state.DAGs {
 		record.DAGs[dagName] = schedulerstate.CloneDAGWatermark(dagState)
 	}
 	return record
-}
-
-func migrateSchedulerState(version int, state *schedulerstate.State) (*schedulerstate.State, error) {
-	if state == nil {
-		return nil, fmt.Errorf("watermark store: state is nil")
-	}
-	migrated := *state
-	switch version {
-	case 0:
-		migrated.Version = 1
-		return migrateSchedulerState(1, &migrated)
-	case 1:
-		migrated.Version = 2
-		return migrateSchedulerState(2, &migrated)
-	case 2:
-		migrated.Version = 3
-		return migrateSchedulerState(3, &migrated)
-	case 3:
-		migrated.Version = schedulerstate.CurrentVersion
-		if migrated.DAGs == nil {
-			migrated.DAGs = make(map[string]schedulerstate.DAGWatermark)
-		}
-		return &migrated, nil
-	default:
-		return nil, fmt.Errorf("watermark store: unsupported state version %d", version)
-	}
 }
 
 func (s *SchedulerStateStore) cachedStateLocked(ctx context.Context) (*schedulerstate.State, bool, error) {
@@ -221,7 +187,7 @@ func (s *SchedulerStateStore) cachedStateLocked(ctx context.Context) (*scheduler
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("watermark store: state record: %w", err)
+		return nil, false, fmt.Errorf("scheduler state store: state record: %w", err)
 	}
 	if token != s.cachedStateRecordToken {
 		s.clearCacheLocked()
@@ -254,10 +220,10 @@ func (s *SchedulerStateStore) loadCheckpoint(ctx context.Context) (schedulerChec
 	found, err := s.checkpointRec.Load(ctx, &checkpoint)
 	if err != nil {
 		if errors.Is(err, ErrCorrupt) {
-			logger.Warn(ctx, "watermark: corrupt checkpoint, using state fallback", tag.Error(err))
+			logger.Warn(ctx, "scheduler state: corrupt checkpoint, using state fallback", tag.Error(err))
 			return schedulerCheckpoint{}, false, nil
 		}
-		return schedulerCheckpoint{}, false, fmt.Errorf("watermark store: get checkpoint: %w", err)
+		return schedulerCheckpoint{}, false, fmt.Errorf("scheduler state store: get checkpoint: %w", err)
 	}
 	return checkpoint, found, nil
 }

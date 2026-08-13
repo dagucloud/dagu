@@ -29,7 +29,6 @@ func TestNextPlannedRun_PendingOneOffOverridesMetadata(t *testing.T) {
 	now := time.Date(2026, 2, 7, 12, 30, 0, 0, time.UTC)
 
 	state := &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			"mixed-dag": {
 				OneOffs: map[string]schedulerstate.OneOffScheduleState{
@@ -89,13 +88,12 @@ func TestReconcileOneOffState_ScheduledNowStaysPending(t *testing.T) {
 func TestTickPlanner_PlanPendingOneOffRun(t *testing.T) {
 	t.Parallel()
 
-	store := &mockWatermarkStore{}
+	store := &mockStateStore{}
 	tp, _ := newTestTickPlanner(store)
 
 	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
 	store.state = &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				OneOffs: map[string]schedulerstate.OneOffScheduleState{
@@ -120,9 +118,9 @@ func TestTickPlanner_PlanPendingOneOffRun(t *testing.T) {
 func TestTickPlanner_DispatchRun_ExistingOneOffAttemptConsumesState(t *testing.T) {
 	t.Parallel()
 
-	store := &mockWatermarkStore{}
+	store := &mockStateStore{}
 	tp := NewTickPlanner(TickPlannerConfig{
-		WatermarkStore: store,
+		StateStore: store,
 		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
 			t.Fatal("dispatch should not be called when the run already exists")
 			return nil
@@ -138,7 +136,6 @@ func TestTickPlanner_DispatchRun_ExistingOneOffAttemptConsumesState(t *testing.T
 	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
 	store.state = &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				OneOffs: map[string]schedulerstate.OneOffScheduleState{
@@ -169,10 +166,10 @@ func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) 
 	dag := &ir.DAG{Name: "one.off-dag", Schedule: []ir.Schedule{schedule}}
 	legacyRunID := generateLegacyOneOffRunID(dag.Name, schedule.Fingerprint(), scheduledTime)
 
-	store := &mockWatermarkStore{}
+	store := &mockStateStore{}
 	var checkedRunIDs []string
 	tp := NewTickPlanner(TickPlannerConfig{
-		WatermarkStore: store,
+		StateStore: store,
 		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
 			t.Fatal("dispatch should not be called when the legacy run already exists")
 			return nil
@@ -187,7 +184,6 @@ func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) 
 	})
 
 	store.state = &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				OneOffs: map[string]schedulerstate.OneOffScheduleState{
@@ -214,9 +210,9 @@ func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) 
 func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
 	t.Parallel()
 
-	store := &mockWatermarkStore{}
+	store := &mockStateStore{}
 	tp := NewTickPlanner(TickPlannerConfig{
-		WatermarkStore: store,
+		StateStore: store,
 		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
 			return assert.AnError
 		},
@@ -231,7 +227,6 @@ func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
 	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
 	store.state = &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				OneOffs: map[string]schedulerstate.OneOffScheduleState{
@@ -257,7 +252,7 @@ func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
 func TestTickPlanner_PlanOneOffChoosesEarliestStartCandidate(t *testing.T) {
 	t.Parallel()
 
-	store := &mockWatermarkStore{}
+	store := &mockStateStore{}
 	tp, _ := newTestTickPlanner(store)
 
 	earlier := mustOneOffSchedule(t, "2026-02-07T11:59:00Z")
@@ -265,7 +260,6 @@ func TestTickPlanner_PlanOneOffChoosesEarliestStartCandidate(t *testing.T) {
 	cronSchedule := mustParseSchedule(t, "0 12 * * *")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{later, cronSchedule, earlier}}
 	store.state = &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				OneOffs: map[string]schedulerstate.OneOffScheduleState{
@@ -294,10 +288,10 @@ func TestTickPlanner_PlanOneOffChoosesEarliestStartCandidate(t *testing.T) {
 func TestTickPlanner_DispatchRun_OneOffRequiresRunExists(t *testing.T) {
 	t.Parallel()
 
-	store := &mockWatermarkStore{}
+	store := &mockStateStore{}
 	dispatched := false
 	tp := NewTickPlanner(TickPlannerConfig{
-		WatermarkStore: store,
+		StateStore: store,
 		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
 			dispatched = true
 			return nil
@@ -310,7 +304,6 @@ func TestTickPlanner_DispatchRun_OneOffRequiresRunExists(t *testing.T) {
 	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
 	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
 	store.state = &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				OneOffs: map[string]schedulerstate.OneOffScheduleState{

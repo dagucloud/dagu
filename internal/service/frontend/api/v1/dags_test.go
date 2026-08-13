@@ -985,7 +985,7 @@ type stubSchedulerStateStore struct {
 }
 
 func (s stubSchedulerStateStore) Load(context.Context) (*schedulerstate.State, error) {
-	return s.state, nil
+	return schedulerstate.Clone(s.state), nil
 }
 
 func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) error {
@@ -1006,7 +1006,6 @@ steps:
 `, scheduledAt.Format(time.RFC3339)))
 
 	state := &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				NextRun: &scheduledAt,
@@ -1070,7 +1069,6 @@ steps:
 `)
 
 	state := &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {},
 		},
@@ -1115,8 +1113,7 @@ steps:
 `)
 
 	state := &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
-		DAGs:    map[string]schedulerstate.DAGWatermark{},
+		DAGs: map[string]schedulerstate.DAGWatermark{},
 	}
 
 	apiImpl := localapi.New(
@@ -1820,7 +1817,6 @@ steps:
 `, scheduledAt.Format(time.RFC3339)))
 
 	state := &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				NextRun: &scheduledAt,

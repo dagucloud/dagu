@@ -300,9 +300,9 @@ func (f *testFixture) startSchedulerWithClock(timeout time.Duration, clock sched
 		timeout,
 		clock,
 		func() schedulerstate.Store {
-			wmBackend, err := file.New(f.coord.Config.Paths.DataDir)
+			stateBackend, err := file.New(f.coord.Config.Paths.DataDir)
 			require.NoError(f.t, err)
-			return persiststore.NewSchedulerStateStore(wmBackend.Collection("scheduler"))
+			return persiststore.NewSchedulerStateStore(stateBackend.Collection("scheduler"))
 		}(),
 	)
 }
@@ -310,7 +310,7 @@ func (f *testFixture) startSchedulerWithClock(timeout time.Duration, clock sched
 func (f *testFixture) startSchedulerWithOptions(
 	timeout time.Duration,
 	clock scheduler.Clock,
-	watermarkStore schedulerstate.Store,
+	stateStore schedulerstate.Store,
 ) {
 	f.t.Helper()
 
@@ -330,7 +330,7 @@ func (f *testFixture) startSchedulerWithOptions(
 		f.coord.ProcRepository,
 		f.coord.ServiceRegistry,
 		f.coordinatorClient,
-		watermarkStore,
+		stateStore,
 	)
 	require.NoError(f.t, err)
 	schedulerInst.SetDAGRunLeaseStore(f.coord.DAGRunLeaseStore)

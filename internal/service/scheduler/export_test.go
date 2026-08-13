@@ -30,7 +30,7 @@ func NewWithHooksForTest(
 	procRepository processRepository,
 	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
-	watermarkStore schedulerstate.Store,
+	stateStore schedulerstate.Store,
 	hooks TestHooks,
 ) (*Scheduler, error) {
 	return newScheduler(
@@ -43,7 +43,7 @@ func NewWithHooksForTest(
 		procRepository,
 		reg,
 		coordinatorCli,
-		watermarkStore,
+		stateStore,
 		schedulerHooks{onLockWait: hooks.OnLockWait},
 		schedulerOptions{},
 	)

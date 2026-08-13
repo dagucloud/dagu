@@ -85,7 +85,7 @@ type RunExistsFunc func(ctx context.Context, dag *ir.DAG, runID string) (bool, e
 
 // TickPlannerConfig holds the dependencies for creating a TickPlanner.
 type TickPlannerConfig struct {
-	WatermarkStore  schedulerstate.Store
+	StateStore      schedulerstate.Store
 	IsSuspended     IsSuspendedFunc
 	GetLatestStatus GetLatestStatusFunc
 	IsRunning       IsRunningFunc
@@ -181,8 +181,8 @@ type activeDAGSchedules struct {
 // Nil config fields are replaced with no-op defaults, except RunExists which
 // fails closed when it is not configured.
 func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
-	if cfg.WatermarkStore == nil {
-		cfg.WatermarkStore = noopWatermarkStore{}
+	if cfg.StateStore == nil {
+		cfg.StateStore = noopStateStore{}
 	}
 	if cfg.IsSuspended == nil {
 		cfg.IsSuspended = func(context.Context, string) (bool, error) { return false, nil }
@@ -328,13 +328,10 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 		tp.entries[entry.DAG.Name] = &plannerEntry{DAGEntry: entry}
 	}
 
-	state, err := tp.cfg.WatermarkStore.Load(ctx)
+	state, err := tp.cfg.StateStore.Load(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to load watermark state", tag.Error(err))
-		state = &schedulerstate.State{Version: schedulerstate.CurrentVersion, DAGs: make(map[string]schedulerstate.DAGWatermark)}
-	}
-	if state.Version == 0 {
-		state.Version = schedulerstate.CurrentVersion
+		state = &schedulerstate.State{DAGs: make(map[string]schedulerstate.DAGWatermark)}
 	}
 	if state.DAGs == nil {
 		state.DAGs = make(map[string]schedulerstate.DAGWatermark)
@@ -1127,7 +1124,6 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 		return
 	}
 	snapshot := &schedulerstate.State{
-		Version:  tp.watermarkState.Version,
 		LastTick: tp.watermarkState.LastTick,
 		DAGs:     make(map[string]schedulerstate.DAGWatermark, len(tp.watermarkState.DAGs)),
 	}
@@ -1136,7 +1132,7 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 	}
 	tp.mu.RUnlock()
 
-	if err := tp.cfg.WatermarkStore.Save(ctx, snapshot); err != nil {
+	if err := tp.cfg.StateStore.Save(ctx, snapshot); err != nil {
 		logger.Error(ctx, "Failed to flush watermark state", tag.Error(err))
 	}
 }

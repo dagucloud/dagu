@@ -50,14 +50,13 @@ steps:
 	require.NoError(t, err)
 	require.Len(t, dag.Schedule, 1)
 
-	wmBackend, err := file.New(th.Config.Paths.DataDir)
+	stateBackend, err := file.New(th.Config.Paths.DataDir)
 	require.NoError(t, err)
-	watermarkStore := store.NewSchedulerStateStore(wmBackend.Collection("scheduler"))
+	stateStore := store.NewSchedulerStateStore(stateBackend.Collection("scheduler"))
 	fingerprint := dag.Schedule[0].Fingerprint()
 	runID := scheduler.GenerateOneOffRunID(dag.Name, fingerprint, scheduledAt)
 
-	require.NoError(t, watermarkStore.Save(th.Context, &schedulerstate.State{
-		Version: schedulerstate.CurrentVersion,
+	require.NoError(t, stateStore.Save(th.Context, &schedulerstate.State{
 		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				OneOffs: map[string]schedulerstate.OneOffScheduleState{
@@ -91,7 +90,7 @@ steps:
 		th.ProcRepository,
 		th.ServiceRegistry,
 		th.CoordinatorCli,
-		watermarkStore,
+		stateStore,
 	)
 	require.NoError(t, err)
 	sc.SetClock(func() time.Time { return scheduledAt })
@@ -109,7 +108,7 @@ steps:
 	probe := h.StartScheduler(ctx, sc, th.EntryReader)
 
 	probe.RequireEventually("expected one-off schedule to be consumed", 5*time.Second, func() bool {
-		state, err := watermarkStore.Load(th.Context)
+		state, err := stateStore.Load(th.Context)
 		if err != nil {
 			return false
 		}
