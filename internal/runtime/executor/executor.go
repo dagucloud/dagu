@@ -117,6 +117,7 @@ type ParallelExecutor interface {
 type RunParams struct {
 	RunID          string
 	Params         string
+	ParallelItem   string
 	DAGName        string
 	WorkerSelector map[string]string
 }

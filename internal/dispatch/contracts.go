@@ -48,6 +48,7 @@ type DispatchTask struct {
 	AttemptKey   string
 	Step         string
 	Params       string
+	ParallelItem string
 	QueueName    string
 	WorkerID     string
 	ProfileName  string

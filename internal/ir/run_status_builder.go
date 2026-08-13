@@ -142,6 +142,13 @@ func WithTriggerActor(actor string) StatusOption {
 	}
 }
 
+// WithParallelItem sets the value bound to ITEM for a parallel child run.
+func WithParallelItem(item string) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.ParallelItem = item
+	}
+}
+
 // WithAutoRetryCount sets the current automatic retry count.
 func WithAutoRetryCount(autoRetryCount int) StatusOption {
 	return func(status *DAGRunStatus) {

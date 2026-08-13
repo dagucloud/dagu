@@ -289,6 +289,7 @@ func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunPa
 		ParentDAGRun:      parent,
 		RunID:             runParams.RunID,
 		Params:            runParams.Params,
+		ParallelItem:      runParams.ParallelItem,
 		ProfileName:       rCtx.ProfileName,
 		TriggerActor:      rCtx.TriggerActor,
 		WorkDir:           workDir,

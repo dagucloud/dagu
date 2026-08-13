@@ -72,6 +72,13 @@ func WithTaskParams(params string) TaskOption {
 	}
 }
 
+// WithParallelItem sets the value bound to ITEM for a parallel child run.
+func WithParallelItem(item string) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.ParallelItem = item
+	}
+}
+
 // WithSourceFile sets the original DAG source file path for provenance-aware flows.
 func WithSourceFile(sourceFile string) TaskOption {
 	return func(task *dispatch.DispatchTask) {

@@ -246,6 +246,7 @@ func runRetry(ctx *Context, args []string) error {
 		attemptID:    attemptID,
 		triggerType:  queue.PreservedQueueTriggerType(status),
 		triggerActor: triggerActor,
+		parallelItem: status.ParallelItem,
 		scheduleTime: status.ScheduleTime,
 		profileName:  profileName,
 		definitionID: status.DAGDefinitionID(),

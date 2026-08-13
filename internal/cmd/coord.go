@@ -227,7 +227,7 @@ func newCoordinator(
 	}
 
 	// Create the handler with DAG-run status persistence and streamed log storage.
-	runtimeStores := newExecutionStores(ctx.Context, cfg)
+	runtimeStores := ctx.runtimeStores()
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		DAGRunRepository:          dagRunRepository,
 		StateStore:                stateStore,

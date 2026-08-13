@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -245,6 +246,9 @@ func (e *DAGExecutor) executeDAG(
 		if triggerActor != "" {
 			taskOpts = append(taskOpts, executor.WithTriggerActor(triggerActor))
 		}
+		if previousStatus != nil && previousStatus.ParallelItem != "" {
+			taskOpts = append(taskOpts, executor.WithParallelItem(previousStatus.ParallelItem))
+		}
 		if previousStatus != nil && len(previousStatus.ParamsList) == 0 && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
 		}
@@ -275,6 +279,12 @@ func (e *DAGExecutor) executeDAG(
 	dag, err := e.prepareDAGForSubprocess(ctx, dag, params)
 	if err != nil {
 		return fmt.Errorf("failed to prepare DAG env for subprocess: %w", err)
+	}
+	if previousStatus != nil && previousStatus.ParallelItem != "" {
+		dag.Env = append(dag.Env,
+			ir.ParallelItemVariable+"="+previousStatus.ParallelItem,
+			runenv.EnvKeyParallelItem+"="+previousStatus.ParallelItem,
+		)
 	}
 
 	switch operation {

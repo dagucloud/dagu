@@ -30,7 +30,7 @@ var (
 	errNoDispatcher    = errors.New("no dispatcher configured for child workflow execution")
 	errMissingChildDAG = errors.New("child workflow DAG is required")
 	errMissingDAGPath  = errors.New("child workflow DAG location is required")
-	errNoRunStateStore = errors.New("child workflow status database is not configured")
+	errNoRunStateStore = errors.New("child workflow run-state store is not configured")
 	errStepNameNotSet  = errors.New("retry step name is not set")
 	errChildCancelled  = errors.New("sub DAG execution cancelled")
 )
@@ -361,6 +361,9 @@ func (r *Runner) taskOptions(
 		executor.WithRootDagRun(req.RootDAGRun),
 		executor.WithParentDagRun(req.ParentDAGRun),
 		executor.WithWorkerSelector(cloneMap(req.WorkerSelector)),
+	}
+	if req.ParallelItem != "" {
+		options = append(options, executor.WithParallelItem(req.ParallelItem))
 	}
 	if req.Workspace == nil {
 		options = append(options, executor.WithBaseConfig(baseConfig))

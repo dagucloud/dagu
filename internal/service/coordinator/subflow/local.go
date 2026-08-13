@@ -250,13 +250,17 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 	}
 
 	ref := ir.NewDAGRunRef(req.DAG.Name, req.RunID)
-	if attempt, err := r.dagRunRepository.FindAttempt(ctx, ref); err == nil {
+	attempt, err := r.dagRunRepository.FindAttempt(ctx, ref)
+	switch {
+	case errors.Is(err, dagrun.ErrNoStatusData):
+		return executor.EnqueueResult{Status: ir.Queued, AlreadyExists: true}, nil
+	case err == nil:
 		status := ir.Queued
 		if existing, readErr := attempt.ReadStatus(ctx); readErr == nil && existing != nil {
 			status = existing.Status
 		}
 		return executor.EnqueueResult{Status: status, AlreadyExists: true}, nil
-	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+	case !errors.Is(err, dagrun.ErrDAGRunIDNotFound):
 		return executor.EnqueueResult{}, fmt.Errorf("failed to check existing DAG run: %w", err)
 	}
 
@@ -269,7 +273,7 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 	if artifactDir == "" {
 		artifactDir = rCtx.DAGRunArtifactDir
 	}
-	_, err := intake.EnqueueRun(ctx, intake.QueueRequest{
+	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
 		DAGRunRepository: r.dagRunRepository,
 		QueueStore:       r.queueStore,
 		DAG:              req.DAG,
@@ -279,6 +283,7 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		ArtifactBaseDir:  artifactDir,
 		TriggerType:      ir.TriggerTypeSubDAG,
 		TriggerActor:     req.TriggerActor,
+		ParallelItem:     req.ParallelItem,
 		ProfileName:      req.ProfileName,
 	})
 	if err != nil {
@@ -438,6 +443,7 @@ func (r *Local) newAgent(
 	opts.ParentDAGRun = req.ParentDAGRun
 	opts.RootDAGRun = req.RootDAGRun
 	opts.TriggerActor = req.TriggerActor
+	opts.ParallelItem = req.ParallelItem
 	opts.RetryPath = req.RetryPath
 	opts.ExtraEnvs = append(inProcessExtraEnvs(rCtx, req), toolEnvs...)
 	opts.WorkerID = r.workerID
@@ -618,6 +624,9 @@ func inProcessLoadOptions(
 
 func inProcessExtraEnvs(rCtx runctx.Context, req executor.SubWorkflowRequest) []string {
 	envs := inheritedEnvForLocalRunner(rCtx.AllEnvs())
+	if req.ParallelItem != "" {
+		envs = append(envs, ir.ParallelItemVariable+"="+req.ParallelItem)
+	}
 	if req.ExternalStepRetry {
 		envs = append(envs, runenv.EnvKeyExternalStepRetry+"=1")
 	}

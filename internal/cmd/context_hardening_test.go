@@ -128,6 +128,38 @@ func TestNewContext_RemoteExplicitFailsWhenContextStoreUnavailable(t *testing.T)
 	assert.Contains(t, err.Error(), "failed to initialize context store")
 }
 
+func TestNewContext_RemoteSkipsLocalEventStore(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	contextsDir := filepath.Join(home, "contexts")
+	eventStoreDir := filepath.Join(home, "events")
+	store, err := newCLIContextStore(filepath.Join(home, "data"), contextsDir)
+	require.NoError(t, err)
+	require.NoError(t, store.Create(t.Context(), &cliContext{
+		Name:      "prod",
+		ServerURL: "https://example.com",
+		APIKey:    "dagu_test_123",
+	}))
+
+	configPath := filepath.Join(home, "config.yaml")
+	configData := "paths:\n  contexts_dir: " + contextsDir + "\n  event_store_dir: " + eventStoreDir + "\nevent_store:\n  enabled: true\n"
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0o600))
+
+	command := &cobra.Command{Use: "status"}
+	initFlags(command)
+	command.Flags().String("context", "", "")
+	command.SetContext(context.Background())
+	require.NoError(t, command.Flags().Set("dagu-home", home))
+	require.NoError(t, command.Flags().Set("config", configPath))
+	require.NoError(t, command.Flags().Set("context", "prod"))
+
+	ctx, err := NewContext(command, nil)
+	require.NoError(t, err)
+	require.True(t, ctx.IsRemote())
+	require.NoDirExists(t, eventStoreDir)
+}
+
 func writeTestConfig(t *testing.T, home, contextsDir string) string {
 	t.Helper()
 	configPath := filepath.Join(home, "config.yaml")

@@ -36,6 +36,7 @@ type QueueRequest struct {
 	Parent       ir.DAGRunRef
 	TriggerType  ir.TriggerType
 	TriggerActor string
+	ParallelItem string
 	ScheduleTime string
 	ProfileName  string
 	DefinitionID string
@@ -186,6 +187,7 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 		ir.WithHierarchyRefs(root, req.Parent),
 		ir.WithTriggerType(req.TriggerType),
 		ir.WithTriggerActor(req.TriggerActor),
+		ir.WithParallelItem(req.ParallelItem),
 		ir.WithRuntimeProfile(req.ProfileName, "", nil),
 		ir.WithDAGDefinitionID(req.DefinitionID),
 		ir.WithNoReuse(req.NoReuse),

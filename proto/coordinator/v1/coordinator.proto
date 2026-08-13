@@ -152,6 +152,8 @@ message Task {
   string trigger_actor = 34;
   // Stable identity of the persisted DAG definition.
   string definition_id = 35;
+  // Value bound to ITEM for a parallel child run.
+  string parallel_item = 36;
 }
 
 enum Operation {

@@ -295,6 +295,32 @@ func TestBuildChildRunParams_SelectorConflict(t *testing.T) {
 	require.ErrorContains(t, err, "different worker selectors")
 }
 
+func TestBuildChildRunParams_PreservesItemsWithSharedExplicitParams(t *testing.T) {
+	t.Parallel()
+
+	subDAG := &ir.SubDAG{Name: "child", Params: "MODE=batch"}
+	step := ir.Step{
+		Name:   "run-child",
+		SubDAG: subDAG,
+		Parallel: &ir.ParallelConfig{
+			Items: []ir.ParallelItem{{Value: "one"}, {Value: "two"}},
+		},
+	}
+	ctx := NewContextForTest(context.Background(), &ir.DAG{Name: "root", Steps: []ir.Step{step}}, "root-run", "")
+	ctx = WithEnv(ctx, NewEnv(ctx, step))
+
+	runs, err := NewNode(step, NodeState{}).buildChildRunParams(ctx, subDAG)
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+
+	items := []string{runs[0].ParallelItem, runs[1].ParallelItem}
+	sort.Strings(items)
+	require.Equal(t, []string{"one", "two"}, items)
+	require.Equal(t, "MODE=batch", runs[0].Params)
+	require.Equal(t, "MODE=batch", runs[1].Params)
+	require.NotEqual(t, runs[0].RunID, runs[1].RunID)
+}
+
 // TestSetupExecutor_HarnessCommandPreservesLiteralCodeFences verifies that
 // command-backed prompt executors resolve ${VAR} placeholders without treating
 // the resulting prompt text as shell command substitution input.

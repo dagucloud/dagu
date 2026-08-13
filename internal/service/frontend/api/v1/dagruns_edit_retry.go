@@ -936,6 +936,9 @@ func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *ir.DAG
 	if status.TriggerActor != "" {
 		opts = append(opts, executor.WithTriggerActor(status.TriggerActor))
 	}
+	if status.ParallelItem != "" {
+		opts = append(opts, executor.WithParallelItem(status.ParallelItem))
+	}
 	task := executor.CreateTask(
 		dag.Name,
 		string(dag.YamlData),

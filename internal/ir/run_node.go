@@ -188,8 +188,9 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 
 // SubDAGRun represents a sub DAG run associated with a node
 type SubDAGRun struct {
-	DAGRunID string `json:"dagRunId,omitempty"`
-	Params   string `json:"params,omitempty"`
+	DAGRunID     string `json:"dagRunId,omitempty"`
+	Params       string `json:"params,omitempty"`
+	ParallelItem string `json:"parallelItem,omitempty"`
 	// DAGName is the name of the executed sub-DAG.
 	// For chat tool calls, this is the tool DAG name.
 	// This field enables UI drill-down when step.call is not set.

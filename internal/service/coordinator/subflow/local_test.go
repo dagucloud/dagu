@@ -111,7 +111,38 @@ func TestLocalRetryRejectsMissingRunStateStore(t *testing.T) {
 	})
 
 	require.Nil(t, result)
-	require.ErrorContains(t, err, "child workflow status database is not configured")
+	require.ErrorContains(t, err, "child workflow run-state store is not configured")
+}
+
+func TestLocalEnqueueRecognizesExistingRunWithoutStatus(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	child := th.DAG(t, "name: child\nsteps:\n  - name: ok\n    run: echo ok\n")
+	runID := uuid.Must(uuid.NewV7()).String()
+	_, err := th.DAGRunRepository.CreateAttempt(
+		th.Context,
+		child.DAG,
+		time.Now(),
+		runID,
+		persis.DAGRunCreateAttemptOptions{},
+	)
+	require.NoError(t, err)
+
+	runner := subflow.NewLocal(
+		th.DAGRunMgr,
+		th.DAGRepository,
+		subflow.WithLocalDAGRunRepository(th.DAGRunRepository),
+		subflow.WithLocalQueueStore(th.QueueStore),
+	)
+	result, err := runner.Enqueue(th.Context, executor.EnqueueRequest{
+		DAG:   child.DAG,
+		RunID: runID,
+	})
+
+	require.NoError(t, err)
+	require.True(t, result.AlreadyExists)
+	require.Equal(t, ir.Queued, result.Status)
 }
 
 func TestLocalRunRejectsBuildWorkflowOnRemoteWorker(t *testing.T) {

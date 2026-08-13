@@ -72,4 +72,7 @@ const (
 
 	// EnvKeyDAGDefinitionID carries the stable persistence identity into subprocesses.
 	EnvKeyDAGDefinitionID = "DAGU_DAG_DEFINITION_ID"
+
+	// EnvKeyParallelItem carries parallel child-run identity into subprocesses.
+	EnvKeyParallelItem = "DAGU_PARALLEL_ITEM"
 )

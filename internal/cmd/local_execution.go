@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -22,6 +23,7 @@ type runOptions struct {
 	attemptID       string
 	triggerType     ir.TriggerType
 	triggerActor    string
+	parallelItem    string
 	scheduleTime    string
 	profileName     string
 	definitionID    string
@@ -33,6 +35,16 @@ type runOptions struct {
 
 func dagDefinitionIDFromEnv() string {
 	return os.Getenv(runenv.EnvKeyDAGDefinitionID)
+}
+
+func parallelItemFromEnv(env []string) string {
+	prefix := runenv.EnvKeyParallelItem + "="
+	for i := len(env) - 1; i >= 0; i-- {
+		if after, ok := strings.CutPrefix(env[i], prefix); ok {
+			return after
+		}
+	}
+	return ""
 }
 
 func withPreparedLocalExecution(

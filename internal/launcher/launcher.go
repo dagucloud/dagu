@@ -121,7 +121,8 @@ func filterExecutionEnv(env []string) []string {
 	filtered := env[:0]
 	for _, entry := range env {
 		if strings.HasPrefix(entry, runenv.EnvKeyQueueDispatchRetry+"=") ||
-			strings.HasPrefix(entry, runenv.EnvKeyDAGDefinitionID+"=") {
+			strings.HasPrefix(entry, runenv.EnvKeyDAGDefinitionID+"=") ||
+			strings.HasPrefix(entry, runenv.EnvKeyParallelItem+"=") {
 			continue
 		}
 		filtered = append(filtered, entry)

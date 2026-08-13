@@ -12,6 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -94,6 +95,12 @@ func restoreDAGFromStatus(ctx context.Context, dag *ir.DAG, status *ir.DAGRunSta
 	restored, err := spec.RebuildFromYAML(ctx, dag, spec.QuoteRuntimeParams(runtimeParams, dag.ParamDefs))
 	if err != nil {
 		return nil, err
+	}
+	if status.ParallelItem != "" {
+		restored.Env = append(restored.Env,
+			ir.ParallelItemVariable+"="+status.ParallelItem,
+			runenv.EnvKeyParallelItem+"="+status.ParallelItem,
+		)
 	}
 	applyPersistedRunWorkingDir(restored, status)
 	return restored, nil

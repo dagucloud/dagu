@@ -218,18 +218,6 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 
 	baseCtx := ctx
 	eventSourceInstance := eventstore.DefaultSourceInstance()
-	workerCommand := isWorkerCommand(cmd)
-	stores, schedulerDeps, err := newFileStores(ctx, cfg, cmd.Name())
-	if err != nil {
-		return nil, err
-	}
-	if stores.Event != nil {
-		ctx = eventstore.WithContext(ctx, stores.Event, eventstore.Source{
-			Service:  eventSourceServiceForCommand(cmd.Name()),
-			Instance: eventSourceInstance,
-		})
-	}
-
 	if scope == commandScopeContextAware && selectedContextName != localContextName {
 		remote, err := newRemoteClient(selectedContext)
 		if err != nil {
@@ -242,14 +230,24 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Quiet:               quiet,
 			Flags:               flags,
 			EventSourceInstance: eventSourceInstance,
-			Stores:              stores,
-			schedulerDeps:       schedulerDeps,
 			ContextStore:        contextStore,
 			CLIContext:          selectedContext,
 			ContextName:         selectedContextName,
 			Remote:              remote,
 			Scope:               scope,
 		}, nil
+	}
+
+	workerCommand := isWorkerCommand(cmd)
+	stores, schedulerDeps, err := newFileStores(ctx, cfg, cmd.Name())
+	if err != nil {
+		return nil, err
+	}
+	if stores.Event != nil {
+		ctx = eventstore.WithContext(ctx, stores.Event, eventstore.Source{
+			Service:  eventSourceServiceForCommand(cmd.Name()),
+			Instance: eventSourceInstance,
+		})
 	}
 
 	// Workers run DAGs through the remote task handler and push runtime state
@@ -487,6 +485,10 @@ func isWorkerCommand(cmd *cobra.Command) bool {
 
 // NewServer creates and returns a new web UI server for this command context.
 func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption) (*frontend.Server, error) {
+	coordinatorClient, err := c.NewCoordinatorClient()
+	if err != nil {
+		return nil, err
+	}
 	return frontend.NewServer(frontend.ServerConfig{
 		Context:              c.Context,
 		Config:               c.Config,
@@ -495,7 +497,7 @@ func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption)
 		ProcRepository:       c.Persistence.ProcRepository,
 		QueueStore:           c.Persistence.QueueStore,
 		DAGRunManager:        c.DAGRunMgr,
-		CoordinatorClient:    c.NewCoordinatorClient(),
+		CoordinatorClient:    coordinatorClient,
 		ServiceRegistry:      c.Persistence.ServiceRegistry,
 		DAGRunLeaseStore:     c.Persistence.DAGRunLeaseStore,
 		WorkerHeartbeatStore: c.Persistence.WorkerHeartbeatStore,
@@ -508,17 +510,16 @@ func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption)
 }
 
 // NewCoordinatorClient creates a new coordinator client using the global peer configuration.
-// Returns nil when the coordinator is disabled via configuration.
-func (c *Context) NewCoordinatorClient() coordinator.Client {
+// Returns a nil client when the coordinator is disabled via configuration.
+func (c *Context) NewCoordinatorClient() (coordinator.Client, error) {
 	if !c.Config.Coordinator.Enabled {
-		return nil
+		return nil, nil
 	}
 	clientConfig := coordinator.ConfigFromPeer(c.Config.Core.Peer)
 	if err := clientConfig.Validate(); err != nil {
-		logger.Error(c.Context, "Invalid coordinator client configuration", tag.Error(err))
-		return nil
+		return nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}
-	return coordinator.New(c.Persistence.ServiceRegistry, clientConfig)
+	return coordinator.New(c.Persistence.ServiceRegistry, clientConfig), nil
 }
 
 func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
@@ -542,8 +543,13 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 
 // NewScheduler creates a scheduler for this command context.
 func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
-	if c.Stores.DAGSettings == nil {
+	deps := c.schedulerDeps
+	if deps.DAGSettingsStore == nil {
 		return nil, errors.New("DAG settings store is not configured")
+	}
+	coordinatorClient, err := c.NewCoordinatorClient()
+	if err != nil {
+		return nil, err
 	}
 	manager := runtime.NewManager(
 		c.Persistence.DAGRunRepository,
@@ -551,14 +557,13 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 		c.Config,
 		runtime.WithLatestStatusAllHistory(),
 	)
-	deps := c.schedulerDeps
 	deps.DAGRunManager = manager
 	deps.DAGRepository = c.Persistence.DAGRepository
 	deps.DAGRunRepository = c.Persistence.DAGRunRepository
 	deps.QueueStore = c.Persistence.QueueStore
 	deps.ProcRepository = c.Persistence.ProcRepository
 	deps.ServiceRegistry = c.Persistence.ServiceRegistry
-	deps.CoordinatorClient = c.NewCoordinatorClient()
+	deps.CoordinatorClient = coordinatorClient
 	deps.SchedulerStateStore = c.Persistence.SchedulerStateStore
 	deps.DAGRunLeaseStore = c.Persistence.DAGRunLeaseStore
 	deps.DispatchTaskStore = c.Persistence.DispatchTaskStore

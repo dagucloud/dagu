@@ -190,6 +190,8 @@ type Agent struct {
 	triggerType ir.TriggerType
 	// triggerActor identifies the attributable actor that initiated the DAG run.
 	triggerActor string
+	// parallelItem is the value bound to ITEM for a parallel child run.
+	parallelItem string
 
 	// defaultExecMode is the server-level default execution mode.
 	defaultExecMode config.ExecutionMode
@@ -348,6 +350,8 @@ type Options struct {
 	TriggerType ir.TriggerType
 	// TriggerActor identifies the attributable actor that initiated the DAG run.
 	TriggerActor string
+	// ParallelItem is the value bound to ITEM for a parallel child run.
+	ParallelItem string
 	// DefaultExecMode is the server-level default execution mode.
 	DefaultExecMode config.ExecutionMode
 	// ScheduleTime is the RFC 3339 timestamp of when this run was scheduled.
@@ -419,6 +423,7 @@ func New(
 		attemptID:                opts.AttemptID,
 		triggerType:              opts.TriggerType,
 		triggerActor:             opts.TriggerActor,
+		parallelItem:             opts.ParallelItem,
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
 		dagRunLogDir:             opts.DAGRunLogDir,
@@ -1379,6 +1384,10 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 	defer a.lock.RUnlock()
 
 	source := a.statusSourceTarget()
+	parallelItem := a.parallelItem
+	if parallelItem == "" && source != nil {
+		parallelItem = source.ParallelItem
+	}
 
 	// Handle case where runner wasn't initialized (early failure in Run())
 	if a.runner == nil {
@@ -1389,6 +1398,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithArchiveDir(a.artifactDir),
 			ir.WithTriggerType(a.triggerType),
 			ir.WithTriggerActor(a.triggerActor),
+			ir.WithParallelItem(parallelItem),
 			ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 			ir.WithPIDStartedAt(currentPIDStartedAt()),
 			ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -1438,6 +1448,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 		ir.WithWorkerID(a.workerID),
 		ir.WithTriggerType(a.triggerType),
 		ir.WithTriggerActor(a.triggerActor),
+		ir.WithParallelItem(parallelItem),
 		ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 		ir.WithPIDStartedAt(currentPIDStartedAt()),
 		ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),

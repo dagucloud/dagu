@@ -990,9 +990,10 @@ func subRunsFromParams(params []executor.RunParams) []SubDAGRun {
 	subRuns := make([]SubDAGRun, len(params))
 	for i, run := range params {
 		subRuns[i] = SubDAGRun{
-			DAGRunID: run.RunID,
-			Params:   run.Params,
-			DAGName:  run.DAGName,
+			DAGRunID:     run.RunID,
+			Params:       run.Params,
+			ParallelItem: run.ParallelItem,
+			DAGName:      run.DAGName,
 		}
 	}
 	return subRuns
@@ -1430,6 +1431,7 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 
 		// Merge the item param with the step's params if they exist
 		finalParams := param
+		parallelItem := ""
 		if subDAG.Params != "" {
 			params := subDAG.Params
 			evaluatedStepParams, err := resolveWithEnvScope(ctx, env, scope, params, cmnvalue.ParallelSubDAGField("parallel.sub_dag.params"))
@@ -1437,6 +1439,7 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 				return nil, fmt.Errorf("failed to eval step params: %w", err)
 			}
 			finalParams = evaluatedStepParams
+			parallelItem = param
 		}
 
 		workerSelector, err := resolveWorkerSelector(ctx, scope, n.Step().WorkerSelector)
@@ -1452,9 +1455,13 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 				dagRunID,
 			)
 		}
+		if existing, ok := runParamsByID[dagRunID]; ok && existing.ParallelItem != parallelItem {
+			dagRunID = GenerateSubDAGRunIDForTarget(ctx, dagName, finalParams+"\x00"+parallelItem, repeated)
+		}
 		runParamsByID[dagRunID] = executor.RunParams{
 			RunID:          dagRunID,
 			Params:         finalParams,
+			ParallelItem:   parallelItem,
 			DAGName:        dagName,
 			WorkerSelector: workerSelector,
 		}

@@ -29,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -579,6 +580,12 @@ func restoreDAGRunSnapshot(ctx context.Context, dag *ir.DAG, status *ir.DAGRunSt
 	restored, err := spec.RebuildFromYAML(ctx, dag, quotedParams)
 	if err != nil {
 		return nil, "", err
+	}
+	if status.ParallelItem != "" {
+		restored.Env = append(restored.Env,
+			ir.ParallelItemVariable+"="+status.ParallelItem,
+			runenv.EnvKeyParallelItem+"="+status.ParallelItem,
+		)
 	}
 
 	preservedParams := strings.Join(quotedParams, " ")
@@ -3009,6 +3016,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		if triggerActor := triggerActorFromContext(ctx); triggerActor != "" {
 			opts = append(opts, executor.WithTriggerActor(triggerActor))
 		}
+		if prevStatus.ParallelItem != "" {
+			opts = append(opts, executor.WithParallelItem(prevStatus.ParallelItem))
+		}
 		task := executor.CreateTask(
 			dag.Name,
 			string(dag.YamlData),
@@ -3907,6 +3917,12 @@ func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *ir.DAG, sta
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env
+	if status.ParallelItem != "" {
+		prepared.Env = append(prepared.Env,
+			ir.ParallelItemVariable+"="+status.ParallelItem,
+			runenv.EnvKeyParallelItem+"="+status.ParallelItem,
+		)
+	}
 	prepared.RuntimeResolved = true
 	return prepared, nil
 }

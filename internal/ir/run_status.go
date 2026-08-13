@@ -194,6 +194,7 @@ type DAGRunStatus struct {
 	Error              string                `json:"error,omitempty"`
 	Params             string                `json:"params,omitempty"`
 	ParamsList         []string              `json:"paramsList,omitempty"`
+	ParallelItem       string                `json:"parallelItem,omitempty"`
 	ProfileName        string                `json:"profileName,omitempty"`
 	ProfileResolvedAt  string                `json:"profileResolvedAt,omitempty"`
 	ProfileEntries     []RuntimeProfileEntry `json:"profileEntries,omitempty"`

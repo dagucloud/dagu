@@ -255,6 +255,7 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		FinishedAt:   finishedAt,
 		Error:        sanitizeTaskLoadError(task.Target, loadErr),
 		Params:       task.Params,
+		ParallelItem: task.ParallelItem,
 		ProfileName:  run.profileName,
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
@@ -391,10 +392,17 @@ func newReportedTaskInitError(err error) error {
 }
 
 func taskExtraEnvs(task *coordinatorv1.Task) []string {
-	if task == nil || !task.ExternalStepRetry {
+	if task == nil {
 		return nil
 	}
-	return []string{runenv.EnvKeyExternalStepRetry + "=1"}
+	var envs []string
+	if task.ExternalStepRetry {
+		envs = append(envs, runenv.EnvKeyExternalStepRetry+"=1")
+	}
+	if task.ParallelItem != "" {
+		envs = append(envs, ir.ParallelItemVariable+"="+task.ParallelItem)
+	}
+	return envs
 }
 
 // createRemoteHandlers creates the remote status, log, and artifact transport handlers.
@@ -715,6 +723,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ProfileName:              run.profileName,
 		DAGDefinitionID:          task.DefinitionId,
 		TriggerActor:             task.TriggerActor,
+		ParallelItem:             task.ParallelItem,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
 		RemoteDAGLoader:          remoteDAGLoader,

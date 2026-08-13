@@ -60,7 +60,7 @@ func NewToolRegistry(ctx context.Context, dagNames []string) (*ToolRegistry, err
 		// Load the named DAG when no inline definition matched.
 		if dag == nil {
 			if rCtx.DAGLoader == nil {
-				return nil, fmt.Errorf("database not available in context and tool DAG %q not found in local DAGs", dagName)
+				return nil, fmt.Errorf("loading non-local tool DAG %q requires DAGLoader", dagName)
 			}
 			var err error
 			dag, err = rCtx.DAGLoader.GetDAG(ctx, dagName)

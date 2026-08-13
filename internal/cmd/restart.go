@@ -200,6 +200,7 @@ func executeDAGWithRunID(
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  noReuse,
 			DAGDefinitionID:          definitionID,
+			ParallelItem:             parallelItemFromEnv(dag.Env),
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,

@@ -45,6 +45,7 @@ type enqueueRunOutput struct {
 	Name          string `json:"name"`
 	DAGRunID      string `json:"dagRunId"`
 	Params        string `json:"params,omitempty"`
+	ParallelItem  string `json:"parallelItem,omitempty"`
 	Queue         string `json:"queue"`
 	Status        string `json:"status"`
 	AlreadyExists bool   `json:"alreadyExists,omitempty"`
@@ -174,9 +175,10 @@ func (e *enqueueExecutor) enqueueParallel(ctx context.Context, paramsList []exec
 
 func subDAGRunFromEnqueueOutput(output enqueueRunOutput) ir.SubDAGRun {
 	return ir.SubDAGRun{
-		DAGRunID: output.DAGRunID,
-		Params:   output.Params,
-		DAGName:  output.Name,
+		DAGRunID:     output.DAGRunID,
+		Params:       output.Params,
+		ParallelItem: output.ParallelItem,
+		DAGName:      output.Name,
 	}
 }
 
@@ -188,11 +190,11 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	rCtx := runtime.GetDAGContext(ctx)
 	runner, ok := executor.SubWorkflowRunnerFromContext(ctx)
 	if !ok {
-		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a DAG-run repository")
+		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a SubWorkflowRunner implementing executor.Enqueuer")
 	}
 	enqueuer, ok := runner.(executor.Enqueuer)
 	if !ok {
-		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a DAG-run repository")
+		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a SubWorkflowRunner implementing executor.Enqueuer")
 	}
 	if !config.GetConfig(ctx).Queues.Enabled {
 		return enqueueRunOutput{}, fmt.Errorf("queues are disabled in configuration")
@@ -242,11 +244,14 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}
 
 	result, err := enqueuer.Enqueue(ctx, executor.EnqueueRequest{
-		DAG:          dagCopy,
-		RunID:        runParams.RunID,
-		QueueName:    queueName,
-		TriggerActor: rCtx.TriggerActor,
-		ProfileName:  rCtx.ProfileName,
+		DAG:            dagCopy,
+		RootDAGRun:     rCtx.RootDAGRun,
+		RunID:          runParams.RunID,
+		QueueName:      queueName,
+		TriggerActor:   rCtx.TriggerActor,
+		ProfileName:    rCtx.ProfileName,
+		ParallelItem:   runParams.ParallelItem,
+		WorkerSelector: maps.Clone(dagCopy.WorkerSelector),
 	})
 	if err != nil {
 		return enqueueRunOutput{}, err
@@ -265,6 +270,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		Name:          dagCopy.Name,
 		DAGRunID:      runParams.RunID,
 		Params:        runParams.Params,
+		ParallelItem:  runParams.ParallelItem,
 		Queue:         queueName,
 		Status:        result.Status.String(),
 		AlreadyExists: result.AlreadyExists,

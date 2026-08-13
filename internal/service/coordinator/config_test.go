@@ -35,6 +35,16 @@ func TestConfigFromPeer(t *testing.T) {
 	assert.Equal(t, 3*time.Second, cfg.RetryInterval)
 }
 
+func TestConfigFromPeerKeepsRetryDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := coordinator.ConfigFromPeer(appconfig.Peer{})
+
+	assert.False(t, cfg.Insecure)
+	assert.Equal(t, 3, cfg.MaxRetries)
+	assert.Equal(t, time.Second, cfg.RetryInterval)
+}
+
 func TestDefaultConfig(t *testing.T) {
 	config := coordinator.DefaultConfig()
 

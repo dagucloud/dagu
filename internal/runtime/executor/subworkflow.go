@@ -27,11 +27,14 @@ type Enqueuer interface {
 
 // EnqueueRequest describes a child workflow queue admission.
 type EnqueueRequest struct {
-	DAG          *ir.DAG
-	RunID        string
-	QueueName    string
-	ProfileName  string
-	TriggerActor string
+	DAG            *ir.DAG
+	RootDAGRun     ir.DAGRunRef
+	RunID          string
+	QueueName      string
+	ProfileName    string
+	TriggerActor   string
+	ParallelItem   string
+	WorkerSelector map[string]string
 }
 
 // EnqueueResult describes the persisted state after queue admission.
@@ -48,6 +51,7 @@ type SubWorkflowRequest struct {
 	ParentDAGRun      ir.DAGRunRef
 	RunID             string
 	Params            string
+	ParallelItem      string
 	ProfileName       string
 	TriggerActor      string
 	WorkDir           string

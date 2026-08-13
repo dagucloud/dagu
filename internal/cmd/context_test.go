@@ -118,3 +118,13 @@ func TestNewFileStoresRequiresDAGSettingsStorageForStartAll(t *testing.T) {
 	_, _, err := newFileStores(t.Context(), &config.Config{}, "start-all")
 	require.ErrorContains(t, err, "failed to initialize DAG settings store")
 }
+
+func TestNewCoordinatorClientRejectsInvalidEnabledConfig(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Config: &config.Config{Coordinator: config.Coordinator{Enabled: true}}}
+
+	client, err := ctx.NewCoordinatorClient()
+	require.Nil(t, client)
+	require.ErrorContains(t, err, "invalid coordinator client configuration")
+}
