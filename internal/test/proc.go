@@ -22,8 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newProcStore(cfg *config.Config) proc.ProcStore {
-	return file.NewProcStore(cfg)
+func newProcRepository(cfg *config.Config) *proc.Repository {
+	return file.NewProcRepository(cfg)
 }
 
 func procGroupDir(procDir, groupName, dagName string) string {

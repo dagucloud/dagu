@@ -57,11 +57,11 @@ func runPs(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to get run-id filter: %w", err)
 	}
 
-	if ctx.ProcStore == nil {
+	if ctx.ProcRepository == nil {
 		return fmt.Errorf("process store is not available")
 	}
 
-	entries, err := ctx.ProcStore.ListAllEntries(ctx)
+	entries, err := ctx.ProcRepository.ListAllEntries(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list processes: %w", err)
 	}

@@ -150,7 +150,7 @@ steps:
 		attemptID := uuid.New().String()
 		// The parent runs in-process in this test, so register its proc heartbeat
 		// before using the runtime manager to stop it.
-		proc, err := f.coord.ProcStore.Acquire(f.coord.Context, f.dagWrapper.ProcGroup(), proc.ProcMeta{
+		proc, err := f.coord.ProcRepository.Acquire(f.coord.Context, f.dagWrapper.ProcGroup(), proc.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         f.dagWrapper.Name,
 			DAGRunID:     runID,

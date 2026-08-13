@@ -24,14 +24,14 @@ func TestNewZombieDetector(t *testing.T) {
 	t.Parallel()
 
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, 0, 0)
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, 0, 0)
 	require.NotNil(t, detector)
 	assert.Equal(t, 45*time.Second, detector.interval)
 	assert.Equal(t, 3, detector.failureThreshold)
 
-	detector = NewZombieDetector(dagRunRepository.repository(), procStore, 60*time.Second, 5)
+	detector = NewZombieDetector(dagRunRepository.repository(), procRepository, 60*time.Second, 5)
 	require.NotNil(t, detector)
 	assert.Equal(t, 60*time.Second, detector.interval)
 	assert.Equal(t, 5, detector.failureThreshold)
@@ -42,14 +42,14 @@ func TestZombieDetectorDetectAndCleanZombies_NoEntries(t *testing.T) {
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 1)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{}, nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 	dagRunRepository.AssertExpectations(t)
 }
 
@@ -58,15 +58,15 @@ func TestZombieDetectorDetectAndCleanZombies_FreshEntrySkipsRepair(t *testing.T)
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 1)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", true)
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 	dagRunRepository.AssertExpectations(t)
 }
 
@@ -75,8 +75,8 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 1)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	dag := &ir.DAG{
 		Name: "test-dag",
@@ -95,7 +95,7 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 	status.Nodes[0].Status = ir.NodeRunning
 	attempt := &testutil.MockAttempt{}
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
 	dagRunRepository.On("FindAttempt", mock.Anything, ir.NewDAGRunRef(dag.Name, "run-1")).Return(attempt, nil).Once()
 	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Twice()
 	attempt.On("ReadDAG", mock.Anything).Return(dag, nil).Once()
@@ -107,11 +107,11 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryRepairsMatchingAttempt(t 
 			s.Nodes[0].Status == ir.NodeFailed
 	})).Return(nil).Once()
 	attempt.On("Close", mock.Anything).Return(nil).Once()
-	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
+	procRepository.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 	dagRunRepository.AssertExpectations(t)
 	attempt.AssertExpectations(t)
 }
@@ -121,8 +121,8 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRep
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 1)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	dag := &ir.DAG{
 		Name: "test-dag",
@@ -146,18 +146,18 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithAliveLocalPIDSkipsRep
 	status.Nodes[0].Status = ir.NodeRunning
 	attempt := &testutil.MockAttempt{}
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
 	dagRunRepository.On("FindAttempt", mock.Anything, ir.NewDAGRunRef(dag.Name, "run-1")).Return(attempt, nil).Once()
 	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 	dagRunRepository.AssertExpectations(t)
 	attempt.AssertExpectations(t)
 	attempt.AssertNotCalled(t, "ReadDAG", mock.Anything)
 	attempt.AssertNotCalled(t, "Write", mock.Anything, mock.Anything)
-	procStore.AssertNotCalled(t, "RemoveIfStale", mock.Anything, mock.Anything)
+	procRepository.AssertNotCalled(t, "RemoveIfStale", mock.Anything, mock.Anything)
 }
 
 func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithFreshSiblingRemovesOnlyStale(t *testing.T) {
@@ -165,18 +165,18 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithFreshSiblingRemovesOn
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 1)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	staleEntry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 	freshEntry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-2", true)
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{staleEntry, freshEntry}, nil).Once()
-	procStore.On("RemoveIfStale", mock.Anything, staleEntry).Return(nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{staleEntry, freshEntry}, nil).Once()
+	procRepository.On("RemoveIfStale", mock.Anything, staleEntry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 	dagRunRepository.AssertExpectations(t)
 }
 
@@ -185,8 +185,8 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 1)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	dag := &ir.DAG{
 		Name: "child",
@@ -216,7 +216,7 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 	status.Nodes[0].Status = ir.NodeRunning
 	attempt := &testutil.MockAttempt{}
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
 	dagRunRepository.On("FindSubAttempt", mock.Anything, ir.NewDAGRunRef("root", "root-1"), "sub-1").Return(attempt, nil).Once()
 	attempt.On("ReadStatus", mock.Anything).Return(status, nil).Twice()
 	attempt.On("ReadDAG", mock.Anything).Return(dag, nil).Once()
@@ -225,11 +225,11 @@ func TestZombieDetectorDetectAndCleanZombies_SubDAGUsesRootScopedLookup(t *testi
 		return s.Status == ir.Failed && s.AttemptID == status.AttemptID
 	})).Return(nil).Once()
 	attempt.On("Close", mock.Anything).Return(nil).Once()
-	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
+	procRepository.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 	dagRunRepository.AssertExpectations(t)
 	attempt.AssertExpectations(t)
 }
@@ -239,20 +239,20 @@ func TestZombieDetectorDetectAndCleanZombies_AttemptCounterDoesNotCarryAcrossRet
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 2)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 2)
 
 	firstAttempt := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 	secondAttempt := testRootProcEntry("queue", "test-dag", "run-1", "attempt-2", false)
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{firstAttempt}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{firstAttempt}, nil).Once()
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{secondAttempt}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{secondAttempt}, nil).Once()
 	detector.detectAndCleanZombies(ctx)
 
 	dagRunRepository.AssertNotCalled(t, "FindAttempt", mock.Anything, mock.Anything)
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 func TestZombieDetectorDetectAndCleanZombies_OrphanedStaleEntryIsRemoved(t *testing.T) {
@@ -260,18 +260,18 @@ func TestZombieDetectorDetectAndCleanZombies_OrphanedStaleEntryIsRemoved(t *test
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 1)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
 	dagRunRepository.On("FindAttempt", mock.Anything, ir.NewDAGRunRef("test-dag", "run-1")).Return(nil, dagrun.ErrDAGRunIDNotFound).Once()
-	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
+	procRepository.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 	dagRunRepository.AssertExpectations(t)
 }
 
@@ -280,18 +280,18 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithMissingStatusIsRemove
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 1)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
 	dagRunRepository.On("FindAttempt", mock.Anything, ir.NewDAGRunRef("test-dag", "run-1")).Return(nil, dagrun.ErrNoStatusData).Once()
-	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
+	procRepository.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 	dagRunRepository.AssertExpectations(t)
 }
 
@@ -300,18 +300,18 @@ func TestZombieDetectorDetectAndCleanZombies_StaleEntryWithCorruptedStatusIsRemo
 
 	ctx := context.Background()
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
-	detector := NewZombieDetector(dagRunRepository.repository(), procStore, time.Second, 1)
+	procRepository := &mockProcStore{}
+	detector := NewZombieDetector(dagRunRepository.repository(), procRepository, time.Second, 1)
 
 	entry := testRootProcEntry("queue", "test-dag", "run-1", "attempt-1", false)
 
-	procStore.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
+	procRepository.On("ListAllEntries", ctx).Return([]proc.ProcEntry{entry}, nil).Once()
 	dagRunRepository.On("FindAttempt", mock.Anything, ir.NewDAGRunRef("test-dag", "run-1")).Return(nil, dagrun.ErrCorruptedStatusData).Once()
-	procStore.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
+	procRepository.On("RemoveIfStale", mock.Anything, entry).Return(nil).Once()
 
 	detector.detectAndCleanZombies(ctx)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 	dagRunRepository.AssertExpectations(t)
 }
 
@@ -383,7 +383,7 @@ func (m *mockDAGRunStore) FindSubAttempt(ctx context.Context, dagRun ir.DAGRunRe
 	return args.Get(0).(dagrun.Attempt), args.Error(1)
 }
 
-var _ proc.ProcStore = (*mockProcStore)(nil)
+var _ processRepository = (*mockProcStore)(nil)
 
 type mockProcStore struct {
 	mock.Mock

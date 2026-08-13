@@ -7,10 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
@@ -18,35 +16,6 @@ const (
 	procRecordPrefix = "proc_"
 	procDateTimeUTC  = "20060102_150405"
 )
-
-var procSafeAttemptIDPattern = regexp.MustCompile(`^[-a-zA-Z0-9_]+$`)
-
-func validateProcMeta(meta proc.ProcMeta) error {
-	if meta.Name == "" {
-		return fmt.Errorf("proc meta name is required")
-	}
-	if err := ir.ValidateDAGRunID(meta.DAGRunID); err != nil {
-		return fmt.Errorf("invalid proc meta dag run id: %w", err)
-	}
-	if meta.AttemptID == "" {
-		return fmt.Errorf("proc meta attempt id is required")
-	}
-	if !procSafeAttemptIDPattern.MatchString(meta.AttemptID) {
-		return fmt.Errorf("proc meta attempt id must only contain alphanumeric characters, dashes, and underscores")
-	}
-	if meta.StartedAt <= 0 {
-		return fmt.Errorf("proc meta started at must be > 0")
-	}
-	if (meta.RootName == "") != (meta.RootDAGRunID == "") {
-		return fmt.Errorf("proc meta root name and root dag run id must both be set or both be empty")
-	}
-	if meta.RootDAGRunID != "" {
-		if err := ir.ValidateDAGRunID(meta.RootDAGRunID); err != nil {
-			return fmt.Errorf("invalid proc meta root dag run id: %w", err)
-		}
-	}
-	return nil
-}
 
 func procRecordID(groupName string, meta proc.ProcMeta, t time.Time) string {
 	return filepath.ToSlash(filepath.Join(groupName, meta.Name, procRecordName(meta, t)))

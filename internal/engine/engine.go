@@ -30,7 +30,7 @@ type Engine struct {
 	dagRunRepository *persis.DAGRunRepository
 	runStateStore    runstate.Store
 	stateStore       dagrun.StateStore
-	procStore        proc.ProcStore
+	procRepository   *proc.Repository
 	serviceRegistry  serviceregistry.ServiceRegistry
 	dagRepository    *persis.DAGRepository
 	dagRunMgr        runtime.Manager
@@ -66,7 +66,7 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	dagRunMgr := runtime.NewManager(persistence.DAGRunRepository, persistence.ProcStore, cfg)
+	dagRunMgr := runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, cfg)
 
 	mode := opts.DefaultMode
 	if mode == "" {
@@ -82,7 +82,7 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		dagRunRepository: persistence.DAGRunRepository,
 		runStateStore:    persistence.RunStateStore,
 		stateStore:       persistence.StateStore,
-		procStore:        persistence.ProcStore,
+		procRepository:   persistence.ProcRepository,
 		serviceRegistry:  persistence.ServiceRegistry,
 		dagRepository:    persistence.DAGRepository,
 		dagRunMgr:        dagRunMgr,

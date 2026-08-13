@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	fileproc "github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -353,7 +354,7 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 			Command:          command,
 			DAGRunRepository: persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 			QueueStore:       queue,
-			ProcStore:        humanTaskCompletionProcStore{},
+			ProcRepository:   proc.NewRepository(fileproc.New(t.TempDir())),
 		},
 		dag:         dag,
 		status:      status,
@@ -401,18 +402,6 @@ func (a *humanTaskCompletionAttempt) ReadDAG(context.Context) (*ir.DAG, error) {
 
 func (a *humanTaskCompletionAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
-}
-
-type humanTaskCompletionProcStore struct {
-	proc.ProcStore
-}
-
-func (humanTaskCompletionProcStore) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
-	return false, nil
-}
-
-func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
-	return false, nil
 }
 
 type humanTaskCompletionStore struct {

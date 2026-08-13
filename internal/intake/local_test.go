@@ -24,11 +24,11 @@ func TestPrepareLocalExecutionAcquiresProcWithPreparedAttempt(t *testing.T) {
 	root := ir.NewDAGRunRef("root-dag", "root-run")
 
 	prepared, err := PrepareLocalExecution(context.Background(), LocalRequest{
-		ProcStore:   procStore,
-		DAG:         dag,
-		DAGRunID:    "run-1",
-		Root:        root,
-		TriggerType: ir.TriggerTypeManual,
+		ProcRepository: procStore,
+		DAG:            dag,
+		DAGRunID:       "run-1",
+		Root:           root,
+		TriggerType:    ir.TriggerTypeManual,
 		BuildAttempt: func(context.Context) (dagrun.Attempt, error) {
 			return attempt, nil
 		},
@@ -58,11 +58,11 @@ func TestPrepareLocalExecutionRecordsFailedStatusWhenProcAcquireFails(t *testing
 	dag := newLocalDAG()
 
 	_, err := PrepareLocalExecution(context.Background(), LocalRequest{
-		ProcStore:    procStore,
-		DAG:          dag,
-		DAGRunID:     "run-1",
-		DefinitionID: "daily.yaml",
-		TriggerType:  ir.TriggerTypeManual,
+		ProcRepository: procStore,
+		DAG:            dag,
+		DAGRunID:       "run-1",
+		DefinitionID:   "daily.yaml",
+		TriggerType:    ir.TriggerTypeManual,
 		BuildAttempt: func(context.Context) (dagrun.Attempt, error) {
 			return attempt, nil
 		},
@@ -91,10 +91,10 @@ func TestPrepareLocalExecutionReturnsFailureRecordingErrorWhenRecordFails(t *tes
 	dag := newLocalDAG()
 
 	_, err := PrepareLocalExecution(context.Background(), LocalRequest{
-		ProcStore:   procStore,
-		DAG:         dag,
-		DAGRunID:    "run-1",
-		TriggerType: ir.TriggerTypeManual,
+		ProcRepository: procStore,
+		DAG:            dag,
+		DAGRunID:       "run-1",
+		TriggerType:    ir.TriggerTypeManual,
 		BuildAttempt: func(context.Context) (dagrun.Attempt, error) {
 			return attempt, nil
 		},
@@ -125,14 +125,12 @@ type localProcStore struct {
 	meta       proc.ProcMeta
 }
 
-func (s *localProcStore) Lock(_ context.Context, groupName string) error {
+func (s *localProcStore) WithLock(_ context.Context, groupName string, fn func() error) error {
 	s.locked = true
 	s.groupName = groupName
-	return nil
-}
-
-func (s *localProcStore) Unlock(context.Context, string) {
+	err := fn()
 	s.unlocked = true
+	return err
 }
 
 func (s *localProcStore) Acquire(_ context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error) {

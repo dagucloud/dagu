@@ -589,11 +589,22 @@ func (r *Run) doneError() error {
 }
 
 func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, root ir.DAGRunRef) (*localPreparation, error) {
-	if err := e.procStore.Lock(ctx, dag.ProcGroup()); err != nil {
-		return nil, fmt.Errorf("lock process group: %w", err)
+	var preparation *localPreparation
+	err := e.procRepository.WithLock(ctx, dag.ProcGroup(), func() error {
+		var err error
+		preparation, err = e.prepareLocalLocked(ctx, dag, runID, root)
+		return err
+	})
+	if err != nil {
+		if proc.IsLockError(err) {
+			return nil, fmt.Errorf("lock process group: %w", err)
+		}
+		return nil, err
 	}
-	defer e.procStore.Unlock(ctx, dag.ProcGroup())
+	return preparation, nil
+}
 
+func (e *Engine) prepareLocalLocked(ctx context.Context, dag *ir.DAG, runID string, root ir.DAGRunRef) (*localPreparation, error) {
 	var attempt dagrun.Attempt
 	attemptID := runID
 	if e.dagRunRepository != nil {
@@ -613,7 +624,7 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, ro
 			return nil, fmt.Errorf("check existing run-state attempt: %w", err)
 		}
 	}
-	proc, err := e.procStore.Acquire(ctx, dag.ProcGroup(), proc.ProcMeta{
+	handle, err := e.procRepository.Acquire(ctx, dag.ProcGroup(), proc.ProcMeta{
 		StartedAt:    time.Now().Unix(),
 		Name:         dag.Name,
 		DAGRunID:     runID,
@@ -627,7 +638,7 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, ro
 		}
 		return nil, fmt.Errorf("acquire process handle: %w", err)
 	}
-	return &localPreparation{attempt: attempt, proc: proc}, nil
+	return &localPreparation{attempt: attempt, proc: handle}, nil
 }
 
 func (e *Engine) recordPreparedFailure(

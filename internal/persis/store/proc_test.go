@@ -24,9 +24,20 @@ import (
 	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 )
 
-func newProcStore(t *testing.T, opts ...store.ProcStoreOption) *store.ProcStore {
+func newProcRepository(t *testing.T, opts ...store.ProcStoreOption) *procdomain.Repository {
 	t.Helper()
-	return store.NewProcStore(testutil.NewMemoryBackend().Collection("proc_entries"), opts...)
+	return newProcRepositoryForCollection(t, testutil.NewMemoryBackend().Collection("proc_entries"), opts...)
+}
+
+func newProcRepositoryForCollection(
+	t *testing.T,
+	collection persis.Collection,
+	opts ...store.ProcStoreOption,
+) *procdomain.Repository {
+	t.Helper()
+	procStore, err := store.NewProcStore(collection, opts...)
+	require.NoError(t, err)
+	return procdomain.NewRepository(procStore)
 }
 
 func procMeta(ref ir.DAGRunRef) procdomain.ProcMeta {
@@ -44,7 +55,7 @@ func TestProcStoreAcquireStop(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	s := newProcStore(t)
+	s := newProcRepository(t)
 	ref := ir.NewDAGRunRef("proc-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
@@ -72,7 +83,7 @@ func TestProcStoreHeartbeatAdvances(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	s := newProcStore(t,
+	s := newProcRepository(t,
 		store.WithProcHeartbeatInterval(10*time.Millisecond),
 	)
 	ref := ir.NewDAGRunRef("heartbeat-dag", "run-1")
@@ -97,7 +108,7 @@ func TestProcHandleRemovesEntryWhenContextCanceled(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	s := newProcStore(t,
+	s := newProcRepository(t,
 		store.WithProcHeartbeatInterval(time.Hour),
 		store.WithProcStaleThreshold(time.Hour),
 	)
@@ -124,7 +135,7 @@ func TestProcHandleStopCleansUpWithCanceledContext(t *testing.T) {
 
 	ctx := context.Background()
 	col := cancelAwareDeleteCollection{Collection: testutil.NewMemoryBackend().Collection("proc_entries")}
-	s := store.NewProcStore(col)
+	s := newProcRepositoryForCollection(t, col)
 	ref := ir.NewDAGRunRef("stop-cancel-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
@@ -143,7 +154,7 @@ func TestProcStoreRemoveIfStale(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	s := newProcStore(t,
+	s := newProcRepository(t,
 		store.WithProcStaleThreshold(20*time.Millisecond),
 		store.WithProcHeartbeatInterval(time.Hour),
 	)
@@ -177,7 +188,7 @@ func TestProcStoreRemoveIfStaleKeepsRefreshedCollectionRecord(t *testing.T) {
 	ctx := context.Background()
 	base := testutil.NewMemoryBackend().Collection("proc_entries")
 	col := &refreshBeforeCompareDeleteCollection{Collection: base}
-	s := store.NewProcStore(col,
+	s := newProcRepositoryForCollection(t, col,
 		store.WithProcStaleThreshold(20*time.Millisecond),
 		store.WithProcHeartbeatInterval(time.Hour),
 	)
@@ -225,7 +236,7 @@ func TestProcStoreRemoveIfStaleIgnoresEntryWithoutStoreIdentity(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	s := newProcStore(t,
+	s := newProcRepository(t,
 		store.WithProcStaleThreshold(20*time.Millisecond),
 		store.WithProcHeartbeatInterval(time.Hour),
 	)
@@ -270,7 +281,7 @@ func TestProcStoreLatestFreshEntryByDAGName(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	s := newProcStore(t)
+	s := newProcRepository(t)
 
 	older := procMeta(ir.NewDAGRunRef("latest-dag", "run-older"))
 	older.StartedAt = 100
@@ -290,19 +301,28 @@ func TestProcStoreLatestFreshEntryByDAGName(t *testing.T) {
 	assert.Equal(t, "run-newer", entry.Meta.DAGRunID)
 }
 
-func TestProcStoreLockWaitsForSameProcessContention(t *testing.T) {
+func TestProcRepositoryWithLockWaitsForSameProcessContention(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	s := newProcStore(t)
-
-	require.NoError(t, s.Lock(ctx, "queue-a"))
+	s := newProcRepository(t)
+	held := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- s.WithLock(ctx, "queue-a", func() error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
 
 	started := make(chan struct{})
 	acquired := make(chan error, 1)
 	go func() {
 		close(started)
-		acquired <- s.Lock(ctx, "queue-a")
+		acquired <- s.WithLock(ctx, "queue-a", func() error { return nil })
 	}()
 	<-started
 
@@ -312,9 +332,34 @@ func TestProcStoreLockWaitsForSameProcessContention(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	s.Unlock(ctx, "queue-a")
+	close(release)
+	require.NoError(t, <-firstDone)
 	require.NoError(t, <-acquired)
-	s.Unlock(ctx, "queue-a")
+}
+
+func TestProcRepositoryWithLockPreservesCallbackError(t *testing.T) {
+	t.Parallel()
+
+	repository := newProcRepository(t)
+	callbackErr := assert.AnError
+	err := repository.WithLock(t.Context(), "queue-a", func() error {
+		return callbackErr
+	})
+
+	require.ErrorIs(t, err, callbackErr)
+	assert.False(t, procdomain.IsLockError(err))
+}
+
+func TestNewProcStoreRequiresScopedLocking(t *testing.T) {
+	t.Parallel()
+
+	collection := collectionWithoutLocking{
+		Collection: testutil.NewMemoryBackend().Collection("proc_entries"),
+	}
+	procStore, err := store.NewProcStore(collection)
+
+	assert.Nil(t, procStore)
+	require.ErrorContains(t, err, "does not support scoped locking")
 }
 
 func TestProcStoreBackendLockReturnsCanceledContextBeforeAcquired(t *testing.T) {
@@ -324,11 +369,12 @@ func TestProcStoreBackendLockReturnsCanceledContextBeforeAcquired(t *testing.T) 
 	cancel()
 
 	col := contextIgnoringLockCollection{Collection: testutil.NewMemoryBackend().Collection("proc_entries")}
-	s := store.NewProcStore(col)
+	s := newProcRepositoryForCollection(t, col)
 
-	require.ErrorIs(t, s.Lock(ctx, "queue-a"), context.Canceled)
-	require.NoError(t, s.Lock(context.Background(), "queue-a"))
-	s.Unlock(context.Background(), "queue-a")
+	err := s.WithLock(ctx, "queue-a", func() error { return nil })
+	require.ErrorIs(t, err, context.Canceled)
+	assert.True(t, procdomain.IsLockError(err))
+	require.NoError(t, s.WithLock(context.Background(), "queue-a", func() error { return nil }))
 }
 
 func TestProcStoreRejectsFutureCollectionHeartbeat(t *testing.T) {
@@ -336,7 +382,7 @@ func TestProcStoreRejectsFutureCollectionHeartbeat(t *testing.T) {
 
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("proc_entries")
-	s := store.NewProcStore(col)
+	s := newProcRepositoryForCollection(t, col)
 	meta := procMeta(ir.NewDAGRunRef("future-dag", "run-1"))
 	data, err := json.Marshal(map[string]any{
 		"version":         1,
@@ -364,7 +410,7 @@ func TestProcStoreRejectsCollectionRecordGroupMismatch(t *testing.T) {
 
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("proc_entries")
-	s := store.NewProcStore(col)
+	s := newProcRepositoryForCollection(t, col)
 	meta := procMeta(ir.NewDAGRunRef("mismatch-dag", "run-1"))
 	data, err := json.Marshal(map[string]any{
 		"version":         1,
@@ -395,7 +441,7 @@ func TestProcStoreFileBackendSurfacesCorruptCollectionRecord(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "queue-a"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "queue-a", "corrupt.json"), []byte("{"), 0o600))
 
-	s := store.NewProcStore(file.NewCollection(root))
+	s := newProcRepositoryForCollection(t, file.NewCollection(root))
 
 	_, err := s.CountAlive(ctx, "queue-a")
 	require.Error(t, err)
@@ -411,7 +457,7 @@ func TestProcStoreLatestHeartbeatSkipsCorruptCollectionRecords(t *testing.T) {
 
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("proc_entries")
-	s := store.NewProcStore(col)
+	s := newProcRepositoryForCollection(t, col)
 	ref := ir.NewDAGRunRef("collection-corrupt-dag", "run-1")
 
 	proc, err := s.Acquire(ctx, "queue-a", procMeta(ref))
@@ -447,12 +493,20 @@ type contextIgnoringLockCollection struct {
 	persis.Collection
 }
 
+type collectionWithoutLocking struct {
+	persis.Collection
+}
+
 func (c contextIgnoringLockCollection) WithLock(_ context.Context, _ string, fn func() error) error {
 	return fn()
 }
 
 type cancelAwareDeleteCollection struct {
 	persis.Collection
+}
+
+func (c cancelAwareDeleteCollection) WithLock(ctx context.Context, key string, fn func() error) error {
+	return c.Collection.(persis.LockingCollection).WithLock(ctx, key, fn)
 }
 
 func (c cancelAwareDeleteCollection) Delete(ctx context.Context, id string) error {
@@ -466,6 +520,10 @@ type refreshBeforeCompareDeleteCollection struct {
 	persis.Collection
 	once    sync.Once
 	refresh func(*persis.Record)
+}
+
+func (c *refreshBeforeCompareDeleteCollection) WithLock(ctx context.Context, key string, fn func() error) error {
+	return c.Collection.(persis.LockingCollection).WithLock(ctx, key, fn)
 }
 
 func (c *refreshBeforeCompareDeleteCollection) CompareAndDelete(ctx context.Context, expected *persis.Record) error {

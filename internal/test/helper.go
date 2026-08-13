@@ -285,7 +285,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	dagRepository, err := file.NewDAGRepository(cfg, file.WithDAGSkipExamples(true))
 	require.NoError(t, err)
 	dagRunRepository := file.NewDAGRunRepository(cfg)
-	procStore := newProcStore(cfg)
+	procRepository := newProcRepository(cfg)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
 	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
 	serviceMonitor := file.NewServiceRegistry(cfg)
@@ -303,7 +303,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	}
 	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir), dispatchStoreOpts...)
 
-	drm := runtimepkg.NewManager(dagRunRepository, procStore, cfg)
+	drm := runtimepkg.NewManager(dagRunRepository, procRepository, cfg)
 
 	helper := Helper{
 		Context:                   ctx,
@@ -312,7 +312,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		DAGRunMgr:                 drm,
 		DAGRepository:             dagRepository,
 		DAGRunRepository:          dagRunRepository,
-		ProcStore:                 procStore,
+		ProcRepository:            procRepository,
 		QueueStore:                queueStore,
 		StateStore:                stateStore,
 		ServiceRegistry:           serviceMonitor,
@@ -521,7 +521,7 @@ type Helper struct {
 	DAGRepository             *persis.DAGRepository
 	DAGRunRepository          *persis.DAGRunRepository
 	DAGRunMgr                 runtimepkg.Manager
-	ProcStore                 proc.ProcStore
+	ProcRepository            *proc.Repository
 	QueueStore                queue.QueueStore
 	StateStore                dagrun.StateStore
 	ServiceRegistry           serviceregistry.ServiceRegistry
@@ -849,7 +849,7 @@ func (a *Agent) RunCancel(t *testing.T) {
 	t.Helper()
 
 	attemptID := newTestAttemptID(t)
-	proc, err := a.ProcStore.Acquire(a.Context, a.ProcGroup(), proc.ProcMeta{
+	handle, err := a.ProcRepository.Acquire(a.Context, a.ProcGroup(), proc.ProcMeta{
 		StartedAt:    time.Now().Unix(),
 		Name:         a.Name,
 		DAGRunID:     a.dagRunID,
@@ -859,7 +859,7 @@ func (a *Agent) RunCancel(t *testing.T) {
 	})
 	require.NoError(t, err, "failed to acquire proc")
 	t.Cleanup(func() {
-		_ = proc.Stop(a.Context)
+		_ = handle.Stop(a.Context)
 	})
 
 	err = a.Run(a.Context)

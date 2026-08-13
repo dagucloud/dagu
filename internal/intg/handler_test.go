@@ -38,7 +38,7 @@ func dagAgentWithProc(t *testing.T, th test.Helper, dag test.DAG) *test.Agent {
 	}
 	attemptID := "attempt-" + compactRunID
 
-	proc, err := th.ProcStore.Acquire(th.Context, dag.ProcGroup(), proc.ProcMeta{
+	proc, err := th.ProcRepository.Acquire(th.Context, dag.ProcGroup(), proc.ProcMeta{
 		StartedAt:    time.Now().Unix(),
 		Name:         dag.Name,
 		DAGRunID:     dagRunID,

@@ -241,8 +241,8 @@ func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 }
 
 func ensureNoActiveRuns(ctx *Context, dagName string) error {
-	if ctx.ProcStore != nil {
-		entries, err := ctx.ProcStore.ListAllEntries(ctx)
+	if ctx.ProcRepository != nil {
+		entries, err := ctx.ProcRepository.ListAllEntries(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to check alive processes for %q: %w", dagName, err)
 		}

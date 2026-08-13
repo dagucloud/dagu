@@ -152,7 +152,8 @@ func TestWaitForRetrySourceRelease_WaitsForTerminalRunProcToStop(t *testing.T) {
 	}
 
 	err := waitForRetrySourceReleaseFor(
-		&Context{Context: context.Background(), ProcStore: repository},
+		context.Background(),
+		repository,
 		dag,
 		status,
 		time.Second,
@@ -180,7 +181,8 @@ func TestWaitForRetrySourceRelease_SkipsActiveStatus(t *testing.T) {
 	}
 
 	err := waitForRetrySourceReleaseFor(
-		&Context{Context: context.Background(), ProcStore: repository},
+		context.Background(),
+		repository,
 		dag,
 		status,
 		time.Second,
@@ -205,7 +207,8 @@ func TestWaitForRetrySourceRelease_TimesOutWhileProcAlive(t *testing.T) {
 	}
 
 	err := waitForRetrySourceReleaseFor(
-		&Context{Context: context.Background(), ProcStore: repository},
+		context.Background(),
+		repository,
 		dag,
 		status,
 		5*time.Millisecond,
@@ -231,7 +234,8 @@ func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
 	}
 
 	err := waitForRetrySourceReleaseFor(
-		&Context{Context: context.Background(), ProcStore: repository},
+		context.Background(),
+		repository,
 		dag,
 		status,
 		time.Second,
@@ -242,8 +246,6 @@ func TestWaitForRetrySourceReleaseRejectsDifferentActiveAttempt(t *testing.T) {
 }
 
 type retryReleaseProcStore struct {
-	proc.ProcStore
-
 	heartbeats      []*proc.ProcHeartbeat
 	alwaysHeartbeat *proc.ProcHeartbeat
 	calls           int

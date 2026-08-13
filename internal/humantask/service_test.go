@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -307,7 +306,7 @@ func TestValidateRetryAllowsRunRetryWhileWaitingForApprovalAfterCompletedHumanTa
 func TestWaitForCompletionReadyWaitsForLocalAttemptExit(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	procStore := &sequenceProcStore{alive: []bool{true, false}}
-	fixture.service.ProcStore = procStore
+	fixture.service.ProcRepository = procStore
 	fixture.service.PollInterval = time.Millisecond
 	fixture.service.SettleTimeout = time.Second
 
@@ -396,7 +395,7 @@ func newServiceFixture(t *testing.T, form json.RawMessage) *serviceFixture {
 		service: &Service{
 			DAGRunRepository: persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{}),
 			QueueStore:       queue,
-			ProcStore:        serviceProcStore{},
+			ProcRepository:   serviceProcStore{},
 			Now:              func() time.Time { return now },
 		},
 	}
@@ -473,18 +472,13 @@ func (s *serviceDAGRunStore) CompareAndSwapLatestAttemptStatus(
 	return s.status, true, nil
 }
 
-type serviceProcStore struct{ proc.ProcStore }
-
-func (serviceProcStore) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
-	return false, nil
-}
+type serviceProcStore struct{}
 
 func (serviceProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
 	return false, nil
 }
 
 type sequenceProcStore struct {
-	proc.ProcStore
 	alive     []bool
 	calls     int
 	groupName string

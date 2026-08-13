@@ -78,7 +78,7 @@ steps:
 	}, apiProcEventuallyTimeout(5*time.Second), 50*time.Millisecond)
 
 	require.Eventually(t, func() bool {
-		alive, err := server.ProcStore.IsRunAlive(server.Context, dagName, ref)
+		alive, err := server.ProcRepository.IsRunAlive(server.Context, dagName, ref)
 		return err == nil && alive
 	}, apiProcEventuallyTimeout(10*time.Second), 50*time.Millisecond)
 

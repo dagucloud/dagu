@@ -32,7 +32,7 @@ type ServerConfig struct {
 	DAGRunRepository     *persis.DAGRunRepository
 	Caches               []fileutil.CacheMetrics
 	QueueStore           queue.QueueStore
-	ProcStore            proc.ProcStore
+	ProcRepository       *proc.Repository
 	DAGRunManager        runtime.Manager
 	ServiceRegistry      serviceregistry.ServiceRegistry
 	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
@@ -84,7 +84,7 @@ func NewServer(cfg ServerConfig, opts ...frontend.ServerOption) (*frontend.Serve
 		cfg.DAGRepository,
 		cfg.DAGRunRepository,
 		cfg.QueueStore,
-		cfg.ProcStore,
+		cfg.ProcRepository,
 		cfg.DAGRunManager,
 		coordinatorClient,
 		cfg.ServiceRegistry,

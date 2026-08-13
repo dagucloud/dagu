@@ -36,13 +36,29 @@ import (
 // It can be replaced for testing purposes.
 type Clock func() time.Time
 
+type processRepository interface {
+	queueProcessRepository
+	zombieProcessRepository
+	CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error)
+}
+
+type queueProcessRepository interface {
+	CountAlive(ctx context.Context, groupName string) (int, error)
+	IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error)
+}
+
+type zombieProcessRepository interface {
+	ListAllEntries(ctx context.Context) ([]proc.ProcEntry, error)
+	RemoveIfStale(ctx context.Context, entry proc.ProcEntry) error
+}
+
 type Scheduler struct {
 	entryReader         EntryReader
 	quit                chan any
 	running             atomic.Bool
 	dagRunRepository    *persis.DAGRunRepository
 	queueStore          queuedomain.QueueStore
-	procStore           proc.ProcStore
+	procRepository      processRepository
 	config              *config.Config
 	dirLock             dirlock.DirLock // File-based lock to prevent multiple scheduler instances
 	dagExecutor         *DAGExecutor
@@ -109,7 +125,7 @@ func New(
 	dagRepository *persis.DAGRepository,
 	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
-	procStore proc.ProcStore,
+	procRepository processRepository,
 	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
@@ -121,7 +137,7 @@ func New(
 			opt(&options)
 		}
 	}
-	return newScheduler(cfg, er, drm, dagRepository, dagRunRepository, queueStore, procStore, reg, coordinatorCli, watermarkStore, schedulerHooks{}, options)
+	return newScheduler(cfg, er, drm, dagRepository, dagRunRepository, queueStore, procRepository, reg, coordinatorCli, watermarkStore, schedulerHooks{}, options)
 }
 
 func newScheduler(
@@ -131,7 +147,7 @@ func newScheduler(
 	dagRepository *persis.DAGRepository,
 	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
-	procStore proc.ProcStore,
+	procRepository processRepository,
 	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
@@ -173,7 +189,7 @@ func newScheduler(
 	processor := NewQueueProcessor(
 		queueStore,
 		dagRunRepository,
-		procStore,
+		procRepository,
 		dagExecutor,
 		cfg.Queues,
 		WithIsSuspended(isSuspended),
@@ -221,7 +237,7 @@ func newScheduler(
 		IsSuspended:     isSuspended,
 		GetLatestStatus: drm.GetLatestStatus,
 		IsRunning: func(ctx context.Context, dag *ir.DAG) (bool, error) {
-			count, err := procStore.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
+			count, err := procRepository.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
 			if err != nil {
 				return false, err
 			}
@@ -281,7 +297,7 @@ func newScheduler(
 		entryReader:      er,
 		dagRunRepository: dagRunRepository,
 		queueStore:       queueStore,
-		procStore:        procStore,
+		procRepository:   procRepository,
 		config:           cfg,
 		dirLock:          dirLock,
 		dagExecutor:      dagExecutor,
@@ -677,7 +693,7 @@ func (s *Scheduler) startZombieDetector(ctx context.Context) {
 	}
 	s.zombieDetector = NewZombieDetector(
 		s.dagRunRepository,
-		s.procStore,
+		s.procRepository,
 		s.config.Scheduler.ZombieDetectionInterval,
 		s.config.Scheduler.FailureThreshold,
 	)

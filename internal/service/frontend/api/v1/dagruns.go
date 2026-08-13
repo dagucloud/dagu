@@ -37,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -3289,16 +3290,20 @@ func (a *API) DequeueDAGRun(ctx context.Context, request api.DequeueDAGRunReques
 		return nil, mapAbortQueuedDAGRunAPIError(request.Name, request.DagRunId, err)
 	}
 
-	if err := a.procStore.Lock(ctx, queueName); err != nil {
-		return nil, fmt.Errorf("failed to lock process group %s: %w", queueName, err)
-	}
-	defer a.procStore.Unlock(ctx, queueName)
-
-	if err := queue.AbortQueuedDAGRun(ctx, a.dagRunRepository, dagRun); err != nil {
-		return nil, mapAbortQueuedDAGRunAPIError(request.Name, request.DagRunId, err)
-	}
-	if _, err := a.queueStore.DequeueByDAGRunID(ctx, queueName, dagRun); err != nil && !errors.Is(err, queue.ErrQueueItemNotFound) {
-		return nil, fmt.Errorf("error dequeueing dag-run: %w", err)
+	err = a.procRepository.WithLock(ctx, queueName, func() error {
+		if err := queue.AbortQueuedDAGRun(ctx, a.dagRunRepository, dagRun); err != nil {
+			return mapAbortQueuedDAGRunAPIError(request.Name, request.DagRunId, err)
+		}
+		if _, err := a.queueStore.DequeueByDAGRunID(ctx, queueName, dagRun); err != nil && !errors.Is(err, queue.ErrQueueItemNotFound) {
+			return fmt.Errorf("error dequeueing dag-run: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		if proc.IsLockError(err) {
+			return nil, fmt.Errorf("failed to lock process group %s: %w", queueName, err)
+		}
+		return nil, err
 	}
 
 	a.logAudit(ctx, audit.CategoryDAG, "dag_dequeue", map[string]any{
@@ -3748,7 +3753,7 @@ func (a *API) waitForManualStepMutationReady(
 	defer poll.Stop()
 
 	if !dispatch.IsRemoteWorkerID(status.WorkerID) {
-		if a.procStore == nil {
+		if a.procRepository == nil {
 			return nil, errors.New("process store is unavailable")
 		}
 		dag, err := attempt.ReadDAG(ctx)
@@ -3757,7 +3762,7 @@ func (a *API) waitForManualStepMutationReady(
 		}
 
 		for {
-			alive, err := a.procStore.IsAttemptAlive(ctx, dag.ProcGroup(), status.DAGRun(), status.AttemptID)
+			alive, err := a.procRepository.IsAttemptAlive(ctx, dag.ProcGroup(), status.DAGRun(), status.AttemptID)
 			if err != nil {
 				return nil, fmt.Errorf("check manual step attempt liveness: %w", err)
 			}

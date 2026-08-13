@@ -6,8 +6,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"sort"
-	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -21,7 +19,7 @@ const (
 	defaultProcHeartbeatInterval = 5 * time.Second
 )
 
-var _ proc.ProcStore = (*ProcStore)(nil)
+var _ proc.Store = (*ProcStore)(nil)
 
 // ProcStoreOption configures a ProcStore.
 type ProcStoreOption func(*ProcStore)
@@ -44,54 +42,34 @@ func WithProcHeartbeatInterval(d time.Duration) ProcStoreOption {
 	}
 }
 
-// ProcStore implements [proc.ProcStore] on top of a [persis.Collection].
-//
-// This is the backend-neutral proc store, intended for non-file backends
-// (SQL/etcd) and tests. It serializes each entry as a JSON record and derives
-// liveness from the entry's heartbeat timestamp plus the record's UpdatedAt.
-//
-// It is NOT layout-compatible with the file backend's proc store
-// ([github.com/dagucloud/dagu/v2/internal/persis/file/proc]), which writes the
-// released binary ".proc" files. The file backend must use file.NewProcStore;
-// do not point this store at a file backend's ProcDir. See [NewProcStore].
+// ProcStore implements [proc.Store] as JSON records in a
+// [persis.LockingCollection].
 type ProcStore struct {
-	col               persis.Collection
+	col               persis.LockingCollection
 	staleTime         time.Duration
 	heartbeatInterval time.Duration
-
-	mu         sync.Mutex
-	locks      map[string]*procHeldLock
-	localLocks map[string]*sync.Mutex
 }
 
-// NewProcStore creates a ProcStore backed by col.
-//
-// For non-file backends and tests only. The file backend uses
-// file.NewProcStore (binary ".proc" layout); this collection-backed store
-// writes JSON records and is not compatible with that on-disk layout, so it
-// must not be wired over a file backend's ProcDir without a migration.
-func NewProcStore(col persis.Collection, opts ...ProcStoreOption) *ProcStore {
+// NewProcStore creates a ProcStore backed by an isolated collection namespace.
+// The collection must support scoped locking.
+func NewProcStore(col persis.Collection, opts ...ProcStoreOption) (*ProcStore, error) {
+	lockingCollection, ok := col.(persis.LockingCollection)
+	if !ok {
+		return nil, fmt.Errorf("proc store: collection does not support scoped locking")
+	}
 	s := &ProcStore{
-		col:               col,
+		col:               lockingCollection,
 		staleTime:         defaultProcStaleThreshold,
 		heartbeatInterval: defaultProcHeartbeatInterval,
-		locks:             make(map[string]*procHeldLock),
-		localLocks:        make(map[string]*sync.Mutex),
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
-	return s
+	return s, nil
 }
 
 // Acquire creates and starts a proc heartbeat.
 func (s *ProcStore) Acquire(ctx context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error) {
-	if meta.StartedAt <= 0 {
-		meta.StartedAt = time.Now().UTC().Unix()
-	}
-	if err := validateProcMeta(meta); err != nil {
-		return nil, err
-	}
 	now := time.Now().UTC()
 	handle := &ProcHandle{
 		store:     s,
@@ -106,78 +84,6 @@ func (s *ProcStore) Acquire(ctx context.Context, groupName string, meta proc.Pro
 	return handle, nil
 }
 
-// CountAlive returns the number of fresh DAG runs in a group.
-func (s *ProcStore) CountAlive(ctx context.Context, groupName string) (int, error) {
-	entries, err := s.ListEntries(ctx, groupName)
-	if err != nil {
-		return 0, err
-	}
-	seen := make(map[string]struct{})
-	for _, entry := range entries {
-		if !entry.Fresh {
-			continue
-		}
-		seen[entry.Meta.DAGRun().String()] = struct{}{}
-	}
-	return len(seen), nil
-}
-
-// CountAliveByDAGName returns the number of fresh DAG runs for dagName in a group.
-func (s *ProcStore) CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error) {
-	entries, err := s.ListEntries(ctx, groupName)
-	if err != nil {
-		return 0, err
-	}
-	seen := make(map[string]struct{})
-	for _, entry := range entries {
-		if !entry.Fresh || entry.Meta.Name != dagName {
-			continue
-		}
-		seen[entry.Meta.DAGRun().String()] = struct{}{}
-	}
-	return len(seen), nil
-}
-
-// ListAlive returns fresh DAG runs in a group.
-func (s *ProcStore) ListAlive(ctx context.Context, groupName string) ([]ir.DAGRunRef, error) {
-	entries, err := s.ListEntries(ctx, groupName)
-	if err != nil {
-		return nil, err
-	}
-	return procFreshRefs(entries), nil
-}
-
-// IsRunAlive reports whether dagRun has a fresh proc entry in groupName.
-func (s *ProcStore) IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error) {
-	entries, err := s.ListEntries(ctx, groupName)
-	if err != nil {
-		return false, err
-	}
-	for _, entry := range entries {
-		if entry.Fresh && entry.Meta.Name == dagRun.Name && entry.Meta.DAGRunID == dagRun.ID {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// IsAttemptAlive reports whether a specific attempt has a fresh proc entry.
-func (s *ProcStore) IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error) {
-	entries, err := s.ListEntries(ctx, groupName)
-	if err != nil {
-		return false, err
-	}
-	for _, entry := range entries {
-		if !entry.Fresh {
-			continue
-		}
-		if entry.Meta.Name == dagRun.Name && entry.Meta.DAGRunID == dagRun.ID && entry.Meta.AttemptID == attemptID {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // ListEntries returns all proc entries for groupName, including stale entries.
 func (s *ProcStore) ListEntries(ctx context.Context, groupName string) ([]proc.ProcEntry, error) {
 	entries, err := s.listCollectionEntries(ctx, groupName)
@@ -187,65 +93,9 @@ func (s *ProcStore) ListEntries(ctx context.Context, groupName string) ([]proc.P
 	return dedupeAndSortProcEntries(entries), nil
 }
 
-// LatestFreshEntryByDAGName returns the newest fresh proc entry for dagName.
-func (s *ProcStore) LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*proc.ProcEntry, error) {
-	entries, err := s.ListEntries(ctx, groupName)
-	if err != nil {
-		return nil, err
-	}
-	var freshest *proc.ProcEntry
-	for i := range entries {
-		entry := entries[i]
-		if !entry.Fresh || entry.Meta.Name != dagName {
-			continue
-		}
-		if freshest == nil ||
-			entry.Meta.StartedAt > freshest.Meta.StartedAt ||
-			(entry.Meta.StartedAt == freshest.Meta.StartedAt && entry.LastHeartbeatAt > freshest.LastHeartbeatAt) {
-			copy := entry
-			freshest = &copy
-		}
-	}
-	return freshest, nil
-}
-
 // LatestHeartbeat returns the latest heartbeat observation for dagRun.
 func (s *ProcStore) LatestHeartbeat(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (*proc.ProcHeartbeat, error) {
 	return s.latestCollectionHeartbeat(ctx, groupName, dagRun)
-}
-
-// ListAllAlive returns all fresh DAG runs grouped by process group.
-func (s *ProcStore) ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRef, error) {
-	entries, err := s.ListAllEntries(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string][]ir.DAGRunRef)
-	seen := make(map[string]map[string]struct{})
-	for _, entry := range entries {
-		if !entry.Fresh {
-			continue
-		}
-		if _, ok := seen[entry.GroupName]; !ok {
-			seen[entry.GroupName] = make(map[string]struct{})
-		}
-		ref := entry.Meta.DAGRun()
-		key := ref.String()
-		if _, ok := seen[entry.GroupName][key]; ok {
-			continue
-		}
-		seen[entry.GroupName][key] = struct{}{}
-		result[entry.GroupName] = append(result[entry.GroupName], ref)
-	}
-	for groupName := range result {
-		sort.Slice(result[groupName], func(i, j int) bool {
-			if result[groupName][i].Name == result[groupName][j].Name {
-				return result[groupName][i].ID < result[groupName][j].ID
-			}
-			return result[groupName][i].Name < result[groupName][j].Name
-		})
-	}
-	return result, nil
 }
 
 // ListAllEntries returns all proc entries across all groups.
@@ -262,7 +112,7 @@ func (s *ProcStore) RemoveIfStale(ctx context.Context, entry proc.ProcEntry) err
 	if entry.GroupName == "" || entry.Fresh {
 		return nil
 	}
-	if procEntryIdentityKind(entry) == procEntryIdentityCollection {
+	if _, ok := entry.Identity.StoreValue(procEntryIdentityCollection); ok {
 		return s.removeCollectionIfStale(ctx, entry)
 	}
 	return nil

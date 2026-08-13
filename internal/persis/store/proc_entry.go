@@ -13,7 +13,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 )
@@ -72,7 +71,7 @@ func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (proc.Pro
 	if payload.Version != procStoreVersion {
 		return proc.ProcEntry{}, fmt.Errorf("proc store: unsupported record version %d for %q", payload.Version, rec.ID)
 	}
-	if err := validateProcMeta(payload.Meta); err != nil {
+	if err := payload.Meta.Validate(); err != nil {
 		return proc.ProcEntry{}, fmt.Errorf("proc store: invalid metadata in %q: %w", rec.ID, err)
 	}
 	recordGroupName := procGroupNameFromRecordID(rec.ID)
@@ -103,7 +102,7 @@ func (s *ProcStore) entryFromRecord(rec *persis.Record, now time.Time) (proc.Pro
 }
 
 func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry proc.ProcEntry) error {
-	recordID, ok := procEntryIdentityValue(entry, procEntryIdentityCollection)
+	recordID, ok := entry.Identity.StoreValue(procEntryIdentityCollection)
 	if !ok {
 		return nil
 	}
@@ -118,7 +117,7 @@ func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry proc.Proc
 	if err != nil {
 		return err
 	}
-	if current.Fresh || !sameProcEntry(current, entry) {
+	if current.Fresh || !current.SameObservation(entry) {
 		return nil
 	}
 	if err := s.col.CompareAndDelete(ctx, currentRec); errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
@@ -129,28 +128,6 @@ func (s *ProcStore) removeCollectionIfStale(ctx context.Context, entry proc.Proc
 
 	logger.Info(ctx, "Removed stale proc record", tag.Name(recordID))
 	return nil
-}
-
-func procFreshRefs(entries []proc.ProcEntry) []ir.DAGRunRef {
-	seen := make(map[string]ir.DAGRunRef)
-	for _, entry := range entries {
-		if !entry.Fresh {
-			continue
-		}
-		ref := entry.Meta.DAGRun()
-		seen[ref.String()] = ref
-	}
-	refs := make([]ir.DAGRunRef, 0, len(seen))
-	for _, ref := range seen {
-		refs = append(refs, ref)
-	}
-	sort.Slice(refs, func(i, j int) bool {
-		if refs[i].Name == refs[j].Name {
-			return refs[i].ID < refs[j].ID
-		}
-		return refs[i].Name < refs[j].Name
-	})
-	return refs
 }
 
 func dedupeAndSortProcEntries(entries []proc.ProcEntry) []proc.ProcEntry {
@@ -200,13 +177,6 @@ func sortProcEntries(entries []proc.ProcEntry) {
 		}
 		return procEntrySortKey(left) < procEntrySortKey(right)
 	})
-}
-
-func sameProcEntry(a, b proc.ProcEntry) bool {
-	return a.GroupName == b.GroupName &&
-		a.Identity == b.Identity &&
-		a.LastHeartbeatAt == b.LastHeartbeatAt &&
-		a.Meta == b.Meta
 }
 
 func procGroupPrefix(groupName string) string {

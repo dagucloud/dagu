@@ -60,7 +60,7 @@ type queueFixture struct {
 	dispatchStore    dispatch.DispatchTaskStore
 	distributedDir   string
 	queueStore       *store.QueueStore
-	procStore        procdomain.ProcStore
+	procRepository   queueProcessRepository
 	processor        *QueueProcessor
 	dag              *ir.DAG
 }
@@ -84,11 +84,11 @@ func newQueueFixture(t *testing.T) *queueFixture {
 		leaseStore:       store.NewDAGRunLeaseStore(leaseCollection),
 		dispatchStore:    store.NewDispatchTaskStore(file.NewCollection(distributedDir)),
 		queueStore:       store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue"))),
-		procStore:        newSchedulerTestProcStore(filepath.Join(tmpDir, "proc"), nil),
+		procRepository:   newSchedulerTestProcStore(filepath.Join(tmpDir, "proc"), nil),
 	}
 }
 
-func newSchedulerTestProcStore(procDir string, cfg *config.Config) procdomain.ProcStore {
+func newSchedulerTestProcStore(procDir string, cfg *config.Config) *procdomain.Repository {
 	opts := []proc.StoreOption{}
 	if cfg != nil {
 		opts = append(opts,
@@ -96,7 +96,7 @@ func newSchedulerTestProcStore(procDir string, cfg *config.Config) procdomain.Pr
 			proc.WithStaleThreshold(cfg.Proc.StaleThreshold),
 		)
 	}
-	return proc.New(procDir, opts...)
+	return procdomain.NewRepository(proc.New(procDir, opts...))
 }
 
 func TestWithDispatchTaskStoreClearsAdmissionStore(t *testing.T) {
@@ -154,7 +154,7 @@ func (f *queueFixture) withProcessor(cfg config.Queues, opts ...QueueProcessorOp
 		WithBackoffConfig(BackoffConfig{InitialInterval: 10 * time.Millisecond, MaxInterval: 50 * time.Millisecond, MaxRetries: 2}),
 		WithDAGRunLeaseStore(f.leaseStore),
 	}, opts...)
-	f.processor = NewQueueProcessor(f.queueStore, f.dagRunRepository, f.procStore,
+	f.processor = NewQueueProcessor(f.queueStore, f.dagRunRepository, f.procRepository,
 		NewDAGExecutor(nil, launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: "/usr/bin/dagu"}}), config.ExecutionModeLocal, ""),
 		cfg, options...,
 	)
@@ -308,18 +308,18 @@ func TestQueueProcessor_PreservesSameRunItemEnqueuedDuringDispatch(t *testing.T)
 	initialItemID := initialItems[0].ID()
 	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
 
-	procStore := &mockProcStore{}
-	procStore.On("CountAlive", mock.Anything, f.dag.Name).Return(0, nil).Once()
-	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
+	procRepository := &mockProcStore{}
+	procRepository.On("CountAlive", mock.Anything, f.dag.Name).Return(0, nil).Once()
+	procRepository.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
 	var enqueueErr error
-	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).
+	procRepository.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).
 		Run(func(mock.Arguments) {
 			enqueueErr = f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityLow, runRef)
 		}).
 		Return(true, nil).
 		Once()
 
-	f.processor.procStore = procStore
+	f.processor.procRepository = procRepository
 	f.processor.dagExecutor = NewDAGExecutor(&mockDispatcher{}, nil, config.ExecutionModeDistributed, "")
 
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
@@ -332,7 +332,7 @@ func TestQueueProcessor_PreservesSameRunItemEnqueuedDuringDispatch(t *testing.T)
 	remainingRef, err := items[0].Data()
 	require.NoError(t, err)
 	assert.Equal(t, runRef, *remainingRef)
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 func TestQueueProcessor_CountsFreshDistributedRunsAgainstQueueConcurrency(t *testing.T) {
@@ -553,14 +553,14 @@ func TestQueueDispatcher_DistributedDispatchHandsOffWithAdmissionToken(t *testin
 	require.Len(t, items, 1)
 
 	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
-	procStore := &mockProcStore{}
-	procStore.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
+	procRepository := &mockProcStore{}
+	procRepository.On("IsRunAlive", mock.Anything, f.dag.Name, runRef).Return(false, nil).Once()
 	dispatcher := &mockDispatcher{}
 
 	queueDispatcher := newQueueDispatcher(queueDispatchDeps{
 		queueStore:             f.queueStore,
 		dagRunRepository:       f.dagRunRepository,
-		procStore:              procStore,
+		procRepository:         procRepository,
 		dagRunLeaseStore:       f.leaseStore,
 		dispatchTaskStore:      dispatchStore,
 		dispatchAdmissionStore: dispatchStore,
@@ -575,7 +575,7 @@ func TestQueueDispatcher_DistributedDispatchHandsOffWithAdmissionToken(t *testin
 	}, func() {}, func() {})
 	require.True(t, dispatched)
 	assert.NotEmpty(t, dispatcher.LastRequest().AdmissionReservationToken)
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 func TestQueueProcessor_SuspendedSchedulerManagedQueuedRunsAreAbortedAndDequeued(t *testing.T) {
@@ -648,15 +648,15 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 	require.Len(t, items, 1)
 
 	runRef := ir.NewDAGRunRef(dagName, "run-1")
-	procStore := &mockProcStore{}
-	procStore.On("IsRunAlive", mock.Anything, dagName, runRef).Return(false, nil).Once()
-	procStore.On("IsRunAlive", mock.Anything, dagName, runRef).Return(true, nil).Once()
+	procRepository := &mockProcStore{}
+	procRepository.On("IsRunAlive", mock.Anything, dagName, runRef).Return(false, nil).Once()
+	procRepository.On("IsRunAlive", mock.Anything, dagName, runRef).Return(true, nil).Once()
 	dispatcher := &mockDispatcher{}
 
 	queueDispatcher := newQueueDispatcher(queueDispatchDeps{
 		queueStore:       f.queueStore,
 		dagRunRepository: f.dagRunRepository,
-		procStore:        procStore,
+		procRepository:   procRepository,
 		dagExecutor:      NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, ""),
 		isSuspended:      func(_ context.Context, name string) (bool, error) { return name == dagName, nil },
 		backoffConfig: BackoffConfig{
@@ -680,7 +680,7 @@ func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ir.Queued, status.Status)
 
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 type mockDispatchTaskStore struct {

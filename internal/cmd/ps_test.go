@@ -37,7 +37,7 @@ steps:
 
 		runID := "ps-run-1"
 		startedAt := time.Date(2026, time.July, 29, 12, 34, 56, 0, time.UTC)
-		proc, err := th.ProcStore.Acquire(th.Context, dag.ProcGroup(), proc.ProcMeta{
+		proc, err := th.ProcRepository.Acquire(th.Context, dag.ProcGroup(), proc.ProcMeta{
 			StartedAt:    startedAt.Unix(),
 			Name:         dag.Name,
 			DAGRunID:     runID,

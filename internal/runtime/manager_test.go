@@ -88,7 +88,7 @@ func TestManager(t *testing.T) {
 		require.NoError(t, attempt.Write(ctx, testNewStatus(dag.DAG, dagRunID, ir.Running, ir.NodeRunning)))
 		require.NoError(t, attempt.Close(ctx))
 
-		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
+		proc, err := th.ProcRepository.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         dag.Name,
 			DAGRunID:     dagRunID,
@@ -284,7 +284,7 @@ steps:
 		statusTime := time.Now().UTC()
 		mgr := runtime.NewManager(
 			th.DAGRunRepository,
-			th.ProcStore,
+			th.ProcRepository,
 			th.Config,
 			runtime.WithManagerClock(func() time.Time { return statusTime }),
 		)
@@ -346,7 +346,7 @@ steps:
 		attempt.On("ReadStatus", ctx).Return(nil, nil).Once()
 		store := &managerDAGRunStore{subAttempt: attempt}
 		repository := persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})
-		mgr := runtime.NewManager(repository, th.ProcStore, th.Config)
+		mgr := runtime.NewManager(repository, th.ProcRepository, th.Config)
 
 		status, err := mgr.FindSubDAGRunStatus(ctx, ir.NewDAGRunRef("root", "root-run"), "child-run")
 
@@ -453,7 +453,7 @@ steps:
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
 
-		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
+		proc, err := th.ProcRepository.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         dag.Name,
 			DAGRunID:     dagRunID,
@@ -556,7 +556,7 @@ steps:
 		ctx := th.Context
 		mgr := runtime.NewManager(
 			th.DAGRunRepository,
-			th.ProcStore,
+			th.ProcRepository,
 			th.Config,
 			runtime.WithManagerClock(func() time.Time { return statusTime }),
 		)
@@ -594,7 +594,7 @@ steps:
 		ref := ir.NewDAGRunRef(dag.Name, dagRunID)
 		mgr := runtime.NewManager(
 			th.DAGRunRepository,
-			th.ProcStore,
+			th.ProcRepository,
 			th.Config,
 			runtime.WithManagerClock(func() time.Time { return statusTime }),
 		)
@@ -750,7 +750,7 @@ steps:
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
 
-		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
+		proc, err := th.ProcRepository.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         dag.Name,
 			DAGRunID:     dagRunID,
@@ -773,7 +773,7 @@ steps:
 		ctx := th.Context
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 
-		proc, err := th.ProcStore.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
+		proc, err := th.ProcRepository.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
 			StartedAt:    time.Now().Unix(),
 			Name:         dag.Name,
 			DAGRunID:     dagRunID,

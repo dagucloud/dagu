@@ -1680,7 +1680,7 @@ steps:
 	processor := scheduler.NewQueueProcessor(
 		th.QueueStore,
 		th.DAGRunRepository,
-		th.ProcStore,
+		th.ProcRepository,
 		dagExecutor,
 		th.Config.Queues,
 		scheduler.WithBackoffConfig(scheduler.BackoffConfig{

@@ -89,9 +89,7 @@ type stopDAGRunAttempt struct {
 	aborted bool
 }
 
-type stopDAGRunProcStore struct {
-	proc.ProcStore
-}
+type stopDAGRunProcStore struct{}
 
 func (s *pagedStopDAGRunStore) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	s.queries = append(s.queries, query)
@@ -119,6 +117,18 @@ func (a *stopDAGRunAttempt) Abort(context.Context) error {
 
 func (stopDAGRunProcStore) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
 	return false, nil
+}
+
+func (stopDAGRunProcStore) ListAlive(context.Context, string) ([]ir.DAGRunRef, error) {
+	return nil, nil
+}
+
+func (stopDAGRunProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
+	return false, nil
+}
+
+func (stopDAGRunProcStore) LatestFreshEntryByDAGName(context.Context, string, string) (*proc.ProcEntry, error) {
+	return nil, nil
 }
 
 func (s failingHistoryDAGRunStore) RecentStatuses(context.Context, string, int) ([]ir.DAGRunStatus, error) {
@@ -447,13 +457,24 @@ func (a *manualStepAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error
 }
 
 type manualStepProcStore struct {
-	proc.ProcStore
 	alive bool
 	err   error
 }
 
+func (s *manualStepProcStore) WithLock(_ context.Context, _ string, fn func() error) error {
+	return fn()
+}
+
+func (s *manualStepProcStore) CountAliveByDAGName(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+
 func (s *manualStepProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
 	return s.alive, s.err
+}
+
+func (s *manualStepProcStore) ListAllAlive(context.Context) (map[string][]ir.DAGRunRef, error) {
+	return nil, nil
 }
 
 type failingManualCASStore struct {
@@ -498,7 +519,7 @@ func TestWaitForManualStepMutationReadyFailsClosedOnLivenessError(t *testing.T) 
 		WorkerID:  "local",
 	}
 	livenessErr := errors.New("liveness unavailable")
-	a := &API{procStore: &manualStepProcStore{err: livenessErr}}
+	a := &API{procRepository: &manualStepProcStore{err: livenessErr}}
 	attempt := &manualStepAttempt{dag: &ir.DAG{Name: status.Name}}
 
 	updated, err := a.waitForManualStepMutationReady(t.Context(), attempt, status)
@@ -517,7 +538,7 @@ func TestWaitForManualStepMutationReadyHonorsCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	a := &API{procStore: &manualStepProcStore{alive: true}}
+	a := &API{procRepository: &manualStepProcStore{alive: true}}
 	attempt := &manualStepAttempt{dag: &ir.DAG{Name: status.Name}}
 
 	updated, err := a.waitForManualStepMutationReady(ctx, attempt, status)
@@ -559,7 +580,7 @@ func TestWaitForManualStepMutationReadyWaitsForLocalPersistence(t *testing.T) {
 		dag:      &ir.DAG{Name: status.Name},
 		statuses: []*ir.DAGRunStatus{status, &finalized},
 	}
-	a := &API{procStore: &manualStepProcStore{}}
+	a := &API{procRepository: &manualStepProcStore{}}
 
 	updated, err := a.waitForManualStepMutationReady(t.Context(), attempt, status)
 
@@ -599,7 +620,7 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 	a := &API{
 		dagRunRepository: repository,
 		dagRunMgr:        runtimepkg.NewManager(repository, nil, cfg),
-		procStore:        &manualStepProcStore{},
+		procRepository:   &manualStepProcStore{},
 		config:           cfg,
 	}
 

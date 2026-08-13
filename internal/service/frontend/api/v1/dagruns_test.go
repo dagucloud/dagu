@@ -1093,7 +1093,7 @@ steps:
 	require.NotEqual(t, waitingStatus.PID, runningStatus.PID)
 	require.NotEqual(t, waitingStatus.PIDStartedAt, runningStatus.PIDStartedAt)
 	require.Eventually(t, func() bool {
-		alive, err := server.ProcStore.IsAttemptAlive(server.Context, dagName, runningStatus.DAGRun(), runningStatus.AttemptID)
+		alive, err := server.ProcRepository.IsAttemptAlive(server.Context, dagName, runningStatus.DAGRun(), runningStatus.AttemptID)
 		return err == nil && alive
 	}, dagRunEventuallyTimeout(5*time.Second), 100*time.Millisecond)
 

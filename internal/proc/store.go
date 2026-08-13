@@ -5,43 +5,50 @@ package proc
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// ProcStore is an interface for managing process storage.
-type ProcStore interface {
-	// Lock try to lock process group return error if it's held by another process
-	Lock(ctx context.Context, groupName string) error
-	// UnLock unlocks process group
-	Unlock(ctx context.Context, groupName string)
-	// Acquire creates a new process entry for a given group name and execution metadata.
-	// It automatically starts the heartbeat for the process.
+var procSafeAttemptIDPattern = regexp.MustCompile(`^[-a-zA-Z0-9_]+$`)
+
+// Store persists process heartbeats and provides the backend operations needed
+// by Repository.
+type Store interface {
+	Validate(ctx context.Context) error
+	WithLock(ctx context.Context, groupName string, fn func() error) error
 	Acquire(ctx context.Context, groupName string, meta ProcMeta) (ProcHandle, error)
-	// CountAlive retrieves the number of processes associated with a group name.
-	CountAlive(ctx context.Context, groupName string) (int, error)
-	// CountAlive retrieves the number of processes associated with a group name.
-	CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error)
-	// IsRunAlive checks if a specific DAG run is currently alive.
-	IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error)
-	// IsAttemptAlive checks if a specific DAG-run attempt is currently alive.
-	IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error)
-	// ListAlive returns list of running DAG runs by the group name.
-	ListAlive(ctx context.Context, groupName string) ([]ir.DAGRunRef, error)
-	// ListAllAlive returns all running DAG runs across all groups.
-	// Returns a map where key is the group name and value is list of DAG runs.
-	ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRef, error)
-	// ListEntries returns all proc entries for a group, including stale entries.
 	ListEntries(ctx context.Context, groupName string) ([]ProcEntry, error)
-	// LatestFreshEntryByDAGName returns the freshest proc entry for the DAG in the group.
-	LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*ProcEntry, error)
-	// LatestHeartbeat returns the latest heartbeat observation for a DAG-run in the group.
 	LatestHeartbeat(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (*ProcHeartbeat, error)
-	// ListAllEntries returns all proc entries across all groups, including stale entries.
 	ListAllEntries(ctx context.Context) ([]ProcEntry, error)
-	// RemoveIfStale removes the exact proc entry if it is still stale and unchanged.
 	RemoveIfStale(ctx context.Context, entry ProcEntry) error
+}
+
+// LockError reports a failure to acquire a process-group lock.
+type LockError struct {
+	err error
+}
+
+// NewLockError classifies a backend lock-acquisition failure.
+func NewLockError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &LockError{err: err}
+}
+
+func (e *LockError) Error() string { return e.err.Error() }
+func (e *LockError) Unwrap() error { return e.err }
+
+// IsLockError reports whether err represents lock acquisition failure.
+func IsLockError(err error) bool {
+	var target *LockError
+	return errors.As(err, &target)
 }
 
 // ProcHandle represents a process that is associated with a dag-run.
@@ -58,6 +65,34 @@ type ProcMeta struct {
 	AttemptID    string
 	RootName     string
 	RootDAGRunID string
+}
+
+// Validate checks whether the process metadata is complete and safe to persist.
+func (m ProcMeta) Validate() error {
+	if m.Name == "" {
+		return fmt.Errorf("proc meta name is required")
+	}
+	if err := ir.ValidateDAGRunID(m.DAGRunID); err != nil {
+		return fmt.Errorf("invalid proc meta dag run id: %w", err)
+	}
+	if m.AttemptID == "" {
+		return fmt.Errorf("proc meta attempt id is required")
+	}
+	if !procSafeAttemptIDPattern.MatchString(m.AttemptID) {
+		return fmt.Errorf("proc meta attempt id must only contain alphanumeric characters, dashes, and underscores")
+	}
+	if m.StartedAt <= 0 {
+		return fmt.Errorf("proc meta started at must be > 0")
+	}
+	if (m.RootName == "") != (m.RootDAGRunID == "") {
+		return fmt.Errorf("proc meta root name and root dag run id must both be set or both be empty")
+	}
+	if m.RootDAGRunID != "" {
+		if err := ir.ValidateDAGRunID(m.RootDAGRunID); err != nil {
+			return fmt.Errorf("invalid proc meta root dag run id: %w", err)
+		}
+	}
+	return nil
 }
 
 // Root returns the root DAG-run reference if present.
@@ -82,7 +117,7 @@ type ProcEntry struct {
 	Fresh           bool
 }
 
-// ProcEntryID is an opaque identity returned by ProcStore for exact stale-entry
+// ProcEntryID is an opaque identity returned by Repository for exact stale-entry
 // removal. Callers must not interpret it as a filesystem path or record key.
 type ProcEntryID struct {
 	token string
@@ -93,6 +128,15 @@ func NewProcEntryID(token string) ProcEntryID {
 	return ProcEntryID{token: token}
 }
 
+// NewStoreEntryID creates an opaque identity for a backend record.
+func NewStoreEntryID(kind, value string) ProcEntryID {
+	if kind == "" || value == "" {
+		return ProcEntryID{}
+	}
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(value))
+	return ProcEntryID{token: kind + ":" + encoded}
+}
+
 // IsZero reports whether the identity is empty.
 func (id ProcEntryID) IsZero() bool {
 	return id.token == ""
@@ -101,6 +145,19 @@ func (id ProcEntryID) IsZero() bool {
 // String returns an opaque display token. Callers must not parse it.
 func (id ProcEntryID) String() string {
 	return id.token
+}
+
+// StoreValue returns the backend value when the identity belongs to kind.
+func (id ProcEntryID) StoreValue(kind string) (string, bool) {
+	actualKind, encoded, found := strings.Cut(id.token, ":")
+	if !found || actualKind != kind || encoded == "" {
+		return "", false
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || len(decoded) == 0 {
+		return "", false
+	}
+	return string(decoded), true
 }
 
 // ProcHeartbeat is a storage-independent observation of a proc heartbeat.
@@ -125,9 +182,39 @@ func (h ProcHeartbeat) AdvancedSince(previous ProcHeartbeat) bool {
 	return h.LastHeartbeatAt > previous.LastHeartbeatAt || h.ObservedAt.After(previous.ObservedAt)
 }
 
+// PreferredTo reports whether this is the preferred latest observation.
+func (h ProcHeartbeat) PreferredTo(other ProcHeartbeat) bool {
+	if h.Fresh != other.Fresh {
+		return h.Fresh
+	}
+	if h.StartedAt != other.StartedAt {
+		return h.StartedAt > other.StartedAt
+	}
+	if h.LastHeartbeatAt != other.LastHeartbeatAt {
+		return h.LastHeartbeatAt > other.LastHeartbeatAt
+	}
+	if !h.ObservedAt.Equal(other.ObservedAt) {
+		return h.ObservedAt.After(other.ObservedAt)
+	}
+	return h.AttemptID < other.AttemptID
+}
+
 // DAGRun returns the DAG-run reference for the proc entry.
 func (e ProcEntry) DAGRun() ir.DAGRunRef {
 	return e.Meta.DAGRun()
+}
+
+// Heartbeat returns a heartbeat observation for the entry.
+func (e ProcEntry) Heartbeat(observedAt time.Time) ProcHeartbeat {
+	return ProcHeartbeat{
+		GroupName:       e.GroupName,
+		DAGRun:          e.Meta.DAGRun(),
+		AttemptID:       e.Meta.AttemptID,
+		StartedAt:       e.Meta.StartedAt,
+		LastHeartbeatAt: e.LastHeartbeatAt,
+		ObservedAt:      observedAt,
+		Fresh:           e.Fresh,
+	}
 }
 
 // IsRoot reports whether the proc entry belongs to a root DAG run.
@@ -143,4 +230,12 @@ func (e ProcEntry) AttemptKey() string {
 // RunScopeKey returns a stable identifier for the DAG-run scope across attempts.
 func (e ProcEntry) RunScopeKey() string {
 	return e.GroupName + "|" + e.Meta.Root().String() + "|" + e.Meta.Name + "|" + e.Meta.DAGRunID
+}
+
+// SameObservation reports whether two entries describe the same stored heartbeat observation.
+func (e ProcEntry) SameObservation(other ProcEntry) bool {
+	return e.GroupName == other.GroupName &&
+		e.Identity == other.Identity &&
+		e.LastHeartbeatAt == other.LastHeartbeatAt &&
+		e.Meta == other.Meta
 }

@@ -111,7 +111,7 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 	service := humantask.Service{
 		DAGRunRepository: ctx.DAGRunRepository,
 		QueueStore:       ctx.QueueStore,
-		ProcStore:        ctx.ProcStore,
+		ProcRepository:   ctx.ProcRepository,
 		Now:              deps.now,
 	}
 	completedBy, completedByID := localHumanTaskSubject(deps)

@@ -11,18 +11,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
-func procHeartbeatFromEntry(entry proc.ProcEntry, observedAt time.Time) proc.ProcHeartbeat {
-	return proc.ProcHeartbeat{
-		GroupName:       entry.GroupName,
-		DAGRun:          entry.Meta.DAGRun(),
-		AttemptID:       entry.Meta.AttemptID,
-		StartedAt:       entry.Meta.StartedAt,
-		LastHeartbeatAt: entry.LastHeartbeatAt,
-		ObservedAt:      observedAt,
-		Fresh:           entry.Fresh,
-	}
-}
-
 func (s *ProcStore) latestCollectionHeartbeat(
 	ctx context.Context,
 	groupName string,
@@ -44,26 +32,10 @@ func (s *ProcStore) latestCollectionHeartbeat(
 		if entry.GroupName != groupName || entry.Meta.Name != dagRun.Name || entry.Meta.DAGRunID != dagRun.ID {
 			continue
 		}
-		heartbeat := procHeartbeatFromEntry(entry, rec.UpdatedAt)
-		if latest == nil || procHeartbeatPreferred(heartbeat, *latest) {
+		heartbeat := entry.Heartbeat(rec.UpdatedAt)
+		if latest == nil || heartbeat.PreferredTo(*latest) {
 			latest = &heartbeat
 		}
 	}
 	return latest, nil
-}
-
-func procHeartbeatPreferred(candidate, existing proc.ProcHeartbeat) bool {
-	if candidate.Fresh != existing.Fresh {
-		return candidate.Fresh
-	}
-	if candidate.StartedAt != existing.StartedAt {
-		return candidate.StartedAt > existing.StartedAt
-	}
-	if candidate.LastHeartbeatAt != existing.LastHeartbeatAt {
-		return candidate.LastHeartbeatAt > existing.LastHeartbeatAt
-	}
-	if !candidate.ObservedAt.Equal(existing.ObservedAt) {
-		return candidate.ObservedAt.After(existing.ObservedAt)
-	}
-	return candidate.AttemptID < existing.AttemptID
 }

@@ -189,7 +189,7 @@ func (a *API) humanTaskService() *humantask.Service {
 	return &humantask.Service{
 		DAGRunRepository: a.dagRunRepository,
 		QueueStore:       a.queueStore,
-		ProcStore:        a.procStore,
+		ProcRepository:   a.procRepository,
 	}
 }
 

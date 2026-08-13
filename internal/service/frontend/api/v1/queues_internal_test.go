@@ -41,7 +41,7 @@ func TestGetQueueFiltersDistributedRunsByLeaseFreshness(t *testing.T) {
 	a := &API{
 		dagRunRepository:    dagRunRepository,
 		dagRunLeaseStore:    leaseStore,
-		procStore:           procStore,
+		procRepository:      procStore,
 		config:              &config.Config{},
 		leaseStaleThreshold: time.Minute,
 	}
@@ -72,7 +72,7 @@ func TestGetQueueFallsBackToDAGNameWhenLeaseQueueIsEmpty(t *testing.T) {
 	a := &API{
 		dagRunRepository:    dagRunRepository,
 		dagRunLeaseStore:    leaseStore,
-		procStore:           procStore,
+		procRepository:      procStore,
 		config:              &config.Config{},
 		leaseStaleThreshold: time.Minute,
 	}
@@ -114,7 +114,7 @@ func TestGetQueueCountsFreshLeaseForClaimedAttemptAsRunning(t *testing.T) {
 			a := &API{
 				dagRunRepository:    dagRunRepository,
 				dagRunLeaseStore:    leaseStore,
-				procStore:           procStore,
+				procRepository:      procStore,
 				config:              &config.Config{},
 				leaseStaleThreshold: time.Minute,
 			}
@@ -153,7 +153,7 @@ func TestGetQueueCountsQueuedItemsSeparatelyFromRunningItems(t *testing.T) {
 		dagRunRepository:    dagRunRepository,
 		dagRunLeaseStore:    leaseStore,
 		queueStore:          queueStore,
-		procStore:           procStore,
+		procRepository:      procStore,
 		config:              &config.Config{},
 		leaseStaleThreshold: time.Minute,
 	}
@@ -186,7 +186,7 @@ func TestListQueueItemsUsesCursorPaginationAndSkipsRunningEntries(t *testing.T) 
 	a := &API{
 		dagRunRepository: dagRunRepository,
 		queueStore:       queueStore,
-		procStore:        procStore,
+		procRepository:   procStore,
 		config:           &config.Config{},
 	}
 

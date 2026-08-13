@@ -164,7 +164,7 @@ func ProcessQueuedInlineRun(t *testing.T, server Server, queueName string) {
 	queueProcessor := scheduler.NewQueueProcessor(
 		server.QueueStore,
 		server.DAGRunRepository,
-		server.ProcStore,
+		server.ProcRepository,
 		scheduler.NewDAGExecutor(
 			coordinator.New(server.ServiceRegistry, coordinator.DefaultConfig()),
 			server.SubCmdBuilder,

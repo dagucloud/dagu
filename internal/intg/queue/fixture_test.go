@@ -292,7 +292,7 @@ func (f *fixture) WaitForAllStopped(timeout time.Duration) *fixture {
 	timeout = queueTestTimeout(timeout)
 	f.h.Wait.EventuallyEveryWithin("timed out waiting for queued runs to stop", timeout, 50*time.Millisecond, func() bool {
 		for _, runID := range f.runIDs {
-			alive, err := f.th.ProcStore.IsRunAlive(f.th.Context, f.queue, ir.NewDAGRunRef(f.dag.Name, runID))
+			alive, err := f.th.ProcRepository.IsRunAlive(f.th.Context, f.queue, ir.NewDAGRunRef(f.dag.Name, runID))
 			if err != nil || alive {
 				return false
 			}
@@ -320,7 +320,7 @@ func (f *fixture) RequireProcFileMissing(path string, timeout time.Duration) *fi
 func (f *fixture) RequireProcEntryStale(runID string, timeout time.Duration) *fixture {
 	f.t.Helper()
 	f.h.Wait.EventuallyEveryWithin("expected stale proc entry to be visible", queueTestTimeout(timeout), 50*time.Millisecond, func() bool {
-		entries, err := f.th.ProcStore.ListEntries(f.th.Context, f.dag.ProcGroup())
+		entries, err := f.th.ProcRepository.ListEntries(f.th.Context, f.dag.ProcGroup())
 		if err != nil {
 			return false
 		}

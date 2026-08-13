@@ -67,7 +67,7 @@ type API struct {
 	dagRunRepository     *persis.DAGRunRepository
 	dagRunMgr            runtime.Manager
 	queueStore           queue.QueueStore
-	procStore            proc.ProcStore
+	procRepository       processRepository
 	dagRunLeaseStore     dispatch.DAGRunLeaseStore
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore
 	remoteNodeResolver   *remotenode.Resolver
@@ -104,6 +104,13 @@ type API struct {
 	wikiMutationNotifier func()
 	baseConfigFactory    WorkspaceBaseConfigStoreFactory
 	oidcRoleMapping      func() config.OIDCRoleMapping
+}
+
+type processRepository interface {
+	WithLock(ctx context.Context, groupName string, fn func() error) error
+	CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error)
+	IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error)
+	ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRef, error)
 }
 
 type WorkspaceBaseConfigStoreFactory func(dagsDir, workspaceName string) (dagsettings.BaseConfigStore, error)
@@ -364,7 +371,7 @@ func New(
 	dr *persis.DAGRepository,
 	dagRunRepository *persis.DAGRunRepository,
 	qs queue.QueueStore,
-	ps proc.ProcStore,
+	processes *proc.Repository,
 	drm runtime.Manager,
 	cfg *config.Config,
 	cc coordinator.Client,
@@ -377,7 +384,7 @@ func New(
 		dagRepository:       dr,
 		dagRunRepository:    dagRunRepository,
 		queueStore:          qs,
-		procStore:           ps,
+		procRepository:      processes,
 		dagRunMgr:           drm,
 		logEncodingCharset:  cfg.UI.LogEncodingCharset,
 		subCmdBuilder:       launcher.NewSubCmdBuilder(cfg),

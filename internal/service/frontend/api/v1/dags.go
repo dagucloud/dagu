@@ -51,7 +51,7 @@ func (a *API) resolveDAGName(ctx context.Context, fileName string) string {
 
 // checkSingletonRunning returns an error if the DAG is already running in singleton mode.
 func (a *API) checkSingletonRunning(ctx context.Context, dag *ir.DAG) error {
-	alive, err := a.procStore.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
+	alive, err := a.procRepository.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
 	if err != nil {
 		return fmt.Errorf("failed to check singleton execution status: %w", err)
 	}

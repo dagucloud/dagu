@@ -9,7 +9,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -27,7 +26,7 @@ func NewWithHooksForTest(
 	dagRepository *persis.DAGRepository,
 	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
-	procStore procdomain.ProcStore,
+	procRepository processRepository,
 	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
 	watermarkStore WatermarkStore,
@@ -40,7 +39,7 @@ func NewWithHooksForTest(
 		dagRepository,
 		dagRunRepository,
 		queueStore,
-		procStore,
+		procRepository,
 		reg,
 		coordinatorCli,
 		watermarkStore,

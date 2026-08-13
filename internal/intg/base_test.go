@@ -73,7 +73,7 @@ func TestBaseDAGSpecialEnvVarsInHandler(t *testing.T) {
 	logFile := filepath.Join(logDir, dagRunID+".log")
 	root := ir.NewDAGRunRef(dag.Name, dagRunID)
 
-	drm := runtimepkg.NewManager(th.DAGRunRepository, th.ProcStore, th.Config)
+	drm := runtimepkg.NewManager(th.DAGRunRepository, th.ProcRepository, th.Config)
 
 	a := agent.New(
 		dagRunID,
@@ -191,7 +191,7 @@ steps:
 	logFile := filepath.Join(logDir, dagRunID+".log")
 	root := ir.NewDAGRunRef(dag.Name, dagRunID)
 
-	drm := runtimepkg.NewManager(th.DAGRunRepository, th.ProcStore, th.Config)
+	drm := runtimepkg.NewManager(th.DAGRunRepository, th.ProcRepository, th.Config)
 
 	a := agent.New(
 		dagRunID,

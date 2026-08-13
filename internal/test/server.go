@@ -110,7 +110,7 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 	}, srv.ServerOptions...)
 	server, err := frontend.NewServer(
 		srv.Context, srv.Config, srv.DAGRepository, srv.DAGRunRepository,
-		srv.QueueStore, srv.ProcStore, srv.DAGRunMgr, cc,
+		srv.QueueStore, srv.ProcRepository, srv.DAGRunMgr, cc,
 		srv.ServiceRegistry, mr, nil,
 		cmdprocess.NewFrontendStoreFactories(),
 		serverOpts...,

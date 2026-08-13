@@ -217,9 +217,9 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 	}
 
 	runningByGroup := map[string][]ir.DAGRunRef{}
-	if a.procStore != nil {
+	if a.procRepository != nil {
 		var err error
-		runningByGroup, err = a.procStore.ListAllAlive(ctx)
+		runningByGroup, err = a.procRepository.ListAllAlive(ctx)
 		if err != nil {
 			return nil, &Error{
 				Code:       api.ErrorCodeInternalError,

@@ -5,16 +5,17 @@ package file
 
 import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
+	procstore "github.com/dagucloud/dagu/v2/internal/persis/file/proc"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
-// NewProcStore wires the file-backed proc store without changing the released
-// .proc file layout under cfg.Paths.ProcDir.
-func NewProcStore(cfg *config.Config, opts ...proc.StoreOption) *proc.Store {
-	storeOpts := []proc.StoreOption{
-		proc.WithStaleThreshold(cfg.Proc.StaleThreshold),
-		proc.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
+// NewProcRepository creates a repository backed by the released .proc file
+// layout under cfg.Paths.ProcDir.
+func NewProcRepository(cfg *config.Config, opts ...procstore.StoreOption) *proc.Repository {
+	storeOpts := []procstore.StoreOption{
+		procstore.WithStaleThreshold(cfg.Proc.StaleThreshold),
+		procstore.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
 	}
 	storeOpts = append(storeOpts, opts...)
-	return proc.New(cfg.Paths.ProcDir, storeOpts...)
+	return proc.NewRepository(procstore.New(cfg.Paths.ProcDir, storeOpts...))
 }

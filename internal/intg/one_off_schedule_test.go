@@ -86,7 +86,7 @@ steps:
 		th.DAGRepository,
 		th.DAGRunRepository,
 		th.QueueStore,
-		th.ProcStore,
+		th.ProcRepository,
 		th.ServiceRegistry,
 		th.CoordinatorCli,
 		watermarkStore,

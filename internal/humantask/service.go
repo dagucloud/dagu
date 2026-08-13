@@ -12,7 +12,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -79,11 +78,15 @@ func (e *ResumeError) Unwrap() error { return e.Err }
 type Service struct {
 	DAGRunRepository *persis.DAGRunRepository
 	QueueStore       queue.QueueStore
-	ProcStore        proc.ProcStore
+	ProcRepository   processRepository
 	Now              func() time.Time
 	SettleTimeout    time.Duration
 	PollInterval     time.Duration
 	EnqueueTimeout   time.Duration
+}
+
+type processRepository interface {
+	IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error)
 }
 
 // CompleteRequest identifies one human task and its typed input.

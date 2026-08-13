@@ -264,7 +264,7 @@ steps:
 	queueProcessor := scheduler.NewQueueProcessor(
 		f.th.QueueStore,
 		f.th.DAGRunRepository,
-		f.th.ProcStore,
+		f.th.ProcRepository,
 		scheduler.NewDAGExecutor(
 			coordinator.New(f.th.ServiceRegistry, coordinator.DefaultConfig()),
 			f.th.SubCmdBuilder,

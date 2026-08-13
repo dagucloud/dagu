@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -93,7 +92,7 @@ func (e startupExecutionError) Unwrap() error {
 type QueueProcessor struct {
 	queueStore             queuedomain.QueueStore
 	dagRunRepository       *persis.DAGRunRepository
-	procStore              proc.ProcStore
+	procRepository         queueProcessRepository
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
@@ -191,7 +190,7 @@ func WithIsSuspended(isSuspended IsSuspendedFunc) QueueProcessorOption {
 func NewQueueProcessor(
 	queueStore queuedomain.QueueStore,
 	dagRunRepository *persis.DAGRunRepository,
-	procStore proc.ProcStore,
+	procRepository queueProcessRepository,
 	dagExecutor *DAGExecutor,
 	queuesConfig config.Queues,
 	opts ...QueueProcessorOption,
@@ -199,7 +198,7 @@ func NewQueueProcessor(
 	p := &QueueProcessor{
 		queueStore:       queueStore,
 		dagRunRepository: dagRunRepository,
-		procStore:        procStore,
+		procRepository:   procRepository,
 		dagExecutor:      dagExecutor,
 		wakeUpCh:         make(chan struct{}, 1),
 		quit:             make(chan struct{}),
@@ -342,7 +341,7 @@ func (p *QueueProcessor) newQueueDispatcher() *queueDispatcher {
 	return newQueueDispatcher(queueDispatchDeps{
 		queueStore:             p.queueStore,
 		dagRunRepository:       p.dagRunRepository,
-		procStore:              p.procStore,
+		procRepository:         p.procRepository,
 		dagRunLeaseStore:       p.dagRunLeaseStore,
 		dispatchTaskStore:      p.dispatchTaskStore,
 		dispatchAdmissionStore: p.dispatchAdmissionStore,

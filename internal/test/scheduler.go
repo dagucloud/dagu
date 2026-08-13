@@ -62,7 +62,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	ds, err := file.NewDAGRepository(helper.Config, file.WithDAGSkipExamples(true))
 	require.NoError(t, err)
 	dagRunRepository := file.NewDAGRunRepository(helper.Config)
-	ps := newProcStore(helper.Config)
+	ps := newProcRepository(helper.Config)
 	qs := store.NewQueueStore(file.NewCollection(helper.Config.Paths.QueueDir))
 
 	// Create DAG run manager
@@ -79,7 +79,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	// Update helper with scheduler-specific stores
 	helper.DAGRepository = ds
 	helper.DAGRunRepository = dagRunRepository
-	helper.ProcStore = ps
+	helper.ProcRepository = ps
 	helper.DAGRunMgr = drm
 
 	sch := &Scheduler{
@@ -103,7 +103,7 @@ func (s *Scheduler) NewSchedulerInstance(t *testing.T) (*scheduler.Scheduler, er
 		s.DAGRepository,
 		s.DAGRunRepository,
 		s.QueueStore,
-		s.ProcStore,
+		s.ProcRepository,
 		s.ServiceRegistry,
 		s.CoordinatorCli,
 		nil,

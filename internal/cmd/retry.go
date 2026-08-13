@@ -549,17 +549,32 @@ func prepareQueuedCatchupRetry(ctx *Context, attempt dagrun.Attempt, dag *ir.DAG
 }
 
 func waitForRetrySourceRelease(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus) error {
-	return waitForRetrySourceReleaseFor(ctx, dag, status, retrySourceReleaseTimeout, retrySourceReleasePollInterval)
+	if ctx == nil {
+		return nil
+	}
+	return waitForRetrySourceReleaseFor(
+		ctx.Context,
+		ctx.ProcRepository,
+		dag,
+		status,
+		retrySourceReleaseTimeout,
+		retrySourceReleasePollInterval,
+	)
+}
+
+type procHeartbeatRepository interface {
+	LatestHeartbeat(context.Context, string, ir.DAGRunRef) (*proc.ProcHeartbeat, error)
 }
 
 func waitForRetrySourceReleaseFor(
-	ctx *Context,
+	ctx context.Context,
+	processes procHeartbeatRepository,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 	timeout time.Duration,
 	pollInterval time.Duration,
 ) error {
-	if ctx == nil || ctx.ProcStore == nil || dag == nil || !retrySourceMayStillBeFinalizing(status) {
+	if processes == nil || dag == nil || !retrySourceMayStillBeFinalizing(status) {
 		return nil
 	}
 
@@ -571,9 +586,8 @@ func waitForRetrySourceReleaseFor(
 		return nil
 	}
 
-	baseCtx := ctx.Context
-	if baseCtx == nil {
-		baseCtx = context.Background()
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	if timeout <= 0 {
 		timeout = retrySourceReleaseTimeout
@@ -582,14 +596,14 @@ func waitForRetrySourceReleaseFor(
 		pollInterval = retrySourceReleasePollInterval
 	}
 
-	waitCtx, cancel := context.WithTimeout(baseCtx, timeout)
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {
-		alive, err := retrySourceAlive(waitCtx, ctx.ProcStore, dag, status, run)
+		alive, err := retrySourceAlive(waitCtx, processes, dag, status, run)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("previous dag-run %s is still finalizing: %w", run, err)
@@ -610,12 +624,12 @@ func waitForRetrySourceReleaseFor(
 
 func retrySourceAlive(
 	ctx context.Context,
-	procStore proc.ProcStore,
+	processes procHeartbeatRepository,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 	run ir.DAGRunRef,
 ) (bool, error) {
-	heartbeat, err := procStore.LatestHeartbeat(ctx, dag.ProcGroup(), run)
+	heartbeat, err := processes.LatestHeartbeat(ctx, dag.ProcGroup(), run)
 	if err != nil {
 		return false, err
 	}

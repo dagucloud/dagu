@@ -95,6 +95,14 @@ type Collection interface {
 	CompareAndSwap(ctx context.Context, id string, expected, next []byte) error
 }
 
+// LockingCollection runs operations under a backend-wide lock scoped by key.
+// Implementations must serialize the same key across all clients sharing the
+// collection's physical namespace.
+type LockingCollection interface {
+	Collection
+	WithLock(ctx context.Context, key string, fn func() error) error
+}
+
 // Backend is the factory for storage [Collection]s.
 //
 // Collections are created lazily; calling Collection("foo") never returns an

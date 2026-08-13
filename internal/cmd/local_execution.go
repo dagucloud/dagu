@@ -44,7 +44,7 @@ func withPreparedLocalExecution(
 	run func(dagrun.Attempt) error,
 ) error {
 	prepared, err := intake.PrepareLocalExecution(ctx.Context, intake.LocalRequest{
-		ProcStore:       ctx.ProcStore,
+		ProcRepository:  ctx.ProcRepository,
 		DAG:             dag,
 		DAGRunID:        dagRunID,
 		DefinitionID:    opts.definitionID,

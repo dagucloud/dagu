@@ -103,10 +103,10 @@ func (s *Service) waitForCompletionReady(
 		return status, nil
 	}
 	originalAttemptID := status.AttemptID
-	if !dispatch.IsRemoteWorkerID(status.WorkerID) && s.ProcStore != nil {
+	if !dispatch.IsRemoteWorkerID(status.WorkerID) && s.ProcRepository != nil {
 		deadline := s.Now().Add(s.SettleTimeout)
 		for {
-			alive, err := s.ProcStore.IsAttemptAlive(ctx, dag.ProcGroup(), status.DAGRun(), status.AttemptID)
+			alive, err := s.ProcRepository.IsAttemptAlive(ctx, dag.ProcGroup(), status.DAGRun(), status.AttemptID)
 			if err != nil {
 				return nil, errorf(ErrorInternal, "failed to check whether DAG-run attempt is still finalizing: %v", err)
 			}

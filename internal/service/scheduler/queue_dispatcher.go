@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,7 +29,7 @@ import (
 type queueDispatchDeps struct {
 	queueStore             queuedomain.QueueStore
 	dagRunRepository       *persis.DAGRunRepository
-	procStore              proc.ProcStore
+	procRepository         queueProcessRepository
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
@@ -46,7 +45,7 @@ type queueDispatchDeps struct {
 type queueDispatcher struct {
 	queueStore             queuedomain.QueueStore
 	dagRunRepository       *persis.DAGRunRepository
-	procStore              proc.ProcStore
+	procRepository         queueProcessRepository
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
@@ -298,7 +297,7 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 	return &queueDispatcher{
 		queueStore:             deps.queueStore,
 		dagRunRepository:       deps.dagRunRepository,
-		procStore:              deps.procStore,
+		procRepository:         deps.procRepository,
 		dagRunLeaseStore:       deps.dagRunLeaseStore,
 		dispatchTaskStore:      deps.dispatchTaskStore,
 		dispatchAdmissionStore: deps.dispatchAdmissionStore,
@@ -381,8 +380,8 @@ func (d *queueDispatcher) newQueuedConditionStageFromItem(
 	if runRef == nil {
 		return nil
 	}
-	if d.procStore != nil && queueName != "" {
-		running, err := d.procStore.IsRunAlive(ctx, queueName, *runRef)
+	if d.procRepository != nil && queueName != "" {
+		running, err := d.procRepository.IsRunAlive(ctx, queueName, *runRef)
 		if err != nil {
 			logger.Warn(ctx, "Failed to check queued item liveness while staging queued condition",
 				tag.Error(err),
@@ -554,7 +553,7 @@ func (d *queueDispatcher) selectDispatchBatch(
 	maxConcurrency int,
 	inflightCount int,
 ) (queueDispatchBatch, error) {
-	localAliveCount, err := d.procStore.CountAlive(ctx, queueName)
+	localAliveCount, err := d.procRepository.CountAlive(ctx, queueName)
 	if err != nil {
 		logger.Error(ctx, "Failed to count alive processes", tag.Error(err), tag.Queue(queueName))
 		d.recordQueueStateUnavailableConditions(ctx, queueName, items)
@@ -637,7 +636,7 @@ func (d *queueDispatcher) dispatchQueuedItem(
 	ctx = logger.WithValues(ctx, tag.RunID(runID))
 	logger.Debug(ctx, "Processing queue item", tag.DAG(runRef.Name))
 
-	running, err := d.procStore.IsRunAlive(ctx, queueName, runRef)
+	running, err := d.procRepository.IsRunAlive(ctx, queueName, runRef)
 	if err != nil {
 		logger.Error(ctx, "Failed to check if run is alive", tag.Error(err))
 		return false
@@ -1146,7 +1145,7 @@ func (d *queueDispatcher) checkStartupStatus(ctx context.Context, queueName stri
 		return false, backoff.PermanentError(err)
 	}
 
-	isAlive, err := d.procStore.IsRunAlive(ctx, queueName, runRef)
+	isAlive, err := d.procRepository.IsRunAlive(ctx, queueName, runRef)
 	livenessErr := err
 	if err != nil {
 		logger.Warn(ctx, "Failed to check run liveness", tag.Error(err), tag.Queue(queueName), tag.RunID(runRef.ID))

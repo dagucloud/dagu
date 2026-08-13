@@ -102,7 +102,7 @@ func (r RunProbe) RequireHeartbeatAdvanceWithin(timeout time.Duration) {
 	testutil.RequireProcHeartbeatAdvance(
 		r.h.t,
 		r.h.Helper.Context,
-		r.h.Helper.ProcStore,
+		r.h.Helper.ProcRepository,
 		r.procGroup,
 		r.ref,
 		timeout,

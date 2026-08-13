@@ -17,17 +17,16 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func newStartupTestDispatcher(dagRunRepository *persis.DAGRunRepository, procStore procdomain.ProcStore, cfg BackoffConfig) *queueDispatcher {
+func newStartupTestDispatcher(dagRunRepository *persis.DAGRunRepository, procRepository queueProcessRepository, cfg BackoffConfig) *queueDispatcher {
 	return newQueueDispatcher(queueDispatchDeps{
 		dagRunRepository: dagRunRepository,
-		procStore:        procStore,
+		procRepository:   procRepository,
 		backoffConfig:    cfg,
 	})
 }
@@ -59,12 +58,12 @@ func (m *mockLeaseStore) ListAll(context.Context) ([]dispatch.DAGRunLease, error
 
 func TestQueueDispatcher_CheckStartupStatus_WithinGraceSkipsAttemptLookup(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
-	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Once()
+	procRepository.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Once()
 
-	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procStore, BackoffConfig{
+	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procRepository, BackoffConfig{
 		StartupGracePeriod: time.Second,
 	})
 
@@ -76,17 +75,17 @@ func TestQueueDispatcher_CheckStartupStatus_WithinGraceSkipsAttemptLookup(t *tes
 	require.False(t, started)
 	require.ErrorIs(t, err, errNotStarted)
 	dagRunRepository.AssertNotCalled(t, "FindAttempt", mock.Anything, mock.Anything)
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 func TestQueueDispatcher_CheckStartupStatus_HeartbeatSkipsAttemptLookup(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
-	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(true, nil).Once()
+	procRepository.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(true, nil).Once()
 
-	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procStore, BackoffConfig{
+	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procRepository, BackoffConfig{
 		StartupGracePeriod: time.Second,
 	})
 
@@ -98,17 +97,17 @@ func TestQueueDispatcher_CheckStartupStatus_HeartbeatSkipsAttemptLookup(t *testi
 	require.True(t, started)
 	require.NoError(t, err)
 	dagRunRepository.AssertNotCalled(t, "FindAttempt", mock.Anything, mock.Anything)
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 func TestQueueDispatcher_CheckStartupStatus_PreStartExecutionErrorIsPermanent(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	execErrCh := make(chan error, 1)
 	execErrCh <- errors.New("dispatch failed")
 
-	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procStore, BackoffConfig{
+	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procRepository, BackoffConfig{
 		StartupGracePeriod: time.Second,
 	})
 
@@ -120,22 +119,22 @@ func TestQueueDispatcher_CheckStartupStatus_PreStartExecutionErrorIsPermanent(t 
 	require.False(t, started)
 	require.ErrorIs(t, err, backoff.ErrPermanent)
 	dagRunRepository.AssertNotCalled(t, "FindAttempt", mock.Anything, mock.Anything)
-	procStore.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
+	procRepository.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestQueueDispatcher_WaitForStartupKeepsLocalLaunchInFlightUntilDone(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	attempt := &testutil.MockAttempt{
 		Status: &ir.DAGRunStatus{Status: ir.Queued},
 	}
 	var checks atomic.Int32
 
-	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil)
+	procRepository.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil)
 	dagRunRepository.On("FindAttempt", mock.Anything, runRef).Return(attempt, nil)
 
-	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procStore, BackoffConfig{
+	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procRepository, BackoffConfig{
 		InitialInterval:    time.Millisecond,
 		MaxInterval:        time.Millisecond,
 		MaxRetries:         1,
@@ -157,19 +156,19 @@ func TestQueueDispatcher_WaitForStartupKeepsLocalLaunchInFlightUntilDone(t *test
 	require.False(t, started)
 	require.GreaterOrEqual(t, checks.Load(), int32(3))
 	dagRunRepository.AssertExpectations(t)
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 func TestQueueDispatcher_WaitForStartupBoundsLocalObservationErrors(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 	storeErr := errors.New("status store unavailable")
 
-	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Twice()
+	procRepository.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Twice()
 	dagRunRepository.On("FindAttempt", mock.Anything, runRef).Return(nil, storeErr).Twice()
 
-	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procStore, BackoffConfig{
+	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procRepository, BackoffConfig{
 		InitialInterval:    time.Millisecond,
 		MaxInterval:        time.Millisecond,
 		MaxRetries:         1,
@@ -187,7 +186,7 @@ func TestQueueDispatcher_WaitForStartupBoundsLocalObservationErrors(t *testing.T
 
 	require.False(t, started)
 	dagRunRepository.AssertExpectations(t)
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 func TestQueueDispatcher_CheckStartupStatus_AfterGraceFallsBackToStatus(t *testing.T) {
@@ -206,16 +205,16 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGraceFallsBackToStatus(t *testi
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dagRunRepository := &mockDAGRunStore{}
-			procStore := &mockProcStore{}
+			procRepository := &mockProcStore{}
 			runRef := ir.NewDAGRunRef("test-dag", "run-1")
 			attempt := &testutil.MockAttempt{
 				Status: &ir.DAGRunStatus{Status: tc.status},
 			}
 
-			procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Once()
+			procRepository.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Once()
 			dagRunRepository.On("FindAttempt", mock.Anything, runRef).Return(attempt, nil).Once()
 
-			dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procStore, BackoffConfig{
+			dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procRepository, BackoffConfig{
 				StartupGracePeriod: 50 * time.Millisecond,
 			})
 
@@ -232,14 +231,14 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGraceFallsBackToStatus(t *testi
 			}
 
 			dagRunRepository.AssertExpectations(t)
-			procStore.AssertExpectations(t)
+			procRepository.AssertExpectations(t)
 		})
 	}
 }
 
 func TestQueueDispatcher_CheckStartupStatus_AfterGracePropagatesLeaseLookupError(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 	leaseStore := &mockLeaseStore{
 		getFunc: func(context.Context, string) (*dispatch.DAGRunLease, error) {
 			return nil, errors.New("lease store unavailable")
@@ -253,10 +252,10 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGracePropagatesLeaseLookupError
 		},
 	}
 
-	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Once()
+	procRepository.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(false, nil).Once()
 	dagRunRepository.On("FindAttempt", mock.Anything, runRef).Return(attempt, nil).Once()
 
-	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procStore, BackoffConfig{
+	dispatcher := newStartupTestDispatcher(dagRunRepository.repository(), procRepository, BackoffConfig{
 		StartupGracePeriod: 50 * time.Millisecond,
 	})
 	dispatcher.dagRunLeaseStore = leaseStore
@@ -269,7 +268,7 @@ func TestQueueDispatcher_CheckStartupStatus_AfterGracePropagatesLeaseLookupError
 	require.False(t, started)
 	require.EqualError(t, err, "lease store unavailable")
 	dagRunRepository.AssertExpectations(t)
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 func TestIsPreStartExecutionFailure(t *testing.T) {
@@ -331,7 +330,7 @@ func (m *mockDispatcher) RequestCancel(_ context.Context, _, _ string, _ *ir.DAG
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
 	// Dispatcher fails twice with a transient error, then succeeds.
@@ -349,11 +348,11 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *
 	status := &ir.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
 
 	// After dispatch succeeds, the process should become alive.
-	procStore.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(true, nil).Once()
+	procRepository.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(true, nil).Once()
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
 		dagRunRepository: dagRunRepository.repository(),
-		procStore:        procStore,
+		procRepository:   procRepository,
 		dagExecutor:      dagExec,
 		backoffConfig: BackoffConfig{
 			InitialInterval:    10 * time.Millisecond,
@@ -366,12 +365,12 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *
 	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status, "")
 	require.True(t, started)
 	require.GreaterOrEqual(t, disp.callCount.Load(), int32(3))
-	procStore.AssertExpectations(t)
+	procRepository.AssertExpectations(t)
 }
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 
 	disp := &mockDispatcher{
 		errFunc: func(_ int32) error {
@@ -388,7 +387,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
 		dagRunRepository: dagRunRepository.repository(),
-		procStore:        procStore,
+		procRepository:   procRepository,
 		dagExecutor:      dagExec,
 		backoffConfig: BackoffConfig{
 			InitialInterval:    10 * time.Millisecond,
@@ -401,12 +400,12 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded
 	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status, "")
 	require.True(t, started)
 	require.Equal(t, int32(1), disp.callCount.Load())
-	procStore.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
+	procRepository.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRetry(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 
 	disp := &mockDispatcher{
 		errFunc: func(_ int32) error {
@@ -421,7 +420,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
 		dagRunRepository: dagRunRepository.repository(),
-		procStore:        procStore,
+		procRepository:   procRepository,
 		dagExecutor:      dagExec,
 		backoffConfig: BackoffConfig{
 			InitialInterval:    10 * time.Millisecond,
@@ -434,12 +433,12 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status, "")
 	require.True(t, started)
 	require.Equal(t, int32(1), disp.callCount.Load())
-	procStore.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
+	procRepository.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
-	procStore := &mockProcStore{}
+	procRepository := &mockProcStore{}
 	attempt := &testutil.MockAttempt{}
 
 	// Dispatcher always returns a permanent error (selector mismatch).
@@ -473,7 +472,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
 		dagRunRepository: dagRunRepository.repository(),
-		procStore:        procStore,
+		procRepository:   procRepository,
 		dagExecutor:      dagExec,
 		backoffConfig: BackoffConfig{
 			InitialInterval:    10 * time.Millisecond,
@@ -487,7 +486,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 	require.False(t, started)
 	// Should have been called exactly once (permanent error stops retries).
 	require.Equal(t, int32(1), disp.callCount.Load())
-	procStore.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
+	procRepository.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 	dagRunRepository.AssertExpectations(t)
 	attempt.AssertExpectations(t)
 }

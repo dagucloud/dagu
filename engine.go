@@ -434,7 +434,7 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 		return iengine.Persistence{}, fmt.Errorf("create DAG state directory: %w", err)
 	}
 
-	procStore := file.NewProcStore(cfg)
+	procRepository := file.NewProcRepository(cfg)
 	dagRepository, err := fileEngineDAGRepository(ctx, cfg, iengine.DAGRepositoryFactoryOptions{})
 	if err != nil {
 		return iengine.Persistence{}, err
@@ -443,7 +443,7 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 	return iengine.Persistence{
 		DAGRepository:    dagRepository,
 		DAGRunRepository: file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false)),
-		ProcStore:        procStore,
+		ProcRepository:   procRepository,
 		StateStore:       store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir)),
 		ServiceRegistry:  file.NewServiceRegistry(cfg),
 

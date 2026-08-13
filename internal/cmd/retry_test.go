@@ -219,7 +219,7 @@ steps:
 		)
 		writeStatus(t, th.Context, attempt, status)
 
-		proc, err := th.ProcStore.Acquire(th.Context, dagFile.ProcGroup(), proc.ProcMeta{
+		proc, err := th.ProcRepository.Acquire(th.Context, dagFile.ProcGroup(), proc.ProcMeta{
 			StartedAt:    startedAt.Unix(),
 			Name:         dagFile.Name,
 			DAGRunID:     runID,

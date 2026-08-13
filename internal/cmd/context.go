@@ -61,7 +61,7 @@ type Context struct {
 	EventSourceInstance       string
 	DAGRunRepository          *persis.DAGRunRepository
 	DAGRunMgr                 runtime.Manager
-	ProcStore                 proc.ProcStore
+	ProcRepository            *proc.Repository
 	QueueStore                queue.QueueStore
 	StateStore                dagrun.StateStore
 	ServiceRegistry           serviceregistry.ServiceRegistry
@@ -93,7 +93,7 @@ func (c *Context) WithContext(ctx context.Context) *Context {
 		EventSourceInstance:       c.EventSourceInstance,
 		DAGRunRepository:          c.DAGRunRepository,
 		DAGRunMgr:                 c.DAGRunMgr,
-		ProcStore:                 c.ProcStore,
+		ProcRepository:            c.ProcRepository,
 		QueueStore:                c.QueueStore,
 		StateStore:                c.StateStore,
 		ServiceRegistry:           c.ServiceRegistry,
@@ -333,7 +333,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		caches = append(caches, dagCache, hc)
 	}
 
-	ps := file.NewProcStore(cfg)
+	ps := file.NewProcRepository(cfg)
 	if err := ps.Validate(ctx); err != nil {
 		return nil, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
 	}
@@ -417,7 +417,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		DAGRunRepository:          dagRunRepository,
 		DAGRunMgr:                 drm,
 		Flags:                     flags,
-		ProcStore:                 ps,
+		ProcRepository:            ps,
 		QueueStore:                qs,
 		StateStore:                stateStore,
 		ServiceRegistry:           sm,
@@ -560,7 +560,7 @@ func (c *Context) NewServer(rs *resource.Service, opts ...frontend.ServerOption)
 		DAGRunRepository:     c.DAGRunRepository,
 		Caches:               c.Caches,
 		QueueStore:           c.QueueStore,
-		ProcStore:            c.ProcStore,
+		ProcRepository:       c.ProcRepository,
 		DAGRunManager:        c.DAGRunMgr,
 		ServiceRegistry:      c.ServiceRegistry,
 		DAGRunLeaseStore:     c.DAGRunLeaseStore,
@@ -603,7 +603,7 @@ func (c *Context) NewScheduler() (*scheduler.Scheduler, error) {
 		DAGRepository:     c.DAGRepository,
 		DAGRunRepository:  c.DAGRunRepository,
 		QueueStore:        c.QueueStore,
-		ProcStore:         c.ProcStore,
+		ProcRepository:    c.ProcRepository,
 		ServiceRegistry:   c.ServiceRegistry,
 		DispatchTaskStore: c.DispatchTaskStore,
 		DAGRunLeaseStore:  c.DAGRunLeaseStore,

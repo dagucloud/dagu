@@ -46,10 +46,10 @@ func WithLatestStatusAllHistory() ManagerOption {
 
 // NewManager creates a new Manager instance.
 // The Manager is used to interact with the DAG.
-func NewManager(dagRunRepository *persis.DAGRunRepository, ps proc.ProcStore, cfg *config.Config, opts ...ManagerOption) Manager {
+func NewManager(dagRunRepository *persis.DAGRunRepository, processes processRepository, cfg *config.Config, opts ...ManagerOption) Manager {
 	m := Manager{
 		dagRunRepository: dagRunRepository,
-		procStore:        ps,
+		procRepository:   processes,
 		subCmdBuilder:    launcher.NewSubCmdBuilder(cfg),
 		nowFunc:          time.Now,
 	}
@@ -64,10 +64,17 @@ func NewManager(dagRunRepository *persis.DAGRunRepository, ps proc.ProcStore, cf
 // through a socket interface and manages dag-run data.
 type Manager struct {
 	dagRunRepository     *persis.DAGRunRepository // Repository for persisted run data
-	procStore            proc.ProcStore           // Store interface for process management
-	subCmdBuilder        *launcher.SubCmdBuilder  // Command builder for constructing command specs
+	procRepository       processRepository
+	subCmdBuilder        *launcher.SubCmdBuilder // Command builder for constructing command specs
 	nowFunc              func() time.Time
 	latestAttemptOptions persis.DAGRunLatestAttemptOptions
+}
+
+type processRepository interface {
+	ListAlive(ctx context.Context, groupName string) ([]ir.DAGRunRef, error)
+	IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error)
+	IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error)
+	LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*proc.ProcEntry, error)
 }
 
 // Stop stops running DAG-runs and can cancel an explicit failed DAG-run that is
@@ -80,7 +87,7 @@ func (m *Manager) Stop(ctx context.Context, dag *ir.DAG, dagRunID string) error 
 	if dagRunID == "" {
 		// If DAGRunID is not specified, stop all matching DAG runs
 		// Get the list of running DAG runs for the queue proc name
-		aliveRuns, err := m.procStore.ListAlive(ctx, dag.ProcGroup())
+		aliveRuns, err := m.procRepository.ListAlive(ctx, dag.ProcGroup())
 		if err != nil {
 			return fmt.Errorf("failed to list alive DAG runs: %w", err)
 		}
@@ -169,7 +176,7 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 	}
 
 	// Check if the process is running locally using proc store
-	alive, err := m.procStore.IsRunAlive(ctx, dag.ProcGroup(), runRef)
+	alive, err := m.procRepository.IsRunAlive(ctx, dag.ProcGroup(), runRef)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve status from proc store: %w", err)
 	}
@@ -232,12 +239,12 @@ func (m *Manager) IsRunning(ctx context.Context, dag *ir.DAG, dagRunID string) b
 	if st != nil && st.DAGRunID == dagRunID && st.Status == ir.Running {
 		return true
 	}
-	if m.procStore == nil || m.dagRunRepository == nil {
+	if m.procRepository == nil || m.dagRunRepository == nil {
 		return false
 	}
 
 	runRef := ir.NewDAGRunRef(dag.Name, dagRunID)
-	if alive, err := m.procStore.IsRunAlive(ctx, dag.ProcGroup(), runRef); err == nil && alive {
+	if alive, err := m.procRepository.IsRunAlive(ctx, dag.ProcGroup(), runRef); err == nil && alive {
 		st, err := m.getPersistedOrCurrentStatus(ctx, dag, dagRunID)
 		if err != nil {
 			return false
@@ -418,8 +425,8 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunSt
 		return ir.InitialStatus(dag), nil
 	}
 
-	if m.procStore != nil {
-		if entry, err := m.procStore.LatestFreshEntryByDAGName(ctx, dag.ProcGroup(), dag.Name); err == nil && entry != nil {
+	if m.procRepository != nil {
+		if entry, err := m.procRepository.LatestFreshEntryByDAGName(ctx, dag.ProcGroup(), dag.Name); err == nil && entry != nil {
 			attempt, findErr := m.findAttemptForProcEntry(ctx, *entry)
 			if findErr == nil {
 				st, readErr := attempt.ReadStatus(ctx)
@@ -485,11 +492,11 @@ func (m *Manager) repairStaleLocalRunIfDead(
 		)
 		return st, nil
 	}
-	if m.procStore == nil {
+	if m.procRepository == nil {
 		return st, nil
 	}
 
-	alive, err := m.procStore.IsAttemptAlive(ctx, dag.ProcGroup(), st.DAGRun(), st.AttemptID)
+	alive, err := m.procRepository.IsAttemptAlive(ctx, dag.ProcGroup(), st.DAGRun(), st.AttemptID)
 	if err != nil {
 		return nil, fmt.Errorf("check alive: %w", err)
 	}
@@ -497,7 +504,7 @@ func (m *Manager) repairStaleLocalRunIfDead(
 		return st, nil
 	}
 
-	runAlive, err := m.procStore.IsRunAlive(ctx, dag.ProcGroup(), st.DAGRun())
+	runAlive, err := m.procRepository.IsRunAlive(ctx, dag.ProcGroup(), st.DAGRun())
 	if err != nil {
 		return nil, fmt.Errorf("check run alive: %w", err)
 	}

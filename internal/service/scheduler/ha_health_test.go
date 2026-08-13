@@ -65,7 +65,7 @@ type haSchedulerFixture struct {
 	dagRepository    *persis.DAGRepository
 	dagRunRepository *persis.DAGRunRepository
 	queueStore       queuedomain.QueueStore
-	procStore        procdomain.ProcStore
+	procRepository   *procdomain.Repository
 	dagRunMgr        runtime.Manager
 }
 
@@ -105,15 +105,15 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
 	)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
-	procStore := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)
+	procRepository := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)
 
 	return &haSchedulerFixture{
 		cfg:              cfg,
 		dagRepository:    testutil.NewFileDAGRepository(cfg.Paths.DAGsDir),
 		dagRunRepository: dagRunRepository,
 		queueStore:       queueStore,
-		procStore:        procStore,
-		dagRunMgr:        runtime.NewManager(dagRunRepository, procStore, cfg),
+		procRepository:   procRepository,
+		dagRunMgr:        runtime.NewManager(dagRunRepository, procRepository, cfg),
 	}
 }
 
@@ -127,7 +127,7 @@ func newHASchedulerForTest(t *testing.T, fixture *haSchedulerFixture, hooks Test
 		fixture.dagRepository,
 		fixture.dagRunRepository,
 		fixture.queueStore,
-		fixture.procStore,
+		fixture.procRepository,
 		nil,
 		nil,
 		nil,
