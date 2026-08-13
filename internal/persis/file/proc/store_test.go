@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
@@ -34,7 +35,7 @@ func TestStoreWritesReleasedProcFileLayoutOnly(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	s := New(root, WithHeartbeatInterval(10*time.Millisecond))
-	repository := proc.NewRepository(s)
+	repository := persis.NewProcRepository(s)
 	ref := ir.NewDAGRunRef("sidecar-dag", "run-1")
 
 	handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
@@ -112,7 +113,7 @@ func TestStoreSkipsAbandonedDamagedProcFile(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	s := New(root, WithHeartbeatInterval(10*time.Millisecond), WithStaleThreshold(time.Second))
-	repository := proc.NewRepository(s)
+	repository := persis.NewProcRepository(s)
 	ref := ir.NewDAGRunRef("healthy-dag", "run-1")
 
 	handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
@@ -142,7 +143,7 @@ func TestStoreDoesNotUndercountWhileDamagedProcFileLooksActive(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	s := New(root, WithStaleThreshold(time.Minute))
-	repository := proc.NewRepository(s)
+	repository := persis.NewProcRepository(s)
 
 	// A damaged file that is still being written may belong to a live run, so
 	// the group must not be reported as if that run were gone.

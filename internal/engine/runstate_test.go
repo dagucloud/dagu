@@ -16,7 +16,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate/memstore"
 	"github.com/stretchr/testify/require"
 )
@@ -190,7 +189,7 @@ func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceF
 		}
 		persistence := engine.Persistence{
 			DAGRepository:   dagRepository,
-			ProcRepository:  proc.NewRepository(procStore),
+			ProcRepository:  persis.NewProcRepository(procStore),
 			StateStore:      store.NewDAGStateStore(backend.Collection("dag_state")),
 			ServiceRegistry: file.NewServiceRegistry(cfg),
 			DAGRepositoryFactory: func(_ context.Context, cfg *config.Config, opts engine.DAGRepositoryFactoryOptions) (*persis.DAGRepository, error) {

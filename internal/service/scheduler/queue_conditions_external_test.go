@@ -21,7 +21,6 @@ import (
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
-	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
@@ -624,7 +623,7 @@ func newQueueConditionFixtureWithConfig(
 		file.NewCollection(filepath.Join(tmp, "dispatch")),
 		store.WithDispatchReservationTTL(conditionTestStaleThreshold),
 	)
-	procRepository := procdomain.NewRepository(proc.New(filepath.Join(tmp, "proc")))
+	procRepository := persis.NewProcRepository(proc.New(filepath.Join(tmp, "proc")))
 	var processorProcRepository processRepository = procRepository
 	if fixtureConfig.procRepository != nil {
 		processorProcRepository = fixtureConfig.procRepository(procRepository)

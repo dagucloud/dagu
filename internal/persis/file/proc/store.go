@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
@@ -73,8 +74,8 @@ type observedProcEntry struct {
 }
 
 var (
-	_ proc.Store      = (*Store)(nil)
-	_ proc.ProcHandle = (*ProcHandle)(nil)
+	_ persis.ProcStore = (*Store)(nil)
+	_ proc.ProcHandle  = (*ProcHandle)(nil)
 )
 
 // Store reads and writes the file-backed .proc layout.
@@ -205,7 +206,7 @@ func (s *Store) WithLock(ctx context.Context, groupName string, fn func() error)
 	}, policy, func(_ error) bool {
 		return ctx.Err() == nil
 	}); err != nil {
-		return proc.NewLockError(err)
+		return persis.NewProcLockError(err)
 	}
 	defer func() {
 		if err := s.groupLock(groupName).Unlock(); err != nil {

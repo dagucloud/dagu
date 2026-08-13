@@ -33,7 +33,6 @@ import (
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
@@ -371,7 +370,7 @@ func New(
 	dr *persis.DAGRepository,
 	dagRunRepository *persis.DAGRunRepository,
 	qs queue.QueueStore,
-	processes *proc.Repository,
+	processes *persis.ProcRepository,
 	drm runtime.Manager,
 	cfg *config.Config,
 	cc coordinator.Client,

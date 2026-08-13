@@ -6,7 +6,6 @@ package proc
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -16,40 +15,6 @@ import (
 )
 
 var procSafeAttemptIDPattern = regexp.MustCompile(`^[-a-zA-Z0-9_]+$`)
-
-// Store persists process heartbeats and provides the backend operations needed
-// by Repository.
-type Store interface {
-	Validate(ctx context.Context) error
-	WithLock(ctx context.Context, groupName string, fn func() error) error
-	Acquire(ctx context.Context, groupName string, meta ProcMeta) (ProcHandle, error)
-	ListEntries(ctx context.Context, groupName string) ([]ProcEntry, error)
-	LatestHeartbeat(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (*ProcHeartbeat, error)
-	ListAllEntries(ctx context.Context) ([]ProcEntry, error)
-	RemoveIfStale(ctx context.Context, entry ProcEntry) error
-}
-
-// LockError reports a failure to acquire a process-group lock.
-type LockError struct {
-	err error
-}
-
-// NewLockError classifies a backend lock-acquisition failure.
-func NewLockError(err error) error {
-	if err == nil {
-		return nil
-	}
-	return &LockError{err: err}
-}
-
-func (e *LockError) Error() string { return e.err.Error() }
-func (e *LockError) Unwrap() error { return e.err }
-
-// IsLockError reports whether err represents lock acquisition failure.
-func IsLockError(err error) bool {
-	var target *LockError
-	return errors.As(err, &target)
-}
 
 // ProcHandle represents a process that is associated with a dag-run.
 type ProcHandle interface {
@@ -117,8 +82,8 @@ type ProcEntry struct {
 	Fresh           bool
 }
 
-// ProcEntryID is an opaque identity returned by Repository for exact stale-entry
-// removal. Callers must not interpret it as a filesystem path or record key.
+// ProcEntryID is an opaque identity used for exact stale-entry removal.
+// Callers must not interpret it as a filesystem path or record key.
 type ProcEntryID struct {
 	token string
 }

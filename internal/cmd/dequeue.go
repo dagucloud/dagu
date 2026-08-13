@@ -11,7 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/spf13/cobra"
 )
@@ -196,7 +196,7 @@ func queueNameForDAGRun(ctx *Context, dagRun ir.DAGRunRef) (string, error) {
 
 func withQueueProcLock(ctx *Context, queueName string, fn func() error) error {
 	err := ctx.ProcRepository.WithLock(ctx, queueName, fn)
-	if proc.IsLockError(err) {
+	if persis.IsProcLockError(err) {
 		return fmt.Errorf("failed to lock process group %s: %w", queueName, err)
 	}
 	return err

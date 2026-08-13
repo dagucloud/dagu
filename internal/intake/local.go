@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
@@ -106,7 +107,7 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 		return nil
 	})
 	if err != nil {
-		if proc.IsLockError(err) {
+		if persis.IsProcLockError(err) {
 			return nil, fmt.Errorf("failed to lock process group: %w", err)
 		}
 		return nil, err

@@ -4,8 +4,8 @@
 // Package persis defines persistence contracts for Dagu's control plane.
 //
 // Collection-backed records flow through [Backend] → [Collection] → [Record].
-// DAG definitions use [DAGDefinitionStore] because their persistence contract
-// includes source locations, discovery issues, and suspension state.
+// Domain-specific persistence contracts use dedicated store interfaces such as
+// [DAGDefinitionStore], [DAGRunStore], and [ProcStore].
 //
 // Domain model changes for collection-backed records live inside Record.Data,
 // leaving their physical schema unchanged.

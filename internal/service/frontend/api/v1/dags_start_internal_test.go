@@ -20,7 +20,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	fileproc "github.com/dagucloud/dagu/v2/internal/persis/file/proc"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -120,8 +119,8 @@ func newLocalStartTestAPI(t *testing.T) *API {
 	}
 }
 
-func newTestProcRepository(procDir string) *proc.Repository {
-	return proc.NewRepository(fileproc.New(procDir))
+func newTestProcRepository(procDir string) *persis.ProcRepository {
+	return persis.NewProcRepository(fileproc.New(procDir))
 }
 
 func currentProcessStartResult(t *testing.T, done <-chan error) *launcher.StartResult {

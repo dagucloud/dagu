@@ -16,7 +16,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
-	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -65,7 +64,7 @@ type haSchedulerFixture struct {
 	dagRepository    *persis.DAGRepository
 	dagRunRepository *persis.DAGRunRepository
 	queueStore       queuedomain.QueueStore
-	procRepository   *procdomain.Repository
+	procRepository   *persis.ProcRepository
 	dagRunMgr        runtime.Manager
 }
 

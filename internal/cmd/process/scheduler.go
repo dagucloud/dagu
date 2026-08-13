@@ -20,7 +20,6 @@ import (
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
@@ -37,7 +36,7 @@ type SchedulerConfig struct {
 	DAGRepository     *persis.DAGRepository
 	DAGRunRepository  *persis.DAGRunRepository
 	QueueStore        queue.QueueStore
-	ProcRepository    *proc.Repository
+	ProcRepository    *persis.ProcRepository
 	ServiceRegistry   serviceregistry.ServiceRegistry
 	DispatchTaskStore dispatch.DispatchTaskStore
 	DAGRunLeaseStore  dispatch.DAGRunLeaseStore

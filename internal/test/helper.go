@@ -521,7 +521,7 @@ type Helper struct {
 	DAGRepository             *persis.DAGRepository
 	DAGRunRepository          *persis.DAGRunRepository
 	DAGRunMgr                 runtimepkg.Manager
-	ProcRepository            *proc.Repository
+	ProcRepository            *persis.ProcRepository
 	QueueStore                queue.QueueStore
 	StateStore                dagrun.StateStore
 	ServiceRegistry           serviceregistry.ServiceRegistry

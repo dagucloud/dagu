@@ -596,7 +596,7 @@ func (e *Engine) prepareLocal(ctx context.Context, dag *ir.DAG, runID string, ro
 		return err
 	})
 	if err != nil {
-		if proc.IsLockError(err) {
+		if persis.IsProcLockError(err) {
 			return nil, fmt.Errorf("lock process group: %w", err)
 		}
 		return nil, err

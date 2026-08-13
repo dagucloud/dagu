@@ -19,7 +19,7 @@ const (
 	defaultProcHeartbeatInterval = 5 * time.Second
 )
 
-var _ proc.Store = (*ProcStore)(nil)
+var _ persis.ProcStore = (*ProcStore)(nil)
 
 // ProcStoreOption configures a ProcStore.
 type ProcStoreOption func(*ProcStore)
@@ -42,7 +42,7 @@ func WithProcHeartbeatInterval(d time.Duration) ProcStoreOption {
 	}
 }
 
-// ProcStore implements [proc.Store] as JSON records in a
+// ProcStore implements [persis.ProcStore] as JSON records in a
 // [persis.LockingCollection].
 type ProcStore struct {
 	col               persis.LockingCollection

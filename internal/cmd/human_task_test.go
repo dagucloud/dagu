@@ -18,7 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	fileproc "github.com/dagucloud/dagu/v2/internal/persis/file/proc"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/spf13/cobra"
@@ -354,7 +353,7 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 			Command:          command,
 			DAGRunRepository: persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 			QueueStore:       queue,
-			ProcRepository:   proc.NewRepository(fileproc.New(t.TempDir())),
+			ProcRepository:   persis.NewProcRepository(fileproc.New(t.TempDir())),
 		},
 		dag:         dag,
 		status:      status,

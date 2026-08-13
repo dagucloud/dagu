@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package proc
+package persis
 
 import (
 	"context"
@@ -9,31 +9,32 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
-// Repository provides application-level access to process liveness.
-type Repository struct {
-	store Store
+// ProcRepository provides application-level access to process liveness.
+type ProcRepository struct {
+	store ProcStore
 	now   func() time.Time
 }
 
-// NewRepository creates a process repository backed by store.
-func NewRepository(store Store) *Repository {
-	return &Repository{store: store, now: time.Now}
+// NewProcRepository creates a process repository backed by store.
+func NewProcRepository(store ProcStore) *ProcRepository {
+	return &ProcRepository{store: store, now: time.Now}
 }
 
 // Validate checks whether the backing store is usable.
-func (r *Repository) Validate(ctx context.Context) error {
+func (r *ProcRepository) Validate(ctx context.Context) error {
 	return r.store.Validate(ctx)
 }
 
 // WithLock runs fn while holding the process-group lock.
-func (r *Repository) WithLock(ctx context.Context, groupName string, fn func() error) error {
+func (r *ProcRepository) WithLock(ctx context.Context, groupName string, fn func() error) error {
 	return r.store.WithLock(ctx, groupName, fn)
 }
 
 // Acquire creates a process entry and starts its heartbeat.
-func (r *Repository) Acquire(ctx context.Context, groupName string, meta ProcMeta) (ProcHandle, error) {
+func (r *ProcRepository) Acquire(ctx context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error) {
 	if meta.StartedAt <= 0 {
 		meta.StartedAt = r.now().UTC().Unix()
 	}
@@ -44,7 +45,7 @@ func (r *Repository) Acquire(ctx context.Context, groupName string, meta ProcMet
 }
 
 // CountAlive returns the number of distinct fresh DAG runs in a group.
-func (r *Repository) CountAlive(ctx context.Context, groupName string) (int, error) {
+func (r *ProcRepository) CountAlive(ctx context.Context, groupName string) (int, error) {
 	entries, err := r.store.ListEntries(ctx, groupName)
 	if err != nil {
 		return 0, err
@@ -59,7 +60,7 @@ func (r *Repository) CountAlive(ctx context.Context, groupName string) (int, err
 }
 
 // CountAliveByDAGName returns the number of distinct fresh DAG runs for a DAG in a group.
-func (r *Repository) CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error) {
+func (r *ProcRepository) CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error) {
 	entries, err := r.store.ListEntries(ctx, groupName)
 	if err != nil {
 		return 0, err
@@ -74,7 +75,7 @@ func (r *Repository) CountAliveByDAGName(ctx context.Context, groupName, dagName
 }
 
 // IsRunAlive reports whether a DAG run has a fresh entry in the group.
-func (r *Repository) IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error) {
+func (r *ProcRepository) IsRunAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (bool, error) {
 	entries, err := r.store.ListEntries(ctx, groupName)
 	if err != nil {
 		return false, err
@@ -88,7 +89,7 @@ func (r *Repository) IsRunAlive(ctx context.Context, groupName string, dagRun ir
 }
 
 // IsAttemptAlive reports whether a DAG-run attempt has a fresh entry in the group.
-func (r *Repository) IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error) {
+func (r *ProcRepository) IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error) {
 	entries, err := r.store.ListEntries(ctx, groupName)
 	if err != nil {
 		return false, err
@@ -102,16 +103,16 @@ func (r *Repository) IsAttemptAlive(ctx context.Context, groupName string, dagRu
 }
 
 // ListAlive returns distinct fresh DAG runs in canonical order.
-func (r *Repository) ListAlive(ctx context.Context, groupName string) ([]ir.DAGRunRef, error) {
+func (r *ProcRepository) ListAlive(ctx context.Context, groupName string) ([]ir.DAGRunRef, error) {
 	entries, err := r.store.ListEntries(ctx, groupName)
 	if err != nil {
 		return nil, err
 	}
-	return freshRefs(entries), nil
+	return freshProcRefs(entries), nil
 }
 
 // ListAllAlive returns distinct fresh DAG runs grouped in canonical order.
-func (r *Repository) ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRef, error) {
+func (r *ProcRepository) ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRef, error) {
 	entries, err := r.store.ListAllEntries(ctx)
 	if err != nil {
 		return nil, err
@@ -133,23 +134,23 @@ func (r *Repository) ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRe
 		result[entry.GroupName] = append(result[entry.GroupName], ref)
 	}
 	for groupName := range result {
-		sortDAGRuns(result[groupName])
+		sortProcDAGRuns(result[groupName])
 	}
 	return result, nil
 }
 
 // ListEntries returns all entries in a group, including stale entries.
-func (r *Repository) ListEntries(ctx context.Context, groupName string) ([]ProcEntry, error) {
+func (r *ProcRepository) ListEntries(ctx context.Context, groupName string) ([]proc.ProcEntry, error) {
 	return r.store.ListEntries(ctx, groupName)
 }
 
 // LatestFreshEntryByDAGName returns the newest fresh entry for a DAG in a group.
-func (r *Repository) LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*ProcEntry, error) {
+func (r *ProcRepository) LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*proc.ProcEntry, error) {
 	entries, err := r.store.ListEntries(ctx, groupName)
 	if err != nil {
 		return nil, err
 	}
-	var freshest *ProcEntry
+	var freshest *proc.ProcEntry
 	for i := range entries {
 		entry := entries[i]
 		if !entry.Fresh || entry.Meta.Name != dagName {
@@ -166,21 +167,21 @@ func (r *Repository) LatestFreshEntryByDAGName(ctx context.Context, groupName, d
 }
 
 // LatestHeartbeat returns the latest heartbeat observation for a DAG run.
-func (r *Repository) LatestHeartbeat(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (*ProcHeartbeat, error) {
+func (r *ProcRepository) LatestHeartbeat(ctx context.Context, groupName string, dagRun ir.DAGRunRef) (*proc.ProcHeartbeat, error) {
 	return r.store.LatestHeartbeat(ctx, groupName, dagRun)
 }
 
 // ListAllEntries returns all entries, including stale entries.
-func (r *Repository) ListAllEntries(ctx context.Context) ([]ProcEntry, error) {
+func (r *ProcRepository) ListAllEntries(ctx context.Context) ([]proc.ProcEntry, error) {
 	return r.store.ListAllEntries(ctx)
 }
 
 // RemoveIfStale removes the exact entry when it remains stale and unchanged.
-func (r *Repository) RemoveIfStale(ctx context.Context, entry ProcEntry) error {
+func (r *ProcRepository) RemoveIfStale(ctx context.Context, entry proc.ProcEntry) error {
 	return r.store.RemoveIfStale(ctx, entry)
 }
 
-func freshRefs(entries []ProcEntry) []ir.DAGRunRef {
+func freshProcRefs(entries []proc.ProcEntry) []ir.DAGRunRef {
 	seen := make(map[string]ir.DAGRunRef)
 	for _, entry := range entries {
 		if entry.Fresh {
@@ -192,11 +193,11 @@ func freshRefs(entries []ProcEntry) []ir.DAGRunRef {
 	for _, ref := range seen {
 		refs = append(refs, ref)
 	}
-	sortDAGRuns(refs)
+	sortProcDAGRuns(refs)
 	return refs
 }
 
-func sortDAGRuns(refs []ir.DAGRunRef) {
+func sortProcDAGRuns(refs []ir.DAGRunRef) {
 	sort.Slice(refs, func(i, j int) bool {
 		if refs[i].Name == refs[j].Name {
 			return refs[i].ID < refs[j].ID

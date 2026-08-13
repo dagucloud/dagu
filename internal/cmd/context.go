@@ -61,7 +61,7 @@ type Context struct {
 	EventSourceInstance       string
 	DAGRunRepository          *persis.DAGRunRepository
 	DAGRunMgr                 runtime.Manager
-	ProcRepository            *proc.Repository
+	ProcRepository            *persis.ProcRepository
 	QueueStore                queue.QueueStore
 	StateStore                dagrun.StateStore
 	ServiceRegistry           serviceregistry.ServiceRegistry

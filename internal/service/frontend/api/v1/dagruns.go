@@ -37,7 +37,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -3300,7 +3299,7 @@ func (a *API) DequeueDAGRun(ctx context.Context, request api.DequeueDAGRunReques
 		return nil
 	})
 	if err != nil {
-		if proc.IsLockError(err) {
+		if persis.IsProcLockError(err) {
 			return nil, fmt.Errorf("failed to lock process group %s: %w", queueName, err)
 		}
 		return nil, err

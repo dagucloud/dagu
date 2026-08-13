@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newProcRepository(cfg *config.Config) *proc.Repository {
+func newProcRepository(cfg *config.Config) *persis.ProcRepository {
 	return file.NewProcRepository(cfg)
 }
 

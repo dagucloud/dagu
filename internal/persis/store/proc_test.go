@@ -24,7 +24,7 @@ import (
 	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 )
 
-func newProcRepository(t *testing.T, opts ...store.ProcStoreOption) *procdomain.Repository {
+func newProcRepository(t *testing.T, opts ...store.ProcStoreOption) *persis.ProcRepository {
 	t.Helper()
 	return newProcRepositoryForCollection(t, testutil.NewMemoryBackend().Collection("proc_entries"), opts...)
 }
@@ -33,11 +33,11 @@ func newProcRepositoryForCollection(
 	t *testing.T,
 	collection persis.Collection,
 	opts ...store.ProcStoreOption,
-) *procdomain.Repository {
+) *persis.ProcRepository {
 	t.Helper()
 	procStore, err := store.NewProcStore(collection, opts...)
 	require.NoError(t, err)
-	return procdomain.NewRepository(procStore)
+	return persis.NewProcRepository(procStore)
 }
 
 func procMeta(ref ir.DAGRunRef) procdomain.ProcMeta {
@@ -347,7 +347,7 @@ func TestProcRepositoryWithLockPreservesCallbackError(t *testing.T) {
 	})
 
 	require.ErrorIs(t, err, callbackErr)
-	assert.False(t, procdomain.IsLockError(err))
+	assert.False(t, persis.IsProcLockError(err))
 }
 
 func TestNewProcStoreRequiresScopedLocking(t *testing.T) {
@@ -373,7 +373,7 @@ func TestProcStoreBackendLockReturnsCanceledContextBeforeAcquired(t *testing.T) 
 
 	err := s.WithLock(ctx, "queue-a", func() error { return nil })
 	require.ErrorIs(t, err, context.Canceled)
-	assert.True(t, procdomain.IsLockError(err))
+	assert.True(t, persis.IsProcLockError(err))
 	require.NoError(t, s.WithLock(context.Background(), "queue-a", func() error { return nil }))
 }
 

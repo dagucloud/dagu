@@ -24,7 +24,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
-	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -88,7 +87,7 @@ func newQueueFixture(t *testing.T) *queueFixture {
 	}
 }
 
-func newSchedulerTestProcRepository(procDir string, cfg *config.Config) *procdomain.Repository {
+func newSchedulerTestProcRepository(procDir string, cfg *config.Config) *persis.ProcRepository {
 	opts := []proc.StoreOption{}
 	if cfg != nil {
 		opts = append(opts,
@@ -96,7 +95,7 @@ func newSchedulerTestProcRepository(procDir string, cfg *config.Config) *procdom
 			proc.WithStaleThreshold(cfg.Proc.StaleThreshold),
 		)
 	}
-	return procdomain.NewRepository(proc.New(procDir, opts...))
+	return persis.NewProcRepository(proc.New(procDir, opts...))
 }
 
 func TestWithDispatchTaskStoreClearsAdmissionStore(t *testing.T) {

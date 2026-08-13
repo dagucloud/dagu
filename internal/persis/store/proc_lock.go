@@ -7,13 +7,13 @@ import (
 	"context"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // WithLock runs fn while holding the process-group lock.
 func (s *ProcStore) WithLock(ctx context.Context, groupName string, fn func() error) error {
 	if err := ctx.Err(); err != nil {
-		return proc.NewLockError(err)
+		return persis.NewProcLockError(err)
 	}
 	callbackStarted := false
 	err := s.col.WithLock(ctx, procLockKey(groupName), func() error {
@@ -21,7 +21,7 @@ func (s *ProcStore) WithLock(ctx context.Context, groupName string, fn func() er
 		return fn()
 	})
 	if err != nil && !callbackStarted {
-		return proc.NewLockError(err)
+		return persis.NewProcLockError(err)
 	}
 	return err
 }

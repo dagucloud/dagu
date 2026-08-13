@@ -11,7 +11,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -26,7 +25,7 @@ type Persistence struct {
 	DAGRepository        *persis.DAGRepository
 	DAGRunRepository     *persis.DAGRunRepository
 	RunStateStore        runstate.Store
-	ProcRepository       *proc.Repository
+	ProcRepository       *persis.ProcRepository
 	StateStore           dagrun.StateStore
 	ServiceRegistry      serviceregistry.ServiceRegistry
 	DAGRepositoryFactory DAGRepositoryFactory
