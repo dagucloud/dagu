@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
@@ -41,19 +42,13 @@ func newFileNotificationMonitor(
 	logger *slog.Logger,
 	cfg chatbridge.NotificationMonitorConfig,
 ) *chatbridge.NotificationMonitor {
-	var stateStore chatbridge.StateStore
-	var lease chatbridge.Lease
-	if stateFile != "" {
-		stateStore = filemonitor.NewStateStore(stateFile)
-		lease = filemonitor.NewLease(stateFile, filemonitor.LeaseOptions{
-			StaleThreshold: chatbridge.DefaultNotificationLockStaleThreshold,
-			RetryInterval:  chatbridge.DefaultNotificationLockRetryInterval,
-		})
-	}
 	return chatbridge.NewNotificationMonitor(
 		eventService,
-		stateStore,
-		lease,
+		filemonitor.NewStateStore(stateFile),
+		filemonitor.NewLease(stateFile, &dirlock.LockOptions{
+			StaleThreshold: chatbridge.DefaultNotificationLockStaleThreshold,
+			RetryInterval:  chatbridge.DefaultNotificationLockRetryInterval,
+		}),
 		transport,
 		logger,
 		cfg,

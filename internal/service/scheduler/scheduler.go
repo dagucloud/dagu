@@ -22,7 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
-	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -79,9 +78,9 @@ type Scheduler struct {
 	startupCancel       context.CancelFunc
 	lockHeld            atomic.Bool
 	clock               Clock // Clock function for getting current time
-	eventCollector      eventstore.Collector
-	notificationMonitor backgroundRunner
-	incidentMonitor     backgroundRunner
+	eventCollector      func(context.Context)
+	notificationMonitor func(context.Context)
+	incidentMonitor     func(context.Context)
 }
 
 type schedulerHooks struct {
@@ -98,10 +97,6 @@ func WithDAGProfileResolver(resolver DAGProfileResolver) Option {
 	return func(opts *schedulerOptions) {
 		opts.profileResolver = resolver
 	}
-}
-
-type backgroundRunner interface {
-	Run(ctx context.Context)
 }
 
 type startupState struct {
@@ -320,7 +315,7 @@ func (s *Scheduler) SetClock(clock Clock) {
 
 // SetEventCollector configures the scheduler-owned collector loop.
 // This must be called before Start().
-func (s *Scheduler) SetEventCollector(collector eventstore.Collector) {
+func (s *Scheduler) SetEventCollector(collector func(context.Context)) {
 	if s == nil {
 		return
 	}
@@ -329,7 +324,7 @@ func (s *Scheduler) SetEventCollector(collector eventstore.Collector) {
 
 // SetNotificationMonitor configures the scheduler-owned notification monitor.
 // This must be called before Start().
-func (s *Scheduler) SetNotificationMonitor(monitor backgroundRunner) {
+func (s *Scheduler) SetNotificationMonitor(monitor func(context.Context)) {
 	if s == nil {
 		return
 	}
@@ -338,7 +333,7 @@ func (s *Scheduler) SetNotificationMonitor(monitor backgroundRunner) {
 
 // SetIncidentMonitor configures the scheduler-owned incident monitor.
 // This must be called before Start().
-func (s *Scheduler) SetIncidentMonitor(monitor backgroundRunner) {
+func (s *Scheduler) SetIncidentMonitor(monitor func(context.Context)) {
 	if s == nil {
 		return
 	}
@@ -710,21 +705,21 @@ func (s *Scheduler) startEventCollector(ctx context.Context) {
 	if s.eventCollector == nil {
 		return
 	}
-	s.eventCollector.Start(ctx)
+	s.eventCollector(ctx)
 }
 
 func (s *Scheduler) startNotificationMonitor(ctx context.Context) {
 	if s.notificationMonitor == nil {
 		return
 	}
-	s.notificationMonitor.Run(ctx)
+	s.notificationMonitor(ctx)
 }
 
 func (s *Scheduler) startIncidentMonitor(ctx context.Context) {
 	if s.incidentMonitor == nil {
 		return
 	}
-	s.incidentMonitor.Run(ctx)
+	s.incidentMonitor(ctx)
 }
 
 func (s *Scheduler) startHeartbeat(ctx context.Context) {

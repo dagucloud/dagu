@@ -76,10 +76,10 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 			sched.SetEventCollector(cfg.Stores.EventCollector)
 		}
 		if notificationMonitor := newNotificationMonitor(cfg.Config, cfg.Persistence.DAGRepository, cfg.Stores); notificationMonitor != nil {
-			sched.SetNotificationMonitor(notificationMonitor)
+			sched.SetNotificationMonitor(notificationMonitor.Run)
 		}
 		if incidentMonitor := newIncidentMonitor(cfg.Config, cfg.LicenseManager, cfg.Stores); incidentMonitor != nil {
-			sched.SetIncidentMonitor(incidentMonitor)
+			sched.SetIncidentMonitor(incidentMonitor.Run)
 		}
 	}
 

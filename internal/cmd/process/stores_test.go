@@ -4,7 +4,6 @@
 package process
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,13 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 )
-
-func storesTestContext(t *testing.T) context.Context {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	return ctx
-}
 
 func storesTestConfig(tmpDir string, ia config.InitialAdmin) *config.Config {
 	return &config.Config{
@@ -59,15 +51,15 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "securepass123",
 		})
 
-		result, err := newBuiltinAuth(storesTestContext(t), cfg)
+		result, err := newBuiltinAuth(t.Context(), cfg)
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired, "setup should not be required after auto-provisioning")
 
-		count, err := result.service.CountUsers(storesTestContext(t))
+		count, err := result.service.CountUsers(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), count)
 
-		user, err := result.userStore.GetByUsername(storesTestContext(t), "testadmin")
+		user, err := result.userStore.GetByUsername(t.Context(), "testadmin")
 		require.NoError(t, err)
 		assert.Equal(t, "testadmin", user.Username)
 		assert.Equal(t, authmodel.RoleAdmin, user.Role)
@@ -84,13 +76,13 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 		store, err := persiststore.NewUserStore(file.NewCollection(cfg.Paths.UsersDir))
 		require.NoError(t, err)
 		existing := authmodel.NewUser("existinguser", "$2a$12$K8gHXqrFdFvMwJBG0VlJGuAGz3FwBmTm8xnNQblN2tCxrQgPLmwHa", authmodel.RoleAdmin)
-		require.NoError(t, store.Create(storesTestContext(t), existing))
+		require.NoError(t, store.Create(t.Context(), existing))
 
-		result, err := newBuiltinAuth(storesTestContext(t), cfg)
+		result, err := newBuiltinAuth(t.Context(), cfg)
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired)
 
-		count, err := result.service.CountUsers(storesTestContext(t))
+		count, err := result.service.CountUsers(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), count)
 	})
@@ -99,7 +91,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 		t.Parallel()
 		cfg := storesTestConfig(t.TempDir(), config.InitialAdmin{})
 
-		result, err := newBuiltinAuth(storesTestContext(t), cfg)
+		result, err := newBuiltinAuth(t.Context(), cfg)
 		require.NoError(t, err)
 		assert.True(t, result.setupRequired, "setup should be required when initial_admin is not configured")
 	})
@@ -111,7 +103,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "short",
 		})
 
-		_, err := newBuiltinAuth(storesTestContext(t), cfg)
+		_, err := newBuiltinAuth(t.Context(), cfg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to auto-provision initial admin user")
 	})
@@ -124,15 +116,15 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "securepass123",
 		})
 
-		result, err := newBuiltinAuth(storesTestContext(t), cfg)
+		result, err := newBuiltinAuth(t.Context(), cfg)
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired)
 
-		result, err = newBuiltinAuth(storesTestContext(t), cfg)
+		result, err = newBuiltinAuth(t.Context(), cfg)
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired)
 
-		count, err := result.service.CountUsers(storesTestContext(t))
+		count, err := result.service.CountUsers(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), count)
 	})
@@ -145,15 +137,15 @@ func TestNewBuiltinAuthServiceUserCanAuthenticate(t *testing.T) {
 		Password: "mypassword123",
 	})
 
-	result, err := newBuiltinAuth(storesTestContext(t), cfg)
+	result, err := newBuiltinAuth(t.Context(), cfg)
 	require.NoError(t, err)
 
-	user, err := result.service.Authenticate(storesTestContext(t), "authadmin", "mypassword123")
+	user, err := result.service.Authenticate(t.Context(), "authadmin", "mypassword123")
 	require.NoError(t, err)
 	assert.Equal(t, "authadmin", user.Username)
 	assert.Equal(t, authmodel.RoleAdmin, user.Role)
 
-	_, err = result.service.Authenticate(storesTestContext(t), "authadmin", "wrongpassword")
+	_, err = result.service.Authenticate(t.Context(), "authadmin", "wrongpassword")
 	require.Error(t, err)
 }
 
@@ -163,7 +155,7 @@ func TestResolveTokenSecret(t *testing.T) {
 	t.Run("configured secret takes precedence", func(t *testing.T) {
 		t.Parallel()
 		cfg := storesTestConfig(t.TempDir(), config.InitialAdmin{})
-		ctx := storesTestContext(t)
+		ctx := t.Context()
 		authDir := filepath.Join(cfg.Paths.DataDir, "auth")
 		require.NoError(t, os.MkdirAll(authDir, 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(authDir, "token_secret"), []byte("file-secret"), 0o600))
@@ -176,7 +168,7 @@ func TestResolveTokenSecret(t *testing.T) {
 	t.Run("persistent secret is used when configuration is empty", func(t *testing.T) {
 		t.Parallel()
 		cfg := storesTestConfig(t.TempDir(), config.InitialAdmin{})
-		ctx := storesTestContext(t)
+		ctx := t.Context()
 		cfg.Server.Auth.Builtin.Token.Secret = ""
 
 		first, err := resolveTokenSecret(ctx, cfg)
@@ -199,10 +191,10 @@ func TestNewFileStoresAppliesRoleFailurePolicy(t *testing.T) {
 			Paths:      config.PathsConfig{EventStoreDir: filepath.Join(blocker, "events")},
 		}
 
-		_, err := NewFileStores(context.Background(), cfg, StoreRoleEvents)
+		_, err := NewFileStores(t.Context(), cfg, StoreRoleEvents)
 		require.NoError(t, err)
 
-		_, err = NewFileStores(context.Background(), cfg, StoreRoleEvents|StoreRoleServer)
+		_, err = NewFileStores(t.Context(), cfg, StoreRoleEvents|StoreRoleServer)
 		require.ErrorContains(t, err, "failed to initialize event store")
 	})
 
@@ -210,10 +202,10 @@ func TestNewFileStoresAppliesRoleFailurePolicy(t *testing.T) {
 		t.Parallel()
 		cfg := &config.Config{}
 
-		_, err := NewFileStores(context.Background(), cfg, StoreRoleEvents)
+		_, err := NewFileStores(t.Context(), cfg, StoreRoleEvents)
 		require.NoError(t, err)
 
-		_, err = NewFileStores(context.Background(), cfg, StoreRoleScheduler)
+		_, err = NewFileStores(t.Context(), cfg, StoreRoleScheduler)
 		require.ErrorContains(t, err, "failed to initialize DAG settings store")
 	})
 }
@@ -235,14 +227,14 @@ func TestNewFileStoresProvidesWorkspaceBaseConfig(t *testing.T) {
 		Server: config.Server{Auth: config.Auth{Mode: config.AuthModeNone}},
 	}
 
-	stores, err := NewFileStores(context.Background(), cfg, StoreRoleServer)
+	stores, err := NewFileStores(t.Context(), cfg, StoreRoleServer)
 	require.NoError(t, err)
 	require.NotNil(t, stores.WorkspaceBaseConfig)
 
 	workspaceStore, err := stores.WorkspaceBaseConfig("operations")
 	require.NoError(t, err)
-	require.NoError(t, workspaceStore.UpdateSpec(context.Background(), []byte("max_active_runs: 2\n")))
-	spec, err := workspaceStore.GetSpec(context.Background())
+	require.NoError(t, workspaceStore.UpdateSpec(t.Context(), []byte("max_active_runs: 2\n")))
+	spec, err := workspaceStore.GetSpec(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "max_active_runs: 2\n", spec)
 }

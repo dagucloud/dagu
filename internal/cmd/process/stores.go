@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
@@ -21,21 +20,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
-	"github.com/dagucloud/dagu/v2/internal/incident"
-	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
-	"github.com/dagucloud/dagu/v2/internal/profile"
-	"github.com/dagucloud/dagu/v2/internal/remotenode"
-	"github.com/dagucloud/dagu/v2/internal/secret"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
-	"github.com/dagucloud/dagu/v2/internal/upgrade"
-	"github.com/dagucloud/dagu/v2/internal/view"
-	"github.com/dagucloud/dagu/v2/internal/wiki"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // StoreRole identifies the process roles that need control-plane stores.
@@ -53,55 +43,13 @@ func (r StoreRole) has(role StoreRole) bool {
 
 // Stores contains optional control-plane persistence shared by process roles.
 type Stores struct {
-	WorkspaceBaseConfig  dagsettings.BaseConfigProvider
-	BaseConfig           dagsettings.BaseConfigStore
-	AuthService          *authservice.Service
-	UserStore            authmodel.UserStore
-	AuthSetupRequired    bool
-	RemoteNode           remotenode.Store
-	Secret               secret.Store
-	Profile              profile.Store
-	DAGSettings          dagsettings.Store
-	Wiki                 wiki.PageStore
-	Notification         notification.Store
-	NotificationState    chatbridge.StateStore
-	NewNotificationLease func() chatbridge.Lease
-	Incident             incident.Store
-	IncidentState        chatbridge.StateStore
-	NewIncidentLease     func() chatbridge.Lease
-	Workspace            workspace.Store
-	Upgrade              upgrade.CacheStore
-	Audit                audit.Store
-	Event                *eventstore.Service
-	EventCollector       eventstore.Collector
-	View                 view.Store
+	frontend.Stores
+	EventCollector func(context.Context)
 }
 
 // Frontend returns the subset consumed by the frontend server.
 func (s Stores) Frontend() frontend.Stores {
-	return frontend.Stores{
-		WorkspaceBaseConfig:  s.WorkspaceBaseConfig,
-		BaseConfig:           s.BaseConfig,
-		AuthService:          s.AuthService,
-		UserStore:            s.UserStore,
-		AuthSetupRequired:    s.AuthSetupRequired,
-		RemoteNode:           s.RemoteNode,
-		Secret:               s.Secret,
-		Profile:              s.Profile,
-		DAGSettings:          s.DAGSettings,
-		Wiki:                 s.Wiki,
-		Notification:         s.Notification,
-		NotificationState:    s.NotificationState,
-		NewNotificationLease: s.NewNotificationLease,
-		Incident:             s.Incident,
-		IncidentState:        s.IncidentState,
-		NewIncidentLease:     s.NewIncidentLease,
-		Workspace:            s.Workspace,
-		Upgrade:              s.Upgrade,
-		Audit:                s.Audit,
-		Event:                s.Event,
-		View:                 s.View,
-	}
+	return s.Stores
 }
 
 // NewFileStores creates the file-backed stores needed by the selected roles.
@@ -125,7 +73,7 @@ func NewFileStores(ctx context.Context, cfg *config.Config, roles StoreRole) (St
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize event collector; continuing without collection", tag.Error(err))
 		} else {
-			stores.EventCollector = collector
+			stores.EventCollector = collector.Start
 		}
 	}
 
@@ -266,13 +214,14 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, stores *Stores
 }
 
 func newFileMonitorLease(stateFile string) func() chatbridge.Lease {
+	lockDir := filepath.Clean(stateFile) + ".lock"
 	return func() chatbridge.Lease {
-		lease := filemonitor.NewLease(stateFile, filemonitor.LeaseOptions{
+		lease := filemonitor.NewLease(stateFile, &dirlock.LockOptions{
 			StaleThreshold: chatbridge.DefaultNotificationLockStaleThreshold,
 			RetryInterval:  chatbridge.DefaultNotificationLockRetryInterval,
-			OnWait: func(location string) {
+			OnWait: func() {
 				slog.Info("Notification lock is held by another process; DAG run notifications are on standby",
-					slog.String("lock_dir", location),
+					slog.String("lock_dir", lockDir),
 				)
 			},
 		})

@@ -17,10 +17,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
-type stubBaseConfigStore struct{}
+type stubBaseConfigStore struct {
+	spec string
+}
 
-func (stubBaseConfigStore) GetSpec(context.Context) (string, error) {
-	return "", nil
+func (s stubBaseConfigStore) GetSpec(context.Context) (string, error) {
+	return s.spec, nil
 }
 
 func (stubBaseConfigStore) UpdateSpec(context.Context, []byte) error {
@@ -34,15 +36,6 @@ type workspaceStoreStub struct {
 
 func (s workspaceStoreStub) GetByName(context.Context, string) (*workspace.Workspace, error) {
 	return s.item, nil
-}
-
-type workspaceSpecStore struct {
-	stubBaseConfigStore
-	spec string
-}
-
-func (s workspaceSpecStore) GetSpec(context.Context) (string, error) {
-	return s.spec, nil
 }
 
 func TestRequireBaseConfigManagementRequiresWorkspaceProvider(t *testing.T) {
@@ -88,7 +81,7 @@ func TestGetWorkspaceBaseConfigUsesProvider(t *testing.T) {
 		baseConfigStore: stubBaseConfigStore{},
 		baseConfigProvider: func(name string) (dagsettings.BaseConfigStore, error) {
 			assert.Equal(t, "operations", name)
-			return workspaceSpecStore{spec: "max_active_runs: 2\n"}, nil
+			return stubBaseConfigStore{spec: "max_active_runs: 2\n"}, nil
 		},
 		workspaceStore: workspaceStoreStub{
 			item: &workspace.Workspace{Name: "operations"},

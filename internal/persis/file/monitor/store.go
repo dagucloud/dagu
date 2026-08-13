@@ -90,29 +90,13 @@ type Lease struct {
 	location string
 }
 
-// LeaseOptions configures file-lock ownership behavior.
-type LeaseOptions struct {
-	StaleThreshold time.Duration
-	RetryInterval  time.Duration
-	OnWait         func(location string)
-}
-
 // NewLease creates a file-backed monitor lease for a state file.
-func NewLease(stateFile string, opts LeaseOptions) *Lease {
+func NewLease(stateFile string, opts *dirlock.LockOptions) *Lease {
 	if stateFile == "" {
 		return nil
 	}
 	location := filepath.Clean(stateFile) + ".lock"
-	lock := dirlock.New(location, &dirlock.LockOptions{
-		StaleThreshold: opts.StaleThreshold,
-		RetryInterval:  opts.RetryInterval,
-		OnWait: func() {
-			if opts.OnWait != nil {
-				opts.OnWait(location)
-			}
-		},
-	})
-	return &Lease{DirLock: lock, location: location}
+	return &Lease{DirLock: dirlock.New(location, opts), location: location}
 }
 
 func (l *Lease) Location() string {

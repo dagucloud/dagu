@@ -111,7 +111,7 @@ func NewEventStore(cfg *config.Config) (eventstore.Store, error) {
 	return fileeventstore.New(cfg.Paths.EventStoreDir)
 }
 
-func NewEventCollector(cfg *config.Config) (eventstore.Collector, error) {
+func NewEventCollector(cfg *config.Config) (*fileeventstore.Collector, error) {
 	if cfg == nil || !cfg.EventStore.Enabled {
 		return nil, nil
 	}

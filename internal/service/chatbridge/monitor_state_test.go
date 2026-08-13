@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
@@ -43,7 +44,7 @@ func newFileBackedMonitor(
 	return NewNotificationMonitor(
 		eventService,
 		filemonitor.NewStateStore(stateFile),
-		filemonitor.NewLease(stateFile, filemonitor.LeaseOptions{
+		filemonitor.NewLease(stateFile, &dirlock.LockOptions{
 			StaleThreshold: DefaultNotificationLockStaleThreshold,
 			RetryInterval:  DefaultNotificationLockRetryInterval,
 		}),
