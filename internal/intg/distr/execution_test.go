@@ -206,7 +206,9 @@ func gatedLogCommand(stdoutMarker, stderrMarker, releasePath string) string {
 	if runtime.GOOS == "windows" {
 		return test.JoinLines(
 			fmt.Sprintf("[Console]::Out.WriteLine(%s)", test.PowerShellQuote(stdoutMarker)),
+			"[Console]::Out.Flush()",
 			fmt.Sprintf("[Console]::Error.WriteLine(%s)", test.PowerShellQuote(stderrMarker)),
+			"[Console]::Error.Flush()",
 			fmt.Sprintf("while (-not (Test-Path -LiteralPath %s)) { Start-Sleep -Milliseconds 100 }", test.PowerShellQuote(releasePath)),
 		)
 	}
