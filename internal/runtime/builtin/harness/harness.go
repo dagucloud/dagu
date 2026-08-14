@@ -520,10 +520,10 @@ func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConf
 		cancel()
 	}()
 
-	// Run the container in a goroutine and watch ctx so a cancelled step (e.g.
-	// timeout_sec, which arrives only as ctx cancellation, not as a Stop() call)
-	// stops the container instead of blocking forever in Client.Run's post-wait
-	// loop. Mirrors the host subprocess path in startAndWaitLocked.
+	// Run the container in a goroutine and watch ctx so a cancelled step
+	// (timeout_sec is ctx-only; the runner does not call Kill) can set exit
+	// 124. Client.Run now stops the container on cancel; this still waits
+	// for Run to unwind before Close.
 	type containerRunResult struct {
 		exitCode int
 		err      error

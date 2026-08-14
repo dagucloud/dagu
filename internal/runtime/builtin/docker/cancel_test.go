@@ -75,6 +75,47 @@ func TestWaitUntilContainerStopped_TreatsNotFoundAsStopped(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestWaitUntilContainerStopped_Returns_WhenStopIsNoOpAndContainerKeepsRunning(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitUntilContainerStoppedWithGrace(ctx,
+			func(context.Context) (bool, bool, error) { return true, false, nil },
+			func() error { return nil },
+			10*time.Millisecond,
+			40*time.Millisecond,
+		)
+	}()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "no-op stop with a still-running container must not poll forever")
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("waitUntilContainerStopped hung after a no-op stop; cancel must bound the wait")
+	}
+}
+
+func TestWaitUntilContainerStopped_ReturnsStopError_WhenCancelAndStopFails(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	want := errors.New("stop failed")
+
+	err := waitUntilContainerStoppedWithGrace(ctx,
+		func(context.Context) (bool, bool, error) { return true, false, nil },
+		func() error { return want },
+		10*time.Millisecond,
+		time.Second,
+	)
+
+	require.ErrorIs(t, err, want)
+}
+
 func TestWaitUntilContainerStopped_ReturnsInspectError(t *testing.T) {
 	t.Parallel()
 
@@ -128,6 +169,97 @@ func TestClientRun_StopsContainer_WhenContextCanceled(t *testing.T) {
 	require.Error(t, inspectErr, "auto-removed container %s must not remain after cancel", name)
 }
 
+func TestClientRun_LeavesStoppedContainer_WhenKeepContainerAndCanceled(t *testing.T) {
+	dockerSDK := newDockerSDKOrSkip(t)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	pullCtx, pullCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer pullCancel()
+	pullImageOrSkip(t, dockerSDK, pullCtx, "alpine:latest")
+
+	name := fmt.Sprintf("dagu-keep-timeout-test-%d", time.Now().UnixNano())
+	cfg, err := LoadConfigFromMap(map[string]any{
+		"image":          "alpine:latest",
+		"container_name": name,
+		"auto_remove":    false,
+		"pull":           "never",
+	}, nil)
+	require.NoError(t, err)
+	cfg.ShouldStart = true
+
+	cli, err := InitializeClient(context.Background(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cli.Close(context.Background())
+		_, _ = dockerSDK.ContainerRemove(context.Background(), name, client.ContainerRemoveOptions{Force: true})
+	})
+
+	runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, runErr := cli.Run(runCtx, []string{"sleep", "60"}, io.Discard, io.Discard)
+	elapsed := time.Since(start)
+
+	require.Less(t, elapsed, 15*time.Second, "keep_container timeout must still stop sleep 60 (took %s, err=%v)", elapsed, runErr)
+	require.Error(t, runErr)
+
+	inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer inspectCancel()
+	info, inspectErr := dockerSDK.ContainerInspect(inspectCtx, name, client.ContainerInspectOptions{})
+	require.NoError(t, inspectErr, "keep_container must leave the container after timeout")
+	require.NotNil(t, info.Container.State)
+	assert.False(t, info.Container.State.Running, "keep_container timeout must stop the container, not leave it running")
+}
+
+func TestClientExec_StopsStepProcess_WhenContextCanceled(t *testing.T) {
+	dockerSDK := newDockerSDKOrSkip(t)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	pullCtx, pullCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer pullCancel()
+	pullImageOrSkip(t, dockerSDK, pullCtx, "alpine:latest")
+
+	name := fmt.Sprintf("dagu-exec-timeout-test-%d", time.Now().UnixNano())
+	cfg, err := LoadConfigFromMap(map[string]any{
+		"image":          "alpine:latest",
+		"container_name": name,
+		"auto_remove":    true,
+		"pull":           "never",
+	}, nil)
+	require.NoError(t, err)
+	cfg.ShouldStart = true
+	cfg.Startup = "keepalive"
+
+	cli, err := InitializeClient(context.Background(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { cli.Close(context.Background()) })
+
+	require.NoError(t, cli.StartBackground(context.Background()))
+
+	runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, runErr := cli.Exec(runCtx, []string{"sleep", "60"}, io.Discard, io.Discard, nativeExecOptions("sleep-step"))
+	elapsed := time.Since(start)
+
+	require.Less(t, elapsed, 15*time.Second, "shared-container exec must return on timeout (took %s, err=%v)", elapsed, runErr)
+	require.Error(t, runErr)
+
+	inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer inspectCancel()
+	info, inspectErr := dockerSDK.ContainerInspect(inspectCtx, name, client.ContainerInspectOptions{})
+	require.NoError(t, inspectErr, "keepalive container must still exist after exec cancel")
+	require.NotNil(t, info.Container.State)
+	assert.True(t, info.Container.State.Running, "exec cancel must not stop the shared keepalive container")
+
+	psCtx, psCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer psCancel()
+	assert.False(t, containerHasProcess(t, dockerSDK, psCtx, name, "sleep"),
+		"sleep must be gone after exec timeout")
+}
+
 func newDockerSDKOrSkip(t *testing.T) *client.Client {
 	t.Helper()
 
@@ -142,6 +274,23 @@ func newDockerSDKOrSkip(t *testing.T) *client.Client {
 		t.Skipf("docker daemon unavailable: %v", err)
 	}
 	return dockerSDK
+}
+
+func containerHasProcess(t *testing.T, dockerSDK *client.Client, ctx context.Context, containerName, name string) bool {
+	t.Helper()
+
+	script := `ps -o comm= 2>/dev/null | grep -x "$1" || ps 2>/dev/null | grep -v grep | grep -q "$1"`
+	created, err := dockerSDK.ExecCreate(ctx, containerName, client.ExecCreateOptions{
+		Cmd: []string{"/bin/sh", "-c", script, "dagu-ps", name},
+	})
+	require.NoError(t, err)
+	attach, err := dockerSDK.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
+	require.NoError(t, err)
+	defer attach.Close()
+	_, _ = io.Copy(io.Discard, attach.Reader)
+	inspect, err := dockerSDK.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
+	require.NoError(t, err)
+	return inspect.ExitCode == 0
 }
 
 func pullImageOrSkip(t *testing.T, dockerSDK *client.Client, ctx context.Context, image string) {
@@ -186,6 +335,35 @@ func TestWaitUntilContainerStopped_UsesDefaultPoll_WhenIntervalInvalid(t *testin
 	)
 
 	require.NoError(t, err)
+}
+
+func TestStopContainerByID_ReturnsUnavailable_WhenClientOrIDMissing(t *testing.T) {
+	t.Parallel()
+
+	require.ErrorIs(t, stopContainerByID(nil, "ctr"), errContainerStopUnavailable)
+	cli := &client.Client{}
+	require.ErrorIs(t, stopContainerByID(cli, ""), errContainerStopUnavailable)
+}
+
+func TestStopContainerByID_IgnoresMissingContainer(t *testing.T) {
+	dockerSDK := newDockerSDKOrSkip(t)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	err := stopContainerByID(dockerSDK, "dagu-no-such-container")
+	require.NoError(t, err)
+}
+
+func TestWrapCommandWithPIDFile_ExecsUserProcess(t *testing.T) {
+	t.Parallel()
+
+	got := wrapCommandWithPIDFile([]string{"sleep", "60"}, "/tmp/dagu/pid")
+	require.GreaterOrEqual(t, len(got), 5)
+	assert.Equal(t, []string{"/bin/sh", "-c"}, got[:2], "wrapper must use /bin/sh so PATH-less images still find it")
+	assert.Contains(t, got[2], `exec "$@"`, "exec keeps the user process as the recorded PID so SIGTERM hits it")
+	assert.NotContains(t, got[2], `"$@" &`, "backgrounding the user process orphans it from the exec on Alpine")
+	assert.Equal(t, "dagu-exec-wrapper", got[3])
+	assert.Equal(t, "/tmp/dagu/pid", got[4])
+	assert.Equal(t, []string{"sleep", "60"}, got[5:])
 }
 
 func TestNativeExecOptions_UsesFallbackName_WhenStepNameEmpty(t *testing.T) {

@@ -43,8 +43,8 @@ func TestExecCommandForTest_PIDFileWrapsDirectCommand(t *testing.T) {
 	)
 
 	require.GreaterOrEqual(t, len(got), 5+len(cmd))
-	assert.Equal(t, []string{"sh", "-c"}, got[:2])
-	assert.Contains(t, got[2], `printf '%s\n' "$child" > "$pidfile"`)
+	assert.Equal(t, []string{"/bin/sh", "-c"}, got[:2])
+	assert.Contains(t, got[2], `exec "$@"`)
 	assert.Equal(t, "dagu-exec-wrapper", got[3])
 	assert.Equal(t, "/tmp/dagu/pid", got[4])
 	assert.Equal(t, cmd, got[5:])
@@ -58,7 +58,7 @@ func TestExecCommandForTest_PIDFileWrapsShellCommand(t *testing.T) {
 	)
 
 	require.GreaterOrEqual(t, len(got), 8)
-	assert.Equal(t, []string{"sh", "-c"}, got[:2])
+	assert.Equal(t, []string{"/bin/sh", "-c"}, got[:2])
 	assert.Equal(t, "dagu-exec-wrapper", got[3])
 	assert.Equal(t, "/tmp/dagu/pid", got[4])
 	assert.Equal(t, []string{"/bin/sh", "-c", "echo hello"}, got[5:])

@@ -642,7 +642,7 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 		},
 		func() error {
 			logger.Debug(ctx, "Docker: Run stopping container after context cancel", slog.String("containerID", ctID))
-			return c.Stop(syscall.SIGKILL)
+			return stopContainerByID(c.cli, ctID)
 		},
 		defaultPollInterval,
 	); waitErr != nil {
@@ -1071,24 +1071,20 @@ func wrapCommandWithPIDFile(cmd []string, pidFile string) []string {
 	if len(cmd) == 0 {
 		return cmd
 	}
+	// Write $$ then exec so the recorded PID is the user process (and stays
+	// the exec process-group leader). Backgrounding ("$@" &) leaves Alpine
+	// children reparented to PID 1 after the wrapper is signaled.
 	script := `pidfile="$1"
 shift
 dir="${pidfile%/*}"
 if [ "$dir" != "$pidfile" ]; then
   mkdir -p "$dir" || exit 125
 fi
-"$@" &
-child=$!
-if ! printf '%s\n' "$child" > "$pidfile"; then
-  kill "$child" 2>/dev/null || true
-  wait "$child" 2>/dev/null || true
+if ! printf '%s\n' "$$" > "$pidfile"; then
   exit 125
 fi
-wait "$child"
-status=$?
-rm -f "$pidfile" 2>/dev/null || true
-exit "$status"`
-	wrapped := []string{"sh", "-c", script, "dagu-exec-wrapper", pidFile}
+exec "$@"`
+	wrapped := []string{"/bin/sh", "-c", script, "dagu-exec-wrapper", pidFile}
 	return append(wrapped, cmd...)
 }
 
@@ -1142,7 +1138,7 @@ kill_tree "$pid"
 rm -f "$pidfile" 2>/dev/null || true`
 	resp, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		User: "0",
-		Cmd:  []string{"sh", "-c", script, "dagu-kill-exec", signalName, pidFile},
+		Cmd:  []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, pidFile},
 	})
 	if err != nil {
 		return fmt.Errorf("create %s signal exec for pid file %q: %w", signalName, pidFile, err)
