@@ -557,9 +557,9 @@ func (f *fixture) cleanup() {
 func (f *fixture) seedWatermark(lastTick, lastScheduledTime time.Time) {
 	f.t.Helper()
 
-	stateBackend, err := file.New(f.th.Config.Paths.DataDir)
-	require.NoError(f.t, err)
-	stateStore := persiststore.NewSchedulerStateStore(stateBackend.Collection("scheduler"))
+	stateStore := persiststore.NewSchedulerStateStore(
+		file.NewCollection(filepath.Join(f.th.Config.Paths.DataDir, "scheduler")),
+	)
 	state := &schedulerstate.State{
 		LastTick: lastTick,
 		DAGs: map[string]schedulerstate.DAGWatermark{

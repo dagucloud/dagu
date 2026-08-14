@@ -18,14 +18,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-// MemoryBackend is an in-memory [persis.Backend] for use in unit tests.
-// It is not persistent and not safe to share across processes.
+// MemoryBackend groups named in-memory collections for unit tests.
 type MemoryBackend struct {
 	mu   sync.Mutex
 	cols map[string]*MemoryCollection
 }
-
-var _ persis.Backend = (*MemoryBackend)(nil)
 
 // NewMemoryBackend returns an empty in-memory backend.
 func NewMemoryBackend() *MemoryBackend {
@@ -44,8 +41,6 @@ func (b *MemoryBackend) Collection(name string) persis.Collection {
 	return b.cols[name]
 }
 
-func (b *MemoryBackend) Close() error { return nil }
-
 // ─── MemoryCollection ────────────────────────────────────────────────────────
 
 // MemoryCollection is a single in-memory [persis.Collection].
@@ -56,7 +51,10 @@ type MemoryCollection struct {
 	locks   map[string]*sync.Mutex
 }
 
-var _ persis.Collection = (*MemoryCollection)(nil)
+var (
+	_ persis.Collection        = (*MemoryCollection)(nil)
+	_ persis.LockingCollection = (*MemoryCollection)(nil)
+)
 
 func (c *MemoryCollection) WithLock(ctx context.Context, key string, fn func() error) error {
 	return c.withLock(ctx, key, 50*time.Millisecond, fn)

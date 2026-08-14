@@ -3,7 +3,7 @@
 
 // Package persis defines persistence contracts for Dagu's control plane.
 //
-// Collection-backed records flow through [Backend] → [Collection] → [Record].
+// Collection-backed records flow through [Collection] and [Record].
 // Domain-specific persistence contracts use dedicated store interfaces such as
 // [DAGDefinitionStore], [DAGRunStore], and [ProcStore].
 //
@@ -16,11 +16,11 @@ import (
 	"time"
 )
 
-// Record is the universal storage primitive for all control-plane data.
+// Record is the storage primitive for collection-backed control-plane data.
 //
 // ID uses "/" as a hierarchy separator so that a [ListQuery.Prefix] of
 // "mydag/" returns all records whose IDs start with that prefix — enabling
-// efficient tree traversal without backend-specific query syntax.
+// efficient tree traversal without storage-specific query syntax.
 //
 // Example ID formats:
 //
@@ -49,7 +49,7 @@ type ListQuery struct {
 	// Pass [Page.NextCursor] from the prior call; empty starts from the beginning.
 	Cursor string
 
-	// Limit caps the number of records returned. 0 = backend default.
+	// Limit caps the number of records returned. 0 uses the implementation default.
 	Limit int
 }
 
@@ -60,11 +60,8 @@ type Page struct {
 }
 
 // Collection is a named, isolated namespace of [Record]s.
-// All methods must be safe for concurrent use.
-//
-// Collection names map to distinct physical namespaces — directories in
-// [file.Backend], rows in a single SQL table keyed by (collection, id),
-// or key prefixes in etcd / Cassandra.
+// All methods must be safe for concurrent use. Implementations map each
+// collection to a distinct physical namespace.
 type Collection interface {
 	// Get returns the record identified by id.
 	// Returns [ErrNotFound] if no record with that id exists.
@@ -74,8 +71,8 @@ type Collection interface {
 	Put(ctx context.Context, rec *Record) error
 
 	// Create atomically inserts rec. Returns [ErrConflict] when a record with
-	// rec.ID already exists. Backends must guarantee the check-and-insert is
-	// atomic with respect to concurrent Put, CompareAndSwap, and Create calls.
+	// rec.ID already exists. Implementations must guarantee the check-and-insert
+	// is atomic with respect to concurrent Put, CompareAndSwap, and Create calls.
 	Create(ctx context.Context, rec *Record) error
 
 	// Delete removes the record with the given id.
@@ -95,24 +92,10 @@ type Collection interface {
 	CompareAndSwap(ctx context.Context, id string, expected, next []byte) error
 }
 
-// LockingCollection runs operations under a backend-wide lock scoped by key.
+// LockingCollection runs operations under a storage-wide lock scoped by key.
 // Implementations must serialize the same key across all clients sharing the
 // collection's physical namespace.
 type LockingCollection interface {
 	Collection
 	WithLock(ctx context.Context, key string, fn func() error) error
-}
-
-// Backend is the factory for storage [Collection]s.
-//
-// Collections are created lazily; calling Collection("foo") never returns an
-// error — failures surface on the first operation against the collection.
-type Backend interface {
-	// Collection returns the collection with the given name.
-	// Multiple calls with the same name return the same logical namespace.
-	Collection(name string) Collection
-
-	// Close releases all resources held by the backend (file handles,
-	// connection pools, etc.). No Collection method may be called after Close.
-	Close() error
 }

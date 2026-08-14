@@ -50,9 +50,9 @@ steps:
 	require.NoError(t, err)
 	require.Len(t, dag.Schedule, 1)
 
-	stateBackend, err := file.New(th.Config.Paths.DataDir)
-	require.NoError(t, err)
-	stateStore := store.NewSchedulerStateStore(stateBackend.Collection("scheduler"))
+	stateStore := store.NewSchedulerStateStore(
+		file.NewCollection(filepath.Join(th.Config.Paths.DataDir, "scheduler")),
+	)
 	fingerprint := dag.Schedule[0].Fingerprint()
 	runID := scheduler.GenerateOneOffRunID(dag.Name, fingerprint, scheduledAt)
 

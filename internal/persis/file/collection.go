@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Package file provides filesystem persistence implementations.
 package file
 
 import (
@@ -27,16 +28,33 @@ import (
 // "/" in record IDs maps to the OS path separator, so hierarchical IDs
 // become nested subdirectories on disk.
 type Collection struct {
-	dir string
-	// indent, when true, stores records as 2-space indented JSON on disk to
-	// match the pre-refactor (<= v2.7.4) released file format. Records are
-	// normalized back to compact JSON in memory on read, so Record.Data stays
-	// canonical regardless of on-disk whitespace.
+	dir    string
 	indent bool
 	mu     sync.RWMutex
 }
 
-var _ persis.Collection = (*Collection)(nil)
+var (
+	_ persis.Collection        = (*Collection)(nil)
+	_ persis.LockingCollection = (*Collection)(nil)
+)
+
+// CollectionOption configures a file-backed [Collection].
+type CollectionOption func(*Collection)
+
+// WithIndentedJSON stores records as two-space indented JSON on disk.
+func WithIndentedJSON() CollectionOption {
+	return func(c *Collection) { c.indent = true }
+}
+
+// NewCollection creates a collection backed by dir. The directory is created
+// lazily on the first write.
+func NewCollection(dir string, opts ...CollectionOption) *Collection {
+	c := &Collection{dir: dir}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
 
 func sameRecord(a, b *persis.Record) bool {
 	if a == nil || b == nil {

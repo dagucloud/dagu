@@ -325,16 +325,11 @@ func TestFileCollection(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	b, err := file.New(root)
-	require.NoError(t, err)
-
 	freshCollection := func(t *testing.T) persis.Collection {
-		b2, err := file.New(t.TempDir())
-		require.NoError(t, err)
-		return b2.Collection("test")
+		return file.NewCollection(filepath.Join(t.TempDir(), "test"))
 	}
 
-	RunCollectionContract(t, b.Collection("test"), freshCollection)
+	RunCollectionContract(t, file.NewCollection(filepath.Join(root, "test")), freshCollection)
 }
 
 func TestFileCollectionWritesRawJSONBody(t *testing.T) {
@@ -482,11 +477,7 @@ func TestFileCollectionListingIgnoresLockMetadata(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(lockDir, "metadata.json"), []byte(`{}`), 0o600))
 	}
 
-	recordIDs, ok := col.(interface {
-		RecordIDs(context.Context, string) ([]string, error)
-	})
-	require.True(t, ok)
-	ids, err := recordIDs.RecordIDs(ctx, "queue/")
+	ids, err := col.RecordIDs(ctx, "queue/")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"queue/item"}, ids)
 

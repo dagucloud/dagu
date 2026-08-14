@@ -300,9 +300,9 @@ func (f *testFixture) startSchedulerWithClock(timeout time.Duration, clock sched
 		timeout,
 		clock,
 		func() schedulerstate.Store {
-			stateBackend, err := file.New(f.coord.Config.Paths.DataDir)
-			require.NoError(f.t, err)
-			return persiststore.NewSchedulerStateStore(stateBackend.Collection("scheduler"))
+			return persiststore.NewSchedulerStateStore(
+				file.NewCollection(filepath.Join(f.coord.Config.Paths.DataDir, "scheduler")),
+			)
 		}(),
 	)
 }
