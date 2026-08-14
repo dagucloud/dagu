@@ -973,6 +973,57 @@ func TestRunner(t *testing.T) {
 		result.assertNodeStatus(t, "1", ir.NodeFailed)
 		result.assertNodeStatus(t, "onFailure", ir.NodeSucceeded)
 	})
+	t.Run("TerminalHandlersRunAfterDAGTimeout", func(t *testing.T) {
+		executorType, _ := registerStoppedStatusExecutor(t)
+		r := setupRunner(t,
+			withTimeout(platformTestDuration(100*time.Millisecond, time.Second)),
+			withOnFailure(successStep("onFailure")),
+			withOnExit(successStep("onExit")),
+		)
+
+		plan := r.newPlan(t, newStep("1", withExecutorType(executorType)))
+		result := plan.assertRun(t, ir.Failed)
+
+		require.ErrorIs(t, result.Error, context.DeadlineExceeded)
+		result.assertNodeStatus(t, "onFailure", ir.NodeSucceeded)
+		result.assertNodeStatus(t, "onExit", ir.NodeSucceeded)
+	})
+	t.Run("TerminalHandlerTimeoutDoesNotBlockOnExit", func(t *testing.T) {
+		executorType, _ := registerStoppedStatusExecutor(t)
+		handlerTimeout := platformTestDuration(100*time.Millisecond, time.Second)
+		r := setupRunner(t,
+			withTimeout(handlerTimeout),
+			withOnFailure(newStep("onFailure",
+				withCommand(test.Sleep(5*handlerTimeout)),
+				withStepTimeout(handlerTimeout),
+			)),
+			withOnExit(successStep("onExit")),
+		)
+
+		plan := r.newPlan(t, newStep("1", withExecutorType(executorType)))
+		result := plan.assertRun(t, ir.Failed)
+
+		require.ErrorIs(t, result.Error, context.DeadlineExceeded)
+		result.assertNodeStatus(t, "onFailure", ir.NodeFailed)
+		result.assertNodeStatus(t, "onExit", ir.NodeSucceeded)
+	})
+	t.Run("TerminalHandlersRetainParentCancellation", func(t *testing.T) {
+		executorType, execCh := registerStoppedStatusExecutor(t)
+		r := setupRunner(t, withOnExit(successStep("onExit")))
+		parentCtx, cancel := context.WithCancel(r.Context)
+		r.Context = parentCtx
+
+		plan := r.newPlan(t, newStep("1", withExecutorType(executorType)))
+		go func() {
+			<-execCh
+			cancel()
+		}()
+
+		result := plan.assertRun(t, ir.Failed)
+
+		require.ErrorIs(t, result.Error, context.Canceled)
+		result.assertNodeStatus(t, "onExit", ir.NodeFailed)
+	})
 	t.Run("OnFailureHandlerSkippedWhileRootDAGAutoRetryPending", func(t *testing.T) {
 		r := setupRunner(t,
 			withDAGAutoRetry(0, 2, true),
