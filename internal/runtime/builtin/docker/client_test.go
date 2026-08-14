@@ -66,6 +66,7 @@ func TestLoadConfigFromMap(t *testing.T) {
 	hostPath := absVolumeSource("/host/path")
 	dataPath := absVolumeSource("/data")
 	newPath := absVolumeSource("/new")
+	pidsLimit := int64(128)
 
 	tests := []struct {
 		name        string
@@ -147,6 +148,94 @@ func TestLoadConfigFromMap(t *testing.T) {
 				Network: &network.NetworkingConfig{
 					EndpointsConfig: map[string]*network.EndpointSettings{},
 				},
+				ExecOptions: &client.ExecCreateOptions{},
+			},
+		},
+		{
+			name: "HostConfigWithFlatResources",
+			input: map[string]any{
+				"image": "alpine",
+				"host": map[string]any{
+					"NetworkMode": "bridge",
+					"SecurityOpt": []string{"seccomp=unconfined"},
+					"Memory":      536870912,
+					"CPUShares":   512,
+					"NanoCPUs":    1_000_000_000,
+					"PidsLimit":   128,
+					"Devices": []map[string]any{{
+						"PathOnHost":        "/dev/fuse",
+						"PathInContainer":   "/dev/fuse",
+						"CgroupPermissions": "rwm",
+					}},
+				},
+			},
+			expected: &Config{
+				Image:     "alpine",
+				Pull:      ir.PullPolicyMissing,
+				Container: &container.Config{},
+				Host: &container.HostConfig{
+					NetworkMode: "bridge",
+					SecurityOpt: []string{"seccomp=unconfined"},
+					Resources: container.Resources{
+						CPUShares: 512,
+						Memory:    536870912,
+						NanoCPUs:  1_000_000_000,
+						Devices: []container.DeviceMapping{{
+							PathOnHost:        "/dev/fuse",
+							PathInContainer:   "/dev/fuse",
+							CgroupPermissions: "rwm",
+						}},
+						PidsLimit: &pidsLimit,
+					},
+				},
+				Network:     &network.NetworkingConfig{},
+				ExecOptions: &client.ExecCreateOptions{},
+			},
+		},
+		{
+			name: "HostConfigWithNestedResources",
+			input: map[string]any{
+				"image": "alpine",
+				"host": map[string]any{
+					"resources": map[string]any{
+						"Memory": 268435456,
+					},
+				},
+			},
+			expected: &Config{
+				Image:     "alpine",
+				Pull:      ir.PullPolicyMissing,
+				Container: &container.Config{},
+				Host: &container.HostConfig{
+					Resources: container.Resources{Memory: 268435456},
+				},
+				Network:     &network.NetworkingConfig{},
+				ExecOptions: &client.ExecCreateOptions{},
+			},
+		},
+		{
+			name: "FlatHostResourcesOverrideNested",
+			input: map[string]any{
+				"image": "alpine",
+				"host": map[string]any{
+					"resources": map[string]any{
+						"Memory":    64,
+						"CPUShares": 256,
+					},
+					"Memory": 128,
+				},
+			},
+			expected: &Config{
+				Image:     "alpine",
+				Pull:      ir.PullPolicyMissing,
+				Container: &container.Config{},
+				Host: &container.HostConfig{
+					Resources: container.Resources{
+						CPUShares: 256,
+						Memory:    128,
+					},
+				},
+				Network:     &network.NetworkingConfig{},
 				ExecOptions: &client.ExecCreateOptions{},
 			},
 		},
@@ -775,6 +864,9 @@ func TestLoadConfigFromMap(t *testing.T) {
 			assert.Equal(t, tt.expected.Host.AutoRemove, result.Host.AutoRemove)
 			assert.Equal(t, tt.expected.Host.Privileged, result.Host.Privileged)
 			assert.Equal(t, tt.expected.Host.Binds, result.Host.Binds)
+			assert.Equal(t, tt.expected.Host.Resources, result.Host.Resources)
+			assert.Equal(t, tt.expected.Host.NetworkMode, result.Host.NetworkMode)
+			assert.Equal(t, tt.expected.Host.SecurityOpt, result.Host.SecurityOpt)
 
 			// Compare exec options
 			assert.Equal(t, tt.expected.ExecOptions.User, result.ExecOptions.User)

@@ -89,23 +89,19 @@ func LoadConfigFromMapWithWorkDir(workDir string, data map[string]any, registryA
 		Shell      []string `mapstructure:"shell"`
 	}{}
 
-	md, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		Result:           &ret,
-		WeaklyTypedInput: true,
-		// Squash embedded structs so the documented flat `host:` shape
-		// works: container.HostConfig EMBEDS container.Resources, which
-		// holds Memory, CPUShares, NanoCPUs, PidsLimit, Devices and every
-		// other cgroup field. Without Squash, mapstructure fills them only
-		// from a nested `host: {resources: {...}}` key — the flat form the
-		// docs show (`host: {Memory: 536870912}`) decoded to zero values
-		// silently, so containers ran without their resource limits.
-		Squash: true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create decoder: %w", err)
-	}
-	if err := md.Decode(data); err != nil {
-		return nil, fmt.Errorf("failed to decode config: %w", err)
+	// Decode legacy nested Resources first, then overlay Docker's flat JSON shape.
+	for _, squash := range []bool{false, true} {
+		md, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+			Result:           &ret,
+			WeaklyTypedInput: true,
+			Squash:           squash,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create decoder: %w", err)
+		}
+		if err := md.Decode(data); err != nil {
+			return nil, fmt.Errorf("failed to decode config: %w", err)
+		}
 	}
 
 	var autoRemove bool
