@@ -1724,6 +1724,7 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 		defaultPath string
 	}{
 		{&cfg.Paths.DAGRunsDir, "dag-runs"},
+		{&cfg.Paths.DAGRunWorkDir, "dag-run-work"},
 		{&cfg.Paths.DAGStateDir, "dag-state"},
 		{&cfg.Paths.ProcDir, "proc"},
 		{&cfg.Paths.QueueDir, "queue"},

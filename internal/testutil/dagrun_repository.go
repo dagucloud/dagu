@@ -4,6 +4,8 @@
 package testutil
 
 import (
+	"path/filepath"
+
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 )
@@ -16,7 +18,7 @@ func NewFileDAGRunRepository(
 ) *persis.DAGRunRepository {
 	return persis.NewDAGRunRepository(
 		filedagrun.NewStore(baseDir, storeOptions...),
-		filedagrun.NewNestedWorkDirStore(baseDir),
+		filedagrun.NewWorkDirStore(filepath.Join(baseDir, ".dag-run-work"), baseDir),
 		options,
 	)
 }

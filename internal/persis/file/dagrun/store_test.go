@@ -24,8 +24,9 @@ import (
 func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
+	workRoot := filepath.Join(baseDir, ".dag-run-work")
 	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
-	repository := persis.NewDAGRunRepository(store, NewNestedWorkDirStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	repository := persis.NewDAGRunRepository(store, NewWorkDirStore(workRoot, baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",
@@ -89,24 +90,24 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	require.NoError(t, childAttempt.Close(ctx))
 
 	runDir := filepath.Join(baseDir, "compat-dag", "dag-runs", "2026", "05", "27", "dag-run_20260527_010203Z_run-compat")
+	rootWorkDir := filepath.Join(workRoot, "compat-dag", runIDHash(rootRef.ID))
 	attemptDir := filepath.Join(runDir, "a_20260527_010203_456Z_attempt-compat")
 	statusFile := filepath.Join(attemptDir, JSONLStatusFile)
 	assert.Equal(t, statusFile, parentAttempt.(*Attempt).file)
-	assert.Equal(t, filepath.Join(runDir, "work"), parentWorkDir)
+	assert.Equal(t, filepath.Join(rootWorkDir, "root"), parentWorkDir)
 	require.DirExists(t, runDir)
 	require.DirExists(t, attemptDir)
 	require.FileExists(t, statusFile)
 	require.FileExists(t, filepath.Join(attemptDir, DAGDefinition))
 	require.FileExists(t, filepath.Join(attemptDir, OutputsFile))
-	require.DirExists(t, filepath.Join(runDir, "work"))
+	require.DirExists(t, parentWorkDir)
 	require.FileExists(t, filepath.Join(runDir, MessagesDir, "step-one.json"))
 
 	childAttemptDir := filepath.Join(runDir, SubDAGRunsDir, "child-run", "a_20260527_010204_789Z_child-attempt")
 	require.DirExists(t, childAttemptDir)
 	require.FileExists(t, filepath.Join(childAttemptDir, JSONLStatusFile))
 	require.FileExists(t, filepath.Join(childAttemptDir, DAGDefinition))
-	require.NoDirExists(t, filepath.Join(runDir, SubDAGRunsDir, "child-run", "work"))
-	assert.Equal(t, filepath.Join(runDir, subDAGWorkDirName("child-run")), childWorkDir)
+	assert.Equal(t, filepath.Join(rootWorkDir, runIDHash("child-run")), childWorkDir)
 	require.DirExists(t, childWorkDir)
 
 	_, err = repository.CreateAttempt(ctx, &ir.DAG{Name: "child-with-shared-id"}, childTS, rootRef.ID, persis.DAGRunCreateAttemptOptions{
@@ -119,7 +120,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 		DAGRun:     ir.NewDAGRunRef("child-with-shared-id", rootRef.ID),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(runDir, subDAGWorkDirName(rootRef.ID)), sharedIDChildWorkDir)
+	assert.Equal(t, filepath.Join(rootWorkDir, runIDHash(rootRef.ID)), sharedIDChildWorkDir)
 
 	assert.NoDirExists(t, filepath.Join(baseDir, "dag_runs"))
 	assert.NoDirExists(t, filepath.Join(baseDir, "dagruns"))
@@ -161,26 +162,29 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	assert.Equal(t, childStatus.AttemptID, foundChildStatus.AttemptID)
 }
 
-func TestWorkDirStoreUsesIndependentRoot(t *testing.T) {
+func TestWorkDirStoreUsesSeparateRoot(t *testing.T) {
 	ctx := context.Background()
 	workRoot := t.TempDir()
-	store := NewWorkDirStore(workRoot)
-	rootRef := ir.NewDAGRunRef("../../root", "../root-run")
+	store := NewWorkDirStore(workRoot, filepath.Join(t.TempDir(), "dag-runs"))
+	rootRef := ir.NewDAGRunRef("../../daily.yaml", "../root-run")
 	refs := []dagrun.WorkDirRef{
 		{RootDAGRun: rootRef, DAGRun: rootRef},
 		{RootDAGRun: rootRef, DAGRun: ir.DAGRunRef{ID: "../../child-run"}},
+	}
+	expected := []string{
+		filepath.Join(workRoot, "daily", runIDHash("../root-run"), "root"),
+		filepath.Join(workRoot, "daily", runIDHash("../root-run"), runIDHash("../../child-run")),
 	}
 	workDirs := make([]string, len(refs))
 	for i, ref := range refs {
 		dir, err := store.Materialize(ctx, ref)
 		require.NoError(t, err)
 		require.DirExists(t, dir)
-		workDirs[i] = dir
-
+		assert.Equal(t, expected[i], dir)
 		rel, err := filepath.Rel(workRoot, dir)
 		require.NoError(t, err)
-		assert.False(t, filepath.IsAbs(rel))
 		assert.NotContains(t, rel, "..")
+		workDirs[i] = dir
 	}
 	assert.NotEqual(t, workDirs[0], workDirs[1])
 
@@ -200,7 +204,7 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
-	repository := persis.NewDAGRunRepository(store, NewNestedWorkDirStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	repository := persis.NewDAGRunRepository(store, NewWorkDirStore(filepath.Join(baseDir, ".dag-run-work"), baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",
@@ -213,6 +217,10 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	require.NoError(t, err)
 
 	runDir := filepath.Join(baseDir, "compat-dag", "dag-runs", "2026", "05", "27", "dag-run_20260527_010203Z_run-compat")
+	legacyRootWorkDir := filepath.Join(runDir, "work")
+	legacyChildWorkDir := filepath.Join(runDir, subDAGWorkDirName("child-run"))
+	require.NoError(t, os.MkdirAll(legacyRootWorkDir, 0o750))
+	require.NoError(t, os.MkdirAll(legacyChildWorkDir, 0o750))
 	legacyChildDir := filepath.Join(runDir, LegacySubDAGRunsDir, LegacySubDAGRunDirPrefix+"child-run")
 	require.NoError(t, os.MkdirAll(legacyChildDir, 0750))
 
@@ -233,6 +241,16 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	assert.Equal(t, filepath.Join(expectedAttemptDir, JSONLStatusFile), childAttempt.(*Attempt).file)
 	require.DirExists(t, expectedAttemptDir)
 	require.NoDirExists(t, filepath.Join(runDir, SubDAGRunsDir, "child-run"))
+
+	rootWorkDir, err := repository.MaterializeWorkDir(ctx, dagrun.WorkDirRef{DAGRun: rootRef})
+	require.NoError(t, err)
+	assert.Equal(t, legacyRootWorkDir, rootWorkDir)
+	childWorkDir, err := repository.MaterializeWorkDir(ctx, dagrun.WorkDirRef{
+		RootDAGRun: rootRef,
+		DAGRun:     ir.NewDAGRunRef(childDAG.Name, "child-run"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, legacyChildWorkDir, childWorkDir)
 }
 
 func TestRepository(t *testing.T) {
@@ -341,6 +359,13 @@ func TestRepository(t *testing.T) {
 		th.CreateAttempt(t, ts1, "dagrun-id-1", ir.Running)
 		th.CreateAttempt(t, ts2, "dagrun-id-2", ir.Failed)
 		th.CreateAttempt(t, ts3, "dagrun-id-3", ir.Succeeded)
+		workDirs := make(map[string]string, 3)
+		for _, id := range []string{"dagrun-id-1", "dagrun-id-2", "dagrun-id-3"} {
+			ref := ir.NewDAGRunRef("test_DAG", id)
+			workDir, err := th.Repository.MaterializeWorkDir(th.Context, dagrun.WorkDirRef{DAGRun: ref})
+			require.NoError(t, err)
+			workDirs[id] = workDir
+		}
 
 		// Verify attempts are present
 		statuses, err := th.Repository.RecentStatuses(th.Context, "test_DAG", 3)
@@ -361,6 +386,9 @@ func TestRepository(t *testing.T) {
 		// Verify the remaining status is the active one
 		assert.Equal(t, "dagrun-id-1", statuses[0].DAGRunID)
 		assert.Equal(t, ir.Running, statuses[0].Status)
+		require.DirExists(t, workDirs["dagrun-id-1"])
+		require.NoDirExists(t, workDirs["dagrun-id-2"])
+		require.NoDirExists(t, workDirs["dagrun-id-3"])
 	})
 	t.Run("RemoveOldWithOlderThanCutoff", func(t *testing.T) {
 		th := setupTestRepository(t)
@@ -432,7 +460,7 @@ func TestRepository(t *testing.T) {
 		_, err = th.Repository.FindAttempt(th.Context, ref)
 		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)
 	})
-	t.Run("RemoveDAGRunRemovesArtifactDirsIncludingSubDAGRuns", func(t *testing.T) {
+	t.Run("RemoveDAGRunRemovesArtifactAndWorkDirsIncludingSubDAGRuns", func(t *testing.T) {
 		th := setupTestRepository(t)
 		ts := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -470,15 +498,26 @@ func TestRepository(t *testing.T) {
 		subStatus.ArchiveDir = subArtifactDir
 		require.NoError(t, subAttempt.Write(th.Context, subStatus))
 		require.NoError(t, subAttempt.Close(th.Context))
+		parentWorkDir, err := th.Repository.MaterializeWorkDir(th.Context, dagrun.WorkDirRef{DAGRun: rootRef})
+		require.NoError(t, err)
+		subWorkDir, err := th.Repository.MaterializeWorkDir(th.Context, dagrun.WorkDirRef{
+			RootDAGRun: rootRef,
+			DAGRun:     ir.NewDAGRunRef(subDAG.Name, "sub-id"),
+		})
+		require.NoError(t, err)
 
 		require.DirExists(t, parentArtifactDir)
 		require.DirExists(t, subArtifactDir)
+		require.DirExists(t, parentWorkDir)
+		require.DirExists(t, subWorkDir)
 
 		err = th.Repository.RemoveDAGRun(th.Context, rootRef, persis.DAGRunRemoveOptions{})
 		require.NoError(t, err)
 
 		assert.NoDirExists(t, parentArtifactDir)
 		assert.NoDirExists(t, subArtifactDir)
+		assert.NoDirExists(t, parentWorkDir)
+		assert.NoDirExists(t, subWorkDir)
 
 		_, err = th.Repository.FindAttempt(th.Context, rootRef)
 		assert.ErrorIs(t, err, dagrun.ErrDAGRunIDNotFound)

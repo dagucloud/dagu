@@ -152,6 +152,7 @@ data:
       suspend_flags_dir: /data/suspend
       admin_logs_dir: /data/admin/logs
       dag_runs_dir: /data/dag-runs
+      dag_run_work_dir: /data/dag-run-work
       queue_dir: /data/queue
       proc_dir: /data/proc
       service_registry_dir: /data/services

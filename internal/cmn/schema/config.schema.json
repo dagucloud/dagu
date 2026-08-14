@@ -750,7 +750,7 @@
         },
         "dag_run_work_dir": {
           "type": "string",
-          "description": "Directory for DAG run working directories."
+          "description": "Directory for DAG run working directories. Defaults to {paths.data_dir}/dag-run-work."
         },
         "queue_dir": {
           "type": "string",

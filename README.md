@@ -926,7 +926,17 @@ The table lists the most common commands. The binary ships 31 in total, includin
 | `DAGU_DATA_DIR` | `~/.local/share/dagu/data` | Application state |
 | `DAGU_TOOLS_DIR` | `{DAGU_DATA_DIR}/tools` | Managed DAG tool cache |
 | `DAGU_DAG_STATE_DIR` | `{DAGU_DATA_DIR}/dag-state` | Persistent DAG state files |
+| `DAGU_DAG_RUN_WORK_DIR` | `{DAGU_DATA_DIR}/dag-run-work` | Per-run working directories |
 | `DAGU_BASE_CONFIG` | — | Shared base configuration applied to all DAGs |
+
+Set the per-run work root in `config.yaml`, or use the corresponding environment variable above:
+
+```yaml
+paths:
+  dag_run_work_dir: /mnt/dagu/dag-run-work
+```
+
+Processes sharing DAG runs must use the same work root.
 
 Recursive discovery can also be enabled in `config.yaml`:
 

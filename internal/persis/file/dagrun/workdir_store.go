@@ -9,6 +9,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -20,25 +21,39 @@ var _ dagrun.WorkDirStore = (*WorkDirStore)(nil)
 
 // WorkDirStore manages file-backed DAG-run work directories.
 type WorkDirStore struct {
-	rootDir string
-	nested  bool
+	rootDir    string
+	historyDir string
 }
 
 // NewWorkDirStore creates a work-directory store rooted at rootDir.
-func NewWorkDirStore(rootDir string) *WorkDirStore {
-	return &WorkDirStore{rootDir: rootDir}
-}
-
-// NewNestedWorkDirStore creates a work-directory store nested in DAG-run storage.
-func NewNestedWorkDirStore(dagRunsDir string) *WorkDirStore {
-	return &WorkDirStore{rootDir: dagRunsDir, nested: true}
+// Existing work directories nested under historyDir remain accessible.
+func NewWorkDirStore(rootDir, historyDir string) *WorkDirStore {
+	return &WorkDirStore{rootDir: rootDir, historyDir: historyDir}
 }
 
 func (s *WorkDirStore) Materialize(ctx context.Context, ref dagrun.WorkDirRef) (string, error) {
-	dir, err := s.workDir(ctx, ref)
+	dir := s.workDir(ref)
+	exists, err := directoryExists(dir)
 	if err != nil {
+		return "", fmt.Errorf("inspect work directory %s: %w", dir, err)
+	}
+	if exists {
+		return dir, nil
+	}
+
+	legacyDir, err := s.legacyWorkDir(ctx, ref)
+	if err == nil {
+		exists, err = directoryExists(legacyDir)
+		if err != nil {
+			return "", fmt.Errorf("inspect legacy work directory %s: %w", legacyDir, err)
+		}
+		if exists {
+			return legacyDir, nil
+		}
+	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return "", err
 	}
+
 	if err := fileutil.MkdirAll(dir, 0o750); err != nil {
 		return "", fmt.Errorf("create work directory %s: %w", dir, err)
 	}
@@ -49,15 +64,9 @@ func (*WorkDirStore) Snapshot(context.Context, dagrun.WorkDirRef, string) error 
 	return nil
 }
 
-func (s *WorkDirStore) Remove(ctx context.Context, ref dagrun.WorkDirRef) error {
-	dir, err := s.workDir(ctx, ref)
-	if err != nil {
-		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-			return nil
-		}
-		return err
-	}
-	if !s.nested {
+func (s *WorkDirStore) Remove(_ context.Context, ref dagrun.WorkDirRef) error {
+	dir := s.workDir(ref)
+	if ref.DAGRun == ref.RootDAGRun {
 		dir = filepath.Dir(dir)
 	}
 	if err := fileutil.RemoveAll(dir); err != nil {
@@ -66,16 +75,16 @@ func (s *WorkDirStore) Remove(ctx context.Context, ref dagrun.WorkDirRef) error 
 	return nil
 }
 
-func (s *WorkDirStore) workDir(ctx context.Context, ref dagrun.WorkDirRef) (string, error) {
-	if !s.nested {
-		rootDir := filepath.Join(s.rootDir, workDirKey(ref.RootDAGRun.Name+"\x00"+ref.RootDAGRun.ID))
-		if ref.DAGRun == ref.RootDAGRun {
-			return filepath.Join(rootDir, "work"), nil
-		}
-		return filepath.Join(rootDir, "children", workDirKey(ref.DAGRun.ID), "work"), nil
+func (s *WorkDirStore) workDir(ref dagrun.WorkDirRef) string {
+	rootDir := filepath.Join(s.rootDir, dagDirName(ref.RootDAGRun.Name), runIDHash(ref.RootDAGRun.ID))
+	if ref.DAGRun == ref.RootDAGRun {
+		return filepath.Join(rootDir, "root")
 	}
+	return filepath.Join(rootDir, runIDHash(ref.DAGRun.ID))
+}
 
-	root := NewDataRoot(s.rootDir, ref.RootDAGRun.Name)
+func (s *WorkDirStore) legacyWorkDir(ctx context.Context, ref dagrun.WorkDirRef) (string, error) {
+	root := NewDataRoot(s.historyDir, ref.RootDAGRun.Name)
 	run, err := root.FindByDAGRunID(ctx, ref.RootDAGRun.ID)
 	if err != nil {
 		return "", fmt.Errorf("find root dag-run %s: %w", ref.RootDAGRun.ID, err)
@@ -89,11 +98,6 @@ func (s *WorkDirStore) workDir(ctx context.Context, ref dagrun.WorkDirRef) (stri
 	return workDirForDAGRunDir(run.baseDir), nil
 }
 
-func workDirKey(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return fmt.Sprintf("%x", sum)
-}
-
 func workDirForDAGRunDir(dagRunDir string) string {
 	if rootDir, childRunID, ok := subDAGWorkDirParts(dagRunDir); ok {
 		return filepath.Join(rootDir, subDAGWorkDirName(childRunID))
@@ -102,10 +106,26 @@ func workDirForDAGRunDir(dagRunDir string) string {
 }
 
 func subDAGWorkDirName(childRunID string) string {
-	sum := sha256.Sum256([]byte(childRunID))
-	return SubDAGWorkDirPrefix + strings.ToLower(
-		base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:8]),
-	)
+	return SubDAGWorkDirPrefix + runIDHash(childRunID)
+}
+
+func runIDHash(runID string) string {
+	sum := sha256.Sum256([]byte(runID))
+	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:8]))
+}
+
+func directoryExists(path string) (bool, error) {
+	info, err := fileutil.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, errors.New("not a directory")
+	}
+	return true, nil
 }
 
 func subDAGWorkDirParts(dagRunDir string) (rootDir, childRunID string, ok bool) {

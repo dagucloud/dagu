@@ -59,25 +59,8 @@ func NewDataRoot(baseDir, dagName string) DataRoot {
 
 // NewDataRootWithArtifactDir creates a new DataRoot with an explicit trusted artifact root.
 func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
-	ext := filepath.Ext(dagName)
 	root := DataRoot{baseDir: baseDir, artifactDir: artifactDir}
-
-	base := filepath.Base(dagName)
-	if fileutil.IsYAMLFile(dagName) {
-		// Remove .yaml or .yml extension
-		base = strings.TrimSuffix(base, ext)
-	}
-
-	// Create a safe directory name from the DAG name
-	prefix := fileutil.SafeName(base)
-	if prefix != base {
-		// If the name was modified for safety, append a hash to ensure uniqueness
-		hash := sha256.Sum256([]byte(dagName))
-		hashLength := 4 // 4 characters of the hash should be enough
-		prefix = prefix + "-" + hex.EncodeToString(hash[:])[0:hashLength]
-	}
-
-	root.prefix = prefix
+	root.prefix = dagDirName(dagName)
 	root.dagRunsDir = filepath.Join(baseDir, root.prefix, "dag-runs")
 	root.globPattern = filepath.Join(root.dagRunsDir, "*", "*", "*", DAGRunDirPrefix+"*")
 	root.DirLock = dirlock.New(root.dagRunsDir, &dirlock.LockOptions{
@@ -86,6 +69,20 @@ func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 	})
 
 	return root
+}
+
+func dagDirName(dagName string) string {
+	base := filepath.Base(dagName)
+	if fileutil.IsYAMLFile(dagName) {
+		base = strings.TrimSuffix(base, filepath.Ext(dagName))
+	}
+
+	name := fileutil.SafeName(base)
+	if name == base {
+		return name
+	}
+	hash := sha256.Sum256([]byte(dagName))
+	return name + "-" + hex.EncodeToString(hash[:])[:4]
 }
 
 const dagRunTimestampLen = len("20060102_150405Z")

@@ -305,6 +305,7 @@ func TestLoad_Env(t *testing.T) {
 			EventStoreDir:      cfg.Paths.EventStoreDir,
 			BaseConfig:         filepath.Join(testPaths, "base.yaml"),
 			DAGRunsDir:         filepath.Join(testPaths, "runs"),
+			DAGRunWorkDir:      filepath.Join(testPaths, "data", "dag-run-work"),
 			ProcDir:            filepath.Join(testPaths, "proc"),
 			QueueDir:           filepath.Join(testPaths, "queue"),
 			ServiceRegistryDir: filepath.Join(testPaths, "service-registry"),
@@ -765,6 +766,7 @@ scheduler:
 			BaseConfig:         resolvedTestPath(t, "/var/dagu/base.yaml"),
 			Executable:         resolvedTestPath(t, "/usr/local/bin/dagu"),
 			DAGRunsDir:         resolvedTestPath(t, "/var/dagu/data/dag-runs"),
+			DAGRunWorkDir:      resolvedTestPath(t, "/var/dagu/data/dag-run-work"),
 			ProcDir:            resolvedTestPath(t, "/var/dagu/data/proc"),
 			QueueDir:           resolvedTestPath(t, "/var/dagu/data/queue"),
 			ServiceRegistryDir: resolvedTestPath(t, "/var/dagu/data/service-registry"),
@@ -886,7 +888,7 @@ paths:
 	assert.Equal(t, dataDir, cfg.Paths.DataDir)
 	assert.Equal(t, filepath.Join(dataDir, "tools"), cfg.Paths.ToolsDir)
 	assert.Equal(t, filepath.Join(dataDir, "dag-runs"), cfg.Paths.DAGRunsDir)
-	assert.Empty(t, cfg.Paths.DAGRunWorkDir)
+	assert.Equal(t, filepath.Join(dataDir, "dag-run-work"), cfg.Paths.DAGRunWorkDir)
 	assert.Equal(t, filepath.Join(dataDir, "proc"), cfg.Paths.ProcDir)
 	assert.Equal(t, filepath.Join(dataDir, "queue"), cfg.Paths.QueueDir)
 	assert.Equal(t, filepath.Join(dataDir, "service-registry"), cfg.Paths.ServiceRegistryDir)

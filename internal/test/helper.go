@@ -373,6 +373,7 @@ func writeHelperConfigFile(t *testing.T, cfg *config.Config, configPath string) 
 		"event_store_dir":      cfg.Paths.EventStoreDir,
 		"base_config":          cfg.Paths.BaseConfig,
 		"dag_runs_dir":         cfg.Paths.DAGRunsDir,
+		"dag_run_work_dir":     cfg.Paths.DAGRunWorkDir,
 		"queue_dir":            cfg.Paths.QueueDir,
 		"proc_dir":             cfg.Paths.ProcDir,
 		"service_registry_dir": cfg.Paths.ServiceRegistryDir,
