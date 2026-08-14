@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
@@ -119,7 +120,10 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	var collector func(context.Context)
 	if stores.Event != nil {
-		eventCollector, err := persisfile.NewEventCollector(serviceCtx.Config)
+		eventCollector, err := fileeventstore.NewCollector(
+			serviceCtx.Config.Paths.EventStoreDir,
+			serviceCtx.Config.EventStore.RetentionDays,
+		)
 		if err != nil {
 			logger.Warn(serviceCtx, "Failed to initialize event collector; continuing without collection", tag.Error(err))
 		} else {
@@ -140,7 +144,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	}
 
 	// Initialize all services using the signal-aware context
-	scheduler, err := serviceCtx.NewScheduler(schedulerDeps)
+	scheduler, err := newScheduler(serviceCtx, schedulerDeps)
 	if err != nil {
 		return fmt.Errorf("failed to initialize scheduler: %w", err)
 	}
@@ -151,7 +155,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	resourceService := resource.NewService(ctx.Config)
 
 	// Use serviceCtx so auth initialization can respond to termination signals
-	server, err := serviceCtx.NewServer(resourceService, stores)
+	server, err := newServer(serviceCtx, resourceService, stores)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}

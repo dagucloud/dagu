@@ -35,9 +35,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
-	"github.com/dagucloud/dagu/v2/internal/service/frontend"
-	"github.com/dagucloud/dagu/v2/internal/service/resource"
-	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -250,7 +247,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		}, nil
 	}
 
-	workerCommand := isWorkerCommand(cmd)
+	workerCommand := cmd.Name() == "worker"
 	var eventService *eventstore.Service
 	switch cmd.Name() {
 	case "server", "scheduler", "start-all", "worker":
@@ -490,36 +487,6 @@ func isProgressOutputCommand(cmdName string) bool {
 	}
 }
 
-func isWorkerCommand(cmd *cobra.Command) bool {
-	return cmd.Name() == "worker"
-}
-
-// NewServer creates and returns a new web UI server for this command context.
-func (c *Context) NewServer(rs *resource.Service, stores frontend.Stores, opts ...frontend.ServerOption) (*frontend.Server, error) {
-	coordinatorClient, err := c.NewCoordinatorClient()
-	if err != nil {
-		return nil, err
-	}
-	return frontend.NewServer(frontend.ServerConfig{
-		Context:              c.Context,
-		Config:               c.Config,
-		DAGRepository:        c.Persistence.DAGRepository,
-		DAGRunRepository:     c.Persistence.DAGRunRepository,
-		ProcRepository:       c.Persistence.ProcRepository,
-		QueueStore:           c.Persistence.QueueStore,
-		DAGRunManager:        c.DAGRunMgr,
-		CoordinatorClient:    coordinatorClient,
-		ServiceRegistry:      c.Persistence.ServiceRegistry,
-		DAGRunLeaseStore:     c.Persistence.DAGRunLeaseStore,
-		WorkerHeartbeatStore: c.Persistence.WorkerHeartbeatStore,
-		SchedulerStateStore:  c.Persistence.SchedulerStateStore,
-		Caches:               c.Caches,
-		LicenseManager:       c.LicenseManager,
-		ResourceService:      rs,
-		Stores:               stores,
-	}, opts...)
-}
-
 // NewCoordinatorClient creates a new coordinator client using the global peer configuration.
 // Returns a nil client when the coordinator is disabled via configuration.
 func (c *Context) NewCoordinatorClient() (coordinator.Client, error) {
@@ -550,35 +517,6 @@ func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.
 		DAGRunLogDir:      c.Config.Paths.LogDir,
 		DAGRunArtifactDir: c.Config.Paths.ArtifactDir,
 	})
-}
-
-// NewScheduler creates a scheduler for this command context.
-func (c *Context) NewScheduler(deps scheduler.Dependencies) (*scheduler.Scheduler, error) {
-	if deps.DAGSettingsStore == nil {
-		return nil, errors.New("DAG settings store is not configured")
-	}
-	coordinatorClient, err := c.NewCoordinatorClient()
-	if err != nil {
-		return nil, err
-	}
-	manager := runtime.NewManager(
-		c.Persistence.DAGRunRepository,
-		c.Persistence.ProcRepository,
-		c.Config,
-		runtime.WithLatestStatusAllHistory(),
-	)
-	deps.DAGRunManager = manager
-	deps.DAGRepository = c.Persistence.DAGRepository
-	deps.DAGRunRepository = c.Persistence.DAGRunRepository
-	deps.QueueStore = c.Persistence.QueueStore
-	deps.ProcRepository = c.Persistence.ProcRepository
-	deps.ServiceRegistry = c.Persistence.ServiceRegistry
-	deps.CoordinatorClient = coordinatorClient
-	deps.SchedulerStateStore = c.Persistence.SchedulerStateStore
-	deps.DAGRunLeaseStore = c.Persistence.DAGRunLeaseStore
-	deps.DispatchTaskStore = c.Persistence.DispatchTaskStore
-	deps.LicenseManager = c.LicenseManager
-	return scheduler.New(c.Config, deps)
 }
 
 // StringParam retrieves a string parameter from the command line flags.

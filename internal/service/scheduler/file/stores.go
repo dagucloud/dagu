@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	fileincident "github.com/dagucloud/dagu/v2/internal/persis/file/incident"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	filenotification "github.com/dagucloud/dagu/v2/internal/persis/file/notification"
@@ -28,15 +29,15 @@ import (
 func NewDependencies(ctx context.Context, cfg *config.Config) (scheduler.Dependencies, error) {
 	var deps scheduler.Dependencies
 	if cfg.EventStore.Enabled {
-		store, err := persisfile.NewEventStore(cfg)
+		store, err := fileeventstore.New(cfg.Paths.EventStoreDir)
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize event store; continuing without event persistence", tag.Error(err))
-		} else if store != nil {
+		} else {
 			deps.EventService = eventstore.New(store)
 		}
 	}
 	if deps.EventService != nil {
-		collector, err := persisfile.NewEventCollector(cfg)
+		collector, err := fileeventstore.NewCollector(cfg.Paths.EventStoreDir, cfg.EventStore.RetentionDays)
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize event collector; continuing without collection", tag.Error(err))
 		} else {

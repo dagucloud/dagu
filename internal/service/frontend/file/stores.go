@@ -24,6 +24,7 @@ import (
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
+	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	fileincident "github.com/dagucloud/dagu/v2/internal/persis/file/incident"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	filenotification "github.com/dagucloud/dagu/v2/internal/persis/file/notification"
@@ -40,12 +41,11 @@ func NewStores(ctx context.Context, cfg *config.Config) (frontend.Stores, error)
 	stores := frontend.Stores{}
 
 	if cfg.EventStore.Enabled {
-		store, err := persisfile.NewEventStore(cfg)
+		store, err := fileeventstore.New(cfg.Paths.EventStoreDir)
 		if err != nil {
 			return frontend.Stores{}, fmt.Errorf("failed to initialize event store: %w", err)
-		} else if store != nil {
-			stores.Event = eventstore.New(store)
 		}
+		stores.Event = eventstore.New(store)
 	}
 
 	dagSettingsStore, err := persisfile.NewDAGSettingsStore(cfg)

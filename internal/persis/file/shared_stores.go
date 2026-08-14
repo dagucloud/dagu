@@ -14,9 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
-	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
-	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -55,20 +53,6 @@ func NewProfileStore(ctx context.Context, cfg *config.Config) profile.Store {
 		return nil
 	}
 	return profileStore
-}
-
-func NewEventStore(cfg *config.Config) (eventstore.Store, error) {
-	if cfg == nil || !cfg.EventStore.Enabled {
-		return nil, nil
-	}
-	return fileeventstore.New(cfg.Paths.EventStoreDir)
-}
-
-func NewEventCollector(cfg *config.Config) (*fileeventstore.Collector, error) {
-	if cfg == nil || !cfg.EventStore.Enabled {
-		return nil, nil
-	}
-	return fileeventstore.NewCollector(cfg.Paths.EventStoreDir, cfg.EventStore.RetentionDays)
 }
 
 func NewDAGSettingsStore(cfg *config.Config) (dagsettings.Store, error) {
