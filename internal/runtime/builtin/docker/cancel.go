@@ -1,4 +1,3 @@
-// Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package docker
@@ -17,11 +16,11 @@ import (
 
 var errContainerStopUnavailable = errors.New("docker client or container id is unavailable")
 
+const defaultCancelStopWait = 10 * time.Second
+
 // waitUntilContainerStopped polls until the container is gone or not running.
 // If ctx is canceled while the container is still running, stop is called once
 // so timeout_sec cannot hang in Client.Run's post-wait join.
-const defaultCancelStopWait = 10 * time.Second
-
 func waitUntilContainerStopped(
 	ctx context.Context,
 	inspect func(context.Context) (running bool, notFound bool, err error),
