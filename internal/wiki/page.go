@@ -150,6 +150,7 @@ type PageStore interface {
 	Update(ctx context.Context, id, content string) error
 	Delete(ctx context.Context, id string) error
 	DeleteBatch(ctx context.Context, ids []string) (deleted []string, failed []DeleteError, err error)
+	// Rename moves a page or every page under a directory path.
 	Rename(ctx context.Context, oldID, newID string) error
 	// Backlinks returns metadata for pages linking to target. Target is a
 	// stored page ID or a scheme-prefixed wiki-link target such as
@@ -171,8 +172,8 @@ type PageStore interface {
 	Search(ctx context.Context, query string) ([]*PageSearchResult, error)
 	SearchCursor(ctx context.Context, opts SearchPagesOptions) (*pagination.CursorResult[PageSearchResult], error)
 	SearchMatches(ctx context.Context, id string, opts SearchPageMatchesOptions) (*pagination.CursorResult[*textsearch.Match], error)
-	PathExists(ctx context.Context, id string) (fileExists, directoryExists bool, err error)
-	RenameDirectory(ctx context.Context, oldID, newID string) error
+	// PathExists reports whether id identifies a page or a page directory.
+	PathExists(ctx context.Context, id string) (pageExists, directoryExists bool, err error)
 }
 
 // validPageIDRegexp matches a valid page ID: segments separated by slashes.

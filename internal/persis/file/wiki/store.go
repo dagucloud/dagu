@@ -336,12 +336,12 @@ func pathExistsNoFollow(path string) (bool, error) {
 	return false, err
 }
 
-func (s *Store) pathExists(id string) (fileExists, directoryExists bool, err error) {
+func (s *Store) pathExists(id string) (pageExists, directoryExists bool, err error) {
 	filePath, err := s.wikiPageFilePath(id)
 	if err != nil {
 		return false, false, err
 	}
-	fileExists, err = pathExistsNoFollow(filePath)
+	pageExists, err = pathExistsNoFollow(filePath)
 	if err != nil {
 		return false, false, err
 	}
@@ -353,15 +353,15 @@ func (s *Store) pathExists(id string) (fileExists, directoryExists bool, err err
 	if err != nil {
 		return false, false, err
 	}
-	return fileExists, directoryExists, nil
+	return pageExists, directoryExists, nil
 }
 
 func (s *Store) ensureTargetAvailable(id string) error {
-	fileExists, directoryExists, err := s.pathExists(id)
+	pageExists, directoryExists, err := s.pathExists(id)
 	if err != nil {
 		return err
 	}
-	if fileExists || directoryExists {
+	if pageExists || directoryExists {
 		return wikimodel.ErrPageAlreadyExists
 	}
 
@@ -1363,8 +1363,8 @@ func (s *Store) dirPath(id string) (string, error) {
 	return s.safePath(filepath.Join(s.baseDir, id), id)
 }
 
-// PathExists reports whether the file or directory path for id is occupied.
-func (s *Store) PathExists(_ context.Context, id string) (fileExists, directoryExists bool, err error) {
+// PathExists reports whether id identifies a page or a page directory.
+func (s *Store) PathExists(_ context.Context, id string) (pageExists, directoryExists bool, err error) {
 	if err := wikimodel.ValidatePageID(id); err != nil {
 		return false, false, err
 	}
@@ -1375,7 +1375,7 @@ func (s *Store) PathExists(_ context.Context, id string) (fileExists, directoryE
 	return s.pathExists(id)
 }
 
-// Rename moves a page (file or directory) from oldID to newID.
+// Rename moves a page or every page under a directory path.
 func (s *Store) Rename(ctx context.Context, oldID, newID string) error {
 	if err := wikimodel.ValidatePageID(oldID); err != nil {
 		return err
@@ -1445,31 +1445,6 @@ func (s *Store) renameFileLocked(ctx context.Context, oldID, newID, oldFilePath 
 	s.removePageIndexAfterDelete(ctx, oldID)
 	s.upsertPageIndexAfterMutation(ctx, newID)
 	return nil
-}
-
-// RenameDirectory moves the directory at oldID to newID.
-func (s *Store) RenameDirectory(ctx context.Context, oldID, newID string) error {
-	if err := wikimodel.ValidatePageID(oldID); err != nil {
-		return err
-	}
-	if err := wikimodel.ValidatePageID(newID); err != nil {
-		return err
-	}
-
-	s.mutationMu.Lock()
-	defer s.mutationMu.Unlock()
-
-	oldDirPath, err := s.dirPath(oldID)
-	if err != nil {
-		return err
-	}
-	if _, err := statPageDir(oldDirPath); err != nil {
-		if os.IsNotExist(err) || errors.Is(err, wikimodel.ErrPageNotFound) {
-			return wikimodel.ErrPageNotFound
-		}
-		return err
-	}
-	return s.renameDirectoryLocked(ctx, oldID, newID, oldDirPath)
 }
 
 func (s *Store) renameDirectoryLocked(ctx context.Context, oldID, newID, oldDirPath string) error {

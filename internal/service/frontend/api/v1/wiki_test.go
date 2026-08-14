@@ -194,7 +194,7 @@ func (m *mockWikiStore) Rename(_ context.Context, oldID, newID string) error {
 		return wiki.ErrPagePathConflict
 	}
 
-	// Try exact match first (file rename).
+	// Try an exact page match first.
 	if doc, ok := m.pages[oldID]; ok {
 		if _, exists := m.pages[newID]; exists {
 			return wiki.ErrPageAlreadyExists
@@ -238,14 +238,14 @@ func (m *mockWikiStore) Rename(_ context.Context, oldID, newID string) error {
 	return nil
 }
 
-func (m *mockWikiStore) PathExists(_ context.Context, id string) (fileExists, directoryExists bool, err error) {
+func (m *mockWikiStore) PathExists(_ context.Context, id string) (pageExists, directoryExists bool, err error) {
 	if m.failAll {
 		return false, false, errForced
 	}
 	if err := wiki.ValidatePageID(id); err != nil {
 		return false, false, err
 	}
-	_, fileExists = m.pages[id]
+	_, pageExists = m.pages[id]
 	prefix := id + "/"
 	for pageID := range m.pages {
 		if strings.HasPrefix(pageID, prefix) {
@@ -253,39 +253,7 @@ func (m *mockWikiStore) PathExists(_ context.Context, id string) (fileExists, di
 			break
 		}
 	}
-	return fileExists, directoryExists, nil
-}
-
-func (m *mockWikiStore) RenameDirectory(_ context.Context, oldID, newID string) error {
-	if m.failAll {
-		return errForced
-	}
-	if newID == oldID || strings.HasPrefix(newID, oldID+"/") {
-		return wiki.ErrPagePathConflict
-	}
-	oldPrefix := oldID + "/"
-	newPrefix := newID + "/"
-	toMove := make([]string, 0)
-	for id := range m.pages {
-		if strings.HasPrefix(id, oldPrefix) {
-			toMove = append(toMove, id)
-		}
-		if id == newID || strings.HasPrefix(id, newPrefix) {
-			return wiki.ErrPageAlreadyExists
-		}
-	}
-	if len(toMove) == 0 {
-		return wiki.ErrPageNotFound
-	}
-	for _, id := range toMove {
-		doc := m.pages[id]
-		delete(m.pages, id)
-		newPageID := newID + strings.TrimPrefix(id, oldID)
-		doc.ID = newPageID
-		doc.Title = path.Base(newPageID)
-		m.pages[newPageID] = doc
-	}
-	return nil
+	return pageExists, directoryExists, nil
 }
 
 func (m *mockWikiStore) DeleteBatch(_ context.Context, ids []string) ([]string, []wiki.DeleteError, error) {
