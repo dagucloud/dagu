@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -22,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 )
@@ -240,14 +238,19 @@ func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 }
 
 func TestMonitorKeepsIncidentRecoveryWithinWorkspace(t *testing.T) {
-	requests := make(chan map[string]any, 1)
+	var (
+		requestsMu sync.Mutex
+		requests   []map[string]any
+	)
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		defer func() { _ = req.Body.Close() }()
 		var payload map[string]any
 		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 			return nil, err
 		}
-		requests <- payload
+		requestsMu.Lock()
+		requests = append(requests, payload)
+		requestsMu.Unlock()
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
@@ -294,7 +297,7 @@ func TestMonitorKeepsIncidentRecoveryWithinWorkspace(t *testing.T) {
 	cfg.SeenEvictInterval = time.Hour
 	monitor := chatbridge.NewNotificationMonitor(
 		eventService,
-		filemonitor.NewStateStore(filepath.Join(t.TempDir(), "state.json")),
+		nil,
 		nil,
 		svc,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -322,13 +325,13 @@ func TestMonitorKeepsIncidentRecoveryWithinWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, incidentmodel.IncidentStatusOpen, opsState.Status)
 
-	select {
-	case request := <-requests:
-		assert.Equal(t, "resolve", request["event_action"])
-		assert.Equal(t, engineeringDedupKey, request["dedup_key"])
-	default:
-		t.Fatal("expected PagerDuty resolution request")
-	}
+	requestsMu.Lock()
+	recordedRequests := append([]map[string]any(nil), requests...)
+	requestsMu.Unlock()
+	require.Len(t, recordedRequests, 1)
+	request := recordedRequests[0]
+	assert.Equal(t, "resolve", request["event_action"])
+	assert.Equal(t, engineeringDedupKey, request["dedup_key"])
 
 	require.True(t, svc.FlushNotificationBatch(context.Background(), stateDestinationID(provider.ID, opsDedupKey), chatbridge.NotificationBatch{
 		Events: []chatbridge.NotificationEvent{success},
