@@ -4,12 +4,14 @@
 package ssh
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -84,33 +86,41 @@ func defaultIfEmpty(val, defaultVal string) string {
 	return val
 }
 
-func (c *Client) NewSession() (*ssh.Client, *ssh.Session, error) {
-	conn, err := c.dial()
+func (c *Client) NewSession(ctx context.Context) (*ssh.Client, *ssh.Session, error) {
+	conn, err := c.dial(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	session, err := conn.NewSession()
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, ctxErr
+		}
 		return nil, nil, err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		_ = session.Close()
+		_ = conn.Close()
+		return nil, nil, ctxErr
 	}
 
 	return conn, session, nil
 }
 
 // dial establishes an SSH connection either directly or via bastion host.
-func (c *Client) dial() (*ssh.Client, error) {
+func (c *Client) dial(ctx context.Context) (*ssh.Client, error) {
 	if c.bastionCfg != nil {
-		return c.dialViaBastion()
+		return c.dialViaBastion(ctx)
 	}
-	return ssh.Dial("tcp", c.hostPort, c.cfg)
+	return dialContext(ctx, c.hostPort, c.cfg)
 }
 
 // dialViaBastion establishes an SSH connection through a bastion/jump host.
-func (c *Client) dialViaBastion() (*ssh.Client, error) {
+func (c *Client) dialViaBastion(ctx context.Context) (*ssh.Client, error) {
 	// Connect to bastion host first
-	bastionConn, err := ssh.Dial("tcp", c.bastionCfg.hostPort, c.bastionCfg.cfg)
+	bastionConn, err := dialContext(ctx, c.bastionCfg.hostPort, c.bastionCfg.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to bastion host: %w", err)
 	}
@@ -118,15 +128,21 @@ func (c *Client) dialViaBastion() (*ssh.Client, error) {
 	// Create a tunnel through bastion to the target host
 	targetConn, err := bastionConn.Dial("tcp", c.hostPort)
 	if err != nil {
-		bastionConn.Close()
+		_ = bastionConn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("failed to dial target through bastion: %w", err)
 	}
 
 	// Perform SSH handshake over the tunnel
 	ncc, chans, reqs, err := ssh.NewClientConn(targetConn, c.hostPort, c.cfg)
 	if err != nil {
-		targetConn.Close()
-		bastionConn.Close()
+		_ = targetConn.Close()
+		_ = bastionConn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("failed to establish SSH connection through bastion: %w", err)
 	}
 
@@ -136,7 +152,65 @@ func (c *Client) dialViaBastion() (*ssh.Client, error) {
 		bastion: bastionConn,
 	}
 
-	return ssh.NewClient(wrappedConn, chans, reqs), nil
+	client := ssh.NewClient(wrappedConn, chans, reqs)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		_ = client.Close()
+		return nil, ctxErr
+	}
+	return client, nil
+}
+
+func dialContext(ctx context.Context, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	dialer := net.Dialer{Timeout: cfg.Timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, err
+	}
+
+	contextConn := newContextConn(ctx, conn)
+	ncc, chans, reqs, err := ssh.NewClientConn(contextConn, addr, cfg)
+	if err != nil {
+		_ = contextConn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, err
+	}
+
+	client := ssh.NewClient(ncc, chans, reqs)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		_ = client.Close()
+		return nil, ctxErr
+	}
+	return client, nil
+}
+
+type contextConn struct {
+	net.Conn
+	stop     func() bool
+	closeErr error
+	close    sync.Once
+}
+
+func newContextConn(ctx context.Context, conn net.Conn) *contextConn {
+	ret := &contextConn{Conn: conn}
+	ret.stop = context.AfterFunc(ctx, ret.closeConn)
+	return ret
+}
+
+func (c *contextConn) Close() error {
+	c.stop()
+	c.closeConn()
+	return c.closeErr
+}
+
+func (c *contextConn) closeConn() {
+	c.close.Do(func() {
+		c.closeErr = c.Conn.Close()
+	})
 }
 
 // bastionWrappedConn wraps an SSH client connection and ensures the bastion

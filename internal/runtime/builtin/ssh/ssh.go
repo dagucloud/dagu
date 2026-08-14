@@ -47,6 +47,7 @@ type sshExecutor struct {
 	client    *Client
 	stdout    io.Writer
 	stderr    io.Writer
+	cancel    context.CancelFunc
 	conn      *ssh.Client  // SSH connection (must be closed after session)
 	session   *ssh.Session // SSH session
 	closed    bool         // Whether session/conn have been closed
@@ -84,20 +85,46 @@ func (e *sshExecutor) SetStderr(out io.Writer) {
 }
 
 func (e *sshExecutor) Kill(_ os.Signal) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return e.shutdown(true)
+}
 
+func (e *sshExecutor) shutdown(force bool) error {
+	e.mu.Lock()
 	if e.closed {
+		e.mu.Unlock()
 		return nil
 	}
 	e.closed = true
+	cancel := e.cancel
+	e.cancel = nil
+	conn := e.conn
+	e.conn = nil
+	session := e.session
+	e.session = nil
+	e.mu.Unlock()
+
+	if force {
+		if cancel != nil {
+			cancel()
+		}
+		if conn != nil {
+			return conn.Close()
+		}
+		if session != nil {
+			return session.Close()
+		}
+		return nil
+	}
 
 	var sessionErr, connErr error
-	if e.session != nil {
-		sessionErr = e.session.Close()
+	if session != nil {
+		sessionErr = session.Close()
 	}
-	if e.conn != nil {
-		connErr = e.conn.Close()
+	if conn != nil {
+		connErr = conn.Close()
+	}
+	if cancel != nil {
+		cancel()
 	}
 	return errors.Join(sessionErr, connErr)
 }
@@ -107,39 +134,46 @@ func (e *sshExecutor) Run(ctx context.Context) error {
 		return nil
 	}
 
-	conn, session, err := e.client.NewSession()
+	runCtx, cancel := context.WithCancel(ctx)
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		cancel()
+		return context.Canceled
+	}
+	e.cancel = cancel
+	e.mu.Unlock()
+
+	defer func() {
+		if closeErr := e.shutdown(false); closeErr != nil {
+			logger.Warn(ctx, "SSH cleanup error", tag.Error(closeErr))
+		}
+	}()
+
+	conn, session, err := e.client.NewSession(runCtx)
 	if err != nil {
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
 
 	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		_ = session.Close()
+		_ = conn.Close()
+		if ctxErr := runCtx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return context.Canceled
+	}
 	e.conn = conn
 	e.session = session
 	e.mu.Unlock()
-
-	defer func() {
-		e.mu.Lock()
-		defer e.mu.Unlock()
-
-		if e.closed {
-			return
-		}
-
-		// Close session first, then the underlying connection
-		if closeErr := session.Close(); closeErr != nil {
-			logger.Warn(ctx, "SSH session close error", tag.Error(closeErr))
-		}
-		if closeErr := conn.Close(); closeErr != nil {
-			logger.Warn(ctx, "SSH connection close error", tag.Error(closeErr))
-		}
-		e.closed = true
-	}()
 
 	session.Stdout = e.stdout
 	session.Stderr = e.stderr
 	session.Stdin = strings.NewReader(e.buildScript())
 
-	return e.runWithCancellation(ctx, session, e.buildShellCommand())
+	return e.runWithCancellation(runCtx, session, e.buildShellCommand())
 }
 
 // runWithCancellation executes the session command with context cancellation support.
@@ -151,13 +185,17 @@ func (e *sshExecutor) runWithCancellation(ctx context.Context, session *ssh.Sess
 
 	select {
 	case err := <-done:
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err == nil {
 			return nil
 		}
 		return fmt.Errorf("ssh execution failed: %w", err)
 	case <-ctx.Done():
-		// Close session to unblock the goroutine, then wait for it to finish
-		_ = session.Close()
+		// Closing the transport unblocks Session.Wait even when the server keeps
+		// the channel open until the remote process exits.
+		_ = e.shutdown(true)
 		<-done
 		return ctx.Err()
 	}

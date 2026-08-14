@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
@@ -22,17 +24,23 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
 var _ executor.Executor = (*sftpExecutor)(nil)
 
 type sftpExecutor struct {
+	mu          sync.Mutex
 	client      *Client
 	direction   string // "upload" or "download"
 	source      string
 	destination string
 	stdout      io.Writer
 	stderr      io.Writer
+	cancel      context.CancelFunc
+	conn        *ssh.Client
+	sftpClient  *sftp.Client
+	closed      bool
 }
 
 // NewSFTPExecutor creates a new SFTP executor for file transfers.
@@ -96,33 +104,121 @@ func (e *sftpExecutor) SetStderr(out io.Writer) {
 }
 
 func (e *sftpExecutor) Kill(_ os.Signal) error {
-	// SFTP operations are not interruptible in the same way as SSH commands.
-	// The operation will complete or fail on its own.
-	return nil
+	return e.shutdown(true)
 }
 
 func (e *sftpExecutor) Run(ctx context.Context) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		cancel()
+		return context.Canceled
+	}
+	e.cancel = cancel
+	e.mu.Unlock()
+	defer func() { _ = e.shutdown(false) }()
+
 	// Dial SSH connection directly - SFTP doesn't need a session, just the connection
-	conn, err := e.client.dial()
+	conn, err := e.client.dial(runCtx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
-	defer conn.Close()
+	if !e.setConn(conn) {
+		_ = conn.Close()
+		return context.Canceled
+	}
 
 	sftpClient, err := sftp.NewClient(conn)
 	if err != nil {
+		if ctxErr := runCtx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return fmt.Errorf("failed to create SFTP client: %w", err)
 	}
-	defer sftpClient.Close()
-
-	if e.direction == "download" {
-		return e.download(ctx, sftpClient)
+	if !e.setSFTPClient(sftpClient) {
+		_ = sftpClient.Close()
+		return context.Canceled
 	}
-	return e.upload(ctx, sftpClient)
+
+	var runErr error
+	if e.direction == "download" {
+		runErr = e.download(runCtx, sftpClient)
+	} else {
+		runErr = e.upload(runCtx, sftpClient)
+	}
+	if ctxErr := runCtx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return runErr
+}
+
+func (e *sftpExecutor) setConn(conn *ssh.Client) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return false
+	}
+	e.conn = conn
+	return true
+}
+
+func (e *sftpExecutor) setSFTPClient(client *sftp.Client) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return false
+	}
+	e.sftpClient = client
+	return true
+}
+
+func (e *sftpExecutor) shutdown(force bool) error {
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return nil
+	}
+	e.closed = true
+	cancel := e.cancel
+	e.cancel = nil
+	conn := e.conn
+	e.conn = nil
+	client := e.sftpClient
+	e.sftpClient = nil
+	e.mu.Unlock()
+
+	if force {
+		if cancel != nil {
+			cancel()
+		}
+		if conn != nil {
+			return conn.Close()
+		}
+		if client != nil {
+			return client.Close()
+		}
+		return nil
+	}
+
+	var clientErr, connErr error
+	if client != nil {
+		clientErr = client.Close()
+	}
+	if conn != nil {
+		connErr = conn.Close()
+	}
+	if cancel != nil {
+		cancel()
+	}
+	return errors.Join(clientErr, connErr)
 }
 
 // upload transfers files from local to remote.
 func (e *sftpExecutor) upload(ctx context.Context, sftpClient *sftp.Client) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Check if source is a file or directory
 	info, err := os.Stat(e.source)
 	if err != nil {
@@ -139,6 +235,9 @@ func (e *sftpExecutor) upload(ctx context.Context, sftpClient *sftp.Client) erro
 // It writes to a temp file first, then renames to the final destination.
 // This prevents partial files from being left on the remote server if the upload fails.
 func (e *sftpExecutor) uploadFile(ctx context.Context, sftpClient *sftp.Client, localPath, remotePath string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	logger.Info(ctx, "Uploading file",
 		slog.String("source", localPath),
 		slog.String("destination", remotePath),
@@ -218,6 +317,9 @@ func (e *sftpExecutor) uploadDir(ctx context.Context, sftpClient *sftp.Client, l
 	)
 
 	return filepath.Walk(localDir, func(localPath string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
@@ -245,6 +347,9 @@ func (e *sftpExecutor) uploadDir(ctx context.Context, sftpClient *sftp.Client, l
 
 // download transfers files from remote to local.
 func (e *sftpExecutor) download(ctx context.Context, sftpClient *sftp.Client) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Check if source is a file or directory
 	info, err := sftpClient.Stat(e.source)
 	if err != nil {
@@ -259,6 +364,9 @@ func (e *sftpExecutor) download(ctx context.Context, sftpClient *sftp.Client) er
 
 // downloadFile downloads a single file.
 func (e *sftpExecutor) downloadFile(ctx context.Context, sftpClient *sftp.Client, remotePath, localPath string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	logger.Info(ctx, "Downloading file",
 		slog.String("source", remotePath),
 		slog.String("destination", localPath),
@@ -314,6 +422,9 @@ func (e *sftpExecutor) downloadDir(ctx context.Context, sftpClient *sftp.Client,
 
 	walker := sftpClient.Walk(remoteDir)
 	for walker.Step() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := walker.Err(); err != nil {
 			return fmt.Errorf("error walking remote directory: %w", err)
 		}

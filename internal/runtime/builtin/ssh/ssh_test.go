@@ -6,6 +6,8 @@ package ssh
 import (
 	"bytes"
 	"context"
+	"io"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +16,10 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 func TestNewSSHExecutor(t *testing.T) {
@@ -593,17 +597,6 @@ func TestSSHExecutor_SetStdout_SetStderr(t *testing.T) {
 	assert.Equal(t, stderr, exec.stderr)
 }
 
-func TestSSHExecutor_Kill_NoSession(t *testing.T) {
-	t.Parallel()
-
-	// Create executor without session
-	exec := &sshExecutor{}
-
-	// Kill should return nil when there's no session
-	err := exec.Kill(nil)
-	require.NoError(t, err)
-}
-
 func TestNewSSHExecutor_NoConfig(t *testing.T) {
 	t.Parallel()
 
@@ -620,24 +613,6 @@ func TestNewSSHExecutor_NoConfig(t *testing.T) {
 	_, err := NewSSHExecutor(ctx, step)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ssh configuration is not found")
-}
-
-func TestSSHExecutor_ClosedFlag(t *testing.T) {
-	t.Parallel()
-
-	// Verify that closed flag prevents double close issues
-	exec := &sshExecutor{
-		closed: false,
-	}
-
-	// First Kill should work (no session, so just returns nil)
-	err := exec.Kill(nil)
-	require.NoError(t, err)
-	assert.True(t, exec.closed)
-
-	// Second Kill should be no-op due to closed flag
-	err = exec.Kill(nil)
-	require.NoError(t, err)
 }
 
 func TestFromMapConfig_WithBastion(t *testing.T) {
@@ -856,14 +831,133 @@ func TestSFTPExecutor_SetStdout_SetStderr(t *testing.T) {
 	assert.Equal(t, stderr, exec.stderr)
 }
 
-func TestSFTPExecutor_Kill(t *testing.T) {
-	t.Parallel()
+func TestExecutorCancellationInterruptsSSHHandshake(t *testing.T) {
+	tests := []struct {
+		name    string
+		newExec func(*Client) runtimeexec.Executor
+	}{
+		{
+			name: "SSH",
+			newExec: func(client *Client) runtimeexec.Executor {
+				return &sshExecutor{
+					step:   ir.Step{Commands: []ir.CommandEntry{{Command: "true", CmdWithArgs: "true"}}},
+					client: client,
+					shell:  "/bin/sh",
+					stdout: io.Discard,
+					stderr: io.Discard,
+				}
+			},
+		},
+		{
+			name: "SFTP",
+			newExec: func(client *Client) runtimeexec.Executor {
+				return &sftpExecutor{
+					client:      client,
+					direction:   "download",
+					source:      "/remote/file",
+					destination: "/local/file",
+					stdout:      io.Discard,
+					stderr:      io.Discard,
+				}
+			},
+		},
+	}
 
-	exec := &sftpExecutor{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("ContextDeadline", func(t *testing.T) {
+				addr, accepted := startBlackholeSSHServer(t)
+				exec := tt.newExec(newBlackholeSSHClient(addr))
+				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				defer cancel()
 
-	// Kill always returns nil for SFTP executor
-	err := exec.Kill(nil)
+				errCh := make(chan error, 1)
+				go func() { errCh <- exec.Run(ctx) }()
+				conn := receiveAcceptedConnection(t, accepted)
+				assertConnectionCloses(t, conn)
+
+				select {
+				case err := <-errCh:
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+				case <-time.After(2 * time.Second):
+					t.Fatal("executor did not return after context deadline")
+				}
+			})
+
+			t.Run("Kill", func(t *testing.T) {
+				addr, accepted := startBlackholeSSHServer(t)
+				exec := tt.newExec(newBlackholeSSHClient(addr))
+				errCh := make(chan error, 1)
+				go func() { errCh <- exec.Run(context.Background()) }()
+				conn := receiveAcceptedConnection(t, accepted)
+
+				require.NoError(t, exec.Kill(nil))
+				require.NoError(t, exec.Kill(nil))
+				assertConnectionCloses(t, conn)
+
+				select {
+				case err := <-errCh:
+					require.ErrorIs(t, err, context.Canceled)
+				case <-time.After(2 * time.Second):
+					t.Fatal("executor did not return after Kill")
+				}
+			})
+		})
+	}
+}
+
+func startBlackholeSSHServer(t *testing.T) (string, <-chan net.Conn) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			accepted <- conn
+		}
+	}()
+	return listener.Addr().String(), accepted
+}
+
+func newBlackholeSSHClient(addr string) *Client {
+	return &Client{
+		hostPort: addr,
+		cfg: &gossh.ClientConfig{
+			User:            "test",
+			Auth:            []gossh.AuthMethod{gossh.Password("test")},
+			HostKeyCallback: gossh.InsecureIgnoreHostKey(), //nolint:gosec
+			Timeout:         time.Second,
+		},
+	}
+}
+
+func receiveAcceptedConnection(t *testing.T, accepted <-chan net.Conn) net.Conn {
+	t.Helper()
+	select {
+	case conn := <-accepted:
+		t.Cleanup(func() { _ = conn.Close() })
+		return conn
+	case <-time.After(2 * time.Second):
+		t.Fatal("executor did not connect to test server")
+		return nil
+	}
+}
+
+func assertConnectionCloses(t *testing.T, conn net.Conn) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, conn)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("executor did not close the underlying connection")
+	}
 }
 
 func TestGetStringConfig(t *testing.T) {

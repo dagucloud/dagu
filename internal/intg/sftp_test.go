@@ -4,10 +4,12 @@
 package intg_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -229,5 +231,51 @@ steps:
 		nested, err := os.ReadFile(filepath.Join(downloadPath, "subdir", "nested.txt"))
 		require.NoError(t, err, "failed to read downloaded nested.txt")
 		require.Equal(t, "remote nested\n", string(nested))
+	})
+
+	t.Run("StepTimeoutCancelsBlockedDownload", func(t *testing.T) {
+		th := test.Setup(t)
+		downloadPath := filepath.Join(t.TempDir(), "blocked-download.txt")
+		dagConfig := fmt.Sprintf(`
+type: graph
+retry_policy:
+  limit: 0
+  interval_sec: 1
+steps:
+  - name: create-blocking-source
+    action: ssh.run
+    with:
+      command: |
+        rm -f /tmp/dagu-sftp-timeout
+        mkfifo /tmp/dagu-sftp-timeout
+        nohup sh -c 'sleep 5; echo released > /tmp/dagu-sftp-timeout' >/dev/null 2>&1 </dev/null &
+      host: 127.0.0.1
+      port: "%s"
+      user: %s
+      key: "%s"
+      strict_host_key: false
+      shell: /bin/sh
+  - name: blocked-download
+    action: sftp.download
+    timeout_sec: 1
+    with:
+      host: 127.0.0.1
+      port: "%s"
+      user: %s
+      key: "%s"
+      strict_host_key: false
+      source: /tmp/dagu-sftp-timeout
+      destination: "%s"
+    depends:
+      - create-blocking-source
+`, sshServer.hostPort, sshTestUser, sshServer.keyPath,
+			sshServer.hostPort, sshTestUser, sshServer.keyPath, downloadPath)
+
+		dag := th.DAG(t, dagConfig)
+		startedAt := time.Now()
+		err := dag.Agent().Run(th.Context)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Less(t, time.Since(startedAt), 3*time.Second)
+		dag.AssertLatestStatus(t, ir.Failed)
 	})
 }

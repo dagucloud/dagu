@@ -554,6 +554,83 @@ steps:
 		})
 	})
 
+	t.Run("DAGTimeoutCancelsRemoteCommand", func(t *testing.T) {
+		th := test.Setup(t)
+		dagConfig := sshServer.sshConfig("/bin/sh") + `
+timeout_sec: 1
+retry_policy:
+  limit: 0
+  interval_sec: 1
+steps:
+  - name: remote-timeout
+    action: ssh.run
+    with:
+      command: sleep 5
+`
+
+		dag := th.DAG(t, dagConfig)
+		startedAt := time.Now()
+		err := dag.Agent().Run(th.Context)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Less(t, time.Since(startedAt), 3*time.Second)
+		dag.AssertLatestStatus(t, ir.Failed)
+	})
+
+	t.Run("StepTimeoutCancelsRemoteCommand", func(t *testing.T) {
+		th := test.Setup(t)
+		dagConfig := sshServer.sshConfig("/bin/sh") + `
+retry_policy:
+  limit: 0
+  interval_sec: 1
+steps:
+  - name: remote-timeout
+    action: ssh.run
+    timeout_sec: 1
+    with:
+      command: sleep 5
+`
+
+		dag := th.DAG(t, dagConfig)
+		startedAt := time.Now()
+		err := dag.Agent().Run(th.Context)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Less(t, time.Since(startedAt), 3*time.Second)
+		dag.AssertLatestStatus(t, ir.Failed)
+	})
+
+	t.Run("DAGTimeoutCancelsRemoteCommandViaBastion", func(t *testing.T) {
+		th := test.Setup(t)
+		dagConfig := fmt.Sprintf(`timeout_sec: 1
+retry_policy:
+  limit: 0
+  interval_sec: 1
+ssh:
+  host: 127.0.0.1
+  port: "22"
+  user: %s
+  key: "%s"
+  strict_host_key: false
+  shell: /bin/sh
+  bastion:
+    host: 127.0.0.1
+    port: "%s"
+    user: %s
+    key: "%s"
+steps:
+  - name: bastion-timeout
+    action: ssh.run
+    with:
+      command: sleep 5
+`, sshTestUser, sshServer.keyPath, sshServer.hostPort, sshTestUser, sshServer.keyPath)
+
+		dag := th.DAG(t, dagConfig)
+		startedAt := time.Now()
+		err := dag.Agent().Run(th.Context)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Less(t, time.Since(startedAt), 3*time.Second)
+		dag.AssertLatestStatus(t, ir.Failed)
+	})
+
 }
 
 // startSSHServer creates and starts an SSH server container
@@ -605,6 +682,7 @@ chown -R "$USER:$USER" "/home/$USER/.ssh"
 sed -i 's/#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 sed -i 's/#PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+sed -i 's/AllowTcpForwarding no/AllowTcpForwarding yes/' /etc/ssh/sshd_config
 
 exec /usr/sbin/sshd -D -e
 `, sshTestUser, sshTestPass, string(pubKey))
