@@ -575,7 +575,7 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 		}
 		// Container exists and is running; exec in it
 		if err == nil && info.State != nil && info.State.Running {
-			return c.execInContainer(ctx, c.cli, cmd, stdout, stderr, ExecOptions{})
+			return c.execInContainer(ctx, c.cli, cmd, stdout, stderr, nativeExecOptions(c.cfg.ContainerName))
 		}
 		// If shouldStart is false, return error
 		if !c.cfg.ShouldStart {
@@ -622,23 +622,31 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 		slog.Bool("hasError", err != nil),
 	)
 
-	// Wait for container to be stopped before returning
+	// Wait for container to be stopped before returning. Honor ctx so a
+	// timeout_sec cancel stops the container instead of polling forever.
 	logger.Debug(ctx, "Docker: Run waiting for container to stop")
-	for {
-		info, err := inspectContainer(context.Background(), c.cli, ctID)
-		if err != nil {
-			if errdefs.IsNotFound(err) {
-				break
+	if waitErr := waitUntilContainerStopped(ctx,
+		func(inspectCtx context.Context) (bool, bool, error) {
+			info, inspectErr := inspectContainer(inspectCtx, c.cli, ctID)
+			if inspectErr != nil {
+				if errdefs.IsNotFound(inspectErr) {
+					return false, true, nil
+				}
+				return false, false, fmt.Errorf("failed to inspect container %s: %w", ctID, inspectErr)
 			}
-			return exitCode, fmt.Errorf("failed to inspect container %s: %w", ctID, err)
-		}
-		if info.State != nil && !info.State.Running {
-			logger.Debug(ctx, "Docker: Run container stopped", slog.String("status", string(info.State.Status)))
-			break
-		}
-		logger.Debug(ctx, "Docker: Run container still running, waiting...")
-
-		time.Sleep(defaultPollInterval)
+			running := info.State != nil && info.State.Running
+			if !running && info.State != nil {
+				logger.Debug(ctx, "Docker: Run container stopped", slog.String("status", string(info.State.Status)))
+			}
+			return running, false, nil
+		},
+		func() error {
+			logger.Debug(ctx, "Docker: Run stopping container after context cancel", slog.String("containerID", ctID))
+			return c.Stop(syscall.SIGKILL)
+		},
+		defaultPollInterval,
+	); waitErr != nil {
+		return exitCode, waitErr
 	}
 
 	logger.Debug(ctx, "Docker: Run completed", slog.Int("exitCode", exitCode))
