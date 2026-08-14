@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/require"
 )
@@ -22,11 +22,11 @@ import (
 func TestAttemptCloseKeepsSingleStatusFile(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
 	dag := &ir.DAG{Name: "single-status-close"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := repository.CreateAttempt(ctx, dag, startedAt, "run-1", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
@@ -57,11 +57,11 @@ func TestAttempt_WriteClearsRuntimeConditionsWhenStatusLeavesQueued(t *testing.T
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
 	dag := &ir.DAG{Name: "runtime-conditions"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := repository.CreateAttempt(ctx, dag, startedAt, "run-1", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	defer func() {
@@ -104,11 +104,11 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
 	dag := &ir.DAG{Name: "conditions-return"}
 	startedAt := time.Date(2026, 5, 19, 1, 2, 3, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-conditions", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := repository.CreateAttempt(ctx, dag, startedAt, "run-conditions", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	closed := false
@@ -137,7 +137,7 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 	require.NoError(t, attempt.Close(ctx))
 	closed = true
 
-	updated, swapped, err := store.CompareAndSwapLatestAttemptStatus(
+	updated, swapped, err := repository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		ir.NewDAGRunRef(dag.Name, "run-conditions"),
 		attempt.ID(),
@@ -145,13 +145,21 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 		func(latest *ir.DAGRunStatus) error {
 			latest.Status = ir.Failed
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	require.NoError(t, err)
 	require.True(t, swapped)
 	require.NotNil(t, updated)
 	require.Equal(t, ir.Failed, updated.Status)
 	require.Empty(t, updated.Conditions)
+}
+
+func newFileRepository(baseDir string, options persis.DAGRunRepositoryOptions) *persis.DAGRunRepository {
+	return persis.NewDAGRunRepository(
+		filedagrun.NewStore(baseDir),
+		filedagrun.NewDAGRunWorkspaceStore(baseDir),
+		options,
+	)
 }
 
 func findOnlyStatusFile(t *testing.T, root string) string {

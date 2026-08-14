@@ -37,12 +37,13 @@ steps:
 
 	err := scheduler.EnqueueCatchupRun(
 		th.Context,
-		th.DAGRunStore,
+		th.DAGRunRepository,
 		th.QueueStore,
 		th.Config.Paths.LogDir,
 		th.Config.Paths.ArtifactDir,
 		th.Config.Paths.BaseConfig,
 		"",
+		"test-dag",
 		dag.DAG,
 		runID,
 		ir.TriggerTypeCatchUp,
@@ -51,7 +52,7 @@ steps:
 	)
 	require.NoError(t, err)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(th.Context)
@@ -104,12 +105,13 @@ steps:
 
 	err = scheduler.EnqueueCatchupRun(
 		th.Context,
-		th.DAGRunStore,
+		th.DAGRunRepository,
 		th.QueueStore,
 		th.Config.Paths.LogDir,
 		th.Config.Paths.ArtifactDir,
 		th.Config.Paths.BaseConfig,
 		"",
+		metadataOnly.FileName(),
 		metadataOnly,
 		runID,
 		ir.TriggerTypeCatchUp,
@@ -118,7 +120,7 @@ steps:
 	)
 	require.NoError(t, err)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 
 	persisted, err := attempt.ReadDAG(th.Context)
@@ -174,12 +176,13 @@ steps:
 	runID := "catchup-run-workspace"
 	err = scheduler.EnqueueCatchupRun(
 		th.Context,
-		th.DAGRunStore,
+		th.DAGRunRepository,
 		th.QueueStore,
 		th.Config.Paths.LogDir,
 		th.Config.Paths.ArtifactDir,
 		th.Config.Paths.BaseConfig,
 		workspaceBaseConfigDir,
+		metadataOnly.FileName(),
 		metadataOnly,
 		runID,
 		ir.TriggerTypeCatchUp,
@@ -188,7 +191,7 @@ steps:
 	)
 	require.NoError(t, err)
 
-	attempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
 	require.NoError(t, err)
 	persisted, err := attempt.ReadDAG(th.Context)
 	require.NoError(t, err)

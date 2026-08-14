@@ -8,49 +8,44 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type retryCandidateDAGRunStore struct {
-	dagrun.DAGRunStore
+	testutil.DAGRunStoreStub
 
 	candidateCalls int
-	candidateFrom  dagrun.TimeInUTC
+	candidateFrom  persis.TimeInUTC
 	listCalls      int
-	listOptions    dagrun.ListDAGRunStatusesOptions
 }
 
-func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from dagrun.TimeInUTC) ([]*ir.DAGRunStatus, error) {
+func (s *retryCandidateDAGRunStore) ListRetryCandidates(_ context.Context, from persis.TimeInUTC) ([]*ir.DAGRunStatus, error) {
 	s.candidateCalls++
 	s.candidateFrom = from
 	return nil, nil
 }
 
-func (s *retryCandidateDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
+func (s *retryCandidateDAGRunStore) QueryStatuses(context.Context, persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	s.listCalls++
-	for _, opt := range opts {
-		opt(&s.listOptions)
-	}
-	return nil, nil
+	return persis.DAGRunStatusPage{}, nil
 }
 
 type fallbackRetryDAGRunStore struct {
-	dagrun.DAGRunStore
+	testutil.DAGRunStoreStub
 
 	listCalls   int
-	listOptions dagrun.ListDAGRunStatusesOptions
+	listOptions persis.DAGRunStatusQuery
 }
 
-func (s *fallbackRetryDAGRunStore) ListStatuses(_ context.Context, opts ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
+func (s *fallbackRetryDAGRunStore) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	s.listCalls++
-	for _, opt := range opts {
-		opt(&s.listOptions)
-	}
-	return nil, nil
+	s.listOptions = query
+	return persis.DAGRunStatusPage{}, nil
 }
 
 func TestRetryScannerUsesRetryCandidateListerWhenAvailable(t *testing.T) {
@@ -59,7 +54,7 @@ func TestRetryScannerUsesRetryCandidateListerWhenAvailable(t *testing.T) {
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &retryCandidateDAGRunStore{}
 	scanner, err := scheduler.NewRetryScanner(
-		store,
+		persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 		nil,
 		nil,
 		time.Hour,
@@ -80,7 +75,7 @@ func TestRetryScannerFallsBackToStatusListingWithoutCandidateLister(t *testing.T
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	store := &fallbackRetryDAGRunStore{}
 	scanner, err := scheduler.NewRetryScanner(
-		store,
+		persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
 		nil,
 		nil,
 		time.Hour,
@@ -93,5 +88,5 @@ func TestRetryScannerFallsBackToStatusListingWithoutCandidateLister(t *testing.T
 	assert.Equal(t, 1, store.listCalls)
 	assert.Equal(t, now.Add(-time.Hour), store.listOptions.From.Time)
 	assert.Equal(t, []ir.Status{ir.Failed}, store.listOptions.Statuses)
-	assert.True(t, store.listOptions.Unlimited)
+	assert.Zero(t, store.listOptions.Limit)
 }

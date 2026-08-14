@@ -100,7 +100,7 @@ steps:
 			continue
 		}
 
-		subAttempt, err := th.DAGRunStore.FindSubAttempt(th.Context, ref, node.SubRuns[0].DAGRunID)
+		subAttempt, err := th.DAGRunRepository.FindSubAttempt(th.Context, ref, node.SubRuns[0].DAGRunID)
 		require.NoError(t, err)
 		subDir := getSubDAGWorkingDir(t, th.Context, subAttempt)
 
@@ -109,7 +109,11 @@ steps:
 			assertSameWorkingDir(t, childDir, subDir,
 				"SubDAG with explicit workingDir should run in childDir")
 		case "call_child_no_wd":
-			subWorkDir := subAttempt.WorkDir()
+			subWorkDir, err := th.DAGRunRepository.MaterializeWorkspace(th.Context, dagrun.DAGRunWorkspaceRef{
+				RootDAGRun: ref,
+				DAGRun:     ir.NewDAGRunRef(node.SubRuns[0].DAGName, node.SubRuns[0].DAGRunID),
+			})
+			require.NoError(t, err)
 			assertSameWorkingDir(t, subWorkDir, subDir,
 				"SubDAG without workingDir should run in its own DAG-run work directory")
 		}
@@ -117,7 +121,7 @@ steps:
 }
 
 // getSubDAGWorkingDir retrieves the working directory from a subDAG's stdout log.
-func getSubDAGWorkingDir(t *testing.T, ctx context.Context, subAttempt dagrun.DAGRunAttempt) string {
+func getSubDAGWorkingDir(t *testing.T, ctx context.Context, subAttempt dagrun.Attempt) string {
 	t.Helper()
 
 	subStatus, err := subAttempt.ReadStatus(ctx)

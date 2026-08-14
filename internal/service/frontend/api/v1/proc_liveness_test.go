@@ -14,9 +14,9 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -78,7 +78,7 @@ steps:
 	}, apiProcEventuallyTimeout(5*time.Second), 50*time.Millisecond)
 
 	require.Eventually(t, func() bool {
-		alive, err := server.ProcStore.IsRunAlive(server.Context, dagName, ref)
+		alive, err := server.ProcRepository.IsRunAlive(server.Context, dagName, ref)
 		return err == nil && alive
 	}, apiProcEventuallyTimeout(10*time.Second), 50*time.Millisecond)
 
@@ -152,7 +152,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
@@ -195,7 +195,7 @@ steps:
 func requireFailedStaleLocalRun(t *testing.T, server test.Server, ref ir.DAGRunRef) {
 	t.Helper()
 
-	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunStore, ref)
+	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunRepository, ref)
 	require.Equal(t, ir.Failed, repaired.Status)
 	require.Len(t, repaired.Nodes, 1)
 	require.Equal(t, ir.NodeFailed, repaired.Nodes[0].Status)
@@ -214,7 +214,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
@@ -266,7 +266,7 @@ steps:
 	resp.Unmarshal(t, &details)
 	require.Equal(t, api.Status(ir.Failed), details.DagRunDetails.Status)
 
-	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunStore, ref)
+	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunRepository, ref)
 	require.Equal(t, ir.Failed, repaired.Status)
 	require.Len(t, repaired.Nodes, 1)
 	require.Equal(t, ir.NodeFailed, repaired.Nodes[0].Status)
@@ -285,7 +285,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
-	attempt, err := server.DAGRunStore.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag.DAG, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(server.Config.Paths.LogDir, dag.Name, dagRunID+".log")
@@ -336,7 +336,7 @@ steps:
 	resp.Unmarshal(t, &details)
 	require.Equal(t, api.Status(ir.Failed), details.DagRunDetails.Status)
 
-	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunStore, ref)
+	repaired := test.ReadRunStatus(server.Context, t, server.DAGRunRepository, ref)
 	require.Equal(t, ir.Failed, repaired.Status)
 	require.Len(t, repaired.Nodes, 1)
 	require.Equal(t, ir.NodeFailed, repaired.Nodes[0].Status)

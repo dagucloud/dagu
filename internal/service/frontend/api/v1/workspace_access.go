@@ -381,14 +381,14 @@ func (a *API) requireExecuteForWorkspace(ctx context.Context, workspaceName stri
 }
 
 func (a *API) workspaceNameForDAGRun(ctx context.Context, dagRun ir.DAGRunRef) (string, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
+	attempt, err := a.dagRunRepository.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
 	}
 	return workspaceNameForAttempt(ctx, attempt)
 }
 
-func workspaceNameForAttempt(ctx context.Context, attempt dagrun.DAGRunAttempt) (string, error) {
+func workspaceNameForAttempt(ctx context.Context, attempt dagrun.Attempt) (string, error) {
 	status, err := attempt.ReadStatus(ctx)
 	if err == nil && status != nil {
 		if workspaceName := statusWorkspaceName(status); workspaceName != "" {

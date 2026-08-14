@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -94,6 +94,24 @@ func TestSubCmdBuilderFilteredCommandsUseBaseEnv(t *testing.T) {
 	assert.NotContains(t, dequeueSpec.Env, "SUBCMD_PARENT_ENV=from-parent")
 }
 
+func TestSubCmdBuilderPropagatesDefinitionID(t *testing.T) {
+	t.Setenv(runenv.EnvKeyDAGDefinitionID, "inherited")
+
+	builder := launcher.NewSubCmdBuilder(&config.Config{
+		Paths: config.PathsConfig{Executable: "/path/to/dagu"},
+	})
+	dag := &ir.DAG{Location: "/tmp/test.yaml"}
+	want := runenv.EnvKeyDAGDefinitionID + "=definition-1"
+
+	start := builder.Start(dag, launcher.StartOptions{DefinitionID: "definition-1"})
+	enqueue := builder.Enqueue(dag, launcher.EnqueueOptions{DefinitionID: "definition-1"})
+	restart := builder.Restart(dag, launcher.RestartOptions{DefinitionID: "definition-1"})
+	for _, spec := range []launcher.CmdSpec{start, enqueue, restart} {
+		assert.Contains(t, spec.Env, want)
+		assert.NotContains(t, spec.Env, runenv.EnvKeyDAGDefinitionID+"=inherited")
+	}
+}
+
 func TestRunRetryWithBuiltExecutable(t *testing.T) {
 	th := test.Setup(t, test.WithBuiltExecutable())
 
@@ -104,7 +122,7 @@ steps:
 `)
 
 	runID := "built-exec-retry-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, "built-exec-retry.log")
@@ -140,7 +158,7 @@ steps:
 `)
 
 	runID := "built-exec-queue-retry-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
@@ -175,7 +193,7 @@ steps:
 `)
 
 	runID := "built-exec-command-queue-retry-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")
@@ -210,7 +228,7 @@ steps:
 `)
 
 	runID := "built-exec-fresh-config-retry-run"
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logPath := filepath.Join(th.Config.Paths.LogDir, dagFile.Name, runID+".log")

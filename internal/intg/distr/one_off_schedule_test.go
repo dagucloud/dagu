@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/stretchr/testify/require"
 )
@@ -65,10 +65,8 @@ steps:
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		statuses, err := f.coord.DAGRunStore.ListStatuses(
-			ctx,
-			dagrun.WithExactName(f.dagWrapper.Name),
-			dagrun.WithAllHistory(),
+		statuses, err := f.coord.DAGRunRepository.ListStatuses(
+			ctx, persis.DAGRunListOptions{ExactName: f.dagWrapper.Name, AllHistory: true},
 		)
 		cancel()
 		require.NoError(t, err)

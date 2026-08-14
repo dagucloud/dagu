@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/require"
 )
@@ -20,11 +20,11 @@ import (
 func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
 	dag := &ir.DAG{Name: "latest-pointer"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := repository.CreateAttempt(ctx, dag, startedAt, "run-1", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
@@ -38,7 +38,7 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 
 	createStatuslessRunDir(t, baseDir, dag.Name, startedAt.Add(time.Hour), "run-2")
 
-	latest, err := store.LatestAttempt(ctx, dag.Name)
+	latest, err := repository.LatestAttempt(ctx, dag.Name, persis.DAGRunLatestAttemptOptions{})
 	require.NoError(t, err)
 	status, err := latest.ReadStatus(ctx)
 	require.NoError(t, err)
@@ -72,11 +72,11 @@ func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {
 func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 	ctx := context.Background()
 	baseDir := b.TempDir()
-	store := filedagrun.New(baseDir, filedagrun.WithLatestStatusToday(false))
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
 	dag := &ir.DAG{Name: "latest-pointer-bench"}
 	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	attempt, err := store.CreateAttempt(ctx, dag, startedAt, "run-1", dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := repository.CreateAttempt(ctx, dag, startedAt, "run-1", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(b, err)
 	require.NoError(b, attempt.Open(ctx))
 	require.NoError(b, attempt.Write(ctx, ir.DAGRunStatus{
@@ -95,7 +95,7 @@ func BenchmarkStoreLatestAttemptWithPersistedLatestPointer(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		latest, err := store.LatestAttempt(ctx, dag.Name)
+		latest, err := repository.LatestAttempt(ctx, dag.Name, persis.DAGRunLatestAttemptOptions{})
 		require.NoError(b, err)
 		status, err := latest.ReadStatus(ctx)
 		require.NoError(b, err)

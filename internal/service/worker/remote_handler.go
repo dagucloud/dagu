@@ -23,9 +23,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -52,8 +52,8 @@ type RemoteTaskHandlerConfig struct {
 	WorkerID string
 	// CoordinatorClient is the coordinator client with load balancing support
 	CoordinatorClient coordinator.Client
-	// DAGStore is the store for DAG definitions
-	DAGStore dagstore.DAGStore
+	// DAGRepository provides access to DAG definitions.
+	DAGRepository *persis.DAGRepository
 	// DAGRunMgr is the manager for DAG runs
 	DAGRunMgr runtime.Manager
 	// StateStore is the persistent state store shared across DAG runs.
@@ -90,7 +90,7 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 	return &remoteTaskHandler{
 		workerID:          cfg.WorkerID,
 		coordinatorClient: cfg.CoordinatorClient,
-		dagStore:          cfg.DAGStore,
+		dagRepository:     cfg.DAGRepository,
 		dagRunMgr:         cfg.DAGRunMgr,
 		stateStore:        stateStore,
 		serviceRegistry:   cfg.ServiceRegistry,
@@ -106,7 +106,7 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 type remoteTaskHandler struct {
 	workerID          string
 	coordinatorClient coordinator.Client
-	dagStore          dagstore.DAGStore
+	dagRepository     *persis.DAGRepository
 	dagRunMgr         runtime.Manager
 	stateStore        dagrun.StateStore
 	serviceRegistry   serviceregistry.ServiceRegistry
@@ -256,6 +256,7 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		Error:        sanitizeTaskLoadError(task.Target, loadErr),
 		Params:       task.Params,
 		ProfileName:  run.profileName,
+		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
 	}
 
@@ -310,6 +311,7 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		Error:        initErr.Error(),
 		Params:       params,
 		ProfileName:  run.profileName,
+		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
 	}
 
@@ -665,7 +667,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 
 	subWorkflowRunnerFactory := coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
 		DAGRunMgr:         h.dagRunMgr,
-		DAGStore:          h.dagStore,
+		DAGRepository:     h.dagRepository,
 		StateStore:        h.stateStore,
 		SecretStore:       runtimeStores.SecretStore,
 		ProfileStore:      runtimeStores.ProfileStore,
@@ -681,7 +683,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 	})
 
 	// Create a remote DAG loader that fetches DAG definitions from the coordinator
-	// as a fallback when the local DAG store misses.
+	// as a fallback when the local DAG repository misses.
 	remoteDAGLoader := rtagent.RemoteDAGLoader(func(ctx context.Context, name string) (*ir.DAG, error) {
 		dagYAML, err := h.coordinatorClient.GetDAG(ctx, name)
 		if err != nil {
@@ -711,6 +713,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		SecretReferenceResolver:  h.secretReferenceResolver(dag, run.owner, coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID}),
 		ProfileStore:             runtimeStores.ProfileStore,
 		ProfileName:              run.profileName,
+		DAGDefinitionID:          task.DefinitionId,
 		TriggerActor:             task.TriggerActor,
 		ServiceRegistry:          h.serviceRegistry,
 		SubWorkflowRunnerFactory: subWorkflowRunnerFactory,
@@ -737,7 +740,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		env.logDir,
 		env.logFile,
 		h.dagRunMgr,
-		h.dagStore,
+		h.dagRepository,
 		opts,
 	)
 

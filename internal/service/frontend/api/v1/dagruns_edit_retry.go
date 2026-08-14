@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -43,7 +44,7 @@ type editRetryOptions struct {
 }
 
 type editRetryPlan struct {
-	sourceAttempt   dagrun.DAGRunAttempt
+	sourceAttempt   dagrun.Attempt
 	sourceDAGRunID  string
 	sourceStatus    *ir.DAGRunStatus
 	editedDAG       *ir.DAG
@@ -149,7 +150,7 @@ func (a *API) EditRetryDAGRun(ctx context.Context, request api.EditRetryDAGRunRe
 	}
 
 	if plan.newDAGRunID == "" {
-		id, genErr := a.dagRunMgr.GenDAGRunID(ctx)
+		id, genErr := ir.NewDAGRunID()
 		if genErr != nil {
 			return nil, fmt.Errorf("error generating dag-run ID: %w", genErr)
 		}
@@ -553,7 +554,15 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	}
 
 	nodes := editRetrySeedNodes(plan.editedDAG, plan.sourceStatus, plan.skippedSteps)
-	seedStatus, err := a.seedEditRetryAttempt(ctx, plan.editedDAG, plan.newDAGRunID, plan.params, plan.profileName, nodes, plan.sourceAttempt.WorkDir())
+	seedStatus, err := a.seedEditRetryAttempt(
+		ctx,
+		plan.editedDAG,
+		plan.newDAGRunID,
+		plan.params,
+		plan.profileName,
+		nodes,
+		dagrun.DAGRunWorkspaceRef{RootDAGRun: plan.sourceStatus.Root, DAGRun: plan.sourceStatus.DAGRun()},
+	)
 	if err != nil {
 		return false, err
 	}
@@ -601,7 +610,7 @@ func (a *API) markEditRetrySeedFailed(ctx context.Context, status *ir.DAGRunStat
 	if status == nil || cause == nil {
 		return
 	}
-	_, _, err := a.dagRunStore.CompareAndSwapLatestAttemptStatus(
+	_, _, err := a.dagRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		status.DAGRun(),
 		status.AttemptID,
@@ -611,7 +620,7 @@ func (a *API) markEditRetrySeedFailed(ctx context.Context, status *ir.DAGRunStat
 			latest.FinishedAt = stringutil.FormatTime(time.Now())
 			latest.Error = cause.Error()
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if err != nil {
 		logger.Warn(ctx, "Failed to mark edit retry seed as failed",
@@ -629,10 +638,10 @@ func (a *API) seedEditRetryAttempt(
 	params string,
 	profileName string,
 	nodes []runtime.NodeData,
-	sourceWorkDir string,
+	sourceWorkspace dagrun.DAGRunWorkspaceRef,
 ) (*ir.DAGRunStatus, error) {
 	now := time.Now()
-	attempt, err := a.dagRunStore.CreateAttempt(ctx, dag, now, dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := a.dagRunRepository.CreateAttempt(ctx, dag, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create edit retry attempt: %w", err)
 	}
@@ -641,7 +650,7 @@ func (a *API) seedEditRetryAttempt(
 		if committed {
 			return
 		}
-		if rmErr := a.dagRunStore.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, dagRunID)); rmErr != nil {
+		if rmErr := a.dagRunRepository.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, dagRunID), persis.DAGRunRemoveOptions{}); rmErr != nil {
 			logger.Error(ctx, "Failed to rollback edit retry attempt",
 				tag.DAG(dag.Name),
 				tag.RunID(dagRunID),
@@ -677,17 +686,26 @@ func (a *API) seedEditRetryAttempt(
 	status := ir.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
 	status.Params = params
 	status.ParamsList = dag.Params
+	targetWorkspace := dagrun.DAGRunWorkspaceRef{DAGRun: ir.NewDAGRunRef(dag.Name, dagRunID)}
+	targetWorkDir, err := a.dagRunRepository.MaterializeWorkspace(ctx, targetWorkspace)
+	if err != nil {
+		return nil, fmt.Errorf("failed to materialize edit retry workspace: %w", err)
+	}
 
 	if err := attempt.Open(ctx); err != nil {
 		return nil, fmt.Errorf("failed to open edit retry attempt: %w", err)
 	}
-	if hasSkippedEditRetryNode(nodes) && sourceWorkDir != "" {
-		newWorkDir := attempt.WorkDir()
-		if err := copyEditRetryWorkDir(sourceWorkDir, newWorkDir); err != nil {
+	if hasSkippedEditRetryNode(nodes) {
+		sourceWorkDir, err := a.dagRunRepository.MaterializeWorkspace(ctx, sourceWorkspace)
+		if err != nil {
+			_ = attempt.Close(ctx)
+			return nil, fmt.Errorf("failed to materialize source edit retry workspace: %w", err)
+		}
+		if err := copyEditRetryWorkDir(sourceWorkDir, targetWorkDir); err != nil {
 			_ = attempt.Close(ctx)
 			return nil, fmt.Errorf("failed to copy edit retry work directory: %w", err)
 		}
-		remapEditRetryWorkDirOutputs(status.Nodes, sourceWorkDir, newWorkDir)
+		remapEditRetryWorkDirOutputs(status.Nodes, sourceWorkDir, targetWorkDir)
 	}
 
 	if err := attempt.Write(ctx, status); err != nil {
@@ -696,6 +714,9 @@ func (a *API) seedEditRetryAttempt(
 	}
 	if err := attempt.Close(ctx); err != nil {
 		return nil, fmt.Errorf("failed to close edit retry attempt: %w", err)
+	}
+	if err := a.dagRunRepository.SnapshotWorkspace(ctx, targetWorkspace, targetWorkDir); err != nil {
+		return nil, fmt.Errorf("failed to snapshot edit retry workspace: %w", err)
 	}
 	committed = true
 

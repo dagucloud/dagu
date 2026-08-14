@@ -1,0 +1,260 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package persis
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/textsearch"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
+)
+
+const dagSearchCursorVersion = 1
+
+func (r *DAGRepository) Grep(ctx context.Context, pattern string) ([]*DAGGrepResult, []string, error) {
+	if pattern == "" {
+		return nil, nil, nil
+	}
+	catalog, err := r.store.Catalog(ctx)
+	if err != nil {
+		return nil, catalog.Issues, err
+	}
+
+	issues := append([]string(nil), catalog.Issues...)
+	results := make([]*DAGGrepResult, 0)
+	for _, item := range sortedDAGCatalogItems(catalog.Items) {
+		id := item.ID
+		definition, err := r.store.Get(ctx, id)
+		if err != nil {
+			issues = append(issues, fmt.Sprintf("read %s failed: %s", id, err))
+			continue
+		}
+		matches, err := textsearch.Grep(definition.Source, fmt.Sprintf("(?i)%s", pattern), textsearch.DefaultGrepOptions)
+		if errors.Is(err, textsearch.ErrNoMatch) {
+			continue
+		}
+		if err != nil {
+			issues = append(issues, fmt.Sprintf("grep %s failed: %s", id, err))
+			continue
+		}
+		dag, err := r.store.GetMetadata(ctx, id)
+		if err != nil {
+			issues = append(issues, fmt.Sprintf("check %s failed: %s", id, err))
+			continue
+		}
+		results = append(results, &DAGGrepResult{Name: id, DAG: dag, Matches: matches})
+	}
+	return results, issues, nil
+}
+
+type dagSearchCursor struct {
+	Version  int    `json:"v"`
+	Query    string `json:"q"`
+	Labels   string `json:"labels,omitempty"`
+	FileName string `json:"fileName,omitempty"`
+}
+
+type dagMatchCursor struct {
+	Version  int    `json:"v"`
+	Query    string `json:"q"`
+	Labels   string `json:"labels,omitempty"`
+	FileName string `json:"fileName"`
+	Offset   int    `json:"offset"`
+}
+
+func (r *DAGRepository) SearchCursor(ctx context.Context, opts DAGSearchOptions) (*pagination.CursorResult[DAGSearchResult], []string, error) {
+	if opts.Query == "" {
+		return &pagination.CursorResult[DAGSearchResult]{Items: []DAGSearchResult{}}, nil, nil
+	}
+
+	scope := dagSearchScopeKey(opts.Labels, opts.WorkspaceFilter)
+	cursor, err := decodeDAGSearchCursor(opts.Cursor, opts.Query, scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	catalog, err := r.store.Catalog(ctx)
+	if err != nil {
+		return nil, catalog.Issues, err
+	}
+
+	limit := max(opts.Limit, 1)
+	matchLimit := max(opts.MatchLimit, 1)
+	pattern := dagSearchPattern(opts.Query)
+	labelFilters := parseLabelFilters(opts.Labels)
+	issues := append([]string(nil), catalog.Issues...)
+	results := make([]DAGSearchResult, 0, limit)
+	var hasMore bool
+	var nextCursor string
+
+	for _, item := range sortedDAGCatalogItems(catalog.Items) {
+		if err := ctx.Err(); err != nil {
+			return nil, issues, err
+		}
+		id := item.ID
+		if cursor.FileName != "" && id <= cursor.FileName {
+			continue
+		}
+		if !containsAllLabels(item.Labels, labelFilters) || !opts.WorkspaceFilter.MatchesLabels(item.Labels) {
+			continue
+		}
+		definition, err := r.store.Get(ctx, id)
+		if err != nil {
+			issues = append(issues, fmt.Sprintf("read %s failed: %s", id, err))
+			continue
+		}
+		window, err := textsearch.GrepWindow(definition.Source, pattern, textsearch.GrepOptions{
+			IsRegexp: true,
+			Before:   textsearch.DefaultGrepOptions.Before,
+			After:    textsearch.DefaultGrepOptions.After,
+			Limit:    matchLimit,
+		})
+		if errors.Is(err, textsearch.ErrNoMatch) {
+			continue
+		}
+		if err != nil {
+			issues = append(issues, fmt.Sprintf("grep %s failed: %s", id, err))
+			continue
+		}
+		if len(results) == limit {
+			hasMore = true
+			nextCursor = pagination.EncodeSearchCursor(dagSearchCursor{
+				Version: dagSearchCursorVersion, Query: opts.Query, Labels: scope,
+				FileName: results[len(results)-1].FileName,
+			})
+			break
+		}
+
+		workspaceName := ""
+		if name, ok := workspace.WorkspaceNameFromLabels(item.Labels); ok {
+			workspaceName = name
+		}
+		result := DAGSearchResult{
+			Name: id, FileName: id, Workspace: workspaceName,
+			Matches: window.Matches, HasMoreMatches: window.HasMore,
+		}
+		if window.HasMore {
+			result.NextMatchesCursor = pagination.EncodeSearchCursor(dagMatchCursor{
+				Version: dagSearchCursorVersion, Query: opts.Query, Labels: scope,
+				FileName: id, Offset: window.NextOffset,
+			})
+		}
+		results = append(results, result)
+	}
+
+	return &pagination.CursorResult[DAGSearchResult]{Items: results, HasMore: hasMore, NextCursor: nextCursor}, issues, nil
+}
+
+func (r *DAGRepository) SearchMatches(ctx context.Context, id string, opts DAGMatchSearchOptions) (*pagination.CursorResult[*textsearch.Match], error) {
+	if opts.Query == "" {
+		return &pagination.CursorResult[*textsearch.Match]{Items: []*textsearch.Match{}}, nil
+	}
+
+	scope := dagSearchScopeKey(opts.Labels, opts.WorkspaceFilter)
+	cursor, err := decodeDAGMatchCursor(opts.Cursor, opts.Query, scope, id)
+	if err != nil {
+		return nil, err
+	}
+	definition, err := r.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(opts.Labels) > 0 || opts.WorkspaceFilter != nil {
+		dag, err := r.store.GetMetadata(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if !containsAllLabels(dag.Labels, parseLabelFilters(opts.Labels)) || !opts.WorkspaceFilter.MatchesLabels(dag.Labels) {
+			return &pagination.CursorResult[*textsearch.Match]{Items: []*textsearch.Match{}}, nil
+		}
+	}
+
+	window, err := textsearch.GrepWindow(definition.Source, dagSearchPattern(opts.Query), textsearch.GrepOptions{
+		IsRegexp: true,
+		Before:   textsearch.DefaultGrepOptions.Before,
+		After:    textsearch.DefaultGrepOptions.After,
+		Offset:   cursor.Offset,
+		Limit:    max(opts.Limit, 1),
+	})
+	if errors.Is(err, textsearch.ErrNoMatch) {
+		return &pagination.CursorResult[*textsearch.Match]{Items: []*textsearch.Match{}}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	result := &pagination.CursorResult[*textsearch.Match]{Items: window.Matches, HasMore: window.HasMore}
+	if window.HasMore {
+		result.NextCursor = pagination.EncodeSearchCursor(dagMatchCursor{
+			Version: dagSearchCursorVersion, Query: opts.Query, Labels: scope,
+			FileName: id, Offset: window.NextOffset,
+		})
+	}
+	return result, nil
+}
+
+func dagSearchPattern(query string) string {
+	return fmt.Sprintf("(?i)%s", regexp.QuoteMeta(query))
+}
+
+func dagSearchScopeKey(labels []string, filter *workspace.WorkspaceFilter) string {
+	normalized := make([]string, 0, len(labels))
+	for _, label := range labels {
+		if label = strings.TrimSpace(strings.ToLower(label)); label != "" {
+			normalized = append(normalized, label)
+		}
+	}
+	sort.Strings(normalized)
+	parts := []string{strings.Join(normalized, ",")}
+	if filter != nil && filter.Enabled {
+		workspaces := append([]string(nil), filter.Workspaces...)
+		sort.Strings(workspaces)
+		parts = append(parts, strings.Join(workspaces, ","))
+		if filter.IncludeUnlabelled {
+			parts = append(parts, "unlabelled")
+		}
+	}
+	return strings.Join(parts, "|")
+}
+
+func decodeDAGSearchCursor(raw, query, labels string) (dagSearchCursor, error) {
+	if raw == "" {
+		return dagSearchCursor{}, nil
+	}
+	var cursor dagSearchCursor
+	if err := pagination.DecodeSearchCursor(raw, &cursor); err != nil {
+		return dagSearchCursor{}, err
+	}
+	if cursor.Version != dagSearchCursorVersion || cursor.Query != query || cursor.Labels != labels {
+		return dagSearchCursor{}, pagination.ErrInvalidCursor
+	}
+	return cursor, nil
+}
+
+func decodeDAGMatchCursor(raw, query, labels, id string) (dagMatchCursor, error) {
+	if raw == "" {
+		return dagMatchCursor{FileName: id}, nil
+	}
+	var cursor dagMatchCursor
+	if err := pagination.DecodeSearchCursor(raw, &cursor); err != nil {
+		return dagMatchCursor{}, err
+	}
+	if cursor.Version != dagSearchCursorVersion || cursor.Query != query || cursor.Labels != labels || cursor.FileName != id || cursor.Offset < 0 {
+		return dagMatchCursor{}, pagination.ErrInvalidCursor
+	}
+	return cursor, nil
+}
+
+func sortedDAGCatalogItems(items []DAGListItem) []DAGListItem {
+	result := append([]DAGListItem(nil), items...)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
+	return result
+}

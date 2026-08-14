@@ -17,10 +17,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
@@ -40,8 +40,8 @@ var _ prometheus.Collector = (*Collector)(nil)
 type Collector struct {
 	startTime            time.Time
 	version              string
-	dagStore             dagstore.DAGStore
-	dagRunStore          dagrun.DAGRunStore
+	dagRepository        dagLister
+	dagRunRepository     *persis.DAGRunRepository
 	queueStore           queue.QueueStore
 	serviceRegistry      serviceregistry.ServiceRegistry
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore
@@ -79,22 +79,26 @@ type Collector struct {
 	mu sync.RWMutex
 }
 
+type dagLister interface {
+	List(context.Context, persis.DAGListOptions) (pagination.PaginatedResult[persis.DAGListItem], []string, error)
+}
+
 // NewCollector creates a new metrics collector
 func NewCollector(
 	version string,
-	dagStore dagstore.DAGStore,
-	dagRunStore dagrun.DAGRunStore,
+	dagRepository dagLister,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore queue.QueueStore,
 	serviceRegistry serviceregistry.ServiceRegistry,
 ) *Collector {
 	return &Collector{
-		startTime:       time.Now(),
-		version:         version,
-		dagStore:        dagStore,
-		dagRunStore:     dagRunStore,
-		queueStore:      queueStore,
-		serviceRegistry: serviceRegistry,
-		now:             func() time.Time { return time.Now().UTC() },
+		startTime:        time.Now(),
+		version:          version,
+		dagRepository:    dagRepository,
+		dagRunRepository: dagRunRepository,
+		queueStore:       queueStore,
+		serviceRegistry:  serviceRegistry,
+		now:              func() time.Time { return time.Now().UTC() },
 
 		// Initialize metric descriptors
 		infoDesc: prometheus.NewDesc(
@@ -343,7 +347,7 @@ func (c *Collector) collectCacheMetrics(ch chan<- prometheus.Metric) {
 func (c *Collector) collectDAGRunMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
 	// Get all DAG run statuses
 	// NOTE: ListStatuses by default returns only today's data (from midnight)
-	statuses, err := c.dagRunStore.ListStatuses(ctx)
+	statuses, err := c.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{})
 	if err != nil {
 		return
 	}
@@ -444,7 +448,7 @@ func (c *Collector) collectDAGRunMetrics(ctx context.Context, ch chan<- promethe
 
 func (c *Collector) collectDAGMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
 	// Get all DAGs using List with empty options to get all
-	result, _, err := c.dagStore.List(ctx, dagstore.ListDAGsOptions{})
+	result, _, err := c.dagRepository.List(ctx, persis.DAGListOptions{})
 	if err != nil {
 		return
 	}

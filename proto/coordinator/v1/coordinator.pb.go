@@ -463,7 +463,7 @@ type Task struct {
 	Definition       string                 `protobuf:"bytes,11,opt,name=definition,proto3" json:"definition,omitempty"`                                                                                                         // Optional: DAG definition (YAML) for local DAGs
 	WorkerId         string                 `protobuf:"bytes,12,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`                                                                                             // ID of the worker that will execute this task
 	// Previous status for OPERATION_RETRY.
-	// When set, workers can retry without needing local DAGRunStore access.
+	// When set, workers can retry without needing local DAG-run persistence.
 	PreviousStatus *DAGRunStatusProto `protobuf:"bytes,13,opt,name=previous_status,json=previousStatus,proto3" json:"previous_status,omitempty"`
 	// Attempt ID created by coordinator. Workers use this to create attempts with the same ID.
 	AttemptId string `protobuf:"bytes,14,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
@@ -498,7 +498,9 @@ type Task struct {
 	// Internal persisted child DAG route for a targeted step retry.
 	RetryPath string `protobuf:"bytes,33,opt,name=retry_path,json=retryPath,proto3" json:"retry_path,omitempty"`
 	// Attributable actor that initiated the DAG run.
-	TriggerActor  string `protobuf:"bytes,34,opt,name=trigger_actor,json=triggerActor,proto3" json:"trigger_actor,omitempty"`
+	TriggerActor string `protobuf:"bytes,34,opt,name=trigger_actor,json=triggerActor,proto3" json:"trigger_actor,omitempty"`
+	// Stable identity of the persisted DAG definition.
+	DefinitionId  string `protobuf:"bytes,35,opt,name=definition_id,json=definitionId,proto3" json:"definition_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -759,6 +761,13 @@ func (x *Task) GetTriggerActor() string {
 	return ""
 }
 
+func (x *Task) GetDefinitionId() string {
+	if x != nil {
+		return x.DefinitionId
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.Operation = v
 }
@@ -891,6 +900,10 @@ func (x *Task) SetTriggerActor(v string) {
 	x.TriggerActor = v
 }
 
+func (x *Task) SetDefinitionId(v string) {
+	x.DefinitionId = v
+}
+
 func (x *Task) HasPreviousStatus() bool {
 	if x == nil {
 		return false
@@ -918,7 +931,7 @@ type Task_builder struct {
 	Definition       string
 	WorkerId         string
 	// Previous status for OPERATION_RETRY.
-	// When set, workers can retry without needing local DAGRunStore access.
+	// When set, workers can retry without needing local DAG-run persistence.
 	PreviousStatus *DAGRunStatusProto
 	// Attempt ID created by coordinator. Workers use this to create attempts with the same ID.
 	AttemptId string
@@ -954,6 +967,8 @@ type Task_builder struct {
 	RetryPath string
 	// Attributable actor that initiated the DAG run.
 	TriggerActor string
+	// Stable identity of the persisted DAG definition.
+	DefinitionId string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -993,6 +1008,7 @@ func (b0 Task_builder) Build() *Task {
 	x.ProfileName = b.ProfileName
 	x.RetryPath = b.RetryPath
 	x.TriggerActor = b.TriggerActor
+	x.DefinitionId = b.DefinitionId
 	return m0
 }
 
@@ -5139,7 +5155,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xcd\v\n" +
+	"\x10DispatchResponse\"\xf2\v\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -5184,7 +5200,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\fprofile_name\x18  \x01(\tR\vprofileName\x12\x1d\n" +
 	"\n" +
 	"retry_path\x18! \x01(\tR\tretryPath\x12#\n" +
-	"\rtrigger_actor\x18\" \x01(\tR\ftriggerActor\x1aA\n" +
+	"\rtrigger_actor\x18\" \x01(\tR\ftriggerActor\x12#\n" +
+	"\rdefinition_id\x18# \x01(\tR\fdefinitionId\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +

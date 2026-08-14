@@ -59,27 +59,27 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	helper.Config.Scheduler.LockRetryInterval = 50 * time.Millisecond
 
 	// Create additional stores needed for scheduler
-	ds, err := file.NewDAGStore(helper.Config, file.WithDAGSkipExamples(true))
+	ds, err := file.NewDAGRepository(helper.Config, file.WithDAGSkipExamples(true))
 	require.NoError(t, err)
-	drs := file.NewDAGRunStore(helper.Config)
-	ps := newProcStore(helper.Config)
+	dagRunRepository := file.NewDAGRunRepository(helper.Config)
+	ps := newProcRepository(helper.Config)
 	qs := store.NewQueueStore(file.NewCollection(helper.Config.Paths.QueueDir))
 
 	// Create DAG run manager
-	drm := runtime.NewManager(drs, ps, helper.Config)
+	drm := runtime.NewManager(dagRunRepository, ps, helper.Config)
 
 	// Create entry reader
 	coordinatorCli := coordinator.New(helper.ServiceRegistry, coordinator.DefaultConfig())
-	em := scheduler.NewEntryReader(
+	em := scheduler.NewFileEntryReader(
 		helper.Config.Paths.DAGsDir,
 		ds,
 		helper.Config.DAGDiscovery.Recursive,
 	)
 
 	// Update helper with scheduler-specific stores
-	helper.DAGStore = ds
-	helper.DAGRunStore = drs
-	helper.ProcStore = ps
+	helper.DAGRepository = ds
+	helper.DAGRunRepository = dagRunRepository
+	helper.ProcRepository = ps
 	helper.DAGRunMgr = drm
 
 	sch := &Scheduler{
@@ -100,9 +100,10 @@ func (s *Scheduler) NewSchedulerInstance(t *testing.T) (*scheduler.Scheduler, er
 		s.Config,
 		s.EntryReader,
 		s.DAGRunMgr,
-		s.DAGRunStore,
+		s.DAGRepository,
+		s.DAGRunRepository,
 		s.QueueStore,
-		s.ProcStore,
+		s.ProcRepository,
 		s.ServiceRegistry,
 		s.CoordinatorCli,
 		nil,

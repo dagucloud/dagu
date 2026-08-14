@@ -161,7 +161,7 @@ func (a *API) authorizeHumanTaskMutation(
 	dagName string,
 	dagRunID string,
 ) (*ir.DAGRunStatus, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
+	attempt, err := a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil, &Error{
@@ -187,9 +187,9 @@ func (a *API) authorizeHumanTaskMutation(
 
 func (a *API) humanTaskService() *humantask.Service {
 	return &humantask.Service{
-		DAGRunStore: a.dagRunStore,
-		QueueStore:  a.queueStore,
-		ProcStore:   a.procStore,
+		DAGRunRepository: a.dagRunRepository,
+		QueueStore:       a.queueStore,
+		ProcRepository:   a.procRepository,
 	}
 }
 

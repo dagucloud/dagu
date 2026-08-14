@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -47,18 +48,17 @@ func boundedWaitTimeout(t *testing.T, want time.Duration) time.Duration {
 // waitForDAGRunning waits until the DAG is in running state. Reaching it means
 // spawning a process and writing the first status file, and that cost varies
 // widely with host load, so the budget is generous rather than fixed.
-func waitForDAGRunning(t *testing.T, th test.Command, dagLocation string) {
+func waitForDAGRunning(t *testing.T, th test.Command, dagName string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		attempts := th.DAGRunStore.RecentAttempts(th.Context, dagLocation, 1)
-		if len(attempts) < 1 {
-			return false
-		}
-		status, err := attempts[0].ReadStatus(th.Context)
+		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dagName, 1)
 		if err != nil {
 			return false
 		}
-		return status.Status == ir.Running
+		if len(statuses) < 1 {
+			return false
+		}
+		return statuses[0].Status == ir.Running
 	}, boundedWaitTimeout(t, time.Minute), time.Millisecond*50)
 }
 
@@ -77,7 +77,7 @@ func TestStatusCommand(t *testing.T) {
 			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
 		}()
 
-		waitForDAGRunning(t, th, dagFile.Location)
+		waitForDAGRunning(t, th, dagFile.Name)
 
 		err := executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -111,11 +111,11 @@ func TestStatusCommand(t *testing.T) {
   - name: "error"
     run: exit 1
 `)
-		dag, err := th.DAGStore.GetMetadata(th.Context, dagFile.Location)
+		dag, err := th.DAGRepository.GetMetadata(th.Context, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
@@ -202,7 +202,10 @@ steps:
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
-			statuses := dagFile.DAGRunMgr.ListRecentStatus(th.Context, dagFile.Name, 3)
+			statuses, err := dagFile.DAGRunRepository.RecentStatuses(th.Context, dagFile.Name, 3)
+			if err != nil {
+				return false
+			}
 			return len(statuses) == 2
 		}, 5*time.Second, 50*time.Millisecond)
 
@@ -224,11 +227,11 @@ steps:
     preconditions:
       - condition: "test -f /nonexistent"
 `)
-		dag, err := th.DAGStore.GetMetadata(th.Context, dagFile.Location)
+		dag, err := th.DAGRepository.GetMetadata(th.Context, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
@@ -282,7 +285,7 @@ steps:
 			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
 		}()
 
-		waitForDAGRunning(t, th, dagFile.Location)
+		waitForDAGRunning(t, th, dagFile.Name)
 
 		th.RunCommand(t, cmd.Stop(), test.CmdTest{Args: []string{"stop", dagFile.Location}})
 		require.NoError(t, <-done)
@@ -346,7 +349,7 @@ steps:
 			done <- th.ExecuteCommand(cmd.Start(), test.CmdTest{Args: []string{"start", dagFile.Location}})
 		}()
 
-		waitForDAGRunning(t, th, dagFile.Location)
+		waitForDAGRunning(t, th, dagFile.Name)
 
 		err := executeCommand(th.Context, cmd.Status(), []string{dagFile.Location})
 		require.NoError(t, err)
@@ -369,7 +372,7 @@ steps:
 		dagFile.AssertLatestStatus(t, ir.Succeeded)
 
 		ctx := context.Background()
-		dag, err := th.DAGStore.GetMetadata(ctx, dagFile.Location)
+		dag, err := th.DAGRepository.GetMetadata(ctx, dagFile.Location)
 		require.NoError(t, err)
 
 		status, err := th.DAGRunMgr.GetLatestStatus(ctx, dag)
@@ -405,11 +408,11 @@ steps:
   - name: "success"
     run: "echo 'Success!'"
 `)
-		dag, err := th.DAGStore.GetMetadata(th.Context, dagFile.Location)
+		dag, err := th.DAGRepository.GetMetadata(th.Context, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		err = attempt.Open(th.Context)
@@ -468,10 +471,10 @@ steps:
 		require.NoError(t, err)
 
 		parentRef := ir.NewDAGRunRef(dagFile.Location, parentRunID)
-		var parentAttempt dagrun.DAGRunAttempt
+		var parentAttempt dagrun.Attempt
 		require.Eventually(t, func() bool {
 			var err error
-			parentAttempt, err = th.DAGRunStore.FindAttempt(th.Context, parentRef)
+			parentAttempt, err = th.DAGRunRepository.FindAttempt(th.Context, parentRef)
 			if err != nil {
 				return false
 			}
@@ -525,7 +528,7 @@ steps:
 
 		parentRef := ir.NewDAGRunRef(dagFile.Location, parentRunID)
 		require.Eventually(t, func() bool {
-			attempt, err := th.DAGRunStore.FindAttempt(th.Context, parentRef)
+			attempt, err := th.DAGRunRepository.FindAttempt(th.Context, parentRef)
 			if err != nil {
 				return false
 			}

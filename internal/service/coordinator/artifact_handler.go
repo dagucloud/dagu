@@ -17,13 +17,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type artifactHandler struct {
-	dagRunStore      dagrun.DAGRunStore
+	dagRunRepository *persis.DAGRunRepository
 	attemptValidator func(context.Context, attemptIdentity) error
 }
 
@@ -37,8 +38,8 @@ type artifactWriter struct {
 
 const artifactFlushThreshold = 64 * 1024
 
-func newArtifactHandler(dagRunStore dagrun.DAGRunStore) *artifactHandler {
-	return &artifactHandler{dagRunStore: dagRunStore}
+func newArtifactHandler(dagRunRepository *persis.DAGRunRepository) *artifactHandler {
+	return &artifactHandler{dagRunRepository: dagRunRepository}
 }
 
 func (w *artifactWriter) write(data []byte) (int, error) {
@@ -195,16 +196,16 @@ func (h *artifactHandler) artifactFilePath(ctx context.Context, chunk *coordinat
 
 func (h *artifactHandler) archiveDir(ctx context.Context, chunk *coordinatorv1.ArtifactChunk) (string, error) {
 	var (
-		attempt dagrun.DAGRunAttempt
+		attempt dagrun.Attempt
 		err     error
 	)
 	if chunk.RootDagRunId != "" && chunk.RootDagRunId != chunk.DagRunId {
-		attempt, err = h.dagRunStore.FindSubAttempt(ctx, ir.DAGRunRef{
+		attempt, err = h.dagRunRepository.FindSubAttempt(ctx, ir.DAGRunRef{
 			Name: chunk.RootDagRunName,
 			ID:   chunk.RootDagRunId,
 		}, chunk.DagRunId)
 	} else {
-		attempt, err = h.dagRunStore.FindAttempt(ctx, ir.DAGRunRef{
+		attempt, err = h.dagRunRepository.FindAttempt(ctx, ir.DAGRunRef{
 			Name: chunk.DagName,
 			ID:   chunk.DagRunId,
 		})

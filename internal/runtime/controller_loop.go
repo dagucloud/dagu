@@ -619,10 +619,10 @@ func publishedOutputs(state NodeState) string {
 // intermediate variables stay out of the transcript.
 func childRunSummary(ctx context.Context, childRunID string, outputsReported bool) string {
 	rCtx := runctx.GetContext(ctx)
-	if childRunID == "" || rCtx.DAGRunStore == nil {
+	if childRunID == "" || rCtx.DAGRunRepository == nil {
 		return ""
 	}
-	attempt, err := rCtx.DAGRunStore.FindSubAttempt(ctx, rCtx.RootDAGRun, childRunID)
+	attempt, err := rCtx.DAGRunRepository.FindSubAttempt(ctx, rCtx.RootDAGRun, childRunID)
 	if err != nil {
 		return ""
 	}

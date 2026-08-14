@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,11 +21,11 @@ import (
 func TestDAGRun(t *testing.T) {
 	t.Run("Basic", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-id-1", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-id-1", persis.NewUTC(time.Now()))
 
-		ts1 := dagrun.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
-		ts2 := dagrun.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC))
-		ts3 := dagrun.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC))
+		ts1 := persis.NewUTC(time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))
+		ts2 := persis.NewUTC(time.Date(2021, 1, 2, 0, 0, 0, 0, time.UTC))
+		ts3 := persis.NewUTC(time.Date(2021, 1, 3, 0, 0, 0, 0, time.UTC))
 
 		_ = run.WriteStatus(t, ts1, ir.Running)
 		_ = run.WriteStatus(t, ts2, ir.Succeeded)
@@ -47,7 +47,7 @@ type DAGRunTest struct {
 	TB testing.TB
 }
 
-func (dr DAGRunTest) WriteStatus(t *testing.T, ts dagrun.TimeInUTC, s ir.Status) *Attempt {
+func (dr DAGRunTest) WriteStatus(t *testing.T, ts persis.TimeInUTC, s ir.Status) *Attempt {
 	t.Helper()
 
 	dag := &ir.DAG{Name: "test-dag"}
@@ -72,10 +72,10 @@ func (dr DAGRunTest) WriteStatus(t *testing.T, ts dagrun.TimeInUTC, s ir.Status)
 
 func TestAttemptByDir(t *testing.T) {
 	root := setupTestDataRoot(t)
-	run := root.CreateTestDAGRun(t, "attempt-test", dagrun.NewUTC(time.Now()))
+	run := root.CreateTestDAGRun(t, "attempt-test", persis.NewUTC(time.Now()))
 
 	// Write a status to create an attempt.
-	ts := dagrun.NewUTC(time.Now())
+	ts := persis.NewUTC(time.Now())
 	att := run.WriteStatus(t, ts, ir.Succeeded)
 
 	// Get the attempt dir name.
@@ -98,7 +98,7 @@ func TestAttemptByDir(t *testing.T) {
 func TestListSubDAGRuns(t *testing.T) {
 	t.Run("NoSubDAGRuns", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
 
 		subRuns, err := run.ListSubDAGRuns(run.Context)
 		require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestListSubDAGRuns(t *testing.T) {
 
 	t.Run("WithSubDAGRuns", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", persis.NewUTC(time.Now()))
 
 		// Create sub dag-run directory and some sub dag-run directories
 		subDir := filepath.Join(run.baseDir, SubDAGRunsDir)
@@ -138,7 +138,7 @@ func TestListSubDAGRuns(t *testing.T) {
 
 	t.Run("WithCurrentAndLegacySubDAGRuns", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", persis.NewUTC(time.Now()))
 
 		currentSubDir := filepath.Join(run.baseDir, SubDAGRunsDir)
 		legacySubDir := filepath.Join(run.baseDir, LegacySubDAGRunsDir)
@@ -163,7 +163,7 @@ func TestListSubDAGRuns(t *testing.T) {
 
 	t.Run("RejectsInvalidSubDAGRunID", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", persis.NewUTC(time.Now()))
 
 		_, err := run.CreateSubDAGRun(run.Context, "../../escape")
 		require.Error(t, err)
@@ -180,7 +180,7 @@ func TestListSubDAGRuns(t *testing.T) {
 func TestListLogFiles(t *testing.T) {
 	t.Run("WithLogFiles", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
 
 		// Create a run with log files
 		dag := &ir.DAG{Name: "test-dag"}
@@ -201,7 +201,7 @@ func TestListLogFiles(t *testing.T) {
 			},
 		}
 
-		ts := dagrun.NewUTC(time.Now())
+		ts := persis.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -225,7 +225,7 @@ func TestListLogFiles(t *testing.T) {
 
 	t.Run("WithLifecycleHandlerLogFiles", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
 
 		dag := &ir.DAG{Name: "test-dag"}
 		dagRunStatus := ir.InitialStatus(dag)
@@ -248,7 +248,7 @@ func TestListLogFiles(t *testing.T) {
 			Stderr: "/tmp/onExit.err",
 		}
 
-		ts := dagrun.NewUTC(time.Now())
+		ts := persis.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -288,7 +288,7 @@ func TestRemoveLogFiles(t *testing.T) {
 		}
 
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
 
 		// Create a run with log files pointing to our test files
 		dag := &ir.DAG{Name: "test-dag"}
@@ -304,7 +304,7 @@ func TestRemoveLogFiles(t *testing.T) {
 			},
 		}
 
-		ts := dagrun.NewUTC(time.Now())
+		ts := persis.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -347,7 +347,7 @@ func TestRemoveLogFiles(t *testing.T) {
 		}
 
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", persis.NewUTC(time.Now()))
 
 		// Create parent dag-run with log files
 		dag := &ir.DAG{Name: "test-dag"}
@@ -359,7 +359,7 @@ func TestRemoveLogFiles(t *testing.T) {
 			Stdout: parentLogFiles[1],
 		}}
 
-		ts := dagrun.NewUTC(time.Now())
+		ts := persis.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -425,7 +425,7 @@ func TestDAGRunRemove(t *testing.T) {
 		}
 
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
 
 		// Create a run with log files
 		dag := &ir.DAG{Name: "test-dag"}
@@ -441,7 +441,7 @@ func TestDAGRunRemove(t *testing.T) {
 			},
 		}
 
-		ts := dagrun.NewUTC(time.Now())
+		ts := persis.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -495,7 +495,7 @@ func TestDAGRunRemove(t *testing.T) {
 		}
 
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "parent-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "parent-dag-run", persis.NewUTC(time.Now()))
 
 		// Create parent dag-run with log files
 		dag := &ir.DAG{Name: "test-dag"}
@@ -507,7 +507,7 @@ func TestDAGRunRemove(t *testing.T) {
 			Stdout: parentLogFiles[1],
 		}}
 
-		ts := dagrun.NewUTC(time.Now())
+		ts := persis.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))
@@ -572,7 +572,7 @@ func TestDAGRunRemove(t *testing.T) {
 
 	t.Run("RemoveHandlesNonExistentLogFiles", func(t *testing.T) {
 		root := setupTestDataRoot(t)
-		run := root.CreateTestDAGRun(t, "test-dag-run", dagrun.NewUTC(time.Now()))
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
 
 		// Create a run with log files that don't exist
 		dag := &ir.DAG{Name: "test-dag"}
@@ -587,7 +587,7 @@ func TestDAGRunRemove(t *testing.T) {
 			},
 		}
 
-		ts := dagrun.NewUTC(time.Now())
+		ts := persis.NewUTC(time.Now())
 		att, err := run.CreateAttempt(run.Context, ts, nil, "")
 		require.NoError(t, err)
 		require.NoError(t, att.Open(run.Context))

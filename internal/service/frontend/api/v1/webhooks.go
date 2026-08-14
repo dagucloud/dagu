@@ -19,9 +19,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/google/uuid"
@@ -90,8 +89,8 @@ func (a *API) CreateDAGWebhook(ctx context.Context, request api.CreateDAGWebhook
 	}
 
 	// Check if DAG exists
-	if _, err := a.dagStore.GetDetails(ctx, string(request.FileName), dagstore.DAGLoadOptions{}); err != nil {
-		if errors.Is(err, dagstore.ErrDAGNotFound) {
+	if _, err := a.dagRepository.GetDetails(ctx, string(request.FileName), persis.DAGLoadOptions{}); err != nil {
+		if errors.Is(err, persis.ErrDAGNotFound) {
 			return nil, &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,
@@ -607,7 +606,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	}
 
 	// Load the DAG (we need it for enqueuing)
-	dag, err := a.dagStore.GetDetails(ctx, string(request.FileName), dagstore.DAGLoadOptions{})
+	dag, err := a.dagRepository.GetDetails(ctx, string(request.FileName), persis.DAGLoadOptions{})
 	if err != nil {
 		logger.Warn(ctx, "Webhook: DAG not found",
 			tag.Name(request.FileName),
@@ -635,8 +634,15 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	if request.Body != nil && request.Body.DagRunId != nil && *request.Body.DagRunId != "" {
 		dagRunID = *request.Body.DagRunId
 		// Check if a dag-run with this ID already exists
-		statuses, err := a.dagRunStore.ListStatuses(ctx, dagrun.WithDAGRunID(dagRunID))
-		if err == nil && len(statuses) > 0 {
+		statuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{DAGRunID: dagRunID})
+		if err != nil {
+			return nil, &Error{
+				HTTPStatus: http.StatusInternalServerError,
+				Code:       api.ErrorCodeInternalError,
+				Message:    "failed to verify webhook DAG-run ID",
+			}
+		}
+		if len(statuses) > 0 {
 			// DAG run already exists - return 409 Conflict
 			logger.Info(ctx, "Webhook: DAG run already exists (idempotency)",
 				tag.DAG(dag.Name),
@@ -647,7 +653,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 				Message: fmt.Sprintf("dag-run with ID %s already exists", dagRunID),
 			}, nil
 		}
-		// If no results or error, proceed with creating
+		// If no results, proceed with creating.
 	} else {
 		dagRunID = uuid.Must(uuid.NewV7()).String()
 	}

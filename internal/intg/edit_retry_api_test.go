@@ -161,7 +161,7 @@ steps:
 	sourceStatus.Params = "one two three"
 	sourceStatus.ParamsList = []string{"problem=one two three"}
 
-	attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, sourceRunID))
+	attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, sourceRunID))
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(server.Context))
 	require.NoError(t, attempt.Write(server.Context, *sourceStatus))

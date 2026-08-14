@@ -103,7 +103,7 @@ steps:
 			Args: []string{"rm", "--definition", "--force", dag.Location},
 		})
 
-		_, err := th.DAGStore.GetMetadata(th.Context, dag.Location)
+		_, err := th.DAGRepository.GetMetadata(th.Context, dag.Location)
 		require.Error(t, err)
 	})
 
@@ -130,7 +130,7 @@ steps:
 			Args: []string{"rm", "--definition", "--quiet", dag.Location},
 		})
 
-		_, err = th.DAGStore.GetMetadata(th.Context, dag.Location)
+		_, err = th.DAGRepository.GetMetadata(th.Context, dag.Location)
 		require.NoError(t, err)
 	})
 
@@ -186,7 +186,7 @@ steps:
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "active distributed run")
 
-		_, err = th.DAGStore.GetMetadata(th.Context, dag.Location)
+		_, err = th.DAGRepository.GetMetadata(th.Context, dag.Location)
 		require.NoError(t, err)
 	})
 

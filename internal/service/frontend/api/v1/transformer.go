@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -356,7 +357,7 @@ func toDAGRunSummary(s ir.DAGRunStatus) api.DAGRunSummary {
 	}
 }
 
-func toDAGRunsPageResponse(page dagrun.DAGRunStatusPage) api.DAGRunsPageResponse {
+func toDAGRunsPageResponse(page persis.DAGRunStatusPage) api.DAGRunsPageResponse {
 	dagRuns := make([]api.DAGRunSummary, 0, len(page.Items))
 	for _, item := range page.Items {
 		if item == nil {

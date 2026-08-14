@@ -683,7 +683,7 @@ func TestNewRemoteTaskHandler(t *testing.T) {
 		handler := NewRemoteTaskHandler(RemoteTaskHandlerConfig{
 			WorkerID:          "worker-2",
 			CoordinatorClient: client,
-			// DAGStore is nil
+			// DAGRepository is nil
 			// ServiceRegistry is nil
 		})
 
@@ -691,7 +691,7 @@ func TestNewRemoteTaskHandler(t *testing.T) {
 
 		rh, ok := handler.(*remoteTaskHandler)
 		require.True(t, ok)
-		assert.Nil(t, rh.dagStore)
+		assert.Nil(t, rh.dagRepository)
 		assert.Nil(t, rh.serviceRegistry)
 	})
 
@@ -1070,7 +1070,7 @@ steps:
 		handler := &remoteTaskHandler{
 			workerID:          "test-worker",
 			coordinatorClient: client,
-			dagStore:          th.DAGStore,
+			dagRepository:     th.DAGRepository,
 			dagRunMgr:         th.DAGRunMgr,
 			serviceRegistry:   th.ServiceRegistry,
 			peerConfig:        config.Peer{Insecure: true},
@@ -1198,7 +1198,7 @@ steps:
 	handler := &remoteTaskHandler{
 		workerID:          "test-worker",
 		coordinatorClient: client,
-		dagStore:          th.DAGStore,
+		dagRepository:     th.DAGRepository,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
 		peerConfig:        config.Peer{Insecure: true},
@@ -1751,7 +1751,7 @@ steps:
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagStore:          th.DAGStore,
+		dagRepository:     th.DAGRepository,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
 		peerConfig:        config.Peer{Insecure: true},
@@ -2447,7 +2447,7 @@ steps:
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagStore:          th.DAGStore,
+		dagRepository:     th.DAGRepository,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
 		peerConfig:        config.Peer{Insecure: true},
@@ -2552,7 +2552,7 @@ steps:
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagStore:          th.DAGStore,
+		dagRepository:     th.DAGRepository,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
 		peerConfig:        config.Peer{Insecure: true},
@@ -2593,7 +2593,7 @@ func TestExecuteDAGRun_FailedExecutionStillUploadsArtifacts(t *testing.T) {
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagStore:          th.DAGStore,
+		dagRepository:     th.DAGRepository,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
 		peerConfig:        config.Peer{Insecure: true},
@@ -2661,7 +2661,7 @@ func TestExecuteDAGRun_ArtifactUploadFailureMarksRunFailed(t *testing.T) {
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagStore:          th.DAGStore,
+		dagRepository:     th.DAGRepository,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
 		peerConfig:        config.Peer{Insecure: true},
@@ -2721,7 +2721,7 @@ func TestExecuteDAGRun_FailedExecutionWithArtifactUploadFailurePreservesFailedSt
 	handler := &remoteTaskHandler{
 		workerID:          "integration-test-worker",
 		coordinatorClient: client,
-		dagStore:          th.DAGStore,
+		dagRepository:     th.DAGRepository,
 		dagRunMgr:         th.DAGRunMgr,
 		serviceRegistry:   th.ServiceRegistry,
 		peerConfig:        config.Peer{Insecure: true},

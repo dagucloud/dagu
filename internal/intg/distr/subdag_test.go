@@ -149,7 +149,7 @@ steps:
 	require.Len(t, parentStatus.Nodes[0].SubRuns, 1)
 
 	subRunID := parentStatus.Nodes[0].SubRuns[0].DAGRunID
-	subAttempt, err := f.coord.DAGRunStore.FindSubAttempt(
+	subAttempt, err := f.coord.DAGRunRepository.FindSubAttempt(
 		f.coord.Context,
 		ir.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
 		subRunID,
@@ -189,7 +189,7 @@ steps:
 		require.Len(t, parentStatus.Nodes[0].SubRuns, 1)
 
 		subRunID := parentStatus.Nodes[0].SubRuns[0].DAGRunID
-		subAttempt, err := f.coord.DAGRunStore.FindSubAttempt(
+		subAttempt, err := f.coord.DAGRunRepository.FindSubAttempt(
 			f.coord.Context,
 			ir.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
 			subRunID,
@@ -350,7 +350,7 @@ func TestSubDAG_ParentWithInlineChildOnWorker(t *testing.T) {
 		//
 		// The inline child also has a worker_selector so it dispatches
 		// through the coordinator because workers execute task payloads
-		// without a local DAGRunStore for subprocess-based sub-DAG execution.
+		// without a local DAGRunRepository for subprocess-based sub-DAG execution.
 		f := newTestFixture(t, `
 worker_selector:
   test: "true"

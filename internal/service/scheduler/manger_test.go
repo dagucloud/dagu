@@ -14,7 +14,7 @@ import (
 
 func TestReadEntries(t *testing.T) {
 	t.Run("InvalidDirectory", func(t *testing.T) {
-		manager := scheduler.NewEntryReader("invalid_directory", nil, false)
+		manager := scheduler.NewFileEntryReader("invalid_directory", nil, false)
 		err := manager.Init(context.Background())
 		require.Error(t, err)
 	})
@@ -25,7 +25,7 @@ func TestReadEntries(t *testing.T) {
 		err := th.EntryReader.Init(ctx)
 		require.NoError(t, err)
 
-		dags := th.EntryReader.DAGs()
-		require.NotEmpty(t, dags, "DAGs should not be empty")
+		entries := th.EntryReader.Entries()
+		require.NotEmpty(t, entries, "DAGs should not be empty")
 	})
 }

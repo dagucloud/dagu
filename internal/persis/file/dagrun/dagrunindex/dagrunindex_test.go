@@ -185,7 +185,7 @@ func TestTryLoadForDay_PreservesRetryMetadata(t *testing.T) {
 	assert.Equal(t, 2.0, found.AutoRetryBackoff)
 	assert.Equal(t, 10*time.Minute, found.AutoRetryMaxInterval)
 	assert.Equal(t, "shared-queue", found.ProcGroup)
-	assert.Equal(t, "retry-dag", found.SuspendFlagName)
+	assert.Equal(t, "retry-dag", found.DefinitionID)
 }
 
 func TestTryLoadForDay_StaleIndex_NewRun(t *testing.T) {

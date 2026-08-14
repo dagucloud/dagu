@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
 )
 
@@ -85,19 +86,6 @@ func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 	})
 
 	return root
-}
-
-// NewDataRootWithPrefix creates a new DataRoot instance with a specified prefix.
-// This is useful for creating a DataRoot with a specific directory structure
-func NewDataRootWithPrefix(baseDir, prefix string) DataRoot {
-	dagRunsDir := filepath.Join(baseDir, prefix, "dag-runs")
-	return DataRoot{
-		baseDir:     baseDir,
-		artifactDir: filepath.Join(filepath.Dir(filepath.Clean(baseDir)), "artifacts"),
-		prefix:      prefix,
-		dagRunsDir:  dagRunsDir,
-		globPattern: filepath.Join(dagRunsDir, "*", "*", "*", DAGRunDirPrefix+"*"),
-	}
 }
 
 const dagRunTimestampLen = len("20060102_150405Z")
@@ -221,7 +209,7 @@ func (dr *DataRoot) Latest(ctx context.Context, itemLimit int) []*DAGRun {
 
 // LatestAfter returns the most recent dag-run that occurred after the specified cutoff time.
 // Returns ErrNoStatusData if no dag-run is found or if the latest run is before the cutoff.
-func (dr *DataRoot) LatestAfter(ctx context.Context, cutoff dagrun.TimeInUTC) (*DAGRun, error) {
+func (dr *DataRoot) LatestAfter(ctx context.Context, cutoff persis.TimeInUTC) (*DAGRun, error) {
 	runs, err := dr.listRecentDAGRuns(ctx, 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list recent runs: %w", err)
@@ -237,7 +225,7 @@ func (dr *DataRoot) LatestAfter(ctx context.Context, cutoff dagrun.TimeInUTC) (*
 
 // CreateDAGRun creates a new dag-run directory with the specified timestamp and ID.
 // The directory structure follows the pattern: year/month/day/run-YYYYMMDD_HHMMSS_dagRunID
-func (dr *DataRoot) CreateDAGRun(ts dagrun.TimeInUTC, dagRunID string) (*DAGRun, error) {
+func (dr *DataRoot) CreateDAGRun(ts persis.TimeInUTC, dagRunID string) (*DAGRun, error) {
 	dirName := DAGRunDirPrefix + formatDAGRunTimestamp(ts) + "_" + dagRunID
 	dir := filepath.Join(dr.dagRunsDir, ts.Format("2006"), ts.Format("01"), ts.Format("02"), dirName)
 
@@ -280,43 +268,37 @@ func (dr DataRoot) Remove() error {
 	return nil
 }
 
-// RemoveOld removes old dag-runs older than the specified retention days.
-// It only removes records older than the specified retention days.
-// If retentionDays is negative, no files will be removed.
-// If retentionDays is zero, all files will be removed.
-// If retentionDays is positive, only files older than the specified number of days will be removed.
-// It also removes empty directories in the hierarchy.
-// If dryRun is true, it returns the run IDs that would be removed without actually deleting them.
-// Returns a list of dag-run IDs that were removed (or would be removed in dry-run mode).
-func (dr DataRoot) RemoveOld(ctx context.Context, retentionDays int, dryRun bool) ([]string, error) {
-	if retentionDays < 0 {
-		return nil, nil
-	}
-	keepTime := dagrun.NewUTC(time.Now().AddDate(0, 0, -retentionDays))
-	return dr.removeOldBefore(ctx, keepTime, dryRun)
-}
-
 // removeOldBefore removes dag-runs whose recorded time is strictly before keepTime.
 // Active (non-final) runs are never removed. If dryRun is true, it returns the run
 // IDs that would be removed without actually deleting them.
-func (dr DataRoot) removeOldBefore(ctx context.Context, keepTime dagrun.TimeInUTC, dryRun bool) ([]string, error) {
+func (dr DataRoot) removeOldBefore(ctx context.Context, keepTime persis.TimeInUTC, dryRun bool) ([]string, error) {
 	if keepTime.IsZero() {
 		return nil, nil
 	}
 
-	dagRuns := dr.listDAGRunsInRange(ctx, dagrun.TimeInUTC{}, keepTime, &listDAGRunsInRangeOpts{})
+	dagRuns := dr.listDAGRunsInRange(ctx, persis.TimeInUTC{}, keepTime, &listDAGRunsInRangeOpts{})
 
-	var removedRunIDs []string
+	var (
+		removedRunIDs []string
+		removeErrs    []error
+	)
 
 	for _, r := range dagRuns {
 		removable, err := dr.canRemoveDAGRun(ctx, r, keepTime.Time)
-		if err != nil || !removable {
+		if err != nil {
+			removeErrs = append(removeErrs, err)
+			continue
+		}
+		if !removable {
+			continue
+		}
+		if err := dr.removeDAGRun(ctx, r, dryRun); err != nil {
+			removeErrs = append(removeErrs, err)
 			continue
 		}
 		removedRunIDs = append(removedRunIDs, r.dagRunID)
-		dr.removeDAGRun(ctx, r, dryRun)
 	}
-	return removedRunIDs, nil
+	return removedRunIDs, errors.Join(removeErrs...)
 }
 
 // RemoveOldByRuns removes dag-runs beyond the most recent retentionRuns.
@@ -326,21 +308,31 @@ func (dr DataRoot) RemoveOldByRuns(ctx context.Context, retentionRuns int, dryRu
 		return nil, nil
 	}
 
-	dagRuns := dr.listDAGRunsInRange(ctx, dagrun.TimeInUTC{}, dagrun.TimeInUTC{}, &listDAGRunsInRangeOpts{})
+	dagRuns := dr.listDAGRunsInRange(ctx, persis.TimeInUTC{}, persis.TimeInUTC{}, &listDAGRunsInRangeOpts{})
 	if len(dagRuns) <= retentionRuns {
 		return nil, nil
 	}
 
-	var removedRunIDs []string
+	var (
+		removedRunIDs []string
+		removeErrs    []error
+	)
 	for _, r := range dagRuns[retentionRuns:] {
 		removable, err := dr.canRemoveDAGRun(ctx, r, time.Time{})
-		if err != nil || !removable {
+		if err != nil {
+			removeErrs = append(removeErrs, err)
+			continue
+		}
+		if !removable {
+			continue
+		}
+		if err := dr.removeDAGRun(ctx, r, dryRun); err != nil {
+			removeErrs = append(removeErrs, err)
 			continue
 		}
 		removedRunIDs = append(removedRunIDs, r.dagRunID)
-		dr.removeDAGRun(ctx, r, dryRun)
 	}
-	return removedRunIDs, nil
+	return removedRunIDs, errors.Join(removeErrs...)
 }
 
 func (dr DataRoot) canRemoveDAGRun(ctx context.Context, r *DAGRun, keepTime time.Time) (bool, error) {
@@ -416,38 +408,37 @@ func hasNewerStatuslessAttempt(ctx context.Context, r *DAGRun, latestAttempt *At
 	return false, nil
 }
 
-func (dr DataRoot) removeDAGRun(ctx context.Context, r *DAGRun, dryRun bool) {
+func (dr DataRoot) removeDAGRun(ctx context.Context, r *DAGRun, dryRun bool) error {
 	if dryRun {
-		return
+		return nil
 	}
 
-	runCtx := logger.WithValues(ctx, tag.Dir(r.baseDir))
 	if err := r.Remove(ctx); err != nil {
-		logger.Error(runCtx, "Failed to remove run", tag.Error(err))
+		return fmt.Errorf("remove dag-run %s: %w", r.dagRunID, err)
 	}
 	dayDir := filepath.Dir(r.baseDir)
 	dagrunindex.DeleteIndex(dayDir)
-	dr.removeEmptyDir(ctx, dayDir)
+	return dr.removeEmptyDir(dayDir)
 }
 
-func (dr DataRoot) removeEmptyDir(ctx context.Context, dayDir string) {
+func (dr DataRoot) removeEmptyDir(dayDir string) error {
 	monthDir := filepath.Dir(dayDir)
 	yearDir := filepath.Dir(monthDir)
 
-	// Helper function to remove directory with context-enriched logging
-	removeDir := func(dirPath, dirType string) {
-		dirCtx := logger.WithValues(ctx, tag.Dir(dirPath))
+	removeDir := func(dirPath, dirType string) error {
 		if isDirEmpty(dirPath) {
 			if err := fileutil.Remove(dirPath); err != nil {
-				logger.Error(dirCtx, fmt.Sprintf("Failed to remove %s directory", dirType),
-					tag.Error(err))
+				return fmt.Errorf("remove empty %s directory %s: %w", dirType, dirPath, err)
 			}
 		}
+		return nil
 	}
 
-	removeDir(dayDir, "day")
-	removeDir(monthDir, "month")
-	removeDir(yearDir, "year")
+	return errors.Join(
+		removeDir(dayDir, "day"),
+		removeDir(monthDir, "month"),
+		removeDir(yearDir, "year"),
+	)
 }
 
 // listDAGRunsInRangeOpts contains options for listing dag-runs in a range
@@ -455,7 +446,7 @@ type listDAGRunsInRangeOpts struct {
 	limit int
 }
 
-func (dr DataRoot) listDAGRunsInRange(ctx context.Context, start, end dagrun.TimeInUTC, opts *listDAGRunsInRangeOpts) []*DAGRun {
+func (dr DataRoot) listDAGRunsInRange(ctx context.Context, start, end persis.TimeInUTC, opts *listDAGRunsInRangeOpts) []*DAGRun {
 	var result []*DAGRun
 	var lock sync.Mutex
 
@@ -794,7 +785,7 @@ func summaryFromIndexEntry(ie dagrunindex.Entry) *DAGRunSummary {
 		AutoRetryBackoff:     ie.AutoRetryBackoff,
 		AutoRetryMaxInterval: ie.AutoRetryMaxInterval,
 		ProcGroup:            ie.ProcGroup,
-		SuspendFlagName:      ie.SuspendFlagName,
+		DefinitionID:         ie.DefinitionID,
 		ArchiveDir:           ie.ArchiveDir,
 	}
 }

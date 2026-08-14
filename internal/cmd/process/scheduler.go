@@ -7,78 +7,52 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
-	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	"github.com/dagucloud/dagu/v2/internal/proc"
-	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
-	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // SchedulerConfig contains the wiring needed to construct the scheduler process role.
 type SchedulerConfig struct {
-	Context           context.Context
-	Config            *config.Config
-	QueueStore        queue.QueueStore
-	ProcStore         proc.ProcStore
-	ServiceRegistry   serviceregistry.ServiceRegistry
-	DispatchTaskStore dispatch.DispatchTaskStore
-	DAGRunLeaseStore  dispatch.DAGRunLeaseStore
-	EventService      *eventstore.Service
-	LicenseManager    *license.Manager
+	Context        context.Context
+	Config         *config.Config
+	Persistence    CorePersistence
+	EventService   *eventstore.Service
+	LicenseManager *license.Manager
 }
 
-// NewScheduler creates the scheduler and its process-local stores, monitors, and workers.
+// NewScheduler creates the scheduler from the process repositories and services.
 func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 	ctx := cfg.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	limits := cfg.Config.Cache.Limits()
-	dagCache := fileutil.NewCache[*ir.DAG]("dag_definition", limits.DAG.Limit, limits.DAG.TTL)
-	dagCache.StartEviction(ctx)
-
-	dagStore, err := NewDAGStore(cfg.Config, DAGStoreConfig{Cache: dagCache})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize DAG client: %w", err)
-	}
-
-	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.ServiceRegistry)
-	entryReader := scheduler.NewEntryReader(
+	coordinatorClient := NewCoordinatorClient(ctx, cfg.Config, cfg.Persistence.ServiceRegistry)
+	entryReader := scheduler.NewFileEntryReader(
 		cfg.Config.Paths.DAGsDir,
-		dagStore,
+		cfg.Persistence.DAGRepository,
 		cfg.Config.DAGDiscovery.Recursive,
 	)
-	watermarkStore := scheduler.NewWatermarkStore(
-		file.NewCollection(filepath.Join(cfg.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
-	)
-
-	statusCache := fileutil.NewCache[*ir.DAGRunStatus]("scheduler_dag_run_status", limits.DAGRun.Limit, limits.DAGRun.TTL)
-	statusCache.StartEviction(ctx)
-	schedulerRunStore := file.NewDAGRunStore(
+	schedulerRunManager := runtime.NewManager(
+		cfg.Persistence.DAGRunRepository,
+		cfg.Persistence.ProcRepository,
 		cfg.Config,
-		file.WithDAGRunLatestStatusToday(false),
-		file.WithDAGRunHistoryFileCache(statusCache),
+		runtime.WithLatestStatusAllHistory(),
 	)
-	schedulerRunManager := runtime.NewManager(schedulerRunStore, cfg.ProcStore, cfg.Config)
 
 	dagSettingsStore, err := file.NewDAGSettingsStore(cfg.Config)
 	if err != nil {
@@ -90,12 +64,13 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		cfg.Config,
 		entryReader,
 		schedulerRunManager,
-		schedulerRunStore,
-		cfg.QueueStore,
-		cfg.ProcStore,
-		cfg.ServiceRegistry,
+		cfg.Persistence.DAGRepository,
+		cfg.Persistence.DAGRunRepository,
+		cfg.Persistence.QueueStore,
+		cfg.Persistence.ProcRepository,
+		cfg.Persistence.ServiceRegistry,
 		coordinatorClient,
-		watermarkStore,
+		cfg.Persistence.SchedulerStateStore,
 		scheduler.WithDAGProfileResolver(scheduler.NewDAGProfileResolver(dagSettingsStore, profileStore)),
 	)
 	if err != nil {
@@ -109,7 +84,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		} else {
 			sched.SetEventCollector(collector)
 		}
-		if notificationMonitor := newNotificationMonitor(ctx, cfg.Config, dagStore, cfg.EventService); notificationMonitor != nil {
+		if notificationMonitor := newNotificationMonitor(ctx, cfg.Config, cfg.Persistence.DAGRepository, cfg.EventService); notificationMonitor != nil {
 			sched.SetNotificationMonitor(notificationMonitor)
 		}
 		if incidentMonitor := newIncidentMonitor(ctx, cfg.Config, cfg.LicenseManager, cfg.EventService); incidentMonitor != nil {
@@ -117,8 +92,8 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 		}
 	}
 
-	sched.SetDAGRunLeaseStore(cfg.DAGRunLeaseStore)
-	sched.SetDispatchTaskStore(cfg.DispatchTaskStore)
+	sched.SetDAGRunLeaseStore(cfg.Persistence.DAGRunLeaseStore)
+	sched.SetDispatchTaskStore(cfg.Persistence.DispatchTaskStore)
 
 	return sched, nil
 }
@@ -128,7 +103,7 @@ func NewScheduler(cfg SchedulerConfig) (*scheduler.Scheduler, error) {
 func newNotificationMonitor(
 	ctx context.Context,
 	cfg *config.Config,
-	dagStore dagstore.DAGStore,
+	dagRepository *persis.DAGRepository,
 	eventService *eventstore.Service,
 ) *chatbridge.NotificationMonitor {
 	encKey, encErr := crypto.ResolveKey(cfg.Paths.DataDir)
@@ -146,7 +121,7 @@ func newNotificationMonitor(
 		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 		return nil
 	}
-	notificationService := newSchedulerNotificationService(cfg, store, dagStore)
+	notificationService := newSchedulerNotificationService(cfg, store, dagRepository)
 	stateFile := file.NotificationMonitorStateFile(cfg)
 	return chatbridge.NewNotificationMonitor(
 		eventService,
@@ -160,7 +135,7 @@ func newNotificationMonitor(
 func newSchedulerNotificationService(
 	cfg *config.Config,
 	store notificationmodel.Store,
-	dagStore dagstore.DAGStore,
+	dagRepository *persis.DAGRepository,
 	opts ...notificationservice.Option,
 ) *notificationservice.Service {
 	opts = append([]notificationservice.Option{
@@ -168,7 +143,7 @@ func newSchedulerNotificationService(
 	}, opts...)
 	return notificationservice.New(
 		store,
-		dagStore,
+		dagRepository,
 		opts...,
 	)
 }

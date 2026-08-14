@@ -67,7 +67,7 @@ func TestArtifactHandlerHandleStreamCreatesEmptyFileOnFinalChunk(t *testing.T) {
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store)
+	handler := newArtifactHandler(store.repository)
 	stream := &mockStreamArtifactsServer{
 		ctx: context.Background(),
 		chunks: []*coordinatorv1.ArtifactChunk{
@@ -103,7 +103,7 @@ func TestArtifactHandlerHandleStreamWritesFinalChunkPayload(t *testing.T) {
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store)
+	handler := newArtifactHandler(store.repository)
 	stream := &mockStreamArtifactsServer{
 		ctx: context.Background(),
 		chunks: []*coordinatorv1.ArtifactChunk{
@@ -151,7 +151,7 @@ func TestHandlerStreamArtifactsAcceptsPreviousOwnerAtDifferentCoordinatorEndpoin
 		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
 	}))
 	handler := NewHandler(HandlerConfig{
-		DAGRunStore:      store,
+		DAGRunRepository: store.repository,
 		ArtifactDir:      archiveDir,
 		DAGRunLeaseStore: leaseStore,
 		Owner:            dispatch.CoordinatorEndpoint{ID: "coord-b", Host: "coordinator-b", Port: 50056},
@@ -189,7 +189,7 @@ func TestArtifactHandlerHandleStreamRejectsMismatchedAttempt(t *testing.T) {
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store)
+	handler := newArtifactHandler(store.repository)
 	stream := &mockStreamArtifactsServer{
 		ctx: context.Background(),
 		chunks: []*coordinatorv1.ArtifactChunk{
@@ -224,7 +224,7 @@ func TestArtifactHandlerHandleStreamDiscardsPartialFileOnRecvError(t *testing.T)
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store)
+	handler := newArtifactHandler(store.repository)
 	stream := &mockStreamArtifactsServer{
 		ctx:     context.Background(),
 		recvErr: io.ErrUnexpectedEOF,
@@ -276,7 +276,7 @@ func TestArtifactHandlerHandleStreamRevalidatesAttemptBeforeFinalizing(t *testin
 		ArchiveDir: archiveDir,
 	})
 
-	handler := newArtifactHandler(store)
+	handler := newArtifactHandler(store.repository)
 	stream := &mockStreamArtifactsServer{
 		ctx: context.Background(),
 		chunks: []*coordinatorv1.ArtifactChunk{

@@ -34,7 +34,7 @@ func TestRepairStaleLocalRunDoesNotMutateReadStatusSnapshot(t *testing.T) {
 		},
 	}
 
-	attempt := &testutil.MockDAGRunAttempt{Status: sharedStatus}
+	attempt := &testutil.MockAttempt{Status: sharedStatus}
 	attempt.On("Open", mock.Anything).Return(nil).Once()
 
 	var written ir.DAGRunStatus

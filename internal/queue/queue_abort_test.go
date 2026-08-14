@@ -13,8 +13,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,16 +24,16 @@ func TestAbortQueuedDAGRun_PreservesPreviousVisibleAttempt(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	dag := testQueueAbortDAG()
 	runRef := ir.NewDAGRunRef(dag.Name, "run-1")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Succeeded, dagrun.NewDAGRunAttemptOptions{}, time.Now().Add(-time.Minute))
-	writeAttemptStatus(t, ctx, store, dag, "run-1", ir.Queued, dagrun.NewDAGRunAttemptOptions{Retry: true}, time.Now())
+	writeAttemptStatus(t, ctx, repository, dag, "run-1", ir.Succeeded, persis.DAGRunCreateAttemptOptions{}, time.Now().Add(-time.Minute))
+	writeAttemptStatus(t, ctx, repository, dag, "run-1", ir.Queued, persis.DAGRunCreateAttemptOptions{Retry: true}, time.Now())
 
-	require.NoError(t, queue.AbortQueuedDAGRun(ctx, store, runRef))
+	require.NoError(t, queue.AbortQueuedDAGRun(ctx, repository, runRef))
 
-	attempt, err := store.FindAttempt(ctx, runRef)
+	attempt, err := repository.FindAttempt(ctx, runRef)
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
@@ -43,15 +44,15 @@ func TestAbortQueuedDAGRun_RemovesRunWhenQueuedAttemptIsOnlyVisibleAttempt(t *te
 	t.Parallel()
 
 	ctx := context.Background()
-	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	dag := testQueueAbortDAG()
 	runRef := ir.NewDAGRunRef(dag.Name, "run-2")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-2", ir.Queued, dagrun.NewDAGRunAttemptOptions{}, time.Now())
+	writeAttemptStatus(t, ctx, repository, dag, "run-2", ir.Queued, persis.DAGRunCreateAttemptOptions{}, time.Now())
 
-	require.NoError(t, queue.AbortQueuedDAGRun(ctx, store, runRef))
+	require.NoError(t, queue.AbortQueuedDAGRun(ctx, repository, runRef))
 
-	_, err := store.FindAttempt(ctx, runRef)
+	_, err := repository.FindAttempt(ctx, runRef)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData))
 }
@@ -60,13 +61,13 @@ func TestAbortQueuedDAGRun_RejectsNonQueuedStatus(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	dag := testQueueAbortDAG()
 	runRef := ir.NewDAGRunRef(dag.Name, "run-3")
 
-	writeAttemptStatus(t, ctx, store, dag, "run-3", ir.Running, dagrun.NewDAGRunAttemptOptions{}, time.Now())
+	writeAttemptStatus(t, ctx, repository, dag, "run-3", ir.Running, persis.DAGRunCreateAttemptOptions{}, time.Now())
 
-	err := queue.AbortQueuedDAGRun(ctx, store, runRef)
+	err := queue.AbortQueuedDAGRun(ctx, repository, runRef)
 	require.Error(t, err)
 
 	var notQueuedErr *queue.DAGRunNotQueuedError
@@ -86,16 +87,16 @@ func testQueueAbortDAG() *ir.DAG {
 func writeAttemptStatus(
 	t *testing.T,
 	ctx context.Context,
-	store dagrun.DAGRunStore,
+	repository *persis.DAGRunRepository,
 	dag *ir.DAG,
 	runID string,
 	status ir.Status,
-	opts dagrun.NewDAGRunAttemptOptions,
+	opts persis.DAGRunCreateAttemptOptions,
 	ts time.Time,
 ) {
 	t.Helper()
 
-	attempt, err := store.CreateAttempt(ctx, dag, ts, runID, opts)
+	attempt, err := repository.CreateAttempt(ctx, dag, ts, runID, opts)
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 

@@ -5,14 +5,16 @@ package engine_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/engine"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -20,7 +22,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunYAMLUsesRunStateStoreWithoutDAGRunStore(t *testing.T) {
+type failingMaterializationStore struct {
+	err error
+}
+
+func (*failingMaterializationStore) Get(context.Context, string) (*build.Materialization, error) {
+	return nil, build.ErrMaterializationNotFound
+}
+
+func (s *failingMaterializationStore) AcquirePaths(context.Context, []build.PathLockRequest) (build.MaterializationLock, error) {
+	return nil, s.err
+}
+
+func (s *failingMaterializationStore) Commit(context.Context, build.MaterializationLock, build.MaterializationCommit) error {
+	return s.err
+}
+
+func TestRunYAMLUsesRunStateStoreWithoutDAGRunRepository(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -59,7 +77,7 @@ steps:
 	require.Equal(t, "succeeded", persisted.Status.String())
 }
 
-func TestRunYAMLUsesRunStateStoreWhenDAGRunStoreAlsoConfigured(t *testing.T) {
+func TestRunYAMLUsesRunStateStoreWhenDAGRunRepositoryAlsoConfigured(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -92,7 +110,7 @@ steps:
 	require.Equal(t, map[string]string{"result": "hybrid-state"}, outputs)
 }
 
-func TestStatusAndOutputsFallBackToDAGRunStoreWhenRunStateMissing(t *testing.T) {
+func TestStatusAndOutputsFallBackToDAGRunRepositoryWhenRunStateMissing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -146,7 +164,7 @@ steps:
 	require.NoError(t, hybridEngine.Stop(ctx, ref))
 }
 
-func TestRunYAMLRejectsDuplicateRunIDWithoutDAGRunStore(t *testing.T) {
+func TestRunYAMLRejectsDuplicateRunIDWithoutDAGRunRepository(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -176,24 +194,103 @@ steps:
 	require.Nil(t, secondRun)
 }
 
+func TestRunYAMLUsesRuntimeMaterializationStore(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	storeErr := errors.New("materialization backend unavailable")
+	persistenceFactory := memoryPersistenceFactory(memstore.New())
+	eng, err := engine.New(ctx, engine.Options{
+		HomeDir: t.TempDir(),
+		PersistenceFactory: func(ctx context.Context, cfg *config.Config) (engine.Persistence, error) {
+			persistence, err := persistenceFactory(ctx, cfg)
+			if err != nil {
+				return engine.Persistence{}, err
+			}
+			persistence.RuntimeStoresFactory = func(context.Context, *config.Config) engine.RuntimeStores {
+				return engine.RuntimeStores{MaterializationStore: &failingMaterializationStore{err: storeErr}}
+			}
+			return persistence, nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, eng.Close(context.Background()))
+	})
+
+	run, err := eng.RunYAML(ctx, []byte(`
+name: embedded-materialization-store
+type: build
+steps:
+  - id: build
+    command: echo build
+    outputs:
+      - name: result
+        path: result.txt
+`), engine.RunOptions{
+		RunID:             "materialization-run",
+		DefaultWorkingDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	_, err = run.Wait(ctx)
+	require.ErrorIs(t, err, storeErr)
+}
+
+func TestRunYAMLBuildWorksWithoutRuntimeStoresFactory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	eng, err := engine.New(ctx, engine.Options{
+		HomeDir:            t.TempDir(),
+		PersistenceFactory: memoryPersistenceFactory(memstore.New()),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, eng.Close(context.Background()))
+	})
+
+	run, err := eng.RunYAML(ctx, []byte(`
+name: embedded-materialization-fallback
+type: build
+steps:
+  - id: build
+    run: echo build > "${outputs.result}"
+    outputs:
+      - name: result
+        path: result.txt
+`), engine.RunOptions{
+		RunID:             "materialization-fallback-run",
+		DefaultWorkingDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	_, err = run.Wait(ctx)
+	require.NoError(t, err)
+}
+
 func memoryPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceFactory {
 	return func(_ context.Context, cfg *config.Config) (engine.Persistence, error) {
 		backend := testutil.NewMemoryBackend()
-		dagStore, err := file.NewDAGStore(cfg, file.WithDAGSkipExamples(true))
+		dagRepository, err := file.NewDAGRepository(cfg, file.WithDAGSkipExamples(true))
+		if err != nil {
+			return engine.Persistence{}, err
+		}
+		procStore, err := store.NewProcStore(backend.Collection("proc"))
 		if err != nil {
 			return engine.Persistence{}, err
 		}
 		persistence := engine.Persistence{
-			DAGStore:        dagStore,
-			ProcStore:       store.NewProcStore(backend.Collection("proc")),
+			DAGRepository:   dagRepository,
+			ProcRepository:  persis.NewProcRepository(procStore),
 			StateStore:      store.NewDAGStateStore(backend.Collection("dag_state")),
 			ServiceRegistry: file.NewServiceRegistry(cfg),
-			DAGStoreFactory: func(_ context.Context, cfg *config.Config, opts engine.DAGStoreFactoryOptions) (dagstore.DAGStore, error) {
-				fileOpts := []file.DAGStoreOption{file.WithDAGSkipExamples(true)}
+			DAGRepositoryFactory: func(_ context.Context, cfg *config.Config, opts engine.DAGRepositoryFactoryOptions) (*persis.DAGRepository, error) {
+				fileOpts := []file.DAGRepositoryOption{file.WithDAGSkipExamples(true)}
 				if len(opts.SearchPaths) > 0 {
 					fileOpts = append(fileOpts, file.WithDAGSearchPaths(opts.SearchPaths))
 				}
-				return file.NewDAGStore(cfg, fileOpts...)
+				return file.NewDAGRepository(cfg, fileOpts...)
 			},
 		}
 		if runStateStore != nil {
@@ -209,7 +306,7 @@ func dagRunPersistenceFactory() engine.PersistenceFactory {
 		if err != nil {
 			return engine.Persistence{}, err
 		}
-		persistence.DAGRunStore = file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false))
+		persistence.DAGRunRepository = file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false))
 		return persistence, nil
 	}
 }
@@ -220,7 +317,7 @@ func hybridPersistenceFactory(runStateStore *memstore.Store) engine.PersistenceF
 		if err != nil {
 			return engine.Persistence{}, err
 		}
-		persistence.DAGRunStore = file.NewDAGRunStore(cfg, file.WithDAGRunLatestStatusToday(false))
+		persistence.DAGRunRepository = file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false))
 		return persistence, nil
 	}
 }

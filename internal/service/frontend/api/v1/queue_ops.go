@@ -16,7 +16,7 @@ import (
 )
 
 func (a *API) queueNameForDAGRun(ctx context.Context, dagRun ir.DAGRunRef) (string, error) {
-	attempt, err := a.dagRunStore.FindAttempt(ctx, dagRun)
+	attempt, err := a.dagRunRepository.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
 	}

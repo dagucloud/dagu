@@ -17,6 +17,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +36,8 @@ func TestAuthorizeHumanTaskMutationClassifiesLookupErrors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			apiServer := &API{dagRunStore: lookupErrorDAGRunStore{err: tc.err}}
+			store := lookupErrorDAGRunStore{err: tc.err}
+			apiServer := &API{dagRunRepository: persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})}
 
 			_, err := apiServer.authorizeHumanTaskMutation(t.Context(), "deploy", "run-1")
 
@@ -193,11 +196,11 @@ type trackingReadCloser struct {
 }
 
 type lookupErrorDAGRunStore struct {
-	dagrun.DAGRunStore
+	testutil.DAGRunStoreStub
 	err error
 }
 
-func (s lookupErrorDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s lookupErrorDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	return nil, s.err
 }
 

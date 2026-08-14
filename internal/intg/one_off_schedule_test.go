@@ -13,10 +13,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
@@ -45,31 +46,30 @@ steps:
 	th := test.SetupScheduler(t, test.WithDAGsDir(dagsDir))
 	th.Config.Scheduler.RetryFailureWindow = 0
 
-	dag, err := th.DAGStore.GetDetails(th.Context, "one-off-restart-test", dagstore.DAGLoadOptions{})
+	dag, err := th.DAGRepository.GetDetails(th.Context, "one-off-restart-test", persis.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.Len(t, dag.Schedule, 1)
 
-	wmBackend, err := file.New(th.Config.Paths.DataDir)
+	stateBackend, err := file.New(th.Config.Paths.DataDir)
 	require.NoError(t, err)
-	watermarkStore := scheduler.NewWatermarkStore(wmBackend.Collection("scheduler"))
+	stateStore := store.NewSchedulerStateStore(stateBackend.Collection("scheduler"))
 	fingerprint := dag.Schedule[0].Fingerprint()
 	runID := scheduler.GenerateOneOffRunID(dag.Name, fingerprint, scheduledAt)
 
-	require.NoError(t, watermarkStore.Save(th.Context, &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs: map[string]scheduler.DAGWatermark{
+	require.NoError(t, stateStore.Save(th.Context, &schedulerstate.State{
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
-				OneOffs: map[string]scheduler.OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					fingerprint: {
 						ScheduledTime: scheduledAt,
-						Status:        scheduler.OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
 		},
 	}))
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, scheduledAt, runID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, scheduledAt, runID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	initialStatus := ir.InitialStatus(dag)
 	initialStatus.DAGRunID = runID
@@ -84,18 +84,19 @@ steps:
 		th.Config,
 		th.EntryReader,
 		th.DAGRunMgr,
-		th.DAGRunStore,
+		th.DAGRepository,
+		th.DAGRunRepository,
 		th.QueueStore,
-		th.ProcStore,
+		th.ProcRepository,
 		th.ServiceRegistry,
 		th.CoordinatorCli,
-		watermarkStore,
+		stateStore,
 	)
 	require.NoError(t, err)
 	sc.SetClock(func() time.Time { return scheduledAt })
 
 	var dispatchCount atomic.Int32
-	sc.SetDispatchFunc(func(context.Context, *ir.DAG, string, ir.TriggerType, time.Time) error {
+	sc.SetDispatchFunc(func(context.Context, scheduler.DAGEntry, string, ir.TriggerType, time.Time) error {
 		dispatchCount.Add(1)
 		return nil
 	})
@@ -107,7 +108,7 @@ steps:
 	probe := h.StartScheduler(ctx, sc, th.EntryReader)
 
 	probe.RequireEventually("expected one-off schedule to be consumed", 5*time.Second, func() bool {
-		state, err := watermarkStore.Load(th.Context)
+		state, err := stateStore.Load(th.Context)
 		if err != nil {
 			return false
 		}
@@ -116,11 +117,13 @@ steps:
 			return false
 		}
 		oneOff, ok := entry.OneOffs[fingerprint]
-		return ok && oneOff.Status == scheduler.OneOffStatusConsumed
+		return ok && oneOff.Status == schedulerstate.OneOffStatusConsumed
 	})
 
 	assert.Equal(t, int32(0), dispatchCount.Load())
-	assert.Len(t, th.DAGRunStore.RecentAttempts(th.Context, dag.Name, 10), 1)
+	statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 10)
+	require.NoError(t, err)
+	assert.Len(t, statuses, 1)
 
 	probe.Stop(context.Background(), cancel, 5*time.Second)
 }
@@ -152,7 +155,7 @@ steps:
 
 	th := test.SetupScheduler(t, test.WithBuiltExecutable(), test.WithDAGsDir(dagsDir))
 
-	dag, err := th.DAGStore.GetDetails(th.Context, "one-off-env-secret-test", dagstore.DAGLoadOptions{})
+	dag, err := th.DAGRepository.GetDetails(th.Context, "one-off-env-secret-test", persis.DAGLoadOptions{})
 	require.NoError(t, err)
 	require.Len(t, dag.Schedule, 1)
 
@@ -167,7 +170,10 @@ steps:
 	probe := h.StartScheduler(ctx, sc, th.EntryReader)
 
 	probe.RequireEventually("expected one-off env secret run to succeed", 30*time.Second, func() bool {
-		statuses := th.DAGRunMgr.ListRecentStatus(th.Context, dag.Name, 5)
+		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 5)
+		if err != nil {
+			return false
+		}
 		return len(statuses) > 0 && statuses[0].Status == ir.Succeeded
 	})
 

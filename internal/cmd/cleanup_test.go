@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -206,18 +206,18 @@ func TestCleanupCommand(t *testing.T) {
 	})
 }
 
-func TestCleanupCommandDirectStore(t *testing.T) {
+func TestCleanupCommandRepository(t *testing.T) {
 	t.Parallel()
 
-	// Test cleanup using the DAGRunStore directly to verify underlying behavior
-	t.Run("RemoveOldDAGRunsWithStore", func(t *testing.T) {
+	// Test cleanup through the DAG-run repository to verify the public behavior.
+	t.Run("RemoveOldDAGRuns", func(t *testing.T) {
 		t.Parallel()
 
 		th := test.Setup(t)
 
 		dagName := "test-cleanup-dag"
 
-		// Create old DAG runs directly in the store
+		// Create old DAG runs through the repository.
 		oldTime := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 		recentTime := time.Now()
 
@@ -225,12 +225,12 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 		testDAG := &ir.DAG{Name: dagName}
 
 		// Create an old run
-		oldAttempt, err := th.DAGRunStore.CreateAttempt(
+		oldAttempt, err := th.DAGRunRepository.CreateAttempt(
 			th.Context,
 			testDAG,
 			oldTime,
 			"old-run-id",
-			dagrun.NewDAGRunAttemptOptions{},
+			persis.DAGRunCreateAttemptOptions{},
 		)
 		require.NoError(t, err)
 		require.NoError(t, oldAttempt.Open(th.Context))
@@ -242,12 +242,12 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 		require.NoError(t, oldAttempt.Close(th.Context))
 
 		// Create a recent run
-		recentAttempt, err := th.DAGRunStore.CreateAttempt(
+		recentAttempt, err := th.DAGRunRepository.CreateAttempt(
 			th.Context,
 			testDAG,
 			recentTime,
 			"recent-run-id",
-			dagrun.NewDAGRunAttemptOptions{},
+			persis.DAGRunCreateAttemptOptions{},
 		)
 		require.NoError(t, err)
 		require.NoError(t, recentAttempt.Open(th.Context))
@@ -262,21 +262,20 @@ func TestCleanupCommandDirectStore(t *testing.T) {
 		setOldModTime(t, th.Config.Paths.DAGRunsDir, dagName, "", oldTime)
 
 		// Verify both runs exist
-		runs := th.DAGRunStore.RecentAttempts(th.Context, dagName, 10)
-		require.Len(t, runs, 2)
+		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, dagName, 10)
+		require.NoError(t, err)
+		require.Len(t, statuses, 2)
 
 		// Remove runs older than 7 days
-		removedIDs, err := th.DAGRunStore.RemoveOldDAGRuns(th.Context, dagName, 7)
+		removedIDs, err := th.DAGRunRepository.RemoveOldDAGRuns(th.Context, dagName, 7, persis.DAGRunRetentionOptions{})
 		require.NoError(t, err)
 		assert.Len(t, removedIDs, 1)
 
 		// Verify old run is deleted, recent run remains
-		runs = th.DAGRunStore.RecentAttempts(th.Context, dagName, 10)
-		require.Len(t, runs, 1)
-
-		status, err := runs[0].ReadStatus(th.Context)
+		statuses, err = th.DAGRunRepository.RecentStatuses(th.Context, dagName, 10)
 		require.NoError(t, err)
-		assert.Equal(t, "recent-run-id", status.DAGRunID)
+		require.Len(t, statuses, 1)
+		assert.Equal(t, "recent-run-id", statuses[0].DAGRunID)
 	})
 }
 

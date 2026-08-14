@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // ErrRetryStaleLatest indicates the caller tried to retry a non-latest attempt.
@@ -34,14 +34,14 @@ type EnqueueRetryOptions struct {
 // call added the queue item.
 func EnqueueRetry(
 	ctx context.Context,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore QueueStore,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 	opts EnqueueRetryOptions,
 ) (bool, error) {
-	if dagRunStore == nil {
-		return false, errors.New("enqueue retry: DAG-run store is not configured")
+	if dagRunRepository == nil {
+		return false, errors.New("enqueue retry: DAG-run repository is not configured")
 	}
 	if queueStore == nil {
 		return false, errors.New("enqueue retry: queue store is not configured")
@@ -55,7 +55,7 @@ func EnqueueRetry(
 
 	dagRun := status.DAGRun()
 	var originalStatus *ir.DAGRunStatus
-	updatedStatus, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
+	updatedStatus, swapped, err := dagRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		dagRun,
 		status.AttemptID,
@@ -78,7 +78,7 @@ func EnqueueRetry(
 				latest.Root = status.Root
 			}
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if err != nil {
 		return false, fmt.Errorf("persist queued retry status: %w", err)
@@ -104,7 +104,7 @@ func EnqueueRetry(
 
 	// The status swap above already published Queued, so every failure past
 	// this point must restore the prior status.
-	if rollbackErr := rollbackQueuedRetry(ctx, dagRunStore, dagRun, updatedStatus, originalStatus); rollbackErr != nil {
+	if rollbackErr := rollbackQueuedRetry(ctx, dagRunRepository, dagRun, updatedStatus, originalStatus); rollbackErr != nil {
 		return false, fmt.Errorf("enqueue retry: %w; rollback queued retry status: %w", enqueueErr, rollbackErr)
 	}
 	return false, fmt.Errorf("enqueue retry: %w", enqueueErr)
@@ -112,14 +112,14 @@ func EnqueueRetry(
 
 func rollbackQueuedRetry(
 	ctx context.Context,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunRepository *persis.DAGRunRepository,
 	dagRun ir.DAGRunRef,
 	queued *ir.DAGRunStatus,
 	original *ir.DAGRunStatus,
 ) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retryEnqueueRollbackTimeout)
 	defer cancel()
-	_, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
+	_, swapped, err := dagRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		dagRun,
 		queued.AttemptID,
@@ -133,7 +133,7 @@ func rollbackQueuedRetry(
 			latest.AutoRetryCount = original.AutoRetryCount
 			latest.Root = original.Root
 			return nil
-		},
+		}, persis.DAGRunCompareAndSwapOptions{},
 	)
 	if err != nil {
 		return err

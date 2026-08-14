@@ -10,15 +10,15 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	runtestutil "github.com/dagucloud/dagu/v2/internal/testutil"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,7 +49,7 @@ func TestResolveSecretReference(t *testing.T) {
 		CreatedAt: now,
 	}))
 
-	dagRunStore := filedagrun.New(filepath.Join(t.TempDir(), "dag-runs"))
+	dagRunRepository := runtestutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	leaseStore := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("leases"))
 	dag := &ir.DAG{
 		Name:   "registry-secret-dag",
@@ -59,7 +59,7 @@ func TestResolveSecretReference(t *testing.T) {
 			Ref:  "prod/my-secret",
 		}},
 	}
-	attempt, err := dagRunStore.CreateAttempt(ctx, dag, now, "run-1", dagrun.NewDAGRunAttemptOptions{AttemptID: "attempt-1"})
+	attempt, err := dagRunRepository.CreateAttempt(ctx, dag, now, "run-1", persis.DAGRunCreateAttemptOptions{AttemptID: "attempt-1"})
 	require.NoError(t, err)
 	attemptKey := ir.GenerateAttemptKey(dag.Name, "run-1", dag.Name, "run-1", attempt.ID())
 	require.NoError(t, attempt.Open(ctx))
@@ -86,7 +86,7 @@ func TestResolveSecretReference(t *testing.T) {
 
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		SecretStore:         secretStore,
-		DAGRunStore:         dagRunStore,
+		DAGRunRepository:    dagRunRepository,
 		DAGRunLeaseStore:    leaseStore,
 		StaleLeaseThreshold: time.Minute,
 	})

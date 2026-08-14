@@ -6,7 +6,6 @@ package api_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,8 +16,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -777,7 +776,7 @@ steps:
 
 		ref := ir.NewDAGRunRef(dagName, body.DagRunId)
 		require.Eventually(t, func() bool {
-			attempt, err := server.DAGRunStore.FindAttempt(server.Context, ref)
+			attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ref)
 			if err != nil {
 				return false
 			}
@@ -788,7 +787,7 @@ steps:
 			return status.Status == ir.Succeeded
 		}, dagRunEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
-		attempt, err := server.DAGRunStore.FindAttempt(server.Context, ref)
+		attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ref)
 		require.NoError(t, err)
 		status, err := attempt.ReadStatus(server.Context)
 		require.NoError(t, err)
@@ -824,7 +823,7 @@ steps:
 		resp.Unmarshal(t, &body)
 		require.NotEmpty(t, body.DagRunId)
 
-		attempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
+		attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
 		require.NoError(t, err)
 
 		status, err := attempt.ReadStatus(server.Context)
@@ -833,8 +832,8 @@ steps:
 
 		queueProcessor := scheduler.NewQueueProcessor(
 			server.QueueStore,
-			server.DAGRunStore,
-			server.ProcStore,
+			server.DAGRunRepository,
+			server.ProcRepository,
 			scheduler.NewDAGExecutor(
 				coordinator.New(server.ServiceRegistry, coordinator.DefaultConfig()),
 				server.SubCmdBuilder,
@@ -851,7 +850,7 @@ steps:
 		queueProcessor.ProcessQueueItems(server.Context, dagName)
 
 		require.Eventually(t, func() bool {
-			latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
+			latestAttempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
 			if err != nil {
 				return false
 			}
@@ -862,7 +861,7 @@ steps:
 			return latestStatus.Status == ir.Succeeded
 		}, dagRunEventuallyTimeout(10*time.Second), 200*time.Millisecond)
 
-		latestAttempt, err := server.DAGRunStore.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
+		latestAttempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, body.DagRunId))
 		require.NoError(t, err)
 		latestStatus, err := latestAttempt.ReadStatus(server.Context)
 		require.NoError(t, err)
@@ -982,34 +981,14 @@ steps:
 }
 
 type stubSchedulerStateStore struct {
-	state *scheduler.SchedulerState
+	state *schedulerstate.State
 }
 
-func (s stubSchedulerStateStore) Load(context.Context) (*scheduler.SchedulerState, error) {
-	return s.state, nil
+func (s stubSchedulerStateStore) Load(context.Context) (*schedulerstate.State, error) {
+	return schedulerstate.Clone(s.state), nil
 }
 
-func (stubSchedulerStateStore) Save(context.Context, *scheduler.SchedulerState) error {
-	return nil
-}
-
-var errLoadSpecFatal = errors.New("load spec fatal")
-
-type loadSpecErrorDAGStore struct {
-	dagstore.DAGStore
-	updateCalled bool
-}
-
-func (s *loadSpecErrorDAGStore) GetDetails(context.Context, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
-	return &ir.DAG{Name: "load-spec-error"}, nil
-}
-
-func (s *loadSpecErrorDAGStore) LoadSpec(context.Context, []byte, string, dagstore.DAGLoadOptions) (*ir.DAG, error) {
-	return nil, errLoadSpecFatal
-}
-
-func (s *loadSpecErrorDAGStore) UpdateSpec(context.Context, string, []byte) error {
-	s.updateCalled = true
+func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) error {
 	return nil
 }
 
@@ -1026,15 +1005,14 @@ steps:
   - run: echo hi
 `, scheduledAt.Format(time.RFC3339)))
 
-	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs: map[string]scheduler.DAGWatermark{
+	state := &schedulerstate.State{
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				NextRun: &scheduledAt,
-				OneOffs: map[string]scheduler.OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					dag.Schedule[0].Fingerprint(): {
 						ScheduledTime: scheduledAt,
-						Status:        scheduler.OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -1042,10 +1020,10 @@ steps:
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1090,18 +1068,17 @@ steps:
   - run: echo hi
 `)
 
-	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs: map[string]scheduler.DAGWatermark{
+	state := &schedulerstate.State{
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {},
 		},
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1135,16 +1112,15 @@ steps:
   - run: echo hi
 `)
 
-	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs:    map[string]scheduler.DAGWatermark{},
+	state := &schedulerstate.State{
+		DAGs: map[string]schedulerstate.DAGWatermark{},
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1182,10 +1158,10 @@ func TestNextRunProjectionUsesConfiguredLocation(t *testing.T) {
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1218,10 +1194,10 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1271,13 +1247,13 @@ name: active-filter-unscheduled
 steps:
   - run: echo unscheduled
 `)
-	require.NoError(t, helper.DAGStore.ToggleSuspend(context.Background(), suspended.FileName(), true))
+	require.NoError(t, helper.DAGRepository.SetSuspended(context.Background(), suspended.FileName(), true))
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1319,10 +1295,10 @@ func TestGetDAGDetails_InvalidYAML_Returns200WithErrors(t *testing.T) {
 	fileName = fileName[:len(fileName)-len(".yaml")]
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1355,10 +1331,10 @@ steps:
 `))
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1424,10 +1400,10 @@ steps:
 `))
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1468,10 +1444,10 @@ steps:
 `))
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1504,36 +1480,6 @@ steps:
 	require.Contains(t, resp.Errors[0], `fields "with" and "config" cannot be used together`)
 }
 
-func TestUpdateDAGSpec_ReturnsFatalLoadSpecError(t *testing.T) {
-	t.Parallel()
-
-	helper := test.Setup(t, test.WithStatusPersistence())
-	dagStore := &loadSpecErrorDAGStore{}
-	apiImpl := localapi.New(
-		dagStore,
-		helper.DAGRunStore,
-		helper.QueueStore,
-		helper.ProcStore,
-		helper.DAGRunMgr,
-		helper.Config,
-		nil,
-		helper.ServiceRegistry,
-		nil,
-		nil,
-	)
-
-	respObj, err := apiImpl.UpdateDAGSpec(context.Background(), api.UpdateDAGSpecRequestObject{
-		FileName: "load-spec-error",
-		Body: &api.UpdateDAGSpecJSONRequestBody{
-			Spec: "steps:\n  - command: echo updated\n",
-		},
-	})
-
-	require.ErrorIs(t, err, errLoadSpecFatal)
-	require.Nil(t, respObj)
-	require.False(t, dagStore.updateCalled)
-}
-
 func TestUpdateDAGSpec_NotifiesDAGMutation(t *testing.T) {
 	t.Parallel()
 
@@ -1547,10 +1493,10 @@ steps:
 
 	var notified []string
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1594,10 +1540,10 @@ steps:
 
 	var notified []string
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1668,10 +1614,10 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1749,10 +1695,10 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1805,10 +1751,10 @@ step_types:
 	fileName = fileName[:len(fileName)-len(".yaml")]
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1836,10 +1782,10 @@ func TestGetDAGDetails_NonExistent_Returns404(t *testing.T) {
 	helper := test.Setup(t, test.WithStatusPersistence())
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1870,15 +1816,14 @@ steps:
   - run: echo hi
 `, scheduledAt.Format(time.RFC3339)))
 
-	state := &scheduler.SchedulerState{
-		Version: scheduler.SchedulerStateVersion,
-		DAGs: map[string]scheduler.DAGWatermark{
+	state := &schedulerstate.State{
+		DAGs: map[string]schedulerstate.DAGWatermark{
 			dag.Name: {
 				NextRun: &scheduledAt,
-				OneOffs: map[string]scheduler.OneOffScheduleState{
+				OneOffs: map[string]schedulerstate.OneOffScheduleState{
 					dag.Schedule[0].Fingerprint(): {
 						ScheduledTime: scheduledAt,
-						Status:        scheduler.OneOffStatusPending,
+						Status:        schedulerstate.OneOffStatusPending,
 					},
 				},
 			},
@@ -1886,10 +1831,10 @@ steps:
 	}
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1934,10 +1879,10 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -1978,10 +1923,10 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,
@@ -2014,10 +1959,10 @@ steps:
 `)
 
 	apiImpl := localapi.New(
-		helper.DAGStore,
-		helper.DAGRunStore,
+		helper.DAGRepository,
+		helper.DAGRunRepository,
 		helper.QueueStore,
-		helper.ProcStore,
+		helper.ProcRepository,
 		helper.DAGRunMgr,
 		helper.Config,
 		nil,

@@ -15,16 +15,17 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 // QueueRequest describes a DAG-run intake operation that persists a queued
 // attempt before publishing the queue item.
 type QueueRequest struct {
-	DAGRunStore dagrun.DAGRunStore
-	QueueStore  queue.QueueStore
-	DAG         *ir.DAG
-	DAGRunID    string
+	DAGRunRepository *persis.DAGRunRepository
+	QueueStore       queue.QueueStore
+	DAG              *ir.DAG
+	DAGRunID         string
 
 	QueueName string
 
@@ -37,9 +38,10 @@ type QueueRequest struct {
 	TriggerActor string
 	ScheduleTime string
 	ProfileName  string
+	DefinitionID string
 	NoReuse      bool
 
-	AttemptOptions dagrun.NewDAGRunAttemptOptions
+	AttemptOptions persis.DAGRunCreateAttemptOptions
 
 	// ProceedOnStatusCloseErr preserves legacy CLI enqueue behavior: publish
 	// the queue item after best-effort close so readers can see the queued status.
@@ -51,7 +53,7 @@ type QueueRequest struct {
 // QueuedRun is the result of successful DAG-run queue intake.
 type QueuedRun struct {
 	DAGRun      ir.DAGRunRef
-	Attempt     dagrun.DAGRunAttempt
+	Attempt     dagrun.Attempt
 	Status      ir.DAGRunStatus
 	QueueName   string
 	LogFile     string
@@ -83,7 +85,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		return nil, err
 	}
 
-	attempt, err := req.DAGRunStore.CreateAttempt(ctx, req.DAG, now, req.DAGRunID, req.AttemptOptions)
+	attempt, err := req.DAGRunRepository.CreateAttempt(ctx, req.DAG, now, req.DAGRunID, req.AttemptOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create queued DAG run: %w", err)
 	}
@@ -93,7 +95,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		if committed {
 			return
 		}
-		if rmErr := req.DAGRunStore.RemoveDAGRun(context.WithoutCancel(ctx), dagRun); rmErr != nil {
+		if rmErr := req.DAGRunRepository.RemoveDAGRun(context.WithoutCancel(ctx), dagRun, persis.DAGRunRemoveOptions{}); rmErr != nil {
 			logger.Error(ctx, "Failed to rollback queued DAG run",
 				tag.DAG(req.DAG.Name),
 				tag.RunID(req.DAGRunID),
@@ -128,8 +130,8 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 }
 
 func (r QueueRequest) validate() error {
-	if r.DAGRunStore == nil {
-		return fmt.Errorf("dag-run store is required")
+	if r.DAGRunRepository == nil {
+		return fmt.Errorf("DAG-run repository is required")
 	}
 	if r.QueueStore == nil {
 		return fmt.Errorf("queue store is required")
@@ -185,6 +187,7 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 		ir.WithTriggerType(req.TriggerType),
 		ir.WithTriggerActor(req.TriggerActor),
 		ir.WithRuntimeProfile(req.ProfileName, "", nil),
+		ir.WithDAGDefinitionID(req.DefinitionID),
 		ir.WithNoReuse(req.NoReuse),
 	}
 	if req.ScheduleTime != "" {
@@ -201,7 +204,7 @@ type queuedStatusWriteResult struct {
 	closeErr error
 }
 
-func writeQueuedStatus(ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus, proceedOnCloseErr bool) (queuedStatusWriteResult, error) {
+func writeQueuedStatus(ctx context.Context, attempt dagrun.Attempt, status ir.DAGRunStatus, proceedOnCloseErr bool) (queuedStatusWriteResult, error) {
 	if err := attempt.Open(ctx); err != nil {
 		return queuedStatusWriteResult{}, fmt.Errorf("failed to open queued DAG run: %w", err)
 	}

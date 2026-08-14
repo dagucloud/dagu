@@ -73,11 +73,11 @@ func (p *SchedulerProbe) RequireEventually(label string, timeout time.Duration, 
 
 // HasLoadedSchedule reports whether the scheduler entry reader has dagName with expression.
 func (p *SchedulerProbe) HasLoadedSchedule(dagName, expression string) bool {
-	for _, loaded := range p.entryReader.DAGs() {
-		if loaded.Name != dagName {
+	for _, loaded := range p.entryReader.Entries() {
+		if loaded.DAG.Name != dagName {
 			continue
 		}
-		for _, schedule := range loaded.Schedule {
+		for _, schedule := range loaded.DAG.Schedule {
 			if schedule.Expression == expression {
 				return true
 			}

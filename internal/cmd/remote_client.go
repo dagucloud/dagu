@@ -18,7 +18,6 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/clicontext"
 )
 
 const defaultRemoteTimeout = 30 * time.Second
@@ -54,7 +53,7 @@ type remoteHistoryQuery struct {
 	Labels   []string
 }
 
-func newRemoteClient(ctx *clicontext.Context) (*remoteClient, error) {
+func newRemoteClient(ctx *cliContext) (*remoteClient, error) {
 	if ctx == nil {
 		return nil, errors.New("remote context is required")
 	}

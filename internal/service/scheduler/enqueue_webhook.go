@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -21,7 +22,7 @@ import (
 // runtime-param semantics as direct webhook execution.
 func EnqueueWebhookRun(
 	ctx context.Context,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,
@@ -33,7 +34,7 @@ func EnqueueWebhookRun(
 ) error {
 	dagRun := ir.NewDAGRunRef(dag.Name, runID)
 
-	if _, err := dagRunStore.FindAttempt(ctx, dagRun); err == nil {
+	if _, err := dagRunRepository.FindAttempt(ctx, dagRun); err == nil {
 		logger.Info(ctx, "Webhook run already exists; skipping",
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
@@ -55,14 +56,14 @@ func EnqueueWebhookRun(
 	dagCopy.Location = ""
 
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunStore:     dagRunStore,
-		QueueStore:      queueStore,
-		DAG:             dagCopy,
-		DAGRunID:        runID,
-		LogBaseDir:      baseLogDir,
-		ArtifactBaseDir: baseArtifactDir,
-		TriggerType:     ir.TriggerTypeWebhook,
-		Now:             func() time.Time { return now },
+		DAGRunRepository: dagRunRepository,
+		QueueStore:       queueStore,
+		DAG:              dagCopy,
+		DAGRunID:         runID,
+		LogBaseDir:       baseLogDir,
+		ArtifactBaseDir:  baseArtifactDir,
+		TriggerType:      ir.TriggerTypeWebhook,
+		Now:              func() time.Time { return now },
 	})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue webhook run: %w", err)

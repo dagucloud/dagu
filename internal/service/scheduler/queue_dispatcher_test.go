@@ -40,7 +40,7 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsOutstandingReservations(t 
 	f.enqueueRuns(2)
 
 	reservedRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
-	reservedAttempt, err := f.dagRunStore.FindAttempt(f.ctx, reservedRef)
+	reservedAttempt, err := f.dagRunRepository.FindAttempt(f.ctx, reservedRef)
 	require.NoError(t, err)
 	reservedStatus, err := reservedAttempt.ReadStatus(f.ctx)
 	require.NoError(t, err)
@@ -57,7 +57,7 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsOutstandingReservations(t 
 	require.NoError(t, err)
 
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
-		dagRunStore:         f.dagRunStore,
+		dagRunRepository:    f.dagRunRepository,
 		dispatchTaskStore:   f.dispatchStore,
 		leaseStaleThreshold: freshDistributedTestThreshold,
 	})

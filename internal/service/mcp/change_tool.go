@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -231,7 +231,7 @@ func (svc *Service) changeRenameDAG(ctx context.Context, input changeInput) (*mc
 		return nil, nil, err
 	}
 	if _, err := svc.getDAGSpec(ctx, input.NewName); err == nil {
-		return nil, nil, dagstore.ErrDAGAlreadyExists
+		return nil, nil, persis.ErrDAGAlreadyExists
 	} else if !isDAGNotFound(err) {
 		return nil, nil, err
 	}
@@ -703,7 +703,7 @@ func classifyChangeToolError(input changeInput, err error) *changeToolError {
 		out.Message = "The requested DAG was not found."
 		return out
 	}
-	if errors.Is(err, dagstore.ErrDAGAlreadyExists) {
+	if errors.Is(err, persis.ErrDAGAlreadyExists) {
 		out.Code = changeErrorConflict
 		out.Message = "A DAG with the requested name already exists."
 		return out

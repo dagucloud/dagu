@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -71,7 +70,7 @@ steps:
 	require.NotEmpty(t, target, "no failed child DAG run")
 	require.NotEmpty(t, sibling, "no succeeded child DAG run")
 
-	path, _, err := dagrun.ResolveRetryPath(th.Context, th.DAGRunStore, rootRef, target, "work")
+	path, _, err := th.DAGRunRepository.ResolveRetryPath(th.Context, rootRef, target, "work")
 	require.NoError(t, err)
 	require.Equal(t, "parallel_2", path.RootStep())
 	require.Equal(t, "work", path.Step)
@@ -106,7 +105,7 @@ steps:
 // readChildRun returns the status and latest attempt ID of a child DAG run.
 func readChildRun(t *testing.T, th test.Helper, root ir.DAGRunRef, runID string) (ir.Status, string) {
 	t.Helper()
-	attempt, err := th.DAGRunStore.FindSubAttempt(th.Context, root, runID)
+	attempt, err := th.DAGRunRepository.FindSubAttempt(th.Context, root, runID)
 	require.NoError(t, err)
 	status, err := attempt.ReadStatus(th.Context)
 	require.NoError(t, err)

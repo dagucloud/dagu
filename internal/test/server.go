@@ -94,8 +94,8 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 
 	collector := telemetry.NewCollector(
 		config.Version,
-		srv.DAGStore,
-		srv.DAGRunStore,
+		srv.DAGRepository,
+		srv.DAGRunRepository,
 		srv.QueueStore,
 		srv.ServiceRegistry,
 	)
@@ -109,10 +109,10 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(srv.WorkerHeartbeatStore)),
 	}, srv.ServerOptions...)
 	server, err := frontend.NewServer(
-		srv.Context, srv.Config, srv.DAGStore, srv.DAGRunStore,
-		srv.QueueStore, srv.ProcStore, srv.DAGRunMgr, cc,
+		srv.Context, srv.Config, srv.DAGRepository, srv.DAGRunRepository,
+		srv.QueueStore, srv.ProcRepository, srv.DAGRunMgr, cc,
 		srv.ServiceRegistry, mr, nil,
-		cmdprocess.NewFrontendStoreFactories(),
+		cmdprocess.NewFileFrontendStoreFactories(),
 		serverOpts...,
 	)
 	if err != nil {

@@ -16,9 +16,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
@@ -102,14 +102,14 @@ func runCoordinator(ctx *Context, _ []string) error {
 	svc, _, err := newCoordinator(
 		coordCtx,
 		coordCtx.Config,
-		coordCtx.ServiceRegistry,
-		coordCtx.DAGRunStore,
-		coordCtx.StateStore,
-		coordCtx.DispatchTaskStore,
-		coordCtx.WorkerHeartbeatStore,
-		coordCtx.DAGRunLeaseStore,
-		coordCtx.ActiveDistributedRunStore,
-		coordCtx.DAGStore,
+		coordCtx.Persistence.ServiceRegistry,
+		coordCtx.Persistence.DAGRunRepository,
+		coordCtx.Persistence.StateStore,
+		coordCtx.Persistence.DispatchTaskStore,
+		coordCtx.Persistence.WorkerHeartbeatStore,
+		coordCtx.Persistence.DAGRunLeaseStore,
+		coordCtx.Persistence.ActiveDistributedRunStore,
+		coordCtx.Persistence.DAGRepository,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
@@ -143,13 +143,13 @@ func newCoordinator(
 	ctx *Context,
 	cfg *config.Config,
 	registry serviceregistry.ServiceRegistry,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunRepository *persis.DAGRunRepository,
 	stateStore dagrun.StateStore,
 	dispatchTaskStore dispatch.DispatchTaskStore,
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore,
 	dagRunLeaseStore dispatch.DAGRunLeaseStore,
 	activeDistributedRunStore dispatch.ActiveDistributedRunStore,
-	dagStore dagstore.DAGStore,
+	dagRepository *persis.DAGRepository,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	// Generate instance ID
 	hostname, err := os.Hostname()
@@ -227,10 +227,10 @@ func newCoordinator(
 		return nil, nil, fmt.Errorf("failed to create listener on %s: %w", addr, err)
 	}
 
-	// Create handler with DAGRunStore for status persistence and LogDir for log streaming
-	runtimeStores := cmdprocess.NewRuntimeStoresForConfig(ctx.Context, cfg)
+	// Create the handler with DAG-run status persistence and streamed log storage.
+	runtimeStores := cmdprocess.NewFileRuntimeStores(ctx.Context, cfg)
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
-		DAGRunStore:               dagRunStore,
+		DAGRunRepository:          dagRunRepository,
 		StateStore:                stateStore,
 		LogDir:                    cfg.Paths.LogDir,
 		ArtifactDir:               cfg.Paths.ArtifactDir,
@@ -240,7 +240,7 @@ func newCoordinator(
 		WorkerHeartbeatStore:      workerHeartbeatStore,
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
-		DAGStore:                  dagStore,
+		DAGRepository:             dagRepository,
 		SecretStore:               runtimeStores.SecretStore,
 		EventService:              ctx.EventService,
 		EventSourceInstance:       ctx.EventSourceInstance,

@@ -13,7 +13,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,16 +26,17 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	f := newQueueFixture(t)
 
 	queued, err := EnqueueRun(f.ctx, QueueRequest{
-		DAGRunStore:     f.runStore,
-		QueueStore:      f.queueStore,
-		DAG:             f.dag,
-		DAGRunID:        "run-1",
-		LogBaseDir:      f.logDir,
-		ArtifactBaseDir: f.artifactDir,
-		TriggerType:     ir.TriggerTypeManual,
-		TriggerActor:    "alice",
-		ProfileName:     "prod",
-		Now:             fixedQueueNow,
+		DAGRunRepository: f.dagRunRepository,
+		QueueStore:       f.queueStore,
+		DAG:              f.dag,
+		DAGRunID:         "run-1",
+		LogBaseDir:       f.logDir,
+		ArtifactBaseDir:  f.artifactDir,
+		TriggerType:      ir.TriggerTypeManual,
+		TriggerActor:     "alice",
+		ProfileName:      "prod",
+		DefinitionID:     "ops/daily",
+		Now:              fixedQueueNow,
 	})
 
 	require.NoError(t, err)
@@ -47,6 +50,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	assert.Equal(t, ir.TriggerTypeManual, f.attempt.status.TriggerType)
 	assert.Equal(t, "alice", f.attempt.status.TriggerActor)
 	assert.Equal(t, "prod", f.attempt.status.ProfileName)
+	assert.Equal(t, "ops/daily", f.attempt.status.DefinitionID)
 	assert.Equal(t, f.attempt.status.Log, queued.LogFile)
 	assert.Equal(t, f.attempt.status.ArchiveDir, queued.ArtifactDir)
 }
@@ -58,13 +62,13 @@ func TestEnqueueRunRollsBackCreatedAttemptWhenQueuePublishFails(t *testing.T) {
 	f.queueStore.err = errors.New("queue offline")
 
 	_, err := EnqueueRun(f.ctx, QueueRequest{
-		DAGRunStore:     f.runStore,
-		QueueStore:      f.queueStore,
-		DAG:             f.dag,
-		DAGRunID:        "run-1",
-		LogBaseDir:      f.logDir,
-		ArtifactBaseDir: f.artifactDir,
-		Now:             fixedQueueNow,
+		DAGRunRepository: f.dagRunRepository,
+		QueueStore:       f.queueStore,
+		DAG:              f.dag,
+		DAGRunID:         "run-1",
+		LogBaseDir:       f.logDir,
+		ArtifactBaseDir:  f.artifactDir,
+		Now:              fixedQueueNow,
 	})
 
 	require.Error(t, err)
@@ -79,7 +83,7 @@ func TestEnqueueRunCanProceedWhenAttemptCloseFails(t *testing.T) {
 	f.attempt.closeErr = errors.New("sync failed")
 
 	queued, err := EnqueueRun(f.ctx, QueueRequest{
-		DAGRunStore:             f.runStore,
+		DAGRunRepository:        f.dagRunRepository,
 		QueueStore:              f.queueStore,
 		DAG:                     f.dag,
 		DAGRunID:                "run-1",
@@ -102,13 +106,14 @@ func fixedQueueNow() time.Time {
 }
 
 type queueFixture struct {
-	ctx         context.Context
-	logDir      string
-	artifactDir string
-	dag         *ir.DAG
-	attempt     *queueAttempt
-	runStore    *queueRunStore
-	queueStore  *queueStore
+	ctx              context.Context
+	logDir           string
+	artifactDir      string
+	dag              *ir.DAG
+	attempt          *queueAttempt
+	runStore         *queueRunStore
+	dagRunRepository *persis.DAGRunRepository
+	queueStore       *queueStore
 }
 
 func newQueueFixture(t *testing.T) queueFixture {
@@ -126,66 +131,33 @@ func newQueueFixture(t *testing.T) queueFixture {
 	}
 	ir.InitializeDefaults(dag)
 
+	runStore := &queueRunStore{attempt: attempt}
 	return queueFixture{
-		ctx:         context.Background(),
-		logDir:      filepath.Join(tmp, "logs"),
-		artifactDir: filepath.Join(tmp, "artifacts"),
-		dag:         dag,
-		attempt:     attempt,
-		runStore:    &queueRunStore{attempt: attempt},
-		queueStore:  &queueStore{attempt: attempt},
+		ctx:              context.Background(),
+		logDir:           filepath.Join(tmp, "logs"),
+		artifactDir:      filepath.Join(tmp, "artifacts"),
+		dag:              dag,
+		attempt:          attempt,
+		runStore:         runStore,
+		dagRunRepository: persis.NewDAGRunRepository(runStore, nil, persis.DAGRunRepositoryOptions{}),
+		queueStore:       &queueStore{attempt: attempt},
 	}
 }
 
 type queueRunStore struct {
+	testutil.DAGRunStoreStub
 	attempt    *queueAttempt
 	removed    bool
 	removedRef ir.DAGRunRef
 }
 
-func (s *queueRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
+func (s *queueRunStore) CreateAttempt(context.Context, persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	return s.attempt, nil
 }
 
-func (s *queueRunStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
-	return nil
-}
-
-func (s *queueRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAttempt, error) {
-	return nil, dagrun.ErrDAGRunIDNotFound
-}
-
-func (s *queueRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
-	return nil, nil
-}
-
-func (s *queueRunStore) ListStatusesPage(context.Context, ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
-	return dagrun.DAGRunStatusPage{}, nil
-}
-
-func (s *queueRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*ir.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*ir.DAGRunStatus, bool, error) {
-	return nil, false, nil
-}
-
-func (s *queueRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
-	return nil, dagrun.ErrDAGRunIDNotFound
-}
-
-func (s *queueRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	return nil, dagrun.ErrDAGRunIDNotFound
-}
-
-func (s *queueRunStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (s *queueRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
-	return nil, nil
-}
-
-func (s *queueRunStore) RemoveDAGRun(_ context.Context, ref ir.DAGRunRef, _ ...dagrun.RemoveDAGRunOption) error {
+func (s *queueRunStore) RemoveDAGRun(_ context.Context, req persis.DAGRunRemoveRequest) error {
 	s.removed = true
-	s.removedRef = ref
+	s.removedRef = req.DAGRun
 	return nil
 }
 
@@ -249,7 +221,6 @@ func (a *queueAttempt) WriteStepMessages(context.Context, string, []ir.LLMMessag
 func (a *queueAttempt) ReadStepMessages(context.Context, string) ([]ir.LLMMessage, error) {
 	return nil, nil
 }
-func (a *queueAttempt) WorkDir() string { return "" }
 
 type queueStore struct {
 	attempt  *queueAttempt

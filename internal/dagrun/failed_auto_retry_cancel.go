@@ -4,9 +4,7 @@
 package dagrun
 
 import (
-	"context"
 	"errors"
-	"fmt"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -61,46 +59,4 @@ func FailedAutoRetryCancelEligibilityOf(status *ir.DAGRunStatus) FailedAutoRetry
 // root run and still has remaining DAG-level auto-retry budget.
 func CanCancelFailedAutoRetryPendingRun(status *ir.DAGRunStatus) bool {
 	return FailedAutoRetryCancelEligibilityOf(status) == FailedAutoRetryCancelEligible
-}
-
-type latestAttemptStatusSwapper interface {
-	CompareAndSwapLatestAttemptStatus(
-		ctx context.Context,
-		dagRun ir.DAGRunRef,
-		expectedAttemptID string,
-		expectedStatus ir.Status,
-		mutate func(*ir.DAGRunStatus) error,
-		opts ...CompareAndSwapStatusOption,
-	) (*ir.DAGRunStatus, bool, error)
-}
-
-// CancelFailedAutoRetryPendingRun atomically marks the latest failed attempt as
-// aborted so the retry scanner stops treating it as pending auto-retry.
-func CancelFailedAutoRetryPendingRun(
-	ctx context.Context,
-	dagRunStore latestAttemptStatusSwapper,
-	status *ir.DAGRunStatus,
-) error {
-	if !CanCancelFailedAutoRetryPendingRun(status) {
-		return fmt.Errorf("dag-run is not eligible for failed auto-retry cancel")
-	}
-
-	updatedStatus, swapped, err := dagRunStore.CompareAndSwapLatestAttemptStatus(
-		ctx,
-		status.DAGRun(),
-		status.AttemptID,
-		ir.Failed,
-		func(latest *ir.DAGRunStatus) error {
-			latest.Status = ir.Aborted
-			return nil
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("cancel failed auto-retry pending DAG-run: %w", err)
-	}
-	if swapped {
-		return nil
-	}
-
-	return &FailedAutoRetryCancelStateChangedError{CurrentStatus: updatedStatus}
 }

@@ -64,7 +64,7 @@ func runDry(ctx *Context, args []string) error {
 
 	ctx.LogToFile(logFile)
 
-	dagStore, err := ctx.dagStore(dagStoreConfig{
+	dagRepository, err := ctx.dagRepository(dagRepositoryConfig{
 		SearchPaths: []string{filepath.Dir(dag.Location)},
 	})
 	if err != nil {
@@ -87,18 +87,18 @@ func runDry(ctx *Context, args []string) error {
 		filepath.Dir(logFile.Name()),
 		logFile.Name(),
 		ctx.DAGRunMgr,
-		dagStore,
+		dagRepository,
 		agent.Options{
 			Dry:                      true,
-			DAGRunStore:              ctx.DAGRunStore,
-			QueueStore:               ctx.QueueStore,
-			StateStore:               ctx.StateStore,
-			MaterializationStore:     localMaterializationStore(ctx),
+			DAGRunRepository:         ctx.Persistence.DAGRunRepository,
+			QueueStore:               ctx.Persistence.QueueStore,
+			StateStore:               ctx.Persistence.StateStore,
+			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  noReuse,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			ProfileName:              profileName,
-			ServiceRegistry:          ctx.ServiceRegistry,
+			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,

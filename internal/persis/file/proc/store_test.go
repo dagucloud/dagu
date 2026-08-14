@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 )
 
@@ -34,6 +35,7 @@ func TestStoreWritesReleasedProcFileLayoutOnly(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	s := New(root, WithHeartbeatInterval(10*time.Millisecond))
+	repository := persis.NewProcRepository(s)
 	ref := ir.NewDAGRunRef("sidecar-dag", "run-1")
 
 	handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
@@ -51,7 +53,7 @@ func TestStoreWritesReleasedProcFileLayoutOnly(t *testing.T) {
 	assert.False(t, entries[0].Identity.IsZero())
 	assert.True(t, entries[0].Fresh)
 
-	count, err := s.CountAlive(ctx, "queue-a")
+	count, err := repository.CountAlive(ctx, "queue-a")
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
 
@@ -92,8 +94,6 @@ func TestStoreReadsAndRemovesReleasedProcFiles(t *testing.T) {
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
-// writeDamagedProcFile drops an undecodable proc file into a group and stamps
-// it as last written modifiedAgo in the past.
 // writeDamagedProcFile writes an undecodable file at the path the store would
 // use for ref, and stamps it as last written modifiedAgo in the past.
 func writeDamagedProcFile(t *testing.T, s *Store, groupName string, ref ir.DAGRunRef, modifiedAgo time.Duration) string {
@@ -113,6 +113,7 @@ func TestStoreSkipsAbandonedDamagedProcFile(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	s := New(root, WithHeartbeatInterval(10*time.Millisecond), WithStaleThreshold(time.Second))
+	repository := persis.NewProcRepository(s)
 	ref := ir.NewDAGRunRef("healthy-dag", "run-1")
 
 	handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
@@ -127,11 +128,11 @@ func TestStoreSkipsAbandonedDamagedProcFile(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Equal(t, ref, entries[0].Meta.DAGRun())
 
-	count, err := s.CountAlive(ctx, "queue-a")
+	count, err := repository.CountAlive(ctx, "queue-a")
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
 
-	alive, err := s.IsRunAlive(ctx, "queue-a", ref)
+	alive, err := repository.IsRunAlive(ctx, "queue-a", ref)
 	require.NoError(t, err)
 	assert.True(t, alive)
 }
@@ -142,6 +143,7 @@ func TestStoreDoesNotUndercountWhileDamagedProcFileLooksActive(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	s := New(root, WithStaleThreshold(time.Minute))
+	repository := persis.NewProcRepository(s)
 
 	// A damaged file that is still being written may belong to a live run, so
 	// the group must not be reported as if that run were gone.
@@ -150,7 +152,7 @@ func TestStoreDoesNotUndercountWhileDamagedProcFileLooksActive(t *testing.T) {
 	_, err := s.ListEntries(ctx, "queue-a")
 	require.ErrorIs(t, err, errInvalidProcFile)
 
-	_, err = s.CountAlive(ctx, "queue-a")
+	_, err = repository.CountAlive(ctx, "queue-a")
 	require.Error(t, err)
 }
 

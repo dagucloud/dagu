@@ -113,9 +113,9 @@ func AssertInlineRescheduledRunParams(t *testing.T, server Server, dagName, dagR
 }
 
 func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*ir.DAGRunStatus, error) {
-	store := file.NewDAGRunStore(server.Config)
+	repository := file.NewDAGRunRepository(server.Config)
 
-	attempt, err := store.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, dagRunID))
+	attempt, err := repository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, dagRunID))
 	if err != nil {
 		return nil, err
 	}
@@ -123,22 +123,22 @@ func latestStoredAttemptStatus(server Server, dagName, dagRunID string) (*ir.DAG
 	return attempt.ReadStatus(server.Context)
 }
 
-func WaitForAttemptSnapshot(t *testing.T, server Server, dagName, dagRunID string) dagrun.DAGRunAttempt {
+func WaitForAttemptSnapshot(t *testing.T, server Server, dagName, dagRunID string) dagrun.Attempt {
 	t.Helper()
 
-	store := file.NewDAGRunStore(server.Config)
+	repository := file.NewDAGRunRepository(server.Config)
 
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	require.Eventually(t, func() bool {
 		var err error
-		attempt, err = store.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, dagRunID))
+		attempt, err = repository.FindAttempt(server.Context, ir.NewDAGRunRef(dagName, dagRunID))
 		return err == nil
 	}, rescheduleEventuallyTimeout(10*time.Second), 100*time.Millisecond)
 
 	return attempt
 }
 
-func WaitForAttemptSnapshotWithDAG(t *testing.T, server Server, dagName, dagRunID string) (dagrun.DAGRunAttempt, *ir.DAG) {
+func WaitForAttemptSnapshotWithDAG(t *testing.T, server Server, dagName, dagRunID string) (dagrun.Attempt, *ir.DAG) {
 	t.Helper()
 
 	attempt := WaitForAttemptSnapshot(t, server, dagName, dagRunID)
@@ -163,8 +163,8 @@ func ProcessQueuedInlineRun(t *testing.T, server Server, queueName string) {
 	// This keeps queue execution isolated to the test path without mirroring full server wiring.
 	queueProcessor := scheduler.NewQueueProcessor(
 		server.QueueStore,
-		server.DAGRunStore,
-		server.ProcStore,
+		server.DAGRunRepository,
+		server.ProcRepository,
 		scheduler.NewDAGExecutor(
 			coordinator.New(server.ServiceRegistry, coordinator.DefaultConfig()),
 			server.SubCmdBuilder,

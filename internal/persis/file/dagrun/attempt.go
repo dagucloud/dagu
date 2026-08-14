@@ -6,8 +6,6 @@ package dagrun
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,7 +49,7 @@ const MessagesDir = "messages"
 // CancelRequestedFlag is a special flag used to indicate that a cancel request has been made.
 const CancelRequestedFlag = "CANCEL_REQUESTED"
 
-var _ dagrun.DAGRunAttempt = (*Attempt)(nil)
+var _ dagrun.Attempt = (*Attempt)(nil)
 
 // Attempt manages an append-only status file with read, write, and compaction capabilities.
 // It provides thread-safe operations and supports metrics collection.
@@ -66,18 +64,7 @@ type Attempt struct {
 	lastEmittedEventType eventstore.EventType
 }
 
-// AttemptOption defines a functional option for configuring an Attempt.
-type AttemptOption func(*Attempt)
-
-// WithDAG sets the DAG associated with the Attempt.
-// This allows the Attempt to store DAG metadata alongside the status data.
-func WithDAG(dag *ir.DAG) AttemptOption {
-	return func(att *Attempt) {
-		att.dag = dag
-	}
-}
-
-// ID implements models.DAGRunAttempt.
+// ID implements models.Attempt.
 func (att *Attempt) ID() string {
 	return att.id
 }
@@ -88,18 +75,13 @@ func (att *Attempt) SetDAG(dag *ir.DAG) {
 }
 
 // NewAttempt creates a new Run for the specified file.
-func NewAttempt(file string, cache *fileutil.Cache[*ir.DAGRunStatus], opts ...AttemptOption) (*Attempt, error) {
+func NewAttempt(file string, cache *fileutil.Cache[*ir.DAGRunStatus]) (*Attempt, error) {
 	dirName := filepath.Base(filepath.Dir(file))
 	attemptID, ok := attemptIDFromDir(dirName)
 	if !ok {
 		return nil, fmt.Errorf("invalid file path for run data: %s", file)
 	}
-	att := &Attempt{id: attemptID, file: file, cache: cache}
-	for _, opt := range opts {
-		opt(att)
-	}
-
-	return att, nil
+	return &Attempt{id: attemptID, file: file, cache: cache}, nil
 }
 
 // Exists returns true if the status file exists.
@@ -118,7 +100,7 @@ func (att *Attempt) ModTime() (time.Time, error) {
 	return info.ModTime(), nil
 }
 
-// ReadDAG implements models.DAGRunAttempt.
+// ReadDAG implements models.Attempt.
 func (att *Attempt) ReadDAG(_ context.Context) (*ir.DAG, error) {
 	// Determine the path to the DAG definition file
 	dir := filepath.Dir(att.file)
@@ -180,11 +162,6 @@ func (att *Attempt) Open(ctx context.Context) error {
 		case !errors.Is(err, os.ErrNotExist):
 			return fmt.Errorf("failed to restore DAG definition: %w", err)
 		}
-	}
-
-	// Create the per-run work directory so steps can use DAG_RUN_WORK_DIR immediately
-	if err := fileutil.MkdirAll(att.WorkDir(), 0750); err != nil {
-		return fmt.Errorf("failed to create work directory %s: %w", att.WorkDir(), err)
 	}
 
 	logger.Debug(ctx, "Initializing status file",
@@ -472,7 +449,7 @@ func (att *Attempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) {
 
 	if parseErr != nil {
 		if errors.Is(parseErr, io.EOF) {
-			return nil, dagrun.ErrCorruptedStatusFile // This means no valid status was found in the file
+			return nil, dagrun.ErrCorruptedStatusData
 		}
 		return nil, fmt.Errorf("failed to parse status file: %w", parseErr)
 	}
@@ -613,7 +590,7 @@ func isTransientStatusReadError(err error) bool {
 		strings.Contains(msg, "sharing violation")
 }
 
-// Abort implements models.DAGRunAttempt.
+// Abort implements models.Attempt.
 // It creates a flag to indicate that the attempt should be canceled.
 func (att *Attempt) Abort(ctx context.Context) error {
 	dir := filepath.Dir(att.file)
@@ -711,38 +688,9 @@ func (att *Attempt) Hide(ctx context.Context) error {
 	return nil
 }
 
-// dagRunDir returns the dag-run directory (parent of the attempt directory).
-// The dag-run dir contains attempt dirs, messages, work dir, etc.
+// dagRunDir returns the directory shared by all attempts in the DAG run.
 func (att *Attempt) dagRunDir() string {
 	return filepath.Dir(filepath.Dir(att.file))
-}
-
-// WorkDir returns the path to the per-DAG-run working directory.
-func (att *Attempt) WorkDir() string {
-	return workDirForDAGRunDir(att.dagRunDir())
-}
-
-func workDirForDAGRunDir(dagRunDir string) string {
-	if rootDir, childRunID, ok := subDAGWorkDirParts(dagRunDir); ok {
-		return filepath.Join(rootDir, subDAGWorkDirName(childRunID))
-	}
-	return filepath.Join(dagRunDir, "work")
-}
-
-func subDAGWorkDirName(childRunID string) string {
-	sum := sha256.Sum256([]byte(childRunID))
-	return SubDAGWorkDirPrefix + strings.ToLower(
-		base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:8]),
-	)
-}
-
-func subDAGWorkDirParts(dagRunDir string) (rootDir, childRunID string, ok bool) {
-	parentDir := filepath.Dir(dagRunDir)
-	childRunID, ok = subDAGRunIDFromDir(filepath.Base(parentDir), filepath.Base(dagRunDir))
-	if !ok {
-		return "", "", false
-	}
-	return filepath.Dir(parentDir), childRunID, true
 }
 
 // readLineFrom reads a line from the file starting at the specified offset.

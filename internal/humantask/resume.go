@@ -17,8 +17,8 @@ import (
 // Resume retries a pending human-task enqueue without requiring the submitted form values.
 func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result, error) {
 	s.defaults()
-	if s.DAGRunStore == nil {
-		return Result{}, errorf(ErrorInternal, "DAG-run store is not configured")
+	if s.DAGRunRepository == nil {
+		return Result{}, errorf(ErrorInternal, "DAG-run repository is not configured")
 	}
 	target, err := s.loadTarget(ctx, dagName, dagRunID, "")
 	if err != nil {
@@ -53,7 +53,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 	defer cancel()
 	queued, err := queue.EnqueueRetry(
 		enqueueCtx,
-		s.DAGRunStore,
+		s.DAGRunRepository,
 		s.QueueStore,
 		target.dag,
 		target.status,
@@ -63,7 +63,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 		var latest *ir.DAGRunStatus
 		readCtx, readCancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
 		defer readCancel()
-		attempt, readErr := s.DAGRunStore.FindAttempt(readCtx, target.ref)
+		attempt, readErr := s.DAGRunRepository.FindAttempt(readCtx, target.ref)
 		if readErr == nil {
 			latest, readErr = attempt.ReadStatus(readCtx)
 			if readErr == nil && latest != nil && ResumePending(latest) {
@@ -94,7 +94,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 
 func (s *Service) waitForCompletionReady(
 	ctx context.Context,
-	attempt dagrun.DAGRunAttempt,
+	attempt dagrun.Attempt,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 	stepID string,
@@ -103,10 +103,10 @@ func (s *Service) waitForCompletionReady(
 		return status, nil
 	}
 	originalAttemptID := status.AttemptID
-	if !dispatch.IsRemoteWorkerID(status.WorkerID) && s.ProcStore != nil {
+	if !dispatch.IsRemoteWorkerID(status.WorkerID) && s.ProcRepository != nil {
 		deadline := s.Now().Add(s.SettleTimeout)
 		for {
-			alive, err := s.ProcStore.IsAttemptAlive(ctx, dag.ProcGroup(), status.DAGRun(), status.AttemptID)
+			alive, err := s.ProcRepository.IsAttemptAlive(ctx, dag.ProcGroup(), status.DAGRun(), status.AttemptID)
 			if err != nil {
 				return nil, errorf(ErrorInternal, "failed to check whether DAG-run attempt is still finalizing: %v", err)
 			}
@@ -160,7 +160,7 @@ func (s *Service) waitForPoll(ctx context.Context) error {
 	}
 }
 
-func reloadStatus(ctx context.Context, attempt dagrun.DAGRunAttempt) (*ir.DAGRunStatus, error) {
+func reloadStatus(ctx context.Context, attempt dagrun.Attempt) (*ir.DAGRunStatus, error) {
 	latest, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		return nil, errorf(ErrorInternal, "failed to reload DAG-run status after waiting for the attempt to settle: %v", err)

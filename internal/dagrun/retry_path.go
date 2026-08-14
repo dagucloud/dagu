@@ -4,13 +4,9 @@
 package dagrun
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
-
-	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 var (
@@ -93,124 +89,4 @@ func ParseRetryPath(value string) (RetryPath, error) {
 		}
 	}
 	return path, nil
-}
-
-// ResolveRetryPath resolves the ancestry of a persisted child DAG run.
-func ResolveRetryPath(
-	ctx context.Context,
-	store DAGRunStore,
-	root ir.DAGRunRef,
-	targetRunID string,
-	stepName string,
-) (RetryPath, *ir.DAGRunStatus, error) {
-	if store == nil {
-		return RetryPath{}, nil, errors.New("retry path: DAG-run store is not configured")
-	}
-	if root.Zero() || targetRunID == "" || stepName == "" {
-		return RetryPath{}, nil, fmt.Errorf("%w: root run, child run, and step are required", ErrInvalidRetryPath)
-	}
-
-	rootAttempt, err := store.FindAttempt(ctx, root)
-	if err != nil {
-		return RetryPath{}, nil, fmt.Errorf("find root DAG run: %w", err)
-	}
-	rootStatus, err := readRetryStatus(ctx, rootAttempt)
-	if err != nil {
-		return RetryPath{}, nil, fmt.Errorf("read root DAG run: %w", err)
-	}
-
-	targetAttempt, err := store.FindSubAttempt(ctx, root, targetRunID)
-	if err != nil {
-		return RetryPath{}, nil, fmt.Errorf("find child DAG run %s: %w", targetRunID, err)
-	}
-	targetStatus, err := readRetryStatus(ctx, targetAttempt)
-	if err != nil {
-		return RetryPath{}, nil, fmt.Errorf("read child DAG run %s: %w", targetRunID, err)
-	}
-
-	targetNode, err := targetStatus.NodeByName(stepName)
-	if err != nil {
-		return RetryPath{}, nil, fmt.Errorf("%w: %s in DAG run %s", ErrRetryStepNotFound, stepName, targetRunID)
-	}
-
-	var reversed []RetryHop
-	current := targetStatus
-	seen := make(map[string]struct{})
-	for current.DAGRunID != root.ID {
-		if _, ok := seen[current.DAGRunID]; ok {
-			return RetryPath{}, nil, fmt.Errorf("%w: cycle at DAG run %s", ErrInvalidRetryPath, current.DAGRunID)
-		}
-		seen[current.DAGRunID] = struct{}{}
-
-		parentRef := current.Parent
-		if parentRef.ID == "" {
-			return RetryPath{}, nil, fmt.Errorf("%w: DAG run %s has no parent", ErrInvalidRetryPath, current.DAGRunID)
-		}
-
-		var parentStatus *ir.DAGRunStatus
-		if parentRef.ID == root.ID {
-			parentStatus = rootStatus
-		} else {
-			parentAttempt, findErr := store.FindSubAttempt(ctx, root, parentRef.ID)
-			if findErr != nil {
-				return RetryPath{}, nil, fmt.Errorf("%w: find parent DAG run %s: %v", ErrInvalidRetryPath, parentRef.ID, findErr)
-			}
-			parentStatus, err = readRetryStatus(ctx, parentAttempt)
-			if err != nil {
-				return RetryPath{}, nil, fmt.Errorf("%w: read parent DAG run %s: %v", ErrInvalidRetryPath, parentRef.ID, err)
-			}
-		}
-
-		node := retryParentNode(parentStatus, current.DAGRunID)
-		if node == nil {
-			return RetryPath{}, nil, fmt.Errorf("%w: parent DAG run %s does not reference child %s", ErrInvalidRetryPath, parentRef.ID, current.DAGRunID)
-		}
-		if node.Step.SubDAG == nil {
-			return RetryPath{}, nil, fmt.Errorf("%w: step %s in DAG run %s is not a sub-DAG", ErrInvalidRetryPath, node.Step.Name, parentRef.ID)
-		}
-		if node.Step.RepeatPolicy.RepeatMode != "" || len(node.SubRunsRepeated) > 0 {
-			return RetryPath{}, nil, fmt.Errorf("%w: step %s in DAG run %s repeats", ErrRepeatingStepTarget, node.Step.Name, parentRef.ID)
-		}
-		reversed = append(reversed, RetryHop{
-			Step:  node.Step.Name,
-			RunID: current.DAGRunID,
-		})
-		current = parentStatus
-	}
-
-	if len(reversed) == 0 {
-		return RetryPath{}, nil, fmt.Errorf("%w: target %s is not a child DAG run", ErrInvalidRetryPath, targetRunID)
-	}
-	slices.Reverse(reversed)
-	return RetryPath{Hops: reversed, Step: targetNode.Step.Name}, targetStatus, nil
-}
-
-func readRetryStatus(ctx context.Context, attempt DAGRunAttempt) (*ir.DAGRunStatus, error) {
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if status == nil {
-		return nil, ErrNoStatusData
-	}
-	return status, nil
-}
-
-func retryParentNode(status *ir.DAGRunStatus, childRunID string) *ir.Node {
-	for _, node := range status.Nodes {
-		if node == nil {
-			continue
-		}
-		for _, run := range node.SubRuns {
-			if run.DAGRunID == childRunID {
-				return node
-			}
-		}
-		for _, run := range node.SubRunsRepeated {
-			if run.DAGRunID == childRunID {
-				return node
-			}
-		}
-	}
-	return nil
 }

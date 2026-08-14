@@ -12,8 +12,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/google/uuid"
@@ -113,7 +113,7 @@ func runCommandAsync(ctx context.Context, command *cobra.Command, args []string)
 func createFailedRun(t *testing.T, th test.Command, dag *ir.DAG, dagRunID string) {
 	t.Helper()
 
-	attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	logFile := filepath.Join(th.Config.Paths.LogDir, dag.Name, dagRunID+".log")

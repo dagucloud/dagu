@@ -59,7 +59,8 @@ steps:
 	require.NoError(t, err)
 
 	// Check parameter was the same as the first execution
-	recentHistory := th.DAGRunMgr.ListRecentStatus(th.Context, loaded.Name, 2)
+	recentHistory, err := th.DAGRunRepository.RecentStatuses(th.Context, loaded.Name, 2)
+	require.NoError(t, err)
 
 	require.Len(t, recentHistory, 2)
 	require.Equal(t, recentHistory[0].Params, recentHistory[1].Params)
@@ -106,7 +107,7 @@ steps:
 	require.Equal(t, ir.Succeeded, latestStatus.Status)
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, &latestStatus, "RESULT"))
 
-	latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, latestStatus.DAGRunID))
+	latestAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, latestStatus.DAGRunID))
 	require.NoError(t, err)
 	latestAttemptStatus, err := latestAttempt.ReadStatus(th.Context)
 	require.NoError(t, err)

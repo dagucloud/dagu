@@ -8,14 +8,28 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-func wrapDAGRunAttempt(attempt dagrun.DAGRunAttempt) Attempt {
-	return dagRunAttempt{attempt: attempt}
+func wrapAttempt(
+	attempt dagrun.Attempt,
+	repository *persis.DAGRunRepository,
+	dagRunWorkspaces persis.DAGRunWorkspaceStore,
+	workspaceRef dagrun.DAGRunWorkspaceRef,
+) Attempt {
+	return dagRunAttempt{
+		attempt:          attempt,
+		repository:       repository,
+		dagRunWorkspaces: dagRunWorkspaces,
+		workspaceRef:     workspaceRef,
+	}
 }
 
 type dagRunAttempt struct {
-	attempt dagrun.DAGRunAttempt
+	attempt          dagrun.Attempt
+	repository       *persis.DAGRunRepository
+	dagRunWorkspaces persis.DAGRunWorkspaceStore
+	workspaceRef     dagrun.DAGRunWorkspaceRef
 }
 
 func (a dagRunAttempt) ID() string {
@@ -58,8 +72,24 @@ func (a dagRunAttempt) WriteStepMessages(ctx context.Context, stepName string, m
 	return a.attempt.WriteStepMessages(ctx, stepName, messages)
 }
 
-func (a dagRunAttempt) WorkDir() string {
-	return a.attempt.WorkDir()
+func (a dagRunAttempt) MaterializeWorkspace(ctx context.Context) (string, error) {
+	if a.repository != nil {
+		return a.repository.MaterializeWorkspace(ctx, a.workspaceRef)
+	}
+	if a.dagRunWorkspaces != nil {
+		return a.dagRunWorkspaces.Materialize(ctx, a.workspaceRef)
+	}
+	return "", nil
+}
+
+func (a dagRunAttempt) SnapshotWorkspace(ctx context.Context, localDir string) error {
+	if a.repository != nil {
+		return a.repository.SnapshotWorkspace(ctx, a.workspaceRef, localDir)
+	}
+	if a.dagRunWorkspaces != nil {
+		return a.dagRunWorkspaces.Snapshot(ctx, a.workspaceRef, localDir)
+	}
+	return nil
 }
 
 func (a dagRunAttempt) Close(ctx context.Context) error {

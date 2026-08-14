@@ -96,6 +96,7 @@ func runEnqueue(ctx *Context, args []string) error {
 		triggerActor: triggerActor,
 		scheduleTime: scheduleTime,
 		profileName:  profileName,
+		definitionID: dagDefinitionIDFromEnv(),
 		noReuse:      noReuse,
 	})
 }
@@ -112,13 +113,13 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 
 	dagRun := ir.NewDAGRunRef(dag.Name, dagRunID)
 
-	if _, err := ctx.DAGRunStore.FindAttempt(ctx, dagRun); err == nil {
+	if _, err := ctx.Persistence.DAGRunRepository.FindAttempt(ctx, dagRun); err == nil {
 		return fmt.Errorf("DAG %q with ID %q already exists", dag.Name, dagRunID)
 	}
 
 	queued, err := intake.EnqueueRun(ctx.Context, intake.QueueRequest{
-		DAGRunStore:             ctx.DAGRunStore,
-		QueueStore:              ctx.QueueStore,
+		DAGRunRepository:        ctx.Persistence.DAGRunRepository,
+		QueueStore:              ctx.Persistence.QueueStore,
 		DAG:                     dag,
 		DAGRunID:                dagRunID,
 		LogBaseDir:              ctx.Config.Paths.LogDir,
@@ -127,6 +128,7 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		TriggerActor:            opts.triggerActor,
 		ScheduleTime:            opts.scheduleTime,
 		ProfileName:             opts.profileName,
+		DefinitionID:            opts.definitionID,
 		NoReuse:                 opts.noReuse,
 		ProceedOnStatusCloseErr: true,
 	})

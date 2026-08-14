@@ -11,27 +11,28 @@ import (
 
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type searchTestSetup struct {
-	api      *apiv1.API
-	dagStore dagstore.DAGStore
+	api           *apiv1.API
+	dagRepository *persis.DAGRepository
 }
 
-func newSearchAPI(dagStore dagstore.DAGStore, extraOptions ...apiv1.APIOption) *apiv1.API {
+func newSearchAPI(dagRepository *persis.DAGRepository, extraOptions ...apiv1.APIOption) *apiv1.API {
 	cfg := &config.Config{}
 
 	options := append([]apiv1.APIOption{}, extraOptions...)
 
 	return apiv1.New(
-		dagStore,
+		dagRepository,
 		nil,
 		nil,
 		nil,
@@ -48,17 +49,17 @@ func newSearchAPI(dagStore dagstore.DAGStore, extraOptions ...apiv1.APIOption) *
 func newSearchTestSetup(t *testing.T) *searchTestSetup {
 	t.Helper()
 
-	dagStore := filedag.New(t.TempDir(), filedag.WithSkipExamples(true))
+	dagRepository := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
 
 	return &searchTestSetup{
-		api:      newSearchAPI(dagStore),
-		dagStore: dagStore,
+		api:           newSearchAPI(dagRepository),
+		dagRepository: dagRepository,
 	}
 }
 
 func mustCreateDAG(t *testing.T, setup *searchTestSetup, name, spec string) {
 	t.Helper()
-	err := setup.dagStore.Create(context.Background(), name, []byte(spec))
+	err := setup.dagRepository.Create(context.Background(), name, []byte(spec))
 	require.NoError(t, err)
 }
 
@@ -225,7 +226,7 @@ func TestSearchDAGFeedReturnsErrorWhenSearchRootIsBroken(t *testing.T) {
 	basePath := filepath.Join(t.TempDir(), "not-a-directory")
 	require.NoError(t, os.WriteFile(basePath, []byte("x"), 0600))
 
-	api := newSearchAPI(filedag.New(basePath, filedag.WithSkipExamples(true)))
+	api := newSearchAPI(testutil.NewFileDAGRepository(basePath, filedag.WithSkipExamples(true)))
 	resp, err := api.SearchDAGFeed(adminCtx(), apigen.SearchDAGFeedRequestObject{
 		Params: apigen.SearchDAGFeedParams{Q: "needle"},
 	})

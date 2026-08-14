@@ -151,7 +151,7 @@ steps:
 func readDistributedSubAttemptStatus(t *testing.T, f *testFixture, rootRef ir.DAGRunRef, subRunID string) *ir.DAGRunStatus {
 	t.Helper()
 
-	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)
+	attempt, err := f.coord.DAGRunRepository.FindSubAttempt(f.coord.Context, rootRef, subRunID)
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(f.coord.Context)

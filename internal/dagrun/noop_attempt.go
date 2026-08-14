@@ -13,81 +13,76 @@ import (
 // ErrNoopAttemptNotSupported is returned when an operation is not supported by a no-op attempt.
 var ErrNoopAttemptNotSupported = errors.New("operation not supported by no-op DAG run attempt")
 
-// noopDAGRunAttempt is a no-op implementation of DAGRunAttempt for remote workers.
-// Status is pushed via statusPusher to the coordinator, so local attempt file
-// operations are not needed.
-type noopDAGRunAttempt struct {
+// noopAttempt is a no-op implementation of Attempt for remote workers.
+// Status is pushed to the coordinator, so persistent attempt operations are not needed.
+type noopAttempt struct {
 	id  string
 	dag *ir.DAG
 }
 
-var _ DAGRunAttempt = (*noopDAGRunAttempt)(nil)
+var _ Attempt = (*noopAttempt)(nil)
 
-// NewNoopDAGRunAttempt creates a no-op attempt for remote worker execution.
-func NewNoopDAGRunAttempt(id string, dag *ir.DAG) DAGRunAttempt {
-	return &noopDAGRunAttempt{id: id, dag: dag}
+// NewNoopAttempt creates a no-op attempt for remote worker execution.
+func NewNoopAttempt(id string, dag *ir.DAG) Attempt {
+	return &noopAttempt{id: id, dag: dag}
 }
 
-func (n *noopDAGRunAttempt) ID() string {
+func (n *noopAttempt) ID() string {
 	return n.id
 }
 
-func (n *noopDAGRunAttempt) Open(_ context.Context) error {
+func (n *noopAttempt) Open(_ context.Context) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) Write(_ context.Context, _ ir.DAGRunStatus) error {
+func (n *noopAttempt) Write(_ context.Context, _ ir.DAGRunStatus) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) Close(_ context.Context) error {
+func (n *noopAttempt) Close(_ context.Context) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
+func (n *noopAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	return nil, ErrNoopAttemptNotSupported
 }
 
-func (n *noopDAGRunAttempt) ReadDAG(_ context.Context) (*ir.DAG, error) {
+func (n *noopAttempt) ReadDAG(_ context.Context) (*ir.DAG, error) {
 	return n.dag, nil
 }
 
-func (n *noopDAGRunAttempt) SetDAG(dag *ir.DAG) {
+func (n *noopAttempt) SetDAG(dag *ir.DAG) {
 	n.dag = dag
 }
 
-func (n *noopDAGRunAttempt) Abort(_ context.Context) error {
+func (n *noopAttempt) Abort(_ context.Context) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) IsAborting(_ context.Context) (bool, error) {
+func (n *noopAttempt) IsAborting(_ context.Context) (bool, error) {
 	return false, nil
 }
 
-func (n *noopDAGRunAttempt) Hide(_ context.Context) error {
+func (n *noopAttempt) Hide(_ context.Context) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) Hidden() bool {
+func (n *noopAttempt) Hidden() bool {
 	return false
 }
 
-func (n *noopDAGRunAttempt) WriteOutputs(_ context.Context, _ *ir.DAGRunOutputs) error {
+func (n *noopAttempt) WriteOutputs(_ context.Context, _ *ir.DAGRunOutputs) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) ReadOutputs(_ context.Context) (*ir.DAGRunOutputs, error) {
+func (n *noopAttempt) ReadOutputs(_ context.Context) (*ir.DAGRunOutputs, error) {
 	return nil, ErrNoopAttemptNotSupported
 }
 
-func (n *noopDAGRunAttempt) WriteStepMessages(_ context.Context, _ string, _ []ir.LLMMessage) error {
+func (n *noopAttempt) WriteStepMessages(_ context.Context, _ string, _ []ir.LLMMessage) error {
 	return nil
 }
 
-func (n *noopDAGRunAttempt) ReadStepMessages(_ context.Context, _ string) ([]ir.LLMMessage, error) {
+func (n *noopAttempt) ReadStepMessages(_ context.Context, _ string) ([]ir.LLMMessage, error) {
 	return nil, nil
-}
-
-func (n *noopDAGRunAttempt) WorkDir() string {
-	return ""
 }

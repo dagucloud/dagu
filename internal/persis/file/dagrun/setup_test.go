@@ -10,25 +10,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type StoreTest struct {
-	Context context.Context
-	Store   dagrun.DAGRunStore
-	TmpDir  string
+type RepositoryTest struct {
+	Context    context.Context
+	Repository *persis.DAGRunRepository
+	Backend    *Store
+	TmpDir     string
 }
 
-func setupTestStore(t *testing.T) StoreTest {
+func setupTestRepository(t *testing.T) RepositoryTest {
 	tmpDir, err := os.MkdirTemp("", "test")
 	require.NoError(t, err)
 
-	th := StoreTest{
+	backend := NewStore(tmpDir, WithArtifactDir(filepath.Join(tmpDir, "artifacts")))
+	th := RepositoryTest{
 		Context: context.Background(),
-		Store:   New(tmpDir, WithArtifactDir(filepath.Join(tmpDir, "artifacts"))),
+		Repository: persis.NewDAGRunRepository(backend, NewDAGRunWorkspaceStore(tmpDir), persis.DAGRunRepositoryOptions{
+			LatestStatusToday: true,
+			Location:          time.Local,
+		}),
+		Backend: backend,
 		TmpDir:  tmpDir,
 	}
 
@@ -38,17 +44,17 @@ func setupTestStore(t *testing.T) StoreTest {
 	return th
 }
 
-func (th StoreTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID string, s ir.Status) *Attempt {
+func (th RepositoryTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID string, s ir.Status) *Attempt {
 	t.Helper()
 
 	dag := th.DAG("test_DAG")
 	return th.CreateAttemptWithDAG(t, ts, dagRunID, s, dag.DAG)
 }
 
-func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s ir.Status, dag *ir.DAG) *Attempt {
+func (th RepositoryTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s ir.Status, dag *ir.DAG) *Attempt {
 	t.Helper()
 
-	attempt, err := th.Store.CreateAttempt(th.Context, dag, ts, dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := th.Repository.CreateAttempt(th.Context, dag, ts, dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	err = attempt.Open(th.Context)
@@ -65,10 +71,12 @@ func (th StoreTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID st
 	err = attempt.Write(th.Context, dagRunStatus)
 	require.NoError(t, err)
 
-	return attempt.(*Attempt)
+	concrete, ok := attempt.(*Attempt)
+	require.True(t, ok, "expected *Attempt, got %T", attempt)
+	return concrete
 }
 
-func (th StoreTest) DAG(name string) DAGTest {
+func (th RepositoryTest) DAG(name string) DAGTest {
 	return DAGTest{
 		th: th,
 		DAG: &ir.DAG{
@@ -79,7 +87,7 @@ func (th StoreTest) DAG(name string) DAGTest {
 }
 
 type DAGTest struct {
-	th StoreTest
+	th RepositoryTest
 	*ir.DAG
 }
 
@@ -87,12 +95,12 @@ func (d DAGTest) Writer(t *testing.T, dagRunID string, startedAt time.Time) Writ
 	t.Helper()
 
 	root := NewDataRoot(d.th.TmpDir, d.Name)
-	dagRun, err := root.CreateDAGRun(dagrun.NewUTC(startedAt), dagRunID)
+	dagRun, err := root.CreateDAGRun(persis.NewUTC(startedAt), dagRunID)
 	require.NoError(t, err)
 
-	store := d.th.Store.(*Store)
-	attempt, err := dagRun.CreateAttempt(d.th.Context, dagrun.NewUTC(startedAt), store.cache, "", WithDAG(d.DAG))
+	attempt, err := dagRun.CreateAttempt(d.th.Context, persis.NewUTC(startedAt), d.th.Backend.cache, "")
 	require.NoError(t, err)
+	attempt.SetDAG(d.DAG)
 
 	writer := NewWriter(attempt.file)
 	require.NoError(t, writer.Open())
@@ -135,7 +143,7 @@ func (w WriterTest) Close(t *testing.T) {
 }
 
 type WriterTest struct {
-	th StoreTest
+	th RepositoryTest
 
 	DAGRunID string
 	FilePath string

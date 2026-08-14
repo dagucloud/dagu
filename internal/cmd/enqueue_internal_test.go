@@ -7,13 +7,15 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
+	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -62,10 +64,12 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 `).DAG
 
 	ctx := &Context{
-		Context:     th.Context,
-		Config:      th.Config,
-		DAGRunStore: runStore,
-		QueueStore:  queueStore,
+		Context: th.Context,
+		Config:  th.Config,
+		Persistence: cmdprocess.CorePersistence{
+			DAGRunRepository: persis.NewDAGRunRepository(runStore, nil, persis.DAGRunRepositoryOptions{}),
+			QueueStore:       queueStore,
+		},
 	}
 
 	return enqueueDAGRunFixture{
@@ -77,51 +81,16 @@ func newEnqueueDAGRunFixture(t *testing.T, closeErr error) enqueueDAGRunFixture 
 }
 
 type enqueueTrackingDAGRunStore struct {
+	testutil.DAGRunStoreStub
 	attempt *enqueueTrackingAttempt
 }
 
-func (s *enqueueTrackingDAGRunStore) CreateAttempt(context.Context, *ir.DAG, time.Time, string, dagrun.NewDAGRunAttemptOptions) (dagrun.DAGRunAttempt, error) {
+func (s *enqueueTrackingDAGRunStore) CreateAttempt(context.Context, persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
 	return s.attempt, nil
 }
 
-func (s *enqueueTrackingDAGRunStore) RecentAttempts(context.Context, string, int) []dagrun.DAGRunAttempt {
-	return nil
-}
-
-func (s *enqueueTrackingDAGRunStore) LatestAttempt(context.Context, string) (dagrun.DAGRunAttempt, error) {
+func (s *enqueueTrackingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	return nil, dagrun.ErrDAGRunIDNotFound
-}
-
-func (s *enqueueTrackingDAGRunStore) ListStatuses(context.Context, ...dagrun.ListDAGRunStatusesOption) ([]*ir.DAGRunStatus, error) {
-	return nil, nil
-}
-
-func (s *enqueueTrackingDAGRunStore) ListStatusesPage(context.Context, ...dagrun.ListDAGRunStatusesOption) (dagrun.DAGRunStatusPage, error) {
-	return dagrun.DAGRunStatusPage{}, nil
-}
-
-func (s *enqueueTrackingDAGRunStore) CompareAndSwapLatestAttemptStatus(context.Context, ir.DAGRunRef, string, ir.Status, func(*ir.DAGRunStatus) error, ...dagrun.CompareAndSwapStatusOption) (*ir.DAGRunStatus, bool, error) {
-	return nil, false, nil
-}
-
-func (s *enqueueTrackingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
-	return nil, dagrun.ErrDAGRunIDNotFound
-}
-
-func (s *enqueueTrackingDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	return nil, dagrun.ErrDAGRunIDNotFound
-}
-
-func (s *enqueueTrackingDAGRunStore) CreateSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.DAGRunAttempt, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (s *enqueueTrackingDAGRunStore) RemoveOldDAGRuns(context.Context, string, int, ...dagrun.RemoveOldDAGRunsOption) ([]string, error) {
-	return nil, nil
-}
-
-func (s *enqueueTrackingDAGRunStore) RemoveDAGRun(context.Context, ir.DAGRunRef, ...dagrun.RemoveDAGRunOption) error {
-	return nil
 }
 
 type enqueueTrackingAttempt struct {
@@ -199,10 +168,6 @@ func (a *enqueueTrackingAttempt) WriteStepMessages(context.Context, string, []ir
 
 func (a *enqueueTrackingAttempt) ReadStepMessages(context.Context, string) ([]ir.LLMMessage, error) {
 	return nil, nil
-}
-
-func (a *enqueueTrackingAttempt) WorkDir() string {
-	return ""
 }
 
 type enqueueObservingQueueStore struct {

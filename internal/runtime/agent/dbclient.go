@@ -10,28 +10,31 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 var _ runtime.Database = &dbClient{}
 
 type dbClient struct {
-	ds              dagstore.DAGStore
-	drs             dagrun.DAGRunStore
-	remoteDAGLoader RemoteDAGLoader
+	dagLoader        dagDetailsLoader
+	dagRunRepository *persis.DAGRunRepository
+	remoteDAGLoader  RemoteDAGLoader
 }
 
-func newDBClient(drs dagrun.DAGRunStore, ds dagstore.DAGStore, remoteDAGLoader RemoteDAGLoader) *dbClient {
-	return &dbClient{drs: drs, ds: ds, remoteDAGLoader: remoteDAGLoader}
+type dagDetailsLoader interface {
+	GetDetails(context.Context, string, persis.DAGLoadOptions) (*ir.DAG, error)
+}
+
+func newDBClient(dagRunRepository *persis.DAGRunRepository, dagLoader dagDetailsLoader, remoteDAGLoader RemoteDAGLoader) *dbClient {
+	return &dbClient{dagRunRepository: dagRunRepository, dagLoader: dagLoader, remoteDAGLoader: remoteDAGLoader}
 }
 
 // GetDAG implements ir.DBClient.
 func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
-	// Guard against nil DAG store
-	if o.ds == nil {
+	// Fall back to the remote loader when no local repository is available.
+	if o.dagLoader == nil {
 		logger.Info(ctx, "No local DAG store, trying remote fallback", tag.SubDAG(name))
 		if o.remoteDAGLoader == nil {
 			return nil, fmt.Errorf("no local DAG store and no remote loader configured for DAG %s", name)
@@ -48,12 +51,12 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 		return remoteDAG, nil
 	}
 
-	dag, err := o.ds.GetDetails(ctx, name, dagstore.DAGLoadOptions{})
+	dag, err := o.dagLoader.GetDetails(ctx, name, persis.DAGLoadOptions{})
 	if err == nil {
 		return dag, nil
 	}
 	// Only fallback to remote for not-found errors; propagate other errors directly
-	if !errors.Is(err, dagstore.ErrDAGNotFound) {
+	if !errors.Is(err, persis.ErrDAGNotFound) {
 		return nil, err
 	}
 	// Try remote fallback if configured
@@ -81,7 +84,10 @@ func (o *dbClient) GetDAG(ctx context.Context, name string) (*ir.DAG, error) {
 }
 
 func (o *dbClient) RequestChildCancel(ctx context.Context, dagRunID string, rootDAGRun ir.DAGRunRef) error {
-	subAttempt, err := o.drs.FindSubAttempt(ctx, rootDAGRun, dagRunID)
+	if o.dagRunRepository == nil {
+		return errors.New("DAG-run repository is not configured")
+	}
+	subAttempt, err := o.dagRunRepository.FindSubAttempt(ctx, rootDAGRun, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to find child attempt for dag-run ID %s: %w", dagRunID, err)
 	}

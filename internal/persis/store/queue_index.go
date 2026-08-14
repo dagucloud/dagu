@@ -30,10 +30,6 @@ type queueReadIndexCache struct {
 	recordVersion string
 }
 
-type recordVersionCollection interface {
-	RecordVersion(ctx context.Context, id string) (string, error)
-}
-
 func newQueueReadIndex() *queueReadIndex {
 	return &queueReadIndex{
 		Version:  queueIndexVersion,
@@ -359,12 +355,7 @@ func (s *QueueStore) cacheQueueIndexLocked(ctx context.Context, name string, idx
 }
 
 func (s *QueueStore) queueIndexRecordVersion(ctx context.Context, name string) (string, bool, error) {
-	col, ok := s.col.(recordVersionCollection)
-	if !ok {
-		return "", false, nil
-	}
-	version, err := col.RecordVersion(ctx, queueIndexRecordID(name))
-	return version, true, err
+	return collectionRecordVersion(ctx, s.col, queueIndexRecordID(name))
 }
 
 func (s *QueueStore) addQueueIndexItemLocked(ctx context.Context, name string, priority queue.QueuePriority, itemID string) {

@@ -13,9 +13,9 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -420,8 +420,8 @@ func (a *API) resolveNotificationRouteWorkspace(ctx context.Context, name string
 }
 
 func (a *API) ensureDAGExists(ctx context.Context, dagName string) error {
-	if _, err := a.dagStore.GetDetails(ctx, dagName, dagstore.DAGLoadOptions{}); err != nil {
-		if errors.Is(err, dagstore.ErrDAGNotFound) {
+	if _, err := a.dagRepository.GetDetails(ctx, dagName, persis.DAGLoadOptions{}); err != nil {
+		if errors.Is(err, persis.ErrDAGNotFound) {
 			return &Error{
 				HTTPStatus: http.StatusNotFound,
 				Code:       api.ErrorCodeNotFound,

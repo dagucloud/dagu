@@ -18,8 +18,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
@@ -236,7 +239,7 @@ func (f *testFixture) setupWorkerWithAfterAckHook(
 	handlerCfg := worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: f.coordinatorClient,
-		DAGStore:          f.coord.DAGStore,
+		DAGRepository:     f.coord.DAGRepository,
 		DAGRunMgr:         f.coord.DAGRunMgr,
 		ServiceRegistry:   f.coord.ServiceRegistry,
 		PeerConfig:        f.coord.Config.Core.Peer,
@@ -296,10 +299,10 @@ func (f *testFixture) startSchedulerWithClock(timeout time.Duration, clock sched
 	f.startSchedulerWithOptions(
 		timeout,
 		clock,
-		func() scheduler.WatermarkStore {
-			wmBackend, err := file.New(f.coord.Config.Paths.DataDir)
+		func() schedulerstate.Store {
+			stateBackend, err := file.New(f.coord.Config.Paths.DataDir)
 			require.NoError(f.t, err)
-			return scheduler.NewWatermarkStore(wmBackend.Collection("scheduler"))
+			return persiststore.NewSchedulerStateStore(stateBackend.Collection("scheduler"))
 		}(),
 	)
 }
@@ -307,13 +310,13 @@ func (f *testFixture) startSchedulerWithClock(timeout time.Duration, clock sched
 func (f *testFixture) startSchedulerWithOptions(
 	timeout time.Duration,
 	clock scheduler.Clock,
-	watermarkStore scheduler.WatermarkStore,
+	stateStore schedulerstate.Store,
 ) {
 	f.t.Helper()
 
-	em := scheduler.NewEntryReader(
+	em := scheduler.NewFileEntryReader(
 		f.coord.Config.Paths.DAGsDir,
-		f.coord.DAGStore,
+		f.coord.DAGRepository,
 		f.coord.Config.DAGDiscovery.Recursive,
 	)
 
@@ -321,12 +324,13 @@ func (f *testFixture) startSchedulerWithOptions(
 		f.coord.Config,
 		em,
 		f.coord.DAGRunMgr,
-		f.coord.DAGRunStore,
+		f.coord.DAGRepository,
+		f.coord.DAGRunRepository,
 		f.coord.QueueStore,
-		f.coord.ProcStore,
+		f.coord.ProcRepository,
 		f.coord.ServiceRegistry,
 		f.coordinatorClient,
-		watermarkStore,
+		stateStore,
 	)
 	require.NoError(f.t, err)
 	schedulerInst.SetDAGRunLeaseStore(f.coord.DAGRunLeaseStore)
@@ -411,7 +415,7 @@ func (f *testFixture) enqueueWithParams(params string) error {
 func (f *testFixture) enqueueDirect() error {
 	f.t.Helper()
 
-	runID, err := f.coord.DAGRunMgr.GenDAGRunID(f.coord.Context)
+	runID, err := ir.NewDAGRunID()
 	if err != nil {
 		return err
 	}
@@ -419,7 +423,7 @@ func (f *testFixture) enqueueDirect() error {
 	dagCopy := f.dagWrapper.Clone()
 	dagCopy.Location = ""
 
-	att, err := f.coord.DAGRunStore.CreateAttempt(f.coord.Context, dagCopy, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+	att, err := f.coord.DAGRunRepository.CreateAttempt(f.coord.Context, dagCopy, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	if err != nil {
 		return err
 	}
@@ -462,19 +466,20 @@ func (f *testFixture) enqueueDirect() error {
 func (f *testFixture) enqueueCatchup(scheduleTime time.Time) (string, error) {
 	f.t.Helper()
 
-	runID, err := f.coord.DAGRunMgr.GenDAGRunID(f.coord.Context)
+	runID, err := ir.NewDAGRunID()
 	if err != nil {
 		return "", err
 	}
 
 	err = scheduler.EnqueueCatchupRun(
 		f.coord.Context,
-		f.coord.DAGRunStore,
+		f.coord.DAGRunRepository,
 		f.coord.QueueStore,
 		f.coord.Config.Paths.LogDir,
 		f.coord.Config.Paths.ArtifactDir,
 		f.coord.Config.Paths.BaseConfig,
 		"",
+		f.dagWrapper.FileName(),
 		f.dagWrapper.DAG,
 		runID,
 		ir.TriggerTypeCatchUp,
@@ -601,9 +606,9 @@ func (f *testFixture) latestStatus() (ir.DAGRunStatus, error) {
 }
 
 func (f *testFixture) latestStoredStatus() (ir.DAGRunStatus, error) {
-	store := file.NewDAGRunStore(f.coord.Config)
+	repository := file.NewDAGRunRepository(f.coord.Config)
 
-	attempt, err := store.LatestAttempt(f.coord.Context, f.dagWrapper.Name)
+	attempt, err := repository.LatestAttempt(f.coord.Context, f.dagWrapper.Name, persis.DAGRunLatestAttemptOptions{})
 	if err != nil {
 		return ir.DAGRunStatus{}, err
 	}
@@ -613,7 +618,7 @@ func (f *testFixture) latestStoredStatus() (ir.DAGRunStatus, error) {
 		return ir.DAGRunStatus{}, err
 	}
 	if status == nil {
-		return ir.DAGRunStatus{}, dagrun.ErrCorruptedStatusFile
+		return ir.DAGRunStatus{}, dagrun.ErrCorruptedStatusData
 	}
 
 	return *status, nil

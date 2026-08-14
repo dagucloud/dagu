@@ -18,9 +18,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
-	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	fileproc "github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -111,15 +112,15 @@ func newLocalStartTestAPI(t *testing.T) *API {
 	t.Helper()
 
 	tmpDir := t.TempDir()
-	dagRunStore := filedagrun.New(filepath.Join(tmpDir, "dag-runs"))
-	procStore := newTestProcStore(filepath.Join(tmpDir, "proc"))
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
 	return &API{
-		dagRunMgr: runtime.NewManager(dagRunStore, procStore, &config.Config{}),
+		dagRunMgr: runtime.NewManager(dagRunRepository, procRepository, &config.Config{}),
 	}
 }
 
-func newTestProcStore(procDir string) *proc.Store {
-	return proc.New(procDir)
+func newTestProcRepository(procDir string) *persis.ProcRepository {
+	return persis.NewProcRepository(fileproc.New(procDir))
 }
 
 func currentProcessStartResult(t *testing.T, done <-chan error) *launcher.StartResult {

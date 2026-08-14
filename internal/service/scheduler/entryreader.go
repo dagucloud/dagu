@@ -19,10 +19,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler/filenotify"
 
 	"github.com/fsnotify/fsnotify"
@@ -38,10 +38,10 @@ type EntryReader interface {
 	Start(ctx context.Context)
 	// Stop stops watching the DAG directory.
 	Stop()
-	// DAGs returns a snapshot of all currently loaded DAG definitions.
-	DAGs() []*ir.DAG
-	// DAGStore returns the backing store used for loading DAG details and suspension state.
-	DAGStore() dagstore.DAGStore
+	// Entries returns a snapshot of all currently loaded DAG definitions.
+	Entries() []DAGEntry
+	// Events returns lifecycle changes after initialization.
+	Events() <-chan DAGChangeEvent
 }
 
 var _ EntryReader = (*entryReaderImpl)(nil)
@@ -59,38 +59,33 @@ type registryState struct {
 
 // entryReaderImpl manages DAGs on local filesystem.
 type entryReaderImpl struct {
-	targetDir   string
-	registry    map[string]*ir.DAG
-	stamps      map[string]dagFileStamp
-	watchedDirs map[string]struct{}
-	lock        sync.Mutex
-	dagStore    dagstore.DAGStore
-	dagSource   *dagFileSource
-	watcher     filenotify.FileWatcher
-	recursive   bool
-	quit        chan struct{}
-	closeOnce   sync.Once
-	events      chan DAGChangeEvent
+	targetDir     string
+	registry      map[string]*ir.DAG
+	stamps        map[string]dagFileStamp
+	watchedDirs   map[string]struct{}
+	lock          sync.Mutex
+	dagRepository *persis.DAGRepository
+	dagSource     *dagFileSource
+	watcher       filenotify.FileWatcher
+	recursive     bool
+	quit          chan struct{}
+	closeOnce     sync.Once
+	events        chan DAGChangeEvent
 }
 
-// NewEntryReader creates a new DAG manager with the given configuration.
-func NewEntryReader(dir string, dagCli dagstore.DAGStore, recursive bool) EntryReader {
+// NewFileEntryReader creates a filesystem DAG entry reader.
+func NewFileEntryReader(dir string, dagRepository *persis.DAGRepository, recursive bool) EntryReader {
 	return &entryReaderImpl{
-		targetDir:   dir,
-		registry:    make(map[string]*ir.DAG),
-		stamps:      make(map[string]dagFileStamp),
-		watchedDirs: make(map[string]struct{}),
-		dagStore:    dagCli,
-		dagSource:   newDAGFileSource(dir, dagCli),
-		recursive:   recursive,
-		quit:        make(chan struct{}),
+		targetDir:     dir,
+		registry:      make(map[string]*ir.DAG),
+		stamps:        make(map[string]dagFileStamp),
+		watchedDirs:   make(map[string]struct{}),
+		dagRepository: dagRepository,
+		dagSource:     newDAGFileSource(dir, dagRepository),
+		recursive:     recursive,
+		quit:          make(chan struct{}),
+		events:        make(chan DAGChangeEvent, 64),
 	}
-}
-
-// setEvents wires the event channel used to notify the TickPlanner of DAG
-// changes. Must be called before Start().
-func (er *entryReaderImpl) setEvents(ch chan DAGChangeEvent) {
-	er.events = ch
 }
 
 // Init loads the initial DAG registry and starts watching the target directory.
@@ -276,8 +271,11 @@ func (er *entryReaderImpl) applyDAGFileSnapshot(ctx context.Context, fileName st
 	// If the DAG name changed, emit delete for the old name first
 	if oldDAGName != "" {
 		er.sendEvent(ctx, DAGChangeEvent{
-			Type:    DAGChangeDeleted,
-			DAGName: oldDAGName,
+			Type: DAGChangeDeleted,
+			DAGEntry: DAGEntry{
+				DefinitionID: definitionIDForFile(fileName),
+				DAG:          oldDAG,
+			},
 		})
 	}
 
@@ -286,9 +284,11 @@ func (er *entryReaderImpl) applyDAGFileSnapshot(ctx context.Context, fileName st
 		changeType = DAGChangeUpdated
 	}
 	er.sendEvent(ctx, DAGChangeEvent{
-		Type:    changeType,
-		DAG:     dag,
-		DAGName: dag.Name,
+		Type: changeType,
+		DAGEntry: DAGEntry{
+			DefinitionID: definitionIDForFile(fileName),
+			DAG:          dag,
+		},
 	})
 }
 
@@ -302,8 +302,11 @@ func (er *entryReaderImpl) removeDAGFile(ctx context.Context, fileName string) {
 
 	if existed && dag != nil {
 		er.sendEvent(ctx, DAGChangeEvent{
-			Type:    DAGChangeDeleted,
-			DAGName: dag.Name,
+			Type: DAGChangeDeleted,
+			DAGEntry: DAGEntry{
+				DefinitionID: definitionIDForFile(fileName),
+				DAG:          dag,
+			},
 		})
 	}
 	logger.Info(ctx, "DAG removed", tag.Name(fileName))
@@ -335,27 +338,31 @@ func (er *entryReaderImpl) Stop() {
 	})
 }
 
-// DAGs returns the currently loaded DAG metadata.
-func (er *entryReaderImpl) DAGs() []*ir.DAG {
+// Entries returns the currently loaded DAG metadata.
+func (er *entryReaderImpl) Entries() []DAGEntry {
 	er.lock.Lock()
 	defer er.lock.Unlock()
 
-	dags := make([]*ir.DAG, 0, len(er.registry))
-	for _, dag := range er.registry {
-		dags = append(dags, dag)
+	entries := make([]DAGEntry, 0, len(er.registry))
+	for fileName, dag := range er.registry {
+		entries = append(entries, DAGEntry{DefinitionID: definitionIDForFile(fileName), DAG: dag})
 	}
-	return dags
+	return entries
 }
 
-// DAGStore returns the backing DAG store for full DAG details.
-func (er *entryReaderImpl) DAGStore() dagstore.DAGStore {
-	return er.dagStore
+func (er *entryReaderImpl) Events() <-chan DAGChangeEvent {
+	return er.events
+}
+
+func definitionIDForFile(fileName string) string {
+	base := filepath.Base(filepath.FromSlash(fileName))
+	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
 func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 	er.watcher = filenotify.New(time.Minute)
 
-	scan, err := dagdiscovery.Scan(er.targetDir, dagdiscovery.Options{Recursive: true})
+	scan, err := filedag.Discover(er.targetDir, filedag.DiscoveryOptions{Recursive: true})
 	if err != nil {
 		_ = er.watcher.Close()
 		return fmt.Errorf("failed to initialize recursive DAGs: %w", err)
@@ -389,7 +396,7 @@ func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 }
 
 func (er *entryReaderImpl) refreshRecursive(ctx context.Context) error {
-	scan, err := dagdiscovery.Scan(er.targetDir, dagdiscovery.Options{Recursive: true})
+	scan, err := filedag.Discover(er.targetDir, filedag.DiscoveryOptions{Recursive: true})
 	if err != nil {
 		return err
 	}
@@ -435,7 +442,7 @@ func (er *entryReaderImpl) syncWatches(ctx context.Context, dirs []string) {
 
 func (er *entryReaderImpl) loadRegistry(ctx context.Context) (registryState, error) {
 	paginator := pagination.NewPaginator(1, math.MaxInt)
-	result, issues, err := er.dagStore.List(ctx, dagstore.ListDAGsOptions{Paginator: &paginator})
+	result, issues, err := er.dagRepository.List(ctx, persis.DAGListOptions{Paginator: &paginator})
 	if err != nil {
 		return registryState{}, err
 	}
@@ -460,7 +467,7 @@ func (er *entryReaderImpl) loadRegistry(ctx context.Context) (registryState, err
 		if !strings.Contains(locator, "/") {
 			locator = "./" + locator
 		}
-		dag, err := er.dagStore.GetMetadata(ctx, locator)
+		dag, err := er.dagRepository.GetMetadata(ctx, locator)
 		if err != nil {
 			issues = append(issues, fmt.Sprintf("reading %s failed: %s", key, err))
 			continue
@@ -495,8 +502,11 @@ func (er *entryReaderImpl) replaceRegistry(state registryState) []DAGChangeEvent
 		}
 		if oldDAG := er.registry[key]; oldDAG != nil {
 			events = append(events, DAGChangeEvent{
-				Type:    DAGChangeDeleted,
-				DAGName: oldDAG.Name,
+				Type: DAGChangeDeleted,
+				DAGEntry: DAGEntry{
+					DefinitionID: definitionIDForFile(key),
+					DAG:          oldDAG,
+				},
 			})
 		}
 	}
@@ -505,24 +515,28 @@ func (er *entryReaderImpl) replaceRegistry(state registryState) []DAGChangeEvent
 		oldDAG, existed := er.registry[key]
 		if !existed {
 			events = append(events, DAGChangeEvent{
-				Type:    DAGChangeAdded,
-				DAG:     dag,
-				DAGName: dag.Name,
+				Type: DAGChangeAdded,
+				DAGEntry: DAGEntry{
+					DefinitionID: definitionIDForFile(key),
+					DAG:          dag,
+				},
 			})
 			continue
 		}
 		if oldDAG.Name != dag.Name {
 			events = append(events,
-				DAGChangeEvent{Type: DAGChangeDeleted, DAGName: oldDAG.Name},
-				DAGChangeEvent{Type: DAGChangeAdded, DAG: dag, DAGName: dag.Name},
+				DAGChangeEvent{Type: DAGChangeDeleted, DAGEntry: DAGEntry{DefinitionID: definitionIDForFile(key), DAG: oldDAG}},
+				DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DefinitionID: definitionIDForFile(key), DAG: dag}},
 			)
 			continue
 		}
 		if er.stamps[key] != state.stamps[key] {
 			events = append(events, DAGChangeEvent{
-				Type:    DAGChangeUpdated,
-				DAG:     dag,
-				DAGName: dag.Name,
+				Type: DAGChangeUpdated,
+				DAGEntry: DAGEntry{
+					DefinitionID: definitionIDForFile(key),
+					DAG:          dag,
+				},
 			})
 		}
 	}

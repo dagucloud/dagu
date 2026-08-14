@@ -7,11 +7,11 @@ import (
 	"context"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
-	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
@@ -24,24 +24,26 @@ func NewWithHooksForTest(
 	cfg *config.Config,
 	er EntryReader,
 	drm runtime.Manager,
-	dagRunStore dagrun.DAGRunStore,
+	dagRepository *persis.DAGRepository,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
-	procStore procdomain.ProcStore,
+	procRepository processRepository,
 	reg serviceregistry.ServiceRegistry,
 	coordinatorCli dispatch.Dispatcher,
-	watermarkStore WatermarkStore,
+	stateStore schedulerstate.Store,
 	hooks TestHooks,
 ) (*Scheduler, error) {
 	return newScheduler(
 		cfg,
 		er,
 		drm,
-		dagRunStore,
+		dagRepository,
+		dagRunRepository,
 		queueStore,
-		procStore,
+		procRepository,
 		reg,
 		coordinatorCli,
-		watermarkStore,
+		stateStore,
 		schedulerHooks{onLockWait: hooks.OnLockWait},
 		schedulerOptions{},
 	)

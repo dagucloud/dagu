@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -450,10 +450,8 @@ steps:
 	f.startScheduler(30 * time.Second)
 
 	require.Eventually(t, func() bool {
-		statuses, err := f.coord.DAGRunStore.ListStatuses(
-			f.coord.Context,
-			dagrun.WithExactName("queue-concurrency-test"),
-			dagrun.WithoutLimit(),
+		statuses, err := f.coord.DAGRunRepository.ListStatuses(
+			f.coord.Context, persis.DAGRunListOptions{ExactName: "queue-concurrency-test", Unbounded: true},
 		)
 		if err != nil || len(statuses) < 2 {
 			return false
@@ -479,10 +477,8 @@ steps:
 	// is still consistent, so assert on the scheduler-visible run state instead.
 	if runtime.GOOS != "windows" {
 		require.Never(t, func() bool {
-			statuses, err := f.coord.DAGRunStore.ListStatuses(
-				f.coord.Context,
-				dagrun.WithExactName("queue-concurrency-test"),
-				dagrun.WithoutLimit(),
+			statuses, err := f.coord.DAGRunRepository.ListStatuses(
+				f.coord.Context, persis.DAGRunListOptions{ExactName: "queue-concurrency-test", Unbounded: true},
 			)
 			if err != nil {
 				return false
@@ -514,10 +510,8 @@ steps:
 
 	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0600))
 	require.Eventually(t, func() bool {
-		statuses, err := f.coord.DAGRunStore.ListStatuses(
-			f.coord.Context,
-			dagrun.WithExactName("queue-concurrency-test"),
-			dagrun.WithoutLimit(),
+		statuses, err := f.coord.DAGRunRepository.ListStatuses(
+			f.coord.Context, persis.DAGRunListOptions{ExactName: "queue-concurrency-test", Unbounded: true},
 		)
 		if err != nil || len(statuses) < 2 {
 			return false
@@ -557,10 +551,7 @@ steps:
 	status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 	require.Equal(t, ir.Succeeded, status.Status)
 
-	activeStatuses, err := f.coord.DAGRunStore.ListStatuses(f.coord.Context,
-		dagrun.WithStatuses([]ir.Status{ir.Running}),
-		dagrun.WithoutLimit(),
-	)
+	activeStatuses, err := f.coord.DAGRunRepository.ListStatuses(f.coord.Context, persis.DAGRunListOptions{Statuses: []ir.Status{ir.Running}, Unbounded: true})
 	require.NoError(t, err)
 
 	var offendingStatus string
@@ -1017,7 +1008,7 @@ func readSubDAGRunStatus(
 	rootRef ir.DAGRunRef,
 	subRunID string,
 ) (*ir.DAGRunStatus, error) {
-	attempt, err := f.coord.DAGRunStore.FindSubAttempt(f.coord.Context, rootRef, subRunID)
+	attempt, err := f.coord.DAGRunRepository.FindSubAttempt(f.coord.Context, rootRef, subRunID)
 	if err != nil {
 		return nil, err
 	}

@@ -14,7 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -115,21 +116,20 @@ schedule:
 steps:
   - run: echo suspended
 `)
-		require.NoError(t, th.DAGStore.ToggleSuspend(th.Context, suspended.FileName(), true))
+		require.NoError(t, th.DAGRepository.SetSuspended(th.Context, suspended.FileName(), true))
 
 		future := scheduledAt.Add(24 * time.Hour)
-		stateStore := scheduler.NewWatermarkStore(
+		stateStore := store.NewSchedulerStateStore(
 			file.NewCollection(filepath.Join(th.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
 		)
-		require.NoError(t, stateStore.Save(th.Context, &scheduler.SchedulerState{
-			Version: scheduler.SchedulerStateVersion,
-			DAGs: map[string]scheduler.DAGWatermark{
+		require.NoError(t, stateStore.Save(th.Context, &schedulerstate.State{
+			DAGs: map[string]schedulerstate.DAGWatermark{
 				overdue.Name: {
 					NextRun: &scheduledAt,
-					OneOffs: map[string]scheduler.OneOffScheduleState{
+					OneOffs: map[string]schedulerstate.OneOffScheduleState{
 						overdue.Schedule[0].Fingerprint(): {
 							ScheduledTime: scheduledAt,
-							Status:        scheduler.OneOffStatusPending,
+							Status:        schedulerstate.OneOffStatusPending,
 						},
 					},
 				},

@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
@@ -18,7 +19,7 @@ const defaultStaleWorkerHeartbeatThreshold = 30 * time.Second
 // StaleRunRepairConfig provides the stores, thresholds, and clock used to
 // confirm and repair stale remote runs.
 type StaleRunRepairConfig struct {
-	DAGRunStore                   dagrun.DAGRunStore
+	DAGRunRepository              *persis.DAGRunRepository
 	DAGRunLeaseStore              dispatch.DAGRunLeaseStore
 	WorkerHeartbeatStore          dispatch.WorkerHeartbeatStore
 	StaleLeaseThreshold           time.Duration
@@ -35,7 +36,7 @@ func RepairStaleRemoteRun(
 	fallbackAttemptID string,
 	fallbackWorkerID string,
 ) (*ir.DAGRunStatus, bool, error) {
-	if status == nil || cfg.DAGRunStore == nil || cfg.DAGRunLeaseStore == nil || cfg.WorkerHeartbeatStore == nil {
+	if status == nil || cfg.DAGRunRepository == nil || cfg.DAGRunLeaseStore == nil || cfg.WorkerHeartbeatStore == nil {
 		return status, false, nil
 	}
 
@@ -100,7 +101,7 @@ func RepairStaleRemoteRun(
 	}
 
 	reason := dispatch.DistributedLeaseExpiredReason(workerID)
-	currentStatus, swapped, err := cfg.DAGRunStore.CompareAndSwapLatestAttemptStatus(
+	currentStatus, swapped, err := cfg.DAGRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
 		status.DAGRun(),
 		attemptID,
@@ -108,9 +109,7 @@ func RepairStaleRemoteRun(
 		func(current *ir.DAGRunStatus) error {
 			markActiveStatusFailed(current, reason, now)
 			return nil
-		},
-		dagrun.WithCompareAndSwapRootDAGRun(status.Root),
-		dagrun.WithCompareAndSwapExpectedAttemptKey(attemptKey),
+		}, persis.DAGRunCompareAndSwapOptions{RootDAGRun: status.Root, ExpectedAttemptKey: attemptKey},
 	)
 	if err != nil {
 		return nil, false, err

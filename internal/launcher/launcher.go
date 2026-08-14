@@ -106,21 +106,22 @@ func (b *SubCmdBuilder) filteredEnv(extra ...string) []string {
 	if len(env) == 0 {
 		env = os.Environ()
 	}
+	env = filterExecutionEnv(env)
 	env = append(env, extra...)
 	return env
 }
 
 func (b *SubCmdBuilder) parentEnv(extra ...string) []string {
-	env := filteredParentEnv()
+	env := filterExecutionEnv(os.Environ())
 	env = append(env, extra...)
 	return env
 }
 
-func filteredParentEnv() []string {
-	env := os.Environ()
+func filterExecutionEnv(env []string) []string {
 	filtered := env[:0]
 	for _, entry := range env {
-		if strings.HasPrefix(entry, runenv.EnvKeyQueueDispatchRetry+"=") {
+		if strings.HasPrefix(entry, runenv.EnvKeyQueueDispatchRetry+"=") ||
+			strings.HasPrefix(entry, runenv.EnvKeyDAGDefinitionID+"=") {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -178,7 +179,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	return CmdSpec{
 		Executable:      b.executable,
 		Args:            args,
-		Env:             b.parentEnv(),
+		Env:             b.parentEnv(definitionIDEnv(opts.DefinitionID)...),
 		BuildEnv:        append([]string{}, dag.Env...),
 		RuntimeResolved: dag.RuntimeResolved,
 	}
@@ -229,7 +230,7 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	return CmdSpec{
 		Executable:      b.executable,
 		Args:            args,
-		Env:             b.filteredEnv(),
+		Env:             b.filteredEnv(definitionIDEnv(opts.DefinitionID)...),
 		BuildEnv:        append([]string{}, dag.Env...),
 		RuntimeResolved: dag.RuntimeResolved,
 		Stdout:          os.Stdout,
@@ -273,7 +274,7 @@ func (b *SubCmdBuilder) Restart(dag *ir.DAG, opts RestartOptions) CmdSpec {
 	return CmdSpec{
 		Executable:      b.executable,
 		Args:            args,
-		Env:             b.parentEnv(),
+		Env:             b.parentEnv(definitionIDEnv(opts.DefinitionID)...),
 		BuildEnv:        append([]string{}, dag.Env...),
 		RuntimeResolved: dag.RuntimeResolved,
 	}
@@ -340,6 +341,7 @@ type StartOptions struct {
 	Tags         string // Deprecated: use Labels.
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
 	ProfileName  string // Runtime profile name
+	DefinitionID string // Stable DAG definition identity
 	NoReuse      bool   // Disable build materialization reuse
 }
 
@@ -356,7 +358,15 @@ type EnqueueOptions struct {
 	Tags         string // Deprecated: use Labels.
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
 	ProfileName  string // Runtime profile name
+	DefinitionID string // Stable DAG definition identity
 	NoReuse      bool   // Disable build materialization reuse
+}
+
+func definitionIDEnv(id string) []string {
+	if id == "" {
+		return nil
+	}
+	return []string{runenv.EnvKeyDAGDefinitionID + "=" + id}
 }
 
 // RetryOptions contains options for retrying a dag-run.
@@ -373,6 +383,7 @@ type RetryOptions struct {
 type RestartOptions struct {
 	Quiet        bool   // Whether to run in quiet mode
 	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
+	DefinitionID string // Stable DAG definition identity
 }
 
 // Run executes the command and waits for it to complete.

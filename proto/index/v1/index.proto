@@ -65,7 +65,8 @@ message DAGRunIndexEntry {
   double auto_retry_backoff = 24;
   int64 auto_retry_max_interval = 25;  // Duration in nanoseconds
   string proc_group = 26;
-  string suspend_flag_name = 27;
+  string suspend_flag_name = 27 [deprecated = true];
   string archive_dir = 28;
   string trigger_actor = 29;
+  string definition_id = 30;
 }

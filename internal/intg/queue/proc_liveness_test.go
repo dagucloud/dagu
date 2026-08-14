@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/google/uuid"
@@ -63,7 +63,7 @@ steps:
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
 	ref := ir.NewDAGRunRef(f.dag.Name, dagRunID)
-	attempt, err := f.th.DAGRunStore.CreateAttempt(f.th.Context, f.dag, time.Now(), dagRunID, dagrun.NewDAGRunAttemptOptions{})
+	attempt, err := f.th.DAGRunRepository.CreateAttempt(f.th.Context, f.dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
 	status := ir.NewStatusBuilder(f.dag).Create(

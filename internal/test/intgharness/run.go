@@ -102,7 +102,7 @@ func (r RunProbe) RequireHeartbeatAdvanceWithin(timeout time.Duration) {
 	testutil.RequireProcHeartbeatAdvance(
 		r.h.t,
 		r.h.Helper.Context,
-		r.h.Helper.ProcStore,
+		r.h.Helper.ProcRepository,
 		r.procGroup,
 		r.ref,
 		timeout,
@@ -112,11 +112,11 @@ func (r RunProbe) RequireHeartbeatAdvanceWithin(timeout time.Duration) {
 // ReadStatus loads the persisted run status.
 func (r RunProbe) ReadStatus() *ir.DAGRunStatus {
 	r.h.t.Helper()
-	return testutil.ReadRunStatus(r.h.Helper.Context, r.h.t, r.h.Helper.DAGRunStore, r.ref)
+	return testutil.ReadRunStatus(r.h.Helper.Context, r.h.t, r.h.Helper.DAGRunRepository, r.ref)
 }
 
 func (r RunProbe) readStatusIfPresent() (*ir.DAGRunStatus, bool) {
-	attempt, err := r.h.Helper.DAGRunStore.FindAttempt(r.h.Helper.Context, r.ref)
+	attempt, err := r.h.Helper.DAGRunRepository.FindAttempt(r.h.Helper.Context, r.ref)
 	if err != nil {
 		return nil, false
 	}

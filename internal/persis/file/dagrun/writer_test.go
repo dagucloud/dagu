@@ -20,7 +20,7 @@ import (
 
 // TestWriter verifies writer persistence to new and existing status files.
 func TestWriter(t *testing.T) {
-	th := setupTestStore(t)
+	th := setupTestRepository(t)
 
 	t.Run("WriteStatusToNewFile", func(t *testing.T) {
 		dag := th.DAG("test_write_status")
@@ -72,7 +72,7 @@ func TestWriter(t *testing.T) {
 
 // TestWriterErrorHandling verifies writer lifecycle and error paths.
 func TestWriterErrorHandling(t *testing.T) {
-	th := setupTestStore(t)
+	th := setupTestRepository(t)
 
 	t.Run("OpenNonExistentDirectory", func(t *testing.T) {
 		blocker := filepath.Join(t.TempDir(), "blocked")

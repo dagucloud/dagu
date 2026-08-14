@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/spf13/cobra"
@@ -57,16 +58,16 @@ func runRestart(ctx *Context, args []string) error {
 
 	name := args[0]
 
-	var attempt dagrun.DAGRunAttempt
+	var attempt dagrun.Attempt
 	if dagRunID != "" {
 		// Retrieve the previous run for the specified dag-run ID.
 		dagRunRef := ir.NewDAGRunRef(name, dagRunID)
-		attempt, err = ctx.DAGRunStore.FindAttempt(ctx, dagRunRef)
+		attempt, err = ctx.Persistence.DAGRunRepository.FindAttempt(ctx, dagRunRef)
 		if err != nil {
 			return fmt.Errorf("failed to find the run for dag-run ID %s: %w", dagRunID, err)
 		}
 	} else {
-		attempt, err = ctx.DAGRunStore.LatestAttempt(ctx, name)
+		attempt, err = ctx.Persistence.DAGRunRepository.LatestAttempt(ctx, name, persis.DAGRunLatestAttemptOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to find the latest execution history for DAG %s: %w", name, err)
 		}
@@ -90,14 +91,22 @@ func runRestart(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
 
-	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime, dagStatus.NoReuse); err != nil {
+	definitionID := dagStatus.DAGDefinitionID()
+	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime, definitionID, dagStatus.NoReuse); err != nil {
 		return fmt.Errorf("restart process failed for DAG %s: %w", dag.Name, err)
 	}
 
 	return nil
 }
 
-func handleRestartProcess(ctx *Context, d *ir.DAG, oldDagRunID string, scheduleTime string, noReuse bool) error {
+func handleRestartProcess(
+	ctx *Context,
+	d *ir.DAG,
+	oldDagRunID string,
+	scheduleTime string,
+	definitionID string,
+	noReuse bool,
+) error {
 	if err := stopDAGIfRunning(ctx, ctx.DAGRunMgr, d, oldDagRunID); err != nil {
 		return err
 	}
@@ -120,19 +129,29 @@ func handleRestartProcess(ctx *Context, d *ir.DAG, oldDagRunID string, scheduleT
 			root:         ir.NewDAGRunRef(d.Name, newDagRunID),
 			triggerType:  ir.TriggerTypeUnknown,
 			scheduleTime: scheduleTime,
+			definitionID: definitionID,
 			noReuse:      noReuse,
 		},
-		func(execCtx context.Context) (dagrun.DAGRunAttempt, error) {
-			return ctx.DAGRunStore.CreateAttempt(execCtx, d, time.Now(), newDagRunID, dagrun.NewDAGRunAttemptOptions{})
+		func(execCtx context.Context) (dagrun.Attempt, error) {
+			return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, d, time.Now(), newDagRunID, persis.DAGRunCreateAttemptOptions{})
 		},
-		func(preparedAttempt dagrun.DAGRunAttempt) error {
-			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, noReuse, preparedAttempt)
+		func(preparedAttempt dagrun.Attempt) error {
+			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, definitionID, noReuse, preparedAttempt)
 		},
 	)
 }
 
 // executeDAGWithRunID executes a DAG with a pre-generated run ID.
-func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunID string, scheduleTime string, noReuse bool, preparedAttempt dagrun.DAGRunAttempt) error {
+func executeDAGWithRunID(
+	ctx *Context,
+	cli runtime.Manager,
+	dag *ir.DAG,
+	dagRunID string,
+	scheduleTime string,
+	definitionID string,
+	noReuse bool,
+	preparedAttempt dagrun.Attempt,
+) error {
 	logFile, err := ctx.OpenLogFile(dag, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log file: %w", err)
@@ -152,7 +171,7 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunI
 		return fmt.Errorf("failed to initialize artifact directory: %w", err)
 	}
 
-	dr, err := ctx.dagStore(dagStoreConfig{
+	dr, err := ctx.dagRepository(dagRepositoryConfig{
 		SearchPaths: []string{filepath.Dir(dag.Location)},
 	})
 	if err != nil {
@@ -176,14 +195,15 @@ func executeDAGWithRunID(ctx *Context, cli runtime.Manager, dag *ir.DAG, dagRunI
 			Dry:                      false,
 			ExtraEnvs:                extraEnvs,
 			PreparedAttempt:          preparedAttempt,
-			DAGRunStore:              ctx.DAGRunStore,
-			QueueStore:               ctx.QueueStore,
-			StateStore:               ctx.StateStore,
-			MaterializationStore:     localMaterializationStore(ctx),
+			DAGRunRepository:         ctx.Persistence.DAGRunRepository,
+			QueueStore:               ctx.Persistence.QueueStore,
+			StateStore:               ctx.Persistence.StateStore,
+			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  noReuse,
+			DAGDefinitionID:          definitionID,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
-			ServiceRegistry:          ctx.ServiceRegistry,
+			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,

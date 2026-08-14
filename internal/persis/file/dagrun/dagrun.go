@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // Error definitions for directory structure validation
@@ -85,7 +86,7 @@ type DAGRunSummary struct {
 	AutoRetryBackoff     float64
 	AutoRetryMaxInterval time.Duration
 	ProcGroup            string
-	SuspendFlagName      string
+	DefinitionID         string
 	ArchiveDir           string
 }
 
@@ -134,7 +135,7 @@ func newDAGRun(dir, artifactDir string) (*DAGRun, error) {
 // CreateAttempt creates a new Attempt for the dag-run with the given timestamp.
 // It creates a new Attempt directory and initializes a record within it.
 // If attemptID is provided, it uses that ID instead of generating a new one.
-func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fileutil.Cache[*ir.DAGRunStatus], attemptID string, opts ...AttemptOption) (*Attempt, error) {
+func (dr DAGRun) CreateAttempt(_ context.Context, ts persis.TimeInUTC, cache *fileutil.Cache[*ir.DAGRunStatus], attemptID string) (*Attempt, error) {
 	attID := attemptID
 	if attID == "" {
 		var err error
@@ -151,7 +152,7 @@ func (dr DAGRun) CreateAttempt(_ context.Context, ts dagrun.TimeInUTC, cache *fi
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create the run directory: %w", err)
 	}
-	return NewAttempt(filepath.Join(dir, JSONLStatusFile), cache, opts...)
+	return NewAttempt(filepath.Join(dir, JSONLStatusFile), cache)
 }
 
 // CreateSubDAGRun creates a new sub dag-run with the given timestamp and dag-run ID.
@@ -490,7 +491,7 @@ func (dr DAGRun) validatedArtifactDir(dir string) (string, bool) {
 var reDAGRunDir = regexp.MustCompile(`^` + DAGRunDirPrefix + `(\d{8}_\d{6}Z)_(.*)$`)
 var reAttemptDir = regexp.MustCompile(`^(?:` + regexp.QuoteMeta(AttemptDirPrefix) + `|` + regexp.QuoteMeta(LegacyAttemptDirPrefix) + `)(\d{8}_\d{6}_\d{3}Z)_(.*)$`)
 
-func attemptDirName(ts dagrun.TimeInUTC, attemptID string) string {
+func attemptDirName(ts persis.TimeInUTC, attemptID string) string {
 	return AttemptDirPrefix + formatAttemptTimestamp(ts) + "_" + attemptID
 }
 
@@ -535,10 +536,10 @@ func subDAGRunIDFromDir(parentDirName, dirName string) (string, bool) {
 	}
 }
 
-// formatDAGRunTimestamp formats a models.TimeInUTC instance into a string representation (without milliseconds).
+// formatDAGRunTimestamp formats a UTC timestamp without milliseconds.
 // The format is "YYYYMMDD_HHMMSSZ".
 // This is used for generating 'run' directory names.
-func formatDAGRunTimestamp(t dagrun.TimeInUTC) string {
+func formatDAGRunTimestamp(t persis.TimeInUTC) string {
 	return t.Format(dateTimeFormatUTC)
 }
 
@@ -555,9 +556,9 @@ func parseDAGRunTimestamp(s string) (time.Time, error) {
 // dateTimeFormatUTC is the format for run timestamps.
 const dateTimeFormatUTC = "20060102_150405Z"
 
-// formatAttemptTimestamp formats a models.TimeInUTC instance into a string representation with milliseconds.
+// formatAttemptTimestamp formats a UTC timestamp with milliseconds.
 // The format is "YYYYMMDD_HHMMSS_mmmZ" where "mmm" is the milliseconds part.
-func formatAttemptTimestamp(t dagrun.TimeInUTC) string {
+func formatAttemptTimestamp(t persis.TimeInUTC) string {
 	const format = "20060102_150405"
 	mill := t.UnixMilli()
 	return t.Format(format) + "_" + fmt.Sprintf("%03d", mill%1000) + "Z"

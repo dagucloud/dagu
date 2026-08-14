@@ -5,9 +5,11 @@ package cmd
 
 import (
 	"context"
+	"os"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -22,10 +24,15 @@ type runOptions struct {
 	triggerActor    string
 	scheduleTime    string
 	profileName     string
+	definitionID    string
 	step            string
 	retryPath       dagrun.RetryPath
-	preparedAttempt dagrun.DAGRunAttempt
+	preparedAttempt dagrun.Attempt
 	noReuse         bool
+}
+
+func dagDefinitionIDFromEnv() string {
+	return os.Getenv(runenv.EnvKeyDAGDefinitionID)
 }
 
 func withPreparedLocalExecution(
@@ -33,13 +40,14 @@ func withPreparedLocalExecution(
 	dag *ir.DAG,
 	dagRunID string,
 	opts runOptions,
-	buildAttempt func(context.Context) (dagrun.DAGRunAttempt, error),
-	run func(dagrun.DAGRunAttempt) error,
+	buildAttempt func(context.Context) (dagrun.Attempt, error),
+	run func(dagrun.Attempt) error,
 ) error {
 	prepared, err := intake.PrepareLocalExecution(ctx.Context, intake.LocalRequest{
-		ProcStore:       ctx.ProcStore,
+		ProcRepository:  ctx.Persistence.ProcRepository,
 		DAG:             dag,
 		DAGRunID:        dagRunID,
+		DefinitionID:    opts.definitionID,
 		Root:            opts.root,
 		Parent:          opts.parent,
 		TriggerType:     opts.triggerType,

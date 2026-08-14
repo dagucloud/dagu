@@ -54,7 +54,7 @@ steps:
 	})
 
 	ref := ir.NewDAGRunRef("harness_codex_defaults", dagRunID)
-	attempt, err := th.DAGRunStore.FindAttempt(context.Background(), ref)
+	attempt, err := th.DAGRunRepository.FindAttempt(context.Background(), ref)
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(context.Background())
@@ -96,7 +96,7 @@ steps:
 	})
 
 	ref := ir.NewDAGRunRef("harness_multiline_prompt", dagRunID)
-	attempt, err := th.DAGRunStore.FindAttempt(context.Background(), ref)
+	attempt, err := th.DAGRunRepository.FindAttempt(context.Background(), ref)
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(context.Background())
@@ -148,7 +148,7 @@ steps:
 
 	ctx := context.Background()
 	ref := ir.NewDAGRunRef("harness_retry", dagRunID)
-	attempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
+	attempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
 	require.NoError(t, err)
 
 	status, err := attempt.ReadStatus(ctx)
@@ -171,7 +171,7 @@ steps:
 		ExpectedOut: []string{"DAG run finished"},
 	})
 
-	retriedAttempt, err := th.DAGRunStore.FindAttempt(ctx, ref)
+	retriedAttempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
 	require.NoError(t, err)
 
 	retriedStatus, err := retriedAttempt.ReadStatus(ctx)

@@ -17,8 +17,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/proto"
@@ -28,7 +28,7 @@ const (
 	// IndexFileName is the name of the DAG run index file.
 	IndexFileName = ".dagrun.index"
 	// IndexVersion is the current index format version.
-	IndexVersion = 8
+	IndexVersion = 9
 	// MinRunsForIndex is the minimum number of runs needed to create an index.
 	MinRunsForIndex = 10
 
@@ -76,7 +76,7 @@ type Entry struct {
 	AutoRetryBackoff     float64
 	AutoRetryMaxInterval time.Duration
 	ProcGroup            string
-	SuspendFlagName      string
+	DefinitionID         string
 	ArchiveDir           string
 	latestStatusSize     int64
 	latestStatusModTime  int64
@@ -117,7 +117,7 @@ func TryLoadForDay(ctx context.Context, dayDir string, dagRunDirs []os.DirEntry)
 		return dayLoadResult{entries: entries, fromIndex: fromIndex}, nil
 	}
 
-	batchID, batched := dagrun.DAGRunListReadBatchID(ctx)
+	batchID, batched := persis.DAGRunListReadBatchID(ctx)
 	if !batched {
 		result, err := load()
 		return result.entries, result.fromIndex, err
@@ -216,7 +216,7 @@ func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 			AutoRetryBackoff:     status.AutoRetryBackoff,
 			AutoRetryMaxInterval: status.AutoRetryMaxInterval,
 			ProcGroup:            status.ProcGroup,
-			SuspendFlagName:      status.SuspendFlagName,
+			DefinitionID:         status.DAGDefinitionID(),
 			ArchiveDir:           status.ArchiveDir,
 			latestStatusSize:     statusInfo.Size(),
 			latestStatusModTime:  statusInfo.ModTime().UnixNano(),
@@ -327,7 +327,7 @@ func writeIndex(dayDir string, entries []Entry) error {
 			AutoRetryBackoff:     e.AutoRetryBackoff,
 			AutoRetryMaxInterval: int64(e.AutoRetryMaxInterval),
 			ProcGroup:            e.ProcGroup,
-			SuspendFlagName:      e.SuspendFlagName,
+			DefinitionId:         e.DefinitionID,
 			ArchiveDir:           e.ArchiveDir,
 		})
 	}
@@ -374,7 +374,7 @@ func protoToEntries(protoEntries []*indexv1.DAGRunIndexEntry) []Entry {
 			AutoRetryBackoff:     pe.AutoRetryBackoff,
 			AutoRetryMaxInterval: time.Duration(pe.AutoRetryMaxInterval),
 			ProcGroup:            pe.ProcGroup,
-			SuspendFlagName:      pe.SuspendFlagName,
+			DefinitionID:         pe.DefinitionId,
 			ArchiveDir:           pe.ArchiveDir,
 			latestStatusSize:     pe.LatestStatusSize,
 			latestStatusModTime:  pe.LatestStatusModTime,

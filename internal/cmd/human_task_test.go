@@ -13,11 +13,14 @@ import (
 	"testing"
 	"time"
 
+	cmdprocess "github.com/dagucloud/dagu/v2/internal/cmd/process"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	fileproc "github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -347,11 +350,13 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 	return &humanTaskCompleteFixture{
 		command: command,
 		ctx: &Context{
-			Context:     t.Context(),
-			Command:     command,
-			DAGRunStore: store,
-			QueueStore:  queue,
-			ProcStore:   humanTaskCompletionProcStore{},
+			Context: t.Context(),
+			Command: command,
+			Persistence: cmdprocess.CorePersistence{
+				DAGRunRepository: persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
+				QueueStore:       queue,
+				ProcRepository:   persis.NewProcRepository(fileproc.New(t.TempDir())),
+			},
 		},
 		dag:         dag,
 		status:      status,
@@ -384,7 +389,7 @@ func humanTaskTestForm() json.RawMessage {
 }
 
 type humanTaskCompletionAttempt struct {
-	dagrun.DAGRunAttempt
+	dagrun.Attempt
 	dag    *ir.DAG
 	status *ir.DAGRunStatus
 }
@@ -401,48 +406,31 @@ func (a *humanTaskCompletionAttempt) ReadStatus(context.Context) (*ir.DAGRunStat
 	return a.status, nil
 }
 
-type humanTaskCompletionProcStore struct {
-	proc.ProcStore
-}
-
-func (humanTaskCompletionProcStore) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
-	return false, nil
-}
-
-func (humanTaskCompletionProcStore) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
-	return false, nil
-}
-
 type humanTaskCompletionStore struct {
-	dagrun.DAGRunStore
+	testutil.DAGRunStoreStub
 	attempt      *humanTaskCompletionAttempt
 	status       *ir.DAGRunStatus
 	beforeMutate func()
 }
 
-func (s *humanTaskCompletionStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.DAGRunAttempt, error) {
+func (s *humanTaskCompletionStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
 	return s.attempt, nil
 }
 
 func (s *humanTaskCompletionStore) CompareAndSwapLatestAttemptStatus(
 	_ context.Context,
-	_ ir.DAGRunRef,
-	expectedAttemptID string,
-	expectedStatus ir.Status,
-	mutate func(*ir.DAGRunStatus) error,
-	opts ...dagrun.CompareAndSwapStatusOption,
+	req persis.DAGRunCompareAndSwapStatusRequest,
 ) (*ir.DAGRunStatus, bool, error) {
-	options := dagrun.NewCompareAndSwapStatusOptions(opts...)
 	if s.beforeMutate != nil {
 		s.beforeMutate()
 	}
-	if s.status.AttemptID != expectedAttemptID || s.status.Status != expectedStatus {
+	if s.status.AttemptID != req.ExpectedAttemptID || s.status.Status != req.ExpectedStatus {
 		return s.status, false, nil
 	}
-	if options.ExpectedAttemptKey != "" && s.status.AttemptKey != options.ExpectedAttemptKey {
+	if req.ExpectedAttemptKey != "" && s.status.AttemptKey != req.ExpectedAttemptKey {
 		return s.status, false, nil
 	}
-	if err := mutate(s.status); err != nil {
+	if err := req.Mutate(s.status); err != nil {
 		return nil, false, err
 	}
 	return s.status, true, nil

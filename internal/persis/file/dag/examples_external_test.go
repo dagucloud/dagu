@@ -24,10 +24,8 @@ func TestFirstLaunchExamplesLoadAndRun(t *testing.T) {
 	ctx := context.Background()
 
 	dagsDir := t.TempDir()
-	store := filedag.New(dagsDir)
-	initializer, ok := store.(interface{ Initialize() error })
-	require.True(t, ok)
-	require.NoError(t, initializer.Initialize())
+	store := filedag.NewStore(dagsDir)
+	require.NoError(t, store.Initialize())
 
 	files := yamlFiles(t, dagsDir)
 	require.NotEmpty(t, files)

@@ -542,7 +542,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/samber/lo v1.52.0
+	github.com/samber/lo v1.52.0 // indirect
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sys v0.47.0

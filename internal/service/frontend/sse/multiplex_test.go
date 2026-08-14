@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,7 +116,7 @@ func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) 
 	var dayLoads atomic.Int32
 	var dayLoadGroup singleflight.Group
 	mux.RegisterFetcher(TopicTypeDAGRuns, func(ctx context.Context, identifier string) (any, error) {
-		batchID, ok := dagrun.DAGRunListReadBatchID(ctx)
+		batchID, ok := persis.DAGRunListReadBatchID(ctx)
 		if !ok {
 			return nil, errors.New("missing DAG-run list read batch")
 		}

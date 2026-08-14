@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -347,7 +347,7 @@ steps:
 		Args: []string{"history", "--labels=prod"},
 	})
 
-	statuses, err := th.DAGRunStore.ListStatuses(ctx, dagrun.WithLabels([]string{"prod"}), dagrun.WithAllHistory())
+	statuses, err := th.DAGRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{Labels: []string{"prod"}, AllHistory: true})
 	require.NoError(t, err)
 	names := make(map[string]bool, len(statuses))
 	for _, status := range statuses {
@@ -409,7 +409,10 @@ steps:
 		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
 		expected := i + 1
 		require.Eventually(t, func() bool {
-			statuses := th.DAGRunMgr.ListRecentStatus(ctx, dag.Name, expected)
+			statuses, err := th.DAGRunRepository.RecentStatuses(ctx, dag.Name, expected)
+			if err != nil {
+				return false
+			}
 			count := 0
 			for _, s := range statuses {
 				if s.Status == ir.Succeeded {
@@ -422,7 +425,7 @@ steps:
 
 	// Test limit - verify command runs successfully with --limit flag.
 	// Stdout table output is not captured, so we just verify no error.
-	// The limit logic is tested via the dagrun.WithLimit() functional option.
+	// The limit logic is tested through persis.DAGRunListOptions.
 	th.RunCommand(t, cmd.History(), test.CmdTest{
 		Name: "LimitResults",
 		Args: []string{"history", "test-limit", "--limit=2"},

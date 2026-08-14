@@ -12,15 +12,13 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
-	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
-	procdomain "github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,11 +60,12 @@ func TestScheduler_StandbyHealthServerStartsBeforeLockAndStopsCleanly(t *testing
 }
 
 type haSchedulerFixture struct {
-	cfg         *config.Config
-	dagRunStore dagrun.DAGRunStore
-	queueStore  queuedomain.QueueStore
-	procStore   procdomain.ProcStore
-	dagRunMgr   runtime.Manager
+	cfg              *config.Config
+	dagRepository    *persis.DAGRepository
+	dagRunRepository *persis.DAGRunRepository
+	queueStore       queuedomain.QueueStore
+	procRepository   *persis.ProcRepository
+	dagRunMgr        runtime.Manager
 }
 
 func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
@@ -99,19 +98,21 @@ func newHASchedulerFixture(t *testing.T) *haSchedulerFixture {
 		DefaultExecMode: config.ExecutionModeLocal,
 	}
 
-	dagRunStore := filedagrun.New(
+	dagRunRepository := testutil.NewFileDAGRunRepository(
 		cfg.Paths.DAGRunsDir,
+		persis.DAGRunRepositoryOptions{LatestStatusToday: true},
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
 	)
 	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
-	procStore := newSchedulerTestProcStore(cfg.Paths.ProcDir, cfg)
+	procRepository := newSchedulerTestProcRepository(cfg.Paths.ProcDir, cfg)
 
 	return &haSchedulerFixture{
-		cfg:         cfg,
-		dagRunStore: dagRunStore,
-		queueStore:  queueStore,
-		procStore:   procStore,
-		dagRunMgr:   runtime.NewManager(dagRunStore, procStore, cfg),
+		cfg:              cfg,
+		dagRepository:    testutil.NewFileDAGRepository(cfg.Paths.DAGsDir),
+		dagRunRepository: dagRunRepository,
+		queueStore:       queueStore,
+		procRepository:   procRepository,
+		dagRunMgr:        runtime.NewManager(dagRunRepository, procRepository, cfg),
 	}
 }
 
@@ -122,9 +123,10 @@ func newHASchedulerForTest(t *testing.T, fixture *haSchedulerFixture, hooks Test
 		fixture.cfg,
 		&staticEntryReader{},
 		fixture.dagRunMgr,
-		fixture.dagRunStore,
+		fixture.dagRepository,
+		fixture.dagRunRepository,
 		fixture.queueStore,
-		fixture.procStore,
+		fixture.procRepository,
 		nil,
 		nil,
 		nil,
@@ -262,10 +264,10 @@ func (*staticEntryReader) Start(context.Context) {}
 
 func (*staticEntryReader) Stop() {}
 
-func (*staticEntryReader) DAGs() []*ir.DAG {
+func (*staticEntryReader) Entries() []DAGEntry {
 	return nil
 }
 
-func (*staticEntryReader) DAGStore() dagstore.DAGStore {
+func (*staticEntryReader) Events() <-chan DAGChangeEvent {
 	return nil
 }

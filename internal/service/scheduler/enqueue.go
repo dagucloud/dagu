@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -31,12 +33,13 @@ import (
 // unix pipe conflicts for concurrent runs).
 func EnqueueCatchupRun(
 	ctx context.Context,
-	dagRunStore dagrun.DAGRunStore,
+	dagRunRepository *persis.DAGRunRepository,
 	queueStore queuedomain.QueueStore,
 	baseLogDir string,
 	baseArtifactDir string,
 	baseConfig string,
 	workspaceBaseConfigDir string,
+	definitionID string,
 	dag *ir.DAG,
 	runID string,
 	triggerType ir.TriggerType,
@@ -46,12 +49,14 @@ func EnqueueCatchupRun(
 	dagRun := ir.NewDAGRunRef(dag.Name, runID)
 
 	// Idempotency: skip if a run with this ID already exists.
-	if _, err := dagRunStore.FindAttempt(ctx, dagRun); err == nil {
+	if _, err := dagRunRepository.FindAttempt(ctx, dagRun); err == nil {
 		logger.Info(ctx, "Catchup run already exists; skipping",
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
 		)
 		return nil
+	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+		return fmt.Errorf("failed to check existing catchup run: %w", err)
 	}
 
 	fullDAG, err := rehydrateExecutionDAG(ctx, dag, nil, baseConfig, workspaceBaseConfigDir)
@@ -68,15 +73,16 @@ func EnqueueCatchupRun(
 	dagCopy.Location = ""
 
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunStore:     dagRunStore,
-		QueueStore:      queueStore,
-		DAG:             dagCopy,
-		DAGRunID:        runID,
-		LogBaseDir:      baseLogDir,
-		ArtifactBaseDir: baseArtifactDir,
-		TriggerType:     triggerType,
-		ScheduleTime:    stringutil.FormatTime(scheduleTime),
-		ProfileName:     profileName,
+		DAGRunRepository: dagRunRepository,
+		QueueStore:       queueStore,
+		DAG:              dagCopy,
+		DAGRunID:         runID,
+		LogBaseDir:       baseLogDir,
+		ArtifactBaseDir:  baseArtifactDir,
+		TriggerType:      triggerType,
+		ScheduleTime:     stringutil.FormatTime(scheduleTime),
+		ProfileName:      profileName,
+		DefinitionID:     definitionID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)

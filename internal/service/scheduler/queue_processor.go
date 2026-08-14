@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
@@ -91,8 +91,8 @@ func (e startupExecutionError) Unwrap() error {
 // QueueProcessor is responsible for processing queued DAG runs.
 type QueueProcessor struct {
 	queueStore             queuedomain.QueueStore
-	dagRunStore            dagrun.DAGRunStore
-	procStore              proc.ProcStore
+	dagRunRepository       *persis.DAGRunRepository
+	procRepository         queueProcessRepository
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
@@ -189,25 +189,25 @@ func WithIsSuspended(isSuspended IsSuspendedFunc) QueueProcessorOption {
 // NewQueueProcessor creates a new QueueProcessor.
 func NewQueueProcessor(
 	queueStore queuedomain.QueueStore,
-	dagRunStore dagrun.DAGRunStore,
-	procStore proc.ProcStore,
+	dagRunRepository *persis.DAGRunRepository,
+	procRepository queueProcessRepository,
 	dagExecutor *DAGExecutor,
 	queuesConfig config.Queues,
 	opts ...QueueProcessorOption,
 ) *QueueProcessor {
 	p := &QueueProcessor{
-		queueStore:  queueStore,
-		dagRunStore: dagRunStore,
-		procStore:   procStore,
-		dagExecutor: dagExecutor,
-		wakeUpCh:    make(chan struct{}, 1),
-		quit:        make(chan struct{}),
+		queueStore:       queueStore,
+		dagRunRepository: dagRunRepository,
+		procRepository:   procRepository,
+		dagExecutor:      dagExecutor,
+		wakeUpCh:         make(chan struct{}, 1),
+		quit:             make(chan struct{}),
 		// Seed prevTime in the past so Start()'s initial wake-up is not
 		// throttled by the minimum processing interval.
 		prevTime:            time.Now().Add(-queueProcessMinInterval),
 		backoffConfig:       DefaultBackoffConfig(),
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
-		isSuspended:         func(context.Context, string) bool { return false },
+		isSuspended:         func(context.Context, string) (bool, error) { return false, nil },
 	}
 
 	for _, opt := range opts {
@@ -340,8 +340,8 @@ func (p *QueueProcessor) isClosed() bool {
 func (p *QueueProcessor) newQueueDispatcher() *queueDispatcher {
 	return newQueueDispatcher(queueDispatchDeps{
 		queueStore:             p.queueStore,
-		dagRunStore:            p.dagRunStore,
-		procStore:              p.procStore,
+		dagRunRepository:       p.dagRunRepository,
+		procRepository:         p.procRepository,
 		dagRunLeaseStore:       p.dagRunLeaseStore,
 		dispatchTaskStore:      p.dispatchTaskStore,
 		dispatchAdmissionStore: p.dispatchAdmissionStore,
@@ -465,7 +465,7 @@ func readStartupExecutionError(execErrCh <-chan error) error {
 	}
 }
 
-func queueAttemptKey(runRef ir.DAGRunRef, attempt dagrun.DAGRunAttempt, status *ir.DAGRunStatus) string {
+func queueAttemptKey(runRef ir.DAGRunRef, attempt dagrun.Attempt, status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}

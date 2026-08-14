@@ -24,7 +24,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
@@ -33,11 +32,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
-	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -46,7 +46,6 @@ import (
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
-	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 	"github.com/dagucloud/dagu/v2/internal/view"
@@ -63,11 +62,11 @@ import (
 var _ api.StrictServerInterface = (*API)(nil)
 
 type API struct {
-	dagStore             dagstore.DAGStore
-	dagRunStore          dagrun.DAGRunStore
+	dagRepository        *persis.DAGRepository
+	dagRunRepository     *persis.DAGRunRepository
 	dagRunMgr            runtime.Manager
 	queueStore           queue.QueueStore
-	procStore            proc.ProcStore
+	procRepository       processRepository
 	dagRunLeaseStore     dispatch.DAGRunLeaseStore
 	workerHeartbeatStore dispatch.WorkerHeartbeatStore
 	remoteNodeResolver   *remotenode.Resolver
@@ -99,11 +98,18 @@ type API struct {
 	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
-	schedulerStateStore  scheduler.WatermarkStore
+	schedulerStateStore  schedulerstate.Store
 	dagMutationNotifier  func(fileName string)
 	wikiMutationNotifier func()
 	baseConfigFactory    WorkspaceBaseConfigStoreFactory
 	oidcRoleMapping      func() config.OIDCRoleMapping
+}
+
+type processRepository interface {
+	WithLock(ctx context.Context, groupName string, fn func() error) error
+	CountAliveByDAGName(ctx context.Context, groupName, dagName string) (int, error)
+	IsAttemptAlive(ctx context.Context, groupName string, dagRun ir.DAGRunRef, attemptID string) (bool, error)
+	ListAllAlive(ctx context.Context) (map[string][]ir.DAGRunRef, error)
 }
 
 type WorkspaceBaseConfigStoreFactory func(dagsDir, workspaceName string) (dagsettings.BaseConfigStore, error)
@@ -311,7 +317,7 @@ func WithOIDCRoleMapping(load func() config.OIDCRoleMapping) APIOption {
 }
 
 // WithSchedulerStateStore sets the scheduler state store used for next-run projections.
-func WithSchedulerStateStore(store scheduler.WatermarkStore) APIOption {
+func WithSchedulerStateStore(store schedulerstate.Store) APIOption {
 	return func(a *API) {
 		a.schedulerStateStore = store
 	}
@@ -361,10 +367,10 @@ func WithLeaseStaleThreshold(threshold time.Duration) APIOption {
 // and resource service. It builds the remote node map and base path, then
 // applies any supplied APIOption functions to customize the instance.
 func New(
-	dr dagstore.DAGStore,
-	drs dagrun.DAGRunStore,
+	dr *persis.DAGRepository,
+	dagRunRepository *persis.DAGRunRepository,
 	qs queue.QueueStore,
-	ps proc.ProcStore,
+	processes *persis.ProcRepository,
 	drm runtime.Manager,
 	cfg *config.Config,
 	cc coordinator.Client,
@@ -374,10 +380,10 @@ func New(
 	opts ...APIOption,
 ) *API {
 	a := &API{
-		dagStore:            dr,
-		dagRunStore:         drs,
+		dagRepository:       dr,
+		dagRunRepository:    dagRunRepository,
 		queueStore:          qs,
-		procStore:           ps,
+		procRepository:      processes,
 		dagRunMgr:           drm,
 		logEncodingCharset:  cfg.UI.LogEncodingCharset,
 		subCmdBuilder:       launcher.NewSubCmdBuilder(cfg),
@@ -759,16 +765,16 @@ func (a *API) resolveError(err error) (api.ErrorCode, string, int) {
 		return apiErr.Code, apiErr.Message, apiErr.HTTPStatus
 	}
 
-	if errors.Is(err, dagstore.ErrDAGNotFound) {
+	if errors.Is(err, persis.ErrDAGNotFound) {
 		return api.ErrorCodeNotFound, "DAG not found", http.StatusNotFound
 	}
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return api.ErrorCodeNotFound, "dag-run ID not found", http.StatusNotFound
 	}
-	if errors.Is(err, dagstore.ErrDAGAlreadyExists) {
+	if errors.Is(err, persis.ErrDAGAlreadyExists) {
 		return api.ErrorCodeAlreadyExists, "DAG already exists", http.StatusConflict
 	}
-	if errors.Is(err, dagstore.ErrDAGReadOnly) {
+	if errors.Is(err, persis.ErrDAGReadOnly) {
 		return api.ErrorCodeForbidden, "DAG definition is read-only because it is managed through an external file symlink", http.StatusForbidden
 	}
 

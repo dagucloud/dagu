@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -45,10 +46,10 @@ steps:
 		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: args})
 
 		// Find the dag-run ID.
-		dagStore := th.DAGStore
+		dagRepository := th.DAGRepository
 		ctx := context.Background()
 
-		dag, err := dagStore.GetMetadata(ctx, dagFile.Location)
+		dag, err := dagRepository.GetMetadata(ctx, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(ctx, dag)
@@ -80,10 +81,10 @@ steps:
 		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: args})
 
 		// Find the dag-run ID.
-		dagStore := th.DAGStore
+		dagRepository := th.DAGRepository
 		ctx := context.Background()
 
-		dag, err := dagStore.GetMetadata(ctx, dagFile.Location)
+		dag, err := dagRepository.GetMetadata(ctx, dagFile.Location)
 		require.NoError(t, err)
 
 		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(ctx, dag)
@@ -111,7 +112,7 @@ steps:
 `)
 
 		runID := "queued-catchup-run"
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 
 		scheduleTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
@@ -130,7 +131,7 @@ steps:
 		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}
 		th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: args})
 
-		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
+		latestAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
 		require.NoError(t, err)
 
 		latestStatus, err := latestAttempt.ReadStatus(th.Context)
@@ -153,7 +154,7 @@ steps:
 `)
 
 		runID := "queued-retry-run"
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queued-retry-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -173,7 +174,7 @@ steps:
 		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}
 		th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: args})
 
-		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
+		latestAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
 		require.NoError(t, err)
 		require.NotEqual(t, attempt.ID(), latestAttempt.ID())
 
@@ -203,7 +204,7 @@ steps:
 
 		runID := "queued-retry-live-source-run"
 		startedAt := time.Now().Add(-time.Minute)
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, startedAt, runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, startedAt, runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queued-retry-live-source-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -218,7 +219,7 @@ steps:
 		)
 		writeStatus(t, th.Context, attempt, status)
 
-		proc, err := th.ProcStore.Acquire(th.Context, dagFile.ProcGroup(), proc.ProcMeta{
+		proc, err := th.ProcRepository.Acquire(th.Context, dagFile.ProcGroup(), proc.ProcMeta{
 			StartedAt:    startedAt.Unix(),
 			Name:         dagFile.Name,
 			DAGRunID:     runID,
@@ -272,7 +273,7 @@ steps:
 `)
 
 		runID := "queue-dispatch-run"
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -292,7 +293,7 @@ steps:
 		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}
 		th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: args})
 
-		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
+		latestAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
 		require.NoError(t, err)
 		require.Equal(t, attempt.ID(), latestAttempt.ID())
 
@@ -313,7 +314,7 @@ steps:
 `)
 
 		runID := "queue-dispatch-retry-run"
-		attempt, err := th.DAGRunStore.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, dagrun.NewDAGRunAttemptOptions{})
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-retry-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
@@ -333,7 +334,7 @@ steps:
 		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}
 		th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: args})
 
-		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
+		latestAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
 		require.NoError(t, err)
 		require.NotEqual(t, attempt.ID(), latestAttempt.ID())
 
@@ -367,7 +368,7 @@ steps:
 			},
 		})
 
-		latestAttempt, err := th.DAGRunStore.FindAttempt(
+		latestAttempt, err := th.DAGRunRepository.FindAttempt(
 			th.Context,
 			ir.NewDAGRunRef(dagFile.Name, "root-same-run"),
 		)
@@ -412,7 +413,7 @@ steps:
 		})
 		require.Error(t, err)
 
-		failedAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
+		failedAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
 		require.NoError(t, err)
 		failedStatus, err := failedAttempt.ReadStatus(th.Context)
 		require.NoError(t, err)
@@ -424,7 +425,7 @@ steps:
 			Args: []string{"retry", "--run-id", runID, "--step", "target", dagFile.Name},
 		})
 
-		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
+		latestAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
 		require.NoError(t, err)
 		latestStatus, err := latestAttempt.ReadStatus(th.Context)
 		require.NoError(t, err)
@@ -474,12 +475,13 @@ steps:
 		scheduleTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 		require.NoError(t, scheduler.EnqueueCatchupRun(
 			th.Context,
-			th.DAGRunStore,
+			th.DAGRunRepository,
 			th.QueueStore,
 			th.Config.Paths.LogDir,
 			th.Config.Paths.ArtifactDir,
 			th.Config.Paths.BaseConfig,
 			"",
+			metadataOnly.FileName(),
 			metadataOnly,
 			runID,
 			ir.TriggerTypeCatchUp,
@@ -490,7 +492,7 @@ steps:
 		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}
 		th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: args})
 
-		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
+		latestAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, runID))
 		require.NoError(t, err)
 
 		latestStatus, err := latestAttempt.ReadStatus(th.Context)
@@ -520,7 +522,7 @@ steps:
 		args := []string{"retry", fmt.Sprintf("--run-id=%s", status.DAGRunID), dagFile.Location}
 		th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: args})
 
-		latestAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, status.DAGRunID))
+		latestAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dagFile.Name, status.DAGRunID))
 		require.NoError(t, err)
 
 		latestStatus, err := latestAttempt.ReadStatus(th.Context)
@@ -559,12 +561,12 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, ir.Failed, initialStatus.Status)
 
-	initialAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, initialStatus.DAGRunID))
+	initialAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, initialStatus.DAGRunID))
 	require.NoError(t, err)
 
 	test.RunBuiltCLI(t, th.Helper, nil, "retry", fmt.Sprintf("--run-id=%s", initialStatus.DAGRunID), dag.Location)
 
-	retriedAttempt, err := th.DAGRunStore.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, initialStatus.DAGRunID))
+	retriedAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, initialStatus.DAGRunID))
 	require.NoError(t, err)
 	require.NotEqual(t, initialAttempt.ID(), retriedAttempt.ID())
 
@@ -574,7 +576,7 @@ steps:
 	require.Equal(t, "from-host|", test.StatusOutputValue(t, retriedStatus, "RESULT"))
 }
 
-func writeStatus(t *testing.T, ctx context.Context, attempt dagrun.DAGRunAttempt, status ir.DAGRunStatus) {
+func writeStatus(t *testing.T, ctx context.Context, attempt dagrun.Attempt, status ir.DAGRunStatus) {
 	t.Helper()
 
 	require.NoError(t, attempt.Open(ctx))

@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/spf13/cobra"
 )
@@ -63,7 +64,7 @@ func dequeueFirst(ctx *Context, queueName string) error {
 		return fmt.Errorf("queues are disabled in configuration")
 	}
 	for {
-		result, err := ctx.QueueStore.ListCursor(ctx.Context, queueName, "", 1)
+		result, err := ctx.Persistence.QueueStore.ListCursor(ctx.Context, queueName, "", 1)
 		if err != nil {
 			return fmt.Errorf("failed to list queue %s: %w", queueName, err)
 		}
@@ -74,24 +75,24 @@ func dequeueFirst(ctx *Context, queueName string) error {
 		item := result.Items[0]
 		data, err := item.Data()
 		if err != nil {
-			if _, deleteErr := ctx.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); deleteErr != nil {
+			if _, deleteErr := ctx.Persistence.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); deleteErr != nil {
 				return fmt.Errorf("failed to discard unreadable queue head: %w", deleteErr)
 			}
 			continue
 		}
 
 		err = withQueueProcLock(ctx, queueName, func() error {
-			if err := queue.AbortQueuedDAGRun(ctx.Context, ctx.DAGRunStore, *data); err != nil {
+			if err := queue.AbortQueuedDAGRun(ctx.Context, ctx.Persistence.DAGRunRepository, *data); err != nil {
 				return err
 			}
-			if _, err := ctx.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); err != nil {
+			if _, err := ctx.Persistence.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); err != nil {
 				return fmt.Errorf("failed to delete dequeued queue item: %w", err)
 			}
 			return nil
 		})
 		if err != nil {
 			if isQueueAbortSkippable(err) {
-				if _, deleteErr := ctx.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); deleteErr != nil {
+				if _, deleteErr := ctx.Persistence.QueueStore.DeleteByItemIDs(ctx.Context, queueName, []string{item.ID()}); deleteErr != nil {
 					return fmt.Errorf("failed to discard stale queue head: %w", deleteErr)
 				}
 				continue
@@ -136,10 +137,10 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun ir.DAGR
 	}
 
 	err = withQueueProcLock(ctx, actualQueueName, func() error {
-		if err := queue.AbortQueuedDAGRun(ctx.Context, ctx.DAGRunStore, dagRun); err != nil {
+		if err := queue.AbortQueuedDAGRun(ctx.Context, ctx.Persistence.DAGRunRepository, dagRun); err != nil {
 			return err
 		}
-		if _, err := ctx.QueueStore.DequeueByDAGRunID(ctx.Context, actualQueueName, dagRun); err != nil {
+		if _, err := ctx.Persistence.QueueStore.DequeueByDAGRunID(ctx.Context, actualQueueName, dagRun); err != nil {
 			if errors.Is(err, queue.ErrQueueItemNotFound) && actualQueueName == requestedQueueName {
 				return nil
 			}
@@ -163,7 +164,7 @@ func dequeueQueuedDAGRun(ctx *Context, requestedQueueName string, dagRun ir.DAGR
 func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun ir.DAGRunRef) (bool, error) {
 	var removed bool
 	err := withQueueProcLock(ctx, queueName, func() error {
-		items, err := ctx.QueueStore.DequeueByDAGRunID(ctx.Context, queueName, dagRun)
+		items, err := ctx.Persistence.QueueStore.DequeueByDAGRunID(ctx.Context, queueName, dagRun)
 		if err != nil {
 			if errors.Is(err, queue.ErrQueueItemNotFound) {
 				return nil
@@ -180,7 +181,7 @@ func removeQueuedDAGRunByQueueName(ctx *Context, queueName string, dagRun ir.DAG
 }
 
 func queueNameForDAGRun(ctx *Context, dagRun ir.DAGRunRef) (string, error) {
-	attempt, err := ctx.DAGRunStore.FindAttempt(ctx, dagRun)
+	attempt, err := ctx.Persistence.DAGRunRepository.FindAttempt(ctx, dagRun)
 	if err != nil {
 		return "", err
 	}
@@ -194,12 +195,11 @@ func queueNameForDAGRun(ctx *Context, dagRun ir.DAGRunRef) (string, error) {
 }
 
 func withQueueProcLock(ctx *Context, queueName string, fn func() error) error {
-	if err := ctx.ProcStore.Lock(ctx, queueName); err != nil {
+	err := ctx.Persistence.ProcRepository.WithLock(ctx, queueName, fn)
+	if persis.IsProcLockError(err) {
 		return fmt.Errorf("failed to lock process group %s: %w", queueName, err)
 	}
-	defer ctx.ProcStore.Unlock(ctx, queueName)
-
-	return fn()
+	return err
 }
 
 func mapAbortQueuedDAGRunError(dagRun ir.DAGRunRef, err error) error {
@@ -222,7 +222,7 @@ func isQueueAbortSkippable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusFile) {
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
 		return true
 	}
 	var notQueuedErr *queue.DAGRunNotQueuedError
@@ -232,5 +232,5 @@ func isQueueAbortSkippable(err error) bool {
 func isQueueLookupFallbackAllowed(err error) bool {
 	return errors.Is(err, dagrun.ErrDAGRunIDNotFound) ||
 		errors.Is(err, dagrun.ErrNoStatusData) ||
-		errors.Is(err, dagrun.ErrCorruptedStatusFile)
+		errors.Is(err, dagrun.ErrCorruptedStatusData)
 }

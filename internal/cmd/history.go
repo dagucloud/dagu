@@ -14,8 +14,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/spf13/cobra"
 )
 
@@ -103,7 +103,7 @@ func runHistory(ctx *Context, args []string) error {
 	}
 
 	// Query DAG run history
-	statuses, err := ctx.DAGRunStore.ListStatuses(ctx, opts...)
+	statuses, err := ctx.Persistence.DAGRunRepository.ListStatuses(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("failed to query DAG run history: %w", err)
 	}
@@ -158,59 +158,65 @@ func renderHistory(format string, statuses []*ir.DAGRunStatus) error {
 }
 
 // buildHistoryOptions constructs query options from command-line flags.
-func buildHistoryOptions(ctx *Context, args []string) ([]dagrun.ListDAGRunStatusesOption, error) {
-	var opts []dagrun.ListDAGRunStatusesOption
+func buildHistoryOptions(ctx *Context, args []string) (persis.DAGRunListOptions, error) {
+	var opts persis.DAGRunListOptions
 
 	// DAG name filter
 	if len(args) > 0 {
 		dagName, err := extractDAGName(ctx, args[0])
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract DAG name: %w", err)
+			return persis.DAGRunListOptions{}, fmt.Errorf("failed to extract DAG name: %w", err)
 		}
-		opts = append(opts, dagrun.WithExactName(dagName))
+		opts.ExactName = dagName
 	}
 
 	// Date range filters
 	dateOpts, err := buildDateRangeOptions(ctx)
 	if err != nil {
-		return nil, err
+		return persis.DAGRunListOptions{}, err
 	}
-	opts = append(opts, dateOpts...)
+	opts.From = dateOpts.From
+	opts.To = dateOpts.To
 
 	// Status filter
-	if statusOpt, err := buildStatusOption(ctx); err != nil {
-		return nil, err
-	} else if statusOpt != nil {
-		opts = append(opts, statusOpt)
+	statuses, err := buildStatusFilter(ctx)
+	if err != nil {
+		return persis.DAGRunListOptions{}, err
 	}
+	opts.Statuses = statuses
 
 	// Run ID filter
-	if runIDOpt, err := buildRunIDOption(ctx); err != nil {
-		return nil, err
-	} else if runIDOpt != nil {
-		opts = append(opts, runIDOpt)
+	runID, err := buildRunIDFilter(ctx)
+	if err != nil {
+		return persis.DAGRunListOptions{}, err
 	}
+	opts.DAGRunID = runID
 
 	// Labels filter
-	if labelsOpt, err := buildLabelsOption(ctx); err != nil {
-		return nil, err
-	} else if labelsOpt != nil {
-		opts = append(opts, labelsOpt)
+	labels, err := buildLabelsFilter(ctx)
+	if err != nil {
+		return persis.DAGRunListOptions{}, err
 	}
+	opts.Labels = labels
 
 	// Limit filter
-	if limitOpt, err := buildLimitOption(ctx); err != nil {
-		return nil, err
-	} else if limitOpt != nil {
-		opts = append(opts, limitOpt)
+	limit, err := buildLimitFilter(ctx)
+	if err != nil {
+		return persis.DAGRunListOptions{}, err
 	}
+	opts.Limit = limit
 
 	return opts, nil
 }
 
+type historyDateRange struct {
+	From persis.TimeInUTC
+	To   persis.TimeInUTC
+}
+
 // buildDateRangeOptions constructs date range filtering options.
-func buildDateRangeOptions(ctx *Context) ([]dagrun.ListDAGRunStatusesOption, error) {
-	var opts []dagrun.ListDAGRunStatusesOption
+func buildDateRangeOptions(ctx *Context) (historyDateRange, error) {
+	var dateRange historyDateRange
 
 	lastDuration, _ := ctx.StringParam("last")
 	fromDate, _ := ctx.StringParam("from")
@@ -218,18 +224,18 @@ func buildDateRangeOptions(ctx *Context) ([]dagrun.ListDAGRunStatusesOption, err
 
 	// Validate conflicting flags
 	if lastDuration != "" && (fromDate != "" || toDate != "") {
-		return nil, fmt.Errorf("cannot use --last with --from or --to (conflicting time range specifications)")
+		return historyDateRange{}, fmt.Errorf("cannot use --last with --from or --to (conflicting time range specifications)")
 	}
 
 	if lastDuration != "" {
 		// Handle relative duration
 		duration, err := parseRelativeDuration(lastDuration)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --last value '%s': %w. Valid formats: 7d, 24h, 1w, 30d", lastDuration, err)
+			return historyDateRange{}, fmt.Errorf("invalid --last value '%s': %w. Valid formats: 7d, 24h, 1w, 30d", lastDuration, err)
 		}
 		fromTime := time.Now().UTC().Add(-duration)
-		opts = append(opts, dagrun.WithFrom(dagrun.NewUTC(fromTime)))
-		return opts, nil
+		dateRange.From = persis.NewUTC(fromTime)
+		return dateRange, nil
 	}
 
 	// Handle absolute dates
@@ -239,33 +245,33 @@ func buildDateRangeOptions(ctx *Context) ([]dagrun.ListDAGRunStatusesOption, err
 	if fromDate != "" {
 		fromTime, err = parseAbsoluteDateTime(fromDate)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --from date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", fromDate, err)
+			return historyDateRange{}, fmt.Errorf("invalid --from date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", fromDate, err)
 		}
-		opts = append(opts, dagrun.WithFrom(dagrun.NewUTC(fromTime)))
+		dateRange.From = persis.NewUTC(fromTime)
 	} else if toDate == "" {
 		// Default: last 30 days if no date filters specified
 		defaultFrom := time.Now().UTC().AddDate(0, 0, -30)
-		opts = append(opts, dagrun.WithFrom(dagrun.NewUTC(defaultFrom)))
+		dateRange.From = persis.NewUTC(defaultFrom)
 	}
 
 	if toDate != "" {
 		toTime, err = parseAbsoluteDateTime(toDate)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --to date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", toDate, err)
+			return historyDateRange{}, fmt.Errorf("invalid --to date '%s': %w. Expected format: 2006-01-02 or 2006-01-02T15:04:05Z", toDate, err)
 		}
-		opts = append(opts, dagrun.WithTo(dagrun.NewUTC(toTime)))
+		dateRange.To = persis.NewUTC(toTime)
 
 		// Validate date range if both dates are provided
 		if fromDate != "" && fromTime.After(toTime) {
-			return nil, fmt.Errorf("--from date (%s) must be before --to date (%s)", fromDate, toDate)
+			return historyDateRange{}, fmt.Errorf("--from date (%s) must be before --to date (%s)", fromDate, toDate)
 		}
 	}
 
-	return opts, nil
+	return dateRange, nil
 }
 
-// buildStatusOption constructs status filtering option.
-func buildStatusOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
+// buildStatusFilter constructs the status filter.
+func buildStatusFilter(ctx *Context) ([]ir.Status, error) {
 	statusStr, err := ctx.StringParam("status")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get 'status' parameter: %w", err)
@@ -280,25 +286,25 @@ func buildStatusOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 		return nil, err
 	}
 
-	return dagrun.WithStatuses(statuses), nil
+	return statuses, nil
 }
 
-// buildRunIDOption constructs run ID filtering option.
-func buildRunIDOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
+// buildRunIDFilter constructs the run ID filter.
+func buildRunIDFilter(ctx *Context) (string, error) {
 	runID, err := ctx.StringParam("run-id")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get 'run-id' parameter: %w", err)
+		return "", fmt.Errorf("failed to get 'run-id' parameter: %w", err)
 	}
 
 	if runID == "" {
-		return nil, nil
+		return "", nil
 	}
 
-	return dagrun.WithDAGRunID(runID), nil
+	return runID, nil
 }
 
-// buildLabelsOption constructs labels filtering option.
-func buildLabelsOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
+// buildLabelsFilter constructs the labels filter.
+func buildLabelsFilter(ctx *Context) ([]string, error) {
 	labelsStr, err := labelsParam(ctx)
 	if err != nil {
 		return nil, err
@@ -309,14 +315,14 @@ func buildLabelsOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 	}
 
 	if labels := parseLabels(labelsStr); len(labels) > 0 {
-		return dagrun.WithLabels(labels), nil
+		return labels, nil
 	}
 
 	return nil, nil
 }
 
-// buildLimitOption constructs limit option with validation.
-func buildLimitOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
+// buildLimitFilter constructs the validated result limit.
+func buildLimitFilter(ctx *Context) (int, error) {
 	const (
 		defaultLimit = 100
 		maxLimit     = 1000
@@ -324,14 +330,14 @@ func buildLimitOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 
 	limitStr, err := ctx.StringParam("limit")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get 'limit' parameter: %w", err)
+		return 0, fmt.Errorf("failed to get 'limit' parameter: %w", err)
 	}
 
 	limit := defaultLimit
 	if limitStr != "" {
 		parsedLimit, err := strconv.Atoi(limitStr)
 		if err != nil || parsedLimit < 1 {
-			return nil, fmt.Errorf("invalid --limit value '%s': must be a positive integer", limitStr)
+			return 0, fmt.Errorf("invalid --limit value '%s': must be a positive integer", limitStr)
 		}
 		if parsedLimit > maxLimit {
 			fmt.Fprintf(os.Stderr, "Warning: limit capped at %d (requested: %d)\n", maxLimit, parsedLimit)
@@ -341,7 +347,7 @@ func buildLimitOption(ctx *Context) (dagrun.ListDAGRunStatusesOption, error) {
 		}
 	}
 
-	return dagrun.WithLimit(limit), nil
+	return limit, nil
 }
 
 // parseRelativeDuration parses relative time duration strings like "7d", "24h", "1w".

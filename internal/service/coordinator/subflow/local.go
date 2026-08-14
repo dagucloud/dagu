@@ -15,9 +15,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dagstore"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -36,8 +36,8 @@ import (
 // Local runs child workflows in the current process through the runtime agent.
 type Local struct {
 	dagRunMgr                runtime.Manager
-	dagStore                 dagstore.DAGStore
-	dagRunStore              dagrun.DAGRunStore
+	dagRepository            *persis.DAGRepository
+	dagRunRepository         *persis.DAGRunRepository
 	runStateStore            runstate.Store
 	queueStore               queue.QueueStore
 	stateStore               dagrun.StateStore
@@ -69,10 +69,10 @@ func WithLocalToolInstaller(installer dagutools.Installer) LocalOption {
 	}
 }
 
-// WithLocalDAGRunStore sets the dag-run store used by child workflow agents.
-func WithLocalDAGRunStore(store dagrun.DAGRunStore) LocalOption {
+// WithLocalDAGRunRepository sets the DAG-run repository used by child workflow agents.
+func WithLocalDAGRunRepository(repository *persis.DAGRunRepository) LocalOption {
 	return func(r *Local) {
-		r.dagRunStore = store
+		r.dagRunRepository = repository
 	}
 }
 
@@ -162,12 +162,12 @@ func WithLocalDAGRunDirs(logDir, artifactDir string) LocalOption {
 }
 
 // NewLocal creates an in-process child workflow runner.
-func NewLocal(dagRunMgr runtime.Manager, dagStore dagstore.DAGStore, opts ...LocalOption) *Local {
+func NewLocal(dagRunMgr runtime.Manager, dagRepository *persis.DAGRepository, opts ...LocalOption) *Local {
 	r := &Local{
-		dagRunMgr: dagRunMgr,
-		dagStore:  dagStore,
-		installer: daguaqua.New(),
-		active:    make(map[string]*rtagent.Agent),
+		dagRunMgr:     dagRunMgr,
+		dagRepository: dagRepository,
+		installer:     daguaqua.New(),
+		active:        make(map[string]*rtagent.Agent),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -393,7 +393,7 @@ func (r *Local) newAgent(
 	opts.SubWorkflowRunnerFactory = r.subWorkflowRunnerFactory
 	opts.LogWriterFactory = r.logWriterFactory
 	opts.RunStateStore = r.runStateStoreFromContext(ctx)
-	opts.DAGRunStore = r.dagRunStoreFromContext(ctx)
+	opts.DAGRunRepository = r.dagRunRepositoryFromContext(ctx)
 	opts.QueueStore = r.queueStoreFromContext(ctx)
 	opts.StateStore = r.stateStoreFromContext(ctx)
 	opts.MaterializationStore = rCtx.MaterializationStore
@@ -419,7 +419,7 @@ func (r *Local) newAgent(
 		logDir,
 		logFile,
 		r.dagRunMgr,
-		r.dagStoreFromContext(ctx),
+		r.dagRepositoryFromContext(ctx),
 		opts,
 	), nil
 }
@@ -456,17 +456,17 @@ func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent
 	return result, nil
 }
 
-func (r *Local) dagStoreFromContext(_ context.Context) dagstore.DAGStore {
-	return r.dagStore
+func (r *Local) dagRepositoryFromContext(_ context.Context) *persis.DAGRepository {
+	return r.dagRepository
 }
 
-func (r *Local) dagRunStoreFromContext(ctx context.Context) dagrun.DAGRunStore {
-	if r.dagRunStore != nil {
-		return r.dagRunStore
+func (r *Local) dagRunRepositoryFromContext(ctx context.Context) *persis.DAGRunRepository {
+	if r.dagRunRepository != nil {
+		return r.dagRunRepository
 	}
 	rCtx := runctx.GetContext(ctx)
-	if rCtx.DAGRunStore != nil {
-		return rCtx.DAGRunStore
+	if rCtx.DAGRunRepository != nil {
+		return rCtx.DAGRunRepository
 	}
 	return nil
 }
@@ -475,8 +475,8 @@ func (r *Local) runStateStoreFromContext(ctx context.Context) runstate.Store {
 	if r.runStateStore != nil {
 		return r.runStateStore
 	}
-	if dagRunStore := r.dagRunStoreFromContext(ctx); dagRunStore != nil {
-		return runstate.NewHistoryStore(dagRunStore)
+	if dagRunRepository := r.dagRunRepositoryFromContext(ctx); dagRunRepository != nil {
+		return runstate.NewHistoryStore(dagRunRepository)
 	}
 	return nil
 }

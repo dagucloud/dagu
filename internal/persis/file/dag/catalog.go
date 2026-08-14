@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/dagdiscovery"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 )
 
@@ -20,8 +19,8 @@ type catalog struct {
 	errors  []string
 }
 
-func (store *Storage) loadCatalog(ctx context.Context) (*catalog, error) {
-	scan, err := dagdiscovery.Scan(store.baseDir, dagdiscovery.Options{
+func (store *Store) loadCatalog(ctx context.Context) (*catalog, error) {
+	scan, err := Discover(store.baseDir, DiscoveryOptions{
 		Recursive: store.recursive,
 		Symlinks:  store.symlinks,
 	})
@@ -29,7 +28,10 @@ func (store *Storage) loadCatalog(ctx context.Context) (*catalog, error) {
 		return nil, err
 	}
 
-	entries := store.loadIndex(ctx, scan.Files)
+	entries, err := store.loadIndex(ctx, scan.Files)
+	if err != nil {
+		return nil, err
+	}
 	return newCatalog(entries, scan.Errors, store.recursive), nil
 }
 
@@ -100,15 +102,4 @@ func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConfl
 func entryStem(entry *indexv1.DAGIndexEntry) string {
 	base := filepath.Base(filepath.FromSlash(entry.FilePath))
 	return strings.TrimSuffix(base, filepath.Ext(base))
-}
-
-func (store *Storage) entryLoadPath(entry *indexv1.DAGIndexEntry) (string, error) {
-	resolved, err := dagdiscovery.ResolveFile(store.baseDir, filepath.FromSlash(entry.FilePath))
-	if err != nil {
-		return "", err
-	}
-	if resolved.ExternalSymlink && !store.symlinks {
-		return "", fmt.Errorf("DAG file symlink resolves outside the configured DAG directory")
-	}
-	return resolved.ResolvedPath, nil
 }

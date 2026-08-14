@@ -189,8 +189,8 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}
 
 	rCtx := runtime.GetDAGContext(ctx)
-	if rCtx.DAGRunStore == nil {
-		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a DAG run store")
+	if rCtx.DAGRunRepository == nil {
+		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a DAG-run repository")
 	}
 	if rCtx.QueueStore == nil {
 		return enqueueRunOutput{}, fmt.Errorf("dag.enqueue requires a queue store")
@@ -243,23 +243,23 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}
 
 	dagRun := ir.NewDAGRunRef(dagCopy.Name, runParams.RunID)
-	if existing, err := rCtx.DAGRunStore.FindAttempt(ctx, dagRun); err == nil {
+	if existing, err := rCtx.DAGRunRepository.FindAttempt(ctx, dagRun); err == nil {
 		return e.outputFromExisting(ctx, existing, dagCopy.Name, runParams, queueName), nil
 	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return enqueueRunOutput{}, fmt.Errorf("failed to check existing DAG run: %w", err)
 	}
 
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
-		DAGRunStore:     rCtx.DAGRunStore,
-		QueueStore:      rCtx.QueueStore,
-		DAG:             dagCopy,
-		DAGRunID:        runParams.RunID,
-		QueueName:       queueName,
-		LogBaseDir:      rCtx.DAGRunLogDir,
-		ArtifactBaseDir: rCtx.DAGRunArtifactDir,
-		TriggerType:     ir.TriggerTypeSubDAG,
-		TriggerActor:    rCtx.TriggerActor,
-		ProfileName:     rCtx.ProfileName,
+		DAGRunRepository: rCtx.DAGRunRepository,
+		QueueStore:       rCtx.QueueStore,
+		DAG:              dagCopy,
+		DAGRunID:         runParams.RunID,
+		QueueName:        queueName,
+		LogBaseDir:       rCtx.DAGRunLogDir,
+		ArtifactBaseDir:  rCtx.DAGRunArtifactDir,
+		TriggerType:      ir.TriggerTypeSubDAG,
+		TriggerActor:     rCtx.TriggerActor,
+		ProfileName:      rCtx.ProfileName,
 	})
 	if err != nil {
 		return enqueueRunOutput{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
@@ -281,7 +281,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	}, nil
 }
 
-func (e *enqueueExecutor) outputFromExisting(ctx context.Context, attempt dagrun.DAGRunAttempt, dagName string, params executor.RunParams, queueName string) enqueueRunOutput {
+func (e *enqueueExecutor) outputFromExisting(ctx context.Context, attempt dagrun.Attempt, dagName string, params executor.RunParams, queueName string) enqueueRunOutput {
 	statusText := ir.Queued.String()
 	if status, err := attempt.ReadStatus(ctx); err == nil && status != nil {
 		statusText = status.Status.String()

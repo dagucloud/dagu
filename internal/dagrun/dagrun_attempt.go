@@ -9,20 +9,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// NewDAGRunAttemptOptions contains options for creating a new run record
-type NewDAGRunAttemptOptions struct {
-	// RootDAGRun is the root dag-run reference for this attempt.
-	RootDAGRun *ir.DAGRunRef
-	// Retry indicates whether this is a retry of a previous run.
-	Retry bool
-	// AttemptID is an optional attempt ID. If set, this ID is used instead of generating a new one.
-	// This is used when the coordinator has already created an attempt and wants the worker
-	// to use the same ID for consistency.
-	AttemptID string
-}
-
-// DAGRunAttempt represents a single execution of a dag-run to record the status and execution details.
-type DAGRunAttempt interface {
+// Attempt represents a single execution of a dag-run to record the status and execution details.
+type Attempt interface {
 	// ID returns the identifier for the attempt that is unique within the dag-run.
 	ID() string
 	// Open prepares the attempt for writing status updates
@@ -50,14 +38,11 @@ type DAGRunAttempt interface {
 	// Does nothing if outputs is nil or has no output entries.
 	WriteOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error
 	// ReadOutputs reads the collected step outputs for the dag-run.
-	// Returns nil if no outputs file exists or if the file is in v1 format.
+	// Returns nil when outputs are unavailable or use the legacy representation.
 	ReadOutputs(ctx context.Context) (*ir.DAGRunOutputs, error)
 	// WriteStepMessages writes LLM messages for a single step.
 	WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error
 	// ReadStepMessages reads LLM messages for a single step.
 	// Returns nil if no messages exist for the step.
 	ReadStepMessages(ctx context.Context, stepName string) ([]ir.LLMMessage, error)
-	// WorkDir returns the path to the per-DAG-run working directory.
-	// Returns "" if the attempt does not support local storage.
-	WorkDir() string
 }

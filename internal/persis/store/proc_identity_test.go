@@ -32,14 +32,11 @@ func TestProcEntryIdentityRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			entry := proc.ProcEntry{Identity: tc.id}
-			assert.Equal(t, tc.kind, procEntryIdentityKind(entry))
-
-			value, ok := procEntryIdentityValue(entry, tc.kind)
+			value, ok := tc.id.StoreValue(tc.kind)
 			require.True(t, ok)
 			assert.Equal(t, tc.value, value)
 
-			_, ok = procEntryIdentityValue(entry, "other")
+			_, ok = tc.id.StoreValue("other")
 			assert.False(t, ok)
 		})
 	}
@@ -63,10 +60,7 @@ func TestProcEntryIdentityRejectsMalformedTokens(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			entry := proc.ProcEntry{Identity: tc.id}
-			assert.Empty(t, procEntryIdentityKind(entry))
-
-			value, ok := procEntryIdentityValue(entry, procEntryIdentityCollection)
+			value, ok := tc.id.StoreValue(procEntryIdentityCollection)
 			assert.False(t, ok)
 			assert.Empty(t, value)
 		})
