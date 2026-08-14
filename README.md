@@ -936,6 +936,8 @@ paths:
   dag_run_work_dir: /mnt/dagu/dag-run-work
 ```
 
+`DAGU_DAG_RUN_WORK_DIR` configures this root for Dagu processes. Workflow code should use the runtime `DAG_RUN_WORK_DIR` variable for its assigned per-run directory instead of constructing paths under DAG-run history.
+
 Processes sharing DAG runs must use the same work root.
 
 Recursive discovery can also be enabled in `config.yaml`:
