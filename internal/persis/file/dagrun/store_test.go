@@ -25,7 +25,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
-	repository := persis.NewDAGRunRepository(store, NewWorkDirStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	repository := persis.NewDAGRunRepository(store, NewNestedWorkDirStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",
@@ -161,11 +161,46 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	assert.Equal(t, childStatus.AttemptID, foundChildStatus.AttemptID)
 }
 
+func TestWorkDirStoreUsesIndependentRoot(t *testing.T) {
+	ctx := context.Background()
+	workRoot := t.TempDir()
+	store := NewWorkDirStore(workRoot)
+	rootRef := ir.NewDAGRunRef("../../root", "../root-run")
+	refs := []dagrun.WorkDirRef{
+		{RootDAGRun: rootRef, DAGRun: rootRef},
+		{RootDAGRun: rootRef, DAGRun: ir.DAGRunRef{ID: "../../child-run"}},
+	}
+	workDirs := make([]string, len(refs))
+	for i, ref := range refs {
+		dir, err := store.Materialize(ctx, ref)
+		require.NoError(t, err)
+		require.DirExists(t, dir)
+		workDirs[i] = dir
+
+		rel, err := filepath.Rel(workRoot, dir)
+		require.NoError(t, err)
+		assert.False(t, filepath.IsAbs(rel))
+		assert.NotContains(t, rel, "..")
+	}
+	assert.NotEqual(t, workDirs[0], workDirs[1])
+
+	retryWorkDir, err := store.Materialize(ctx, refs[0])
+	require.NoError(t, err)
+	assert.Equal(t, workDirs[0], retryWorkDir)
+
+	require.NoError(t, store.Remove(ctx, refs[0]))
+	for _, dir := range workDirs {
+		require.NoDirExists(t, dir)
+	}
+	require.DirExists(t, workRoot)
+	require.NoError(t, store.Remove(ctx, refs[0]))
+}
+
 func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
-	repository := persis.NewDAGRunRepository(store, NewWorkDirStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	repository := persis.NewDAGRunRepository(store, NewNestedWorkDirStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",

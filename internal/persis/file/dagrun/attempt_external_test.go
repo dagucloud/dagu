@@ -157,7 +157,7 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 func newFileRepository(baseDir string, options persis.DAGRunRepositoryOptions) *persis.DAGRunRepository {
 	return persis.NewDAGRunRepository(
 		filedagrun.NewStore(baseDir),
-		filedagrun.NewWorkDirStore(baseDir),
+		filedagrun.NewNestedWorkDirStore(baseDir),
 		options,
 	)
 }

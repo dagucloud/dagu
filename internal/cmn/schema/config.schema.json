@@ -748,6 +748,10 @@
           "type": "string",
           "description": "Directory for DAG run history storage."
         },
+        "dag_run_work_dir": {
+          "type": "string",
+          "description": "Directory for DAG run working directories."
+        },
         "queue_dir": {
           "type": "string",
           "description": "Directory for queue persistence."

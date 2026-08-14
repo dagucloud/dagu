@@ -18,14 +18,20 @@ import (
 
 var _ dagrun.WorkDirStore = (*WorkDirStore)(nil)
 
-// WorkDirStore manages DAG-run work directories in the local run directory tree.
+// WorkDirStore manages file-backed DAG-run work directories.
 type WorkDirStore struct {
-	baseDir string
+	rootDir string
+	nested  bool
 }
 
-// NewWorkDirStore creates a file-backed DAG-run work-directory store.
-func NewWorkDirStore(baseDir string) *WorkDirStore {
-	return &WorkDirStore{baseDir: baseDir}
+// NewWorkDirStore creates a work-directory store rooted at rootDir.
+func NewWorkDirStore(rootDir string) *WorkDirStore {
+	return &WorkDirStore{rootDir: rootDir}
+}
+
+// NewNestedWorkDirStore creates a work-directory store nested in DAG-run storage.
+func NewNestedWorkDirStore(dagRunsDir string) *WorkDirStore {
+	return &WorkDirStore{rootDir: dagRunsDir, nested: true}
 }
 
 func (s *WorkDirStore) Materialize(ctx context.Context, ref dagrun.WorkDirRef) (string, error) {
@@ -51,6 +57,9 @@ func (s *WorkDirStore) Remove(ctx context.Context, ref dagrun.WorkDirRef) error 
 		}
 		return err
 	}
+	if !s.nested {
+		dir = filepath.Dir(dir)
+	}
 	if err := fileutil.RemoveAll(dir); err != nil {
 		return fmt.Errorf("remove work directory %s: %w", dir, err)
 	}
@@ -58,7 +67,15 @@ func (s *WorkDirStore) Remove(ctx context.Context, ref dagrun.WorkDirRef) error 
 }
 
 func (s *WorkDirStore) workDir(ctx context.Context, ref dagrun.WorkDirRef) (string, error) {
-	root := NewDataRoot(s.baseDir, ref.RootDAGRun.Name)
+	if !s.nested {
+		rootDir := filepath.Join(s.rootDir, workDirKey(ref.RootDAGRun.Name+"\x00"+ref.RootDAGRun.ID))
+		if ref.DAGRun == ref.RootDAGRun {
+			return filepath.Join(rootDir, "work"), nil
+		}
+		return filepath.Join(rootDir, "children", workDirKey(ref.DAGRun.ID), "work"), nil
+	}
+
+	root := NewDataRoot(s.rootDir, ref.RootDAGRun.Name)
 	run, err := root.FindByDAGRunID(ctx, ref.RootDAGRun.ID)
 	if err != nil {
 		return "", fmt.Errorf("find root dag-run %s: %w", ref.RootDAGRun.ID, err)
@@ -70,6 +87,11 @@ func (s *WorkDirStore) workDir(ctx context.Context, ref dagrun.WorkDirRef) (stri
 		}
 	}
 	return workDirForDAGRunDir(run.baseDir), nil
+}
+
+func workDirKey(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return fmt.Sprintf("%x", sum)
 }
 
 func workDirForDAGRunDir(dagRunDir string) string {

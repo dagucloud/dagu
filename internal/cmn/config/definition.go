@@ -235,6 +235,7 @@ type PathsDef struct {
 	BaseConfig         string `mapstructure:"base_config"`
 	AltDagsDir         string `mapstructure:"alt_dags_dir"`
 	DAGRunsDir         string `mapstructure:"dag_runs_dir"`
+	DAGRunWorkDir      string `mapstructure:"dag_run_work_dir"`
 	QueueDir           string `mapstructure:"queue_dir"`
 	ProcDir            string `mapstructure:"proc_dir"`
 	ServiceRegistryDir string `mapstructure:"service_registry_dir"`

@@ -886,11 +886,31 @@ paths:
 	assert.Equal(t, dataDir, cfg.Paths.DataDir)
 	assert.Equal(t, filepath.Join(dataDir, "tools"), cfg.Paths.ToolsDir)
 	assert.Equal(t, filepath.Join(dataDir, "dag-runs"), cfg.Paths.DAGRunsDir)
+	assert.Empty(t, cfg.Paths.DAGRunWorkDir)
 	assert.Equal(t, filepath.Join(dataDir, "proc"), cfg.Paths.ProcDir)
 	assert.Equal(t, filepath.Join(dataDir, "queue"), cfg.Paths.QueueDir)
 	assert.Equal(t, filepath.Join(dataDir, "service-registry"), cfg.Paths.ServiceRegistryDir)
 	assert.Equal(t, filepath.Join(dataDir, "users"), cfg.Paths.UsersDir)
 	assert.Equal(t, filepath.Join(dataDir, "contexts"), cfg.Paths.ContextsDir)
+}
+
+func TestLoad_DAGRunWorkDir(t *testing.T) {
+	t.Run("config", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+paths:
+  dag_run_work_dir: "/custom/dag-run-work"
+`)
+
+		assert.Equal(t, resolvedTestPath(t, "/custom/dag-run-work"), cfg.Paths.DAGRunWorkDir)
+	})
+
+	t.Run("environment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_DAG_RUN_WORK_DIR": "/env/dag-run-work",
+		})
+
+		assert.Equal(t, resolvedTestPath(t, "/env/dag-run-work"), cfg.Paths.DAGRunWorkDir)
+	})
 }
 
 func TestLoad_WikiDirectoryCompatibility(t *testing.T) {

@@ -405,6 +405,7 @@ type PathsConfig struct {
 	BaseConfig         string
 	AltDAGsDir         string
 	DAGRunsDir         string
+	DAGRunWorkDir      string
 	QueueDir           string
 	ProcDir            string
 	ServiceRegistryDir string

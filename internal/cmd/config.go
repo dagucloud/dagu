@@ -42,6 +42,7 @@ func runConfig(ctx *Context, _ []string) error {
 		{"DAGs directory", paths.DAGsDir},
 		{"Wiki directory", paths.WikiDir},
 		{"DAG runs", paths.DAGRunsDir},
+		{"DAG-run work directory", paths.DAGRunWorkDir},
 		{"Data directory", paths.DataDir},
 		{"Tools directory", paths.ToolsDir},
 		{"Log directory", paths.LogDir},
