@@ -1229,23 +1229,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/dag-runs/{name}/{dagRunId}/steps/{stepName}/agent-events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List managed-agent timeline events */
-        get: operations["listDAGRunStepAgentEvents"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/dag-runs/{name}/{dagRunId}/steps/{stepName}/agent-interactions/{interactionId}/respond": {
         parameters: {
             query?: never;
@@ -1554,23 +1537,6 @@ export interface paths {
          * @description Pushes back a step that is in Waiting status within a sub DAG-run, providing input parameters that will be injected as environment variables when the step re-executes. The step must have an approval configuration.
          */
         post: operations["pushBackSubDAGRunStep"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/agent-events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List managed-agent timeline events in a sub DAG-run */
-        get: operations["listSubDAGRunStepAgentEvents"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3791,12 +3757,6 @@ export interface components {
             resumed: boolean;
             subDAGRunId?: string;
         };
-        AgentEventsResponse: {
-            events: components["schemas"]["AgentSessionEvent"][];
-            /** Format: int64 */
-            nextCursor: number;
-            hasMore: boolean;
-        };
         /** @description Configuration for a human approval gate on a step */
         ApprovalConfig: {
             /** @description Message displayed to the approver */
@@ -5322,10 +5282,7 @@ export interface components {
             variant?: string;
             ownerWorkerId?: string;
             state: components["schemas"]["AgentSessionState"];
-            modeReason?: string;
             lastError?: string;
-            promptSent?: boolean;
-            restartPending?: boolean;
             usage?: components["schemas"]["AgentUsage"];
             interactions?: components["schemas"]["AgentInteraction"][];
             events?: components["schemas"]["AgentSessionEvent"][];
@@ -5352,13 +5309,9 @@ export interface components {
             status: AgentInteractionStatus;
             permission?: string;
             patterns?: string[];
-            metadata?: {
-                [key: string]: unknown;
-            };
             questions?: components["schemas"]["AgentQuestion"][];
             decision?: string;
             answers?: string[][];
-            applied?: boolean;
             createdAt?: string;
             respondedAt?: string;
             respondedBy?: string;
@@ -5386,9 +5339,6 @@ export interface components {
             name?: string;
             status?: string;
             files?: string[];
-            data?: {
-                [key: string]: unknown;
-            };
         };
         /** @description One push-back event recorded for an approval step */
         PushBackHistoryEntry: {
@@ -10618,56 +10568,6 @@ export interface operations {
             };
         };
     };
-    listDAGRunStepAgentEvents: {
-        parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                after?: number;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                /** @description name of the DAG */
-                name: components["parameters"]["DAGName"];
-                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
-                dagRunId: components["parameters"]["DAGRunId"];
-                /** @description name of the step */
-                stepName: components["parameters"]["StepName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Managed-agent timeline */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentEventsResponse"];
-                };
-            };
-            /** @description DAG-run, step, or managed-agent session not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Generic error response */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     respondDAGRunStepAgentInteraction: {
         parameters: {
             query?: {
@@ -11543,57 +11443,6 @@ export interface operations {
                 };
             };
             /** @description Sub DAG-run or step not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Generic error response */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    listSubDAGRunStepAgentEvents: {
-        parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-                after?: number;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                /** @description name of the DAG */
-                name: components["parameters"]["DAGName"];
-                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
-                dagRunId: components["parameters"]["DAGRunId"];
-                subDAGRunId: string;
-                /** @description name of the step */
-                stepName: components["parameters"]["StepName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Managed-agent timeline */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentEventsResponse"];
-                };
-            };
-            /** @description Sub DAG-run, step, or managed-agent session not found */
             404: {
                 headers: {
                     [name: string]: unknown;

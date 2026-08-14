@@ -3,8 +3,6 @@
 
 package ir
 
-import "encoding/json"
-
 const (
 	// AgentStepName is the reserved name of the synthesized step that drives
 	// an agent DAG. It cannot be used as a step name or ID.
@@ -188,7 +186,6 @@ type AgentInteraction struct {
 	Status        AgentInteractionStatus `json:"status"`
 	Permission    string                 `json:"permission,omitempty"`
 	Patterns      []string               `json:"patterns,omitempty"`
-	Metadata      json.RawMessage        `json:"metadata,omitempty"`
 	Questions     []AgentQuestion        `json:"questions,omitempty"`
 	Decision      string                 `json:"decision,omitempty"`
 	Answers       [][]string             `json:"answers,omitempty"`
@@ -201,16 +198,15 @@ type AgentInteraction struct {
 
 // AgentSessionEvent is one normalized item in a managed agent session timeline.
 type AgentSessionEvent struct {
-	Sequence  int64           `json:"sequence"`
-	ID        string          `json:"id"`
-	Type      string          `json:"type"`
-	Timestamp string          `json:"timestamp,omitempty"`
-	Role      string          `json:"role,omitempty"`
-	Content   string          `json:"content,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Status    string          `json:"status,omitempty"`
-	Files     []string        `json:"files,omitempty"`
-	Data      json.RawMessage `json:"data,omitempty"`
+	Sequence  int64    `json:"sequence"`
+	ID        string   `json:"id"`
+	Type      string   `json:"type"`
+	Timestamp string   `json:"timestamp,omitempty"`
+	Role      string   `json:"role,omitempty"`
+	Content   string   `json:"content,omitempty"`
+	Name      string   `json:"name,omitempty"`
+	Status    string   `json:"status,omitempty"`
+	Files     []string `json:"files,omitempty"`
 }
 
 // AgentUsage contains aggregate model usage for a managed session.
@@ -232,7 +228,6 @@ type AgentSession struct {
 	Variant        string              `json:"variant,omitempty"`
 	OwnerWorkerID  string              `json:"ownerWorkerId,omitempty"`
 	State          AgentSessionState   `json:"state"`
-	ModeReason     string              `json:"modeReason,omitempty"`
 	LastError      string              `json:"lastError,omitempty"`
 	PromptSent     bool                `json:"promptSent,omitempty"`
 	RestartPending bool                `json:"restartPending,omitempty"`
@@ -251,7 +246,6 @@ func CloneAgentSession(session *AgentSession) *AgentSession {
 	for i := range session.Interactions {
 		clone.Interactions[i] = session.Interactions[i]
 		clone.Interactions[i].Patterns = append([]string(nil), session.Interactions[i].Patterns...)
-		clone.Interactions[i].Metadata = append(json.RawMessage(nil), session.Interactions[i].Metadata...)
 		clone.Interactions[i].Questions = append([]AgentQuestion(nil), session.Interactions[i].Questions...)
 		for j := range clone.Interactions[i].Questions {
 			clone.Interactions[i].Questions[j].Options = append([]AgentQuestionOption(nil), session.Interactions[i].Questions[j].Options...)
@@ -265,7 +259,6 @@ func CloneAgentSession(session *AgentSession) *AgentSession {
 	for i := range session.Events {
 		clone.Events[i] = session.Events[i]
 		clone.Events[i].Files = append([]string(nil), session.Events[i].Files...)
-		clone.Events[i].Data = append(json.RawMessage(nil), session.Events[i].Data...)
 	}
 	return &clone
 }

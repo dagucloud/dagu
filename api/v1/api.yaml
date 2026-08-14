@@ -3184,50 +3184,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /dag-runs/{name}/{dagRunId}/steps/{stepName}/agent-events:
-    get:
-      summary: "List managed-agent timeline events"
-      operationId: "listDAGRunStepAgentEvents"
-      tags:
-        - "dag-runs"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
-        - $ref: "#/components/parameters/DAGName"
-        - $ref: "#/components/parameters/DAGRunId"
-        - $ref: "#/components/parameters/StepName"
-        - name: "after"
-          in: "query"
-          schema:
-            type: integer
-            format: int64
-            default: 0
-        - name: "limit"
-          in: "query"
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 500
-            default: 100
-      responses:
-        "200":
-          description: "Managed-agent timeline"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentEventsResponse"
-        "404":
-          description: "DAG-run, step, or managed-agent session not found"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        default:
-          description: "Generic error response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
   /dag-runs/{name}/{dagRunId}/steps/{stepName}/agent-interactions/{interactionId}/respond:
     post:
       summary: "Respond to a managed-agent interaction"
@@ -3916,55 +3872,6 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "Sub DAG-run or step not found"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        default:
-          description: "Generic error response"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
-  /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/agent-events:
-    get:
-      summary: "List managed-agent timeline events in a sub DAG-run"
-      operationId: "listSubDAGRunStepAgentEvents"
-      tags:
-        - "dag-runs"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
-        - $ref: "#/components/parameters/DAGName"
-        - $ref: "#/components/parameters/DAGRunId"
-        - name: "subDAGRunId"
-          in: "path"
-          required: true
-          schema:
-            type: string
-        - $ref: "#/components/parameters/StepName"
-        - name: "after"
-          in: "query"
-          schema:
-            type: integer
-            format: int64
-            default: 0
-        - name: "limit"
-          in: "query"
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 500
-            default: 100
-      responses:
-        "200":
-          description: "Managed-agent timeline"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentEventsResponse"
-        "404":
-          description: "Sub DAG-run, step, or managed-agent session not found"
           content:
             application/json:
               schema:
@@ -10531,23 +10438,6 @@ components:
         - generation
         - resumed
 
-    AgentEventsResponse:
-      type: object
-      properties:
-        events:
-          type: array
-          items:
-            $ref: "#/components/schemas/AgentSessionEvent"
-        nextCursor:
-          type: integer
-          format: int64
-        hasMore:
-          type: boolean
-      required:
-        - events
-        - nextCursor
-        - hasMore
-
     ApprovalConfig:
       type: object
       description: "Configuration for a human approval gate on a step"
@@ -13344,14 +13234,8 @@ components:
           type: string
         state:
           $ref: "#/components/schemas/AgentSessionState"
-        modeReason:
-          type: string
         lastError:
           type: string
-        promptSent:
-          type: boolean
-        restartPending:
-          type: boolean
         usage:
           $ref: "#/components/schemas/AgentUsage"
         interactions:
@@ -13413,9 +13297,6 @@ components:
           type: array
           items:
             type: string
-        metadata:
-          type: object
-          additionalProperties: true
         questions:
           type: array
           items:
@@ -13428,8 +13309,6 @@ components:
             type: array
             items:
               type: string
-        applied:
-          type: boolean
         createdAt:
           type: string
         respondedAt:
@@ -13496,9 +13375,6 @@ components:
           type: array
           items:
             type: string
-        data:
-          type: object
-          additionalProperties: true
       required:
         - sequence
         - id

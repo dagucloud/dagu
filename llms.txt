@@ -1633,6 +1633,8 @@ For host subprocess runs, built-in provider adapters resolve binaries through `P
 
 Built-in `provider: opencode` steps use a managed OpenCode server session by default when they run directly on a long-lived Dagu server, embedded engine, or distributed worker. The run page shows the agent timeline and lets an operator answer permission requests and questions. A waiting answer suspends the step durably; Dagu resumes the same OpenCode session on the host that owns it. The final assistant text becomes step stdout.
 
+Managed mode starts one host-level OpenCode server, so the `opencode` executable must be installed in the Dagu server or worker process's `PATH`. A DAG-level `tools:` declaration affects step subprocesses and does not supply this long-lived server. When managed mode is optional, Dagu falls back to the one-shot CLI if the host server cannot start.
+
 Dagu does not add a Dagu MCP entry to OpenCode, edit OpenCode configuration, install plugins, or change provider credentials. Configure MCP separately only when the workflow actually needs it.
 
 Managed options are `agent`, `model`, `variant`, `session`, `fork`, `title`, `share`, `file`, `command`, and `format: default`. Set `managed: false` to force the one-shot CLI. Options outside that set, non-default formats, containers, and direct one-shot Dagu CLI execution fall back to the CLI integration. Set `managed: true` to require managed mode and fail instead of falling back.

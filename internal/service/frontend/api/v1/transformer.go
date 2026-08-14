@@ -544,9 +544,9 @@ func toAgentSession(session *ir.AgentSession) *api.AgentSession {
 		}
 		interactions = append(interactions, api.AgentInteraction{
 			Id: interaction.ID, Kind: api.AgentInteractionKind(interaction.Kind), Status: api.AgentInteractionStatus(interaction.Status),
-			Permission: ptrOf(interaction.Permission), Patterns: ptrOf(interaction.Patterns), Metadata: rawObject(interaction.Metadata),
+			Permission: ptrOf(interaction.Permission), Patterns: ptrOf(interaction.Patterns),
 			Questions: ptrOf(questions), Decision: ptrOf(interaction.Decision), Answers: ptrOf(interaction.Answers),
-			Applied: ptrOf(interaction.Applied), CreatedAt: ptrOf(interaction.CreatedAt), RespondedAt: ptrOf(interaction.RespondedAt),
+			CreatedAt: ptrOf(interaction.CreatedAt), RespondedAt: ptrOf(interaction.RespondedAt),
 			RespondedBy: ptrOf(interaction.RespondedBy), RespondedById: ptrOf(interaction.RespondedByID),
 		})
 	}
@@ -558,8 +558,7 @@ func toAgentSession(session *ir.AgentSession) *api.AgentSession {
 		Provider: session.Provider, SessionId: ptrOf(session.SessionID), Generation: ptrOf(session.Generation),
 		Agent: ptrOf(session.Agent), Model: ptrOf(session.Model), Variant: ptrOf(session.Variant),
 		OwnerWorkerId: ptrOf(session.OwnerWorkerID), State: api.AgentSessionState(session.State),
-		ModeReason: ptrOf(session.ModeReason), LastError: ptrOf(session.LastError), PromptSent: ptrOf(session.PromptSent),
-		RestartPending: ptrOf(session.RestartPending), Interactions: ptrOf(interactions), Events: ptrOf(events),
+		LastError: ptrOf(session.LastError), Interactions: ptrOf(interactions), Events: ptrOf(events),
 		Usage: &api.AgentUsage{
 			InputTokens: ptrOf(session.Usage.InputTokens), OutputTokens: ptrOf(session.Usage.OutputTokens),
 			ReasoningTokens: ptrOf(session.Usage.ReasoningTokens), TotalTokens: ptrOf(session.Usage.TotalTokens), Cost: ptrOf(session.Usage.Cost),
@@ -571,19 +570,8 @@ func toAgentSessionEvent(event ir.AgentSessionEvent) api.AgentSessionEvent {
 	return api.AgentSessionEvent{
 		Sequence: event.Sequence, Id: event.ID, Type: event.Type,
 		Timestamp: ptrOf(event.Timestamp), Role: ptrOf(event.Role), Content: ptrOf(event.Content),
-		Name: ptrOf(event.Name), Status: ptrOf(event.Status), Files: ptrOf(event.Files), Data: rawObject(event.Data),
+		Name: ptrOf(event.Name), Status: ptrOf(event.Status), Files: ptrOf(event.Files),
 	}
-}
-
-func rawObject(data json.RawMessage) *map[string]any {
-	if len(data) == 0 {
-		return nil
-	}
-	var object map[string]any
-	if json.Unmarshal(data, &object) != nil {
-		return nil
-	}
-	return &object
 }
 
 func toPushBackHistory(node *ir.Node) []api.PushBackHistoryEntry {

@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -39,7 +40,6 @@ type openCodeSession struct {
 }
 
 type openCodeEvent struct {
-	ID         string          `json:"id"`
 	Type       string          `json:"type"`
 	Properties json.RawMessage `json:"properties"`
 }
@@ -64,43 +64,41 @@ func (e *harnessExecutor) runManagedOpenCode(
 	if e.agentSession.Generation == 0 {
 		e.agentSession.Generation = 1
 	}
-	if e.agentSession.RestartPending {
+	cleanRestart := e.agentSession.RestartPending
+	if cleanRestart {
 		e.agentSession.SessionID = ""
 		e.agentSession.PromptSent = false
-		e.agentSession.RestartPending = false
 	}
 	e.agentSession.Agent = stringFlag(cfg.flags, "agent")
 	e.agentSession.Model = stringFlag(cfg.flags, "model")
 	e.agentSession.Variant = stringFlag(cfg.flags, "variant")
 	e.agentSession.OwnerWorkerID = runtimeWorkerID(ctx)
 	e.agentSession.State = ir.AgentSessionStarting
-	e.appendAgentEventLocked("lifecycle", "starting", "OpenCode session starting", nil)
+	e.appendAgentEventLocked("lifecycle", "starting", "OpenCode session starting")
 	e.mu.Unlock()
 	e.notifyProgress()
 
-	sessionID, err := e.ensureManagedSession(ctx, client, cfg)
+	sessionID, err := e.ensureManagedSession(ctx, client, cfg, cleanRestart)
 	if err != nil {
-		if errors.Is(err, errManagedSessionUnavailable) {
-			return e.finishManagedUnavailable("The OpenCode session is no longer available")
+		if errors.Is(err, errManagedSessionUnavailable) || (cleanRestart && errors.Is(err, errManagedHostUnavailable)) {
+			return e.finishManagedError(err)
 		}
 		e.failManagedSession(err)
 		return nil, err
 	}
+	e.mu.Lock()
+	e.agentSession.RestartPending = false
+	e.mu.Unlock()
 
 	events, eventErrs, closeEvents, err := client.subscribe(ctx)
 	if err != nil {
-		e.failManagedSession(err)
-		return nil, err
+		return e.finishManagedError(err)
 	}
 	defer closeEvents()
 
 	resumed, err := e.applyManagedInteractionResponses(ctx, client, sessionID)
 	if err != nil {
-		if errors.Is(err, errManagedSessionUnavailable) {
-			return e.finishManagedUnavailable("The OpenCode session is no longer available")
-		}
-		e.failManagedSession(err)
-		return nil, err
+		return e.finishManagedError(err)
 	}
 
 	e.mu.Lock()
@@ -110,8 +108,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	if !resumed && !promptSent {
 		commandErrs, err = e.submitManagedPrompt(ctx, client, cfg, sessionID)
 		if err != nil {
-			e.failManagedSession(err)
-			return nil, err
+			return e.finishManagedError(err)
 		}
 		e.mu.Lock()
 		e.agentSession.PromptSent = true
@@ -145,8 +142,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 		case err, ok := <-commandErrs:
 			commandErrs = nil
 			if ok && err != nil {
-				e.failManagedSession(err)
-				return nil, err
+				return e.finishManagedError(err)
 			}
 			return e.finishManagedSuccess(ctx, client, sessionID)
 		case event, ok := <-events:
@@ -154,11 +150,10 @@ func (e *harnessExecutor) runManagedOpenCode(
 				events = nil
 				continue
 			}
-			matched, busy, eventErr := e.handleManagedEvent(ctx, client, sessionID, event)
+			matched, busy, eventErr := e.handleManagedEvent(sessionID, event)
 			seenBusy = seenBusy || busy
 			if eventErr != nil {
-				e.failManagedSession(eventErr)
-				return nil, eventErr
+				return e.finishManagedError(eventErr)
 			}
 			if matched {
 				return e.finishManagedWaiting("OpenCode needs input")
@@ -169,6 +164,16 @@ func (e *harnessExecutor) runManagedOpenCode(
 		case <-ticker.C:
 			waiting, err := e.reconcileManagedSession(ctx, client, sessionID)
 			if err != nil {
+				if errors.Is(err, errManagedSessionUnavailable) {
+					return e.finishManagedUnavailable("The OpenCode session is no longer available")
+				}
+				if errors.Is(err, errManagedHostUnavailable) {
+					statusFailures++
+					if statusFailures >= 3 {
+						return e.finishManagedUnavailable("The OpenCode server can no longer be reached")
+					}
+					continue
+				}
 				e.failManagedSession(err)
 				return nil, err
 			}
@@ -181,8 +186,12 @@ func (e *harnessExecutor) runManagedOpenCode(
 					return e.finishManagedUnavailable("The OpenCode session is no longer available")
 				}
 				statusFailures++
-				if events == nil && statusFailures >= 3 {
+				if errors.Is(err, errManagedHostUnavailable) && statusFailures >= 3 {
 					return e.finishManagedUnavailable("The OpenCode server can no longer be reached")
+				}
+				if !errors.Is(err, errManagedHostUnavailable) {
+					e.failManagedSession(err)
+					return nil, err
 				}
 				continue
 			}
@@ -199,12 +208,17 @@ func runtimeWorkerID(ctx context.Context) string {
 	return runtime.GetEnv(ctx).WorkerID
 }
 
-func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *openCodeClient, cfg providerConfig) (string, error) {
+func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *openCodeClient, cfg providerConfig, cleanRestart bool) (string, error) {
 	e.mu.Lock()
 	persistedID := e.agentSession.SessionID
 	hasPersistedSession := persistedID != ""
 	e.mu.Unlock()
 	requestedID := stringFlag(cfg.flags, "session")
+	if cleanRestart {
+		persistedID = ""
+		hasPersistedSession = false
+		requestedID = ""
+	}
 	if persistedID == "" {
 		persistedID = requestedID
 	}
@@ -341,13 +355,6 @@ func (e *harnessExecutor) applyManagedInteractionResponses(ctx context.Context, 
 			}
 		}
 		if err != nil {
-			if errors.Is(err, errManagedSessionUnavailable) {
-				e.mu.Lock()
-				e.agentSession.State = ir.AgentSessionUnavailable
-				e.agentSession.LastError = "The pending OpenCode interaction no longer exists"
-				e.mu.Unlock()
-				e.notifyProgress()
-			}
 			return resumed, err
 		}
 		e.mu.Lock()
@@ -363,7 +370,7 @@ func (e *harnessExecutor) applyManagedInteractionResponses(ctx context.Context, 
 	return resumed, nil
 }
 
-func (e *harnessExecutor) handleManagedEvent(ctx context.Context, client *openCodeClient, sessionID string, event openCodeEvent) (waiting, busy bool, err error) {
+func (e *harnessExecutor) handleManagedEvent(sessionID string, event openCodeEvent) (waiting, busy bool, err error) {
 	switch event.Type {
 	case "permission.asked":
 		var request openCodePermissionRequest
@@ -391,20 +398,17 @@ func (e *harnessExecutor) handleManagedEvent(ctx context.Context, client *openCo
 		if eventSessionID(event.Properties) == sessionID {
 			return false, false, fmt.Errorf("OpenCode session failed: %s", compactJSON(event.Properties))
 		}
-	case "todo.updated", "session.diff", "message.part.delta":
-		if eventSessionID(event.Properties) == sessionID {
-			e.appendRawManagedEvent(event)
-		}
-	}
-	if eventSessionID(event.Properties) == sessionID {
-		_ = e.refreshManagedMessages(ctx, client, sessionID)
 	}
 	return false, busy, nil
 }
 
 func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *openCodeClient, sessionID string) (bool, error) {
 	permissions, err := client.permissions(ctx)
-	if err == nil {
+	if err != nil {
+		if isManagedUnavailable(err) {
+			return false, err
+		}
+	} else {
 		for _, request := range permissions {
 			if request.SessionID == sessionID {
 				e.addManagedPermission(request)
@@ -413,7 +417,11 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 		}
 	}
 	questions, err := client.questions(ctx)
-	if err == nil {
+	if err != nil {
+		if isManagedUnavailable(err) {
+			return false, err
+		}
+	} else {
 		for _, request := range questions {
 			if request.SessionID == sessionID {
 				e.addManagedQuestion(request)
@@ -421,7 +429,9 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 			}
 		}
 	}
-	_ = e.refreshManagedMessages(ctx, client, sessionID)
+	if err := e.refreshManagedMessages(ctx, client, sessionID); err != nil && isManagedUnavailable(err) {
+		return false, err
+	}
 	return false, nil
 }
 
@@ -430,7 +440,7 @@ func (e *harnessExecutor) finishManagedWaiting(message string) (*os.File, error)
 	e.agentSession.State = ir.AgentSessionWaiting
 	e.determinedStatus = ir.NodeWaiting
 	e.hasDeterminedStatus = true
-	e.appendAgentEventLocked("lifecycle", "waiting", message, nil)
+	e.appendAgentEventLocked("lifecycle", "waiting", message)
 	e.mu.Unlock()
 	e.notifyProgress()
 	return managedStdout("")
@@ -442,7 +452,7 @@ func (e *harnessExecutor) finishManagedUnavailable(message string) (*os.File, er
 	e.agentSession.LastError = message
 	e.determinedStatus = ir.NodeWaiting
 	e.hasDeterminedStatus = true
-	e.appendAgentEventLocked("lifecycle", "unavailable", message, nil)
+	e.appendAgentEventLocked("lifecycle", "unavailable", message)
 	e.mu.Unlock()
 	e.notifyProgress()
 	return managedStdout("")
@@ -450,7 +460,7 @@ func (e *harnessExecutor) finishManagedUnavailable(message string) (*os.File, er
 
 func (e *harnessExecutor) finishManagedSuccess(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
 	if err := e.refreshManagedMessages(ctx, client, sessionID); err != nil {
-		return e.finishManagedUnavailable("The OpenCode session is no longer available")
+		return e.finishManagedError(err)
 	}
 	e.mu.Lock()
 	final := ""
@@ -463,7 +473,7 @@ func (e *harnessExecutor) finishManagedSuccess(ctx context.Context, client *open
 	e.agentSession.State = ir.AgentSessionSucceeded
 	e.determinedStatus = ir.NodeSucceeded
 	e.hasDeterminedStatus = true
-	e.appendAgentEventLocked("lifecycle", "succeeded", "OpenCode session completed", nil)
+	e.appendAgentEventLocked("lifecycle", "succeeded", "OpenCode session completed")
 	e.mu.Unlock()
 	e.notifyProgress()
 	return managedStdout(final)
@@ -492,16 +502,28 @@ func (e *harnessExecutor) failManagedSession(err error) {
 	if e.agentSession != nil {
 		e.agentSession.State = ir.AgentSessionFailed
 		e.agentSession.LastError = err.Error()
-		e.appendAgentEventLocked("lifecycle", "failed", err.Error(), nil)
+		e.appendAgentEventLocked("lifecycle", "failed", err.Error())
 	}
 	e.mu.Unlock()
 	e.notifyProgress()
 }
 
+func (e *harnessExecutor) finishManagedError(err error) (*os.File, error) {
+	switch {
+	case errors.Is(err, errManagedSessionUnavailable):
+		return e.finishManagedUnavailable("The OpenCode session is no longer available")
+	case errors.Is(err, errManagedHostUnavailable):
+		return e.finishManagedUnavailable("The OpenCode server can no longer be reached")
+	default:
+		e.failManagedSession(err)
+		return nil, err
+	}
+}
+
 func (e *harnessExecutor) setManagedState(state ir.AgentSessionState, status, content string) {
 	e.mu.Lock()
 	e.agentSession.State = state
-	e.appendAgentEventLocked("lifecycle", status, content, nil)
+	e.appendAgentEventLocked("lifecycle", status, content)
 	e.mu.Unlock()
 	e.notifyProgress()
 }
@@ -515,7 +537,7 @@ func (e *harnessExecutor) notifyProgress() {
 	}
 }
 
-func (e *harnessExecutor) appendAgentEventLocked(eventType, status, content string, data json.RawMessage) {
+func (e *harnessExecutor) appendAgentEventLocked(eventType, status, content string) {
 	if e.agentSession == nil {
 		return
 	}
@@ -529,35 +551,11 @@ func (e *harnessExecutor) appendAgentEventLocked(eventType, status, content stri
 		Type:      eventType,
 		Status:    status,
 		Content:   content,
-		Data:      append(json.RawMessage(nil), data...),
 		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 	})
 	if len(e.agentSession.Events) > maxManagedAgentEvents {
 		e.agentSession.Events = append([]ir.AgentSessionEvent(nil), e.agentSession.Events[len(e.agentSession.Events)-maxManagedAgentEvents:]...)
 	}
-}
-
-func (e *harnessExecutor) appendRawManagedEvent(event openCodeEvent) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if event.ID != "" {
-		for _, existing := range e.agentSession.Events {
-			if existing.ID == event.ID {
-				return
-			}
-		}
-	}
-	sequence := int64(1)
-	if count := len(e.agentSession.Events); count > 0 {
-		sequence = e.agentSession.Events[count-1].Sequence + 1
-	}
-	if event.ID == "" {
-		event.ID = fmt.Sprintf("opencode-%d-%d", e.agentSession.Generation, sequence)
-	}
-	e.agentSession.Events = append(e.agentSession.Events, ir.AgentSessionEvent{
-		Sequence: sequence, ID: event.ID, Type: event.Type,
-		Data: append(json.RawMessage(nil), event.Properties...), Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-	})
 }
 
 func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *openCodeClient, sessionID string) error {
@@ -567,16 +565,21 @@ func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *op
 	}
 	chat, events, usage := normalizeOpenCodeMessages(messages)
 	e.mu.Lock()
+	changed := !reflect.DeepEqual(e.savedMessages, chat) || e.agentSession.Usage != usage
 	e.savedMessages = chat
+	eventIndexes := make(map[string]int, len(e.agentSession.Events))
+	for i := range e.agentSession.Events {
+		eventIndexes[e.agentSession.Events[i].ID] = i
+	}
 	for _, event := range events {
-		found := false
-		for _, existing := range e.agentSession.Events {
-			if existing.ID == event.ID {
-				found = true
-				break
+		if i, ok := eventIndexes[event.ID]; ok {
+			existing := e.agentSession.Events[i]
+			event.Sequence = existing.Sequence
+			event.Timestamp = existing.Timestamp
+			if !reflect.DeepEqual(existing, event) {
+				e.agentSession.Events[i] = event
+				changed = true
 			}
-		}
-		if found {
 			continue
 		}
 		event.Sequence = int64(1)
@@ -584,13 +587,18 @@ func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *op
 			event.Sequence = e.agentSession.Events[count-1].Sequence + 1
 		}
 		e.agentSession.Events = append(e.agentSession.Events, event)
+		eventIndexes[event.ID] = len(e.agentSession.Events) - 1
+		changed = true
 	}
 	e.agentSession.Usage = usage
 	if len(e.agentSession.Events) > maxManagedAgentEvents {
 		e.agentSession.Events = append([]ir.AgentSessionEvent(nil), e.agentSession.Events[len(e.agentSession.Events)-maxManagedAgentEvents:]...)
+		changed = true
 	}
 	e.mu.Unlock()
-	e.notifyProgress()
+	if changed {
+		e.notifyProgress()
+	}
 	return nil
 }
 
@@ -614,7 +622,7 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 			}
 			partType, _ := part["type"].(string)
 			partID, _ := part["id"].(string)
-			event := ir.AgentSessionEvent{ID: partID, Type: partType, Role: role, Timestamp: time.Now().UTC().Format(time.RFC3339Nano), Data: append(json.RawMessage(nil), raw...)}
+			event := ir.AgentSessionEvent{ID: partID, Type: partType, Role: role, Timestamp: time.Now().UTC().Format(time.RFC3339Nano)}
 			switch partType {
 			case "text":
 				event.Content, _ = part["text"].(string)
@@ -683,11 +691,10 @@ func number(value any) float64 {
 }
 
 type openCodePermissionRequest struct {
-	ID         string          `json:"id"`
-	SessionID  string          `json:"sessionID"`
-	Permission string          `json:"permission"`
-	Patterns   []string        `json:"patterns"`
-	Metadata   json.RawMessage `json:"metadata"`
+	ID         string   `json:"id"`
+	SessionID  string   `json:"sessionID"`
+	Permission string   `json:"permission"`
+	Patterns   []string `json:"patterns"`
 }
 
 type openCodeQuestionRequest struct {
@@ -708,7 +715,7 @@ type openCodeQuestionRequest struct {
 func (e *harnessExecutor) addManagedPermission(request openCodePermissionRequest) {
 	interaction := ir.AgentInteraction{
 		ID: request.ID, Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
-		Permission: request.Permission, Patterns: request.Patterns, Metadata: request.Metadata,
+		Permission: request.Permission, Patterns: request.Patterns,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	e.addManagedInteraction(interaction)
@@ -738,8 +745,7 @@ func (e *harnessExecutor) addManagedInteraction(interaction ir.AgentInteraction)
 		}
 	}
 	e.agentSession.Interactions = append(e.agentSession.Interactions, interaction)
-	raw, _ := json.Marshal(interaction)
-	e.appendAgentEventLocked("interaction", "pending", "OpenCode needs input", raw)
+	e.appendAgentEventLocked("interaction", "pending", "OpenCode needs input")
 	e.mu.Unlock()
 	e.notifyProgress()
 }
@@ -770,7 +776,14 @@ func eventSessionID(raw json.RawMessage) string {
 	return value.SessionID
 }
 
-var errManagedSessionUnavailable = errors.New("managed OpenCode session is unavailable")
+var (
+	errManagedHostUnavailable    = errors.New("managed OpenCode host is unavailable")
+	errManagedSessionUnavailable = errors.New("managed OpenCode session is unavailable")
+)
+
+func isManagedUnavailable(err error) bool {
+	return errors.Is(err, errManagedHostUnavailable) || errors.Is(err, errManagedSessionUnavailable)
+}
 
 func (c *openCodeClient) endpoint(path string) string {
 	query := url.Values{}
@@ -795,7 +808,14 @@ func (c *openCodeClient) request(ctx context.Context, method, path string, body 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	return c.http.Do(req)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("%w: %v", errManagedHostUnavailable, err)
+	}
+	return resp, nil
 }
 
 func (c *openCodeClient) json(ctx context.Context, method, path string, body, target any) error {

@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/stretchr/testify/assert"
@@ -105,6 +108,107 @@ func TestNormalizeOpenCodeMessages(t *testing.T) {
 	assert.Len(t, events, 3)
 	assert.Equal(t, int64(23), usage.TotalTokens)
 	assert.Equal(t, 0.25, usage.Cost)
+}
+
+func TestManagedOpenCodeCleanRestartCreatesNewSession(t *testing.T) {
+	t.Parallel()
+
+	requestedPath := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath <- r.Method + " " + r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"session-new"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	exec := &harnessExecutor{
+		workDir:      t.TempDir(),
+		agentSession: &ir.AgentSession{SessionID: "session-old", RestartPending: true},
+	}
+	client := &openCodeClient{
+		host:      opencodehost.Config{URL: server.URL, Password: "test"},
+		directory: exec.workDir,
+		http:      server.Client(),
+	}
+
+	sessionID, err := exec.ensureManagedSession(t.Context(), client, providerConfig{
+		flags: map[string]any{"session": "session-configured", "fork": true},
+	}, true)
+
+	require.NoError(t, err)
+	assert.Equal(t, "session-new", sessionID)
+	assert.Equal(t, "POST /session", <-requestedPath)
+}
+
+func TestManagedOpenCodeTransportLossWaitsForRestart(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/session":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"session-1"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/event":
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/prompt_async":
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{})
+	stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, opencodehost.Config{
+		URL: server.URL, Password: "test",
+	})
+
+	require.NoError(t, err)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	require.NotNil(t, exec.agentSession)
+	assert.Equal(t, ir.AgentSessionUnavailable, exec.agentSession.State)
+	status, err := exec.DetermineNodeStatus()
+	require.NoError(t, err)
+	assert.Equal(t, ir.NodeWaiting, status)
+}
+
+func TestManagedOpenCodeRefreshUpdatesTimeline(t *testing.T) {
+	t.Parallel()
+
+	responses := make(chan string, 3)
+	responses <- `[{"info":{"role":"assistant","id":"message-1"},"parts":[{"id":"part-1","type":"text","text":"Working"}]}]`
+	responses <- `[{"info":{"role":"assistant","id":"message-1"},"parts":[{"id":"part-1","type":"text","text":"Done"}]}]`
+	responses <- `[{"info":{"role":"assistant","id":"message-1"},"parts":[{"id":"part-1","type":"text","text":"Done"}]}]`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, <-responses)
+	}))
+	t.Cleanup(server.Close)
+
+	progressUpdates := 0
+	exec := &harnessExecutor{
+		agentSession:     &ir.AgentSession{},
+		progressCallback: func() { progressUpdates++ },
+	}
+	client := &openCodeClient{
+		host: opencodehost.Config{URL: server.URL, Password: "test"},
+		http: server.Client(),
+	}
+
+	require.NoError(t, exec.refreshManagedMessages(t.Context(), client, "session-1"))
+	require.NoError(t, exec.refreshManagedMessages(t.Context(), client, "session-1"))
+	require.NoError(t, exec.refreshManagedMessages(t.Context(), client, "session-1"))
+
+	require.Len(t, exec.agentSession.Events, 1)
+	assert.Equal(t, "Done", exec.agentSession.Events[0].Content)
+	assert.Equal(t, 2, progressUpdates)
 }
 
 func TestHarnessExecutorPushBackContextAugmentsPromptWithLogPath(t *testing.T) {

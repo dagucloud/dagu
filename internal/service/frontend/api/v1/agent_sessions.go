@@ -23,32 +23,6 @@ type agentSessionActionError struct {
 
 func (e *agentSessionActionError) Error() string { return e.message }
 
-// ListDAGRunStepAgentEvents returns normalized managed-agent events after a cursor.
-func (a *API) ListDAGRunStepAgentEvents(ctx context.Context, request api.ListDAGRunStepAgentEventsRequestObject) (api.ListDAGRunStepAgentEventsResponseObject, error) {
-	_, status, _, err := a.loadAgentStatus(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), "")
-	if err != nil {
-		return &api.ListDAGRunStepAgentEvents404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
-	}
-	response, err := agentEventsResponse(status, request.StepName, request.Params.After, request.Params.Limit)
-	if err != nil {
-		return &api.ListDAGRunStepAgentEvents404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
-	}
-	return (*api.ListDAGRunStepAgentEvents200JSONResponse)(&response), nil
-}
-
-// ListSubDAGRunStepAgentEvents returns normalized managed-agent events for a sub DAG-run.
-func (a *API) ListSubDAGRunStepAgentEvents(ctx context.Context, request api.ListSubDAGRunStepAgentEventsRequestObject) (api.ListSubDAGRunStepAgentEventsResponseObject, error) {
-	_, status, _, err := a.loadAgentStatus(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), request.SubDAGRunId)
-	if err != nil {
-		return &api.ListSubDAGRunStepAgentEvents404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
-	}
-	response, err := agentEventsResponse(status, request.StepName, request.Params.After, request.Params.Limit)
-	if err != nil {
-		return &api.ListSubDAGRunStepAgentEvents404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
-	}
-	return (*api.ListSubDAGRunStepAgentEvents200JSONResponse)(&response), nil
-}
-
 // RespondDAGRunStepAgentInteraction records an answer and resumes the managed session.
 func (a *API) RespondDAGRunStepAgentInteraction(ctx context.Context, request api.RespondDAGRunStepAgentInteractionRequestObject) (api.RespondDAGRunStepAgentInteractionResponseObject, error) {
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
@@ -143,35 +117,6 @@ func (a *API) loadAgentStatus(ctx context.Context, root ir.DAGRunRef, subDAGRunI
 		return ir.DAGRunRef{}, nil, nil, err
 	}
 	return mutationRef, status, attempt, nil
-}
-
-func agentEventsResponse(status *ir.DAGRunStatus, stepName string, after *int64, limit *int) (api.AgentEventsResponse, error) {
-	node, err := agentSessionNode(status, stepName)
-	if err != nil {
-		return api.AgentEventsResponse{}, err
-	}
-	cursor := int64(0)
-	if after != nil {
-		cursor = *after
-	}
-	pageSize := 100
-	if limit != nil {
-		pageSize = *limit
-	}
-	events := make([]api.AgentSessionEvent, 0, pageSize)
-	hasMore := false
-	for _, event := range node.AgentSession.Events {
-		if event.Sequence <= cursor {
-			continue
-		}
-		if len(events) == pageSize {
-			hasMore = true
-			break
-		}
-		events = append(events, toAgentSessionEvent(event))
-		cursor = event.Sequence
-	}
-	return api.AgentEventsResponse{Events: events, NextCursor: cursor, HasMore: hasMore}, nil
 }
 
 func (a *API) respondAgentInteraction(ctx context.Context, root ir.DAGRunRef, subDAGRunID, stepName, interactionID string, body *api.AgentInteractionResponseRequest) (api.AgentInteractionResponse, error) {
