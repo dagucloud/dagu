@@ -6,6 +6,7 @@ package ssh
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"strings"
@@ -865,22 +866,23 @@ func TestExecutorCancellationInterruptsSSHHandshake(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Run("ContextDeadline", func(t *testing.T) {
+			t.Run("ContextCancellation", func(t *testing.T) {
 				addr, accepted := startBlackholeSSHServer(t)
 				exec := tt.newExec(newBlackholeSSHClient(addr))
-				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
 				errCh := make(chan error, 1)
 				go func() { errCh <- exec.Run(ctx) }()
 				conn := receiveAcceptedConnection(t, accepted)
+				cancel()
 				assertConnectionCloses(t, conn)
 
 				select {
 				case err := <-errCh:
-					require.ErrorIs(t, err, context.DeadlineExceeded)
+					require.ErrorIs(t, err, context.Canceled)
 				case <-time.After(2 * time.Second):
-					t.Fatal("executor did not return after context deadline")
+					t.Fatal("executor did not return after context cancellation")
 				}
 			})
 
@@ -904,6 +906,36 @@ func TestExecutorCancellationInterruptsSSHHandshake(t *testing.T) {
 			})
 		})
 	}
+}
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error {
+	return f()
+}
+
+func TestExecutorLifecycleForcedShutdown(t *testing.T) {
+	t.Parallel()
+
+	var events []string
+	unexpectedErr := errors.New("unexpected close error")
+	lifecycle := executorLifecycle{
+		cancel: func() { events = append(events, "cancel") },
+		transport: closerFunc(func() error {
+			events = append(events, "transport")
+			return errors.Join(net.ErrClosed, unexpectedErr)
+		}),
+		resource: closerFunc(func() error {
+			events = append(events, "resource")
+			return io.EOF
+		}),
+	}
+
+	err := lifecycle.shutdown(true)
+	assert.Equal(t, []string{"cancel", "transport", "resource"}, events)
+	require.ErrorIs(t, err, unexpectedErr)
+	require.NotErrorIs(t, err, net.ErrClosed)
+	require.NotErrorIs(t, err, io.EOF)
 }
 
 func startBlackholeSSHServer(t *testing.T) (string, <-chan net.Conn) {
