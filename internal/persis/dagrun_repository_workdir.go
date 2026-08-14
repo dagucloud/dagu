@@ -46,6 +46,7 @@ func normalizeWorkDirRef(ref dagrun.WorkDirRef) (dagrun.WorkDirRef, error) {
 	if ref.DAGRun.ID == "" {
 		return dagrun.WorkDirRef{}, dagrun.ErrDAGRunIDEmpty
 	}
+	isRoot := ref.RootDAGRun.Zero() || ref.RootDAGRun == ref.DAGRun
 	if ref.RootDAGRun.Zero() {
 		ref.RootDAGRun = ref.DAGRun
 	}
@@ -58,7 +59,7 @@ func normalizeWorkDirRef(ref dagrun.WorkDirRef) (dagrun.WorkDirRef, error) {
 			ref.DAGRun.ID,
 		)
 	}
-	if ref.DAGRun.Name == "" && ref.DAGRun.ID == ref.RootDAGRun.ID {
+	if isRoot && ref.DAGRun.Name == "" {
 		ref.DAGRun.Name = ref.RootDAGRun.Name
 	}
 	return ref, nil

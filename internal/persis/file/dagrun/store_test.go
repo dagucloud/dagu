@@ -90,7 +90,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	require.NoError(t, childAttempt.Close(ctx))
 
 	runDir := filepath.Join(baseDir, "compat-dag", "dag-runs", "2026", "05", "27", "dag-run_20260527_010203Z_run-compat")
-	rootWorkDir := filepath.Join(workRoot, "compat-dag", runIDHash(rootRef.ID))
+	rootWorkDir := filepath.Join(workRoot, "compat-dag", workDirName(rootRef.ID))
 	attemptDir := filepath.Join(runDir, "a_20260527_010203_456Z_attempt-compat")
 	statusFile := filepath.Join(attemptDir, JSONLStatusFile)
 	assert.Equal(t, statusFile, parentAttempt.(*Attempt).file)
@@ -107,20 +107,36 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	require.DirExists(t, childAttemptDir)
 	require.FileExists(t, filepath.Join(childAttemptDir, JSONLStatusFile))
 	require.FileExists(t, filepath.Join(childAttemptDir, DAGDefinition))
-	assert.Equal(t, filepath.Join(rootWorkDir, runIDHash("child-run")), childWorkDir)
+	assert.Equal(t, filepath.Join(rootWorkDir, workDirName("child-run")), childWorkDir)
 	require.DirExists(t, childWorkDir)
 
-	_, err = repository.CreateAttempt(ctx, &ir.DAG{Name: "child-with-shared-id"}, childTS, rootRef.ID, persis.DAGRunCreateAttemptOptions{
+	sharedIDChildDAG := &ir.DAG{Name: "child-with-shared-id"}
+	sharedIDChildAttempt, err := repository.CreateAttempt(ctx, sharedIDChildDAG, childTS, rootRef.ID, persis.DAGRunCreateAttemptOptions{
 		RootDAGRun: rootRef,
 		AttemptID:  "shared-id-child-attempt",
 	})
 	require.NoError(t, err)
+	require.NoError(t, sharedIDChildAttempt.Open(ctx))
+	sharedIDChildStatus := ir.InitialStatus(sharedIDChildDAG)
+	sharedIDChildStatus.Root = rootRef
+	sharedIDChildStatus.DAGRunID = rootRef.ID
+	sharedIDChildStatus.AttemptID = sharedIDChildAttempt.ID()
+	sharedIDChildStatus.Status = ir.Succeeded
+	require.NoError(t, sharedIDChildAttempt.Write(ctx, sharedIDChildStatus))
+	require.NoError(t, sharedIDChildAttempt.Close(ctx))
 	sharedIDChildWorkDir, err := repository.MaterializeWorkDir(ctx, dagrun.WorkDirRef{
 		RootDAGRun: rootRef,
-		DAGRun:     ir.NewDAGRunRef("child-with-shared-id", rootRef.ID),
+		DAGRun:     ir.NewDAGRunRef(sharedIDChildDAG.Name, rootRef.ID),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(rootWorkDir, runIDHash(rootRef.ID)), sharedIDChildWorkDir)
+	assert.Equal(t, filepath.Join(rootWorkDir, workDirName(rootRef.ID)), sharedIDChildWorkDir)
+
+	runStateStore := persis.NewRunStateStore(repository, nil)
+	sharedIDChild, err := runStateStore.OpenChildAttempt(ctx, rootRef, rootRef.ID)
+	require.NoError(t, err)
+	openedSharedIDChildWorkDir, err := sharedIDChild.MaterializeWorkDir(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, sharedIDChildWorkDir, openedSharedIDChildWorkDir)
 
 	assert.NoDirExists(t, filepath.Join(baseDir, "dag_runs"))
 	assert.NoDirExists(t, filepath.Join(baseDir, "dagruns"))
@@ -172,8 +188,8 @@ func TestWorkDirStoreUsesSeparateRoot(t *testing.T) {
 		{RootDAGRun: rootRef, DAGRun: ir.DAGRunRef{ID: "../../child-run"}},
 	}
 	expected := []string{
-		filepath.Join(workRoot, "daily", runIDHash("../root-run"), "root"),
-		filepath.Join(workRoot, "daily", runIDHash("../root-run"), runIDHash("../../child-run")),
+		filepath.Join(workRoot, "daily", workDirName("../root-run"), "root"),
+		filepath.Join(workRoot, "daily", workDirName("../root-run"), workDirName("../../child-run")),
 	}
 	workDirs := make([]string, len(refs))
 	for i, ref := range refs {

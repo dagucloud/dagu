@@ -940,6 +940,10 @@ paths:
 
 Processes sharing DAG runs must use the same work root.
 
+Backups that select individual data subdirectories must include both `paths.dag_runs_dir` and `paths.dag_run_work_dir`. A backup of the complete `paths.data_dir` includes both default locations. The Helm chart's default `/data/dag-run-work` path uses its existing `/data` volume and does not need an additional volume.
+
+When upgrading a deployment whose processes share a durable work root, do not let old and new Dagu versions execute the same run concurrently: drain or stop the processes, upgrade them together, and then resume execution. Mixed-version processes can otherwise choose the old nested directory and the new separate directory for one run.
+
 Recursive discovery can also be enabled in `config.yaml`:
 
 ```yaml

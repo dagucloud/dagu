@@ -67,7 +67,7 @@ func (*WorkDirStore) Snapshot(context.Context, dagrun.WorkDirRef, string) error 
 func (s *WorkDirStore) Remove(_ context.Context, ref dagrun.WorkDirRef) error {
 	dir := s.workDir(ref)
 	if ref.DAGRun == ref.RootDAGRun {
-		dir = filepath.Dir(dir)
+		dir = s.runTree(ref)
 	}
 	if err := fileutil.RemoveAll(dir); err != nil {
 		return fmt.Errorf("remove work directory %s: %w", dir, err)
@@ -76,11 +76,15 @@ func (s *WorkDirStore) Remove(_ context.Context, ref dagrun.WorkDirRef) error {
 }
 
 func (s *WorkDirStore) workDir(ref dagrun.WorkDirRef) string {
-	rootDir := filepath.Join(s.rootDir, dagDirName(ref.RootDAGRun.Name), runIDHash(ref.RootDAGRun.ID))
+	rootDir := s.runTree(ref)
 	if ref.DAGRun == ref.RootDAGRun {
 		return filepath.Join(rootDir, "root")
 	}
-	return filepath.Join(rootDir, runIDHash(ref.DAGRun.ID))
+	return filepath.Join(rootDir, workDirName(ref.DAGRun.ID))
+}
+
+func (s *WorkDirStore) runTree(ref dagrun.WorkDirRef) string {
+	return filepath.Join(s.rootDir, dagDirName(ref.RootDAGRun.Name), workDirName(ref.RootDAGRun.ID))
 }
 
 func (s *WorkDirStore) legacyWorkDir(ctx context.Context, ref dagrun.WorkDirRef) (string, error) {
@@ -106,12 +110,16 @@ func workDirForDAGRunDir(dagRunDir string) string {
 }
 
 func subDAGWorkDirName(childRunID string) string {
-	return SubDAGWorkDirPrefix + runIDHash(childRunID)
+	return SubDAGWorkDirPrefix + encodedRunID(childRunID, 8)
 }
 
-func runIDHash(runID string) string {
+func workDirName(runID string) string {
+	return encodedRunID(runID, 16)
+}
+
+func encodedRunID(runID string, size int) string {
 	sum := sha256.Sum256([]byte(runID))
-	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:8]))
+	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:size]))
 }
 
 func directoryExists(path string) (bool, error) {

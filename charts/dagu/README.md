@@ -74,6 +74,8 @@ For chart publication and repository maintenance, see [`RELEASING.md`](https://g
 
 Standalone mode runs `dagu start-all` in one Deployment. The pod provides the UI, API, scheduler, queues, and local workflow execution. It uses a regular `ReadWriteOnce` PVC and a `Recreate` deployment strategy so upgrades do not contend for the same volume.
 
+The default per-run work root, `/data/dag-run-work`, uses that PVC; no additional volume is required. Backups that select individual `/data` subdirectories must include both `dag-runs` and `dag-run-work`.
+
 This is the recommended mode for evaluating Dagu and for small or medium installations that do not need independent worker pools.
 
 ### Distributed
@@ -98,6 +100,8 @@ coordinator:
 Coordinator replicas must share the same `ReadWriteMany` volume. The durable lease on that volume authorizes owner-bound worker traffic, so another replica can continue an active run even when its process ID or network endpoint differs from the original owner. No cluster ID setting is required: the shared data root is the ownership boundary. The chart configures the shared volume and stable coordinator Service automatically.
 
 Upgrades replace one coordinator at a time without creating surge replicas. With two or more replicas, at least one coordinator remains available throughout the rollout; with one replica, the replacement causes a brief coordinator outage. During the first upgrade from a version that fenced traffic by process ID, an older pod may temporarily reject traffic for work accepted by a newer pod. Workers retry final status, log, and artifact delivery through the available replicas during that mixed-version window.
+
+Worker pools use their existing ephemeral `/data` volumes for per-run work, so the separate work root requires no additional volume. Custom deployments that instead share a durable work root across execution processes must drain those processes before upgrading from the nested work-directory layout. Old and new versions must not execute the same run concurrently during that transition.
 
 Install with those values:
 
