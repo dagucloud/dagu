@@ -9,6 +9,7 @@ import {
   components,
   NodeStatus,
   NodeStatusLabel,
+  RepeatMode,
   Status,
   StatusLabel,
 } from '@/api/v1/schema';
@@ -40,6 +41,7 @@ const appBarValue = {
   selectedRemoteNode: 'remote-a',
   selectRemoteNode: vi.fn(),
 };
+const repeatPolicy = { repeat: RepeatMode.While };
 
 function node(overrides: Partial<Node> = {}): Node {
   const { step: stepOverrides, ...nodeOverrides } = overrides;
@@ -252,7 +254,7 @@ describe('TimelineChart', () => {
             finishedAt: '2026-01-01T00:00:20Z',
           }),
           node({
-            step: { name: 'repeat-child', call: 'child-dag' },
+            step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
             startedAt: '2026-01-01T00:00:30Z',
             finishedAt: '2026-01-01T00:00:50Z',
             subRunsRepeated: [subRun('repeat-run-1')],
@@ -295,7 +297,7 @@ describe('TimelineChart', () => {
       dagRun({
         nodes: [
           node({
-            step: { name: 'repeat-child', call: 'child-dag' },
+            step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
             subRunsRepeated: [subRun('repeat-run-1'), subRun('repeat-run-2')],
             subRuns: [subRun('repeat-run-3')],
           }),
@@ -334,7 +336,9 @@ describe('TimelineChart', () => {
       { onOpenSubRun }
     );
 
-    const bar = screen.getByTestId('timeline-bar-subdag:parallel-call:child-run-1');
+    const bar = screen.getByTestId(
+      'timeline-bar-subdag:parallel-call:child-run-1'
+    );
     expect(bar).toHaveAttribute('role', 'button');
     expect(bar).toHaveAttribute('tabIndex', '0');
     expect(bar).toHaveAccessibleName('Open child-dag run child-run-1');
@@ -351,10 +355,7 @@ describe('TimelineChart', () => {
     const onOpenSubRun = vi.fn();
     useQueryMock.mockReturnValue({
       data: {
-        subRuns: [
-          subRunDetail('repeat-run-1'),
-          subRunDetail('repeat-run-2'),
-        ],
+        subRuns: [subRunDetail('repeat-run-1'), subRunDetail('repeat-run-2')],
       },
       mutate: vi.fn(),
     });
@@ -363,7 +364,7 @@ describe('TimelineChart', () => {
       dagRun({
         nodes: [
           node({
-            step: { name: 'repeat-child', call: 'child-dag' },
+            step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
             subRunsRepeated: [subRun('repeat-run-1')],
             subRuns: [subRun('repeat-run-2')],
           }),
@@ -389,10 +390,7 @@ describe('TimelineChart', () => {
     const onOpenSubRun = vi.fn();
     useQueryMock.mockReturnValue({
       data: {
-        subRuns: [
-          subRunDetail('repeat-run-1'),
-          subRunDetail('repeat-run-2'),
-        ],
+        subRuns: [subRunDetail('repeat-run-1'), subRunDetail('repeat-run-2')],
       },
       mutate: vi.fn(),
     });
@@ -401,7 +399,7 @@ describe('TimelineChart', () => {
       dagRun({
         nodes: [
           node({
-            step: { name: 'repeat-child', call: 'child-dag' },
+            step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
             subRunsRepeated: [subRun('repeat-run-1')],
             subRuns: [subRun('repeat-run-2')],
           }),
@@ -443,10 +441,7 @@ describe('TimelineChart', () => {
     const onOpenSubRun = vi.fn();
     useQueryMock.mockReturnValue({
       data: {
-        subRuns: [
-          subRunDetail('repeat-run-1'),
-          subRunDetail('repeat-run-2'),
-        ],
+        subRuns: [subRunDetail('repeat-run-1'), subRunDetail('repeat-run-2')],
       },
       mutate: vi.fn(),
     });
@@ -455,7 +450,7 @@ describe('TimelineChart', () => {
       dagRun({
         nodes: [
           node({
-            step: { name: 'repeat-child', call: 'child-dag' },
+            step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
             subRunsRepeated: [subRun('repeat-run-1')],
             subRuns: [subRun('repeat-run-2')],
           }),
@@ -486,7 +481,7 @@ describe('TimelineChart', () => {
       dagRun({
         nodes: [
           node({
-            step: { name: 'repeat-child', call: 'child-dag' },
+            step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
             subRunsRepeated: [subRun('repeat-run-1')],
           }),
         ],

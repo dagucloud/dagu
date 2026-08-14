@@ -443,6 +443,17 @@ function DAGHistoryTable({
                 onClickStep={onInspectStepOnGraph}
                 onSelectStep={onSelectStepOnGraph}
                 onRightClickStep={onRightClickStepOnGraph}
+                onOpenSubRun={({ dagRunId }) =>
+                  navigate(
+                    buildDAGPageURL({
+                      fileName,
+                      remoteNode,
+                      rootDAGRunId: selectedDAGRun.rootDAGRunId,
+                      rootDAGRunName: selectedDAGRun.rootDAGRunName,
+                      subDAGRunId: dagRunId,
+                    })
+                  )
+                }
               />
 
               <div className="bg-surface border border-border rounded-lg p-4">

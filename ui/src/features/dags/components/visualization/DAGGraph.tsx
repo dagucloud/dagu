@@ -20,6 +20,7 @@ import { useCookies } from 'react-cookie';
 import { components } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import BorderedBox from '@/components/ui/bordered-box';
+import type { SubRunStackEntry } from '../common';
 import { FlowchartType, Graph, TimelineChart } from './';
 
 /**
@@ -34,6 +35,8 @@ type Props = {
   onSelectStep?: (id: string) => void;
   /** Callback for when a step is right-clicked in the graph */
   onRightClickStep?: (id: string) => void;
+  /** Callback for opening a child DAG-run from the timeline */
+  onOpenSubRun?: (entry: SubRunStackEntry) => void;
 };
 
 /**
@@ -45,6 +48,7 @@ function DAGGraph({
   onClickStep,
   onSelectStep,
   onRightClickStep,
+  onOpenSubRun,
 }: Props) {
   // Active tab state (0 = Graph, 1 = Timeline)
   const [sub, setSub] = React.useState('0');
@@ -152,7 +156,7 @@ function DAGGraph({
               height={graphHeight}
             />
           ) : (
-            <TimelineChart status={dagRun} />
+            <TimelineChart status={dagRun} onOpenSubRun={onOpenSubRun} />
           )}
         </div>
         {sub === '0' && (

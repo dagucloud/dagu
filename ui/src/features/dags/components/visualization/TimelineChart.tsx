@@ -286,8 +286,7 @@ const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
     },
     ref
   ) {
-    const canOpen =
-      item.kind === 'subdag' && !!openSubRun && !!item.dagRunId;
+    const canOpen = item.kind === 'subdag' && !!openSubRun && !!item.dagRunId;
     const openName = item.dagName || item.parentStepName || item.label;
 
     function handleClick(event: React.MouseEvent<HTMLDivElement>) {
@@ -514,7 +513,7 @@ function TimelineChart({ status, onOpenSubRun }: Props) {
                     widthPercent={widthPercent}
                     colors={colors}
                     isActive={isActive}
-                    openSubRun={openSubRun}
+                    openSubRun={openSubRun ?? undefined}
                   />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs">

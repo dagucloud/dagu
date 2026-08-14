@@ -6,6 +6,7 @@ import {
   components,
   NodeStatus,
   NodeStatusLabel,
+  RepeatMode,
   Status,
   StatusLabel,
 } from '@/api/v1/schema';
@@ -21,6 +22,7 @@ type SubDAGRun = components['schemas']['SubDAGRun'];
 type SubDAGRunDetail = components['schemas']['SubDAGRunDetail'];
 
 const nowMs = Date.parse('2026-01-01T00:02:00Z');
+const repeatPolicy = { repeat: RepeatMode.While };
 
 function node(overrides: Partial<Node> = {}): Node {
   const { step: stepOverrides, ...nodeOverrides } = overrides;
@@ -149,11 +151,34 @@ describe('timelineItems', () => {
     ).toEqual(['step']);
   });
 
+  it('expands the first repeat-policy child before any run is archived', () => {
+    const run = dagRun({
+      nodes: [
+        node({
+          step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
+          subRuns: [subRun('repeat-run-1')],
+        }),
+      ],
+    });
+
+    expect(hasTimelineSubRuns(run)).toBe(true);
+    expect(
+      buildTimelineRows({
+        dagRun: run,
+        subRunDetails: [subRunDetail('repeat-run-1')],
+        nowMs,
+      }).map((row) => [row.kind, row.label, row.dagRunId])
+    ).toEqual([
+      ['step', 'repeat-child', undefined],
+      ['subdag', '#01', 'repeat-run-1'],
+    ]);
+  });
+
   it('expands repeat-policy children in archive-then-current order with numbered labels', () => {
     const run = dagRun({
       nodes: [
         node({
-          step: { name: 'repeat-child', call: 'child-dag' },
+          step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
           subRunsRepeated: [subRun('repeat-run-1'), subRun('repeat-run-2')],
           subRuns: [subRun('repeat-run-3')],
         }),
@@ -221,7 +246,10 @@ describe('timelineItems', () => {
           },
           subRuns: [subRun('parallel-run-1'), subRun('parallel-run-2')],
           // Archived parallel batches must not appear on the timeline.
-          subRunsRepeated: [subRun('archived-batch-1'), subRun('archived-batch-2')],
+          subRunsRepeated: [
+            subRun('archived-batch-1'),
+            subRun('archived-batch-2'),
+          ],
         }),
       ],
     });
@@ -266,7 +294,7 @@ describe('timelineItems', () => {
           subRuns: [subRun('parallel-run-1'), subRun('parallel-run-2')],
         }),
         node({
-          step: { name: 'repeat-child', call: 'child-dag' },
+          step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
           startedAt: '2026-01-01T00:00:30Z',
           finishedAt: '2026-01-01T00:00:50Z',
           subRunsRepeated: [subRun('repeat-run-1')],
@@ -304,7 +332,7 @@ describe('timelineItems', () => {
     const run = dagRun({
       nodes: [
         node({
-          step: { name: 'repeat-child', call: 'child-dag' },
+          step: { name: 'repeat-child', call: 'child-dag', repeatPolicy },
           subRunsRepeated: [subRun('repeat-run-1')],
           subRuns: [subRun('repeat-run-2')],
         }),
