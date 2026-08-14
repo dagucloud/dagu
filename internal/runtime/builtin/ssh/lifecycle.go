@@ -23,7 +23,7 @@ func (l *executorLifecycle) begin(ctx context.Context) (context.Context, bool) {
 	runCtx, cancel := context.WithCancel(ctx)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.closed {
+	if l.closed || l.cancel != nil {
 		cancel()
 		return runCtx, false
 	}
@@ -34,7 +34,7 @@ func (l *executorLifecycle) begin(ctx context.Context) (context.Context, bool) {
 func (l *executorLifecycle) registerTransport(transport io.Closer) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.closed {
+	if l.closed || l.transport != nil {
 		return false
 	}
 	l.transport = transport
@@ -44,7 +44,7 @@ func (l *executorLifecycle) registerTransport(transport io.Closer) bool {
 func (l *executorLifecycle) registerResource(resource io.Closer) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.closed {
+	if l.closed || l.resource != nil {
 		return false
 	}
 	l.resource = resource
@@ -70,13 +70,14 @@ func (l *executorLifecycle) shutdown(force bool) error {
 		if cancel != nil {
 			cancel()
 		}
+		var transportErr, resourceErr error
 		if transport != nil {
-			return unexpectedCloseError(transport.Close())
+			transportErr = unexpectedCloseError(transport.Close())
 		}
 		if resource != nil {
-			return unexpectedCloseError(resource.Close())
+			resourceErr = unexpectedCloseError(resource.Close())
 		}
-		return nil
+		return errors.Join(transportErr, resourceErr)
 	}
 
 	var resourceErr, transportErr error
