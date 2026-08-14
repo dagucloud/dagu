@@ -51,12 +51,11 @@ max_output_size: 1048576  # 1MB (bytes)
 # Duration string: e.g. "6h", "24h", "2d12h". Empty = no catchup (missed runs discarded).
 catchup_window: "6h"
 
-# Retry the entire DAG after a terminal failure.
-# This absorbs transient infrastructure or dependency failures by default.
-# Override or disable per DAG if the workflow is intentionally non-idempotent.
-retry_policy:
-  limit: 3
-  interval_sec: 5
+# Retry the entire DAG after a terminal failure. Retries are opt-in because
+# workflows may have non-idempotent side effects.
+# retry_policy:
+#   limit: 3
+#   interval_sec: 5
 
 # -- Shell --
 # Shell interpreter for command steps.

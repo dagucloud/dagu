@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -130,7 +131,12 @@ func TestInitialize(t *testing.T) {
 		assert.Contains(t, string(data), "type: graph")
 		assert.Contains(t, string(data), "catchup_window")
 		assert.Contains(t, string(data), "hist_retention_days")
-		assert.Contains(t, string(data), "\nretry_policy:\n  limit: 3\n  interval_sec: 5\n")
+
+		var config struct {
+			RetryPolicy *struct{} `yaml:"retry_policy"`
+		}
+		require.NoError(t, yaml.Unmarshal(data, &config))
+		assert.Nil(t, config.RetryPolicy)
 	})
 
 	t.Run("skips when file already exists", func(t *testing.T) {
