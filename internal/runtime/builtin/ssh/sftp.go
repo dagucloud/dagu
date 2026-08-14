@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,7 +14,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
@@ -24,23 +22,18 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
 var _ executor.Executor = (*sftpExecutor)(nil)
 
 type sftpExecutor struct {
-	mu          sync.Mutex
+	executorLifecycle
 	client      *Client
 	direction   string // "upload" or "download"
 	source      string
 	destination string
 	stdout      io.Writer
 	stderr      io.Writer
-	cancel      context.CancelFunc
-	conn        *ssh.Client
-	sftpClient  *sftp.Client
-	closed      bool
 }
 
 // NewSFTPExecutor creates a new SFTP executor for file transfers.
@@ -108,24 +101,26 @@ func (e *sftpExecutor) Kill(_ os.Signal) error {
 }
 
 func (e *sftpExecutor) Run(ctx context.Context) error {
-	runCtx, cancel := context.WithCancel(ctx)
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
-		cancel()
+	runCtx, ok := e.begin(ctx)
+	if !ok {
 		return context.Canceled
 	}
-	e.cancel = cancel
-	e.mu.Unlock()
-	defer func() { _ = e.shutdown(false) }()
+	defer func() {
+		if closeErr := e.shutdown(false); closeErr != nil {
+			logger.Warn(ctx, "SFTP cleanup error", tag.Error(closeErr))
+		}
+	}()
 
 	// Dial SSH connection directly - SFTP doesn't need a session, just the connection
 	conn, err := e.client.dial(runCtx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
-	if !e.setConn(conn) {
+	if !e.registerTransport(conn) {
 		_ = conn.Close()
+		if ctxErr := runCtx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return context.Canceled
 	}
 
@@ -136,8 +131,11 @@ func (e *sftpExecutor) Run(ctx context.Context) error {
 		}
 		return fmt.Errorf("failed to create SFTP client: %w", err)
 	}
-	if !e.setSFTPClient(sftpClient) {
+	if !e.registerResource(sftpClient) {
 		_ = sftpClient.Close()
+		if ctxErr := runCtx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return context.Canceled
 	}
 
@@ -151,67 +149,6 @@ func (e *sftpExecutor) Run(ctx context.Context) error {
 		return ctxErr
 	}
 	return runErr
-}
-
-func (e *sftpExecutor) setConn(conn *ssh.Client) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.closed {
-		return false
-	}
-	e.conn = conn
-	return true
-}
-
-func (e *sftpExecutor) setSFTPClient(client *sftp.Client) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.closed {
-		return false
-	}
-	e.sftpClient = client
-	return true
-}
-
-func (e *sftpExecutor) shutdown(force bool) error {
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
-		return nil
-	}
-	e.closed = true
-	cancel := e.cancel
-	e.cancel = nil
-	conn := e.conn
-	e.conn = nil
-	client := e.sftpClient
-	e.sftpClient = nil
-	e.mu.Unlock()
-
-	if force {
-		if cancel != nil {
-			cancel()
-		}
-		if conn != nil {
-			return conn.Close()
-		}
-		if client != nil {
-			return client.Close()
-		}
-		return nil
-	}
-
-	var clientErr, connErr error
-	if client != nil {
-		clientErr = client.Close()
-	}
-	if conn != nil {
-		connErr = conn.Close()
-	}
-	if cancel != nil {
-		cancel()
-	}
-	return errors.Join(clientErr, connErr)
 }
 
 // upload transfers files from local to remote.

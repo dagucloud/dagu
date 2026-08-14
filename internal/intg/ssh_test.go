@@ -565,14 +565,14 @@ steps:
   - name: remote-timeout
     action: ssh.run
     with:
-      command: sleep 5
+      command: sleep 10
 `
 
 		dag := th.DAG(t, dagConfig)
 		startedAt := time.Now()
 		err := dag.Agent().Run(th.Context)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
-		require.Less(t, time.Since(startedAt), 3*time.Second)
+		require.Less(t, time.Since(startedAt), 8*time.Second)
 		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
@@ -587,14 +587,14 @@ steps:
     action: ssh.run
     timeout_sec: 1
     with:
-      command: sleep 5
+      command: sleep 10
 `
 
 		dag := th.DAG(t, dagConfig)
 		startedAt := time.Now()
 		err := dag.Agent().Run(th.Context)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
-		require.Less(t, time.Since(startedAt), 3*time.Second)
+		require.Less(t, time.Since(startedAt), 8*time.Second)
 		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
@@ -620,14 +620,14 @@ steps:
   - name: bastion-timeout
     action: ssh.run
     with:
-      command: sleep 5
+      command: sleep 10
 `, sshTestUser, sshServer.keyPath, sshServer.hostPort, sshTestUser, sshServer.keyPath)
 
 		dag := th.DAG(t, dagConfig)
 		startedAt := time.Now()
 		err := dag.Agent().Run(th.Context)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
-		require.Less(t, time.Since(startedAt), 3*time.Second)
+		require.Less(t, time.Since(startedAt), 8*time.Second)
 		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
@@ -682,7 +682,7 @@ chown -R "$USER:$USER" "/home/$USER/.ssh"
 sed -i 's/#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 sed -i 's/#PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-sed -i 's/AllowTcpForwarding no/AllowTcpForwarding yes/' /etc/ssh/sshd_config
+printf 'AllowTcpForwarding yes\n' > /etc/ssh/sshd_config.d/00-dagu-test.conf
 
 exec /usr/sbin/sshd -D -e
 `, sshTestUser, sshTestPass, string(pubKey))

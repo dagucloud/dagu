@@ -5,13 +5,11 @@ package ssh
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
@@ -42,15 +40,11 @@ func getSSHClientFromContext(ctx context.Context) *Client {
 }
 
 type sshExecutor struct {
-	mu        sync.Mutex
+	executorLifecycle
 	step      ir.Step
 	client    *Client
 	stdout    io.Writer
 	stderr    io.Writer
-	cancel    context.CancelFunc
-	conn      *ssh.Client  // SSH connection (must be closed after session)
-	session   *ssh.Session // SSH session
-	closed    bool         // Whether session/conn have been closed
 	shell     string
 	shellArgs []string
 }
@@ -88,61 +82,15 @@ func (e *sshExecutor) Kill(_ os.Signal) error {
 	return e.shutdown(true)
 }
 
-func (e *sshExecutor) shutdown(force bool) error {
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
-		return nil
-	}
-	e.closed = true
-	cancel := e.cancel
-	e.cancel = nil
-	conn := e.conn
-	e.conn = nil
-	session := e.session
-	e.session = nil
-	e.mu.Unlock()
-
-	if force {
-		if cancel != nil {
-			cancel()
-		}
-		if conn != nil {
-			return conn.Close()
-		}
-		if session != nil {
-			return session.Close()
-		}
-		return nil
-	}
-
-	var sessionErr, connErr error
-	if session != nil {
-		sessionErr = session.Close()
-	}
-	if conn != nil {
-		connErr = conn.Close()
-	}
-	if cancel != nil {
-		cancel()
-	}
-	return errors.Join(sessionErr, connErr)
-}
-
 func (e *sshExecutor) Run(ctx context.Context) error {
 	if len(e.step.Commands) == 0 && e.step.Script == "" {
 		return nil
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
-		cancel()
+	runCtx, ok := e.begin(ctx)
+	if !ok {
 		return context.Canceled
 	}
-	e.cancel = cancel
-	e.mu.Unlock()
 
 	defer func() {
 		if closeErr := e.shutdown(false); closeErr != nil {
@@ -155,9 +103,7 @@ func (e *sshExecutor) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
 
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
+	if !e.registerTransport(conn) {
 		_ = session.Close()
 		_ = conn.Close()
 		if ctxErr := runCtx.Err(); ctxErr != nil {
@@ -165,9 +111,13 @@ func (e *sshExecutor) Run(ctx context.Context) error {
 		}
 		return context.Canceled
 	}
-	e.conn = conn
-	e.session = session
-	e.mu.Unlock()
+	if !e.registerResource(session) {
+		_ = session.Close()
+		if ctxErr := runCtx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return context.Canceled
+	}
 
 	session.Stdout = e.stdout
 	session.Stderr = e.stderr

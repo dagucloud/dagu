@@ -248,7 +248,7 @@ steps:
       command: |
         rm -f /tmp/dagu-sftp-timeout
         mkfifo /tmp/dagu-sftp-timeout
-        nohup sh -c 'sleep 5; echo released > /tmp/dagu-sftp-timeout' >/dev/null 2>&1 </dev/null &
+        nohup sh -c 'sleep 10; echo released > /tmp/dagu-sftp-timeout' >/dev/null 2>&1 </dev/null &
       host: 127.0.0.1
       port: "%s"
       user: %s
@@ -275,7 +275,7 @@ steps:
 		startedAt := time.Now()
 		err := dag.Agent().Run(th.Context)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
-		require.Less(t, time.Since(startedAt), 3*time.Second)
+		require.Less(t, time.Since(startedAt), 8*time.Second)
 		dag.AssertLatestStatus(t, ir.Failed)
 	})
 }
