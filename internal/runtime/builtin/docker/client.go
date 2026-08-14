@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -575,7 +576,7 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 		}
 		// Container exists and is running; exec in it
 		if err == nil && info.State != nil && info.State.Running {
-			return c.execInContainer(ctx, c.cli, cmd, stdout, stderr, nativeExecOptions(c.cfg.ContainerName))
+			return c.execInContainer(ctx, c.cli, cmd, stdout, stderr, nativeExecOptions())
 		}
 		// If shouldStart is false, return error
 		if !c.cfg.ShouldStart {
@@ -1071,9 +1072,6 @@ func wrapCommandWithPIDFile(cmd []string, pidFile string) []string {
 	if len(cmd) == 0 {
 		return cmd
 	}
-	// Write $$ then exec so the recorded PID is the user process (and stays
-	// the exec process-group leader). Backgrounding ("$@" &) leaves Alpine
-	// children reparented to PID 1 after the wrapper is signaled.
 	script := `pidfile="$1"
 shift
 dir="${pidfile%/*}"
@@ -1100,23 +1098,36 @@ func terminateExecProcess(cli *client.Client, execID string, pidFile string) err
 		return nil
 	}
 
-	if pidFile == "" {
-		return fmt.Errorf("exec %s has no PID file for targeted cancellation", execID)
+	if pidFile != "" {
+		if err := signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "TERM"); err != nil {
+			return err
+		}
+		if execStoppedWithin(cli, execID, 2*time.Second) {
+			return nil
+		}
+		if err := signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "KILL"); err != nil {
+			return err
+		}
+		if execStoppedWithin(cli, execID, 2*time.Second) {
+			return nil
+		}
+		return fmt.Errorf("exec %s is still running after KILL", execID)
 	}
 
-	if err := signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "TERM"); err != nil {
-		return err
+	if inspectResp.PID <= 0 {
+		return fmt.Errorf("exec %s has no pid for targeted cancellation", execID)
 	}
-	if execStoppedWithin(cli, execID, 2*time.Second) {
-		return nil
+	if runtime.GOOS == "linux" {
+		_ = syscall.Kill(inspectResp.PID, syscall.SIGTERM)
+		if execStoppedWithin(cli, execID, 2*time.Second) {
+			return nil
+		}
+		_ = syscall.Kill(inspectResp.PID, syscall.SIGKILL)
+		if execStoppedWithin(cli, execID, 2*time.Second) {
+			return nil
+		}
 	}
-	if err := signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "KILL"); err != nil {
-		return err
-	}
-	if execStoppedWithin(cli, execID, 2*time.Second) {
-		return nil
-	}
-	return fmt.Errorf("exec %s is still running after KILL", execID)
+	return fmt.Errorf("exec %s is still running after cancel", execID)
 }
 
 func signalContainerPIDFileProcess(cli *client.Client, containerID string, pidFile string, signalName string) error {

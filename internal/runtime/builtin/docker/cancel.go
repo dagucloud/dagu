@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/moby/moby/client"
 )
 
@@ -85,15 +84,8 @@ func waitUntilContainerStoppedWithGrace(
 	}
 }
 
-func nativeExecOptions(stepName string) ExecOptions {
-	safeStepName := fileutil.SafeName(stepName)
-	if safeStepName == "" {
-		safeStepName = "step"
-	}
-	return ExecOptions{
-		TerminateOnCancel: true,
-		PIDFile:           fmt.Sprintf("/tmp/dagu-exec-%s-%d.pid", safeStepName, time.Now().UnixNano()),
-	}
+func nativeExecOptions() ExecOptions {
+	return ExecOptions{TerminateOnCancel: true}
 }
 
 // stopContainerByID force-stops a container by ID. Unlike Client.Stop this

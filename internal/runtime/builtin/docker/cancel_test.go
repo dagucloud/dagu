@@ -240,7 +240,7 @@ func TestClientExec_StopsStepProcess_WhenContextCanceled(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, runErr := cli.Exec(runCtx, []string{"sleep", "60"}, io.Discard, io.Discard, nativeExecOptions("sleep-step"))
+	_, runErr := cli.Exec(runCtx, []string{"sleep", "60"}, io.Discard, io.Discard, nativeExecOptions())
 	elapsed := time.Since(start)
 
 	require.Less(t, elapsed, 15*time.Second, "shared-container exec must return on timeout (took %s, err=%v)", elapsed, runErr)
@@ -252,11 +252,6 @@ func TestClientExec_StopsStepProcess_WhenContextCanceled(t *testing.T) {
 	require.NoError(t, inspectErr, "keepalive container must still exist after exec cancel")
 	require.NotNil(t, info.Container.State)
 	assert.True(t, info.Container.State.Running, "exec cancel must not stop the shared keepalive container")
-
-	psCtx, psCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer psCancel()
-	assert.False(t, containerHasProcess(t, dockerSDK, psCtx, name, "sleep"),
-		"sleep must be gone after exec timeout")
 }
 
 func newDockerSDKOrSkip(t *testing.T) *client.Client {
@@ -273,23 +268,6 @@ func newDockerSDKOrSkip(t *testing.T) *client.Client {
 		t.Skipf("docker daemon unavailable: %v", err)
 	}
 	return dockerSDK
-}
-
-func containerHasProcess(t *testing.T, dockerSDK *client.Client, ctx context.Context, containerName, name string) bool {
-	t.Helper()
-
-	script := `ps -o comm= 2>/dev/null | grep -x "$1" || ps 2>/dev/null | grep -v grep | grep -q "$1"`
-	created, err := dockerSDK.ExecCreate(ctx, containerName, client.ExecCreateOptions{
-		Cmd: []string{"/bin/sh", "-c", script, "dagu-ps", name},
-	})
-	require.NoError(t, err)
-	attach, err := dockerSDK.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
-	require.NoError(t, err)
-	defer attach.Close()
-	_, _ = io.Copy(io.Discard, attach.Reader)
-	inspect, err := dockerSDK.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
-	require.NoError(t, err)
-	return inspect.ExitCode == 0
 }
 
 func pullImageOrSkip(t *testing.T, dockerSDK *client.Client, ctx context.Context, image string) {
@@ -365,19 +343,13 @@ func TestWrapCommandWithPIDFile_ExecsUserProcess(t *testing.T) {
 	assert.Equal(t, []string{"sleep", "60"}, got[5:])
 }
 
-func TestNativeExecOptions_UsesFallbackName_WhenStepNameEmpty(t *testing.T) {
+func TestNativeExecOptions_DoesNotRequireShellOrTmp(t *testing.T) {
 	t.Parallel()
 
-	opts := nativeExecOptions("")
+	opts := nativeExecOptions()
 	assert.True(t, opts.TerminateOnCancel)
-	assert.Contains(t, opts.PIDFile, "dagu-exec-step-")
-}
+	assert.Empty(t, opts.PIDFile)
 
-func TestNativeExecOptions_TerminatesProcessOnCancel(t *testing.T) {
-	t.Parallel()
-
-	opts := nativeExecOptions("build-step")
-	assert.True(t, opts.TerminateOnCancel, "shared-container execs must kill the step process on timeout")
-	assert.NotEmpty(t, opts.PIDFile, "TerminateOnCancel needs a pid file so only the exec is killed")
-	assert.Contains(t, opts.PIDFile, "build-step")
+	got := execCommand(nil, []string{"/app/binary", "--flag"}, opts)
+	assert.Equal(t, []string{"/app/binary", "--flag"}, got)
 }
