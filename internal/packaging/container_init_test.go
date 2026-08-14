@@ -99,6 +99,18 @@ func TestKubernetesDefaultSecurityContextKeepsKubernetes119Compatibility(t *test
 	}
 }
 
+func TestEntrypointCreatesDockerGroupWithPortableGroupadd(t *testing.T) {
+	t.Parallel()
+
+	content := readFile(t, filepath.Join(repoRoot(t), "entrypoint.sh"))
+	require.NotContains(t, content, "addgroup",
+		"entrypoint.sh must not call Alpine-only addgroup; Ubuntu :latest does not ship it")
+	require.Contains(t, content, `groupadd -o -g "$DOCKER_GID" docker`,
+		"entrypoint.sh must create the docker group with shadow-utils groupadd")
+	require.Contains(t, content, `groupmod -o -g "$DOCKER_GID" docker`,
+		"entrypoint.sh must still remap an existing docker group to DOCKER_GID")
+}
+
 func TestDockerComposeEntrypointOverridesPreserveTini(t *testing.T) {
 	t.Parallel()
 

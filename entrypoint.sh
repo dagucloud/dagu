@@ -7,7 +7,7 @@
 if [ "$DOCKER_GID" != "-1" ]; then
   if ! getent group docker >/dev/null; then
     echo "Creating docker group with GID ${DOCKER_GID}"
-    addgroup -g ${DOCKER_GID} docker
+    groupadd -o -g "$DOCKER_GID" docker
     usermod -a -G docker dagu
   fi 
 
