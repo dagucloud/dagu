@@ -16,7 +16,7 @@ func NewFileDAGRunRepository(
 ) *persis.DAGRunRepository {
 	return persis.NewDAGRunRepository(
 		filedagrun.NewStore(baseDir, storeOptions...),
-		filedagrun.NewWorkspaceStore(baseDir),
+		filedagrun.NewWorkDirStore(baseDir),
 		options,
 	)
 }

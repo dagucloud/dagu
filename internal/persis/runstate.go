@@ -60,9 +60,9 @@ func (s *runStateStore) BeginAttempt(ctx context.Context, req runstate.BeginAtte
 	}
 
 	return runStateAttempt{
-		Attempt:      attempt,
-		repository:   s.repository,
-		workspaceRef: workspaceRef(req),
+		Attempt:    attempt,
+		repository: s.repository,
+		workDirRef: workDirRef(req),
 	}, nil
 }
 
@@ -72,9 +72,9 @@ func (s *runStateStore) OpenAttempt(ctx context.Context, ref ir.DAGRunRef) (runs
 		return nil, err
 	}
 	return runStateAttempt{
-		Attempt:      attempt,
-		repository:   s.repository,
-		workspaceRef: dagrun.WorkspaceRef{RootDAGRun: ref, DAGRun: ref},
+		Attempt:    attempt,
+		repository: s.repository,
+		workDirRef: dagrun.WorkDirRef{RootDAGRun: ref, DAGRun: ref},
 	}, nil
 }
 
@@ -84,13 +84,13 @@ func (s *runStateStore) OpenChildAttempt(ctx context.Context, root ir.DAGRunRef,
 		return nil, err
 	}
 	return runStateAttempt{
-		Attempt:      attempt,
-		repository:   s.repository,
-		workspaceRef: dagrun.WorkspaceRef{RootDAGRun: root, DAGRun: ir.DAGRunRef{ID: childRunID}},
+		Attempt:    attempt,
+		repository: s.repository,
+		workDirRef: dagrun.WorkDirRef{RootDAGRun: root, DAGRun: ir.DAGRunRef{ID: childRunID}},
 	}, nil
 }
 
-func workspaceRef(req runstate.BeginAttemptRequest) dagrun.WorkspaceRef {
+func workDirRef(req runstate.BeginAttemptRequest) dagrun.WorkDirRef {
 	name := ""
 	if req.DAG != nil {
 		name = req.DAG.Name
@@ -100,7 +100,7 @@ func workspaceRef(req runstate.BeginAttemptRequest) dagrun.WorkspaceRef {
 	if root.Zero() {
 		root = ref
 	}
-	return dagrun.WorkspaceRef{RootDAGRun: root, DAGRun: ref}
+	return dagrun.WorkDirRef{RootDAGRun: root, DAGRun: ref}
 }
 
 func runStateAttemptOptions(req runstate.BeginAttemptRequest) DAGRunCreateAttemptOptions {
@@ -116,8 +116,8 @@ func runStateAttemptOptions(req runstate.BeginAttemptRequest) DAGRunCreateAttemp
 
 type runStateAttempt struct {
 	dagrun.Attempt
-	repository   *DAGRunRepository
-	workspaceRef dagrun.WorkspaceRef
+	repository *DAGRunRepository
+	workDirRef dagrun.WorkDirRef
 }
 
 func (a runStateAttempt) RecordStatus(ctx context.Context, status ir.DAGRunStatus) error {
@@ -136,10 +136,10 @@ func (a runStateAttempt) CancelRequested(ctx context.Context) (bool, error) {
 	return a.IsAborting(ctx)
 }
 
-func (a runStateAttempt) MaterializeWorkspace(ctx context.Context) (string, error) {
-	return a.repository.MaterializeWorkspace(ctx, a.workspaceRef)
+func (a runStateAttempt) MaterializeWorkDir(ctx context.Context) (string, error) {
+	return a.repository.MaterializeWorkDir(ctx, a.workDirRef)
 }
 
-func (a runStateAttempt) SnapshotWorkspace(ctx context.Context, localDir string) error {
-	return a.repository.SnapshotWorkspace(ctx, a.workspaceRef, localDir)
+func (a runStateAttempt) SnapshotWorkDir(ctx context.Context, localDir string) error {
+	return a.repository.SnapshotWorkDir(ctx, a.workDirRef, localDir)
 }

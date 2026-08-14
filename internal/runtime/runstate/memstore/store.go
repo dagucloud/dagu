@@ -232,7 +232,7 @@ func (a attempt) WriteStepMessages(_ context.Context, stepName string, messages 
 	return nil
 }
 
-func (a attempt) MaterializeWorkspace(_ context.Context) (string, error) {
+func (a attempt) MaterializeWorkDir(_ context.Context) (string, error) {
 	a.store.mu.RLock()
 	defer a.store.mu.RUnlock()
 	state, err := a.stateRLocked()
@@ -242,7 +242,7 @@ func (a attempt) MaterializeWorkspace(_ context.Context) (string, error) {
 	return state.workDir, nil
 }
 
-func (a attempt) SnapshotWorkspace(_ context.Context, _ string) error {
+func (a attempt) SnapshotWorkDir(_ context.Context, _ string) error {
 	return nil
 }
 

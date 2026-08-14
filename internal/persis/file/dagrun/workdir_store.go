@@ -16,35 +16,35 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 )
 
-var _ dagrun.WorkspaceStore = (*WorkspaceStore)(nil)
+var _ dagrun.WorkDirStore = (*WorkDirStore)(nil)
 
-// WorkspaceStore manages DAG-run workspaces in the local run directory tree.
-type WorkspaceStore struct {
+// WorkDirStore manages DAG-run work directories in the local run directory tree.
+type WorkDirStore struct {
 	baseDir string
 }
 
-// NewWorkspaceStore creates a file-backed DAG-run workspace store.
-func NewWorkspaceStore(baseDir string) *WorkspaceStore {
-	return &WorkspaceStore{baseDir: baseDir}
+// NewWorkDirStore creates a file-backed DAG-run work-directory store.
+func NewWorkDirStore(baseDir string) *WorkDirStore {
+	return &WorkDirStore{baseDir: baseDir}
 }
 
-func (s *WorkspaceStore) Materialize(ctx context.Context, ref dagrun.WorkspaceRef) (string, error) {
-	dir, err := s.workspaceDir(ctx, ref)
+func (s *WorkDirStore) Materialize(ctx context.Context, ref dagrun.WorkDirRef) (string, error) {
+	dir, err := s.workDir(ctx, ref)
 	if err != nil {
 		return "", err
 	}
 	if err := fileutil.MkdirAll(dir, 0o750); err != nil {
-		return "", fmt.Errorf("create workspace %s: %w", dir, err)
+		return "", fmt.Errorf("create work directory %s: %w", dir, err)
 	}
 	return dir, nil
 }
 
-func (*WorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
+func (*WorkDirStore) Snapshot(context.Context, dagrun.WorkDirRef, string) error {
 	return nil
 }
 
-func (s *WorkspaceStore) Remove(ctx context.Context, ref dagrun.WorkspaceRef) error {
-	dir, err := s.workspaceDir(ctx, ref)
+func (s *WorkDirStore) Remove(ctx context.Context, ref dagrun.WorkDirRef) error {
+	dir, err := s.workDir(ctx, ref)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 			return nil
@@ -52,12 +52,12 @@ func (s *WorkspaceStore) Remove(ctx context.Context, ref dagrun.WorkspaceRef) er
 		return err
 	}
 	if err := fileutil.RemoveAll(dir); err != nil {
-		return fmt.Errorf("remove workspace %s: %w", dir, err)
+		return fmt.Errorf("remove work directory %s: %w", dir, err)
 	}
 	return nil
 }
 
-func (s *WorkspaceStore) workspaceDir(ctx context.Context, ref dagrun.WorkspaceRef) (string, error) {
+func (s *WorkDirStore) workDir(ctx context.Context, ref dagrun.WorkDirRef) (string, error) {
 	root := NewDataRoot(s.baseDir, ref.RootDAGRun.Name)
 	run, err := root.FindByDAGRunID(ctx, ref.RootDAGRun.ID)
 	if err != nil {

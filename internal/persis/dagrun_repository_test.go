@@ -176,41 +176,41 @@ func TestRepositoryRecentStatusesReturnsStoreErrors(t *testing.T) {
 	require.EqualError(t, err, "list failed")
 }
 
-func TestRepositoryCleansWorkspacesAfterRunMetadata(t *testing.T) {
+func TestRepositoryCleansWorkDirsAfterRunMetadata(t *testing.T) {
 	t.Parallel()
 
-	workspaceErr := errors.New("workspace unavailable")
+	workDirErr := errors.New("work directory unavailable")
 	backend := &recordingDAGRunStore{
 		removedRefs: []ir.DAGRunRef{
 			ir.NewDAGRunRef("daily", "run-1"),
 			ir.NewDAGRunRef("daily", "run-2"),
 		},
 	}
-	workspaces := &recordingWorkspaceStore{removeErr: workspaceErr}
-	repository := persis.NewDAGRunRepository(backend, workspaces, persis.DAGRunRepositoryOptions{})
+	workDirs := &recordingWorkDirStore{removeErr: workDirErr}
+	repository := persis.NewDAGRunRepository(backend, workDirs, persis.DAGRunRepositoryOptions{})
 
 	removed, err := repository.RemoveOldDAGRuns(context.Background(), "daily", 7, persis.DAGRunRetentionOptions{})
 	assert.Equal(t, []string{"run-1", "run-2"}, removed)
-	require.ErrorIs(t, err, workspaceErr)
-	assert.Equal(t, []dagrun.WorkspaceRef{
+	require.ErrorIs(t, err, workDirErr)
+	assert.Equal(t, []dagrun.WorkDirRef{
 		{RootDAGRun: ir.NewDAGRunRef("daily", "run-1"), DAGRun: ir.NewDAGRunRef("daily", "run-1")},
 		{RootDAGRun: ir.NewDAGRunRef("daily", "run-2"), DAGRun: ir.NewDAGRunRef("daily", "run-2")},
-	}, workspaces.removed)
+	}, workDirs.removed)
 }
 
-func TestRepositoryRetentionDryRunDoesNotRemoveWorkspaces(t *testing.T) {
+func TestRepositoryRetentionDryRunDoesNotRemoveWorkDirs(t *testing.T) {
 	t.Parallel()
 
 	backend := &recordingDAGRunStore{
 		removedRefs: []ir.DAGRunRef{ir.NewDAGRunRef("daily", "run-1")},
 	}
-	workspaces := &recordingWorkspaceStore{}
-	repository := persis.NewDAGRunRepository(backend, workspaces, persis.DAGRunRepositoryOptions{})
+	workDirs := &recordingWorkDirStore{}
+	repository := persis.NewDAGRunRepository(backend, workDirs, persis.DAGRunRepositoryOptions{})
 
 	removed, err := repository.RemoveOldDAGRuns(context.Background(), "daily", 7, persis.DAGRunRetentionOptions{DryRun: true})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"run-1"}, removed)
-	assert.Empty(t, workspaces.removed)
+	assert.Empty(t, workDirs.removed)
 }
 
 type recordingDAGRunStore struct {
@@ -261,20 +261,20 @@ func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, req persis.DA
 	return s.removedRefs, nil
 }
 
-type recordingWorkspaceStore struct {
-	removed   []dagrun.WorkspaceRef
+type recordingWorkDirStore struct {
+	removed   []dagrun.WorkDirRef
 	removeErr error
 }
 
-func (*recordingWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
+func (*recordingWorkDirStore) Materialize(context.Context, dagrun.WorkDirRef) (string, error) {
 	return "", nil
 }
 
-func (*recordingWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
+func (*recordingWorkDirStore) Snapshot(context.Context, dagrun.WorkDirRef, string) error {
 	return nil
 }
 
-func (s *recordingWorkspaceStore) Remove(_ context.Context, ref dagrun.WorkspaceRef) error {
+func (s *recordingWorkDirStore) Remove(_ context.Context, ref dagrun.WorkDirRef) error {
 	s.removed = append(s.removed, ref)
 	return s.removeErr
 }

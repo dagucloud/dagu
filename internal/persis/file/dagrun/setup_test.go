@@ -30,7 +30,7 @@ func setupTestRepository(t *testing.T) RepositoryTest {
 	backend := NewStore(tmpDir, WithArtifactDir(filepath.Join(tmpDir, "artifacts")))
 	th := RepositoryTest{
 		Context: context.Background(),
-		Repository: persis.NewDAGRunRepository(backend, NewWorkspaceStore(tmpDir), persis.DAGRunRepositoryOptions{
+		Repository: persis.NewDAGRunRepository(backend, NewWorkDirStore(tmpDir), persis.DAGRunRepositoryOptions{
 			LatestStatusToday: true,
 			Location:          time.Local,
 		}),

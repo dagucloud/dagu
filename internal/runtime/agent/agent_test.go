@@ -331,17 +331,17 @@ func TestAgent_Run(t *testing.T) {
 		// Check if the status is saved correctly
 		require.Equal(t, ir.Failed, dagAgent.Status(th.Context).Status)
 	})
-	t.Run("WorkspaceSnapshotFailureFailsSuccessfulRun", func(t *testing.T) {
+	t.Run("WorkDirSnapshotFailureFailsSuccessfulRun", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
   - run: exit 0
 `)
 		runID := "snapshot-failure"
 		snapshotErr := errors.New("snapshot unavailable")
-		workspaces := &failingWorkspaceStore{dir: t.TempDir(), snapshotErr: snapshotErr}
+		workDirs := &failingWorkDirStore{dir: t.TempDir(), snapshotErr: snapshotErr}
 		repository := persis.NewDAGRunRepository(
 			filedagrun.NewStore(th.Config.Paths.DAGRunsDir),
-			workspaces,
+			workDirs,
 			persis.DAGRunRepositoryOptions{},
 		)
 		dagAgent := dag.Agent(
@@ -359,8 +359,8 @@ func TestAgent_Run(t *testing.T) {
 		status, readErr := attempt.ReadStatus(th.Context)
 		require.NoError(t, readErr)
 		require.Equal(t, ir.Failed, status.Status)
-		require.ErrorContains(t, errors.New(status.Error), "snapshot DAG-run workspace")
-		require.Equal(t, 1, workspaces.snapshotCalls)
+		require.ErrorContains(t, errors.New(status.Error), "snapshot DAG-run work directory")
+		require.Equal(t, 1, workDirs.snapshotCalls)
 	})
 	t.Run("InitFailurePersistsFinishedAt", func(t *testing.T) {
 		th := test.Setup(t)
@@ -1739,21 +1739,21 @@ func subDAGVisibleTimeout() time.Duration {
 	return 10 * time.Second
 }
 
-type failingWorkspaceStore struct {
+type failingWorkDirStore struct {
 	dir           string
 	snapshotErr   error
 	snapshotCalls int
 }
 
-func (s *failingWorkspaceStore) Materialize(context.Context, dagrun.WorkspaceRef) (string, error) {
+func (s *failingWorkDirStore) Materialize(context.Context, dagrun.WorkDirRef) (string, error) {
 	return s.dir, nil
 }
 
-func (s *failingWorkspaceStore) Snapshot(context.Context, dagrun.WorkspaceRef, string) error {
+func (s *failingWorkDirStore) Snapshot(context.Context, dagrun.WorkDirRef, string) error {
 	s.snapshotCalls++
 	return s.snapshotErr
 }
 
-func (*failingWorkspaceStore) Remove(context.Context, dagrun.WorkspaceRef) error {
+func (*failingWorkDirStore) Remove(context.Context, dagrun.WorkDirRef) error {
 	return nil
 }

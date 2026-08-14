@@ -39,10 +39,10 @@ func (a noopAttempt) CancelRequested(ctx context.Context) (bool, error) {
 	return a.IsAborting(ctx)
 }
 
-func (noopAttempt) MaterializeWorkspace(context.Context) (string, error) {
+func (noopAttempt) MaterializeWorkDir(context.Context) (string, error) {
 	return "", nil
 }
 
-func (noopAttempt) SnapshotWorkspace(context.Context, string) error {
+func (noopAttempt) SnapshotWorkDir(context.Context, string) error {
 	return nil
 }

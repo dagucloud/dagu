@@ -25,7 +25,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
-	repository := persis.NewDAGRunRepository(store, NewWorkspaceStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	repository := persis.NewDAGRunRepository(store, NewWorkDirStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",
@@ -37,7 +37,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	})
 	require.NoError(t, err)
 	rootRef := ir.NewDAGRunRef(parentDAG.Name, "run-compat")
-	parentWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{DAGRun: rootRef})
+	parentWorkDir, err := repository.MaterializeWorkDir(ctx, dagrun.WorkDirRef{DAGRun: rootRef})
 	require.NoError(t, err)
 	require.NoError(t, parentAttempt.Open(ctx))
 
@@ -73,7 +73,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 		AttemptID:  "child-attempt",
 	})
 	require.NoError(t, err)
-	childWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{
+	childWorkDir, err := repository.MaterializeWorkDir(ctx, dagrun.WorkDirRef{
 		RootDAGRun: rootRef,
 		DAGRun:     ir.NewDAGRunRef(childDAG.Name, "child-run"),
 	})
@@ -114,7 +114,7 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 		AttemptID:  "shared-id-child-attempt",
 	})
 	require.NoError(t, err)
-	sharedIDChildWorkDir, err := repository.MaterializeWorkspace(ctx, dagrun.WorkspaceRef{
+	sharedIDChildWorkDir, err := repository.MaterializeWorkDir(ctx, dagrun.WorkDirRef{
 		RootDAGRun: rootRef,
 		DAGRun:     ir.NewDAGRunRef("child-with-shared-id", rootRef.ID),
 	})
@@ -165,7 +165,7 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
-	repository := persis.NewDAGRunRepository(store, NewWorkspaceStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	repository := persis.NewDAGRunRepository(store, NewWorkDirStore(baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 
 	parentDAG := &ir.DAG{
 		Name:     "compat-dag",

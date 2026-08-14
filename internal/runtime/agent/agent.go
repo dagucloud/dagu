@@ -744,8 +744,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 				st.FinishedAt = stringutil.FormatTime(time.Now())
 			}
 			if a.workDir != "" {
-				if err := attempt.SnapshotWorkspace(context.WithoutCancel(ctx), a.workDir); err != nil {
-					snapshotErr := fmt.Errorf("snapshot DAG-run workspace: %w", err)
+				if err := attempt.SnapshotWorkDir(context.WithoutCancel(ctx), a.workDir); err != nil {
+					snapshotErr := fmt.Errorf("snapshot DAG-run work directory: %w", err)
 					st.Error = appendDAGRunError(st.Error, snapshotErr)
 					runErr = errors.Join(runErr, snapshotErr)
 				}
@@ -1152,8 +1152,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			logger.Error(ctx, "Failed to write outputs", tag.Error(err))
 		}
 	}
-	if err := attempt.SnapshotWorkspace(context.WithoutCancel(ctx), a.workDir); err != nil {
-		snapshotErr := fmt.Errorf("snapshot DAG-run workspace: %w", err)
+	if err := attempt.SnapshotWorkDir(context.WithoutCancel(ctx), a.workDir); err != nil {
+		snapshotErr := fmt.Errorf("snapshot DAG-run work directory: %w", err)
 		if finishedStatus.Status.IsSuccess() {
 			finishedStatus.Status = ir.Failed
 		}
@@ -1539,9 +1539,9 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 	}
 
 	var err error
-	a.workDir, err = attempt.MaterializeWorkspace(ctx)
+	a.workDir, err = attempt.MaterializeWorkDir(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("materialize DAG-run workspace: %w", err)
+		return nil, fmt.Errorf("materialize DAG-run work directory: %w", err)
 	}
 	if a.workDir != "" {
 		return nil, nil

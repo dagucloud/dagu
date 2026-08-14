@@ -18,14 +18,14 @@ import (
 // DAGRunRepository provides application-level access to persisted DAG runs.
 type DAGRunRepository struct {
 	store             DAGRunStore
-	workspaces        dagrun.WorkspaceStore
+	workDirs          dagrun.WorkDirStore
 	latestStatusToday bool
 	location          *time.Location
 	now               func() time.Time
 }
 
 // NewDAGRunRepository creates a repository backed by store.
-func NewDAGRunRepository(store DAGRunStore, workspaces dagrun.WorkspaceStore, options DAGRunRepositoryOptions) *DAGRunRepository {
+func NewDAGRunRepository(store DAGRunStore, workDirs dagrun.WorkDirStore, options DAGRunRepositoryOptions) *DAGRunRepository {
 	location := options.Location
 	if location == nil {
 		location = time.Local
@@ -34,12 +34,12 @@ func NewDAGRunRepository(store DAGRunStore, workspaces dagrun.WorkspaceStore, op
 	if now == nil {
 		now = time.Now
 	}
-	if workspaces == nil {
-		workspaces = noopWorkspaceStore{}
+	if workDirs == nil {
+		workDirs = noopWorkDirStore{}
 	}
 	return &DAGRunRepository{
 		store:             store,
-		workspaces:        workspaces,
+		workDirs:          workDirs,
 		latestStatusToday: options.LatestStatusToday,
 		location:          location,
 		now:               now,
@@ -234,13 +234,13 @@ func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunR
 		return ids, err
 	}
 	for _, ref := range refs {
-		workspaceRef, normalizeErr := normalizeWorkspaceRef(dagrun.WorkspaceRef{DAGRun: ref})
+		workDirRef, normalizeErr := normalizeWorkDirRef(dagrun.WorkDirRef{DAGRun: ref})
 		if normalizeErr != nil {
 			err = errors.Join(err, normalizeErr)
 			continue
 		}
-		if removeErr := r.workspaces.Remove(ctx, workspaceRef); removeErr != nil {
-			err = errors.Join(err, fmt.Errorf("remove workspace for dag-run %s: %w", ref.ID, removeErr))
+		if removeErr := r.workDirs.Remove(ctx, workDirRef); removeErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove work directory for dag-run %s: %w", ref.ID, removeErr))
 		}
 	}
 	return ids, err
@@ -258,13 +258,13 @@ func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, o
 	if err != nil && !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return err
 	}
-	workspaceRef, normalizeErr := normalizeWorkspaceRef(dagrun.WorkspaceRef{DAGRun: ref})
+	workDirRef, normalizeErr := normalizeWorkDirRef(dagrun.WorkDirRef{DAGRun: ref})
 	if normalizeErr != nil {
 		return errors.Join(err, normalizeErr)
 	}
-	removeErr := r.workspaces.Remove(ctx, workspaceRef)
+	removeErr := r.workDirs.Remove(ctx, workDirRef)
 	if removeErr != nil {
-		removeErr = fmt.Errorf("remove workspace for dag-run %s: %w", ref.ID, removeErr)
+		removeErr = fmt.Errorf("remove work directory for dag-run %s: %w", ref.ID, removeErr)
 	}
 	return errors.Join(err, removeErr)
 }
