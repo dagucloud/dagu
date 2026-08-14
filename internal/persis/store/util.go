@@ -12,7 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-type strictRecordIDsCollection interface {
+type recordIDsCollection interface {
 	RecordIDs(ctx context.Context, prefix string) ([]string, error)
 }
 
@@ -48,7 +48,7 @@ func listAllStrictWithReadError(
 	q persis.ListQuery,
 	onReadError recordReadErrorHandler,
 ) ([]*persis.Record, error) {
-	idCol, ok := col.(strictRecordIDsCollection)
+	idCol, ok := col.(recordIDsCollection)
 	if !ok {
 		return listAll(ctx, col, q)
 	}

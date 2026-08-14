@@ -356,20 +356,12 @@ func (s *QueueStore) listAllQueueItems(ctx context.Context, q persis.ListQuery) 
 	return items, nil
 }
 
-type queueLockCollection interface {
-	WithLock(ctx context.Context, key string, fn func() error) error
-}
-
-type recordIDsCollection interface {
-	RecordIDs(ctx context.Context, prefix string) ([]string, error)
-}
-
 type deleteIfExistsCollection interface {
 	DeleteIfExists(ctx context.Context, id string) (bool, error)
 }
 
 func (s *QueueStore) withQueueLock(ctx context.Context, name string, fn func() error) error {
-	if col, ok := s.col.(queueLockCollection); ok {
+	if col, ok := s.col.(persis.LockingCollection); ok {
 		return col.WithLock(ctx, name, fn)
 	}
 	return fn()

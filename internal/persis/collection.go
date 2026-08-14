@@ -21,13 +21,6 @@ import (
 // ID uses "/" as a hierarchy separator so that a [ListQuery.Prefix] of
 // "mydag/" returns all records whose IDs start with that prefix — enabling
 // efficient tree traversal without storage-specific query syntax.
-//
-// Example ID formats:
-//
-//	dag_runs   → "mydag/run-abc123/attempt-0"
-//	secrets    → "default/db-password"
-//	sessions   → "user-1/sess-xyz"
-//	queue_items → "high_9f3a..." (priority + uuid, sort order = dequeue order)
 type Record struct {
 	ID        string
 	Data      []byte
@@ -59,7 +52,7 @@ type Page struct {
 	NextCursor string // empty when no further records exist
 }
 
-// Collection is a named, isolated namespace of [Record]s.
+// Collection is an isolated namespace of [Record]s.
 // All methods must be safe for concurrent use. Implementations map each
 // collection to a distinct physical namespace.
 type Collection interface {
@@ -88,7 +81,6 @@ type Collection interface {
 
 	// CompareAndSwap atomically replaces record id only when its current Data
 	// bytes equal expected. Returns [ErrConflict] when they do not match.
-	// Used for optimistic concurrency on DAGRunStatus updates.
 	CompareAndSwap(ctx context.Context, id string, expected, next []byte) error
 }
 

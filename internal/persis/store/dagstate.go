@@ -28,10 +28,6 @@ type DAGStateStore struct {
 	mu  sync.Mutex
 }
 
-type recordIDCollection interface {
-	RecordIDs(ctx context.Context, prefix string) ([]string, error)
-}
-
 // NewDAGStateStore returns a DAG state store backed by the provided collection.
 func NewDAGStateStore(col persis.Collection) *DAGStateStore {
 	return &DAGStateStore{col: col}
@@ -154,7 +150,7 @@ func (s *DAGStateStore) List(ctx context.Context, opts dagrun.StateListOptions) 
 	if err != nil {
 		return nil, err
 	}
-	if idCol, ok := s.col.(recordIDCollection); ok {
+	if idCol, ok := s.col.(recordIDsCollection); ok {
 		ids, err := idCol.RecordIDs(ctx, prefix)
 		if err != nil {
 			return nil, mapDAGStateStoreError(err)

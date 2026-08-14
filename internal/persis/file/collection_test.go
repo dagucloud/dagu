@@ -22,9 +22,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
 
-// RunCollectionContract runs the full Collection contract against any backend.
-// Used by both the file and memory backend tests.
-func RunCollectionContract(t *testing.T, col persis.Collection, freshCollection func(t *testing.T) persis.Collection) {
+// runCollectionContract runs the full Collection contract against an implementation.
+func runCollectionContract(t *testing.T, col persis.Collection, freshCollection func(t *testing.T) persis.Collection) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -329,7 +328,7 @@ func TestFileCollection(t *testing.T) {
 		return file.NewCollection(filepath.Join(t.TempDir(), "test"))
 	}
 
-	RunCollectionContract(t, file.NewCollection(filepath.Join(root, "test")), freshCollection)
+	runCollectionContract(t, file.NewCollection(filepath.Join(root, "test")), freshCollection)
 }
 
 func TestFileCollectionWritesRawJSONBody(t *testing.T) {
@@ -433,7 +432,7 @@ func TestFileCollectionIndentedContract(t *testing.T) {
 	freshCollection := func(t *testing.T) persis.Collection {
 		return file.NewCollection(t.TempDir(), file.WithIndentedJSON())
 	}
-	RunCollectionContract(t, file.NewCollection(t.TempDir(), file.WithIndentedJSON()), freshCollection)
+	runCollectionContract(t, file.NewCollection(t.TempDir(), file.WithIndentedJSON()), freshCollection)
 }
 
 func TestFileCollectionPutNilReturnsError(t *testing.T) {
@@ -539,5 +538,5 @@ func TestMemoryCollection(t *testing.T) {
 		return testutil.NewMemoryBackend().Collection("test")
 	}
 
-	RunCollectionContract(t, b.Collection("test"), freshCollection)
+	runCollectionContract(t, b.Collection("test"), freshCollection)
 }

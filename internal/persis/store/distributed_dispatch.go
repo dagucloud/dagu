@@ -1015,7 +1015,7 @@ func (s *DispatchTaskStore) listDispatchRecords(ctx context.Context, prefix stri
 }
 
 func (s *DispatchTaskStore) listDispatchRecordIDs(ctx context.Context, prefix string) ([]string, error) {
-	if idCol, ok := s.col.(strictRecordIDsCollection); ok {
+	if idCol, ok := s.col.(recordIDsCollection); ok {
 		ids, err := idCol.RecordIDs(ctx, prefix)
 		if err != nil {
 			return nil, err

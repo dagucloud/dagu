@@ -33,10 +33,7 @@ type Collection struct {
 	mu     sync.RWMutex
 }
 
-var (
-	_ persis.Collection        = (*Collection)(nil)
-	_ persis.LockingCollection = (*Collection)(nil)
-)
+var _ persis.LockingCollection = (*Collection)(nil)
 
 // CollectionOption configures a file-backed [Collection].
 type CollectionOption func(*Collection)
@@ -380,11 +377,7 @@ func (c *Collection) readFile(path string) (*persis.Record, error) {
 	mtime := info.ModTime().UTC()
 	data := raw
 	if c.indent {
-		// Normalize indented on-disk JSON back to compact so the in-memory
-		// Record.Data is canonical (matches the memory backend and keeps
-		// CompareAndSwap/CompareAndDelete byte comparisons stable). The
-		// json.Valid check above makes json.Compact infallible here, so we
-		// drop its error rather than fall back to non-canonical raw bytes.
+		// Normalize indentation so byte-based comparisons use canonical JSON.
 		var buf bytes.Buffer
 		_ = json.Compact(&buf, raw)
 		data = buf.Bytes()
@@ -406,9 +399,7 @@ func (c *Collection) writeFile(path string, rec *persis.Record) error {
 	}
 	body := rec.Data
 	if c.indent {
-		// Match the pre-refactor on-disk format. json.Indent over compact
-		// json.Marshal output is byte-identical to json.MarshalIndent of the
-		// same value, so existing released files stay format-compatible.
+		// Preserve the human-readable format for indented collections.
 		var buf bytes.Buffer
 		if err := json.Indent(&buf, rec.Data, "", "  "); err != nil {
 			return fmt.Errorf("file backend: indent record %q: %w", rec.ID, err)

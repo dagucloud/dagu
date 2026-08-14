@@ -51,10 +51,7 @@ type MemoryCollection struct {
 	locks   map[string]*sync.Mutex
 }
 
-var (
-	_ persis.Collection        = (*MemoryCollection)(nil)
-	_ persis.LockingCollection = (*MemoryCollection)(nil)
-)
+var _ persis.LockingCollection = (*MemoryCollection)(nil)
 
 func (c *MemoryCollection) WithLock(ctx context.Context, key string, fn func() error) error {
 	return c.withLock(ctx, key, 50*time.Millisecond, fn)

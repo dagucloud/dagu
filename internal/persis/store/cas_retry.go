@@ -13,10 +13,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-type lockableCollection interface {
-	WithLock(ctx context.Context, key string, fn func() error) error
-}
-
 func withCollectionRecordLock(
 	ctx context.Context,
 	col persis.Collection,
@@ -24,7 +20,7 @@ func withCollectionRecordLock(
 	key string,
 	fn func() error,
 ) error {
-	if locked, ok := col.(lockableCollection); ok {
+	if locked, ok := col.(persis.LockingCollection); ok {
 		return locked.WithLock(ctx, key, fn)
 	}
 	mu.Lock()
