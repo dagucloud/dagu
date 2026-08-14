@@ -51,10 +51,6 @@ func mustAddr(s string) netip.Addr {
 	return netip.MustParseAddr(s)
 }
 
-// TestLoadConfigFromMap covers LoadConfigFromMap with 92.7% coverage.
-// The uncovered lines (7.3%) are error handling for mapstructure.NewDecoder failures
-// which cannot be triggered in practice because we always pass valid struct pointers.
-// These error checks exist as defensive programming for potential future changes.
 func TestLoadConfigFromMap(t *testing.T) {
 	hostWorkPath := testAbsoluteVolumePath("/workhost", "C:/workhost")
 	t.Setenv("DAGU_TEST_WORKHOST", hostWorkPath)
