@@ -13,7 +13,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
+	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
@@ -87,6 +89,13 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 
 	// Create a signal-aware context for services
 	serviceCtx := ctx.WithContext(signalCtx)
+	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
+	defer func() {
+		if err := openCodeHost.Close(ctx); err != nil {
+			logger.Error(ctx, "Failed to stop OpenCode host", tag.Error(err))
+		}
+	}()
+	serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
 
 	// Stop license manager on shutdown
 	if ctx.LicenseManager != nil {

@@ -278,6 +278,7 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		if err != nil && cfg.required {
 			return nil, fmt.Errorf("harness: managed OpenCode is unavailable: %w", err)
 		}
+		fallbackReported := false
 		if err == nil && available {
 			stdout, managedErr := e.runManagedOpenCode(ctx, cfg, host)
 			if managedErr == nil || cfg.required {
@@ -294,11 +295,17 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 				return nil, managedErr
 			}
 			_, _ = fmt.Fprintf(e.stderrWriter(), "harness: managed OpenCode startup failed; using legacy CLI: %v\n", managedErr)
+			fallbackReported = true
+		} else if err != nil {
+			_, _ = fmt.Fprintf(e.stderrWriter(), "harness: managed OpenCode is unavailable; using legacy CLI: %v\n", err)
+			fallbackReported = true
 		}
 		if cfg.required {
 			return nil, errors.New("harness: managed OpenCode requires a Dagu server or worker execution host")
 		}
-		_, _ = fmt.Fprintln(e.stderrWriter(), "harness: using legacy OpenCode CLI because no managed execution host is available")
+		if !fallbackReported {
+			_, _ = fmt.Fprintln(e.stderrWriter(), "harness: using legacy OpenCode CLI because no managed execution host is available")
+		}
 	} else if cfg.managed {
 		if cfg.required {
 			return nil, errors.New("harness: managed OpenCode is not supported inside containers")
@@ -980,58 +987,21 @@ func buildProviderConfigs(cfg map[string]any, defs ir.HarnessDefinitions) ([]pro
 		}
 		resolved.flags = mergeProviderDefaultConfig(resolved.provider, attempts[i])
 		if resolved.name == "opencode" && resolved.definition == nil {
-			managed, required, reason, managedErr := managedOpenCodeMode(resolved.flags)
+			mode, managedErr := opencodehost.Mode(resolved.flags)
 			if managedErr != nil {
 				if i == 0 {
 					return nil, managedErr
 				}
 				return nil, fmt.Errorf("harness: invalid fallback[%d]: %w", i-1, managedErr)
 			}
-			resolved.managed = managed
-			resolved.required = required
-			resolved.modeReason = reason
+			resolved.managed = mode.Managed
+			resolved.required = mode.Required
+			resolved.modeReason = mode.Reason
 		}
 		configs = append(configs, resolved)
 	}
 
 	return configs, nil
-}
-
-var managedOpenCodeKeys = map[string]bool{
-	"provider": true, "managed": true, "fallback": true,
-	"agent": true, "model": true, "variant": true, "session": true,
-	"fork": true, "title": true, "share": true, "file": true,
-	"command": true, "format": true,
-}
-
-func managedOpenCodeMode(config map[string]any) (managed, required bool, reason string, err error) {
-	if value, ok := config["managed"]; ok {
-		flag, valid := value.(bool)
-		if !valid {
-			return false, false, "", errors.New("harness: config.managed must be a boolean")
-		}
-		if !flag {
-			return false, false, "managed is false", nil
-		}
-		required = true
-	}
-	for key := range config {
-		if !managedOpenCodeKeys[key] {
-			reason = fmt.Sprintf("option %q requires the CLI integration", key)
-			if required {
-				return false, true, "", fmt.Errorf("harness: managed OpenCode does not support option %q; set managed: false", key)
-			}
-			return false, false, reason, nil
-		}
-	}
-	if format, _ := config["format"].(string); format != "" && format != "default" {
-		reason = fmt.Sprintf("format %q requires the CLI integration", format)
-		if required {
-			return false, true, "", fmt.Errorf("harness: managed OpenCode supports only format: default; set managed: false")
-		}
-		return false, false, reason, nil
-	}
-	return true, required, "", nil
 }
 
 func extractFallbackConfigs(cfg map[string]any) (map[string]any, []map[string]any, error) {

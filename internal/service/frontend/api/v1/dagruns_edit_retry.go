@@ -599,6 +599,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		TriggerActor:  seedStatus.TriggerActor,
 		QueueDispatch: true,
 	})
+	retrySpec.Env = append(retrySpec.Env, a.managedOpenCodeEnv(ctx, prepared)...)
 	if err := launcher.Start(ctx, retrySpec); err != nil {
 		return false, fmt.Errorf("error starting edit retry DAG: %w", err)
 	}

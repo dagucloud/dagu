@@ -19,13 +19,14 @@ type Definition struct {
 	CORSAllowedOrigins []string `mapstructure:"cors_allowed_origins"`
 
 	// Core settings
-	Debug                  bool     `mapstructure:"debug"`
-	DefaultShell           string   `mapstructure:"default_shell"`
-	LogFormat              string   `mapstructure:"log_format"`      // "json" or "text"
-	AccessLog              *string  `mapstructure:"access_log_mode"` // "all", "non-public", or "none" (default)
-	TZ                     string   `mapstructure:"tz"`
-	EnvPassthrough         []string `mapstructure:"env_passthrough"`
-	EnvPassthroughPrefixes []string `mapstructure:"env_passthrough_prefixes"`
+	Debug                  bool         `mapstructure:"debug"`
+	DefaultShell           string       `mapstructure:"default_shell"`
+	LogFormat              string       `mapstructure:"log_format"`      // "json" or "text"
+	AccessLog              *string      `mapstructure:"access_log_mode"` // "all", "non-public", or "none" (default)
+	TZ                     string       `mapstructure:"tz"`
+	EnvPassthrough         []string     `mapstructure:"env_passthrough"`
+	EnvPassthroughPrefixes []string     `mapstructure:"env_passthrough_prefixes"`
+	OpenCode               *OpenCodeDef `mapstructure:"opencode"`
 
 	// Authentication
 	Auth *AuthDef `mapstructure:"auth"`
@@ -94,6 +95,12 @@ type Definition struct {
 	GitSync    *GitSyncDef    `mapstructure:"git_sync"`
 	Tunnel     *TunnelDef     `mapstructure:"tunnel"`
 	License    *LicenseDef    `mapstructure:"license"`
+}
+
+// OpenCodeDef configures the process-local managed OpenCode service.
+type OpenCodeDef struct {
+	Executable     string   `mapstructure:"executable"`
+	EnvPassthrough []string `mapstructure:"env_passthrough"`
 }
 
 // DAGDiscoveryDef configures DAG definition discovery.

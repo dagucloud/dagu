@@ -58,31 +58,31 @@ func TestProviderDefaultConfig(t *testing.T) {
 func TestManagedOpenCodeMode(t *testing.T) {
 	t.Parallel()
 
-	managed, required, reason, err := managedOpenCodeMode(map[string]any{
+	mode, err := opencodehost.Mode(map[string]any{
 		"provider": "opencode",
 		"model":    "openai/gpt-5",
 	})
 	require.NoError(t, err)
-	assert.True(t, managed)
-	assert.False(t, required)
-	assert.Empty(t, reason)
+	assert.True(t, mode.Managed)
+	assert.False(t, mode.Required)
+	assert.Empty(t, mode.Reason)
 
-	managed, required, reason, err = managedOpenCodeMode(map[string]any{
+	mode, err = opencodehost.Mode(map[string]any{
 		"provider": "opencode",
 		"port":     4096,
 	})
 	require.NoError(t, err)
-	assert.False(t, managed)
-	assert.False(t, required)
-	assert.Contains(t, reason, "CLI integration")
+	assert.False(t, mode.Managed)
+	assert.False(t, mode.Required)
+	assert.Contains(t, mode.Reason, "CLI integration")
 
-	_, required, _, err = managedOpenCodeMode(map[string]any{
+	mode, err = opencodehost.Mode(map[string]any{
 		"provider": "opencode",
 		"managed":  true,
 		"port":     4096,
 	})
 	require.Error(t, err)
-	assert.True(t, required)
+	assert.True(t, mode.Required)
 }
 
 func TestNormalizeOpenCodeMessages(t *testing.T) {
@@ -113,10 +113,14 @@ func TestNormalizeOpenCodeMessages(t *testing.T) {
 func TestManagedOpenCodeCleanRestartCreatesNewSession(t *testing.T) {
 	t.Parallel()
 
-	requestedPath := make(chan string, 1)
+	requestedPath := make(chan string, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestedPath <- r.Method + " " + r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/config" {
+			_, _ = io.WriteString(w, `{"share":"disabled"}`)
+			return
+		}
 		_, _ = io.WriteString(w, `{"id":"session-new"}`)
 	}))
 	t.Cleanup(server.Close)
@@ -126,7 +130,7 @@ func TestManagedOpenCodeCleanRestartCreatesNewSession(t *testing.T) {
 		agentSession: &ir.AgentSession{SessionID: "session-old", RestartPending: true},
 	}
 	client := &openCodeClient{
-		host:      opencodehost.Config{URL: server.URL, Password: "test"},
+		host:      opencodehost.Config{URL: server.URL, Password: "test", InstanceID: "host-1"},
 		directory: exec.workDir,
 		http:      server.Client(),
 	}
@@ -137,6 +141,7 @@ func TestManagedOpenCodeCleanRestartCreatesNewSession(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "session-new", sessionID)
+	assert.Equal(t, "GET /config", <-requestedPath)
 	assert.Equal(t, "POST /session", <-requestedPath)
 }
 
@@ -145,6 +150,9 @@ func TestManagedOpenCodeTransportLossWaitsForRestart(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/config":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"share":"disabled"}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/session":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"id":"session-1"}`)
@@ -167,7 +175,7 @@ func TestManagedOpenCodeTransportLossWaitsForRestart(t *testing.T) {
 	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
 	ctx := runtime.WithEnv(t.Context(), runtime.Env{})
 	stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, opencodehost.Config{
-		URL: server.URL, Password: "test",
+		URL: server.URL, Password: "test", InstanceID: "host-1",
 	})
 
 	require.NoError(t, err)
@@ -209,6 +217,54 @@ func TestManagedOpenCodeRefreshUpdatesTimeline(t *testing.T) {
 	require.Len(t, exec.agentSession.Events, 1)
 	assert.Equal(t, "Done", exec.agentSession.Events[0].Content)
 	assert.Equal(t, 2, progressUpdates)
+}
+
+func TestManagedOpenCodeAttachmentLimit(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "large.txt")
+	require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", maxManagedAttachmentRawBytes+1)), 0o600))
+	_, err := managedFileParts("", path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "10 MiB")
+}
+
+func TestOpenCodeWildcardMatch(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, openCodeWildcardMatch("git status *", "git status"))
+	assert.True(t, openCodeWildcardMatch("git status *", "git status --short"))
+	assert.True(t, openCodeWildcardMatch("src/*.go", "src/main.go"))
+	assert.True(t, openCodeWildcardMatch("file?.txt", "file1.txt"))
+	assert.False(t, openCodeWildcardMatch("src/*.go", "README.md"))
+}
+
+func TestManagedOpenCodeSessionPermissionRepliesOnce(t *testing.T) {
+	t.Parallel()
+
+	replies := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Reply string `json:"reply"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		replies <- body.Reply
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	exec := &harnessExecutor{agentSession: &ir.AgentSession{Interactions: []ir.AgentInteraction{{
+		ID: "permission-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionAnswered,
+		Permission: "bash", Decision: "session", AllowForSessionPatterns: []string{"git status *"},
+	}}}}
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Password: "secret"}, http: server.Client()}
+
+	resumed, err := exec.applyManagedInteractionResponses(t.Context(), client, "session-1")
+
+	require.NoError(t, err)
+	assert.True(t, resumed)
+	assert.Equal(t, "once", <-replies)
+	require.Len(t, exec.agentSession.PermissionGrants, 1)
+	assert.Equal(t, []string{"git status *"}, exec.agentSession.PermissionGrants[0].Patterns)
 }
 
 func TestHarnessExecutorPushBackContextAugmentsPromptWithLogPath(t *testing.T) {

@@ -228,6 +228,7 @@ func TestLoad_Env(t *testing.T) {
 			Peer:                   Peer{Insecure: true}, // Default is true
 			BaseEnv:                cfg.Core.BaseEnv,     // Dynamic, copy from actual
 		},
+		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
 		Server: Server{
 			Host:         "test.example.com",
 			Port:         9876,
@@ -549,6 +550,40 @@ func TestLoad_BaseEnvIncludesConfiguredEnvPassthroughFromEnv(t *testing.T) {
 	require.NotContains(t, baseEnv, "BLOCKED_FROM_ENV=blocked-value")
 }
 
+func TestLoad_OpenCodeConfig(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "secret")
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+opencode:
+  executable: /usr/local/bin/opencode
+  env_passthrough:
+    - OPENAI_API_KEY
+`), 0o600))
+	cfg := testLoad(t, WithConfigFile(configFile))
+	require.Equal(t, "/usr/local/bin/opencode", cfg.OpenCode.Executable)
+	require.Equal(t, []string{"OPENAI_API_KEY"}, cfg.OpenCode.EnvPassthrough)
+}
+
+func TestLoad_OpenCodeConfigFromEnv(t *testing.T) {
+	t.Setenv("DAGU_OPENCODE_EXECUTABLE", "/opt/opencode")
+	t.Setenv("DAGU_OPENCODE_ENV_PASSTHROUGH", "OPENAI_API_KEY,ANTHROPIC_API_KEY")
+	cfg := testLoad(t)
+	require.Equal(t, "/opt/opencode", cfg.OpenCode.Executable)
+	require.Equal(t, []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY"}, cfg.OpenCode.EnvPassthrough)
+}
+
+func TestLoad_OpenCodeRejectsReservedPassthrough(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+opencode:
+  env_passthrough:
+    - OPENCODE_SERVER_PASSWORD
+`), 0o600))
+	_, err := NewConfigLoader(viper.New(), WithConfigFile(configFile)).Load()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reserved variable")
+}
+
 func TestLoad_YAML(t *testing.T) {
 	cfg := loadFromYAML(t, `
 host: "0.0.0.0"
@@ -667,6 +702,7 @@ scheduler:
 			},
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
+		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
 		Server: Server{
 			Host:              "0.0.0.0",
 			Port:              9090,

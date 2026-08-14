@@ -3219,6 +3219,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "409":
+          description: "Managed session owner is unavailable or state changed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "DAG-run, step, or interaction not found"
           content:
@@ -3252,6 +3258,12 @@ paths:
                 $ref: "#/components/schemas/AgentSessionRestartResponse"
         "400":
           description: "Step does not have a restartable managed-agent session"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Managed session state changed"
           content:
             application/json:
               schema:
@@ -3923,6 +3935,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "409":
+          description: "Managed session owner is unavailable or state changed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "Sub DAG-run, step, or interaction not found"
           content:
@@ -3961,6 +3979,12 @@ paths:
                 $ref: "#/components/schemas/AgentSessionRestartResponse"
         "400":
           description: "Step does not have a restartable managed-agent session"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Managed session state changed"
           content:
             application/json:
               schema:
@@ -13220,6 +13244,8 @@ components:
       properties:
         provider:
           type: string
+        providerVersion:
+          type: string
         sessionId:
           type: string
         generation:
@@ -13229,8 +13255,6 @@ components:
         model:
           type: string
         variant:
-          type: string
-        ownerWorkerId:
           type: string
         state:
           $ref: "#/components/schemas/AgentSessionState"
@@ -13294,6 +13318,10 @@ components:
         permission:
           type: string
         patterns:
+          type: array
+          items:
+            type: string
+        allowForSessionPatterns:
           type: array
           items:
             type: string

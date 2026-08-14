@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	osruntime "runtime"
 	"strings"
 	"time"
 
@@ -26,7 +28,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
-const maxManagedAgentEvents = 1000
+const (
+	maxManagedAgentEvents        = 1000
+	maxManagedAttachmentRawBytes = 10 * 1024 * 1024
+)
 
 type openCodeClient struct {
 	host      opencodehost.Config
@@ -54,7 +59,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	cfg providerConfig,
 	host opencodehost.Config,
 ) (*os.File, error) {
-	client := &openCodeClient{host: host, directory: e.workDir, http: http.DefaultClient}
+	client := &openCodeClient{host: host, directory: e.workDir, http: &http.Client{Timeout: 30 * time.Second}}
 	e.mu.Lock()
 	e.managedHost = host
 	e.hasDeterminedStatus = false
@@ -65,10 +70,13 @@ func (e *harnessExecutor) runManagedOpenCode(
 		e.agentSession.Generation = 1
 	}
 	cleanRestart := e.agentSession.RestartPending
-	if cleanRestart {
-		e.agentSession.SessionID = ""
-		e.agentSession.PromptSent = false
+	if !cleanRestart && e.agentSession.SessionID != "" && (e.agentSession.HostInstanceID == "" || e.agentSession.HostInstanceID != host.InstanceID) {
+		e.mu.Unlock()
+		return e.finishManagedUnavailable("The OpenCode host changed; start a clean session to continue")
 	}
+	e.agentSession.ProviderVersion = host.Version
+	e.agentSession.HostInstanceID = host.InstanceID
+	e.agentSession.Directory = client.directory
 	e.agentSession.Agent = stringFlag(cfg.flags, "agent")
 	e.agentSession.Model = stringFlag(cfg.flags, "model")
 	e.agentSession.Variant = stringFlag(cfg.flags, "variant")
@@ -77,6 +85,12 @@ func (e *harnessExecutor) runManagedOpenCode(
 	e.appendAgentEventLocked("lifecycle", "starting", "OpenCode session starting")
 	e.mu.Unlock()
 	e.notifyProgress()
+
+	files, err := managedFileParts(client.directory, cfg.flags["file"])
+	if err != nil {
+		e.failManagedSession(err)
+		return nil, err
+	}
 
 	sessionID, err := e.ensureManagedSession(ctx, client, cfg, cleanRestart)
 	if err != nil {
@@ -106,7 +120,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	e.mu.Unlock()
 	var commandErrs <-chan error
 	if !resumed && !promptSent {
-		commandErrs, err = e.submitManagedPrompt(ctx, client, cfg, sessionID)
+		commandErrs, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, files)
 		if err != nil {
 			return e.finishManagedError(err)
 		}
@@ -116,7 +130,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	}
 
 	e.setManagedState(ir.AgentSessionRunning, "running", "OpenCode is working")
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	startedAt := time.Now()
 	seenBusy := false
@@ -129,6 +143,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			_ = client.abort(abortCtx, sessionID)
 			cancel()
 			e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
+			e.markManagedCleanupPending()
 			return nil, ctx.Err()
 		case err, ok := <-eventErrs:
 			if !ok {
@@ -150,7 +165,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 				events = nil
 				continue
 			}
-			matched, busy, eventErr := e.handleManagedEvent(sessionID, event)
+			matched, busy, eventErr := e.handleManagedEvent(ctx, client, sessionID, event)
 			seenBusy = seenBusy || busy
 			if eventErr != nil {
 				return e.finishManagedError(eventErr)
@@ -212,7 +227,21 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 	e.mu.Lock()
 	persistedID := e.agentSession.SessionID
 	hasPersistedSession := persistedID != ""
+	discardedID := e.agentSession.DiscardedSessionID
+	discardedOwned := e.agentSession.DiscardedOwned
 	e.mu.Unlock()
+	if cleanRestart && discardedID != "" && discardedOwned {
+		if err := client.deleteSession(ctx, discardedID); err != nil && !errors.Is(err, errManagedSessionUnavailable) {
+			e.mu.Lock()
+			e.appendAgentEventLocked("cleanup", "warning", "The discarded OpenCode session could not be removed")
+			e.mu.Unlock()
+		} else {
+			e.mu.Lock()
+			e.agentSession.DiscardedSessionID = ""
+			e.agentSession.DiscardedOwned = false
+			e.mu.Unlock()
+		}
+	}
 	requestedID := stringFlag(cfg.flags, "session")
 	if cleanRestart {
 		persistedID = ""
@@ -225,6 +254,7 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 
 	var session openCodeSession
 	var err error
+	owned := false
 	if persistedID != "" {
 		session, err = client.getSession(ctx, persistedID)
 		if err != nil {
@@ -237,38 +267,40 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 			return "", fmt.Errorf("OpenCode session %s belongs to a different working directory", persistedID)
 		}
 		if boolFlag(cfg.flags, "fork") && requestedID != "" && !hasPersistedSession {
+			if err := client.validateManagedConfig(ctx); err != nil {
+				return "", err
+			}
 			session, err = client.forkSession(ctx, persistedID)
 			if err != nil {
 				return "", err
 			}
+			owned = true
 		}
 	} else {
+		if err := client.validateManagedConfig(ctx); err != nil {
+			return "", err
+		}
 		session, err = client.createSession(ctx, stringFlag(cfg.flags, "title"), stringFlag(cfg.flags, "agent"))
 		if err != nil {
 			return "", err
 		}
+		owned = true
 	}
 
 	e.mu.Lock()
 	e.agentSession.SessionID = session.ID
+	e.agentSession.SessionOwned = owned || (hasPersistedSession && e.agentSession.SessionOwned)
+	e.agentSession.HostInstanceID = client.host.InstanceID
+	e.agentSession.ProviderVersion = client.host.Version
 	e.mu.Unlock()
 	e.notifyProgress()
-	if boolFlag(cfg.flags, "share") {
-		if err := client.shareSession(ctx, session.ID); err != nil {
-			return "", err
-		}
-	}
 	return session.ID, nil
 }
 
-func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID string) (<-chan error, error) {
+func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID string, files []map[string]any) (<-chan error, error) {
 	parts := []map[string]any{{"type": "text", "text": e.effectivePrompt()}}
 	if strings.TrimSpace(e.script) != "" {
 		parts = append(parts, map[string]any{"type": "text", "text": "Supplementary input:\n" + e.script})
-	}
-	files, err := managedFileParts(client.directory, cfg.flags["file"])
-	if err != nil {
-		return nil, err
 	}
 	parts = append(parts, files...)
 
@@ -309,13 +341,27 @@ func managedFileParts(workDir string, value any) ([]map[string]any, error) {
 		return nil, errors.New("managed OpenCode file must be a string or array")
 	}
 	parts := make([]map[string]any, 0, len(paths))
+	total := 0
 	for _, path := range paths {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(workDir, path)
 		}
-		data, err := os.ReadFile(path)
+		file, err := os.Open(path)
 		if err != nil {
 			return nil, fmt.Errorf("read OpenCode attachment %s: %w", path, err)
+		}
+		remaining := maxManagedAttachmentRawBytes - total
+		data, readErr := io.ReadAll(io.LimitReader(file, int64(remaining+1)))
+		closeErr := file.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read OpenCode attachment %s: %w", path, readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close OpenCode attachment %s: %w", path, closeErr)
+		}
+		total += len(data)
+		if total > maxManagedAttachmentRawBytes {
+			return nil, fmt.Errorf("managed OpenCode attachments exceed the %d MiB limit", maxManagedAttachmentRawBytes/(1024*1024))
 		}
 		mediaType := mime.TypeByExtension(filepath.Ext(path))
 		if mediaType == "" {
@@ -344,7 +390,8 @@ func (e *harnessExecutor) applyManagedInteractionResponses(ctx context.Context, 
 		case ir.AgentInteractionPermission:
 			reply := interaction.Decision
 			if reply == "session" {
-				reply = "always"
+				e.recordManagedPermissionGrant(interaction)
+				reply = "once"
 			}
 			err = client.replyPermission(ctx, interaction.ID, reply)
 		case ir.AgentInteractionQuestion:
@@ -370,11 +417,15 @@ func (e *harnessExecutor) applyManagedInteractionResponses(ctx context.Context, 
 	return resumed, nil
 }
 
-func (e *harnessExecutor) handleManagedEvent(sessionID string, event openCodeEvent) (waiting, busy bool, err error) {
+func (e *harnessExecutor) handleManagedEvent(ctx context.Context, client *openCodeClient, sessionID string, event openCodeEvent) (waiting, busy bool, err error) {
 	switch event.Type {
 	case "permission.asked":
 		var request openCodePermissionRequest
 		if json.Unmarshal(event.Properties, &request) == nil && request.SessionID == sessionID {
+			autoApproved, replyErr := e.replyFromManagedGrant(ctx, client, request)
+			if replyErr != nil || autoApproved {
+				return false, false, replyErr
+			}
 			e.addManagedPermission(request)
 			return true, false, nil
 		}
@@ -396,7 +447,7 @@ func (e *harnessExecutor) handleManagedEvent(sessionID string, event openCodeEve
 		}
 	case "session.error":
 		if eventSessionID(event.Properties) == sessionID {
-			return false, false, fmt.Errorf("OpenCode session failed: %s", compactJSON(event.Properties))
+			return false, false, errors.New("OpenCode reported a session error")
 		}
 	}
 	return false, busy, nil
@@ -411,6 +462,13 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 	} else {
 		for _, request := range permissions {
 			if request.SessionID == sessionID {
+				autoApproved, replyErr := e.replyFromManagedGrant(ctx, client, request)
+				if replyErr != nil {
+					return false, replyErr
+				}
+				if autoApproved {
+					continue
+				}
 				e.addManagedPermission(request)
 				return true, nil
 			}
@@ -471,6 +529,9 @@ func (e *harnessExecutor) finishManagedSuccess(ctx context.Context, client *open
 		}
 	}
 	e.agentSession.State = ir.AgentSessionSucceeded
+	if e.agentSession.SessionOwned && e.agentSession.SessionID != "" {
+		e.agentSession.CleanupPending = true
+	}
 	e.determinedStatus = ir.NodeSucceeded
 	e.hasDeterminedStatus = true
 	e.appendAgentEventLocked("lifecycle", "succeeded", "OpenCode session completed")
@@ -501,11 +562,22 @@ func (e *harnessExecutor) failManagedSession(err error) {
 	e.mu.Lock()
 	if e.agentSession != nil {
 		e.agentSession.State = ir.AgentSessionFailed
+		if e.agentSession.SessionOwned && e.agentSession.SessionID != "" {
+			e.agentSession.CleanupPending = true
+		}
 		e.agentSession.LastError = err.Error()
 		e.appendAgentEventLocked("lifecycle", "failed", err.Error())
 	}
 	e.mu.Unlock()
 	e.notifyProgress()
+}
+
+func (e *harnessExecutor) markManagedCleanupPending() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.agentSession != nil && e.agentSession.SessionOwned && e.agentSession.SessionID != "" {
+		e.agentSession.CleanupPending = true
+	}
 }
 
 func (e *harnessExecutor) finishManagedError(err error) (*os.File, error) {
@@ -695,6 +767,7 @@ type openCodePermissionRequest struct {
 	SessionID  string   `json:"sessionID"`
 	Permission string   `json:"permission"`
 	Patterns   []string `json:"patterns"`
+	Always     []string `json:"always"`
 }
 
 type openCodeQuestionRequest struct {
@@ -715,10 +788,84 @@ type openCodeQuestionRequest struct {
 func (e *harnessExecutor) addManagedPermission(request openCodePermissionRequest) {
 	interaction := ir.AgentInteraction{
 		ID: request.ID, Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
-		Permission: request.Permission, Patterns: request.Patterns,
+		Permission: request.Permission, Patterns: request.Patterns, AllowForSessionPatterns: request.Always,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	e.addManagedInteraction(interaction)
+}
+
+func (e *harnessExecutor) recordManagedPermissionGrant(interaction ir.AgentInteraction) {
+	if len(interaction.AllowForSessionPatterns) == 0 {
+		return
+	}
+	grant := ir.AgentPermissionGrant{
+		Permission: interaction.Permission, Patterns: append([]string(nil), interaction.AllowForSessionPatterns...),
+		GrantedAt: interaction.RespondedAt, GrantedBy: interaction.RespondedBy, GrantedByID: interaction.RespondedByID,
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, existing := range e.agentSession.PermissionGrants {
+		if existing.Permission == grant.Permission && reflect.DeepEqual(existing.Patterns, grant.Patterns) {
+			return
+		}
+	}
+	e.agentSession.PermissionGrants = append(e.agentSession.PermissionGrants, grant)
+}
+
+func (e *harnessExecutor) replyFromManagedGrant(ctx context.Context, client *openCodeClient, request openCodePermissionRequest) (bool, error) {
+	e.mu.Lock()
+	grants := append([]ir.AgentPermissionGrant(nil), e.agentSession.PermissionGrants...)
+	e.mu.Unlock()
+	for _, grant := range grants {
+		if grant.Permission != request.Permission || !permissionPatternsCovered(grant.Patterns, request.Patterns) {
+			continue
+		}
+		if err := client.replyPermission(ctx, request.ID, "once"); err != nil {
+			return false, err
+		}
+		e.mu.Lock()
+		e.appendAgentEventLocked("permission", "auto-approved", "Permission approved from this session's saved scope")
+		e.mu.Unlock()
+		e.notifyProgress()
+		return true, nil
+	}
+	return false, nil
+}
+
+func permissionPatternsCovered(grants, requested []string) bool {
+	if len(grants) == 0 || len(requested) == 0 {
+		return false
+	}
+	for _, target := range requested {
+		matched := false
+		for _, pattern := range grants {
+			if openCodeWildcardMatch(pattern, target) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func openCodeWildcardMatch(pattern, target string) bool {
+	pattern = strings.ReplaceAll(pattern, "\\", "/")
+	target = strings.ReplaceAll(target, "\\", "/")
+	if osruntime.GOOS == "windows" {
+		pattern = strings.ToLower(pattern)
+		target = strings.ToLower(target)
+	}
+	if base, ok := strings.CutSuffix(pattern, " *"); ok && (target == base || strings.HasPrefix(target, base+" ")) {
+		return true
+	}
+	quoted := regexp.QuoteMeta(pattern)
+	quoted = strings.ReplaceAll(quoted, `\*`, `.*`)
+	quoted = strings.ReplaceAll(quoted, `\?`, `.`)
+	matched, err := regexp.MatchString("^"+quoted+"$", target)
+	return err == nil && matched
 }
 
 func (e *harnessExecutor) addManagedQuestion(request openCodeQuestionRequest) {
@@ -760,14 +907,6 @@ func boolFlag(flags map[string]any, key string) bool {
 	return value
 }
 
-func compactJSON(raw json.RawMessage) string {
-	var out bytes.Buffer
-	if json.Compact(&out, raw) == nil {
-		return out.String()
-	}
-	return string(raw)
-}
-
 func eventSessionID(raw json.RawMessage) string {
 	var value struct {
 		SessionID string `json:"sessionID"`
@@ -792,6 +931,10 @@ func (c *openCodeClient) endpoint(path string) string {
 }
 
 func (c *openCodeClient) request(ctx context.Context, method, path string, body any) (*http.Response, error) {
+	return c.requestWithClient(ctx, c.http, method, path, body)
+}
+
+func (c *openCodeClient) requestWithClient(ctx context.Context, client *http.Client, method, path string, body any) (*http.Response, error) {
 	var reader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -808,7 +951,7 @@ func (c *openCodeClient) request(ctx context.Context, method, path string, body 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.http.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -828,8 +971,7 @@ func (c *openCodeClient) json(ctx context.Context, method, path string, body, ta
 		return errManagedSessionUnavailable
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		return fmt.Errorf("OpenCode API %s %s returned %s: %s", method, path, resp.Status, strings.TrimSpace(string(data)))
+		return fmt.Errorf("OpenCode API %s %s returned %s", method, path, resp.Status)
 	}
 	if target == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
@@ -866,8 +1008,19 @@ func (c *openCodeClient) forkSession(ctx context.Context, sessionID string) (ope
 	return session, err
 }
 
-func (c *openCodeClient) shareSession(ctx context.Context, sessionID string) error {
-	return c.json(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/share", nil, nil)
+func (c *openCodeClient) deleteSession(ctx context.Context, sessionID string) error {
+	return c.json(ctx, http.MethodDelete, "/session/"+url.PathEscape(sessionID), nil, nil)
+}
+
+func (c *openCodeClient) validateManagedConfig(ctx context.Context) error {
+	var settings map[string]any
+	if err := c.json(ctx, http.MethodGet, "/config", nil, &settings); err != nil {
+		return fmt.Errorf("validate managed OpenCode configuration: %w", err)
+	}
+	if settings["share"] != "disabled" {
+		return errors.New("managed OpenCode requires sharing to be disabled")
+	}
+	return nil
 }
 
 func (c *openCodeClient) commandAsync(ctx context.Context, sessionID, command, arguments string, cfg providerConfig, files []map[string]any) <-chan error {
@@ -884,7 +1037,9 @@ func (c *openCodeClient) commandAsync(ctx context.Context, sessionID, command, a
 	errs := make(chan error, 1)
 	go func() {
 		defer close(errs)
-		errs <- c.json(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/command", body, nil)
+		commandClient := *c
+		commandClient.http = &http.Client{Transport: c.http.Transport}
+		errs <- commandClient.json(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/command", body, nil)
 	}()
 	return errs
 }
@@ -940,13 +1095,14 @@ func (c *openCodeClient) abort(ctx context.Context, sessionID string) error {
 func abortManagedOpenCode(ctx context.Context, host opencodehost.Config, sessionID, directory string) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	client := &openCodeClient{host: host, directory: directory, http: http.DefaultClient}
+	client := &openCodeClient{host: host, directory: directory, http: &http.Client{Timeout: 3 * time.Second}}
 	return client.abort(ctx, sessionID)
 }
 
 func (c *openCodeClient) subscribe(ctx context.Context) (<-chan openCodeEvent, <-chan error, func(), error) {
 	streamCtx, cancel := context.WithCancel(ctx)
-	resp, err := c.request(streamCtx, http.MethodGet, "/event", nil)
+	streamClient := &http.Client{Transport: c.http.Transport}
+	resp, err := c.requestWithClient(streamCtx, streamClient, http.MethodGet, "/event", nil)
 	if err != nil {
 		cancel()
 		return nil, nil, nil, err

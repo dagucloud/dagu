@@ -82,6 +82,9 @@ func filterEnv(envs []string, allow map[string]bool, prefixes []string) []string
 		if !found {
 			continue
 		}
+		if strings.HasPrefix(normalizeEnvKey(key), "_DAGU_INTERNAL_") {
+			continue
+		}
 		// normalizeEnvKey handles platform differences (case-insensitive on Windows)
 		if allow[normalizeEnvKey(key)] || hasAllowedPrefix(key, normalizedPrefixes) {
 			filtered = append(filtered, e)

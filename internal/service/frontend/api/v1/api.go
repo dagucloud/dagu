@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
@@ -103,6 +104,7 @@ type API struct {
 	wikiMutationNotifier func()
 	baseConfigProvider   dagsettings.BaseConfigProvider
 	oidcRoleMapping      func() config.OIDCRoleMapping
+	openCodeHost         *opencodehost.Host
 }
 
 type processRepository interface {
@@ -349,6 +351,13 @@ func WithDAGRunLeaseStore(store dispatch.DAGRunLeaseStore) APIOption {
 func WithWorkerHeartbeatStore(store dispatch.WorkerHeartbeatStore) APIOption {
 	return func(a *API) {
 		a.workerHeartbeatStore = store
+	}
+}
+
+// WithOpenCodeHost enables the process-owned managed OpenCode service for local launches.
+func WithOpenCodeHost(host *opencodehost.Host) APIOption {
+	return func(a *API) {
+		a.openCodeHost = host
 	}
 }
 

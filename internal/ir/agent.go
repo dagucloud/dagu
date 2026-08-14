@@ -181,19 +181,29 @@ type AgentQuestionOption struct {
 
 // AgentInteraction records an agent request and its durable response.
 type AgentInteraction struct {
-	ID            string                 `json:"id"`
-	Kind          AgentInteractionKind   `json:"kind"`
-	Status        AgentInteractionStatus `json:"status"`
-	Permission    string                 `json:"permission,omitempty"`
-	Patterns      []string               `json:"patterns,omitempty"`
-	Questions     []AgentQuestion        `json:"questions,omitempty"`
-	Decision      string                 `json:"decision,omitempty"`
-	Answers       [][]string             `json:"answers,omitempty"`
-	Applied       bool                   `json:"applied,omitempty"`
-	CreatedAt     string                 `json:"createdAt,omitempty"`
-	RespondedAt   string                 `json:"respondedAt,omitempty"`
-	RespondedBy   string                 `json:"respondedBy,omitempty"`
-	RespondedByID string                 `json:"respondedById,omitempty"`
+	ID                      string                 `json:"id"`
+	Kind                    AgentInteractionKind   `json:"kind"`
+	Status                  AgentInteractionStatus `json:"status"`
+	Permission              string                 `json:"permission,omitempty"`
+	Patterns                []string               `json:"patterns,omitempty"`
+	AllowForSessionPatterns []string               `json:"allowForSessionPatterns,omitempty"`
+	Questions               []AgentQuestion        `json:"questions,omitempty"`
+	Decision                string                 `json:"decision,omitempty"`
+	Answers                 [][]string             `json:"answers,omitempty"`
+	Applied                 bool                   `json:"applied,omitempty"`
+	CreatedAt               string                 `json:"createdAt,omitempty"`
+	RespondedAt             string                 `json:"respondedAt,omitempty"`
+	RespondedBy             string                 `json:"respondedBy,omitempty"`
+	RespondedByID           string                 `json:"respondedById,omitempty"`
+}
+
+// AgentPermissionGrant is a permission scope approved for one Dagu session generation.
+type AgentPermissionGrant struct {
+	Permission  string   `json:"permission"`
+	Patterns    []string `json:"patterns"`
+	GrantedAt   string   `json:"grantedAt,omitempty"`
+	GrantedBy   string   `json:"grantedBy,omitempty"`
+	GrantedByID string   `json:"grantedById,omitempty"`
 }
 
 // AgentSessionEvent is one normalized item in a managed agent session timeline.
@@ -220,20 +230,28 @@ type AgentUsage struct {
 
 // AgentSession contains durable state required to display and resume a managed session.
 type AgentSession struct {
-	Provider       string              `json:"provider"`
-	SessionID      string              `json:"sessionId,omitempty"`
-	Generation     int                 `json:"generation,omitempty"`
-	Agent          string              `json:"agent,omitempty"`
-	Model          string              `json:"model,omitempty"`
-	Variant        string              `json:"variant,omitempty"`
-	OwnerWorkerID  string              `json:"ownerWorkerId,omitempty"`
-	State          AgentSessionState   `json:"state"`
-	LastError      string              `json:"lastError,omitempty"`
-	PromptSent     bool                `json:"promptSent,omitempty"`
-	RestartPending bool                `json:"restartPending,omitempty"`
-	Usage          AgentUsage          `json:"usage,omitzero"`
-	Interactions   []AgentInteraction  `json:"interactions,omitempty"`
-	Events         []AgentSessionEvent `json:"events,omitempty"`
+	Provider           string                 `json:"provider"`
+	ProviderVersion    string                 `json:"providerVersion,omitempty"`
+	SessionID          string                 `json:"sessionId,omitempty"`
+	Generation         int                    `json:"generation,omitempty"`
+	Agent              string                 `json:"agent,omitempty"`
+	Model              string                 `json:"model,omitempty"`
+	Variant            string                 `json:"variant,omitempty"`
+	OwnerWorkerID      string                 `json:"ownerWorkerId,omitempty"`
+	HostInstanceID     string                 `json:"hostInstanceId,omitempty"`
+	Directory          string                 `json:"directory,omitempty"`
+	State              AgentSessionState      `json:"state"`
+	LastError          string                 `json:"lastError,omitempty"`
+	PromptSent         bool                   `json:"promptSent,omitempty"`
+	RestartPending     bool                   `json:"restartPending,omitempty"`
+	SessionOwned       bool                   `json:"sessionOwned,omitempty"`
+	CleanupPending     bool                   `json:"cleanupPending,omitempty"`
+	DiscardedSessionID string                 `json:"discardedSessionId,omitempty"`
+	DiscardedOwned     bool                   `json:"discardedOwned,omitempty"`
+	PermissionGrants   []AgentPermissionGrant `json:"permissionGrants,omitempty"`
+	Usage              AgentUsage             `json:"usage,omitzero"`
+	Interactions       []AgentInteraction     `json:"interactions,omitempty"`
+	Events             []AgentSessionEvent    `json:"events,omitempty"`
 }
 
 // CloneAgentSession returns a detached copy safe for runtime handoff.
@@ -246,6 +264,7 @@ func CloneAgentSession(session *AgentSession) *AgentSession {
 	for i := range session.Interactions {
 		clone.Interactions[i] = session.Interactions[i]
 		clone.Interactions[i].Patterns = append([]string(nil), session.Interactions[i].Patterns...)
+		clone.Interactions[i].AllowForSessionPatterns = append([]string(nil), session.Interactions[i].AllowForSessionPatterns...)
 		clone.Interactions[i].Questions = append([]AgentQuestion(nil), session.Interactions[i].Questions...)
 		for j := range clone.Interactions[i].Questions {
 			clone.Interactions[i].Questions[j].Options = append([]AgentQuestionOption(nil), session.Interactions[i].Questions[j].Options...)
@@ -254,6 +273,11 @@ func CloneAgentSession(session *AgentSession) *AgentSession {
 		for j := range session.Interactions[i].Answers {
 			clone.Interactions[i].Answers[j] = append([]string(nil), session.Interactions[i].Answers[j]...)
 		}
+	}
+	clone.PermissionGrants = make([]AgentPermissionGrant, len(session.PermissionGrants))
+	for i := range session.PermissionGrants {
+		clone.PermissionGrants[i] = session.PermissionGrants[i]
+		clone.PermissionGrants[i].Patterns = append([]string(nil), session.PermissionGrants[i].Patterns...)
 	}
 	clone.Events = make([]AgentSessionEvent, len(session.Events))
 	for i := range session.Events {

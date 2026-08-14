@@ -544,7 +544,7 @@ func toAgentSession(session *ir.AgentSession) *api.AgentSession {
 		}
 		interactions = append(interactions, api.AgentInteraction{
 			Id: interaction.ID, Kind: api.AgentInteractionKind(interaction.Kind), Status: api.AgentInteractionStatus(interaction.Status),
-			Permission: ptrOf(interaction.Permission), Patterns: ptrOf(interaction.Patterns),
+			Permission: ptrOf(interaction.Permission), Patterns: ptrOf(interaction.Patterns), AllowForSessionPatterns: ptrOf(interaction.AllowForSessionPatterns),
 			Questions: ptrOf(questions), Decision: ptrOf(interaction.Decision), Answers: ptrOf(interaction.Answers),
 			CreatedAt: ptrOf(interaction.CreatedAt), RespondedAt: ptrOf(interaction.RespondedAt),
 			RespondedBy: ptrOf(interaction.RespondedBy), RespondedById: ptrOf(interaction.RespondedByID),
@@ -555,9 +555,9 @@ func toAgentSession(session *ir.AgentSession) *api.AgentSession {
 		events = append(events, toAgentSessionEvent(event))
 	}
 	return &api.AgentSession{
-		Provider: session.Provider, SessionId: ptrOf(session.SessionID), Generation: ptrOf(session.Generation),
+		Provider: session.Provider, ProviderVersion: ptrOf(session.ProviderVersion), SessionId: ptrOf(session.SessionID), Generation: ptrOf(session.Generation),
 		Agent: ptrOf(session.Agent), Model: ptrOf(session.Model), Variant: ptrOf(session.Variant),
-		OwnerWorkerId: ptrOf(session.OwnerWorkerID), State: api.AgentSessionState(session.State),
+		State:     api.AgentSessionState(session.State),
 		LastError: ptrOf(session.LastError), Interactions: ptrOf(interactions), Events: ptrOf(events),
 		Usage: &api.AgentUsage{
 			InputTokens: ptrOf(session.Usage.InputTokens), OutputTokens: ptrOf(session.Usage.OutputTokens),

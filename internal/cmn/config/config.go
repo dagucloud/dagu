@@ -19,6 +19,7 @@ import (
 // Config holds the overall configuration for the application.
 type Config struct {
 	Core            Core
+	OpenCode        OpenCodeConfig
 	Server          Server
 	EventStore      EventStoreConfig
 	Webhooks        WebhooksConfig
@@ -39,6 +40,12 @@ type Config struct {
 	License         LicenseConfig
 	Notices         []string
 	Warnings        []string
+}
+
+// OpenCodeConfig configures the process-local managed OpenCode service.
+type OpenCodeConfig struct {
+	Executable     string
+	EnvPassthrough []string
 }
 
 // DAGDiscoveryConfig controls how DAG definitions are discovered.
@@ -588,6 +595,9 @@ type Peer struct {
 // Validate performs basic validation on the configuration to ensure required fields are set
 // and that numerical values fall within acceptable ranges.
 func (c *Config) Validate() error {
+	if err := c.validateOpenCode(); err != nil {
+		return err
+	}
 	if err := c.validateServer(); err != nil {
 		return err
 	}
@@ -635,6 +645,16 @@ func (c *Config) Validate() error {
 	}
 	if err := c.validateWebhooks(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (c *Config) validateOpenCode() error {
+	for _, key := range c.OpenCode.EnvPassthrough {
+		normalized := strings.ToUpper(strings.TrimSpace(key))
+		if normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
+			return fmt.Errorf("opencode.env_passthrough must not include reserved variable %q", key)
+		}
 	}
 	return nil
 }

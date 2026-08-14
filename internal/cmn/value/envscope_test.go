@@ -40,6 +40,13 @@ func TestNewEnvScope(t *testing.T) {
 		assert.Equal(t, value, got)
 	})
 
+	t.Run("InternalTransportExcludedFromOS", func(t *testing.T) {
+		t.Setenv("_DAGU_INTERNAL_OPENCODE_PASSWORD", "secret")
+		scope := NewEnvScope(nil, true)
+		_, ok := scope.Get("_DAGU_INTERNAL_OPENCODE_PASSWORD")
+		assert.False(t, ok)
+	})
+
 	t.Run("WithParent", func(t *testing.T) {
 		parent := NewEnvScope(nil, false).
 			WithEntry("PARENT_VAR", "parent_value", EnvSourceDAGEnv)

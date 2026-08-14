@@ -106,8 +106,10 @@ func NewWorker(
 	}
 
 	healthPort := 0
+	openCodeConfig := config.OpenCodeConfig{Executable: "opencode"}
 	if cfg != nil {
 		healthPort = cfg.Worker.HealthPort
+		openCodeConfig = cfg.OpenCode
 	}
 
 	return &Worker{
@@ -120,7 +122,7 @@ func NewWorker(
 		pollerTasks:    make(map[string]string),
 		cancelFuncs:    make(map[string]context.CancelFunc),
 		healthServer:   healthcheck.NewServer("worker", healthPort),
-		openCodeHost:   opencodehost.New(context.Background()),
+		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
 }
 

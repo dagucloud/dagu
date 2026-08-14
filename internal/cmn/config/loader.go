@@ -358,6 +358,13 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 		BaseEnv:                baseEnv,
 		Peer:                   l.loadPeerConfig(def.Peer),
 	}
+	cfg.OpenCode = OpenCodeConfig{
+		Executable:     strings.TrimSpace(l.v.GetString("opencode.executable")),
+		EnvPassthrough: normalizeEnvEntries(parseStringList(l.v.Get("opencode.env_passthrough"))),
+	}
+	if cfg.OpenCode.Executable == "" {
+		cfg.OpenCode.Executable = "opencode"
+	}
 	cfg.DAGDiscovery = DAGDiscoveryConfig{
 		Recursive: l.v.GetBool("dag_discovery.recursive"),
 		Symlinks:  l.v.GetBool("dag_discovery.symlinks"),
@@ -2076,6 +2083,8 @@ var envBindings = []envBinding{
 	{key: "dag_discovery.symlinks", env: "DAG_DISCOVERY_SYMLINKS"},
 	{key: "env_passthrough", env: "ENV_PASSTHROUGH"},
 	{key: "env_passthrough_prefixes", env: "ENV_PASSTHROUGH_PREFIXES"},
+	{key: "opencode.executable", env: "OPENCODE_EXECUTABLE"},
+	{key: "opencode.env_passthrough", env: "OPENCODE_ENV_PASSTHROUGH"},
 
 	// Secrets
 	{key: "secrets.vault.address", env: "SECRETS_VAULT_ADDRESS"},

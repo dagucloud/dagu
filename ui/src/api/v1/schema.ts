@@ -5275,12 +5275,12 @@ export interface components {
         /** @description Durable state for a managed coding-agent session */
         AgentSession: {
             provider: string;
+            providerVersion?: string;
             sessionId?: string;
             generation?: number;
             agent?: string;
             model?: string;
             variant?: string;
-            ownerWorkerId?: string;
             state: components["schemas"]["AgentSessionState"];
             lastError?: string;
             usage?: components["schemas"]["AgentUsage"];
@@ -5309,6 +5309,7 @@ export interface components {
             status: AgentInteractionStatus;
             permission?: string;
             patterns?: string[];
+            allowForSessionPatterns?: string[];
             questions?: components["schemas"]["AgentQuestion"][];
             decision?: string;
             answers?: string[][];
@@ -10619,6 +10620,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Managed session owner is unavailable or state changed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Generic error response */
             default: {
                 headers: {
@@ -10669,6 +10679,15 @@ export interface operations {
             };
             /** @description DAG-run or step not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Managed session state changed */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11514,6 +11533,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Managed session owner is unavailable or state changed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Generic error response */
             default: {
                 headers: {
@@ -11565,6 +11593,15 @@ export interface operations {
             };
             /** @description Sub DAG-run or step not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Managed session state changed */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

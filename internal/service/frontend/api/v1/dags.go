@@ -1610,6 +1610,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		ProfileName:  opts.profileName,
 		NoReuse:      opts.noReuse,
 	})
+	spec.Env = append(spec.Env, a.managedOpenCodeEnv(ctx, dag)...)
 	started, err := launcher.StartProcess(ctx, spec)
 	if err != nil {
 		return fmt.Errorf("error starting DAG: %w", err)

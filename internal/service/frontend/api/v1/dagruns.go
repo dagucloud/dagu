@@ -37,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -2201,6 +2202,7 @@ func (a *API) repairStaleRunOnRead(
 	status *ir.DAGRunStatus,
 	fallbackAttemptID string,
 ) *ir.DAGRunStatus {
+	status = a.reconcileManagedAgentOwnersOnRead(ctx, status)
 	if status == nil || a.dagRunLeaseStore == nil || a.workerHeartbeatStore == nil {
 		return status
 	}
@@ -2231,6 +2233,54 @@ func (a *API) repairStaleRunOnRead(
 	}
 	if reconciled != nil {
 		return reconciled
+	}
+	return status
+}
+
+func (a *API) reconcileManagedAgentOwnersOnRead(ctx context.Context, status *ir.DAGRunStatus) *ir.DAGRunStatus {
+	if status == nil {
+		return nil
+	}
+	changed := false
+	for _, node := range status.Nodes {
+		if node == nil || node.AgentSession == nil || node.AgentSession.State != ir.AgentSessionWaiting {
+			continue
+		}
+		session := node.AgentSession
+		unavailable := false
+		if session.OwnerWorkerID != "" && session.OwnerWorkerID != "local" {
+			if a.workerHeartbeatStore == nil {
+				unavailable = true
+			} else {
+				record, err := a.workerHeartbeatStore.Get(ctx, session.OwnerWorkerID)
+				if err != nil && !errors.Is(err, dispatch.ErrWorkerHeartbeatNotFound) {
+					continue
+				}
+				unavailable = err != nil || record == nil || time.Since(record.LastHeartbeatTime()) >= managedAgentOwnerStaleThreshold
+			}
+		} else if a.openCodeHost == nil {
+			unavailable = true
+		} else {
+			hostConfig, err := a.openCodeHost.Ensure(ctx)
+			if err != nil {
+				continue
+			}
+			unavailable = session.HostInstanceID == "" || session.HostInstanceID != hostConfig.InstanceID
+		}
+		if !unavailable {
+			continue
+		}
+		message := "The execution host that owns this OpenCode session is unavailable; start a clean session to continue"
+		if err := a.markAgentSessionUnavailable(ctx, status.DAGRun(), node.Step.Name, message); err != nil {
+			logger.Warn(ctx, "Failed to reconcile managed-agent owner on read", tag.Error(err))
+			continue
+		}
+		changed = true
+	}
+	if changed {
+		if latest, err := a.dagRunMgr.GetSavedStatus(ctx, status.DAGRun()); err == nil && latest != nil {
+			return latest
+		}
 	}
 	return status
 }
@@ -3053,6 +3103,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		RetryPath:    retryPath,
 		TriggerActor: triggerActorFromContext(ctx),
 	})
+	spec.Env = append(spec.Env, a.managedOpenCodeEnv(ctx, prepared)...)
 	if err := launcher.Start(ctx, spec); err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error retrying DAG: %w", err)
 	}
@@ -3862,16 +3913,7 @@ func (a *API) resumeDAGRun(ctx context.Context, ref ir.DAGRunRef, dagRunID strin
 		return fmt.Errorf("read status: %w", err)
 	}
 
-	prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, status)
-	if err != nil {
-		return fmt.Errorf("prepare DAG retry env: %w", err)
-	}
-
-	retrySpec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
-		DAGRunID:     dagRunID,
-		TriggerActor: status.TriggerActor,
-	})
-	return launcher.Start(ctx, retrySpec)
+	return a.resumeManagedAttempt(ctx, dag, status, dagRunID)
 }
 
 func (a *API) resumeSubDAGRun(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) error {
@@ -3890,19 +3932,73 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef ir.DAGRunRef, subDAGR
 		return fmt.Errorf("read sub-DAG status: %w", err)
 	}
 
-	prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, status)
-	if err != nil {
-		return fmt.Errorf("prepare sub-DAG retry env: %w", err)
+	return a.resumeManagedAttempt(ctx, dag, status, subDAGRunID)
+}
+
+func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, runID string) error {
+	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+		options := []executor.TaskOption{
+			executor.WithWorkerSelector(dag.WorkerSelector),
+			executor.WithPreviousStatus(status),
+			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig)),
+		}
+		if workerID := ir.WaitingAgentOwnerWorkerID(status); workerID != "" {
+			options = append(options, executor.WithTargetWorkerID(workerID))
+		}
+		if dag.SourceFile != "" {
+			options = append(options, executor.WithSourceFile(dag.SourceFile))
+		}
+		if status.ProfileName != "" {
+			options = append(options, executor.WithProfileName(status.ProfileName))
+		}
+		if status.TriggerActor != "" {
+			options = append(options, executor.WithTriggerActor(status.TriggerActor))
+		}
+		if status.DefinitionID != "" {
+			options = append(options, executor.WithDefinitionID(status.DefinitionID))
+		}
+		if !status.Root.Zero() {
+			options = append(options, executor.WithRootDagRun(status.Root))
+		}
+		if !status.Parent.Zero() {
+			options = append(options, executor.WithParentDagRun(status.Parent))
+		}
+		if len(status.ParamsList) == 0 && status.Params != "" {
+			options = append(options, executor.WithTaskParams(status.Params))
+		}
+		task := executor.CreateTask(dag.Name, string(dag.YamlData), dispatch.DispatchOperationRetry, runID, options...)
+		if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
+			return fmt.Errorf("dispatch managed-agent resume: %w", err)
+		}
+		return nil
 	}
 
-	opts := launcher.RetryOptions{
-		DAGRunID:     subDAGRunID,
-		TriggerActor: status.TriggerActor,
+	prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, status)
+	if err != nil {
+		return fmt.Errorf("prepare DAG retry env: %w", err)
 	}
-	if !status.Root.Zero() && status.Root.ID != subDAGRunID {
+	opts := launcher.RetryOptions{DAGRunID: runID, TriggerActor: status.TriggerActor}
+	if !status.Root.Zero() && status.Root.ID != runID {
 		opts.Root = status.Root
 	}
-	return launcher.Start(ctx, a.subCmdBuilder.Retry(prepared, opts))
+	retrySpec := a.subCmdBuilder.Retry(prepared, opts)
+	retrySpec.Env = append(retrySpec.Env, a.managedOpenCodeEnv(ctx, prepared)...)
+	return launcher.Start(ctx, retrySpec)
+}
+
+func (a *API) managedOpenCodeEnv(ctx context.Context, dag *ir.DAG) []string {
+	if !opencodehost.DAGUsesManaged(dag) {
+		return nil
+	}
+	if a.openCodeHost == nil {
+		return opencodehost.UnavailableEnv(errors.New("managed OpenCode is not available in this server process"))
+	}
+	hostConfig, err := a.openCodeHost.Ensure(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Managed OpenCode host is unavailable; the harness will apply its configured compatibility policy", tag.Error(err))
+		return opencodehost.UnavailableEnv(err)
+	}
+	return hostConfig.Env()
 }
 
 func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) (*ir.DAG, error) {

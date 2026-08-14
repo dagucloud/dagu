@@ -39,6 +39,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/output"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -1162,8 +1163,14 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		lastErr = errors.Join(lastErr, snapshotErr)
 	}
 
-	// Finalize status (after outputs are written)
-	a.writeStatus(ctx, attempt, finishedStatus)
+	// Persist the complete transcript before deleting any provider-owned session.
+	if err := a.writeStatus(ctx, attempt, finishedStatus); err == nil {
+		if cleanupManagedAgentSessions(ctx, &finishedStatus) {
+			if err := a.writeStatus(ctx, attempt, finishedStatus); err != nil {
+				logger.Error(ctx, "Failed to persist managed-agent cleanup state", tag.Error(err))
+			}
+		}
+	}
 
 	// Stream scheduler log to coordinator if remote logging is configured.
 	if a.logWriterFactory != nil {
@@ -1576,15 +1583,14 @@ func appendDAGRunError(current string, err error) string {
 // writeStatus writes the current status to storage.
 // When statusPusher is set, it pushes to the coordinator.
 // Otherwise, it writes to local storage via the run-state attempt.
-func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, status ir.DAGRunStatus) {
+func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, status ir.DAGRunStatus) error {
 	if a.statusPusher != nil {
-		a.pushStatus(ctx, status)
-		return
+		return a.pushStatus(ctx, status)
 	}
-	a.writeStatusLocally(ctx, attempt, status)
+	return a.writeStatusLocally(ctx, attempt, status)
 }
 
-func (a *Agent) pushStatus(ctx context.Context, status ir.DAGRunStatus) {
+func (a *Agent) pushStatus(ctx context.Context, status ir.DAGRunStatus) error {
 	pushCtx := context.WithoutCancel(ctx)
 	timeout := remoteStatusPushTimeout
 	if status.Status != ir.NotStarted && !status.Status.IsActive() {
@@ -1604,16 +1610,84 @@ func (a *Agent) pushStatus(ctx context.Context, status ir.DAGRunStatus) {
 			)
 			a.stopChildren(context.Background(), syscall.SIGTERM, true)
 		}
+		return err
 	}
+	return nil
 }
 
-func (a *Agent) writeStatusLocally(ctx context.Context, attempt runstate.Attempt, status ir.DAGRunStatus) {
+func (a *Agent) writeStatusLocally(ctx context.Context, attempt runstate.Attempt, status ir.DAGRunStatus) error {
 	if attempt == nil {
-		return
+		return nil
 	}
 	if err := attempt.RecordStatus(ctx, status); err != nil {
 		logger.Error(ctx, "Failed to write status to local storage", tag.Error(err))
+		return err
 	}
+	return nil
+}
+
+func cleanupManagedAgentSessions(ctx context.Context, status *ir.DAGRunStatus) bool {
+	if status == nil {
+		return false
+	}
+	hasPendingCleanup := false
+	for _, node := range status.Nodes {
+		if node != nil && node.AgentSession != nil && node.AgentSession.CleanupPending && node.AgentSession.SessionOwned && node.AgentSession.SessionID != "" {
+			hasPendingCleanup = true
+			break
+		}
+	}
+	if !hasPendingCleanup {
+		return false
+	}
+	hostConfig, available, hostErr := opencodehost.ConfigFromContext(ctx)
+	changed := false
+	for _, node := range status.Nodes {
+		if node == nil || node.AgentSession == nil {
+			continue
+		}
+		session := node.AgentSession
+		if !session.CleanupPending || !session.SessionOwned || session.SessionID == "" {
+			continue
+		}
+		var cleanupErr error
+		switch {
+		case hostErr != nil:
+			cleanupErr = hostErr
+		case !available:
+			cleanupErr = errors.New("managed OpenCode host is unavailable")
+		case session.HostInstanceID != "" && session.HostInstanceID != hostConfig.InstanceID:
+			cleanupErr = errors.New("managed OpenCode host identity changed")
+		default:
+			cleanupErr = opencodehost.DeleteSession(ctx, hostConfig, session.Directory, session.SessionID)
+		}
+		if cleanupErr != nil {
+			session.LastError = "The completed OpenCode session could not be removed; cleanup can be retried while the original host is available"
+			appendManagedCleanupEvent(session, "warning", session.LastError)
+			changed = true
+			continue
+		}
+		session.SessionID = ""
+		session.SessionOwned = false
+		session.CleanupPending = false
+		session.LastError = ""
+		appendManagedCleanupEvent(session, "completed", "OpenCode session removed after durable run persistence")
+		changed = true
+	}
+	return changed
+}
+
+func appendManagedCleanupEvent(session *ir.AgentSession, status, content string) {
+	sequence := int64(1)
+	if len(session.Events) > 0 {
+		sequence = session.Events[len(session.Events)-1].Sequence + 1
+	}
+	session.Events = append(session.Events, ir.AgentSessionEvent{
+		Sequence: sequence,
+		ID:       fmt.Sprintf("dagu-%d-%d", session.Generation, sequence),
+		Type:     "cleanup", Status: status, Content: content,
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+	})
 }
 
 // watchCancelRequested is a goroutine that watches for cancel requests

@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -96,7 +97,6 @@ func NewDAGExecutor(
 		subCmdBuilder:   subCmdBuilder,
 		defaultExecMode: defaultExecMode,
 		baseConfigPath:  baseConfigPath,
-		openCodeHost:    opencodehost.New(context.Background()),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -426,31 +426,19 @@ func (e *DAGExecutor) managedOpenCodeEnv(ctx context.Context, dag *ir.DAG) []str
 	if !usesManagedOpenCode(dag) {
 		return nil
 	}
+	if e.openCodeHost == nil {
+		return opencodehost.UnavailableEnv(errors.New("managed OpenCode is not available in a standalone scheduler process"))
+	}
 	config, err := e.openCodeHost.Ensure(ctx)
 	if err != nil {
 		logger.Warn(ctx, "Managed OpenCode host is unavailable; the harness will apply its configured compatibility policy", tag.Error(err))
-		return nil
+		return opencodehost.UnavailableEnv(err)
 	}
 	return config.Env()
 }
 
 func usesManagedOpenCode(dag *ir.DAG) bool {
-	if dag == nil {
-		return false
-	}
-	for _, step := range dag.Steps {
-		if step.ExecutorConfig.Type != "harness" || step.Container != nil {
-			continue
-		}
-		config := step.ExecutorConfig.Config
-		if config["provider"] != "opencode" {
-			continue
-		}
-		if managed, ok := config["managed"].(bool); !ok || managed {
-			return true
-		}
-	}
-	return false
+	return opencodehost.DAGUsesManaged(dag)
 }
 
 func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, params any) (*ir.DAG, error) {
@@ -480,9 +468,6 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, 
 // from a goroutine in Stop while concurrent dispatchRun goroutines may still read
 // coordinatorCli via shouldUseDistributedExecution.
 func (e *DAGExecutor) Close(ctx context.Context) {
-	if err := e.openCodeHost.Close(ctx); err != nil {
-		logger.Error(ctx, "Failed to stop OpenCode host", tag.Error(err))
-	}
 	if e.coordinatorCli != nil {
 		if err := e.coordinatorCli.Cleanup(ctx); err != nil {
 			logger.Error(ctx, "Failed to cleanup coordinator client", tag.Error(err))

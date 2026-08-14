@@ -1092,6 +1092,7 @@ func TestApplyAgentInteractionResponse(t *testing.T) {
 			State:    ir.AgentSessionWaiting,
 			Interactions: []ir.AgentInteraction{{
 				ID: "permission-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+				AllowForSessionPatterns: []string{"git status *"},
 			}},
 		},
 	}
@@ -1117,8 +1118,9 @@ func TestApplyAgentSessionRestart(t *testing.T) {
 		ChatMessages: []ir.LLMMessage{{Role: ir.LLMRoleAssistant, Content: "old"}},
 		AgentSession: &ir.AgentSession{
 			Provider: "opencode", SessionID: "session-old", Generation: 2,
-			OwnerWorkerID: "worker-a", State: ir.AgentSessionUnavailable, PromptSent: true,
-			Interactions: []ir.AgentInteraction{{ID: "old"}},
+			OwnerWorkerID: "worker-a", State: ir.AgentSessionUnavailable, PromptSent: true, SessionOwned: true,
+			Interactions:     []ir.AgentInteraction{{ID: "old"}},
+			PermissionGrants: []ir.AgentPermissionGrant{{Permission: "bash", Patterns: []string{"git *"}}},
 		},
 	}
 
@@ -1128,8 +1130,30 @@ func TestApplyAgentSessionRestart(t *testing.T) {
 	assert.Equal(t, ir.NodeNotStarted, node.Status)
 	assert.Equal(t, 3, node.AgentSession.Generation)
 	assert.Empty(t, node.AgentSession.SessionID)
+	assert.Equal(t, "session-old", node.AgentSession.DiscardedSessionID)
+	assert.True(t, node.AgentSession.DiscardedOwned)
 	assert.Empty(t, node.AgentSession.OwnerWorkerID)
 	assert.True(t, node.AgentSession.RestartPending)
 	assert.Empty(t, node.AgentSession.Interactions)
+	assert.Empty(t, node.AgentSession.PermissionGrants)
 	assert.Empty(t, node.ChatMessages)
+}
+
+func TestValidateAgentQuestionResponse(t *testing.T) {
+	t.Parallel()
+
+	interaction := ir.AgentInteraction{
+		Kind: ir.AgentInteractionQuestion,
+		Questions: []ir.AgentQuestion{
+			{Multiple: true, Custom: true, Options: []ir.AgentQuestionOption{{Label: "A"}, {Label: "B"}}},
+			{Options: []ir.AgentQuestionOption{{Label: "Only"}}},
+		},
+	}
+	valid := [][]string{{"A", "custom"}, {"Only"}}
+	require.NoError(t, validateAgentInteractionResponse(interaction, &openapiv1.AgentInteractionResponseRequest{Answers: &valid}))
+
+	invalid := [][]string{{"A"}, {"Other"}}
+	err := validateAgentInteractionResponse(interaction, &openapiv1.AgentInteractionResponseRequest{Answers: &invalid})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not an offered option")
 }
