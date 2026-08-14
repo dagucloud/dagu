@@ -30,15 +30,28 @@ For host subprocess runs, built-in provider adapters resolve binaries through `P
 
 ### Managed OpenCode Sessions
 
-Built-in `provider: opencode` steps use a managed OpenCode server session by default when they run directly on a long-lived Dagu server, embedded engine, or distributed worker. The run page shows the agent timeline and lets an operator answer permission requests and questions. A waiting answer suspends the step durably; Dagu resumes the same OpenCode session on the host that owns it. The final assistant text becomes step stdout.
+Built-in `provider: opencode` steps use a managed OpenCode server session by default when they run from a standalone Dagu server, from `dagu start-all`, or on a distributed worker. The run page shows the agent timeline and lets an operator answer permission requests and questions. A waiting answer suspends the step durably; Dagu resumes the same OpenCode session on the host that owns it. The final assistant text becomes step stdout.
 
-Managed mode starts one host-level OpenCode server, so the `opencode` executable must be installed in the Dagu server or worker process's `PATH`. A DAG-level `tools:` declaration affects step subprocesses and does not supply this long-lived server. When managed mode is optional, Dagu falls back to the one-shot CLI if the host server cannot start.
+Managed mode starts one process-local OpenCode server under the Dagu service identity. Install a compatible `opencode` executable for that service and authenticate it with `opencode auth login` (normally stored in `~/.local/share/opencode/auth.json`) or pass selected provider credentials through the service configuration:
 
-Dagu does not add a Dagu MCP entry to OpenCode, edit OpenCode configuration, install plugins, or change provider credentials. Configure MCP separately only when the workflow actually needs it.
+```yaml
+opencode:
+  executable: opencode
+  env_passthrough:
+    - OPENAI_API_KEY
+```
 
-Managed options are `agent`, `model`, `variant`, `session`, `fork`, `title`, `share`, `file`, `command`, and `format: default`. Set `managed: false` to force the one-shot CLI. Options outside that set, non-default formats, containers, and direct one-shot Dagu CLI execution fall back to the CLI integration. Set `managed: true` to require managed mode and fail instead of falling back.
+The equivalent environment variables are `DAGU_OPENCODE_EXECUTABLE` and `DAGU_OPENCODE_ENV_PASSTHROUGH`. A DAG-level `tools:` or `secrets:` declaration affects step subprocesses and supplies only the CLI integration, not the long-lived managed server.
 
-If the owning worker or OpenCode server disappears, the step remains waiting and the run page offers a clean-session restart. A clean restart submits the original prompt to a new session; it does not pretend that the lost session was resumed.
+Dagu does not add a Dagu MCP entry to OpenCode, install plugins, or change provider credentials. Existing OpenCode MCP configuration is honored. Environment variables needed by manually configured MCP servers must be named in `opencode.env_passthrough`. Managed mode forces OpenCode sharing off and does not support `share`; explicit sharing uses the CLI integration and may publish the conversation at a public URL.
+
+Managed options are `agent`, `model`, `variant`, `session`, `fork`, `title`, `file`, `command`, and `format: default`. Set `managed: false` to force the one-shot CLI. Options outside that set, `share`, non-default formats, containers, standalone scheduler launches, embedded-engine runs, and direct Dagu CLI execution use the CLI integration. Set `managed: true` to require managed mode and fail clearly when the current execution topology or provider capabilities cannot support it. Automatic mode may fall back only before a managed session is created.
+
+“Allow for this Dagu session” applies only provider-proposed wildcard patterns to the current Dagu session generation; Dagu never grants OpenCode's process-wide `always` permission. Dagu-created and forked sessions are deleted after the terminal transcript and usage are durably persisted. Sessions supplied with `session:` remain externally owned and are retained.
+
+If the owning worker or OpenCode server disappears, the step remains waiting and the run page offers a clean-session restart. A clean restart discards the conversation and pending interaction, then submits the original prompt to a new session. It does not revert files already changed in the workspace.
+
+The managed server is a shared service-identity boundary for trusted workflows. Use separate Dagu workers or containerized CLI execution when workflows require isolation from one another. Managed compatibility is capability-checked at startup; OpenCode v1.18.11 is the currently tested release.
 
 ## How `with` Works
 

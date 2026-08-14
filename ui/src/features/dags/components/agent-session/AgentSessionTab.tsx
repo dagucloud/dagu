@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import {
@@ -15,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import React from 'react';
+import { combineQuestionAnswer } from './agentSessionAnswers';
 
 import {
   AgentInteractionResponseRequestDecision,
@@ -118,6 +120,9 @@ function InteractionCard({
   onQuestion: (answers?: string[][]) => Promise<void>;
 }) {
   const [answers, setAnswers] = React.useState<Record<number, string[]>>({});
+  const [customAnswers, setCustomAnswers] = React.useState<
+    Record<number, string>
+  >({});
 
   if (interaction.kind === 'permission') {
     return (
@@ -135,6 +140,14 @@ function InteractionCard({
               ))}
             </div>
           )}
+          {!!interaction.allowForSessionPatterns?.length && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              Session scope:{' '}
+              <span className="font-mono">
+                {interaction.allowForSessionPatterns.join(', ')}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -146,16 +159,19 @@ function InteractionCard({
           >
             <Check className="h-4 w-4" /> Allow once
           </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={busy}
-            onClick={() =>
-              onPermission(AgentInteractionResponseRequestDecision.session)
-            }
-          >
-            Allow for session
-          </Button>
+          {!!interaction.allowForSessionPatterns?.length && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              title={`Scope: ${interaction.allowForSessionPatterns.join(', ')}`}
+              onClick={() =>
+                onPermission(AgentInteractionResponseRequestDecision.session)
+              }
+            >
+              Allow for this Dagu session
+            </Button>
+          )}
           <Button
             size="sm"
             variant="destructive"
@@ -172,8 +188,14 @@ function InteractionCard({
   }
 
   const questions = interaction.questions || [];
+  const questionAnswers = (index: number) =>
+    combineQuestionAnswer(
+      answers[index] || [],
+      customAnswers[index] || '',
+      !!questions[index]?.multiple
+    );
   const complete = questions.every(
-    (_, index) => (answers[index] || []).length > 0
+    (_, index) => questionAnswers(index).length > 0
   );
   const toggleOption = (
     questionIndex: number,
@@ -245,12 +267,11 @@ function InteractionCard({
               disabled={busy}
               placeholder="Type a custom answer"
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              value={customAnswers[questionIndex] || ''}
               onChange={(event) =>
-                setAnswers((current) => ({
+                setCustomAnswers((current) => ({
                   ...current,
-                  [questionIndex]: event.target.value
-                    ? [event.target.value]
-                    : [],
+                  [questionIndex]: event.target.value,
                 }))
               }
             />
@@ -262,7 +283,7 @@ function InteractionCard({
           size="sm"
           disabled={busy || !complete}
           onClick={() =>
-            onQuestion(questions.map((_, index) => answers[index] || []))
+            onQuestion(questions.map((_, index) => questionAnswers(index)))
           }
         >
           <Check className="h-4 w-4" /> Submit answer
@@ -293,6 +314,7 @@ function AgentSessionCard({
   const remoteNode = useRemoteNode();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
+  const [confirmRestart, setConfirmRestart] = React.useState(false);
   const session = node.agentSession!;
   const pending = (session.interactions || []).filter(
     (interaction) => interaction.status === 'pending'
@@ -321,6 +343,7 @@ function AgentSessionCard({
       await onChanged();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Agent action failed');
+      await Promise.resolve(onChanged()).catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -351,9 +374,11 @@ function AgentSessionCard({
       const endpoint = isSubRun
         ? '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/agent-session/restart'
         : '/dag-runs/{name}/{dagRunId}/steps/{stepName}/agent-session/restart';
-      return client.POST(endpoint, {
+      const result = await client.POST(endpoint, {
         params: { path, query: { remoteNode } },
       });
+      setConfirmRestart(false);
+      return result;
     });
 
   const canRestart =
@@ -383,14 +408,16 @@ function AgentSessionCard({
             {[session.agent, session.model, session.variant]
               .filter(Boolean)
               .join(' · ') || 'OpenCode managed session'}
+            {session.providerVersion &&
+              ` · OpenCode ${session.providerVersion}`}
           </div>
         </div>
         {canRestart && (
           <Button
             size="sm"
-            variant="secondary"
+            variant={session.state === 'unavailable' ? 'primary' : 'secondary'}
             disabled={busy}
-            onClick={restart}
+            onClick={() => setConfirmRestart(true)}
           >
             <RotateCcw className="h-4 w-4" /> Start clean session
           </Button>
@@ -446,6 +473,18 @@ function AgentSessionCard({
         <h4 className="mb-2 text-sm font-medium">Session timeline</h4>
         <AgentTimeline events={session.events || []} />
       </div>
+
+      <ConfirmDialog
+        title="Start a clean OpenCode session?"
+        buttonText="Start clean session"
+        visible={confirmRestart}
+        dismissModal={() => setConfirmRestart(false)}
+        onSubmit={restart}
+        submitDisabled={busy}
+      >
+        This discards the current conversation and pending interaction. Files
+        already changed in the workspace are not reverted.
+      </ConfirmDialog>
     </section>
   );
 }
