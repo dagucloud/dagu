@@ -77,6 +77,7 @@ type dispatchTaskIndexEntry struct {
 	queueName      string
 	attemptKey     string
 	claimToken     string
+	targetWorkerID string
 	workerSelector map[string]string
 	hasTask        bool
 	enqueuedAt     int64
@@ -112,6 +113,7 @@ var legacyDispatchTaskJSONFields = map[string]string{
 	"target":                        "Target",
 	"definition":                    "Definition",
 	"worker_id":                     "WorkerID",
+	"target_worker_id":              "TargetWorkerID",
 	"attempt_id":                    "AttemptID",
 	"attempt_key":                   "AttemptKey",
 	"step":                          "Step",
@@ -255,14 +257,14 @@ func (idx *dispatchTaskIndex) invalidateDerivedState() {
 	clear(idx.noMatch)
 }
 
-func (idx *dispatchTaskIndex) candidatePendingIDs(workerLabels map[string]string) []string {
+func (idx *dispatchTaskIndex) candidatePendingIDs(workerID string, workerLabels map[string]string) []string {
 	ids := make([]string, 0, len(idx.pendingIDs))
 	for _, id := range idx.pendingIDs {
 		entry, ok := idx.pending[id]
 		if !ok {
 			continue
 		}
-		if matchesDispatchSelector(workerLabels, entry.workerSelector) {
+		if (entry.targetWorkerID == "" || entry.targetWorkerID == workerID) && matchesDispatchSelector(workerLabels, entry.workerSelector) {
 			ids = append(ids, id)
 		}
 	}
@@ -288,22 +290,22 @@ func (idx *dispatchTaskIndex) hasExpired(now time.Time, ttl time.Duration) bool 
 	return false
 }
 
-func (idx *dispatchTaskIndex) rememberNoMatch(labels map[string]string) {
+func (idx *dispatchTaskIndex) rememberNoMatch(workerID string, labels map[string]string) {
 	if idx == nil {
 		return
 	}
-	key := dispatchClaimLabelsKey(labels)
+	key := workerID + "\x00" + dispatchClaimLabelsKey(labels)
 	if _, ok := idx.noMatch[key]; !ok && len(idx.noMatch) >= dispatchNoMatchCacheLimit {
 		clear(idx.noMatch)
 	}
 	idx.noMatch[key] = struct{}{}
 }
 
-func (idx *dispatchTaskIndex) hasNoMatch(labels map[string]string) bool {
+func (idx *dispatchTaskIndex) hasNoMatch(workerID string, labels map[string]string) bool {
 	if idx == nil {
 		return false
 	}
-	_, ok := idx.noMatch[dispatchClaimLabelsKey(labels)]
+	_, ok := idx.noMatch[workerID+"\x00"+dispatchClaimLabelsKey(labels)]
 	return ok
 }
 
@@ -321,6 +323,7 @@ func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPa
 		entry.hasTask = true
 		entry.queueName = payload.Task.QueueName
 		entry.attemptKey = payload.Task.AttemptKey
+		entry.targetWorkerID = payload.Task.TargetWorkerID
 		entry.workerSelector = maps.Clone(payload.Task.WorkerSelector)
 	}
 	return entry
@@ -557,12 +560,12 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 			return nil, false, err
 		}
 	}
-	if s.index.hasNoMatch(claim.Labels) {
+	if s.index.hasNoMatch(claim.WorkerID, claim.Labels) {
 		return nil, false, nil
 	}
-	ids := s.index.candidatePendingIDs(claim.Labels)
+	ids := s.index.candidatePendingIDs(claim.WorkerID, claim.Labels)
 	if len(ids) == 0 {
-		s.index.rememberNoMatch(claim.Labels)
+		s.index.rememberNoMatch(claim.WorkerID, claim.Labels)
 		return nil, false, nil
 	}
 
@@ -594,6 +597,10 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 				return nil, false, err
 			}
 			s.index.removePending(id)
+			continue
+		}
+		if payload.Task.TargetWorkerID != "" && payload.Task.TargetWorkerID != claim.WorkerID {
+			s.index.addPending(rec, payload)
 			continue
 		}
 		if !matchesDispatchSelector(claim.Labels, payload.Task.WorkerSelector) {
@@ -640,7 +647,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 			Owner:      claim.Owner,
 		}, false, nil
 	}
-	s.index.rememberNoMatch(claim.Labels)
+	s.index.rememberNoMatch(claim.WorkerID, claim.Labels)
 	return nil, false, nil
 }
 

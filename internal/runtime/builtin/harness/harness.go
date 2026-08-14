@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -38,6 +39,9 @@ var _ executor.Executor = (*harnessExecutor)(nil)
 var _ executor.Stopper = (*harnessExecutor)(nil)
 var _ executor.ExitCoder = (*harnessExecutor)(nil)
 var _ executor.ChatMessageHandler = (*harnessExecutor)(nil)
+var _ executor.AgentSessionHandler = (*harnessExecutor)(nil)
+var _ executor.ProgressCallbackAware = (*harnessExecutor)(nil)
+var _ executor.NodeStatusDeterminer = (*harnessExecutor)(nil)
 var _ executor.PushBackAware = (*harnessExecutor)(nil)
 var _ executor.PushBackPreviousStdoutAware = (*harnessExecutor)(nil)
 
@@ -48,6 +52,9 @@ type providerConfig struct {
 	provider   Provider
 	definition *ir.HarnessDefinition
 	flags      map[string]any
+	managed    bool
+	required   bool
+	modeReason string
 }
 
 type defaultConfigProvider interface {
@@ -71,6 +78,11 @@ type harnessExecutor struct {
 	pushBackInputs         map[string]string
 	pushBackIteration      int
 	pushBackPreviousStdout string
+	agentSession           *ir.AgentSession
+	progressCallback       func()
+	managedHost            opencodehost.Config
+	determinedStatus       ir.NodeStatus
+	hasDeterminedStatus    bool
 
 	// container-run state (SDK path); set under mu while a containerized step runs
 	containerClient *dockerexec.Client
@@ -93,14 +105,45 @@ func (e *harnessExecutor) SetStderr(out io.Writer) {
 }
 
 func (e *harnessExecutor) SetContext(msgs []ir.LLMMessage) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.contextMessages = append([]ir.LLMMessage(nil), msgs...)
 }
 
 func (e *harnessExecutor) GetMessages() []ir.LLMMessage {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.savedMessages == nil {
 		return append([]ir.LLMMessage(nil), e.contextMessages...)
 	}
 	return append([]ir.LLMMessage(nil), e.savedMessages...)
+}
+
+func (e *harnessExecutor) SetAgentSession(session *ir.AgentSession) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.agentSession = ir.CloneAgentSession(session)
+}
+
+func (e *harnessExecutor) GetAgentSession() *ir.AgentSession {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return ir.CloneAgentSession(e.agentSession)
+}
+
+func (e *harnessExecutor) SetProgressCallback(callback func()) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.progressCallback = callback
+}
+
+func (e *harnessExecutor) DetermineNodeStatus() (ir.NodeStatus, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.hasDeterminedStatus {
+		return e.determinedStatus, nil
+	}
+	return ir.NodeRunning, nil
 }
 
 func (e *harnessExecutor) Kill(sig os.Signal) error {
@@ -113,6 +156,13 @@ func (e *harnessExecutor) Stop(intent cmdutil.TerminationIntent) error {
 
 func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 	e.mu.Lock()
+	if e.managedHost.URL != "" && e.agentSession != nil && e.agentSession.SessionID != "" {
+		host := e.managedHost
+		sessionID := e.agentSession.SessionID
+		workDir := e.workDir
+		e.mu.Unlock()
+		return abortManagedOpenCode(context.Background(), host, sessionID, workDir)
+	}
 	if e.process == nil {
 		// Containerized run: cancel the run context and stop the container via
 		// the SDK so a cancelled step leaves no running orphan (Close auto-removes
@@ -223,6 +273,40 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	hasRootContainer := rootContainerConfigured(ctx)
+	if cfg.managed && e.step.Container == nil && !hasRootContainer {
+		host, available, err := opencodehost.ConfigFromContext(ctx)
+		if err != nil && cfg.required {
+			return nil, fmt.Errorf("harness: managed OpenCode is unavailable: %w", err)
+		}
+		if err == nil && available {
+			stdout, managedErr := e.runManagedOpenCode(ctx, cfg, host)
+			if managedErr == nil || cfg.required {
+				return stdout, managedErr
+			}
+			e.mu.Lock()
+			sessionStarted := e.agentSession != nil && e.agentSession.SessionID != ""
+			if !sessionStarted {
+				e.agentSession = nil
+				e.managedHost = opencodehost.Config{}
+			}
+			e.mu.Unlock()
+			if sessionStarted {
+				return nil, managedErr
+			}
+			_, _ = fmt.Fprintf(e.stderrWriter(), "harness: managed OpenCode startup failed; using legacy CLI: %v\n", managedErr)
+		}
+		if cfg.required {
+			return nil, errors.New("harness: managed OpenCode requires a Dagu server or worker execution host")
+		}
+		_, _ = fmt.Fprintln(e.stderrWriter(), "harness: using legacy OpenCode CLI because no managed execution host is available")
+	} else if cfg.managed {
+		if cfg.required {
+			return nil, errors.New("harness: managed OpenCode is not supported inside containers")
+		}
+		_, _ = fmt.Fprintln(e.stderrWriter(), "harness: using legacy OpenCode CLI because the step runs in a container")
+	} else if cfg.modeReason != "" {
+		_, _ = fmt.Fprintln(e.stderrWriter(), "harness: using legacy OpenCode CLI: "+cfg.modeReason)
+	}
 
 	if e.step.Container != nil {
 		return e.runContainerOnce(ctx, cfg)
@@ -767,6 +851,7 @@ func (e *harnessExecutor) stderrWriter() io.Writer {
 var reservedKeys = map[string]bool{
 	"provider": true,
 	"fallback": true,
+	"managed":  true,
 }
 
 // configToFlags converts config map entries into CLI flags.
@@ -894,10 +979,59 @@ func buildProviderConfigs(cfg map[string]any, defs ir.HarnessDefinitions) ([]pro
 			return nil, fmt.Errorf("harness: invalid fallback[%d]: %w", i-1, err)
 		}
 		resolved.flags = mergeProviderDefaultConfig(resolved.provider, attempts[i])
+		if resolved.name == "opencode" && resolved.definition == nil {
+			managed, required, reason, managedErr := managedOpenCodeMode(resolved.flags)
+			if managedErr != nil {
+				if i == 0 {
+					return nil, managedErr
+				}
+				return nil, fmt.Errorf("harness: invalid fallback[%d]: %w", i-1, managedErr)
+			}
+			resolved.managed = managed
+			resolved.required = required
+			resolved.modeReason = reason
+		}
 		configs = append(configs, resolved)
 	}
 
 	return configs, nil
+}
+
+var managedOpenCodeKeys = map[string]bool{
+	"provider": true, "managed": true, "fallback": true,
+	"agent": true, "model": true, "variant": true, "session": true,
+	"fork": true, "title": true, "share": true, "file": true,
+	"command": true, "format": true,
+}
+
+func managedOpenCodeMode(config map[string]any) (managed, required bool, reason string, err error) {
+	if value, ok := config["managed"]; ok {
+		flag, valid := value.(bool)
+		if !valid {
+			return false, false, "", errors.New("harness: config.managed must be a boolean")
+		}
+		if !flag {
+			return false, false, "managed is false", nil
+		}
+		required = true
+	}
+	for key := range config {
+		if !managedOpenCodeKeys[key] {
+			reason = fmt.Sprintf("option %q requires the CLI integration", key)
+			if required {
+				return false, true, "", fmt.Errorf("harness: managed OpenCode does not support option %q; set managed: false", key)
+			}
+			return false, false, reason, nil
+		}
+	}
+	if format, _ := config["format"].(string); format != "" && format != "default" {
+		reason = fmt.Sprintf("format %q requires the CLI integration", format)
+		if required {
+			return false, true, "", fmt.Errorf("harness: managed OpenCode supports only format: default; set managed: false")
+		}
+		return false, false, reason, nil
+	}
+	return true, required, "", nil
 }
 
 func extractFallbackConfigs(cfg map[string]any) (map[string]any, []map[string]any, error) {

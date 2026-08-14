@@ -1081,3 +1081,55 @@ func TestGetDAGRunDetailsReturnsClientClosedRequestWhenReadCanceled(t *testing.T
 	require.Equal(t, openapiv1.ErrorCodeInternalError, canceledResp.Body.Code)
 	require.Equal(t, "dag-run details request canceled", canceledResp.Body.Message)
 }
+
+func TestApplyAgentInteractionResponse(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status: ir.NodeWaiting,
+		AgentSession: &ir.AgentSession{
+			Provider: "opencode",
+			State:    ir.AgentSessionWaiting,
+			Interactions: []ir.AgentInteraction{{
+				ID: "permission-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+			}},
+		},
+	}
+	decision := openapiv1.AgentInteractionResponseRequestDecision("session")
+	ctx := auth.WithUser(t.Context(), &auth.User{ID: "user-1", Username: "alice"})
+
+	err := applyAgentInteractionResponse(ctx, node, "permission-1", &openapiv1.AgentInteractionResponseRequest{Decision: &decision})
+
+	require.NoError(t, err)
+	assert.Equal(t, ir.NodeNotStarted, node.Status)
+	interaction := node.AgentSession.Interactions[0]
+	assert.Equal(t, ir.AgentInteractionAnswered, interaction.Status)
+	assert.Equal(t, "session", interaction.Decision)
+	assert.Equal(t, "alice", interaction.RespondedBy)
+	assert.Equal(t, "user-1", interaction.RespondedByID)
+}
+
+func TestApplyAgentSessionRestart(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status:       ir.NodeWaiting,
+		ChatMessages: []ir.LLMMessage{{Role: ir.LLMRoleAssistant, Content: "old"}},
+		AgentSession: &ir.AgentSession{
+			Provider: "opencode", SessionID: "session-old", Generation: 2,
+			OwnerWorkerID: "worker-a", State: ir.AgentSessionUnavailable, PromptSent: true,
+			Interactions: []ir.AgentInteraction{{ID: "old"}},
+		},
+	}
+
+	err := applyAgentSessionRestart(node)
+
+	require.NoError(t, err)
+	assert.Equal(t, ir.NodeNotStarted, node.Status)
+	assert.Equal(t, 3, node.AgentSession.Generation)
+	assert.Empty(t, node.AgentSession.SessionID)
+	assert.Empty(t, node.AgentSession.OwnerWorkerID)
+	assert.True(t, node.AgentSession.RestartPending)
+	assert.Empty(t, node.AgentSession.Interactions)
+	assert.Empty(t, node.ChatMessages)
+}

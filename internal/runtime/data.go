@@ -103,6 +103,8 @@ type NodeState struct {
 	// ToolDefinitions stores the tool definitions that were available to the LLM during execution.
 	// This provides visibility into what tools/functions the LLM could call.
 	ToolDefinitions []ir.ToolDefinition
+	// AgentSession stores managed coding-agent state across suspended attempts.
+	AgentSession *ir.AgentSession
 	// ApprovalInputs stores key-value parameters provided during approval.
 	// These are available as environment variables in subsequent steps.
 	ApprovalInputs map[string]string
@@ -820,6 +822,20 @@ func (d *Data) GetToolDefinitions() []ir.ToolDefinition {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.inner.State.ToolDefinitions
+}
+
+// SetAgentSession stores managed coding-agent state on the node.
+func (d *Data) SetAgentSession(session *ir.AgentSession) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.AgentSession = ir.CloneAgentSession(session)
+}
+
+// GetAgentSession returns a detached managed coding-agent state snapshot.
+func (d *Data) GetAgentSession() *ir.AgentSession {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return ir.CloneAgentSession(d.inner.State.AgentSession)
 }
 
 // GetApprovalInputs returns a copy of the approval inputs map.

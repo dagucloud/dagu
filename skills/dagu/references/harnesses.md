@@ -1,6 +1,6 @@
 # External CLI Harnesses
 
-Use `action: harness.run` to invoke external coding-agent CLIs from DAG steps. Dagu selects and invokes the configured CLI; the CLI itself must be installed on the host or available in the selected container.
+Use `action: harness.run` to invoke external coding agents from DAG steps. Dagu selects the configured provider; its executable must be installed on the host or available in the selected container.
 
 ## Supported Providers
 
@@ -9,7 +9,7 @@ Use `action: harness.run` to invoke external coding-agent CLIs from DAG steps. D
 | `claude` | `claude` | `claude -p "<prompt>" [flags]` |
 | `codex` | `codex` | `codex exec "<prompt>" [flags]` |
 | `copilot` | `copilot` | `copilot -p "<prompt>" [flags]` |
-| `opencode` | `opencode` | `opencode run "<prompt>" [flags]` |
+| `opencode` | `opencode` | Managed server session on a Dagu server or worker; otherwise `opencode run "<prompt>" [flags]` |
 | `pi` | `pi` | `pi -p "<prompt>" [flags]` |
 
 Codex defaults to `skip_git_repo_check: true`, so its default invocation includes `--skip-git-repo-check`. Set `skip_git_repo_check: false` or `skip-git-repo-check: false` to omit it.
@@ -28,6 +28,16 @@ For host subprocess runs, built-in provider adapters resolve binaries through `P
 - `provider` may use value references only if they resolve to a concrete provider string before executor creation. If `${...}` remains unresolved at runtime, the harness fails with an unresolved provider template error.
 - `provider` and `fallback` are harness control keys. They are not passed as CLI flags.
 
+### Managed OpenCode Sessions
+
+Built-in `provider: opencode` steps use a managed OpenCode server session by default when they run directly on a long-lived Dagu server, embedded engine, or distributed worker. The run page shows the agent timeline and lets an operator answer permission requests and questions. A waiting answer suspends the step durably; Dagu resumes the same OpenCode session on the host that owns it. The final assistant text becomes step stdout.
+
+Dagu does not add a Dagu MCP entry to OpenCode, edit OpenCode configuration, install plugins, or change provider credentials. Configure MCP separately only when the workflow actually needs it.
+
+Managed options are `agent`, `model`, `variant`, `session`, `fork`, `title`, `share`, `file`, `command`, and `format: default`. Set `managed: false` to force the one-shot CLI. Options outside that set, non-default formats, containers, and direct one-shot Dagu CLI execution fall back to the CLI integration. Set `managed: true` to require managed mode and fail instead of falling back.
+
+If the owning worker or OpenCode server disappears, the step remains waiting and the run page offers a clean-session restart. A clean restart submits the original prompt to a new session; it does not pretend that the lost session was resumed.
+
 ## How `with` Works
 
 Harness supports built-in provider adapters and named custom harness definitions:
@@ -44,7 +54,7 @@ For built-in provider adapters and custom providers, non-reserved `with` keys ar
 - Arrays repeat the flag once per item
 - Built-in provider adapters also normalize `snake_case` keys to kebab-case flags, so `max_turns` becomes `--max-turns`
 
-Reserved keys are `prompt`, `stdin`, `provider`, and `fallback`.
+Reserved keys are `prompt`, `stdin`, `provider`, `fallback`, and `managed`.
 
 ## Custom Harness Registry
 
@@ -339,7 +349,7 @@ steps:
     with:
       prompt: "Refactor the database layer"
       provider: opencode
-      format: json
+      model: openai/gpt-5
     timeout_sec: 300
 ```
 

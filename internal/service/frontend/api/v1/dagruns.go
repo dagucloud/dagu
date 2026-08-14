@@ -3001,6 +3001,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			executor.WithPreviousStatus(prevStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig)),
 		}
+		if workerID := ir.WaitingAgentOwnerWorkerID(prevStatus); workerID != "" {
+			opts = append(opts, executor.WithTargetWorkerID(workerID))
+		}
 		if dag.SourceFile != "" {
 			opts = append(opts, executor.WithSourceFile(dag.SourceFile))
 		}

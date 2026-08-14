@@ -5,6 +5,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -49,6 +50,61 @@ func TestProviderDefaultConfig(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, map[string]any{"skip_git_repo_check": true}, provider.DefaultConfig())
 	})
+}
+
+func TestManagedOpenCodeMode(t *testing.T) {
+	t.Parallel()
+
+	managed, required, reason, err := managedOpenCodeMode(map[string]any{
+		"provider": "opencode",
+		"model":    "openai/gpt-5",
+	})
+	require.NoError(t, err)
+	assert.True(t, managed)
+	assert.False(t, required)
+	assert.Empty(t, reason)
+
+	managed, required, reason, err = managedOpenCodeMode(map[string]any{
+		"provider": "opencode",
+		"port":     4096,
+	})
+	require.NoError(t, err)
+	assert.False(t, managed)
+	assert.False(t, required)
+	assert.Contains(t, reason, "CLI integration")
+
+	_, required, _, err = managedOpenCodeMode(map[string]any{
+		"provider": "opencode",
+		"managed":  true,
+		"port":     4096,
+	})
+	require.Error(t, err)
+	assert.True(t, required)
+}
+
+func TestNormalizeOpenCodeMessages(t *testing.T) {
+	t.Parallel()
+
+	messages := []openCodeMessage{{
+		Info: json.RawMessage(`{"role":"assistant","id":"message-1","providerID":"openai","modelID":"gpt-5"}`),
+		Parts: []json.RawMessage{
+			json.RawMessage(`{"id":"part-1","type":"text","text":"Done"}`),
+			json.RawMessage(`{"id":"part-2","type":"tool","tool":"bash","callID":"call-1","state":{"status":"completed","input":{"command":"go test ./..."}}}`),
+			json.RawMessage(`{"id":"part-3","type":"step-finish","tokens":{"input":12,"output":8,"reasoning":3,"total":23},"cost":0.25}`),
+		},
+	}}
+
+	chat, events, usage := normalizeOpenCodeMessages(messages)
+
+	require.Len(t, chat, 1)
+	assert.Equal(t, ir.LLMRoleAssistant, chat[0].Role)
+	assert.Equal(t, "Done", chat[0].Content)
+	require.Len(t, chat[0].ToolCalls, 1)
+	assert.Equal(t, "bash", chat[0].ToolCalls[0].Function.Name)
+	assert.Contains(t, chat[0].ToolCalls[0].Function.Arguments, "go test ./...")
+	assert.Len(t, events, 3)
+	assert.Equal(t, int64(23), usage.TotalTokens)
+	assert.Equal(t, 0.25, usage.Cost)
 }
 
 func TestHarnessExecutorPushBackContextAugmentsPromptWithLogPath(t *testing.T) {

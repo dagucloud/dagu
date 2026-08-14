@@ -128,6 +128,17 @@ type ChatMessageHandler interface {
 	GetMessages() []ir.LLMMessage
 }
 
+// AgentSessionHandler exchanges durable managed-agent state with the runtime.
+type AgentSessionHandler interface {
+	SetAgentSession(*ir.AgentSession)
+	GetAgentSession() *ir.AgentSession
+}
+
+// ProgressCallbackAware reports executor side-channel changes during execution.
+type ProgressCallbackAware interface {
+	SetProgressCallback(func())
+}
+
 // PushBackAware is implemented by executors that can incorporate
 // push-back feedback into their conversation flow.
 type PushBackAware interface {

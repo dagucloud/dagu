@@ -154,6 +154,8 @@ message Task {
   string definition_id = 35;
   // Value bound to ITEM for a parallel child run.
   string parallel_item = 36;
+  // Exact worker required to resume a host-owned agent session.
+  string target_worker_id = 37;
 }
 
 enum Operation {

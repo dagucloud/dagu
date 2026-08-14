@@ -1060,12 +1060,17 @@ func (r *Runner) execNode(ctx context.Context, node *Node, progressCh chan *Node
 	if r.dry {
 		return nil
 	}
+	report := func() {
+		if progressCh != nil {
+			progressCh <- node
+		}
+	}
 	if progressCh != nil && node.Step().SubDAG != nil {
 		// Send an additional progress notification after the executor is set up
 		// so that SubRuns are persisted to storage before the subDAG starts running.
-		return r.stepExecutor.Execute(ctx, node, func() { progressCh <- node })
+		return r.stepExecutor.ExecuteWithProgress(ctx, node, report, report)
 	}
-	return r.stepExecutor.Execute(ctx, node)
+	return r.stepExecutor.ExecuteWithProgress(ctx, node, nil, report)
 }
 
 // Signal sends a signal to the runner.

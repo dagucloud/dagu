@@ -3184,6 +3184,135 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/agent-events:
+    get:
+      summary: "List managed-agent timeline events"
+      operationId: "listDAGRunStepAgentEvents"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+        - name: "after"
+          in: "query"
+          schema:
+            type: integer
+            format: int64
+            default: 0
+        - name: "limit"
+          in: "query"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: "Managed-agent timeline"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentEventsResponse"
+        "404":
+          description: "DAG-run, step, or managed-agent session not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/agent-interactions/{interactionId}/respond:
+    post:
+      summary: "Respond to a managed-agent interaction"
+      operationId: "respondDAGRunStepAgentInteraction"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+        - name: "interactionId"
+          in: "path"
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentInteractionResponseRequest"
+      responses:
+        "200":
+          description: "Interaction response stored and resume attempted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentInteractionResponse"
+        "400":
+          description: "Invalid or stale interaction response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG-run, step, or interaction not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/agent-session/restart:
+    post:
+      summary: "Restart a managed-agent session cleanly"
+      operationId: "restartDAGRunStepAgentSession"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+      responses:
+        "200":
+          description: "Clean session restart queued"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionRestartResponse"
+        "400":
+          description: "Step does not have a restartable managed-agent session"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG-run or step not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}:
     get:
       summary: "Retrieve detailed status of a sub DAG-run"
@@ -3781,6 +3910,150 @@ paths:
                 $ref: "#/components/schemas/PushBackStepResponse"
         "400":
           description: "Step is not in Waiting status, missing required inputs, or step does not have approval config"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Sub DAG-run or step not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/agent-events:
+    get:
+      summary: "List managed-agent timeline events in a sub DAG-run"
+      operationId: "listSubDAGRunStepAgentEvents"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - name: "subDAGRunId"
+          in: "path"
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/StepName"
+        - name: "after"
+          in: "query"
+          schema:
+            type: integer
+            format: int64
+            default: 0
+        - name: "limit"
+          in: "query"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: "Managed-agent timeline"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentEventsResponse"
+        "404":
+          description: "Sub DAG-run, step, or managed-agent session not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/agent-interactions/{interactionId}/respond:
+    post:
+      summary: "Respond to a managed-agent interaction in a sub DAG-run"
+      operationId: "respondSubDAGRunStepAgentInteraction"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - name: "subDAGRunId"
+          in: "path"
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/StepName"
+        - name: "interactionId"
+          in: "path"
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentInteractionResponseRequest"
+      responses:
+        "200":
+          description: "Interaction response stored and resume attempted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentInteractionResponse"
+        "400":
+          description: "Invalid or stale interaction response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Sub DAG-run, step, or interaction not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/agent-session/restart:
+    post:
+      summary: "Restart a managed-agent session cleanly in a sub DAG-run"
+      operationId: "restartSubDAGRunStepAgentSession"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - name: "subDAGRunId"
+          in: "path"
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/StepName"
+      responses:
+        "200":
+          description: "Clean session restart queued"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionRestartResponse"
+        "400":
+          description: "Step does not have a restartable managed-agent session"
           content:
             application/json:
               schema:
@@ -10203,6 +10476,78 @@ components:
         - approvalIteration
         - resumed
 
+    AgentInteractionResponseRequest:
+      type: object
+      description: "Answer to a pending managed-agent permission or question"
+      properties:
+        decision:
+          type: string
+          enum:
+            - once
+            - session
+            - reject
+        answers:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+
+    AgentInteractionResponse:
+      type: object
+      properties:
+        dagRunId:
+          type: string
+        stepName:
+          type: string
+        interactionId:
+          type: string
+        resumed:
+          type: boolean
+        subDAGRunId:
+          type: string
+      required:
+        - dagRunId
+        - stepName
+        - interactionId
+        - resumed
+
+    AgentSessionRestartResponse:
+      type: object
+      properties:
+        dagRunId:
+          type: string
+        stepName:
+          type: string
+        generation:
+          type: integer
+        resumed:
+          type: boolean
+        subDAGRunId:
+          type: string
+      required:
+        - dagRunId
+        - stepName
+        - generation
+        - resumed
+
+    AgentEventsResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionEvent"
+        nextCursor:
+          type: integer
+          format: int64
+        hasMore:
+          type: boolean
+      required:
+        - events
+        - nextCursor
+        - hasMore
+
     ApprovalConfig:
       type: object
       description: "Configuration for a human approval gate on a step"
@@ -12966,6 +13311,8 @@ components:
           description: "Chronological push-back history for this step"
           items:
             $ref: "#/components/schemas/PushBackHistoryEntry"
+        agentSession:
+          $ref: "#/components/schemas/AgentSession"
       required:
         - step
         - stdout
@@ -12976,6 +13323,186 @@ components:
         - statusLabel
         - retryCount
         - doneCount
+
+    AgentSession:
+      type: object
+      description: "Durable state for a managed coding-agent session"
+      properties:
+        provider:
+          type: string
+        sessionId:
+          type: string
+        generation:
+          type: integer
+        agent:
+          type: string
+        model:
+          type: string
+        variant:
+          type: string
+        ownerWorkerId:
+          type: string
+        state:
+          $ref: "#/components/schemas/AgentSessionState"
+        modeReason:
+          type: string
+        lastError:
+          type: string
+        promptSent:
+          type: boolean
+        restartPending:
+          type: boolean
+        usage:
+          $ref: "#/components/schemas/AgentUsage"
+        interactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentInteraction"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionEvent"
+      required:
+        - provider
+        - state
+
+    AgentSessionState:
+      type: string
+      enum:
+        - starting
+        - running
+        - waiting
+        - succeeded
+        - failed
+        - aborted
+        - unavailable
+
+    AgentUsage:
+      type: object
+      properties:
+        inputTokens:
+          type: integer
+          format: int64
+        outputTokens:
+          type: integer
+          format: int64
+        reasoningTokens:
+          type: integer
+          format: int64
+        totalTokens:
+          type: integer
+          format: int64
+        cost:
+          type: number
+          format: double
+
+    AgentInteraction:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [permission, question]
+        status:
+          type: string
+          enum: [pending, answered, rejected]
+        permission:
+          type: string
+        patterns:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentQuestion"
+        decision:
+          type: string
+        answers:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+        applied:
+          type: boolean
+        createdAt:
+          type: string
+        respondedAt:
+          type: string
+        respondedBy:
+          type: string
+        respondedById:
+          type: string
+      required:
+        - id
+        - kind
+        - status
+
+    AgentQuestion:
+      type: object
+      properties:
+        header:
+          type: string
+        question:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentQuestionOption"
+        multiple:
+          type: boolean
+        custom:
+          type: boolean
+      required:
+        - header
+        - question
+
+    AgentQuestionOption:
+      type: object
+      properties:
+        label:
+          type: string
+        description:
+          type: string
+      required:
+        - label
+
+    AgentSessionEvent:
+      type: object
+      properties:
+        sequence:
+          type: integer
+          format: int64
+        id:
+          type: string
+        type:
+          type: string
+        timestamp:
+          type: string
+        role:
+          type: string
+        content:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        files:
+          type: array
+          items:
+            type: string
+        data:
+          type: object
+          additionalProperties: true
+      required:
+        - sequence
+        - id
+        - type
 
     PushBackHistoryEntry:
       type: object

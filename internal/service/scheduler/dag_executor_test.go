@@ -166,6 +166,30 @@ func TestDAGExecutor_DistributedRetryUsesPreviousStatusParamsList(t *testing.T) 
 	require.Equal(t, previousStatus.ParamsList, dispatcher.req.Task.PreviousStatus.ParamsList)
 }
 
+func TestDAGExecutor_DistributedRetryTargetsManagedAgentOwner(t *testing.T) {
+	dispatcher := &capturingDispatcher{}
+	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "")
+	dag := &ir.DAG{Name: "agent-dag", YamlData: []byte("name: agent-dag\n")}
+	previousStatus := &ir.DAGRunStatus{
+		Status: ir.Waiting,
+		Nodes: []*ir.Node{{
+			Status: ir.NodeWaiting,
+			AgentSession: &ir.AgentSession{
+				Provider: "opencode", State: ir.AgentSessionWaiting, OwnerWorkerID: "worker-a",
+			},
+		}},
+	}
+
+	err := dagExecutor.ExecuteDAG(
+		context.Background(), dag, dispatch.DispatchOperationRetry, "agent-run",
+		previousStatus, ir.TriggerTypeManual, "",
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, dispatcher.req.Task)
+	require.Equal(t, "worker-a", dispatcher.req.Task.TargetWorkerID)
+}
+
 func TestDAGExecutor_DistributedRetryPassesLegacyQueuedParams(t *testing.T) {
 	dispatcher := &capturingDispatcher{}
 	dagExecutor := scheduler.NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "")

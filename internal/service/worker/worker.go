@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
@@ -50,6 +51,7 @@ type Worker struct {
 	// For global PostgreSQL connection pool
 	poolManager  *sql.GlobalPoolManager
 	healthServer *healthcheck.Server
+	openCodeHost *opencodehost.Host
 
 	afterTaskAckHook func(context.Context, *coordinatorv1.Task) bool
 }
@@ -118,6 +120,7 @@ func NewWorker(
 		pollerTasks:    make(map[string]string),
 		cancelFuncs:    make(map[string]context.CancelFunc),
 		healthServer:   healthcheck.NewServer("worker", healthPort),
+		openCodeHost:   opencodehost.New(context.Background()),
 	}
 }
 
@@ -134,6 +137,7 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	// Create an internal context that can be cancelled by Stop()
 	// This context is cancelled when either the parent context is done OR Stop() is called
 	internalCtx, cancel := context.WithCancel(ctx)
+	internalCtx = opencodehost.WithHost(internalCtx, w.openCodeHost)
 	w.stopCancel = cancel
 	w.stopDone = make(chan struct{})
 
@@ -161,6 +165,9 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 
 		if w.healthServer != nil {
 			_ = w.healthServer.Stop(cleanupCtx)
+		}
+		if hostErr := w.openCodeHost.Close(ctx); hostErr != nil && err == nil {
+			err = fmt.Errorf("failed to stop OpenCode host: %w", hostErr)
 		}
 		if w.poolManager != nil {
 			_ = w.poolManager.Close()
@@ -260,6 +267,9 @@ func (w *Worker) Stop(ctx context.Context) error {
 			if stopErr := w.healthServer.Stop(ctx); stopErr != nil && err == nil {
 				err = fmt.Errorf("failed to stop worker health check server: %w", stopErr)
 			}
+		}
+		if hostErr := w.openCodeHost.Close(ctx); hostErr != nil && err == nil {
+			err = fmt.Errorf("failed to stop OpenCode host: %w", hostErr)
 		}
 	})
 

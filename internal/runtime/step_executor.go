@@ -32,6 +32,19 @@ func NewStepExecutor() *StepExecutor {
 // the node. Runner owns scheduling, retries, repeats, and final DAG-state
 // decisions; StepExecutor only preserves executor-provided status overrides.
 func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func()) error {
+	return e.execute(ctx, node, onSetup, nil)
+}
+
+// ExecuteWithProgress runs a step and reports live executor side-channel updates.
+func (e *StepExecutor) ExecuteWithProgress(ctx context.Context, node *Node, onSetup, onProgress func()) error {
+	var setup []func()
+	if onSetup != nil {
+		setup = append(setup, onSetup)
+	}
+	return e.execute(ctx, node, setup, onProgress)
+}
+
+func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func(), onProgress func()) error {
 	attemptStarted := time.Now()
 	node.SetStatusDetails(nil)
 	ctx, cancel, stepTimeout := node.setupContextWithTimeout(ctx)
@@ -76,6 +89,14 @@ func (e *StepExecutor) Execute(ctx context.Context, node *Node, onSetup ...func(
 	}
 
 	e.setupExecutorSideChannels(cmd, node)
+	if progressAware, ok := cmd.(executor.ProgressCallbackAware); ok {
+		progressAware.SetProgressCallback(func() {
+			e.captureLiveExecutorSideChannels(cmd, node)
+			if onProgress != nil {
+				onProgress()
+			}
+		})
+	}
 
 	flusher := node.startOutputFlusher()
 	defer func() {
@@ -155,6 +176,9 @@ func (e *StepExecutor) setupExecutorSideChannels(cmd executor.Executor, node *No
 			chatHandler.SetContext(messages)
 		}
 	}
+	if agentHandler, ok := cmd.(executor.AgentSessionHandler); ok {
+		agentHandler.SetAgentSession(node.GetAgentSession())
+	}
 
 	state := node.State()
 	if state.ApprovalIteration <= 0 {
@@ -169,6 +193,15 @@ func (e *StepExecutor) setupExecutorSideChannels(cmd executor.Executor, node *No
 	}
 }
 
+func (e *StepExecutor) captureLiveExecutorSideChannels(cmd executor.Executor, node *Node) {
+	if chatHandler, ok := cmd.(executor.ChatMessageHandler); ok {
+		node.SetChatMessages(chatHandler.GetMessages())
+	}
+	if agentHandler, ok := cmd.(executor.AgentSessionHandler); ok {
+		node.SetAgentSession(agentHandler.GetAgentSession())
+	}
+}
+
 func (e *StepExecutor) captureExecutorSideChannels(
 	ctx context.Context,
 	cmd executor.Executor,
@@ -180,6 +213,10 @@ func (e *StepExecutor) captureExecutorSideChannels(
 
 	if chatHandler, ok := cmd.(executor.ChatMessageHandler); ok {
 		node.SetChatMessages(chatHandler.GetMessages())
+	}
+
+	if agentHandler, ok := cmd.(executor.AgentSessionHandler); ok {
+		node.SetAgentSession(agentHandler.GetAgentSession())
 	}
 
 	if subRunProvider, ok := cmd.(executor.SubRunProvider); ok {

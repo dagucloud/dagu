@@ -93,6 +93,13 @@ func WithWorkerSelector(selector map[string]string) TaskOption {
 	}
 }
 
+// WithTargetWorkerID pins the task to one execution host.
+func WithTargetWorkerID(workerID string) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.TargetWorkerID = workerID
+	}
+}
+
 // WithStep sets the step name for retry operations.
 func WithStep(step string) TaskOption {
 	return func(task *dispatch.DispatchTask) {

@@ -3,6 +3,8 @@
 
 package ir
 
+import "encoding/json"
+
 const (
 	// AgentStepName is the reserved name of the synthesized step that drives
 	// an agent DAG. It cannot be used as a step name or ID.
@@ -132,4 +134,155 @@ func NewAgentStep(dag *DAG) Step {
 			Type: ExecutorTypeAgent,
 		},
 	}
+}
+
+// AgentSessionState describes the lifecycle of a managed coding-agent session.
+type AgentSessionState string
+
+const (
+	AgentSessionStarting    AgentSessionState = "starting"
+	AgentSessionRunning     AgentSessionState = "running"
+	AgentSessionWaiting     AgentSessionState = "waiting"
+	AgentSessionSucceeded   AgentSessionState = "succeeded"
+	AgentSessionFailed      AgentSessionState = "failed"
+	AgentSessionAborted     AgentSessionState = "aborted"
+	AgentSessionUnavailable AgentSessionState = "unavailable"
+)
+
+// AgentInteractionKind identifies input requested by a managed agent.
+type AgentInteractionKind string
+
+const (
+	AgentInteractionPermission AgentInteractionKind = "permission"
+	AgentInteractionQuestion   AgentInteractionKind = "question"
+)
+
+// AgentInteractionStatus describes whether requested input can still be answered.
+type AgentInteractionStatus string
+
+const (
+	AgentInteractionPending  AgentInteractionStatus = "pending"
+	AgentInteractionAnswered AgentInteractionStatus = "answered"
+	AgentInteractionRejected AgentInteractionStatus = "rejected"
+)
+
+// AgentQuestion is one question in a managed agent interaction.
+type AgentQuestion struct {
+	Header   string                `json:"header"`
+	Question string                `json:"question"`
+	Options  []AgentQuestionOption `json:"options,omitempty"`
+	Multiple bool                  `json:"multiple,omitempty"`
+	Custom   bool                  `json:"custom,omitempty"`
+}
+
+// AgentQuestionOption is a selectable answer offered by an agent.
+type AgentQuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// AgentInteraction records an agent request and its durable response.
+type AgentInteraction struct {
+	ID            string                 `json:"id"`
+	Kind          AgentInteractionKind   `json:"kind"`
+	Status        AgentInteractionStatus `json:"status"`
+	Permission    string                 `json:"permission,omitempty"`
+	Patterns      []string               `json:"patterns,omitempty"`
+	Metadata      json.RawMessage        `json:"metadata,omitempty"`
+	Questions     []AgentQuestion        `json:"questions,omitempty"`
+	Decision      string                 `json:"decision,omitempty"`
+	Answers       [][]string             `json:"answers,omitempty"`
+	Applied       bool                   `json:"applied,omitempty"`
+	CreatedAt     string                 `json:"createdAt,omitempty"`
+	RespondedAt   string                 `json:"respondedAt,omitempty"`
+	RespondedBy   string                 `json:"respondedBy,omitempty"`
+	RespondedByID string                 `json:"respondedById,omitempty"`
+}
+
+// AgentSessionEvent is one normalized item in a managed agent session timeline.
+type AgentSessionEvent struct {
+	Sequence  int64           `json:"sequence"`
+	ID        string          `json:"id"`
+	Type      string          `json:"type"`
+	Timestamp string          `json:"timestamp,omitempty"`
+	Role      string          `json:"role,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Status    string          `json:"status,omitempty"`
+	Files     []string        `json:"files,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+}
+
+// AgentUsage contains aggregate model usage for a managed session.
+type AgentUsage struct {
+	InputTokens     int64   `json:"inputTokens,omitempty"`
+	OutputTokens    int64   `json:"outputTokens,omitempty"`
+	ReasoningTokens int64   `json:"reasoningTokens,omitempty"`
+	TotalTokens     int64   `json:"totalTokens,omitempty"`
+	Cost            float64 `json:"cost,omitempty"`
+}
+
+// AgentSession contains durable state required to display and resume a managed session.
+type AgentSession struct {
+	Provider       string              `json:"provider"`
+	SessionID      string              `json:"sessionId,omitempty"`
+	Generation     int                 `json:"generation,omitempty"`
+	Agent          string              `json:"agent,omitempty"`
+	Model          string              `json:"model,omitempty"`
+	Variant        string              `json:"variant,omitempty"`
+	OwnerWorkerID  string              `json:"ownerWorkerId,omitempty"`
+	State          AgentSessionState   `json:"state"`
+	ModeReason     string              `json:"modeReason,omitempty"`
+	LastError      string              `json:"lastError,omitempty"`
+	PromptSent     bool                `json:"promptSent,omitempty"`
+	RestartPending bool                `json:"restartPending,omitempty"`
+	Usage          AgentUsage          `json:"usage,omitzero"`
+	Interactions   []AgentInteraction  `json:"interactions,omitempty"`
+	Events         []AgentSessionEvent `json:"events,omitempty"`
+}
+
+// CloneAgentSession returns a detached copy safe for runtime handoff.
+func CloneAgentSession(session *AgentSession) *AgentSession {
+	if session == nil {
+		return nil
+	}
+	clone := *session
+	clone.Interactions = make([]AgentInteraction, len(session.Interactions))
+	for i := range session.Interactions {
+		clone.Interactions[i] = session.Interactions[i]
+		clone.Interactions[i].Patterns = append([]string(nil), session.Interactions[i].Patterns...)
+		clone.Interactions[i].Metadata = append(json.RawMessage(nil), session.Interactions[i].Metadata...)
+		clone.Interactions[i].Questions = append([]AgentQuestion(nil), session.Interactions[i].Questions...)
+		for j := range clone.Interactions[i].Questions {
+			clone.Interactions[i].Questions[j].Options = append([]AgentQuestionOption(nil), session.Interactions[i].Questions[j].Options...)
+		}
+		clone.Interactions[i].Answers = make([][]string, len(session.Interactions[i].Answers))
+		for j := range session.Interactions[i].Answers {
+			clone.Interactions[i].Answers[j] = append([]string(nil), session.Interactions[i].Answers[j]...)
+		}
+	}
+	clone.Events = make([]AgentSessionEvent, len(session.Events))
+	for i := range session.Events {
+		clone.Events[i] = session.Events[i]
+		clone.Events[i].Files = append([]string(nil), session.Events[i].Files...)
+		clone.Events[i].Data = append(json.RawMessage(nil), session.Events[i].Data...)
+	}
+	return &clone
+}
+
+// WaitingAgentOwnerWorkerID returns the execution host that owns a resumable agent session.
+func WaitingAgentOwnerWorkerID(status *DAGRunStatus) string {
+	if status == nil {
+		return ""
+	}
+	for _, node := range status.Nodes {
+		if node == nil || node.AgentSession == nil {
+			continue
+		}
+		session := node.AgentSession
+		if session.State == AgentSessionWaiting && !session.RestartPending {
+			return session.OwnerWorkerID
+		}
+	}
+	return ""
 }

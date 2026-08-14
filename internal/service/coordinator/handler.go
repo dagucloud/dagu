@@ -471,7 +471,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		if admissionToken != "" {
 			return nil, status.Error(codes.FailedPrecondition, "admission reservation requires dispatch task storage")
 		}
-		if err := h.ensureWaitingWorkerAvailability(req.Task.WorkerSelector); err != nil {
+		if err := h.ensureWaitingWorkerAvailability(req.Task.WorkerSelector, req.Task.TargetWorkerId); err != nil {
 			return nil, status.Error(dispatchErrorCode(err), err.Error())
 		}
 
@@ -506,7 +506,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if len(healthyWorkers) == 0 {
 		return nil, status.Error(codes.Unavailable, errNoAvailableWorkers.Error())
 	}
-	if len(req.Task.WorkerSelector) > 0 && !anyWorkerMatches(healthyWorkers, req.Task.WorkerSelector) {
+	if !anyWorkerMatches(healthyWorkers, req.Task.WorkerSelector, req.Task.TargetWorkerId) {
 		return nil, status.Error(codes.FailedPrecondition, errNoMatchingWorkers.Error())
 	}
 
@@ -897,12 +897,15 @@ func (h *Handler) prepareAttemptForDispatch(ctx context.Context, task *coordinat
 	return nil, nil
 }
 
-func (h *Handler) ensureWaitingWorkerAvailability(selector map[string]string) error {
+func (h *Handler) ensureWaitingWorkerAvailability(selector map[string]string, targetWorkerID string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	matched := false
 	for _, worker := range h.waitingPollers {
+		if targetWorkerID != "" && worker.workerID != targetWorkerID {
+			continue
+		}
 		if !matchesSelector(worker.labels, selector) {
 			continue
 		}
@@ -912,7 +915,7 @@ func (h *Handler) ensureWaitingWorkerAvailability(selector map[string]string) er
 	if matched {
 		return nil
 	}
-	if len(selector) > 0 {
+	if len(selector) > 0 || targetWorkerID != "" {
 		return errNoMatchingWorkers
 	}
 	return errNoAvailableWorkers
@@ -924,6 +927,9 @@ func (h *Handler) dispatchToWaitingPoller(task *coordinatorv1.Task) error {
 
 	matched := false
 	for pollerID, worker := range h.waitingPollers {
+		if task.TargetWorkerId != "" && worker.workerID != task.TargetWorkerId {
+			continue
+		}
 		if !matchesSelector(worker.labels, task.WorkerSelector) {
 			continue
 		}
@@ -936,7 +942,7 @@ func (h *Handler) dispatchToWaitingPoller(task *coordinatorv1.Task) error {
 			delete(h.waitingPollers, pollerID)
 		}
 	}
-	if len(task.WorkerSelector) > 0 && !matched {
+	if (len(task.WorkerSelector) > 0 || task.TargetWorkerId != "") && !matched {
 		return errNoMatchingWorkers
 	}
 	return errNoAvailableWorkers
@@ -1514,11 +1520,11 @@ func (h *Handler) leaseRefreshWriteInterval() time.Duration {
 	return interval
 }
 
-func anyWorkerMatches(workers []dispatch.WorkerHeartbeatRecord, selector map[string]string) bool {
-	if len(selector) == 0 {
-		return len(workers) > 0
-	}
+func anyWorkerMatches(workers []dispatch.WorkerHeartbeatRecord, selector map[string]string, targetWorkerID string) bool {
 	for _, worker := range workers {
+		if targetWorkerID != "" && worker.WorkerID != targetWorkerID {
+			continue
+		}
 		if matchesSelector(worker.Labels, selector) {
 			return true
 		}

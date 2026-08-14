@@ -647,6 +647,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		runtime.WithRootDAGRun(a.rootDAGRun),
 		runtime.WithRetryPath(a.retryPath),
 		runtime.WithAttemptID(a.dagRunAttemptID),
+		runtime.WithWorkerID(a.workerID),
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
@@ -1226,6 +1227,7 @@ func (a *Agent) nodeToModelNode(nodeData runtime.NodeData) *ir.Node {
 		OutputsValue:     nodeData.State.OutputsValue,
 		StepOutputsValue: nodeData.State.StepOutputsValue,
 		AgentState:       nodeData.State.AgentState,
+		AgentSession:     ir.CloneAgentSession(nodeData.State.AgentSession),
 	}
 }
 
@@ -2126,6 +2128,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		runtime.WithRootDAGRun(a.rootDAGRun),
 		runtime.WithRetryPath(a.retryPath),
 		runtime.WithAttemptID(a.dagRunAttemptID),
+		runtime.WithWorkerID(a.workerID),
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),

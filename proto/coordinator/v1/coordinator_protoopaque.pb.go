@@ -485,6 +485,7 @@ type Task struct {
 	xxx_hidden_TriggerActor               string                 `protobuf:"bytes,34,opt,name=trigger_actor,json=triggerActor,proto3"`
 	xxx_hidden_DefinitionId               string                 `protobuf:"bytes,35,opt,name=definition_id,json=definitionId,proto3"`
 	xxx_hidden_ParallelItem               string                 `protobuf:"bytes,36,opt,name=parallel_item,json=parallelItem,proto3"`
+	xxx_hidden_TargetWorkerId             string                 `protobuf:"bytes,37,opt,name=target_worker_id,json=targetWorkerId,proto3"`
 	unknownFields                         protoimpl.UnknownFields
 	sizeCache                             protoimpl.SizeCache
 }
@@ -759,6 +760,13 @@ func (x *Task) GetParallelItem() string {
 	return ""
 }
 
+func (x *Task) GetTargetWorkerId() string {
+	if x != nil {
+		return x.xxx_hidden_TargetWorkerId
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.xxx_hidden_Operation = v
 }
@@ -899,6 +907,10 @@ func (x *Task) SetParallelItem(v string) {
 	x.xxx_hidden_ParallelItem = v
 }
 
+func (x *Task) SetTargetWorkerId(v string) {
+	x.xxx_hidden_TargetWorkerId = v
+}
+
 func (x *Task) HasPreviousStatus() bool {
 	if x == nil {
 		return false
@@ -966,6 +978,8 @@ type Task_builder struct {
 	DefinitionId string
 	// Value bound to ITEM for a parallel child run.
 	ParallelItem string
+	// Exact worker required to resume a host-owned agent session.
+	TargetWorkerId string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1007,6 +1021,7 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_TriggerActor = b.TriggerActor
 	x.xxx_hidden_DefinitionId = b.DefinitionId
 	x.xxx_hidden_ParallelItem = b.ParallelItem
+	x.xxx_hidden_TargetWorkerId = b.TargetWorkerId
 	return m0
 }
 
@@ -5159,7 +5174,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\x97\f\n" +
+	"\x10DispatchResponse\"\xc1\f\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -5206,7 +5221,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"retry_path\x18! \x01(\tR\tretryPath\x12#\n" +
 	"\rtrigger_actor\x18\" \x01(\tR\ftriggerActor\x12#\n" +
 	"\rdefinition_id\x18# \x01(\tR\fdefinitionId\x12#\n" +
-	"\rparallel_item\x18$ \x01(\tR\fparallelItem\x1aA\n" +
+	"\rparallel_item\x18$ \x01(\tR\fparallelItem\x12(\n" +
+	"\x10target_worker_id\x18% \x01(\tR\x0etargetWorkerId\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +

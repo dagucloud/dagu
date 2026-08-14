@@ -149,6 +149,8 @@ type Node struct {
 	// ToolDefinitions stores the tool definitions that were available to the LLM.
 	// This enables debugging visibility into what tools and schemas were sent.
 	ToolDefinitions []ToolDefinition `json:"toolDefinitions,omitempty"`
+	// AgentSession stores managed coding-agent state for display and durable resume.
+	AgentSession *AgentSession `json:"agentSession,omitempty"`
 }
 
 type nodeJSON Node

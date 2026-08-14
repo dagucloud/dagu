@@ -332,6 +332,15 @@ func TestTaskOption_Functions(t *testing.T) {
 		assert.Equal(t, selector, task.WorkerSelector)
 	})
 
+	t.Run("WithTargetWorkerID", func(t *testing.T) {
+		t.Parallel()
+
+		task := &dispatch.DispatchTask{}
+		executor.WithTargetWorkerID("worker-a")(task)
+
+		assert.Equal(t, "worker-a", task.TargetWorkerID)
+	})
+
 	t.Run("WithStep", func(t *testing.T) {
 		t.Parallel()
 

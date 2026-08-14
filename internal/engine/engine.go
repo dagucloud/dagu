@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -36,6 +37,7 @@ type Engine struct {
 	defaultMode      ExecutionMode
 	distributed      DistributedOptions
 	logger           logger.Logger
+	openCodeHost     *opencodehost.Host
 
 	dagRepositoryFactory DAGRepositoryFactory
 	runtimeStoresFactory RuntimeStoresFactory
@@ -88,6 +90,7 @@ func New(ctx context.Context, opts Options) (*Engine, error) {
 		defaultMode:      mode,
 		distributed:      distributed,
 		logger:           log,
+		openCodeHost:     opencodehost.New(context.Background()),
 
 		dagRepositoryFactory: persistence.DAGRepositoryFactory,
 		runtimeStoresFactory: persistence.RuntimeStoresFactory,
@@ -101,7 +104,7 @@ func (e *Engine) Close(ctx context.Context) error {
 	if e.serviceRegistry != nil {
 		e.serviceRegistry.Unregister(ctx)
 	}
-	return nil
+	return e.openCodeHost.Close(ctx)
 }
 
 func (e *Engine) context(ctx context.Context) context.Context {
@@ -112,6 +115,7 @@ func (e *Engine) context(ctx context.Context) context.Context {
 	if e.logger != nil {
 		ctx = logger.WithLogger(ctx, e.logger)
 	}
+	ctx = opencodehost.WithHost(ctx, e.openCodeHost)
 	return ctx
 }
 

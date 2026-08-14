@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 )
@@ -60,6 +61,7 @@ type DAGExecutor struct {
 	baseConfigPath         string
 	workspaceBaseConfigDir string
 	profileResolver        DAGProfileResolver
+	openCodeHost           *opencodehost.Host
 }
 
 type DAGProfileResolver interface {
@@ -94,6 +96,7 @@ func NewDAGExecutor(
 		subCmdBuilder:   subCmdBuilder,
 		defaultExecMode: defaultExecMode,
 		baseConfigPath:  baseConfigPath,
+		openCodeHost:    opencodehost.New(context.Background()),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -252,6 +255,9 @@ func (e *DAGExecutor) executeDAG(
 		if previousStatus != nil && len(previousStatus.ParamsList) == 0 && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
 		}
+		if workerID := ir.WaitingAgentOwnerWorkerID(previousStatus); workerID != "" {
+			taskOpts = append(taskOpts, executor.WithTargetWorkerID(workerID))
+		}
 		if dag.SourceFile != "" {
 			taskOpts = append(taskOpts, executor.WithSourceFile(dag.SourceFile))
 		}
@@ -302,6 +308,7 @@ func (e *DAGExecutor) executeDAG(
 			DefinitionID: definitionID,
 			NoReuse:      previousStatus != nil && previousStatus.NoReuse,
 		})
+		spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, dag)...)
 		return launcher.Start(ctx, spec)
 
 	case dispatch.DispatchOperationRetry:
@@ -310,6 +317,7 @@ func (e *DAGExecutor) executeDAG(
 			TriggerActor:  triggerActor,
 			QueueDispatch: true,
 		})
+		spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, dag)...)
 		return launcher.Run(ctx, spec)
 
 	default:
@@ -410,7 +418,39 @@ func (e *DAGExecutor) Restart(ctx context.Context, entry DAGEntry, scheduleTime 
 		ScheduleTime: stringutil.FormatTime(scheduleTime),
 		DefinitionID: entry.DefinitionID,
 	})
+	spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, prepared)...)
 	return launcher.Start(ctx, spec)
+}
+
+func (e *DAGExecutor) managedOpenCodeEnv(ctx context.Context, dag *ir.DAG) []string {
+	if !usesManagedOpenCode(dag) {
+		return nil
+	}
+	config, err := e.openCodeHost.Ensure(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Managed OpenCode host is unavailable; the harness will apply its configured compatibility policy", tag.Error(err))
+		return nil
+	}
+	return config.Env()
+}
+
+func usesManagedOpenCode(dag *ir.DAG) bool {
+	if dag == nil {
+		return false
+	}
+	for _, step := range dag.Steps {
+		if step.ExecutorConfig.Type != "harness" || step.Container != nil {
+			continue
+		}
+		config := step.ExecutorConfig.Config
+		if config["provider"] != "opencode" {
+			continue
+		}
+		if managed, ok := config["managed"].(bool); !ok || managed {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, params any) (*ir.DAG, error) {
@@ -440,6 +480,9 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, 
 // from a goroutine in Stop while concurrent dispatchRun goroutines may still read
 // coordinatorCli via shouldUseDistributedExecution.
 func (e *DAGExecutor) Close(ctx context.Context) {
+	if err := e.openCodeHost.Close(ctx); err != nil {
+		logger.Error(ctx, "Failed to stop OpenCode host", tag.Error(err))
+	}
 	if e.coordinatorCli != nil {
 		if err := e.coordinatorCli.Cleanup(ctx); err != nil {
 			logger.Error(ctx, "Failed to cleanup coordinator client", tag.Error(err))
