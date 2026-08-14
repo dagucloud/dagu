@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
+	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 	"github.com/spf13/cobra"
@@ -67,6 +68,12 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		defer ctx.LicenseManager.Stop()
 	}
 
+	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config)
+	if err != nil {
+		return err
+	}
+	serviceCtx = serviceCtx.withEvent(stores.Event)
+
 	logger.Info(serviceCtx, "Server initialization",
 		tag.Host(serviceCtx.Config.Server.Host),
 		tag.Port(serviceCtx.Config.Server.Port),
@@ -102,7 +109,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.
-	server, err := serviceCtx.NewServer(resourceService, serverOpts...)
+	server, err := serviceCtx.NewServer(resourceService, stores, serverOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}

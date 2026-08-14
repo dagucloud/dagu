@@ -16,8 +16,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/spf13/cobra"
 )
 
@@ -105,9 +108,39 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	// Create a signal-aware context for services (used for auth init and all service operations)
 	serviceCtx := ctx.WithContext(signalCtx)
+	if _, err := persisfile.NewDAGSettingsStore(serviceCtx.Config); err != nil {
+		return fmt.Errorf("failed to initialize DAG settings store: %w", err)
+	}
+	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config)
+	if err != nil {
+		return err
+	}
+	serviceCtx = serviceCtx.withEvent(stores.Event)
+
+	var collector func(context.Context)
+	if stores.Event != nil {
+		eventCollector, err := persisfile.NewEventCollector(serviceCtx.Config)
+		if err != nil {
+			logger.Warn(serviceCtx, "Failed to initialize event collector; continuing without collection", tag.Error(err))
+		} else {
+			collector = eventCollector.Start
+		}
+	}
+	schedulerDeps := scheduler.Dependencies{
+		DAGSettingsStore:     stores.DAGSettings,
+		ProfileStore:         stores.Profile,
+		EventService:         stores.Event,
+		EventCollector:       collector,
+		NotificationStore:    stores.Notification,
+		NotificationState:    stores.NotificationState,
+		NewNotificationLease: stores.NewNotificationLease,
+		IncidentStore:        stores.Incident,
+		IncidentState:        stores.IncidentState,
+		NewIncidentLease:     stores.NewIncidentLease,
+	}
 
 	// Initialize all services using the signal-aware context
-	scheduler, err := serviceCtx.NewScheduler()
+	scheduler, err := serviceCtx.NewScheduler(schedulerDeps)
 	if err != nil {
 		return fmt.Errorf("failed to initialize scheduler: %w", err)
 	}
@@ -118,7 +151,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	resourceService := resource.NewService(ctx.Config)
 
 	// Use serviceCtx so auth initialization can respond to termination signals
-	server, err := serviceCtx.NewServer(resourceService)
+	server, err := serviceCtx.NewServer(resourceService, stores)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}
@@ -127,18 +160,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	var coord *coordinator.Service
 	if ctx.Config.Coordinator.Enabled {
 		var err error
-		coord, _, err = newCoordinator(
-			ctx,
-			ctx.Config,
-			ctx.Persistence.ServiceRegistry,
-			ctx.Persistence.DAGRunRepository,
-			ctx.Persistence.StateStore,
-			ctx.Persistence.DispatchTaskStore,
-			ctx.Persistence.WorkerHeartbeatStore,
-			ctx.Persistence.DAGRunLeaseStore,
-			ctx.Persistence.ActiveDistributedRunStore,
-			ctx.Persistence.DAGRepository,
-		)
+		coord, _, err = newCoordinator(serviceCtx, stores.Secret)
 		if err != nil {
 			return fmt.Errorf("failed to initialize coordinator: %w", err)
 		}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	filenotification "github.com/dagucloud/dagu/v2/internal/persis/file/notification"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,10 @@ func TestNotificationServiceUsesConfiguredPublicURL(t *testing.T) {
 	require.NoError(t, err)
 	encryptor, err := crypto.NewEncryptor(key)
 	require.NoError(t, err)
-	store, err := file.NewNotificationStore(cfg, encryptor)
+	store, err := filenotification.New(
+		filepath.Join(cfg.Paths.DataDir, "notifications", "dags"),
+		filenotification.WithEncryptor(encryptor),
+	)
 	require.NoError(t, err)
 
 	settings, err := notificationmodel.Normalize(&notificationmodel.Settings{

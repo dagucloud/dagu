@@ -14,14 +14,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
+	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/healthcheck"
-	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -98,18 +96,8 @@ var coordinatorFlags = []commandLineFlag{
 
 func runCoordinator(ctx *Context, _ []string) error {
 	coordCtx := ctx.WithEventSource(eventstore.SourceServiceCoordinator)
-	svc, _, err := newCoordinator(
-		coordCtx,
-		coordCtx.Config,
-		coordCtx.Persistence.ServiceRegistry,
-		coordCtx.Persistence.DAGRunRepository,
-		coordCtx.Persistence.StateStore,
-		coordCtx.Persistence.DispatchTaskStore,
-		coordCtx.Persistence.WorkerHeartbeatStore,
-		coordCtx.Persistence.DAGRunLeaseStore,
-		coordCtx.Persistence.ActiveDistributedRunStore,
-		coordCtx.Persistence.DAGRepository,
-	)
+	stores := coordCtx.runtimeStores()
+	svc, _, err := newCoordinator(coordCtx, stores.SecretStore)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
 	}
@@ -129,27 +117,13 @@ func runCoordinator(ctx *Context, _ []string) error {
 	return nil
 }
 
-// newCoordinator creates and configures a Coordinator service with its gRPC server,
-// health server, network listener, and handler, ready for registration in the service registry.
-// It derives an instance ID from the host name and configured port and determines an
-// advertise address (using cfg.Coordinator.Advertise, auto-detected hostname, or a
-// configured host fallback); a warning is logged when the fallback address may be
-// unsuitable for discovery. If peer TLS certificate and key files are provided in
-// cfg.Core.Peer, it loads TLS credentials for the gRPC server. It binds a TCP listener
-// to cfg.Coordinator.Host:cfg.Coordinator.Port and returns an initialized coordinator.Service.
-// It returns an error if any part of setup (TLS loading, listener binding, etc.) fails.
+// newCoordinator constructs the coordinator service and handler.
 func newCoordinator(
 	ctx *Context,
-	cfg *config.Config,
-	registry serviceregistry.ServiceRegistry,
-	dagRunRepository *persis.DAGRunRepository,
-	stateStore dagrun.StateStore,
-	dispatchTaskStore dispatch.DispatchTaskStore,
-	workerHeartbeatStore dispatch.WorkerHeartbeatStore,
-	dagRunLeaseStore dispatch.DAGRunLeaseStore,
-	activeDistributedRunStore dispatch.ActiveDistributedRunStore,
-	dagRepository *persis.DAGRepository,
+	secretStore secret.Store,
 ) (*coordinator.Service, *coordinator.Handler, error) {
+	cfg := ctx.Config
+	persistence := ctx.Persistence
 	// Generate instance ID
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -227,26 +201,25 @@ func newCoordinator(
 	}
 
 	// Create the handler with DAG-run status persistence and streamed log storage.
-	runtimeStores := ctx.runtimeStores()
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
-		DAGRunRepository:          dagRunRepository,
-		StateStore:                stateStore,
+		DAGRunRepository:          persistence.DAGRunRepository,
+		StateStore:                persistence.StateStore,
 		LogDir:                    cfg.Paths.LogDir,
 		ArtifactDir:               cfg.Paths.ArtifactDir,
 		WorkspaceBundleDir:        workspacebundle.StoreDir(cfg.Paths.DataDir),
 		Owner:                     dispatch.CoordinatorEndpoint{ID: instanceID, Host: advertiseAddr, Port: cfg.Coordinator.Port},
-		DispatchTaskStore:         dispatchTaskStore,
-		WorkerHeartbeatStore:      workerHeartbeatStore,
-		DAGRunLeaseStore:          dagRunLeaseStore,
-		ActiveDistributedRunStore: activeDistributedRunStore,
-		DAGRepository:             dagRepository,
-		SecretStore:               runtimeStores.SecretStore,
-		EventService:              ctx.Stores.Event,
+		DispatchTaskStore:         persistence.DispatchTaskStore,
+		WorkerHeartbeatStore:      persistence.WorkerHeartbeatStore,
+		DAGRunLeaseStore:          persistence.DAGRunLeaseStore,
+		ActiveDistributedRunStore: persistence.ActiveDistributedRunStore,
+		DAGRepository:             persistence.DAGRepository,
+		SecretStore:               secretStore,
+		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
 	})
 
 	// Create and return service with advertise address for service registry
-	return coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, registry, cfg, instanceID, advertiseAddr), handler, nil
+	return coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr), handler, nil
 }
 
 // loadCoordinatorTLSCredentials loads TLS credentials for the coordinator server.

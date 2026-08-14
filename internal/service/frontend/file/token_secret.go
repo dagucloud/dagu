@@ -23,32 +23,26 @@ const (
 	tokenSecretFilePerm   = 0o600
 )
 
-// ResolveTokenSecret returns the persisted signing secret in authDir, creating one when absent.
-func ResolveTokenSecret(authDir string) (auth.TokenSecret, error) {
+func resolvePersistedTokenSecret(authDir string) (auth.TokenSecret, error) {
 	path := filepath.Join(authDir, tokenSecretFileName)
 
 	fileExists := false
 	data, err := fileutil.ReadFile(path)
 	if err == nil {
 		fileExists = true
-		// File exists — check if it has usable content.
 		content := strings.TrimSpace(string(data))
 		if content != "" {
 			return auth.NewTokenSecretFromString(content)
 		}
-		// Empty/whitespace-only file — treat as missing, fall through to generation.
 	} else if !errors.Is(err, os.ErrNotExist) {
-		// Permission error or other I/O failure — fatal, do not skip.
 		return auth.TokenSecret{}, fmt.Errorf("failed to read token secret file %s: %w", path, err)
 	}
 
-	// Generate a new secret.
 	secret, err := generateTokenSecret()
 	if err != nil {
 		return auth.TokenSecret{}, fmt.Errorf("failed to generate token secret: %w", err)
 	}
 
-	// Ensure directory exists with correct permissions.
 	if err := os.MkdirAll(authDir, tokenSecretDirPerm); err != nil {
 		return auth.TokenSecret{}, fmt.Errorf("failed to create auth directory %s: %w", authDir, err)
 	}
@@ -57,14 +51,11 @@ func ResolveTokenSecret(authDir string) (auth.TokenSecret, error) {
 	}
 
 	if fileExists {
-		// Remove the empty file so the target can be created atomically.
 		if err := fileutil.Remove(path); err != nil {
 			return auth.TokenSecret{}, fmt.Errorf("failed to remove empty token secret file %s: %w", path, err)
 		}
 	}
 
-	// Use exclusive create to prevent race conditions.
-	// If another process created the file first, read the persisted secret.
 	if err := writeTokenSecretExclusive(path, []byte(secret), tokenSecretFilePerm); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			data, readErr := fileutil.ReadFile(path)
@@ -87,19 +78,14 @@ func generateTokenSecret() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// writeTokenSecretExclusive atomically creates a file, failing if it already exists.
-// Writes to a temp file first, then hard-links to the target path. This ensures
-// that if the target file exists, it always contains complete content (no partial reads).
-// Returns os.ErrExist if the file already exists (another process won the race).
 func writeTokenSecretExclusive(path string, data []byte, perm os.FileMode) error {
-	// Write full content to a unique temp file in the same directory.
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".token_secret.*.tmp")
 	if err != nil {
 		return err
 	}
 	tmpPath := tmp.Name()
-	defer func() { _ = fileutil.Remove(tmpPath) }() // Clean up temp file regardless.
+	defer func() { _ = fileutil.Remove(tmpPath) }()
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
@@ -113,7 +99,6 @@ func writeTokenSecretExclusive(path string, data []byte, perm os.FileMode) error
 		return err
 	}
 
-	// Hard-link is atomic and fails if target exists, preventing race conditions.
 	if err := os.Link(tmpPath, path); err != nil {
 		if os.IsExist(err) {
 			return os.ErrExist

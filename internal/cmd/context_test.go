@@ -97,7 +97,7 @@ func TestContext_StringParam(t *testing.T) {
 	}
 }
 
-func TestNewFileStoresAllowsUnavailableEventStorageForCommands(t *testing.T) {
+func TestNewEventServiceAllowsUnavailableStorage(t *testing.T) {
 	t.Parallel()
 
 	blocker := filepath.Join(t.TempDir(), "blocker")
@@ -107,16 +107,7 @@ func TestNewFileStoresAllowsUnavailableEventStorageForCommands(t *testing.T) {
 		Paths:      config.PathsConfig{EventStoreDir: filepath.Join(blocker, "events")},
 	}
 
-	stores, _, err := newFileStores(t.Context(), cfg, "status")
-	require.NoError(t, err)
-	require.Nil(t, stores.Event)
-}
-
-func TestNewFileStoresRequiresDAGSettingsStorageForStartAll(t *testing.T) {
-	t.Parallel()
-
-	_, _, err := newFileStores(t.Context(), &config.Config{}, "start-all")
-	require.ErrorContains(t, err, "failed to initialize DAG settings store")
+	require.Nil(t, newEventService(t.Context(), cfg))
 }
 
 func TestNewCoordinatorClientRejectsInvalidEnabledConfig(t *testing.T) {

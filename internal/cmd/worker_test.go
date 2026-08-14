@@ -80,7 +80,6 @@ paths:
 	ctx, err := cmd.NewContext(command, nil)
 	require.NoError(t, err)
 	assert.Zero(t, ctx.Persistence)
-	assert.Nil(t, ctx.Stores.Event)
 }
 
 func TestWorkerCoordinatorClientRequiresAddress(t *testing.T) {

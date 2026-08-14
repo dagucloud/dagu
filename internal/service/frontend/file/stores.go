@@ -22,11 +22,17 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
+	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
+	fileincident "github.com/dagucloud/dagu/v2/internal/persis/file/incident"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
+	filenotification "github.com/dagucloud/dagu/v2/internal/persis/file/notification"
+	filewiki "github.com/dagucloud/dagu/v2/internal/persis/file/wiki"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 // NewStores creates the file-backed stores used by the frontend service.
@@ -59,10 +65,13 @@ func NewStores(ctx context.Context, cfg *config.Config) (frontend.Stores, error)
 
 func initStores(ctx context.Context, cfg *config.Config, stores *frontend.Stores) error {
 	stores.WorkspaceBaseConfig = func(workspaceName string) (dagsettings.BaseConfigStore, error) {
-		return persisfile.NewWorkspaceBaseConfigStore(cfg.Paths.DAGsDir, workspaceName)
+		return filebaseconfig.New(
+			workspace.BaseConfigPath(cfg.Paths.DAGsDir, workspaceName),
+			filebaseconfig.WithSkipDefault(true),
+		)
 	}
 	if cfg.Paths.BaseConfig != "" {
-		baseConfigStore, err := persisfile.NewBaseConfigStore(cfg.Paths.BaseConfig)
+		baseConfigStore, err := filebaseconfig.New(cfg.Paths.BaseConfig)
 		if err != nil {
 			logger.Warn(ctx, "Failed to create base config store", tag.Error(err))
 		} else {
@@ -82,24 +91,26 @@ func initStores(ctx context.Context, cfg *config.Config, stores *frontend.Stores
 
 	stores.Secret = persisfile.NewSecretStore(ctx, cfg)
 
-	wikiStore, err := persisfile.NewWikiStore(cfg)
+	wikiStore, err := newWikiStore(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create Wiki store: %w", err)
 	}
 	stores.Wiki = wikiStore
 
-	workspaceStore, err := persisfile.NewWorkspaceStore(cfg)
+	workspaceStore, err := newWorkspaceStore(cfg)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create workspace store", tag.Error(err))
 	} else {
 		stores.Workspace = workspaceStore
 	}
 
-	auditStore, err := persisfile.NewAuditStore(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to initialize audit service: failed to create audit store: %w", err)
+	if cfg.Server.Audit.Enabled {
+		auditStore, err := fileaudit.New(filepath.Join(cfg.Paths.AdminLogsDir, "audit"), cfg.Server.Audit.RetentionDays)
+		if err != nil {
+			return fmt.Errorf("failed to initialize audit service: failed to create audit store: %w", err)
+		}
+		stores.Audit = auditStore
 	}
-	stores.Audit = auditStore
 
 	viewStore, err := store.NewViewStore(persisfile.NewCollection(cfg.Paths.ViewsDir, persisfile.WithIndentedJSON()))
 	if err != nil {
@@ -120,6 +131,72 @@ func initStores(ctx context.Context, cfg *config.Config, stores *frontend.Stores
 	return nil
 }
 
+func newWikiStore(cfg *config.Config) (*filewiki.Store, error) {
+	if cfg.Paths.WikiDir == "" {
+		return nil, nil
+	}
+	opts := []filewiki.Option{filewiki.WithLegacyLayout(cfg.Paths.WikiDirLegacy)}
+	if cfg.Paths.DataDir != "" {
+		dataDir, err := selectWikiStoragePath(
+			filepath.Join(cfg.Paths.DataDir, "wiki"),
+			filepath.Join(cfg.Paths.DataDir, "docs"),
+			cfg.Paths.WikiDirLegacy,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("wiki store: %w", err)
+		}
+		opts = append(opts, filewiki.WithDataDir(dataDir))
+	}
+	wikiStore, err := filewiki.New(cfg.Paths.WikiDir, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("wiki store: %w", err)
+	}
+	return wikiStore, nil
+}
+
+func selectWikiStoragePath(canonical, legacy string, preferLegacy bool) (string, error) {
+	canonicalExists, err := storePathExists(canonical)
+	if err != nil {
+		return "", err
+	}
+	legacyExists, err := storePathExists(legacy)
+	if err != nil {
+		return "", err
+	}
+	if canonicalExists && legacyExists {
+		return "", fmt.Errorf("both %s and %s exist; reconcile them before starting Dagu", canonical, legacy)
+	}
+	if legacyExists || (!canonicalExists && preferLegacy) {
+		return legacy, nil
+	}
+	return canonical, nil
+}
+
+func storePathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if parent, parentErr := os.Stat(filepath.Dir(path)); parentErr == nil && !parent.IsDir() {
+		return false, nil
+	}
+	return false, fmt.Errorf("inspect %s: %w", path, err)
+}
+
+func newWorkspaceStore(cfg *config.Config) (*store.WorkspaceStore, error) {
+	dir := cfg.Paths.WorkspacesDir
+	if dir == "" {
+		return nil, fmt.Errorf("workspace store: WorkspacesDir cannot be empty")
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("workspace store: create directory %s: %w", dir, err)
+	}
+	return store.NewWorkspaceStore(persisfile.NewCollection(dir, persisfile.WithIndentedJSON()))
+}
+
 func initEncryptedStores(ctx context.Context, cfg *config.Config, stores *frontend.Stores) {
 	encKey, err := crypto.ResolveKey(cfg.Paths.DataDir)
 	if err != nil {
@@ -136,32 +213,49 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, stores *fronte
 		return
 	}
 
-	remoteNodeStore, err := persisfile.NewRemoteNodeStore(cfg, encryptor)
+	remoteNodeStore, err := newRemoteNodeStore(cfg, encryptor)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create remote node store", tag.Error(err))
 	} else {
 		stores.RemoteNode = remoteNodeStore
 	}
 
-	notificationStore, err := persisfile.NewNotificationStore(cfg, encryptor)
+	notificationStore, err := filenotification.New(
+		filepath.Join(cfg.Paths.DataDir, "notifications", "dags"),
+		filenotification.WithEncryptor(encryptor),
+	)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 	} else {
 		stores.Notification = notificationStore
-		stateFile := persisfile.NotificationMonitorStateFile(cfg)
+		stateFile := filepath.Join(cfg.Paths.DataDir, "notifications", "monitor-state.json")
 		stores.NotificationState = filemonitor.NewStateStore(stateFile)
 		stores.NewNotificationLease = newMonitorLease(stateFile)
 	}
 
-	incidentStore, err := persisfile.NewIncidentStore(cfg, encryptor)
+	incidentStore, err := fileincident.New(
+		filepath.Join(cfg.Paths.DataDir, "incidents"),
+		fileincident.WithEncryptor(encryptor),
+	)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
 	} else {
 		stores.Incident = incidentStore
-		stateFile := persisfile.IncidentMonitorStateFile(cfg)
+		stateFile := filepath.Join(cfg.Paths.DataDir, "incidents", "monitor-state.json")
 		stores.IncidentState = filemonitor.NewStateStore(stateFile)
 		stores.NewIncidentLease = newMonitorLease(stateFile)
 	}
+}
+
+func newRemoteNodeStore(cfg *config.Config, encryptor *crypto.Encryptor) (*store.RemoteNodeStore, error) {
+	dir := cfg.Paths.RemoteNodesDir
+	if dir == "" {
+		return nil, fmt.Errorf("remote-node store: RemoteNodesDir cannot be empty")
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("remote-node store: create directory %s: %w", dir, err)
+	}
+	return store.NewRemoteNodeStore(persisfile.NewCollection(dir, persisfile.WithIndentedJSON()), encryptor)
 }
 
 func newMonitorLease(stateFile string) func() chatbridge.Lease {
@@ -285,5 +379,5 @@ func resolveTokenSecret(ctx context.Context, cfg *config.Config) (authmodel.Toke
 		}
 	}
 
-	return persisfile.ResolveTokenSecret(authDir)
+	return resolvePersistedTokenSecret(authDir)
 }

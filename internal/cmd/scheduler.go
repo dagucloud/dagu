@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	schedulerfile "github.com/dagucloud/dagu/v2/internal/service/scheduler/file"
 	"github.com/spf13/cobra"
 )
 
@@ -45,6 +46,11 @@ func runScheduler(ctx *Context, _ []string) error {
 	if dagsDir, _ := ctx.Command.Flags().GetString("dags"); dagsDir != "" {
 		ctx.Config.Paths.DAGsDir = dagsDir
 	}
+	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config)
+	if err != nil {
+		return err
+	}
+	ctx = ctx.withEvent(deps.EventService)
 
 	logger.Info(ctx, "Scheduler initialization",
 		tag.Dir(ctx.Config.Paths.DAGsDir),
@@ -52,7 +58,7 @@ func runScheduler(ctx *Context, _ []string) error {
 	)
 
 	schedulerCtx := ctx.WithEventSource(eventstore.SourceServiceScheduler)
-	scheduler, err := schedulerCtx.NewScheduler()
+	scheduler, err := schedulerCtx.NewScheduler(deps)
 	if err != nil {
 		return fmt.Errorf("failed to initialize scheduler: %w", err)
 	}

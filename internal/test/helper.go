@@ -33,6 +33,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -274,9 +275,9 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	ctx = config.WithConfig(ctx, cfg)
 
 	if cfg.Paths.BaseConfig != "" {
-		baseConfigStore, err := file.NewBaseConfigStore(
+		baseConfigStore, err := filebaseconfig.New(
 			cfg.Paths.BaseConfig,
-			file.WithBaseConfigSkipDefault(cfg.Core.SkipExamples),
+			filebaseconfig.WithSkipDefault(cfg.Core.SkipExamples),
 		)
 		require.NoError(t, err)
 		require.NoError(t, baseConfigStore.Initialize())
