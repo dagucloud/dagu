@@ -51,7 +51,7 @@ The root `type:` controls how the workflow executes:
 - `graph` is the default when `type:` is omitted.
 - `chain` runs steps in order.
 - `agent` creates an Agent DAG: `steps:` becomes a catalog of actions and the configured
-  LLM choose which one runs next until every entry in `tasks:` is complete. It
+  LLM chooses which one runs next until every entry in `tasks:` is complete. It
   requires `llm:` and `tasks:`, and forbids `depends:`.
 
 Do not confuse root `type:` with legacy step-level `type:`. Step-level
