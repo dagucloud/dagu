@@ -322,7 +322,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			break
 		}
 		licenseDir := file.LicenseDir(cfg)
-		licStore := file.NewLicenseStore(cfg, backend.Collection(persis.CollectionLicense))
+		licStore := file.NewLicenseStore(backend.Collection(persis.CollectionLicense))
 		licMgr = license.NewManager(license.ManagerConfig{
 			LicenseDir: licenseDir,
 			ConfigKey:  cfg.License.Key,

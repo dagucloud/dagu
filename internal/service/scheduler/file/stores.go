@@ -76,7 +76,6 @@ func initMonitorStores(ctx context.Context, cfg *config.Config, backend persis.B
 	}
 
 	notificationStore, err := persisfile.NewNotificationStore(
-		filepath.Join(cfg.Paths.DataDir, "notifications"),
 		backend.Collection(persis.CollectionNotifications),
 		encryptor,
 	)
@@ -90,7 +89,6 @@ func initMonitorStores(ctx context.Context, cfg *config.Config, backend persis.B
 	}
 
 	incidentStore, err := persisfile.NewIncidentStore(
-		filepath.Join(cfg.Paths.DataDir, "incidents"),
 		backend.Collection(persis.CollectionIncidents),
 		encryptor,
 	)

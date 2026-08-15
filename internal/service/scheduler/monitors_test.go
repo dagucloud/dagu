@@ -7,7 +7,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -56,7 +55,6 @@ func TestNotificationServiceUsesConfiguredPublicURL(t *testing.T) {
 	encryptor, err := crypto.NewEncryptor(key)
 	require.NoError(t, err)
 	store, err := persisfile.NewNotificationStore(
-		filepath.Join(cfg.Paths.DataDir, "notifications"),
 		persisfile.NewBackend(cfg.Paths).Collection(persis.CollectionNotifications),
 		encryptor,
 	)

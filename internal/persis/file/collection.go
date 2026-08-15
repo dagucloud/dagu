@@ -31,9 +31,10 @@ const recordLockDirectoryName = ".dagu_record_locks"
 // "/" in record IDs maps to the OS path separator, so hierarchical IDs
 // become nested subdirectories on disk.
 type Collection struct {
-	dir    string
-	indent bool
-	mu     sync.RWMutex
+	dir        string
+	idPrefixes []string
+	indent     bool
+	mu         sync.RWMutex
 }
 
 var _ persis.LockingCollection = (*Collection)(nil)
@@ -44,6 +45,10 @@ type CollectionOption func(*Collection)
 // WithIndentedJSON stores records as two-space indented JSON on disk.
 func WithIndentedJSON() CollectionOption {
 	return func(c *Collection) { c.indent = true }
+}
+
+func withIDPrefixes(prefixes ...string) CollectionOption {
+	return func(c *Collection) { c.idPrefixes = append([]string(nil), prefixes...) }
 }
 
 // NewCollection creates a collection backed by dir. The directory is created
@@ -80,61 +85,65 @@ func (c *Collection) Get(_ context.Context, id string) (*persis.Record, error) {
 	return rec, nil
 }
 
-func (c *Collection) Put(_ context.Context, rec *persis.Record) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+func (c *Collection) Put(ctx context.Context, rec *persis.Record) error {
 	if rec == nil {
 		return fmt.Errorf("file backend: nil record")
 	}
-	path, err := c.filePath(rec.ID)
-	if err != nil {
-		return err
-	}
-	return c.writeFile(path, rec)
+	return c.withRecordLock(ctx, rec.ID, func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		path, err := c.filePath(rec.ID)
+		if err != nil {
+			return err
+		}
+		return c.writeFile(path, rec)
+	})
 }
 
 // Create atomically inserts rec. Returns [persis.ErrConflict] when a
 // record with rec.ID already exists.
-func (c *Collection) Create(_ context.Context, rec *persis.Record) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+func (c *Collection) Create(ctx context.Context, rec *persis.Record) error {
 	if rec == nil {
 		return fmt.Errorf("file backend: nil record")
 	}
-	if !json.Valid(rec.Data) {
-		return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
-	}
-	path, err := c.filePath(rec.ID)
-	if err != nil {
-		return err
-	}
-	body := rec.Data
-	if c.indent {
-		var buf bytes.Buffer
-		if err := json.Indent(&buf, rec.Data, "", "  "); err != nil {
-			return fmt.Errorf("file backend: indent record %q: %w", rec.ID, err)
+	return c.withRecordLock(ctx, rec.ID, func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if !json.Valid(rec.Data) {
+			return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
 		}
-		body = buf.Bytes()
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
-	}
-	if err := fileutil.WriteFileAtomicExclusive(path, body, 0o600); err != nil {
-		if errors.Is(err, fs.ErrExist) {
-			return persis.ErrConflict
+		path, err := c.filePath(rec.ID)
+		if err != nil {
+			return err
 		}
-		return err
-	}
-	mtime := rec.UpdatedAt
-	if mtime.IsZero() {
-		mtime = rec.CreatedAt
-	}
-	if mtime.IsZero() {
-		return nil
-	}
-	return os.Chtimes(path, mtime, mtime)
+		body := rec.Data
+		if c.indent {
+			var buf bytes.Buffer
+			if err := json.Indent(&buf, rec.Data, "", "  "); err != nil {
+				return fmt.Errorf("file backend: indent record %q: %w", rec.ID, err)
+			}
+			body = buf.Bytes()
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return err
+		}
+		if err := fileutil.WriteFileAtomicExclusive(path, body, 0o600); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				return persis.ErrConflict
+			}
+			return err
+		}
+		mtime := rec.UpdatedAt
+		if mtime.IsZero() {
+			mtime = rec.CreatedAt
+		}
+		if mtime.IsZero() {
+			return nil
+		}
+		return os.Chtimes(path, mtime, mtime)
+	})
 }
 
 func (c *Collection) Delete(ctx context.Context, id string) error {
@@ -227,22 +236,27 @@ func withDirLock(ctx context.Context, lockDir string, fn func() error) error {
 }
 
 // DeleteIfExists removes the record with the given id and reports whether it existed.
-func (c *Collection) DeleteIfExists(_ context.Context, id string) (bool, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *Collection) DeleteIfExists(ctx context.Context, id string) (bool, error) {
+	var deleted bool
+	err := c.withRecordLock(ctx, id, func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 
-	path, err := c.filePath(id)
-	if err != nil {
-		return false, err
-	}
-	if err := fileutil.Remove(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
+		path, err := c.filePath(id)
+		if err != nil {
+			return err
 		}
-		return false, err
-	}
-	removeEmptyDirs(filepath.Dir(path), c.dir)
-	return true, nil
+		if err := fileutil.Remove(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		removeEmptyDirs(filepath.Dir(path), c.dir)
+		deleted = true
+		return nil
+	})
+	return deleted, err
 }
 
 func (c *Collection) List(_ context.Context, q persis.ListQuery) (*persis.Page, error) {
@@ -304,44 +318,64 @@ func (c *Collection) CompareAndSwap(ctx context.Context, id string, expected, ne
 
 // RemoveCorrupt removes id only when its file is invalid JSON. A non-zero
 // staleBefore restricts removal to files last modified at or before that time.
-func (c *Collection) RemoveCorrupt(_ context.Context, id string, staleBefore time.Time) (bool, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *Collection) RemoveCorrupt(ctx context.Context, id string, staleBefore time.Time) (bool, error) {
+	var removed bool
+	err := c.withRecordLock(ctx, id, func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 
-	path, err := c.filePath(id)
-	if err != nil {
-		return false, err
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, persis.ErrNotFound
+		path, err := c.filePath(id)
+		if err != nil {
+			return err
 		}
-		return false, err
-	}
-	if !staleBefore.IsZero() && info.ModTime().After(staleBefore) {
-		return false, nil
-	}
-	raw, err := fileutil.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, persis.ErrNotFound
+		info, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return persis.ErrNotFound
+			}
+			return err
 		}
-		return false, err
-	}
-	if json.Valid(raw) {
-		return false, persis.ErrConflict
-	}
-	if err := fileutil.RemoveFileDurable(path); err != nil {
-		return false, err
-	}
-	return true, nil
+		if !staleBefore.IsZero() && info.ModTime().After(staleBefore) {
+			return nil
+		}
+		raw, err := fileutil.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return persis.ErrNotFound
+			}
+			return err
+		}
+		if json.Valid(raw) {
+			return persis.ErrConflict
+		}
+		if err := fileutil.RemoveFileDurable(path); err != nil {
+			return err
+		}
+		removed = true
+		return nil
+	})
+	return removed, err
 }
 
 // ─── internal helpers ─────────────────────────────────────────────────────────
 
 func (c *Collection) filePath(id string) (string, error) {
+	if !c.acceptsID(id) {
+		return "", persis.ErrNotFound
+	}
 	return pathUnderRoot(c.dir, id, "record ID")
+}
+
+func (c *Collection) acceptsID(id string) bool {
+	if len(c.idPrefixes) == 0 {
+		return true
+	}
+	for _, prefix := range c.idPrefixes {
+		if strings.HasPrefix(id, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Collection) lockDir(key string) (string, error) {
@@ -463,6 +497,9 @@ func (c *Collection) collectIDs(prefix string) ([]string, error) {
 		}
 		rel, _ := filepath.Rel(c.dir, path)
 		id := relPathToID(rel)
+		if !c.acceptsID(id) {
+			return nil
+		}
 		if prefix != "" && !strings.HasPrefix(id, prefix) {
 			return nil
 		}
@@ -496,6 +533,9 @@ func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.
 		}
 		rel, _ := filepath.Rel(c.dir, path)
 		id := relPathToID(rel)
+		if !c.acceptsID(id) {
+			return nil
+		}
 		if prefix != "" && !strings.HasPrefix(id, prefix) {
 			return nil
 		}

@@ -6,7 +6,6 @@ package api_test
 import (
 	"context"
 	"net/http"
-	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -373,7 +372,6 @@ func seedReusableNotificationSubscription(t *testing.T, server test.Server, dagN
 	encryptor, err := dagucrypto.NewEncryptor(key)
 	require.NoError(t, err)
 	store, err := persisfile.NewNotificationStore(
-		filepath.Join(server.Config.Paths.DataDir, "notifications"),
 		server.Backend.Collection(persis.CollectionNotifications),
 		encryptor,
 	)

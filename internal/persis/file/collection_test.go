@@ -87,9 +87,13 @@ func TestFileBackendPreservesCollectionLayout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			col := backend.Collection(tt.name)
-			require.NoError(t, col.Put(t.Context(), &persis.Record{ID: "probe", Data: compact}))
+			id := "probe"
+			if tt.name == persis.CollectionDispatchTasks {
+				id = "pending/probe"
+			}
+			require.NoError(t, col.Put(t.Context(), &persis.Record{ID: id, Data: compact}))
 
-			raw, err := os.ReadFile(filepath.Join(tt.dir, "probe.json"))
+			raw, err := os.ReadFile(filepath.Join(tt.dir, filepath.FromSlash(id)+".json"))
 			require.NoError(t, err)
 			if tt.indented {
 				assert.Equal(t, indented.Bytes(), raw)
@@ -97,9 +101,38 @@ func TestFileBackendPreservesCollectionLayout(t *testing.T) {
 				assert.Equal(t, compact, raw)
 			}
 
-			got, err := backend.Collection(tt.name).Get(t.Context(), "probe")
+			got, err := backend.Collection(tt.name).Get(t.Context(), id)
 			require.NoError(t, err)
 			assert.Equal(t, compact, got.Data)
+		})
+	}
+}
+
+func TestFileBackendCollectionsAreIsolated(t *testing.T) {
+	t.Parallel()
+
+	backend := file.NewBackend(config.PathsConfig{DataDir: t.TempDir()})
+	activeRuns := backend.Collection(persis.CollectionActiveDistributedRuns)
+	dispatchTasks := backend.Collection(persis.CollectionDispatchTasks)
+	require.NoError(t, activeRuns.Put(t.Context(), &persis.Record{ID: "run-1", Data: []byte(`{}`)}))
+	require.NoError(t, dispatchTasks.Put(t.Context(), &persis.Record{ID: "pending/task-1", Data: []byte(`{}`)}))
+
+	page, err := dispatchTasks.List(t.Context(), persis.ListQuery{})
+	require.NoError(t, err)
+	require.Len(t, page.Records, 1)
+	assert.Equal(t, "pending/task-1", page.Records[0].ID)
+
+	_, err = dispatchTasks.Get(t.Context(), "active-runs/run-1")
+	assert.ErrorIs(t, err, persis.ErrNotFound)
+}
+
+func TestFileBackendRejectsInvalidCollectionNames(t *testing.T) {
+	t.Parallel()
+
+	backend := file.NewBackend(config.PathsConfig{DataDir: t.TempDir()})
+	for _, name := range []string{"", ".", "..", "../escape", "nested/name", `nested\name`} {
+		t.Run(name, func(t *testing.T) {
+			assert.Panics(t, func() { backend.Collection(name) })
 		})
 	}
 }

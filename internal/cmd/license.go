@@ -135,7 +135,7 @@ func newLicenseManager(ctx *Context, configKey string) (*license.Manager, error)
 	}
 
 	licenseDir := file.LicenseDir(ctx.Config)
-	store := file.NewLicenseStore(ctx.Config, ctx.backend.Collection(persis.CollectionLicense))
+	store := file.NewLicenseStore(ctx.backend.Collection(persis.CollectionLicense))
 	return license.NewManager(license.ManagerConfig{
 		LicenseDir: licenseDir,
 		ConfigKey:  configKey,

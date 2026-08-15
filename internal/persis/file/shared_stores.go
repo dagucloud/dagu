@@ -58,56 +58,48 @@ func NewDAGSettingsStore(cfg *config.Config, col persis.Collection) (dagsettings
 	if cfg == nil || cfg.Paths.DataDir == "" {
 		return nil, fmt.Errorf("DAG settings store: DataDir cannot be empty")
 	}
-	dir := filepath.Join(cfg.Paths.DataDir, "dag-settings")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("DAG settings store: create directory %s: %w", dir, err)
+	if err := createCollectionDirs(col, "DAG settings store", 0o750, ""); err != nil {
+		return nil, err
 	}
 	return store.NewDAGSettingsStore(col)
 }
 
-// NewIncidentStore creates a file-backed incident store rooted at dir.
-func NewIncidentStore(dir string, col persis.Collection, enc *crypto.Encryptor) (incident.Store, error) {
-	if dir == "" {
-		return nil, fmt.Errorf("incident store: directory cannot be empty")
-	}
-	for _, path := range []string{
-		dir,
-		filepath.Join(dir, "providers"),
-		filepath.Join(dir, "policies", "workspaces"),
-		filepath.Join(dir, "policies", "dags"),
-		filepath.Join(dir, "states"),
-	} {
-		if err := os.MkdirAll(path, 0o750); err != nil {
-			return nil, fmt.Errorf("incident store: create directory %s: %w", path, err)
-		}
+// NewIncidentStore creates an incident store backed by col.
+func NewIncidentStore(col persis.Collection, enc *crypto.Encryptor) (incident.Store, error) {
+	if err := createCollectionDirs(
+		col,
+		"incident store",
+		0o750,
+		"",
+		"providers",
+		"policies/workspaces",
+		"policies/dags",
+		"states",
+	); err != nil {
+		return nil, err
 	}
 	return store.NewIncidentStore(col, enc)
 }
 
-// NewNotificationStore creates a file-backed notification store rooted at dir.
-func NewNotificationStore(dir string, col persis.Collection, enc *crypto.Encryptor) (notification.Store, error) {
-	if dir == "" {
-		return nil, fmt.Errorf("notification store: directory cannot be empty")
-	}
-	for _, path := range []string{
-		dir,
-		filepath.Join(dir, "dags"),
-		filepath.Join(dir, "channels"),
-		filepath.Join(dir, "routes", "workspaces"),
-	} {
-		if err := os.MkdirAll(path, 0o750); err != nil {
-			return nil, fmt.Errorf("notification store: create directory %s: %w", path, err)
-		}
+// NewNotificationStore creates a notification store backed by col.
+func NewNotificationStore(col persis.Collection, enc *crypto.Encryptor) (notification.Store, error) {
+	if err := createCollectionDirs(
+		col,
+		"notification store",
+		0o750,
+		"",
+		"dags",
+		"channels",
+		"routes/workspaces",
+	); err != nil {
+		return nil, err
 	}
 	return store.NewNotificationStore(col, enc)
 }
 
-func NewLicenseStore(cfg *config.Config, col persis.Collection) license.ActivationStore {
-	dir := LicenseDir(cfg)
-	// Pre-create at 0o700 so the directory ends up with the stricter perm.
-	// Collection.Put falls back to MkdirAll(0o750) when the dir is missing,
-	// which would otherwise relax the bit on fresh installs.
-	_ = os.MkdirAll(dir, 0o700)
+func NewLicenseStore(col persis.Collection) license.ActivationStore {
+	// License data requires an owner-only collection directory.
+	_ = createCollectionDirs(col, "license store", 0o700, "")
 	return store.NewLicenseStore(col)
 }
 
@@ -119,9 +111,25 @@ func NewUpgradeCheckStore(cfg *config.Config, col persis.Collection) (upgrade.Ca
 	if cfg.Paths.DataDir == "" {
 		return nil, fmt.Errorf("upgrade check store: data directory cannot be empty")
 	}
-	dir := filepath.Join(cfg.Paths.DataDir, "upgrade")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("upgrade check store: create directory %s: %w", dir, err)
+	if err := createCollectionDirs(col, "upgrade check store", 0o750, ""); err != nil {
+		return nil, err
 	}
 	return store.NewUpgradeCheckStore(col), nil
+}
+
+func createCollectionDirs(col persis.Collection, storeName string, perm os.FileMode, relativePaths ...string) error {
+	fileCol, ok := col.(*Collection)
+	if !ok {
+		return nil
+	}
+	if fileCol.dir == "" {
+		return fmt.Errorf("%s: directory cannot be empty", storeName)
+	}
+	for _, relativePath := range relativePaths {
+		path := filepath.Join(fileCol.dir, filepath.FromSlash(relativePath))
+		if err := os.MkdirAll(path, perm); err != nil {
+			return fmt.Errorf("%s: create directory %s: %w", storeName, path, err)
+		}
+	}
+	return nil
 }

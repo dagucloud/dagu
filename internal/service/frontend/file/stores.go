@@ -225,7 +225,6 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis
 	}
 
 	notificationStore, err := persisfile.NewNotificationStore(
-		filepath.Join(cfg.Paths.DataDir, "notifications"),
 		backend.Collection(persis.CollectionNotifications),
 		encryptor,
 	)
@@ -239,7 +238,6 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis
 	}
 
 	incidentStore, err := persisfile.NewIncidentStore(
-		filepath.Join(cfg.Paths.DataDir, "incidents"),
 		backend.Collection(persis.CollectionIncidents),
 		encryptor,
 	)

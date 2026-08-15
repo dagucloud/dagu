@@ -260,9 +260,6 @@ func TestDAGRunLeaseStore_ListAllRemovesStaleCorruptRecord(t *testing.T) {
 
 	_, err = os.Stat(path)
 	assert.ErrorIs(t, err, os.ErrNotExist)
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	assert.Empty(t, entries)
 }
 
 func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
@@ -443,9 +440,6 @@ func TestActiveDistributedRunStore_ListAllRemovesStaleCorruptRecord(t *testing.T
 
 	_, err = os.Stat(path)
 	assert.ErrorIs(t, err, os.ErrNotExist)
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	assert.Empty(t, entries)
 }
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
