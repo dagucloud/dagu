@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/api/pathutil"
@@ -98,7 +97,7 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		frontend.WithAPIOption(apiv1.WithDAGRunLeaseStore(srv.DAGRunLeaseStore)),
 		frontend.WithAPIOption(apiv1.WithWorkerHeartbeatStore(srv.WorkerHeartbeatStore)),
 	}, srv.ServerOptions...)
-	stores, err := frontendfile.NewStores(srv.Context, srv.Config, persisfile.NewBackend(srv.Config.Paths))
+	stores, err := frontendfile.NewStores(srv.Context, srv.Config, srv.Backend)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize server stores: %w", err)
 	}

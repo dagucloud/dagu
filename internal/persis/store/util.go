@@ -9,7 +9,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
@@ -19,6 +21,69 @@ type recordIDsCollection interface {
 }
 
 type recordReadErrorHandler func(id string, err error) (handled bool, handleErr error)
+
+type recordHelper struct {
+	col  persis.Collection
+	name string
+}
+
+func (h recordHelper) put(ctx context.Context, id string, value any) error {
+	data, err := persis.Encode(value)
+	if err != nil {
+		return fmt.Errorf("%s: encode record: %w", h.name, err)
+	}
+
+	now := time.Now().UTC()
+	createdAt := now
+	existing, err := h.col.Get(ctx, id)
+	if err == nil {
+		createdAt = existing.CreatedAt
+	} else if !errors.Is(err, persis.ErrNotFound) {
+		return fmt.Errorf("%s: save record: %w", h.name, err)
+	}
+
+	if err := h.col.Put(ctx, &persis.Record{
+		ID: id, Data: data, CreatedAt: createdAt, UpdatedAt: now,
+	}); err != nil {
+		return fmt.Errorf("%s: save record: %w", h.name, err)
+	}
+	return nil
+}
+
+func (h recordHelper) get(ctx context.Context, id string, notFound error) (*persis.Record, error) {
+	rec, err := h.col.Get(ctx, id)
+	if errors.Is(err, persis.ErrNotFound) {
+		return nil, notFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
+func (h recordHelper) delete(ctx context.Context, id string, notFound error, kind string) error {
+	if _, err := h.col.Get(ctx, id); errors.Is(err, persis.ErrNotFound) {
+		return notFound
+	} else if err != nil {
+		return fmt.Errorf("%s: delete %s: %w", h.name, kind, err)
+	}
+	if err := h.col.Delete(ctx, id); err != nil {
+		return fmt.Errorf("%s: delete %s: %w", h.name, kind, err)
+	}
+	return nil
+}
+
+func (h recordHelper) listTolerant(ctx context.Context, prefix, kind string) ([]*persis.Record, error) {
+	recs, err := listAllStrictWithReadError(ctx, h.col, persis.ListQuery{Prefix: prefix}, func(id string, err error) (bool, error) {
+		slog.Warn(h.name+": failed to load "+kind, "record", id, "error", err)
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(recs, func(i, j int) bool { return recs[i].ID < recs[j].ID })
+	return recs, nil
+}
 
 // listAll drains all pages from col matching q, ignoring the Cursor field of q.
 func listAll(ctx context.Context, col persis.Collection, q persis.ListQuery) ([]*persis.Record, error) {

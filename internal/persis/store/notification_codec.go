@@ -14,8 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-const notificationTimeFormat = "2006-01-02T15:04:05.999999999Z07:00"
-
 type settingsRecord struct {
 	ID            string               `json:"id"`
 	DAGName       string               `json:"dagName"`
@@ -163,8 +161,8 @@ func (s *NotificationStore) settingsToRecord(settings *notification.Settings) (*
 		Events:        events,
 		Targets:       targets,
 		Subscriptions: subscriptions,
-		CreatedAt:     settings.CreatedAt.Format(notificationTimeFormat),
-		UpdatedAt:     settings.UpdatedAt.Format(notificationTimeFormat),
+		CreatedAt:     settings.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:     settings.UpdatedAt.Format(time.RFC3339Nano),
 		UpdatedBy:     settings.UpdatedBy,
 	}, nil
 }
@@ -184,8 +182,8 @@ func (s *NotificationStore) channelToRecord(channel *notification.Channel) (*cha
 		Slack:     target.Slack,
 		Telegram:  target.Telegram,
 		Teams:     target.Teams,
-		CreatedAt: channel.CreatedAt.Format(notificationTimeFormat),
-		UpdatedAt: channel.UpdatedAt.Format(notificationTimeFormat),
+		CreatedAt: channel.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt: channel.UpdatedAt.Format(time.RFC3339Nano),
 		UpdatedBy: channel.UpdatedBy,
 	}, nil
 }
@@ -194,8 +192,8 @@ func (s *NotificationStore) workspaceSettingsToRecord(
 	settings *notification.WorkspaceSettings,
 ) (*workspaceSettingsRecord, error) {
 	stored := &workspaceSettingsRecord{
-		CreatedAt: settings.CreatedAt.Format(notificationTimeFormat),
-		UpdatedAt: settings.UpdatedAt.Format(notificationTimeFormat),
+		CreatedAt: settings.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt: settings.UpdatedAt.Format(time.RFC3339Nano),
 		UpdatedBy: settings.UpdatedBy,
 	}
 	if settings.SMTP == nil {
@@ -252,8 +250,8 @@ func routeSetToRecord(routeSet *notification.RouteSet) *routeSetRecord {
 		Enabled:       routeSet.Enabled,
 		InheritGlobal: routeSet.InheritGlobal,
 		Routes:        routes,
-		CreatedAt:     routeSet.CreatedAt.Format(notificationTimeFormat),
-		UpdatedAt:     routeSet.UpdatedAt.Format(notificationTimeFormat),
+		CreatedAt:     routeSet.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:     routeSet.UpdatedAt.Format(time.RFC3339Nano),
 		UpdatedBy:     routeSet.UpdatedBy,
 	}
 }
@@ -375,8 +373,8 @@ func (s *NotificationStore) channelFromRecord(rec *persis.Record) (*notification
 	if err != nil {
 		return nil, err
 	}
-	createdAt, _ := time.Parse(notificationTimeFormat, stored.CreatedAt)
-	updatedAt, _ := time.Parse(notificationTimeFormat, stored.UpdatedAt)
+	createdAt := parseSettingsTime("CreatedAt", stored.CreatedAt)
+	updatedAt := parseSettingsTime("UpdatedAt", stored.UpdatedAt)
 	return &notification.Channel{
 		ID:        stored.ID,
 		Name:      stored.Name,
@@ -398,8 +396,8 @@ func (s *NotificationStore) workspaceSettingsFromRecord(rec *persis.Record) (*no
 	if err := persis.Decode(rec, &stored); err != nil {
 		return nil, fmt.Errorf("notification store: parse workspace settings: %w", err)
 	}
-	createdAt, _ := time.Parse(notificationTimeFormat, stored.CreatedAt)
-	updatedAt, _ := time.Parse(notificationTimeFormat, stored.UpdatedAt)
+	createdAt := parseSettingsTime("CreatedAt", stored.CreatedAt)
+	updatedAt := parseSettingsTime("UpdatedAt", stored.UpdatedAt)
 	settings := &notification.WorkspaceSettings{
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
@@ -459,8 +457,8 @@ func routeSetFromRecord(rec *persis.Record) (*notification.RouteSet, error) {
 			Events:    eventTypes(route.Events),
 		})
 	}
-	createdAt, _ := time.Parse(notificationTimeFormat, stored.CreatedAt)
-	updatedAt, _ := time.Parse(notificationTimeFormat, stored.UpdatedAt)
+	createdAt := parseSettingsTime("CreatedAt", stored.CreatedAt)
+	updatedAt := parseSettingsTime("UpdatedAt", stored.UpdatedAt)
 	return &notification.RouteSet{
 		ID:            stored.ID,
 		Scope:         stored.Scope,
@@ -560,7 +558,7 @@ func eventTypes(events []string) []eventstore.EventType {
 }
 
 func parseSettingsTime(field, value string) time.Time {
-	parsed, err := time.Parse(notificationTimeFormat, value)
+	parsed, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {
 		slog.Debug("Failed to parse notification settings timestamp", "field", field, "value", value, "error", err)
 	}

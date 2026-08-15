@@ -317,6 +317,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		DAGRepository:             dagRepository,
 		DAGRunRepository:          dagRunRepository,
 		ProcRepository:            procRepository,
+		Backend:                   backend,
 		QueueStore:                queueStore,
 		StateStore:                stateStore,
 		ServiceRegistry:           serviceMonitor,
@@ -527,6 +528,7 @@ type Helper struct {
 	DAGRunRepository          *persis.DAGRunRepository
 	DAGRunMgr                 runtimepkg.Manager
 	ProcRepository            *persis.ProcRepository
+	Backend                   persis.Backend
 	QueueStore                queue.QueueStore
 	StateStore                dagrun.StateStore
 	ServiceRegistry           serviceregistry.ServiceRegistry

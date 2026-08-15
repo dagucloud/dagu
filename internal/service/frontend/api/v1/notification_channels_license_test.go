@@ -374,7 +374,7 @@ func seedReusableNotificationSubscription(t *testing.T, server test.Server, dagN
 	require.NoError(t, err)
 	store, err := persisfile.NewNotificationStore(
 		filepath.Join(server.Config.Paths.DataDir, "notifications"),
-		persisfile.NewBackend(server.Config.Paths).Collection(persis.CollectionNotifications),
+		server.Backend.Collection(persis.CollectionNotifications),
 		encryptor,
 	)
 	require.NoError(t, err)

@@ -75,6 +75,14 @@ func TestNotificationStoreEncryptsTargetSecrets(t *testing.T) {
 	} {
 		assert.NotContains(t, string(page.Records[0].Data), secret)
 	}
+	originalCreatedAt := time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC)
+	page.Records[0].CreatedAt = originalCreatedAt
+	require.NoError(t, col.Put(ctx, page.Records[0]))
+	settings.Enabled = false
+	require.NoError(t, s.Save(ctx, settings))
+	updated, err := col.Get(ctx, page.Records[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, originalCreatedAt, updated.CreatedAt)
 
 	got, err := s.GetByDAGName(ctx, "daily-report")
 	require.NoError(t, err)
@@ -86,6 +94,29 @@ func TestNotificationStoreEncryptsTargetSecrets(t *testing.T) {
 	assert.Equal(t, "https://hooks.slack.com/services/test", got.Targets[1].Slack.WebhookURL)
 	assert.Equal(t, "telegram-token", got.Targets[2].Telegram.BotToken)
 	assert.Equal(t, "67890", got.Targets[2].Telegram.TopicID)
+}
+
+func TestNotificationStoreRejectsInvalidRouteScope(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := newMemoryNotificationStore(t, false)
+	global, err := notification.NormalizeRouteSet(&notification.RouteSet{
+		ID: "global", Scope: notification.RouteScopeGlobal, Enabled: true,
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, s.SaveRouteSet(ctx, global))
+
+	invalid := *global
+	invalid.ID = "invalid"
+	invalid.Scope = notification.RouteScope("invalid")
+	assert.ErrorIs(t, s.SaveRouteSet(ctx, &invalid), notification.ErrInvalidSettings)
+	assert.ErrorIs(t, s.DeleteRouteSet(ctx, invalid.Scope, ""), notification.ErrInvalidSettings)
+	_, err = s.GetRouteSet(ctx, invalid.Scope, "")
+	assert.ErrorIs(t, err, notification.ErrInvalidSettings)
+
+	stored, err := s.GetRouteSet(ctx, notification.RouteScopeGlobal, "")
+	require.NoError(t, err)
+	assert.Equal(t, global.ID, stored.ID)
 }
 
 func TestNotificationStorePersistsChannelsAndSubscriptions(t *testing.T) {

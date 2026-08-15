@@ -47,6 +47,14 @@ func TestIncidentStoreEncryptsProviderSecrets(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, page.Records, 1)
 	assert.False(t, bytes.Contains(page.Records[0].Data, []byte("pagerduty-routing-key")))
+	originalCreatedAt := time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC)
+	page.Records[0].CreatedAt = originalCreatedAt
+	require.NoError(t, col.Put(ctx, page.Records[0]))
+	provider.Enabled = false
+	require.NoError(t, s.SaveProvider(ctx, provider))
+	updated, err := col.Get(ctx, page.Records[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, originalCreatedAt, updated.CreatedAt)
 
 	loaded, err := s.GetProvider(ctx, provider.ID)
 	require.NoError(t, err)
@@ -56,6 +64,29 @@ func TestIncidentStoreEncryptsProviderSecrets(t *testing.T) {
 	unencrypted, err := store.NewIncidentStore(testutil.NewMemoryBackend().Collection("incidents"), nil)
 	require.NoError(t, err)
 	assert.ErrorIs(t, unencrypted.SaveProvider(ctx, provider), incident.ErrSecretStoreMissing)
+}
+
+func TestIncidentStoreRejectsInvalidPolicyScope(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := newMemoryIncidentStore(t)
+	global, err := incident.NormalizePolicySet(&incident.PolicySet{
+		ID: "global", Scope: incident.PolicyScopeGlobal, Enabled: true,
+	}, "user-1")
+	require.NoError(t, err)
+	require.NoError(t, s.SavePolicySet(ctx, global))
+
+	invalid := *global
+	invalid.ID = "invalid"
+	invalid.Scope = incident.PolicyScope("invalid")
+	assert.ErrorIs(t, s.SavePolicySet(ctx, &invalid), incident.ErrInvalidPolicySet)
+	assert.ErrorIs(t, s.DeletePolicySet(ctx, invalid.Scope, "", ""), incident.ErrInvalidPolicySet)
+	_, err = s.GetPolicySet(ctx, invalid.Scope, "", "")
+	assert.ErrorIs(t, err, incident.ErrInvalidPolicySet)
+
+	stored, err := s.GetPolicySet(ctx, incident.PolicyScopeGlobal, "", "")
+	require.NoError(t, err)
+	assert.Equal(t, global.ID, stored.ID)
 }
 
 func TestIncidentStorePersistsPolicySetAndState(t *testing.T) {

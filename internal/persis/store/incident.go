@@ -17,13 +17,16 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-const incidentTimeFormat = "2006-01-02T15:04:05.999999999Z07:00"
+const (
+	incidentTimeFormat        = "2006-01-02T15:04:05.999999999Z07:00"
+	incidentGlobalPolicySetID = "policies/global"
+)
 
 var _ incident.Store = (*IncidentStore)(nil)
 
 // IncidentStore persists incident configuration and state in a collection.
 type IncidentStore struct {
-	col       persis.Collection
+	recordHelper
 	encryptor *crypto.Encryptor
 }
 
@@ -32,7 +35,10 @@ func NewIncidentStore(col persis.Collection, enc *crypto.Encryptor) (*IncidentSt
 	if col == nil {
 		return nil, errors.New("incident store: collection cannot be nil")
 	}
-	return &IncidentStore{col: col, encryptor: enc}, nil
+	return &IncidentStore{
+		recordHelper: recordHelper{col: col, name: "incident store"},
+		encryptor:    enc,
+	}, nil
 }
 
 func (s *IncidentStore) SaveProvider(ctx context.Context, provider *incident.Provider) error {
@@ -85,7 +91,11 @@ func (s *IncidentStore) SavePolicySet(ctx context.Context, policySet *incident.P
 	if policySet == nil {
 		return errors.New("incident store: policy set cannot be nil")
 	}
-	return s.put(ctx, incidentPolicySetID(policySet.Scope, policySet.Workspace, policySet.DAGName), policySetToStorage(policySet))
+	id, err := incidentPolicySetID(policySet.Scope, policySet.Workspace, policySet.DAGName)
+	if err != nil {
+		return err
+	}
+	return s.put(ctx, id, policySetToStorage(policySet))
 }
 
 func (s *IncidentStore) GetPolicySet(
@@ -93,7 +103,11 @@ func (s *IncidentStore) GetPolicySet(
 	scope incident.PolicyScope,
 	workspaceName, dagName string,
 ) (*incident.PolicySet, error) {
-	rec, err := s.get(ctx, incidentPolicySetID(scope, workspaceName, dagName), incident.ErrPolicySetNotFound)
+	id, err := incidentPolicySetID(scope, workspaceName, dagName)
+	if err != nil {
+		return nil, err
+	}
+	rec, err := s.get(ctx, id, incident.ErrPolicySetNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +117,7 @@ func (s *IncidentStore) GetPolicySet(
 func (s *IncidentStore) ListPolicySets(ctx context.Context) ([]*incident.PolicySet, error) {
 	result := make([]*incident.PolicySet, 0)
 
-	if rec, err := s.col.Get(ctx, incidentPolicySetID(incident.PolicyScopeGlobal, "", "")); err == nil {
+	if rec, err := s.col.Get(ctx, incidentGlobalPolicySetID); err == nil {
 		policySet, decodeErr := policySetFromRecord(rec)
 		if decodeErr != nil {
 			slog.Warn("incident store: failed to load global policy set", "error", decodeErr)
@@ -136,7 +150,11 @@ func (s *IncidentStore) DeletePolicySet(
 	scope incident.PolicyScope,
 	workspaceName, dagName string,
 ) error {
-	return s.delete(ctx, incidentPolicySetID(scope, workspaceName, dagName), incident.ErrPolicySetNotFound, "policy set")
+	id, err := incidentPolicySetID(scope, workspaceName, dagName)
+	if err != nil {
+		return err
+	}
+	return s.delete(ctx, id, incident.ErrPolicySetNotFound, "policy set")
 }
 
 func (s *IncidentStore) SaveState(ctx context.Context, state *incident.IncidentState) error {
@@ -182,67 +200,20 @@ func (s *IncidentStore) DeleteState(ctx context.Context, providerID, dedupKey st
 	return s.delete(ctx, incidentStateID(providerID, dedupKey), os.ErrNotExist, "state")
 }
 
-func (s *IncidentStore) put(ctx context.Context, id string, value any) error {
-	data, err := persis.Encode(value)
-	if err != nil {
-		return fmt.Errorf("incident store: encode record: %w", err)
-	}
-	now := time.Now().UTC()
-	if err := s.col.Put(ctx, &persis.Record{ID: id, Data: data, CreatedAt: now, UpdatedAt: now}); err != nil {
-		return fmt.Errorf("incident store: save record: %w", err)
-	}
-	return nil
-}
-
-func (s *IncidentStore) get(ctx context.Context, id string, notFound error) (*persis.Record, error) {
-	rec, err := s.col.Get(ctx, id)
-	if errors.Is(err, persis.ErrNotFound) {
-		return nil, notFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return rec, nil
-}
-
-func (s *IncidentStore) delete(ctx context.Context, id string, notFound error, kind string) error {
-	if _, err := s.col.Get(ctx, id); errors.Is(err, persis.ErrNotFound) {
-		return notFound
-	} else if err != nil {
-		return fmt.Errorf("incident store: delete %s: %w", kind, err)
-	}
-	if err := s.col.Delete(ctx, id); err != nil {
-		return fmt.Errorf("incident store: delete %s: %w", kind, err)
-	}
-	return nil
-}
-
-func (s *IncidentStore) listTolerant(ctx context.Context, prefix, kind string) ([]*persis.Record, error) {
-	recs, err := listAllStrictWithReadError(ctx, s.col, persis.ListQuery{Prefix: prefix}, func(id string, err error) (bool, error) {
-		slog.Warn("incident store: failed to load "+kind, "record", id, "error", err)
-		return true, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(recs, func(i, j int) bool { return recs[i].ID < recs[j].ID })
-	return recs, nil
-}
-
 func incidentProviderID(providerID string) string {
 	return "providers/" + hashRecordID(providerID)
 }
 
-func incidentPolicySetID(scope incident.PolicyScope, workspaceName, dagName string) string {
+func incidentPolicySetID(scope incident.PolicyScope, workspaceName, dagName string) (string, error) {
 	switch scope {
 	case incident.PolicyScopeGlobal:
-		return "policies/global"
+		return incidentGlobalPolicySetID, nil
 	case incident.PolicyScopeWorkspace:
-		return "policies/workspaces/" + hashRecordID(workspaceName)
+		return "policies/workspaces/" + hashRecordID(workspaceName), nil
 	case incident.PolicyScopeDAG:
-		return "policies/dags/" + hashRecordID(dagName)
+		return "policies/dags/" + hashRecordID(dagName), nil
 	default:
-		return "policies/global"
+		return "", fmt.Errorf("%w: invalid incident policy scope %q", incident.ErrInvalidPolicySet, scope)
 	}
 }
 

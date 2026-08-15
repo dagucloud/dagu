@@ -8,8 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
-	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/notification"
@@ -18,9 +16,11 @@ import (
 
 var _ notification.Store = (*NotificationStore)(nil)
 
+const notificationGlobalRouteSetID = "routes/global"
+
 // NotificationStore persists notification configuration in a collection.
 type NotificationStore struct {
-	col       persis.Collection
+	recordHelper
 	encryptor *crypto.Encryptor
 }
 
@@ -29,7 +29,10 @@ func NewNotificationStore(col persis.Collection, enc *crypto.Encryptor) (*Notifi
 	if col == nil {
 		return nil, errors.New("notification store: collection cannot be nil")
 	}
-	return &NotificationStore{col: col, encryptor: enc}, nil
+	return &NotificationStore{
+		recordHelper: recordHelper{col: col, name: "notification store"},
+		encryptor:    enc,
+	}, nil
 }
 
 func (s *NotificationStore) Save(ctx context.Context, settings *notification.Settings) error {
@@ -156,7 +159,11 @@ func (s *NotificationStore) SaveRouteSet(ctx context.Context, routeSet *notifica
 	if routeSet == nil {
 		return errors.New("notification store: route set cannot be nil")
 	}
-	return s.put(ctx, notificationRouteSetID(routeSet.Scope, routeSet.Workspace), routeSetToRecord(routeSet))
+	id, err := notificationRouteSetID(routeSet.Scope, routeSet.Workspace)
+	if err != nil {
+		return err
+	}
+	return s.put(ctx, id, routeSetToRecord(routeSet))
 }
 
 func (s *NotificationStore) GetRouteSet(
@@ -164,7 +171,11 @@ func (s *NotificationStore) GetRouteSet(
 	scope notification.RouteScope,
 	workspace string,
 ) (*notification.RouteSet, error) {
-	rec, err := s.get(ctx, notificationRouteSetID(scope, workspace), notification.ErrRouteSetNotFound)
+	id, err := notificationRouteSetID(scope, workspace)
+	if err != nil {
+		return nil, err
+	}
+	rec, err := s.get(ctx, id, notification.ErrRouteSetNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +184,7 @@ func (s *NotificationStore) GetRouteSet(
 
 func (s *NotificationStore) ListRouteSets(ctx context.Context) ([]*notification.RouteSet, error) {
 	result := make([]*notification.RouteSet, 0)
-	if rec, err := s.col.Get(ctx, notificationRouteSetID(notification.RouteScopeGlobal, "")); err == nil {
+	if rec, err := s.col.Get(ctx, notificationGlobalRouteSetID); err == nil {
 		routeSet, decodeErr := routeSetFromRecord(rec)
 		if decodeErr != nil {
 			slog.Warn("notification store: failed to load global route set", "error", decodeErr)
@@ -200,54 +211,11 @@ func (s *NotificationStore) ListRouteSets(ctx context.Context) ([]*notification.
 }
 
 func (s *NotificationStore) DeleteRouteSet(ctx context.Context, scope notification.RouteScope, workspace string) error {
-	return s.delete(ctx, notificationRouteSetID(scope, workspace), notification.ErrRouteSetNotFound, "route set")
-}
-
-func (s *NotificationStore) put(ctx context.Context, id string, value any) error {
-	data, err := persis.Encode(value)
+	id, err := notificationRouteSetID(scope, workspace)
 	if err != nil {
-		return fmt.Errorf("notification store: encode record: %w", err)
+		return err
 	}
-	now := time.Now().UTC()
-	if err := s.col.Put(ctx, &persis.Record{ID: id, Data: data, CreatedAt: now, UpdatedAt: now}); err != nil {
-		return fmt.Errorf("notification store: save record: %w", err)
-	}
-	return nil
-}
-
-func (s *NotificationStore) get(ctx context.Context, id string, notFound error) (*persis.Record, error) {
-	rec, err := s.col.Get(ctx, id)
-	if errors.Is(err, persis.ErrNotFound) {
-		return nil, notFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return rec, nil
-}
-
-func (s *NotificationStore) delete(ctx context.Context, id string, notFound error, kind string) error {
-	if _, err := s.col.Get(ctx, id); errors.Is(err, persis.ErrNotFound) {
-		return notFound
-	} else if err != nil {
-		return fmt.Errorf("notification store: delete %s: %w", kind, err)
-	}
-	if err := s.col.Delete(ctx, id); err != nil {
-		return fmt.Errorf("notification store: delete %s: %w", kind, err)
-	}
-	return nil
-}
-
-func (s *NotificationStore) listTolerant(ctx context.Context, prefix, kind string) ([]*persis.Record, error) {
-	recs, err := listAllStrictWithReadError(ctx, s.col, persis.ListQuery{Prefix: prefix}, func(id string, err error) (bool, error) {
-		slog.Warn("notification store: failed to load "+kind, "record", id, "error", err)
-		return true, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(recs, func(i, j int) bool { return recs[i].ID < recs[j].ID })
-	return recs, nil
+	return s.delete(ctx, id, notification.ErrRouteSetNotFound, "route set")
 }
 
 func notificationSettingsID(dagName string) string {
@@ -258,9 +226,13 @@ func notificationChannelID(channelID string) string {
 	return "channels/" + hashRecordID(channelID)
 }
 
-func notificationRouteSetID(scope notification.RouteScope, workspace string) string {
-	if scope == notification.RouteScopeWorkspace {
-		return "routes/workspaces/" + hashRecordID(workspace)
+func notificationRouteSetID(scope notification.RouteScope, workspace string) (string, error) {
+	switch scope {
+	case notification.RouteScopeGlobal:
+		return notificationGlobalRouteSetID, nil
+	case notification.RouteScopeWorkspace:
+		return "routes/workspaces/" + hashRecordID(workspace), nil
+	default:
+		return "", fmt.Errorf("%w: invalid notification route scope %q", notification.ErrInvalidSettings, scope)
 	}
-	return "routes/global"
 }
