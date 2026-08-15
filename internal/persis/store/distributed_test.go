@@ -112,14 +112,7 @@ func TestDAGRunLeaseStore_ConcurrentTouchPreservesLatestHeartbeat(t *testing.T) 
 	lease, err := s.Get(ctx, "attempt-key-concurrent")
 	require.NoError(t, err)
 	require.NotNil(t, lease)
-	// Under CAS-retry the last writer wins; assert the final value equals
-	// one of the requested timestamps (no silent fold to an unrelated value).
-	candidates := map[int64]struct{}{}
-	for _, ts := range observed {
-		candidates[ts.UnixMilli()] = struct{}{}
-	}
-	_, ok := candidates[lease.LastHeartbeatAt]
-	assert.True(t, ok, "lease.LastHeartbeatAt must equal one of the requested observedAt values; got %d", lease.LastHeartbeatAt)
+	assert.Equal(t, observed[len(observed)-1].UnixMilli(), lease.LastHeartbeatAt)
 }
 
 func TestDAGRunLeaseStore_RejectsWorkerTransfer(t *testing.T) {

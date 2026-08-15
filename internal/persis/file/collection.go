@@ -7,6 +7,7 @@ package file
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
+
+const recordLockDirectoryName = ".dagu_record_locks"
 
 // Collection implements [persis.Collection] as a directory of JSON files.
 // "/" in record IDs maps to the OS path separator, so hierarchical IDs
@@ -141,29 +144,31 @@ func (c *Collection) Delete(ctx context.Context, id string) error {
 
 // CompareAndDelete removes expected.ID only when the current record still
 // matches expected.
-func (c *Collection) CompareAndDelete(_ context.Context, expected *persis.Record) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *Collection) CompareAndDelete(ctx context.Context, expected *persis.Record) error {
+	return c.withRecordLock(ctx, expected.ID, func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 
-	path, err := c.filePath(expected.ID)
-	if err != nil {
-		return err
-	}
-	rec, err := c.readFile(path)
-	if err != nil {
-		return err
-	}
-	if !sameRecord(rec, expected) {
-		return persis.ErrConflict
-	}
-	if err := fileutil.Remove(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return persis.ErrNotFound
+		path, err := c.filePath(expected.ID)
+		if err != nil {
+			return err
 		}
-		return err
-	}
-	removeEmptyDirs(filepath.Dir(path), c.dir)
-	return nil
+		rec, err := c.readFile(path)
+		if err != nil {
+			return err
+		}
+		if !sameRecord(rec, expected) {
+			return persis.ErrConflict
+		}
+		if err := fileutil.Remove(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return persis.ErrNotFound
+			}
+			return err
+		}
+		removeEmptyDirs(filepath.Dir(path), c.dir)
+		return nil
+	})
 }
 
 // RecordIDs returns record IDs matching prefix without decoding record payloads.
@@ -204,6 +209,10 @@ func (c *Collection) WithLock(ctx context.Context, key string, fn func() error) 
 	if err != nil {
 		return err
 	}
+	return withDirLock(ctx, lockDir, fn)
+}
+
+func withDirLock(ctx context.Context, lockDir string, fn func() error) error {
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{
 		StaleThreshold: 30 * time.Second,
 		RetryInterval:  50 * time.Millisecond,
@@ -271,24 +280,26 @@ func (c *Collection) List(_ context.Context, q persis.ListQuery) (*persis.Page, 
 
 // CompareAndSwap atomically replaces the record's Data only when the current
 // Data equals expected. Returns [persis.ErrConflict] on mismatch.
-func (c *Collection) CompareAndSwap(_ context.Context, id string, expected, next []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *Collection) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	return c.withRecordLock(ctx, id, func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 
-	path, err := c.filePath(id)
-	if err != nil {
-		return err
-	}
-	rec, err := c.readFile(path)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(rec.Data, expected) {
-		return persis.ErrConflict
-	}
-	rec.Data = next
-	rec.UpdatedAt = time.Now().UTC()
-	return c.writeFile(path, rec)
+		path, err := c.filePath(id)
+		if err != nil {
+			return err
+		}
+		rec, err := c.readFile(path)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(rec.Data, expected) {
+			return persis.ErrConflict
+		}
+		rec.Data = next
+		rec.UpdatedAt = time.Now().UTC()
+		return c.writeFile(path, rec)
+	})
 }
 
 // RemoveCorrupt removes id only when its file is invalid JSON. A non-zero
@@ -342,6 +353,17 @@ func (c *Collection) lockDir(key string) (string, error) {
 		return "", err
 	}
 	return filepath.Dir(path), nil
+}
+
+func (c *Collection) withRecordLock(ctx context.Context, id string, fn func() error) error {
+	if _, err := c.filePath(id); err != nil {
+		return err
+	}
+	// The first hash byte bounds lock metadata while distributing unrelated
+	// records across 256 buckets.
+	sum := sha256.Sum256([]byte(id))
+	lockDir := filepath.Join(c.dir, recordLockDirectoryName, fmt.Sprintf("%02x", sum[0]))
+	return withDirLock(ctx, lockDir, fn)
 }
 
 func pathUnderRoot(root, id, kind string) (string, error) {
@@ -431,7 +453,7 @@ func (c *Collection) collectIDs(prefix string) ([]string, error) {
 			return err
 		}
 		if d.IsDir() {
-			if dirlock.IsLockDirectoryName(d.Name()) {
+			if d.Name() == recordLockDirectoryName || dirlock.IsLockDirectoryName(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -464,7 +486,7 @@ func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.
 			return err
 		}
 		if d.IsDir() {
-			if dirlock.IsLockDirectoryName(d.Name()) {
+			if d.Name() == recordLockDirectoryName || dirlock.IsLockDirectoryName(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

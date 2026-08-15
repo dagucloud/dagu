@@ -57,7 +57,8 @@ type ListQuery struct {
 	// An empty Prefix returns all records in the collection.
 	Prefix string
 
-	// Since and Until bound results by Record.CreatedAt.
+	// Since is inclusive and Until is exclusive. Both bound results by
+	// Record.CreatedAt.
 	Since *time.Time
 	Until *time.Time
 
@@ -96,14 +97,17 @@ type Collection interface {
 	Delete(ctx context.Context, id string) error
 
 	// CompareAndDelete atomically removes expected.ID only when the current
-	// record still matches expected. Returns [ErrConflict] when it does not.
+	// record still matches expected. Returns [ErrConflict] when it does not and
+	// [ErrNotFound] when the record does not exist.
 	CompareAndDelete(ctx context.Context, expected *Record) error
 
-	// List returns a page of records matching q, ordered by CreatedAt ascending.
+	// List returns a page of records matching q, ordered by CreatedAt and then ID,
+	// both ascending.
 	List(ctx context.Context, q ListQuery) (*Page, error)
 
 	// CompareAndSwap atomically replaces record id only when its current Data
-	// bytes equal expected. Returns [ErrConflict] when they do not match.
+	// bytes equal expected. Returns [ErrConflict] when they do not match and
+	// [ErrNotFound] when the record does not exist.
 	CompareAndSwap(ctx context.Context, id string, expected, next []byte) error
 }
 

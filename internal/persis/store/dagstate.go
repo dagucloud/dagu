@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -25,7 +24,6 @@ var _ dagrun.StateStore = (*DAGStateStore)(nil)
 // DAGStateStore persists DAG state entries in a persis collection.
 type DAGStateStore struct {
 	col persis.Collection
-	mu  sync.Mutex
 }
 
 // NewDAGStateStore returns a DAG state store backed by the provided collection.
@@ -56,7 +54,7 @@ func (s *DAGStateStore) Put(ctx context.Context, ref dagrun.StateRef, value json
 	}
 
 	var out *dagrun.StateEntry
-	err = s.withRecordLock(ctx, id, func() error {
+	err = retryConflict(ctx, func(ctx context.Context) error {
 		now := time.Now().UTC()
 		rec, getErr := s.col.Get(ctx, id)
 		if getErr != nil {
@@ -75,7 +73,7 @@ func (s *DAGStateStore) Put(ctx context.Context, ref dagrun.StateRef, value json
 				UpdatedAt: now,
 				UpdatedBy: opts.UpdatedBy.Clone(),
 			}
-			if err := s.putEntry(ctx, id, entry, now, now); err != nil {
+			if err := s.saveEntry(ctx, nil, id, entry, now, now); err != nil {
 				return err
 			}
 			out = entry.Clone()
@@ -102,7 +100,7 @@ func (s *DAGStateStore) Put(ctx context.Context, ref dagrun.StateRef, value json
 			UpdatedAt: now,
 			UpdatedBy: opts.UpdatedBy.Clone(),
 		}
-		if err := s.putEntry(ctx, id, entry, existing.CreatedAt, now); err != nil {
+		if err := s.saveEntry(ctx, rec, id, entry, existing.CreatedAt, now); err != nil {
 			return err
 		}
 		out = entry.Clone()
@@ -121,16 +119,20 @@ func (s *DAGStateStore) Delete(ctx context.Context, ref dagrun.StateRef) (bool, 
 	}
 
 	var deleted bool
-	err = s.withRecordLock(ctx, id, func() error {
-		if _, err := s.col.Get(ctx, id); err != nil {
+	err = retryConflict(ctx, func(ctx context.Context) error {
+		rec, err := s.col.Get(ctx, id)
+		if err != nil {
 			if errors.Is(err, persis.ErrNotFound) {
 				deleted = false
 				return nil
 			}
 			return mapDAGStateStoreError(err)
 		}
-		if err := s.col.Delete(ctx, id); err != nil {
-			return mapDAGStateStoreError(err)
+		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
+			if errors.Is(err, persis.ErrNotFound) {
+				return persis.ErrConflict
+			}
+			return err
 		}
 		deleted = true
 		return nil
@@ -204,21 +206,23 @@ func (s *DAGStateStore) List(ctx context.Context, opts dagrun.StateListOptions) 
 	return entries, nil
 }
 
-func (s *DAGStateStore) withRecordLock(ctx context.Context, id string, fn func() error) error {
-	return withCollectionRecordLock(ctx, s.col, &s.mu, id, fn)
-}
-
-func (s *DAGStateStore) putEntry(ctx context.Context, id string, entry *dagrun.StateEntry, createdAt, updatedAt time.Time) error {
+func (s *DAGStateStore) saveEntry(
+	ctx context.Context,
+	current *persis.Record,
+	id string,
+	entry *dagrun.StateEntry,
+	createdAt, updatedAt time.Time,
+) error {
 	data, err := persis.Encode(entry)
 	if err != nil {
 		return err
 	}
-	return mapDAGStateStoreError(s.col.Put(ctx, &persis.Record{
+	return createOrSwap(ctx, s.col, current, &persis.Record{
 		ID:        id,
 		Data:      data,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
-	}))
+	})
 }
 
 func decodeDAGStateRecord(rec *persis.Record) (*dagrun.StateEntry, error) {
