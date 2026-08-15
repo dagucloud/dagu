@@ -143,6 +143,16 @@ func TestFileBackendRejectsInvalidCollectionNames(t *testing.T) {
 	}
 }
 
+func TestFileCollectionRejectsEscapingListPrefix(t *testing.T) {
+	t.Parallel()
+
+	col := file.NewCollection(filepath.Join(t.TempDir(), "collection"))
+	_, err := col.List(t.Context(), persis.ListQuery{Prefix: "../"})
+	assert.Error(t, err)
+	_, err = col.RecordIDs(t.Context(), "../")
+	assert.Error(t, err)
+}
+
 func TestFileCollectionWritesRawJSONBody(t *testing.T) {
 	t.Parallel()
 
@@ -249,12 +259,19 @@ func TestFileCollectionIndentedContract(t *testing.T) {
 	testutil.RunCollectionContract(t, factory)
 }
 
-func TestFileCollectionPutNilReturnsError(t *testing.T) {
+func TestFileCollectionNilRecordReturnsError(t *testing.T) {
 	t.Parallel()
 
 	col := file.NewCollection(t.TempDir())
-	err := col.Put(context.Background(), nil)
-	require.ErrorContains(t, err, "nil record")
+	for name, operation := range map[string]func() error{
+		"put":                func() error { return col.Put(t.Context(), nil) },
+		"create":             func() error { return col.Create(t.Context(), nil) },
+		"compare_and_delete": func() error { return col.CompareAndDelete(t.Context(), nil) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorContains(t, operation(), "nil record")
+		})
+	}
 }
 
 func TestFileCollectionGetReportsTypedCorruption(t *testing.T) {

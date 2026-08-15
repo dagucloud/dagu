@@ -119,8 +119,8 @@ func RunCollectionContract(t *testing.T, factory CollectionFactory) {
 
 	t.Run("pagination", func(t *testing.T) {
 		col, _ := factory(t)
-		for i, id := range []string{"p0", "p1", "p2", "p3", "p4"} {
-			require.NoError(t, col.Put(ctx, newRecord(id, `{}`, now.Add(time.Duration(i)*time.Second))))
+		for _, id := range []string{"p3", "p0", "p4", "p1", "p2"} {
+			require.NoError(t, col.Put(ctx, newRecord(id, `{}`, now)))
 		}
 
 		var ids []string

@@ -48,7 +48,16 @@ func WithIndentedJSON() CollectionOption {
 }
 
 func withIDPrefixes(prefixes ...string) CollectionOption {
-	return func(c *Collection) { c.idPrefixes = append([]string(nil), prefixes...) }
+	return func(c *Collection) {
+		prefixes = append([]string(nil), prefixes...)
+		sort.Strings(prefixes)
+		c.idPrefixes = c.idPrefixes[:0]
+		for _, prefix := range prefixes {
+			if len(c.idPrefixes) == 0 || !strings.HasPrefix(prefix, c.idPrefixes[len(c.idPrefixes)-1]) {
+				c.idPrefixes = append(c.idPrefixes, prefix)
+			}
+		}
+	}
 }
 
 // NewCollection creates a collection backed by dir. The directory is created
@@ -127,6 +136,9 @@ func (c *Collection) Delete(ctx context.Context, id string) error {
 // CompareAndDelete removes expected.ID only when the current record still
 // matches expected.
 func (c *Collection) CompareAndDelete(ctx context.Context, expected *persis.Record) error {
+	if expected == nil {
+		return fmt.Errorf("file backend: nil record")
+	}
 	return c.withRecordLock(ctx, expected.ID, func() error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -542,7 +554,11 @@ func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.
 }
 
 func (c *Collection) walk(prefix string, fn fs.WalkDirFunc) error {
-	for _, root := range c.walkRoots(prefix) {
+	roots, err := c.walkRoots(prefix)
+	if err != nil {
+		return err
+	}
+	for _, root := range roots {
 		if err := filepath.WalkDir(root, fn); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -550,38 +566,48 @@ func (c *Collection) walk(prefix string, fn fs.WalkDirFunc) error {
 	return nil
 }
 
-func (c *Collection) walkRoots(prefix string) []string {
-	if prefix != "" || len(c.idPrefixes) == 0 {
-		return []string{c.prefixWalkRoot(prefix)}
+func (c *Collection) walkRoots(prefix string) ([]string, error) {
+	if len(c.idPrefixes) == 0 {
+		root, err := c.prefixWalkRoot(prefix)
+		return []string{root}, err
 	}
 
 	roots := make([]string, 0, len(c.idPrefixes))
 	for _, idPrefix := range c.idPrefixes {
-		lastSlash := strings.LastIndex(idPrefix, "/")
-		if lastSlash <= 0 {
-			return []string{c.dir}
+		scanPrefix := idPrefix
+		if strings.HasPrefix(prefix, idPrefix) {
+			scanPrefix = prefix
+		} else if prefix != "" && !strings.HasPrefix(idPrefix, prefix) {
+			continue
 		}
-		roots = append(roots, filepath.Join(c.dir, filepath.FromSlash(idPrefix[:lastSlash])))
+		root, err := c.prefixWalkRoot(scanPrefix)
+		if err != nil {
+			return nil, err
+		}
+		if len(roots) == 0 || root != roots[len(roots)-1] {
+			roots = append(roots, root)
+		}
 	}
-	return roots
+	return roots, nil
 }
 
-// prefixWalkRoot returns the deepest existing directory that is a valid prefix
-// of all IDs matching the given prefix — avoiding a full collection scan.
-func (c *Collection) prefixWalkRoot(prefix string) string {
+// prefixWalkRoot returns the deepest directory shared by IDs matching prefix.
+func (c *Collection) prefixWalkRoot(prefix string) (string, error) {
 	if prefix == "" {
-		return c.dir
+		return c.dir, nil
 	}
 	// Use everything up to the last "/" as the subdirectory to walk.
 	lastSlash := strings.LastIndex(prefix, "/")
 	if lastSlash <= 0 {
-		return c.dir
+		return c.dir, nil
 	}
-	sub := filepath.Join(c.dir, filepath.Join(strings.Split(prefix[:lastSlash], "/")...))
-	if _, err := os.Stat(sub); err == nil {
-		return sub
+	root := filepath.Clean(c.dir)
+	sub := filepath.Clean(filepath.Join(root, filepath.FromSlash(prefix[:lastSlash])))
+	rel, err := filepath.Rel(root, sub)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("file backend: record prefix %q escapes collection root", prefix)
 	}
-	return c.dir
+	return sub, nil
 }
 
 // ─── path helpers ─────────────────────────────────────────────────────────────
