@@ -13,6 +13,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -33,18 +35,21 @@ func (h recordHelper) put(ctx context.Context, id string, value any) error {
 		return fmt.Errorf("%s: encode record: %w", h.name, err)
 	}
 
-	now := time.Now().UTC()
-	createdAt := now
-	existing, err := h.col.Get(ctx, id)
-	if err == nil {
-		createdAt = existing.CreatedAt
-	} else if !errors.Is(err, persis.ErrNotFound) {
-		return fmt.Errorf("%s: save record: %w", h.name, err)
-	}
-
-	if err := h.col.Put(ctx, &persis.Record{
-		ID: id, Data: data, CreatedAt: createdAt, UpdatedAt: now,
-	}); err != nil {
+	err = retryConflict(ctx, func(ctx context.Context) error {
+		now := time.Now().UTC()
+		existing, err := h.col.Get(ctx, id)
+		if err != nil && !errors.Is(err, persis.ErrNotFound) {
+			return err
+		}
+		createdAt := now
+		if existing != nil {
+			createdAt = existing.CreatedAt
+		}
+		return createOrSwap(ctx, h.col, existing, &persis.Record{
+			ID: id, Data: data, CreatedAt: createdAt, UpdatedAt: now,
+		})
+	})
+	if err != nil {
 		return fmt.Errorf("%s: save record: %w", h.name, err)
 	}
 	return nil
@@ -62,12 +67,24 @@ func (h recordHelper) get(ctx context.Context, id string, notFound error) (*pers
 }
 
 func (h recordHelper) delete(ctx context.Context, id string, notFound error, kind string) error {
-	if _, err := h.col.Get(ctx, id); errors.Is(err, persis.ErrNotFound) {
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		rec, err := h.col.Get(ctx, id)
+		if errors.Is(err, persis.ErrNotFound) {
+			return notFound
+		}
+		if err != nil {
+			return err
+		}
+		err = h.col.CompareAndDelete(ctx, rec)
+		if errors.Is(err, persis.ErrNotFound) {
+			return notFound
+		}
+		return err
+	})
+	if errors.Is(err, notFound) {
 		return notFound
-	} else if err != nil {
-		return fmt.Errorf("%s: delete %s: %w", h.name, kind, err)
 	}
-	if err := h.col.Delete(ctx, id); err != nil {
+	if err != nil {
 		return fmt.Errorf("%s: delete %s: %w", h.name, kind, err)
 	}
 	return nil
@@ -75,7 +92,7 @@ func (h recordHelper) delete(ctx context.Context, id string, notFound error, kin
 
 func (h recordHelper) listTolerant(ctx context.Context, prefix, kind string) ([]*persis.Record, error) {
 	recs, err := listAllStrictWithReadError(ctx, h.col, persis.ListQuery{Prefix: prefix}, func(id string, err error) (bool, error) {
-		slog.Warn(h.name+": failed to load "+kind, "record", id, "error", err)
+		logger.Warn(ctx, h.name+": failed to load "+kind, slog.String("record", id), tag.Error(err))
 		return true, nil
 	})
 	if err != nil {

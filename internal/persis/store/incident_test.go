@@ -22,7 +22,7 @@ import (
 
 func newMemoryIncidentStore(t *testing.T) (*store.IncidentStore, persis.Collection) {
 	t.Helper()
-	col := testutil.NewMemoryBackend().Collection("incidents")
+	col := testutil.NewMemoryBackend().Collection(persis.CollectionIncidents)
 	s, err := store.NewIncidentStore(col, newTestEncryptor(t))
 	require.NoError(t, err)
 	return s, col
@@ -61,7 +61,7 @@ func TestIncidentStoreEncryptsProviderSecrets(t *testing.T) {
 	require.NotNil(t, loaded.PagerDuty)
 	assert.Equal(t, "pagerduty-routing-key", loaded.PagerDuty.RoutingKey)
 
-	unencrypted, err := store.NewIncidentStore(testutil.NewMemoryBackend().Collection("incidents"), nil)
+	unencrypted, err := store.NewIncidentStore(testutil.NewMemoryBackend().Collection(persis.CollectionIncidents), nil)
 	require.NoError(t, err)
 	assert.ErrorIs(t, unencrypted.SaveProvider(ctx, provider), incident.ErrSecretStoreMissing)
 }

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
@@ -69,7 +71,7 @@ func (s *IncidentStore) ListProviders(ctx context.Context) ([]*incident.Provider
 	for _, rec := range recs {
 		provider, err := s.providerFromRecord(rec)
 		if err != nil {
-			slog.Warn("incident store: failed to load provider", "record", rec.ID, "error", err)
+			logger.Warn(ctx, "incident store: failed to load provider", slog.String("record", rec.ID), tag.Error(err))
 			continue
 		}
 		providers = append(providers, provider)
@@ -117,12 +119,12 @@ func (s *IncidentStore) ListPolicySets(ctx context.Context) ([]*incident.PolicyS
 	if rec, err := s.col.Get(ctx, incidentGlobalPolicySetID); err == nil {
 		policySet, decodeErr := policySetFromRecord(rec)
 		if decodeErr != nil {
-			slog.Warn("incident store: failed to load global policy set", "error", decodeErr)
+			logger.Warn(ctx, "incident store: failed to load global policy set", tag.Error(decodeErr))
 		} else {
 			result = append(result, policySet)
 		}
 	} else if !errors.Is(err, persis.ErrNotFound) {
-		slog.Warn("incident store: failed to load global policy set", "error", err)
+		logger.Warn(ctx, "incident store: failed to load global policy set", tag.Error(err))
 	}
 
 	for _, prefix := range []string{"policies/workspaces/", "policies/dags/"} {
@@ -133,7 +135,7 @@ func (s *IncidentStore) ListPolicySets(ctx context.Context) ([]*incident.PolicyS
 		for _, rec := range recs {
 			policySet, err := policySetFromRecord(rec)
 			if err != nil {
-				slog.Warn("incident store: failed to load policy set", "record", rec.ID, "error", err)
+				logger.Warn(ctx, "incident store: failed to load policy set", slog.String("record", rec.ID), tag.Error(err))
 				continue
 			}
 			result = append(result, policySet)

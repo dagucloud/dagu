@@ -10,6 +10,8 @@ import (
 	"log/slog"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
@@ -69,7 +71,7 @@ func (s *NotificationStore) List(ctx context.Context) ([]*notification.Settings,
 	for _, rec := range recs {
 		settings, err := s.settingsFromRecord(rec)
 		if err != nil {
-			slog.Warn("notification store: failed to load settings", "record", rec.ID, "error", err)
+			logger.Warn(ctx, "notification store: failed to load settings", slog.String("record", rec.ID), tag.Error(err))
 			continue
 		}
 		result = append(result, settings)
@@ -118,7 +120,7 @@ func (s *NotificationStore) ListChannels(ctx context.Context) ([]*notification.C
 	for _, rec := range recs {
 		channel, err := s.channelFromRecord(rec)
 		if err != nil {
-			slog.Warn("notification store: failed to load channel", "record", rec.ID, "error", err)
+			logger.Warn(ctx, "notification store: failed to load channel", slog.String("record", rec.ID), tag.Error(err))
 			continue
 		}
 		result = append(result, channel)
@@ -187,12 +189,12 @@ func (s *NotificationStore) ListRouteSets(ctx context.Context) ([]*notification.
 	if rec, err := s.col.Get(ctx, notificationGlobalRouteSetID); err == nil {
 		routeSet, decodeErr := routeSetFromRecord(rec)
 		if decodeErr != nil {
-			slog.Warn("notification store: failed to load global route set", "error", decodeErr)
+			logger.Warn(ctx, "notification store: failed to load global route set", tag.Error(decodeErr))
 		} else {
 			result = append(result, routeSet)
 		}
 	} else if !errors.Is(err, persis.ErrNotFound) {
-		slog.Warn("notification store: failed to load global route set", "error", err)
+		logger.Warn(ctx, "notification store: failed to load global route set", tag.Error(err))
 	}
 
 	recs, err := s.listTolerant(ctx, "routes/workspaces/", "route set")
@@ -202,7 +204,7 @@ func (s *NotificationStore) ListRouteSets(ctx context.Context) ([]*notification.
 	for _, rec := range recs {
 		routeSet, err := routeSetFromRecord(rec)
 		if err != nil {
-			slog.Warn("notification store: failed to load route set", "record", rec.ID, "error", err)
+			logger.Warn(ctx, "notification store: failed to load route set", slog.String("record", rec.ID), tag.Error(err))
 			continue
 		}
 		result = append(result, routeSet)

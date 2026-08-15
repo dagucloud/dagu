@@ -132,7 +132,10 @@ func (s *DAGStateStore) Delete(ctx context.Context, ref dagrun.StateRef) (bool, 
 			if errors.Is(err, persis.ErrNotFound) {
 				return persis.ErrConflict
 			}
-			return err
+			if errors.Is(err, persis.ErrConflict) {
+				return err
+			}
+			return mapDAGStateStoreError(err)
 		}
 		deleted = true
 		return nil

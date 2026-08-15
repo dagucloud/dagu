@@ -93,7 +93,7 @@ func (c *Collection) Put(ctx context.Context, rec *persis.Record) error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
-		path, err := c.filePath(rec.ID)
+		path, err := c.writePath(rec.ID)
 		if err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func (c *Collection) Create(ctx context.Context, rec *persis.Record) error {
 		if !json.Valid(rec.Data) {
 			return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
 		}
-		path, err := c.filePath(rec.ID)
+		path, err := c.writePath(rec.ID)
 		if err != nil {
 			return err
 		}
@@ -158,7 +158,7 @@ func (c *Collection) CompareAndDelete(ctx context.Context, expected *persis.Reco
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
-		path, err := c.filePath(expected.ID)
+		path, err := c.writePath(expected.ID)
 		if err != nil {
 			return err
 		}
@@ -242,7 +242,7 @@ func (c *Collection) DeleteIfExists(ctx context.Context, id string) (bool, error
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
-		path, err := c.filePath(id)
+		path, err := c.writePath(id)
 		if err != nil {
 			return err
 		}
@@ -299,7 +299,7 @@ func (c *Collection) CompareAndSwap(ctx context.Context, id string, expected, ne
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
-		path, err := c.filePath(id)
+		path, err := c.writePath(id)
 		if err != nil {
 			return err
 		}
@@ -324,7 +324,7 @@ func (c *Collection) RemoveCorrupt(ctx context.Context, id string, staleBefore t
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
-		path, err := c.filePath(id)
+		path, err := c.writePath(id)
 		if err != nil {
 			return err
 		}
@@ -366,6 +366,13 @@ func (c *Collection) filePath(id string) (string, error) {
 	return pathUnderRoot(c.dir, id, "record ID")
 }
 
+func (c *Collection) writePath(id string) (string, error) {
+	if !c.acceptsID(id) {
+		return "", fmt.Errorf("file backend: record ID %q is outside this collection", id)
+	}
+	return pathUnderRoot(c.dir, id, "record ID")
+}
+
 func (c *Collection) acceptsID(id string) bool {
 	if len(c.idPrefixes) == 0 {
 		return true
@@ -390,7 +397,7 @@ func (c *Collection) lockDir(key string) (string, error) {
 }
 
 func (c *Collection) withRecordLock(ctx context.Context, id string, fn func() error) error {
-	if _, err := c.filePath(id); err != nil {
+	if _, err := c.writePath(id); err != nil {
 		return err
 	}
 	// The first hash byte bounds lock metadata while distributing unrelated
@@ -479,10 +486,8 @@ func (c *Collection) writeFile(path string, rec *persis.Record) error {
 }
 
 func (c *Collection) collectIDs(prefix string) ([]string, error) {
-	walkRoot := c.prefixWalkRoot(prefix)
-
 	var ids []string
-	err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
+	err := c.walk(prefix, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -506,7 +511,7 @@ func (c *Collection) collectIDs(prefix string) ([]string, error) {
 		ids = append(ids, id)
 		return nil
 	})
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err != nil {
 		return nil, err
 	}
 	return ids, nil
@@ -515,10 +520,8 @@ func (c *Collection) collectIDs(prefix string) ([]string, error) {
 // collect walks the collection directory and returns records matching the
 // given prefix and time bounds. Corrupt or missing files are silently skipped.
 func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.Record, error) {
-	walkRoot := c.prefixWalkRoot(prefix)
-
 	var recs []*persis.Record
-	err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
+	err := c.walk(prefix, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -552,10 +555,35 @@ func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.
 		recs = append(recs, r)
 		return nil
 	})
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err != nil {
 		return nil, err
 	}
 	return recs, nil
+}
+
+func (c *Collection) walk(prefix string, fn fs.WalkDirFunc) error {
+	for _, root := range c.walkRoots(prefix) {
+		if err := filepath.WalkDir(root, fn); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Collection) walkRoots(prefix string) []string {
+	if prefix != "" || len(c.idPrefixes) == 0 {
+		return []string{c.prefixWalkRoot(prefix)}
+	}
+
+	roots := make([]string, 0, len(c.idPrefixes))
+	for _, idPrefix := range c.idPrefixes {
+		lastSlash := strings.LastIndex(idPrefix, "/")
+		if lastSlash <= 0 {
+			return []string{c.dir}
+		}
+		roots = append(roots, filepath.Join(c.dir, filepath.FromSlash(idPrefix[:lastSlash])))
+	}
+	return roots
 }
 
 // prefixWalkRoot returns the deepest existing directory that is a valid prefix

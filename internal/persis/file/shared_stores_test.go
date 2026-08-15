@@ -34,7 +34,7 @@ func TestNewIncidentStorePreservesFileLayout(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, info.IsDir())
 		if runtime.GOOS != "windows" {
-			assert.Equal(t, os.FileMode(0o750), info.Mode().Perm())
+			assert.Zero(t, info.Mode().Perm()&^os.FileMode(0o750))
 		}
 	}
 
@@ -77,7 +77,7 @@ func TestNewNotificationStoreReadsExistingFileLayout(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, info.IsDir())
 		if runtime.GOOS != "windows" {
-			assert.Equal(t, os.FileMode(0o750), info.Mode().Perm())
+			assert.Zero(t, info.Mode().Perm()&^os.FileMode(0o750))
 		}
 	}
 

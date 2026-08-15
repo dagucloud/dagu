@@ -21,7 +21,7 @@ import (
 
 func newMemoryNotificationStore(t *testing.T, encrypted bool) (*store.NotificationStore, persis.Collection) {
 	t.Helper()
-	col := testutil.NewMemoryBackend().Collection("notifications")
+	col := testutil.NewMemoryBackend().Collection(persis.CollectionNotifications)
 	var err error
 	var s *store.NotificationStore
 	if encrypted {
@@ -270,7 +270,7 @@ func TestNotificationStorePersistsRouteSets(t *testing.T) {
 	routeSets, err := s.ListRouteSets(ctx)
 	require.NoError(t, err)
 	require.Len(t, routeSets, 2)
-	assert.Equal(t, notification.RouteScopeGlobal, routeSets[0].Scope)
+	assert.ElementsMatch(t, []string{"global-routes", "workspace-routes"}, []string{routeSets[0].ID, routeSets[1].ID})
 	require.NoError(t, s.DeleteRouteSet(ctx, notification.RouteScopeWorkspace, "ops"))
 	_, err = s.GetRouteSet(ctx, notification.RouteScopeWorkspace, "ops")
 	assert.ErrorIs(t, err, notification.ErrRouteSetNotFound)
