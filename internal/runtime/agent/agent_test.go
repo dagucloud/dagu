@@ -1644,7 +1644,7 @@ func TestAgent_DAGEnqueueQueuedChildRunsFromQueue(t *testing.T) {
 	profileStore := file.NewProfileStore(
 		th.Context,
 		th.Config,
-		file.NewBackend(th.Config.Paths).Collection(persis.CollectionProfiles),
+		th.Backend.Collection(persis.CollectionProfiles),
 	)
 	prof, err := profilepkg.New(profilepkg.CreateInput{
 		Name:      "prod",

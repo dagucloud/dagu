@@ -17,10 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
-const (
-	incidentTimeFormat        = "2006-01-02T15:04:05.999999999Z07:00"
-	incidentGlobalPolicySetID = "policies/global"
-)
+const incidentGlobalPolicySetID = "policies/global"
 
 var _ incident.Store = (*IncidentStore)(nil)
 
@@ -289,8 +286,8 @@ func (s *IncidentStore) providerToStorage(provider *incident.Provider) (*provide
 		Name:      provider.Name,
 		Type:      provider.Type,
 		Enabled:   provider.Enabled,
-		CreatedAt: provider.CreatedAt.Format(incidentTimeFormat),
-		UpdatedAt: provider.UpdatedAt.Format(incidentTimeFormat),
+		CreatedAt: provider.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt: provider.UpdatedAt.Format(time.RFC3339Nano),
 		UpdatedBy: provider.UpdatedBy,
 	}
 	var err error
@@ -362,8 +359,8 @@ func policySetToStorage(policySet *incident.PolicySet) *policySetRecord {
 		Enabled:       policySet.Enabled,
 		InheritParent: policySet.InheritParent,
 		Policies:      policies,
-		CreatedAt:     policySet.CreatedAt.Format(incidentTimeFormat),
-		UpdatedAt:     policySet.UpdatedAt.Format(incidentTimeFormat),
+		CreatedAt:     policySet.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:     policySet.UpdatedAt.Format(time.RFC3339Nano),
 		UpdatedBy:     policySet.UpdatedBy,
 	}
 }
@@ -403,11 +400,11 @@ func stateToStorage(state *incident.IncidentState) *stateRecord {
 		ExternalID:    state.ExternalID,
 		LastRequestID: state.LastRequestID,
 		LastEventID:   state.LastEventID,
-		OpenedAt:      state.OpenedAt.Format(incidentTimeFormat),
-		UpdatedAt:     state.UpdatedAt.Format(incidentTimeFormat),
+		OpenedAt:      state.OpenedAt.Format(time.RFC3339Nano),
+		UpdatedAt:     state.UpdatedAt.Format(time.RFC3339Nano),
 	}
 	if !state.ResolvedAt.IsZero() {
-		stored.ResolvedAt = state.ResolvedAt.Format(incidentTimeFormat)
+		stored.ResolvedAt = state.ResolvedAt.Format(time.RFC3339Nano)
 	}
 	return stored
 }
@@ -438,7 +435,7 @@ func parseIncidentTime(value string) time.Time {
 	if value == "" {
 		return time.Time{}
 	}
-	parsed, err := time.Parse(incidentTimeFormat, value)
+	parsed, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {
 		slog.Debug("Failed to parse incident timestamp", "value", value, "error", err)
 		return time.Time{}
