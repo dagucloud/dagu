@@ -24,6 +24,8 @@ type MemoryBackend struct {
 	cols map[string]*MemoryCollection
 }
 
+var _ persis.Backend = (*MemoryBackend)(nil)
+
 // NewMemoryBackend returns an empty in-memory backend.
 func NewMemoryBackend() *MemoryBackend {
 	return &MemoryBackend{cols: make(map[string]*MemoryCollection)}

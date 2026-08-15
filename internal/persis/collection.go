@@ -16,6 +16,29 @@ import (
 	"time"
 )
 
+const (
+	CollectionAPIKeys               = "api_keys"
+	CollectionActiveDistributedRuns = "active_distributed_runs"
+	CollectionDAGRunLeases          = "dag_run_leases"
+	CollectionDAGSettings           = "dag_settings"
+	CollectionDAGState              = "dag_state"
+	CollectionDispatchTasks         = "dispatch_tasks"
+	CollectionIncidents             = "incidents"
+	CollectionLicense               = "license"
+	CollectionNotifications         = "notifications"
+	CollectionProfiles              = "profiles"
+	CollectionQueue                 = "queue"
+	CollectionRemoteNodes           = "remote_nodes"
+	CollectionSchedulerState        = "scheduler_state"
+	CollectionSecrets               = "secrets"
+	CollectionUpgradeCheck          = "upgrade_check"
+	CollectionUsers                 = "users"
+	CollectionViews                 = "views"
+	CollectionWebhooks              = "webhooks"
+	CollectionWorkerHeartbeats      = "worker_heartbeats"
+	CollectionWorkspaces            = "workspaces"
+)
+
 // Record is the storage primitive for collection-backed control-plane data.
 //
 // ID uses "/" as a hierarchy separator so that a [ListQuery.Prefix] of
@@ -90,4 +113,9 @@ type Collection interface {
 type LockingCollection interface {
 	Collection
 	WithLock(ctx context.Context, key string, fn func() error) error
+}
+
+// Backend provides isolated, named control-plane collections.
+type Backend interface {
+	Collection(name string) Collection
 }

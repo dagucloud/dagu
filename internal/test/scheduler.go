@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -63,7 +64,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	require.NoError(t, err)
 	dagRunRepository := file.NewDAGRunRepository(helper.Config)
 	ps := newProcRepository(helper.Config)
-	qs := store.NewQueueStore(file.NewCollection(helper.Config.Paths.QueueDir))
+	qs := store.NewQueueStore(file.NewBackend(helper.Config.Paths).Collection(persis.CollectionQueue))
 
 	// Create DAG run manager
 	drm := runtime.NewManager(dagRunRepository, ps, helper.Config)

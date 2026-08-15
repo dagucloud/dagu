@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/profile"
@@ -21,10 +22,10 @@ type executionStores struct {
 	MaterializationStore build.MaterializationStore
 }
 
-func newExecutionStores(ctx context.Context, cfg *config.Config) executionStores {
+func newExecutionStores(ctx context.Context, cfg *config.Config, backend persis.Backend) executionStores {
 	return executionStores{
-		SecretStore:          file.NewSecretStore(ctx, cfg),
-		ProfileStore:         file.NewProfileStore(ctx, cfg),
+		SecretStore:          file.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets)),
+		ProfileStore:         file.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles)),
 		MaterializationStore: filematerialization.New(filepath.Join(cfg.Paths.DataDir, "materializations")),
 	}
 }

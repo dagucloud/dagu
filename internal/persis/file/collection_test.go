@@ -4,6 +4,7 @@
 package file_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -329,6 +331,76 @@ func TestFileCollection(t *testing.T) {
 	}
 
 	runCollectionContract(t, file.NewCollection(filepath.Join(root, "test")), freshCollection)
+}
+
+func TestFileBackendPreservesCollectionLayout(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	paths := config.PathsConfig{
+		DataDir:        dataDir,
+		DAGStateDir:    filepath.Join(root, "custom-dag-state"),
+		QueueDir:       filepath.Join(root, "custom-queue"),
+		UsersDir:       filepath.Join(root, "custom-users"),
+		APIKeysDir:     filepath.Join(root, "custom-api-keys"),
+		WebhooksDir:    filepath.Join(root, "custom-webhooks"),
+		RemoteNodesDir: filepath.Join(root, "custom-remote-nodes"),
+		WorkspacesDir:  filepath.Join(root, "custom-workspaces"),
+		ViewsDir:       filepath.Join(root, "custom-views"),
+	}
+	backend := file.NewBackend(paths)
+	distributedDir := filepath.Join(dataDir, "distributed")
+
+	tests := []struct {
+		name     string
+		dir      string
+		indented bool
+	}{
+		{persis.CollectionAPIKeys, paths.APIKeysDir, true},
+		{persis.CollectionActiveDistributedRuns, filepath.Join(distributedDir, "active-runs"), false},
+		{persis.CollectionDAGRunLeases, filepath.Join(distributedDir, "leases"), false},
+		{persis.CollectionDAGSettings, filepath.Join(dataDir, "dag-settings"), true},
+		{persis.CollectionDAGState, paths.DAGStateDir, false},
+		{persis.CollectionDispatchTasks, distributedDir, false},
+		{persis.CollectionIncidents, filepath.Join(dataDir, "incidents"), true},
+		{persis.CollectionLicense, filepath.Join(dataDir, "license"), true},
+		{persis.CollectionNotifications, filepath.Join(dataDir, "notifications"), true},
+		{persis.CollectionProfiles, filepath.Join(dataDir, "profiles"), true},
+		{persis.CollectionQueue, paths.QueueDir, false},
+		{persis.CollectionRemoteNodes, paths.RemoteNodesDir, true},
+		{persis.CollectionSchedulerState, filepath.Join(dataDir, "scheduler"), true},
+		{persis.CollectionSecrets, filepath.Join(dataDir, "secrets"), true},
+		{persis.CollectionUpgradeCheck, filepath.Join(dataDir, "upgrade"), true},
+		{persis.CollectionUsers, paths.UsersDir, true},
+		{persis.CollectionViews, paths.ViewsDir, true},
+		{persis.CollectionWebhooks, paths.WebhooksDir, true},
+		{persis.CollectionWorkerHeartbeats, filepath.Join(distributedDir, "workers"), false},
+		{persis.CollectionWorkspaces, paths.WorkspacesDir, true},
+		{"custom", filepath.Join(dataDir, "custom"), false},
+	}
+
+	compact := []byte(`{"value":1}`)
+	var indented bytes.Buffer
+	require.NoError(t, json.Indent(&indented, compact, "", "  "))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			col := backend.Collection(tt.name)
+			require.NoError(t, col.Put(t.Context(), &persis.Record{ID: "probe", Data: compact}))
+
+			raw, err := os.ReadFile(filepath.Join(tt.dir, "probe.json"))
+			require.NoError(t, err)
+			if tt.indented {
+				assert.Equal(t, indented.Bytes(), raw)
+			} else {
+				assert.Equal(t, compact, raw)
+			}
+
+			got, err := backend.Collection(tt.name).Get(t.Context(), "probe")
+			require.NoError(t, err)
+			assert.Equal(t, compact, got.Data)
+		})
+	}
 }
 
 func TestFileCollectionWritesRawJSONBody(t *testing.T) {

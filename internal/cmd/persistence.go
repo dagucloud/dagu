@@ -6,7 +6,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -44,6 +43,7 @@ type filePersistenceOptions struct {
 func newFilePersistence(
 	ctx context.Context,
 	cfg *config.Config,
+	backend persis.Backend,
 	opts filePersistenceOptions,
 ) (Persistence, error) {
 	procRepository := file.NewProcRepository(cfg)
@@ -57,25 +57,24 @@ func newFilePersistence(
 	}
 	dagRunRepository := file.NewDAGRunRepository(cfg, dagRunOpts...)
 
-	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
 	dagRunLeaseStore := store.NewDAGRunLeaseStore(
-		file.NewCollection(filepath.Join(distributedDir, "leases")),
+		backend.Collection(persis.CollectionDAGRunLeases),
 	)
 	activeDistributedRunStore := store.NewActiveDistributedRunStore(
-		file.NewCollection(filepath.Join(distributedDir, "active-runs")),
+		backend.Collection(persis.CollectionActiveDistributedRuns),
 	)
-	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
-	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
+	queueStore := store.NewQueueStore(backend.Collection(persis.CollectionQueue))
+	stateStore := store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState))
 	schedulerStateStore := store.NewSchedulerStateStore(
-		file.NewCollection(filepath.Join(cfg.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
+		backend.Collection(persis.CollectionSchedulerState),
 	)
 	serviceRegistry := file.NewServiceRegistry(cfg)
 	dispatchTaskStore := store.NewDispatchTaskStore(
-		file.NewCollection(distributedDir),
+		backend.Collection(persis.CollectionDispatchTasks),
 		store.WithDispatchAdmissionLiveness(dagRunLeaseStore, activeDistributedRunStore),
 	)
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(
-		file.NewCollection(filepath.Join(distributedDir, "workers")),
+		backend.Collection(persis.CollectionWorkerHeartbeats),
 	)
 	dagRepository, err := newDAGRepository(cfg, dagRepositoryConfig{Cache: opts.DAGCache})
 	if err != nil {

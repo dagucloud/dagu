@@ -435,6 +435,7 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 	if err := os.MkdirAll(cfg.Paths.DAGStateDir, 0o750); err != nil {
 		return iengine.Persistence{}, fmt.Errorf("create DAG state directory: %w", err)
 	}
+	backend := file.NewBackend(cfg.Paths)
 
 	procRepository := file.NewProcRepository(cfg)
 	dagRepository, err := fileEngineDAGRepository(ctx, cfg, iengine.DAGRepositoryFactoryOptions{})
@@ -446,11 +447,13 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 		DAGRepository:    dagRepository,
 		DAGRunRepository: file.NewDAGRunRepository(cfg, file.WithDAGRunLatestStatusToday(false)),
 		ProcRepository:   procRepository,
-		StateStore:       store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir)),
+		StateStore:       store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState)),
 		ServiceRegistry:  file.NewServiceRegistry(cfg),
 
 		DAGRepositoryFactory: fileEngineDAGRepository,
-		RuntimeStoresFactory: fileEngineRuntimeStores,
+		RuntimeStoresFactory: func(ctx context.Context, cfg *config.Config) iengine.RuntimeStores {
+			return fileEngineRuntimeStores(ctx, cfg, backend)
+		},
 	}, nil
 }
 
@@ -462,10 +465,10 @@ func fileEngineDAGRepository(_ context.Context, cfg *config.Config, opts iengine
 	return file.NewDAGRepository(cfg, fileOpts...)
 }
 
-func fileEngineRuntimeStores(ctx context.Context, cfg *config.Config) iengine.RuntimeStores {
+func fileEngineRuntimeStores(ctx context.Context, cfg *config.Config, backend persis.Backend) iengine.RuntimeStores {
 	return iengine.RuntimeStores{
-		SecretStore:          file.NewSecretStore(ctx, cfg),
-		ProfileStore:         file.NewProfileStore(ctx, cfg),
+		SecretStore:          file.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets)),
+		ProfileStore:         file.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles)),
 		MaterializationStore: filematerialization.New(filepath.Join(cfg.Paths.DataDir, "materializations")),
 	}
 }

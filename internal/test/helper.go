@@ -287,13 +287,13 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	require.NoError(t, err)
 	dagRunRepository := file.NewDAGRunRepository(cfg)
 	procRepository := newProcRepository(cfg)
-	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
-	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
+	backend := file.NewBackend(cfg.Paths)
+	queueStore := store.NewQueueStore(backend.Collection(persis.CollectionQueue))
+	stateStore := store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState))
 	serviceMonitor := file.NewServiceRegistry(cfg)
-	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
-	workerHeartbeatStore := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(distributedDir, "workers")))
-	leaseCollection := file.NewCollection(filepath.Join(distributedDir, "leases"))
-	activeRunCollection := file.NewCollection(filepath.Join(distributedDir, "active-runs"))
+	workerHeartbeatStore := store.NewWorkerHeartbeatStore(backend.Collection(persis.CollectionWorkerHeartbeats))
+	leaseCollection := backend.Collection(persis.CollectionDAGRunLeases)
+	activeRunCollection := backend.Collection(persis.CollectionActiveDistributedRuns)
 	dagRunLeaseStore := store.NewDAGRunLeaseStore(leaseCollection)
 	activeDistributedRunStore := store.NewActiveDistributedRunStore(activeRunCollection)
 	dispatchStoreOpts := []store.DispatchTaskStoreOption{
@@ -302,7 +302,10 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	if options.StaleLeaseThreshold > 0 {
 		dispatchStoreOpts = append(dispatchStoreOpts, store.WithDispatchReservationTTL(options.StaleLeaseThreshold))
 	}
-	dispatchTaskStore := store.NewDispatchTaskStore(file.NewCollection(distributedDir), dispatchStoreOpts...)
+	dispatchTaskStore := store.NewDispatchTaskStore(
+		backend.Collection(persis.CollectionDispatchTasks),
+		dispatchStoreOpts...,
+	)
 
 	drm := runtimepkg.NewManager(dagRunRepository, procRepository, cfg)
 

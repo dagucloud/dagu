@@ -25,7 +25,7 @@ func TestNewIncidentStorePreservesFileLayout(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "incidents")
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
-	s, err := persisfile.NewIncidentStore(dir, enc)
+	s, err := persisfile.NewIncidentStore(dir, persisfile.NewCollection(dir, persisfile.WithIndentedJSON()), enc)
 	require.NoError(t, err)
 
 	for _, subdir := range []string{"providers", "policies/workspaces", "policies/dags", "states"} {
@@ -64,7 +64,7 @@ func TestNewNotificationStoreReadsExistingFileLayout(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "notifications")
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
-	s, err := persisfile.NewNotificationStore(dir, enc)
+	s, err := persisfile.NewNotificationStore(dir, persisfile.NewCollection(dir, persisfile.WithIndentedJSON()), enc)
 	require.NoError(t, err)
 
 	for _, subdir := range []string{"dags", "channels", "routes/workspaces"} {
@@ -100,7 +100,11 @@ func TestCollectionStoresPreserveCorruptFileHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	notificationDir := filepath.Join(t.TempDir(), "notifications")
-	notificationStore, err := persisfile.NewNotificationStore(notificationDir, enc)
+	notificationStore, err := persisfile.NewNotificationStore(
+		notificationDir,
+		persisfile.NewCollection(notificationDir, persisfile.WithIndentedJSON()),
+		enc,
+	)
 	require.NoError(t, err)
 	notificationPath := filepath.Join(notificationDir, "dags", hashedFileName("daily-report"))
 	require.NoError(t, os.WriteFile(notificationPath, []byte("{"), 0o600))
@@ -111,7 +115,11 @@ func TestCollectionStoresPreserveCorruptFileHandling(t *testing.T) {
 	assert.Error(t, err)
 
 	incidentDir := filepath.Join(t.TempDir(), "incidents")
-	incidentStore, err := persisfile.NewIncidentStore(incidentDir, enc)
+	incidentStore, err := persisfile.NewIncidentStore(
+		incidentDir,
+		persisfile.NewCollection(incidentDir, persisfile.WithIndentedJSON()),
+		enc,
+	)
 	require.NoError(t, err)
 	providerPath := filepath.Join(incidentDir, "providers", hashedFileName("provider-1"))
 	require.NoError(t, os.WriteFile(providerPath, []byte("{"), 0o600))

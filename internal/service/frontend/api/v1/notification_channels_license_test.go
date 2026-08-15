@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -371,7 +372,11 @@ func seedReusableNotificationSubscription(t *testing.T, server test.Server, dagN
 	require.NoError(t, err)
 	encryptor, err := dagucrypto.NewEncryptor(key)
 	require.NoError(t, err)
-	store, err := persisfile.NewNotificationStore(filepath.Join(server.Config.Paths.DataDir, "notifications"), encryptor)
+	store, err := persisfile.NewNotificationStore(
+		filepath.Join(server.Config.Paths.DataDir, "notifications"),
+		persisfile.NewBackend(server.Config.Paths).Collection(persis.CollectionNotifications),
+		encryptor,
+	)
 	require.NoError(t, err)
 
 	channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{

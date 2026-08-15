@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
@@ -24,7 +25,7 @@ import (
 )
 
 // NewDependencies creates the file-backed stores used by the scheduler service.
-func NewDependencies(ctx context.Context, cfg *config.Config) (scheduler.Dependencies, error) {
+func NewDependencies(ctx context.Context, cfg *config.Config, backend persis.Backend) (scheduler.Dependencies, error) {
 	var deps scheduler.Dependencies
 	if cfg.EventStore.Enabled {
 		store, err := fileeventstore.New(cfg.Paths.EventStoreDir)
@@ -43,19 +44,22 @@ func NewDependencies(ctx context.Context, cfg *config.Config) (scheduler.Depende
 		}
 	}
 
-	dagSettingsStore, err := persisfile.NewDAGSettingsStore(cfg)
+	dagSettingsStore, err := persisfile.NewDAGSettingsStore(
+		cfg,
+		backend.Collection(persis.CollectionDAGSettings),
+	)
 	if err != nil {
 		return scheduler.Dependencies{}, fmt.Errorf("failed to initialize DAG settings store: %w", err)
 	}
 	deps.DAGSettingsStore = dagSettingsStore
-	deps.ProfileStore = persisfile.NewProfileStore(ctx, cfg)
+	deps.ProfileStore = persisfile.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles))
 	if deps.EventService != nil {
-		initMonitorStores(ctx, cfg, &deps)
+		initMonitorStores(ctx, cfg, backend, &deps)
 	}
 	return deps, nil
 }
 
-func initMonitorStores(ctx context.Context, cfg *config.Config, deps *scheduler.Dependencies) {
+func initMonitorStores(ctx context.Context, cfg *config.Config, backend persis.Backend, deps *scheduler.Dependencies) {
 	key, err := crypto.ResolveKey(cfg.Paths.DataDir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to resolve encryption key for encrypted stores", tag.Error(err))
@@ -71,7 +75,11 @@ func initMonitorStores(ctx context.Context, cfg *config.Config, deps *scheduler.
 		return
 	}
 
-	notificationStore, err := persisfile.NewNotificationStore(filepath.Join(cfg.Paths.DataDir, "notifications"), encryptor)
+	notificationStore, err := persisfile.NewNotificationStore(
+		filepath.Join(cfg.Paths.DataDir, "notifications"),
+		backend.Collection(persis.CollectionNotifications),
+		encryptor,
+	)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 	} else {
@@ -81,7 +89,11 @@ func initMonitorStores(ctx context.Context, cfg *config.Config, deps *scheduler.
 		deps.NewNotificationLease = newMonitorLease(stateFile)
 	}
 
-	incidentStore, err := persisfile.NewIncidentStore(filepath.Join(cfg.Paths.DataDir, "incidents"), encryptor)
+	incidentStore, err := persisfile.NewIncidentStore(
+		filepath.Join(cfg.Paths.DataDir, "incidents"),
+		backend.Collection(persis.CollectionIncidents),
+		encryptor,
+	)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
 	} else {

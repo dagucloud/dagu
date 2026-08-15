@@ -52,6 +52,7 @@ type Context struct {
 	EventSourceInstance string
 	Persistence         Persistence
 	DAGRunMgr           runtime.Manager
+	backend             persis.Backend
 	event               *eventstore.Service
 
 	Caches         []fileutil.CacheMetrics
@@ -246,6 +247,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Scope:               scope,
 		}, nil
 	}
+	backend := file.NewBackend(cfg.Paths)
 
 	workerCommand := cmd.Name() == "worker"
 	var eventService *eventstore.Service
@@ -278,6 +280,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			CLIContext:          selectedContext,
 			ContextName:         selectedContextName,
 			Scope:               scope,
+			backend:             backend,
 			// Run stores are nil; worker execution reports runtime state to the coordinator.
 			// Status is pushed to coordinator, DAG definitions come from task payload
 		}, nil
@@ -300,7 +303,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		caches = append(caches, dagCache, hc)
 	}
 
-	persistence, err := newFilePersistence(ctx, cfg, filePersistenceOptions{
+	persistence, err := newFilePersistence(ctx, cfg, backend, filePersistenceOptions{
 		DAGCache:          dagCache,
 		DAGRunStatusCache: dagRunStatusCache,
 	})
@@ -319,7 +322,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			break
 		}
 		licenseDir := file.LicenseDir(cfg)
-		licStore := file.NewLicenseStore(cfg)
+		licStore := file.NewLicenseStore(cfg, backend.Collection(persis.CollectionLicense))
 		licMgr = license.NewManager(license.ManagerConfig{
 			LicenseDir: licenseDir,
 			ConfigKey:  cfg.License.Key,
@@ -364,6 +367,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		EventSourceInstance: eventSourceInstance,
 		Persistence:         persistence,
 		DAGRunMgr:           drm,
+		backend:             backend,
 		event:               eventService,
 		Flags:               flags,
 		Caches:              caches,
@@ -559,7 +563,7 @@ func (c *Context) dagRepository(cfg dagRepositoryConfig) (*persis.DAGRepository,
 
 // runtimeStores creates the runtime store bundle for this command context.
 func (c *Context) runtimeStores() executionStores {
-	return newExecutionStores(c.Context, c.Config)
+	return newExecutionStores(c.Context, c.Config, c.backend)
 }
 
 // OpenLogFile creates and opens a log file for a given dag-run.

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/spf13/cobra"
 )
@@ -43,7 +44,7 @@ func licenseActivate() *cobra.Command {
 			}
 
 			licenseDir := file.LicenseDir(ctx.Config)
-			store := file.NewLicenseStore(ctx.Config)
+			store := file.NewLicenseStore(ctx.Config, ctx.backend.Collection(persis.CollectionLicense))
 
 			mgr := license.NewManager(license.ManagerConfig{
 				LicenseDir: licenseDir,
@@ -81,7 +82,7 @@ func licenseDeactivate() *cobra.Command {
 			}
 
 			licenseDir := file.LicenseDir(ctx.Config)
-			store := file.NewLicenseStore(ctx.Config)
+			store := file.NewLicenseStore(ctx.Config, ctx.backend.Collection(persis.CollectionLicense))
 
 			mgr := license.NewManager(license.ManagerConfig{
 				LicenseDir: licenseDir,
@@ -116,7 +117,7 @@ func licenseCheck() *cobra.Command {
 			}
 
 			licenseDir := file.LicenseDir(ctx.Config)
-			store := file.NewLicenseStore(ctx.Config)
+			store := file.NewLicenseStore(ctx.Config, ctx.backend.Collection(persis.CollectionLicense))
 
 			mgr := license.NewManager(license.ManagerConfig{
 				LicenseDir: licenseDir,
