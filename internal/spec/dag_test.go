@@ -500,9 +500,9 @@ func TestBuildType(t *testing.T) {
 			expected: ir.TypeChain,
 		},
 		{
-			name:     "ControllerType",
-			input:    "controller",
-			expected: ir.TypeController,
+			name:     "AgentType",
+			input:    "agent",
+			expected: ir.TypeAgent,
 		},
 		{
 			name:    "InvalidType",

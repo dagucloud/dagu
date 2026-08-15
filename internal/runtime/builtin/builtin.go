@@ -5,11 +5,11 @@ package builtin
 
 import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/action"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/agent"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/archive"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/artifact"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/chat"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
-	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/controller"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/data"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"

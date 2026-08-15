@@ -1,0 +1,10 @@
+type: agent
+llm:
+  provider: anthropic
+  model: claude-opus-5
+steps:
+  - name: __agent__
+    run: echo work
+tasks:
+  - name: done
+    description: Finished when work ran.

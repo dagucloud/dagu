@@ -12131,13 +12131,13 @@ components:
       properties:
         type:
           type: string
-          enum: [graph, chain, controller, build]
-          description: "Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'controller' lets an LLM choose each step, and 'build' adds file-derived dependencies and materialization reuse."
+          enum: [graph, chain, agent, build]
+          description: "Execution type. 'graph' resolves dependencies, 'chain' runs steps in order, 'agent' lets an LLM choose each step, and 'build' adds file-derived dependencies and materialization reuse."
         tasks:
           type: array
-          description: "Goals a controller DAG must satisfy. Present only for type controller."
+          description: "Goals an agent DAG must satisfy. Present only for type agent."
           items:
-            $ref: "#/components/schemas/ControllerTask"
+            $ref: "#/components/schemas/AgentTask"
         nextRun:
           type: string
           format: date-time
@@ -12618,16 +12618,16 @@ components:
               description: "List of preconditions that must be met before the DAG-run can start"
               items:
                 $ref: "#/components/schemas/Condition"
-            controllerTasks:
+            agentTasks:
               type: array
-              description: "Goal progress of a controller DAG-run. Absent for other DAG types."
+              description: "Goal progress of an agent DAG-run. Absent for other DAG types."
               items:
-                $ref: "#/components/schemas/ControllerTask"
-            controllerEvents:
+                $ref: "#/components/schemas/AgentTask"
+            agentEvents:
               type: array
-              description: "Ordered decision timeline of a controller DAG-run: what the controller ran, in what order, and when each task was satisfied. Absent for other DAG types."
+              description: "Ordered decision timeline of an agent DAG-run: what the agent ran, in what order, and when each task was satisfied. Absent for other DAG types."
               items:
-                $ref: "#/components/schemas/ControllerEvent"
+                $ref: "#/components/schemas/AgentEvent"
             specFromFile:
               type: boolean
               description: "Whether this DAG-run still has a usable source file on disk, so reschedule can load the current spec from that file instead of the stored historical YAML snapshot."
@@ -12780,20 +12780,20 @@ components:
           type: string
           description: "JSON-serialized parameters passed to the DAG"
 
-    ControllerEvent:
+    AgentEvent:
       type: object
-      description: "One entry on a controller DAG-run's decision timeline"
+      description: "One entry on an agent DAG-run's decision timeline"
       required:
         - turn
         - kind
       properties:
         turn:
           type: integer
-          description: "Controller turn this event belongs to, starting at 1"
+          description: "Agent turn this event belongs to, starting at 1"
         kind:
           type: string
           enum: [action, task_status, ask_user, rejected, stalled]
-          description: "What the controller did on this turn"
+          description: "What the agent did on this turn"
         name:
           type: string
           description: "Step or task the event concerns"
@@ -12805,7 +12805,7 @@ components:
           description: "Which run of this step it was, starting at 1"
         reason:
           type: string
-          description: "Controller's justification, or why the call was rejected"
+          description: "Agent's justification, or why the call was rejected"
         startedAt:
           type: string
           description: "RFC3339 timestamp when the step started"
@@ -12819,9 +12819,9 @@ components:
           type: string
           description: "Name of the child DAG that ran"
 
-    ControllerTask:
+    AgentTask:
       type: object
-      description: "A goal a controller DAG must satisfy before the run concludes"
+      description: "A goal an agent DAG must satisfy before the run concludes"
       required:
         - name
         - status
@@ -12831,14 +12831,14 @@ components:
           description: "Unique task name"
         description:
           type: string
-          description: "Completion criteria the controller decides against"
+          description: "Completion criteria the agent decides against"
         status:
           type: string
           enum: [open, completed, skipped, failed]
           description: "Where the task stands. The run ends once none is open, and fails if any is failed. A skipped task does not fail the run."
         reason:
           type: string
-          description: "Justification the controller gave for the current status"
+          description: "Justification the agent gave for the current status"
 
     BuildProducer:
       type: object

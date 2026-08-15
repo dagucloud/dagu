@@ -23,8 +23,8 @@ const (
 	TypeGraph = "graph"
 	// TypeChain runs steps strictly in declaration order.
 	TypeChain = "chain"
-	// TypeController lets an LLM choose which step runs next until every task is complete.
-	TypeController = "controller"
+	// TypeAgent lets an LLM choose which step runs next until every task is complete.
+	TypeAgent = "agent"
 	// TypeBuild runs a graph while reusing verified file materializations.
 	TypeBuild = "build"
 )
@@ -83,9 +83,9 @@ type DAG struct {
 	Name string `json:"name,omitempty"`
 	// Type is the execution type. Default is graph.
 	Type string `json:"type,omitempty"`
-	// Tasks are the goals a controller DAG must satisfy before it concludes.
-	// Only meaningful when Type is TypeController.
-	Tasks []ControllerTask `json:"tasks,omitempty"`
+	// Tasks are the goals an agent DAG must satisfy before it concludes.
+	// Only meaningful when Type is TypeAgent.
+	Tasks []AgentTask `json:"tasks,omitempty"`
 	// Shell is the default shell to use for all steps in this DAG.
 	// If not specified, the system default shell is used.
 	// Can be overridden at the step level.
@@ -402,16 +402,16 @@ func (d *DAG) HasApprovalSteps() bool {
 	return false
 }
 
-// HasHumanTaskSteps reports whether the DAG declares a human task. A controller
+// HasHumanTaskSteps reports whether the DAG declares a human task. An agent
 // DAG's synthesized ask_user task does not count: it is scaffolding every
-// controller carries, and the controller declines to use it outside a root run,
-// so counting it here would bar controllers from being composed as child DAGs.
+// agent carries, and the agent declines to use it outside a root run,
+// so counting it here would bar agents from being composed as child DAGs.
 func (d *DAG) HasHumanTaskSteps() bool {
 	if d == nil {
 		return false
 	}
 	for _, step := range d.Steps {
-		if step.HumanTask != nil && (!d.IsController() || !IsSynthesizedControllerStep(step.Name)) {
+		if step.HumanTask != nil && (!d.IsAgent() || !IsSynthesizedAgentStep(step.Name)) {
 			return true
 		}
 	}

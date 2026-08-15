@@ -485,9 +485,9 @@ const (
 	// ExecutorTypeRouter is the executor type for router steps.
 	ExecutorTypeRouter = "router"
 
-	// ExecutorTypeController is the executor type for the synthesized step that
-	// drives a controller DAG.
-	ExecutorTypeController = "controller"
+	// ExecutorTypeAgent is the executor type for the synthesized step that
+	// drives an agent DAG.
+	ExecutorTypeAgent = "agent"
 
 	// ExecutorTypeAction is the executor type for external Dagu actions.
 	ExecutorTypeAction = "action"

@@ -1,4 +1,0 @@
-type: agent
-steps:
-  - name: work
-    run: echo work

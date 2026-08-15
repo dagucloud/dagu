@@ -310,11 +310,11 @@ func collectNamesAndIDs(dag *ir.DAG, errs *ir.ErrorList) (stepNames, stepIDs map
 			continue
 		}
 
-		// Reserved in every ir.DAG type, not only controllers: the execution plan
-		// recognises a controller by these names.
-		if !dag.IsController() && ir.IsSynthesizedControllerStep(step.Name) {
+		// Reserved in every ir.DAG type, not only agents: the execution plan
+		// recognises an agent by these names.
+		if !dag.IsAgent() && ir.IsSynthesizedAgentStep(step.Name) {
 			*errs = append(*errs, ir.NewValidationError("steps", step.Name,
-				fmt.Errorf("%q is reserved by type: controller", step.Name)))
+				fmt.Errorf("%q is reserved by type: agent", step.Name)))
 		}
 
 		if _, exists := stepNames[step.Name]; exists {

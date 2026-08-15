@@ -312,10 +312,10 @@ type llmConfig struct {
 	Tools []string `yaml:"tools,omitempty"`
 	// MaxToolIterations limits tool calling rounds (default: 10).
 	MaxToolIterations *int `yaml:"max_tool_iterations,omitempty"`
-	// MaxContextTokens activates controller observation aging at this prompt size.
+	// MaxContextTokens activates agent observation aging at this prompt size.
 	// Zero disables proactive aging.
 	MaxContextTokens *int `yaml:"max_context_tokens,omitempty"`
-	// ObservationMaxBytes limits one controller observation in bytes. Zero disables
+	// ObservationMaxBytes limits one agent observation in bytes. Zero disables
 	// the limit.
 	ObservationMaxBytes *int `yaml:"observation_max_bytes,omitempty"`
 	// ObservationKeepRecent controls how many recent observations remain complete.
@@ -2610,7 +2610,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
-	if err := validateControllerLLMLimits(cfg, false); err != nil {
+	if err := validateAgentLLMLimits(cfg, false); err != nil {
 		return err
 	}
 
@@ -2647,7 +2647,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 	return nil
 }
 
-func validateControllerLLMLimits(cfg *llmConfig, controllerRoot bool) error {
+func validateAgentLLMLimits(cfg *llmConfig, agentRoot bool) error {
 	limits := []struct {
 		path  string
 		value *int
@@ -2660,9 +2660,9 @@ func validateControllerLLMLimits(cfg *llmConfig, controllerRoot bool) error {
 		if limit.value == nil {
 			continue
 		}
-		if !controllerRoot {
+		if !agentRoot {
 			return ir.NewValidationError(limit.path, *limit.value,
-				fmt.Errorf("field is only valid in a controller DAG's root llm configuration"))
+				fmt.Errorf("field is only valid in an agent DAG's root llm configuration"))
 		}
 		if *limit.value < 0 {
 			return ir.NewValidationError(limit.path, *limit.value,

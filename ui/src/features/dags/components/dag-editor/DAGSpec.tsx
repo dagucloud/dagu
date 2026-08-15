@@ -62,7 +62,7 @@ import {
 import DAGAttributes from './DAGAttributes';
 import DAGEditorWithDocs from './DAGEditorWithDocs';
 import { parseValidationMarkers } from './validationMarkers';
-import { ControllerSpecOverview } from './ControllerSpecOverview';
+import { AgentSpecOverview } from './AgentSpecOverview';
 import ExternalChangeDialog from './ExternalChangeDialog';
 
 /**
@@ -544,8 +544,8 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
           </div>
         ) : null}
 
-        {dag.type === 'controller' ? (
-          <ControllerSpecOverview dag={dag} />
+        {dag.type === 'agent' ? (
+          <AgentSpecOverview dag={dag} />
         ) : (
           <>
             {!dag.steps || dag.steps.length === 0 ? (

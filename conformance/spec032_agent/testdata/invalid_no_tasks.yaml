@@ -1,0 +1,7 @@
+type: agent
+llm:
+  provider: anthropic
+  model: claude-opus-5
+steps:
+  - name: work
+    run: echo work

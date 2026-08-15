@@ -72,8 +72,8 @@ vi.mock('@/features/dags/components/step-details', () => ({
 }));
 
 vi.mock('../DAGAttributes', () => ({ default: () => null }));
-vi.mock('../ControllerSpecOverview', () => ({
-  ControllerSpecOverview: () => <div>Controller overview</div>,
+vi.mock('../AgentSpecOverview', () => ({
+  AgentSpecOverview: () => <div>Agent overview</div>,
 }));
 vi.mock('../ExternalChangeDialog', () => ({ default: () => null }));
 vi.mock('../../dag-details', () => ({ DAGStepTable: () => null }));

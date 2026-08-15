@@ -40,7 +40,7 @@ import { updateDAGRunNodeStatus } from '../lib/nodeStatus';
 import { ApprovalTab } from './approval';
 import ArtifactsTab from './artifacts/ArtifactsTab';
 import { ChatHistoryTab } from './chat-history';
-import { ControllerTimeline, TaskChecklistTab } from './controller';
+import { AgentTimeline, TaskChecklistTab } from './agent';
 import {
   SubRunOpenProvider,
   SubRunStackModal,
@@ -395,8 +395,8 @@ function DAGStatus({
     [displayDAGRun, navigate, fileName, remoteNode]
   );
 
-  const openControllerChildRun = React.useCallback(
-    (event: components['schemas']['ControllerEvent']) => {
+  const openAgentChildRun = React.useCallback(
+    (event: components['schemas']['AgentEvent']) => {
       if (!event.childDagRunId) return;
       openSubRun({
         name: event.childDagName || event.name || 'child',
@@ -462,23 +462,23 @@ function DAGStatus({
   // Check if timeline should be shown (any status except not started)
   const showTimeline = displayDAGRun.status !== Status.NotStarted;
 
-  // Chat and controller steps both persist an LLM transcript.
+  // Chat and agent steps both persist an LLM transcript.
   const hasChatSteps = !!displayDAGRun.nodes?.some((node) =>
-    ['chat', 'controller'].includes(node.step.executorConfig?.type ?? '')
+    ['chat', 'agent'].includes(node.step.executorConfig?.type ?? '')
   );
 
-  // Controller DAG-runs track goal progress alongside their steps.
-  const controllerTasks = displayDAGRun.controllerTasks ?? [];
-  const hasControllerTasks = controllerTasks.length > 0;
+  // Agent DAG-runs track goal progress alongside their steps.
+  const agentTasks = displayDAGRun.agentTasks ?? [];
+  const hasAgentTasks = agentTasks.length > 0;
   const failedNode = displayDAGRun.nodes?.find(
     (node) =>
       node.status === NodeStatus.Failed || node.status === NodeStatus.Rejected
   );
 
-  // A controller has no dependency edges, so its graph carries no information.
+  // An agent has no dependency edges, so its graph carries no information.
   // The decision timeline takes that slot instead.
-  const controllerEvents = displayDAGRun.controllerEvents ?? [];
-  const isControllerRun = hasControllerTasks || controllerEvents.length > 0;
+  const agentEvents = displayDAGRun.agentEvents ?? [];
+  const isAgentRun = hasAgentTasks || agentEvents.length > 0;
 
   const { waitingApprovalNodes, waitingHumanTaskNodes, hasHumanTaskWork } =
     getManualActionState(displayDAGRun);
@@ -504,7 +504,7 @@ function DAGStatus({
     if (activeTab === 'chat' && !hasChatSteps) {
       setActiveTab('status');
     }
-    if (activeTab === 'tasks' && !hasControllerTasks) {
+    if (activeTab === 'tasks' && !hasAgentTasks) {
       setActiveTab('status');
     }
     if (activeTab === 'approval' && !hasWaitingApprovals) {
@@ -519,7 +519,7 @@ function DAGStatus({
   }, [
     showTimeline,
     hasChatSteps,
-    hasControllerTasks,
+    hasAgentTasks,
     hasWaitingApprovals,
     hasHumanTaskWork,
     hasArtifacts,
@@ -635,7 +635,7 @@ function DAGStatus({
                     <span>Artifacts</span>
                   </Tab>
                 )}
-                {hasControllerTasks && (
+                {hasAgentTasks && (
                   <Tab
                     aria-label="Tasks"
                     isActive={activeTab === 'tasks'}
@@ -737,16 +737,16 @@ function DAGStatus({
               </div>
             )}
 
-            {/* Controller runs show execution order instead of a graph */}
-            {isControllerRun && controllerEvents.length > 0 && (
-              <ControllerTimeline
-                events={controllerEvents}
-                onOpenChildRun={openControllerChildRun}
+            {/* Agent runs show execution order instead of a graph */}
+            {isAgentRun && agentEvents.length > 0 && (
+              <AgentTimeline
+                events={agentEvents}
+                onOpenChildRun={openAgentChildRun}
               />
             )}
 
             {/* DAG Graph Visualization */}
-            {!isControllerRun &&
+            {!isAgentRun &&
               displayDAGRun.nodes &&
               displayDAGRun.nodes.length > 0 && (
                 <div className="flex flex-col">
@@ -886,9 +886,9 @@ function DAGStatus({
         )}
 
         {/* Tasks Tab Content */}
-        {activeTab === 'tasks' && hasControllerTasks && (
+        {activeTab === 'tasks' && hasAgentTasks && (
           <div className={scrollPaneClassName}>
-            <TaskChecklistTab tasks={controllerTasks} />
+            <TaskChecklistTab tasks={agentTasks} />
           </div>
         )}
 

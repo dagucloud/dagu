@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/runtime/controller"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agentloop"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -398,8 +398,8 @@ func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 	}
 
 	return api.DAGRunDetails{
-		ControllerTasks:        controllerTaskProgress(s.Nodes),
-		ControllerEvents:       controllerTimeline(s.Nodes),
+		AgentTasks:             agentTaskProgress(s.Nodes),
+		AgentEvents:            agentTimeline(s.Nodes),
 		RootDAGRunName:         s.Root.Name,
 		RootDAGRunId:           s.Root.ID,
 		ParentDAGRunName:       ptrOf(s.Parent.Name),
@@ -623,8 +623,8 @@ func toDAGDetails(dag *ir.DAG) *api.DAGDetails {
 	}
 
 	return &api.DAGDetails{
-		Type:              controllerDAGType(dag.Type),
-		Tasks:             declaredControllerTasks(dag),
+		Type:              agentDAGType(dag.Type),
+		Tasks:             declaredAgentTasks(dag),
 		Artifacts:         artifacts,
 		Name:              dag.Name,
 		Description:       ptrOf(dag.Description),
@@ -651,47 +651,47 @@ func toDAGDetails(dag *ir.DAG) *api.DAGDetails {
 	}
 }
 
-// controllerDAGType exposes the DAG execution type, which the UI uses to decide
-// whether controller-specific views apply.
-func controllerDAGType(dagType string) *api.DAGDetailsType {
+// agentDAGType exposes the DAG execution type, which the UI uses to decide
+// whether agent-specific views apply.
+func agentDAGType(dagType string) *api.DAGDetailsType {
 	if dagType == "" {
 		return nil
 	}
 	return ptrOf(api.DAGDetailsType(dagType))
 }
 
-// declaredControllerTasks lists the goals a controller DAG declares, before any
+// declaredAgentTasks lists the goals an agent DAG declares, before any
 // run has made progress against them.
-func declaredControllerTasks(dag *ir.DAG) *[]api.ControllerTask {
+func declaredAgentTasks(dag *ir.DAG) *[]api.AgentTask {
 	if len(dag.Tasks) == 0 {
 		return nil
 	}
-	tasks := make([]api.ControllerTask, 0, len(dag.Tasks))
+	tasks := make([]api.AgentTask, 0, len(dag.Tasks))
 	for _, task := range dag.Tasks {
-		tasks = append(tasks, api.ControllerTask{
+		tasks = append(tasks, api.AgentTask{
 			Name:        task.Name,
 			Description: ptrOf(task.Description),
-			Status:      api.ControllerTaskStatusOpen,
+			Status:      api.AgentTaskStatusOpen,
 		})
 	}
 	return &tasks
 }
 
-// controllerTimeline reports the ordered decisions a controller DAG-run made.
-func controllerTimeline(nodes []*ir.Node) *[]api.ControllerEvent {
+// agentTimeline reports the ordered decisions an agent DAG-run made.
+func agentTimeline(nodes []*ir.Node) *[]api.AgentEvent {
 	for _, node := range nodes {
-		if node == nil || node.Step.Name != ir.ControllerStepName {
+		if node == nil || node.Step.Name != ir.AgentStepName {
 			continue
 		}
-		recorded := controller.EventsFromState(node.ControllerState)
+		recorded := agentloop.EventsFromState(node.AgentState)
 		if len(recorded) == 0 {
 			return nil
 		}
-		events := make([]api.ControllerEvent, 0, len(recorded))
+		events := make([]api.AgentEvent, 0, len(recorded))
 		for _, e := range recorded {
-			events = append(events, api.ControllerEvent{
+			events = append(events, api.AgentEvent{
 				Turn:          e.Turn,
-				Kind:          api.ControllerEventKind(e.Kind),
+				Kind:          api.AgentEventKind(e.Kind),
 				Name:          ptrOf(e.Name),
 				Status:        ptrOf(e.Status),
 				Attempt:       ptrOf(e.Attempt),
@@ -707,27 +707,27 @@ func controllerTimeline(nodes []*ir.Node) *[]api.ControllerEvent {
 	return nil
 }
 
-// controllerTaskProgress reports goal progress recorded by the controller step
-// of a controller DAG-run.
-func controllerTaskProgress(nodes []*ir.Node) *[]api.ControllerTask {
+// agentTaskProgress reports goal progress recorded by the agent step
+// of an agent DAG-run.
+func agentTaskProgress(nodes []*ir.Node) *[]api.AgentTask {
 	for _, node := range nodes {
-		if node == nil || node.Step.Name != ir.ControllerStepName {
+		if node == nil || node.Step.Name != ir.AgentStepName {
 			continue
 		}
-		states := controller.TasksFromState(node.ControllerState)
+		states := agentloop.TasksFromState(node.AgentState)
 		if len(states) == 0 {
 			return nil
 		}
-		tasks := make([]api.ControllerTask, 0, len(states))
+		tasks := make([]api.AgentTask, 0, len(states))
 		for _, state := range states {
 			status := state.Status
 			if status == "" {
-				status = controller.TaskOpen
+				status = agentloop.TaskOpen
 			}
-			tasks = append(tasks, api.ControllerTask{
+			tasks = append(tasks, api.AgentTask{
 				Name:        state.Name,
 				Description: ptrOf(state.Description),
-				Status:      api.ControllerTaskStatus(status),
+				Status:      api.AgentTaskStatus(status),
 				Reason:      ptrOf(state.Reason),
 			})
 		}

@@ -207,8 +207,8 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 		}
 	}
 
-	if rCtx.DAG.IsController() {
-		r.runControllerLoop(ctx, plan, progressCh)
+	if rCtx.DAG.IsAgent() {
+		r.runAgentLoop(ctx, plan, progressCh)
 	} else {
 		r.runGraphLoop(ctx, plan, nodes, progressCh)
 	}
@@ -1877,12 +1877,12 @@ func planPredecessorNodes(plan *Plan, node *Node) []*Node {
 		return nil
 	}
 
-	// A controller plan has no edges: the controller picks the order, so every
+	// An agent plan has no edges: the agent picks the order, so every
 	// action it has already run is upstream of the one starting now.
-	if plan.IsController() {
+	if plan.IsAgent() {
 		var nodes []*Node
 		for _, candidate := range plan.Nodes() {
-			if candidate.ID() == node.ID() || candidate.Name() == ir.ControllerStepName {
+			if candidate.ID() == node.ID() || candidate.Name() == ir.AgentStepName {
 				continue
 			}
 			if candidate.State().Status.IsDone() {

@@ -178,10 +178,10 @@ func CreateStepRetryPlan(dag *ir.DAG, nodes []*Node, stepName string) (*Plan, er
 	return p, nil
 }
 
-// IsController reports whether execution order is decided by a controller step
+// IsAgent reports whether execution order is decided by an agent step
 // rather than by dependency edges.
-func (p *Plan) IsController() bool {
-	_, ok := p.nodeByName[ir.ControllerStepName]
+func (p *Plan) IsAgent() bool {
+	_, ok := p.nodeByName[ir.AgentStepName]
 	return ok
 }
 

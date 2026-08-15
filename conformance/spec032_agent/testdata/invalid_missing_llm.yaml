@@ -1,0 +1,7 @@
+type: agent
+steps:
+  - name: work
+    run: echo work
+tasks:
+  - name: done
+    description: Finished when work ran.

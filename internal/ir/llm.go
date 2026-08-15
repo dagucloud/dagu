@@ -127,13 +127,13 @@ type LLMConfig struct {
 	// MaxToolIterations limits the number of tool calling rounds.
 	// Default is 10 if not specified.
 	MaxToolIterations *int `json:"maxToolIterations,omitempty"`
-	// MaxContextTokens activates controller observation aging once a decision
+	// MaxContextTokens activates agent observation aging once a decision
 	// prompt reaches this many tokens. Zero disables proactive aging.
 	MaxContextTokens *int `json:"maxContextTokens,omitempty"`
-	// ObservationMaxBytes limits the size of each controller observation. Zero
+	// ObservationMaxBytes limits the size of each agent observation. Zero
 	// disables this limit.
 	ObservationMaxBytes *int `json:"observationMaxBytes,omitempty"`
-	// ObservationKeepRecent is the number of recent controller observations kept
+	// ObservationKeepRecent is the number of recent agent observations kept
 	// in full after observation aging starts. Zero disables observation aging.
 	ObservationKeepRecent *int `json:"observationKeepRecent,omitempty"`
 	// WebSearch configures provider-native web search.
