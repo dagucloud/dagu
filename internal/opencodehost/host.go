@@ -109,7 +109,7 @@ func New(parent context.Context, settings config.OpenCodeConfig) *Host {
 }
 
 // Ensure returns a healthy managed server, starting it when necessary.
-func (h *Host) Ensure(_ context.Context) (Config, error) {
+func (h *Host) Ensure() (Config, error) {
 	if h == nil {
 		return Config{}, errors.New("managed OpenCode host is not configured for this process")
 	}
@@ -449,7 +449,7 @@ func WithHost(ctx context.Context, host *Host) context.Context {
 // ConfigFromContext resolves a host-owned or process-injected connection.
 func ConfigFromContext(ctx context.Context) (Config, bool, error) {
 	if host, ok := ctx.Value(hostContextKey{}).(*Host); ok && host != nil {
-		hostConfig, err := host.Ensure(ctx)
+		hostConfig, err := host.Ensure()
 		return hostConfig, err == nil, err
 	}
 	if message := os.Getenv(envError); message != "" {

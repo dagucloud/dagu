@@ -148,7 +148,7 @@ func (a *API) requireAgentOwnerAvailable(ctx context.Context, ref ir.DAGRunRef, 
 	if workerID == "" || workerID == "local" {
 		message := "The server that owns this OpenCode session is unavailable; the interaction remains pending"
 		if a.openCodeHost != nil {
-			hostConfig, hostErr := a.openCodeHost.Ensure(ctx)
+			hostConfig, hostErr := a.openCodeHost.Ensure()
 			if hostErr != nil {
 				return &agentSessionActionError{conflict: true, message: "The managed OpenCode service is temporarily unavailable; the interaction remains pending"}
 			}

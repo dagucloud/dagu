@@ -13,11 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
@@ -154,17 +152,7 @@ func runStartAll(ctx *Context, _ []string) error {
 			logger.Error(ctx, "Failed to stop OpenCode host", tag.Error(err))
 		}
 	}()
-	go agentsession.RunCleanupLoop(signalCtx, "local", ctx.Persistence.AgentSessionCleanupQueue, ctx.Persistence.DAGRunRepository,
-		func(cleanupCtx context.Context, resource ir.AgentSessionResource) error {
-			if resource.Provider != "opencode" {
-				return fmt.Errorf("unsupported managed agent provider %q", resource.Provider)
-			}
-			hostConfig, err := openCodeHost.Ensure(cleanupCtx)
-			if err != nil {
-				return err
-			}
-			return opencodehost.DeleteSession(cleanupCtx, hostConfig, resource.Directory, resource.SessionID)
-		})
+	startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
 
 	// Initialize all services using the signal-aware context
 	scheduler, err := newScheduler(serviceCtx, schedulerDeps)

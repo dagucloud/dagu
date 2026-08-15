@@ -99,17 +99,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		}
 	}()
 	serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
-	go agentsession.RunCleanupLoop(signalCtx, "local", ctx.Persistence.AgentSessionCleanupQueue, ctx.Persistence.DAGRunRepository,
-		func(cleanupCtx context.Context, resource ir.AgentSessionResource) error {
-			if resource.Provider != "opencode" {
-				return fmt.Errorf("unsupported managed agent provider %q", resource.Provider)
-			}
-			hostConfig, err := openCodeHost.Ensure(cleanupCtx)
-			if err != nil {
-				return err
-			}
-			return opencodehost.DeleteSession(cleanupCtx, hostConfig, resource.Directory, resource.SessionID)
-		})
+	startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
 
 	// Stop license manager on shutdown
 	if ctx.LicenseManager != nil {
@@ -186,6 +176,20 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	}
 
 	return nil
+}
+
+func startLocalAgentSessionCleanup(ctx context.Context, persistence Persistence, host *opencodehost.Host) {
+	go agentsession.RunCleanupLoop(ctx, "local", persistence.AgentSessionCleanupQueue, persistence.DAGRunRepository,
+		func(cleanupCtx context.Context, resource ir.AgentSessionResource) error {
+			if resource.Provider != "opencode" {
+				return fmt.Errorf("unsupported managed agent provider %q", resource.Provider)
+			}
+			hostConfig, err := host.Ensure()
+			if err != nil {
+				return err
+			}
+			return opencodehost.DeleteSession(cleanupCtx, hostConfig, resource.Directory, resource.SessionID)
+		})
 }
 
 // initTunnelService creates and returns a tunnel service based on configuration.

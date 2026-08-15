@@ -429,7 +429,7 @@ func (e *DAGExecutor) managedOpenCodeEnv(ctx context.Context, dag *ir.DAG) []str
 	if e.openCodeHost == nil {
 		return opencodehost.UnavailableEnv(errors.New("managed OpenCode is not available in a standalone scheduler process"))
 	}
-	config, err := e.openCodeHost.Ensure(ctx)
+	config, err := e.openCodeHost.Ensure()
 	if err != nil {
 		logger.Warn(ctx, "Managed OpenCode host is unavailable; the harness will apply its configured compatibility policy", tag.Error(err))
 		return opencodehost.UnavailableEnv(err)

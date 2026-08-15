@@ -2261,7 +2261,7 @@ func (a *API) reconcileManagedAgentOwnersOnRead(ctx context.Context, status *ir.
 		} else if a.openCodeHost == nil {
 			unavailable = true
 		} else {
-			hostConfig, err := a.openCodeHost.Ensure(ctx)
+			hostConfig, err := a.openCodeHost.Ensure()
 			if err != nil {
 				continue
 			}
@@ -3997,7 +3997,7 @@ func (a *API) managedOpenCodeEnv(ctx context.Context, dag *ir.DAG) []string {
 	if a.openCodeHost == nil {
 		return opencodehost.UnavailableEnv(errors.New("managed OpenCode is not available in this server process"))
 	}
-	hostConfig, err := a.openCodeHost.Ensure(ctx)
+	hostConfig, err := a.openCodeHost.Ensure()
 	if err != nil {
 		logger.Warn(ctx, "Managed OpenCode host is unavailable; the harness will apply its configured compatibility policy", tag.Error(err))
 		return opencodehost.UnavailableEnv(err)

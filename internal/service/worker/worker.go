@@ -252,7 +252,7 @@ func (w *Worker) cleanupAgentSessions(ctx context.Context) {
 		if resp.Provider != "opencode" {
 			cleanupErr = fmt.Errorf("unsupported managed agent provider %q", resp.Provider)
 		} else {
-			hostConfig, hostErr := w.openCodeHost.Ensure(ctx)
+			hostConfig, hostErr := w.openCodeHost.Ensure()
 			if hostErr != nil {
 				cleanupErr = hostErr
 			} else {

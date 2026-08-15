@@ -58,7 +58,7 @@ func TestEnsureDoesNotReplaceRunningUnhealthyHost(t *testing.T) {
 	host.config = Config{URL: "http://127.0.0.1:1", Username: "opencode", Password: "secret", InstanceID: "instance"}
 	host.healthCheck = func(Config) (string, error) { return "", errors.New("probe failed") }
 
-	_, err := host.Ensure(context.Background())
+	_, err := host.Ensure()
 	require.Error(t, err)
 	assert.NotNil(t, host.cmd)
 	assert.Equal(t, "instance", host.config.InstanceID)
@@ -115,7 +115,7 @@ func TestRealOpenCodeCapabilities(t *testing.T) {
 		require.NoError(t, host.Close(ctx))
 	})
 
-	hostConfig, err := host.Ensure(t.Context())
+	hostConfig, err := host.Ensure()
 	require.NoError(t, err)
 	require.NotEmpty(t, hostConfig.InstanceID)
 	if expected := os.Getenv("DAGU_TEST_OPENCODE_VERSION"); expected != "" {
