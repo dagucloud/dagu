@@ -50,7 +50,7 @@ The root `type:` controls how the workflow executes:
   parallel.
 - `graph` is the default when `type:` is omitted.
 - `chain` runs steps in order.
-- `controller` turns `steps:` into a catalog of actions and lets the configured
+- `agent` creates an Agent DAG: `steps:` becomes a catalog of actions and the configured
   LLM choose which one runs next until every entry in `tasks:` is complete. It
   requires `llm:` and `tasks:`, and forbids `depends:`.
 

@@ -1,4 +1,4 @@
-# Spec: Controller DAGs
+# Spec: Agent DAGs
 
 ## Status
 
@@ -8,7 +8,7 @@ Implemented.
 
 This spec defines:
 
-- the `type: controller` DAG shape
+- the `type: agent` DAG shape
 - the `tasks` root field and its role as the termination condition
 - how declared steps become a catalog of actions offered to a model
 - the decision loop, one action per turn
@@ -20,7 +20,7 @@ This spec defines:
 This spec does not define:
 
 - provider-specific model behavior or prompt engineering beyond the framing
-  the controller supplies
+  the agent supplies
 - `action: human.task` semantics, which are defined in `031-human-task.md`
 - REST, Web UI, MCP, notification, authentication, or authorization behavior
 - concurrent action execution
@@ -32,9 +32,9 @@ which steps run*. Steps become capabilities; `tasks` become goals. A model
 selects one action per turn, observes its outcome, and marks tasks complete
 until every goal is satisfied, at which point the run concludes.
 
-Because the controller drives the existing node machinery rather than an
+Because the agent drives the existing node machinery rather than an
 in-process tool loop, an action may open a human task: the run releases its
-process and worker slot, and the controller resumes with its conversation and
+process and worker slot, and the agent resumes with its conversation and
 goal progress intact.
 
 ## Related Specs
@@ -45,13 +45,13 @@ goal progress intact.
 ## DAG shape
 
 ```yaml
-type: controller
+type: agent
 
 llm:
   provider: anthropic
   model: claude-opus-5
   system: |
-    Optional framing prepended to the controller's own instructions.
+    Optional framing prepended to the agent's own instructions.
 
 steps:
   - name: design
@@ -72,15 +72,15 @@ tasks:
 ### Root fields
 
 `tasks` is an array of objects with `name` and `description`. It is valid only
-when `type` is `controller`, and `type: controller` requires it.
+when `type` is `agent`, and `type: agent` requires it.
 
 - `name` MUST be non-empty and unique within the DAG.
 - `description` MUST be non-empty. It states the completion criteria the
-  controller decides against, so an empty description is a specification error
+  agent decides against, so an empty description is a specification error
   rather than a stylistic one.
 
 `llm` MUST be present. Its `system` value, when set, is prepended to the
-controller's own framing rather than replacing it.
+agent's own framing rather than replacing it.
 
 `llm.model` MAY be an ordered array of model entries. The first entry is the
 primary model and each later entry is a fallback. Provider, model name, base
@@ -88,17 +88,17 @@ URL, API-key name, and sampling overrides are taken from the selected entry in
 the same way as for a chat step.
 
 `llm.system` and every task `description` are author-written prompt text and
-MUST be resolved against the run's variables before the controller sees them, so
+MUST be resolved against the run's variables before the agent sees them, so
 a workflow can be steered by its parameters without editing the DAG. The
-resolved description is what gets persisted, since it is what the controller
+resolved description is what gets persisted, since it is what the agent
 judged against.
 
 `llm.max_tool_iterations` bounds the number of decisions in a single run. When
 unset the bound is 50.
 
-`llm.observation_max_bytes` bounds each tool result added to the controller's
+`llm.observation_max_bytes` bounds each tool result added to the agent's
 conversation. It defaults to 524288 bytes (512 KiB). The limit applies only to
-the controller-facing copy: the step's output, logs, and human-task submission
+the agent-facing copy: the step's output, logs, and human-task submission
 stay complete in their owning records. A truncated result uses an explicit
 marker when the configured limit can hold it and MUST remain valid UTF-8. A
 value of zero disables this size limit.
@@ -110,28 +110,28 @@ context limit. Once aging starts, `llm.observation_keep_recent` controls how man
 recent tool results remain complete; it defaults to 20. A zero
 `max_context_tokens` disables proactive aging. A zero
 `observation_keep_recent` disables aging entirely, including overflow recovery.
-These context-management fields are valid only in a controller DAG's root
+These context-management fields are valid only in an agent DAG's root
 `llm` configuration and MUST NOT be set on an individual step.
 
 ### Step constraints
 
-A controller DAG MUST declare at least one step. For every declared step:
+An agent DAG MUST declare at least one step. For every declared step:
 
 - `depends` MUST NOT be set, and a step MUST NOT be explicitly marked as having
-  no dependencies. Ordering belongs to the controller.
+  no dependencies. Ordering belongs to the agent.
 - `router` MUST NOT be set.
-- The name `__controller__` is reserved and MUST NOT be used as a step name
+- The name `__agent__` is reserved and MUST NOT be used as a step name
   or ID.
 
 Every declared step is implicitly failure-tolerant: a failed action never aborts
-the run, because the failure is an observation the controller acts on.
+the run, because the failure is an observation the agent acts on.
 
-### The controller step
+### The agent step
 
-Building a controller DAG appends a synthesized step named `__controller__`
+Building an agent DAG appends a synthesized step named `__agent__`
 carrying the DAG's `llm` configuration. It is the node the runner drives the
 loop from, and it holds the conversation transcript, the tool catalog that was
-offered, and the persisted goal progress. It is not an action the controller may
+offered, and the persisted goal progress. It is not an action the agent may
 select.
 
 ## The action catalog
@@ -149,7 +149,7 @@ Each declared step is advertised to the model as one function-calling tool.
   from the target's parameter definitions, falling back to its default-params
   string. Every other step is a nullary action.
 - A parameter the step supplies a value for MUST NOT appear in that schema. A
-  value written in the workflow is the author's decision, not one the controller
+  value written in the workflow is the author's decision, not one the agent
   restates, and a step that supplies every parameter is a nullary action.
 - Parameters supplied by a child-DAG step MUST use named form. Positional
   parameters are rejected because tool arguments are identified by name.
@@ -161,17 +161,17 @@ offered that choice.
 
 Two additional tools are always offered.
 
-`ask_user` puts a question to a person. A controller DAG is built with a
+`ask_user` puts a question to a person. An agent DAG is built with a
 synthesized human task, named and identified `ask_user`, which the tool opens
-with the question the controller wrote. Answering it is an ordinary human task
+with the question the agent wrote. Answering it is an ordinary human task
 completion, and the reply returns as the next observation.
 
 That task MUST NOT count as a declared human task when deciding whether the DAG
-may run as somebody's child, or every controller would be barred from
-composition. Instead the controller declines to ask when it is not the root run.
+may run as somebody's child, or every agent would be barred from
+composition. Instead the agent declines to ask when it is not the root run.
 
 A question already answered MUST NOT be put to a person again: the answers so
-far are restated to the controller each turn, an exact repeat is refused with the
+far are restated to the agent each turn, an exact repeat is refused with the
 prior answer, and a run may ask at most 5 questions.
 
 `set_task_status` is always offered. It takes a `task`
@@ -182,7 +182,7 @@ name.
 
 Each turn:
 
-1. The controller is sent a system message stating its role, the full task list
+1. The agent is sent a system message stating its role, the full task list
    with per-task completion status, and the operating rules, followed by the
    conversation so far.
 2. The model replies. If it requests no tool call, see *Stalling* below.
@@ -202,8 +202,8 @@ Each turn:
    For every other step, a bounded tail of stdout and stderr is reported.
 
    The complete tool result is then limited by `llm.observation_max_bytes`.
-   Human answers repeated in the controller's system message use the same
-   controller-facing limit.
+   Human answers repeated in the agent's system message use the same
+   agent-facing limit.
 
 The loop ends when no task is open, when an action opens a human task, or when a
 limit is reached.
@@ -212,12 +212,12 @@ limit is reached.
 
 When `llm.model` is an array, every decision starts with the currently selected
 model. If its request still fails after the provider and logical retry budgets
-are exhausted, the controller advances through the remaining entries in order.
-A fallback that succeeds remains selected for later turns in the same controller
+are exhausted, the agent advances through the remaining entries in order.
+A fallback that succeeds remains selected for later turns in the same agent
 process, so a sustained primary outage is not retried on every decision. A new
 process after suspension starts from the configured primary again.
 
-A failed model request MUST NOT consume a controller turn or append an assistant
+A failed model request MUST NOT consume an agent turn or append an assistant
 message. The next model receives the existing conversation unchanged, including
 assistant tool calls and tool results produced through earlier models. Every
 successful assistant message records the provider and model that produced it.
@@ -244,7 +244,7 @@ context is too long, Dagu enables aging immediately and replaces every tool
 result whose deterministic summary is smaller, including results normally
 protected by `llm.observation_keep_recent`. It retries the decision once only
 when that compaction changed the transcript. The rejected request does not
-consume a controller turn or add an assistant message. If nothing can be made
+consume an agent turn or add an assistant message. If nothing can be made
 smaller, or if the rebuilt request also fails, that model attempt fails and
 ordinary model fallback applies. No further overflow retries are made for that
 decision. When aging is disabled, a context-too-long response advances to the
@@ -253,7 +253,7 @@ fallback remains.
 
 ### Task status
 
-Every task starts `open`. The controller settles it with `set_task_status`:
+Every task starts `open`. The agent settles it with `set_task_status`:
 
 | Status | Meaning | Effect on the run |
 |---|---|---|
@@ -272,7 +272,7 @@ not exist, or arguments that cannot be decoded.
 
 ### Failure
 
-A failed action is reported to the controller, which may retry it, choose a
+A failed action is reported to the agent, which may retry it, choose a
 different action, or stop. The failure is an observation, not a run-level error:
 it MUST NOT by itself cause the run to report an error to its caller.
 
@@ -285,7 +285,7 @@ completed leaves it `partially succeeded`.
 An action may be selected again after it has already run, which resets the node
 and marks it repeated so a child DAG run receives a fresh run ID. A single
 action may run at most 5 times per DAG run; beyond that, the request is refused
-as a tool error and the controller must choose differently.
+as a tool error and the agent must choose differently.
 
 ### Stalling
 
@@ -297,14 +297,14 @@ occasional silence between real work is not fatal.
 ### Limits
 
 Reaching the turn limit with tasks still open fails the run, and the error names
-the outstanding tasks. A task the controller cannot achieve should be settled as
+the outstanding tasks. A task the agent cannot achieve should be settled as
 `failed` rather than left open to exhaust the limit.
 
 ## Suspension and resumption
 
 When a chosen action ends in the `waiting` status — an `action: human.task`
-step, or a child DAG that is itself waiting — the controller records the
-in-flight tool call, persists its state, and returns. The controller step itself
+step, or a child DAG that is itself waiting — the agent records the
+in-flight tool call, persists its state, and returns. The agent step itself
 MUST NOT be left waiting, since an outstanding waiting step would prevent the
 run from being released when the human task completes.
 
@@ -312,8 +312,8 @@ The run then reports `waiting`, the `onWait` handler runs, and the process
 exits.
 
 Completing the human task marks that step succeeded and re-queues the same DAG
-run. On the next attempt the controller restores its transcript and goal
-progress from the controller step, reports the outcome of the in-flight action
+run. On the next attempt the agent restores its transcript and goal
+progress from the agent step, reports the outcome of the in-flight action
 as that turn's tool result, and continues.
 
 Restored state is reconciled against the current DAG: progress on a task that
@@ -322,19 +322,19 @@ newly declared task starts open.
 
 ## Decision timeline
 
-A controller run records an ordered timeline of its decisions, persisted
+An agent run records an ordered timeline of its decisions, persisted
 alongside goal progress and restored on resume. Each entry carries the turn it
 belongs to and one of these kinds: `action`, `task_status`, `ask_user`,
 `rejected`, `stalled`. An `action` entry additionally carries the resulting
 status, which attempt of that step it was, and the start and finish times.
 
-The timeline exists because a controller has no dependency edges: execution
+The timeline exists because an agent has no dependency edges: execution
 order is a property of the run, not of the DAG, and cannot be recovered from the
 step list.
 
 ## Variable scope
 
-A controller DAG has no dependency edges. Every action that has already
+An agent DAG has no dependency edges. Every action that has already
 finished is treated as upstream of the action starting now, so its outputs are
 in scope.
 
@@ -348,7 +348,7 @@ in scope.
   the reasons given.
 - An action is waiting → `waiting`.
 - Turn limit reached with open tasks, a second consecutive reply without a tool
-  call, or an unrecoverable controller error → `failed`.
+  call, or an unrecoverable agent error → `failed`.
 
-Steps the controller never selected are marked `skipped` when the run reaches a
+Steps the agent never selected are marked `skipped` when the run reaches a
 terminal state.

@@ -522,7 +522,7 @@ For more examples, see the [Examples documentation](https://docs.dagu.sh/writing
 
 Dagu exposes a built-in MCP server at `http://localhost:8080/mcp` for reading Dagu state, changing workflows, and controlling runs. See the [MCP setup guide](https://docs.dagu.sh/mcp/quickstart).
 
-External coding-agent CLIs can run as workflow steps through `harness.run`, and controller workflows can let an LLM choose the next step. The complete examples live in the [Harness examples](https://docs.dagu.sh/writing-workflows/examples/harness-run), [AI examples](https://docs.dagu.sh/writing-workflows/examples/ai), and [Controller documentation](https://docs.dagu.sh/writing-workflows/controller).
+External coding-agent CLIs can run as workflow steps through `harness.run`, and Agent DAGs can let an LLM choose the next step. The complete examples live in the [Harness examples](https://docs.dagu.sh/writing-workflows/examples/harness-run), [AI examples](https://docs.dagu.sh/writing-workflows/examples/ai), and [Agent DAG documentation](https://docs.dagu.sh/writing-workflows/agent).
 
 For authoring-only help in Claude Code, Codex, Gemini CLI, and other AI coding tools, install the Dagu workflow authoring skill:
 

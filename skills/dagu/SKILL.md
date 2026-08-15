@@ -10,7 +10,7 @@ Load only the reference file that matches the task.
 ## Default Approach
 
 - Prefer `type: graph` for new DAGs. It supports both sequential flow via `depends:` and parallel flow.
-- Use `type: controller` only when the step order cannot be written down in advance and an LLM must choose it. It requires `llm:` and a `tasks:` list stating when the run is finished.
+- Use an Agent DAG (`type: agent`) only when the step order cannot be written down in advance and an LLM must choose it. It requires `llm:` and a `tasks:` list stating when the run is finished.
 - Use `type: build` only for local regular-file pipelines whose unchanged transformations should be reused across runs.
 - Prefer `id` on every step. Omit `name` unless the display label must differ from the step ID.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
