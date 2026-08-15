@@ -42,7 +42,7 @@ func NewBackend(paths config.PathsConfig) *Backend {
 			persis.CollectionDAGState:              {dir: paths.DAGStateDir},
 			persis.CollectionDispatchTasks: {
 				dir:        distributedDir,
-				idPrefixes: []string{"pending/", "claims/"},
+				idPrefixes: []string{"pending/", "claims/", "admissions/"},
 			},
 			persis.CollectionIncidents:        {dir: filepath.Join(paths.DataDir, "incidents"), indented: true},
 			persis.CollectionLicense:          {dir: filepath.Join(paths.DataDir, "license"), indented: true},

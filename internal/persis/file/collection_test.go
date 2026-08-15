@@ -115,12 +115,18 @@ func TestFileBackendCollectionsAreIsolated(t *testing.T) {
 	activeRuns := backend.Collection(persis.CollectionActiveDistributedRuns)
 	dispatchTasks := backend.Collection(persis.CollectionDispatchTasks)
 	require.NoError(t, activeRuns.Put(t.Context(), &persis.Record{ID: "run-1", Data: []byte(`{}`)}))
-	require.NoError(t, dispatchTasks.Put(t.Context(), &persis.Record{ID: "pending/task-1", Data: []byte(`{}`)}))
+	for _, id := range []string{"pending/task-1", "claims/task-1", "admissions/attempts/task-1"} {
+		require.NoError(t, dispatchTasks.Put(t.Context(), &persis.Record{ID: id, Data: []byte(`{}`)}))
+	}
 
 	page, err := dispatchTasks.List(t.Context(), persis.ListQuery{})
 	require.NoError(t, err)
-	require.Len(t, page.Records, 1)
-	assert.Equal(t, "pending/task-1", page.Records[0].ID)
+	require.Len(t, page.Records, 3)
+	assert.ElementsMatch(t, []string{
+		"pending/task-1",
+		"claims/task-1",
+		"admissions/attempts/task-1",
+	}, []string{page.Records[0].ID, page.Records[1].ID, page.Records[2].ID})
 
 	_, err = dispatchTasks.Get(t.Context(), "active-runs/run-1")
 	assert.ErrorIs(t, err, persis.ErrNotFound)
