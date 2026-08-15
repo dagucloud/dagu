@@ -5,6 +5,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -97,4 +99,9 @@ func sortRecordsByCreatedAt(recs []*persis.Record) {
 		}
 		return ti.Before(tj)
 	})
+}
+
+func hashRecordID(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }

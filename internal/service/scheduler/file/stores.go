@@ -18,9 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
-	fileincident "github.com/dagucloud/dagu/v2/internal/persis/file/incident"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
-	filenotification "github.com/dagucloud/dagu/v2/internal/persis/file/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 )
@@ -73,10 +71,7 @@ func initMonitorStores(ctx context.Context, cfg *config.Config, deps *scheduler.
 		return
 	}
 
-	notificationStore, err := filenotification.New(
-		filepath.Join(cfg.Paths.DataDir, "notifications", "dags"),
-		filenotification.WithEncryptor(encryptor),
-	)
+	notificationStore, err := persisfile.NewNotificationStore(filepath.Join(cfg.Paths.DataDir, "notifications"), encryptor)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create notification settings store", tag.Error(err))
 	} else {
@@ -86,10 +81,7 @@ func initMonitorStores(ctx context.Context, cfg *config.Config, deps *scheduler.
 		deps.NewNotificationLease = newMonitorLease(stateFile)
 	}
 
-	incidentStore, err := fileincident.New(
-		filepath.Join(cfg.Paths.DataDir, "incidents"),
-		fileincident.WithEncryptor(encryptor),
-	)
+	incidentStore, err := persisfile.NewIncidentStore(filepath.Join(cfg.Paths.DataDir, "incidents"), encryptor)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create incident settings store", tag.Error(err))
 	} else {

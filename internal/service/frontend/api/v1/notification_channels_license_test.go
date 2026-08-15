@@ -14,7 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
-	filenotification "github.com/dagucloud/dagu/v2/internal/persis/file/notification"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -364,17 +364,14 @@ func TestDAGNotifications_SubscriptionUpdatesWithoutLicense(t *testing.T) {
 	}
 }
 
-func seedReusableNotificationSubscription(t *testing.T, server test.Server, dagName string) *filenotification.Store {
+func seedReusableNotificationSubscription(t *testing.T, server test.Server, dagName string) notificationmodel.Store {
 	t.Helper()
 
 	key, err := dagucrypto.ResolveKey(server.Config.Paths.DataDir)
 	require.NoError(t, err)
 	encryptor, err := dagucrypto.NewEncryptor(key)
 	require.NoError(t, err)
-	store, err := filenotification.New(
-		filepath.Join(server.Config.Paths.DataDir, "notifications", "dags"),
-		filenotification.WithEncryptor(encryptor),
-	)
+	store, err := persisfile.NewNotificationStore(filepath.Join(server.Config.Paths.DataDir, "notifications"), encryptor)
 	require.NoError(t, err)
 
 	channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{

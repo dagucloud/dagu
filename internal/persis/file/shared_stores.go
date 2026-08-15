@@ -14,7 +14,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -64,6 +66,43 @@ func NewDAGSettingsStore(cfg *config.Config) (dagsettings.Store, error) {
 		return nil, fmt.Errorf("DAG settings store: create directory %s: %w", dir, err)
 	}
 	return store.NewDAGSettingsStore(NewCollection(dir, WithIndentedJSON()))
+}
+
+// NewIncidentStore creates a file-backed incident store rooted at dir.
+func NewIncidentStore(dir string, enc *crypto.Encryptor) (incident.Store, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("incident store: directory cannot be empty")
+	}
+	for _, path := range []string{
+		dir,
+		filepath.Join(dir, "providers"),
+		filepath.Join(dir, "policies", "workspaces"),
+		filepath.Join(dir, "policies", "dags"),
+		filepath.Join(dir, "states"),
+	} {
+		if err := os.MkdirAll(path, 0o750); err != nil {
+			return nil, fmt.Errorf("incident store: create directory %s: %w", path, err)
+		}
+	}
+	return store.NewIncidentStore(NewCollection(dir, WithIndentedJSON()), enc)
+}
+
+// NewNotificationStore creates a file-backed notification store rooted at dir.
+func NewNotificationStore(dir string, enc *crypto.Encryptor) (notification.Store, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("notification store: directory cannot be empty")
+	}
+	for _, path := range []string{
+		dir,
+		filepath.Join(dir, "dags"),
+		filepath.Join(dir, "channels"),
+		filepath.Join(dir, "routes", "workspaces"),
+	} {
+		if err := os.MkdirAll(path, 0o750); err != nil {
+			return nil, fmt.Errorf("notification store: create directory %s: %w", path, err)
+		}
+	}
+	return store.NewNotificationStore(NewCollection(dir, WithIndentedJSON()), enc)
 }
 
 func NewLicenseStore(cfg *config.Config) license.ActivationStore {
