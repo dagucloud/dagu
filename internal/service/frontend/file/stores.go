@@ -114,12 +114,7 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		stores.Audit = auditStore
 	}
 
-	viewStore, err := store.NewViewStore(backend.Collection(persis.CollectionViews))
-	if err != nil {
-		logger.Warn(ctx, "Failed to create view store", tag.Error(err))
-	} else {
-		stores.View = viewStore
-	}
+	stores.View = store.NewViewStore(backend.Collection(persis.CollectionViews))
 
 	if cfg.Server.CheckUpdates {
 		upgradeStore, err := persisfile.NewUpgradeCheckStore(

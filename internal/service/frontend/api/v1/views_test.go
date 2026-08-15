@@ -26,8 +26,7 @@ type stubAuthService struct{ apiv1.AuthService }
 
 func newViewsTestAPI(t *testing.T, opts ...apiv1.APIOption) *apiv1.API {
 	t.Helper()
-	vs, err := persiststore.NewViewStore(testutil.NewMemoryBackend().Collection("views"))
-	require.NoError(t, err)
+	vs := persiststore.NewViewStore(testutil.NewMemoryBackend().Collection("views"))
 	cfg := &config.Config{}
 	allOpts := append([]apiv1.APIOption{apiv1.WithViewStore(vs)}, opts...)
 	return apiv1.New(nil, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil, allOpts...)
