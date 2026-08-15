@@ -1164,6 +1164,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 
 	if err := a.writeStatus(ctx, attempt, finishedStatus); err != nil {
 		logger.Error(ctx, "Failed to persist terminal DAG-run status", tag.Error(err))
+		lastErr = errors.Join(lastErr, err)
 	}
 
 	// Stream scheduler log to coordinator if remote logging is configured.

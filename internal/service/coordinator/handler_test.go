@@ -108,6 +108,10 @@ func TestHandlerAgentSessionCleanup(t *testing.T) {
 	assert.Equal(t, "coordinator-a", claimed.OwnerCoordinatorId)
 
 	_, err = handler.CompleteAgentSessionCleanup(t.Context(), &coordinatorv1.CompleteAgentSessionCleanupRequest{
+		WorkerId: "worker-b", JobId: claimed.JobId, ClaimToken: claimed.ClaimToken,
+	})
+	require.Error(t, err)
+	_, err = handler.CompleteAgentSessionCleanup(t.Context(), &coordinatorv1.CompleteAgentSessionCleanupRequest{
 		WorkerId: "worker-a", JobId: claimed.JobId, ClaimToken: claimed.ClaimToken,
 	})
 	require.NoError(t, err)

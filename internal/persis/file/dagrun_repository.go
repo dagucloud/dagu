@@ -32,7 +32,7 @@ func WithDAGRunRemovalEnqueuer(enqueuer persis.DAGRunRemovalEnqueuer) DAGRunRepo
 
 // NewAgentSessionCleanupQueue creates the file-backed provider cleanup queue.
 func NewAgentSessionCleanupQueue(cfg *config.Config) *agentsession.CleanupQueue {
-	return agentsession.NewCleanupQueue(&Collection{dir: filepath.Join(cfg.Paths.DataDir, "agent-session-cleanups")})
+	return agentsession.NewCleanupQueue(NewCollection(filepath.Join(cfg.Paths.DataDir, "agent-session-cleanups")))
 }
 
 // WithDAGRunHistoryFileCache sets the cache used for reading DAG-run history files.
@@ -68,13 +68,9 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 	}
 	store := filedagrun.NewStore(cfg.Paths.DAGRunsDir, storeOpts...)
 	workDirs := filedagrun.NewWorkDirStore(cfg.Paths.DAGRunWorkDir, cfg.Paths.DAGRunsDir)
-	removalEnqueuer := options.RemovalEnqueuer
-	if removalEnqueuer == nil {
-		removalEnqueuer = NewAgentSessionCleanupQueue(cfg)
-	}
 	return persis.NewDAGRunRepository(store, workDirs, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
 		Location:          cfg.Core.Location,
-		RemovalEnqueuer:   removalEnqueuer,
+		RemovalEnqueuer:   options.RemovalEnqueuer,
 	})
 }

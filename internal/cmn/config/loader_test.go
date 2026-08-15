@@ -579,7 +579,7 @@ opencode:
   env_passthrough:
     - OPENCODE_SERVER_PASSWORD
 `), 0o600))
-	_, err := NewConfigLoader(viper.New(), WithConfigFile(configFile)).Load()
+	err := testLoadWithError(t, WithConfigFile(configFile))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "reserved variable")
 }

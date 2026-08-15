@@ -484,7 +484,7 @@ func (store *Store) RemoveDAGRun(ctx context.Context, req persis.DAGRunRemoveReq
 		}
 	}
 
-	if err := run.Remove(ctx); err != nil {
+	if err := root.removeDAGRun(ctx, run, false); err != nil {
 		return fmt.Errorf("failed to remove dag-run %s: %w", dagRun.ID, err)
 	}
 

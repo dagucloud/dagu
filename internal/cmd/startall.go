@@ -147,12 +147,14 @@ func runStartAll(ctx *Context, _ []string) error {
 	}
 
 	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
+	cleanupCancel, cleanupDone := startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
 	defer func() {
+		cleanupCancel()
+		<-cleanupDone
 		if err := openCodeHost.Close(ctx); err != nil {
 			logger.Error(ctx, "Failed to stop OpenCode host", tag.Error(err))
 		}
 	}()
-	startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
 
 	// Initialize all services using the signal-aware context
 	scheduler, err := newScheduler(serviceCtx, schedulerDeps)

@@ -168,8 +168,8 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 		if w.healthServer != nil {
 			_ = w.healthServer.Stop(cleanupCtx)
 		}
-		if hostErr := w.openCodeHost.Close(ctx); hostErr != nil && err == nil {
-			err = fmt.Errorf("failed to stop OpenCode host: %w", hostErr)
+		if hostErr := w.openCodeHost.Close(cleanupCtx); hostErr != nil {
+			err = errors.Join(err, fmt.Errorf("failed to stop OpenCode host: %w", hostErr))
 		}
 		if w.poolManager != nil {
 			_ = w.poolManager.Close()

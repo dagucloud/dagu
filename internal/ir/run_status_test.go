@@ -408,8 +408,28 @@ func TestMergeAgentSessionResourcesRetainsOwnedGenerations(t *testing.T) {
 
 	require.Len(t, merged, 2)
 	assert.Equal(t, "session-old", merged[0].SessionID)
+	assert.Equal(t, 1, merged[0].Generation)
 	assert.Equal(t, "session-new", merged[1].SessionID)
+	assert.Equal(t, 2, merged[1].Generation)
 	assert.Equal(t, "implement", merged[1].StepName)
+}
+
+func TestStatusBuilderRetainsHandlerAgentSessions(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{Name: "build"}
+	status := ir.NewStatusBuilder(dag).Create("run-1", ir.Running, 1, time.Now(), func(status *ir.DAGRunStatus) {
+		status.OnFailure = &ir.Node{
+			Step: ir.Step{Name: "diagnose"},
+			AgentSession: &ir.AgentSession{
+				Provider: "opencode", SessionID: "session-handler", SessionOwned: true, Generation: 1,
+			},
+		}
+	})
+
+	require.Len(t, status.AgentSessions, 1)
+	assert.Equal(t, "session-handler", status.AgentSessions[0].SessionID)
+	assert.Equal(t, "diagnose", status.AgentSessions[0].StepName)
 }
 
 func TestRetryAgentOwnerWorkerIDIncludesCompletedSessionsForStepRetry(t *testing.T) {

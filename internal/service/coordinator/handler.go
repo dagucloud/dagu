@@ -1235,13 +1235,13 @@ func (h *Handler) ClaimAgentSessionCleanup(
 	}
 	_, findErr := h.dagRunRepository.FindAttempt(ctx, job.Root)
 	if findErr == nil {
-		if err := h.agentSessionCleanupQueue.Release(ctx, job.ID, job.ClaimToken, "DAG run still exists"); err != nil {
+		if err := h.agentSessionCleanupQueue.Release(ctx, req.WorkerId, job.ID, job.ClaimToken, "DAG run still exists"); err != nil {
 			return nil, status.Error(codes.Internal, "failed to release agent session cleanup: "+err.Error())
 		}
 		return &coordinatorv1.ClaimAgentSessionCleanupResponse{}, nil
 	}
 	if !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
-		_ = h.agentSessionCleanupQueue.Release(ctx, job.ID, job.ClaimToken, findErr.Error())
+		_ = h.agentSessionCleanupQueue.Release(ctx, req.WorkerId, job.ID, job.ClaimToken, findErr.Error())
 		return nil, status.Error(codes.Internal, "failed to verify removed DAG run: "+findErr.Error())
 	}
 	return &coordinatorv1.ClaimAgentSessionCleanupResponse{
@@ -1270,9 +1270,9 @@ func (h *Handler) CompleteAgentSessionCleanup(
 	}
 	var err error
 	if req.Error == "" {
-		err = h.agentSessionCleanupQueue.Complete(ctx, req.JobId, req.ClaimToken)
+		err = h.agentSessionCleanupQueue.Complete(ctx, req.WorkerId, req.JobId, req.ClaimToken)
 	} else {
-		err = h.agentSessionCleanupQueue.Release(ctx, req.JobId, req.ClaimToken, req.Error)
+		err = h.agentSessionCleanupQueue.Release(ctx, req.WorkerId, req.JobId, req.ClaimToken, req.Error)
 	}
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to update agent session cleanup: "+err.Error())

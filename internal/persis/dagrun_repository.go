@@ -241,7 +241,7 @@ func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunR
 		var removeErrs []error
 		for _, ref := range refs {
 			err := r.store.RemoveDAGRun(ctx, DAGRunRemoveRequest{DAGRun: ref, RejectActive: true})
-			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrDAGRunActive) {
 				continue
 			}
 			if err != nil {

@@ -221,6 +221,9 @@ func (builder *StatusBuilder) Create(
 		opt(&result)
 	}
 	result.AgentSessions = MergeAgentSessionResources(result.AgentSessions, result.Nodes)
+	for _, handler := range result.handlerNodes() {
+		result.AgentSessions = MergeAgentSessionResources(result.AgentSessions, []*Node{handler.node})
+	}
 	NormalizeDAGRunConditions(&result)
 
 	if result.PendingStepRetries == nil {

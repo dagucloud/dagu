@@ -21,7 +21,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const cleanupLock = "claims"
+const (
+	cleanupLock             = "claims"
+	cleanupOwnerAffinityTTL = 24 * time.Hour
+)
 
 // CleanupJob is a durable request to remove one provider session.
 type CleanupJob struct {
@@ -29,6 +32,7 @@ type CleanupJob struct {
 	Resource      ir.AgentSessionResource `json:"resource"`
 	ID            string                  `json:"id"`
 	ClaimToken    string                  `json:"claimToken,omitempty"`
+	ClaimedBy     string                  `json:"claimedBy,omitempty"`
 	LastError     string                  `json:"lastError,omitempty"`
 	ClaimedAt     int64                   `json:"claimedAt,omitempty"`
 	NextAttemptAt int64                   `json:"nextAttemptAt,omitempty"`
@@ -92,20 +96,20 @@ func ProcessNextCleanup(
 	}
 	if repository == nil || deleteSession == nil {
 		err := errors.New("agent session cleanup processor is not configured")
-		return true, errors.Join(err, queue.Release(ctx, job.ID, job.ClaimToken, err.Error()))
+		return true, errors.Join(err, queue.Release(ctx, ownerWorkerID, job.ID, job.ClaimToken, err.Error()))
 	}
 	_, findErr := repository.FindAttempt(ctx, job.Root)
 	switch {
 	case findErr == nil:
 		err := errors.New("DAG run still exists")
-		return true, queue.Release(ctx, job.ID, job.ClaimToken, err.Error())
+		return true, queue.Release(ctx, ownerWorkerID, job.ID, job.ClaimToken, err.Error())
 	case !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound):
-		return true, errors.Join(findErr, queue.Release(ctx, job.ID, job.ClaimToken, findErr.Error()))
+		return true, errors.Join(findErr, queue.Release(ctx, ownerWorkerID, job.ID, job.ClaimToken, findErr.Error()))
 	}
 	if err := deleteSession(ctx, job.Resource); err != nil {
-		return true, errors.Join(err, queue.Release(ctx, job.ID, job.ClaimToken, err.Error()))
+		return true, errors.Join(err, queue.Release(ctx, ownerWorkerID, job.ID, job.ClaimToken, err.Error()))
 	}
-	if err := queue.Complete(ctx, job.ID, job.ClaimToken); err != nil {
+	if err := queue.Complete(ctx, ownerWorkerID, job.ID, job.ClaimToken); err != nil {
 		return true, err
 	}
 	logger.Info(ctx, "Removed retained agent session",
@@ -150,13 +154,18 @@ func (q *CleanupQueue) Claim(ctx context.Context, ownerWorkerID string, lease ti
 	err := q.col.WithLock(ctx, cleanupLock, func() error {
 		now := q.now().UTC()
 		return q.visit(ctx, func(record *persis.Record, job CleanupJob) (bool, error) {
-			if !sameCleanupOwner(job.Resource.OwnerWorkerID, ownerWorkerID) || job.NextAttemptAt > now.UnixMilli() {
+			ownerMatches := sameCleanupOwner(job.Resource.OwnerWorkerID, ownerWorkerID)
+			if !ownerMatches && record.CreatedAt.Add(cleanupOwnerAffinityTTL).After(now) {
+				return false, nil
+			}
+			if job.NextAttemptAt > now.UnixMilli() {
 				return false, nil
 			}
 			if job.ClaimToken != "" && time.UnixMilli(job.ClaimedAt).Add(lease).After(now) {
 				return false, nil
 			}
 			job.ClaimToken = uuid.NewString()
+			job.ClaimedBy = ownerWorkerID
 			job.ClaimedAt = now.UnixMilli()
 			data, err := persis.Encode(job)
 			if err != nil {
@@ -188,18 +197,19 @@ func sameCleanupOwner(resourceOwner, claimant string) bool {
 }
 
 // Complete removes a claimed cleanup job.
-func (q *CleanupQueue) Complete(ctx context.Context, id, claimToken string) error {
-	return q.updateClaim(ctx, id, claimToken, func(_ *persis.Record, _ *CleanupJob) error {
+func (q *CleanupQueue) Complete(ctx context.Context, ownerWorkerID, id, claimToken string) error {
+	return q.updateClaim(ctx, ownerWorkerID, id, claimToken, func(_ *persis.Record, _ *CleanupJob) error {
 		return q.col.Delete(ctx, id)
 	})
 }
 
 // Release records a failed cleanup and makes it eligible for a later retry.
-func (q *CleanupQueue) Release(ctx context.Context, id, claimToken, message string) error {
-	return q.updateClaim(ctx, id, claimToken, func(record *persis.Record, job *CleanupJob) error {
+func (q *CleanupQueue) Release(ctx context.Context, ownerWorkerID, id, claimToken, message string) error {
+	return q.updateClaim(ctx, ownerWorkerID, id, claimToken, func(record *persis.Record, job *CleanupJob) error {
 		now := q.now().UTC()
 		job.Attempts++
 		job.ClaimToken = ""
+		job.ClaimedBy = ""
 		job.ClaimedAt = 0
 		job.LastError = message
 		delay := min(time.Duration(job.Attempts)*time.Minute, 15*time.Minute)
@@ -216,9 +226,12 @@ func (q *CleanupQueue) Release(ctx context.Context, id, claimToken, message stri
 
 func (q *CleanupQueue) updateClaim(
 	ctx context.Context,
-	id, claimToken string,
+	ownerWorkerID, id, claimToken string,
 	update func(*persis.Record, *CleanupJob) error,
 ) error {
+	if q == nil || q.col == nil {
+		return errors.New("agent session cleanup queue is not configured")
+	}
 	return q.col.WithLock(ctx, cleanupLock, func() error {
 		record, err := q.col.Get(ctx, id)
 		if err != nil {
@@ -228,7 +241,7 @@ func (q *CleanupQueue) updateClaim(
 		if err := persis.Decode(record, &job); err != nil {
 			return err
 		}
-		if claimToken == "" || job.ClaimToken != claimToken {
+		if job.ClaimedBy != ownerWorkerID || claimToken == "" || job.ClaimToken != claimToken {
 			return persis.ErrConflict
 		}
 		return update(record, &job)
