@@ -21,6 +21,10 @@ service CoordinatorService {
   rpc Heartbeat (HeartbeatRequest) returns (HeartbeatResponse);
   // AckTaskClaim is called by workers after accepting a claimed task.
   rpc AckTaskClaim (AckTaskClaimRequest) returns (AckTaskClaimResponse);
+  // ClaimAgentSessionCleanup reserves provider cleanup for its owning worker.
+  rpc ClaimAgentSessionCleanup (ClaimAgentSessionCleanupRequest) returns (ClaimAgentSessionCleanupResponse);
+  // CompleteAgentSessionCleanup completes or releases a provider cleanup claim.
+  rpc CompleteAgentSessionCleanup (CompleteAgentSessionCleanupRequest) returns (CompleteAgentSessionCleanupResponse);
   // RunHeartbeat is called by workers to refresh leases for tasks owned by a
   // specific coordinator instance.
   rpc RunHeartbeat (RunHeartbeatRequest) returns (RunHeartbeatResponse);
@@ -219,6 +223,33 @@ message AckTaskClaimRequest {
 message AckTaskClaimResponse {
   bool accepted = 1;
   string error = 2;
+}
+
+message ClaimAgentSessionCleanupRequest {
+  string worker_id = 1;
+}
+
+message ClaimAgentSessionCleanupResponse {
+  bool found = 1;
+  string job_id = 2;
+  string claim_token = 3;
+  string provider = 4;
+  string session_id = 5;
+  string directory = 6;
+  string owner_coordinator_id = 7;
+  string owner_coordinator_host = 8;
+  int32 owner_coordinator_port = 9;
+}
+
+message CompleteAgentSessionCleanupRequest {
+  string worker_id = 1;
+  string job_id = 2;
+  string claim_token = 3;
+  string error = 4;
+}
+
+message CompleteAgentSessionCleanupResponse {
+  // No fields.
 }
 
 message RunHeartbeatRequest {

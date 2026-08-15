@@ -188,6 +188,9 @@
     "worker": {
       "$ref": "#/definitions/WorkerDef"
     },
+    "opencode": {
+      "$ref": "#/definitions/OpenCodeDef"
+    },
     "proc": {
       "$ref": "#/definitions/ProcDef"
     },
@@ -1073,6 +1076,24 @@
           "description": "Coordinator HTTP health check port. Default: 8091. Set to 0 to disable.",
           "minimum": 0,
           "maximum": 65535
+        }
+      }
+    },
+    "OpenCodeDef": {
+      "type": "object",
+      "description": "Process-local managed OpenCode service configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "executable": {
+          "type": "string",
+          "description": "OpenCode executable path or command name."
+        },
+        "env_passthrough": {
+          "type": "array",
+          "description": "Exact environment variable names forwarded to the managed OpenCode service.",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

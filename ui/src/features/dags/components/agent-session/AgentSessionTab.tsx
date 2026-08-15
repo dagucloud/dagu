@@ -381,9 +381,18 @@ function AgentSessionCard({
       return result;
     });
 
+  const terminalNodeStatuses = [
+    NodeStatus.Failed,
+    NodeStatus.Aborted,
+    NodeStatus.Success,
+    NodeStatus.Skipped,
+    NodeStatus.PartialSuccess,
+    NodeStatus.Rejected,
+  ];
   const canRestart =
-    node.status === NodeStatus.Waiting &&
-    (session.state === 'waiting' || session.state === 'unavailable');
+    (node.status === NodeStatus.Waiting &&
+      (session.state === 'waiting' || session.state === 'unavailable')) ||
+    terminalNodeStatuses.includes(node.status);
 
   return (
     <section className="space-y-4 rounded-lg border border-border bg-surface p-4">
@@ -482,8 +491,9 @@ function AgentSessionCard({
         onSubmit={restart}
         submitDisabled={busy}
       >
-        This discards the current conversation and pending interaction. Files
-        already changed in the workspace are not reverted.
+        This starts a new conversation and retries this step with its original
+        prompt. The previous conversation is retained until this DAG run is
+        deleted. Files already changed in the workspace are not reverted.
       </ConfirmDialog>
     </section>
   );

@@ -228,6 +228,16 @@ type AgentUsage struct {
 	Cost            float64 `json:"cost,omitempty"`
 }
 
+// AgentSessionResource identifies a Dagu-owned provider session retained by a DAG run.
+type AgentSessionResource struct {
+	Provider      string `json:"provider"`
+	SessionID     string `json:"sessionId"`
+	Directory     string `json:"directory,omitempty"`
+	OwnerWorkerID string `json:"ownerWorkerId,omitempty"`
+	StepName      string `json:"stepName,omitempty"`
+	Generation    int    `json:"generation,omitempty"`
+}
+
 // AgentSession contains durable state required to display and resume a managed session.
 type AgentSession struct {
 	Provider           string                 `json:"provider"`
@@ -245,7 +255,6 @@ type AgentSession struct {
 	PromptSent         bool                   `json:"promptSent,omitempty"`
 	RestartPending     bool                   `json:"restartPending,omitempty"`
 	SessionOwned       bool                   `json:"sessionOwned,omitempty"`
-	CleanupPending     bool                   `json:"cleanupPending,omitempty"`
 	DiscardedSessionID string                 `json:"discardedSessionId,omitempty"`
 	DiscardedOwned     bool                   `json:"discardedOwned,omitempty"`
 	PermissionGrants   []AgentPermissionGrant `json:"permissionGrants,omitempty"`
@@ -287,19 +296,77 @@ func CloneAgentSession(session *AgentSession) *AgentSession {
 	return &clone
 }
 
-// WaitingAgentOwnerWorkerID returns the execution host that owns a resumable agent session.
-func WaitingAgentOwnerWorkerID(status *DAGRunStatus) string {
+// MergeAgentSessionResources retains every Dagu-owned provider session observed by a DAG run.
+func MergeAgentSessionResources(resources []AgentSessionResource, nodes []*Node) []AgentSessionResource {
+	result := make([]AgentSessionResource, 0, len(resources))
+	indexes := make(map[string]int, len(resources))
+	for _, resource := range resources {
+		result, indexes = mergeAgentSessionResource(result, indexes, resource)
+	}
+	for _, node := range nodes {
+		if node == nil || node.AgentSession == nil {
+			continue
+		}
+		session := node.AgentSession
+		if session.SessionOwned {
+			result, indexes = mergeAgentSessionResource(result, indexes, AgentSessionResource{
+				Provider: session.Provider, SessionID: session.SessionID, Directory: session.Directory,
+				OwnerWorkerID: session.OwnerWorkerID, StepName: node.Step.Name, Generation: session.Generation,
+			})
+		}
+		if session.DiscardedOwned {
+			result, indexes = mergeAgentSessionResource(result, indexes, AgentSessionResource{
+				Provider: session.Provider, SessionID: session.DiscardedSessionID, Directory: session.Directory,
+				OwnerWorkerID: session.OwnerWorkerID, StepName: node.Step.Name, Generation: session.Generation - 1,
+			})
+		}
+	}
+	return result
+}
+
+func mergeAgentSessionResource(
+	resources []AgentSessionResource,
+	indexes map[string]int,
+	resource AgentSessionResource,
+) ([]AgentSessionResource, map[string]int) {
+	if resource.Provider == "" || resource.SessionID == "" {
+		return resources, indexes
+	}
+	key := agentSessionResourceKey(resource)
+	if index, ok := indexes[key]; ok {
+		resources[index] = resource
+		return resources, indexes
+	}
+	indexes[key] = len(resources)
+	return append(resources, resource), indexes
+}
+
+func agentSessionResourceKey(resource AgentSessionResource) string {
+	return resource.Provider + "\x00" + resource.OwnerWorkerID + "\x00" + resource.SessionID
+}
+
+// RetryAgentOwnerWorkerID returns the execution host required by an agent session that will resume.
+func RetryAgentOwnerWorkerID(status *DAGRunStatus, stepRetry bool) string {
 	if status == nil {
 		return ""
 	}
+	var owner string
 	for _, node := range status.Nodes {
 		if node == nil || node.AgentSession == nil {
 			continue
 		}
 		session := node.AgentSession
-		if session.State == AgentSessionWaiting && !session.RestartPending {
-			return session.OwnerWorkerID
+		if !stepRetry && node.Status != NodeFailed && node.Status != NodeRetrying && node.Status != NodeAborted &&
+			node.Status != NodeRejected && node.Status != NodeNotStarted && node.Status != NodeWaiting {
+			continue
 		}
+		if session.RestartPending || session.OwnerWorkerID == "" {
+			continue
+		}
+		if owner != "" && owner != session.OwnerWorkerID {
+			return ""
+		}
+		owner = session.OwnerWorkerID
 	}
-	return ""
+	return owner
 }

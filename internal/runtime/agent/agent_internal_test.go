@@ -4,10 +4,7 @@
 package agent
 
 import (
-	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
@@ -107,34 +104,4 @@ func TestPanicToError(t *testing.T) {
 			assert.Equal(t, tt.expectedMsg, result.Error())
 		})
 	}
-}
-
-func TestCleanupManagedAgentSessionsDeletesOnlyOwnedSessions(t *testing.T) {
-	deleted := make(chan string, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		deleted <- r.URL.Path
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv("_DAGU_INTERNAL_OPENCODE_URL", server.URL)
-	t.Setenv("_DAGU_INTERNAL_OPENCODE_USERNAME", "opencode")
-	t.Setenv("_DAGU_INTERNAL_OPENCODE_PASSWORD", "secret")
-	t.Setenv("_DAGU_INTERNAL_OPENCODE_INSTANCE_ID", "host-1")
-
-	status := &ir.DAGRunStatus{Nodes: []*ir.Node{
-		{AgentSession: &ir.AgentSession{
-			Provider: "opencode", SessionID: "owned", SessionOwned: true, CleanupPending: true,
-			HostInstanceID: "host-1", Directory: "/workspace", Generation: 1,
-		}},
-		{AgentSession: &ir.AgentSession{
-			Provider: "opencode", SessionID: "external", CleanupPending: true,
-			HostInstanceID: "host-1", Directory: "/workspace", Generation: 1,
-		}},
-	}}
-
-	assert.True(t, cleanupManagedAgentSessions(context.Background(), status))
-	assert.Equal(t, "/session/owned", <-deleted)
-	assert.Empty(t, status.Nodes[0].AgentSession.SessionID)
-	assert.False(t, status.Nodes[0].AgentSession.CleanupPending)
-	assert.Equal(t, "external", status.Nodes[1].AgentSession.SessionID)
 }

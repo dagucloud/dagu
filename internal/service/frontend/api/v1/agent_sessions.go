@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
@@ -151,7 +152,11 @@ func (a *API) requireAgentOwnerAvailable(ctx context.Context, ref ir.DAGRunRef, 
 			if hostErr != nil {
 				return &agentSessionActionError{conflict: true, message: "The managed OpenCode service is temporarily unavailable; the interaction remains pending"}
 			}
-			if node.AgentSession.HostInstanceID != "" && node.AgentSession.HostInstanceID == hostConfig.InstanceID {
+			available, probeErr := opencodehost.SessionAvailable(ctx, hostConfig, node.AgentSession.Directory, node.AgentSession.SessionID)
+			if probeErr != nil {
+				return &agentSessionActionError{conflict: true, message: "The managed OpenCode session could not be verified; the interaction remains pending"}
+			}
+			if available {
 				return nil
 			}
 		}
@@ -430,8 +435,8 @@ func agentQuestionHasOption(question ir.AgentQuestion, answer string) bool {
 }
 
 func applyAgentSessionRestart(node *ir.Node) error {
-	if node.Status != ir.NodeWaiting {
-		return errors.New("managed-agent step is not waiting")
+	if node.Status != ir.NodeWaiting && !node.Status.IsDone() {
+		return errors.New("managed-agent step is still running")
 	}
 	session := node.AgentSession
 	if session.Provider != "opencode" {
@@ -445,7 +450,6 @@ func applyAgentSessionRestart(node *ir.Node) error {
 	session.Generation++
 	session.SessionID = ""
 	session.SessionOwned = false
-	session.CleanupPending = false
 	session.OwnerWorkerID = ""
 	session.HostInstanceID = ""
 	session.State = ir.AgentSessionStarting

@@ -155,6 +155,11 @@ function DAGRunActions({
     isRootLevel,
   });
   const terminateAction = terminateDetails.action;
+  const hasManagedAgentSession = Boolean(
+    dagRun &&
+      'nodes' in dagRun &&
+      dagRun.nodes?.some((node) => Boolean(node.agentSession?.sessionId))
+  );
 
   // Determine which buttons should be enabled based on current status and root level
   const buttonState = {
@@ -392,6 +397,13 @@ function DAGRunActions({
             <p className="mb-2">
               Do you really want to retry the following execution?
             </p>
+            {!retryAsNew && hasManagedAgentSession && (
+              <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                Retry continues the existing OpenCode conversation and sends the
+                step prompt again. Use “Start clean session” in the Agent
+                session tab to begin a new conversation.
+              </p>
+            )}
             <LabeledItem label="DAGRun-Name">
               <span className="font-mono text-sm">{dagRun?.name || 'N/A'}</span>
             </LabeledItem>

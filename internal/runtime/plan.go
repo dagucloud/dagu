@@ -169,7 +169,7 @@ func CreateStepRetryPlan(dag *ir.DAG, nodes []*Node, stepName string) (*Plan, er
 	}
 
 	retryCount := targetNode.GetRetryCount()
-	targetNode.ClearState(step)
+	clearNodeForRetry(targetNode, step)
 	targetNode.SetRetryCount(retryCount)
 	if !preserveRetryBudget {
 		targetNode.retryPolicy = RetryPolicy{} // manual step retries start with a fresh retry budget
@@ -353,7 +353,7 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
 				if err != nil {
 					return err
 				}
-				node.ClearState(step)
+				clearNodeForRetry(node, step)
 				toRetry[u] = true
 			}
 
@@ -368,6 +368,18 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
 	}
 
 	return nil
+}
+
+func clearNodeForRetry(node *Node, step ir.Step) {
+	session := node.GetAgentSession()
+	node.ClearState(step)
+	if session == nil {
+		return
+	}
+	session.State = ir.AgentSessionStarting
+	session.LastError = ""
+	session.PromptSent = false
+	node.SetAgentSession(session)
 }
 
 // --- Accessors ---

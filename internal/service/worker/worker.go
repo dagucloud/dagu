@@ -209,6 +209,9 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	wg.Go(func() {
 		w.sendRunHeartbeats(internalCtx)
 	})
+	wg.Go(func() {
+		w.cleanupAgentSessions(internalCtx)
+	})
 
 	// Wait for all goroutines to complete, then signal done
 	go func() {
@@ -220,6 +223,88 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	<-w.stopDone
 
 	return nil
+}
+
+func (w *Worker) cleanupAgentSessions(ctx context.Context) {
+	client, ok := w.coordinatorCli.(coordinator.AgentSessionCleanupClient)
+	if !ok {
+		return
+	}
+	for {
+		claimCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		resp, err := client.ClaimAgentSessionCleanup(claimCtx, &coordinatorv1.ClaimAgentSessionCleanupRequest{WorkerId: w.id})
+		cancel()
+		if err != nil {
+			logger.Debug(ctx, "Failed to claim agent session cleanup", tag.WorkerID(w.id), tag.Error(err))
+			if !waitForAgentSessionCleanup(ctx, 30*time.Second) {
+				return
+			}
+			continue
+		}
+		if resp == nil || !resp.Found {
+			if !waitForAgentSessionCleanup(ctx, 5*time.Second) {
+				return
+			}
+			continue
+		}
+
+		var cleanupErr error
+		if resp.Provider != "opencode" {
+			cleanupErr = fmt.Errorf("unsupported managed agent provider %q", resp.Provider)
+		} else {
+			hostConfig, hostErr := w.openCodeHost.Ensure(ctx)
+			if hostErr != nil {
+				cleanupErr = hostErr
+			} else {
+				cleanupErr = opencodehost.DeleteSession(ctx, hostConfig, resp.Directory, resp.SessionId)
+			}
+		}
+
+		message := ""
+		if cleanupErr != nil {
+			message = cleanupErrorMessage(cleanupErr)
+		}
+		owner := serviceregistry.HostInfo{
+			ID: resp.OwnerCoordinatorId, Host: resp.OwnerCoordinatorHost, Port: int(resp.OwnerCoordinatorPort),
+		}
+		completeCtx, completeCancel := context.WithTimeout(ctx, 15*time.Second)
+		_, completeErr := client.CompleteAgentSessionCleanupTo(completeCtx, owner, &coordinatorv1.CompleteAgentSessionCleanupRequest{
+			WorkerId: w.id, JobId: resp.JobId, ClaimToken: resp.ClaimToken, Error: message,
+		})
+		completeCancel()
+		if completeErr != nil {
+			logger.Warn(ctx, "Failed to update agent session cleanup claim", tag.WorkerID(w.id), tag.Error(completeErr))
+			continue
+		}
+		if cleanupErr != nil {
+			logger.Warn(ctx, "Agent session cleanup failed", tag.WorkerID(w.id), tag.Error(cleanupErr))
+			continue
+		}
+		logger.Info(ctx, "Removed retained agent session",
+			tag.WorkerID(w.id), slog.String("provider", resp.Provider), slog.String("session-id", resp.SessionId))
+	}
+}
+
+func waitForAgentSessionCleanup(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func cleanupErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	if len(message) > 1024 {
+		message = message[:1024]
+	}
+	return message
 }
 
 // Stop gracefully shuts down the worker.

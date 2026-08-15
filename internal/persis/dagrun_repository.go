@@ -22,6 +22,7 @@ type DAGRunRepository struct {
 	latestStatusToday bool
 	location          *time.Location
 	now               func() time.Time
+	removalEnqueuer   DAGRunRemovalEnqueuer
 }
 
 // NewDAGRunRepository creates a repository backed by store.
@@ -43,6 +44,7 @@ func NewDAGRunRepository(store DAGRunStore, workDirs dagrun.WorkDirStore, option
 		latestStatusToday: options.LatestStatusToday,
 		location:          location,
 		now:               now,
+		removalEnqueuer:   options.RemovalEnqueuer,
 	}
 }
 
@@ -225,14 +227,39 @@ func (r *DAGRunRepository) RemoveOldDAGRuns(
 }
 
 func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunRetentionRequest) ([]string, error) {
+	if !request.DryRun && r.removalEnqueuer != nil {
+		preview := request
+		preview.DryRun = true
+		refs, err := r.store.RemoveOldDAGRuns(ctx, preview)
+		if err != nil {
+			return nil, err
+		}
+		if err := r.enqueueDAGRunRemovals(ctx, refs); err != nil {
+			return nil, err
+		}
+		removed := make([]ir.DAGRunRef, 0, len(refs))
+		var removeErrs []error
+		for _, ref := range refs {
+			err := r.store.RemoveDAGRun(ctx, DAGRunRemoveRequest{DAGRun: ref, RejectActive: true})
+			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+				continue
+			}
+			if err != nil {
+				removeErrs = append(removeErrs, err)
+				continue
+			}
+			removed = append(removed, ref)
+		}
+		return r.finishDAGRunRemovals(ctx, removed, errors.Join(removeErrs...))
+	}
 	refs, err := r.store.RemoveOldDAGRuns(ctx, request)
-	ids := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		ids = append(ids, ref.ID)
-	}
 	if request.DryRun {
-		return ids, err
+		return dagRunRefIDs(refs), err
 	}
+	return r.finishDAGRunRemovals(ctx, refs, err)
+}
+
+func (r *DAGRunRepository) finishDAGRunRemovals(ctx context.Context, refs []ir.DAGRunRef, err error) ([]string, error) {
 	for _, ref := range refs {
 		workDirRef, normalizeErr := normalizeWorkDirRef(dagrun.WorkDirRef{DAGRun: ref})
 		if normalizeErr != nil {
@@ -243,13 +270,26 @@ func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunR
 			err = errors.Join(err, fmt.Errorf("remove work directory for dag-run %s: %w", ref.ID, removeErr))
 		}
 	}
-	return ids, err
+	return dagRunRefIDs(refs), err
+}
+
+func dagRunRefIDs(refs []ir.DAGRunRef) []string {
+	ids := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		ids = append(ids, ref.ID)
+	}
+	return ids
 }
 
 // RemoveDAGRun removes a DAG run and all of its attempts.
 func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, options DAGRunRemoveOptions) error {
 	if ref.ID == "" {
 		return dagrun.ErrDAGRunIDEmpty
+	}
+	if r.removalEnqueuer != nil {
+		if err := r.enqueueDAGRunRemovals(ctx, []ir.DAGRunRef{ref}); err != nil {
+			return err
+		}
 	}
 	err := r.store.RemoveDAGRun(ctx, DAGRunRemoveRequest{
 		DAGRun:       ref,
@@ -267,4 +307,77 @@ func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, o
 		removeErr = fmt.Errorf("remove work directory for dag-run %s: %w", ref.ID, removeErr)
 	}
 	return errors.Join(err, removeErr)
+}
+
+func (r *DAGRunRepository) enqueueDAGRunRemovals(ctx context.Context, refs []ir.DAGRunRef) error {
+	for _, ref := range refs {
+		resources, err := r.agentSessionResources(ctx, ref)
+		if err != nil {
+			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
+				continue
+			}
+			return fmt.Errorf("collect agent sessions for dag-run %s: %w", ref.ID, err)
+		}
+		if err := r.removalEnqueuer.EnqueueDAGRunRemoval(ctx, ref, resources); err != nil {
+			return fmt.Errorf("enqueue agent session cleanup for dag-run %s: %w", ref.ID, err)
+		}
+	}
+	return nil
+}
+
+func (r *DAGRunRepository) agentSessionResources(ctx context.Context, root ir.DAGRunRef) ([]ir.AgentSessionResource, error) {
+	attempt, err := r.store.FindAttempt(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resources := ir.MergeAgentSessionResources(status.AgentSessions, status.Nodes)
+	seen := map[string]bool{root.ID: true}
+	queue := childDAGRunIDs(status.Nodes)
+	for len(queue) > 0 {
+		childID := queue[0]
+		queue = queue[1:]
+		if childID == "" || seen[childID] {
+			continue
+		}
+		seen[childID] = true
+		childAttempt, err := r.store.FindSubAttempt(ctx, root, childID)
+		if err != nil {
+			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
+				continue
+			}
+			return nil, err
+		}
+		childStatus, err := childAttempt.ReadStatus(ctx)
+		if err != nil {
+			if errors.Is(err, dagrun.ErrNoStatusData) {
+				continue
+			}
+			return nil, err
+		}
+		resources = ir.MergeAgentSessionResources(resources, childStatus.Nodes)
+		resources = append(resources, childStatus.AgentSessions...)
+		resources = ir.MergeAgentSessionResources(resources, nil)
+		queue = append(queue, childDAGRunIDs(childStatus.Nodes)...)
+	}
+	return resources, nil
+}
+
+func childDAGRunIDs(nodes []*ir.Node) []string {
+	var ids []string
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		for _, child := range node.SubRuns {
+			ids = append(ids, child.DAGRunID)
+		}
+		for _, child := range node.SubRunsRepeated {
+			ids = append(ids, child.DAGRunID)
+		}
+	}
+	return ids
 }

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -126,6 +127,7 @@ type Handler struct {
 	activeDistributedRunStore dispatch.ActiveDistributedRunStore // Shared active distributed attempt index
 	dagRepository             *persis.DAGRepository              // DAG definitions for the GetDAG RPC
 	secretStore               secretpkg.Store                    // Secret registry for workers
+	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -198,6 +200,9 @@ type HandlerConfig struct {
 	// Optional - when nil, ResolveSecretReference returns FailedPrecondition.
 	SecretStore secretpkg.Store
 
+	// AgentSessionCleanupQueue stores provider cleanup claimed by owning workers.
+	AgentSessionCleanupQueue *agentsession.CleanupQueue
+
 	// StaleHeartbeatThreshold is the duration after which a worker's heartbeat
 	// is considered stale. Defaults to 30 seconds if not set.
 	StaleHeartbeatThreshold time.Duration
@@ -257,6 +262,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		activeDistributedRunStore: cfg.ActiveDistributedRunStore,
 		dagRepository:             cfg.DAGRepository,
 		secretStore:               cfg.SecretStore,
+		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		eventService:              cfg.EventService,
@@ -1207,6 +1213,71 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	}
 
 	return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
+}
+
+// ClaimAgentSessionCleanup reserves deferred provider cleanup for its owning worker.
+func (h *Handler) ClaimAgentSessionCleanup(
+	ctx context.Context,
+	req *coordinatorv1.ClaimAgentSessionCleanupRequest,
+) (*coordinatorv1.ClaimAgentSessionCleanupResponse, error) {
+	if req.WorkerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "worker_id is required")
+	}
+	if h.agentSessionCleanupQueue == nil || h.dagRunRepository == nil {
+		return nil, status.Error(codes.Unimplemented, "agent session cleanup is not configured")
+	}
+	job, err := h.agentSessionCleanupQueue.Claim(ctx, req.WorkerId, time.Minute)
+	if errors.Is(err, persis.ErrNotFound) {
+		return &coordinatorv1.ClaimAgentSessionCleanupResponse{}, nil
+	}
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to claim agent session cleanup: "+err.Error())
+	}
+	_, findErr := h.dagRunRepository.FindAttempt(ctx, job.Root)
+	if findErr == nil {
+		if err := h.agentSessionCleanupQueue.Release(ctx, job.ID, job.ClaimToken, "DAG run still exists"); err != nil {
+			return nil, status.Error(codes.Internal, "failed to release agent session cleanup: "+err.Error())
+		}
+		return &coordinatorv1.ClaimAgentSessionCleanupResponse{}, nil
+	}
+	if !errors.Is(findErr, dagrun.ErrDAGRunIDNotFound) {
+		_ = h.agentSessionCleanupQueue.Release(ctx, job.ID, job.ClaimToken, findErr.Error())
+		return nil, status.Error(codes.Internal, "failed to verify removed DAG run: "+findErr.Error())
+	}
+	return &coordinatorv1.ClaimAgentSessionCleanupResponse{
+		Found:                true,
+		JobId:                job.ID,
+		ClaimToken:           job.ClaimToken,
+		Provider:             job.Resource.Provider,
+		SessionId:            job.Resource.SessionID,
+		Directory:            job.Resource.Directory,
+		OwnerCoordinatorId:   h.owner.ID,
+		OwnerCoordinatorHost: h.owner.Host,
+		OwnerCoordinatorPort: int32(h.owner.Port), //nolint:gosec // Configured network ports fit in int32.
+	}, nil
+}
+
+// CompleteAgentSessionCleanup completes or releases a provider cleanup claim.
+func (h *Handler) CompleteAgentSessionCleanup(
+	ctx context.Context,
+	req *coordinatorv1.CompleteAgentSessionCleanupRequest,
+) (*coordinatorv1.CompleteAgentSessionCleanupResponse, error) {
+	if req.WorkerId == "" || req.JobId == "" || req.ClaimToken == "" {
+		return nil, status.Error(codes.InvalidArgument, "worker_id, job_id, and claim_token are required")
+	}
+	if h.agentSessionCleanupQueue == nil {
+		return nil, status.Error(codes.Unimplemented, "agent session cleanup is not configured")
+	}
+	var err error
+	if req.Error == "" {
+		err = h.agentSessionCleanupQueue.Complete(ctx, req.JobId, req.ClaimToken)
+	} else {
+		err = h.agentSessionCleanupQueue.Release(ctx, req.JobId, req.ClaimToken, req.Error)
+	}
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to update agent session cleanup: "+err.Error())
+	}
+	return &coordinatorv1.CompleteAgentSessionCleanupResponse{}, nil
 }
 
 // RunHeartbeat refreshes leases for tasks owned by this coordinator and returns

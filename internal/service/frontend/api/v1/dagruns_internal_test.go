@@ -1139,6 +1139,23 @@ func TestApplyAgentSessionRestart(t *testing.T) {
 	assert.Empty(t, node.ChatMessages)
 }
 
+func TestApplyAgentSessionRestartAfterCompletion(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status: ir.NodeSucceeded,
+		AgentSession: &ir.AgentSession{
+			Provider: "opencode", SessionID: "session-old", Generation: 1,
+			State: ir.AgentSessionSucceeded, SessionOwned: true,
+		},
+	}
+
+	require.NoError(t, applyAgentSessionRestart(node))
+	assert.Equal(t, ir.NodeNotStarted, node.Status)
+	assert.True(t, node.AgentSession.RestartPending)
+	assert.Equal(t, "session-old", node.AgentSession.DiscardedSessionID)
+}
+
 func TestValidateAgentQuestionResponse(t *testing.T) {
 	t.Parallel()
 

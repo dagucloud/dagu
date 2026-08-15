@@ -70,10 +70,6 @@ func (e *harnessExecutor) runManagedOpenCode(
 		e.agentSession.Generation = 1
 	}
 	cleanRestart := e.agentSession.RestartPending
-	if !cleanRestart && e.agentSession.SessionID != "" && (e.agentSession.HostInstanceID == "" || e.agentSession.HostInstanceID != host.InstanceID) {
-		e.mu.Unlock()
-		return e.finishManagedUnavailable("The OpenCode host changed; start a clean session to continue")
-	}
 	e.agentSession.ProviderVersion = host.Version
 	e.agentSession.HostInstanceID = host.InstanceID
 	e.agentSession.Directory = client.directory
@@ -143,7 +139,6 @@ func (e *harnessExecutor) runManagedOpenCode(
 			_ = client.abort(abortCtx, sessionID)
 			cancel()
 			e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
-			e.markManagedCleanupPending()
 			return nil, ctx.Err()
 		case err, ok := <-eventErrs:
 			if !ok {
@@ -227,21 +222,7 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 	e.mu.Lock()
 	persistedID := e.agentSession.SessionID
 	hasPersistedSession := persistedID != ""
-	discardedID := e.agentSession.DiscardedSessionID
-	discardedOwned := e.agentSession.DiscardedOwned
 	e.mu.Unlock()
-	if cleanRestart && discardedID != "" && discardedOwned {
-		if err := client.deleteSession(ctx, discardedID); err != nil && !errors.Is(err, errManagedSessionUnavailable) {
-			e.mu.Lock()
-			e.appendAgentEventLocked("cleanup", "warning", "The discarded OpenCode session could not be removed")
-			e.mu.Unlock()
-		} else {
-			e.mu.Lock()
-			e.agentSession.DiscardedSessionID = ""
-			e.agentSession.DiscardedOwned = false
-			e.mu.Unlock()
-		}
-	}
 	requestedID := stringFlag(cfg.flags, "session")
 	if cleanRestart {
 		persistedID = ""
@@ -292,6 +273,11 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 	e.agentSession.SessionOwned = owned || (hasPersistedSession && e.agentSession.SessionOwned)
 	e.agentSession.HostInstanceID = client.host.InstanceID
 	e.agentSession.ProviderVersion = client.host.Version
+	if session.Directory != "" {
+		e.agentSession.Directory = session.Directory
+	} else {
+		e.agentSession.Directory = client.directory
+	}
 	e.mu.Unlock()
 	e.notifyProgress()
 	return session.ID, nil
@@ -529,9 +515,6 @@ func (e *harnessExecutor) finishManagedSuccess(ctx context.Context, client *open
 		}
 	}
 	e.agentSession.State = ir.AgentSessionSucceeded
-	if e.agentSession.SessionOwned && e.agentSession.SessionID != "" {
-		e.agentSession.CleanupPending = true
-	}
 	e.determinedStatus = ir.NodeSucceeded
 	e.hasDeterminedStatus = true
 	e.appendAgentEventLocked("lifecycle", "succeeded", "OpenCode session completed")
@@ -562,22 +545,11 @@ func (e *harnessExecutor) failManagedSession(err error) {
 	e.mu.Lock()
 	if e.agentSession != nil {
 		e.agentSession.State = ir.AgentSessionFailed
-		if e.agentSession.SessionOwned && e.agentSession.SessionID != "" {
-			e.agentSession.CleanupPending = true
-		}
 		e.agentSession.LastError = err.Error()
 		e.appendAgentEventLocked("lifecycle", "failed", err.Error())
 	}
 	e.mu.Unlock()
 	e.notifyProgress()
-}
-
-func (e *harnessExecutor) markManagedCleanupPending() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.agentSession != nil && e.agentSession.SessionOwned && e.agentSession.SessionID != "" {
-		e.agentSession.CleanupPending = true
-	}
 }
 
 func (e *harnessExecutor) finishManagedError(err error) (*os.File, error) {

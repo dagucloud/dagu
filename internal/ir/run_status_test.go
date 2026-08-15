@@ -383,3 +383,49 @@ func TestDAGRunStatusUnmarshalJSONDeprecatedTags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, explicitLabels.Labels)
 }
+
+func TestMergeAgentSessionResourcesRetainsOwnedGenerations(t *testing.T) {
+	t.Parallel()
+
+	resources := []ir.AgentSessionResource{{
+		Provider: "opencode", SessionID: "session-old", Directory: "/old", Generation: 1,
+	}}
+	nodes := []*ir.Node{
+		{
+			Step: ir.Step{Name: "implement"},
+			AgentSession: &ir.AgentSession{
+				Provider: "opencode", SessionID: "session-new", Directory: "/workspace",
+				Generation: 2, SessionOwned: true, DiscardedSessionID: "session-old", DiscardedOwned: true,
+			},
+		},
+		{
+			Step:         ir.Step{Name: "external"},
+			AgentSession: &ir.AgentSession{Provider: "opencode", SessionID: "session-external"},
+		},
+	}
+
+	merged := ir.MergeAgentSessionResources(resources, nodes)
+
+	require.Len(t, merged, 2)
+	assert.Equal(t, "session-old", merged[0].SessionID)
+	assert.Equal(t, "session-new", merged[1].SessionID)
+	assert.Equal(t, "implement", merged[1].StepName)
+}
+
+func TestRetryAgentOwnerWorkerIDIncludesCompletedSessionsForStepRetry(t *testing.T) {
+	t.Parallel()
+
+	status := &ir.DAGRunStatus{Nodes: []*ir.Node{
+		{Step: ir.Step{Name: "prepare"}, Status: ir.NodeFailed},
+		{
+			Step:   ir.Step{Name: "implement"},
+			Status: ir.NodeSucceeded,
+			AgentSession: &ir.AgentSession{
+				Provider: "opencode", SessionID: "session-1", OwnerWorkerID: "worker-1", SessionOwned: true,
+			},
+		},
+	}}
+
+	assert.Empty(t, ir.RetryAgentOwnerWorkerID(status, false))
+	assert.Equal(t, "worker-1", ir.RetryAgentOwnerWorkerID(status, true))
+}

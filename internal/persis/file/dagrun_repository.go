@@ -4,6 +4,9 @@
 package file
 
 import (
+	"path/filepath"
+
+	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -17,6 +20,19 @@ type DAGRunRepositoryOption func(*dagRunRepositoryOptions)
 type dagRunRepositoryOptions struct {
 	HistoryFileCache  *fileutil.Cache[*ir.DAGRunStatus]
 	LatestStatusToday bool
+	RemovalEnqueuer   persis.DAGRunRemovalEnqueuer
+}
+
+// WithDAGRunRemovalEnqueuer records provider resources before DAG-run removal.
+func WithDAGRunRemovalEnqueuer(enqueuer persis.DAGRunRemovalEnqueuer) DAGRunRepositoryOption {
+	return func(o *dagRunRepositoryOptions) {
+		o.RemovalEnqueuer = enqueuer
+	}
+}
+
+// NewAgentSessionCleanupQueue creates the file-backed provider cleanup queue.
+func NewAgentSessionCleanupQueue(cfg *config.Config) *agentsession.CleanupQueue {
+	return agentsession.NewCleanupQueue(&Collection{dir: filepath.Join(cfg.Paths.DataDir, "agent-session-cleanups")})
 }
 
 // WithDAGRunHistoryFileCache sets the cache used for reading DAG-run history files.
@@ -52,8 +68,13 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 	}
 	store := filedagrun.NewStore(cfg.Paths.DAGRunsDir, storeOpts...)
 	workDirs := filedagrun.NewWorkDirStore(cfg.Paths.DAGRunWorkDir, cfg.Paths.DAGRunsDir)
+	removalEnqueuer := options.RemovalEnqueuer
+	if removalEnqueuer == nil {
+		removalEnqueuer = NewAgentSessionCleanupQueue(cfg)
+	}
 	return persis.NewDAGRunRepository(store, workDirs, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
 		Location:          cfg.Core.Location,
+		RemovalEnqueuer:   removalEnqueuer,
 	})
 }

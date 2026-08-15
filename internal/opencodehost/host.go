@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -467,7 +468,7 @@ func ConfigFromContext(ctx context.Context) (Config, bool, error) {
 	return hostConfig, true, nil
 }
 
-// DeleteSession removes a host-owned OpenCode session after Dagu has persisted its terminal state.
+// DeleteSession removes a host-owned OpenCode session after its DAG run is removed.
 func DeleteSession(ctx context.Context, hostConfig Config, directory, sessionID string) error {
 	if err := validate(hostConfig); err != nil {
 		return err
@@ -493,6 +494,43 @@ func DeleteSession(ctx context.Context, hostConfig Config, directory, sessionID 
 		return fmt.Errorf("OpenCode session cleanup returned %s", resp.Status)
 	}
 	return nil
+}
+
+// SessionAvailable reports whether a managed session exists in directory.
+func SessionAvailable(ctx context.Context, hostConfig Config, directory, sessionID string) (bool, error) {
+	if err := validate(hostConfig); err != nil {
+		return false, err
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	query := url.Values{}
+	query.Set("directory", directory)
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, hostConfig.URL+"/session/"+url.PathEscape(sessionID)+"?"+query.Encode(), nil)
+	if err != nil {
+		return false, err
+	}
+	req.SetBasicAuth(hostConfig.Username, hostConfig.Password)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, errors.New("OpenCode session lookup could not reach the managed host")
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Errorf("OpenCode session lookup returned %s", resp.Status)
+	}
+	var session struct {
+		Directory string `json:"directory"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&session); err != nil {
+		return false, errors.New("OpenCode session lookup returned an invalid response")
+	}
+	if directory != "" && session.Directory != "" && filepath.Clean(directory) != filepath.Clean(session.Directory) {
+		return false, nil
+	}
+	return true, nil
 }
 
 // ModeResult describes how an OpenCode harness config should run.

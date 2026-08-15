@@ -255,7 +255,7 @@ func (e *DAGExecutor) executeDAG(
 		if previousStatus != nil && len(previousStatus.ParamsList) == 0 && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
 		}
-		if workerID := ir.WaitingAgentOwnerWorkerID(previousStatus); workerID != "" {
+		if workerID := ir.RetryAgentOwnerWorkerID(previousStatus, false); workerID != "" {
 			taskOpts = append(taskOpts, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {

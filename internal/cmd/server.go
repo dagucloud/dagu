@@ -4,15 +4,18 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os/signal"
 	"strconv"
 	"syscall"
 
+	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -96,6 +99,17 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		}
 	}()
 	serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
+	go agentsession.RunCleanupLoop(signalCtx, "local", ctx.Persistence.AgentSessionCleanupQueue, ctx.Persistence.DAGRunRepository,
+		func(cleanupCtx context.Context, resource ir.AgentSessionResource) error {
+			if resource.Provider != "opencode" {
+				return fmt.Errorf("unsupported managed agent provider %q", resource.Provider)
+			}
+			hostConfig, err := openCodeHost.Ensure(cleanupCtx)
+			if err != nil {
+				return err
+			}
+			return opencodehost.DeleteSession(cleanupCtx, hostConfig, resource.Directory, resource.SessionID)
+		})
 
 	// Stop license manager on shutdown
 	if ctx.LicenseManager != nil {

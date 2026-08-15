@@ -2265,7 +2265,11 @@ func (a *API) reconcileManagedAgentOwnersOnRead(ctx context.Context, status *ir.
 			if err != nil {
 				continue
 			}
-			unavailable = session.HostInstanceID == "" || session.HostInstanceID != hostConfig.InstanceID
+			available, err := opencodehost.SessionAvailable(ctx, hostConfig, session.Directory, session.SessionID)
+			if err != nil {
+				continue
+			}
+			unavailable = !available
 		}
 		if !unavailable {
 			continue
@@ -3051,7 +3055,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			executor.WithPreviousStatus(prevStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig)),
 		}
-		if workerID := ir.WaitingAgentOwnerWorkerID(prevStatus); workerID != "" {
+		if workerID := ir.RetryAgentOwnerWorkerID(prevStatus, stepName != ""); workerID != "" {
 			opts = append(opts, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {
@@ -3942,7 +3946,7 @@ func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.
 			executor.WithPreviousStatus(status),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig)),
 		}
-		if workerID := ir.WaitingAgentOwnerWorkerID(status); workerID != "" {
+		if workerID := ir.RetryAgentOwnerWorkerID(status, false); workerID != "" {
 			options = append(options, executor.WithTargetWorkerID(workerID))
 		}
 		if dag.SourceFile != "" {

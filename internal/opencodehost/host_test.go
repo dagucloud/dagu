@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"strings"
@@ -70,6 +72,23 @@ func TestCloseIsIdempotent(t *testing.T) {
 
 	require.NoError(t, host.Close(t.Context()))
 	require.NoError(t, host.Close(t.Context()))
+}
+
+func TestSessionAvailableUsesPersistedProviderState(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/workspace", r.URL.Query().Get("directory"))
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "session-1", "directory": "/workspace"})
+	}))
+	t.Cleanup(server.Close)
+
+	available, err := SessionAvailable(t.Context(), Config{
+		URL: server.URL, Username: "opencode", Password: "secret", InstanceID: "new-host",
+	}, "/workspace", "session-1")
+
+	require.NoError(t, err)
+	assert.True(t, available)
 }
 
 func TestModeTreatsSharingAsCLIOnly(t *testing.T) {
