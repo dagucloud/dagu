@@ -95,9 +95,9 @@ func RunCollectionContract(t *testing.T, factory CollectionFactory) {
 
 	t.Run("list", func(t *testing.T) {
 		col, _ := factory(t)
-		t1 := now.Add(time.Millisecond)
-		t2 := now.Add(2 * time.Millisecond)
-		t3 := now.Add(3 * time.Millisecond)
+		t1 := now.Add(time.Second)
+		t2 := now.Add(2 * time.Second)
+		t3 := now.Add(3 * time.Second)
 		for _, rec := range []*persis.Record{
 			newRecord("x/b", `{}`, t1),
 			newRecord("x/a", `{}`, t1),
@@ -120,7 +120,7 @@ func RunCollectionContract(t *testing.T, factory CollectionFactory) {
 	t.Run("pagination", func(t *testing.T) {
 		col, _ := factory(t)
 		for i, id := range []string{"p0", "p1", "p2", "p3", "p4"} {
-			require.NoError(t, col.Put(ctx, newRecord(id, `{}`, now.Add(time.Duration(i)*time.Millisecond))))
+			require.NoError(t, col.Put(ctx, newRecord(id, `{}`, now.Add(time.Duration(i)*time.Second))))
 		}
 
 		var ids []string

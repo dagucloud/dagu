@@ -97,9 +97,11 @@ func NewNotificationStore(col persis.Collection, enc *crypto.Encryptor) (notific
 	return store.NewNotificationStore(col, enc)
 }
 
-func NewLicenseStore(col persis.Collection) license.ActivationStore {
+func NewLicenseStore(ctx context.Context, col persis.Collection) license.ActivationStore {
 	// License data requires an owner-only collection directory.
-	_ = createCollectionDirs(col, "license store", 0o700, "")
+	if err := createCollectionDirs(col, "license store", 0o700, ""); err != nil {
+		logger.Warn(ctx, "Failed to create license store directory", tag.Error(err))
+	}
 	return store.NewLicenseStore(col)
 }
 

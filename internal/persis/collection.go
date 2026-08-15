@@ -119,7 +119,10 @@ type LockingCollection interface {
 	WithLock(ctx context.Context, key string, fn func() error) error
 }
 
-// Backend provides isolated, named control-plane collections.
+// Backend provides isolated, named control-plane collections. Collection names
+// must be non-empty portable identifiers containing only ASCII letters, digits,
+// hyphens, and underscores. Passing any other name is a programmer error and
+// may panic.
 type Backend interface {
 	Collection(name string) Collection
 }
