@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -91,23 +92,69 @@ func TestNormalizeOpenCodeMessages(t *testing.T) {
 	messages := []openCodeMessage{{
 		Info: json.RawMessage(`{"role":"assistant","id":"message-1","providerID":"openai","modelID":"gpt-5"}`),
 		Parts: []json.RawMessage{
-			json.RawMessage(`{"id":"part-1","type":"text","text":"Done"}`),
+			json.RawMessage(`{"type":"text","text":"Done"}`),
+			json.RawMessage(`{"type":"text","text":"All tests passed"}`),
 			json.RawMessage(`{"id":"part-2","type":"tool","tool":"bash","callID":"call-1","state":{"status":"completed","input":{"command":"go test ./..."}}}`),
 			json.RawMessage(`{"id":"part-3","type":"step-finish","tokens":{"input":12,"output":8,"reasoning":3,"total":23},"cost":0.25}`),
+		},
+	}, {
+		Info: json.RawMessage(`{"role":"assistant","id":"message-2","providerID":"openai","modelID":"gpt-5"}`),
+		Parts: []json.RawMessage{
+			json.RawMessage(`{"type":"text","text":"Follow-up"}`),
+			json.RawMessage(`{"type":"step-finish","tokens":{"input":2,"output":3,"total":5},"cost":0.05}`),
 		},
 	}}
 
 	chat, events, usage := normalizeOpenCodeMessages(messages)
 
-	require.Len(t, chat, 1)
+	require.Len(t, chat, 2)
 	assert.Equal(t, ir.LLMRoleAssistant, chat[0].Role)
-	assert.Equal(t, "Done", chat[0].Content)
+	assert.Equal(t, "Done\nAll tests passed", chat[0].Content)
 	require.Len(t, chat[0].ToolCalls, 1)
 	assert.Equal(t, "bash", chat[0].ToolCalls[0].Function.Name)
 	assert.Contains(t, chat[0].ToolCalls[0].Function.Arguments, "go test ./...")
-	assert.Len(t, events, 3)
-	assert.Equal(t, int64(23), usage.TotalTokens)
-	assert.Equal(t, 0.25, usage.Cost)
+	require.NotNil(t, chat[0].Metadata)
+	assert.Equal(t, 23, chat[0].Metadata.TotalTokens)
+	require.NotNil(t, chat[1].Metadata)
+	assert.Equal(t, 5, chat[1].Metadata.TotalTokens)
+	require.Len(t, events, 6)
+	assert.NotEqual(t, events[0].ID, events[1].ID)
+	assert.Equal(t, int64(28), usage.TotalTokens)
+	assert.Equal(t, 0.30, usage.Cost)
+}
+
+func TestOpenCodeClientClassifiesNotFoundByEndpoint(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(server.Close)
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Password: "secret"}, http: server.Client()}
+
+	err := client.json(t.Context(), http.MethodGet, "/session/session-1", nil, nil)
+	require.ErrorIs(t, err, errManagedSessionUnavailable)
+	err = client.json(t.Context(), http.MethodGet, "/config", nil, nil)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, errManagedSessionUnavailable)
+}
+
+func TestHarnessStopContinuesAfterManagedAbort(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	fallbackStopped := false
+	exec := &harnessExecutor{
+		managedHost: opencodehost.Config{
+			URL: server.URL, Username: "opencode", Password: "secret", InstanceID: "host-1",
+		},
+		agentSession:          &ir.AgentSession{SessionID: "session-1"},
+		sharedContainerCancel: func() { fallbackStopped = true },
+	}
+
+	require.NoError(t, exec.Stop(cmdutil.TerminationIntent{}))
+	assert.True(t, fallbackStopped)
 }
 
 func TestManagedOpenCodeCleanRestartCreatesNewSession(t *testing.T) {

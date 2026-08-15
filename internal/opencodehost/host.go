@@ -83,6 +83,7 @@ func UnavailableEnv(err error) []string {
 
 // Host lazily owns one OpenCode server process.
 type Host struct {
+	ensureMu    sync.Mutex
 	mu          sync.Mutex
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -91,7 +92,7 @@ type Host struct {
 	waitCh      chan error
 	config      Config
 	stderr      *tailBuffer
-	healthCheck func(Config) (string, error)
+	healthCheck func(context.Context, Config) (string, error)
 }
 
 // New creates an idle host whose lifecycle ends with parent.
@@ -113,21 +114,39 @@ func (h *Host) Ensure() (Config, error) {
 	if h == nil {
 		return Config{}, errors.New("managed OpenCode host is not configured for this process")
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.ensureMu.Lock()
+	defer h.ensureMu.Unlock()
+	if err := h.ctx.Err(); err != nil {
+		return Config{}, fmt.Errorf("managed OpenCode host is closed: %w", err)
+	}
 
-	if h.config.URL != "" && h.runningLocked() {
-		version, err := h.healthCheck(h.config)
+	h.mu.Lock()
+	hostConfig := h.config
+	running := hostConfig.URL != "" && h.runningLocked()
+	if !running {
+		h.clearLocked(false)
+	}
+	h.mu.Unlock()
+
+	if running {
+		version, err := h.healthCheck(h.ctx, hostConfig)
 		if err != nil {
 			return Config{}, fmt.Errorf("managed OpenCode host is unhealthy: %w", err)
+		}
+		h.mu.Lock()
+		if h.config.InstanceID != hostConfig.InstanceID || !h.runningLocked() {
+			h.clearLocked(false)
+			h.mu.Unlock()
+			return h.start()
 		}
 		if version != "" {
 			h.config.Version = version
 		}
-		return h.config, nil
+		hostConfig = h.config
+		h.mu.Unlock()
+		return hostConfig, nil
 	}
-	h.clearLocked(false)
-	return h.startLocked()
+	return h.start()
 }
 
 func (h *Host) runningLocked() bool {
@@ -142,7 +161,7 @@ func (h *Host) runningLocked() bool {
 	}
 }
 
-func (h *Host) startLocked() (Config, error) {
+func (h *Host) start() (Config, error) {
 	binary, err := exec.LookPath(h.settings.Executable)
 	if err != nil {
 		return Config{}, fmt.Errorf("managed OpenCode requires executable %q: %w", h.settings.Executable, err)
@@ -190,14 +209,14 @@ func (h *Host) startLocked() (Config, error) {
 	var endpoint string
 	select {
 	case endpoint = <-ready:
-	case <-waitCh:
-		return Config{}, errors.New("OpenCode server exited before startup")
+	case waitErr := <-waitCh:
+		return Config{}, startupError("OpenCode server exited before startup", waitErr, stderr.String())
 	case <-startup.C:
-		_ = cmd.Process.Kill()
-		return Config{}, errors.New("timed out waiting for OpenCode server startup")
+		waitErr := stopStartedProcess(cmd, waitCh)
+		return Config{}, startupError("timed out waiting for OpenCode server startup", waitErr, stderr.String())
 	case <-h.ctx.Done():
-		_ = cmd.Process.Kill()
-		return Config{}, h.ctx.Err()
+		waitErr := stopStartedProcess(cmd, waitCh)
+		return Config{}, startupError(h.ctx.Err().Error(), waitErr, stderr.String())
 	}
 
 	hostConfig := Config{
@@ -205,20 +224,53 @@ func (h *Host) startLocked() (Config, error) {
 		Password: password, InstanceID: instanceID,
 	}
 	if err := validate(hostConfig); err != nil {
-		_ = cmd.Process.Kill()
-		return Config{}, err
+		waitErr := stopStartedProcess(cmd, waitCh)
+		return Config{}, errors.Join(err, startupError("OpenCode server startup failed", waitErr, stderr.String()))
 	}
 	version, err := h.preflight(hostConfig)
 	if err != nil {
-		_ = cmd.Process.Kill()
-		return Config{}, err
+		waitErr := stopStartedProcess(cmd, waitCh)
+		return Config{}, errors.Join(err, startupError("OpenCode server startup failed", waitErr, stderr.String()))
+	}
+	if err := h.ctx.Err(); err != nil {
+		waitErr := stopStartedProcess(cmd, waitCh)
+		return Config{}, startupError(err.Error(), waitErr, stderr.String())
 	}
 	hostConfig.Version = version
+	h.mu.Lock()
 	h.cmd = cmd
 	h.waitCh = waitCh
 	h.config = hostConfig
 	h.stderr = stderr
+	h.mu.Unlock()
 	return hostConfig, nil
+}
+
+func stopStartedProcess(cmd *exec.Cmd, waitCh <-chan error) error {
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	select {
+	case err := <-waitCh:
+		return err
+	case <-time.After(2 * time.Second):
+		return errors.New("timed out waiting for OpenCode server to exit")
+	}
+}
+
+func startupError(message string, waitErr error, stderr string) error {
+	details := []string{message}
+	if waitErr != nil {
+		details = append(details, "process: "+sanitizeError(waitErr))
+	}
+	stderr = strings.ReplaceAll(strings.TrimSpace(stderr), "\n", " ")
+	if len(stderr) > 1024 {
+		stderr = stderr[len(stderr)-1024:]
+	}
+	if stderr != "" {
+		details = append(details, "stderr: "+stderr)
+	}
+	return errors.New(strings.Join(details, "; "))
 }
 
 func scanEndpoint(stdout io.Reader, ready chan<- string) {
@@ -235,13 +287,13 @@ func scanEndpoint(stdout io.Reader, ready chan<- string) {
 }
 
 func (h *Host) preflight(hostConfig Config) (string, error) {
-	version, err := h.healthCheck(hostConfig)
+	version, err := h.healthCheck(h.ctx, hostConfig)
 	if err != nil {
 		return "", fmt.Errorf("OpenCode health capability failed: %w", err)
 	}
 	for _, path := range []string{"/config", "/session/status", "/permission", "/question"} {
 		var target any
-		if err := hostJSON(hostConfig, path, &target); err != nil {
+		if err := hostJSON(h.ctx, hostConfig, path, &target); err != nil {
 			return "", fmt.Errorf("OpenCode capability %s is unavailable: %w", path, err)
 		}
 		if path == "/config" {
@@ -254,12 +306,12 @@ func (h *Host) preflight(hostConfig Config) (string, error) {
 	return version, nil
 }
 
-func (h *Host) probeHealth(hostConfig Config) (string, error) {
+func (h *Host) probeHealth(ctx context.Context, hostConfig Config) (string, error) {
 	var health struct {
 		Healthy bool   `json:"healthy"`
 		Version string `json:"version"`
 	}
-	if err := hostJSON(hostConfig, "/global/health", &health); err != nil {
+	if err := hostJSON(ctx, hostConfig, "/global/health", &health); err != nil {
 		return "", err
 	}
 	if !health.Healthy {
@@ -268,8 +320,8 @@ func (h *Host) probeHealth(hostConfig Config) (string, error) {
 	return health.Version, nil
 }
 
-func hostJSON(hostConfig Config, path string, target any) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+func hostJSON(parent context.Context, hostConfig Config, path string, target any) error {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hostConfig.URL+path, nil)
 	if err != nil {
@@ -306,6 +358,8 @@ func (h *Host) Close(ctx context.Context) error {
 		return nil
 	}
 	h.cancel()
+	h.ensureMu.Lock()
+	defer h.ensureMu.Unlock()
 	h.mu.Lock()
 	waitCh := h.waitCh
 	h.waitCh = nil
@@ -408,7 +462,7 @@ func validate(hostConfig Config) error {
 	if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
 		return errors.New("OpenCode server must use a loopback HTTP address")
 	}
-	if hostConfig.Password == "" || hostConfig.InstanceID == "" {
+	if hostConfig.Username == "" || hostConfig.Password == "" || hostConfig.InstanceID == "" {
 		return errors.New("OpenCode server credentials and identity are required")
 	}
 	return nil
@@ -426,17 +480,29 @@ func sanitizeError(err error) string {
 }
 
 type tailBuffer struct {
+	mu    sync.Mutex
 	limit int
 	data  []byte
 }
 
 func (b *tailBuffer) Write(data []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	size := len(data)
 	b.data = append(b.data, data...)
 	if len(b.data) > b.limit {
 		b.data = append([]byte(nil), b.data[len(b.data)-b.limit:]...)
 	}
 	return size, nil
+}
+
+func (b *tailBuffer) String() string {
+	if b == nil {
+		return ""
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.data)
 }
 
 type hostContextKey struct{}

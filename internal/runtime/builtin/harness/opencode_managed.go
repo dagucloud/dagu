@@ -636,7 +636,8 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 		messageID, _ := info["id"].(string)
 		var textParts []string
 		var toolCalls []ir.ToolCall
-		for _, raw := range message.Parts {
+		var messageUsage ir.AgentUsage
+		for partIndex, raw := range message.Parts {
 			var part map[string]any
 			if json.Unmarshal(raw, &part) != nil {
 				continue
@@ -672,18 +673,23 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 				}
 			case "step-finish":
 				if tokens, ok := part["tokens"].(map[string]any); ok {
-					usage.InputTokens += int64(number(tokens["input"]))
-					usage.OutputTokens += int64(number(tokens["output"]))
-					usage.ReasoningTokens += int64(number(tokens["reasoning"]))
-					usage.TotalTokens += int64(number(tokens["total"]))
+					messageUsage.InputTokens += int64(number(tokens["input"]))
+					messageUsage.OutputTokens += int64(number(tokens["output"]))
+					messageUsage.ReasoningTokens += int64(number(tokens["reasoning"]))
+					messageUsage.TotalTokens += int64(number(tokens["total"]))
 				}
-				usage.Cost += number(part["cost"])
+				messageUsage.Cost += number(part["cost"])
 			}
 			if event.ID == "" {
-				event.ID = messageID + ":" + partType
+				event.ID = fmt.Sprintf("%s:%s:%d", messageID, partType, partIndex)
 			}
 			events = append(events, event)
 		}
+		usage.InputTokens += messageUsage.InputTokens
+		usage.OutputTokens += messageUsage.OutputTokens
+		usage.ReasoningTokens += messageUsage.ReasoningTokens
+		usage.TotalTokens += messageUsage.TotalTokens
+		usage.Cost += messageUsage.Cost
 		if role != "user" && role != "assistant" {
 			continue
 		}
@@ -691,7 +697,7 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 		if role == "assistant" {
 			msg.Metadata = &ir.LLMMessageMetadata{
 				Provider: fmt.Sprint(info["providerID"]), Model: fmt.Sprint(info["modelID"]),
-				PromptTokens: int(usage.InputTokens), CompletionTokens: int(usage.OutputTokens), TotalTokens: int(usage.TotalTokens),
+				PromptTokens: int(messageUsage.InputTokens), CompletionTokens: int(messageUsage.OutputTokens), TotalTokens: int(messageUsage.TotalTokens),
 			}
 		}
 		chat = append(chat, msg)

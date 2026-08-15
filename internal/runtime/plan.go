@@ -378,7 +378,6 @@ func clearNodeForRetry(node *Node, step ir.Step) {
 	}
 	session.State = ir.AgentSessionStarting
 	session.LastError = ""
-	session.PromptSent = false
 	node.SetAgentSession(session)
 }
 

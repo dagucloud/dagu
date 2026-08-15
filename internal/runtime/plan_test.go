@@ -482,7 +482,7 @@ func TestStepRetryPlanContinuesManagedAgentSession(t *testing.T) {
 	require.Equal(t, "session-1", session.SessionID)
 	require.Equal(t, "worker-a", session.OwnerWorkerID)
 	require.Equal(t, ir.AgentSessionStarting, session.State)
-	require.False(t, session.PromptSent)
+	require.True(t, session.PromptSent)
 }
 
 func TestPlan_Timing(t *testing.T) {

@@ -106,7 +106,7 @@ func (c *openCodeClient) json(ctx context.Context, method, path string, body, ta
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
+	if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, "/session/") {
 		return errManagedSessionUnavailable
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

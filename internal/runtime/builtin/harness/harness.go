@@ -156,43 +156,40 @@ func (e *harnessExecutor) Stop(intent cmdutil.TerminationIntent) error {
 
 func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 	e.mu.Lock()
-	if e.managedHost.URL != "" && e.agentSession != nil && e.agentSession.SessionID != "" {
-		host := e.managedHost
-		sessionID := e.agentSession.SessionID
-		workDir := e.workDir
-		e.mu.Unlock()
-		return abortManagedOpenCode(context.Background(), host, sessionID, workDir)
+	host := e.managedHost
+	sessionID := ""
+	if e.agentSession != nil {
+		sessionID = e.agentSession.SessionID
 	}
-	if e.process == nil {
-		// Containerized run: cancel the run context and stop the container via
-		// the SDK so a cancelled step leaves no running orphan (Close auto-removes
-		// when AutoRemove is set, i.e. keep_container is false).
-		if e.containerClient != nil || e.containerCancel != nil {
-			cli := e.containerClient
-			cancel := e.containerCancel
-			e.containerCancel = nil
-			e.mu.Unlock()
-			if cancel != nil {
-				cancel()
-			}
-			if cli != nil {
-				return cli.Stop(req.Intent.Signal)
-			}
-			return nil
-		}
-		if e.sharedContainerCancel != nil {
-			cancel := e.sharedContainerCancel
-			e.sharedContainerCancel = nil
-			e.mu.Unlock()
-			cancel()
-			return nil
-		}
-		e.mu.Unlock()
-		return nil
+	workDir := e.workDir
+	process := e.process
+	cli := e.containerClient
+	containerCancel := e.containerCancel
+	sharedContainerCancel := e.sharedContainerCancel
+	e.containerCancel = nil
+	e.sharedContainerCancel = nil
+	e.mu.Unlock()
+
+	var stopErr error
+	if host.URL != "" && sessionID != "" {
+		stopErr = abortManagedOpenCode(context.Background(), host, sessionID, workDir)
 	}
-	defer e.mu.Unlock()
-	_, err := e.process.Stop(req)
-	return err
+	if process != nil {
+		_, err := process.Stop(req)
+		return errors.Join(stopErr, err)
+	}
+	// Containerized runs are cancelled before the SDK stop so a cancelled
+	// step cannot leave a running container.
+	if containerCancel != nil {
+		containerCancel()
+	}
+	if cli != nil {
+		return errors.Join(stopErr, cli.Stop(req.Intent.Signal))
+	}
+	if sharedContainerCancel != nil {
+		sharedContainerCancel()
+	}
+	return stopErr
 }
 
 func (e *harnessExecutor) SetPushBackContext(inputs map[string]string, iteration int) {

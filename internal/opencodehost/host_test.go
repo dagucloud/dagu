@@ -56,7 +56,7 @@ func TestEnsureDoesNotReplaceRunningUnhealthyHost(t *testing.T) {
 	host.cmd = &exec.Cmd{}
 	host.waitCh = make(chan error, 1)
 	host.config = Config{URL: "http://127.0.0.1:1", Username: "opencode", Password: "secret", InstanceID: "instance"}
-	host.healthCheck = func(Config) (string, error) { return "", errors.New("probe failed") }
+	host.healthCheck = func(context.Context, Config) (string, error) { return "", errors.New("probe failed") }
 
 	_, err := host.Ensure()
 	require.Error(t, err)
@@ -72,6 +72,22 @@ func TestCloseIsIdempotent(t *testing.T) {
 
 	require.NoError(t, host.Close(t.Context()))
 	require.NoError(t, host.Close(t.Context()))
+}
+
+func TestValidateRequiresManagedCredentials(t *testing.T) {
+	t.Parallel()
+
+	err := validate(Config{URL: "http://127.0.0.1:4096", Password: "secret", InstanceID: "instance"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credentials")
+}
+
+func TestStartupErrorIncludesProcessDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	err := startupError("OpenCode server exited before startup", errors.New("exit status 1"), "provider configuration failed\n")
+	assert.Contains(t, err.Error(), "exit status 1")
+	assert.Contains(t, err.Error(), "provider configuration failed")
 }
 
 func TestSessionAvailableUsesPersistedProviderState(t *testing.T) {
