@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,9 @@ func TestNewIncidentStorePreservesFileLayout(t *testing.T) {
 		info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(subdir)))
 		require.NoError(t, err)
 		assert.True(t, info.IsDir())
-		assert.Equal(t, os.FileMode(0o750), info.Mode().Perm())
+		if runtime.GOOS != "windows" {
+			assert.Equal(t, os.FileMode(0o750), info.Mode().Perm())
+		}
 	}
 
 	provider, err := incident.NormalizeProvider(&incident.Provider{
@@ -52,7 +55,9 @@ func TestNewIncidentStorePreservesFileLayout(t *testing.T) {
 	assert.False(t, bytes.Contains(data, []byte("pagerduty-routing-key")))
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
 
 	loaded, err := s.GetProvider(context.Background(), provider.ID)
 	require.NoError(t, err)
@@ -71,7 +76,9 @@ func TestNewNotificationStoreReadsExistingFileLayout(t *testing.T) {
 		info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(subdir)))
 		require.NoError(t, err)
 		assert.True(t, info.IsDir())
-		assert.Equal(t, os.FileMode(0o750), info.Mode().Perm())
+		if runtime.GOOS != "windows" {
+			assert.Equal(t, os.FileMode(0o750), info.Mode().Perm())
+		}
 	}
 
 	path := filepath.Join(dir, "dags", hashedFileName("daily-report"))
