@@ -561,11 +561,6 @@ func (c *Context) dagRepository(cfg dagRepositoryConfig) (*persis.DAGRepository,
 	return newDAGRepository(c.Config, cfg)
 }
 
-// runtimeStores creates the runtime store bundle for this command context.
-func (c *Context) runtimeStores() executionStores {
-	return newExecutionStores(c.Context, c.Config, c.backend)
-}
-
 // OpenLogFile creates and opens a log file for a given dag-run.
 // It evaluates the log directory, validates settings, creates the log directory,
 // builds a filename using the current timestamp and dag-run ID, and then opens the file.

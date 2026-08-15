@@ -104,7 +104,7 @@ func runWorker(ctx *Context, _ []string) error {
 		ctx.Config,
 	)
 
-	stores := newExecutionStores(ctx.Context, ctx.Config, ctx.backend)
+	stores := ctx.runtimeStores()
 	handlerCfg := worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: coordinatorCli,

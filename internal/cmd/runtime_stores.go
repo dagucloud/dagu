@@ -4,11 +4,9 @@
 package cmd
 
 import (
-	"context"
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
-	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
@@ -22,10 +20,11 @@ type executionStores struct {
 	MaterializationStore build.MaterializationStore
 }
 
-func newExecutionStores(ctx context.Context, cfg *config.Config, backend persis.Backend) executionStores {
+// runtimeStores creates the runtime store bundle for this command context.
+func (c *Context) runtimeStores() executionStores {
 	return executionStores{
-		SecretStore:          file.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets)),
-		ProfileStore:         file.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles)),
-		MaterializationStore: filematerialization.New(filepath.Join(cfg.Paths.DataDir, "materializations")),
+		SecretStore:          file.NewSecretStore(c.Context, c.Config, c.backend.Collection(persis.CollectionSecrets)),
+		ProfileStore:         file.NewProfileStore(c.Context, c.Config, c.backend.Collection(persis.CollectionProfiles)),
+		MaterializationStore: filematerialization.New(filepath.Join(c.Config.Paths.DataDir, "materializations")),
 	}
 }

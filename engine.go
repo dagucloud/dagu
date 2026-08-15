@@ -452,7 +452,11 @@ func filePersistenceFactory(ctx context.Context, cfg *config.Config) (iengine.Pe
 
 		DAGRepositoryFactory: fileEngineDAGRepository,
 		RuntimeStoresFactory: func(ctx context.Context, cfg *config.Config) iengine.RuntimeStores {
-			return fileEngineRuntimeStores(ctx, cfg, backend)
+			return iengine.RuntimeStores{
+				SecretStore:          file.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets)),
+				ProfileStore:         file.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles)),
+				MaterializationStore: filematerialization.New(filepath.Join(cfg.Paths.DataDir, "materializations")),
+			}
 		},
 	}, nil
 }
@@ -463,14 +467,6 @@ func fileEngineDAGRepository(_ context.Context, cfg *config.Config, opts iengine
 		fileOpts = append(fileOpts, file.WithDAGSearchPaths(opts.SearchPaths))
 	}
 	return file.NewDAGRepository(cfg, fileOpts...)
-}
-
-func fileEngineRuntimeStores(ctx context.Context, cfg *config.Config, backend persis.Backend) iengine.RuntimeStores {
-	return iengine.RuntimeStores{
-		SecretStore:          file.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets)),
-		ProfileStore:         file.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles)),
-		MaterializationStore: filematerialization.New(filepath.Join(cfg.Paths.DataDir, "materializations")),
-	}
 }
 
 func internalDistributedOptions(opts DistributedOptions) iengine.DistributedOptions {
