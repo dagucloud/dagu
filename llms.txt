@@ -1648,7 +1648,7 @@ Dagu does not add a Dagu MCP entry to OpenCode, install plugins, or change provi
 
 Managed options are `agent`, `model`, `variant`, `session`, `fork`, `title`, `file`, `command`, and `format: default`. Set `managed: false` to force the one-shot CLI. Options outside that set, `share`, non-default formats, containers, standalone scheduler launches, embedded-engine runs, and direct Dagu CLI execution use the CLI integration. Set `managed: true` to require managed mode and fail clearly when the current execution topology or provider capabilities cannot support it. Automatic mode may fall back only before a managed session is created.
 
-“Allow for this Dagu session” applies only provider-proposed wildcard patterns to the current Dagu session generation; Dagu never grants OpenCode's process-wide `always` permission. Dagu-created and forked sessions are deleted after the terminal transcript and usage are durably persisted. Sessions supplied with `session:` remain externally owned and are retained.
+“Allow for this Dagu session” applies only provider-proposed wildcard patterns to the current Dagu session generation; Dagu never grants OpenCode's process-wide `always` permission. Dagu-created and forked sessions are retained until the DAG run is cleaned up, which also removes their provider resources. Sessions supplied with `session:` remain externally owned and are retained.
 
 If the owning worker or OpenCode server disappears, the step remains waiting and the run page offers a clean-session restart. A clean restart discards the conversation and pending interaction, then submits the original prompt to a new session. It does not revert files already changed in the workspace.
 

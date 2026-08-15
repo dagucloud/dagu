@@ -266,7 +266,12 @@ jobs:
 
       - name: Install tested OpenCode release
         if: ${{ matrix.suite == 'unit' }}
-        run: npm install --global --ignore-scripts=false opencode-ai@1.18.11
+        run: |
+          npm ci --ignore-scripts --prefix .github/opencode
+          mkdir -p .github/opencode/bin
+          cp .github/opencode/node_modules/opencode-linux-x64-baseline/bin/opencode .github/opencode/bin/opencode
+          chmod 0755 .github/opencode/bin/opencode
+          echo "${GITHUB_WORKSPACE}/.github/opencode/bin" >> "${GITHUB_PATH}"
 
       - name: Test managed OpenCode capabilities
         if: ${{ matrix.suite == 'unit' }}

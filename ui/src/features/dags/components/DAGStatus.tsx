@@ -885,6 +885,7 @@ function DAGStatus({
         {activeTab === 'agent' && hasAgentSessions && (
           <div className={scrollPaneClassName}>
             <AgentSessionTab
+              key={displayDAGRunIdentity}
               dagRun={displayDAGRun}
               onChanged={dagContext.refresh}
             />

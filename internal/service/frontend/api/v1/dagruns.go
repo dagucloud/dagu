@@ -2202,7 +2202,6 @@ func (a *API) repairStaleRunOnRead(
 	status *ir.DAGRunStatus,
 	fallbackAttemptID string,
 ) *ir.DAGRunStatus {
-	status = a.reconcileManagedAgentOwnersOnRead(ctx, status)
 	if status == nil || a.dagRunLeaseStore == nil || a.workerHeartbeatStore == nil {
 		return status
 	}
@@ -2233,58 +2232,6 @@ func (a *API) repairStaleRunOnRead(
 	}
 	if reconciled != nil {
 		return reconciled
-	}
-	return status
-}
-
-func (a *API) reconcileManagedAgentOwnersOnRead(ctx context.Context, status *ir.DAGRunStatus) *ir.DAGRunStatus {
-	if status == nil {
-		return nil
-	}
-	changed := false
-	for _, node := range status.Nodes {
-		if node == nil || node.AgentSession == nil || node.AgentSession.State != ir.AgentSessionWaiting {
-			continue
-		}
-		session := node.AgentSession
-		unavailable := false
-		if session.OwnerWorkerID != "" && session.OwnerWorkerID != "local" {
-			if a.workerHeartbeatStore == nil {
-				unavailable = true
-			} else {
-				record, err := a.workerHeartbeatStore.Get(ctx, session.OwnerWorkerID)
-				if err != nil && !errors.Is(err, dispatch.ErrWorkerHeartbeatNotFound) {
-					continue
-				}
-				unavailable = err != nil || record == nil || time.Since(record.LastHeartbeatTime()) >= managedAgentOwnerStaleThreshold
-			}
-		} else if a.openCodeHost == nil {
-			unavailable = true
-		} else {
-			hostConfig, err := a.openCodeHost.Ensure()
-			if err != nil {
-				continue
-			}
-			available, err := opencodehost.SessionAvailable(ctx, hostConfig, session.Directory, session.SessionID)
-			if err != nil {
-				continue
-			}
-			unavailable = !available
-		}
-		if !unavailable {
-			continue
-		}
-		message := "The execution host that owns this OpenCode session is unavailable; start a clean session to continue"
-		if err := a.markAgentSessionUnavailable(ctx, status.DAGRun(), node.Step.Name, message); err != nil {
-			logger.Warn(ctx, "Failed to reconcile managed-agent owner on read", tag.Error(err))
-			continue
-		}
-		changed = true
-	}
-	if changed {
-		if latest, err := a.dagRunMgr.GetSavedStatus(ctx, status.DAGRun()); err == nil && latest != nil {
-			return latest
-		}
 	}
 	return status
 }

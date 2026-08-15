@@ -21,7 +21,20 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 )
 
-const managedAgentOwnerStaleThreshold = 30 * time.Second
+const (
+	managedAgentOwnerStaleThreshold = 30 * time.Second
+	maxAgentSessionAPIEvents        = 1000
+)
+
+var errAgentSessionAlreadyUnavailable = errors.New("managed-agent session is already unavailable")
+
+type agentSessionActionClass uint8
+
+const (
+	agentSessionActionBadRequest agentSessionActionClass = iota
+	agentSessionActionNotFound
+	agentSessionActionConflict
+)
 
 type agentSessionActionError struct {
 	notFound bool
@@ -31,6 +44,20 @@ type agentSessionActionError struct {
 
 func (e *agentSessionActionError) Error() string { return e.message }
 
+func classifyAgentSessionAction(err error) agentSessionActionClass {
+	var actionErr *agentSessionActionError
+	if !errors.As(err, &actionErr) {
+		return agentSessionActionBadRequest
+	}
+	if actionErr.notFound {
+		return agentSessionActionNotFound
+	}
+	if actionErr.conflict {
+		return agentSessionActionConflict
+	}
+	return agentSessionActionBadRequest
+}
+
 // RespondDAGRunStepAgentInteraction records an answer and resumes the managed session.
 func (a *API) RespondDAGRunStepAgentInteraction(ctx context.Context, request api.RespondDAGRunStepAgentInteractionRequestObject) (api.RespondDAGRunStepAgentInteractionResponseObject, error) {
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
@@ -38,14 +65,14 @@ func (a *API) RespondDAGRunStepAgentInteraction(ctx context.Context, request api
 	}
 	response, err := a.respondAgentInteraction(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), "", request.StepName, request.InteractionId, request.Body)
 	if err != nil {
-		var actionErr *agentSessionActionError
-		if errors.As(err, &actionErr) && actionErr.notFound {
+		switch classifyAgentSessionAction(err) {
+		case agentSessionActionNotFound:
 			return &api.RespondDAGRunStepAgentInteraction404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
-		}
-		if errors.As(err, &actionErr) && actionErr.conflict {
+		case agentSessionActionConflict:
 			return &api.RespondDAGRunStepAgentInteraction409JSONResponse{Code: api.ErrorCodeConflict, Message: err.Error()}, nil
+		default:
+			return &api.RespondDAGRunStepAgentInteraction400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error()}, nil
 		}
-		return &api.RespondDAGRunStepAgentInteraction400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error()}, nil
 	}
 	return (*api.RespondDAGRunStepAgentInteraction200JSONResponse)(&response), nil
 }
@@ -57,14 +84,14 @@ func (a *API) RespondSubDAGRunStepAgentInteraction(ctx context.Context, request 
 	}
 	response, err := a.respondAgentInteraction(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), request.SubDAGRunId, request.StepName, request.InteractionId, request.Body)
 	if err != nil {
-		var actionErr *agentSessionActionError
-		if errors.As(err, &actionErr) && actionErr.notFound {
+		switch classifyAgentSessionAction(err) {
+		case agentSessionActionNotFound:
 			return &api.RespondSubDAGRunStepAgentInteraction404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
-		}
-		if errors.As(err, &actionErr) && actionErr.conflict {
+		case agentSessionActionConflict:
 			return &api.RespondSubDAGRunStepAgentInteraction409JSONResponse{Code: api.ErrorCodeConflict, Message: err.Error()}, nil
+		default:
+			return &api.RespondSubDAGRunStepAgentInteraction400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error()}, nil
 		}
-		return &api.RespondSubDAGRunStepAgentInteraction400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error()}, nil
 	}
 	return (*api.RespondSubDAGRunStepAgentInteraction200JSONResponse)(&response), nil
 }
@@ -76,14 +103,14 @@ func (a *API) RestartDAGRunStepAgentSession(ctx context.Context, request api.Res
 	}
 	response, err := a.restartAgentSession(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), "", request.StepName)
 	if err != nil {
-		var actionErr *agentSessionActionError
-		if errors.As(err, &actionErr) && actionErr.notFound {
+		switch classifyAgentSessionAction(err) {
+		case agentSessionActionNotFound:
 			return &api.RestartDAGRunStepAgentSession404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
-		}
-		if errors.As(err, &actionErr) && actionErr.conflict {
+		case agentSessionActionConflict:
 			return &api.RestartDAGRunStepAgentSession409JSONResponse{Code: api.ErrorCodeConflict, Message: err.Error()}, nil
+		default:
+			return &api.RestartDAGRunStepAgentSession400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error()}, nil
 		}
-		return &api.RestartDAGRunStepAgentSession400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error()}, nil
 	}
 	return (*api.RestartDAGRunStepAgentSession200JSONResponse)(&response), nil
 }
@@ -95,14 +122,14 @@ func (a *API) RestartSubDAGRunStepAgentSession(ctx context.Context, request api.
 	}
 	response, err := a.restartAgentSession(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), request.SubDAGRunId, request.StepName)
 	if err != nil {
-		var actionErr *agentSessionActionError
-		if errors.As(err, &actionErr) && actionErr.notFound {
+		switch classifyAgentSessionAction(err) {
+		case agentSessionActionNotFound:
 			return &api.RestartSubDAGRunStepAgentSession404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
-		}
-		if errors.As(err, &actionErr) && actionErr.conflict {
+		case agentSessionActionConflict:
 			return &api.RestartSubDAGRunStepAgentSession409JSONResponse{Code: api.ErrorCodeConflict, Message: err.Error()}, nil
+		default:
+			return &api.RestartSubDAGRunStepAgentSession400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error()}, nil
 		}
-		return &api.RestartSubDAGRunStepAgentSession400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error()}, nil
 	}
 	return (*api.RestartSubDAGRunStepAgentSession200JSONResponse)(&response), nil
 }
@@ -189,11 +216,17 @@ func (a *API) markAgentSessionUnavailable(ctx context.Context, ref ir.DAGRunRef,
 		if nodeErr != nil {
 			return nodeErr
 		}
+		if node.AgentSession.State == ir.AgentSessionUnavailable && node.AgentSession.LastError == message {
+			return errAgentSessionAlreadyUnavailable
+		}
 		node.AgentSession.State = ir.AgentSessionUnavailable
 		node.AgentSession.LastError = message
 		appendAgentAPIEvent(node.AgentSession, "lifecycle", "unavailable", message)
 		return nil
 	})
+	if errors.Is(err, errAgentSessionAlreadyUnavailable) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -475,12 +508,18 @@ func appendAgentAPIEvent(session *ir.AgentSession, eventType, status, content st
 		Sequence: sequence, ID: fmt.Sprintf("dagu-%d-%d", session.Generation, sequence),
 		Type: eventType, Status: status, Content: content, Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 	})
+	if len(session.Events) > maxAgentSessionAPIEvents {
+		session.Events = append([]ir.AgentSessionEvent(nil), session.Events[len(session.Events)-maxAgentSessionAPIEvents:]...)
+	}
 }
 
 func cloneAgentAnswers(answers [][]string) [][]string {
 	cloned := make([][]string, len(answers))
 	for i := range answers {
-		cloned[i] = append([]string(nil), answers[i]...)
+		cloned[i] = make([]string, len(answers[i]))
+		for j := range answers[i] {
+			cloned[i][j] = strings.TrimSpace(answers[i][j])
+		}
 	}
 	return cloned
 }

@@ -1110,6 +1110,21 @@ func TestApplyAgentInteractionResponse(t *testing.T) {
 	assert.Equal(t, "user-1", interaction.RespondedByID)
 }
 
+func TestApplyAgentQuestionResponseTrimsAnswers(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status: ir.NodeWaiting,
+		AgentSession: &ir.AgentSession{State: ir.AgentSessionWaiting, Interactions: []ir.AgentInteraction{{
+			ID: "question-1", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionPending,
+			Questions: []ir.AgentQuestion{{Options: []ir.AgentQuestionOption{{Label: "A"}}}},
+		}}},
+	}
+	answers := [][]string{{" A "}}
+	require.NoError(t, applyAgentInteractionResponse(t.Context(), node, "question-1", &openapiv1.AgentInteractionResponseRequest{Answers: &answers}))
+	assert.Equal(t, [][]string{{"A"}}, node.AgentSession.Interactions[0].Answers)
+}
+
 func TestApplyAgentSessionRestart(t *testing.T) {
 	t.Parallel()
 
@@ -1173,4 +1188,83 @@ func TestValidateAgentQuestionResponse(t *testing.T) {
 	err := validateAgentInteractionResponse(interaction, &openapiv1.AgentInteractionResponseRequest{Answers: &invalid})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not an offered option")
+
+	tests := []struct {
+		name        string
+		interaction ir.AgentInteraction
+		body        *openapiv1.AgentInteractionResponseRequest
+	}{
+		{name: "nil body", interaction: interaction},
+		{
+			name:        "session permission without scope",
+			interaction: ir.AgentInteraction{Kind: ir.AgentInteractionPermission},
+			body: func() *openapiv1.AgentInteractionResponseRequest {
+				decision := openapiv1.AgentInteractionResponseRequestDecisionSession
+				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
+			}(),
+		},
+		{
+			name:        "unsupported permission decision",
+			interaction: ir.AgentInteraction{Kind: ir.AgentInteractionPermission},
+			body: func() *openapiv1.AgentInteractionResponseRequest {
+				decision := openapiv1.AgentInteractionResponseRequestDecision("always")
+				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
+			}(),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Error(t, validateAgentInteractionResponse(test.interaction, test.body))
+		})
+	}
+}
+
+func TestApplyAgentInteractionRejectsPermission(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{Status: ir.NodeWaiting, AgentSession: &ir.AgentSession{
+		State: ir.AgentSessionWaiting,
+		Interactions: []ir.AgentInteraction{{
+			ID: "permission-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+		}},
+	}}
+	decision := openapiv1.AgentInteractionResponseRequestDecisionReject
+	require.NoError(t, applyAgentInteractionResponse(t.Context(), node, "permission-1", &openapiv1.AgentInteractionResponseRequest{Decision: &decision}))
+	assert.Equal(t, ir.AgentInteractionRejected, node.AgentSession.Interactions[0].Status)
+}
+
+func TestApplyAgentSessionRestartGuards(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		node *ir.Node
+	}{
+		{
+			name: "running step",
+			node: &ir.Node{Status: ir.NodeRunning, AgentSession: &ir.AgentSession{Provider: "opencode"}},
+		},
+		{
+			name: "unsupported provider",
+			node: &ir.Node{Status: ir.NodeWaiting, AgentSession: &ir.AgentSession{Provider: "other"}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Error(t, applyAgentSessionRestart(test.node))
+		})
+	}
+}
+
+func TestAppendAgentAPIEventCapsHistory(t *testing.T) {
+	t.Parallel()
+
+	session := &ir.AgentSession{Generation: 1}
+	for range maxAgentSessionAPIEvents + 1 {
+		appendAgentAPIEvent(session, "lifecycle", "running", "Working")
+	}
+
+	require.Len(t, session.Events, maxAgentSessionAPIEvents)
+	assert.Equal(t, int64(2), session.Events[0].Sequence)
+	assert.Equal(t, int64(maxAgentSessionAPIEvents+1), session.Events[len(session.Events)-1].Sequence)
 }
