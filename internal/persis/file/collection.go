@@ -97,7 +97,7 @@ func (c *Collection) Put(ctx context.Context, rec *persis.Record) error {
 		if err != nil {
 			return err
 		}
-		return c.writeFile(path, rec)
+		return c.writeFile(path, rec, false)
 	})
 }
 
@@ -111,38 +111,11 @@ func (c *Collection) Create(ctx context.Context, rec *persis.Record) error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
-		if !json.Valid(rec.Data) {
-			return fmt.Errorf("file backend: invalid JSON record %q", rec.ID)
-		}
 		path, err := c.writePath(rec.ID)
 		if err != nil {
 			return err
 		}
-		body := rec.Data
-		if c.indent {
-			var buf bytes.Buffer
-			if err := json.Indent(&buf, rec.Data, "", "  "); err != nil {
-				return fmt.Errorf("file backend: indent record %q: %w", rec.ID, err)
-			}
-			body = buf.Bytes()
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return err
-		}
-		if err := fileutil.WriteFileAtomicExclusive(path, body, 0o600); err != nil {
-			if errors.Is(err, fs.ErrExist) {
-				return persis.ErrConflict
-			}
-			return err
-		}
-		mtime := rec.UpdatedAt
-		if mtime.IsZero() {
-			mtime = rec.CreatedAt
-		}
-		if mtime.IsZero() {
-			return nil
-		}
-		return os.Chtimes(path, mtime, mtime)
+		return c.writeFile(path, rec, true)
 	})
 }
 
@@ -312,7 +285,7 @@ func (c *Collection) CompareAndSwap(ctx context.Context, id string, expected, ne
 		}
 		rec.Data = next
 		rec.UpdatedAt = time.Now().UTC()
-		return c.writeFile(path, rec)
+		return c.writeFile(path, rec, false)
 	})
 }
 
@@ -453,7 +426,7 @@ func (c *Collection) readFile(path string) (*persis.Record, error) {
 	}, nil
 }
 
-func (c *Collection) writeFile(path string, rec *persis.Record) error {
+func (c *Collection) writeFile(path string, rec *persis.Record, exclusive bool) error {
 	if rec == nil {
 		return fmt.Errorf("file backend: nil record")
 	}
@@ -472,7 +445,14 @@ func (c *Collection) writeFile(path string, rec *persis.Record) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	if err := fileutil.WriteFileAtomic(path, body, 0o600); err != nil {
+	write := fileutil.WriteFileAtomic
+	if exclusive {
+		write = fileutil.WriteFileAtomicExclusive
+	}
+	if err := write(path, body, 0o600); err != nil {
+		if exclusive && errors.Is(err, fs.ErrExist) {
+			return persis.ErrConflict
+		}
 		return err
 	}
 	mtime := rec.UpdatedAt

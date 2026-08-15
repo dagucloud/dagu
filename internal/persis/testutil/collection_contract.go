@@ -188,8 +188,10 @@ func RunLockingCollectionContract(t *testing.T, factory CollectionFactory) {
 
 	t.Run("same_key_serializes", func(t *testing.T) {
 		first, second := factory(t)
-		firstLock := first.(persis.LockingCollection)
-		secondLock := second.(persis.LockingCollection)
+		firstLock, ok := first.(persis.LockingCollection)
+		require.True(t, ok, "collection must implement persis.LockingCollection")
+		secondLock, ok := second.(persis.LockingCollection)
+		require.True(t, ok, "collection must implement persis.LockingCollection")
 		entered, release := make(chan struct{}), make(chan struct{})
 		firstDone := make(chan error, 1)
 		go func() {
@@ -217,8 +219,10 @@ func RunLockingCollectionContract(t *testing.T, factory CollectionFactory) {
 
 	t.Run("callback_error_is_preserved", func(t *testing.T) {
 		col, _ := factory(t)
+		lockingCol, ok := col.(persis.LockingCollection)
+		require.True(t, ok, "collection must implement persis.LockingCollection")
 		want := errors.New("callback failed")
-		err := col.(persis.LockingCollection).WithLock(t.Context(), "key", func() error { return want })
+		err := lockingCol.WithLock(t.Context(), "key", func() error { return want })
 		assert.ErrorIs(t, err, want)
 	})
 }
