@@ -307,20 +307,9 @@ func (a *API) resolveRemoteNode(ctx context.Context, id string) (*remotenode.Rem
 	return a.remoteNodeStore.GetByID(ctx, id)
 }
 
-// testNodeConnection performs a health check against a remote node.
+// testNodeConnection checks that a remote node is reachable and that its
+// credentials are accepted. /health is a public path, so it cannot be used.
 func testNodeConnection(ctx context.Context, node *remotenode.RemoteNode) api.TestRemoteNodeConnectionResponse {
-	healthURL := fmt.Sprintf("%s/health", node.APIBaseURL)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
-	if err != nil {
-		return api.TestRemoteNodeConnectionResponse{
-			Success: false,
-			Error:   ptrOf(fmt.Sprintf("Failed to create request: %s", err.Error())),
-		}
-	}
-
-	node.ApplyAuth(req)
-
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
@@ -331,26 +320,67 @@ func testNodeConnection(ctx context.Context, node *remotenode.RemoteNode) api.Te
 		},
 	}
 
-	resp, err := client.Do(req)
+	probeURL := fmt.Sprintf("%s/dags?limit=1", node.APIBaseURL)
+
+	status, err := probeRemoteNode(ctx, client, probeURL, node)
 	if err != nil {
 		return api.TestRemoteNodeConnectionResponse{
 			Success: false,
 			Error:   ptrOf(fmt.Sprintf("Connection failed: %s", err.Error())),
 		}
 	}
-	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	switch {
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return api.TestRemoteNodeConnectionResponse{
+			Success: false,
+			Error: ptrOf(fmt.Sprintf(
+				"Reachable, but the remote rejected the credentials (HTTP %d)", status)),
+		}
+
+	case status < 200 || status >= 300:
+		return api.TestRemoteNodeConnectionResponse{
+			Success: false,
+			Error:   ptrOf(fmt.Sprintf("Connection test returned HTTP %d", status)),
+		}
+	}
+
+	if anon, err := probeRemoteNode(ctx, client, probeURL, nil); err == nil &&
+		anon >= 200 && anon < 300 {
 		return api.TestRemoteNodeConnectionResponse{
 			Success: true,
-			Message: ptrOf(fmt.Sprintf("Connected successfully (HTTP %d)", resp.StatusCode)),
+			Message: ptrOf(fmt.Sprintf(
+				"Connected successfully (HTTP %d). The remote does not require "+
+					"authentication, so the credentials were not verified.", status)),
 		}
 	}
 
 	return api.TestRemoteNodeConnectionResponse{
-		Success: false,
-		Error:   ptrOf(fmt.Sprintf("Health check returned HTTP %d", resp.StatusCode)),
+		Success: true,
+		Message: ptrOf(fmt.Sprintf(
+			"Connected successfully (HTTP %d); credentials accepted.", status)),
 	}
+}
+
+// probeRemoteNode issues one GET and returns its status code.
+// A nil node probes anonymously.
+func probeRemoteNode(ctx context.Context, client *http.Client, url string, node *remotenode.RemoteNode) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if node != nil {
+		node.ApplyAuth(req)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	return resp.StatusCode, nil
 }
 
 // toRemoteNodeResponse converts a resolved node to an API response.
