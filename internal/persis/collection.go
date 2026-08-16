@@ -77,19 +77,23 @@ type Page struct {
 }
 
 // Collection is an isolated namespace of [Record]s.
-// All methods must be safe for concurrent use. Implementations map each
-// collection to a distinct physical namespace.
+// All methods must be safe for concurrent use. Mutations of the same record
+// must be linearizable across clients sharing the physical namespace.
+// Atomicity is per record; Collection does not define multi-record transactions.
+// ErrConflict is reserved for failed conditional mutations, not transient
+// backend write contention.
+// Implementations map each collection to a distinct physical namespace.
 type Collection interface {
 	// Get returns the record identified by id.
 	// Returns [ErrNotFound] if no record with that id exists.
 	Get(ctx context.Context, id string) (*Record, error)
 
-	// Put creates or replaces a record.
+	// Put atomically creates or replaces a record.
 	Put(ctx context.Context, rec *Record) error
 
 	// Create atomically inserts rec. Returns [ErrConflict] when a record with
 	// rec.ID already exists. Implementations must guarantee the check-and-insert
-	// is atomic with respect to concurrent Put, CompareAndSwap, and Create calls.
+	// is atomic with respect to every concurrent mutation of the same record.
 	Create(ctx context.Context, rec *Record) error
 
 	// Delete removes the record with the given id.
@@ -109,14 +113,6 @@ type Collection interface {
 	// bytes equal expected. Returns [ErrConflict] when they do not match and
 	// [ErrNotFound] when the record does not exist.
 	CompareAndSwap(ctx context.Context, id string, expected, next []byte) error
-}
-
-// LockingCollection runs operations under a storage-wide lock scoped by key.
-// Implementations must serialize the same key across all clients sharing the
-// collection's physical namespace.
-type LockingCollection interface {
-	Collection
-	WithLock(ctx context.Context, key string, fn func() error) error
 }
 
 // Backend provides isolated, named control-plane collections. Collection names

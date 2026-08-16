@@ -31,7 +31,6 @@ func TestFileCollection(t *testing.T) {
 		return file.NewCollection(dir), file.NewCollection(dir)
 	}
 	testutil.RunCollectionContract(t, factory)
-	testutil.RunLockingCollectionContract(t, factory)
 }
 
 func TestFileBackendPreservesCollectionLayout(t *testing.T) {

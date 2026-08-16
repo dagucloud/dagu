@@ -37,7 +37,7 @@ type Collection struct {
 	mu         sync.RWMutex
 }
 
-var _ persis.LockingCollection = (*Collection)(nil)
+var _ persis.Collection = (*Collection)(nil)
 
 // CollectionOption configures a file-backed [Collection].
 type CollectionOption func(*Collection)
@@ -129,8 +129,23 @@ func (c *Collection) Create(ctx context.Context, rec *persis.Record) error {
 }
 
 func (c *Collection) Delete(ctx context.Context, id string) error {
-	_, err := c.DeleteIfExists(ctx, id)
-	return err
+	return c.withRecordLock(ctx, id, func() error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		path, err := c.writePath(id)
+		if err != nil {
+			return err
+		}
+		if err := fileutil.Remove(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		removeEmptyDirs(filepath.Dir(path), c.dir)
+		return nil
+	})
 }
 
 // CompareAndDelete removes expected.ID only when the current record still
@@ -197,15 +212,6 @@ func (c *Collection) RecordVersion(_ context.Context, id string) (string, error)
 	return fmt.Sprintf("%d/%d", info.ModTime().UTC().UnixNano(), info.Size()), nil
 }
 
-// WithLock runs fn while holding a cross-process lock scoped to key.
-func (c *Collection) WithLock(ctx context.Context, key string, fn func() error) error {
-	lockDir, err := c.lockDir(key)
-	if err != nil {
-		return err
-	}
-	return withDirLock(ctx, lockDir, fn)
-}
-
 func withDirLock(ctx context.Context, lockDir string, fn func() error) error {
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{
 		StaleThreshold: 30 * time.Second,
@@ -218,30 +224,6 @@ func withDirLock(ctx context.Context, lockDir string, fn func() error) error {
 		_ = lock.Unlock()
 	}()
 	return fn()
-}
-
-// DeleteIfExists removes the record with the given id and reports whether it existed.
-func (c *Collection) DeleteIfExists(ctx context.Context, id string) (bool, error) {
-	var deleted bool
-	err := c.withRecordLock(ctx, id, func() error {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-
-		path, err := c.writePath(id)
-		if err != nil {
-			return err
-		}
-		if err := fileutil.Remove(path); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		removeEmptyDirs(filepath.Dir(path), c.dir)
-		deleted = true
-		return nil
-	})
-	return deleted, err
 }
 
 func (c *Collection) List(_ context.Context, q persis.ListQuery) (*persis.Page, error) {
@@ -368,17 +350,6 @@ func (c *Collection) acceptsID(id string) bool {
 		}
 	}
 	return false
-}
-
-func (c *Collection) lockDir(key string) (string, error) {
-	if key == "" {
-		return c.dir, nil
-	}
-	path, err := pathUnderRoot(c.dir, strings.TrimSuffix(key, "/")+"/_lock", "lock key")
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(path), nil
 }
 
 func (c *Collection) withRecordLock(ctx context.Context, id string, fn func() error) error {

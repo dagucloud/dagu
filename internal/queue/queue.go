@@ -13,7 +13,6 @@ import (
 
 // Errors for the queue
 var (
-	ErrQueueEmpty        = errors.New("queue is empty")
 	ErrQueueItemNotFound = errors.New("queue item not found")
 )
 

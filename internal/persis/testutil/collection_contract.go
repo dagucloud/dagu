@@ -182,51 +182,6 @@ func RunCollectionContract(t *testing.T, factory CollectionFactory) {
 	})
 }
 
-// RunLockingCollectionContract verifies storage-wide same-key locking.
-func RunLockingCollectionContract(t *testing.T, factory CollectionFactory) {
-	t.Helper()
-
-	t.Run("same_key_serializes", func(t *testing.T) {
-		first, second := factory(t)
-		firstLock, ok := first.(persis.LockingCollection)
-		require.True(t, ok, "collection must implement persis.LockingCollection")
-		secondLock, ok := second.(persis.LockingCollection)
-		require.True(t, ok, "collection must implement persis.LockingCollection")
-		entered, release := make(chan struct{}), make(chan struct{})
-		firstDone := make(chan error, 1)
-		go func() {
-			firstDone <- firstLock.WithLock(t.Context(), "shared", func() error {
-				close(entered)
-				<-release
-				return nil
-			})
-		}()
-		<-entered
-
-		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-		defer cancel()
-		called := false
-		err := secondLock.WithLock(ctx, "shared", func() error {
-			called = true
-			return nil
-		})
-		assert.ErrorIs(t, err, context.DeadlineExceeded)
-		assert.False(t, called)
-
-		close(release)
-		require.NoError(t, <-firstDone)
-	})
-
-	t.Run("callback_error_is_preserved", func(t *testing.T) {
-		col, _ := factory(t)
-		lockingCol, ok := col.(persis.LockingCollection)
-		require.True(t, ok, "collection must implement persis.LockingCollection")
-		want := errors.New("callback failed")
-		err := lockingCol.WithLock(t.Context(), "key", func() error { return want })
-		assert.ErrorIs(t, err, want)
-	})
-}
-
 func recordIDs(records []*persis.Record) []string {
 	ids := make([]string, len(records))
 	for i, rec := range records {

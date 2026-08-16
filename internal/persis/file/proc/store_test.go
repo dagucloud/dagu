@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -67,6 +68,55 @@ func TestStoreWritesReleasedProcFileLayoutOnly(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(root, "queue-a", "sidecar-dag", "proc_*.proc"))
 	require.NoError(t, err)
 	assert.Empty(t, matches)
+}
+
+func TestStoreWithLockSerializesIndependentStores(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	first := New(root)
+	second := New(root)
+	held := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseFirst := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
+	defer releaseFirst()
+
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- first.WithLock(context.Background(), "queue-a", func() error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+
+	select {
+	case <-held:
+	case <-time.After(time.Second):
+		t.Fatal("first store did not acquire the process-group lock")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	called := false
+	err := second.WithLock(ctx, "queue-a", func() error {
+		called = true
+		return nil
+	})
+	assert.True(t, persis.IsProcLockError(err))
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.False(t, called)
+
+	releaseFirst()
+	select {
+	case err := <-firstDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("first store did not release the process-group lock")
+	}
 }
 
 func TestStoreReadsAndRemovesReleasedProcFiles(t *testing.T) {

@@ -37,7 +37,6 @@ func (b *MemoryBackend) Collection(name string) persis.Collection {
 	if _, ok := b.cols[name]; !ok {
 		b.cols[name] = &MemoryCollection{
 			records: make(map[string]*persis.Record),
-			locks:   make(map[string]*sync.Mutex),
 		}
 	}
 	return b.cols[name]
@@ -49,50 +48,9 @@ func (b *MemoryBackend) Collection(name string) persis.Collection {
 type MemoryCollection struct {
 	mu      sync.Mutex
 	records map[string]*persis.Record
-	lockMu  sync.Mutex
-	locks   map[string]*sync.Mutex
 }
 
-var _ persis.LockingCollection = (*MemoryCollection)(nil)
-
-func (c *MemoryCollection) WithLock(ctx context.Context, key string, fn func() error) error {
-	return c.withLock(ctx, key, 50*time.Millisecond, fn)
-}
-
-func (c *MemoryCollection) withLock(ctx context.Context, key string, retryInterval time.Duration, fn func() error) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	lock := c.lockForKey(key)
-	ticker := time.NewTicker(retryInterval)
-	defer ticker.Stop()
-	for {
-		if lock.TryLock() {
-			defer lock.Unlock()
-			return fn()
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
-func (c *MemoryCollection) lockForKey(key string) *sync.Mutex {
-	c.lockMu.Lock()
-	defer c.lockMu.Unlock()
-	if c.locks == nil {
-		c.locks = make(map[string]*sync.Mutex)
-	}
-	lock, ok := c.locks[key]
-	if !ok {
-		lock = &sync.Mutex{}
-		c.locks[key] = lock
-	}
-	return lock
-}
+var _ persis.Collection = (*MemoryCollection)(nil)
 
 func (c *MemoryCollection) Get(_ context.Context, id string) (*persis.Record, error) {
 	c.mu.Lock()
@@ -126,9 +84,11 @@ func (c *MemoryCollection) Create(_ context.Context, rec *persis.Record) error {
 	return nil
 }
 
-func (c *MemoryCollection) Delete(ctx context.Context, id string) error {
-	_, err := c.DeleteIfExists(ctx, id)
-	return err
+func (c *MemoryCollection) Delete(_ context.Context, id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.records, id)
+	return nil
 }
 
 func (c *MemoryCollection) CompareAndDelete(_ context.Context, expected *persis.Record) error {
@@ -169,17 +129,6 @@ func (c *MemoryCollection) RecordVersion(_ context.Context, id string) (string, 
 		return "", persis.ErrNotFound
 	}
 	return fmt.Sprintf("%d/%d", r.UpdatedAt.UTC().UnixNano(), len(r.Data)), nil
-}
-
-// DeleteIfExists removes a record and reports whether it existed.
-func (c *MemoryCollection) DeleteIfExists(_ context.Context, id string) (bool, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, ok := c.records[id]; !ok {
-		return false, nil
-	}
-	delete(c.records, id)
-	return true, nil
 }
 
 func (c *MemoryCollection) List(_ context.Context, q persis.ListQuery) (*persis.Page, error) {

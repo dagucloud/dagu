@@ -19,5 +19,4 @@ func TestMemoryCollection(t *testing.T) {
 		return backend.Collection("test"), backend.Collection("test")
 	}
 	testutil.RunCollectionContract(t, factory)
-	testutil.RunLockingCollectionContract(t, factory)
 }
