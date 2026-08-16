@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -121,6 +123,75 @@ func pwdCommand() string {
 	return test.ForOS("pwd", "(Get-Location).Path")
 }
 
+type delayedStatusContextObserver struct {
+	mu                        sync.Mutex
+	delayedStatusStarted      chan struct{}
+	delayedStatusContext      context.Context
+	runningNodeWrites         int
+	canceledDuringStatusWrite bool
+}
+
+func newDelayedStatusContextObserver() *delayedStatusContextObserver {
+	return &delayedStatusContextObserver{delayedStatusStarted: make(chan struct{})}
+}
+
+func (o *delayedStatusContextObserver) observe(ctx context.Context, status ir.DAGRunStatus) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.delayedStatusContext != nil && o.delayedStatusContext.Err() != nil {
+		o.canceledDuringStatusWrite = true
+	}
+
+	if status.Status != ir.Running {
+		return
+	}
+	for _, node := range status.Nodes {
+		if node.Status != ir.NodeRunning {
+			continue
+		}
+		o.runningNodeWrites++
+		if o.runningNodeWrites == 2 {
+			// The first running-node status is the progress update; the second is the delayed snapshot.
+			o.delayedStatusContext = ctx
+			close(o.delayedStatusStarted)
+		}
+		return
+	}
+}
+
+func (o *delayedStatusContextObserver) wasCanceledDuringStatusWrite() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.canceledDuringStatusWrite
+}
+
+type observedRunStateStore struct {
+	runstate.Store
+	observer *delayedStatusContextObserver
+}
+
+func (s *observedRunStateStore) BeginAttempt(
+	ctx context.Context,
+	req runstate.BeginAttemptRequest,
+) (runstate.Attempt, error) {
+	attempt, err := s.Store.BeginAttempt(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &observedRunStateAttempt{Attempt: attempt, observer: s.observer}, nil
+}
+
+type observedRunStateAttempt struct {
+	runstate.Attempt
+	observer *delayedStatusContextObserver
+}
+
+func (a *observedRunStateAttempt) RecordStatus(ctx context.Context, status ir.DAGRunStatus) error {
+	a.observer.observe(ctx, status)
+	return a.Attempt.RecordStatus(ctx, status)
+}
+
 func TestAgent_Run(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Parallel()
@@ -152,6 +223,49 @@ func TestAgent_Run(t *testing.T) {
 			t.Fatalf("timed out waiting for DAG run to finish after %s", runTimeout)
 		}
 
+		dag.AssertLatestStatus(t, ir.Succeeded)
+	})
+	t.Run("DelayedRunningStatusWriteRemainsActiveUntilTerminalStatus", func(t *testing.T) {
+		th := test.Setup(t)
+		releaseFile := filepath.Join(t.TempDir(), "release")
+		t.Cleanup(func() {
+			_ = os.WriteFile(releaseFile, []byte("done"), 0600)
+		})
+		dag := th.DAG(t, fmt.Sprintf(`steps:
+  - name: wait-until-released
+    run: %q
+`, waitForFileScript(releaseFile, 10*time.Millisecond)))
+
+		observer := newDelayedStatusContextObserver()
+		stateStore := &observedRunStateStore{
+			Store:    persis.NewRunStateStore(th.DAGRunRepository, nil),
+			observer: observer,
+		}
+		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+			RunStateStore:       stateStore,
+			SocketServerFactory: fakeSocketServerFactory(nil),
+		}))
+
+		runDone := make(chan error, 1)
+		go func() {
+			runDone <- dagAgent.Run(th.Context)
+		}()
+
+		select {
+		case <-observer.delayedStatusStarted:
+		case <-time.After(agentRunStartTimeout()):
+			require.FailNow(t, "timed out waiting for delayed running-status write")
+		}
+		require.NoError(t, os.WriteFile(releaseFile, []byte("done"), 0600))
+
+		select {
+		case err := <-runDone:
+			require.NoError(t, err)
+		case <-time.After(agentRunStartTimeout()):
+			require.FailNow(t, "timed out waiting for DAG run to finish")
+		}
+
+		require.False(t, observer.wasCanceledDuringStatusWrite())
 		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
 	t.Run("RecordsTriggerActor", func(t *testing.T) {

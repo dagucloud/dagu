@@ -1020,11 +1020,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		case <-timer.C:
 		}
 
-		status := a.Status(runningStatusCtx)
+		status := a.Status(ctx)
 		if a.finished.Load() || a.shouldDelayTerminalStatus(status.Status) {
 			return
 		}
-		a.writeStatus(runningStatusCtx, attempt, status)
+		a.writeStatus(ctx, attempt, status)
 	})
 
 	// Start the dag-run.
