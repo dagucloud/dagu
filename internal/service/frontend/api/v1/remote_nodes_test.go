@@ -33,6 +33,17 @@ func guardedRemote(t *testing.T, wantToken string) *httptest.Server {
 	return srv
 }
 
+func remoteReturning(t *testing.T, status int) *httptest.Server {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(srv.Close)
+
+	return srv
+}
+
 func TestTestNodeConnection(t *testing.T) {
 	t.Parallel()
 
@@ -80,6 +91,37 @@ func TestTestNodeConnection(t *testing.T) {
 		assert.False(t, result.Success)
 		require.NotNil(t, result.Error)
 		assert.Contains(t, *result.Error, "rejected the credentials")
+	})
+
+	t.Run("ForbiddenIsRejected", func(t *testing.T) {
+		t.Parallel()
+
+		srv := remoteReturning(t, http.StatusForbidden)
+		result := testNodeConnection(context.Background(), &remotenode.RemoteNode{
+			APIBaseURL: srv.URL + "/api/v1",
+			AuthType:   remotenode.AuthTypeToken,
+			AuthToken:  "good-token",
+		})
+
+		assert.False(t, result.Success)
+		require.NotNil(t, result.Error)
+		assert.Contains(t, *result.Error, "rejected the credentials")
+		assert.Contains(t, *result.Error, "403")
+	})
+
+	t.Run("ServerErrorFails", func(t *testing.T) {
+		t.Parallel()
+
+		srv := remoteReturning(t, http.StatusInternalServerError)
+		result := testNodeConnection(context.Background(), &remotenode.RemoteNode{
+			APIBaseURL: srv.URL + "/api/v1",
+			AuthType:   remotenode.AuthTypeToken,
+			AuthToken:  "good-token",
+		})
+
+		assert.False(t, result.Success)
+		require.NotNil(t, result.Error)
+		assert.Contains(t, *result.Error, "Connection test returned HTTP 500")
 	})
 
 	t.Run("UnguardedRemoteReportsCredentialsUnverified", func(t *testing.T) {
