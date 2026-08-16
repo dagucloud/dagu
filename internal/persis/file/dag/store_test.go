@@ -375,6 +375,32 @@ steps:
 	assert.Equal(t, `batch_size="10" debug="false"`, dag.DefaultParams)
 }
 
+func TestGetMetadataCachesSharedSymlinkTargetsByEntry(t *testing.T) {
+	dagDir := t.TempDir()
+	targetPath := filepath.Join(t.TempDir(), "shared.yaml")
+	require.NoError(t, os.WriteFile(targetPath, []byte("steps: []\n"), 0600))
+	for _, name := range []string{"first", "second"} {
+		if err := os.Symlink(targetPath, filepath.Join(dagDir, name+".yaml")); err != nil {
+			t.Skipf("symlink creation is unavailable: %v", err)
+		}
+	}
+
+	store := newRepository(
+		dagDir,
+		WithFileCache(fileutil.NewCache[*ir.DAG]("dag_definition", 16, time.Hour)),
+		WithSkipExamples(true),
+		WithSymlinks(true),
+	)
+	ctx := context.Background()
+
+	first, err := store.GetMetadata(ctx, "first")
+	require.NoError(t, err)
+	second, err := store.GetMetadata(ctx, "second")
+	require.NoError(t, err)
+	assert.Equal(t, "first", first.Name)
+	assert.Equal(t, "second", second.Name)
+}
+
 func TestGetDetails(t *testing.T) {
 	tmpDir := fileutil.MustTempDir("test-get-details")
 	defer func() {

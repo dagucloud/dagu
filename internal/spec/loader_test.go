@@ -2450,7 +2450,7 @@ this is not valid yaml: [unterminated
 			context.Background(),
 			testDAG,
 			spec.WithAllowBuildErrors(),
-			spec.WithDefaultName("entry-name"),
+			spec.WithDefaultName("  entry-name  "),
 		)
 		require.NoError(t, err)
 		require.NotNil(t, dag)

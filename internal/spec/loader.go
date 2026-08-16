@@ -104,7 +104,7 @@ func WithName(name string) LoadOption {
 // WithDefaultName sets the entrypoint DAG name when the manifest omits it.
 func WithDefaultName(name string) LoadOption {
 	return func(o *buildOpts) {
-		o.DefaultName = name
+		o.DefaultName = strings.TrimSpace(name)
 	}
 }
 
