@@ -3,6 +3,7 @@
 
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Tab, Tabs } from '@/components/ui/tabs';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import {
@@ -500,8 +501,39 @@ function AgentSessionCard({
   );
 }
 
+function preferredAgentNode(nodes: NodeData[]) {
+  return (
+    nodes.find(
+      (node) =>
+        node.agentSession?.state === 'waiting' ||
+        node.agentSession?.state === 'unavailable'
+    ) ||
+    nodes.find(
+      (node) =>
+        node.agentSession?.state === 'running' ||
+        node.agentSession?.state === 'starting'
+    ) ||
+    nodes[nodes.length - 1]
+  );
+}
+
 export function AgentSessionTab({ dagRun, onChanged }: Props) {
   const nodes = (dagRun.nodes || []).filter((node) => !!node.agentSession);
+  const tabGroupId = React.useId();
+  const panelId = `${tabGroupId}-panel`;
+  const [selectedStep, setSelectedStep] = React.useState(
+    () => preferredAgentNode(nodes)?.step.name || ''
+  );
+  const selectedNode =
+    nodes.find((node) => node.step.name === selectedStep) ||
+    preferredAgentNode(nodes);
+
+  React.useEffect(() => {
+    if (!nodes.some((node) => node.step.name === selectedStep)) {
+      setSelectedStep(preferredAgentNode(nodes)?.step.name || '');
+    }
+  }, [nodes, selectedStep]);
+
   if (nodes.length === 0) {
     return (
       <div className="py-8 text-center text-sm text-muted-foreground">
@@ -509,16 +541,93 @@ export function AgentSessionTab({ dagRun, onChanged }: Props) {
       </div>
     );
   }
+
+  const selectedIndex = nodes.findIndex(
+    (node) => node.step.name === selectedNode?.step.name
+  );
+  const tabId = (index: number) => `${tabGroupId}-${index}-tab`;
+  const selectNode = (index: number) => {
+    const node = nodes[index];
+    if (node) setSelectedStep(node.step.name);
+  };
+  const handleTabKeyDown = (
+    event: React.KeyboardEvent<HTMLElement>,
+    index: number
+  ) => {
+    let nextIndex: number;
+    switch (event.key) {
+      case 'ArrowLeft':
+        nextIndex = (index - 1 + nodes.length) % nodes.length;
+        break;
+      case 'ArrowRight':
+        nextIndex = (index + 1) % nodes.length;
+        break;
+      case 'Home':
+        nextIndex = 0;
+        break;
+      case 'End':
+        nextIndex = nodes.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    selectNode(nextIndex);
+    document.getElementById(tabId(nextIndex))?.focus();
+  };
+
   return (
     <div className="space-y-4">
-      {nodes.map((node) => (
+      {nodes.length > 1 && (
+        <Tabs
+          role="tablist"
+          aria-label="Agent conversations"
+          className="flex w-full overflow-x-auto overflow-y-hidden"
+        >
+          {nodes.map((node, index) => {
+            const selected = node.step.name === selectedNode?.step.name;
+            return (
+              <Tab
+                key={node.step.name}
+                id={tabId(index)}
+                role="tab"
+                isActive={selected}
+                aria-selected={selected}
+                aria-controls={panelId}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => selectNode(index)}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
+                className="h-9 shrink-0 gap-2 px-3"
+              >
+                <span>{node.step.name}</span>
+                <span
+                  className={`rounded-full border px-1.5 py-0.5 text-[11px] ${stateClasses(
+                    node.agentSession!.state
+                  )}`}
+                >
+                  {node.agentSession!.state}
+                </span>
+              </Tab>
+            );
+          })}
+        </Tabs>
+      )}
+      <div
+        {...(nodes.length > 1
+          ? {
+              id: panelId,
+              role: 'tabpanel',
+              'aria-labelledby': tabId(selectedIndex),
+            }
+          : {})}
+      >
         <AgentSessionCard
-          key={node.step.name}
-          node={node}
+          key={selectedNode!.step.name}
+          node={selectedNode!}
           dagRun={dagRun}
           onChanged={onChanged}
         />
-      ))}
+      </div>
     </div>
   );
 }

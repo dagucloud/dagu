@@ -30,7 +30,7 @@ For host subprocess runs, built-in provider adapters resolve binaries through `P
 
 ### Managed OpenCode Sessions
 
-Built-in `provider: opencode` steps use a managed OpenCode server session by default when they run from a standalone Dagu server, from `dagu start-all`, or on a distributed worker. The run page shows the agent timeline and lets an operator answer permission requests and questions. A waiting answer suspends the step durably; Dagu resumes the same OpenCode session on the host that owns it. The final assistant text becomes step stdout.
+Built-in `provider: opencode` steps use a managed OpenCode server session by default when they run from a standalone Dagu server, from `dagu start-all`, or on a distributed worker. The run page shows the agent timeline and lets an operator answer permission requests and questions. Each managed step has its own conversation by default; runs with multiple managed steps provide a step selector in the Agent tab. A waiting answer suspends the step durably; Dagu resumes the same OpenCode session on the host that owns it. The final assistant text becomes step stdout.
 
 Managed mode starts one process-local OpenCode server under the Dagu service identity. Install a compatible `opencode` executable for that service and authenticate it with `opencode auth login` (normally stored in `~/.local/share/opencode/auth.json`) or pass selected provider credentials through the service configuration:
 
