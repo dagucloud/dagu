@@ -40,6 +40,19 @@ type openCodeMessage struct {
 	Parts []json.RawMessage `json:"parts"`
 }
 
+type openCodeMessageInfo struct {
+	ID         string          `json:"id"`
+	Role       string          `json:"role"`
+	ParentID   string          `json:"parentID"`
+	ProviderID string          `json:"providerID"`
+	ModelID    string          `json:"modelID"`
+	Finish     string          `json:"finish"`
+	Error      json.RawMessage `json:"error"`
+	Time       struct {
+		Completed int64 `json:"completed"`
+	} `json:"time"`
+}
+
 type openCodePermissionRequest struct {
 	ID         string   `json:"id"`
 	SessionID  string   `json:"sessionID"`
@@ -162,8 +175,8 @@ func (c *openCodeClient) validateManagedConfig(ctx context.Context) error {
 	return nil
 }
 
-func (c *openCodeClient) commandAsync(ctx context.Context, sessionID, command, arguments string, cfg providerConfig, files []map[string]any) <-chan error {
-	body := map[string]any{"command": command, "arguments": arguments, "parts": files}
+func (c *openCodeClient) commandAsync(ctx context.Context, sessionID, messageID, command, arguments string, cfg providerConfig, files []map[string]any) <-chan error {
+	body := map[string]any{"messageID": messageID, "command": command, "arguments": arguments, "parts": files}
 	if agent := stringFlag(cfg.flags, "agent"); agent != "" {
 		body["agent"] = agent
 	}

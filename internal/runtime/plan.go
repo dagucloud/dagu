@@ -372,12 +372,17 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
 
 func clearNodeForRetry(node *Node, step ir.Step) {
 	session := node.GetAgentSession()
+	previousStatus := node.State().Status
 	node.ClearState(step)
 	if session == nil {
 		return
 	}
-	session.State = ir.AgentSessionStarting
-	session.LastError = ""
+	if session.PromptSent && (previousStatus.IsDone() || session.State == ir.AgentSessionFailed || session.State == ir.AgentSessionAborted) {
+		session.StartNewGeneration()
+	} else {
+		session.State = ir.AgentSessionStarting
+		session.LastError = ""
+	}
 	node.SetAgentSession(session)
 }
 

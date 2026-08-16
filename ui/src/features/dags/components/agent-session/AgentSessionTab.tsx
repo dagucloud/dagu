@@ -433,11 +433,12 @@ function AgentSessionCard({
         )}
       </div>
 
-      {session.lastError && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {session.lastError}
-        </div>
-      )}
+      {session.lastError &&
+        (session.state === 'failed' || session.state === 'unavailable') && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            {session.lastError}
+          </div>
+        )}
       {error && (
         <div
           role="alert"

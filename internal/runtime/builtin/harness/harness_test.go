@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -121,6 +123,211 @@ func TestNormalizeOpenCodeMessages(t *testing.T) {
 	assert.NotEqual(t, events[0].ID, events[1].ID)
 	assert.Equal(t, int64(28), usage.TotalTokens)
 	assert.Equal(t, 0.30, usage.Cost)
+}
+
+func TestManagedOpenCodeResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		messages []openCodeMessage
+		wantText string
+		wantDone bool
+		wantErr  string
+	}{
+		{
+			name: "completed response",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-old","role":"assistant","parentID":"prompt-old","finish":"stop","time":{"completed":1}}`, `{"type":"text","text":"Old result"}`),
+				openCodeTestMessage(`{"id":"assistant-new","role":"assistant","parentID":"prompt-1","finish":"stop","time":{"completed":2}}`, `{"type":"text","text":"Done"}`),
+			},
+			wantText: "Done",
+			wantDone: true,
+		},
+		{
+			name: "completed empty response",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-1","role":"assistant","parentID":"prompt-1","finish":"stop","time":{"completed":1}}`),
+			},
+			wantDone: true,
+		},
+		{
+			name: "unfinished response",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-1","role":"assistant","parentID":"prompt-1"}`, `{"type":"text","text":"Working"}`),
+			},
+		},
+		{
+			name: "response error",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-1","role":"assistant","parentID":"prompt-1","error":{"name":"ProviderModelNotFoundError","data":{"message":"Model not found"}}}`),
+			},
+			wantDone: true,
+			wantErr:  "Model not found",
+		},
+		{
+			name: "unrelated response",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-1","role":"assistant","parentID":"prompt-other","finish":"stop","time":{"completed":1}}`, `{"type":"text","text":"Wrong result"}`),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text, done, err := managedOpenCodeResult(tt.messages, "prompt-1")
+			assert.Equal(t, tt.wantText, text)
+			assert.Equal(t, tt.wantDone, done)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestOpenCodeSessionError(t *testing.T) {
+	t.Parallel()
+
+	properties := json.RawMessage(`{"sessionID":"session-1","error":{"name":"ProviderModelNotFoundError","data":{"message":"Model not found"}}}`)
+	message, ok := openCodeSessionError(properties, "session-1")
+	assert.True(t, ok)
+	assert.Equal(t, "Model not found", message)
+
+	_, ok = openCodeSessionError(properties, "session-2")
+	assert.False(t, ok)
+}
+
+func TestManagedOpenCodeRetryUsesNewSessionGeneration(t *testing.T) {
+	t.Parallel()
+
+	const providerError = "Model not found: openrouter/deepseek/deepseek-v4-flash"
+	type submission struct {
+		sessionID string
+		messageID string
+		prompt    string
+	}
+
+	var mu sync.Mutex
+	created := 0
+	messages := make(map[string][]openCodeMessage)
+	submissions := make([]submission, 0, 2)
+	promptSubmitted := []chan struct{}{make(chan struct{}), make(chan struct{})}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/config":
+			_, _ = io.WriteString(w, `{"share":"disabled"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/session":
+			mu.Lock()
+			created++
+			sessionID := "session-" + strconv.Itoa(created)
+			mu.Unlock()
+			_, _ = io.WriteString(w, `{"id":"`+sessionID+`"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/event":
+			mu.Lock()
+			generation := created
+			mu.Unlock()
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			select {
+			case <-promptSubmitted[generation-1]:
+			case <-r.Context().Done():
+				return
+			}
+			if generation == 1 {
+				_, _ = io.WriteString(w, `data: {"type":"session.error","properties":{"sessionID":"session-1","error":{"name":"ProviderModelNotFoundError","data":{"message":"`+providerError+`"}}}}`+"\n\n")
+				w.(http.Flusher).Flush()
+			}
+			_, _ = io.WriteString(w, `data: {"type":"session.idle","properties":{"sessionID":"session-`+strconv.Itoa(generation)+`"}}`+"\n\n")
+			w.(http.Flusher).Flush()
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/prompt_async"):
+			sessionID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/prompt_async")
+			var body struct {
+				MessageID string `json:"messageID"`
+				Parts     []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"parts"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			generation := created
+			submissions = append(submissions, submission{sessionID: sessionID, messageID: body.MessageID, prompt: body.Parts[0].Text})
+			messages[sessionID] = []openCodeMessage{openCodeTestMessage(`{"id":"`+body.MessageID+`","role":"user"}`, `{"type":"text","text":"`+body.Parts[0].Text+`"}`)}
+			if generation == 2 {
+				messages[sessionID] = append(messages[sessionID], openCodeTestMessage(
+					`{"id":"assistant-2","role":"assistant","parentID":"`+body.MessageID+`","finish":"stop","time":{"completed":1}}`,
+					`{"type":"text","text":"Completed on retry"}`,
+				))
+			}
+			mu.Unlock()
+			close(promptSubmitted[generation-1])
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/message"):
+			sessionID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/message")
+			mu.Lock()
+			response := append([]openCodeMessage(nil), messages[sessionID]...)
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(response)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{})
+	host := opencodehost.Config{URL: server.URL, Password: "test", InstanceID: "host-1"}
+
+	stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host)
+	require.Nil(t, stdout)
+	require.EqualError(t, err, providerError)
+	require.NotNil(t, exec.agentSession)
+	assert.Equal(t, ir.AgentSessionFailed, exec.agentSession.State)
+	assert.Equal(t, providerError, exec.agentSession.LastError)
+	assert.Equal(t, 1, exec.agentSession.Generation)
+	failedSessionID := exec.agentSession.SessionID
+	failedMessageID := exec.agentSession.PromptMessageID
+
+	stdout, err = exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host)
+	require.NoError(t, err)
+	output, readErr := io.ReadAll(stdout)
+	require.NoError(t, readErr)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	assert.Equal(t, "Completed on retry\n", string(output))
+	assert.Equal(t, ir.AgentSessionSucceeded, exec.agentSession.State)
+	assert.Empty(t, exec.agentSession.LastError)
+	assert.Equal(t, 2, exec.agentSession.Generation)
+	assert.Equal(t, "session-2", exec.agentSession.SessionID)
+	assert.Equal(t, failedSessionID, exec.agentSession.DiscardedSessionID)
+	assert.True(t, exec.agentSession.DiscardedOwned)
+	assert.NotEqual(t, failedMessageID, exec.agentSession.PromptMessageID)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, submissions, 2)
+	assert.Equal(t, "Do the work", submissions[0].prompt)
+	assert.Equal(t, submissions[0].prompt, submissions[1].prompt)
+	assert.Equal(t, "session-1", submissions[0].sessionID)
+	assert.Equal(t, "session-2", submissions[1].sessionID)
+	assert.Equal(t, failedMessageID, submissions[0].messageID)
+	assert.Equal(t, exec.agentSession.PromptMessageID, submissions[1].messageID)
+	assert.True(t, strings.HasPrefix(submissions[0].messageID, "msg_dagu_"))
+}
+
+func openCodeTestMessage(info string, parts ...string) openCodeMessage {
+	message := openCodeMessage{Info: json.RawMessage(info), Parts: make([]json.RawMessage, len(parts))}
+	for i := range parts {
+		message.Parts[i] = json.RawMessage(parts[i])
+	}
+	return message
 }
 
 func TestOpenCodeClientClassifiesNotFoundByEndpoint(t *testing.T) {
@@ -257,9 +464,12 @@ func TestManagedOpenCodeRefreshUpdatesTimeline(t *testing.T) {
 		http: server.Client(),
 	}
 
-	require.NoError(t, exec.refreshManagedMessages(t.Context(), client, "session-1"))
-	require.NoError(t, exec.refreshManagedMessages(t.Context(), client, "session-1"))
-	require.NoError(t, exec.refreshManagedMessages(t.Context(), client, "session-1"))
+	_, err := exec.refreshManagedMessages(t.Context(), client, "session-1")
+	require.NoError(t, err)
+	_, err = exec.refreshManagedMessages(t.Context(), client, "session-1")
+	require.NoError(t, err)
+	_, err = exec.refreshManagedMessages(t.Context(), client, "session-1")
+	require.NoError(t, err)
 
 	require.Len(t, exec.agentSession.Events, 1)
 	assert.Equal(t, "Done", exec.agentSession.Events[0].Content)

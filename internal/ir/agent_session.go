@@ -122,6 +122,7 @@ type AgentSession struct {
 	State              AgentSessionState      `json:"state"`
 	LastError          string                 `json:"lastError,omitempty"`
 	PromptSent         bool                   `json:"promptSent,omitempty"`
+	PromptMessageID    string                 `json:"promptMessageId,omitempty"`
 	RestartPending     bool                   `json:"restartPending,omitempty"`
 	SessionOwned       bool                   `json:"sessionOwned,omitempty"`
 	DiscardedSessionID string                 `json:"discardedSessionId,omitempty"`
@@ -130,6 +131,28 @@ type AgentSession struct {
 	Usage              AgentUsage             `json:"usage,omitzero"`
 	Interactions       []AgentInteraction     `json:"interactions,omitempty"`
 	Events             []AgentSessionEvent    `json:"events,omitempty"`
+}
+
+// StartNewGeneration prepares the session to submit its prompt in a new provider session.
+func (s *AgentSession) StartNewGeneration() {
+	if s.Generation < 1 {
+		s.Generation = 1
+	}
+	s.DiscardedSessionID = s.SessionID
+	s.DiscardedOwned = s.SessionOwned
+	s.Generation++
+	s.SessionID = ""
+	s.SessionOwned = false
+	s.OwnerWorkerID = ""
+	s.HostInstanceID = ""
+	s.State = AgentSessionStarting
+	s.LastError = ""
+	s.PromptSent = false
+	s.PromptMessageID = ""
+	s.RestartPending = true
+	s.PermissionGrants = nil
+	s.Interactions = nil
+	s.Usage = AgentUsage{}
 }
 
 // CloneAgentSession returns a detached copy safe for runtime handoff.

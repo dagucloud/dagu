@@ -1134,6 +1134,7 @@ func TestApplyAgentSessionRestart(t *testing.T) {
 		AgentSession: &ir.AgentSession{
 			Provider: "opencode", SessionID: "session-old", Generation: 2,
 			OwnerWorkerID: "worker-a", State: ir.AgentSessionUnavailable, PromptSent: true, SessionOwned: true,
+			PromptMessageID: "message-old", Usage: ir.AgentUsage{TotalTokens: 100},
 			Interactions:     []ir.AgentInteraction{{ID: "old"}},
 			PermissionGrants: []ir.AgentPermissionGrant{{Permission: "bash", Patterns: []string{"git *"}}},
 		},
@@ -1148,9 +1149,12 @@ func TestApplyAgentSessionRestart(t *testing.T) {
 	assert.Equal(t, "session-old", node.AgentSession.DiscardedSessionID)
 	assert.True(t, node.AgentSession.DiscardedOwned)
 	assert.Empty(t, node.AgentSession.OwnerWorkerID)
+	assert.False(t, node.AgentSession.PromptSent)
+	assert.Empty(t, node.AgentSession.PromptMessageID)
 	assert.True(t, node.AgentSession.RestartPending)
 	assert.Empty(t, node.AgentSession.Interactions)
 	assert.Empty(t, node.AgentSession.PermissionGrants)
+	assert.Zero(t, node.AgentSession.Usage)
 	assert.Empty(t, node.ChatMessages)
 }
 

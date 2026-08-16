@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/google/uuid"
 )
 
 const (
@@ -42,6 +43,10 @@ func (e *harnessExecutor) runManagedOpenCode(
 	e.hasDeterminedStatus = false
 	if e.agentSession == nil {
 		e.agentSession = &ir.AgentSession{Provider: "opencode", Generation: 1}
+	} else if e.agentSession.PromptSent && (e.agentSession.State == ir.AgentSessionFailed || e.agentSession.State == ir.AgentSessionAborted) {
+		e.agentSession.StartNewGeneration()
+		e.contextMessages = nil
+		e.savedMessages = []ir.LLMMessage{}
 	}
 	if e.agentSession.Generation == 0 {
 		e.agentSession.Generation = 1
@@ -90,10 +95,31 @@ func (e *harnessExecutor) runManagedOpenCode(
 
 	e.mu.Lock()
 	promptSent := e.agentSession.PromptSent
+	promptMessageID := e.agentSession.PromptMessageID
 	e.mu.Unlock()
+	if promptSent && promptMessageID == "" {
+		messages, refreshErr := e.refreshManagedMessages(ctx, client, sessionID)
+		if refreshErr != nil {
+			return e.finishManagedError(refreshErr)
+		}
+		promptMessageID = latestOpenCodeUserMessageID(messages)
+		if promptMessageID != "" {
+			e.mu.Lock()
+			e.agentSession.PromptMessageID = promptMessageID
+			e.mu.Unlock()
+			e.notifyProgress()
+		}
+	}
 	var commandErrs <-chan error
 	if !resumed && !promptSent {
-		commandErrs, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, files)
+		if promptMessageID == "" {
+			promptMessageID = "msg_dagu_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+			e.mu.Lock()
+			e.agentSession.PromptMessageID = promptMessageID
+			e.mu.Unlock()
+			e.notifyProgress()
+		}
+		commandErrs, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, promptMessageID, files)
 		if err != nil {
 			return e.finishManagedError(err)
 		}
@@ -260,7 +286,7 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 	return session.ID, nil
 }
 
-func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID string, files []map[string]any) (<-chan error, error) {
+func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID, messageID string, files []map[string]any) (<-chan error, error) {
 	parts := []map[string]any{{"type": "text", "text": e.effectivePrompt()}}
 	if strings.TrimSpace(e.script) != "" {
 		parts = append(parts, map[string]any{"type": "text", "text": "Supplementary input:\n" + e.script})
@@ -268,9 +294,9 @@ func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openC
 	parts = append(parts, files...)
 
 	if command := stringFlag(cfg.flags, "command"); command != "" {
-		return client.commandAsync(ctx, sessionID, command, e.effectivePrompt(), cfg, files), nil
+		return client.commandAsync(ctx, sessionID, messageID, command, e.effectivePrompt(), cfg, files), nil
 	}
-	body := map[string]any{"parts": parts}
+	body := map[string]any{"messageID": messageID, "parts": parts}
 	if agent := stringFlag(cfg.flags, "agent"); agent != "" {
 		body["agent"] = agent
 	}
@@ -409,8 +435,11 @@ func (e *harnessExecutor) handleManagedEvent(ctx context.Context, client *openCo
 			busy = status.Status.Type == "busy" || status.Status.Type == "retry"
 		}
 	case "session.error":
-		if eventSessionID(event.Properties) == sessionID {
-			return false, false, errors.New("OpenCode reported a session error")
+		if message, ok := openCodeSessionError(event.Properties, sessionID); ok {
+			e.mu.Lock()
+			e.agentSession.LastError = message
+			e.mu.Unlock()
+			e.notifyProgress()
 		}
 	}
 	return false, busy, nil
@@ -450,7 +479,7 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 			}
 		}
 	}
-	if err := e.refreshManagedMessages(ctx, client, sessionID); err != nil && isManagedUnavailable(err) {
+	if _, err := e.refreshManagedMessages(ctx, client, sessionID); err != nil && isManagedUnavailable(err) {
 		return false, err
 	}
 	return false, nil
@@ -480,18 +509,27 @@ func (e *harnessExecutor) finishManagedUnavailable(message string) (*os.File, er
 }
 
 func (e *harnessExecutor) finishManagedSuccess(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
-	if err := e.refreshManagedMessages(ctx, client, sessionID); err != nil {
+	messages, err := e.refreshManagedMessages(ctx, client, sessionID)
+	if err != nil {
 		return e.finishManagedError(err)
 	}
 	e.mu.Lock()
-	final := ""
-	for i := len(e.savedMessages) - 1; i >= 0; i-- {
-		if e.savedMessages[i].Role == ir.LLMRoleAssistant && e.savedMessages[i].Content != "" {
-			final = e.savedMessages[i].Content
-			break
-		}
+	promptMessageID := e.agentSession.PromptMessageID
+	lastError := e.agentSession.LastError
+	e.mu.Unlock()
+	final, completed, resultErr := managedOpenCodeResult(messages, promptMessageID)
+	if resultErr != nil {
+		return e.finishManagedError(resultErr)
 	}
+	if !completed {
+		if lastError == "" {
+			lastError = "OpenCode became idle without completing the submitted prompt"
+		}
+		return e.finishManagedError(errors.New(lastError))
+	}
+	e.mu.Lock()
 	e.agentSession.State = ir.AgentSessionSucceeded
+	e.agentSession.LastError = ""
 	e.determinedStatus = ir.NodeSucceeded
 	e.hasDeterminedStatus = true
 	e.appendAgentEventLocked("lifecycle", "succeeded", "OpenCode session completed")
@@ -579,10 +617,10 @@ func (e *harnessExecutor) appendAgentEventLocked(eventType, status, content stri
 	}
 }
 
-func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *openCodeClient, sessionID string) error {
+func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *openCodeClient, sessionID string) ([]openCodeMessage, error) {
 	messages, err := client.messages(ctx, sessionID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	chat, events, usage := normalizeOpenCodeMessages(messages)
 	e.mu.Lock()
@@ -620,7 +658,86 @@ func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *op
 	if changed {
 		e.notifyProgress()
 	}
-	return nil
+	return messages, nil
+}
+
+func latestOpenCodeUserMessageID(messages []openCodeMessage) string {
+	latest := ""
+	for _, message := range messages {
+		var info openCodeMessageInfo
+		if json.Unmarshal(message.Info, &info) == nil && info.Role == "user" {
+			latest = info.ID
+		}
+	}
+	return latest
+}
+
+func managedOpenCodeResult(messages []openCodeMessage, promptMessageID string) (string, bool, error) {
+	if promptMessageID == "" {
+		return "", false, nil
+	}
+	var response *openCodeMessage
+	var responseInfo openCodeMessageInfo
+	for i := range messages {
+		var info openCodeMessageInfo
+		if json.Unmarshal(messages[i].Info, &info) == nil && info.Role == "assistant" && info.ParentID == promptMessageID {
+			response = &messages[i]
+			responseInfo = info
+		}
+	}
+	if response == nil {
+		return "", false, nil
+	}
+	if message := openCodeErrorMessage(responseInfo.Error); message != "" {
+		return "", true, errors.New(message)
+	}
+	if responseInfo.Finish == "" || responseInfo.Time.Completed == 0 {
+		return "", false, nil
+	}
+	var textParts []string
+	for _, raw := range response.Parts {
+		var part struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(raw, &part) == nil && part.Type == "text" {
+			textParts = append(textParts, part.Text)
+		}
+	}
+	return strings.Join(textParts, "\n"), true, nil
+}
+
+func openCodeSessionError(properties json.RawMessage, sessionID string) (string, bool) {
+	var event struct {
+		SessionID string          `json:"sessionID"`
+		Error     json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(properties, &event) != nil || event.SessionID != sessionID {
+		return "", false
+	}
+	if message := openCodeErrorMessage(event.Error); message != "" {
+		return message, true
+	}
+	return "OpenCode reported a session error", true
+}
+
+func openCodeErrorMessage(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var value struct {
+		Name string `json:"name"`
+		Data struct {
+			Message string `json:"message"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &value) != nil {
+		return ""
+	}
+	if message := strings.TrimSpace(value.Data.Message); message != "" {
+		return message
+	}
+	return strings.TrimSpace(value.Name)
 }
 
 func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []ir.AgentSessionEvent, ir.AgentUsage) {
@@ -628,12 +745,12 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 	var events []ir.AgentSessionEvent
 	var usage ir.AgentUsage
 	for _, message := range messages {
-		var info map[string]any
+		var info openCodeMessageInfo
 		if json.Unmarshal(message.Info, &info) != nil {
 			continue
 		}
-		role, _ := info["role"].(string)
-		messageID, _ := info["id"].(string)
+		role := info.Role
+		messageID := info.ID
 		var textParts []string
 		var toolCalls []ir.ToolCall
 		var messageUsage ir.AgentUsage
@@ -696,7 +813,7 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 		msg := ir.LLMMessage{Role: ir.LLMRole(role), Content: strings.Join(textParts, "\n"), ToolCalls: toolCalls}
 		if role == "assistant" {
 			msg.Metadata = &ir.LLMMessageMetadata{
-				Provider: fmt.Sprint(info["providerID"]), Model: fmt.Sprint(info["modelID"]),
+				Provider: info.ProviderID, Model: info.ModelID,
 				PromptTokens: int(messageUsage.InputTokens), CompletionTokens: int(messageUsage.OutputTokens), TotalTokens: int(messageUsage.TotalTokens),
 			}
 		}

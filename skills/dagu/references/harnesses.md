@@ -49,7 +49,7 @@ Managed options are `agent`, `model`, `variant`, `session`, `fork`, `title`, `fi
 
 “Allow for this Dagu session” applies only provider-proposed wildcard patterns to the current Dagu session generation; Dagu never grants OpenCode's process-wide `always` permission. Dagu-created and forked sessions are retained until the DAG run is cleaned up, which also removes their provider resources. Sessions supplied with `session:` remain externally owned and are retained.
 
-If the owning worker or OpenCode server disappears, the step remains waiting and the run page offers a clean-session restart. A clean restart discards the conversation and pending interaction, then submits the original prompt to a new session. It does not revert files already changed in the workspace.
+If the owning worker or OpenCode server disappears, the step remains waiting and the run page offers a clean-session restart. A clean restart discards the conversation and pending interaction, then submits the original prompt to a new session. A retry after a terminal session error also submits the original prompt in a new session generation. Previous Dagu-owned sessions remain available until DAG-run cleanup, and files already changed in the shared workspace are not reverted.
 
 OpenCode persists managed conversations in the Dagu service user's OpenCode data directory; run `opencode debug paths` as that user to locate it. Dagu stores the session reference and UI timeline with the DAG run. If OpenCode's session data is lost, Dagu remains running and marks the affected step unavailable. Use **Start clean session** to create a new conversation and submit the original prompt again.
 

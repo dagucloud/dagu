@@ -475,22 +475,7 @@ func applyAgentSessionRestart(node *ir.Node) error {
 	if session.Provider != "opencode" {
 		return errors.New("only managed OpenCode sessions can be restarted")
 	}
-	if session.Generation < 1 {
-		session.Generation = 1
-	}
-	session.DiscardedSessionID = session.SessionID
-	session.DiscardedOwned = session.SessionOwned
-	session.Generation++
-	session.SessionID = ""
-	session.SessionOwned = false
-	session.OwnerWorkerID = ""
-	session.HostInstanceID = ""
-	session.State = ir.AgentSessionStarting
-	session.LastError = ""
-	session.PromptSent = false
-	session.RestartPending = true
-	session.PermissionGrants = nil
-	session.Interactions = nil
+	session.StartNewGeneration()
 	node.ChatMessages = nil
 	node.Status = ir.NodeNotStarted
 	node.Error = ""
