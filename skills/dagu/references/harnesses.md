@@ -364,7 +364,7 @@ steps:
     with:
       prompt: "Refactor the database layer"
       provider: opencode
-      model: openai/gpt-5
+      model: openrouter/deepseek/deepseek-v4-flash
     timeout_sec: 300
 ```
 
