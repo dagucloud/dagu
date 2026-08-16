@@ -1652,6 +1652,8 @@ Managed options are `agent`, `model`, `variant`, `session`, `fork`, `title`, `fi
 
 If the owning worker or OpenCode server disappears, the step remains waiting and the run page offers a clean-session restart. A clean restart discards the conversation and pending interaction, then submits the original prompt to a new session. It does not revert files already changed in the workspace.
 
+OpenCode persists managed conversations in the Dagu service user's OpenCode data directory; run `opencode debug paths` as that user to locate it. Dagu stores the session reference and UI timeline with the DAG run. If OpenCode's session data is lost, Dagu remains running and marks the affected step unavailable. Use **Start clean session** to create a new conversation and submit the original prompt again.
+
 The managed server is a shared service-identity boundary for trusted workflows. Use separate Dagu workers or containerized CLI execution when workflows require isolation from one another. Managed compatibility is capability-checked at startup; OpenCode v1.18.11 is the currently tested release.
 
 ## How `with` Works
