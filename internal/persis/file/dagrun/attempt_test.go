@@ -6,6 +6,7 @@ package dagrun
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -903,43 +904,33 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 	})
 }
 
-func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
+func TestRepositoryAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 	t.Parallel()
 
-	dir := createTempDir(t)
-	file := filepath.Join(dir, "status.dat")
 	store := &captureEventStore{}
-	service := eventstore.New(store)
-	ctx := eventstore.WithContext(context.Background(), service, eventstore.Source{Service: eventstore.SourceServiceServer})
-
-	dag := &ir.DAG{
-		Name:     "TestDAG",
-		Location: filepath.Join(dir, "test-dag.yaml"),
-		Labels:   ir.NewLabels([]string{"workspace=ops"}),
-	}
-	att, err := NewAttempt(file, nil)
-	require.NoError(t, err)
-	att.SetDAG(dag)
-	require.NoError(t, att.Open(ctx))
+	fixture := setupEventTest(t, store)
+	fixture.dag.Labels = ir.NewLabels([]string{"workspace=ops"})
+	require.NoError(t, fixture.attempt.Open(fixture.ctx))
+	t.Cleanup(func() { _ = fixture.attempt.Close(fixture.ctx) })
 
 	queued := createTestStatus(ir.Queued)
 	queued.AttemptID = "attempt-1"
 	queued.QueuedAt = time.Now().UTC().Format(time.RFC3339)
-	queued.Labels = dag.Labels.Strings()
-	require.NoError(t, att.Write(ctx, queued))
-	require.NoError(t, att.Write(ctx, queued))
+	queued.Labels = fixture.dag.Labels.Strings()
+	require.NoError(t, fixture.attempt.Write(fixture.ctx, queued))
+	require.NoError(t, fixture.attempt.Write(fixture.ctx, queued))
 
 	running := queued
 	running.Status = ir.Running
 	running.StartedAt = time.Now().UTC().Format(time.RFC3339)
-	require.NoError(t, att.Write(ctx, running))
-	require.NoError(t, att.Write(ctx, running))
+	require.NoError(t, fixture.attempt.Write(fixture.ctx, running))
+	require.NoError(t, fixture.attempt.Write(fixture.ctx, running))
 
 	succeeded := running
 	succeeded.Status = ir.Succeeded
 	succeeded.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-	require.NoError(t, att.Write(ctx, succeeded))
-	require.NoError(t, att.Write(ctx, succeeded))
+	require.NoError(t, fixture.attempt.Write(fixture.ctx, succeeded))
+	require.NoError(t, fixture.attempt.Write(fixture.ctx, succeeded))
 
 	require.Len(t, store.events, 6)
 	assert.Equal(t, []eventstore.EventType{
@@ -958,37 +949,30 @@ func TestAttempt_WriteEmitsLifecycleTransitionsAndStatusUpdates(t *testing.T) {
 	assert.Equal(t, ir.Queued, snapshot.Status)
 }
 
-func TestAttempt_OpenRestoresLastEmittedLifecycleState(t *testing.T) {
+func TestRepositoryAttempt_OpenRestoresLastEmittedLifecycleState(t *testing.T) {
 	t.Parallel()
 
-	dir := createTempDir(t)
-	file := filepath.Join(dir, "status.dat")
 	store := &captureEventStore{}
-	service := eventstore.New(store)
-	ctx := eventstore.WithContext(context.Background(), service, eventstore.Source{Service: eventstore.SourceServiceServer})
-
-	dag := &ir.DAG{Name: "TestDAG", Location: filepath.Join(dir, "test-dag.yaml")}
-	att, err := NewAttempt(file, nil)
-	require.NoError(t, err)
-	att.SetDAG(dag)
-	require.NoError(t, att.Open(ctx))
+	fixture := setupEventTest(t, store)
+	require.NoError(t, fixture.attempt.Open(fixture.ctx))
 
 	queued := createTestStatus(ir.Queued)
 	queued.AttemptID = "attempt-1"
 	queued.QueuedAt = time.Now().UTC().Format(time.RFC3339)
-	require.NoError(t, att.Write(ctx, queued))
-	require.NoError(t, att.Close(ctx))
+	require.NoError(t, fixture.attempt.Write(fixture.ctx, queued))
+	require.NoError(t, fixture.attempt.Close(fixture.ctx))
 	require.Len(t, store.events, 1)
 
-	reopened, err := NewAttempt(file, nil)
+	reopened, err := fixture.repository.FindAttempt(fixture.ctx, ir.NewDAGRunRef(fixture.dag.Name, "test"))
 	require.NoError(t, err)
-	require.NoError(t, reopened.Open(ctx))
-	require.NoError(t, reopened.Write(ctx, queued))
+	require.NoError(t, reopened.Open(fixture.ctx))
+	t.Cleanup(func() { _ = reopened.Close(fixture.ctx) })
+	require.NoError(t, reopened.Write(fixture.ctx, queued))
 
 	running := queued
 	running.Status = ir.Running
 	running.StartedAt = time.Now().UTC().Format(time.RFC3339)
-	require.NoError(t, reopened.Write(ctx, running))
+	require.NoError(t, reopened.Write(fixture.ctx, running))
 
 	require.Len(t, store.events, 3)
 	assert.Equal(t, []eventstore.EventType{
@@ -1001,13 +985,120 @@ func TestAttempt_OpenRestoresLastEmittedLifecycleState(t *testing.T) {
 	assert.Equal(t, "test-dag", snapshot.DAGFile)
 }
 
+func TestRepositoryAttempt_EmitsOnlyAfterSuccessfulPersistence(t *testing.T) {
+	t.Parallel()
+
+	store := &captureEventStore{}
+	fixture := setupEventTest(t, store)
+	require.NoError(t, fixture.attempt.Open(fixture.ctx))
+	require.NoError(t, fixture.attempt.Close(fixture.ctx))
+
+	status := createTestStatus(ir.Running)
+	status.AttemptID = fixture.attempt.ID()
+	require.Error(t, fixture.attempt.Write(fixture.ctx, status))
+	assert.Empty(t, store.events)
+}
+
+func TestRepositoryAttempt_EventFailureDoesNotFailPersistedWrite(t *testing.T) {
+	t.Parallel()
+
+	store := &captureEventStore{emitErr: errors.New("event unavailable")}
+	fixture := setupEventTest(t, store)
+	require.NoError(t, fixture.attempt.Open(fixture.ctx))
+	t.Cleanup(func() { _ = fixture.attempt.Close(fixture.ctx) })
+
+	status := createTestStatus(ir.Running)
+	status.AttemptID = fixture.attempt.ID()
+	require.NoError(t, fixture.attempt.Write(fixture.ctx, status))
+	persisted, err := fixture.attempt.ReadStatus(fixture.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Running, persisted.Status)
+}
+
+func TestRepositoryCompareAndSwapEmitsPersistedTransition(t *testing.T) {
+	t.Parallel()
+
+	store := &captureEventStore{}
+	fixture := setupEventTest(t, store)
+	require.NoError(t, fixture.attempt.Open(context.Background()))
+
+	queued := createTestStatus(ir.Queued)
+	queued.AttemptID = fixture.attempt.ID()
+	require.NoError(t, fixture.attempt.Write(context.Background(), queued))
+	require.NoError(t, fixture.attempt.Close(context.Background()))
+
+	ref := ir.NewDAGRunRef(fixture.dag.Name, queued.DAGRunID)
+	updated, swapped, err := fixture.repository.CompareAndSwapLatestAttemptStatus(
+		fixture.ctx,
+		ref,
+		fixture.attempt.ID(),
+		ir.Queued,
+		func(status *ir.DAGRunStatus) error {
+			status.Status = ir.Running
+			return nil
+		},
+		persis.DAGRunCompareAndSwapOptions{},
+	)
+	require.NoError(t, err)
+	require.True(t, swapped)
+	require.NotNil(t, updated)
+	require.Len(t, store.events, 1)
+	assert.Equal(t, eventstore.TypeDAGRunRunning, store.events[0].Type)
+
+	snapshot, err := eventstore.DAGRunSnapshotFromEvent(store.events[0])
+	require.NoError(t, err)
+	assert.Equal(t, "test-dag", snapshot.DAGFile)
+	assert.Equal(t, ir.Running, snapshot.Status)
+
+	_, swapped, err = fixture.repository.CompareAndSwapLatestAttemptStatus(
+		fixture.ctx,
+		ref,
+		fixture.attempt.ID(),
+		ir.Queued,
+		func(status *ir.DAGRunStatus) error {
+			status.Status = ir.Failed
+			return nil
+		},
+		persis.DAGRunCompareAndSwapOptions{},
+	)
+	require.NoError(t, err)
+	assert.False(t, swapped)
+	assert.Len(t, store.events, 1)
+}
+
+type eventTest struct {
+	ctx        context.Context
+	repository *persis.DAGRunRepository
+	dag        *ir.DAG
+	attempt    dagrun.Attempt
+}
+
+func setupEventTest(t *testing.T, store *captureEventStore) eventTest {
+	t.Helper()
+
+	dir := t.TempDir()
+	ctx := eventstore.WithContext(
+		context.Background(),
+		eventstore.New(store),
+		eventstore.Source{Service: eventstore.SourceServiceServer},
+	)
+	dag := &ir.DAG{Name: "TestDAG", Location: filepath.Join(dir, "test-dag.yaml")}
+	repository := persis.NewDAGRunRepository(NewStore(dir), nil, persis.DAGRunRepositoryOptions{})
+	att, err := repository.CreateAttempt(ctx, dag, time.Now(), "test", persis.DAGRunCreateAttemptOptions{
+		AttemptID: "attempt-1",
+	})
+	require.NoError(t, err)
+	return eventTest{ctx: ctx, repository: repository, dag: dag, attempt: att}
+}
+
 type captureEventStore struct {
-	events []*eventstore.Event
+	events  []*eventstore.Event
+	emitErr error
 }
 
 func (c *captureEventStore) Emit(_ context.Context, event *eventstore.Event) error {
 	c.events = append(c.events, event)
-	return nil
+	return c.emitErr
 }
 
 func (*captureEventStore) Query(context.Context, eventstore.QueryFilter) (*eventstore.QueryResult, error) {

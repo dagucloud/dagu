@@ -5511,7 +5511,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		// Add a sub-attempt
 		rootRef := ir.DAGRunRef{Name: "parent-dag", ID: "root-123"}
 		subDAGRunID := "sub-456"
-		store.addSubAttempt(rootRef, subDAGRunID, &ir.DAGRunStatus{
+		storedAttempt := store.addSubAttempt(rootRef, subDAGRunID, &ir.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: subDAGRunID,
 			Status:   ir.Running,
@@ -5523,8 +5523,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		require.NotNil(t, attempt)
 
 		// Verify it was opened
-		mockAttempt := attempt.(*mockAttempt)
-		assert.True(t, mockAttempt.WasOpened())
+		assert.True(t, storedAttempt.WasOpened())
 	})
 
 	t.Run("ReturnsCachedAttemptOnSecondAccess", func(t *testing.T) {

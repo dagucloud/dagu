@@ -60,7 +60,7 @@ func (r *DAGRunRepository) CreateAttempt(
 	if !options.RootDAGRun.Zero() && options.RootDAGRun.ID == "" {
 		return nil, dagrun.ErrDAGRunIDEmpty
 	}
-	return r.store.CreateAttempt(ctx, DAGRunCreateAttemptRequest{
+	attempt, err := r.store.CreateAttempt(ctx, DAGRunCreateAttemptRequest{
 		DAG:        dag,
 		RootDAGRun: options.RootDAGRun,
 		Timestamp:  timestamp,
@@ -68,6 +68,10 @@ func (r *DAGRunRepository) CreateAttempt(
 		AttemptID:  options.AttemptID,
 		Retry:      options.Retry,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return newEventingAttempt(attempt, dag), nil
 }
 
 // RecentStatuses returns the newest readable status for recent DAG runs.
@@ -89,7 +93,11 @@ func (r *DAGRunRepository) LatestAttempt(
 	if r.latestStatusToday && !options.AllHistory {
 		query.NotBefore = NewUTC(r.startOfDay())
 	}
-	return r.store.LatestAttempt(ctx, query)
+	attempt, err := r.store.LatestAttempt(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return newEventingAttempt(attempt, nil), nil
 }
 
 // ListStatuses returns statuses in canonical list order.
@@ -162,7 +170,7 @@ func (r *DAGRunRepository) CompareAndSwapLatestAttemptStatus(
 		return nil, false, dagrun.ErrDAGRunIDEmpty
 	}
 
-	return r.store.CompareAndSwapLatestAttemptStatus(ctx, DAGRunCompareAndSwapStatusRequest{
+	status, swapped, err := r.store.CompareAndSwapLatestAttemptStatus(ctx, DAGRunCompareAndSwapStatusRequest{
 		DAGRun:             dagRun,
 		RootDAGRun:         root,
 		ExpectedAttemptID:  expectedAttemptID,
@@ -176,6 +184,11 @@ func (r *DAGRunRepository) CompareAndSwapLatestAttemptStatus(
 			return nil
 		},
 	})
+	if err != nil || !swapped {
+		return status, swapped, err
+	}
+	r.emitStatusEventAfterSwap(ctx, root, dagRun, expectedStatus, status)
+	return status, true, nil
 }
 
 // FindAttempt finds the latest visible attempt for a DAG run.
@@ -183,7 +196,11 @@ func (r *DAGRunRepository) FindAttempt(ctx context.Context, ref ir.DAGRunRef) (d
 	if ref.ID == "" {
 		return nil, dagrun.ErrDAGRunIDEmpty
 	}
-	return r.store.FindAttempt(ctx, ref)
+	attempt, err := r.store.FindAttempt(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return newEventingAttempt(attempt, nil), nil
 }
 
 // FindSubAttempt finds the latest visible attempt for a child DAG run.
@@ -191,7 +208,11 @@ func (r *DAGRunRepository) FindSubAttempt(ctx context.Context, root ir.DAGRunRef
 	if root.ID == "" {
 		return nil, dagrun.ErrDAGRunIDEmpty
 	}
-	return r.store.FindSubAttempt(ctx, root, childRunID)
+	attempt, err := r.store.FindSubAttempt(ctx, root, childRunID)
+	if err != nil {
+		return nil, err
+	}
+	return newEventingAttempt(attempt, nil), nil
 }
 
 // RemoveOldDAGRuns removes final DAG runs outside the configured retention policy.
