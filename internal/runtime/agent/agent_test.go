@@ -119,28 +119,41 @@ func agentRunStartTimeout() time.Duration {
 	return 5 * time.Second
 }
 
+func agentRunCompletionTimeout() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 3 * time.Minute
+	}
+	return 10 * time.Second
+}
+
 func pwdCommand() string {
 	return test.ForOS("pwd", "(Get-Location).Path")
 }
 
-type delayedStatusContextObserver struct {
-	mu                        sync.Mutex
-	delayedStatusStarted      chan struct{}
-	delayedStatusContext      context.Context
-	runningNodeWrites         int
-	canceledDuringStatusWrite bool
+type statusContextObserver struct {
+	mu                          sync.Mutex
+	runningStatusWritesObserved chan struct{}
+	expectedDone                <-chan struct{}
+	runningNodeWrites           int
+	canceledStatusWrite         bool
+	differentCancellationScope  bool
 }
 
-func newDelayedStatusContextObserver() *delayedStatusContextObserver {
-	return &delayedStatusContextObserver{delayedStatusStarted: make(chan struct{})}
+func newStatusContextObserver() *statusContextObserver {
+	return &statusContextObserver{runningStatusWritesObserved: make(chan struct{})}
 }
 
-func (o *delayedStatusContextObserver) observe(ctx context.Context, status ir.DAGRunStatus) {
+func (o *statusContextObserver) observe(ctx context.Context, status ir.DAGRunStatus) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	if o.delayedStatusContext != nil && o.delayedStatusContext.Err() != nil {
-		o.canceledDuringStatusWrite = true
+	if o.expectedDone == nil {
+		o.expectedDone = ctx.Done()
+	} else if o.expectedDone != ctx.Done() {
+		o.differentCancellationScope = true
+	}
+	if ctx.Err() != nil {
+		o.canceledStatusWrite = true
 	}
 
 	if status.Status != ir.Running {
@@ -152,23 +165,22 @@ func (o *delayedStatusContextObserver) observe(ctx context.Context, status ir.DA
 		}
 		o.runningNodeWrites++
 		if o.runningNodeWrites == 2 {
-			// The first running-node status is the progress update; the second is the delayed snapshot.
-			o.delayedStatusContext = ctx
-			close(o.delayedStatusStarted)
+			// Two running-node writes confirm that progress and delayed snapshots both occurred.
+			close(o.runningStatusWritesObserved)
 		}
 		return
 	}
 }
 
-func (o *delayedStatusContextObserver) wasCanceledDuringStatusWrite() bool {
+func (o *statusContextObserver) observedInvalidContext() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.canceledDuringStatusWrite
+	return o.canceledStatusWrite || o.differentCancellationScope
 }
 
 type observedRunStateStore struct {
 	runstate.Store
-	observer *delayedStatusContextObserver
+	observer *statusContextObserver
 }
 
 func (s *observedRunStateStore) BeginAttempt(
@@ -184,7 +196,7 @@ func (s *observedRunStateStore) BeginAttempt(
 
 type observedRunStateAttempt struct {
 	runstate.Attempt
-	observer *delayedStatusContextObserver
+	observer *statusContextObserver
 }
 
 func (a *observedRunStateAttempt) RecordStatus(ctx context.Context, status ir.DAGRunStatus) error {
@@ -211,16 +223,11 @@ func TestAgent_Run(t *testing.T) {
 			runDone <- dagAgent.Run(th.Context)
 		}()
 
-		runTimeout := 10 * time.Second
-		if runtime.GOOS == "windows" {
-			runTimeout = 3 * time.Minute
-		}
-
 		select {
 		case err := <-runDone:
 			require.NoError(t, err)
-		case <-time.After(runTimeout):
-			t.Fatalf("timed out waiting for DAG run to finish after %s", runTimeout)
+		case <-time.After(agentRunCompletionTimeout()):
+			t.Fatalf("timed out waiting for DAG run to finish")
 		}
 
 		dag.AssertLatestStatus(t, ir.Succeeded)
@@ -236,7 +243,7 @@ func TestAgent_Run(t *testing.T) {
     run: %q
 `, waitForFileScript(releaseFile, 10*time.Millisecond)))
 
-		observer := newDelayedStatusContextObserver()
+		observer := newStatusContextObserver()
 		stateStore := &observedRunStateStore{
 			Store:    persis.NewRunStateStore(th.DAGRunRepository, nil),
 			observer: observer,
@@ -252,7 +259,7 @@ func TestAgent_Run(t *testing.T) {
 		}()
 
 		select {
-		case <-observer.delayedStatusStarted:
+		case <-observer.runningStatusWritesObserved:
 		case <-time.After(agentRunStartTimeout()):
 			require.FailNow(t, "timed out waiting for delayed running-status write")
 		}
@@ -261,11 +268,11 @@ func TestAgent_Run(t *testing.T) {
 		select {
 		case err := <-runDone:
 			require.NoError(t, err)
-		case <-time.After(agentRunStartTimeout()):
+		case <-time.After(agentRunCompletionTimeout()):
 			require.FailNow(t, "timed out waiting for DAG run to finish")
 		}
 
-		require.False(t, observer.wasCanceledDuringStatusWrite())
+		require.False(t, observer.observedInvalidContext())
 		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
 	t.Run("RecordsTriggerActor", func(t *testing.T) {
