@@ -350,8 +350,15 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 		parentDirs[filepath.Dir(validDir)] = struct{}{}
 	}
 
-	// Remove parent dirs if they are empty.
+	// Remove deepest directories first so their ancestors can become empty.
+	dirs := make([]string, 0, len(parentDirs))
 	for p := range parentDirs {
+		dirs = append(dirs, p)
+	}
+	sort.Slice(dirs, func(i, j int) bool {
+		return len(dirs[i]) > len(dirs[j])
+	})
+	for _, p := range dirs {
 		_ = fileutil.Remove(p)
 	}
 

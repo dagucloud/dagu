@@ -411,13 +411,15 @@ func TestRemoveLogFiles(t *testing.T) {
 
 func TestDAGRunRemove(t *testing.T) {
 	t.Run("RemoveDAGRunWithLogFiles", func(t *testing.T) {
-		tmpDir := t.TempDir()
+		dagRunLogDir := filepath.Join(t.TempDir(), "dag-run")
+		attemptLogDir := filepath.Join(dagRunLogDir, "run-attempt")
+		require.NoError(t, os.MkdirAll(attemptLogDir, 0750))
 
 		// Create test log files
 		logFiles := []string{
-			filepath.Join(tmpDir, "dag-run.log"),
-			filepath.Join(tmpDir, "step1.out"),
-			filepath.Join(tmpDir, "step1.err"),
+			filepath.Join(dagRunLogDir, "dag-run.log"),
+			filepath.Join(attemptLogDir, "step1.out"),
+			filepath.Join(attemptLogDir, "step1.err"),
 		}
 
 		for _, logFile := range logFiles {
@@ -470,6 +472,8 @@ func TestDAGRunRemove(t *testing.T) {
 			_, err := os.Stat(logFile)
 			assert.True(t, os.IsNotExist(err), "log file should be removed: %s", logFile)
 		}
+		assert.NoDirExists(t, attemptLogDir)
+		assert.NoDirExists(t, dagRunLogDir)
 	})
 
 	t.Run("RemoveWithSubDAGRuns", func(t *testing.T) {
