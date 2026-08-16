@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -350,6 +351,11 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, 
 		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
 		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
 		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
+	}
+	if definitionID := dagDefinitionIDFromEnv(); definitionID != "" {
+		loadOpts = append(loadOpts, spec.WithDefaultName(
+			fileutil.TrimYAMLFileExtension(filepath.Base(definitionID)),
+		))
 	}
 
 	if isSubDAGRun {

@@ -1730,7 +1730,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 		return nil, err
 	}
 
-	if err := a.enqueueDAGRun(ctx, dag, valueOf(request.Body.Params), dagRunId, nameOverride, ir.TriggerTypeManual, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
+	if err := a.enqueueDAGRun(ctx, dag, valueOf(request.Body.Params), dagRunId, nameOverride, ir.TriggerTypeManual, labels, profileName, valueOf(request.Body.NoReuse), request.FileName); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
 	}
 
@@ -1748,7 +1748,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	}, nil
 }
 
-func (a *API) enqueueDAGRun(ctx context.Context, dag *ir.DAG, params, dagRunID, nameOverride string, triggerType ir.TriggerType, labels, profileName string, noReuse bool) error {
+func (a *API) enqueueDAGRun(ctx context.Context, dag *ir.DAG, params, dagRunID, nameOverride string, triggerType ir.TriggerType, labels, profileName string, noReuse bool, definitionID string) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
 	})
@@ -1788,6 +1788,7 @@ func (a *API) enqueueDAGRun(ctx context.Context, dag *ir.DAG, params, dagRunID, 
 		TriggerActor: triggerActorFromContext(ctx),
 		Labels:       labels,
 		ProfileName:  profileName,
+		DefinitionID: definitionID,
 		NoReuse:      noReuse,
 	}
 	if dag.Queue != "" {

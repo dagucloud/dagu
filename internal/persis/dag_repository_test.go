@@ -54,7 +54,7 @@ func TestDAGRepositoryLoadsDefinitionWithoutSourcePath(t *testing.T) {
 }
 
 func TestDAGRepositoryLoadsStoredSourceWithAuthoredPath(t *testing.T) {
-	sourcePath := filepath.Join(t.TempDir(), "stored.yaml")
+	sourcePath := filepath.Join(t.TempDir(), "resolved-target-name-that-is-not-the-entry.yaml")
 	repository := NewDAGRepository(dagDefinitionStoreStub{
 		definition: DAGDefinition{
 			ID:         "stored",
@@ -75,7 +75,7 @@ func TestDAGRepositoryUpdateValidatesFromStoredSourcePath(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	sourcePath := filepath.Join(dir, "stored.yaml")
+	sourcePath := filepath.Join(dir, "resolved-target-name-that-is-not-the-entry.yaml")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), []byte(`{"type":"object"}`), 0o600))
 
 	updated := false
@@ -90,7 +90,6 @@ func TestDAGRepositoryUpdateValidatesFromStoredSourcePath(t *testing.T) {
 	}, DAGRepositoryOptions{})
 
 	err := repository.UpdateSpec(context.Background(), "stored", []byte(`
-name: stored
 params:
   schema: params.schema.json
 steps: []

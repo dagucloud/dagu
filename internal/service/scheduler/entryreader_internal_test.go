@@ -370,7 +370,8 @@ func TestEntryReaderExternalDAGFileSymlink(t *testing.T) {
 				require.NoError(t, os.MkdirAll(linkDir, 0750))
 			}
 			targetDir := t.TempDir()
-			targetPath := writeDAGFile(t, targetDir, "source.yaml", "external")
+			targetPath := filepath.Join(targetDir, "resolved-target-name-that-is-not-the-entry.yaml")
+			require.NoError(t, os.WriteFile(targetPath, []byte("steps:\n  - run: echo external\n"), 0644))
 			if err := os.Symlink(targetPath, filepath.Join(linkDir, "external.yaml")); err != nil {
 				t.Skipf("symlink creation is unavailable: %v", err)
 			}

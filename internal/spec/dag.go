@@ -974,6 +974,9 @@ func buildName(ctx buildContext, d *dag) (string, error) {
 	// Fallback to filename without extension only for the main DAG (index 0)
 	// Sub-DAGs in multi-DAG files must have explicit names
 	if ctx.index == 0 {
+		if ctx.opts.DefaultName != "" {
+			return strings.TrimSpace(ctx.opts.DefaultName), nil
+		}
 		return defaultName(ctx.file), nil
 	}
 	return "", nil

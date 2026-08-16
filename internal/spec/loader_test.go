@@ -2446,10 +2446,16 @@ this is not valid yaml: [unterminated
 		require.Error(t, err)
 
 		// With AllowBuildErrors, it should return a DAG with errors captured
-		dag, err := spec.Load(context.Background(), testDAG, spec.WithAllowBuildErrors())
+		dag, err := spec.Load(
+			context.Background(),
+			testDAG,
+			spec.WithAllowBuildErrors(),
+			spec.WithDefaultName("entry-name"),
+		)
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 		assert.NotEmpty(t, dag.BuildErrors)
+		assert.Equal(t, "entry-name", dag.Name)
 		assert.Equal(t, testDAG, dag.Location)
 	})
 

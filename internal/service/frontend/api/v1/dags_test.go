@@ -947,9 +947,8 @@ func TestExternalDAGFileSymlinkAPI(t *testing.T) {
 	}))
 
 	targetDir := t.TempDir()
-	targetPath := filepath.Join(targetDir, "source.yaml")
+	targetPath := filepath.Join(targetDir, "resolved-target-name-that-is-not-the-entry.yaml")
 	dagSpec := fmt.Sprintf(`
-name: external-link
 steps:
   - %s
 `, test.ShellQuote("exit 0"))
@@ -958,9 +957,21 @@ steps:
 		t.Skipf("symlink creation is unavailable: %v", err)
 	}
 
-	server.Client().Get("/api/v1/dags/external-link").
+	resp := server.Client().Get("/api/v1/dags?name=external-link").
 		ExpectStatus(http.StatusOK).Send(t)
-	resp := server.Client().Post(
+	var listBody api.ListDAGs200JSONResponse
+	resp.Unmarshal(t, &listBody)
+	require.Len(t, listBody.Dags, 1)
+	assert.Equal(t, "external-link", listBody.Dags[0].Dag.Name)
+
+	resp = server.Client().Get("/api/v1/dags/external-link").
+		ExpectStatus(http.StatusOK).Send(t)
+	var details api.GetDAGDetails200JSONResponse
+	resp.Unmarshal(t, &details)
+	require.NotNil(t, details.Dag)
+	assert.Equal(t, "external-link", details.Dag.Name)
+
+	resp = server.Client().Post(
 		"/api/v1/dags/external-link/enqueue",
 		api.EnqueueDAGDAGRunJSONRequestBody{},
 	).ExpectStatus(http.StatusOK).Send(t)

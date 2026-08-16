@@ -66,6 +66,7 @@ func (r *DAGRepository) GetDetails(ctx context.Context, id string, opts DAGLoadO
 	loadOpts = append(loadOpts, spec.WithoutEval())
 	var dag *ir.DAG
 	if definition.SourcePath != "" {
+		loadOpts = append(loadOpts, spec.WithDefaultName(definition.ID))
 		dag, err = spec.LoadYAMLAt(ctx, definition.Source, definition.SourcePath, loadOpts...)
 	} else {
 		loadOpts = append(loadOpts, spec.WithName(definition.ID))
@@ -100,6 +101,7 @@ func (r *DAGRepository) UpdateSpec(ctx context.Context, id string, source []byte
 	loadOpts := r.loadOptions(spec.WithoutEval())
 	var dag *ir.DAG
 	if definition.SourcePath != "" {
+		loadOpts = append(loadOpts, spec.WithDefaultName(definition.ID))
 		dag, err = spec.LoadYAMLAt(ctx, source, definition.SourcePath, loadOpts...)
 	} else {
 		loadOpts = append(loadOpts, spec.WithName(id))

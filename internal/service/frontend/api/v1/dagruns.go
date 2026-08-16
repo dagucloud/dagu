@@ -336,7 +336,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		}
 	}
 
-	if err := a.enqueueDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), ir.TriggerTypeManual, "", profileName, valueOf(request.Body.NoReuse)); err != nil {
+	if err := a.enqueueDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), ir.TriggerTypeManual, "", profileName, valueOf(request.Body.NoReuse), ""); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
 	}
 
@@ -3494,7 +3494,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	}
 	var enqueueErr error
 	if opts.useCurrentDAGFile {
-		enqueueErr = a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", ir.TriggerTypeManual, "", profileName, status.NoReuse)
+		enqueueErr = a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", ir.TriggerTypeManual, "", profileName, status.NoReuse, status.DAGDefinitionID())
 	} else {
 		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse)
 	}

@@ -198,6 +198,25 @@ func TestBuild_BasicDAGs(t *testing.T) {
 	assert.Empty(t, legacyEntry.LoadError)
 }
 
+func TestBuild_UsesEntryNameForResolvedLoadPath(t *testing.T) {
+	dir := t.TempDir()
+	targetPath := filepath.Join(t.TempDir(), "resolved-target-name-that-is-not-the-entry.yaml")
+	require.NoError(t, os.WriteFile(targetPath, []byte("steps: []\n"), 0600))
+
+	info, err := os.Stat(targetPath)
+	require.NoError(t, err)
+	idx := Build(context.Background(), dir, []YAMLFileMeta{{
+		Name:     "entry-name.yaml",
+		LoadPath: targetPath,
+		Size:     info.Size(),
+		ModTime:  info.ModTime().UnixNano(),
+	}}, nil)
+
+	require.Len(t, idx.Entries, 1)
+	assert.Equal(t, "entry-name", idx.Entries[0].Name)
+	assert.Empty(t, idx.Entries[0].LoadError)
+}
+
 func TestBuild_WithBuildErrors(t *testing.T) {
 	dir := t.TempDir()
 

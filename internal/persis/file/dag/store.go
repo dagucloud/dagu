@@ -173,7 +173,8 @@ func (store *Store) Get(ctx context.Context, id string) (persis.DAGDefinition, e
 		}
 		return persis.DAGDefinition{}, err
 	}
-	return persis.DAGDefinition{ID: id, Source: source, SourcePath: resolved.ResolvedPath}, nil
+	entryName := fileutil.TrimYAMLFileExtension(filepath.Base(resolved.EntryPath))
+	return persis.DAGDefinition{ID: entryName, Source: source, SourcePath: resolved.ResolvedPath}, nil
 }
 
 func (store *Store) Catalog(ctx context.Context) (persis.DAGCatalog, error) {
@@ -346,6 +347,7 @@ func (store *Store) GetMetadata(ctx context.Context, name string) (*ir.DAG, erro
 	}
 	store.refreshBaseConfigState()
 	loadOpts := store.defaultLoadOptions(
+		spec.WithDefaultName(fileutil.TrimYAMLFileExtension(filepath.Base(resolved.EntryPath))),
 		spec.OnlyMetadata(),
 		spec.WithoutEval(),
 		spec.SkipSchemaValidation(),
