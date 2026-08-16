@@ -135,8 +135,7 @@ type statusContextObserver struct {
 	runningStatusWritesObserved chan struct{}
 	expectedDone                <-chan struct{}
 	runningNodeWrites           int
-	canceledStatusWrite         bool
-	differentCancellationScope  bool
+	invalidContext              bool
 }
 
 func newStatusContextObserver() *statusContextObserver {
@@ -149,11 +148,9 @@ func (o *statusContextObserver) observe(ctx context.Context, status ir.DAGRunSta
 
 	if o.expectedDone == nil {
 		o.expectedDone = ctx.Done()
-	} else if o.expectedDone != ctx.Done() {
-		o.differentCancellationScope = true
 	}
-	if ctx.Err() != nil {
-		o.canceledStatusWrite = true
+	if o.expectedDone != ctx.Done() || ctx.Err() != nil {
+		o.invalidContext = true
 	}
 
 	if status.Status != ir.Running {
@@ -175,7 +172,7 @@ func (o *statusContextObserver) observe(ctx context.Context, status ir.DAGRunSta
 func (o *statusContextObserver) observedInvalidContext() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.canceledStatusWrite || o.differentCancellationScope
+	return o.invalidContext
 }
 
 type observedRunStateStore struct {
