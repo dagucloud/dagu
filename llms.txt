@@ -1816,23 +1816,37 @@ Container rules:
 - Provider flags still belong under `with:`. For example, Codex `sandbox: workspace-write` configures Codex inside the outer container boundary.
 - Docker or Podman is selected by the Dagu service process. This is not configured in the DAG YAML.
 
-## Pattern 1: Single Harness Step
+## Pattern 1: Checkout a Repository and Run a Harness
 
 ```yaml
-params:
-  - PROMPT: "Explain the main function in this project"
+name: review-repository
+type: graph
 
-harness:
-  provider: claude
-  model: sonnet
+params:
+  - REPOSITORY: https://github.com/dagucloud/dagu.git
+  - REF: main
+  - PROMPT: "Review this repository and identify the highest-impact improvement."
 
 steps:
-  - id: run_cli
+  - id: checkout
+    action: git.checkout
+    with:
+      repository: "${params.REPOSITORY}"
+      ref: "${params.REF}"
+      path: "${context.paths.work_dir}/repo"
+
+  - id: review
+    depends: [checkout]
+    working_dir: "${context.paths.work_dir}/repo"
     action: harness.run
     with:
+      provider: opencode
+      model: openrouter/deepseek/deepseek-v4-flash
       prompt: "${params.PROMPT}"
-    output: RESULT
+    timeout_sec: 600
 ```
+
+`git.checkout` clones the repository when the target is absent and refreshes an existing checkout otherwise. The per-run work directory gives concurrent DAG runs separate checkouts, keeps the workspace available for retries, and removes it when the DAG run is cleaned up.
 
 ## Pattern 2: Multiple Harness Steps
 
