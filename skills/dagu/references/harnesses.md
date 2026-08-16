@@ -43,7 +43,7 @@ opencode:
 
 The equivalent environment variables are `DAGU_OPENCODE_EXECUTABLE` and `DAGU_OPENCODE_ENV_PASSTHROUGH`. A DAG-level `tools:` or `secrets:` declaration affects step subprocesses and supplies only the CLI integration, not the long-lived managed server.
 
-Dagu does not add a Dagu MCP entry to OpenCode, install plugins, or change provider credentials. Existing OpenCode MCP configuration is honored. Environment variables needed by manually configured MCP servers must be named in `opencode.env_passthrough`. Managed mode forces OpenCode sharing off and does not support `share`; explicit sharing uses the CLI integration and may publish the conversation at a public URL.
+Managed mode forces OpenCode sharing off and does not support `share`; explicit sharing uses the CLI integration and may publish the conversation at a public URL.
 
 Managed options are `agent`, `model`, `variant`, `session`, `fork`, `title`, `file`, `command`, and `format: default`. Set `managed: false` to force the one-shot CLI. Options outside that set, `share`, non-default formats, containers, standalone scheduler launches, embedded-engine runs, and direct Dagu CLI execution use the CLI integration. Set `managed: true` to require managed mode and fail clearly when the current execution topology or provider capabilities cannot support it. Automatic mode may fall back only before a managed session is created.
 
