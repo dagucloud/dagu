@@ -103,6 +103,7 @@ function DAGStatus({
   const { showError } = useErrorModal();
   const [modal, setModal] = useState(false);
   const [activeTab, setActiveTab] = useState<StatusTab>(initialTab);
+  const [selectedAgentStep, setSelectedAgentStep] = useState('');
   const [displayDAGRun, setDisplayDAGRun] = useState(dagRun);
 
   useEffect(() => {
@@ -506,6 +507,7 @@ function DAGStatus({
 
   useEffect(() => {
     setActiveTab(initialTab);
+    setSelectedAgentStep('');
   }, [displayDAGRunIdentity, initialTab]);
 
   // Reset to status tab if selected tab is not available
@@ -888,6 +890,8 @@ function DAGStatus({
               key={displayDAGRunIdentity}
               dagRun={displayDAGRun}
               onChanged={dagContext.refresh}
+              selectedStep={selectedAgentStep}
+              onSelectedStepChange={setSelectedAgentStep}
             />
           </div>
         )}

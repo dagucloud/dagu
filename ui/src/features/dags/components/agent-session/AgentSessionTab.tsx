@@ -33,6 +33,8 @@ type NodeData = components['schemas']['Node'];
 type Props = {
   dagRun: DAGRunDetails;
   onChanged: () => void | Promise<void>;
+  selectedStep: string;
+  onSelectedStepChange: (stepName: string) => void;
 };
 
 function stateClasses(state: string) {
@@ -517,24 +519,27 @@ function preferredAgentNode(nodes: NodeData[]) {
   );
 }
 
-export function AgentSessionTab({ dagRun, onChanged }: Props) {
+export function AgentSessionTab({
+  dagRun,
+  onChanged,
+  selectedStep,
+  onSelectedStepChange,
+}: Props) {
   const nodes = (dagRun.nodes || []).filter((node) => !!node.agentSession);
   const tabGroupId = React.useId();
   const panelId = `${tabGroupId}-panel`;
-  const [selectedStep, setSelectedStep] = React.useState(
-    () => preferredAgentNode(nodes)?.step.name || ''
-  );
   const selectedNode =
     nodes.find((node) => node.step.name === selectedStep) ||
     preferredAgentNode(nodes);
+  const resolvedStep = selectedNode?.step.name || '';
 
   React.useEffect(() => {
-    if (!nodes.some((node) => node.step.name === selectedStep)) {
-      setSelectedStep(preferredAgentNode(nodes)?.step.name || '');
+    if (resolvedStep !== selectedStep) {
+      onSelectedStepChange(resolvedStep);
     }
-  }, [nodes, selectedStep]);
+  }, [onSelectedStepChange, resolvedStep, selectedStep]);
 
-  if (nodes.length === 0) {
+  if (!selectedNode) {
     return (
       <div className="py-8 text-center text-sm text-muted-foreground">
         No managed agent sessions in this run.
@@ -543,12 +548,12 @@ export function AgentSessionTab({ dagRun, onChanged }: Props) {
   }
 
   const selectedIndex = nodes.findIndex(
-    (node) => node.step.name === selectedNode?.step.name
+    (node) => node.step.name === selectedNode.step.name
   );
   const tabId = (index: number) => `${tabGroupId}-${index}-tab`;
   const selectNode = (index: number) => {
     const node = nodes[index];
-    if (node) setSelectedStep(node.step.name);
+    if (node) onSelectedStepChange(node.step.name);
   };
   const handleTabKeyDown = (
     event: React.KeyboardEvent<HTMLElement>,
@@ -585,7 +590,7 @@ export function AgentSessionTab({ dagRun, onChanged }: Props) {
           className="flex w-full overflow-x-auto overflow-y-hidden"
         >
           {nodes.map((node, index) => {
-            const selected = node.step.name === selectedNode?.step.name;
+            const selected = node.step.name === selectedNode.step.name;
             return (
               <Tab
                 key={node.step.name}
@@ -622,8 +627,8 @@ export function AgentSessionTab({ dagRun, onChanged }: Props) {
           : {})}
       >
         <AgentSessionCard
-          key={selectedNode!.step.name}
-          node={selectedNode!}
+          key={selectedNode.step.name}
+          node={selectedNode}
           dagRun={dagRun}
           onChanged={onChanged}
         />

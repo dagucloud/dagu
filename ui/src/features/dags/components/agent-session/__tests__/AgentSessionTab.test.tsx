@@ -56,8 +56,24 @@ function dagRun(nodes: ReturnType<typeof agentNode>[]) {
   } as never;
 }
 
+function AgentSessionHarness({
+  nodes,
+}: {
+  nodes: ReturnType<typeof agentNode>[];
+}) {
+  const [selectedStep, setSelectedStep] = React.useState('');
+  return (
+    <AgentSessionTab
+      dagRun={dagRun(nodes)}
+      onChanged={vi.fn()}
+      selectedStep={selectedStep}
+      onSelectedStepChange={setSelectedStep}
+    />
+  );
+}
+
 function renderAgentSessions(nodes: ReturnType<typeof agentNode>[]) {
-  return render(<AgentSessionTab dagRun={dagRun(nodes)} onChanged={vi.fn()} />);
+  return render(<AgentSessionHarness nodes={nodes} />);
 }
 
 describe('AgentSessionTab', () => {
@@ -166,8 +182,8 @@ describe('AgentSessionTab', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /analyze/ }));
     rerender(
-      <AgentSessionTab
-        dagRun={dagRun([
+      <AgentSessionHarness
+        nodes={[
           analyze,
           implement,
           agentNode(
@@ -176,8 +192,7 @@ describe('AgentSessionTab', () => {
             NodeStatus.Waiting,
             'Review needs input'
           ),
-        ])}
-        onChanged={vi.fn()}
+        ]}
       />
     );
 
@@ -209,9 +224,7 @@ describe('AgentSessionTab', () => {
     const { rerender } = renderAgentSessions([analyze, implement]);
 
     fireEvent.click(screen.getByRole('tab', { name: /analyze/ }));
-    rerender(
-      <AgentSessionTab dagRun={dagRun([implement])} onChanged={vi.fn()} />
-    );
+    rerender(<AgentSessionHarness nodes={[implement]} />);
 
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
     expect(screen.getByText('Implementation running')).toBeInTheDocument();
