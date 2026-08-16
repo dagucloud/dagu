@@ -22,7 +22,6 @@ import (
 )
 
 const (
-	cleanupLock             = "claims"
 	cleanupOwnerAffinityTTL = 24 * time.Hour
 )
 
@@ -41,12 +40,12 @@ type CleanupJob struct {
 
 // CleanupQueue persists provider cleanup until the owning execution host completes it.
 type CleanupQueue struct {
-	col persis.LockingCollection
+	col persis.Collection
 	now func() time.Time
 }
 
 // NewCleanupQueue creates a cleanup queue backed by col.
-func NewCleanupQueue(col persis.LockingCollection) *CleanupQueue {
+func NewCleanupQueue(col persis.Collection) *CleanupQueue {
 	return &CleanupQueue{col: col, now: time.Now}
 }
 
@@ -151,34 +150,33 @@ func (q *CleanupQueue) Claim(ctx context.Context, ownerWorkerID string, lease ti
 		return nil, persis.ErrNotFound
 	}
 	var claimed *CleanupJob
-	err := q.col.WithLock(ctx, cleanupLock, func() error {
-		now := q.now().UTC()
-		return q.visit(ctx, func(record *persis.Record, job CleanupJob) (bool, error) {
-			ownerMatches := sameCleanupOwner(job.Resource.OwnerWorkerID, ownerWorkerID)
-			if !ownerMatches && record.CreatedAt.Add(cleanupOwnerAffinityTTL).After(now) {
+	now := q.now().UTC()
+	err := q.visit(ctx, func(record *persis.Record, job CleanupJob) (bool, error) {
+		ownerMatches := sameCleanupOwner(job.Resource.OwnerWorkerID, ownerWorkerID)
+		if !ownerMatches && record.CreatedAt.Add(cleanupOwnerAffinityTTL).After(now) {
+			return false, nil
+		}
+		if job.NextAttemptAt > now.UnixMilli() {
+			return false, nil
+		}
+		if job.ClaimToken != "" && time.UnixMilli(job.ClaimedAt).Add(lease).After(now) {
+			return false, nil
+		}
+		job.ClaimToken = uuid.NewString()
+		job.ClaimedBy = ownerWorkerID
+		job.ClaimedAt = now.UnixMilli()
+		data, err := persis.Encode(job)
+		if err != nil {
+			return false, err
+		}
+		if err := q.col.CompareAndSwap(ctx, record.ID, record.Data, data); err != nil {
+			if errors.Is(err, persis.ErrConflict) || errors.Is(err, persis.ErrNotFound) {
 				return false, nil
 			}
-			if job.NextAttemptAt > now.UnixMilli() {
-				return false, nil
-			}
-			if job.ClaimToken != "" && time.UnixMilli(job.ClaimedAt).Add(lease).After(now) {
-				return false, nil
-			}
-			job.ClaimToken = uuid.NewString()
-			job.ClaimedBy = ownerWorkerID
-			job.ClaimedAt = now.UnixMilli()
-			data, err := persis.Encode(job)
-			if err != nil {
-				return false, err
-			}
-			if err := q.col.Put(ctx, &persis.Record{
-				ID: record.ID, Data: data, CreatedAt: record.CreatedAt, UpdatedAt: now,
-			}); err != nil {
-				return false, err
-			}
-			claimed = &job
-			return true, nil
-		})
+			return false, err
+		}
+		claimed = &job
+		return true, nil
 	})
 	if err != nil {
 		return nil, err
@@ -198,8 +196,8 @@ func sameCleanupOwner(resourceOwner, claimant string) bool {
 
 // Complete removes a claimed cleanup job.
 func (q *CleanupQueue) Complete(ctx context.Context, ownerWorkerID, id, claimToken string) error {
-	return q.updateClaim(ctx, ownerWorkerID, id, claimToken, func(_ *persis.Record, _ *CleanupJob) error {
-		return q.col.Delete(ctx, id)
+	return q.updateClaim(ctx, ownerWorkerID, id, claimToken, func(record *persis.Record, _ *CleanupJob) error {
+		return q.col.CompareAndDelete(ctx, record)
 	})
 }
 
@@ -218,9 +216,7 @@ func (q *CleanupQueue) Release(ctx context.Context, ownerWorkerID, id, claimToke
 		if err != nil {
 			return err
 		}
-		return q.col.Put(ctx, &persis.Record{
-			ID: record.ID, Data: data, CreatedAt: record.CreatedAt, UpdatedAt: now,
-		})
+		return q.col.CompareAndSwap(ctx, record.ID, record.Data, data)
 	})
 }
 
@@ -232,20 +228,18 @@ func (q *CleanupQueue) updateClaim(
 	if q == nil || q.col == nil {
 		return errors.New("agent session cleanup queue is not configured")
 	}
-	return q.col.WithLock(ctx, cleanupLock, func() error {
-		record, err := q.col.Get(ctx, id)
-		if err != nil {
-			return err
-		}
-		var job CleanupJob
-		if err := persis.Decode(record, &job); err != nil {
-			return err
-		}
-		if job.ClaimedBy != ownerWorkerID || claimToken == "" || job.ClaimToken != claimToken {
-			return persis.ErrConflict
-		}
-		return update(record, &job)
-	})
+	record, err := q.col.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	var job CleanupJob
+	if err := persis.Decode(record, &job); err != nil {
+		return err
+	}
+	if job.ClaimedBy != ownerWorkerID || claimToken == "" || job.ClaimToken != claimToken {
+		return persis.ErrConflict
+	}
+	return update(record, &job)
 }
 
 func (q *CleanupQueue) visit(ctx context.Context, visit func(*persis.Record, CleanupJob) (bool, error)) error {

@@ -5,10 +5,16 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -17,6 +23,84 @@ type recordIDsCollection interface {
 }
 
 type recordReadErrorHandler func(id string, err error) (handled bool, handleErr error)
+
+type recordHelper struct {
+	col  persis.Collection
+	name string
+}
+
+func (h recordHelper) put(ctx context.Context, id string, value any) error {
+	data, err := persis.Encode(value)
+	if err != nil {
+		return fmt.Errorf("%s: encode record: %w", h.name, err)
+	}
+
+	err = retryConflict(ctx, func(ctx context.Context) error {
+		now := time.Now().UTC()
+		existing, err := h.col.Get(ctx, id)
+		if err != nil && !errors.Is(err, persis.ErrNotFound) {
+			return err
+		}
+		createdAt := now
+		if existing != nil {
+			createdAt = existing.CreatedAt
+		}
+		return createOrSwap(ctx, h.col, existing, &persis.Record{
+			ID: id, Data: data, CreatedAt: createdAt, UpdatedAt: now,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("%s: save record: %w", h.name, err)
+	}
+	return nil
+}
+
+func (h recordHelper) get(ctx context.Context, id string, notFound error) (*persis.Record, error) {
+	rec, err := h.col.Get(ctx, id)
+	if errors.Is(err, persis.ErrNotFound) {
+		return nil, notFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
+func (h recordHelper) delete(ctx context.Context, id string, notFound error, kind string) error {
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		rec, err := h.col.Get(ctx, id)
+		if errors.Is(err, persis.ErrNotFound) {
+			return notFound
+		}
+		if err != nil {
+			return err
+		}
+		err = h.col.CompareAndDelete(ctx, rec)
+		if errors.Is(err, persis.ErrNotFound) {
+			return notFound
+		}
+		return err
+	})
+	if errors.Is(err, notFound) {
+		return notFound
+	}
+	if err != nil {
+		return fmt.Errorf("%s: delete %s: %w", h.name, kind, err)
+	}
+	return nil
+}
+
+func (h recordHelper) listTolerant(ctx context.Context, prefix, kind string) ([]*persis.Record, error) {
+	recs, err := listAllStrictWithReadError(ctx, h.col, persis.ListQuery{Prefix: prefix}, func(id string, err error) (bool, error) {
+		logger.Warn(ctx, h.name+": failed to load "+kind, slog.String("record", id), tag.Error(err))
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(recs, func(i, j int) bool { return recs[i].ID < recs[j].ID })
+	return recs, nil
+}
 
 // listAll drains all pages from col matching q, ignoring the Cursor field of q.
 func listAll(ctx context.Context, col persis.Collection, q persis.ListQuery) ([]*persis.Record, error) {
@@ -97,4 +181,9 @@ func sortRecordsByCreatedAt(recs []*persis.Record) {
 		}
 		return ti.Before(tj)
 	})
+}
+
+func hashRecordID(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }

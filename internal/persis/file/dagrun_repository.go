@@ -4,9 +4,6 @@
 package file
 
 import (
-	"path/filepath"
-
-	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -28,11 +25,6 @@ func WithDAGRunRemovalEnqueuer(enqueuer persis.DAGRunRemovalEnqueuer) DAGRunRepo
 	return func(o *dagRunRepositoryOptions) {
 		o.RemovalEnqueuer = enqueuer
 	}
-}
-
-// NewAgentSessionCleanupQueue creates the file-backed provider cleanup queue.
-func NewAgentSessionCleanupQueue(cfg *config.Config) *agentsession.CleanupQueue {
-	return agentsession.NewCleanupQueue(NewCollection(filepath.Join(cfg.Paths.DataDir, "agent-session-cleanups")))
 }
 
 // WithDAGRunHistoryFileCache sets the cache used for reading DAG-run history files.

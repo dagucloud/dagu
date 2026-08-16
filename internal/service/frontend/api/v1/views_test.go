@@ -10,6 +10,7 @@ import (
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -26,8 +27,7 @@ type stubAuthService struct{ apiv1.AuthService }
 
 func newViewsTestAPI(t *testing.T, opts ...apiv1.APIOption) *apiv1.API {
 	t.Helper()
-	vs, err := persiststore.NewViewStore(testutil.NewMemoryBackend().Collection("views"))
-	require.NoError(t, err)
+	vs := persiststore.NewViewStore(testutil.NewMemoryBackend().Collection(persis.CollectionViews))
 	cfg := &config.Config{}
 	allOpts := append([]apiv1.APIOption{apiv1.WithViewStore(vs)}, opts...)
 	return apiv1.New(nil, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil, allOpts...)

@@ -54,7 +54,11 @@ func (th RepositoryTest) CreateAttempt(t *testing.T, ts time.Time, dagRunID stri
 func (th RepositoryTest) CreateAttemptWithDAG(t *testing.T, ts time.Time, dagRunID string, s ir.Status, dag *ir.DAG) *Attempt {
 	t.Helper()
 
-	attempt, err := th.Repository.CreateAttempt(th.Context, dag, ts, dagRunID, persis.DAGRunCreateAttemptOptions{})
+	attempt, err := th.Backend.CreateAttempt(th.Context, persis.DAGRunCreateAttemptRequest{
+		DAG:       dag,
+		Timestamp: ts,
+		DAGRunID:  dagRunID,
+	})
 	require.NoError(t, err)
 
 	err = attempt.Open(th.Context)

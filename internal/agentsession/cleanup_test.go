@@ -21,9 +21,7 @@ func TestCleanupQueueRetainsWorkForOwningHost(t *testing.T) {
 	t.Parallel()
 
 	backend := persistestutil.NewMemoryBackend()
-	collection, ok := backend.Collection("cleanups").(persis.LockingCollection)
-	require.True(t, ok)
-	queue := NewCleanupQueue(collection)
+	queue := NewCleanupQueue(backend.Collection("cleanups"))
 	now := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
 	queue.now = func() time.Time { return now }
 	root := ir.NewDAGRunRef("build", "run-1")
@@ -53,13 +51,49 @@ func TestCleanupQueueRetainsWorkForOwningHost(t *testing.T) {
 	require.ErrorIs(t, err, persis.ErrNotFound)
 }
 
+func TestCleanupQueueClaimsJobOnce(t *testing.T) {
+	t.Parallel()
+
+	queue := NewCleanupQueue(persistestutil.NewMemoryBackend().Collection("cleanups"))
+	root := ir.NewDAGRunRef("build", "run-1")
+	resource := ir.AgentSessionResource{
+		Provider: "opencode", SessionID: "session-1", OwnerWorkerID: "worker-a",
+	}
+	require.NoError(t, queue.EnqueueDAGRunRemoval(t.Context(), root, []ir.AgentSessionResource{resource}))
+
+	type claimResult struct {
+		job *CleanupJob
+		err error
+	}
+	start := make(chan struct{})
+	results := make(chan claimResult, 2)
+	for range 2 {
+		go func() {
+			<-start
+			job, err := queue.Claim(t.Context(), "worker-a", time.Minute)
+			results <- claimResult{job: job, err: err}
+		}()
+	}
+	close(start)
+
+	claimed := 0
+	for range 2 {
+		result := <-results
+		if result.err == nil {
+			claimed++
+			assert.Equal(t, resource, result.job.Resource)
+			continue
+		}
+		require.ErrorIs(t, result.err, persis.ErrNotFound)
+	}
+	assert.Equal(t, 1, claimed)
+}
+
 func TestCleanupQueueTransfersAbandonedWork(t *testing.T) {
 	t.Parallel()
 
 	backend := persistestutil.NewMemoryBackend()
-	collection, ok := backend.Collection("cleanups").(persis.LockingCollection)
-	require.True(t, ok)
-	queue := NewCleanupQueue(collection)
+	queue := NewCleanupQueue(backend.Collection("cleanups"))
 	now := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
 	queue.now = func() time.Time { return now }
 	root := ir.NewDAGRunRef("build", "run-1")
@@ -88,9 +122,7 @@ func TestProcessNextCleanupWaitsForDAGRunRemoval(t *testing.T) {
 	t.Parallel()
 
 	backend := persistestutil.NewMemoryBackend()
-	collection, ok := backend.Collection("cleanups").(persis.LockingCollection)
-	require.True(t, ok)
-	queue := NewCleanupQueue(collection)
+	queue := NewCleanupQueue(backend.Collection("cleanups"))
 	now := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
 	queue.now = func() time.Time { return now }
 	root := ir.NewDAGRunRef("build", "run-1")

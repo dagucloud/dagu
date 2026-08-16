@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -112,10 +113,13 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	// Create a signal-aware context for services (used for auth init and all service operations)
 	serviceCtx := ctx.WithContext(signalCtx)
-	if _, err := persisfile.NewDAGSettingsStore(serviceCtx.Config); err != nil {
+	if _, err := persisfile.NewDAGSettingsStore(
+		serviceCtx.Config,
+		serviceCtx.backend.Collection(persis.CollectionDAGSettings),
+	); err != nil {
 		return fmt.Errorf("failed to initialize DAG settings store: %w", err)
 	}
-	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config)
+	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.backend)
 	if err != nil {
 		return err
 	}

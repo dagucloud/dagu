@@ -29,8 +29,8 @@ type ViewStore struct {
 }
 
 // NewViewStore creates a ViewStore backed by col.
-func NewViewStore(col persis.Collection) (*ViewStore, error) {
-	return &ViewStore{col: col}, nil
+func NewViewStore(col persis.Collection) *ViewStore {
+	return &ViewStore{col: col}
 }
 
 // Create stores a new view. Returns [view.ErrViewExists] if a view with the

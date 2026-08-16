@@ -23,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -54,14 +53,13 @@ var _ dagrun.Attempt = (*Attempt)(nil)
 // Attempt manages an append-only status file with read, write, and compaction capabilities.
 // It provides thread-safe operations and supports metrics collection.
 type Attempt struct {
-	id                   string                            // Attempt ID, extracted from the file path
-	file                 string                            // Path to the status file
-	writer               *Writer                           // Writer for appending status updates
-	mu                   sync.RWMutex                      // Mutex for thread safety
-	cache                *fileutil.Cache[*ir.DAGRunStatus] // Optional cache for read operations
-	isClosing            atomic.Bool                       // Flag to prevent writes during Close/Compact
-	dag                  *ir.DAG                           // DAG associated with the status file
-	lastEmittedEventType eventstore.EventType
+	id        string                            // Attempt ID, extracted from the file path
+	file      string                            // Path to the status file
+	writer    *Writer                           // Writer for appending status updates
+	mu        sync.RWMutex                      // Mutex for thread safety
+	cache     *fileutil.Cache[*ir.DAGRunStatus] // Optional cache for read operations
+	isClosing atomic.Bool                       // Flag to prevent writes during Close/Compact
+	dag       *ir.DAG                           // DAG associated with the status file
 }
 
 // ID implements models.Attempt.
@@ -174,7 +172,6 @@ func (att *Attempt) Open(ctx context.Context) error {
 	}
 
 	att.writer = writer
-	att.lastEmittedEventType = att.lastPersistedEventTypeLocked(ctx)
 	return nil
 }
 
@@ -213,18 +210,6 @@ func (att *Attempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 
 	if err := updateLatestAttemptPointer(ctx, att.file); err != nil {
 		logger.Warn(ctx, "Failed to update DAG-run latest attempt pointer", tag.Error(err))
-	}
-
-	nextEventType, _, err := eventstore.EmitPersistedStatusTransitionFromContext(
-		ctx,
-		att.lastEmittedEventType,
-		&status,
-		att.eventData(),
-	)
-	if err != nil {
-		logger.Warn(ctx, "Failed to emit DAG-run event", tag.Error(err))
-	} else {
-		att.lastEmittedEventType = nextEventType
 	}
 
 	return nil
@@ -462,34 +447,6 @@ func (att *Attempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) {
 // Must be called with a lock (read or write) already held.
 func (att *Attempt) parseLocked(ctx context.Context) (*ir.DAGRunStatus, error) {
 	return parseStatusFileWithContext(ctx, att.file)
-}
-
-func (att *Attempt) lastPersistedEventTypeLocked(ctx context.Context) eventstore.EventType {
-	status, err := att.parseLocked(ctx)
-	if err != nil {
-		return ""
-	}
-	eventType, ok := eventstore.PersistedDAGRunEventTypeForStatus(status.Status)
-	if !ok {
-		return ""
-	}
-	return eventType
-}
-
-func (att *Attempt) eventData() map[string]any {
-	if att.dag == nil {
-		return nil
-	}
-	fileName := att.dag.FileName()
-	if fileName == "" && att.dag.SourceFile != "" {
-		fileName = fileutil.TrimYAMLFileExtension(filepath.Base(att.dag.SourceFile))
-	}
-	if fileName == "" {
-		return nil
-	}
-	return map[string]any{
-		eventstore.DAGFileNameDataKey: fileName,
-	}
 }
 
 // ParseStatusFile reads the status file and returns the last valid status.

@@ -6,7 +6,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -61,17 +61,18 @@ func TestQueueStore_EnqueueListAndDequeue(t *testing.T) {
 	assert.Equal(t, queueRef("dag-high", "run-high"), requireQueuedRef(t, items[0]))
 	assert.Equal(t, queueRef("dag-low", "run-low"), requireQueuedRef(t, items[1]))
 
-	first, err := s.DequeueByName(ctx, "main")
+	deleted, err := s.DeleteByItemIDs(ctx, "main", []string{items[0].ID()})
 	require.NoError(t, err)
-	assert.NotContains(t, first.ID(), "main/")
-	assert.Equal(t, queueRef("dag-high", "run-high"), requireQueuedRef(t, first))
+	assert.Equal(t, 1, deleted)
 
-	second, err := s.DequeueByName(ctx, "main")
+	items, err = s.List(ctx, "main")
 	require.NoError(t, err)
-	assert.Equal(t, queueRef("dag-low", "run-low"), requireQueuedRef(t, second))
+	require.Len(t, items, 1)
+	assert.Equal(t, queueRef("dag-low", "run-low"), requireQueuedRef(t, items[0]))
 
-	_, err = s.DequeueByName(ctx, "main")
-	assert.ErrorIs(t, err, queue.ErrQueueEmpty)
+	deleted, err = s.DeleteByItemIDs(ctx, "main", []string{items[0].ID()})
+	require.NoError(t, err)
+	assert.Equal(t, 1, deleted)
 }
 
 func TestQueueStore_EnqueueRejectsInvalidInputs(t *testing.T) {
@@ -266,25 +267,6 @@ func TestQueueStore_DeleteByItemIDsRemovesInvalidItemRecords(t *testing.T) {
 	assert.NoFileExists(t, itemPath)
 }
 
-func TestQueueStore_DequeueByNameRestoresInvalidClaimedItem(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	root := t.TempDir()
-	queueName := "invalid-q"
-	itemFile := "item_high_20260101_000000_000000001Z_run-invalid.json"
-	raw := `{"fileName":"` + itemFile + `","dagRun":{"name":"","id":""},"queuedAt":"2026-01-01T00:00:00.000000001Z"}`
-
-	itemPath := filepath.Join(root, queueName, itemFile)
-	require.NoError(t, os.MkdirAll(filepath.Dir(itemPath), 0o750))
-	require.NoError(t, os.WriteFile(itemPath, []byte(raw), 0o600))
-
-	s := store.NewQueueStore(file.NewCollection(root))
-	_, err := s.DequeueByName(ctx, queueName)
-	require.ErrorContains(t, err, "invalid dag-run")
-	assert.FileExists(t, itemPath)
-}
-
 func TestQueueStore_ListSurfacesInvalidItemRecords(t *testing.T) {
 	t.Parallel()
 
@@ -366,26 +348,31 @@ func TestQueueStore_AllQueueListAndListByDAGName(t *testing.T) {
 	assert.Equal(t, queueRef("dag-shared", "run-a-low"), requireQueuedRef(t, all[2]))
 }
 
-func TestQueueStore_ConcurrentDequeueIsExclusive(t *testing.T) {
+func TestQueueStore_ConcurrentDeleteByItemIDHasOneWinner(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	s := newQueueStore(t)
-	require.NoError(t, s.Enqueue(ctx, "main", queue.QueuePriorityHigh, queueRef("dag", "run")))
+	root := t.TempDir()
+	stores := []*store.QueueStore{
+		store.NewQueueStore(file.NewCollection(root)),
+		store.NewQueueStore(file.NewCollection(root)),
+	}
+	require.NoError(t, stores[0].Enqueue(ctx, "main", queue.QueuePriorityHigh, queueRef("dag", "run")))
+	items, err := stores[0].List(ctx, "main")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
 
-	var claimed atomic.Int32
+	var deleted atomic.Int32
 	errs := make(chan error, 16)
 	var wg sync.WaitGroup
-	for range 16 {
+	for i := range 16 {
 		wg.Go(func() {
-			_, err := s.DequeueByName(ctx, "main")
-			switch {
-			case err == nil:
-				claimed.Add(1)
-			case errors.Is(err, queue.ErrQueueEmpty):
-			default:
+			count, err := stores[i%len(stores)].DeleteByItemIDs(ctx, "main", []string{items[0].ID()})
+			if err != nil {
 				errs <- err
+				return
 			}
+			deleted.Add(int32(count))
 		})
 	}
 	wg.Wait()
@@ -394,7 +381,45 @@ func TestQueueStore_ConcurrentDequeueIsExclusive(t *testing.T) {
 	for err := range errs {
 		require.NoError(t, err)
 	}
-	assert.Equal(t, int32(1), claimed.Load())
+	assert.Equal(t, int32(1), deleted.Load())
+	page, err := stores[0].ListCursor(ctx, "main", "", 1)
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+}
+
+func TestQueueStore_ConcurrentEnqueuePreservesIndex(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	stores := []*store.QueueStore{
+		store.NewQueueStore(file.NewCollection(root)),
+		store.NewQueueStore(file.NewCollection(root)),
+	}
+
+	const itemCount = 16
+	errCh := make(chan error, itemCount)
+	var wg sync.WaitGroup
+	for i := range itemCount {
+		wg.Go(func() {
+			errCh <- stores[i%len(stores)].Enqueue(
+				ctx,
+				"main",
+				queue.QueuePriority(i%2),
+				queueRef("dag", fmt.Sprintf("run-%02d", i)),
+			)
+		})
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	page, err := stores[0].ListCursor(ctx, "main", "", itemCount)
+	require.NoError(t, err)
+	assert.Len(t, page.Items, itemCount)
+	assert.False(t, page.HasMore)
 }
 
 func TestQueueStore_ReadsFileQueueItems(t *testing.T) {
@@ -419,8 +444,8 @@ func TestQueueStore_ReadsFileQueueItems(t *testing.T) {
 	assert.Equal(t, "item_high_20260101_000000_000000001Z_run-file", items[0].ID())
 	assert.Equal(t, queueRef("file-dag", "run-file"), requireQueuedRef(t, items[0]))
 
-	claimed, err := s.DequeueByName(ctx, queueName)
+	deleted, err := s.DeleteByItemIDs(ctx, queueName, []string{items[0].ID()})
 	require.NoError(t, err)
-	assert.Equal(t, items[0].ID(), claimed.ID())
+	assert.Equal(t, 1, deleted)
 	assert.NoFileExists(t, itemPath)
 }

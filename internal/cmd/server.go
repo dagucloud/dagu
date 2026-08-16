@@ -108,7 +108,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		defer ctx.LicenseManager.Stop()
 	}
 
-	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config)
+	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.backend)
 	if err != nil {
 		return err
 	}

@@ -259,12 +259,13 @@ func TestQueueProcessor_PriorityOrdering(t *testing.T) {
 	f.enqueueWithPriority("high-1", queuedomain.QueuePriorityHigh)
 	f.enqueueWithPriority("high-2", queuedomain.QueuePriorityHigh)
 
-	// Dequeue should return high priority first, then low priority
+	// Queue reads should return high priority first, then low priority.
 	expectedOrder := []string{"high-1", "high-2", "low-1", "low-2"}
-	for _, expectedID := range expectedOrder {
-		item, err := f.queueStore.DequeueByName(f.ctx, f.dag.Name)
-		require.NoError(t, err)
-		ref, err := item.Data()
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, items, len(expectedOrder))
+	for i, expectedID := range expectedOrder {
+		ref, err := items[i].Data()
 		require.NoError(t, err)
 		assert.Equal(t, expectedID, ref.ID)
 	}

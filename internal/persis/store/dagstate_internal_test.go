@@ -94,6 +94,19 @@ func TestDAGStateStoreListUsesRecordIDsLimitBeforeDecode(t *testing.T) {
 	assert.Equal(t, 0, col.listCalls)
 }
 
+func TestRetryConflictStopsWhenContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
+	err := retryConflict(ctx, func(context.Context) error {
+		calls++
+		cancel()
+		return persis.ErrConflict
+	})
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, calls)
+}
+
 func stateRefForStoreTest(key string) dagrun.StateRef {
 	return dagrun.StateRef{Scope: dagrun.StateScopeDAG, Namespace: "daily-agent", Key: key}
 }
