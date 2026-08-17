@@ -6,6 +6,8 @@ package docker
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +15,6 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -66,6 +67,9 @@ const (
 	// Keepalive settings
 	keepAliveSleepCmd   = "while true; do sleep 86400; done"
 	keepAliveTargetPath = "/__dagu_runner/keepalive"
+
+	// Marks a cancelable exec so the daemon can signal it from inside the container.
+	execCancelTokenEnv = "DAGU_EXEC_TOKEN"
 
 	// Log scanning buffer sizes
 	logScanInitialBuf = 64 * 1024
@@ -641,9 +645,9 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 			}
 			return running, false, nil
 		},
-		func() error {
+		func(stopCtx context.Context) error {
 			logger.Debug(ctx, "Docker: Run stopping container after context cancel", slog.String("containerID", ctID))
-			return stopContainerByID(c.cli, ctID)
+			return stopContainerByID(stopCtx, c.cli, ctID)
 		},
 		defaultPollInterval,
 	); waitErr != nil {
@@ -942,6 +946,11 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 		configuredEnv = append(configuredEnv, c.cfg.Container.Env...)
 	}
 	execEnv := mergeEnvByKey(containerEnv, configuredEnv, cfgExec.Env, opts.Env)
+	execCancelToken := ""
+	if opts.TerminateOnCancel && opts.PIDFile == "" {
+		execCancelToken = newExecCancelToken()
+		execEnv = append(execEnv, execCancelTokenEnv+"="+execCancelToken)
+	}
 
 	// Create exec configuration
 	execOpts := client.ExecCreateOptions{
@@ -1002,7 +1011,7 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 		if err != nil {
 			if ctx.Err() != nil {
 				if opts.TerminateOnCancel {
-					if err := terminateExecProcess(cli, execCreateResp.ID, opts.PIDFile); err != nil {
+					if err := terminateExecProcess(cli, execCreateResp.ID, opts.PIDFile, execCancelToken); err != nil {
 						logger.Warn(ctx, "Docker executor: terminate exec process after cancellation", tag.Error(err))
 					}
 				}
@@ -1022,7 +1031,7 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 		select {
 		case <-ctx.Done():
 			if opts.TerminateOnCancel {
-				if err := terminateExecProcess(cli, execCreateResp.ID, opts.PIDFile); err != nil {
+				if err := terminateExecProcess(cli, execCreateResp.ID, opts.PIDFile, execCancelToken); err != nil {
 					logger.Warn(ctx, "Docker executor: terminate exec process after cancellation", tag.Error(err))
 				}
 			}
@@ -1086,7 +1095,15 @@ exec "$@"`
 	return append(wrapped, cmd...)
 }
 
-func terminateExecProcess(cli *client.Client, execID string, pidFile string) error {
+func newExecCancelToken() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+func terminateExecProcess(cli *client.Client, execID string, pidFile string, token string) error {
 	inspectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -1114,26 +1131,25 @@ func terminateExecProcess(cli *client.Client, execID string, pidFile string) err
 		return fmt.Errorf("exec %s is still running after KILL", execID)
 	}
 
-	if inspectResp.PID <= 0 {
-		return fmt.Errorf("exec %s has no pid for targeted cancellation", execID)
+	if token == "" {
+		return fmt.Errorf("exec %s has no cancel token for daemon-side cancellation", execID)
 	}
-	if runtime.GOOS == "linux" {
-		_ = syscall.Kill(inspectResp.PID, syscall.SIGTERM)
-		if execStoppedWithin(cli, execID, 2*time.Second) {
-			return nil
-		}
-		_ = syscall.Kill(inspectResp.PID, syscall.SIGKILL)
-		if execStoppedWithin(cli, execID, 2*time.Second) {
-			return nil
-		}
+	if err := signalContainerTokenProcess(cli, inspectResp.ContainerID, token, "TERM"); err != nil {
+		return err
 	}
-	return fmt.Errorf("exec %s is still running after cancel", execID)
+	if execStoppedWithin(cli, execID, 2*time.Second) {
+		return nil
+	}
+	if err := signalContainerTokenProcess(cli, inspectResp.ContainerID, token, "KILL"); err != nil {
+		return err
+	}
+	if execStoppedWithin(cli, execID, 2*time.Second) {
+		return nil
+	}
+	return fmt.Errorf("exec %s is still running after KILL", execID)
 }
 
 func signalContainerPIDFileProcess(cli *client.Client, containerID string, pidFile string, signalName string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	script := `sig="$1"
 pidfile="$2"
 pid="$(cat "$pidfile" 2>/dev/null || true)"
@@ -1147,31 +1163,58 @@ kill_tree() {
 kill "-$sig" -- "-$pid" 2>/dev/null || true
 kill_tree "$pid"
 rm -f "$pidfile" 2>/dev/null || true`
+	return runContainerSignalExec(cli, containerID, signalName, "pid file "+pidFile, []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, pidFile})
+}
+
+func signalContainerTokenProcess(cli *client.Client, containerID string, token string, signalName string) error {
+	script := `sig="$1"
+token="$2"
+kill_tree() {
+  for child in $(ps -eo pid,ppid 2>/dev/null | awk -v parent="$1" 'NR > 1 && $2 == parent { print $1 }'); do
+    kill_tree "$child"
+  done
+  kill "-$sig" "$1" 2>/dev/null || true
+}
+for environ in /proc/[0-9]*/environ; do
+  pid="${environ#/proc/}"
+  pid="${pid%/environ}"
+  if tr '\0' '\n' < "$environ" 2>/dev/null | grep -Fxq "` + execCancelTokenEnv + `=$token"; then
+    kill "-$sig" -- "-$pid" 2>/dev/null || true
+    kill_tree "$pid"
+  fi
+done`
+	return runContainerSignalExec(cli, containerID, signalName, "cancel token", []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, token})
+}
+
+func runContainerSignalExec(cli *client.Client, containerID, signalName, target string, cmd []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	resp, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		User: "0",
-		Cmd:  []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, pidFile},
+		Cmd:  cmd,
 	})
 	if err != nil {
-		return fmt.Errorf("create %s signal exec for pid file %q: %w", signalName, pidFile, err)
+		return fmt.Errorf("create %s signal exec for %s: %w", signalName, target, err)
 	}
 	if _, err := cli.ExecStart(ctx, resp.ID, client.ExecStartOptions{Detach: true}); err != nil {
-		return fmt.Errorf("start %s signal exec for pid file %q: %w", signalName, pidFile, err)
+		return fmt.Errorf("start %s signal exec for %s: %w", signalName, target, err)
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		inspectResp, err := cli.ExecInspect(ctx, resp.ID, client.ExecInspectOptions{})
 		if err != nil {
-			return fmt.Errorf("inspect %s signal exec for pid file %q: %w", signalName, pidFile, err)
+			return fmt.Errorf("inspect %s signal exec for %s: %w", signalName, target, err)
 		}
 		if !inspectResp.Running {
 			if inspectResp.ExitCode != 0 {
-				return fmt.Errorf("%s signal exec for pid file %q exited with code %d", signalName, pidFile, inspectResp.ExitCode)
+				return fmt.Errorf("%s signal exec for %s exited with code %d", signalName, target, inspectResp.ExitCode)
 			}
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%s signal exec for pid file %q did not finish", signalName, pidFile)
+			return fmt.Errorf("%s signal exec for %s did not finish", signalName, target)
 		}
 		time.Sleep(defaultPollInterval)
 	}

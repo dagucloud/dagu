@@ -4,6 +4,7 @@ package docker
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -24,7 +25,7 @@ func TestWaitUntilContainerStopped_StopsAndReturns_WhenContextCanceled(t *testin
 	inspect := func(context.Context) (running bool, notFound bool, err error) {
 		return !stopped.Load(), false, nil
 	}
-	stop := func() error {
+	stop := func(context.Context) error {
 		stopped.Store(true)
 		return nil
 	}
@@ -51,7 +52,7 @@ func TestWaitUntilContainerStopped_ReturnsImmediately_WhenAlreadyStopped(t *test
 	var stopCalls atomic.Int32
 	err := waitUntilContainerStopped(context.Background(),
 		func(context.Context) (bool, bool, error) { return false, false, nil },
-		func() error {
+		func(context.Context) error {
 			stopCalls.Add(1)
 			return nil
 		},
@@ -67,7 +68,7 @@ func TestWaitUntilContainerStopped_TreatsNotFoundAsStopped(t *testing.T) {
 
 	err := waitUntilContainerStopped(context.Background(),
 		func(context.Context) (bool, bool, error) { return false, true, nil },
-		func() error { t.Fatal("stop must not run when inspect reports not found"); return nil },
+		func(context.Context) error { t.Fatal("stop must not run when inspect reports not found"); return nil },
 		10*time.Millisecond,
 	)
 
@@ -84,7 +85,7 @@ func TestWaitUntilContainerStopped_Returns_WhenStopIsNoOpAndContainerKeepsRunnin
 	go func() {
 		done <- waitUntilContainerStoppedWithGrace(ctx,
 			func(context.Context) (bool, bool, error) { return true, false, nil },
-			func() error { return nil },
+			func(context.Context) error { return nil },
 			10*time.Millisecond,
 			40*time.Millisecond,
 		)
@@ -107,7 +108,7 @@ func TestWaitUntilContainerStopped_ReturnsStopError_WhenCancelAndStopFails(t *te
 
 	err := waitUntilContainerStoppedWithGrace(ctx,
 		func(context.Context) (bool, bool, error) { return true, false, nil },
-		func() error { return want },
+		func(context.Context) error { return want },
 		10*time.Millisecond,
 		time.Second,
 	)
@@ -121,11 +122,41 @@ func TestWaitUntilContainerStopped_ReturnsInspectError(t *testing.T) {
 	want := errors.New("inspect failed")
 	err := waitUntilContainerStopped(context.Background(),
 		func(context.Context) (bool, bool, error) { return false, false, want },
-		func() error { return nil },
+		func(context.Context) error { return nil },
 		10*time.Millisecond,
 	)
 
 	require.ErrorIs(t, err, want)
+}
+
+func TestWaitUntilContainerStopped_CancelsStopAndInspect_WhenTheyBlock(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitUntilContainerStoppedWithGrace(ctx,
+			func(inspectCtx context.Context) (bool, bool, error) {
+				<-inspectCtx.Done()
+				return true, false, inspectCtx.Err()
+			},
+			func(stopCtx context.Context) error {
+				<-stopCtx.Done()
+				return stopCtx.Err()
+			},
+			10*time.Millisecond,
+			40*time.Millisecond,
+		)
+	}()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "stalled docker stop/inspect must be bound by the cleanup deadline")
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("waitUntilContainerStopped hung because stop/inspect used context.Background()")
+	}
 }
 
 func TestClientRun_StopsContainer_WhenContextCanceled(t *testing.T) {
@@ -252,6 +283,74 @@ func TestClientExec_StopsStepProcess_WhenContextCanceled(t *testing.T) {
 	require.NoError(t, inspectErr, "keepalive container must still exist after exec cancel")
 	require.NotNil(t, info.Container.State)
 	assert.True(t, info.Container.State.Running, "exec cancel must not stop the shared keepalive container")
+	assertNoProcessInContainer(t, dockerSDK, name, "sleep 60")
+}
+
+func TestClientExec_StopsStepProcess_WhenPIDFileAndCanceled(t *testing.T) {
+	dockerSDK := newDockerSDKOrSkip(t)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	pullCtx, pullCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer pullCancel()
+	pullImageOrSkip(t, dockerSDK, pullCtx, "alpine:latest")
+
+	name := fmt.Sprintf("dagu-exec-pidfile-timeout-%d", time.Now().UnixNano())
+	cfg, err := LoadConfigFromMap(map[string]any{
+		"image":          "alpine:latest",
+		"container_name": name,
+		"auto_remove":    true,
+		"pull":           "never",
+	}, nil)
+	require.NoError(t, err)
+	cfg.ShouldStart = true
+	cfg.Startup = "keepalive"
+
+	cli, err := InitializeClient(context.Background(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { cli.Close(context.Background()) })
+
+	require.NoError(t, cli.StartBackground(context.Background()))
+
+	runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, runErr := cli.Exec(runCtx, []string{"sleep", "60"}, io.Discard, io.Discard, ExecOptions{
+		Direct:            true,
+		TerminateOnCancel: true,
+		PIDFile:           fmt.Sprintf("/tmp/dagu-pidfile-test-%d.pid", time.Now().UnixNano()),
+	})
+	elapsed := time.Since(start)
+
+	require.Less(t, elapsed, 15*time.Second, "pid-file exec must return on timeout (took %s, err=%v)", elapsed, runErr)
+	require.Error(t, runErr)
+	assertNoProcessInContainer(t, dockerSDK, name, "sleep 60")
+}
+
+func assertNoProcessInContainer(t *testing.T, dockerSDK *client.Client, container string, command string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	createResp, err := dockerSDK.ExecCreate(ctx, container, client.ExecCreateOptions{
+		Cmd:          []string{"pgrep", "-f", command},
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	require.NoError(t, err)
+
+	attachResp, err := dockerSDK.ExecAttach(ctx, createResp.ID, client.ExecAttachOptions{})
+	require.NoError(t, err)
+	defer attachResp.Close()
+
+	out, err := io.ReadAll(attachResp.Reader)
+	require.NoError(t, err)
+
+	inspectResp, err := dockerSDK.ExecInspect(ctx, createResp.ID, client.ExecInspectOptions{})
+	require.NoError(t, err)
+	require.False(t, inspectResp.Running)
+	require.NotEqual(t, 0, inspectResp.ExitCode, "canceled exec left %q running in %s: %s", command, container, out)
 }
 
 func newDockerSDKOrSkip(t *testing.T) *client.Client {
@@ -294,7 +393,7 @@ func TestWaitUntilContainerStopped_PollsUntilStopped_WhenContextActive(t *testin
 			}
 			return false, false, nil
 		},
-		func() error { t.Fatal("stop must not run while ctx is active"); return nil },
+		func(context.Context) error { t.Fatal("stop must not run while ctx is active"); return nil },
 		time.Millisecond,
 	)
 
@@ -317,16 +416,16 @@ func TestWaitUntilContainerStopped_UsesDefaultPoll_WhenIntervalInvalid(t *testin
 func TestStopContainerByID_ReturnsUnavailable_WhenClientOrIDMissing(t *testing.T) {
 	t.Parallel()
 
-	require.ErrorIs(t, stopContainerByID(nil, "ctr"), errContainerStopUnavailable)
+	require.ErrorIs(t, stopContainerByID(context.Background(), nil, "ctr"), errContainerStopUnavailable)
 	cli := &client.Client{}
-	require.ErrorIs(t, stopContainerByID(cli, ""), errContainerStopUnavailable)
+	require.ErrorIs(t, stopContainerByID(context.Background(), cli, ""), errContainerStopUnavailable)
 }
 
 func TestStopContainerByID_IgnoresMissingContainer(t *testing.T) {
 	dockerSDK := newDockerSDKOrSkip(t)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	err := stopContainerByID(dockerSDK, "dagu-no-such-container")
+	err := stopContainerByID(context.Background(), dockerSDK, "dagu-no-such-container")
 	require.NoError(t, err)
 }
 
@@ -352,4 +451,15 @@ func TestNativeExecOptions_DoesNotRequireShellOrTmp(t *testing.T) {
 
 	got := execCommand(nil, []string{"/app/binary", "--flag"}, opts)
 	assert.Equal(t, []string{"/app/binary", "--flag"}, got)
+}
+
+func TestNewExecCancelToken_ReturnsUniqueHex(t *testing.T) {
+	t.Parallel()
+
+	a := newExecCancelToken()
+	b := newExecCancelToken()
+	require.NotEmpty(t, a)
+	require.NotEqual(t, a, b)
+	_, err := hex.DecodeString(a)
+	require.NoError(t, err, "token must stay shell-safe hex")
 }

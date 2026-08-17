@@ -23,7 +23,7 @@ const defaultCancelStopWait = 10 * time.Second
 func waitUntilContainerStopped(
 	ctx context.Context,
 	inspect func(context.Context) (running bool, notFound bool, err error),
-	stop func() error,
+	stop func(context.Context) error,
 	poll time.Duration,
 ) error {
 	return waitUntilContainerStoppedWithGrace(ctx, inspect, stop, poll, defaultCancelStopWait)
@@ -32,7 +32,7 @@ func waitUntilContainerStopped(
 func waitUntilContainerStoppedWithGrace(
 	ctx context.Context,
 	inspect func(context.Context) (running bool, notFound bool, err error),
-	stop func() error,
+	stop func(context.Context) error,
 	poll time.Duration,
 	maxAfterCancel time.Duration,
 ) error {
@@ -44,16 +44,23 @@ func waitUntilContainerStoppedWithGrace(
 	}
 
 	var (
-		stopOnce   sync.Once
-		stopErr    error
-		canceledAt time.Time
+		stopOnce      sync.Once
+		stopErr       error
+		canceledAt    time.Time
+		cleanupCtx    = context.Background()
+		cleanupCancel context.CancelFunc
 	)
+	defer func() {
+		if cleanupCancel != nil {
+			cleanupCancel()
+		}
+	}()
 	requestStop := func() {
 		stopOnce.Do(func() {
 			if stop == nil {
 				return
 			}
-			stopErr = stop()
+			stopErr = stop(cleanupCtx)
 		})
 	}
 
@@ -61,6 +68,7 @@ func waitUntilContainerStoppedWithGrace(
 		if err := ctx.Err(); err != nil {
 			if canceledAt.IsZero() {
 				canceledAt = time.Now()
+				cleanupCtx, cleanupCancel = context.WithTimeout(context.Background(), maxAfterCancel)
 			}
 			requestStop()
 			if stopErr != nil {
@@ -68,7 +76,7 @@ func waitUntilContainerStoppedWithGrace(
 			}
 		}
 
-		running, notFound, err := inspect(context.Background())
+		running, notFound, err := inspect(cleanupCtx)
 		if err != nil {
 			return err
 		}
@@ -90,11 +98,14 @@ func nativeExecOptions() ExecOptions {
 
 // stopContainerByID force-stops a container by ID. Unlike Client.Stop this
 // does not no-op when started is false, so the cancel join cannot hang.
-func stopContainerByID(cli *client.Client, containerID string) error {
+func stopContainerByID(ctx context.Context, cli *client.Client, containerID string) error {
 	if cli == nil || containerID == "" {
 		return errContainerStopUnavailable
 	}
-	_, err := cli.ContainerStop(context.Background(), containerID, client.ContainerStopOptions{Signal: "SIGKILL"})
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_, err := cli.ContainerStop(ctx, containerID, client.ContainerStopOptions{Signal: "SIGKILL"})
 	if err != nil && errdefs.IsNotFound(err) {
 		return nil
 	}
