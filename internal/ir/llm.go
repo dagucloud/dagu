@@ -90,7 +90,7 @@ type ModelEntry struct {
 
 // LLMConfig contains the configuration for LLM-based executors.
 type LLMConfig struct {
-	// Provider is the LLM provider (openai, anthropic, gemini, openrouter, local).
+	// Provider is the LLM provider (openai, anthropic, gemini, openrouter, orcarouter, local).
 	// Used for single model config (backward compatible).
 	Provider string `json:"provider,omitempty"`
 	// Model is the model to use (e.g., gpt-4o, claude-sonnet-4-6).
@@ -118,7 +118,7 @@ type LLMConfig struct {
 	Stream *bool `json:"stream,omitempty"`
 	// Thinking enables extended thinking/reasoning mode.
 	// Provider-specific: Anthropic uses budget_tokens, OpenAI uses reasoning.effort,
-	// Gemini uses thinkingLevel/thinkingBudget, OpenRouter normalizes across providers.
+	// Gemini uses thinkingLevel/thinkingBudget, OpenRouter/OrcaRouter normalize across providers.
 	Thinking *ThinkingConfig `json:"thinking,omitempty"`
 	// Tools is a list of DAG names to use as callable tools.
 	// Tool names, descriptions, and parameters are auto-discovered from DAG definitions.

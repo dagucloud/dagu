@@ -14,5 +14,6 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/openai"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/openaicodex"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/openrouter"
+	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/orcarouter"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/zai"
 )

@@ -36,6 +36,8 @@ const (
 	ProviderGemini ProviderType = "gemini"
 	// ProviderOpenRouter is the OpenRouter provider (multi-model gateway).
 	ProviderOpenRouter ProviderType = "openrouter"
+	// ProviderOrcaRouter is the OrcaRouter provider (multi-model gateway).
+	ProviderOrcaRouter ProviderType = "orcarouter"
 	// ProviderLocal is for local OpenAI-compatible servers (Ollama, vLLM, etc).
 	ProviderLocal ProviderType = "local"
 	// ProviderZAI is the Z.AI provider (GLM models).
@@ -57,6 +59,8 @@ func ParseProviderType(s string) (ProviderType, error) {
 		return ProviderGemini, nil
 	case "openrouter":
 		return ProviderOpenRouter, nil
+	case "orcarouter":
+		return ProviderOrcaRouter, nil
 	case "local", "ollama", "vllm", "llama":
 		return ProviderLocal, nil
 	case "zai", "zhipu", "zhipuai", "glm":
@@ -82,6 +86,8 @@ func DefaultAPIKeyEnvVar(providerType ProviderType) string {
 		return "GOOGLE_API_KEY"
 	case ProviderOpenRouter:
 		return "OPENROUTER_API_KEY"
+	case ProviderOrcaRouter:
+		return "ORCAROUTER_API_KEY"
 	case ProviderLocal:
 		return "" // Local providers typically don't need an API key
 	case ProviderZAI:
@@ -106,6 +112,8 @@ func DefaultBaseURL(providerType ProviderType) string {
 		return "https://generativelanguage.googleapis.com/v1beta"
 	case ProviderOpenRouter:
 		return "https://openrouter.ai/api/v1"
+	case ProviderOrcaRouter:
+		return "https://api.orcarouter.ai/v1"
 	case ProviderLocal:
 		return "http://localhost:11434/v1" // Default Ollama endpoint
 	case ProviderZAI:
