@@ -177,7 +177,7 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 		Step struct {
 			Preconditions []ConditionResult `json:"preconditions"`
 		} `json:"step"`
-		LegacyAgentState json.RawMessage `json:"controllerState,omitempty"`
+		LegacyAgentState json.RawMessage `json:"controllerState"`
 	}
 	if err := json.Unmarshal(data, &runtimeState); err != nil {
 		return err
