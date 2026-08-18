@@ -66,16 +66,18 @@ func (d *DAG) IsAgent() bool {
 	return d != nil && d.Type == TypeAgent
 }
 
-// IsAgentStepName reports whether a step name identifies the synthesized step
-// that drives an agent DAG, in either the current or the legacy spelling.
-func IsAgentStepName(name string) bool {
+// IsPersistedAgentStepName reports whether a step name recorded in a run
+// status identifies the synthesized step that drives an agent DAG. It accepts
+// the legacy spelling, so it suits reading run history but not building or
+// validating a DAG, where only the current name is ever synthesized.
+func IsPersistedAgentStepName(name string) bool {
 	return name == AgentStepName || name == LegacyAgentStepName
 }
 
 // IsSynthesizedAgentStep reports whether a step name belongs to the
 // scaffolding an agent DAG is built with rather than to a declared action.
 func IsSynthesizedAgentStep(name string) bool {
-	return IsAgentStepName(name) || name == AskUserStepName
+	return name == AgentStepName || name == AskUserStepName
 }
 
 // AgentStep returns the synthesized agent step, or nil when the DAG is
@@ -85,7 +87,7 @@ func (d *DAG) AgentStep() *Step {
 		return nil
 	}
 	for i, step := range d.Steps {
-		if IsAgentStepName(step.Name) {
+		if step.Name == AgentStepName {
 			return &d.Steps[i]
 		}
 	}
