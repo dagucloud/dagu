@@ -590,7 +590,9 @@ func (c *Client) StopContainerKeepAlive(ctx context.Context) {
 	c.cancel = nil
 
 	if c.containerID != "" {
-		if err := stopContainer(c.cli, c.containerID, c.cfg.StopSignal, c.cfg.StopGrace, defaultCancelStopWait); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), defaultCancelStopWait)
+		defer cancel()
+		if err := stopContainer(cleanupCtx, c.cli, c.containerID, c.cfg.StopSignal, c.cfg.StopGrace); err != nil {
 			logger.Error(ctx, "Docker executor: stop container", tag.Error(err))
 		}
 	}
@@ -682,9 +684,9 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 			}
 			return running, false, nil
 		},
-		func(context.Context) error {
+		func(cleanupCtx context.Context) error {
 			logger.Debug(ctx, "Docker: Run stopping container after context cancel", slog.String("containerID", ctID))
-			return stopContainer(c.cli, ctID, c.cfg.StopSignal, c.cfg.StopGrace, defaultCancelStopWait)
+			return stopContainer(cleanupCtx, c.cli, ctID, c.cfg.StopSignal, c.cfg.StopGrace)
 		},
 		defaultPollInterval,
 		defaultCancelStopWait,
@@ -749,7 +751,9 @@ func (c *Client) Stop(sig os.Signal) error {
 	if sysSig, ok := sig.(syscall.Signal); ok {
 		sigName = signal.GetSignalName(sysSig)
 	}
-	return stopContainer(c.cli, c.containerID, sigName, c.cfg.StopGrace, defaultCancelStopWait)
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), defaultCancelStopWait)
+	defer cancel()
+	return stopContainer(cleanupCtx, c.cli, c.containerID, sigName, c.cfg.StopGrace)
 }
 
 func (c *Client) startNewContainer(

@@ -1063,16 +1063,16 @@ func TestWaitUntilContainerStopped_UsesDefaultPoll_WhenIntervalInvalid(t *testin
 func TestStopContainer_ReturnsUnavailable_WhenClientOrIDMissing(t *testing.T) {
 	t.Parallel()
 
-	require.ErrorIs(t, stopContainer(nil, "ctr", "", 0, 0), errContainerStopUnavailable)
+	require.ErrorIs(t, stopContainer(context.Background(), nil, "ctr", "", 0), errContainerStopUnavailable)
 	cli := &client.Client{}
-	require.ErrorIs(t, stopContainer(cli, "", "", 0, 0), errContainerStopUnavailable)
+	require.ErrorIs(t, stopContainer(context.Background(), cli, "", "", 0), errContainerStopUnavailable)
 }
 
 func TestStopContainer_IgnoresMissingContainer(t *testing.T) {
 	dockerSDK := newDockerSDKOrSkip(t)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	err := stopContainer(dockerSDK, "dagu-no-such-container", "", 0, 0)
+	err := stopContainer(context.Background(), dockerSDK, "dagu-no-such-container", "", 0)
 	require.NoError(t, err)
 }
 
@@ -1092,7 +1092,7 @@ func TestStopContainer_IgnoresAlreadyStoppedContainer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	require.NoError(t, stopContainer(dockerSDK, "stopped-container", "", 0, 0))
+	require.NoError(t, stopContainer(context.Background(), dockerSDK, "stopped-container", "", 0))
 }
 
 func TestStopContainer_ForceKillsAfterBlockedStop(t *testing.T) {
@@ -1122,7 +1122,9 @@ func TestStopContainer_ForceKillsAfterBlockedStop(t *testing.T) {
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
 	start := time.Now()
-	err = stopContainer(dockerSDK, "blocked-container", "", 20*time.Millisecond, 100*time.Millisecond)
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err = stopContainer(cleanupCtx, dockerSDK, "blocked-container", "", 20*time.Millisecond)
 
 	require.NoError(t, err)
 	assert.True(t, killed.Load(), "a blocked graceful stop must be followed by a bounded force kill")
@@ -1145,12 +1147,14 @@ func TestStopContainer_ReturnsWhenAlreadyStopped(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	require.NoError(t, stopContainer(
+		cleanupCtx,
 		dockerSDK,
 		"stopped-container",
 		"",
 		20*time.Millisecond,
-		100*time.Millisecond,
 	))
 }
 
@@ -1176,12 +1180,14 @@ func TestStopContainer_StopsWhenStateIsUnknown(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	require.NoError(t, stopContainer(
+		cleanupCtx,
 		dockerSDK,
 		"unknown-state-container",
 		"",
 		20*time.Millisecond,
-		100*time.Millisecond,
 	))
 	assert.True(t, stopped.Load())
 }
@@ -1206,12 +1212,14 @@ func TestStopContainer_IgnoresAlreadyStoppedRace(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	require.NoError(t, stopContainer(
+		cleanupCtx,
 		dockerSDK,
 		"already-stopped-container",
 		"",
 		20*time.Millisecond,
-		100*time.Millisecond,
 	))
 }
 
@@ -1246,12 +1254,14 @@ func TestStopContainer_KillsAfterPostTimeoutInspectFailure(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	err = stopContainer(
+		cleanupCtx,
 		dockerSDK,
 		"inspect-failure-container",
 		"",
 		20*time.Millisecond,
-		100*time.Millisecond,
 	)
 
 	require.NoError(t, err)
@@ -1284,12 +1294,14 @@ func TestStopContainer_IgnoresStoppedBeforeForceKill(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	require.NoError(t, stopContainer(
+		cleanupCtx,
 		dockerSDK,
 		"stopped-before-kill-container",
 		"",
 		20*time.Millisecond,
-		100*time.Millisecond,
 	))
 }
 

@@ -110,14 +110,14 @@ func nativeExecOptions() ExecOptions {
 // stopContainer stops a container and waits for it to leave the running state.
 // It sends signal (empty selects the daemon default), allows stopGrace for the
 // process to exit, then escalates to SIGKILL. A container that is already gone
-// or stopped is not an error. Cleanup runs on its own cleanupWait deadline so it
-// completes after the caller's context has been canceled.
+// or stopped is not an error. The whole sequence is bounded by ctx, so teardown
+// callers that may already be canceled should pass a fresh deadline context.
 func stopContainer(
+	ctx context.Context,
 	cli *client.Client,
 	containerID string,
 	signal string,
 	stopGrace time.Duration,
-	cleanupWait time.Duration,
 ) error {
 	if cli == nil || containerID == "" {
 		return errContainerStopUnavailable
@@ -125,13 +125,8 @@ func stopContainer(
 	if stopGrace <= 0 {
 		stopGrace = defaultContainerStopGrace
 	}
-	if cleanupWait <= 0 {
-		cleanupWait = defaultCancelStopWait
-	}
 
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupWait)
-	defer cancel()
-	info, err := inspectContainer(cleanupCtx, cli, containerID)
+	info, err := inspectContainer(ctx, cli, containerID)
 	if err != nil {
 		if errdefs.IsNotFound(err) {
 			return nil
@@ -142,7 +137,7 @@ func stopContainer(
 		return nil
 	}
 
-	stopCtx, stopCancel := context.WithTimeout(cleanupCtx, stopGrace)
+	stopCtx, stopCancel := context.WithTimeout(ctx, stopGrace)
 	_, stopErr := cli.ContainerStop(stopCtx, containerID, client.ContainerStopOptions{Signal: signal})
 	stopCancel()
 	if stopErr == nil || errdefs.IsNotFound(stopErr) {
@@ -152,7 +147,7 @@ func stopContainer(
 		return stopErr
 	}
 
-	info, inspectErr := inspectContainer(cleanupCtx, cli, containerID)
+	info, inspectErr := inspectContainer(ctx, cli, containerID)
 	if inspectErr != nil {
 		if errdefs.IsNotFound(inspectErr) {
 			return nil
@@ -162,7 +157,7 @@ func stopContainer(
 		return nil
 	}
 
-	if _, err := cli.ContainerKill(cleanupCtx, containerID, client.ContainerKillOptions{Signal: "SIGKILL"}); err != nil {
+	if _, err := cli.ContainerKill(ctx, containerID, client.ContainerKillOptions{Signal: "SIGKILL"}); err != nil {
 		if errdefs.IsNotFound(err) || errdefs.IsConflict(err) {
 			return nil
 		}
@@ -170,7 +165,7 @@ func stopContainer(
 	}
 
 	for {
-		info, err := inspectContainer(cleanupCtx, cli, containerID)
+		info, err := inspectContainer(ctx, cli, containerID)
 		if err != nil {
 			if errdefs.IsNotFound(err) {
 				return nil
@@ -180,7 +175,7 @@ func stopContainer(
 		if info.State != nil && !info.State.Running {
 			return nil
 		}
-		if err := waitForContainerPoll(cleanupCtx, defaultPollInterval); err != nil {
+		if err := waitForContainerPoll(ctx, defaultPollInterval); err != nil {
 			return fmt.Errorf("container still running after force stop: %w", errors.Join(stopErr, inspectErr, err))
 		}
 	}
