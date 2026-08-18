@@ -1459,6 +1459,78 @@ func TestCreateContainerKeepAlive_StartsWhenCancellationHelperIsUnavailable(t *t
 	}
 }
 
+// A helper that cannot be installed must not fail the run: the container is
+// retried without it, falling back to the shell keepalive and in-container
+// cancellation tooling.
+func TestCreateContainerKeepAlive_RetriesWithoutHelper_WhenStartFails(t *testing.T) {
+	t.Parallel()
+
+	type createRequest struct {
+		Cmd        []string `json:"Cmd"`
+		HostConfig struct {
+			Binds []string `json:"Binds"`
+		} `json:"HostConfig"`
+	}
+	var creates []createRequest
+	var removed atomic.Bool
+	var starts atomic.Int32
+
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/containers/create"):
+			var got createRequest
+			if err := json.NewDecoder(req.Body).Decode(&got); err != nil {
+				return nil, fmt.Errorf("decode container create request: %w", err)
+			}
+			creates = append(creates, got)
+			return dockerAPIResponse(http.StatusCreated, `{"Id":"ctr","Warnings":[]}`), nil
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/containers/ctr/start"):
+			// The bind source resolved on this host is not visible to the daemon.
+			if starts.Add(1) == 1 {
+				return dockerAPIResponse(http.StatusInternalServerError,
+					`{"message":"error mounting /__dagu_runner/keepalive: not a directory"}`), nil
+			}
+			return dockerAPIResponse(http.StatusNoContent, ""), nil
+		case req.Method == http.MethodDelete && strings.HasSuffix(req.URL.Path, "/containers/ctr"):
+			removed.Store(true)
+			return dockerAPIResponse(http.StatusNoContent, ""), nil
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/containers/ctr/json"):
+			return dockerAPIResponse(http.StatusOK, `{"Id":"ctr","State":{"Running":true},"Config":{}}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected Docker API request: %s %s", req.Method, req.URL.Path)
+		}
+	})}
+	dockerSDK, err := client.New(
+		client.WithHTTPClient(httpClient),
+		client.WithAPIVersion("1.44"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	cli := &Client{
+		cfg: &Config{
+			Image:     "example:latest",
+			Container: &container.Config{Image: "example:latest"},
+			Host:      &container.HostConfig{},
+			Pull:      ir.PullPolicyNever,
+		},
+		platform: specs.Platform{OS: "linux", Architecture: "amd64"},
+		cli:      dockerSDK,
+	}
+
+	require.NoError(t, cli.CreateContainerKeepAlive(context.Background()),
+		"a helper that will not install must degrade, not fail the run")
+
+	require.Len(t, creates, 2, "the container must be recreated once without the helper")
+	assert.True(t, removed.Load(), "the container from the failed attempt must not be left behind")
+	assert.Equal(t, []string{keepAliveTargetPath}, creates[0].Cmd)
+	assert.Equal(t, []string{"sh", "-c", keepAliveSleepCmd}, creates[1].Cmd,
+		"the retry has no helper binary, so it needs its own idle process")
+	assert.Empty(t, creates[1].HostConfig.Binds, "the unusable helper bind must be dropped on retry")
+	assert.Equal(t, cancelHelperNone, cli.cancelHelper)
+	assert.Empty(t, cli.keepAliveTmp, "the host-side helper copy must be released")
+}
+
 func TestCgroupIndicatesContainer(t *testing.T) {
 	t.Parallel()
 
