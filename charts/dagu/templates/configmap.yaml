@@ -112,6 +112,9 @@ data:
     public_url: {{ . | quote }}
 {{- end }}
     cors_allowed_origins: {{ .Values.config.corsAllowedOrigins | toJson }}
+    ip_access:
+      allowed_ips: {{ .Values.config.ipAccess.allowedIPs | toJson }}
+      trusted_proxies: {{ .Values.config.ipAccess.trustedProxies | toJson }}
     default_execution_mode: {{ ternary "distributed" "local" (eq .Values.deploymentMode "distributed") | quote }}
 {{- with .Values.config.envPassthrough }}
     env_passthrough:

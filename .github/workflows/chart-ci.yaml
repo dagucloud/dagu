@@ -122,6 +122,23 @@ jobs:
           grep -Fq 'helm.sh/resource-policy: keep' /tmp/dagu-default-render.yaml
           grep -Fq 'kind: ServiceAccount' /tmp/dagu-default-render.yaml
           grep -Fq 'serviceAccountName: dagu' /tmp/dagu-default-render.yaml
+          test "$(grep -Fc 'httpGet:' /tmp/dagu-default-render.yaml)" -eq 2
+          grep -Fq "command: ['wget']" /tmp/dagu-default-render.yaml
+
+      - name: Render IP allowlist
+        run: |
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --kube-version 1.35.0 \
+            --set-string 'config.ipAccess.allowedIPs[0]=203.0.113.10' \
+            --set-string 'config.ipAccess.trustedProxies[0]=10.42.0.0/16' \
+            >/tmp/dagu-ip-access-render.yaml
+
+          grep -Fq 'ip_access:' /tmp/dagu-ip-access-render.yaml
+          grep -Fq 'allowed_ips: ["203.0.113.10"]' /tmp/dagu-ip-access-render.yaml
+          grep -Fq 'trusted_proxies: ["10.42.0.0/16"]' /tmp/dagu-ip-access-render.yaml
+          test "$(grep -Fc 'tcpSocket:' /tmp/dagu-ip-access-render.yaml)" -eq 2
+          grep -Fq "command: ['nc']" /tmp/dagu-ip-access-render.yaml
 
       - name: Render distributed mode
         run: |

@@ -212,6 +212,29 @@
             "minLength": 1
           }
         },
+        "ipAccess": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowedIPs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "trustedProxies": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": ["allowedIPs", "trustedProxies"]
+        },
         "envPassthrough": {
           "type": "array",
           "items": {
@@ -225,7 +248,7 @@
           }
         }
       },
-      "required": ["publicUrl", "corsAllowedOrigins", "envPassthrough", "envPassthroughPrefixes"]
+      "required": ["publicUrl", "corsAllowedOrigins", "ipAccess", "envPassthrough", "envPassthroughPrefixes"]
     },
     "persistence": {
       "type": "object",

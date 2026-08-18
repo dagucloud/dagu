@@ -2,7 +2,7 @@ apiVersion: v2
 name: dagu
 description: A compact, self-contained workflow engine with a web UI
 type: application
-version: 2.0.2
+version: 2.0.3
 appVersion: "2.11.1"
 kubeVersion: ">=1.19.0-0"
 home: https://dagu.sh

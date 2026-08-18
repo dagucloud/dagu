@@ -256,6 +256,30 @@ config:
 
 Set `config.corsAllowedOrigins: ["*"]` only when any website should be allowed to call the API. Wildcard CORS does not allow credentials and is especially risky with `auth.mode: none`.
 
+### IP Access Allowlist
+
+Restrict every UI and API HTTP route to specific client addresses or networks:
+
+```yaml
+config:
+  ipAccess:
+    allowedIPs:
+      - 203.0.113.10
+      - 10.0.0.0/8
+    trustedProxies:
+      - 10.42.0.0/16
+```
+
+`allowedIPs` accepts IPv4 and IPv6 addresses or CIDR ranges. An empty list
+disables filtering. When Dagu runs behind an ingress or reverse proxy, list only
+the proxy network in `trustedProxies`; forwarding headers from all other peers
+are ignored. The proxy must remove client-supplied forwarding headers and set or
+append the verified client address.
+
+The allowlist covers health and metrics routes. When it is enabled, the chart
+uses TCP liveness, readiness, and connection checks so Kubernetes does not need
+an HTTP allowlist exemption for node or test-pod addresses.
+
 ### Environment Passthrough
 
 Dagu filters host/container environment variables before exposing them to workflow steps. To allow additional runtime env vars such as proxy or certificate settings, configure both:
