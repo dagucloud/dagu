@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/containerd/errdefs"
@@ -43,52 +42,70 @@ func waitUntilContainerStoppedWithGrace(
 		maxAfterCancel = defaultCancelStopWait
 	}
 
-	var (
-		stopOnce      sync.Once
-		stopErr       error
-		canceledAt    time.Time
-		cleanupCtx    = context.Background()
-		cleanupCancel context.CancelFunc
-	)
-	defer func() {
-		if cleanupCancel != nil {
-			cleanupCancel()
-		}
-	}()
-	requestStop := func() {
-		stopOnce.Do(func() {
-			if stop == nil {
-				return
-			}
-			stopErr = stop(cleanupCtx)
-		})
-	}
-
 	for {
 		if err := ctx.Err(); err != nil {
-			if canceledAt.IsZero() {
-				canceledAt = time.Now()
-				cleanupCtx, cleanupCancel = context.WithTimeout(context.Background(), maxAfterCancel)
-			}
-			requestStop()
-			if stopErr != nil {
-				return fmt.Errorf("stop container after cancel: %w", stopErr)
-			}
+			return stopAndWaitForContainer(ctx, inspect, stop, poll, maxAfterCancel)
 		}
 
-		running, notFound, err := inspect(cleanupCtx)
+		running, notFound, err := inspect(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				return stopAndWaitForContainer(ctx, inspect, stop, poll, maxAfterCancel)
+			}
 			return err
 		}
 		if notFound || !running {
 			return nil
 		}
 
-		if !canceledAt.IsZero() && time.Since(canceledAt) >= maxAfterCancel {
-			return fmt.Errorf("container still running after cancel: %w", ctx.Err())
+		if err := waitForContainerPoll(ctx, poll); err != nil {
+			return stopAndWaitForContainer(ctx, inspect, stop, poll, maxAfterCancel)
+		}
+	}
+}
+
+func stopAndWaitForContainer(
+	ctx context.Context,
+	inspect func(context.Context) (running bool, notFound bool, err error),
+	stop func(context.Context) error,
+	poll time.Duration,
+	maxAfterCancel time.Duration,
+) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), maxAfterCancel)
+	defer cancel()
+
+	if stop != nil {
+		if err := stop(cleanupCtx); err != nil {
+			return fmt.Errorf("stop container after cancel: %w", err)
+		}
+	}
+
+	for {
+		running, notFound, err := inspect(cleanupCtx)
+		if err != nil {
+			if cleanupCtx.Err() != nil {
+				return fmt.Errorf("container cleanup after cancel: %w", errors.Join(ctx.Err(), cleanupCtx.Err()))
+			}
+			return err
+		}
+		if notFound || !running {
+			return nil
 		}
 
-		time.Sleep(poll)
+		if err := waitForContainerPoll(cleanupCtx, poll); err != nil {
+			return fmt.Errorf("container still running after cancel: %w", errors.Join(ctx.Err(), err))
+		}
+	}
+}
+
+func waitForContainerPoll(ctx context.Context, poll time.Duration) error {
+	timer := time.NewTimer(poll)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

@@ -538,8 +538,7 @@ func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConf
 	var runErr error
 	select {
 	case <-ctx.Done():
-		// Stop the container via the SDK, then wait for Run to unwind.
-		_ = e.stop(cmdutil.StopRequest{Intent: cmdutil.ForceTermination(), Reason: cmdutil.StopReasonTimeout})
+		// Client.Run owns cancellation cleanup and stops the container before it returns.
 		<-runDone
 		e.exitCode = 124
 		_ = cleanupStdoutSpool(stdout)

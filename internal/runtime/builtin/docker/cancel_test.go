@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestWaitUntilContainerStopped_StopsAndReturns_WhenContextCanceled(t *testing.T) {
 	t.Parallel()
@@ -156,6 +163,46 @@ func TestWaitUntilContainerStopped_CancelsStopAndInspect_WhenTheyBlock(t *testin
 		require.Error(t, err, "stalled docker stop/inspect must be bound by the cleanup deadline")
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("waitUntilContainerStopped hung because stop/inspect used context.Background()")
+	}
+}
+
+func TestWaitUntilContainerStopped_CancelsInitialInspectAndStops(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	inspectStarted := make(chan struct{})
+	var stopped atomic.Bool
+	var inspectCalls atomic.Int32
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitUntilContainerStoppedWithGrace(ctx,
+			func(inspectCtx context.Context) (bool, bool, error) {
+				if inspectCalls.Add(1) == 1 {
+					close(inspectStarted)
+					<-inspectCtx.Done()
+					return true, false, inspectCtx.Err()
+				}
+				return !stopped.Load(), false, nil
+			},
+			func(context.Context) error {
+				stopped.Store(true)
+				return nil
+			},
+			10*time.Millisecond,
+			40*time.Millisecond,
+		)
+	}()
+
+	<-inspectStarted
+	cancel()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+		assert.True(t, stopped.Load(), "cancellation during inspect must still stop the container")
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("waitUntilContainerStopped did not interrupt the initial inspect on cancellation")
 	}
 }
 
@@ -427,6 +474,30 @@ func TestStopContainerByID_IgnoresMissingContainer(t *testing.T) {
 
 	err := stopContainerByID(context.Background(), dockerSDK, "dagu-no-such-container")
 	require.NoError(t, err)
+}
+
+func TestRemoveContainerForCleanup_CancelsBlockedRequest(t *testing.T) {
+	t.Parallel()
+
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})}
+	dockerSDK, err := client.New(client.WithHTTPClient(httpClient))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	start := time.Now()
+	removed := removeContainerForCleanupWithTimeout(
+		context.Background(),
+		dockerSDK,
+		"blocked-container",
+		client.ContainerRemoveOptions{Force: true},
+		40*time.Millisecond,
+	)
+
+	assert.False(t, removed)
+	assert.Less(t, time.Since(start), 200*time.Millisecond, "blocked cleanup request must respect its deadline")
 }
 
 func TestWrapCommandWithPIDFile_ExecsUserProcess(t *testing.T) {
