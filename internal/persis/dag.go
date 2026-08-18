@@ -50,6 +50,11 @@ type DAGDefinitionStore interface {
 	Rename(ctx context.Context, oldID, newID string) error
 	GetMetadata(ctx context.Context, id string) (*ir.DAG, error)
 	Catalog(ctx context.Context) (DAGCatalog, error)
+	// CatalogIncludingSearchPaths is like Catalog but also includes DAG
+	// definitions found under the store's additional search paths (for example
+	// alt_dags_dir). Stores without additional search paths may return the same
+	// result as Catalog.
+	CatalogIncludingSearchPaths(ctx context.Context) (DAGCatalog, error)
 	SetSuspended(ctx context.Context, id string, suspended bool) error
 	IsSuspended(ctx context.Context, id string) (bool, error)
 }

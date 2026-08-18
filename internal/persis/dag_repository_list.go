@@ -14,12 +14,31 @@ import (
 )
 
 func (r *DAGRepository) List(ctx context.Context, opts DAGListOptions) (pagination.PaginatedResult[DAGListItem], []string, error) {
+	return r.list(ctx, opts, false)
+}
+
+// ListIncludingSearchPaths is like List but also includes DAG definitions found
+// under the store's additional search paths (for example alt_dags_dir). The
+// combined collection is filtered, sorted, and paginated as a whole.
+func (r *DAGRepository) ListIncludingSearchPaths(ctx context.Context, opts DAGListOptions) (pagination.PaginatedResult[DAGListItem], []string, error) {
+	return r.list(ctx, opts, true)
+}
+
+func (r *DAGRepository) list(ctx context.Context, opts DAGListOptions, includeSearchPaths bool) (pagination.PaginatedResult[DAGListItem], []string, error) {
 	if opts.Paginator == nil {
 		paginator := pagination.DefaultPaginator()
 		opts.Paginator = &paginator
 	}
 
-	catalog, err := r.store.Catalog(ctx)
+	var (
+		catalog DAGCatalog
+		err     error
+	)
+	if includeSearchPaths {
+		catalog, err = r.store.CatalogIncludingSearchPaths(ctx)
+	} else {
+		catalog, err = r.store.Catalog(ctx)
+	}
 	if err != nil {
 		return pagination.NewPaginatedResult([]DAGListItem{}, 0, *opts.Paginator), catalog.Issues, err
 	}

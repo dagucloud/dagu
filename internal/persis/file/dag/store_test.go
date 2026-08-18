@@ -647,6 +647,42 @@ func TestListRebuildsIndexAfterSymlinkRepoint(t *testing.T) {
 	assert.Equal(t, "other", result.Items[0].Description)
 }
 
+func TestCatalogIncludingSearchPaths(t *testing.T) {
+	baseDir := t.TempDir()
+	searchDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(baseDir, "base-dag.yaml"), []byte("name: base-dag\nsteps: []\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(searchDir, "alt-dag.yaml"), []byte("name: alt-dag\nsteps: []\n"), 0600))
+
+	store := NewStore(baseDir, WithSearchPaths([]string{searchDir}), WithSkipExamples(true))
+	ctx := context.Background()
+
+	baseOnly, err := store.Catalog(ctx)
+	require.NoError(t, err)
+	baseNames := make([]string, 0, len(baseOnly.Items))
+	for _, item := range baseOnly.Items {
+		baseNames = append(baseNames, item.ID)
+	}
+	require.Equal(t, []string{"base-dag"}, baseNames)
+
+	combined, err := store.CatalogIncludingSearchPaths(ctx)
+	require.NoError(t, err)
+	combinedNames := make([]string, 0, len(combined.Items))
+	for _, item := range combined.Items {
+		combinedNames = append(combinedNames, item.ID)
+	}
+	require.ElementsMatch(t, []string{"base-dag", "alt-dag"}, combinedNames)
+
+	// The alternate-directory entry must report a correct location.
+	var altDAG *ir.DAG
+	for _, item := range combined.Items {
+		if item.ID == "alt-dag" {
+			altDAG = item.DAG
+		}
+	}
+	require.NotNil(t, altDAG)
+	require.Equal(t, filepath.Join(searchDir, "alt-dag.yaml"), altDAG.Location)
+}
+
 func TestGetSpecAllowsExplicitSearchPaths(t *testing.T) {
 	baseDir := t.TempDir()
 	searchDir := t.TempDir()

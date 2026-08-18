@@ -178,7 +178,19 @@ func (store *Store) Get(ctx context.Context, id string) (persis.DAGDefinition, e
 }
 
 func (store *Store) Catalog(ctx context.Context) (persis.DAGCatalog, error) {
-	catalog, err := store.loadCatalog(ctx)
+	return store.catalog(ctx, false)
+}
+
+// CatalogIncludingSearchPaths is like Catalog but also includes DAG definitions
+// found under the store's additional search paths (for example alt_dags_dir).
+// Entries are deduplicated and conflict-checked together with the primary
+// directory's entries.
+func (store *Store) CatalogIncludingSearchPaths(ctx context.Context) (persis.DAGCatalog, error) {
+	return store.catalog(ctx, true)
+}
+
+func (store *Store) catalog(ctx context.Context, includeSearchPaths bool) (persis.DAGCatalog, error) {
+	catalog, err := store.loadCatalog(ctx, includeSearchPaths)
 	if err != nil {
 		return persis.DAGCatalog{}, fmt.Errorf("failed to read DAGs directory %s: %w", store.baseDir, err)
 	}
@@ -549,7 +561,7 @@ func (store *Store) locateDAG(ctx context.Context, nameOrPath string) (ResolvedF
 	explicitPath := filepath.IsAbs(relativePath) || strings.ContainsAny(nameOrPath, `/\`)
 
 	if store.recursive && !explicitPath {
-		catalog, err := store.loadCatalog(ctx)
+		catalog, err := store.loadCatalog(ctx, false)
 		if err != nil {
 			return ResolvedFile{}, fmt.Errorf("failed to discover DAGs: %w", err)
 		}

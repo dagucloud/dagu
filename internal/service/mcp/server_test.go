@@ -379,6 +379,7 @@ func TestReadToolListsAndReadsAltDAGsDir(t *testing.T) {
 	baseDir := t.TempDir()
 	altDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(altDir, "alt-dag.yaml"), []byte("name: alt-dag\nsteps: []\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(baseDir, "main-dag.yaml"), []byte("name: main-dag\nsteps: []\n"), 0600))
 
 	cfg := &config.Config{}
 	cfg.Paths.DAGsDir = baseDir
@@ -392,7 +393,15 @@ func TestReadToolListsAndReadsAltDAGsDir(t *testing.T) {
 
 	list := callTool(t, ctx, session, toolRead, readInput{Target: readTargetDAGs})
 	require.False(t, list.IsError)
-	require.Contains(t, structuredJSON(t, list), "dagu://dags/alt-dag/spec")
+	listJSON := structuredJSON(t, list)
+	require.Contains(t, listJSON, "dagu://dags/alt-dag/spec")
+	require.Contains(t, listJSON, "dagu://dags/main-dag/spec")
+
+	filtered := callTool(t, ctx, session, toolRead, readInput{Target: readTargetDAGs, Query: "name=alt-dag"})
+	require.False(t, filtered.IsError)
+	filteredJSON := structuredJSON(t, filtered)
+	require.Contains(t, filteredJSON, "dagu://dags/alt-dag/spec")
+	require.NotContains(t, filteredJSON, "dagu://dags/main-dag/spec")
 
 	spec := callTool(t, ctx, session, toolRead, readInput{Target: readTargetDAGSpec, Name: "alt-dag"})
 	require.False(t, spec.IsError)

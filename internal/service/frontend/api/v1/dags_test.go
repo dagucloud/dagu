@@ -1817,8 +1817,8 @@ func TestGetDAGDetails_NonExistent_Returns404(t *testing.T) {
 	require.Equal(t, api.ErrorCodeNotFound, apiErr.Code)
 }
 
-func TestGetAltDAGsListData(t *testing.T) {
-	t.Run("lists DAGs from the alternate directory", func(t *testing.T) {
+func TestGetDAGsListDataIncludingAltDirs(t *testing.T) {
+	t.Run("lists DAGs from both directories with query filters applied to the combined set", func(t *testing.T) {
 		baseDir := t.TempDir()
 		altDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(altDir, "alt-dag.yaml"), []byte("name: alt-dag\nsteps: []\n"), 0600))
@@ -1833,7 +1833,7 @@ func TestGetAltDAGsListData(t *testing.T) {
 		require.NoError(t, err)
 		apiImpl := localapi.New(repo, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil)
 
-		raw, err := apiImpl.GetAltDAGsListData(context.Background())
+		raw, err := apiImpl.GetDAGsListDataIncludingAltDirs(context.Background(), "")
 		require.NoError(t, err)
 		resp, ok := raw.(api.ListDAGs200JSONResponse)
 		require.True(t, ok)
@@ -1841,10 +1841,20 @@ func TestGetAltDAGsListData(t *testing.T) {
 		for _, dag := range resp.Dags {
 			names = append(names, dag.FileName)
 		}
-		require.Equal(t, []string{"alt-dag"}, names)
+		require.ElementsMatch(t, []string{"alt-dag", "main-dag"}, names)
+
+		rawFiltered, err := apiImpl.GetDAGsListDataIncludingAltDirs(context.Background(), "name=alt-dag")
+		require.NoError(t, err)
+		filtered, ok := rawFiltered.(api.ListDAGs200JSONResponse)
+		require.True(t, ok)
+		var filteredNames []string
+		for _, dag := range filtered.Dags {
+			filteredNames = append(filteredNames, dag.FileName)
+		}
+		require.Equal(t, []string{"alt-dag"}, filteredNames)
 	})
 
-	t.Run("returns empty when no alternate directory is configured", func(t *testing.T) {
+	t.Run("matches regular listing when no alternate directory is configured", func(t *testing.T) {
 		cfg := &config.Config{}
 		cfg.Paths.DAGsDir = t.TempDir()
 		cfg.Core.SkipExamples = true
@@ -1853,7 +1863,7 @@ func TestGetAltDAGsListData(t *testing.T) {
 		require.NoError(t, err)
 		apiImpl := localapi.New(repo, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil)
 
-		raw, err := apiImpl.GetAltDAGsListData(context.Background())
+		raw, err := apiImpl.GetDAGsListDataIncludingAltDirs(context.Background(), "")
 		require.NoError(t, err)
 		resp, ok := raw.(api.ListDAGs200JSONResponse)
 		require.True(t, ok)

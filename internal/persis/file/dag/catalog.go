@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 )
 
@@ -19,7 +20,7 @@ type catalog struct {
 	errors  []string
 }
 
-func (store *Store) loadCatalog(ctx context.Context) (*catalog, error) {
+func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*catalog, error) {
 	scan, err := Discover(store.baseDir, DiscoveryOptions{
 		Recursive: store.recursive,
 		Symlinks:  store.symlinks,
@@ -32,7 +33,41 @@ func (store *Store) loadCatalog(ctx context.Context) (*catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newCatalog(entries, scan.Errors, store.recursive), nil
+	allErrors := append([]error(nil), scan.Errors...)
+
+	if includeSearchPaths && len(store.searchPaths) > 1 {
+		flags, err := store.readSuspendFlags(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, searchPath := range store.searchPaths[1:] {
+			altScan, err := Discover(searchPath, DiscoveryOptions{
+				Recursive: store.recursive,
+				Symlinks:  store.symlinks,
+			})
+			if err != nil {
+				return nil, err
+			}
+			allErrors = append(allErrors, altScan.Errors...)
+			altFiles := make([]dagindex.YAMLFileMeta, 0, len(altScan.Files))
+			for _, file := range altScan.Files {
+				rel, err := filepath.Rel(store.baseDir, filepath.Join(searchPath, filepath.FromSlash(file.RelPath)))
+				if err != nil {
+					continue
+				}
+				altFiles = append(altFiles, dagindex.YAMLFileMeta{
+					Name:     filepath.ToSlash(rel),
+					LoadPath: file.ResolvedPath,
+					Size:     file.Size,
+					ModTime:  file.ModTime,
+				})
+			}
+			altIdx := dagindex.Build(ctx, store.baseDir, altFiles, flags, store.defaultLoadOptions()...)
+			entries = append(entries, altIdx.Entries...)
+		}
+	}
+
+	return newCatalog(entries, allErrors, store.recursive), nil
 }
 
 func newCatalog(entries []*indexv1.DAGIndexEntry, scanErrors []error, checkConflicts bool) *catalog {
