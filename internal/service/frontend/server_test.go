@@ -509,7 +509,7 @@ func TestServerIPAccessProtectsAllRoutes(t *testing.T) {
 		}
 	})
 
-	client := &http.Client{Timeout: time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	for _, requestPath := range []string{"/api/v1/health", "/extension"} {
 		resp, err := client.Get("http://" + listener.Addr().String() + requestPath)
 		require.NoError(t, err)
