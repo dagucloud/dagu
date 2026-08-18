@@ -1081,6 +1081,40 @@ func TestAgent_HandleHTTP(t *testing.T) {
 	})
 }
 
+func TestAgent_SubDAGSocketUsesCurrentRunIdentity(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `name: child-dag
+steps:
+  - run: exit 0
+`)
+	const childRunID = "child-run"
+	bindErr := errors.New("stop after capturing socket address")
+	var socketAddr string
+	dagAgent := agent.New(
+		childRunID,
+		dag.DAG,
+		th.Config.Paths.LogDir,
+		filepath.Join(th.Config.Paths.LogDir, childRunID+".log"),
+		th.DAGRunMgr,
+		th.DAGRepository,
+		agent.Options{
+			RootDAGRun:   ir.NewDAGRunRef("root-dag", "root-run"),
+			ParentDAGRun: ir.NewDAGRunRef("root-dag", "root-run"),
+			SocketServerFactory: func(addr string, _ sock.HTTPHandlerFunc) (agent.SocketServer, error) {
+				socketAddr = addr
+				return nil, bindErr
+			},
+		},
+	)
+
+	err := dagAgent.Run(th.Context)
+
+	require.ErrorIs(t, err, bindErr)
+	require.Equal(t, sock.Addr("child-dag", childRunID), socketAddr)
+}
+
 // Assert that mockResponseWriter implements http.ResponseWriter
 var _ http.ResponseWriter = (*mockResponseWriter)(nil)
 

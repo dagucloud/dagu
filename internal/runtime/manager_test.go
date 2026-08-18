@@ -6,6 +6,7 @@ package runtime_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"testing"
@@ -41,7 +42,7 @@ func TestManager(t *testing.T) {
 
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		socketServer, _ := sock.NewServer(
-			procctrl.DAGSocketAddr(dag.DAG, dagRunID),
+			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
 			func(w http.ResponseWriter, _ *http.Request) {
 				status := ir.NewStatusBuilder(dag.DAG).Create(
 					dagRunID, ir.Running, 0, time.Now(),
@@ -75,6 +76,122 @@ func TestManager(t *testing.T) {
 
 		dag.AssertCurrentStatus(t, ir.NotStarted)
 	})
+	t.Run("GetLatestStatusUsesCanonicalSocketForQueuedSnapshot", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		queuedDAG := *dag.DAG
+		queuedDAG.Location = ""
+		attempt := createLiveRootAttempt(t, th, &queuedDAG, dagRunID)
+
+		liveStatus := testNewStatus(&queuedDAG, dagRunID, ir.Waiting, ir.NodeWaiting)
+		liveStatus.AttemptID = attempt.ID()
+		stopSocket := startStatusSocketServer(
+			t,
+			ctx,
+			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+			liveStatus,
+		)
+		defer stopSocket()
+
+		latest, err := th.DAGRunMgr.GetLatestStatus(ctx, dag.DAG)
+
+		require.NoError(t, err)
+		require.Equal(t, ir.Waiting, latest.Status)
+		require.Equal(t, attempt.ID(), latest.AttemptID)
+	})
+	t.Run("GetCurrentStatusFallsBackToLegacyRootSocket", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		legacyStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
+		legacyStatus.Error = "legacy"
+		stopSocket := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+		defer stopSocket()
+
+		current, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+
+		require.NoError(t, err)
+		require.Equal(t, ir.Waiting, current.Status)
+		require.Equal(t, "legacy", current.Error)
+	})
+	t.Run("GetCurrentStatusPrefersCanonicalSocket", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		canonicalStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
+		canonicalStatus.Error = "canonical"
+		legacyStatus := canonicalStatus
+		legacyStatus.Error = "legacy"
+
+		stopCanonical := startStatusSocketServer(
+			t,
+			ctx,
+			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+			canonicalStatus,
+		)
+		defer stopCanonical()
+		stopLegacy := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+		defer stopLegacy()
+
+		current, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+
+		require.NoError(t, err)
+		require.Equal(t, "canonical", current.Error)
+	})
+	t.Run("IsRunningDoesNotMaskCanonicalSocketFailureWithLegacyStatus", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		mgr := runtime.NewManager(nil, nil, th.Config)
+		legacyStatus := testNewStatus(dag.DAG, "unused", ir.Running, ir.NodeRunning)
+
+		for _, tc := range []struct {
+			name    string
+			handler sock.HTTPHandlerFunc
+		}{
+			{
+				name: "HTTPError",
+				handler: func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+				},
+			},
+			{
+				name: "MalformedStatus",
+				handler: func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte("{"))
+				},
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				dagRunID := uuid.Must(uuid.NewV7()).String()
+				legacyStatus.DAGRunID = dagRunID
+				stopCanonical := startSocketServer(
+					t,
+					ctx,
+					procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+					tc.handler,
+				)
+				defer stopCanonical()
+				stopLegacy := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+				defer stopLegacy()
+
+				require.False(t, mgr.IsRunning(ctx, dag.DAG, dagRunID))
+			})
+		}
+	})
 	t.Run("StopViaSocketRequestsCancel", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
@@ -103,7 +220,7 @@ func TestManager(t *testing.T) {
 
 		stopRequested := make(chan struct{}, 1)
 		socketServer, err := sock.NewServer(
-			procctrl.DAGSocketAddr(dag.DAG, dagRunID),
+			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
 			func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/stop" {
 					w.WriteHeader(http.StatusNotFound)
@@ -139,6 +256,76 @@ func TestManager(t *testing.T) {
 		aborting, err := attempt.IsAborting(ctx)
 		require.NoError(t, err)
 		require.True(t, aborting)
+	})
+	t.Run("StopFallsBackToLegacyRootSocket", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		attempt := createLiveRootAttempt(t, th, dag.DAG, dagRunID)
+		stopRequested := make(chan struct{}, 1)
+		stopSocket := startSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/stop" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			stopRequested <- struct{}{}
+			w.WriteHeader(http.StatusOK)
+		})
+		defer stopSocket()
+
+		require.NoError(t, th.DAGRunMgr.Stop(ctx, dag.DAG, dagRunID))
+
+		select {
+		case <-stopRequested:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "legacy socket stop request was not received")
+		}
+		aborting, err := attempt.IsAborting(ctx)
+		require.NoError(t, err)
+		require.True(t, aborting)
+	})
+	t.Run("StopContinuesToLegacySocketAfterCanonicalHTTPError", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		createLiveRootAttempt(t, th, dag.DAG, dagRunID)
+		canonicalRequested := make(chan struct{}, 1)
+		legacyRequested := make(chan struct{}, 1)
+
+		stopCanonical := startSocketServer(
+			t,
+			ctx,
+			procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)),
+			func(w http.ResponseWriter, _ *http.Request) {
+				canonicalRequested <- struct{}{}
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+		)
+		defer stopCanonical()
+		stopLegacy := startSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), func(w http.ResponseWriter, _ *http.Request) {
+			legacyRequested <- struct{}{}
+			w.WriteHeader(http.StatusOK)
+		})
+		defer stopLegacy()
+
+		require.NoError(t, th.DAGRunMgr.Stop(ctx, dag.DAG, dagRunID))
+
+		select {
+		case <-canonicalRequested:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "canonical socket stop request was not received")
+		}
+		select {
+		case <-legacyRequested:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "legacy socket stop request was not received")
+		}
 	})
 	t.Run("UpdateStatus", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
@@ -420,7 +607,7 @@ steps:
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
 
-		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, ir.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)), ir.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Running, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -544,6 +731,31 @@ steps:
 		require.Equal(t, ir.NodeFailed, saved.Nodes[0].Status)
 		require.Equal(t, "process terminated unexpectedly - stale local process detected", saved.Nodes[0].Error)
 	})
+	t.Run("GetSavedStatusUsesPersistedProcGroupWhenDAGReadFails", func(t *testing.T) {
+		ctx := th.Context
+		ref := ir.NewDAGRunRef("unreadable-dag", uuid.Must(uuid.NewV7()).String())
+		status := testNewStatus(&ir.DAG{Name: ref.Name}, ref.ID, ir.Running, ir.NodeRunning)
+		status.AttemptID = "attempt-1"
+		status.ProcGroup = "persisted-group"
+		staleAt := time.Now().Add(-3 * time.Second)
+		status.StartedAt = stringutil.FormatTime(staleAt)
+		status.CreatedAt = staleAt.UnixMilli()
+
+		attempt := new(testutil.MockAttempt)
+		attempt.On("ReadStatus", ctx).Return(&status, nil).Once()
+		attempt.On("ReadDAG", ctx).Return(nil, errors.New("dag unavailable")).Once()
+		store := &managerDAGRunStore{rootAttempt: attempt}
+		repository := persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})
+		processes := &managerProcessRepository{attemptAlive: true}
+		mgr := runtime.NewManager(repository, processes, th.Config)
+
+		saved, err := mgr.GetSavedStatus(ctx, ref)
+
+		require.NoError(t, err)
+		require.Equal(t, ir.Running, saved.Status)
+		require.Equal(t, "persisted-group", processes.attemptGroup)
+		attempt.AssertExpectations(t)
+	})
 	t.Run("GetLatestStatusKeepsFreshRunDuringStartupGrace", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
@@ -663,7 +875,7 @@ steps:
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
-		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, ir.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)), ir.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Failed, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -693,7 +905,7 @@ steps:
 		runningStatus.WorkerID = "worker-1"
 		require.NoError(t, att.Write(ctx, runningStatus))
 		require.NoError(t, att.Close(ctx))
-		stopSocket := startStatusSocketServer(t, ctx, dag.DAG, dagRunID, ir.NewStatusBuilder(dag.DAG).Create(
+		stopSocket := startStatusSocketServer(t, ctx, procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID)), ir.NewStatusBuilder(dag.DAG).Create(
 			dagRunID, ir.Failed, 0, time.Now(),
 		))
 		defer stopSocket()
@@ -886,7 +1098,15 @@ func createRunningSubAttempt(
 
 type managerDAGRunStore struct {
 	testutil.DAGRunStoreStub
-	subAttempt dagrun.Attempt
+	rootAttempt dagrun.Attempt
+	subAttempt  dagrun.Attempt
+}
+
+func (s *managerDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
+	if s.rootAttempt == nil {
+		return nil, dagrun.ErrDAGRunIDNotFound
+	}
+	return s.rootAttempt, nil
 }
 
 func (s *managerDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, string) (dagrun.Attempt, error) {
@@ -896,30 +1116,82 @@ func (s *managerDAGRunStore) FindSubAttempt(context.Context, ir.DAGRunRef, strin
 	return s.subAttempt, nil
 }
 
-// startStatusSocketServer serves a fixed status over the DAG run socket.
-func startStatusSocketServer(t *testing.T, ctx context.Context, dag *ir.DAG, dagRunID string, status ir.DAGRunStatus) func() {
+func createLiveRootAttempt(t *testing.T, th test.Helper, dag *ir.DAG, dagRunID string) dagrun.Attempt {
 	t.Helper()
 
-	socketServer, err := sock.NewServer(
-		procctrl.DAGSocketAddr(dag, dagRunID),
-		func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			jsonData, marshalErr := json.Marshal(status)
-			if marshalErr != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			_, _ = w.Write(jsonData)
-		},
-	)
+	ctx := th.Context
+	attempt, err := th.DAGRunRepository.CreateAttempt(ctx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	status := testNewStatus(dag, dagRunID, ir.Running, ir.NodeRunning)
+	status.AttemptID = attempt.ID()
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
+
+	process, err := th.ProcRepository.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
+		StartedAt:    time.Now().Unix(),
+		Name:         dag.Name,
+		DAGRunID:     dagRunID,
+		AttemptID:    attempt.ID(),
+		RootName:     dag.Name,
+		RootDAGRunID: dagRunID,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = process.Stop(ctx)
+	})
+
+	return attempt
+}
+
+// startStatusSocketServer serves a fixed status over the requested socket.
+func startStatusSocketServer(t *testing.T, ctx context.Context, addr string, status ir.DAGRunStatus) func() {
+	t.Helper()
+
+	jsonData, err := json.Marshal(status)
+	require.NoError(t, err)
+	return startSocketServer(t, ctx, addr, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(jsonData)
+	})
+}
+
+func startSocketServer(t *testing.T, ctx context.Context, addr string, handler sock.HTTPHandlerFunc) func() {
+	t.Helper()
+
+	socketServer, err := sock.NewServer(addr, handler)
 	require.NoError(t, err)
 
+	listen := make(chan error, 1)
 	go func() {
-		_ = socketServer.Serve(ctx, nil)
+		_ = socketServer.Serve(ctx, listen)
 		_ = socketServer.Shutdown(ctx)
 	}()
+	require.NoError(t, <-listen)
 
 	return func() {
 		_ = socketServer.Shutdown(ctx)
 	}
+}
+
+type managerProcessRepository struct {
+	attemptAlive bool
+	attemptGroup string
+}
+
+func (*managerProcessRepository) ListAlive(context.Context, string) ([]ir.DAGRunRef, error) {
+	return nil, nil
+}
+
+func (*managerProcessRepository) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
+	return false, nil
+}
+
+func (r *managerProcessRepository) IsAttemptAlive(_ context.Context, group string, _ ir.DAGRunRef, _ string) (bool, error) {
+	r.attemptGroup = group
+	return r.attemptAlive, nil
+}
+
+func (*managerProcessRepository) LatestFreshEntryByDAGName(context.Context, string, string) (*procctrl.ProcEntry, error) {
+	return nil, nil
 }

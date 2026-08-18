@@ -14,10 +14,6 @@ import (
 func TestDAGSocketAddr(t *testing.T) {
 	t.Parallel()
 
-	dag := &ir.DAG{Name: "mydag", Location: "path/to/dag.yml"}
-	require.Equal(t, sock.Addr(dag.Location, "run123"), DAGSocketAddr(dag, "run123"))
-	require.Equal(t, sock.Addr(dag.Name, "child456"), SubDAGSocketAddr(dag, "child456"))
-
-	dag.Location = ""
-	require.Equal(t, sock.Addr(dag.Name, "run123"), DAGSocketAddr(dag, "run123"))
+	ref := ir.NewDAGRunRef("mydag", "run123")
+	require.Equal(t, sock.Addr("mydag", "run123"), DAGSocketAddr(ref))
 }

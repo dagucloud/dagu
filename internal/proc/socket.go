@@ -10,15 +10,6 @@ import (
 )
 
 // DAGSocketAddr returns the control socket address for a DAG run.
-func DAGSocketAddr(dag *ir.DAG, runID string) string {
-	identity := dag.Location
-	if identity == "" {
-		identity = dag.Name
-	}
-	return sock.Addr(identity, runID)
-}
-
-// SubDAGSocketAddr returns the control socket address for a child DAG run.
-func SubDAGSocketAddr(dag *ir.DAG, runID string) string {
-	return sock.Addr(dag.GetName(), runID)
+func DAGSocketAddr(dagRun ir.DAGRunRef) string {
+	return sock.Addr(dagRun.Name, dagRun.ID)
 }

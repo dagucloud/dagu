@@ -75,7 +75,8 @@ func normalizePath(path string) string {
 	return "/" + path
 }
 
-// Request sends a request to the frontend and returns the response.
+// Request sends a request to the frontend and returns the response body.
+// Non-successful HTTP responses are returned as errors.
 func (cl *Client) Request(method, path string) (string, error) {
 	requestURL := &url.URL{
 		Scheme: "http",
@@ -98,6 +99,9 @@ func (cl *Client) Request(method, path string) (string, error) {
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		return "", wrapTimeout("read response body", err)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("unexpected HTTP status: %s", response.Status)
 	}
 
 	return string(body), nil

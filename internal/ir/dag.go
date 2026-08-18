@@ -70,8 +70,7 @@ type DAG struct {
 	// was auto-defaulted by the loader to the DAG file's parent directory.
 	// Not serialized — runtime-only flag.
 	WorkingDirExplicit bool `json:"-"`
-	// Location is the absolute path to the DAG file.
-	// It is used to generate unix socket name and can be blank
+	// Location is the absolute path to the DAG file and can be blank.
 	Location string `json:"location,omitempty"`
 	// SourceFile is the original DAG file path this run was loaded from.
 	// Unlike Location, it is provenance-only and is preserved even when queued

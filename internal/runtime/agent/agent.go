@@ -2352,10 +2352,7 @@ func (a *Agent) setupSocketServer(ctx context.Context) error {
 }
 
 func (a *Agent) socketAddr() string {
-	if a.isSubDAGRun.Load() {
-		return proc.SubDAGSocketAddr(a.dag, a.dagRunID)
-	}
-	return proc.DAGSocketAddr(a.dag, a.dagRunID)
+	return proc.DAGSocketAddr(ir.NewDAGRunRef(a.dag.Name, a.dagRunID))
 }
 
 // checkIsAlreadyRunning returns error if the DAG is already running.
@@ -2366,7 +2363,7 @@ func (a *Agent) checkIsAlreadyRunning(ctx context.Context) error {
 	if !a.dagRunMgr.IsRunning(ctx, a.dag, a.dagRunID) {
 		return nil
 	}
-	return fmt.Errorf("already running. dag-run ID=%s, socket=%s", a.dagRunID, proc.DAGSocketAddr(a.dag, a.dagRunID))
+	return fmt.Errorf("already running. dag-run ID=%s, socket=%s", a.dagRunID, a.socketAddr())
 }
 
 // execWithRecovery executes a function with panic recovery and logs any panics.
