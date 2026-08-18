@@ -11,7 +11,7 @@ import (
 var configSchema = &jsonschema.Schema{
 	Type: "object",
 	Properties: map[string]*jsonschema.Schema{
-		"provider": {Type: "string", Description: "Harness provider name. Use a built-in CLI provider or a custom top-level harnesses entry."},
+		"provider": {Type: "string", Description: "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry."},
 		"fallback": {
 			Type: "array",
 			Items: &jsonschema.Schema{

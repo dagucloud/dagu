@@ -546,7 +546,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `sftp.upload` / `sftp.download` | File transfer over SFTP |
 | `http.request` | HTTP requests with headers, auth, and request bodies |
 | `chat.completion` | Run an LLM chat completion step |
-| `harness.run` | Run external coding-agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
+| `harness.run` | Run external coding-agent CLIs such as Claude Code, Codex, Gemini CLI, Cursor, and DeepSeek Harness |
 | `postgres.query` / `postgres.import` | PostgreSQL queries and imports |
 | `sqlite.query` / `sqlite.import` | SQLite queries and imports |
 | `redis.<operation>` | Redis commands, pipelines, and Lua scripts |

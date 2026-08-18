@@ -4,15 +4,29 @@ Use `action: harness.run` to invoke external coding agents from DAG steps. Dagu 
 
 ## Supported Providers
 
-| Provider | Binary | Invocation |
-|----------|---------|------------|
-| `claude` | `claude` | `claude -p "<prompt>" [flags]` |
-| `codex` | `codex` | `codex exec "<prompt>" [flags]` |
-| `copilot` | `copilot` | `copilot -p "<prompt>" [flags]` |
-| `opencode` | `opencode` | Managed server session on a Dagu server or worker; otherwise `opencode run "<prompt>" [flags]` |
-| `pi` | `pi` | `pi -p "<prompt>" [flags]` |
+| Provider | Binary | Invocation | Supplementary input |
+|----------|--------|------------|---------------------|
+| `aider` | `aider` | `aider --message "<prompt>" [flags]` | Folded into the prompt |
+| `amp` | `amp` | `amp -x "<prompt>" [flags]` | Piped to stdin |
+| `claude` | `claude` | `claude -p "<prompt>" [flags]` | Piped to stdin |
+| `cline` | `cline` | `cline [flags] "<prompt>"` | Piped to stdin |
+| `codex` | `codex` | `codex exec "<prompt>" [flags]` | Piped to stdin |
+| `copilot` | `copilot` | `copilot -p "<prompt>" [flags]` | Piped to stdin |
+| `cursor` | `cursor-agent` | `cursor-agent -p "<prompt>" [flags]` | Folded into the prompt |
+| `deepseek` | `dsh` | `dsh --profile headless [flags] "<prompt>"` | Folded into the prompt |
+| `droid` | `droid` | `droid exec "<prompt>" [flags]` | Folded into the prompt |
+| `gemini` | `gemini` | `gemini -p "<prompt>" [flags]` | Piped to stdin |
+| `goose` | `goose` | `goose run --text "<prompt>" [flags]` | Folded into the prompt |
+| `kiro` | `kiro-cli` | `kiro-cli chat --no-interactive "<prompt>" [flags]` | Piped to stdin |
+| `opencode` | `opencode` | Managed session or `opencode run "<prompt>" [flags]` | Piped to stdin on the CLI path |
+| `pi` | `pi` | `pi -p "<prompt>" [flags]` | Piped to stdin |
+| `qwen` | `qwen` | `qwen -p "<prompt>" [flags]` | Piped to stdin |
 
 Codex defaults to `skip_git_repo_check: true`, so its default invocation includes `--skip-git-repo-check`. Set `skip_git_repo_check: false` or `skip-git-repo-check: false` to omit it.
+
+Cursor defaults to `output_format: text`, and Goose defaults to `quiet: true`. Explicit values in `with` override these defaults.
+
+The `deepseek` adapter targets the official DeepSeek Harness `dsh` CLI and its headless profile. It does not select DeepSeek as the model backend for another harness.
 
 Claude's `bare` flag skips keychain reads among other things, so a subscription login is invisible to the step and the run fails with `Not logged in`. Set it only when the credential comes from `ANTHROPIC_API_KEY` in the step environment.
 
@@ -21,9 +35,9 @@ For host subprocess runs, built-in provider adapters resolve binaries through `P
 ## Feature Reference
 
 - `with.prompt` is required and is passed to the selected provider according to its built-in adapter or custom harness definition. Multiline prompt text is preserved.
-- `with.stdin` is optional supplementary stdin for host subprocess runs. Containerized harness runs reject stdin.
-- Built-in provider adapters are `claude`, `codex`, `copilot`, `opencode`, and `pi`. Non-reserved `with` keys become CLI flags.
-- Custom providers must be declared under top-level `harnesses:`. Custom names cannot collide with built-in provider names.
+- `with.stdin` is optional supplementary input for host subprocess runs. Each built-in adapter either pipes it to stdin or folds it into the prompt as shown above. Containerized harness runs reject it.
+- Built-in provider adapters are `aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kiro`, `opencode`, `pi`, and `qwen`. Non-reserved `with` keys become CLI flags.
+- Custom providers must be declared under top-level `harnesses:`. A non-null custom definition shadows a built-in provider with the same name; deleting the custom definition exposes the built-in again.
 - `fallback` is an ordered list of provider configs. Dagu tries the next config only when the previous attempt fails and the run context is still active. Fallback configs cannot contain another `fallback`.
 - `provider` may use value references only if they resolve to a concrete provider string before executor creation. If `${...}` remains unresolved at runtime, the harness fails with an unresolved provider template error.
 - `provider` and `fallback` are harness control keys. They are not passed as CLI flags.
@@ -79,7 +93,7 @@ Define reusable custom harness adapters once at the DAG level:
 
 ```yaml
 harnesses:
-  gemini:
+  gemini-custom:
     binary: gemini
     prefix_args: ["run"]
     prompt_mode: flag
@@ -92,7 +106,7 @@ steps:
     action: harness.run
     with:
       prompt: "Review the current branch"
-      provider: gemini
+      provider: gemini-custom
       model: gemini-2.5-pro
 ```
 
@@ -297,7 +311,7 @@ steps:
     output: REFINED
 ```
 
-`with.prompt` is the prompt. For host subprocess runs, built-in provider adapters and custom `arg`/`flag` harnesses receive `with.stdin` on stdin as supplementary context. For host subprocess custom `stdin` harnesses, stdin receives the prompt, then a blank line, then `with.stdin` when both are present.
+`with.prompt` is the prompt. For host subprocess runs, built-in adapters handle `with.stdin` according to the provider table. Custom `arg`/`flag` harnesses receive it on stdin. For custom `stdin` harnesses, stdin receives the prompt, then a blank line, then `with.stdin` when both are present.
 
 ## Pattern 3: Parameterized
 
@@ -395,6 +409,18 @@ steps:
       provider: pi
       thinking: high
       tools: read,bash
+    timeout_sec: 300
+```
+
+### DeepSeek Harness
+
+```yaml
+steps:
+  - id: task
+    action: harness.run
+    with:
+      prompt: "Review the current branch and fix the failing tests"
+      provider: deepseek
     timeout_sec: 300
 ```
 

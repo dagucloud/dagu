@@ -370,9 +370,8 @@ steps:
 ```
 
 Prefer `action: harness.run` for new workflows. Compatibility note: a
-top-level `harness:` config still causes steps without an explicit executor type
-to infer the harness executor. Do not mix top-level `harness:` with ordinary
-shell `run:` steps unless prompt inference is intended.
+top-level `harness:` config supplies defaults only to explicit harness steps. It
+does not change ordinary `run:`, `exec:`, or `script:` steps into harness steps.
 
 ## Reusable Custom Actions
 

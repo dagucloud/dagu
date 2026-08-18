@@ -446,8 +446,8 @@ steps:
 		Description: "Define a named harness under harnesses and call it from a step",
 		Content: `type: graph
 harnesses:
-  # Named custom harness adapters for CLIs that are not built in.
-  gemini:
+  # Named custom harness adapters can override or extend built-ins.
+  gemini-custom:
     binary: gemini
     prompt_mode: flag
     prompt_flag: --prompt
@@ -472,7 +472,7 @@ steps:
     action: harness.run
     with:
       prompt: ${PROMPT}
-      provider: gemini
+      provider: gemini-custom
       model: gemini-2.5-pro
     output: SUMMARY
     depends: [build_prompt]
