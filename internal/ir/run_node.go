@@ -4,6 +4,7 @@
 package ir
 
 import (
+	"bytes"
 	"encoding/json"
 	"slices"
 
@@ -155,6 +156,19 @@ type Node struct {
 
 type nodeJSON Node
 
+// presentRawJSON returns the first candidate that carries a value, or nil when
+// none does. A literal JSON null counts as absent, so a field written as null
+// neither masks a later candidate nor reaches callers that test for emptiness.
+func presentRawJSON(candidates ...json.RawMessage) json.RawMessage {
+	for _, raw := range candidates {
+		trimmed := bytes.TrimSpace(raw)
+		if len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null")) {
+			return raw
+		}
+	}
+	return nil
+}
+
 // MarshalJSON keeps runtime condition results inside the persisted step object.
 func (n Node) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
@@ -183,9 +197,7 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*n = Node(decoded)
-	if len(n.AgentState) == 0 {
-		n.AgentState = runtimeState.LegacyAgentState
-	}
+	n.AgentState = presentRawJSON(n.AgentState, runtimeState.LegacyAgentState)
 	n.PreconditionResults = slices.Clone(runtimeState.Step.Preconditions)
 	if n.PreconditionResults != nil {
 		n.Step = newStepSnapshot(n.Step, n.PreconditionResults).definition()
