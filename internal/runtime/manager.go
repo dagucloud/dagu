@@ -367,21 +367,17 @@ func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun ir.DAGRunR
 // currentStatus retrieves the current status of a running DAG by querying its socket.
 // This is a private method used internally by other status-related methods.
 func (*Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.DAG) (*ir.DAGRunStatus, error) {
-	addrs := dagSocketCandidates(dagRun, dag)
-	addr := addrs[0]
-	if !fileutil.FileExists(addr) {
-		if len(addrs) == 1 || !fileutil.FileExists(addrs[1]) {
-			return nil, fmt.Errorf("socket file does not exist for dag-run ID %s", dagRun.ID)
+	for _, addr := range dagSocketCandidates(dagRun, dag) {
+		if !fileutil.FileExists(addr) {
+			continue
 		}
-		addr = addrs[1]
+		statusJSON, err := sock.NewClient(addr).Request("GET", "/status")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get current status: %w", err)
+		}
+		return ir.StatusFromJSON(statusJSON)
 	}
-
-	statusJSON, err := sock.NewClient(addr).Request("GET", "/status")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current status: %w", err)
-	}
-
-	return ir.StatusFromJSON(statusJSON)
+	return nil, fmt.Errorf("socket file does not exist for dag-run ID %s", dagRun.ID)
 }
 
 func dagSocketCandidates(dagRun ir.DAGRunRef, dag *ir.DAG) []string {
