@@ -252,6 +252,12 @@ type agentHelper struct {
 	runErr error
 }
 
+const agentModelURLPlaceholder = "__DAGU_TEST_MODEL_URL__"
+
+func indentAgentScript(script string) string {
+	return "      " + strings.ReplaceAll(strings.TrimSpace(script), "\n", "\n      ")
+}
+
 func setupAgent(t *testing.T, yamlTemplate string, turns ...turn) *agentHelper {
 	t.Helper()
 
@@ -272,7 +278,7 @@ func setupAgentModels(
 	for _, model := range models {
 		server := httptest.NewServer(model)
 		t.Cleanup(server.Close)
-		formattedYAML = strings.Replace(formattedYAML, "%s", server.URL, 1)
+		formattedYAML = strings.Replace(formattedYAML, agentModelURLPlaceholder, server.URL, 1)
 	}
 
 	th := test.Setup(t)
@@ -332,7 +338,7 @@ type: agent
 llm:
   provider: local
   model: test-model
-  base_url: %s
+  base_url: __DAGU_TEST_MODEL_URL__
   system: drive the workflow
 steps:
   - name: alpha
@@ -399,7 +405,7 @@ type: agent
 llm:
   provider: local
   model: test-model
-  base_url: %%s
+  base_url: __DAGU_TEST_MODEL_URL__
 steps:
   - name: alpha
     run: |
@@ -429,6 +435,44 @@ tasks:
 	assert.Equal(t, []string{"call_1_1", "call_1_2"}, observationIDs[:2])
 }
 
+func TestAgentLoop_ActionBatchToleratesNegativeRuntimeLimit(t *testing.T) {
+	t.Parallel()
+
+	readyDir := t.TempDir()
+	dagYAML := fmt.Sprintf(`
+type: agent
+llm:
+  provider: local
+  model: test-model
+  base_url: __DAGU_TEST_MODEL_URL__
+steps:
+  - name: alpha
+    run: |
+%s
+  - name: beta
+    run: |
+%s
+tasks:
+  - name: finished
+    description: done when both actions ran
+`, indentAgentScript(concurrentBarrierScript(
+		"alpha", readyDir, 2, platformTestDuration(3*time.Second, 10*time.Second))),
+		indentAgentScript(concurrentBarrierScript(
+			"beta", readyDir, 2, platformTestDuration(3*time.Second, 10*time.Second))))
+
+	ch := setupAgent(t, dagYAML,
+		turn{calls: []scriptedToolCall{{tool: "alpha"}, {tool: "beta"}}},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "finished", "status": "completed", "reason": "both ran"}},
+	)
+	ch.cfg.MaxActiveSteps = -1
+	ch.runner = runtime.New(ch.cfg)
+
+	require.Equal(t, ir.Succeeded, ch.run(t))
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "alpha").State().Status)
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "beta").State().Status)
+}
+
 func TestAgentLoop_ActionBatchHonorsMaxActiveSteps(t *testing.T) {
 	t.Parallel()
 
@@ -439,7 +483,7 @@ max_active_steps: 1
 llm:
   provider: local
   model: test-model
-  base_url: %%s
+  base_url: __DAGU_TEST_MODEL_URL__
 steps:
   - name: alpha
     run: |
@@ -464,15 +508,65 @@ tasks:
 	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "beta").State().Status)
 }
 
-func TestAgentLoop_ActionBatchCannotReadSiblingOutputs(t *testing.T) {
+func TestAgentLoop_ActionBatchDoesNotStartQueuedActionAfterCancellation(t *testing.T) {
 	t.Parallel()
 
 	const dagYAML = `
 type: agent
+max_active_steps: 1
 llm:
   provider: local
   model: test-model
-  base_url: %s
+  base_url: __DAGU_TEST_MODEL_URL__
+steps:
+  - name: alpha
+    run: echo alpha
+  - id: beta
+    name: beta
+    action: human.task
+    with:
+      prompt: approve beta?
+tasks:
+  - name: finished
+    description: done when both actions ran
+`
+
+	executorType, started := registerStoppedStatusExecutor(t)
+	ch := setupAgent(t, dagYAML,
+		turn{calls: []scriptedToolCall{{tool: "alpha"}, {tool: "beta"}}},
+	)
+	alpha := ch.node(t, "alpha")
+	step := alpha.Step()
+	step.Commands = nil
+	step.Script = ""
+	step.ExecutorConfig.Type = executorType
+	alpha.SetStep(step)
+
+	canceled := make(chan error, 1)
+	go func() {
+		select {
+		case execution := <-started:
+			ch.runner.Cancel(ch.plan)
+			canceled <- execution.Kill(nil)
+		case <-time.After(10 * time.Second):
+			canceled <- fmt.Errorf("first action did not start")
+		}
+	}()
+
+	assert.Equal(t, ir.Aborted, ch.run(t))
+	require.NoError(t, <-canceled)
+	assert.Equal(t, ir.NodeAborted, ch.node(t, "beta").State().Status)
+}
+
+func TestAgentLoop_ActionBatchCannotReadSiblingOutputs(t *testing.T) {
+	t.Parallel()
+
+	dagYAML := fmt.Sprintf(`
+type: agent
+llm:
+  provider: local
+  model: test-model
+  base_url: __DAGU_TEST_MODEL_URL__
 steps:
   - name: produce
     id: produce
@@ -482,11 +576,11 @@ steps:
         VALUE: ready
   - name: consume
     id: consume
-    run: echo ${produce.outputs.VALUE}
+    run: %s
 tasks:
   - name: finished
     description: done when consume reads the prior output
-`
+`, test.Output("${produce.outputs.VALUE}"))
 
 	ch := setupAgent(t, dagYAML,
 		turn{calls: []scriptedToolCall{{tool: "produce"}, {tool: "consume"}}},
@@ -504,9 +598,14 @@ tasks:
 	assert.Equal(t, "produce", events[0].Name)
 	assert.Equal(t, ir.NodeSucceeded.String(), events[0].Status)
 	assert.Equal(t, "consume", events[1].Name)
-	assert.Equal(t, ir.NodeFailed.String(), events[1].Status)
+	assert.Equal(t, ir.NodeSucceeded.String(), events[1].Status)
 	assert.Equal(t, "consume", events[2].Name)
 	assert.Equal(t, ir.NodeSucceeded.String(), events[2].Status)
+
+	observations := ch.model.observations()
+	require.GreaterOrEqual(t, len(observations), 3)
+	assert.Contains(t, observations[1], "${produce.outputs.VALUE}")
+	assert.Contains(t, observations[2], "ready")
 }
 
 func TestAgentLoop_ActionBatchReportsFailuresWithoutCancelingSiblings(t *testing.T) {
@@ -533,10 +632,6 @@ func TestAgentLoop_ActionBatchReportsFailuresWithoutCancelingSiblings(t *testing
 	assert.Equal(t, ir.NodeFailed.String(), events[0].Status)
 	assert.Equal(t, "alpha", events[1].Name)
 	assert.Equal(t, ir.NodeSucceeded.String(), events[1].Status)
-}
-
-func indentAgentScript(script string) string {
-	return "      " + strings.ReplaceAll(strings.TrimSpace(script), "\n", "\n      ")
 }
 
 func TestAgentLoop_RejectsInvalidActionBatchesAtomically(t *testing.T) {
@@ -704,7 +799,7 @@ type: agent
 llm:
   provider: local
   model: test-model
-  base_url: %s
+  base_url: __DAGU_TEST_MODEL_URL__
   max_context_tokens: 10
   observation_keep_recent: 1
 steps:
@@ -724,7 +819,7 @@ type: agent
 llm:
   provider: local
   model: test-model
-  base_url: %s
+  base_url: __DAGU_TEST_MODEL_URL__
 steps:
   - name: alpha
     run: echo alpha
@@ -820,7 +915,7 @@ type: agent
 llm:
   provider: local
   model: test-model
-  base_url: %s
+  base_url: __DAGU_TEST_MODEL_URL__
   max_context_tokens: 0
   observation_max_bytes: 0
   observation_keep_recent: 0
@@ -850,7 +945,7 @@ type: agent
 llm:
   provider: local
   model: test-model
-  base_url: %s
+  base_url: __DAGU_TEST_MODEL_URL__
   observation_max_bytes: 128
 steps:
   - name: produce
@@ -929,7 +1024,7 @@ type: agent
 llm:
   provider: local
   model: test-model
-  base_url: %s
+  base_url: __DAGU_TEST_MODEL_URL__
 steps:
   - name: alpha
     run: echo alpha
@@ -1029,7 +1124,7 @@ type: agent
 llm:
   provider: local
   model: test-model
-  base_url: %s
+  base_url: __DAGU_TEST_MODEL_URL__
 steps:
   - id: review_alpha
     name: review_alpha
@@ -1144,7 +1239,8 @@ func resumeAgentWith(
 	server := httptest.NewServer(model)
 	t.Cleanup(server.Close)
 
-	dag, err := spec.LoadYAML(prev.Context, []byte(strings.Replace(yamlTemplate, "%s", server.URL, 1)))
+	dag, err := spec.LoadYAML(prev.Context, []byte(strings.Replace(
+		yamlTemplate, agentModelURLPlaceholder, server.URL, 1)))
 	require.NoError(t, err)
 	dag.WorkingDir = t.TempDir()
 
@@ -1370,7 +1466,7 @@ params:
 llm:
   provider: local
   model: test-model
-  base_url: %s
+  base_url: __DAGU_TEST_MODEL_URL__
   system: |
     The operator's instruction is ${params.GOAL}.
 steps:
@@ -1529,7 +1625,7 @@ llm:
   model:
     - provider: ${params.PROVIDER}
       name: test-model
-      base_url: %s
+      base_url: __DAGU_TEST_MODEL_URL__
   max_tool_iterations: 3
 steps:
   - name: alpha
@@ -1560,10 +1656,10 @@ llm:
   model:
     - provider: local
       name: primary-model
-      base_url: %s
+      base_url: __DAGU_TEST_MODEL_URL__
     - provider: local
       name: fallback-model
-      base_url: %s
+      base_url: __DAGU_TEST_MODEL_URL__
   max_tool_iterations: 5
 steps:
   - name: alpha
@@ -1581,13 +1677,13 @@ llm:
   model:
     - provider: local
       name: primary-model
-      base_url: %s
+      base_url: __DAGU_TEST_MODEL_URL__
     - provider: local
       name: fallback-one
-      base_url: %s
+      base_url: __DAGU_TEST_MODEL_URL__
     - provider: local
       name: fallback-two
-      base_url: %s
+      base_url: __DAGU_TEST_MODEL_URL__
   max_tool_iterations: 5
 steps:
   - name: alpha

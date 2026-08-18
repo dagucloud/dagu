@@ -151,6 +151,9 @@ func TestAgentDAGProgressDisplay_UpdateNode_TracksRunningActions(t *testing.T) {
 	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeRunning})
 	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "load"}, Status: ir.NodeRunning})
 	assert.Equal(t, map[string]struct{}{"disk": {}, "load": {}}, display.runningActions)
+	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeRetrying})
+	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "load"}, Status: ir.NodeWaiting})
+	assert.Equal(t, map[string]struct{}{"disk": {}, "load": {}}, display.runningActions)
 
 	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeSucceeded})
 	assert.Equal(t, map[string]struct{}{"load": {}}, display.runningActions)

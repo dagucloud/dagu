@@ -136,6 +136,21 @@ func TestState_PendingBatchRoundTripsAndReadsLegacyState(t *testing.T) {
 	assert.Empty(t, restored.PendingBatch())
 }
 
+func TestState_FinalizeEventFallsBackToLegacyStep(t *testing.T) {
+	t.Parallel()
+
+	state := agentloop.State{Events: []agentloop.Event{
+		{Name: "alpha", Status: ir.NodeWaiting.String()},
+		{Name: "alpha", ToolCallID: "new_call", Status: ir.NodeWaiting.String()},
+	}}
+
+	state.FinalizeEvent("legacy_call", "alpha", ir.NodeSucceeded.String(), "finished", "")
+
+	assert.Equal(t, ir.NodeSucceeded.String(), state.Events[0].Status)
+	assert.Equal(t, "finished", state.Events[0].FinishedAt)
+	assert.Equal(t, ir.NodeWaiting.String(), state.Events[1].Status)
+}
+
 func TestLoadState_ReconcilesAnEditedTaskList(t *testing.T) {
 	t.Parallel()
 

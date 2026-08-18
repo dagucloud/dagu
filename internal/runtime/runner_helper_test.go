@@ -120,15 +120,18 @@ func withCommand(command string) stepOption {
 func sequentialGuardScript(name, lockDir string) string {
 	if windowsShellTest() {
 		return fmt.Sprintf(`
-			$lockDir = %s
-			if (-not (New-Item -ItemType Directory -Path $lockDir -ErrorAction SilentlyContinue)) {
+			$lockFile = %s
+			try {
+				$lock = [System.IO.File]::Open($lockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+			} catch [System.IO.IOException] {
 				Write-Error "sequential step %s overlapped another active step"
 				exit 1
 			}
 			try {
 				%s
 			} finally {
-				Remove-Item -LiteralPath $lockDir -Force
+				$lock.Dispose()
+				Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
 			}
 		`, test.PowerShellQuote(shellTestPath(lockDir)), name,
 			test.Sleep(platformTestDuration(300*time.Millisecond, 600*time.Millisecond)))
@@ -146,6 +149,10 @@ func sequentialGuardScript(name, lockDir string) string {
 }
 
 func concurrentBarrierScript(name, readyDir string, readyCount int, timeout time.Duration) string {
+	timeoutSeconds := int(timeout / time.Second)
+	if timeout%time.Second != 0 {
+		timeoutSeconds++
+	}
 	if windowsShellTest() {
 		return fmt.Sprintf(`
 			$readyDir = %s
@@ -160,7 +167,7 @@ func concurrentBarrierScript(name, readyDir string, readyCount int, timeout time
 				Start-Sleep -Milliseconds 50
 			}
 		`, test.PowerShellQuote(shellTestPath(readyDir)), test.PowerShellQuote(name),
-			int(timeout/time.Second), readyCount, name)
+			timeoutSeconds, readyCount, name)
 	}
 
 	return fmt.Sprintf(`
@@ -177,9 +184,10 @@ func concurrentBarrierScript(name, readyDir string, readyCount int, timeout time
 				echo "concurrent step %s did not observe all active steps" >&2
 				exit 1
 			fi
-			sleep 0.05
+			%s
 		done
-	`, test.PosixQuote(readyDir), name, int(timeout/time.Second), readyCount, name)
+	`, test.PosixQuote(readyDir), name, timeoutSeconds, readyCount, name,
+		test.Sleep(50*time.Millisecond))
 }
 
 func withID(id string) stepOption {

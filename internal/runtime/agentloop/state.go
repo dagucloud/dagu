@@ -249,19 +249,29 @@ func (s *State) RecordEvent(e Event) {
 // FinalizeEvent updates the event for a suspended tool call with the outcome it
 // reached. The step name supports state written before tool-call IDs were kept.
 func (s *State) FinalizeEvent(toolCallID, step, status, finishedAt, reason string) {
+	match := -1
 	for i := len(s.Events) - 1; i >= 0; i-- {
-		if toolCallID != "" && s.Events[i].ToolCallID != toolCallID {
-			continue
+		if toolCallID != "" && s.Events[i].ToolCallID == toolCallID {
+			match = i
+			break
 		}
-		if toolCallID == "" && s.Events[i].Name != step {
-			continue
+	}
+	if match < 0 {
+		for i := len(s.Events) - 1; i >= 0; i-- {
+			if s.Events[i].Name == step && (toolCallID == "" || s.Events[i].ToolCallID == "") {
+				match = i
+				break
+			}
 		}
-		s.Events[i].Status = status
-		s.Events[i].FinishedAt = finishedAt
-		if reason != "" {
-			s.Events[i].Reason = reason
-		}
+	}
+	if match < 0 {
 		return
+	}
+
+	s.Events[match].Status = status
+	s.Events[match].FinishedAt = finishedAt
+	if reason != "" {
+		s.Events[match].Reason = reason
 	}
 }
 

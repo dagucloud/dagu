@@ -61,12 +61,22 @@ func (r *Runner) runAgentActionBatch(
 
 	var wg sync.WaitGroup
 	limit := r.maxActiveRuns
-	if limit == 0 || limit > len(runnable) {
+	if limit <= 0 || limit > len(runnable) {
 		limit = len(runnable)
 	}
 	semaphore := make(chan struct{}, limit)
-	for _, execution := range runnable {
+	firstUnstarted := len(runnable)
+	for i, execution := range runnable {
+		if r.isCanceled() {
+			firstUnstarted = i
+			break
+		}
 		semaphore <- struct{}{}
+		if r.isCanceled() {
+			<-semaphore
+			firstUnstarted = i
+			break
+		}
 		wg.Add(1)
 		go func(execution *agentActionExecution) {
 			defer wg.Done()
@@ -75,6 +85,10 @@ func (r *Runner) runAgentActionBatch(
 		}(execution)
 	}
 	wg.Wait()
+	for _, execution := range runnable[firstUnstarted:] {
+		execution.node.Cancel()
+		r.report(progressCh, execution.node)
+	}
 
 	for i := range executions {
 		execution := &executions[i]

@@ -93,9 +93,10 @@ func (p *AgentDAGProgressDisplay) UpdateNode(node *ir.Node) {
 		return
 	}
 
-	if node.Status == ir.NodeRunning {
+	switch node.Status {
+	case ir.NodeRunning, ir.NodeRetrying, ir.NodeWaiting:
 		p.runningActions[node.Step.Name] = struct{}{}
-	} else {
+	default:
 		delete(p.runningActions, node.Step.Name)
 	}
 }
