@@ -796,7 +796,11 @@ func validateIPAccessEntries(path string, entries []string) error {
 	for i, entry := range entries {
 		var err error
 		if strings.Contains(entry, "/") {
-			_, err = netip.ParsePrefix(entry)
+			prefix, parseErr := netip.ParsePrefix(entry)
+			err = parseErr
+			if err == nil && prefix.Addr().Is4In6() && prefix.Bits() < 96 {
+				err = fmt.Errorf("mapped IPv4 prefix length must be at least 96")
+			}
 		} else {
 			_, err = netip.ParseAddr(entry)
 		}

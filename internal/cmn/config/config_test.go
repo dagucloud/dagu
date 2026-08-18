@@ -665,6 +665,13 @@ func TestConfigValidateIPAccess(t *testing.T) {
 			wantError: `ip_access.allowed_ips[0] "not-an-ip"`,
 		},
 		{
+			name: "IPv4MappedNetworkBelowMappedPrefix",
+			configure: func(cfg *Config) {
+				cfg.Server.IPAccess.AllowedIPs = []string{"::ffff:192.0.2.0/95"}
+			},
+			wantError: `ip_access.allowed_ips[0] "::ffff:192.0.2.0/95"`,
+		},
+		{
 			name: "InvalidTrustedProxy",
 			configure: func(cfg *Config) {
 				cfg.Server.IPAccess.TrustedProxies = []string{"10.0.0.0/99"}
