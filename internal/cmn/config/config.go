@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -177,6 +178,13 @@ type Server struct {
 	Terminal           TerminalConfig
 	Audit              AuditConfig
 	SSE                SSEConfig
+	IPAccess           IPAccessConfig
+}
+
+// IPAccessConfig restricts HTTP access by client network address.
+type IPAccessConfig struct {
+	AllowedIPs     []string
+	TrustedProxies []string
 }
 
 // TerminalConfig contains configuration for the web-based terminal feature.
@@ -740,6 +748,12 @@ func (c *Config) validateServer() error {
 		}
 		c.Server.PublicURL = normalized
 	}
+	if err := validateIPAccessEntries("ip_access.allowed_ips", c.Server.IPAccess.AllowedIPs); err != nil {
+		return err
+	}
+	if err := validateIPAccessEntries("ip_access.trusted_proxies", c.Server.IPAccess.TrustedProxies); err != nil {
+		return err
+	}
 
 	if c.Server.TLS != nil {
 		if c.Server.TLS.CertFile == "" || c.Server.TLS.KeyFile == "" {
@@ -775,6 +789,21 @@ func (c *Config) validateServer() error {
 		return fmt.Errorf("sse.slow_client_timeout must be >= 0")
 	}
 
+	return nil
+}
+
+func validateIPAccessEntries(path string, entries []string) error {
+	for i, entry := range entries {
+		var err error
+		if strings.Contains(entry, "/") {
+			_, err = netip.ParsePrefix(entry)
+		} else {
+			_, err = netip.ParseAddr(entry)
+		}
+		if err != nil {
+			return fmt.Errorf("invalid %s[%d] %q: %w", path, i, entry, err)
+		}
+	}
 	return nil
 }
 

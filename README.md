@@ -777,12 +777,31 @@ The table lists the most common commands. The binary ships 31 in total, includin
 | `DAGU_CERT_FILE` | — | TLS certificate |
 | `DAGU_KEY_FILE` | — | TLS private key |
 | `DAGU_CORS_ALLOWED_ORIGINS` | — | Comma-separated list of allowed CORS origins (e.g. `https://app.example.com`). When unset, cross-origin browser access is disabled. Exact origins enable credentials. An explicit `*` allows every origin without credentials and emits a security warning. |
+| `DAGU_IP_ACCESS_ALLOWED_IPS` | — | Comma-separated IPv4/IPv6 addresses and CIDR ranges allowed to access the HTTP server. Empty disables filtering. |
+| `DAGU_IP_ACCESS_TRUSTED_PROXIES` | — | Comma-separated proxy addresses and CIDR ranges permitted to supply forwarded client IP headers. |
 | `DAGU_PUBLIC_URL` | — | External Web UI URL used in generated links, including notification and incident DAG-run links |
 | `DAGU_SERVER_METRICS` | `private` | Metrics endpoint access: `private` or `public` |
 | `DAGU_TERMINAL_ENABLED` | `false` | Enable the web-based terminal |
 | `DAGU_DEFAULT_SHELL` | `$SHELL`, then `sh` | Default shell for command steps |
 | `DAGU_ENV_PASSTHROUGH_PREFIXES` | — | Comma-separated env var prefixes forwarded to step execution |
 | `DAGU_DEBUG` | — | Enable debug mode |
+
+The equivalent YAML protects every HTTP route, including health, metrics,
+webhooks, SSE, terminal, and MCP:
+
+```yaml
+ip_access:
+  allowed_ips:
+    - 203.0.113.10
+    - 10.0.0.0/8
+  trusted_proxies:
+    - 127.0.0.1
+    - 10.42.0.0/16
+```
+
+Forwarded addresses are used only when the direct peer matches
+`trusted_proxies`. The proxy must remove client-supplied forwarding headers and
+set or append the verified client address. Keep trusted proxy ranges narrow.
 
 ### Paths
 

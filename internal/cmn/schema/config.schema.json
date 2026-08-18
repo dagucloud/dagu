@@ -47,6 +47,9 @@
       "items": { "type": "string" },
       "description": "Origins allowed to make cross-origin requests. When unset or empty, cross-origin browser access is disabled. Exact origins enable credentials. An explicit '*' allows every origin without credentials and emits a security warning."
     },
+    "ip_access": {
+      "$ref": "#/definitions/IPAccessDef"
+    },
     "debug": {
       "type": "boolean",
       "description": "Enable debug mode with verbose logging."
@@ -245,6 +248,31 @@
     }
   },
   "definitions": {
+    "IPAccessDef": {
+      "type": "object",
+      "description": "Server-wide HTTP client IP filtering.",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_ips": {
+          "type": "array",
+          "description": "IPv4 or IPv6 addresses and CIDR ranges allowed to access the HTTP server. Empty disables filtering.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "trusted_proxies": {
+          "type": "array",
+          "description": "Proxy addresses and CIDR ranges permitted to supply forwarded client IP headers.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "TLSDef": {
       "type": "object",
       "description": "TLS/SSL encryption configuration.",

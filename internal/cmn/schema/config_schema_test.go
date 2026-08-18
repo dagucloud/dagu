@@ -76,6 +76,52 @@ check_updates: false
 	}
 }
 
+func TestConfigSchemaIPAccess(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{
+			name: "AddressesAndNetworks",
+			spec: `
+ip_access:
+  allowed_ips:
+    - 203.0.113.10
+    - 10.0.0.0/8
+  trusted_proxies:
+    - 127.0.0.1
+    - 2001:db8::/32
+`,
+		},
+		{
+			name: "RejectsNonStringEntry",
+			spec: `
+ip_access:
+  allowed_ips:
+    - 42
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			doc := mustParseYAMLDocument(t, tt.spec)
+			err := resolved.Validate(doc)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestConfigSchemaOIDCWorkspaceMappings(t *testing.T) {
 	t.Parallel()
 

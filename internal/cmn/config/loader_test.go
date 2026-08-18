@@ -2016,6 +2016,40 @@ cors_allowed_origins:
 	})
 }
 
+func TestLoad_IPAccess(t *testing.T) {
+	t.Run("DefaultDisabled", func(t *testing.T) {
+		cfg := loadFromYAML(t, "# empty")
+
+		assert.Empty(t, cfg.Server.IPAccess.AllowedIPs)
+		assert.Empty(t, cfg.Server.IPAccess.TrustedProxies)
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+ip_access:
+  allowed_ips:
+    - 203.0.113.10
+    - 10.0.0.0/8
+  trusted_proxies:
+    - 127.0.0.1
+    - 10.42.0.0/16
+`)
+
+		assert.Equal(t, []string{"203.0.113.10", "10.0.0.0/8"}, cfg.Server.IPAccess.AllowedIPs)
+		assert.Equal(t, []string{"127.0.0.1", "10.42.0.0/16"}, cfg.Server.IPAccess.TrustedProxies)
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_IP_ACCESS_ALLOWED_IPS":     "203.0.113.10, 2001:db8::/32",
+			"DAGU_IP_ACCESS_TRUSTED_PROXIES": "127.0.0.1, ::1",
+		})
+
+		assert.Equal(t, []string{"203.0.113.10", "2001:db8::/32"}, cfg.Server.IPAccess.AllowedIPs)
+		assert.Equal(t, []string{"127.0.0.1", "::1"}, cfg.Server.IPAccess.TrustedProxies)
+	})
+}
+
 func TestLoad_AccessLogMode(t *testing.T) {
 	t.Run("AccessLogAll", func(t *testing.T) {
 		cfg := loadFromYAML(t, `
