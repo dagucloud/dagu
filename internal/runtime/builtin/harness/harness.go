@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
@@ -619,7 +618,6 @@ func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg provid
 	exitCode, runErr := cli.Exec(runCtx, runCmd, stdout, tw, dockerexec.ExecOptions{
 		Env:               sharedContainerHarnessEnv(env.UserEnvsMap()),
 		Direct:            true,
-		PIDFile:           sharedContainerHarnessPIDFile(e.step.Name),
 		TerminateOnCancel: true,
 	})
 	e.exitCode = exitCode
@@ -675,14 +673,6 @@ func sharedContainerHarnessEnv(userEnv map[string]string) []string {
 		envs = append(envs, key+"="+userEnv[key])
 	}
 	return envs
-}
-
-func sharedContainerHarnessPIDFile(stepName string) string {
-	safeStepName := fileutil.SafeName(stepName)
-	if safeStepName == "" {
-		safeStepName = "step"
-	}
-	return fmt.Sprintf("/tmp/dagu-harness-%s-%d.pid", safeStepName, time.Now().UnixNano())
 }
 
 func (e *harnessExecutor) startAndWaitLocked(ctx context.Context, cmd *exec.Cmd, stdout *os.File, tw *executor.TailWriter, logEncoding string) (*os.File, error) {

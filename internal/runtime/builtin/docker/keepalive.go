@@ -4,12 +4,17 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
 	"os"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/moby/moby/client"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -39,8 +44,7 @@ var archMapping = map[string]string{
 	"s390x":       "s390x",
 }
 
-// GetKeepaliveFile copies the embedded keepalive binary to a temp file and returns its path
-func GetKeepaliveFile(platform specs.Platform) (string, error) {
+func keepaliveAssetName(platform specs.Platform) (string, error) {
 	// Map OS
 	osName, ok := osMapping[platform.OS]
 	if !ok {
@@ -68,14 +72,30 @@ func GetKeepaliveFile(platform specs.Platform) (string, error) {
 	if osName == "windows" {
 		filename += ".exe"
 	}
+	return filename, nil
+}
 
-	// Read the embedded file
+func getKeepaliveBinary(platform specs.Platform) ([]byte, string, error) {
+	filename, err := keepaliveAssetName(platform)
+	if err != nil {
+		return nil, "", err
+	}
+
 	data, err := assetsFS.ReadFile(fmt.Sprintf("assets/%s", filename))
 	if err != nil {
 		if _, ok := err.(*fs.PathError); ok {
-			return "", fmt.Errorf("keepalive binary not found for %s/%s", platform.OS, platform.Architecture)
+			return nil, "", fmt.Errorf("keepalive binary not found for %s/%s", platform.OS, platform.Architecture)
 		}
-		return "", fmt.Errorf("failed to read keepalive binary: %w", err)
+		return nil, "", fmt.Errorf("failed to read keepalive binary: %w", err)
+	}
+	return data, filename, nil
+}
+
+// GetKeepaliveFile copies the embedded keepalive binary to a temp file and returns its path.
+func GetKeepaliveFile(platform specs.Platform) (string, error) {
+	data, filename, err := getKeepaliveBinary(platform)
+	if err != nil {
+		return "", err
 	}
 
 	// Create a unique temporary file for each keepalive binary
@@ -104,4 +124,45 @@ func GetKeepaliveFile(platform specs.Platform) (string, error) {
 	}
 
 	return tmpPath, nil
+}
+
+func copyKeepaliveToContainer(ctx context.Context, cli *client.Client, containerID string, platform specs.Platform) error {
+	data, _, err := getKeepaliveBinary(platform)
+	if err != nil {
+		return err
+	}
+
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "__dagu_runner/",
+		Mode:     0o755,
+		Typeflag: tar.TypeDir,
+		ModTime:  time.Unix(0, 0),
+	}); err != nil {
+		return fmt.Errorf("create keepalive directory archive: %w", err)
+	}
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "__dagu_runner/keepalive",
+		Mode:     0o755,
+		Size:     int64(len(data)),
+		Typeflag: tar.TypeReg,
+		ModTime:  time.Unix(0, 0),
+	}); err != nil {
+		return fmt.Errorf("create keepalive file archive: %w", err)
+	}
+	if _, err := tw.Write(data); err != nil {
+		return fmt.Errorf("write keepalive file archive: %w", err)
+	}
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("close keepalive archive: %w", err)
+	}
+
+	if _, err := cli.CopyToContainer(ctx, containerID, client.CopyToContainerOptions{
+		DestinationPath: "/",
+		Content:         bytes.NewReader(archive.Bytes()),
+	}); err != nil {
+		return fmt.Errorf("copy keepalive helper into container: %w", err)
+	}
+	return nil
 }

@@ -346,35 +346,36 @@ bin-e2e:
 	@go build -ldflags="$(LDFLAGS)" -o ${BIN_DIR}/${APP_NAME}-e2e ./cmd
 
 # build-keepalive builds the keepalive binary for all architectures using Zig.
+ZIG ?= zig
 .PHONY: build-keepalive
 build-keepalive:
 	@printf '%b\n' "${COLOR_GREEN}Building keepalive binaries with Zig for all architectures...${COLOR_RESET}"
-	@mkdir -p internal/container/assets
-	@rm -rf internal/container/assets/keepalive_*
-	@cd internal/container/keepalive && \
+	@mkdir -p internal/runtime/builtin/docker/assets
+	@rm -f internal/runtime/builtin/docker/assets/keepalive_*
+	@cd internal/runtime/builtin/docker/keepalive && \
 	echo "Building Darwin binaries..." && \
-	zig build-exe main.zig -target x86_64-macos -O ReleaseSmall -femit-bin=../assets/keepalive_darwin_amd64 && \
-	zig build-exe main.zig -target aarch64-macos -O ReleaseSmall -femit-bin=../assets/keepalive_darwin_arm64 && \
+	$(ZIG) build-exe main.zig -target x86_64-macos -O ReleaseSmall -femit-bin=../assets/keepalive_darwin_amd64 && \
+	$(ZIG) build-exe main.zig -target aarch64-macos -O ReleaseSmall -femit-bin=../assets/keepalive_darwin_arm64 && \
 	echo "Building Linux binaries..." && \
-	zig build-exe main.zig -target x86-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_386 && \
-	zig build-exe main.zig -target x86_64-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_amd64 && \
-	zig build-exe main.zig -target aarch64-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_arm64 && \
-	zig build-exe main.zig -target arm-linux-musleabihf -O ReleaseSmall -mcpu=generic+v7a -femit-bin=../assets/keepalive_linux_armv7 && \
-	zig build-exe main.zig -target arm-linux-musleabi -O ReleaseSmall -mcpu=generic+v6 -femit-bin=../assets/keepalive_linux_armv6 && \
-	zig build-exe main.zig -target powerpc64le-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_ppc64le && \
-	zig build-exe main.zig -target s390x-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_s390x && \
+	$(ZIG) build-exe main.zig -target x86-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_386 && \
+	$(ZIG) build-exe main.zig -target x86_64-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_amd64 && \
+	$(ZIG) build-exe main.zig -target aarch64-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_arm64 && \
+	$(ZIG) build-exe main.zig -target arm-linux-musleabihf -O ReleaseSmall -mcpu=generic+v7a -femit-bin=../assets/keepalive_linux_armv7 && \
+	$(ZIG) build-exe main.zig -target arm-linux-musleabi -O ReleaseSmall -mcpu=generic+v6 -femit-bin=../assets/keepalive_linux_armv6 && \
+	$(ZIG) build-exe main.zig -target powerpc64le-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_ppc64le && \
+	$(ZIG) build-exe main.zig -target s390x-linux-musl -O ReleaseSmall -femit-bin=../assets/keepalive_linux_s390x && \
 	echo "Skipping BSD targets (require additional setup)..."
-	@chmod +x internal/container/assets/keepalive_* 2>/dev/null || true
+	@chmod +x internal/runtime/builtin/docker/assets/keepalive_* 2>/dev/null || true
 	@printf '%b\n' "${COLOR_GREEN}Cleaning up build artifacts...${COLOR_RESET}"
-	@rm -f internal/container/assets/keepalive_*.o internal/container/assets/keepalive_*.obj
+	@rm -f internal/runtime/builtin/docker/assets/keepalive_*.o internal/runtime/builtin/docker/assets/keepalive_*.obj
 	@printf '%b\n' "${COLOR_GREEN}Generating checksums...${COLOR_RESET}"
-	@cd internal/container/assets && \
+	@cd internal/runtime/builtin/docker/assets && \
 		if command -v sha256sum >/dev/null 2>&1; then \
 			sha256sum keepalive_* > keepalive_checksums.txt; \
 		else \
 			shasum -a 256 keepalive_* > keepalive_checksums.txt; \
 		fi
-	@printf '%b\n' "${COLOR_GREEN}Done! Checksums saved to internal/container/assets/keepalive_checksums.txt${COLOR_RESET}"
+	@printf '%b\n' "${COLOR_GREEN}Done! Checksums saved to internal/runtime/builtin/docker/assets/keepalive_checksums.txt${COLOR_RESET}"
 
 .PHONY: ui
 # ui builds the frontend codes.

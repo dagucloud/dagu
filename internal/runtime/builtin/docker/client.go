@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"regexp"
 	"slices"
@@ -65,7 +66,6 @@ const (
 	dockerSocketFile = "/var/run/docker.sock"
 
 	// Keepalive settings
-	keepAliveSleepCmd   = "while true; do sleep 86400; done"
 	keepAliveTargetPath = "/__dagu_runner/keepalive"
 
 	// Marks a cancelable exec so the daemon can signal it from inside the container.
@@ -74,6 +74,14 @@ const (
 	// Log scanning buffer sizes
 	logScanInitialBuf = 64 * 1024
 	logScanMaxBuf     = 1024 * 1024
+)
+
+type cancelHelperMode uint8
+
+const (
+	cancelHelperNone cancelHelperMode = iota
+	cancelHelperBound
+	cancelHelperCopied
 )
 
 type Client struct {
@@ -87,6 +95,7 @@ type Client struct {
 	cli *client.Client
 
 	keepAliveTmp string
+	cancelHelper cancelHelperMode
 
 	// authManager handles registry authentication
 	authManager *RegistryAuthManager
@@ -387,15 +396,7 @@ func (c *Client) CreateContainerKeepAlive(ctx context.Context) error {
 	switch mode {
 	case "keepalive":
 		if len(c.cfg.Container.Cmd) == 0 {
-			// Detect if we're running in docker-in-docker environment
-			isDockerInDocker := c.isDockerInDocker()
-
-			if isDockerInDocker {
-				logger.Info(ctx, "Detected docker-in-docker environment, using sleep for keepalive")
-				cmd = []string{"sh", "-c", keepAliveSleepCmd}
-			} else {
-				cmd = c.setupKeepaliveCommand(ctx)
-			}
+			cmd = []string{keepAliveTargetPath}
 		}
 	case "entrypoint":
 		// Respect image ENTRYPOINT/CMD: do not set cmd; run as-is
@@ -408,6 +409,11 @@ func (c *Client) CreateContainerKeepAlive(ctx context.Context) error {
 	default:
 		return fmt.Errorf("invalid startup mode: %s", mode)
 	}
+	helpMode, installHelper, err := c.prepareCancelHelper()
+	if err != nil {
+		return fmt.Errorf("prepare exec cancellation helper: %w", err)
+	}
+	c.cancelHelper = helpMode
 
 	// Set init true to prevent zombie subprocess issues
 	c.cfg.Host.Init = new(true)
@@ -417,8 +423,9 @@ func (c *Client) CreateContainerKeepAlive(ctx context.Context) error {
 	c.cancel = cancel
 	c.cancelMu.Unlock()
 
-	ctID, err := c.startNewContainer(ctx, c.cfg.ContainerName, c.cli, cmd, true)
+	ctID, err := c.startNewContainer(ctx, c.cfg.ContainerName, c.cli, cmd, true, installHelper)
 	if err != nil {
+		c.cancelHelper = cancelHelperNone
 		return fmt.Errorf("failed to start a new container: %w", err)
 	}
 	c.containerID = ctID
@@ -467,21 +474,43 @@ func (c *Client) CreateContainerKeepAlive(ctx context.Context) error {
 	return nil
 }
 
-// setupKeepaliveCommand configures the keepalive command for non-docker-in-docker environments
-func (c *Client) setupKeepaliveCommand(ctx context.Context) []string {
-	// Standard environment, use the keepalive binary
-	hostPath, err := GetKeepaliveFile(c.platform)
-	if err != nil {
-		// Fallback to sleep if keepalive binary fails
-		logger.Warn(ctx, "Failed to get keepalive binary; using sleep fallback", tag.Error(err))
-		return []string{"sh", "-c", keepAliveSleepCmd}
+func (c *Client) prepareCancelHelper() (cancelHelperMode, func(context.Context, string) error, error) {
+	if c.shouldCopyCancelHelper() {
+		if _, _, err := getKeepaliveBinary(c.platform); err != nil {
+			return cancelHelperNone, nil, err
+		}
+		return cancelHelperCopied, func(ctx context.Context, containerID string) error {
+			return copyKeepaliveToContainer(ctx, c.cli, containerID, c.platform)
+		}, nil
 	}
 
+	hostPath, err := GetKeepaliveFile(c.platform)
+	if err != nil {
+		return cancelHelperNone, nil, err
+	}
 	c.keepAliveTmp = hostPath
-	// Setup the volume bind for the keepalive binary
-	bind := hostPath + ":" + keepAliveTargetPath + ":ro"
-	c.cfg.Host.Binds = append(c.cfg.Host.Binds, bind)
-	return []string{keepAliveTargetPath}
+	c.cfg.Host.Binds = append(c.cfg.Host.Binds, hostPath+":"+keepAliveTargetPath+":ro")
+	return cancelHelperBound, nil, nil
+}
+
+func (c *Client) shouldCopyCancelHelper() bool {
+	return daemonNeedsHelperCopy(c.cli.DaemonHost(), c.isDockerInDocker())
+}
+
+func daemonNeedsHelperCopy(daemonHost string, containerized bool) bool {
+	if containerized {
+		return true
+	}
+	host, err := url.Parse(daemonHost)
+	if err != nil {
+		return true
+	}
+	switch host.Scheme {
+	case "", "unix", "npipe":
+		return false
+	default:
+		return true
+	}
 }
 
 // StopContainerKeepAlive stops the container running keep alive command
@@ -603,7 +632,7 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 		slog.String("containerName", c.cfg.ContainerName),
 		slog.Any("cmd", cmd),
 	)
-	ctID, err := c.startNewContainer(ctx, c.cfg.ContainerName, c.cli, cmd, false)
+	ctID, err := c.startNewContainer(ctx, c.cfg.ContainerName, c.cli, cmd, false, nil)
 	if err != nil {
 		logger.Error(ctx, "Docker: Run failed to start new container", tag.Error(err))
 		return errorExitCode, fmt.Errorf("failed to start a new container: %w", err)
@@ -733,7 +762,14 @@ func (c *Client) Stop(sig os.Signal) error {
 	return nil
 }
 
-func (c *Client) startNewContainer(ctx context.Context, name string, cli *client.Client, cmd []string, clearEntrypoint bool) (string, error) {
+func (c *Client) startNewContainer(
+	ctx context.Context,
+	name string,
+	cli *client.Client,
+	cmd []string,
+	clearEntrypoint bool,
+	beforeStart func(context.Context, string) error,
+) (string, error) {
 	logger.Debug(ctx, "Docker: startNewContainer started",
 		slog.String("name", name),
 		slog.Any("cmd", cmd),
@@ -849,6 +885,13 @@ func (c *Client) startNewContainer(ctx context.Context, name string, cli *client
 	}
 
 	c.containerID = resp.ID
+	if beforeStart != nil {
+		if err := beforeStart(ctx, resp.ID); err != nil {
+			removeContainerForCleanup(ctx, cli, resp.ID, client.ContainerRemoveOptions{Force: true})
+			c.containerID = ""
+			return "", err
+		}
+	}
 
 	logger.Debug(ctx, "Docker: startNewContainer calling ContainerStart", slog.String("containerID", resp.ID))
 	_, err = cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{})
@@ -969,6 +1012,10 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 	if opts.WorkingDir != "" {
 		execOpts.WorkingDir = opts.WorkingDir
 	}
+	signalOpts := execSignalOptions{user: cfgExec.User}
+	if c.started.Load() {
+		signalOpts.helper = c.cancelHelper
+	}
 
 	// Create exec instance
 	execCreateResp, err := cli.ExecCreate(ctx, containerID, execOpts)
@@ -979,6 +1026,9 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 	// Start exec instance
 	resp, err := cli.ExecAttach(ctx, execCreateResp.ID, client.ExecAttachOptions{TTY: cfgExec.TTY})
 	if err != nil {
+		if ctx.Err() != nil && opts.TerminateOnCancel {
+			return 1, canceledExecError(ctx, cli, execCreateResp.ID, opts.PIDFile, execCancelToken, signalOpts)
+		}
 		return 1, fmt.Errorf("failed to start exec: %w", err)
 	}
 
@@ -1003,17 +1053,14 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 		}
 	}()
 
-	time.Sleep(defaultPollInterval) // Give some time for the exec to start
-
 	// Wait for exec to complete
 	for {
 		inspectResp, err := cli.ExecInspect(ctx, execCreateResp.ID, client.ExecInspectOptions{})
 		if err != nil {
 			if ctx.Err() != nil {
 				if opts.TerminateOnCancel {
-					if err := terminateExecProcess(cli, execCreateResp.ID, opts.PIDFile, execCancelToken); err != nil {
-						logger.Warn(ctx, "Docker executor: terminate exec process after cancellation", tag.Error(err))
-					}
+					resp.Close()
+					return 1, canceledExecError(ctx, cli, execCreateResp.ID, opts.PIDFile, execCancelToken, signalOpts)
 				}
 				resp.Close()
 				return 1, ctx.Err()
@@ -1028,18 +1075,13 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 			return inspectResp.ExitCode, nil
 		}
 
-		select {
-		case <-ctx.Done():
+		if err := waitForContainerPoll(ctx, defaultPollInterval); err != nil {
 			if opts.TerminateOnCancel {
-				if err := terminateExecProcess(cli, execCreateResp.ID, opts.PIDFile, execCancelToken); err != nil {
-					logger.Warn(ctx, "Docker executor: terminate exec process after cancellation", tag.Error(err))
-				}
+				resp.Close()
+				return 1, canceledExecError(ctx, cli, execCreateResp.ID, opts.PIDFile, execCancelToken, signalOpts)
 			}
 			resp.Close()
 			return 1, ctx.Err()
-
-		default:
-			time.Sleep(defaultPollInterval)
 		}
 	}
 }
@@ -1103,11 +1145,34 @@ func newExecCancelToken() string {
 	return hex.EncodeToString(b[:])
 }
 
-func terminateExecProcess(cli *client.Client, execID string, pidFile string, token string) error {
-	inspectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+type execSignalOptions struct {
+	helper cancelHelperMode
+	user   string
+}
 
-	inspectResp, err := cli.ExecInspect(inspectCtx, execID, client.ExecInspectOptions{})
+func canceledExecError(
+	ctx context.Context,
+	cli *client.Client,
+	execID string,
+	pidFile string,
+	token string,
+	signalOpts execSignalOptions,
+) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), defaultCancelStopWait)
+	defer cancel()
+	cleanupErr := terminateExecProcess(cleanupCtx, cli, execID, pidFile, token, signalOpts)
+	return errors.Join(ctx.Err(), cleanupErr)
+}
+
+func terminateExecProcess(
+	ctx context.Context,
+	cli *client.Client,
+	execID string,
+	pidFile string,
+	token string,
+	signalOpts execSignalOptions,
+) error {
+	inspectResp, err := cli.ExecInspect(ctx, execID, client.ExecInspectOptions{})
 	if err != nil {
 		return fmt.Errorf("inspect exec %s: %w", execID, err)
 	}
@@ -1116,16 +1181,24 @@ func terminateExecProcess(cli *client.Client, execID string, pidFile string, tok
 	}
 
 	if pidFile != "" {
-		if err := signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "TERM"); err != nil {
+		if err := signalContainerPIDFileProcess(ctx, cli, inspectResp.ContainerID, pidFile, "TERM", signalOpts.user); err != nil {
 			return err
 		}
-		if execStoppedWithin(cli, execID, 2*time.Second) {
+		stopped, err := execStoppedWithin(ctx, cli, execID, 2*time.Second)
+		if err != nil {
+			return err
+		}
+		if stopped {
 			return nil
 		}
-		if err := signalContainerPIDFileProcess(cli, inspectResp.ContainerID, pidFile, "KILL"); err != nil {
+		if err := signalContainerPIDFileProcess(ctx, cli, inspectResp.ContainerID, pidFile, "KILL", signalOpts.user); err != nil {
 			return err
 		}
-		if execStoppedWithin(cli, execID, 2*time.Second) {
+		stopped, err = execStoppedWithin(ctx, cli, execID, 0)
+		if err != nil {
+			return fmt.Errorf("wait for exec %s after KILL: %w", execID, err)
+		}
+		if stopped {
 			return nil
 		}
 		return fmt.Errorf("exec %s is still running after KILL", execID)
@@ -1134,22 +1207,37 @@ func terminateExecProcess(cli *client.Client, execID string, pidFile string, tok
 	if token == "" {
 		return fmt.Errorf("exec %s has no cancel token for daemon-side cancellation", execID)
 	}
-	if err := signalContainerTokenProcess(cli, inspectResp.ContainerID, token, "TERM"); err != nil {
+	if err := signalContainerTokenProcess(ctx, cli, inspectResp.ContainerID, token, "TERM", signalOpts); err != nil {
 		return err
 	}
-	if execStoppedWithin(cli, execID, 2*time.Second) {
+	stopped, err := execStoppedWithin(ctx, cli, execID, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	if stopped {
 		return nil
 	}
-	if err := signalContainerTokenProcess(cli, inspectResp.ContainerID, token, "KILL"); err != nil {
+	if err := signalContainerTokenProcess(ctx, cli, inspectResp.ContainerID, token, "KILL", signalOpts); err != nil {
 		return err
 	}
-	if execStoppedWithin(cli, execID, 2*time.Second) {
+	stopped, err = execStoppedWithin(ctx, cli, execID, 0)
+	if err != nil {
+		return fmt.Errorf("wait for exec %s after KILL: %w", execID, err)
+	}
+	if stopped {
 		return nil
 	}
 	return fmt.Errorf("exec %s is still running after KILL", execID)
 }
 
-func signalContainerPIDFileProcess(cli *client.Client, containerID string, pidFile string, signalName string) error {
+func signalContainerPIDFileProcess(
+	ctx context.Context,
+	cli *client.Client,
+	containerID string,
+	pidFile string,
+	signalName string,
+	user string,
+) error {
 	script := `sig="$1"
 pidfile="$2"
 pid="$(cat "$pidfile" 2>/dev/null || true)"
@@ -1163,10 +1251,25 @@ kill_tree() {
 kill "-$sig" -- "-$pid" 2>/dev/null || true
 kill_tree "$pid"
 rm -f "$pidfile" 2>/dev/null || true`
-	return runContainerSignalExec(cli, containerID, signalName, "pid file "+pidFile, []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, pidFile})
+	return runContainerSignalExec(ctx, cli, containerID, signalName, "pid file "+pidFile, client.ExecCreateOptions{
+		User: user,
+		Cmd:  []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, pidFile},
+	})
 }
 
-func signalContainerTokenProcess(cli *client.Client, containerID string, token string, signalName string) error {
+func signalContainerTokenProcess(
+	ctx context.Context,
+	cli *client.Client,
+	containerID string,
+	token string,
+	signalName string,
+	signalOpts execSignalOptions,
+) error {
+	if signalOpts.helper != cancelHelperNone {
+		execOpts := helperSignalExecOptions(signalOpts.helper, signalOpts.user, signalName, token)
+		return runContainerSignalExec(ctx, cli, containerID, signalName, "cancel token", execOpts)
+	}
+
 	script := `sig="$1"
 token="$2"
 kill_tree() {
@@ -1183,17 +1286,33 @@ for environ in /proc/[0-9]*/environ; do
     kill_tree "$pid"
   fi
 done`
-	return runContainerSignalExec(cli, containerID, signalName, "cancel token", []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, token})
+	return runContainerSignalExec(ctx, cli, containerID, signalName, "cancel token", client.ExecCreateOptions{
+		User: signalOpts.user,
+		Cmd:  []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, token},
+	})
 }
 
-func runContainerSignalExec(cli *client.Client, containerID, signalName, target string, cmd []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func helperSignalExecOptions(helper cancelHelperMode, user string, signalName string, token string) client.ExecCreateOptions {
+	execOpts := client.ExecCreateOptions{
+		User: user,
+		Cmd:  []string{keepAliveTargetPath, "signal-token", signalName, token},
+	}
+	if helper == cancelHelperBound {
+		execOpts.User = "0"
+		execOpts.Privileged = true
+	}
+	return execOpts
+}
 
-	resp, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{
-		User: "0",
-		Cmd:  cmd,
-	})
+func runContainerSignalExec(
+	ctx context.Context,
+	cli *client.Client,
+	containerID string,
+	signalName string,
+	target string,
+	execOpts client.ExecCreateOptions,
+) error {
+	resp, err := cli.ExecCreate(ctx, containerID, execOpts)
 	if err != nil {
 		return fmt.Errorf("create %s signal exec for %s: %w", signalName, target, err)
 	}
@@ -1201,7 +1320,6 @@ func runContainerSignalExec(cli *client.Client, containerID, signalName, target 
 		return fmt.Errorf("start %s signal exec for %s: %w", signalName, target, err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
 	for {
 		inspectResp, err := cli.ExecInspect(ctx, resp.ID, client.ExecInspectOptions{})
 		if err != nil {
@@ -1213,29 +1331,38 @@ func runContainerSignalExec(cli *client.Client, containerID, signalName, target 
 			}
 			return nil
 		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("%s signal exec for %s did not finish", signalName, target)
+		if err := waitForContainerPoll(ctx, defaultPollInterval); err != nil {
+			return fmt.Errorf("wait for %s signal exec for %s: %w", signalName, target, err)
 		}
-		time.Sleep(defaultPollInterval)
 	}
 }
 
-func execStoppedWithin(cli *client.Client, execID string, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
+func execStoppedWithin(ctx context.Context, cli *client.Client, execID string, timeout time.Duration) (bool, error) {
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), defaultPollInterval)
 		inspectResp, err := cli.ExecInspect(ctx, execID, client.ExecInspectOptions{})
-		cancel()
 		if err != nil {
-			return false
+			return false, fmt.Errorf("inspect exec %s while waiting for stop: %w", execID, err)
 		}
 		if !inspectResp.Running {
-			return true
+			return true, nil
 		}
-		if time.Now().After(deadline) {
-			return false
+		poll := defaultPollInterval
+		if !deadline.IsZero() {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return false, nil
+			}
+			if remaining < poll {
+				poll = remaining
+			}
 		}
-		time.Sleep(defaultPollInterval)
+		if err := waitForContainerPoll(ctx, poll); err != nil {
+			return false, err
+		}
 	}
 }
 
