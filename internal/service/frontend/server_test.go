@@ -510,8 +510,22 @@ func TestServerIPAccessProtectsAllRoutes(t *testing.T) {
 	})
 
 	client := &http.Client{Timeout: time.Second}
+
+	// The listener is bound before Serve runs, so a connection is accepted by
+	// the kernel backlog while the serving goroutine may not have reached its
+	// accept loop. Wait for a reply before asserting, so a slow start surfaces
+	// as its own failure instead of a request that never receives headers.
+	baseURL := "http://" + listener.Addr().String()
+	require.Eventually(t, func() bool {
+		resp, err := client.Get(baseURL + "/api/v1/health")
+		if err != nil {
+			return false
+		}
+		return resp.Body.Close() == nil
+	}, 10*time.Second, 20*time.Millisecond, "server never started serving")
+
 	for _, requestPath := range []string{"/api/v1/health", "/extension"} {
-		resp, err := client.Get("http://" + listener.Addr().String() + requestPath)
+		resp, err := client.Get(baseURL + requestPath)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 		require.NoError(t, resp.Body.Close())
