@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
@@ -2096,6 +2097,44 @@ func (a *API) projectNextRun(ctx context.Context, dag *ir.DAG) *time.Time {
 		return nil
 	}
 	return &nextRun
+}
+
+// GetAltDAGsListData returns the DAGs defined under paths.alt_dags_dir, for
+// MCP reads. DAGs in the alternate directory are lookup-only: they are not part
+// of the regular discovery listing, so this is the read surface that surfaces
+// them. It returns an empty list when no alternate directory is configured or
+// the directory does not exist yet.
+func (a *API) GetAltDAGsListData(ctx context.Context) (any, error) {
+	if a.config == nil || a.config.Paths.AltDAGsDir == "" {
+		return api.ListDAGs200JSONResponse{Dags: []api.DAGFile{}}, nil
+	}
+	entries, err := os.ReadDir(a.config.Paths.AltDAGsDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return api.ListDAGs200JSONResponse{Dags: []api.DAGFile{}}, nil
+		}
+		logger.Warn(ctx, "Failed to read alternate DAGs directory",
+			tag.Dir(a.config.Paths.AltDAGsDir),
+			tag.Error(err),
+		)
+		return api.ListDAGs200JSONResponse{Dags: []api.DAGFile{}}, nil
+	}
+
+	dagFiles := make([]api.DAGFile, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !fileutil.IsYAMLFile(entry.Name()) {
+			continue
+		}
+		dag, err := a.dagRepository.GetMetadata(ctx, entry.Name())
+		if err != nil {
+			continue
+		}
+		dagFiles = append(dagFiles, api.DAGFile{
+			FileName: fileutil.TrimYAMLFileExtension(entry.Name()),
+			Dag:      toDAG(dag),
+		})
+	}
+	return api.ListDAGs200JSONResponse{Dags: dagFiles}, nil
 }
 
 func (a *API) nextRunProjection(ctx context.Context) func(*ir.DAG, time.Time) time.Time {

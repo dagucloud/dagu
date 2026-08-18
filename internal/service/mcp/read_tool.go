@@ -201,6 +201,13 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 			var raw any
 			raw, err = svc.api.GetDAGsListData(ctx, input.Query)
 			if err == nil {
+				var alt any
+				alt, err = svc.api.GetAltDAGsListData(ctx)
+				if err == nil {
+					raw, err = mergeDAGLists(raw, alt)
+				}
+			}
+			if err == nil {
 				data, err = normalizeDAGList(raw)
 			}
 		}
@@ -956,6 +963,52 @@ func readReferenceCollection() map[string]any {
 		})
 	}
 	return map[string]any{"items": items}
+}
+
+// mergeDAGLists appends the alternate-directory DAGs to the regular discovery
+// list, dropping any name already present so a DAG that exists in both
+// directories is reported once.
+func mergeDAGLists(baseRaw, altRaw any) (any, error) {
+	base, err := dagListResponse(baseRaw)
+	if err != nil {
+		return nil, err
+	}
+	alt, err := dagListResponse(altRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(base.Dags))
+	for _, dag := range base.Dags {
+		seen[dagListKey(dag)] = struct{}{}
+	}
+	for _, dag := range alt.Dags {
+		key := dagListKey(dag)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		base.Dags = append(base.Dags, dag)
+	}
+	return base, nil
+}
+
+func dagListResponse(raw any) (daguapi.ListDAGs200JSONResponse, error) {
+	switch data := raw.(type) {
+	case daguapi.ListDAGs200JSONResponse:
+		return data, nil
+	case *daguapi.ListDAGs200JSONResponse:
+		return *data, nil
+	default:
+		return daguapi.ListDAGs200JSONResponse{}, fmt.Errorf("unexpected DAG list response %T", raw)
+	}
+}
+
+func dagListKey(dag daguapi.DAGFile) string {
+	if dag.FileName != "" {
+		return dag.FileName
+	}
+	return dag.Dag.Name
 }
 
 func normalizeDAGList(raw any) (map[string]any, error) {

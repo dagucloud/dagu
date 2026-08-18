@@ -17,11 +17,14 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1812,6 +1815,50 @@ func TestGetDAGDetails_NonExistent_Returns404(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, 404, apiErr.HTTPStatus)
 	require.Equal(t, api.ErrorCodeNotFound, apiErr.Code)
+}
+
+func TestGetAltDAGsListData(t *testing.T) {
+	t.Run("lists DAGs from the alternate directory", func(t *testing.T) {
+		baseDir := t.TempDir()
+		altDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(altDir, "alt-dag.yaml"), []byte("name: alt-dag\nsteps: []\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(baseDir, "main-dag.yaml"), []byte("name: main-dag\nsteps: []\n"), 0600))
+
+		cfg := &config.Config{}
+		cfg.Paths.DAGsDir = baseDir
+		cfg.Paths.AltDAGsDir = altDir
+		cfg.Core.SkipExamples = true
+
+		repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSearchPaths([]string{altDir}))
+		require.NoError(t, err)
+		apiImpl := localapi.New(repo, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil)
+
+		raw, err := apiImpl.GetAltDAGsListData(context.Background())
+		require.NoError(t, err)
+		resp, ok := raw.(api.ListDAGs200JSONResponse)
+		require.True(t, ok)
+		var names []string
+		for _, dag := range resp.Dags {
+			names = append(names, dag.FileName)
+		}
+		require.Equal(t, []string{"alt-dag"}, names)
+	})
+
+	t.Run("returns empty when no alternate directory is configured", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Paths.DAGsDir = t.TempDir()
+		cfg.Core.SkipExamples = true
+
+		repo, err := persisfile.NewDAGRepository(cfg)
+		require.NoError(t, err)
+		apiImpl := localapi.New(repo, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil)
+
+		raw, err := apiImpl.GetAltDAGsListData(context.Background())
+		require.NoError(t, err)
+		resp, ok := raw.(api.ListDAGs200JSONResponse)
+		require.True(t, ok)
+		require.Empty(t, resp.Dags)
+	})
 }
 
 func TestGetDAGDetailsAndSpecIncludeNextRun(t *testing.T) {

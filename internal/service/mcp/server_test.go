@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -369,6 +372,31 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	require.Contains(t, names, "dagu_create_doc")
 	require.Contains(t, names, "dagu_edit_doc")
 	require.Contains(t, names, "dagu_debug_failed_run")
+}
+
+func TestReadToolListsAndReadsAltDAGsDir(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	altDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(altDir, "alt-dag.yaml"), []byte("name: alt-dag\nsteps: []\n"), 0600))
+
+	cfg := &config.Config{}
+	cfg.Paths.DAGsDir = baseDir
+	cfg.Paths.AltDAGsDir = altDir
+	cfg.Core.SkipExamples = true
+
+	repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSearchPaths([]string{altDir}))
+	require.NoError(t, err)
+	api := frontendapi.New(repo, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil)
+	session := connectTestClient(t, ctx, NewServer(api))
+
+	list := callTool(t, ctx, session, toolRead, readInput{Target: readTargetDAGs})
+	require.False(t, list.IsError)
+	require.Contains(t, structuredJSON(t, list), "dagu://dags/alt-dag/spec")
+
+	spec := callTool(t, ctx, session, toolRead, readInput{Target: readTargetDAGSpec, Name: "alt-dag"})
+	require.False(t, spec.IsError)
+	require.Contains(t, structuredJSON(t, spec), "name: alt-dag")
 }
 
 func TestReadToolCanReadReferenceResource(t *testing.T) {
