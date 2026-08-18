@@ -55,10 +55,12 @@ Output:
 
 | Condition | Exit code | Stdout | Stderr |
 | --- | --- | --- | --- |
-| Success | `0` | Empty. | Empty. |
+| Success | `0` | Empty. | Empty, or deprecation warnings. |
 | Failure | Non-zero | Empty. | Validation error. |
 
-Validation failures must not print command usage text.
+Validation failures must not print command usage text. A successful validation
+writes nothing to stderr beyond one deprecation warning for each deprecated
+construct the file uses, and each warning must name the replacement.
 
 ## Documents
 
