@@ -43,7 +43,7 @@ func TestBuiltinProviderInvocations(t *testing.T) {
 		{"pi", map[string]any{"provider": "pi"}, "pi", []string{"-p", "hello"}, "context"},
 		{"gemini", map[string]any{"provider": "gemini"}, "gemini", []string{"-p", "hello"}, "context"},
 		{"cursor", map[string]any{"provider": "cursor"}, "cursor-agent", []string{"-p", "hello\n\ncontext", "--output-format", "text"}, ""},
-		{"cline", map[string]any{"provider": "cline"}, "cline", []string{"hello"}, "context"},
+		{"cline", map[string]any{"provider": "cline", "model": "model-id"}, "cline", []string{"--model", "model-id", "hello"}, "context"},
 		{"aider", map[string]any{"provider": "aider"}, "aider", []string{"--message", "hello\n\ncontext"}, ""},
 		{"qwen", map[string]any{"provider": "qwen"}, "qwen", []string{"-p", "hello"}, "context"},
 		{"goose", map[string]any{"provider": "goose"}, "goose", []string{"run", "--text", "hello\n\ncontext", "--quiet"}, ""},

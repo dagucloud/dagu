@@ -95,7 +95,6 @@ Define reusable custom harness adapters once at the DAG level:
 harnesses:
   gemini-custom:
     binary: gemini
-    prefix_args: ["run"]
     prompt_mode: flag
     prompt_flag: --prompt
     option_flags:

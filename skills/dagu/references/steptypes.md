@@ -613,7 +613,6 @@ Invoke external coding-agent CLIs through built-in provider adapters or custom h
 harnesses:
   gemini-custom:
     binary: gemini
-    prefix_args: ["run"]
     prompt_mode: flag
     prompt_flag: --prompt
 
