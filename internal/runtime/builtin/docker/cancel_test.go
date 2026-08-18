@@ -5,6 +5,7 @@ package docker
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,8 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -345,7 +348,7 @@ func TestClientRun_LeavesStoppedContainer_WhenKeepContainerAndCanceled(t *testin
 	assert.False(t, info.Container.State.Running, "keep_container timeout must stop the container, not leave it running")
 }
 
-func TestClientExec_StopsStepProcess_WhenContextCanceled(t *testing.T) {
+func TestClientExec_StopsStepProcessAndDescendants_WhenContextCanceled(t *testing.T) {
 	dockerSDK := newDockerSDKOrSkip(t)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
@@ -374,7 +377,11 @@ func TestClientExec_StopsStepProcess_WhenContextCanceled(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, runErr := cli.Exec(runCtx, []string{"sleep", "60"}, io.Discard, io.Discard, nativeExecOptions())
+	_, runErr := cli.Exec(runCtx, []string{
+		"sh",
+		"-c",
+		`trap 'exit 0' TERM; (trap '' TERM; exec sleep 60) & while true; do sleep 1; done`,
+	}, io.Discard, io.Discard, nativeExecOptions())
 	elapsed := time.Since(start)
 
 	require.Less(t, elapsed, 15*time.Second, "shared-container exec must return on timeout (took %s, err=%v)", elapsed, runErr)
@@ -553,6 +560,128 @@ func TestClientExec_ReturnsCleanupErrorForShelllessExternalContainer(t *testing.
 	assert.True(t, info.Container.State.Running, "failed exec cleanup must not stop an external container")
 }
 
+func TestTerminateExecProcess_SweepsTokenProcessesAfterMainExecStops(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		initiallyRunning     bool
+		stopAfterTerm        bool
+		termExitCode         int
+		waitInspectionErrors bool
+		wantSignals          []string
+		wantErr              bool
+	}{
+		{
+			name:             "main exec stops after TERM",
+			initiallyRunning: true,
+			stopAfterTerm:    true,
+			wantSignals:      []string{"TERM", "KILL"},
+		},
+		{
+			name:        "main exec already stopped",
+			wantSignals: []string{"KILL"},
+		},
+		{
+			name:             "TERM signaling fails",
+			initiallyRunning: true,
+			termExitCode:     1,
+			wantSignals:      []string{"TERM", "KILL"},
+			wantErr:          true,
+		},
+		{
+			name:                 "stop inspection fails after TERM",
+			initiallyRunning:     true,
+			waitInspectionErrors: true,
+			wantSignals:          []string{"TERM", "KILL"},
+			wantErr:              true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mainRunning := tt.initiallyRunning
+			mainInspectCalls := 0
+			var signals []string
+
+			httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				path := req.URL.Path
+				switch {
+				case req.Method == http.MethodGet && strings.HasSuffix(path, "/exec/main-exec/json"):
+					mainInspectCalls++
+					if tt.waitInspectionErrors && mainInspectCalls == 2 {
+						return nil, errors.New("inspect failed")
+					}
+					return dockerAPIResponse(http.StatusOK, fmt.Sprintf(
+						`{"ID":"main-exec","ContainerID":"ctr","Running":%t,"ExitCode":0}`,
+						mainRunning,
+					)), nil
+				case req.Method == http.MethodPost && strings.HasSuffix(path, "/containers/ctr/exec"):
+					var execConfig struct {
+						Cmd []string `json:"Cmd"`
+					}
+					if err := json.NewDecoder(req.Body).Decode(&execConfig); err != nil {
+						return nil, fmt.Errorf("decode signal exec request: %w", err)
+					}
+					if len(execConfig.Cmd) != 4 || execConfig.Cmd[0] != keepAliveTargetPath || execConfig.Cmd[1] != "signal-token" {
+						return nil, fmt.Errorf("unexpected signal command: %v", execConfig.Cmd)
+					}
+					signalName := execConfig.Cmd[2]
+					signals = append(signals, signalName)
+					return dockerAPIResponse(
+						http.StatusCreated,
+						fmt.Sprintf(`{"Id":"signal-%s"}`, strings.ToLower(signalName)),
+					), nil
+				case req.Method == http.MethodPost && strings.HasSuffix(path, "/exec/signal-term/start"):
+					if tt.stopAfterTerm {
+						mainRunning = false
+					}
+					return dockerAPIResponse(http.StatusOK, `{}`), nil
+				case req.Method == http.MethodPost && strings.HasSuffix(path, "/exec/signal-kill/start"):
+					mainRunning = false
+					return dockerAPIResponse(http.StatusOK, `{}`), nil
+				case req.Method == http.MethodGet && strings.Contains(path, "/exec/signal-") && strings.HasSuffix(path, "/json"):
+					exitCode := 0
+					if strings.Contains(path, "/exec/signal-term/") {
+						exitCode = tt.termExitCode
+					}
+					return dockerAPIResponse(http.StatusOK, fmt.Sprintf(
+						`{"ContainerID":"ctr","Running":false,"ExitCode":%d}`,
+						exitCode,
+					)), nil
+				default:
+					return nil, fmt.Errorf("unexpected Docker API request: %s %s", req.Method, path)
+				}
+			})}
+
+			dockerSDK, err := client.New(
+				client.WithHTTPClient(httpClient),
+				client.WithAPIVersion("1.52"),
+			)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = dockerSDK.Close() })
+
+			err = terminateExecProcess(
+				context.Background(),
+				dockerSDK,
+				"main-exec",
+				"",
+				"token",
+				execSignalOptions{helper: cancelHelperBound},
+			)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.wantSignals, signals)
+		})
+	}
+}
+
 func TestClientExec_CleansUpWhenCancellationRacesWithAttach(t *testing.T) {
 	t.Parallel()
 
@@ -560,6 +689,7 @@ func TestClientExec_CleansUpWhenCancellationRacesWithAttach(t *testing.T) {
 	releaseAttach := make(chan struct{})
 	cleanupStarted := make(chan struct{})
 	var createdExecs atomic.Int32
+	var signalStarts atomic.Int32
 	var execStopped atomic.Bool
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -590,8 +720,10 @@ func TestClientExec_CleansUpWhenCancellationRacesWithAttach(t *testing.T) {
 		case req.Method == http.MethodGet && strings.HasSuffix(path, "/exec/main-exec/json"):
 			writeDockerJSON(w, fmt.Sprintf(`{"ID":"main-exec","ContainerID":"ctr","Running":%t,"ExitCode":0}`, !execStopped.Load()))
 		case req.Method == http.MethodPost && strings.HasSuffix(path, "/exec/signal-exec/start"):
-			execStopped.Store(true)
-			close(cleanupStarted)
+			if signalStarts.Add(1) == 1 {
+				execStopped.Store(true)
+				close(cleanupStarted)
+			}
 			writeDockerJSON(w, `{}`)
 		case req.Method == http.MethodGet && strings.HasSuffix(path, "/exec/signal-exec/json"):
 			writeDockerJSON(w, `{"ID":"signal-exec","ContainerID":"ctr","Running":false,"ExitCode":0}`)
@@ -1192,6 +1324,85 @@ func TestDaemonNeedsHelperCopy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, daemonNeedsHelperCopy(tt.daemonHost, tt.containerized))
+		})
+	}
+}
+
+func TestCreateContainerKeepAlive_StartsWhenCancellationHelperIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		startup      string
+		containerCmd []string
+		startCmd     []string
+		wantCmd      []string
+	}{
+		{
+			name:    "keepalive uses shell fallback",
+			wantCmd: []string{"sh", "-c", "while true; do sleep 86400; done"},
+		},
+		{
+			name:         "entrypoint preserves image command",
+			startup:      "entrypoint",
+			containerCmd: []string{"image-default"},
+			wantCmd:      []string{"image-default"},
+		},
+		{
+			name:     "command preserves configured startup command",
+			startup:  "command",
+			startCmd: []string{"serve", "--foreground"},
+			wantCmd:  []string{"serve", "--foreground"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var createdConfig struct {
+				Cmd []string `json:"Cmd"`
+			}
+			httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				switch {
+				case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/containers/create"):
+					if err := json.NewDecoder(req.Body).Decode(&createdConfig); err != nil {
+						return nil, fmt.Errorf("decode container create request: %w", err)
+					}
+					return dockerAPIResponse(http.StatusCreated, `{"Id":"ctr","Warnings":[]}`), nil
+				case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/containers/ctr/start"):
+					return dockerAPIResponse(http.StatusNoContent, ""), nil
+				case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/containers/ctr/json"):
+					return dockerAPIResponse(http.StatusOK, `{"Id":"ctr","State":{"Running":true},"Config":{}}`), nil
+				default:
+					return nil, fmt.Errorf("unexpected Docker API request: %s %s", req.Method, req.URL.Path)
+				}
+			})}
+			dockerSDK, err := client.New(
+				client.WithHTTPClient(httpClient),
+				client.WithAPIVersion("1.44"),
+			)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = dockerSDK.Close() })
+
+			cli := &Client{
+				cfg: &Config{
+					Image: "example:latest",
+					Container: &container.Config{
+						Image: "example:latest",
+						Cmd:   tt.containerCmd,
+					},
+					Host:     &container.HostConfig{},
+					Pull:     ir.PullPolicyNever,
+					Startup:  tt.startup,
+					StartCmd: tt.startCmd,
+				},
+				platform: specs.Platform{OS: "linux", Architecture: "mips"},
+				cli:      dockerSDK,
+			}
+
+			require.NoError(t, cli.CreateContainerKeepAlive(context.Background()))
+			assert.Equal(t, tt.wantCmd, createdConfig.Cmd)
 		})
 	}
 }

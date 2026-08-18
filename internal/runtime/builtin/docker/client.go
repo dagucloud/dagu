@@ -66,6 +66,7 @@ const (
 	dockerSocketFile = "/var/run/docker.sock"
 
 	// Keepalive settings
+	keepAliveSleepCmd   = "while true; do sleep 86400; done"
 	keepAliveTargetPath = "/__dagu_runner/keepalive"
 
 	// Marks a cancelable exec so the daemon can signal it from inside the container.
@@ -417,7 +418,12 @@ func (c *Client) CreateContainerKeepAlive(ctx context.Context) error {
 	}
 	helpMode, installHelper, err := c.prepareCancelHelper()
 	if err != nil {
-		return fmt.Errorf("prepare exec cancellation helper: %w", err)
+		logger.Warn(ctx, "Docker exec cancellation helper unavailable; using container tools", tag.Error(err))
+		helpMode = cancelHelperNone
+		installHelper = nil
+		if mode == "keepalive" && len(c.cfg.Container.Cmd) == 0 {
+			cmd = []string{"sh", "-c", keepAliveSleepCmd}
+		}
 	}
 	c.cancelHelper = helpMode
 
@@ -1127,11 +1133,11 @@ func terminateExecProcess(
 	if err != nil {
 		return fmt.Errorf("inspect exec %s: %w", execID, err)
 	}
-	if !inspectResp.Running {
-		return nil
-	}
 
 	if pidFile != "" {
+		if !inspectResp.Running {
+			return nil
+		}
 		if err := signalContainerPIDFileProcess(ctx, cli, inspectResp.ContainerID, pidFile, "TERM", signalOpts.user); err != nil {
 			return err
 		}
@@ -1156,29 +1162,37 @@ func terminateExecProcess(
 	}
 
 	if token == "" {
+		if !inspectResp.Running {
+			return nil
+		}
 		return fmt.Errorf("exec %s has no cancel token for daemon-side cancellation", execID)
 	}
-	if err := signalContainerTokenProcess(ctx, cli, inspectResp.ContainerID, token, "TERM", signalOpts); err != nil {
-		return err
-	}
-	stopped, err := execStoppedWithin(ctx, cli, execID, 2*time.Second)
-	if err != nil {
-		return err
-	}
-	if stopped {
-		return nil
+	stopped := !inspectResp.Running
+	var cleanupErr error
+	if !stopped {
+		if err := signalContainerTokenProcess(ctx, cli, inspectResp.ContainerID, token, "TERM", signalOpts); err != nil {
+			cleanupErr = err
+		} else {
+			stopped, err = execStoppedWithin(ctx, cli, execID, 2*time.Second)
+			if err != nil {
+				cleanupErr = err
+			}
+		}
 	}
 	if err := signalContainerTokenProcess(ctx, cli, inspectResp.ContainerID, token, "KILL", signalOpts); err != nil {
-		return err
+		return errors.Join(cleanupErr, err)
+	}
+	if stopped {
+		return cleanupErr
 	}
 	stopped, err = execStoppedWithin(ctx, cli, execID, 0)
 	if err != nil {
-		return fmt.Errorf("wait for exec %s after KILL: %w", execID, err)
+		return errors.Join(cleanupErr, fmt.Errorf("wait for exec %s after KILL: %w", execID, err))
 	}
 	if stopped {
-		return nil
+		return cleanupErr
 	}
-	return fmt.Errorf("exec %s is still running after KILL", execID)
+	return errors.Join(cleanupErr, fmt.Errorf("exec %s is still running after KILL", execID))
 }
 
 func signalContainerPIDFileProcess(
