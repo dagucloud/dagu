@@ -609,9 +609,9 @@ func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConf
 	}()
 
 	// Run the container in a goroutine and watch ctx so a cancelled step
-	// (timeout_sec is ctx-only; the runner does not call Kill) can set exit
-	// 124. Client.Run now stops the container on cancel; this still waits
-	// for Run to unwind before Close.
+	// (timeout_sec is ctx-only; the runner does not call Kill) can set exit 124.
+	// Client.Run stops the container as part of its own cancellation path, so the
+	// cancel branch waits for it to unwind rather than stopping the container here.
 	runDone := make(chan containerRunResult, 1)
 	go func() {
 		ec, re := cli.Run(runCtx, runCmd, stdout, tw)
@@ -623,6 +623,7 @@ func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConf
 	select {
 	case <-ctx.Done():
 		// Client.Run owns cancellation cleanup and stops the container before it returns.
+		// Closing the client here would race that teardown, so wait for Run to finish.
 		runErr = waitForCanceledContainerRun(ctx, runDone)
 		e.exitCode = 124
 		_ = cleanupStdoutSpool(stdout)

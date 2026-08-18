@@ -21,17 +21,8 @@ const (
 
 // waitUntilContainerStopped polls until the container is gone or not running.
 // If ctx is canceled while the container is still running, stop is called once
-// so timeout_sec cannot hang in Client.Run's post-wait join.
+// and the container is then awaited for at most maxAfterCancel.
 func waitUntilContainerStopped(
-	ctx context.Context,
-	inspect func(context.Context) (running bool, notFound bool, err error),
-	stop func(context.Context) error,
-	poll time.Duration,
-) error {
-	return waitUntilContainerStoppedWithGrace(ctx, inspect, stop, poll, defaultCancelStopWait)
-}
-
-func waitUntilContainerStoppedWithGrace(
 	ctx context.Context,
 	inspect func(context.Context) (running bool, notFound bool, err error),
 	stop func(context.Context) error,
@@ -116,33 +107,12 @@ func nativeExecOptions() ExecOptions {
 	return ExecOptions{TerminateOnCancel: true}
 }
 
-// stopContainerByID force-stops a container by ID. Unlike Client.Stop this
-// does not no-op when started is false, so the cancel join cannot hang.
-func stopContainerByID(ctx context.Context, cli *client.Client, containerID string) error {
-	if cli == nil || containerID == "" {
-		return errContainerStopUnavailable
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	_, err := cli.ContainerStop(ctx, containerID, client.ContainerStopOptions{Signal: "SIGKILL"})
-	if err != nil && errdefs.IsNotFound(err) {
-		return nil
-	}
-	return err
-}
-
-func stopOwnedContainer(cli *client.Client, containerID, signal string) error {
-	return stopOwnedContainerWithTimeout(
-		cli,
-		containerID,
-		signal,
-		defaultContainerStopGrace,
-		defaultCancelStopWait,
-	)
-}
-
-func stopOwnedContainerWithTimeout(
+// stopContainer stops a container and waits for it to leave the running state.
+// It sends signal (empty selects the daemon default), allows stopGrace for the
+// process to exit, then escalates to SIGKILL. A container that is already gone
+// or stopped is not an error. Cleanup runs on its own cleanupWait deadline so it
+// completes after the caller's context has been canceled.
+func stopContainer(
 	cli *client.Client,
 	containerID string,
 	signal string,
@@ -175,7 +145,7 @@ func stopOwnedContainerWithTimeout(
 	stopCtx, stopCancel := context.WithTimeout(cleanupCtx, stopGrace)
 	_, stopErr := cli.ContainerStop(stopCtx, containerID, client.ContainerStopOptions{Signal: signal})
 	stopCancel()
-	if stopErr == nil || errdefs.IsNotFound(stopErr) || errdefs.IsNotModified(stopErr) {
+	if stopErr == nil || errdefs.IsNotFound(stopErr) {
 		return nil
 	}
 	if !errors.Is(stopErr, context.Canceled) && !errors.Is(stopErr, context.DeadlineExceeded) {

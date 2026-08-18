@@ -6,6 +6,7 @@ package docker
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -63,6 +64,11 @@ type Config struct {
 	ShouldStart bool
 	// Shell specifies the shell wrapper for executing step commands.
 	Shell []string
+	// StopSignal is sent to stop the container. Empty selects the daemon default.
+	StopSignal string
+	// StopGrace bounds how long the container may take to exit after StopSignal
+	// before it is killed. Zero selects defaultContainerStopGrace.
+	StopGrace time.Duration
 }
 
 // LoadConfigFromMap parses executorConfig into Container struct with registry auth.

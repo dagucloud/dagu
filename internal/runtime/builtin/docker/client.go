@@ -118,8 +118,6 @@ type ExecOptions struct {
 	Env []string
 	// Direct executes cmd as argv without applying the configured shell wrapper.
 	Direct bool
-	// PIDFile records the container-local process ID for targeted cancellation.
-	PIDFile string
 	// TerminateOnCancel attempts to terminate only the exec process when ctx is canceled.
 	TerminateOnCancel bool
 }
@@ -345,13 +343,16 @@ func (c *Client) Close(ctx context.Context) {
 		return
 	}
 
-	// Remove containers owned by this client when auto-remove is enabled.
-	shouldRemove := c.cfg.AutoRemove && c.started.Load() || c.cleanupPending.Load()
+	// Remove a container this client started under auto-remove, and any container
+	// an earlier cleanup attempt failed to remove.
+	shouldRemove := (c.cfg.AutoRemove && c.started.Load()) || c.cleanupPending.Load()
 	if shouldRemove && c.containerID != "" {
-		if removeContainerForCleanup(ctx, c.cli, c.containerID, client.ContainerRemoveOptions{Force: true}) {
+		if removeContainerForCleanup(ctx, c.cli, c.containerID, client.ContainerRemoveOptions{Force: true}, defaultCancelStopWait) {
 			c.clearContainerStateLocked(c.containerID)
 		}
 	}
+
+	c.removeKeepAliveTmp(ctx)
 
 	_ = c.cli.Close()
 	c.cli = nil
@@ -421,9 +422,7 @@ func (c *Client) CreateContainerKeepAlive(ctx context.Context) error {
 		logger.Warn(ctx, "Docker exec cancellation helper unavailable; using container tools", tag.Error(err))
 		helpMode = cancelHelperNone
 		installHelper = nil
-		if mode == "keepalive" && len(c.cfg.Container.Cmd) == 0 {
-			cmd = []string{"sh", "-c", keepAliveSleepCmd}
-		}
+		cmd = c.keepAliveFallbackCmd(mode, cmd)
 	}
 	c.cancelHelper = helpMode
 
@@ -436,6 +435,18 @@ func (c *Client) CreateContainerKeepAlive(ctx context.Context) error {
 	c.cancelMu.Unlock()
 
 	ctID, err := c.startNewContainer(ctx, c.cfg.ContainerName, c.cli, cmd, true, installHelper)
+	if err != nil && helpMode != cancelHelperNone {
+		// Installing the helper can fail for reasons the run itself does not depend
+		// on: a read-only rootfs rejects the copy, and a bind source resolved on this
+		// host is absent from a daemon that turned out to be remote. Cancellation
+		// then falls back to in-container tooling instead of failing the run.
+		logger.Warn(ctx, "Docker exec cancellation helper install failed; using container tools", tag.Error(err))
+		c.discardCancelHelper(ctx, ctID)
+		helpMode = cancelHelperNone
+		c.cancelHelper = helpMode
+		cmd = c.keepAliveFallbackCmd(mode, cmd)
+		ctID, err = c.startNewContainer(ctx, c.cfg.ContainerName, c.cli, cmd, true, nil)
+	}
 	if err != nil {
 		c.cancelHelper = cancelHelperNone
 		return fmt.Errorf("failed to start a new container: %w", err)
@@ -505,6 +516,47 @@ func (c *Client) prepareCancelHelper() (cancelHelperMode, func(context.Context, 
 	return cancelHelperBound, nil, nil
 }
 
+// keepAliveFallbackCmd returns the startup command for a container that will run
+// without the cancellation helper. Keepalive mode has to supply its own idle
+// process once the helper binary is out of the picture; other modes are unaffected.
+func (c *Client) keepAliveFallbackCmd(mode string, cmd []string) []string {
+	if mode == "keepalive" && len(c.cfg.Container.Cmd) == 0 {
+		return []string{"sh", "-c", keepAliveSleepCmd}
+	}
+	return cmd
+}
+
+// discardCancelHelper undoes prepareCancelHelper and removes any container left
+// behind by the failed attempt, so the run can be retried under the same name.
+func (c *Client) discardCancelHelper(ctx context.Context, containerID string) {
+	if containerID != "" {
+		if removeContainerForCleanup(
+			ctx, c.cli, containerID,
+			client.ContainerRemoveOptions{Force: true},
+			defaultCancelStopWait,
+		) {
+			c.clearContainerState(containerID)
+		}
+	}
+	if c.keepAliveTmp == "" {
+		return
+	}
+	bind := c.keepAliveTmp + ":" + keepAliveTargetPath + ":ro"
+	c.cfg.Host.Binds = slices.DeleteFunc(c.cfg.Host.Binds, func(b string) bool { return b == bind })
+	c.removeKeepAliveTmp(ctx)
+}
+
+// removeKeepAliveTmp deletes the host-side copy of the keepalive binary, if any.
+func (c *Client) removeKeepAliveTmp(ctx context.Context) {
+	if c.keepAliveTmp == "" {
+		return
+	}
+	if err := fileutil.Remove(c.keepAliveTmp); err != nil && !os.IsNotExist(err) {
+		logger.Error(ctx, "Docker executor: remove keep alive file", tag.Error(err))
+	}
+	c.keepAliveTmp = ""
+}
+
 func (c *Client) shouldCopyCancelHelper() bool {
 	return daemonNeedsHelperCopy(c.cli.DaemonHost(), c.isDockerInDocker())
 }
@@ -538,18 +590,12 @@ func (c *Client) StopContainerKeepAlive(ctx context.Context) {
 	c.cancel = nil
 
 	if c.containerID != "" {
-		if err := stopOwnedContainer(c.cli, c.containerID, ""); err != nil {
+		if err := stopContainer(c.cli, c.containerID, c.cfg.StopSignal, c.cfg.StopGrace, defaultCancelStopWait); err != nil {
 			logger.Error(ctx, "Docker executor: stop container", tag.Error(err))
 		}
 	}
 
-	if c.keepAliveTmp != "" {
-		// Remove the temporary keep alive file if it exists
-		if err := fileutil.Remove(c.keepAliveTmp); err != nil && !os.IsNotExist(err) {
-			logger.Error(ctx, "Docker executor: remove keep alive file", tag.Error(err))
-		}
-	}
-	c.keepAliveTmp = ""
+	c.removeKeepAliveTmp(ctx)
 }
 
 // Run executes the command in the container and returns exit code
@@ -606,7 +652,7 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 			return
 		}
 
-		if removeContainerForCleanup(ctx, c.cli, ctID, client.ContainerRemoveOptions{Force: true}) {
+		if removeContainerForCleanup(ctx, c.cli, ctID, client.ContainerRemoveOptions{Force: true}, defaultCancelStopWait) {
 			c.clearContainerState(ctID)
 		}
 	}()
@@ -636,13 +682,14 @@ func (c *Client) Run(ctx context.Context, cmd []string, stdout, stderr io.Writer
 			}
 			return running, false, nil
 		},
-		func(stopCtx context.Context) error {
+		func(context.Context) error {
 			logger.Debug(ctx, "Docker: Run stopping container after context cancel", slog.String("containerID", ctID))
-			return stopContainerByID(stopCtx, c.cli, ctID)
+			return stopContainer(c.cli, ctID, c.cfg.StopSignal, c.cfg.StopGrace, defaultCancelStopWait)
 		},
 		defaultPollInterval,
+		defaultCancelStopWait,
 	); waitErr != nil {
-		return exitCode, waitErr
+		return exitCode, errors.Join(err, waitErr)
 	}
 
 	logger.Debug(ctx, "Docker: Run completed", slog.Int("exitCode", exitCode))
@@ -702,7 +749,7 @@ func (c *Client) Stop(sig os.Signal) error {
 	if sysSig, ok := sig.(syscall.Signal); ok {
 		sigName = signal.GetSignalName(sysSig)
 	}
-	return stopOwnedContainer(c.cli, c.containerID, sigName)
+	return stopContainer(c.cli, c.containerID, sigName, c.cfg.StopGrace, defaultCancelStopWait)
 }
 
 func (c *Client) startNewContainer(
@@ -852,7 +899,7 @@ func (c *Client) cleanupFailedHelperInstall(
 	containerID string,
 	installErr error,
 ) error {
-	removeErr := removeContainerForCleanupError(cli, containerID, client.ContainerRemoveOptions{Force: true})
+	removeErr := removeContainerForCleanupError(cli, containerID, client.ContainerRemoveOptions{Force: true}, defaultCancelStopWait)
 	if removeErr != nil {
 		c.cleanupPending.Store(true)
 		logger.Error(ctx, "Docker executor: remove container after helper install failure", tag.Error(removeErr))
@@ -947,7 +994,7 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 	}
 	execEnv := mergeEnvByKey(containerEnv, configuredEnv, cfgExec.Env, opts.Env)
 	execCancelToken := ""
-	if opts.TerminateOnCancel && opts.PIDFile == "" {
+	if opts.TerminateOnCancel {
 		execCancelToken = newExecCancelToken()
 		execEnv = append(execEnv, execCancelTokenEnv+"="+execCancelToken)
 	}
@@ -984,7 +1031,7 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 	resp, err := cli.ExecAttach(ctx, execCreateResp.ID, client.ExecAttachOptions{TTY: cfgExec.TTY})
 	if err != nil {
 		if ctx.Err() != nil && opts.TerminateOnCancel {
-			return 1, canceledExecError(ctx, cli, execCreateResp.ID, opts.PIDFile, execCancelToken, signalOpts)
+			return 1, canceledExecError(ctx, cli, execCreateResp.ID, execCancelToken, signalOpts)
 		}
 		return 1, fmt.Errorf("failed to start exec: %w", err)
 	}
@@ -992,6 +1039,7 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 	// Copy output
 	var wg sync.WaitGroup
 	wg.Add(1)
+	copyDone := make(chan struct{})
 	defer func() {
 		resp.Close()
 		wg.Wait()
@@ -999,6 +1047,7 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 
 	go func() {
 		defer wg.Done()
+		defer close(copyDone)
 		var copyErr error
 		if cfgExec.TTY {
 			_, copyErr = io.Copy(stdout, resp.Reader)
@@ -1010,6 +1059,20 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 		}
 	}()
 
+	// The daemon closes the attached stream once the exec's process exits, and it
+	// marks the exec running only after that stream is established. Inspecting
+	// before the stream ends can therefore observe a not-yet-running exec and
+	// read its zero-valued exit code as success.
+	select {
+	case <-copyDone:
+	case <-ctx.Done():
+		resp.Close()
+		if opts.TerminateOnCancel {
+			return 1, canceledExecError(ctx, cli, execCreateResp.ID, execCancelToken, signalOpts)
+		}
+		return 1, ctx.Err()
+	}
+
 	// Wait for exec to complete
 	for {
 		inspectResp, err := cli.ExecInspect(ctx, execCreateResp.ID, client.ExecInspectOptions{})
@@ -1017,7 +1080,7 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 			if ctx.Err() != nil {
 				if opts.TerminateOnCancel {
 					resp.Close()
-					return 1, canceledExecError(ctx, cli, execCreateResp.ID, opts.PIDFile, execCancelToken, signalOpts)
+					return 1, canceledExecError(ctx, cli, execCreateResp.ID, execCancelToken, signalOpts)
 				}
 				resp.Close()
 				return 1, ctx.Err()
@@ -1035,7 +1098,7 @@ func (c *Client) execInContainer(ctx context.Context, cli *client.Client, cmd []
 		if err := waitForContainerPoll(ctx, defaultPollInterval); err != nil {
 			if opts.TerminateOnCancel {
 				resp.Close()
-				return 1, canceledExecError(ctx, cli, execCreateResp.ID, opts.PIDFile, execCancelToken, signalOpts)
+				return 1, canceledExecError(ctx, cli, execCreateResp.ID, execCancelToken, signalOpts)
 			}
 			resp.Close()
 			return 1, ctx.Err()
@@ -1064,41 +1127,15 @@ func mergeEnvByKey(layers ...[]string) []string {
 }
 
 func execCommand(shell, cmd []string, opts ExecOptions) []string {
-	var execCmd []string
 	if opts.Direct {
-		execCmd = append([]string(nil), cmd...)
-	} else {
-		execCmd = wrapCommandWithShell(shell, cmd)
+		return append([]string(nil), cmd...)
 	}
-	if opts.PIDFile != "" {
-		return wrapCommandWithPIDFile(execCmd, opts.PIDFile)
-	}
-	return execCmd
-}
-
-func wrapCommandWithPIDFile(cmd []string, pidFile string) []string {
-	if len(cmd) == 0 {
-		return cmd
-	}
-	script := `pidfile="$1"
-shift
-dir="${pidfile%/*}"
-if [ "$dir" != "$pidfile" ]; then
-  mkdir -p "$dir" || exit 125
-fi
-if ! printf '%s\n' "$$" > "$pidfile"; then
-  exit 125
-fi
-exec "$@"`
-	wrapped := []string{"/bin/sh", "-c", script, "dagu-exec-wrapper", pidFile}
-	return append(wrapped, cmd...)
+	return wrapCommandWithShell(shell, cmd)
 }
 
 func newExecCancelToken() string {
 	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano())
-	}
+	rand.Read(b[:])
 	return hex.EncodeToString(b[:])
 }
 
@@ -1111,13 +1148,12 @@ func canceledExecError(
 	ctx context.Context,
 	cli *client.Client,
 	execID string,
-	pidFile string,
 	token string,
 	signalOpts execSignalOptions,
 ) error {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), defaultCancelStopWait)
 	defer cancel()
-	cleanupErr := terminateExecProcess(cleanupCtx, cli, execID, pidFile, token, signalOpts)
+	cleanupErr := terminateExecProcess(cleanupCtx, cli, execID, token, signalOpts)
 	return errors.Join(ctx.Err(), cleanupErr)
 }
 
@@ -1125,40 +1161,12 @@ func terminateExecProcess(
 	ctx context.Context,
 	cli *client.Client,
 	execID string,
-	pidFile string,
 	token string,
 	signalOpts execSignalOptions,
 ) error {
 	inspectResp, err := cli.ExecInspect(ctx, execID, client.ExecInspectOptions{})
 	if err != nil {
 		return fmt.Errorf("inspect exec %s: %w", execID, err)
-	}
-
-	if pidFile != "" {
-		if !inspectResp.Running {
-			return nil
-		}
-		if err := signalContainerPIDFileProcess(ctx, cli, inspectResp.ContainerID, pidFile, "TERM", signalOpts.user); err != nil {
-			return err
-		}
-		stopped, err := execStoppedWithin(ctx, cli, execID, 2*time.Second)
-		if err != nil {
-			return err
-		}
-		if stopped {
-			return nil
-		}
-		if err := signalContainerPIDFileProcess(ctx, cli, inspectResp.ContainerID, pidFile, "KILL", signalOpts.user); err != nil {
-			return err
-		}
-		stopped, err = execStoppedWithin(ctx, cli, execID, 0)
-		if err != nil {
-			return fmt.Errorf("wait for exec %s after KILL: %w", execID, err)
-		}
-		if stopped {
-			return nil
-		}
-		return fmt.Errorf("exec %s is still running after KILL", execID)
 	}
 
 	if token == "" {
@@ -1195,33 +1203,6 @@ func terminateExecProcess(
 	return errors.Join(cleanupErr, fmt.Errorf("exec %s is still running after KILL", execID))
 }
 
-func signalContainerPIDFileProcess(
-	ctx context.Context,
-	cli *client.Client,
-	containerID string,
-	pidFile string,
-	signalName string,
-	user string,
-) error {
-	script := `sig="$1"
-pidfile="$2"
-pid="$(cat "$pidfile" 2>/dev/null || true)"
-[ -n "$pid" ] || exit 0
-kill_tree() {
-  for child in $(ps -eo pid,ppid 2>/dev/null | awk -v parent="$1" 'NR > 1 && $2 == parent { print $1 }'); do
-    kill_tree "$child"
-  done
-  kill "-$sig" "$1" 2>/dev/null || true
-}
-kill "-$sig" -- "-$pid" 2>/dev/null || true
-kill_tree "$pid"
-rm -f "$pidfile" 2>/dev/null || true`
-	return runContainerSignalExec(ctx, cli, containerID, signalName, "pid file "+pidFile, client.ExecCreateOptions{
-		User: user,
-		Cmd:  []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, pidFile},
-	})
-}
-
 func signalContainerTokenProcess(
 	ctx context.Context,
 	cli *client.Client,
@@ -1231,7 +1212,7 @@ func signalContainerTokenProcess(
 	signalOpts execSignalOptions,
 ) error {
 	if signalOpts.helper != cancelHelperNone {
-		execOpts := helperSignalExecOptions(signalOpts.helper, signalOpts.user, signalName, token)
+		execOpts := helperSignalExecOptions(signalOpts.user, signalName, token)
 		return runContainerSignalExec(ctx, cli, containerID, signalName, "cancel token", execOpts)
 	}
 
@@ -1253,20 +1234,15 @@ for environ in /proc/[0-9]*/environ; do
 done`
 	return runContainerSignalExec(ctx, cli, containerID, signalName, "cancel token", client.ExecCreateOptions{
 		User: signalOpts.user,
-		Cmd:  []string{"/bin/sh", "-c", script, "dagu-kill-exec", signalName, token},
+		Cmd:  []string{"sh", "-c", script, "dagu-kill-exec", signalName, token},
 	})
 }
 
-func helperSignalExecOptions(helper cancelHelperMode, user string, signalName string, token string) client.ExecCreateOptions {
-	execOpts := client.ExecCreateOptions{
+func helperSignalExecOptions(user string, signalName string, token string) client.ExecCreateOptions {
+	return client.ExecCreateOptions{
 		User: user,
 		Cmd:  []string{keepAliveTargetPath, "signal-token", signalName, token},
 	}
-	if helper == cancelHelperBound {
-		execOpts.User = "0"
-		execOpts.Privileged = true
-	}
-	return execOpts
 }
 
 func runContainerSignalExec(
@@ -1342,18 +1318,14 @@ func removeStoppedContainer(ctx context.Context, cli *client.Client, containerID
 }
 
 // removeContainerForCleanup reports whether the container no longer needs removal.
-func removeContainerForCleanup(ctx context.Context, cli *client.Client, containerID string, opts client.ContainerRemoveOptions) bool {
-	return removeContainerForCleanupWithTimeout(ctx, cli, containerID, opts, defaultCancelStopWait)
-}
-
-func removeContainerForCleanupWithTimeout(
+func removeContainerForCleanup(
 	ctx context.Context,
 	cli *client.Client,
 	containerID string,
 	opts client.ContainerRemoveOptions,
 	timeout time.Duration,
 ) bool {
-	err := removeContainerForCleanupErrorWithTimeout(cli, containerID, opts, timeout)
+	err := removeContainerForCleanupError(cli, containerID, opts, timeout)
 	if err != nil {
 		logger.Error(ctx, "Docker executor: remove container", tag.Error(err))
 		return false
@@ -1361,11 +1333,9 @@ func removeContainerForCleanupWithTimeout(
 	return true
 }
 
-func removeContainerForCleanupError(cli *client.Client, containerID string, opts client.ContainerRemoveOptions) error {
-	return removeContainerForCleanupErrorWithTimeout(cli, containerID, opts, defaultCancelStopWait)
-}
-
-func removeContainerForCleanupErrorWithTimeout(
+// removeContainerForCleanupError removes a container on its own timeout so
+// cleanup completes after the caller's context has been canceled.
+func removeContainerForCleanupError(
 	cli *client.Client,
 	containerID string,
 	opts client.ContainerRemoveOptions,
@@ -1418,17 +1388,26 @@ func (c *Client) attachAndWait(ctx context.Context, cli *client.Client, containe
 		return 1, err
 	}
 	logger.Debug(ctx, "Docker: attachAndWait ContainerLogs succeeded")
-	defer func() {
-		logger.Debug(ctx, "Docker: attachAndWait closing log reader")
-		_ = out.Close()
-	}()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	defer wg.Wait() // Ensure log copying completes before returning
+	copyDone := make(chan struct{})
+	defer func() {
+		// A followed log stream does not end while the container still runs, so
+		// draining it is only bounded by ctx. Close the reader once either the
+		// copy finishes or ctx ends, then join the copy goroutine.
+		select {
+		case <-copyDone:
+		case <-ctx.Done():
+		}
+		logger.Debug(ctx, "Docker: attachAndWait closing log reader")
+		_ = out.Close()
+		wg.Wait()
+	}()
 
 	go func() {
 		defer wg.Done()
+		defer close(copyDone)
 		logger.Debug(ctx, "Docker: attachAndWait stdcopy goroutine started")
 		if _, err := stdcopy.StdCopy(stdout, stderr, out); err != nil {
 			logger.Error(ctx, "Docker executor: stdcopy", tag.Error(err))
@@ -1492,6 +1471,10 @@ func (c *Client) isInContainerByCgroup() bool {
 	return cgroupIndicatesContainer(string(data))
 }
 
+// cgroupIndicatesContainer reports whether a /proc/1/cgroup body describes a
+// containerized init. Host init systems also run under named slices, so only
+// runtime-specific paths count; a missed runtime is recovered from at container
+// start rather than guessed at here.
 func cgroupIndicatesContainer(content string) bool {
 	for line := range strings.SplitSeq(content, "\n") {
 		_, rest, ok := strings.Cut(line, ":")
@@ -1506,14 +1489,25 @@ func cgroupIndicatesContainer(content string) bool {
 			return true
 		}
 		for segment := range strings.SplitSeq(strings.Trim(cgroupPath, "/"), "/") {
-			if segment == "kubepods" || segment == "kubepods.slice" ||
-				strings.HasPrefix(segment, "kubepods-") || segment == "lxc" ||
-				strings.HasPrefix(segment, "lxc.payload") {
+			if isContainerCgroupSegment(segment) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// isContainerCgroupSegment reports whether one cgroup path segment names a
+// container runtime's own hierarchy rather than a host slice.
+func isContainerCgroupSegment(segment string) bool {
+	switch segment {
+	case "kubepods", "kubepods.slice", "lxc", "ecs", "docker", "actions_job":
+		return true
+	}
+	return strings.HasPrefix(segment, "kubepods-") ||
+		strings.HasPrefix(segment, "lxc.payload") ||
+		strings.HasPrefix(segment, "machine-") ||
+		strings.HasPrefix(segment, "nspawn-")
 }
 
 func getPlatform(ctx context.Context, cli *client.Client, cfg *Config) (specs.Platform, error) {

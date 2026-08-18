@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -59,7 +60,7 @@ func TestWaitUntilContainerStopped_StopsAndReturns_WhenContextCanceled(t *testin
 
 	done := make(chan error, 1)
 	go func() {
-		done <- waitUntilContainerStopped(ctx, inspect, stop, 10*time.Millisecond)
+		done <- waitUntilContainerStopped(ctx, inspect, stop, 10*time.Millisecond, defaultCancelStopWait)
 	}()
 
 	select {
@@ -82,6 +83,7 @@ func TestWaitUntilContainerStopped_ReturnsImmediately_WhenAlreadyStopped(t *test
 			return nil
 		},
 		10*time.Millisecond,
+		defaultCancelStopWait,
 	)
 
 	require.NoError(t, err)
@@ -95,6 +97,7 @@ func TestWaitUntilContainerStopped_TreatsNotFoundAsStopped(t *testing.T) {
 		func(context.Context) (bool, bool, error) { return false, true, nil },
 		func(context.Context) error { t.Fatal("stop must not run when inspect reports not found"); return nil },
 		10*time.Millisecond,
+		defaultCancelStopWait,
 	)
 
 	require.NoError(t, err)
@@ -108,7 +111,7 @@ func TestWaitUntilContainerStopped_Returns_WhenStopIsNoOpAndContainerKeepsRunnin
 
 	done := make(chan error, 1)
 	go func() {
-		done <- waitUntilContainerStoppedWithGrace(ctx,
+		done <- waitUntilContainerStopped(ctx,
 			func(context.Context) (bool, bool, error) { return true, false, nil },
 			func(context.Context) error { return nil },
 			10*time.Millisecond,
@@ -131,7 +134,7 @@ func TestWaitUntilContainerStopped_ReturnsStopError_WhenCancelAndStopFails(t *te
 	cancel()
 	want := errors.New("stop failed")
 
-	err := waitUntilContainerStoppedWithGrace(ctx,
+	err := waitUntilContainerStopped(ctx,
 		func(context.Context) (bool, bool, error) { return true, false, nil },
 		func(context.Context) error { return want },
 		10*time.Millisecond,
@@ -149,7 +152,7 @@ func TestWaitUntilContainerStopped_PreservesCancelWhenCleanupInspectFails(t *tes
 	cancel()
 	want := errors.New("inspect failed")
 
-	err := waitUntilContainerStoppedWithGrace(ctx,
+	err := waitUntilContainerStopped(ctx,
 		func(context.Context) (bool, bool, error) { return false, false, want },
 		nil,
 		10*time.Millisecond,
@@ -167,7 +170,7 @@ func TestWaitUntilContainerStopped_PreservesInspectErrorWhenCleanupDeadlineExpir
 	cancel()
 	want := errors.New("inspect failed")
 
-	err := waitUntilContainerStoppedWithGrace(ctx,
+	err := waitUntilContainerStopped(ctx,
 		func(inspectCtx context.Context) (bool, bool, error) {
 			<-inspectCtx.Done()
 			return false, false, errors.Join(inspectCtx.Err(), want)
@@ -190,6 +193,7 @@ func TestWaitUntilContainerStopped_ReturnsInspectError(t *testing.T) {
 		func(context.Context) (bool, bool, error) { return false, false, want },
 		func(context.Context) error { return nil },
 		10*time.Millisecond,
+		defaultCancelStopWait,
 	)
 
 	require.ErrorIs(t, err, want)
@@ -203,7 +207,7 @@ func TestWaitUntilContainerStopped_CancelsStopAndInspect_WhenTheyBlock(t *testin
 
 	done := make(chan error, 1)
 	go func() {
-		done <- waitUntilContainerStoppedWithGrace(ctx,
+		done <- waitUntilContainerStopped(ctx,
 			func(inspectCtx context.Context) (bool, bool, error) {
 				<-inspectCtx.Done()
 				return true, false, inspectCtx.Err()
@@ -235,7 +239,7 @@ func TestWaitUntilContainerStopped_CancelsInitialInspectAndStops(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- waitUntilContainerStoppedWithGrace(ctx,
+		done <- waitUntilContainerStopped(ctx,
 			func(inspectCtx context.Context) (bool, bool, error) {
 				if inspectCalls.Add(1) == 1 {
 					close(inspectStarted)
@@ -667,7 +671,6 @@ func TestTerminateExecProcess_SweepsTokenProcessesAfterMainExecStops(t *testing.
 				context.Background(),
 				dockerSDK,
 				"main-exec",
-				"",
 				"token",
 				execSignalOptions{helper: cancelHelperBound},
 			)
@@ -679,6 +682,95 @@ func TestTerminateExecProcess_SweepsTokenProcessesAfterMainExecStops(t *testing.
 
 			assert.Equal(t, tt.wantSignals, signals)
 		})
+	}
+}
+
+// The daemon writes the attach response header before it marks the exec running,
+// so an inspect issued in that window reports Running:false with a zero exit code
+// for a command that has not started yet.
+func TestClientExec_WaitsForAttachStream_BeforeReadingExitCode(t *testing.T) {
+	t.Parallel()
+
+	var execRunning atomic.Bool
+	var execExitCode atomic.Int32
+	releaseAttach := make(chan struct{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		path := req.URL.Path
+		switch {
+		case req.Method == http.MethodGet && strings.HasSuffix(path, "/containers/ctr/json"):
+			writeDockerJSON(w, `{"Id":"ctr","State":{"Running":true},"Config":{"Env":[]}}`)
+		case req.Method == http.MethodPost && strings.HasSuffix(path, "/containers/ctr/exec"):
+			writeDockerJSON(w, `{"Id":"main-exec"}`)
+		case req.Method == http.MethodPost && strings.HasSuffix(path, "/exec/main-exec/start"):
+			hijacker, ok := w.(http.Hijacker)
+			if !ok {
+				t.Error("test Docker server does not support hijacking")
+				return
+			}
+			conn, _, err := hijacker.Hijack()
+			if err != nil {
+				t.Errorf("hijack attach connection: %v", err)
+				return
+			}
+			// Complete the attach handshake, then hold the stream open: the exec
+			// is attached but the daemon has not marked it running yet.
+			_, _ = conn.Write([]byte("HTTP/1.1 101 UPGRADED\r\n" +
+				"Content-Type: application/vnd.docker.multiplexed-stream\r\n" +
+				"Connection: Upgrade\r\nUpgrade: tcp\r\n\r\n"))
+			<-releaseAttach
+			execRunning.Store(false)
+			execExitCode.Store(42)
+			_ = conn.Close()
+		case req.Method == http.MethodGet && strings.HasSuffix(path, "/exec/main-exec/json"):
+			writeDockerJSON(w, fmt.Sprintf(
+				`{"ID":"main-exec","ContainerID":"ctr","Running":%t,"ExitCode":%d}`,
+				execRunning.Load(), execExitCode.Load()))
+		default:
+			http.Error(w, "unexpected Docker API request: "+req.Method+" "+path, http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	dockerSDK, err := client.New(
+		client.WithHost("tcp://"+strings.TrimPrefix(server.URL, "http://")),
+		client.WithScheme("http"),
+		client.WithAPIVersion("1.52"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	cli := &Client{
+		cfg:         &Config{Container: &container.Config{}},
+		containerID: "ctr",
+		cli:         dockerSDK,
+	}
+	cli.started.Store(true)
+
+	type execResult struct {
+		exitCode int
+		err      error
+	}
+	done := make(chan execResult, 1)
+	go func() {
+		exitCode, err := cli.Exec(context.Background(), []string{"sleep", "1"}, io.Discard, io.Discard, nativeExecOptions())
+		done <- execResult{exitCode, err}
+	}()
+
+	select {
+	case res := <-done:
+		t.Fatalf("Exec returned %d (err=%v) before the exec started; it must not read the pre-start exit code", res.exitCode, res.err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(releaseAttach)
+
+	select {
+	case res := <-done:
+		require.ErrorContains(t, res.err, "exit code: 42")
+		assert.Equal(t, 42, res.exitCode, "Exec must report the exit code the daemon recorded once the exec finished")
+	case <-time.After(10 * time.Second):
+		t.Fatal("Exec did not return after the attach stream closed")
 	}
 }
 
@@ -829,48 +921,6 @@ func newExternalContainerClient(t *testing.T, name string, user string) *Client 
 	t.Cleanup(func() { cli.Close(context.Background()) })
 	return cli
 }
-
-func TestClientExec_StopsStepProcess_WhenPIDFileAndCanceled(t *testing.T) {
-	dockerSDK := newDockerSDKOrSkip(t)
-	t.Cleanup(func() { _ = dockerSDK.Close() })
-
-	pullCtx, pullCancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer pullCancel()
-	pullImageOrSkip(t, dockerSDK, pullCtx, "alpine:latest")
-
-	name := fmt.Sprintf("dagu-exec-pidfile-timeout-%d", time.Now().UnixNano())
-	cfg, err := LoadConfigFromMap(map[string]any{
-		"image":          "alpine:latest",
-		"container_name": name,
-		"auto_remove":    true,
-		"pull":           "never",
-	}, nil)
-	require.NoError(t, err)
-	cfg.ShouldStart = true
-	cfg.Startup = "keepalive"
-
-	cli, err := InitializeClient(context.Background(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { cli.Close(context.Background()) })
-
-	require.NoError(t, cli.StartBackground(context.Background()))
-
-	runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	start := time.Now()
-	_, runErr := cli.Exec(runCtx, []string{"sleep", "60"}, io.Discard, io.Discard, ExecOptions{
-		Direct:            true,
-		TerminateOnCancel: true,
-		PIDFile:           fmt.Sprintf("/tmp/dagu-pidfile-test-%d.pid", time.Now().UnixNano()),
-	})
-	elapsed := time.Since(start)
-
-	require.Less(t, elapsed, 15*time.Second, "pid-file exec must return on timeout (took %s, err=%v)", elapsed, runErr)
-	require.Error(t, runErr)
-	assertNoProcessInContainer(t, dockerSDK, name, "sleep 60")
-}
-
 func assertNoProcessInContainer(t *testing.T, dockerSDK *client.Client, container string, command string) {
 	t.Helper()
 
@@ -933,8 +983,17 @@ func assertNoProcessInContainerTop(t *testing.T, dockerSDK *client.Client, conta
 	}
 }
 
+// dockerTestsEnv opts a run in to the tests that create real containers on the
+// developer's or CI daemon. They are off by default so `go test ./...` stays a
+// unit-test run with no daemon or registry dependency.
+const dockerTestsEnv = "DAGU_TEST_DOCKER"
+
 func newDockerSDKOrSkip(t *testing.T) *client.Client {
 	t.Helper()
+
+	if os.Getenv(dockerTestsEnv) == "" {
+		t.Skipf("set %s=1 to run tests that drive a real docker daemon", dockerTestsEnv)
+	}
 
 	dockerSDK, err := client.New(client.FromEnv)
 	if err != nil {
@@ -951,6 +1010,12 @@ func newDockerSDKOrSkip(t *testing.T) *client.Client {
 
 func pullImageOrSkip(t *testing.T, dockerSDK *client.Client, ctx context.Context, image string) {
 	t.Helper()
+
+	// Anonymous registry pulls are rate limited per IP, so a locally cached image
+	// is used as-is rather than re-fetched for every test.
+	if _, err := dockerSDK.ImageInspect(ctx, image); err == nil {
+		return
+	}
 
 	reader, err := dockerSDK.ImagePull(ctx, image, client.ImagePullOptions{})
 	if err != nil {
@@ -975,6 +1040,7 @@ func TestWaitUntilContainerStopped_PollsUntilStopped_WhenContextActive(t *testin
 		},
 		func(context.Context) error { t.Fatal("stop must not run while ctx is active"); return nil },
 		time.Millisecond,
+		defaultCancelStopWait,
 	)
 
 	require.NoError(t, err)
@@ -988,35 +1054,36 @@ func TestWaitUntilContainerStopped_UsesDefaultPoll_WhenIntervalInvalid(t *testin
 		func(context.Context) (bool, bool, error) { return false, false, nil },
 		nil,
 		0,
+		defaultCancelStopWait,
 	)
 
 	require.NoError(t, err)
 }
 
-func TestStopContainerByID_ReturnsUnavailable_WhenClientOrIDMissing(t *testing.T) {
+func TestStopContainer_ReturnsUnavailable_WhenClientOrIDMissing(t *testing.T) {
 	t.Parallel()
 
-	require.ErrorIs(t, stopContainerByID(context.Background(), nil, "ctr"), errContainerStopUnavailable)
+	require.ErrorIs(t, stopContainer(nil, "ctr", "", 0, 0), errContainerStopUnavailable)
 	cli := &client.Client{}
-	require.ErrorIs(t, stopContainerByID(context.Background(), cli, ""), errContainerStopUnavailable)
+	require.ErrorIs(t, stopContainer(cli, "", "", 0, 0), errContainerStopUnavailable)
 }
 
-func TestStopContainerByID_IgnoresMissingContainer(t *testing.T) {
+func TestStopContainer_IgnoresMissingContainer(t *testing.T) {
 	dockerSDK := newDockerSDKOrSkip(t)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	err := stopContainerByID(context.Background(), dockerSDK, "dagu-no-such-container")
+	err := stopContainer(dockerSDK, "dagu-no-such-container", "", 0, 0)
 	require.NoError(t, err)
 }
 
-func TestStopContainerByID_IgnoresAlreadyStoppedContainer(t *testing.T) {
+func TestStopContainer_IgnoresAlreadyStoppedContainer(t *testing.T) {
 	t.Parallel()
 
 	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		if req.Method != http.MethodPost || !strings.HasSuffix(req.URL.Path, "/stop") {
-			return nil, fmt.Errorf("unexpected Docker request: %s %s", req.Method, req.URL.Path)
+		if req.Method != http.MethodGet || !strings.HasSuffix(req.URL.Path, "/json") {
+			return nil, fmt.Errorf("stopped container must not be stopped again: %s %s", req.Method, req.URL.Path)
 		}
-		return dockerAPIResponse(http.StatusNotModified, ""), nil
+		return dockerAPIResponse(http.StatusOK, `{"Id":"stopped-container","State":{"Running":false}}`), nil
 	})}
 	dockerSDK, err := client.New(
 		client.WithHTTPClient(httpClient),
@@ -1025,10 +1092,10 @@ func TestStopContainerByID_IgnoresAlreadyStoppedContainer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	require.NoError(t, stopContainerByID(context.Background(), dockerSDK, "stopped-container"))
+	require.NoError(t, stopContainer(dockerSDK, "stopped-container", "", 0, 0))
 }
 
-func TestStopOwnedContainerWithTimeout_ForceKillsAfterBlockedStop(t *testing.T) {
+func TestStopContainer_ForceKillsAfterBlockedStop(t *testing.T) {
 	t.Parallel()
 
 	var killed atomic.Bool
@@ -1055,14 +1122,14 @@ func TestStopOwnedContainerWithTimeout_ForceKillsAfterBlockedStop(t *testing.T) 
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
 	start := time.Now()
-	err = stopOwnedContainerWithTimeout(dockerSDK, "blocked-container", "", 20*time.Millisecond, 100*time.Millisecond)
+	err = stopContainer(dockerSDK, "blocked-container", "", 20*time.Millisecond, 100*time.Millisecond)
 
 	require.NoError(t, err)
 	assert.True(t, killed.Load(), "a blocked graceful stop must be followed by a bounded force kill")
 	assert.Less(t, time.Since(start), 200*time.Millisecond)
 }
 
-func TestStopOwnedContainerWithTimeout_ReturnsWhenAlreadyStopped(t *testing.T) {
+func TestStopContainer_ReturnsWhenAlreadyStopped(t *testing.T) {
 	t.Parallel()
 
 	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
@@ -1078,7 +1145,7 @@ func TestStopOwnedContainerWithTimeout_ReturnsWhenAlreadyStopped(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	require.NoError(t, stopOwnedContainerWithTimeout(
+	require.NoError(t, stopContainer(
 		dockerSDK,
 		"stopped-container",
 		"",
@@ -1087,7 +1154,7 @@ func TestStopOwnedContainerWithTimeout_ReturnsWhenAlreadyStopped(t *testing.T) {
 	))
 }
 
-func TestStopOwnedContainerWithTimeout_StopsWhenStateIsUnknown(t *testing.T) {
+func TestStopContainer_StopsWhenStateIsUnknown(t *testing.T) {
 	t.Parallel()
 
 	var stopped atomic.Bool
@@ -1109,7 +1176,7 @@ func TestStopOwnedContainerWithTimeout_StopsWhenStateIsUnknown(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	require.NoError(t, stopOwnedContainerWithTimeout(
+	require.NoError(t, stopContainer(
 		dockerSDK,
 		"unknown-state-container",
 		"",
@@ -1119,7 +1186,7 @@ func TestStopOwnedContainerWithTimeout_StopsWhenStateIsUnknown(t *testing.T) {
 	assert.True(t, stopped.Load())
 }
 
-func TestStopOwnedContainerWithTimeout_IgnoresAlreadyStoppedRace(t *testing.T) {
+func TestStopContainer_IgnoresAlreadyStoppedRace(t *testing.T) {
 	t.Parallel()
 
 	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
@@ -1139,7 +1206,7 @@ func TestStopOwnedContainerWithTimeout_IgnoresAlreadyStoppedRace(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	require.NoError(t, stopOwnedContainerWithTimeout(
+	require.NoError(t, stopContainer(
 		dockerSDK,
 		"already-stopped-container",
 		"",
@@ -1148,7 +1215,7 @@ func TestStopOwnedContainerWithTimeout_IgnoresAlreadyStoppedRace(t *testing.T) {
 	))
 }
 
-func TestStopOwnedContainerWithTimeout_KillsAfterPostTimeoutInspectFailure(t *testing.T) {
+func TestStopContainer_KillsAfterPostTimeoutInspectFailure(t *testing.T) {
 	t.Parallel()
 
 	inspectErr := errors.New("inspect failed")
@@ -1179,7 +1246,7 @@ func TestStopOwnedContainerWithTimeout_KillsAfterPostTimeoutInspectFailure(t *te
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	err = stopOwnedContainerWithTimeout(
+	err = stopContainer(
 		dockerSDK,
 		"inspect-failure-container",
 		"",
@@ -1191,7 +1258,7 @@ func TestStopOwnedContainerWithTimeout_KillsAfterPostTimeoutInspectFailure(t *te
 	assert.True(t, killed.Load(), "a transient inspect failure must not prevent force kill")
 }
 
-func TestStopOwnedContainerWithTimeout_IgnoresStoppedBeforeForceKill(t *testing.T) {
+func TestStopContainer_IgnoresStoppedBeforeForceKill(t *testing.T) {
 	t.Parallel()
 
 	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
@@ -1217,7 +1284,7 @@ func TestStopOwnedContainerWithTimeout_IgnoresStoppedBeforeForceKill(t *testing.
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
-	require.NoError(t, stopOwnedContainerWithTimeout(
+	require.NoError(t, stopContainer(
 		dockerSDK,
 		"stopped-before-kill-container",
 		"",
@@ -1238,7 +1305,7 @@ func TestRemoveContainerForCleanup_CancelsBlockedRequest(t *testing.T) {
 	t.Cleanup(func() { _ = dockerSDK.Close() })
 
 	start := time.Now()
-	removed := removeContainerForCleanupWithTimeout(
+	removed := removeContainerForCleanup(
 		context.Background(),
 		dockerSDK,
 		"blocked-container",
@@ -1281,26 +1348,11 @@ func TestCleanupFailedHelperInstall_PreservesErrorsAndRetriesOnClose(t *testing.
 	assert.Empty(t, cli.containerID, "Close must retry removal of the retained container")
 	assert.Equal(t, int32(2), removeCalls.Load())
 }
-
-func TestWrapCommandWithPIDFile_ExecsUserProcess(t *testing.T) {
-	t.Parallel()
-
-	got := wrapCommandWithPIDFile([]string{"sleep", "60"}, "/tmp/dagu/pid")
-	require.GreaterOrEqual(t, len(got), 5)
-	assert.Equal(t, []string{"/bin/sh", "-c"}, got[:2], "wrapper must use /bin/sh so PATH-less images still find it")
-	assert.Contains(t, got[2], `exec "$@"`, "exec keeps the user process as the recorded PID so SIGTERM hits it")
-	assert.NotContains(t, got[2], `"$@" &`, "backgrounding the user process orphans it from the exec on Alpine")
-	assert.Equal(t, "dagu-exec-wrapper", got[3])
-	assert.Equal(t, "/tmp/dagu/pid", got[4])
-	assert.Equal(t, []string{"sleep", "60"}, got[5:])
-}
-
 func TestNativeExecOptions_DoesNotRequireShellOrTmp(t *testing.T) {
 	t.Parallel()
 
 	opts := nativeExecOptions()
 	assert.True(t, opts.TerminateOnCancel)
-	assert.Empty(t, opts.PIDFile)
 
 	got := execCommand(nil, []string{"/app/binary", "--flag"}, opts)
 	assert.Equal(t, []string{"/app/binary", "--flag"}, got)
@@ -1435,18 +1487,15 @@ func TestCgroupIndicatesContainer(t *testing.T) {
 	}
 }
 
-func TestHelperSignalExecOptions_EnforcesTrustBoundary(t *testing.T) {
+// The signal exec only has to reach a process the same user started, so it must
+// not escalate beyond the user the step itself runs as.
+func TestHelperSignalExecOptions_RunsAsStepUserWithoutPrivileges(t *testing.T) {
 	t.Parallel()
 
-	bound := helperSignalExecOptions(cancelHelperBound, "65534", "TERM", "token")
-	assert.Equal(t, "0", bound.User)
-	assert.True(t, bound.Privileged)
-	assert.Equal(t, []string{keepAliveTargetPath, "signal-token", "TERM", "token"}, bound.Cmd)
-
-	copied := helperSignalExecOptions(cancelHelperCopied, "65534", "KILL", "token")
-	assert.Equal(t, "65534", copied.User)
-	assert.False(t, copied.Privileged)
-	assert.Equal(t, []string{keepAliveTargetPath, "signal-token", "KILL", "token"}, copied.Cmd)
+	opts := helperSignalExecOptions("65534", "TERM", "token")
+	assert.Equal(t, "65534", opts.User)
+	assert.False(t, opts.Privileged)
+	assert.Equal(t, []string{keepAliveTargetPath, "signal-token", "TERM", "token"}, opts.Cmd)
 }
 
 func TestNewExecCancelToken_ReturnsUniqueHex(t *testing.T) {
