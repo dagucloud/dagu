@@ -71,6 +71,10 @@ tasks:
 
 ### Root fields
 
+Agent DAGs were previously called controller DAGs. `type: controller` remains
+accepted as a deprecated alias for `type: agent`, and loading a DAG that uses it
+reports a deprecation warning naming the replacement.
+
 `tasks` is an array of objects with `name` and `description`. It is valid only
 when `type` is `agent`, and `type: agent` requires it.
 

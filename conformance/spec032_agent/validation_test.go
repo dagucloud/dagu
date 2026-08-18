@@ -21,6 +21,16 @@ func TestAgentShapeValidation(t *testing.T) {
 		result.ExpectStderr("")
 	})
 
+	// type: controller is the pre-rename spelling of type: agent.
+	t.Run("legacy_controller_type.yaml", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("validate", "legacy_controller_type.yaml")
+		result.ExpectExitCode(0)
+		result.ExpectStderrContains("type: controller is deprecated", "use type: agent")
+	})
+
 	invalid := []struct {
 		file  string
 		parts []string

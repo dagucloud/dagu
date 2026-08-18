@@ -93,7 +93,7 @@ Accepted root fields:
 | `consts` | No | Immutable literal values. |
 | `defaults` | No | Default step settings. |
 | `steps` | Yes | Executable steps. |
-| `type` | No | Step scheduling mode: `graph`, `chain`, or `agent`. |
+| `type` | No | Step scheduling mode: `graph`, `chain`, or `agent`. `controller` is a deprecated alias for `agent`. |
 | `tasks` | Only with `type: agent` | Goals an Agent DAG run must satisfy. |
 | `handler_on` | No | Lifecycle handler steps. |
 | `preconditions` | No | Workflow start conditions. |
