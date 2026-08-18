@@ -69,16 +69,24 @@ func (s *State) compactObservations(keepRecent, maxBytes int, onlyIfSmaller bool
 	}
 
 	references := decisionReferences(s.messages)
-	events := make(map[int]Event, len(s.Events))
+	eventsByCall := make(map[string]Event, len(s.Events))
+	legacyEventsByTurn := make(map[int]Event, len(s.Events))
 	for _, event := range s.Events {
-		events[event.Turn] = event
+		if event.ToolCallID != "" {
+			eventsByCall[event.ToolCallID] = event
+		}
+		legacyEventsByTurn[event.Turn] = event
 	}
 
 	changed := 0
 	for _, index := range toolIndices[:compactCount] {
 		msg := &s.messages[index]
 		ref := references[msg.ToolCallID]
-		summary := observationSummary(ref, events[ref.turn], msg.Content)
+		event, ok := eventsByCall[msg.ToolCallID]
+		if !ok {
+			event = legacyEventsByTurn[ref.turn]
+		}
+		summary := observationSummary(ref, event, msg.Content)
 		if maxBytes > 0 {
 			summary = stringutil.TruncUTF8Bytes(summary, maxBytes)
 		}

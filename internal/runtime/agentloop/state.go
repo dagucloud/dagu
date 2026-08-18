@@ -9,6 +9,7 @@ package agentloop
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -87,6 +88,9 @@ const (
 type Event struct {
 	Turn int    `json:"turn"`
 	Kind string `json:"kind"`
+	// ToolCallID ties this event to its observation when a turn contains
+	// multiple action calls.
+	ToolCallID string `json:"toolCallId,omitempty"`
 	// Name is the step or task the event concerns.
 	Name string `json:"name,omitempty"`
 	// Status is the resulting node status, for action events.
@@ -114,8 +118,12 @@ type State struct {
 	StepRuns map[string]int `json:"stepRuns,omitempty"`
 	// Turns counts LLM decisions made so far.
 	Turns int `json:"turns,omitempty"`
-	// Pending is set while an action is in flight.
+	// Pending is the legacy single action awaiting an observation. It is retained
+	// for runs persisted before action batches were supported.
 	Pending *PendingAction `json:"pending,omitempty"`
+	// PendingActions is the ordered action batch whose observations have not
+	// been reported to the model yet.
+	PendingActions []PendingAction `json:"pendingActions,omitempty"`
 	// Nudges counts consecutive turns where the LLM declined to act while tasks
 	// were still open.
 	Nudges int `json:"nudges,omitempty"`
@@ -178,11 +186,35 @@ func LoadState(raw json.RawMessage, messages []ir.LLMMessage, dag *ir.DAG) (*Sta
 	fresh.Turns = stored.Turns
 	fresh.Nudges = stored.Nudges
 	fresh.Pending = stored.Pending
+	fresh.PendingActions = slices.Clone(stored.PendingActions)
 	if stored.StepRuns != nil {
 		fresh.StepRuns = stored.StepRuns
 	}
 	fresh.messages = messages
 	return fresh, nil
+}
+
+// PendingBatch returns the ordered tool calls awaiting observations.
+func (s *State) PendingBatch() []PendingAction {
+	if len(s.PendingActions) > 0 {
+		return slices.Clone(s.PendingActions)
+	}
+	if s.Pending != nil {
+		return []PendingAction{*s.Pending}
+	}
+	return nil
+}
+
+// SetPendingBatch records an ordered batch awaiting observations.
+func (s *State) SetPendingBatch(actions []PendingAction) {
+	s.Pending = nil
+	s.PendingActions = slices.Clone(actions)
+}
+
+// ClearPendingBatch removes every pending-action representation.
+func (s *State) ClearPendingBatch() {
+	s.Pending = nil
+	s.PendingActions = nil
 }
 
 // RecordAnswer stores a reply so the same question is not put to a person twice.
@@ -214,12 +246,14 @@ func (s *State) RecordEvent(e Event) {
 	s.Events = append(s.Events, e)
 }
 
-// FinalizeEvent updates the most recent event for a step with the outcome it
-// reached. An action that suspended was recorded as waiting, and only the run
-// that resumes knows how it ended.
-func (s *State) FinalizeEvent(step, status, finishedAt, reason string) {
+// FinalizeEvent updates the event for a suspended tool call with the outcome it
+// reached. The step name supports state written before tool-call IDs were kept.
+func (s *State) FinalizeEvent(toolCallID, step, status, finishedAt, reason string) {
 	for i := len(s.Events) - 1; i >= 0; i-- {
-		if s.Events[i].Name != step {
+		if toolCallID != "" && s.Events[i].ToolCallID != toolCallID {
+			continue
+		}
+		if toolCallID == "" && s.Events[i].Name != step {
 			continue
 		}
 		s.Events[i].Status = status

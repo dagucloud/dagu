@@ -1914,69 +1914,6 @@ func TestRunner_DryRunWithHandlers(t *testing.T) {
 }
 
 func TestRunner_ConcurrentExecution(t *testing.T) {
-	sequentialGuardScript := func(name, lockDir string) string {
-		if windowsShellTest() {
-			return fmt.Sprintf(`
-				$lockDir = %s
-				if (-not (New-Item -ItemType Directory -Path $lockDir -ErrorAction SilentlyContinue)) {
-					Write-Error "sequential step %s overlapped another active step"
-					exit 1
-				}
-				try {
-					%s
-				} finally {
-					Remove-Item -LiteralPath $lockDir -Force
-				}
-			`, test.PowerShellQuote(shellTestPath(lockDir)), name, test.Sleep(platformTestDuration(300*time.Millisecond, 600*time.Millisecond)))
-		}
-
-		return fmt.Sprintf(`
-			lock_dir=%s
-			if ! mkdir "$lock_dir"; then
-				echo "sequential step %s overlapped another active step" >&2
-				exit 1
-			fi
-			trap 'rmdir "$lock_dir"' EXIT
-			%s
-		`, test.PosixQuote(lockDir), name, test.Sleep(300*time.Millisecond))
-	}
-
-	concurrentBarrierScript := func(name, readyDir string, readyCount int, timeout time.Duration) string {
-		if windowsShellTest() {
-			return fmt.Sprintf(`
-				$readyDir = %s
-				New-Item -ItemType Directory -Path $readyDir -Force | Out-Null
-				New-Item -ItemType File -Path (Join-Path $readyDir %s) -Force | Out-Null
-				$deadline = (Get-Date).AddSeconds(%d)
-				while (@(Get-ChildItem -LiteralPath $readyDir -File).Count -lt %d) {
-					if ((Get-Date) -ge $deadline) {
-						Write-Error "concurrent step %s did not observe all active steps"
-						exit 1
-					}
-					Start-Sleep -Milliseconds 50
-				}
-			`, test.PowerShellQuote(shellTestPath(readyDir)), test.PowerShellQuote(name), int(timeout/time.Second), readyCount, name)
-		}
-
-		return fmt.Sprintf(`
-			ready_dir=%s
-			mkdir -p "$ready_dir"
-			: > "$ready_dir/%s"
-			deadline=$(( $(date +%%s) + %d ))
-			while true; do
-				ready_count=$(find "$ready_dir" -type f | wc -l | tr -d '[:space:]')
-				if [ "$ready_count" -ge %d ]; then
-					break
-				fi
-				if [ "$(date +%%s)" -ge "$deadline" ]; then
-					echo "concurrent step %s did not observe all active steps" >&2
-					exit 1
-				fi
-				sleep 0.05
-			done
-		`, test.PosixQuote(readyDir), name, int(timeout/time.Second), readyCount, name)
-	}
-
 	steps := func(script func(string) string) []ir.Step {
 		return []ir.Step{
 			newStep("1", withScript(script("1"))),

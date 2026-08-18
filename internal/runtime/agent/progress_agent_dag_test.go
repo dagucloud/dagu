@@ -145,19 +145,23 @@ func TestActionSettled(t *testing.T) {
 	assert.True(t, actionSettled("rejected"))
 }
 
-func TestAgentDAGProgressDisplay_UpdateNode_TracksRunningAction(t *testing.T) {
-	display, _ := newTestAgentDisplay(&ir.DAG{Name: "triage", Type: ir.TypeAgent})
+func TestAgentDAGProgressDisplay_UpdateNode_TracksRunningActions(t *testing.T) {
+	display, out := newTestAgentDisplay(&ir.DAG{Name: "triage", Type: ir.TypeAgent})
 
 	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeRunning})
-	assert.Equal(t, "disk", display.runningAction)
-
-	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeSucceeded})
-	assert.Equal(t, "", display.runningAction)
-
-	// A finished node that is not the one in flight leaves the marker alone.
 	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "load"}, Status: ir.NodeRunning})
+	assert.Equal(t, map[string]struct{}{"disk": {}, "load": {}}, display.runningActions)
+
 	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeSucceeded})
-	assert.Equal(t, "load", display.runningAction)
+	assert.Equal(t, map[string]struct{}{"load": {}}, display.runningActions)
+
+	// A finished node that is not in flight leaves the active set alone.
+	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeSucceeded})
+	assert.Equal(t, map[string]struct{}{"load": {}}, display.runningActions)
+
+	display.UpdateNode(&ir.Node{Step: ir.Step{Name: "disk"}, Status: ir.NodeRunning})
+	display.renderLiveLine()
+	assert.Contains(t, out.String(), "running disk, load")
 }
 
 func TestAgentDAGProgressDisplay_UpdateNode_IgnoresBadState(t *testing.T) {

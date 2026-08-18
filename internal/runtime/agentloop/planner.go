@@ -33,7 +33,7 @@ const (
 	DecideInvalid
 )
 
-// Decision is the single action the agent chose for this turn.
+// Decision is one tool call the agent chose for this turn.
 type Decision struct {
 	Kind       DecisionKind
 	ToolCallID string
@@ -89,7 +89,7 @@ func NewPlanner(
 // Next runs one turn of the decision loop. The conversation in st is extended
 // with the model's reply; the caller is responsible for appending the tool
 // result once the decision has been carried out.
-func (p *Planner) Next(ctx context.Context, st *State) (*Decision, error) {
+func (p *Planner) Next(ctx context.Context, st *State) ([]Decision, error) {
 	msgs := make([]ir.LLMMessage, 0, len(st.Messages())+1)
 	msgs = append(msgs, ir.LLMMessage{Role: ir.LLMRoleSystem, Content: p.systemPrompt(st)})
 	msgs = append(msgs, st.Messages()...)
@@ -125,33 +125,42 @@ func (p *Planner) Next(ctx context.Context, st *State) (*Decision, error) {
 			Content:  resp.Content,
 			Metadata: p.metadata(&resp.Usage),
 		})
-		return &Decision{Kind: DecideStop, Content: resp.Content}, nil
+		return []Decision{{Kind: DecideStop, Content: resp.Content}}, nil
 	}
 
-	// One action per turn: the conversation records only the call that runs, so
-	// history never references a tool result that was never produced.
-	call := resp.ToolCalls[0]
-	st.Append(ir.LLMMessage{
-		Role:    ir.LLMRoleAssistant,
-		Content: resp.Content,
-		ToolCalls: []ir.ToolCall{{
+	toolCalls := make([]ir.ToolCall, len(resp.ToolCalls))
+	for i, call := range resp.ToolCalls {
+		toolCalls[i] = ir.ToolCall{
 			ID:   call.ID,
 			Type: call.Type,
 			Function: ir.ToolCallFunction{
 				Name:      call.Function.Name,
 				Arguments: call.Function.Arguments,
 			},
-		}},
-		Metadata: p.metadata(&resp.Usage),
+		}
+	}
+	st.Append(ir.LLMMessage{
+		Role:      ir.LLMRoleAssistant,
+		Content:   resp.Content,
+		ToolCalls: toolCalls,
+		Metadata:  p.metadata(&resp.Usage),
 	})
 
-	decision := &Decision{ToolCallID: call.ID, ToolName: call.Function.Name}
+	decisions := make([]Decision, len(resp.ToolCalls))
+	for i, call := range resp.ToolCalls {
+		decisions[i] = p.decision(call)
+	}
+	return decisions, nil
+}
+
+func (p *Planner) decision(call llmpkg.ToolCall) Decision {
+	decision := Decision{ToolCallID: call.ID, ToolName: call.Function.Name}
 
 	args, err := decodeArgs(call.Function.Arguments)
 	if err != nil {
 		decision.Kind = DecideInvalid
 		decision.Problem = fmt.Sprintf("could not decode arguments: %v", err)
-		return decision, nil
+		return decision
 	}
 
 	if call.Function.Name == AskUserTool {
@@ -159,11 +168,11 @@ func (p *Planner) Next(ctx context.Context, st *State) (*Decision, error) {
 		if strings.TrimSpace(question) == "" {
 			decision.Kind = DecideInvalid
 			decision.Problem = AskUserTool + " requires a question"
-			return decision, nil
+			return decision
 		}
 		decision.Kind = DecideAskUser
 		decision.Question = question
-		return decision, nil
+		return decision
 	}
 
 	if call.Function.Name == SetTaskStatusTool {
@@ -173,19 +182,19 @@ func (p *Planner) Next(ctx context.Context, st *State) (*Decision, error) {
 		if task == "" {
 			decision.Kind = DecideInvalid
 			decision.Problem = SetTaskStatusTool + " requires a task name"
-			return decision, nil
+			return decision
 		}
 		if !ValidTaskStatus(status) {
 			decision.Kind = DecideInvalid
 			decision.Problem = fmt.Sprintf(
 				"%q is not a task status; use completed, skipped, failed, or open", status)
-			return decision, nil
+			return decision
 		}
 		decision.Kind = DecideSetTaskStatus
 		decision.Task = task
 		decision.TaskStatus = TaskStatus(status)
 		decision.Reason = reason
-		return decision, nil
+		return decision
 	}
 
 	step, ok := p.catalog.StepFor(call.Function.Name)
@@ -193,13 +202,13 @@ func (p *Planner) Next(ctx context.Context, st *State) (*Decision, error) {
 		decision.Kind = DecideInvalid
 		decision.Problem = fmt.Sprintf("no such action %q; available actions are %s",
 			call.Function.Name, strings.Join(p.catalog.ToolNames(), ", "))
-		return decision, nil
+		return decision
 	}
 
 	decision.Kind = DecideRunStep
 	decision.Step = step
 	decision.Args = args
-	return decision, nil
+	return decision
 }
 
 // systemPrompt states the agent's job, the actions available to it, and the
@@ -212,8 +221,9 @@ func (p *Planner) systemPrompt(st *State) string {
 		sb.WriteString("\n\n")
 	}
 
-	sb.WriteString("You are the agent of this workflow. Each turn you choose exactly one action ")
-	sb.WriteString("by calling exactly one tool. You observe the result, then choose again.\n\n")
+	sb.WriteString("You are the agent of this workflow. Each turn, call one or more independent ")
+	sb.WriteString("action tools, or call exactly one control tool. Actions chosen together run as ")
+	sb.WriteString("one batch. You observe every result, then choose again.\n\n")
 
 	sb.WriteString("Tasks — the run ends once none is open, and fails if any is failed:\n")
 	for _, task := range st.Tasks {
@@ -239,7 +249,10 @@ func (p *Planner) systemPrompt(st *State) string {
 	}
 
 	sb.WriteString("\nRules:\n")
-	sb.WriteString("- Call exactly one tool per turn.\n")
+	sb.WriteString("- Call one or more action tools in the same turn only when they are independent. ")
+	sb.WriteString("Actions in one batch cannot use each other's outputs.\n")
+	fmt.Fprintf(&sb, "- Call %s and %s alone; do not combine either with another tool call.\n",
+		SetTaskStatusTool, AskUserTool)
 	fmt.Fprintf(&sb, "- Call %s to settle a task: completed once its criteria are met, "+
 		"skipped when it turns out nothing needs doing, failed when it cannot be achieved.\n",
 		SetTaskStatusTool)

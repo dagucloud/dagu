@@ -6,6 +6,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -33,14 +34,14 @@ type AgentDAGProgressDisplay struct {
 	dagRunID string
 	params   string
 
-	mu            sync.Mutex
-	status        ir.Status
-	state         agentloop.State
-	printedEvents int
-	runningAction string
-	spinnerIndex  int
-	startTime     time.Time
-	liveLineShown bool
+	mu             sync.Mutex
+	status         ir.Status
+	state          agentloop.State
+	printedEvents  int
+	runningActions map[string]struct{}
+	spinnerIndex   int
+	startTime      time.Time
+	liveLineShown  bool
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -54,6 +55,7 @@ func NewAgentDAGProgressDisplay(dag *ir.DAG) *AgentDAGProgressDisplay {
 	return &AgentDAGProgressDisplay{
 		progressWriter: newProgressWriter(),
 		dag:            dag,
+		runningActions: make(map[string]struct{}),
 		stopCh:         make(chan struct{}),
 		done:           make(chan struct{}),
 	}
@@ -91,11 +93,10 @@ func (p *AgentDAGProgressDisplay) UpdateNode(node *ir.Node) {
 		return
 	}
 
-	switch {
-	case node.Status == ir.NodeRunning:
-		p.runningAction = node.Step.Name
-	case p.runningAction == node.Step.Name:
-		p.runningAction = ""
+	if node.Status == ir.NodeRunning {
+		p.runningActions[node.Step.Name] = struct{}{}
+	} else {
+		delete(p.runningActions, node.Step.Name)
 	}
 }
 
@@ -151,10 +152,8 @@ func (p *AgentDAGProgressDisplay) run() {
 // flushEventsLocked prints timeline entries in order, each exactly once. An
 // action entry is held back until its status is settled: a resumed run
 // finalizes a suspended action in place, so printing it as waiting would
-// freeze a stale mark into the scrollback. The agent runs one action per
-// turn, so at most the newest entry is held back and every entry behind it has
-// settled. With final set, held-back entries print as they stand, because
-// nothing will settle them in this process.
+// freeze a stale mark into the scrollback. With final set, held-back entries
+// print as they stand, because nothing will settle them in this process.
 func (p *AgentDAGProgressDisplay) flushEventsLocked(final bool) {
 	for ; p.printedEvents < len(p.state.Events); p.printedEvents++ {
 		event := p.state.Events[p.printedEvents]
@@ -233,8 +232,13 @@ func (p *AgentDAGProgressDisplay) renderLiveLine() {
 	p.spinnerIndex++
 
 	activity := "deciding"
-	if p.runningAction != "" {
-		activity = "running " + p.runningAction
+	if len(p.runningActions) > 0 {
+		actions := make([]string, 0, len(p.runningActions))
+		for action := range p.runningActions {
+			actions = append(actions, action)
+		}
+		sort.Strings(actions)
+		activity = "running " + strings.Join(actions, ", ")
 	}
 
 	elapsed := stringutil.FormatDuration(time.Since(p.startTime))

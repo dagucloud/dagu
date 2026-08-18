@@ -54,7 +54,7 @@ func (p *agentModelPlanner) Next(
 	state *agentloop.State,
 	observationKeepRecent int,
 	observationMaxBytes int,
-) (*agentloop.Decision, error) {
+) ([]agentloop.Decision, error) {
 	recoveryAttempted := false
 
 	for {
@@ -117,7 +117,7 @@ func (p *agentModelPlanner) Next(
 func (c *agentModelCandidate) Next(
 	ctx context.Context,
 	state *agentloop.State,
-) (*agentloop.Decision, error) {
+) ([]agentloop.Decision, error) {
 	if c.setupErr != nil {
 		return nil, c.setupErr
 	}

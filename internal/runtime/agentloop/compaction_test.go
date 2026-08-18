@@ -56,6 +56,38 @@ func TestState_CompactsOldObservationsFromDecisionTimeline(t *testing.T) {
 	assert.Equal(t, state.Messages(), restored.Messages())
 }
 
+func TestState_CompactsParallelObservationsAgainstTheirOwnEvents(t *testing.T) {
+	t.Parallel()
+
+	state := agentloop.NewState(&ir.DAG{})
+	state.Events = []agentloop.Event{
+		{
+			Turn: 1, Kind: agentloop.EventAction, Name: "alpha", Status: "succeeded",
+			ToolCallID: "call_alpha",
+		},
+		{
+			Turn: 1, Kind: agentloop.EventAction, Name: "beta", Status: "failed",
+			Reason: "exit status 2", ToolCallID: "call_beta",
+		},
+	}
+	state.Append(
+		ir.LLMMessage{
+			Role: ir.LLMRoleAssistant,
+			ToolCalls: []ir.ToolCall{
+				{ID: "call_alpha", Function: ir.ToolCallFunction{Name: "alpha"}},
+				{ID: "call_beta", Function: ir.ToolCallFunction{Name: "beta"}},
+			},
+		},
+		toolMessage("call_alpha", "status: succeeded\n"+strings.Repeat("alpha output ", 20)),
+		toolMessage("call_beta", "status: failed\n"+strings.Repeat("beta output ", 20)),
+	)
+
+	assert.Equal(t, 2, state.CompactAllObservations(ir.DefaultAgentObservationMaxBytes))
+	messages := state.Messages()
+	assert.Equal(t, "turn 1: alpha → succeeded", messages[1].Content)
+	assert.Equal(t, "turn 1: beta → failed (exit status 2)", messages[2].Content)
+}
+
 func TestState_CompactsObservationWithoutTimelineEvent(t *testing.T) {
 	t.Parallel()
 

@@ -37,7 +37,13 @@ type turn struct {
 	// tool and args produce a tool call; leave tool empty to answer with prose.
 	tool    string
 	args    map[string]any
+	calls   []scriptedToolCall
 	content string
+}
+
+type scriptedToolCall struct {
+	tool string
+	args map[string]any
 }
 
 // fakeModel serves the OpenAI-compatible chat completions API, replying with a
@@ -53,6 +59,7 @@ type fakeModel struct {
 	promptTokens           int
 	system                 string
 	toolResults            []string
+	toolResultIDs          []string
 }
 
 // lastSystemPrompt returns the system message of the most recent request.
@@ -70,6 +77,12 @@ func (m *fakeModel) observations() []string {
 	return append([]string(nil), m.toolResults...)
 }
 
+func (m *fakeModel) observationIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.toolResultIDs...)
+}
+
 // captureSystem records the system message so tests can assert on the prompt.
 func (m *fakeModel) captureSystem(r *http.Request) {
 	body, err := io.ReadAll(r.Body)
@@ -78,8 +91,9 @@ func (m *fakeModel) captureSystem(r *http.Request) {
 	}
 	var req struct {
 		Messages []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
+			Role       string `json:"role"`
+			Content    string `json:"content"`
+			ToolCallID string `json:"tool_call_id"`
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -88,12 +102,14 @@ func (m *fakeModel) captureSystem(r *http.Request) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.toolResults = m.toolResults[:0]
+	m.toolResultIDs = m.toolResultIDs[:0]
 	for _, msg := range req.Messages {
 		switch msg.Role {
 		case "system":
 			m.system = msg.Content
 		case "tool":
 			m.toolResults = append(m.toolResults, msg.Content)
+			m.toolResultIDs = append(m.toolResultIDs, msg.ToolCallID)
 		}
 	}
 }
@@ -190,16 +206,28 @@ func (m *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	message := map[string]any{"role": "assistant", "content": t.content}
 	finish := "stop"
-	if t.tool != "" {
-		args, _ := json.Marshal(t.args)
-		message["tool_calls"] = []map[string]any{{
-			"id":   fmt.Sprintf("call_%d", m.callCount()),
-			"type": "function",
-			"function": map[string]any{
-				"name":      t.tool,
-				"arguments": string(args),
-			},
-		}}
+	if t.tool != "" || len(t.calls) > 0 {
+		calls := t.calls
+		if len(calls) == 0 {
+			calls = []scriptedToolCall{{tool: t.tool, args: t.args}}
+		}
+		toolCalls := make([]map[string]any, len(calls))
+		for i, call := range calls {
+			args, _ := json.Marshal(call.args)
+			id := fmt.Sprintf("call_%d", m.callCount())
+			if len(calls) > 1 {
+				id = fmt.Sprintf("%s_%d", id, i+1)
+			}
+			toolCalls[i] = map[string]any{
+				"id":   id,
+				"type": "function",
+				"function": map[string]any{
+					"name":      call.tool,
+					"arguments": string(args),
+				},
+			}
+		}
+		message["tool_calls"] = toolCalls
 		finish = "tool_calls"
 	}
 
@@ -240,23 +268,24 @@ func setupAgentModels(
 	t.Helper()
 
 	models := append([]*fakeModel{primary}, fallbacks...)
-	formatArgs := make([]any, 0, len(models))
+	formattedYAML := yamlTemplate
 	for _, model := range models {
 		server := httptest.NewServer(model)
 		t.Cleanup(server.Close)
-		formatArgs = append(formatArgs, server.URL)
+		formattedYAML = strings.Replace(formattedYAML, "%s", server.URL, 1)
 	}
 
 	th := test.Setup(t)
-	dag, err := spec.LoadYAML(th.Context, fmt.Appendf(nil, yamlTemplate, formatArgs...))
+	dag, err := spec.LoadYAML(th.Context, []byte(formattedYAML))
 	require.NoError(t, err)
 
 	plan, err := runtime.NewPlan(dag.Steps...)
 	require.NoError(t, err)
 
 	cfg := &runtime.Config{
-		LogDir:   th.Config.Paths.LogDir,
-		DAGRunID: uuid.Must(uuid.NewV7()).String(),
+		LogDir:         th.Config.Paths.LogDir,
+		DAGRunID:       uuid.Must(uuid.NewV7()).String(),
+		MaxActiveSteps: dag.MaxActiveSteps,
 	}
 
 	return &agentHelper{
@@ -336,6 +365,273 @@ func TestAgentLoop_CompletesEveryTask(t *testing.T) {
 	// The agent never chose boom, so it is skipped rather than left pending.
 	assert.Equal(t, ir.NodeSkipped, ch.node(t, "boom").State().Status)
 	assert.Equal(t, ir.NodeSucceeded, ch.node(t, ir.AgentStepName).State().Status)
+}
+
+func TestAgentLoop_RunsEveryActionCallFromOneTurn(t *testing.T) {
+	t.Parallel()
+
+	ch := setupAgent(t, agentDAG,
+		turn{calls: []scriptedToolCall{{tool: "alpha"}, {tool: "beta"}}},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "alpha ran"}},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "completed", "reason": "beta ran"}},
+	)
+
+	require.Equal(t, ir.Succeeded, ch.run(t))
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "alpha").State().Status)
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "beta").State().Status)
+
+	events := agentloop.EventsFromState(ch.node(t, ir.AgentStepName).State().AgentState)
+	require.GreaterOrEqual(t, len(events), 2)
+	assert.Equal(t, 1, events[0].Turn)
+	assert.Equal(t, 1, events[1].Turn)
+	assert.Equal(t, "alpha", events[0].Name)
+	assert.Equal(t, "beta", events[1].Name)
+}
+
+func TestAgentLoop_RunsIndependentActionBatchConcurrently(t *testing.T) {
+	t.Parallel()
+
+	readyDir := t.TempDir()
+	dagYAML := fmt.Sprintf(`
+type: agent
+llm:
+  provider: local
+  model: test-model
+  base_url: %%s
+steps:
+  - name: alpha
+    run: |
+%s
+  - name: beta
+    run: |
+%s
+tasks:
+  - name: finished
+    description: done when both actions ran
+`, indentAgentScript(concurrentBarrierScript(
+		"alpha", readyDir, 2, platformTestDuration(3*time.Second, 10*time.Second))),
+		indentAgentScript(concurrentBarrierScript(
+			"beta", readyDir, 2, platformTestDuration(3*time.Second, 10*time.Second))))
+
+	ch := setupAgent(t, dagYAML,
+		turn{calls: []scriptedToolCall{{tool: "alpha"}, {tool: "beta"}}},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "finished", "status": "completed", "reason": "both ran"}},
+	)
+
+	require.Equal(t, ir.Succeeded, ch.run(t))
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "alpha").State().Status)
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "beta").State().Status)
+	observationIDs := ch.model.observationIDs()
+	require.GreaterOrEqual(t, len(observationIDs), 2)
+	assert.Equal(t, []string{"call_1_1", "call_1_2"}, observationIDs[:2])
+}
+
+func TestAgentLoop_ActionBatchHonorsMaxActiveSteps(t *testing.T) {
+	t.Parallel()
+
+	lockDir := path.Join(t.TempDir(), "active")
+	dagYAML := fmt.Sprintf(`
+type: agent
+max_active_steps: 1
+llm:
+  provider: local
+  model: test-model
+  base_url: %%s
+steps:
+  - name: alpha
+    run: |
+%s
+  - name: beta
+    run: |
+%s
+tasks:
+  - name: finished
+    description: done when both actions ran
+`, indentAgentScript(sequentialGuardScript("alpha", lockDir)),
+		indentAgentScript(sequentialGuardScript("beta", lockDir)))
+
+	ch := setupAgent(t, dagYAML,
+		turn{calls: []scriptedToolCall{{tool: "alpha"}, {tool: "beta"}}},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "finished", "status": "completed", "reason": "both ran"}},
+	)
+
+	require.Equal(t, ir.Succeeded, ch.run(t))
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "alpha").State().Status)
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "beta").State().Status)
+}
+
+func TestAgentLoop_ActionBatchCannotReadSiblingOutputs(t *testing.T) {
+	t.Parallel()
+
+	const dagYAML = `
+type: agent
+llm:
+  provider: local
+  model: test-model
+  base_url: %s
+steps:
+  - name: produce
+    id: produce
+    action: outputs.write
+    with:
+      values:
+        VALUE: ready
+  - name: consume
+    id: consume
+    run: echo ${produce.outputs.VALUE}
+tasks:
+  - name: finished
+    description: done when consume reads the prior output
+`
+
+	ch := setupAgent(t, dagYAML,
+		turn{calls: []scriptedToolCall{{tool: "produce"}, {tool: "consume"}}},
+		turn{tool: "consume"},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "finished", "status": "completed", "reason": "output consumed"}},
+	)
+
+	require.Equal(t, ir.Succeeded, ch.run(t))
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "produce").State().Status)
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "consume").State().Status)
+
+	events := agentloop.EventsFromState(ch.node(t, ir.AgentStepName).State().AgentState)
+	require.GreaterOrEqual(t, len(events), 3)
+	assert.Equal(t, "produce", events[0].Name)
+	assert.Equal(t, ir.NodeSucceeded.String(), events[0].Status)
+	assert.Equal(t, "consume", events[1].Name)
+	assert.Equal(t, ir.NodeFailed.String(), events[1].Status)
+	assert.Equal(t, "consume", events[2].Name)
+	assert.Equal(t, ir.NodeSucceeded.String(), events[2].Status)
+}
+
+func TestAgentLoop_ActionBatchReportsFailuresWithoutCancelingSiblings(t *testing.T) {
+	t.Parallel()
+
+	ch := setupAgent(t, agentDAG,
+		turn{calls: []scriptedToolCall{{tool: "boom"}, {tool: "alpha"}}},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "alpha ran"}},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "skipped", "reason": "not needed"}},
+	)
+
+	require.Equal(t, ir.PartiallySucceeded, ch.run(t))
+	assert.Equal(t, ir.NodeFailed, ch.node(t, "boom").State().Status)
+	assert.Equal(t, ir.NodeSucceeded, ch.node(t, "alpha").State().Status)
+	observationIDs := ch.model.observationIDs()
+	require.GreaterOrEqual(t, len(observationIDs), 2)
+	assert.Equal(t, []string{"call_1_1", "call_1_2"}, observationIDs[:2])
+
+	events := agentloop.EventsFromState(ch.node(t, ir.AgentStepName).State().AgentState)
+	require.GreaterOrEqual(t, len(events), 2)
+	assert.Equal(t, "boom", events[0].Name)
+	assert.Equal(t, ir.NodeFailed.String(), events[0].Status)
+	assert.Equal(t, "alpha", events[1].Name)
+	assert.Equal(t, ir.NodeSucceeded.String(), events[1].Status)
+}
+
+func indentAgentScript(script string) string {
+	return "      " + strings.ReplaceAll(strings.TrimSpace(script), "\n", "\n      ")
+}
+
+func TestAgentLoop_RejectsInvalidActionBatchesAtomically(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		calls []scriptedToolCall
+	}{
+		{
+			name: "ControlCallMixedWithAction",
+			calls: []scriptedToolCall{
+				{tool: "alpha"},
+				{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+					"task": "first", "status": "completed", "reason": "too early"}},
+			},
+		},
+		{
+			name: "SameActionTwice",
+			calls: []scriptedToolCall{
+				{tool: "alpha"},
+				{tool: "alpha"},
+			},
+		},
+		{
+			name: "UnknownCallMixedWithAction",
+			calls: []scriptedToolCall{
+				{tool: "does_not_exist"},
+				{tool: "alpha"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ch := setupAgent(t, agentDAG,
+				turn{calls: tt.calls},
+				turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+					"task": "first", "status": "completed", "reason": "done later"}},
+				turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+					"task": "second", "status": "skipped", "reason": "not needed"}},
+			)
+
+			require.Equal(t, ir.Succeeded, ch.run(t))
+			assert.Equal(t, ir.NodeSkipped, ch.node(t, "alpha").State().Status)
+
+			events := agentloop.EventsFromState(
+				ch.node(t, ir.AgentStepName).State().AgentState)
+			require.GreaterOrEqual(t, len(events), len(tt.calls))
+			for i := range tt.calls {
+				assert.Equal(t, agentloop.EventRejected, events[i].Kind)
+				assert.Equal(t, 1, events[i].Turn)
+			}
+			observations := ch.model.observations()
+			require.GreaterOrEqual(t, len(observations), len(tt.calls))
+			for i := range tt.calls {
+				assert.Contains(t, observations[i], "action batch rejected")
+			}
+			assert.Contains(t,
+				transcript(ch.node(t, ir.AgentStepName).GetChatMessages()),
+				"action batch rejected")
+		})
+	}
+}
+
+func TestAgentLoop_RejectsWholeBatchWhenAnActionReachedItsRunLimit(t *testing.T) {
+	t.Parallel()
+
+	turns := make([]turn, 0, ir.DefaultAgentMaxStepRuns+3)
+	for range ir.DefaultAgentMaxStepRuns {
+		turns = append(turns, turn{tool: "alpha"})
+	}
+	turns = append(turns,
+		turn{calls: []scriptedToolCall{{tool: "alpha"}, {tool: "beta"}}},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "first", "status": "completed", "reason": "limit reached"}},
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "second", "status": "skipped", "reason": "batch rejected"}},
+	)
+	ch := setupAgent(t, agentDAG, turns...)
+
+	require.Equal(t, ir.Succeeded, ch.run(t))
+	assert.Equal(t, ir.NodeSkipped, ch.node(t, "beta").State().Status)
+	state, err := agentloop.LoadState(
+		ch.node(t, ir.AgentStepName).State().AgentState,
+		ch.node(t, ir.AgentStepName).GetChatMessages(), ch.dag)
+	require.NoError(t, err)
+	assert.Equal(t, ir.DefaultAgentMaxStepRuns, state.StepRunCount("alpha"))
+
+	events := agentloop.EventsFromState(ch.node(t, ir.AgentStepName).State().AgentState)
+	require.GreaterOrEqual(t, len(events), ir.DefaultAgentMaxStepRuns+2)
+	assert.Equal(t, agentloop.EventRejected, events[ir.DefaultAgentMaxStepRuns].Kind)
+	assert.Equal(t, agentloop.EventRejected, events[ir.DefaultAgentMaxStepRuns+1].Kind)
 }
 
 func TestAgentLoop_RecoversFromFailedAction(t *testing.T) {
@@ -690,36 +986,144 @@ func TestAgentLoop_SuspendsForHumanTaskAndResumes(t *testing.T) {
 		"the conversation from before the suspension is preserved")
 }
 
+func TestAgentLoop_WaitsForAnEntireActionBatchBeforeReportingResults(t *testing.T) {
+	t.Parallel()
+
+	ch := setupAgent(t, agentHumanTaskDAG,
+		turn{calls: []scriptedToolCall{{tool: "alpha"}, {tool: "review"}}},
+	)
+
+	require.Equal(t, ir.Waiting, ch.run(t))
+	state, err := agentloop.LoadState(
+		ch.node(t, ir.AgentStepName).State().AgentState,
+		ch.node(t, ir.AgentStepName).GetChatMessages(), ch.dag)
+	require.NoError(t, err)
+	require.Len(t, state.PendingBatch(), 2)
+	for _, message := range state.Messages() {
+		assert.NotEqual(t, ir.LLMRoleTool, message.Role,
+			"batch results remain withheld while one action is waiting")
+	}
+
+	restored := roundTripNodes(t, ch, func(node *ir.Node) {
+		if node.Step.Name == "review" {
+			node.Status = ir.NodeSucceeded
+			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
+		}
+	})
+	resumed := resumeAgent(t, ch, restored,
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "shipped", "status": "completed", "reason": "approved"}},
+	)
+
+	require.Equal(t, ir.Succeeded, resumed.status)
+	assert.Equal(t, []string{"call_1_1", "call_1_2"}, resumed.model.observationIDs())
+	assert.Contains(t, resumed.transcript, "alpha")
+	assert.Contains(t, resumed.transcript, `{"approved":true}`)
+}
+
+func TestAgentLoop_DoesNotResumeModelUntilEveryWaitingBatchMemberFinishes(t *testing.T) {
+	t.Parallel()
+
+	const dagYAML = `
+type: agent
+llm:
+  provider: local
+  model: test-model
+  base_url: %s
+steps:
+  - id: review_alpha
+    name: review_alpha
+    action: human.task
+    with:
+      prompt: approve alpha?
+  - id: review_beta
+    name: review_beta
+    action: human.task
+    with:
+      prompt: approve beta?
+tasks:
+  - name: shipped
+    description: done when both reviews are approved
+`
+
+	ch := setupAgent(t, dagYAML,
+		turn{calls: []scriptedToolCall{{tool: "review_alpha"}, {tool: "review_beta"}}},
+	)
+	require.Equal(t, ir.Waiting, ch.run(t))
+
+	firstReview := roundTripNodes(t, ch, func(node *ir.Node) {
+		if node.Step.Name == "review_alpha" {
+			node.Status = ir.NodeSucceeded
+			node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
+		}
+	})
+	stillWaiting := resumeAgentWith(t, ch, dagYAML, firstReview)
+	require.Equal(t, ir.Waiting, stillWaiting.status)
+	assert.Equal(t, 0, stillWaiting.model.callCount())
+
+	state, err := agentloop.LoadState(stillWaiting.agentState, nil, ch.dag)
+	require.NoError(t, err)
+	assert.Len(t, state.PendingBatch(), 2)
+
+	secondReview := roundTripRuntimeNodes(
+		t, ch.dag, ch.cfg.DAGRunID, stillWaiting.nodes, func(node *ir.Node) {
+			if node.Step.Name == "review_beta" {
+				node.Status = ir.NodeSucceeded
+				node.HumanTaskInput = json.RawMessage(`{"approved":true}`)
+			}
+		})
+	resumed := resumeAgentWith(t, ch, dagYAML, secondReview,
+		turn{tool: agentloop.SetTaskStatusTool, args: map[string]any{
+			"task": "shipped", "status": "completed", "reason": "both approved"}},
+	)
+
+	require.Equal(t, ir.Succeeded, resumed.status)
+	assert.Equal(t, []string{"call_1_1", "call_1_2"}, resumed.model.observationIDs())
+}
+
 // roundTripNodes serializes the plan's nodes the way a finished attempt is
 // persisted and reads them back, so the test exercises real persistence rather
 // than in-memory state.
 func roundTripNodes(t *testing.T, ch *agentHelper, complete func(*ir.Node)) []*runtime.Node {
 	t.Helper()
+	return roundTripRuntimeNodes(t, ch.dag, ch.cfg.DAGRunID, ch.plan.Nodes(), complete)
+}
 
-	nodeData := make([]runtime.NodeData, 0, len(ch.plan.Nodes()))
-	for _, node := range ch.plan.Nodes() {
+func roundTripRuntimeNodes(
+	t *testing.T,
+	dag *ir.DAG,
+	dagRunID string,
+	nodes []*runtime.Node,
+	complete func(*ir.Node),
+) []*runtime.Node {
+	t.Helper()
+
+	nodeData := make([]runtime.NodeData, 0, len(nodes))
+	for _, node := range nodes {
 		nodeData = append(nodeData, node.NodeData())
 	}
-	status := ir.NewStatusBuilder(ch.dag).Create(
-		ch.cfg.DAGRunID, ir.Waiting, 0, time.Now(), transform.WithNodes(nodeData))
+	status := ir.NewStatusBuilder(dag).Create(
+		dagRunID, ir.Waiting, 0, time.Now(), transform.WithNodes(nodeData))
 
 	encoded, err := json.Marshal(status)
 	require.NoError(t, err)
 	var decoded ir.DAGRunStatus
 	require.NoError(t, json.Unmarshal(encoded, &decoded))
 
-	nodes := make([]*runtime.Node, 0, len(decoded.Nodes))
+	restoredNodes := make([]*runtime.Node, 0, len(decoded.Nodes))
 	for _, node := range decoded.Nodes {
 		complete(node)
-		nodes = append(nodes, transform.ToNode(node))
+		restoredNodes = append(restoredNodes, transform.ToNode(node))
 	}
-	return nodes
+	return restoredNodes
 }
 
 type resumeResult struct {
 	status     ir.Status
 	transcript string
 	agentState json.RawMessage
+	model      *fakeModel
+	nodes      []*runtime.Node
 }
 
 func resumeAgent(t *testing.T, prev *agentHelper, nodes []*runtime.Node, turns ...turn) resumeResult {
@@ -740,14 +1144,18 @@ func resumeAgentWith(
 	server := httptest.NewServer(model)
 	t.Cleanup(server.Close)
 
-	dag, err := spec.LoadYAML(prev.Context, fmt.Appendf(nil, yamlTemplate, server.URL))
+	dag, err := spec.LoadYAML(prev.Context, []byte(strings.Replace(yamlTemplate, "%s", server.URL, 1)))
 	require.NoError(t, err)
 	dag.WorkingDir = t.TempDir()
 
 	plan, err := runtime.NewPlanFromNodes(nodes...)
 	require.NoError(t, err)
 
-	cfg := &runtime.Config{LogDir: prev.cfg.LogDir, DAGRunID: prev.cfg.DAGRunID}
+	cfg := &runtime.Config{
+		LogDir:         prev.cfg.LogDir,
+		DAGRunID:       prev.cfg.DAGRunID,
+		MaxActiveSteps: dag.MaxActiveSteps,
+	}
 	runner := runtime.New(cfg)
 
 	logPath := path.Join(cfg.LogDir, fmt.Sprintf("%s_resume.log", dag.Name))
@@ -770,6 +1178,8 @@ func resumeAgentWith(
 		status:     runner.Status(context.Background(), plan),
 		transcript: transcript(agent.GetChatMessages()),
 		agentState: agent.State().AgentState,
+		model:      model,
+		nodes:      plan.Nodes(),
 	}
 }
 

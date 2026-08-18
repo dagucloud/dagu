@@ -27,10 +27,10 @@ import (
 // agent as an observation.
 const observationLogLines = 40
 
-// runAgentLoop drives an agent DAG: the model picks one action per
-// turn, the runner carries it out, and the outcome is fed back as an
-// observation. The loop ends when every task is complete, when an action opens a
-// human task, or when a limit is reached.
+// runAgentLoop drives an agent DAG: the model picks actions, the runner carries
+// them out, and their outcomes are fed back as observations. The loop ends when
+// every task is complete, when an action opens a human task, or when a limit is
+// reached.
 func (r *Runner) runAgentLoop(ctx context.Context, plan *Plan, progressCh chan *Node) {
 	dag := GetDAGContext(ctx).DAG
 
@@ -92,12 +92,25 @@ func (r *Runner) runAgentLoop(ctx context.Context, plan *Plan, progressCh chan *
 			return MaskSecretsForProvider(agentCtx, msgs)
 		})
 
-	// A run that suspended mid-action resumes here: report what became of the
-	// action before asking for the next decision.
-	if pending := state.Pending; pending != nil {
-		answered := plan.GetNodeByName(pending.Step)
-		state.Append(observe(agentCtx, answered, pending.ToolCallID))
-		if answered != nil {
+	// A run that suspended mid-batch resumes here. No result from the batch is
+	// reported until every waiting member has finished.
+	if pending := state.PendingBatch(); len(pending) > 0 {
+		for _, action := range pending {
+			node := plan.GetNodeByName(action.Step)
+			if node != nil && node.State().Status == ir.NodeWaiting {
+				r.persistAgent(agentCtx, agentNode, state, progressCh)
+				agentNode.SetStatus(ir.NodeSucceeded)
+				r.report(progressCh, agentNode)
+				return
+			}
+		}
+
+		for _, action := range pending {
+			answered := plan.GetNodeByName(action.Step)
+			state.Append(observe(agentCtx, answered, action.ToolCallID))
+			if answered == nil {
+				continue
+			}
 			answeredState := answered.State()
 			finishedAt := ""
 			if !answeredState.FinishedAt.IsZero() {
@@ -107,16 +120,17 @@ func (r *Runner) runAgentLoop(ctx context.Context, plan *Plan, progressCh chan *
 			if answeredState.Error != nil {
 				errText = answeredState.Error.Error()
 			}
-			state.FinalizeEvent(pending.Step, answeredState.Status.String(), finishedAt, errText)
+			state.FinalizeEvent(action.ToolCallID, action.Step,
+				answeredState.Status.String(), finishedAt, errText)
 
-			if pending.Question != "" {
+			if action.Question != "" {
 				if answer, ok := askUserAnswer(answered, answeredState.HumanTaskInput); ok {
-					state.RecordAnswer(pending.Question, limitAgentObservation(
+					state.RecordAnswer(action.Question, limitAgentObservation(
 						answer, dag.AgentObservationMaxBytes()))
 				}
 			}
 		}
-		state.Pending = nil
+		state.ClearPendingBatch()
 		r.persistAgent(agentCtx, agentNode, state, progressCh)
 	}
 
@@ -150,7 +164,7 @@ func (r *Runner) runAgentLoop(ctx context.Context, plan *Plan, progressCh chan *
 				observationKeepRecent, dag.AgentObservationMaxBytes())
 		}
 
-		decision, err := planner.Next(
+		decisions, err := planner.Next(
 			agentCtx, state, observationKeepRecent, dag.AgentObservationMaxBytes())
 		if err != nil {
 			r.failAgent(agentCtx, plan, agentNode, err, progressCh)
@@ -168,7 +182,7 @@ func (r *Runner) runAgentLoop(ctx context.Context, plan *Plan, progressCh chan *
 			return
 		}
 
-		suspended, err := r.applyDecision(agentCtx, plan, state, decision, progressCh)
+		suspended, err := r.applyDecisions(agentCtx, plan, state, decisions, progressCh)
 		if err != nil {
 			r.failAgent(agentCtx, plan, agentNode, err, progressCh)
 			return
@@ -201,6 +215,68 @@ func (r *Runner) runAgentLoop(ctx context.Context, plan *Plan, progressCh chan *
 	logger.Info(agentCtx, "Agent settled every task", slog.Int("turns", state.Turns))
 }
 
+func (r *Runner) applyDecisions(
+	ctx context.Context,
+	plan *Plan,
+	state *agentloop.State,
+	decisions []agentloop.Decision,
+	progressCh chan *Node,
+) (bool, error) {
+	if len(decisions) > 1 {
+		if problem := validateAgentActionBatch(plan, state, decisions); problem != "" {
+			state.Nudges = 0
+			for _, decision := range decisions {
+				state.RecordEvent(agentloop.Event{
+					Kind:       agentloop.EventRejected,
+					Name:       decision.ToolName,
+					Reason:     problem,
+					ToolCallID: decision.ToolCallID,
+				})
+				state.Append(toolResult(ctx, decision.ToolCallID,
+					"Error: action batch rejected: "+problem))
+			}
+			return false, nil
+		}
+		return r.runAgentActionBatch(ctx, plan, state, decisions, progressCh)
+	}
+	for i := range decisions {
+		suspended, err := r.applyDecision(ctx, plan, state, &decisions[i], progressCh)
+		if suspended || err != nil {
+			return suspended, err
+		}
+	}
+	return false, nil
+}
+
+func validateAgentActionBatch(
+	plan *Plan,
+	state *agentloop.State,
+	decisions []agentloop.Decision,
+) string {
+	seen := make(map[string]struct{}, len(decisions))
+	for _, decision := range decisions {
+		if decision.Kind != agentloop.DecideRunStep {
+			if decision.Kind == agentloop.DecideInvalid {
+				return decision.Problem
+			}
+			return "multiple tool calls may contain only workflow actions; " +
+				agentloop.AskUserTool + " and " + agentloop.SetTaskStatusTool + " must be called alone"
+		}
+		if _, ok := seen[decision.Step]; ok {
+			return fmt.Sprintf("action %q appears more than once", decision.Step)
+		}
+		seen[decision.Step] = struct{}{}
+		if plan.GetNodeByName(decision.Step) == nil {
+			return fmt.Sprintf("step %q is not part of this workflow", decision.Step)
+		}
+		if runs := state.StepRunCount(decision.Step); runs >= ir.DefaultAgentMaxStepRuns {
+			return fmt.Sprintf("action %q has already run %d times, which is its limit",
+				decision.Step, runs)
+		}
+	}
+	return ""
+}
+
 // applyDecision carries out one agent decision and appends the resulting
 // observation. It reports whether the run must suspend for human input.
 func (r *Runner) applyDecision(
@@ -226,19 +302,21 @@ func (r *Runner) applyDecision(
 			slog.String("status", string(decision.TaskStatus)),
 			slog.String("reason", decision.Reason))
 		state.RecordEvent(agentloop.Event{
-			Kind:   agentloop.EventTaskStatus,
-			Name:   decision.Task,
-			Status: string(decision.TaskStatus),
-			Reason: decision.Reason,
+			Kind:       agentloop.EventTaskStatus,
+			Name:       decision.Task,
+			Status:     string(decision.TaskStatus),
+			Reason:     decision.Reason,
+			ToolCallID: decision.ToolCallID,
 		})
 		state.Append(toolResult(ctx, decision.ToolCallID, taskStatusAck(state, decision)))
 		return false, nil
 
 	case agentloop.DecideInvalid:
 		state.RecordEvent(agentloop.Event{
-			Kind:   agentloop.EventRejected,
-			Name:   decision.ToolName,
-			Reason: decision.Problem,
+			Kind:       agentloop.EventRejected,
+			Name:       decision.ToolName,
+			Reason:     decision.Problem,
+			ToolCallID: decision.ToolCallID,
 		})
 		state.Append(toolResult(ctx, decision.ToolCallID, "Error: "+decision.Problem))
 		return false, nil
@@ -313,20 +391,21 @@ func (r *Runner) askUser(
 	logger.Info(ctx, "Agent is asking a question", slog.String("question", question))
 	node.OpenHumanTask(question, time.Now())
 	state.RecordEvent(agentloop.Event{
-		Kind:      agentloop.EventAskUser,
-		Name:      ir.AskUserStepName,
-		Status:    ir.NodeWaiting.String(),
-		Reason:    question,
-		StartedAt: stringutil.FormatTime(node.State().StartedAt),
+		Kind:       agentloop.EventAskUser,
+		Name:       ir.AskUserStepName,
+		Status:     ir.NodeWaiting.String(),
+		Reason:     question,
+		ToolCallID: decision.ToolCallID,
+		StartedAt:  stringutil.FormatTime(node.State().StartedAt),
 	})
 	r.report(progressCh, node)
 
-	state.Pending = &agentloop.PendingAction{
+	state.SetPendingBatch([]agentloop.PendingAction{{
 		ToolCallID: decision.ToolCallID,
 		ToolName:   decision.ToolName,
 		Step:       ir.AskUserStepName,
 		Question:   question,
-	}
+	}})
 	return true, nil
 }
 
@@ -377,26 +456,7 @@ func (r *Runner) runAgentAction(
 		return false, nil
 	}
 
-	// Reset against the declared step, not the node's current one, so arguments
-	// from an earlier invocation do not leak into this one.
-	step := declaredStep(ctx, decision.Step, node)
-	if node.State().Status != ir.NodeNotStarted {
-		// Re-running: clear the previous attempt and mark the node repeated so a
-		// child DAG run gets a fresh run ID instead of reusing the earlier one.
-		// Links to earlier attempts' child runs are carried across the reset, so
-		// every attempt stays reachable from the step.
-		previous := node.State().SubRuns
-		archived := node.State().SubRunsRepeated
-		node.ResetForRerun(step)
-		node.SetRepeated(true)
-		node.AddSubRunsRepeated(archived...)
-		node.AddSubRunsRepeated(previous...)
-	}
-	if step.SubDAG != nil {
-		params := agentloop.MergeParams(
-			step.SubDAG.Params, decision.Args, agentloop.PinnedParams(step))
-		node.SetSubDAG(ir.SubDAG{Name: step.SubDAG.Name, Params: params})
-	}
+	prepareAgentActionNode(ctx, node, decision)
 	attempt := state.RecordStepRun(decision.Step)
 
 	logger.Info(ctx, "Agent running action", tag.Step(decision.Step))
@@ -406,13 +466,13 @@ func (r *Runner) runAgentAction(
 	if err != nil {
 		node.MarkError(err)
 		r.report(progressCh, node)
-		recordActionEvent(state, decision.Step, attempt, node)
+		recordActionEvent(state, decision.ToolCallID, decision.Step, attempt, node)
 		state.Append(observe(ctx, node, decision.ToolCallID))
 		return false, nil
 	}
 
 	r.executeAgentAction(actionCtx, plan, node, progressCh)
-	recordActionEvent(state, decision.Step, attempt, node)
+	recordActionEvent(state, decision.ToolCallID, decision.Step, attempt, node)
 
 	// The agent has taken responsibility for the outcome: it is reported as
 	// an observation, not as a run-level error. Leaving the error set would make
@@ -420,11 +480,11 @@ func (r *Runner) runAgentAction(
 	r.setLastError(nil)
 
 	if node.State().Status == ir.NodeWaiting {
-		state.Pending = &agentloop.PendingAction{
+		state.SetPendingBatch([]agentloop.PendingAction{{
 			ToolCallID: decision.ToolCallID,
 			ToolName:   decision.ToolName,
 			Step:       decision.Step,
-		}
+		}})
 		return true, nil
 	}
 
@@ -434,14 +494,21 @@ func (r *Runner) runAgentAction(
 
 // recordActionEvent puts one run of a step on the decision timeline, carrying
 // the status and timing the UI needs to render it.
-func recordActionEvent(state *agentloop.State, step string, attempt int, node *Node) {
+func recordActionEvent(
+	state *agentloop.State,
+	toolCallID string,
+	step string,
+	attempt int,
+	node *Node,
+) {
 	nodeState := node.State()
 	event := agentloop.Event{
-		Kind:      agentloop.EventAction,
-		Name:      step,
-		Status:    nodeState.Status.String(),
-		Attempt:   attempt,
-		StartedAt: stringutil.FormatTime(nodeState.StartedAt),
+		Kind:       agentloop.EventAction,
+		Name:       step,
+		Status:     nodeState.Status.String(),
+		Attempt:    attempt,
+		ToolCallID: toolCallID,
+		StartedAt:  stringutil.FormatTime(nodeState.StartedAt),
 	}
 	if !nodeState.FinishedAt.IsZero() {
 		event.FinishedAt = stringutil.FormatTime(nodeState.FinishedAt)

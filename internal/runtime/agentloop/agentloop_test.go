@@ -102,6 +102,40 @@ func TestLoadState_PreservesProgressAcrossAttempts(t *testing.T) {
 	assert.Equal(t, messages, restored.Messages())
 }
 
+func TestState_PendingBatchRoundTripsAndReadsLegacyState(t *testing.T) {
+	t.Parallel()
+
+	dag := testDAG()
+	legacy, err := agentloop.LoadState(json.RawMessage(`{
+  "tasks": [],
+  "pending": {
+    "toolCallId": "legacy_call",
+    "toolName": "alpha",
+    "step": "alpha"
+  }
+}`), nil, dag)
+	require.NoError(t, err)
+	assert.Equal(t, []agentloop.PendingAction{{
+		ToolCallID: "legacy_call",
+		ToolName:   "alpha",
+		Step:       "alpha",
+	}}, legacy.PendingBatch())
+
+	want := []agentloop.PendingAction{
+		{ToolCallID: "call_alpha", ToolName: "alpha", Step: "alpha"},
+		{ToolCallID: "call_beta", ToolName: "beta", Step: "beta"},
+	}
+	legacy.SetPendingBatch(want)
+	raw, err := legacy.Marshal()
+	require.NoError(t, err)
+
+	restored, err := agentloop.LoadState(raw, nil, dag)
+	require.NoError(t, err)
+	assert.Equal(t, want, restored.PendingBatch())
+	restored.ClearPendingBatch()
+	assert.Empty(t, restored.PendingBatch())
+}
+
 func TestLoadState_ReconcilesAnEditedTaskList(t *testing.T) {
 	t.Parallel()
 
@@ -403,16 +437,75 @@ func TestParamString_SurvivesTheChildParser(t *testing.T) {
 	}
 }
 
-// stubProvider records the request it was handed and answers with no tool call.
-type stubProvider struct{ got *llm.ChatRequest }
+// stubProvider records the request it was handed and returns a scripted response.
+type stubProvider struct {
+	got      *llm.ChatRequest
+	response *llm.ChatResponse
+}
 
 func (p *stubProvider) Name() string { return "stub" }
 func (p *stubProvider) Chat(_ context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
 	p.got = req
+	if p.response != nil {
+		return p.response, nil
+	}
 	return &llm.ChatResponse{Content: "done", FinishReason: "stop"}, nil
 }
 func (p *stubProvider) ChatStream(context.Context, *llm.ChatRequest) (<-chan llm.StreamEvent, error) {
 	return nil, nil
+}
+
+func TestPlanner_PreservesEveryActionCallInOneTurn(t *testing.T) {
+	t.Parallel()
+
+	provider := &stubProvider{response: &llm.ChatResponse{
+		FinishReason: "tool_calls",
+		ToolCalls: []llm.ToolCall{
+			{
+				ID:   "call_alpha",
+				Type: "function",
+				Function: llm.ToolCallFunction{
+					Name:      "alpha",
+					Arguments: `{}`,
+				},
+			},
+			{
+				ID:   "call_beta",
+				Type: "function",
+				Function: llm.ToolCallFunction{
+					Name:      "beta",
+					Arguments: `{"target":"second"}`,
+				},
+			},
+		},
+	}}
+	dag := &ir.DAG{
+		Type: ir.TypeAgent,
+		Steps: []ir.Step{
+			{Name: "alpha"},
+			{Name: "beta"},
+		},
+		Tasks: []ir.AgentTask{{Name: "done", Description: "Both actions ran."}},
+	}
+	catalog, err := agentloop.NewCatalog(t.Context(), dag)
+	require.NoError(t, err)
+	planner := agentloop.NewPlanner(
+		provider, &ir.LLMConfig{Model: "test"}, catalog, "", nil)
+	state := agentloop.NewState(dag)
+
+	decisions, err := planner.Next(t.Context(), state)
+	require.NoError(t, err)
+	require.Len(t, decisions, 2)
+	assert.Equal(t, "alpha", decisions[0].Step)
+	assert.Equal(t, "beta", decisions[1].Step)
+	assert.Equal(t, map[string]any{"target": "second"}, decisions[1].Args)
+
+	messages := state.Messages()
+	require.Len(t, messages, 1)
+	require.Len(t, messages[0].ToolCalls, 2)
+	assert.Equal(t, "call_alpha", messages[0].ToolCalls[0].ID)
+	assert.Equal(t, "call_beta", messages[0].ToolCalls[1].ID)
+	assert.Equal(t, 1, state.Turns)
 }
 
 // TestPlanner_MasksTheOutboundCopy covers an outbound leak. The system prompt and
