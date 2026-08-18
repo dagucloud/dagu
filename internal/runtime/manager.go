@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -373,6 +374,9 @@ func (*Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.DA
 		}
 		statusJSON, err := sock.NewClient(addr).Request("GET", "/status")
 		if err != nil {
+			if errors.Is(err, sock.ErrTransport) {
+				continue
+			}
 			return nil, fmt.Errorf("failed to get current status: %w", err)
 		}
 		return ir.StatusFromJSON(statusJSON)
@@ -510,7 +514,7 @@ func (m *Manager) repairStaleLocalRunIfDead(
 		return st, nil
 	}
 	procGroup := st.ProcGroup
-	if dag != nil {
+	if procGroup == "" && dag != nil {
 		procGroup = dag.ProcGroup()
 	}
 	if procGroup == "" {

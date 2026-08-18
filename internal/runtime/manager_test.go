@@ -108,6 +108,27 @@ func TestManager(t *testing.T) {
 		require.Equal(t, ir.Waiting, current.Status)
 		require.Equal(t, "legacy", current.Error)
 	})
+	t.Run("GetCurrentStatusSkipsStaleCanonicalSocket", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		canonicalAddr := procctrl.DAGSocketAddr(ir.NewDAGRunRef(dag.Name, dagRunID))
+		require.NoError(t, os.WriteFile(canonicalAddr, nil, 0o600))
+		t.Cleanup(func() { _ = os.Remove(canonicalAddr) })
+
+		legacyStatus := testNewStatus(dag.DAG, dagRunID, ir.Waiting, ir.NodeWaiting)
+		legacyStatus.Error = "legacy"
+		stopSocket := startStatusSocketServer(t, ctx, sock.Addr(dag.Location, dagRunID), legacyStatus)
+		defer stopSocket()
+
+		current, err := th.DAGRunMgr.GetCurrentStatus(ctx, dag.DAG, dagRunID)
+
+		require.NoError(t, err)
+		require.Equal(t, "legacy", current.Error)
+	})
 	t.Run("GetCurrentStatusPrefersCanonicalSocket", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
@@ -715,6 +736,31 @@ steps:
 		require.NoError(t, err)
 		require.Equal(t, ir.Running, saved.Status)
 		require.Equal(t, "persisted-group", processes.attemptGroup)
+		attempt.AssertExpectations(t)
+	})
+	t.Run("GetSavedStatusUsesPersistedProcGroupAfterDAGQueueChange", func(t *testing.T) {
+		ctx := th.Context
+		ref := ir.NewDAGRunRef("changed-dag", uuid.Must(uuid.NewV7()).String())
+		status := testNewStatus(&ir.DAG{Name: ref.Name}, ref.ID, ir.Running, ir.NodeRunning)
+		status.AttemptID = "attempt-1"
+		status.ProcGroup = "original-group"
+		staleAt := time.Now().Add(-3 * time.Second)
+		status.StartedAt = stringutil.FormatTime(staleAt)
+		status.CreatedAt = staleAt.UnixMilli()
+
+		attempt := new(testutil.MockAttempt)
+		attempt.On("ReadStatus", ctx).Return(&status, nil).Once()
+		attempt.On("ReadDAG", ctx).Return(&ir.DAG{Name: ref.Name, Queue: "updated-group"}, nil).Once()
+		store := &managerDAGRunStore{rootAttempt: attempt}
+		repository := persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})
+		processes := &managerProcessRepository{attemptAlive: true}
+		mgr := runtime.NewManager(repository, processes, th.Config)
+
+		saved, err := mgr.GetSavedStatus(ctx, ref)
+
+		require.NoError(t, err)
+		require.Equal(t, ir.Running, saved.Status)
+		require.Equal(t, "original-group", processes.attemptGroup)
 		attempt.AssertExpectations(t)
 	})
 	t.Run("GetLatestStatusKeepsFreshRunDuringStartupGrace", func(t *testing.T) {

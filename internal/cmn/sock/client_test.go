@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ func TestDialFail(t *testing.T) {
 	client := sock.NewClient(f.Name())
 	_, err = client.Request("GET", "/status")
 	require.Error(t, err)
+	require.ErrorIs(t, err, sock.ErrTransport)
 }
 
 func TestDialTimeout(t *testing.T) {
@@ -72,7 +74,7 @@ func TestRequestRejectsNonSuccessfulResponse(t *testing.T) {
 		f.Name(),
 		func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusTeapot)
-			_, _ = w.Write([]byte("not accepted"))
+			_, _ = w.Write([]byte("not accepted" + strings.Repeat("x", 1024)))
 		},
 	)
 	require.NoError(t, err)
@@ -85,7 +87,10 @@ func TestRequestRejectsNonSuccessfulResponse(t *testing.T) {
 	require.NoError(t, <-listen)
 
 	body, err := sock.NewClient(f.Name()).Request(http.MethodPost, "/stop")
+	require.ErrorIs(t, err, sock.ErrUnexpectedStatus)
 	require.ErrorContains(t, err, "418 I'm a teapot")
+	require.ErrorContains(t, err, "not accepted")
+	require.Less(t, len(err.Error()), 512)
 	require.Empty(t, body)
 
 	require.NoError(t, srv.Shutdown(context.Background()))
