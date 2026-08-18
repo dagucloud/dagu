@@ -1661,7 +1661,7 @@ func TestGetProvider(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p, err := getProvider(name)
 			require.NoError(t, err)
-			assert.Equal(t, name, p.Name())
+			assert.Equal(t, name, p.name)
 		})
 	}
 }
@@ -1683,12 +1683,13 @@ func TestRegisterProviderPanicsOnDuplicate(t *testing.T) {
 		delete(providers, dupName)
 	})
 
-	registerProvider(stubProvider{name: dupName})
+	provider := &providerDescriptor{name: dupName}
+	registerProvider(provider)
 	require.PanicsWithValue(
 		t,
 		`harness: duplicate provider registration "duplicate-test-provider"`,
 		func() {
-			registerProvider(stubProvider{name: dupName})
+			registerProvider(provider)
 		},
 	)
 }
@@ -1753,13 +1754,3 @@ func newHarnessTestContext(t *testing.T, dag *ir.DAG, step ir.Step, envs ...stri
 	ctx := runtime.NewContext(context.Background(), dag, "run-1", "", runtime.WithEnvVars(envs...))
 	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
 }
-
-type stubProvider struct {
-	name string
-}
-
-func (p stubProvider) Name() string { return p.name }
-
-func (p stubProvider) BinaryName() string { return p.name }
-
-func (p stubProvider) BaseArgs(prompt string) []string { return []string{prompt} }

@@ -6,26 +6,11 @@ package harness
 import (
 	"fmt"
 	"io"
-	"maps"
 	"sort"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
-
-// Provider defines how a coding agent CLI is invoked.
-type Provider interface {
-	// Name returns the provider identifier used in config.provider.
-	Name() string
-
-	// BinaryName returns the CLI binary name to look up in PATH.
-	BinaryName() string
-
-	// BaseArgs returns the base CLI arguments for non-interactive execution.
-	// This is how the prompt is passed to the CLI (e.g., ["-p", prompt] or ["exec", prompt]).
-	// Additional flags from the config map are appended after these.
-	BaseArgs(prompt string) []string
-}
 
 type builtinStdinMode uint8
 
@@ -43,17 +28,6 @@ type providerDescriptor struct {
 	promptPosition ir.HarnessPromptPosition
 	defaultConfig  map[string]any
 	stdinMode      builtinStdinMode
-}
-
-func (p *providerDescriptor) Name() string       { return p.name }
-func (p *providerDescriptor) BinaryName() string { return p.binary }
-
-func (p *providerDescriptor) BaseArgs(prompt string) []string {
-	return append(append([]string(nil), p.prefixArgs...), p.promptArgs(prompt)...)
-}
-
-func (p *providerDescriptor) DefaultConfig() map[string]any {
-	return maps.Clone(p.defaultConfig)
 }
 
 func (p *providerDescriptor) buildInvocation(flags map[string]any, prompt, script string) ([]string, io.Reader, error) {
@@ -110,7 +84,7 @@ var builtinProviderCatalog = []providerDescriptor{
 	{name: "deepseek", binary: "dsh", prefixArgs: []string{"--profile", "headless"}, promptMode: ir.HarnessPromptModeArg, promptPosition: ir.HarnessPromptPositionAfterFlags, stdinMode: builtinStdinFold},
 }
 
-var providers = map[string]Provider{}
+var providers = map[string]*providerDescriptor{}
 
 func init() {
 	for i := range builtinProviderCatalog {
@@ -118,15 +92,15 @@ func init() {
 	}
 }
 
-func registerProvider(p Provider) {
-	name := p.Name()
+func registerProvider(p *providerDescriptor) {
+	name := p.name
 	if _, exists := providers[name]; exists {
 		panic(fmt.Sprintf("harness: duplicate provider registration %q", name))
 	}
 	providers[name] = p
 }
 
-func getProvider(name string) (Provider, error) {
+func getProvider(name string) (*providerDescriptor, error) {
 	p, ok := providers[name]
 	if !ok {
 		names := make([]string, 0, len(providers))
