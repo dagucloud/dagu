@@ -166,7 +166,8 @@ func (n Node) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// UnmarshalJSON restores the step definition and its runtime condition results.
+// UnmarshalJSON restores the step definition and its runtime condition results,
+// and keeps agent state written under its legacy name readable.
 func (n *Node) UnmarshalJSON(data []byte) error {
 	var decoded nodeJSON
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -176,11 +177,15 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 		Step struct {
 			Preconditions []ConditionResult `json:"preconditions"`
 		} `json:"step"`
+		LegacyAgentState json.RawMessage `json:"controllerState,omitempty"`
 	}
 	if err := json.Unmarshal(data, &runtimeState); err != nil {
 		return err
 	}
 	*n = Node(decoded)
+	if len(n.AgentState) == 0 {
+		n.AgentState = runtimeState.LegacyAgentState
+	}
 	n.PreconditionResults = slices.Clone(runtimeState.Step.Preconditions)
 	if n.PreconditionResults != nil {
 		n.Step = newStepSnapshot(n.Step, n.PreconditionResults).definition()

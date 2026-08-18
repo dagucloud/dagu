@@ -466,9 +466,12 @@ function DAGStatus({
   // Check if timeline should be shown (any status except not started)
   const showTimeline = displayDAGRun.status !== Status.NotStarted;
 
-  // Chat and agent steps both persist an LLM transcript.
+  // Chat and agent steps both persist an LLM transcript. Runs recorded before
+  // agent DAGs were renamed still carry the 'controller' executor type.
   const hasChatSteps = !!displayDAGRun.nodes?.some((node) =>
-    ['chat', 'agent'].includes(node.step.executorConfig?.type ?? '')
+    ['chat', 'agent', 'controller'].includes(
+      node.step.executorConfig?.type ?? ''
+    )
   );
   const agentNodes = (displayDAGRun.nodes || []).filter(
     (node) => !!node.agentSession

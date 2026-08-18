@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -67,6 +68,9 @@ func deprecatedSyntaxWarningsForDocument(prefix string, doc map[string]any) []st
 	var warnings []string
 	if _, ok := doc["step_types"]; ok {
 		warnings = append(warnings, fmt.Sprintf("Deprecated DAG syntax: %sstep_types is deprecated; use actions", prefix))
+	}
+	if t, ok := doc["type"].(string); ok && strings.TrimSpace(t) == legacyAgentDAGType {
+		warnings = append(warnings, fmt.Sprintf("Deprecated DAG syntax: %stype: controller is deprecated; use type: agent", prefix))
 	}
 	warnings = append(warnings, deprecatedSyntaxWarningsForSteps(prefix+"steps", doc["steps"])...)
 	if handlerRaw, ok := doc["handler_on"].(map[string]any); ok {

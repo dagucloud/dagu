@@ -950,7 +950,7 @@ func applyHistoryRetentionOverride(effective *ir.DAG, authoredDays, authoredRuns
 // Builder functions - each returns a value instead of modifying result
 
 func buildType(_ buildContext, d *dag) (string, error) {
-	t := strings.TrimSpace(d.Type)
+	t := canonicalDAGType(d.Type)
 	if t == "" {
 		return ir.TypeGraph, nil
 	}
@@ -960,6 +960,18 @@ func buildType(_ buildContext, d *dag) (string, error) {
 	default:
 		return "", ir.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, agent, build)", t))
 	}
+}
+
+// legacyAgentDAGType is what agent DAGs were called before the rename.
+const legacyAgentDAGType = "controller"
+
+// canonicalDAGType trims an authored type and resolves its legacy spelling.
+func canonicalDAGType(authored string) string {
+	t := strings.TrimSpace(authored)
+	if t == legacyAgentDAGType {
+		return ir.TypeAgent
+	}
+	return t
 }
 
 // Builder functions - all return values instead of modifying result
@@ -2537,7 +2549,7 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
-	if err := validateAgentLLMLimits(cfg, strings.TrimSpace(d.Type) == ir.TypeAgent); err != nil {
+	if err := validateAgentLLMLimits(cfg, canonicalDAGType(d.Type) == ir.TypeAgent); err != nil {
 		return nil, err
 	}
 

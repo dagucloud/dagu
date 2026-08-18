@@ -80,7 +80,7 @@ func (p *AgentDAGProgressDisplay) UpdateNode(node *ir.Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if node.Step.Name == ir.AgentStepName {
+	if ir.IsAgentStepName(node.Step.Name) {
 		if len(node.AgentState) == 0 {
 			return
 		}

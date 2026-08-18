@@ -8,6 +8,11 @@ const (
 	// an agent DAG. It cannot be used as a step name or ID.
 	AgentStepName = "__agent__"
 
+	// LegacyAgentStepName is the name the synthesized agent step carried while
+	// agent DAGs were called controller DAGs. Run status files written then
+	// still name the step this way, so reading them keeps recognizing it.
+	LegacyAgentStepName = "__controller__"
+
 	// AskUserStepName is the reserved name and ID of the synthesized human task
 	// an agent opens when it needs to ask a question no declared step
 	// covers. It cannot be used as a step name or ID.
@@ -61,10 +66,16 @@ func (d *DAG) IsAgent() bool {
 	return d != nil && d.Type == TypeAgent
 }
 
+// IsAgentStepName reports whether a step name identifies the synthesized step
+// that drives an agent DAG, in either the current or the legacy spelling.
+func IsAgentStepName(name string) bool {
+	return name == AgentStepName || name == LegacyAgentStepName
+}
+
 // IsSynthesizedAgentStep reports whether a step name belongs to the
 // scaffolding an agent DAG is built with rather than to a declared action.
 func IsSynthesizedAgentStep(name string) bool {
-	return name == AgentStepName || name == AskUserStepName
+	return IsAgentStepName(name) || name == AskUserStepName
 }
 
 // AgentStep returns the synthesized agent step, or nil when the DAG is
@@ -74,7 +85,7 @@ func (d *DAG) AgentStep() *Step {
 		return nil
 	}
 	for i, step := range d.Steps {
-		if step.Name == AgentStepName {
+		if IsAgentStepName(step.Name) {
 			return &d.Steps[i]
 		}
 	}
