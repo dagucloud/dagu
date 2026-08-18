@@ -27,6 +27,18 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+func dockerAPIResponse(statusCode int, body string) *http.Response {
+	header := make(http.Header)
+	if body != "" {
+		header.Set("Content-Type", "application/json")
+	}
+	return &http.Response{
+		StatusCode: statusCode,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     header,
+	}
+}
+
 func TestWaitUntilContainerStopped_StopsAndReturns_WhenContextCanceled(t *testing.T) {
 	t.Parallel()
 
@@ -123,6 +135,47 @@ func TestWaitUntilContainerStopped_ReturnsStopError_WhenCancelAndStopFails(t *te
 		time.Second,
 	)
 
+	require.ErrorIs(t, err, want)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestWaitUntilContainerStopped_PreservesCancelWhenCleanupInspectFails(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	want := errors.New("inspect failed")
+
+	err := waitUntilContainerStoppedWithGrace(ctx,
+		func(context.Context) (bool, bool, error) { return false, false, want },
+		nil,
+		10*time.Millisecond,
+		time.Second,
+	)
+
+	require.ErrorIs(t, err, want)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestWaitUntilContainerStopped_PreservesInspectErrorWhenCleanupDeadlineExpires(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	want := errors.New("inspect failed")
+
+	err := waitUntilContainerStoppedWithGrace(ctx,
+		func(inspectCtx context.Context) (bool, bool, error) {
+			<-inspectCtx.Done()
+			return false, false, errors.Join(inspectCtx.Err(), want)
+		},
+		nil,
+		time.Millisecond,
+		20*time.Millisecond,
+	)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.ErrorIs(t, err, want)
 }
 
@@ -824,6 +877,223 @@ func TestStopContainerByID_IgnoresMissingContainer(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestStopContainerByID_IgnoresAlreadyStoppedContainer(t *testing.T) {
+	t.Parallel()
+
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || !strings.HasSuffix(req.URL.Path, "/stop") {
+			return nil, fmt.Errorf("unexpected Docker request: %s %s", req.Method, req.URL.Path)
+		}
+		return dockerAPIResponse(http.StatusNotModified, ""), nil
+	})}
+	dockerSDK, err := client.New(
+		client.WithHTTPClient(httpClient),
+		client.WithAPIVersion("1.44"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	require.NoError(t, stopContainerByID(context.Background(), dockerSDK, "stopped-container"))
+}
+
+func TestStopOwnedContainerWithTimeout_ForceKillsAfterBlockedStop(t *testing.T) {
+	t.Parallel()
+
+	var killed atomic.Bool
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/kill"):
+			killed.Store(true)
+			return dockerAPIResponse(http.StatusNoContent, ""), nil
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/json"):
+			body := fmt.Sprintf(`{"State":{"Running":%t}}`, !killed.Load())
+			return dockerAPIResponse(http.StatusOK, body), nil
+		default:
+			return nil, fmt.Errorf("unexpected Docker request: %s %s", req.Method, req.URL.Path)
+		}
+	})}
+	dockerSDK, err := client.New(
+		client.WithHTTPClient(httpClient),
+		client.WithAPIVersion("1.44"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	start := time.Now()
+	err = stopOwnedContainerWithTimeout(dockerSDK, "blocked-container", "", 20*time.Millisecond, 100*time.Millisecond)
+
+	require.NoError(t, err)
+	assert.True(t, killed.Load(), "a blocked graceful stop must be followed by a bounded force kill")
+	assert.Less(t, time.Since(start), 200*time.Millisecond)
+}
+
+func TestStopOwnedContainerWithTimeout_ReturnsWhenAlreadyStopped(t *testing.T) {
+	t.Parallel()
+
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || !strings.HasSuffix(req.URL.Path, "/json") {
+			return nil, fmt.Errorf("unexpected Docker request: %s %s", req.Method, req.URL.Path)
+		}
+		return dockerAPIResponse(http.StatusOK, `{"State":{"Running":false}}`), nil
+	})}
+	dockerSDK, err := client.New(
+		client.WithHTTPClient(httpClient),
+		client.WithAPIVersion("1.44"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	require.NoError(t, stopOwnedContainerWithTimeout(
+		dockerSDK,
+		"stopped-container",
+		"",
+		20*time.Millisecond,
+		100*time.Millisecond,
+	))
+}
+
+func TestStopOwnedContainerWithTimeout_StopsWhenStateIsUnknown(t *testing.T) {
+	t.Parallel()
+
+	var stopped atomic.Bool
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/json"):
+			return dockerAPIResponse(http.StatusOK, `{"State":null}`), nil
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+			stopped.Store(true)
+			return dockerAPIResponse(http.StatusNoContent, ""), nil
+		default:
+			return nil, fmt.Errorf("unexpected Docker request: %s %s", req.Method, req.URL.Path)
+		}
+	})}
+	dockerSDK, err := client.New(
+		client.WithHTTPClient(httpClient),
+		client.WithAPIVersion("1.44"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	require.NoError(t, stopOwnedContainerWithTimeout(
+		dockerSDK,
+		"unknown-state-container",
+		"",
+		20*time.Millisecond,
+		100*time.Millisecond,
+	))
+	assert.True(t, stopped.Load())
+}
+
+func TestStopOwnedContainerWithTimeout_IgnoresAlreadyStoppedRace(t *testing.T) {
+	t.Parallel()
+
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/json"):
+			return dockerAPIResponse(http.StatusOK, `{"State":{"Running":true}}`), nil
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+			return dockerAPIResponse(http.StatusNotModified, ""), nil
+		default:
+			return nil, fmt.Errorf("unexpected Docker request: %s %s", req.Method, req.URL.Path)
+		}
+	})}
+	dockerSDK, err := client.New(
+		client.WithHTTPClient(httpClient),
+		client.WithAPIVersion("1.44"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	require.NoError(t, stopOwnedContainerWithTimeout(
+		dockerSDK,
+		"already-stopped-container",
+		"",
+		20*time.Millisecond,
+		100*time.Millisecond,
+	))
+}
+
+func TestStopOwnedContainerWithTimeout_KillsAfterPostTimeoutInspectFailure(t *testing.T) {
+	t.Parallel()
+
+	inspectErr := errors.New("inspect failed")
+	var inspectCalls atomic.Int32
+	var killed atomic.Bool
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/kill"):
+			killed.Store(true)
+			return dockerAPIResponse(http.StatusNoContent, ""), nil
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/json"):
+			if inspectCalls.Add(1) == 2 {
+				return nil, inspectErr
+			}
+			body := fmt.Sprintf(`{"State":{"Running":%t}}`, !killed.Load())
+			return dockerAPIResponse(http.StatusOK, body), nil
+		default:
+			return nil, fmt.Errorf("unexpected Docker request: %s %s", req.Method, req.URL.Path)
+		}
+	})}
+	dockerSDK, err := client.New(
+		client.WithHTTPClient(httpClient),
+		client.WithAPIVersion("1.44"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	err = stopOwnedContainerWithTimeout(
+		dockerSDK,
+		"inspect-failure-container",
+		"",
+		20*time.Millisecond,
+		100*time.Millisecond,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, killed.Load(), "a transient inspect failure must not prevent force kill")
+}
+
+func TestStopOwnedContainerWithTimeout_IgnoresStoppedBeforeForceKill(t *testing.T) {
+	t.Parallel()
+
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/json"):
+			return dockerAPIResponse(http.StatusOK, `{"State":{"Running":true}}`), nil
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/stop"):
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/kill"):
+			return dockerAPIResponse(
+				http.StatusConflict,
+				`{"message":"Container deadbeefcafe is not running"}`,
+			), nil
+		default:
+			return nil, fmt.Errorf("unexpected Docker request: %s %s", req.Method, req.URL.Path)
+		}
+	})}
+	dockerSDK, err := client.New(
+		client.WithHTTPClient(httpClient),
+		client.WithAPIVersion("1.44"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dockerSDK.Close() })
+
+	require.NoError(t, stopOwnedContainerWithTimeout(
+		dockerSDK,
+		"stopped-before-kill-container",
+		"",
+		20*time.Millisecond,
+		100*time.Millisecond,
+	))
+}
+
 func TestRemoveContainerForCleanup_CancelsBlockedRequest(t *testing.T) {
 	t.Parallel()
 
@@ -846,6 +1116,38 @@ func TestRemoveContainerForCleanup_CancelsBlockedRequest(t *testing.T) {
 
 	assert.False(t, removed)
 	assert.Less(t, time.Since(start), 200*time.Millisecond, "blocked cleanup request must respect its deadline")
+}
+
+func TestCleanupFailedHelperInstall_PreservesErrorsAndRetriesOnClose(t *testing.T) {
+	t.Parallel()
+
+	installErr := errors.New("install failed")
+	removeErr := errors.New("remove failed")
+	var removeCalls atomic.Int32
+	httpClient := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method == http.MethodDelete && removeCalls.Add(1) == 1 {
+			return nil, removeErr
+		}
+		return dockerAPIResponse(http.StatusNoContent, ""), nil
+	})}
+	dockerSDK, err := client.New(client.WithHTTPClient(httpClient))
+	require.NoError(t, err)
+
+	cli := &Client{
+		cfg:         &Config{AutoRemove: false},
+		containerID: "created-container",
+		cli:         dockerSDK,
+	}
+	cli.started.Store(true)
+
+	err = cli.cleanupFailedHelperInstall(context.Background(), dockerSDK, "created-container", installErr)
+	require.ErrorIs(t, err, installErr)
+	require.ErrorIs(t, err, removeErr)
+	assert.Equal(t, "created-container", cli.containerID, "failed removal must retain container ownership")
+
+	cli.Close(context.Background())
+	assert.Empty(t, cli.containerID, "Close must retry removal of the retained container")
+	assert.Equal(t, int32(2), removeCalls.Load())
 }
 
 func TestWrapCommandWithPIDFile_ExecsUserProcess(t *testing.T) {
@@ -890,6 +1192,34 @@ func TestDaemonNeedsHelperCopy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, daemonNeedsHelperCopy(tt.daemonHost, tt.containerized))
+		})
+	}
+}
+
+func TestCgroupIndicatesContainer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{name: "cgroup v2 host with newline", content: "0::/\n", want: false},
+		{name: "cgroup v2 root", content: "0::/", want: false},
+		{name: "systemd user session", content: "0::/user.slice/user-1000.slice/session-2.scope\n", want: false},
+		{name: "containerd host service", content: "0::/system.slice/containerd.service\n", want: false},
+		{name: "docker host service", content: "0::/system.slice/docker.service\n", want: false},
+		{name: "docker build host scope", content: "0::/system.slice/docker-build.scope\n", want: false},
+		{name: "docker", content: "0::/system.slice/docker-deadbeefcafe.scope\n", want: true},
+		{name: "docker cgroup v1", content: "10:memory:/docker/deadbeefcafe\n", want: true},
+		{name: "containerd", content: "0::/containerd/deadbeefcafe\n", want: true},
+		{name: "kubernetes", content: "0::/kubepods.slice/kubepods-burstable.slice\n", want: true},
+		{name: "podman", content: "0::/machine.slice/libpod-deadbeefcafe.scope\n", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, cgroupIndicatesContainer(tt.content))
 		})
 	}
 }

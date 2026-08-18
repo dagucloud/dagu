@@ -859,8 +859,16 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			initErr = fmt.Errorf("failed to initialize container client: %w", err)
 			return initErr
 		}
-		// In exec mode, we use an existing container - don't create a new one
+		// Exec mode uses an existing container and does not create a new one.
 		isExecMode := expandedContainer.IsExecMode()
+		defer func() {
+			// Only stop containers created for this DAG run.
+			if !isExecMode {
+				ctCli.StopContainerKeepAlive(ctx)
+			}
+			ctCli.Close(ctx)
+		}()
+
 		if !isExecMode {
 			if err := ctCli.CreateContainerKeepAlive(ctx); err != nil {
 				initErr = fmt.Errorf("failed to create keepalive container: %w", err)
@@ -870,14 +878,6 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 
 		// Set the container client in the context for the execution.
 		ctx = docker.WithContainerClient(ctx, ctCli)
-
-		defer func() {
-			// Only stop the container if we created it (non-exec mode)
-			if !isExecMode {
-				ctCli.StopContainerKeepAlive(ctx)
-			}
-			ctCli.Close(ctx)
-		}()
 	}
 
 	// Create SSH Client if the DAG has SSH configuration.

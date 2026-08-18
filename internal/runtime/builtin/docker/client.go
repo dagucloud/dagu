@@ -76,6 +76,10 @@ const (
 	logScanMaxBuf     = 1024 * 1024
 )
 
+var containerCgroupIDPattern = regexp.MustCompile(
+	`(^|/)((docker|libpod|cri-containerd)-[0-9a-f]{12,64}\.scope|(docker|containerd|libpod)/[0-9a-f]{12,64})($|/)`,
+)
+
 type cancelHelperMode uint8
 
 const (
@@ -87,9 +91,10 @@ const (
 type Client struct {
 	cfg *Config
 
-	platform    specs.Platform // resolved platform
-	containerID string         // ID of the running container (if any)
-	started     atomic.Bool
+	platform       specs.Platform // resolved platform
+	containerID    string         // ID of the running container (if any)
+	started        atomic.Bool
+	cleanupPending atomic.Bool
 
 	mu  sync.Mutex
 	cli *client.Client
@@ -339,8 +344,9 @@ func (c *Client) Close(ctx context.Context) {
 		return
 	}
 
-	// If we have a running container and autoRemove is set, remove it
-	if c.cfg.AutoRemove && c.started.Load() && c.containerID != "" {
+	// Remove containers owned by this client when auto-remove is enabled.
+	shouldRemove := c.cfg.AutoRemove && c.started.Load() || c.cleanupPending.Load()
+	if shouldRemove && c.containerID != "" {
 		if removeContainerForCleanup(ctx, c.cli, c.containerID, client.ContainerRemoveOptions{Force: true}) {
 			c.clearContainerStateLocked(c.containerID)
 		}
@@ -526,58 +532,8 @@ func (c *Client) StopContainerKeepAlive(ctx context.Context) {
 	c.cancel = nil
 
 	if c.containerID != "" {
-		// Stop the container
-		if _, err := c.cli.ContainerStop(ctx, c.containerID, client.ContainerStopOptions{}); err != nil {
+		if err := stopOwnedContainer(c.cli, c.containerID, ""); err != nil {
 			logger.Error(ctx, "Docker executor: stop container", tag.Error(err))
-		}
-
-		// Forcefully stop after timeout
-		defaultStopTimeout := 5 * time.Second
-		var containerStopped atomic.Bool
-		forceKillTimer := time.AfterFunc(defaultStopTimeout, func() {
-			if containerStopped.Load() {
-				return
-			}
-			if _, err := c.cli.ContainerKill(context.Background(), c.containerID, client.ContainerKillOptions{Signal: "SIGKILL"}); err != nil {
-				if errdefs.IsNotFound(err) {
-					return
-				}
-				logger.Error(ctx, "Docker executor: force stop container", tag.Error(err))
-			}
-		})
-
-		// Wait for container to be fully stopped
-		maxWait := 30 * time.Second
-		waitTimer := time.NewTimer(maxWait)
-		defer waitTimer.Stop()
-
-	WAIT_LOOP:
-		for {
-			info, err := inspectContainer(context.Background(), c.cli, c.containerID)
-			if err != nil {
-				if errdefs.IsNotFound(err) {
-					containerStopped.Store(true)
-					break
-				}
-				logger.Error(ctx, "Docker executor: inspect container",
-					tag.Error(err),
-				)
-			} else if info.State != nil && !info.State.Running {
-				containerStopped.Store(true)
-				break
-			}
-
-			select {
-			case <-waitTimer.C:
-				logger.Warn(ctx, "Docker executor: timeout waiting for container to stop")
-				break WAIT_LOOP
-			default:
-				time.Sleep(defaultPollInterval)
-			}
-		}
-
-		if containerStopped.Load() {
-			_ = forceKillTimer.Stop()
 		}
 	}
 
@@ -731,19 +687,8 @@ func (c *Client) Stop(sig os.Signal) error {
 		return nil
 	}
 
-	// Only stop containers that were started by this client
+	// Only stop containers owned by this client.
 	if !c.started.Load() {
-		return nil
-	}
-
-	info, err := inspectContainer(context.Background(), c.cli, c.containerID)
-	if err != nil {
-		if errdefs.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to inspect container %s: %w", c.containerID, err)
-	}
-	if info.State != nil && !info.State.Running {
 		return nil
 	}
 
@@ -751,15 +696,7 @@ func (c *Client) Stop(sig os.Signal) error {
 	if sysSig, ok := sig.(syscall.Signal); ok {
 		sigName = signal.GetSignalName(sysSig)
 	}
-
-	if _, err := c.cli.ContainerStop(context.Background(), c.containerID, client.ContainerStopOptions{Signal: sigName}); err != nil {
-		if errdefs.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-
-	return nil
+	return stopOwnedContainer(c.cli, c.containerID, sigName)
 }
 
 func (c *Client) startNewContainer(
@@ -885,11 +822,10 @@ func (c *Client) startNewContainer(
 	}
 
 	c.containerID = resp.ID
+	c.started.Store(true)
 	if beforeStart != nil {
 		if err := beforeStart(ctx, resp.ID); err != nil {
-			removeContainerForCleanup(ctx, cli, resp.ID, client.ContainerRemoveOptions{Force: true})
-			c.containerID = ""
-			return "", err
+			return "", c.cleanupFailedHelperInstall(ctx, cli, resp.ID, err)
 		}
 	}
 
@@ -899,10 +835,25 @@ func (c *Client) startNewContainer(
 		logger.Error(ctx, "Docker: startNewContainer ContainerStart failed", tag.Error(err))
 	} else {
 		logger.Debug(ctx, "Docker: startNewContainer ContainerStart succeeded")
-		c.started.Store(true)
 	}
 
 	return resp.ID, err
+}
+
+func (c *Client) cleanupFailedHelperInstall(
+	ctx context.Context,
+	cli *client.Client,
+	containerID string,
+	installErr error,
+) error {
+	removeErr := removeContainerForCleanupError(cli, containerID, client.ContainerRemoveOptions{Force: true})
+	if removeErr != nil {
+		c.cleanupPending.Store(true)
+		logger.Error(ctx, "Docker executor: remove container after helper install failure", tag.Error(removeErr))
+		return errors.Join(installErr, fmt.Errorf("remove container after helper install failure: %w", removeErr))
+	}
+	c.clearContainerState(containerID)
+	return installErr
 }
 
 // ensureCommandFlag adds the appropriate command flag (-c, -Command, /c)
@@ -1388,6 +1339,24 @@ func removeContainerForCleanupWithTimeout(
 	opts client.ContainerRemoveOptions,
 	timeout time.Duration,
 ) bool {
+	err := removeContainerForCleanupErrorWithTimeout(cli, containerID, opts, timeout)
+	if err != nil {
+		logger.Error(ctx, "Docker executor: remove container", tag.Error(err))
+		return false
+	}
+	return true
+}
+
+func removeContainerForCleanupError(cli *client.Client, containerID string, opts client.ContainerRemoveOptions) error {
+	return removeContainerForCleanupErrorWithTimeout(cli, containerID, opts, defaultCancelStopWait)
+}
+
+func removeContainerForCleanupErrorWithTimeout(
+	cli *client.Client,
+	containerID string,
+	opts client.ContainerRemoveOptions,
+	timeout time.Duration,
+) error {
 	if timeout <= 0 {
 		timeout = defaultCancelStopWait
 	}
@@ -1395,12 +1364,11 @@ func removeContainerForCleanupWithTimeout(
 	defer cancel()
 	if _, err := cli.ContainerRemove(cleanupCtx, containerID, opts); err != nil {
 		if errdefs.IsNotFound(err) {
-			return true
+			return nil
 		}
-		logger.Error(ctx, "Docker executor: remove container", tag.Error(err))
-		return false
+		return err
 	}
-	return true
+	return nil
 }
 
 // clearContainerState forgets ownership of a container after cleanup.
@@ -1417,6 +1385,7 @@ func (c *Client) clearContainerStateLocked(containerID string) {
 	}
 	c.containerID = ""
 	c.started.Store(false)
+	c.cleanupPending.Store(false)
 }
 
 func (c *Client) attachAndWait(ctx context.Context, cli *client.Client, containerID string, stdout, stderr io.Writer) (int, error) {
@@ -1506,18 +1475,31 @@ func (c *Client) isInContainerByCgroup() bool {
 	if err != nil {
 		return false
 	}
+	return cgroupIndicatesContainer(string(data))
+}
 
-	content := string(data)
-	// Look for container runtime indicators in cgroup
-	containerIndicators := []string{"docker", "containerd", "kubepods", "lxc"}
-	for _, indicator := range containerIndicators {
-		if strings.Contains(content, indicator) {
+func cgroupIndicatesContainer(content string) bool {
+	for line := range strings.SplitSeq(content, "\n") {
+		_, rest, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		_, cgroupPath, ok := strings.Cut(rest, ":")
+		if !ok {
+			continue
+		}
+		if containerCgroupIDPattern.MatchString(cgroupPath) {
 			return true
 		}
+		for segment := range strings.SplitSeq(strings.Trim(cgroupPath, "/"), "/") {
+			if segment == "kubepods" || segment == "kubepods.slice" ||
+				strings.HasPrefix(segment, "kubepods-") || segment == "lxc" ||
+				strings.HasPrefix(segment, "lxc.payload") {
+				return true
+			}
+		}
 	}
-
-	// Additional check for non-root cgroup (indicates containerization)
-	return content != "0::/" && content != ""
+	return false
 }
 
 func getPlatform(ctx context.Context, cli *client.Client, cfg *Config) (specs.Platform, error) {

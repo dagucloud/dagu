@@ -49,6 +49,11 @@ type providerConfig struct {
 	flags      map[string]any
 }
 
+type containerRunResult struct {
+	exitCode int
+	err      error
+}
+
 type defaultConfigProvider interface {
 	DefaultConfig() map[string]any
 }
@@ -523,10 +528,6 @@ func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConf
 	// (timeout_sec is ctx-only; the runner does not call Kill) can set exit
 	// 124. Client.Run now stops the container on cancel; this still waits
 	// for Run to unwind before Close.
-	type containerRunResult struct {
-		exitCode int
-		err      error
-	}
 	runDone := make(chan containerRunResult, 1)
 	go func() {
 		ec, re := cli.Run(runCtx, runCmd, stdout, tw)
@@ -538,10 +539,10 @@ func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConf
 	select {
 	case <-ctx.Done():
 		// Client.Run owns cancellation cleanup and stops the container before it returns.
-		<-runDone
+		runErr = waitForCanceledContainerRun(ctx, runDone)
 		e.exitCode = 124
 		_ = cleanupStdoutSpool(stdout)
-		return nil, ctx.Err()
+		return nil, runErr
 	case res := <-runDone:
 		exitCode, runErr = res.exitCode, res.err
 	}
@@ -568,6 +569,14 @@ func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConf
 		return nil, fmt.Errorf("harness: failed to rewind stdout spool: %w", err)
 	}
 	return stdout, nil
+}
+
+func waitForCanceledContainerRun(ctx context.Context, runDone <-chan containerRunResult) error {
+	result := <-runDone
+	if result.err != nil {
+		return result.err
+	}
+	return ctx.Err()
 }
 
 func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {

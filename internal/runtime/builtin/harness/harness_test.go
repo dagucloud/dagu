@@ -5,6 +5,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -935,6 +936,30 @@ func TestRunContainerOnce_StdinScriptRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not support stdin")
 	assert.Equal(t, 1, exec.ExitCode())
+}
+
+func TestWaitForCanceledContainerRun(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	t.Run("preserves run cleanup error", func(t *testing.T) {
+		cleanupErr := errors.New("cleanup failed")
+		runDone := make(chan containerRunResult, 1)
+		runDone <- containerRunResult{err: errors.Join(context.Canceled, cleanupErr)}
+
+		err := waitForCanceledContainerRun(ctx, runDone)
+		require.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, cleanupErr)
+	})
+
+	t.Run("falls back to cancellation", func(t *testing.T) {
+		runDone := make(chan containerRunResult, 1)
+		runDone <- containerRunResult{}
+
+		require.ErrorIs(t, waitForCanceledContainerRun(ctx, runDone), context.Canceled)
+	})
 }
 
 // TestValidateHarnessStep_ScriptWithContainerRejected proves the script + container
