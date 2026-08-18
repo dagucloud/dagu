@@ -3462,7 +3462,7 @@ steps:
 		yaml := `
 harnesses:
   gemini:
-    binary: gemini
+    binary: custom-gemini
     prefix_args: ["run"]
     prompt_mode: flag
     prompt_flag: --prompt
@@ -3482,7 +3482,7 @@ steps:
 
 		assert.Equal(t, "harness", dag.Steps[0].ExecutorConfig.Type)
 		assert.Equal(t, "gemini", dag.Steps[0].ExecutorConfig.Config["provider"])
-		assert.Equal(t, "gemini", dag.Harnesses["gemini"].Binary)
+		assert.Equal(t, "custom-gemini", dag.Harnesses["gemini"].Binary)
 		assert.Equal(t, []string{"run"}, dag.Harnesses["gemini"].PrefixArgs)
 	})
 
@@ -3517,24 +3517,33 @@ steps:
     action: harness.run
     with:
       prompt: "Review this repository"
-      provider: gemini
+      provider: missing
 `
 		_, err := spec.LoadYAML(context.Background(), []byte(yaml))
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), `unknown provider "gemini"`)
+		assert.Contains(t, err.Error(), `unknown provider "missing"`)
 	})
 
-	t.Run("BuiltinHarnessNameCollisionFailsBuild", func(t *testing.T) {
+	t.Run("CustomHarnessShadowsBuiltinWithoutFlagNormalization", func(t *testing.T) {
 		yaml := `
 harnesses:
-  claude:
-    binary: gemini
+  codex:
+    binary: custom-codex
+harness:
+  provider: codex
+  custom_flag: inherited
 steps:
-  - run: "Review this repository"
+  - action: harness.run
+    with:
+      prompt: "Review this repository"
 `
-		_, err := spec.LoadYAML(context.Background(), []byte(yaml))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `conflicts with built-in provider`)
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 1)
+		assert.Equal(t, "custom-codex", dag.Harnesses["codex"].Binary)
+		assert.Equal(t, "inherited", dag.Steps[0].ExecutorConfig.Config["custom_flag"])
+		_, normalized := dag.Steps[0].ExecutorConfig.Config["custom-flag"]
+		assert.False(t, normalized)
 	})
 
 	t.Run("PromptFlagOutsideFlagModeFailsBuild", func(t *testing.T) {

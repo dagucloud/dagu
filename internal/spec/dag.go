@@ -2609,13 +2609,6 @@ func parseHarnessDefinitions(raw map[string]any) (ir.HarnessDefinitions, error) 
 		if trimmedName == "" {
 			return nil, ir.NewValidationError("harnesses", name, fmt.Errorf("harness name is required"))
 		}
-		if ir.IsBuiltinCLIHarnessProvider(trimmedName) {
-			return nil, ir.NewValidationError(
-				fmt.Sprintf("harnesses.%s", trimmedName),
-				value,
-				fmt.Errorf("custom harness name %q conflicts with built-in provider", trimmedName),
-			)
-		}
 		if value == nil {
 			defs[trimmedName] = nil
 			continue
@@ -3098,13 +3091,13 @@ func validateHarnessProviderConfig(defs ir.HarnessDefinitions, cfg map[string]an
 	if strings.Contains(providerName, "${") {
 		return nil
 	}
-	if ir.IsBuiltinCLIHarnessProvider(providerName) {
-		return nil
-	}
 	if defs != nil {
 		if def, ok := defs[providerName]; ok && def != nil {
 			return nil
 		}
+	}
+	if ir.IsBuiltinCLIHarnessProvider(providerName) {
+		return nil
 	}
 	return fmt.Errorf("harness: unknown provider %q", providerName)
 }

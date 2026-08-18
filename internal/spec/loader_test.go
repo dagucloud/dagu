@@ -592,7 +592,7 @@ steps:
 		assert.Nil(t, dag.Harnesses)
 	})
 
-	t.Run("NullDeletionMakesReferenceInvalid", func(t *testing.T) {
+	t.Run("NullDeletionRevealsBuiltin", func(t *testing.T) {
 		t.Parallel()
 
 		base := createTempYAMLFile(t, `
@@ -614,9 +614,11 @@ steps:
       provider: gemini
 `)
 
-		_, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), `unknown provider "gemini"`)
+		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		assert.Nil(t, dag.Harnesses)
+		require.Len(t, dag.Steps, 1)
+		assert.Equal(t, "gemini", dag.Steps[0].ExecutorConfig.Config["provider"])
 	})
 }
 

@@ -28,34 +28,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestProviderBaseArgs(t *testing.T) {
+func TestBuiltinProviderInvocations(t *testing.T) {
 	tests := []struct {
-		name     string
-		provider Provider
-		prompt   string
-		expected []string
+		name          string
+		config        map[string]any
+		expectedBin   string
+		expectedArgs  []string
+		expectedStdin string
 	}{
-		{"claude", &claudeProvider{}, "hello", []string{"-p", "hello"}},
-		{"codex", &codexProvider{}, "hello", []string{"exec", "hello"}},
-		{"copilot", &copilotProvider{}, "hello", []string{"-p", "hello"}},
-		{"opencode", &opencodeProvider{}, "hello", []string{"run", "hello"}},
-		{"pi", &piProvider{}, "hello", []string{"-p", "hello"}},
+		{"claude", map[string]any{"provider": "claude"}, "claude", []string{"-p", "hello"}, "context"},
+		{"codex", map[string]any{"provider": "codex"}, "codex", []string{"exec", "hello", "--skip-git-repo-check"}, "context"},
+		{"copilot", map[string]any{"provider": "copilot"}, "copilot", []string{"-p", "hello"}, "context"},
+		{"opencode", map[string]any{"provider": "opencode"}, "opencode", []string{"run", "hello"}, "context"},
+		{"pi", map[string]any{"provider": "pi"}, "pi", []string{"-p", "hello"}, "context"},
+		{"gemini", map[string]any{"provider": "gemini"}, "gemini", []string{"-p", "hello"}, "context"},
+		{"cursor", map[string]any{"provider": "cursor"}, "cursor-agent", []string{"-p", "hello\n\ncontext", "--output-format", "text"}, ""},
+		{"cline", map[string]any{"provider": "cline"}, "cline", []string{"hello"}, "context"},
+		{"aider", map[string]any{"provider": "aider"}, "aider", []string{"--message", "hello\n\ncontext"}, ""},
+		{"qwen", map[string]any{"provider": "qwen"}, "qwen", []string{"-p", "hello"}, "context"},
+		{"goose", map[string]any{"provider": "goose"}, "goose", []string{"run", "--text", "hello\n\ncontext", "--quiet"}, ""},
+		{"kiro", map[string]any{"provider": "kiro"}, "kiro-cli", []string{"chat", "--no-interactive", "hello"}, "context"},
+		{"droid", map[string]any{"provider": "droid"}, "droid", []string{"exec", "hello\n\ncontext"}, ""},
+		{"amp", map[string]any{"provider": "amp"}, "amp", []string{"-x", "hello"}, "context"},
+		{"deepseek", map[string]any{"provider": "deepseek", "patch": "overlay.yml"}, "dsh", []string{"--profile", "headless", "--patch", "overlay.yml", "hello\n\ncontext"}, ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.provider.BaseArgs(tt.prompt))
-			assert.Equal(t, tt.name, tt.provider.Name())
+			configs, err := buildProviderConfigs(tt.config, nil)
+			require.NoError(t, err)
+			require.Len(t, configs, 1)
+			assert.Equal(t, tt.expectedBin, configs[0].binaryName())
+
+			args, stdin, err := configs[0].buildInvocation("hello", "context")
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedArgs, args)
+			assert.Equal(t, tt.expectedStdin, mustReadAll(t, stdin))
 		})
 	}
-}
-
-func TestProviderDefaultConfig(t *testing.T) {
-	t.Run("codex", func(t *testing.T) {
-		provider, ok := any(&codexProvider{}).(defaultConfigProvider)
-		require.True(t, ok)
-		assert.Equal(t, map[string]any{"skip_git_repo_check": true}, provider.DefaultConfig())
-	})
 }
 
 func TestManagedOpenCodeMode(t *testing.T) {
@@ -751,10 +761,10 @@ func TestResolveProvider(t *testing.T) {
 		assert.Equal(t, "context", mustReadAll(t, stdin))
 	})
 
-	t.Run("custom_definition", func(t *testing.T) {
+	t.Run("custom_definition_shadows_builtin", func(t *testing.T) {
 		cfg, err := resolveProvider(map[string]any{"provider": "gemini"}, ir.HarnessDefinitions{
 			"gemini": {
-				Binary:     "gemini",
+				Binary:     "custom-gemini",
 				PrefixArgs: []string{"run"},
 				PromptMode: ir.HarnessPromptModeFlag,
 				PromptFlag: "--prompt",
@@ -762,7 +772,7 @@ func TestResolveProvider(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "gemini", cfg.binaryName())
+		assert.Equal(t, "custom-gemini", cfg.binaryName())
 
 		cfg.flags = map[string]any{"provider": "gemini", "model": "gemini-2.5-pro"}
 		args, stdin, err := cfg.buildInvocation("hello", "context")
@@ -771,12 +781,23 @@ func TestResolveProvider(t *testing.T) {
 		assert.Equal(t, "context", mustReadAll(t, stdin))
 	})
 
-	t.Run("deleted_definition_is_unknown", func(t *testing.T) {
-		_, err := resolveProvider(map[string]any{"provider": "gemini"}, ir.HarnessDefinitions{
+	t.Run("deleted_definition_reveals_builtin", func(t *testing.T) {
+		cfg, err := resolveProvider(map[string]any{"provider": "gemini"}, ir.HarnessDefinitions{
 			"gemini": nil,
 		})
+		require.NoError(t, err)
+		assert.Equal(t, "gemini", cfg.binaryName())
+	})
+
+	t.Run("unknown_provider_names_are_deduplicated", func(t *testing.T) {
+		_, err := resolveProvider(map[string]any{"provider": "missing"}, ir.HarnessDefinitions{
+			"gemini": {
+				Binary:     "custom-gemini",
+				PromptMode: ir.HarnessPromptModeArg,
+			},
+		})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unknown provider")
+		assert.Equal(t, 1, strings.Count(err.Error(), "gemini"))
 	})
 
 	t.Run("templated_provider_runtime_error", func(t *testing.T) {
@@ -845,6 +866,22 @@ func TestBuildProviderConfigs(t *testing.T) {
 			"provider":            "codex",
 			"skip-git-repo-check": true,
 		}, configs[0].flags)
+	})
+
+	t.Run("custom_definition_skips_builtin_defaults", func(t *testing.T) {
+		configs, err := buildProviderConfigs(map[string]any{
+			"provider": "codex",
+		}, ir.HarnessDefinitions{
+			"codex": {
+				Binary:     "custom-codex",
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, configs, 1)
+		assert.Equal(t, "custom-codex", configs[0].binaryName())
+		assert.Equal(t, map[string]any{"provider": "codex"}, configs[0].flags)
 	})
 
 	t.Run("builtin_provider_defaults_can_be_overridden", func(t *testing.T) {

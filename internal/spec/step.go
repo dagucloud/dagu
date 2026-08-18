@@ -2105,7 +2105,7 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *ir.Step) error {
 		mergeRedisConfig(ctx.dag.Redis, result.ExecutorConfig.Config)
 	}
 	if result.ExecutorConfig.Type == "harness" && ctx.dag != nil && ctx.dag.Harness != nil {
-		result.ExecutorConfig.Config = mergeHarnessConfig(ctx.dag.Harness, stepConfig)
+		result.ExecutorConfig.Config = mergeHarnessConfig(ctx.dag.Harness, ctx.dag.Harnesses, stepConfig)
 	}
 	if isKubernetesExecutorType(result.ExecutorConfig.Type) && ctx.dag != nil && ctx.dag.Kubernetes != nil {
 		result.ExecutorConfig.Config = mergeKubernetesExecutorConfig(ctx.dag.Kubernetes, result.ExecutorConfig.Config)
@@ -2180,12 +2180,12 @@ func mergeRedisConfig(dagRedis *ir.RedisConfig, stepConfig map[string]any) {
 	setIfMissing("max_retries", dagRedis.MaxRetries)
 }
 
-func mergeHarnessConfig(dagHarness *ir.HarnessConfig, stepConfig map[string]any) map[string]any {
+func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions, stepConfig map[string]any) map[string]any {
 	effectiveProvider := harnessProviderName(stepConfig)
 	if effectiveProvider == "" && dagHarness != nil {
 		effectiveProvider = harnessProviderName(dagHarness.Config)
 	}
-	if ir.IsBuiltinCLIHarnessProvider(effectiveProvider) {
+	if ir.IsEffectiveBuiltinCLIHarnessProvider(effectiveProvider, defs) {
 		stepConfig = ir.NormalizeBuiltinHarnessFlagKeys(stepConfig)
 	}
 
@@ -2199,7 +2199,7 @@ func mergeHarnessConfig(dagHarness *ir.HarnessConfig, stepConfig map[string]any)
 	}
 
 	dagConfig := dagHarness.Config
-	if ir.IsBuiltinCLIHarnessProvider(effectiveProvider) {
+	if ir.IsEffectiveBuiltinCLIHarnessProvider(effectiveProvider, defs) {
 		dagConfig = ir.NormalizeBuiltinHarnessFlagKeys(dagConfig)
 	}
 
