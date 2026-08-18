@@ -30,7 +30,7 @@ export type SubRunStackEntry = {
 
 /**
  * Opens a child DAG-run in the stack. Provided by whichever view owns the
- * stack, so a step table, a graph node, or a controller timeline all drill down
+ * stack, so a step table, a graph node, or an agent timeline all drill down
  * the same way, and a nested view pushes onto the stack already open rather
  * than opening a second one.
  */

@@ -8,11 +8,10 @@ import "errors"
 // Sentinel errors returned by [Collection] methods.
 // Use errors.Is for matching; backends may wrap these with additional context.
 var (
-	// ErrNotFound is returned by Get and Claim when no matching record exists.
+	// ErrNotFound is returned when a requested record does not exist.
 	ErrNotFound = errors.New("persis: record not found")
 
-	// ErrConflict is returned by CompareAndSwap when the current Data does not
-	// match the expected value.
+	// ErrConflict is returned when a conditional mutation cannot be applied.
 	ErrConflict = errors.New("persis: compare-and-swap conflict")
 
 	// ErrCorrupt is returned when a record exists but its stored representation

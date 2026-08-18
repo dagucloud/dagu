@@ -10,7 +10,7 @@ Load only the reference file that matches the task.
 ## Default Approach
 
 - Prefer `type: graph` for new DAGs. It supports both sequential flow via `depends:` and parallel flow.
-- Use `type: controller` only when the step order cannot be written down in advance and an LLM must choose it. It requires `llm:` and a `tasks:` list stating when the run is finished.
+- Use an Agent DAG (`type: agent`) only when the step order cannot be written down in advance and an LLM must choose it. It requires `llm:` and a `tasks:` list stating when the run is finished. The model may select multiple distinct, independent actions in one turn; Dagu runs them concurrently up to `max_active_steps` (`0` is unlimited, `1` is serial). Same-batch actions cannot consume sibling outputs, while failures do not cancel siblings. `set_task_status` and `ask_user` must be called alone.
 - Use `type: build` only for local regular-file pipelines whose unchanged transformations should be reused across runs.
 - Prefer `id` on every step. Omit `name` unless the display label must differ from the step ID.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
@@ -53,7 +53,7 @@ Load only the reference file that matches the task.
 - `parallel:` currently requires `action: dag.run` to a child DAG.
 - Sub-DAGs do not inherit parent env vars; pass what you need via `params:`.
 - For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over Dagu interpolation such as `${env.VAR_NAME}`.
-- `harness.run` supports built-in CLI provider adapters (`claude`, `codex`, `copilot`, `opencode`, `pi`) and custom top-level `harnesses:` entries. It can use top-level `container:` or step-level `container:`.
+- `harness.run` supports built-in provider adapters (`aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kiro`, `opencode`, `pi`, `qwen`) and custom top-level `harnesses:` entries. Built-in OpenCode uses managed sessions on long-lived Dagu hosts by default; containers and unsupported options use the CLI path. It can use top-level `container:` or step-level `container:`.
 - Container runtime selection is service-level, not a DAG YAML field. Set `DAGU_CONTAINER_RUNTIME=podman` to use Podman, and set `DAGU_PODMAN_HOST` only when the Podman Docker-compatible socket is not the default.
 - DAG/action outputs are collected from string-form `output: VAR_NAME`, `stdout.outputs`, and `action: outputs.write`. Object-form `output:` stays step-scoped for `${step_id.output.*}` unless the workflow explicitly republishes values through `stdout.outputs` or `outputs.write`.
 - `state.get`, `state.set`, `state.delete`, `state.list`, and `state.diff` persist small JSON values across DAG runs. State scopes are `dag`, `root_dag`, `global`, and `custom`; use artifacts or external storage for large payloads.

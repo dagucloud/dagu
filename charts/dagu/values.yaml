@@ -47,6 +47,12 @@ config:
   # Browser origins allowed to make cross-origin API requests.
   # Empty disables CORS; same-origin UI access continues to work.
   corsAllowedOrigins: []
+  # Restrict every UI/API HTTP route to these client IP addresses or CIDR ranges.
+  # Empty preserves unrestricted access.
+  ipAccess:
+    allowedIPs: []
+    # Forwarded client IP headers are honored only from these proxy addresses or ranges.
+    trustedProxies: []
   envPassthrough: []
   envPassthroughPrefixes: []
 

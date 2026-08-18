@@ -40,6 +40,8 @@ var (
 	WithRetryPath = runctx.WithRetryPath
 	// WithAttemptID sets the DAG-run attempt identifier.
 	WithAttemptID = runctx.WithAttemptID
+	// WithWorkerID sets the execution host identifier.
+	WithWorkerID = runctx.WithWorkerID
 	// WithTriggerType sets the DAG-run trigger type.
 	WithTriggerType = runctx.WithTriggerType
 	// WithTriggerActor sets the attributable trigger actor.

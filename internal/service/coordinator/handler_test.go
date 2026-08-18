@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -22,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	persistestutil "github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -79,6 +81,41 @@ func newMockDAGRunStore() *mockDAGRunStore {
 	}
 	backend.repository = persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
 	return backend
+}
+
+func TestHandlerAgentSessionCleanup(t *testing.T) {
+	t.Parallel()
+
+	backend := persistestutil.NewMemoryBackend()
+	queue := agentsession.NewCleanupQueue(backend.Collection("cleanups"))
+	root := ir.NewDAGRunRef("build", "run-removed")
+	require.NoError(t, queue.EnqueueDAGRunRemoval(t.Context(), root, []ir.AgentSessionResource{{
+		Provider: "opencode", SessionID: "session-1", Directory: "/workspace", OwnerWorkerID: "worker-a",
+	}}))
+	store := newMockDAGRunStore()
+	handler := NewHandler(HandlerConfig{
+		DAGRunRepository:         store.repository,
+		AgentSessionCleanupQueue: queue,
+		Owner:                    dispatch.CoordinatorEndpoint{ID: "coordinator-a", Host: "127.0.0.1", Port: 50055},
+	})
+
+	claimed, err := handler.ClaimAgentSessionCleanup(t.Context(), &coordinatorv1.ClaimAgentSessionCleanupRequest{WorkerId: "worker-a"})
+	require.NoError(t, err)
+	require.True(t, claimed.Found)
+	assert.Equal(t, "session-1", claimed.SessionId)
+	assert.Equal(t, "coordinator-a", claimed.OwnerCoordinatorId)
+
+	_, err = handler.CompleteAgentSessionCleanup(t.Context(), &coordinatorv1.CompleteAgentSessionCleanupRequest{
+		WorkerId: "worker-b", JobId: claimed.JobId, ClaimToken: claimed.ClaimToken,
+	})
+	require.Error(t, err)
+	_, err = handler.CompleteAgentSessionCleanup(t.Context(), &coordinatorv1.CompleteAgentSessionCleanupRequest{
+		WorkerId: "worker-a", JobId: claimed.JobId, ClaimToken: claimed.ClaimToken,
+	})
+	require.NoError(t, err)
+	claimed, err = handler.ClaimAgentSessionCleanup(t.Context(), &coordinatorv1.ClaimAgentSessionCleanupRequest{WorkerId: "worker-a"})
+	require.NoError(t, err)
+	assert.False(t, claimed.Found)
 }
 
 func registerCommandExecutorCapsForCoordinatorTest() {
@@ -5511,7 +5548,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		// Add a sub-attempt
 		rootRef := ir.DAGRunRef{Name: "parent-dag", ID: "root-123"}
 		subDAGRunID := "sub-456"
-		store.addSubAttempt(rootRef, subDAGRunID, &ir.DAGRunStatus{
+		storedAttempt := store.addSubAttempt(rootRef, subDAGRunID, &ir.DAGRunStatus{
 			Name:     "child-dag",
 			DAGRunID: subDAGRunID,
 			Status:   ir.Running,
@@ -5523,8 +5560,7 @@ func TestHandler_GetOrOpenSubAttempt(t *testing.T) {
 		require.NotNil(t, attempt)
 
 		// Verify it was opened
-		mockAttempt := attempt.(*mockAttempt)
-		assert.True(t, mockAttempt.WasOpened())
+		assert.True(t, storedAttempt.WasOpened())
 	})
 
 	t.Run("ReturnsCachedAttemptOnSecondAccess", func(t *testing.T) {

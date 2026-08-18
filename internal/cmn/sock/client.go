@@ -16,7 +16,9 @@ import (
 )
 
 var (
-	ErrTimeout = errors.New("unix socket timeout")
+	ErrTimeout          = errors.New("unix socket timeout")
+	ErrTransport        = errors.New("unix socket transport error")
+	ErrUnexpectedStatus = errors.New("unexpected HTTP status")
 )
 
 // Client is a unix socket client that can send requests
@@ -45,7 +47,10 @@ func NewClient(addr string) *Client {
 	return cl
 }
 
-const defaultTimeout = 3 * time.Second
+const (
+	defaultTimeout               = 3 * time.Second
+	maxUnexpectedStatusBodyBytes = 256
+)
 
 // wrapTimeout normalizes timeout errors to the exported socket timeout sentinel.
 func wrapTimeout(op string, err error) error {
@@ -75,7 +80,8 @@ func normalizePath(path string) string {
 	return "/" + path
 }
 
-// Request sends a request to the frontend and returns the response.
+// Request sends a request to the frontend and returns the response body.
+// Non-successful HTTP responses are returned as errors.
 func (cl *Client) Request(method, path string) (string, error) {
 	requestURL := &url.URL{
 		Scheme: "http",
@@ -89,15 +95,24 @@ func (cl *Client) Request(method, path string) (string, error) {
 
 	response, err := cl.client.Do(request)
 	if err != nil {
-		return "", wrapTimeout("send request", err)
+		return "", fmt.Errorf("%w: %w", ErrTransport, wrapTimeout("send request", err))
 	}
 	defer func() {
 		_ = response.Body.Close()
 	}()
 
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, maxUnexpectedStatusBodyBytes))
+		detail := strings.TrimSpace(string(body))
+		if detail == "" {
+			return "", fmt.Errorf("%w: %s", ErrUnexpectedStatus, response.Status)
+		}
+		return "", fmt.Errorf("%w: %s: %s", ErrUnexpectedStatus, response.Status, detail)
+	}
+
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return "", wrapTimeout("read response body", err)
+		return "", fmt.Errorf("%w: %w", ErrTransport, wrapTimeout("read response body", err))
 	}
 
 	return string(body), nil

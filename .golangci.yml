@@ -25,6 +25,9 @@ linters:
       - path: _test\.go
         linters:
           - gosec
+      - path: \.pb\.go
+        linters:
+          - gosec
     paths:
       - .github
       - .vscode

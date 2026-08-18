@@ -84,13 +84,20 @@ func (c *Cache[T]) InvalidateAll() {
 func (c *Cache[T]) LoadLatest(
 	filePath string, loader func() (T, error),
 ) (T, error) {
-	stale, fi, err := c.isStale(filePath)
+	return c.LoadLatestByKey(filePath, filePath, loader)
+}
+
+// LoadLatestByKey gets the latest version of an item under a caller-provided cache key.
+func (c *Cache[T]) LoadLatestByKey(
+	key, filePath string, loader func() (T, error),
+) (T, error) {
+	stale, fi, err := c.isStaleByKey(key, filePath)
 	if err != nil {
 		var zero T
 		return zero, err
 	}
 	if !stale {
-		if e, ok := c.lru.Get(filePath); ok {
+		if e, ok := c.lru.Get(key); ok {
 			return e.data, nil
 		}
 	}
@@ -99,7 +106,7 @@ func (c *Cache[T]) LoadLatest(
 		var zero T
 		return zero, err
 	}
-	c.Store(filePath, data, fi)
+	c.Store(key, data, fi)
 	return data, nil
 }
 
@@ -120,11 +127,15 @@ func (c *Cache[T]) IsStale(fileName string) (bool, os.FileInfo, error) {
 }
 
 func (c *Cache[T]) isStale(fileName string) (bool, os.FileInfo, error) {
-	fi, err := os.Stat(fileName)
+	return c.isStaleByKey(fileName, fileName)
+}
+
+func (c *Cache[T]) isStaleByKey(key, filePath string) (bool, os.FileInfo, error) {
+	fi, err := os.Stat(filePath)
 	if err != nil {
-		return true, fi, fmt.Errorf("failed to stat file %s: %w", fileName, err)
+		return true, fi, fmt.Errorf("failed to stat file %s: %w", filePath, err)
 	}
-	e, ok := c.lru.Peek(fileName)
+	e, ok := c.lru.Peek(key)
 	if !ok {
 		return true, fi, nil
 	}

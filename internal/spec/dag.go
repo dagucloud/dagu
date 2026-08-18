@@ -52,13 +52,13 @@ type dag struct {
 	Group string `yaml:"group,omitempty"`
 	// Description is the description of the DAG.
 	Description string `yaml:"description,omitempty"`
-	// Type is the execution type for steps (graph, chain, or controller).
+	// Type is the execution type for steps (graph, chain, or agent).
 	// Default is "graph" which uses dependency-based parallel execution.
 	// "chain" executes steps in the order they are defined.
-	// "controller" lets an LLM decide which step runs next.
+	// "agent" lets an LLM decide which step runs next.
 	Type string `yaml:"type,omitempty"`
-	// Tasks are the goals a controller DAG must satisfy before it concludes.
-	Tasks []controllerTask `yaml:"tasks,omitempty"`
+	// Tasks are the goals an agent DAG must satisfy before it concludes.
+	Tasks []agentTask `yaml:"tasks,omitempty"`
 	// Shell is the default shell to use for all steps in this DAG.
 	// If not specified, the system default shell is used.
 	// Can be overridden at the step level.
@@ -620,13 +620,13 @@ var fullNotificationStage = transformStage{
 	dagField("otel", buildOTel, func(out *ir.DAG, v *ir.OTelConfig) { out.OTel = v }),
 }
 
-var fullControllerStage = transformStage{
-	dagField("tasks", buildTasks, func(out *ir.DAG, v []ir.ControllerTask) { out.Tasks = v }),
+var fullAgentStage = transformStage{
+	dagField("tasks", buildTasks, func(out *ir.DAG, v []ir.AgentTask) { out.Tasks = v }),
 }
 
 var fullTransformStages = []transformStage{
 	fullRunOutputStage,
-	fullControllerStage,
+	fullAgentStage,
 	fullInteractionStage,
 	fullRetentionStage,
 	fullExecutionDefaultsStage,
@@ -844,7 +844,7 @@ func (s *dagBuildState) buildActionGraph() {
 		s.result.Steps = composeSteps(s.result.Steps, steps)
 	}
 
-	if err := injectControllerStep(s.result); err != nil {
+	if err := injectAgentStep(s.result); err != nil {
 		s.errs = append(s.errs, err)
 	}
 }
@@ -863,7 +863,7 @@ func (s *dagBuildState) validateResult() {
 			))
 		}
 
-		if err := validateController(s.result); err != nil {
+		if err := validateAgent(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
 	}
@@ -955,10 +955,10 @@ func buildType(_ buildContext, d *dag) (string, error) {
 		return ir.TypeGraph, nil
 	}
 	switch t {
-	case ir.TypeGraph, ir.TypeChain, ir.TypeController, ir.TypeBuild:
+	case ir.TypeGraph, ir.TypeChain, ir.TypeAgent, ir.TypeBuild:
 		return t, nil
 	default:
-		return "", ir.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, controller, build)", t))
+		return "", ir.NewValidationError("type", t, fmt.Errorf("invalid type: %s (must be one of: graph, chain, agent, build)", t))
 	}
 }
 
@@ -974,6 +974,9 @@ func buildName(ctx buildContext, d *dag) (string, error) {
 	// Fallback to filename without extension only for the main DAG (index 0)
 	// Sub-DAGs in multi-DAG files must have explicit names
 	if ctx.index == 0 {
+		if ctx.opts.DefaultName != "" {
+			return strings.TrimSpace(ctx.opts.DefaultName), nil
+		}
 		return defaultName(ctx.file), nil
 	}
 	return "", nil
@@ -2534,7 +2537,7 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
-	if err := validateControllerLLMLimits(cfg, strings.TrimSpace(d.Type) == ir.TypeController); err != nil {
+	if err := validateAgentLLMLimits(cfg, strings.TrimSpace(d.Type) == ir.TypeAgent); err != nil {
 		return nil, err
 	}
 
@@ -2605,13 +2608,6 @@ func parseHarnessDefinitions(raw map[string]any) (ir.HarnessDefinitions, error) 
 		trimmedName := strings.TrimSpace(name)
 		if trimmedName == "" {
 			return nil, ir.NewValidationError("harnesses", name, fmt.Errorf("harness name is required"))
-		}
-		if ir.IsBuiltinCLIHarnessProvider(trimmedName) {
-			return nil, ir.NewValidationError(
-				fmt.Sprintf("harnesses.%s", trimmedName),
-				value,
-				fmt.Errorf("custom harness name %q conflicts with built-in provider", trimmedName),
-			)
 		}
 		if value == nil {
 			defs[trimmedName] = nil
@@ -3095,13 +3091,13 @@ func validateHarnessProviderConfig(defs ir.HarnessDefinitions, cfg map[string]an
 	if strings.Contains(providerName, "${") {
 		return nil
 	}
-	if ir.IsBuiltinCLIHarnessProvider(providerName) {
-		return nil
-	}
 	if defs != nil {
 		if def, ok := defs[providerName]; ok && def != nil {
 			return nil
 		}
+	}
+	if ir.IsBuiltinCLIHarnessProvider(providerName) {
+		return nil
 	}
 	return fmt.Errorf("harness: unknown provider %q", providerName)
 }

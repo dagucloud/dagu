@@ -7,25 +7,27 @@ package config
 // Fields are organized into logical groups for clarity.
 type Definition struct {
 	// Server settings
-	Host               string   `mapstructure:"host"`
-	Port               int      `mapstructure:"port"`
-	PublicURL          string   `mapstructure:"public_url"`
-	BasePath           string   `mapstructure:"base_path"`
-	APIBasePath        string   `mapstructure:"api_base_path"`
-	APIBaseURL         string   `mapstructure:"api_base_url"` // Deprecated: use APIBasePath
-	Headless           *bool    `mapstructure:"headless"`
-	CheckUpdates       *bool    `mapstructure:"check_updates"`
-	TLS                *TLSDef  `mapstructure:"tls"`
-	CORSAllowedOrigins []string `mapstructure:"cors_allowed_origins"`
+	Host               string       `mapstructure:"host"`
+	Port               int          `mapstructure:"port"`
+	PublicURL          string       `mapstructure:"public_url"`
+	BasePath           string       `mapstructure:"base_path"`
+	APIBasePath        string       `mapstructure:"api_base_path"`
+	APIBaseURL         string       `mapstructure:"api_base_url"` // Deprecated: use APIBasePath
+	Headless           *bool        `mapstructure:"headless"`
+	CheckUpdates       *bool        `mapstructure:"check_updates"`
+	TLS                *TLSDef      `mapstructure:"tls"`
+	CORSAllowedOrigins []string     `mapstructure:"cors_allowed_origins"`
+	IPAccess           *IPAccessDef `mapstructure:"ip_access"`
 
 	// Core settings
-	Debug                  bool     `mapstructure:"debug"`
-	DefaultShell           string   `mapstructure:"default_shell"`
-	LogFormat              string   `mapstructure:"log_format"`      // "json" or "text"
-	AccessLog              *string  `mapstructure:"access_log_mode"` // "all", "non-public", or "none" (default)
-	TZ                     string   `mapstructure:"tz"`
-	EnvPassthrough         []string `mapstructure:"env_passthrough"`
-	EnvPassthroughPrefixes []string `mapstructure:"env_passthrough_prefixes"`
+	Debug                  bool         `mapstructure:"debug"`
+	DefaultShell           string       `mapstructure:"default_shell"`
+	LogFormat              string       `mapstructure:"log_format"`      // "json" or "text"
+	AccessLog              *string      `mapstructure:"access_log_mode"` // "all", "non-public", or "none" (default)
+	TZ                     string       `mapstructure:"tz"`
+	EnvPassthrough         []string     `mapstructure:"env_passthrough"`
+	EnvPassthroughPrefixes []string     `mapstructure:"env_passthrough_prefixes"`
+	OpenCode               *OpenCodeDef `mapstructure:"opencode"`
 
 	// Authentication
 	Auth *AuthDef `mapstructure:"auth"`
@@ -96,6 +98,12 @@ type Definition struct {
 	License    *LicenseDef    `mapstructure:"license"`
 }
 
+// OpenCodeDef configures the process-local managed OpenCode service.
+type OpenCodeDef struct {
+	Executable     string   `mapstructure:"executable"`
+	EnvPassthrough []string `mapstructure:"env_passthrough"`
+}
+
 // DAGDiscoveryDef configures DAG definition discovery.
 type DAGDiscoveryDef struct {
 	Recursive *bool `mapstructure:"recursive"`
@@ -111,6 +119,12 @@ type TLSDef struct {
 	CertFile string `mapstructure:"cert_file"`
 	KeyFile  string `mapstructure:"key_file"`
 	CAFile   string `mapstructure:"ca_file"`
+}
+
+// IPAccessDef configures server-wide HTTP client IP filtering.
+type IPAccessDef struct {
+	AllowedIPs     []string `mapstructure:"allowed_ips"`
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 // -----------------------------------------------------------------------------

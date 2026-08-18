@@ -91,9 +91,9 @@ type NodeState struct {
 	StepOutputsValue *string
 	// HumanTaskInput stores the validated input submitted to complete a human task.
 	HumanTaskInput json.RawMessage
-	// ControllerState stores the goal progress of a controller DAG. It is carried
-	// across attempts so a suspended controller resumes where it left off.
-	ControllerState json.RawMessage
+	// AgentState stores the goal progress of an agent DAG. It is carried
+	// across attempts so a suspended agent resumes where it left off.
+	AgentState json.RawMessage
 	// HumanTaskCompletedBy is the name of the subject that completed the human task.
 	HumanTaskCompletedBy string
 	// HumanTaskCompletedByID is the ID of the subject that completed the human task.
@@ -103,6 +103,8 @@ type NodeState struct {
 	// ToolDefinitions stores the tool definitions that were available to the LLM during execution.
 	// This provides visibility into what tools/functions the LLM could call.
 	ToolDefinitions []ir.ToolDefinition
+	// AgentSession stores managed coding-agent state across suspended attempts.
+	AgentSession *ir.AgentSession
 	// ApprovalInputs stores key-value parameters provided during approval.
 	// These are available as environment variables in subsequent steps.
 	ApprovalInputs map[string]string
@@ -787,11 +789,11 @@ func (d *Data) MarkError(err error) {
 	d.inner.State.Status = ir.NodeFailed
 }
 
-// SetControllerState stores the controller's goal progress on the node.
-func (d *Data) SetControllerState(raw json.RawMessage) {
+// SetAgentState stores the agent's goal progress on the node.
+func (d *Data) SetAgentState(raw json.RawMessage) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.inner.State.ControllerState = raw
+	d.inner.State.AgentState = raw
 }
 
 // SetChatMessages sets the chat session messages for the node.
@@ -820,6 +822,20 @@ func (d *Data) GetToolDefinitions() []ir.ToolDefinition {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.inner.State.ToolDefinitions
+}
+
+// SetAgentSession stores managed coding-agent state on the node.
+func (d *Data) SetAgentSession(session *ir.AgentSession) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.AgentSession = ir.CloneAgentSession(session)
+}
+
+// GetAgentSession returns a detached managed coding-agent state snapshot.
+func (d *Data) GetAgentSession() *ir.AgentSession {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return ir.CloneAgentSession(d.inner.State.AgentSession)
 }
 
 // GetApprovalInputs returns a copy of the approval inputs map.

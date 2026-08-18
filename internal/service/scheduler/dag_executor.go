@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 )
@@ -60,6 +62,7 @@ type DAGExecutor struct {
 	baseConfigPath         string
 	workspaceBaseConfigDir string
 	profileResolver        DAGProfileResolver
+	openCodeHost           *opencodehost.Host
 }
 
 type DAGProfileResolver interface {
@@ -252,6 +255,9 @@ func (e *DAGExecutor) executeDAG(
 		if previousStatus != nil && len(previousStatus.ParamsList) == 0 && previousStatus.Params != "" {
 			taskOpts = append(taskOpts, executor.WithTaskParams(previousStatus.Params))
 		}
+		if workerID := ir.RetryAgentOwnerWorkerID(previousStatus, false); workerID != "" {
+			taskOpts = append(taskOpts, executor.WithTargetWorkerID(workerID))
+		}
 		if dag.SourceFile != "" {
 			taskOpts = append(taskOpts, executor.WithSourceFile(dag.SourceFile))
 		}
@@ -302,6 +308,7 @@ func (e *DAGExecutor) executeDAG(
 			DefinitionID: definitionID,
 			NoReuse:      previousStatus != nil && previousStatus.NoReuse,
 		})
+		spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, dag)...)
 		return launcher.Start(ctx, spec)
 
 	case dispatch.DispatchOperationRetry:
@@ -310,6 +317,7 @@ func (e *DAGExecutor) executeDAG(
 			TriggerActor:  triggerActor,
 			QueueDispatch: true,
 		})
+		spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, dag)...)
 		return launcher.Run(ctx, spec)
 
 	default:
@@ -410,7 +418,27 @@ func (e *DAGExecutor) Restart(ctx context.Context, entry DAGEntry, scheduleTime 
 		ScheduleTime: stringutil.FormatTime(scheduleTime),
 		DefinitionID: entry.DefinitionID,
 	})
+	spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, prepared)...)
 	return launcher.Start(ctx, spec)
+}
+
+func (e *DAGExecutor) managedOpenCodeEnv(ctx context.Context, dag *ir.DAG) []string {
+	if !usesManagedOpenCode(dag) {
+		return nil
+	}
+	if e.openCodeHost == nil {
+		return opencodehost.UnavailableEnv(errors.New("managed OpenCode is not available in a standalone scheduler process"))
+	}
+	config, err := e.openCodeHost.Ensure()
+	if err != nil {
+		logger.Warn(ctx, "Managed OpenCode host is unavailable; the harness will apply its configured compatibility policy", tag.Error(err))
+		return opencodehost.UnavailableEnv(err)
+	}
+	return config.Env()
+}
+
+func usesManagedOpenCode(dag *ir.DAG) bool {
+	return opencodehost.DAGUsesManaged(dag)
 }
 
 func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, params any) (*ir.DAG, error) {

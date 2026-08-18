@@ -76,7 +76,7 @@ func runScheduler(ctx *Context, _ []string) error {
 	if dagsDir, _ := ctx.Command.Flags().GetString("dags"); dagsDir != "" {
 		ctx.Config.Paths.DAGsDir = dagsDir
 	}
-	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config)
+	deps, err := schedulerfile.NewDependencies(ctx, ctx.Config, ctx.backend)
 	if err != nil {
 		return err
 	}

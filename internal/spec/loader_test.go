@@ -592,7 +592,7 @@ steps:
 		assert.Nil(t, dag.Harnesses)
 	})
 
-	t.Run("NullDeletionMakesReferenceInvalid", func(t *testing.T) {
+	t.Run("NullDeletionRevealsBuiltin", func(t *testing.T) {
 		t.Parallel()
 
 		base := createTempYAMLFile(t, `
@@ -614,9 +614,11 @@ steps:
       provider: gemini
 `)
 
-		_, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), `unknown provider "gemini"`)
+		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		assert.Nil(t, dag.Harnesses)
+		require.Len(t, dag.Steps, 1)
+		assert.Equal(t, "gemini", dag.Steps[0].ExecutorConfig.Config["provider"])
 	})
 }
 
@@ -2446,10 +2448,16 @@ this is not valid yaml: [unterminated
 		require.Error(t, err)
 
 		// With AllowBuildErrors, it should return a DAG with errors captured
-		dag, err := spec.Load(context.Background(), testDAG, spec.WithAllowBuildErrors())
+		dag, err := spec.Load(
+			context.Background(),
+			testDAG,
+			spec.WithAllowBuildErrors(),
+			spec.WithDefaultName("  entry-name  "),
+		)
 		require.NoError(t, err)
 		require.NotNil(t, dag)
 		assert.NotEmpty(t, dag.BuildErrors)
+		assert.Equal(t, "entry-name", dag.Name)
 		assert.Equal(t, testDAG, dag.Location)
 	})
 

@@ -7,13 +7,15 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewDependenciesRequiresDAGSettingsStorage(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewDependencies(t.Context(), &config.Config{})
+	cfg := &config.Config{}
+	_, err := NewDependencies(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 
 	require.ErrorContains(t, err, "failed to initialize DAG settings store")
 }

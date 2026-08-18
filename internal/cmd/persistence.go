@@ -6,8 +6,8 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
+	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -34,6 +34,7 @@ type Persistence struct {
 	WorkerHeartbeatStore      dispatch.WorkerHeartbeatStore
 	DAGRunLeaseStore          dispatch.DAGRunLeaseStore
 	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
+	AgentSessionCleanupQueue  *agentsession.CleanupQueue
 }
 
 type filePersistenceOptions struct {
@@ -44,6 +45,7 @@ type filePersistenceOptions struct {
 func newFilePersistence(
 	ctx context.Context,
 	cfg *config.Config,
+	backend persis.Backend,
 	opts filePersistenceOptions,
 ) (Persistence, error) {
 	procRepository := file.NewProcRepository(cfg)
@@ -51,31 +53,34 @@ func newFilePersistence(
 		return Persistence{}, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
 	}
 
+	cleanupQueue := agentsession.NewCleanupQueue(
+		backend.Collection(persis.CollectionAgentSessionCleanups),
+	)
 	var dagRunOpts []file.DAGRunRepositoryOption
 	if opts.DAGRunStatusCache != nil {
 		dagRunOpts = append(dagRunOpts, file.WithDAGRunHistoryFileCache(opts.DAGRunStatusCache))
 	}
+	dagRunOpts = append(dagRunOpts, file.WithDAGRunRemovalEnqueuer(cleanupQueue))
 	dagRunRepository := file.NewDAGRunRepository(cfg, dagRunOpts...)
 
-	distributedDir := filepath.Join(cfg.Paths.DataDir, "distributed")
 	dagRunLeaseStore := store.NewDAGRunLeaseStore(
-		file.NewCollection(filepath.Join(distributedDir, "leases")),
+		backend.Collection(persis.CollectionDAGRunLeases),
 	)
 	activeDistributedRunStore := store.NewActiveDistributedRunStore(
-		file.NewCollection(filepath.Join(distributedDir, "active-runs")),
+		backend.Collection(persis.CollectionActiveDistributedRuns),
 	)
-	queueStore := store.NewQueueStore(file.NewCollection(cfg.Paths.QueueDir))
-	stateStore := store.NewDAGStateStore(file.NewCollection(cfg.Paths.DAGStateDir))
+	queueStore := store.NewQueueStore(backend.Collection(persis.CollectionQueue))
+	stateStore := store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState))
 	schedulerStateStore := store.NewSchedulerStateStore(
-		file.NewCollection(filepath.Join(cfg.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
+		backend.Collection(persis.CollectionSchedulerState),
 	)
 	serviceRegistry := file.NewServiceRegistry(cfg)
 	dispatchTaskStore := store.NewDispatchTaskStore(
-		file.NewCollection(distributedDir),
+		backend.Collection(persis.CollectionDispatchTasks),
 		store.WithDispatchAdmissionLiveness(dagRunLeaseStore, activeDistributedRunStore),
 	)
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(
-		file.NewCollection(filepath.Join(distributedDir, "workers")),
+		backend.Collection(persis.CollectionWorkerHeartbeats),
 	)
 	dagRepository, err := newDAGRepository(cfg, dagRepositoryConfig{Cache: opts.DAGCache})
 	if err != nil {
@@ -94,5 +99,6 @@ func newFilePersistence(
 		WorkerHeartbeatStore:      workerHeartbeatStore,
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
+		AgentSessionCleanupQueue:  cleanupQueue,
 	}, nil
 }

@@ -267,7 +267,7 @@ type TimelineBarProps = {
 
 /**
  * Colored execution bar. Openable sub-DAG bars use role="button"
- * (same pattern as ControllerTimeline) so positioning stays a div.
+ * (same pattern as AgentTimeline) so positioning stays a div.
  */
 const TimelineBar = forwardRef<HTMLDivElement, TimelineBarProps>(
   function TimelineBar(

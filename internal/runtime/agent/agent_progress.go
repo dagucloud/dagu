@@ -11,8 +11,8 @@ import (
 
 // createProgressReporter creates the progress reporter
 func createProgressReporter(dag *ir.DAG, dagRunID string, params []string) ProgressReporter {
-	if dag != nil && dag.Type == ir.TypeController {
-		display := NewControllerProgressDisplay(dag)
+	if dag != nil && dag.Type == ir.TypeAgent {
+		display := NewAgentDAGProgressDisplay(dag)
 		display.SetDAGRunInfo(dagRunID, strings.Join(params, " "))
 		return display
 	}

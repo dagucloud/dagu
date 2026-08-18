@@ -29,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/profile"
@@ -375,6 +376,11 @@ func (s *Scheduler) SetDispatchFunc(fn DispatchFunc) {
 // DisableHealthServer disables the health check server (used when running from start-all)
 func (s *Scheduler) DisableHealthServer() {
 	s.disableHealthServer = true
+}
+
+// SetOpenCodeHost enables the process-owned managed OpenCode service.
+func (s *Scheduler) SetOpenCodeHost(host *opencodehost.Host) {
+	s.dagExecutor.openCodeHost = host
 }
 
 func (s *Scheduler) registerStartupCancel(cancel context.CancelFunc) bool {

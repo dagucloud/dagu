@@ -47,11 +47,21 @@ type HarnessDefinition struct {
 type HarnessDefinitions map[string]*HarnessDefinition
 
 var builtinHarnessCLIProviders = map[string]struct{}{
+	"aider":    {},
+	"amp":      {},
 	"claude":   {},
+	"cline":    {},
 	"codex":    {},
 	"copilot":  {},
+	"cursor":   {},
+	"deepseek": {},
+	"droid":    {},
+	"gemini":   {},
+	"goose":    {},
+	"kiro":     {},
 	"opencode": {},
 	"pi":       {},
+	"qwen":     {},
 }
 
 // IsBuiltinCLIHarnessProvider reports whether name selects a built-in CLI
@@ -59,6 +69,15 @@ var builtinHarnessCLIProviders = map[string]struct{}{
 func IsBuiltinCLIHarnessProvider(name string) bool {
 	_, ok := builtinHarnessCLIProviders[name]
 	return ok
+}
+
+// IsEffectiveBuiltinCLIHarnessProvider reports whether name resolves to a
+// built-in provider after applying custom harness definitions.
+func IsEffectiveBuiltinCLIHarnessProvider(name string, defs HarnessDefinitions) bool {
+	if def, ok := defs[name]; ok && def != nil {
+		return false
+	}
+	return IsBuiltinCLIHarnessProvider(name)
 }
 
 // BuiltinCLIHarnessProviderNames returns the built-in CLI harness provider names.

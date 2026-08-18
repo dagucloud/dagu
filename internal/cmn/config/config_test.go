@@ -640,6 +640,62 @@ func TestConfig_Validate(t *testing.T) {
 	})
 }
 
+func TestConfigValidateIPAccess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		configure func(*Config)
+		wantError string
+	}{
+		{
+			name: "ValidAddressesAndNetworks",
+			configure: func(cfg *Config) {
+				cfg.Server.IPAccess = IPAccessConfig{
+					AllowedIPs:     []string{"203.0.113.10", "10.0.0.0/8", "2001:db8::/32"},
+					TrustedProxies: []string{"127.0.0.1", "::1"},
+				}
+			},
+		},
+		{
+			name: "InvalidAllowedIP",
+			configure: func(cfg *Config) {
+				cfg.Server.IPAccess.AllowedIPs = []string{"not-an-ip"}
+			},
+			wantError: `ip_access.allowed_ips[0] "not-an-ip"`,
+		},
+		{
+			name: "IPv4MappedNetworkBelowMappedPrefix",
+			configure: func(cfg *Config) {
+				cfg.Server.IPAccess.AllowedIPs = []string{"::ffff:192.0.2.0/95"}
+			},
+			wantError: `ip_access.allowed_ips[0] "::ffff:192.0.2.0/95"`,
+		},
+		{
+			name: "InvalidTrustedProxy",
+			configure: func(cfg *Config) {
+				cfg.Server.IPAccess.TrustedProxies = []string{"10.0.0.0/99"}
+			},
+			wantError: `ip_access.trusted_proxies[0] "10.0.0.0/99"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := validBaseConfig()
+			tt.configure(cfg)
+
+			err := cfg.Validate()
+			if tt.wantError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantError)
+		})
+	}
+}
+
 func TestConfig_ValidateOIDCWorkspaceMappings(t *testing.T) {
 	t.Parallel()
 

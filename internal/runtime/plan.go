@@ -169,7 +169,7 @@ func CreateStepRetryPlan(dag *ir.DAG, nodes []*Node, stepName string) (*Plan, er
 	}
 
 	retryCount := targetNode.GetRetryCount()
-	targetNode.ClearState(step)
+	clearNodeForRetry(targetNode, step)
 	targetNode.SetRetryCount(retryCount)
 	if !preserveRetryBudget {
 		targetNode.retryPolicy = RetryPolicy{} // manual step retries start with a fresh retry budget
@@ -178,10 +178,10 @@ func CreateStepRetryPlan(dag *ir.DAG, nodes []*Node, stepName string) (*Plan, er
 	return p, nil
 }
 
-// IsController reports whether execution order is decided by a controller step
+// IsAgent reports whether execution order is decided by an agent step
 // rather than by dependency edges.
-func (p *Plan) IsController() bool {
-	_, ok := p.nodeByName[ir.ControllerStepName]
+func (p *Plan) IsAgent() bool {
+	_, ok := p.nodeByName[ir.AgentStepName]
 	return ok
 }
 
@@ -353,7 +353,7 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
 				if err != nil {
 					return err
 				}
-				node.ClearState(step)
+				clearNodeForRetry(node, step)
 				toRetry[u] = true
 			}
 
@@ -368,6 +368,22 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
 	}
 
 	return nil
+}
+
+func clearNodeForRetry(node *Node, step ir.Step) {
+	session := node.GetAgentSession()
+	previousStatus := node.State().Status
+	node.ClearState(step)
+	if session == nil {
+		return
+	}
+	if session.PromptSent && (previousStatus.IsDone() || session.State == ir.AgentSessionFailed || session.State == ir.AgentSessionAborted) {
+		session.StartNewGeneration()
+	} else {
+		session.State = ir.AgentSessionStarting
+		session.LastError = ""
+	}
+	node.SetAgentSession(session)
 }
 
 // --- Accessors ---

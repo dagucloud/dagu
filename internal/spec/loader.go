@@ -101,6 +101,13 @@ func WithName(name string) LoadOption {
 	}
 }
 
+// WithDefaultName sets the entrypoint DAG name when the manifest omits it.
+func WithDefaultName(name string) LoadOption {
+	return func(o *buildOpts) {
+		o.DefaultName = strings.TrimSpace(name)
+	}
+}
+
 // WithDAGsDir sets the directory containing the ir.DAG files.
 // This directory is used as the base path for resolving relative ir.DAG file paths.
 // When a ir.DAG is loaded by name rather than absolute path, the system will look
@@ -363,6 +370,9 @@ func buildLoadErrorDAG(opts buildOpts, filePath string, err error) *ir.DAG {
 	}
 
 	name := opts.Name
+	if name == "" {
+		name = opts.DefaultName
+	}
 	if name == "" {
 		name = defaultName(filePath)
 	}

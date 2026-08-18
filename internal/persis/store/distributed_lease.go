@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -26,7 +25,6 @@ var _ dispatch.DAGRunLeaseStore = (*DAGRunLeaseStore)(nil)
 type DAGRunLeaseStore struct {
 	col                      persis.Collection
 	corruptRecordGracePeriod time.Duration
-	mu                       sync.Mutex
 }
 
 // NewDAGRunLeaseStore creates a DAGRunLeaseStore backed by col.
@@ -46,47 +44,47 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease dispatch.DAGRunLeas
 	id := distributedRecordKey(lease.AttemptKey)
 
 	return retryConflict(ctx, func(ctx context.Context) error {
-		return s.withRecordLock(ctx, id, func() error {
-			now := time.Now().UTC()
-			existing, getErr := s.col.Get(ctx, id)
-			if errors.Is(getErr, persis.ErrCorrupt) {
-				removed, retryErr := removeCorruptRecordForRetry(ctx, s.col, id, getErr)
-				if removed {
-					logger.Warn(ctx, "Removed corrupt distributed lease entry before replacement", tag.Name(id))
-				}
-				return retryErr
+		now := time.Now().UTC()
+		existing, getErr := s.col.Get(ctx, id)
+		if errors.Is(getErr, persis.ErrCorrupt) {
+			removed, retryErr := removeCorruptRecordForRetry(ctx, s.col, id, getErr)
+			if removed {
+				logger.Warn(ctx, "Removed corrupt distributed lease entry before replacement", tag.Name(id))
 			}
-			if getErr != nil && !errors.Is(getErr, persis.ErrNotFound) {
-				return getErr
-			}
+			return retryErr
+		}
+		if getErr != nil && !errors.Is(getErr, persis.ErrNotFound) {
+			return getErr
+		}
 
-			current := lease
-			if existing != nil {
-				var storedLease dispatch.DAGRunLease
-				if err := persis.Decode(existing, &storedLease); err != nil {
-					return fmt.Errorf("dag-run lease store: decode %q: %w", lease.AttemptKey, err)
-				}
-				var err error
-				current, err = mergeDAGRunLease(storedLease, lease)
-				if err != nil {
-					return err
-				}
+		current := lease
+		if existing != nil {
+			var storedLease dispatch.DAGRunLease
+			if err := persis.Decode(existing, &storedLease); err != nil {
+				return fmt.Errorf("dag-run lease store: decode %q: %w", lease.AttemptKey, err)
 			}
-			if current.ClaimedAt == 0 {
-				current.ClaimedAt = now.UnixMilli()
-			}
-			if current.LastHeartbeatAt == 0 {
-				current.LastHeartbeatAt = current.ClaimedAt
-			}
-			data, err := persis.Encode(current)
+			var err error
+			current, err = mergeDAGRunLease(storedLease, lease)
 			if err != nil {
 				return err
 			}
-			createdAt := now
-			if existing != nil {
-				createdAt = existing.CreatedAt
-			}
-			return s.col.Put(ctx, &persis.Record{ID: id, Data: data, CreatedAt: createdAt, UpdatedAt: now})
+		}
+		if current.ClaimedAt == 0 {
+			current.ClaimedAt = now.UnixMilli()
+		}
+		if current.LastHeartbeatAt == 0 {
+			current.LastHeartbeatAt = current.ClaimedAt
+		}
+		data, err := persis.Encode(current)
+		if err != nil {
+			return err
+		}
+		createdAt := now
+		if existing != nil {
+			createdAt = existing.CreatedAt
+		}
+		return createOrSwap(ctx, s.col, existing, &persis.Record{
+			ID: id, Data: data, CreatedAt: createdAt, UpdatedAt: now,
 		})
 	})
 }
@@ -96,7 +94,7 @@ func (s *DAGRunLeaseStore) Upsert(ctx context.Context, lease dispatch.DAGRunLeas
 func (s *DAGRunLeaseStore) Touch(ctx context.Context, attemptKey string, observedAt time.Time) error {
 	id := distributedRecordKey(attemptKey)
 
-	return s.withRecordLock(ctx, id, func() error {
+	return retryConflict(ctx, func(ctx context.Context) error {
 		existing, err := s.col.Get(ctx, id)
 		if err != nil {
 			if errors.Is(err, persis.ErrNotFound) {
@@ -113,24 +111,17 @@ func (s *DAGRunLeaseStore) Touch(ctx context.Context, attemptKey string, observe
 		if err != nil {
 			return err
 		}
-		return s.col.Put(ctx, &persis.Record{
+		return createOrSwap(ctx, s.col, existing, &persis.Record{
 			ID: id, Data: next, CreatedAt: existing.CreatedAt, UpdatedAt: time.Now().UTC(),
 		})
 	})
 }
 
 func (s *DAGRunLeaseStore) Delete(ctx context.Context, attemptKey string) error {
-	id := distributedRecordKey(attemptKey)
-	return s.withRecordLock(ctx, id, func() error {
-		if err := s.col.Delete(ctx, id); err != nil && !errors.Is(err, persis.ErrNotFound) {
-			return err
-		}
-		return nil
-	})
-}
-
-func (s *DAGRunLeaseStore) withRecordLock(ctx context.Context, id string, fn func() error) error {
-	return withCollectionRecordLock(ctx, s.col, &s.mu, id, fn)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.col.Delete(ctx, distributedRecordKey(attemptKey))
 }
 
 func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLease, error) {

@@ -611,14 +611,13 @@ Invoke external coding-agent CLIs through built-in provider adapters or custom h
 
 ```yaml
 harnesses:
-  gemini:
+  gemini-custom:
     binary: gemini
-    prefix_args: ["run"]
     prompt_mode: flag
     prompt_flag: --prompt
 
 harness:
-  provider: gemini
+  provider: gemini-custom
   model: gemini-2.5-pro
   fallback:
     - provider: claude
@@ -633,11 +632,12 @@ steps:
     output: RESULT
 ```
 
-`with.prompt` is required and is passed to the selected provider according to its built-in adapter or custom harness definition. `with.provider` can be a built-in provider adapter (`claude`, `codex`, `copilot`, `opencode`, `pi`) or a top-level `harnesses:` entry. For host subprocess runs, `with.stdin` is piped to stdin as supplementary context.
+`with.prompt` is required and is passed to the selected provider according to its built-in adapter or custom harness definition. `with.provider` can be a built-in provider adapter (`aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kiro`, `opencode`, `pi`, `qwen`) or a top-level `harnesses:` entry. For host subprocess runs, each built-in adapter either pipes `with.stdin` to stdin or folds it into the prompt; see `references/harnesses.md` for the provider table.
 
 Harness behavior:
 
 - Built-in provider adapters and custom providers pass non-reserved `with` keys as CLI flags. Built-in adapters normalize `snake_case` keys to kebab-case flags.
+- A non-null custom definition shadows a built-in provider with the same name. Deleting the custom definition exposes the built-in again.
 - `fallback` is an ordered list of provider configs. Nested fallback is not supported.
 - Provider value references must resolve to a concrete provider string before execution. Unresolved `${...}` provider values fail at runtime.
 - A harness step is named with `action: harness.run`. A top-level `harness:` config supplies defaults to those steps and does not set the type of any other step, so a step written with `run:`, `exec:`, or `script:` under one stays a local command.

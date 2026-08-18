@@ -459,6 +459,38 @@ func TestStepRetryPlan_PreservesRetryCountForRetryingStep(t *testing.T) {
 	require.Equal(t, 1, nodes[0].State().RetryCount)
 }
 
+func TestStepRetryPlanStartsNewManagedAgentGeneration(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{Steps: []ir.Step{{Name: "implement"}}}
+	node := runtime.NodeWithData(runtime.NodeData{
+		Step: dag.Steps[0],
+		State: runtime.NodeState{
+			Status: ir.NodeFailed,
+			AgentSession: &ir.AgentSession{
+				Provider: "opencode", SessionID: "session-1", SessionOwned: true,
+				OwnerWorkerID: "worker-a", State: ir.AgentSessionFailed, PromptSent: true,
+				PromptMessageID: "message-1", Generation: 1,
+			},
+		},
+	})
+
+	_, err := runtime.CreateStepRetryPlan(dag, []*runtime.Node{node}, "implement")
+	require.NoError(t, err)
+
+	session := node.GetAgentSession()
+	require.NotNil(t, session)
+	require.Empty(t, session.SessionID)
+	require.Empty(t, session.OwnerWorkerID)
+	require.Equal(t, ir.AgentSessionStarting, session.State)
+	require.Equal(t, 2, session.Generation)
+	require.False(t, session.PromptSent)
+	require.Empty(t, session.PromptMessageID)
+	require.True(t, session.RestartPending)
+	require.Equal(t, "session-1", session.DiscardedSessionID)
+	require.True(t, session.DiscardedOwned)
+}
+
 func TestPlan_Timing(t *testing.T) {
 	steps := []ir.Step{{Name: "a"}}
 	p, err := runtime.NewPlan(steps...)

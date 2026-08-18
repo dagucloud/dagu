@@ -173,7 +173,8 @@ func (store *Store) Get(ctx context.Context, id string) (persis.DAGDefinition, e
 		}
 		return persis.DAGDefinition{}, err
 	}
-	return persis.DAGDefinition{ID: id, Source: source, SourcePath: resolved.ResolvedPath}, nil
+	entryName := fileutil.TrimYAMLFileExtension(filepath.Base(resolved.EntryPath))
+	return persis.DAGDefinition{ID: entryName, Source: source, SourcePath: resolved.ResolvedPath}, nil
 }
 
 func (store *Store) Catalog(ctx context.Context) (persis.DAGCatalog, error) {
@@ -346,6 +347,7 @@ func (store *Store) GetMetadata(ctx context.Context, name string) (*ir.DAG, erro
 	}
 	store.refreshBaseConfigState()
 	loadOpts := store.defaultLoadOptions(
+		spec.WithDefaultName(fileutil.TrimYAMLFileExtension(filepath.Base(resolved.EntryPath))),
 		spec.OnlyMetadata(),
 		spec.WithoutEval(),
 		spec.SkipSchemaValidation(),
@@ -353,9 +355,13 @@ func (store *Store) GetMetadata(ctx context.Context, name string) (*ir.DAG, erro
 	if store.fileCache == nil {
 		return spec.Load(ctx, resolved.ResolvedPath, loadOpts...)
 	}
-	return store.fileCache.LoadLatest(resolved.ResolvedPath, func() (*ir.DAG, error) {
+	return store.fileCache.LoadLatestByKey(metadataCacheKey(resolved), resolved.ResolvedPath, func() (*ir.DAG, error) {
 		return spec.Load(ctx, resolved.ResolvedPath, loadOpts...)
 	})
+}
+
+func metadataCacheKey(resolved ResolvedFile) string {
+	return resolved.EntryPath + "\x00" + resolved.ResolvedPath
 }
 
 // FileMode used for newly created DAG files
@@ -373,7 +379,7 @@ func (store *Store) Update(ctx context.Context, name string, yamlSpec []byte) er
 		return err
 	}
 	if store.fileCache != nil {
-		store.fileCache.Invalidate(resolved.ResolvedPath)
+		store.fileCache.Invalidate(metadataCacheKey(resolved))
 	}
 	store.invalidateIndex()
 	return nil
@@ -411,7 +417,7 @@ func (store *Store) Delete(ctx context.Context, name string) error {
 		return err
 	}
 	if store.fileCache != nil {
-		store.fileCache.Invalidate(resolved.ResolvedPath)
+		store.fileCache.Invalidate(metadataCacheKey(resolved))
 	}
 	store.invalidateIndex()
 	return nil

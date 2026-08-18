@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -68,12 +69,13 @@ func TestRemoteTaskHandlerResolvesRegistrySecretsViaCoordinator(t *testing.T) {
 	cfg := &config.Config{
 		Paths: config.PathsConfig{DataDir: t.TempDir()},
 	}
+	backend := file.NewBackend(cfg.Paths)
 	handler := workersvc.NewRemoteTaskHandler(workersvc.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: client,
 		Config:            cfg,
-		SecretStore:       file.NewSecretStore(ctx, cfg),
-		ProfileStore:      file.NewProfileStore(ctx, cfg),
+		SecretStore:       file.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets)),
+		ProfileStore:      file.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles)),
 	})
 
 	task := &coordinatorv1.Task{

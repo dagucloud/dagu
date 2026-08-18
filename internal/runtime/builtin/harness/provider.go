@@ -5,34 +5,102 @@ package harness
 
 import (
 	"fmt"
+	"io"
 	"sort"
+	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// Provider defines how a coding agent CLI is invoked.
-type Provider interface {
-	// Name returns the provider identifier used in config.provider.
-	Name() string
+type builtinStdinMode uint8
 
-	// BinaryName returns the CLI binary name to look up in PATH.
-	BinaryName() string
+const (
+	builtinStdinPipe builtinStdinMode = iota
+	builtinStdinFold
+)
 
-	// BaseArgs returns the base CLI arguments for non-interactive execution.
-	// This is how the prompt is passed to the CLI (e.g., ["-p", prompt] or ["exec", prompt]).
-	// Additional flags from the config map are appended after these.
-	BaseArgs(prompt string) []string
+type providerDescriptor struct {
+	name           string
+	binary         string
+	prefixArgs     []string
+	promptMode     ir.HarnessPromptMode
+	promptFlag     string
+	promptPosition ir.HarnessPromptPosition
+	defaultConfig  map[string]any
+	stdinMode      builtinStdinMode
 }
 
-var providers = map[string]Provider{}
+func (p *providerDescriptor) buildInvocation(flags map[string]any, prompt, script string) ([]string, io.Reader, error) {
+	if p.stdinMode == builtinStdinFold {
+		prompt = promptAndScript(prompt, script)
+		script = ""
+	}
 
-func registerProvider(p Provider) {
-	name := p.Name()
+	args := append([]string(nil), p.prefixArgs...)
+	flagArgs := configToFlags(flags, nil)
+	promptArgs := p.promptArgs(prompt)
+	if promptArgs == nil {
+		return nil, nil, fmt.Errorf("harness: unsupported prompt_mode %q for provider %q", p.promptMode, p.name)
+	}
+	if p.promptPosition == ir.HarnessPromptPositionAfterFlags {
+		args = append(args, flagArgs...)
+		args = append(args, promptArgs...)
+	} else {
+		args = append(args, promptArgs...)
+		args = append(args, flagArgs...)
+	}
+	if script == "" {
+		return args, nil, nil
+	}
+	return args, strings.NewReader(script), nil
+}
+
+func (p *providerDescriptor) promptArgs(prompt string) []string {
+	switch p.promptMode {
+	case ir.HarnessPromptModeArg:
+		return []string{prompt}
+	case ir.HarnessPromptModeFlag:
+		return []string{p.promptFlag, prompt}
+	default:
+		return nil
+	}
+}
+
+var builtinProviderCatalog = []providerDescriptor{
+	{name: "claude", binary: "claude", promptMode: ir.HarnessPromptModeFlag, promptFlag: "-p"},
+	{name: "codex", binary: "codex", prefixArgs: []string{"exec"}, promptMode: ir.HarnessPromptModeArg, defaultConfig: map[string]any{"skip-git-repo-check": true}},
+	{name: "copilot", binary: "copilot", promptMode: ir.HarnessPromptModeFlag, promptFlag: "-p"},
+	{name: "opencode", binary: "opencode", prefixArgs: []string{"run"}, promptMode: ir.HarnessPromptModeArg},
+	{name: "pi", binary: "pi", promptMode: ir.HarnessPromptModeFlag, promptFlag: "-p"},
+	{name: "gemini", binary: "gemini", promptMode: ir.HarnessPromptModeFlag, promptFlag: "-p"},
+	{name: "cursor", binary: "cursor-agent", promptMode: ir.HarnessPromptModeFlag, promptFlag: "-p", defaultConfig: map[string]any{"output-format": "text"}, stdinMode: builtinStdinFold},
+	{name: "cline", binary: "cline", promptMode: ir.HarnessPromptModeArg, promptPosition: ir.HarnessPromptPositionAfterFlags},
+	{name: "aider", binary: "aider", promptMode: ir.HarnessPromptModeFlag, promptFlag: "--message", stdinMode: builtinStdinFold},
+	{name: "qwen", binary: "qwen", promptMode: ir.HarnessPromptModeFlag, promptFlag: "-p"},
+	{name: "goose", binary: "goose", prefixArgs: []string{"run"}, promptMode: ir.HarnessPromptModeFlag, promptFlag: "--text", defaultConfig: map[string]any{"quiet": true}, stdinMode: builtinStdinFold},
+	{name: "kiro", binary: "kiro-cli", prefixArgs: []string{"chat", "--no-interactive"}, promptMode: ir.HarnessPromptModeArg},
+	{name: "droid", binary: "droid", prefixArgs: []string{"exec"}, promptMode: ir.HarnessPromptModeArg, stdinMode: builtinStdinFold},
+	{name: "amp", binary: "amp", promptMode: ir.HarnessPromptModeFlag, promptFlag: "-x"},
+	{name: "deepseek", binary: "dsh", prefixArgs: []string{"--profile", "headless"}, promptMode: ir.HarnessPromptModeArg, promptPosition: ir.HarnessPromptPositionAfterFlags, stdinMode: builtinStdinFold},
+}
+
+var providers = map[string]*providerDescriptor{}
+
+func init() {
+	for i := range builtinProviderCatalog {
+		registerProvider(&builtinProviderCatalog[i])
+	}
+}
+
+func registerProvider(p *providerDescriptor) {
+	name := p.name
 	if _, exists := providers[name]; exists {
 		panic(fmt.Sprintf("harness: duplicate provider registration %q", name))
 	}
 	providers[name] = p
 }
 
-func getProvider(name string) (Provider, error) {
+func getProvider(name string) (*providerDescriptor, error) {
 	p, ok := providers[name]
 	if !ok {
 		names := make([]string, 0, len(providers))

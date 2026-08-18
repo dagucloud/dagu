@@ -213,17 +213,83 @@ func TestRepositoryRetentionDryRunDoesNotRemoveWorkDirs(t *testing.T) {
 	assert.Empty(t, workDirs.removed)
 }
 
+func TestRepositoryEnqueuesAgentSessionsBeforeRemovingDAGRun(t *testing.T) {
+	t.Parallel()
+
+	ref := ir.NewDAGRunRef("daily", "run-1")
+	events := []string{}
+	backend := &recordingDAGRunStore{
+		attempt: &testutil.MockAttempt{Status: &ir.DAGRunStatus{
+			AgentSessions: []ir.AgentSessionResource{{
+				Provider:      "opencode",
+				SessionID:     "session-1",
+				Directory:     "/workspace",
+				OwnerWorkerID: "worker-1",
+				StepName:      "agent",
+				Generation:    2,
+			}},
+		}},
+		events: &events,
+	}
+	enqueuer := &recordingDAGRunRemovalEnqueuer{events: &events}
+	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{
+		RemovalEnqueuer: enqueuer,
+	})
+
+	err := repository.RemoveDAGRun(context.Background(), ref, persis.DAGRunRemoveOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"enqueue", "remove"}, events)
+	assert.Equal(t, ref, enqueuer.root)
+	assert.Equal(t, []ir.AgentSessionResource{{
+		Provider:      "opencode",
+		SessionID:     "session-1",
+		Directory:     "/workspace",
+		OwnerWorkerID: "worker-1",
+		StepName:      "agent",
+		Generation:    2,
+	}}, enqueuer.resources)
+	assert.Equal(t, persis.DAGRunRemoveRequest{DAGRun: ref}, backend.removeRequest)
+}
+
+func TestRepositoryRetentionRemovesExactlyQueuedDAGRuns(t *testing.T) {
+	t.Parallel()
+
+	ref := ir.NewDAGRunRef("daily", "run-1")
+	events := []string{}
+	backend := &recordingDAGRunStore{
+		removedRefs: []ir.DAGRunRef{ref},
+		attempt:     &testutil.MockAttempt{Status: &ir.DAGRunStatus{}},
+		events:      &events,
+	}
+	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{
+		RemovalEnqueuer: &recordingDAGRunRemovalEnqueuer{events: &events},
+	})
+
+	removed, err := repository.RemoveOldDAGRuns(context.Background(), "daily", 7, persis.DAGRunRetentionOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"run-1"}, removed)
+	require.Len(t, backend.retentionRequests, 1)
+	assert.True(t, backend.retentionRequests[0].DryRun)
+	assert.Equal(t, []persis.DAGRunRemoveRequest{{DAGRun: ref, RejectActive: true}}, backend.removeRequests)
+	assert.Equal(t, []string{"enqueue", "remove"}, events)
+}
+
 type recordingDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	createRequest         persis.DAGRunCreateAttemptRequest
 	latestQuery           persis.DAGRunLatestAttemptQuery
 	statusQuery           persis.DAGRunStatusQuery
 	retentionRequest      persis.DAGRunRetentionRequest
+	retentionRequests     []persis.DAGRunRetentionRequest
 	recentStatuses        []ir.DAGRunStatus
 	recentStatusesErr     error
 	compareAndSwapRequest persis.DAGRunCompareAndSwapStatusRequest
 	compareAndSwapStatus  *ir.DAGRunStatus
 	removedRefs           []ir.DAGRunRef
+	attempt               dagrun.Attempt
+	removeRequest         persis.DAGRunRemoveRequest
+	removeRequests        []persis.DAGRunRemoveRequest
+	events                *[]string
 }
 
 func (s *recordingDAGRunStore) CreateAttempt(_ context.Context, req persis.DAGRunCreateAttemptRequest) (dagrun.Attempt, error) {
@@ -258,7 +324,38 @@ func (s *recordingDAGRunStore) CompareAndSwapLatestAttemptStatus(
 
 func (s *recordingDAGRunStore) RemoveOldDAGRuns(_ context.Context, req persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
 	s.retentionRequest = req
+	s.retentionRequests = append(s.retentionRequests, req)
 	return s.removedRefs, nil
+}
+
+func (s *recordingDAGRunStore) FindAttempt(context.Context, ir.DAGRunRef) (dagrun.Attempt, error) {
+	return s.attempt, nil
+}
+
+func (s *recordingDAGRunStore) RemoveDAGRun(_ context.Context, req persis.DAGRunRemoveRequest) error {
+	s.removeRequest = req
+	s.removeRequests = append(s.removeRequests, req)
+	if s.events != nil {
+		*s.events = append(*s.events, "remove")
+	}
+	return nil
+}
+
+type recordingDAGRunRemovalEnqueuer struct {
+	root      ir.DAGRunRef
+	resources []ir.AgentSessionResource
+	events    *[]string
+}
+
+func (e *recordingDAGRunRemovalEnqueuer) EnqueueDAGRunRemoval(
+	_ context.Context,
+	root ir.DAGRunRef,
+	resources []ir.AgentSessionResource,
+) error {
+	e.root = root
+	e.resources = resources
+	*e.events = append(*e.events, "enqueue")
+	return nil
 }
 
 type recordingWorkDirStore struct {

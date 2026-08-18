@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -117,8 +119,86 @@ func agentRunStartTimeout() time.Duration {
 	return 5 * time.Second
 }
 
+func agentRunCompletionTimeout() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 3 * time.Minute
+	}
+	return 10 * time.Second
+}
+
 func pwdCommand() string {
 	return test.ForOS("pwd", "(Get-Location).Path")
+}
+
+type statusContextObserver struct {
+	mu                          sync.Mutex
+	runningStatusWritesObserved chan struct{}
+	expectedDone                <-chan struct{}
+	runningNodeWrites           int
+	invalidContext              bool
+}
+
+func newStatusContextObserver() *statusContextObserver {
+	return &statusContextObserver{runningStatusWritesObserved: make(chan struct{})}
+}
+
+func (o *statusContextObserver) observe(ctx context.Context, status ir.DAGRunStatus) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.expectedDone == nil {
+		o.expectedDone = ctx.Done()
+	}
+	if o.expectedDone != ctx.Done() || ctx.Err() != nil {
+		o.invalidContext = true
+	}
+
+	if status.Status != ir.Running {
+		return
+	}
+	for _, node := range status.Nodes {
+		if node.Status != ir.NodeRunning {
+			continue
+		}
+		o.runningNodeWrites++
+		if o.runningNodeWrites == 2 {
+			// Two running-node writes confirm that progress and delayed snapshots both occurred.
+			close(o.runningStatusWritesObserved)
+		}
+		return
+	}
+}
+
+func (o *statusContextObserver) observedInvalidContext() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.invalidContext
+}
+
+type observedRunStateStore struct {
+	runstate.Store
+	observer *statusContextObserver
+}
+
+func (s *observedRunStateStore) BeginAttempt(
+	ctx context.Context,
+	req runstate.BeginAttemptRequest,
+) (runstate.Attempt, error) {
+	attempt, err := s.Store.BeginAttempt(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &observedRunStateAttempt{Attempt: attempt, observer: s.observer}, nil
+}
+
+type observedRunStateAttempt struct {
+	runstate.Attempt
+	observer *statusContextObserver
+}
+
+func (a *observedRunStateAttempt) RecordStatus(ctx context.Context, status ir.DAGRunStatus) error {
+	a.observer.observe(ctx, status)
+	return a.Attempt.RecordStatus(ctx, status)
 }
 
 func TestAgent_Run(t *testing.T) {
@@ -140,18 +220,56 @@ func TestAgent_Run(t *testing.T) {
 			runDone <- dagAgent.Run(th.Context)
 		}()
 
-		runTimeout := 10 * time.Second
-		if runtime.GOOS == "windows" {
-			runTimeout = 3 * time.Minute
+		select {
+		case err := <-runDone:
+			require.NoError(t, err)
+		case <-time.After(agentRunCompletionTimeout()):
+			t.Fatalf("timed out waiting for DAG run to finish")
 		}
+
+		dag.AssertLatestStatus(t, ir.Succeeded)
+	})
+	t.Run("DelayedRunningStatusWriteRemainsActiveUntilTerminalStatus", func(t *testing.T) {
+		th := test.Setup(t)
+		releaseFile := filepath.Join(t.TempDir(), "release")
+		t.Cleanup(func() {
+			_ = os.WriteFile(releaseFile, []byte("done"), 0600)
+		})
+		dag := th.DAG(t, fmt.Sprintf(`steps:
+  - name: wait-until-released
+    run: %q
+`, waitForFileScript(releaseFile, 10*time.Millisecond)))
+
+		observer := newStatusContextObserver()
+		stateStore := &observedRunStateStore{
+			Store:    persis.NewRunStateStore(th.DAGRunRepository, nil),
+			observer: observer,
+		}
+		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+			RunStateStore:       stateStore,
+			SocketServerFactory: fakeSocketServerFactory(nil),
+		}))
+
+		runDone := make(chan error, 1)
+		go func() {
+			runDone <- dagAgent.Run(th.Context)
+		}()
+
+		select {
+		case <-observer.runningStatusWritesObserved:
+		case <-time.After(agentRunStartTimeout()):
+			require.FailNow(t, "timed out waiting for delayed running-status write")
+		}
+		require.NoError(t, os.WriteFile(releaseFile, []byte("done"), 0600))
 
 		select {
 		case err := <-runDone:
 			require.NoError(t, err)
-		case <-time.After(runTimeout):
-			t.Fatalf("timed out waiting for DAG run to finish after %s", runTimeout)
+		case <-time.After(agentRunCompletionTimeout()):
+			require.FailNow(t, "timed out waiting for DAG run to finish")
 		}
 
+		require.False(t, observer.observedInvalidContext())
 		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
 	t.Run("RecordsTriggerActor", func(t *testing.T) {
@@ -963,6 +1081,40 @@ func TestAgent_HandleHTTP(t *testing.T) {
 	})
 }
 
+func TestAgent_SubDAGSocketUsesCurrentRunIdentity(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `name: child-dag
+steps:
+  - run: exit 0
+`)
+	const childRunID = "child-run"
+	bindErr := errors.New("stop after capturing socket address")
+	var socketAddr string
+	dagAgent := agent.New(
+		childRunID,
+		dag.DAG,
+		th.Config.Paths.LogDir,
+		filepath.Join(th.Config.Paths.LogDir, childRunID+".log"),
+		th.DAGRunMgr,
+		th.DAGRepository,
+		agent.Options{
+			RootDAGRun:   ir.NewDAGRunRef("root-dag", "root-run"),
+			ParentDAGRun: ir.NewDAGRunRef("root-dag", "root-run"),
+			SocketServerFactory: func(addr string, _ sock.HTTPHandlerFunc) (agent.SocketServer, error) {
+				socketAddr = addr
+				return nil, bindErr
+			},
+		},
+	)
+
+	err := dagAgent.Run(th.Context)
+
+	require.ErrorIs(t, err, bindErr)
+	require.Equal(t, sock.Addr("child-dag", childRunID), socketAddr)
+}
+
 // Assert that mockResponseWriter implements http.ResponseWriter
 var _ http.ResponseWriter = (*mockResponseWriter)(nil)
 
@@ -1641,7 +1793,11 @@ func TestAgent_DAGEnqueueQueuedChildRunsFromQueue(t *testing.T) {
 		}),
 	)
 
-	profileStore := file.NewProfileStore(th.Context, th.Config)
+	profileStore := file.NewProfileStore(
+		th.Context,
+		th.Config,
+		th.Backend.Collection(persis.CollectionProfiles),
+	)
 	prof, err := profilepkg.New(profilepkg.CreateInput{
 		Name:      "prod",
 		CreatedBy: "alice",
@@ -1711,14 +1867,13 @@ steps:
 	)
 	processor.ProcessQueueItems(th.Context, "background")
 
-	waitForTestFile(t, outputFile, subDAGVisibleTimeout())
-	output, err := os.ReadFile(outputFile)
-	require.NoError(t, err)
-	require.Equal(t, "preserved-item", string(output))
 	require.Eventually(t, func() bool {
 		childStatus, err := th.DAGRunMgr.GetSavedStatus(th.Context, ref)
 		return err == nil && childStatus.Status == ir.Succeeded
 	}, subDAGVisibleTimeout(), 100*time.Millisecond)
+	output, err := os.ReadFile(outputFile)
+	require.NoError(t, err)
+	require.Equal(t, "preserved-item", string(output))
 
 	childStatus, err := th.DAGRunMgr.GetSavedStatus(th.Context, ref)
 	require.NoError(t, err)

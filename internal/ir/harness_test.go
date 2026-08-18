@@ -10,7 +10,23 @@ import (
 )
 
 func TestBuiltinCLIHarnessProviderNamesSorted(t *testing.T) {
-	assert.Equal(t, []string{"claude", "codex", "copilot", "opencode", "pi"}, BuiltinCLIHarnessProviderNames())
+	assert.Equal(t, []string{
+		"aider",
+		"amp",
+		"claude",
+		"cline",
+		"codex",
+		"copilot",
+		"cursor",
+		"deepseek",
+		"droid",
+		"gemini",
+		"goose",
+		"kiro",
+		"opencode",
+		"pi",
+		"qwen",
+	}, BuiltinCLIHarnessProviderNames())
 }
 
 func TestIsBuiltinCLIHarnessProvider(t *testing.T) {

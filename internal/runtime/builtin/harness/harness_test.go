@@ -5,51 +5,534 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestProviderBaseArgs(t *testing.T) {
+func TestBuiltinProviderInvocations(t *testing.T) {
 	tests := []struct {
-		name     string
-		provider Provider
-		prompt   string
-		expected []string
+		name          string
+		config        map[string]any
+		expectedBin   string
+		expectedArgs  []string
+		expectedStdin string
 	}{
-		{"claude", &claudeProvider{}, "hello", []string{"-p", "hello"}},
-		{"codex", &codexProvider{}, "hello", []string{"exec", "hello"}},
-		{"copilot", &copilotProvider{}, "hello", []string{"-p", "hello"}},
-		{"opencode", &opencodeProvider{}, "hello", []string{"run", "hello"}},
-		{"pi", &piProvider{}, "hello", []string{"-p", "hello"}},
+		{"claude", map[string]any{"provider": "claude"}, "claude", []string{"-p", "hello"}, "context"},
+		{"codex", map[string]any{"provider": "codex"}, "codex", []string{"exec", "hello", "--skip-git-repo-check"}, "context"},
+		{"copilot", map[string]any{"provider": "copilot"}, "copilot", []string{"-p", "hello"}, "context"},
+		{"opencode", map[string]any{"provider": "opencode"}, "opencode", []string{"run", "hello"}, "context"},
+		{"pi", map[string]any{"provider": "pi"}, "pi", []string{"-p", "hello"}, "context"},
+		{"gemini", map[string]any{"provider": "gemini"}, "gemini", []string{"-p", "hello"}, "context"},
+		{"cursor", map[string]any{"provider": "cursor"}, "cursor-agent", []string{"-p", "hello\n\ncontext", "--output-format", "text"}, ""},
+		{"cline", map[string]any{"provider": "cline", "model": "model-id"}, "cline", []string{"--model", "model-id", "hello"}, "context"},
+		{"aider", map[string]any{"provider": "aider"}, "aider", []string{"--message", "hello\n\ncontext"}, ""},
+		{"qwen", map[string]any{"provider": "qwen"}, "qwen", []string{"-p", "hello"}, "context"},
+		{"goose", map[string]any{"provider": "goose"}, "goose", []string{"run", "--text", "hello\n\ncontext", "--quiet"}, ""},
+		{"kiro", map[string]any{"provider": "kiro"}, "kiro-cli", []string{"chat", "--no-interactive", "hello"}, "context"},
+		{"droid", map[string]any{"provider": "droid"}, "droid", []string{"exec", "hello\n\ncontext"}, ""},
+		{"amp", map[string]any{"provider": "amp"}, "amp", []string{"-x", "hello"}, "context"},
+		{"deepseek", map[string]any{"provider": "deepseek", "patch": "overlay.yml"}, "dsh", []string{"--profile", "headless", "--patch", "overlay.yml", "hello\n\ncontext"}, ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.provider.BaseArgs(tt.prompt))
-			assert.Equal(t, tt.name, tt.provider.Name())
+			configs, err := buildProviderConfigs(tt.config, nil)
+			require.NoError(t, err)
+			require.Len(t, configs, 1)
+			assert.Equal(t, tt.expectedBin, configs[0].binaryName())
+
+			args, stdin, err := configs[0].buildInvocation("hello", "context")
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedArgs, args)
+			assert.Equal(t, tt.expectedStdin, mustReadAll(t, stdin))
 		})
 	}
 }
 
-func TestProviderDefaultConfig(t *testing.T) {
-	t.Run("codex", func(t *testing.T) {
-		provider, ok := any(&codexProvider{}).(defaultConfigProvider)
-		require.True(t, ok)
-		assert.Equal(t, map[string]any{"skip_git_repo_check": true}, provider.DefaultConfig())
+func TestManagedOpenCodeMode(t *testing.T) {
+	t.Parallel()
+
+	mode, err := opencodehost.Mode(map[string]any{
+		"provider": "opencode",
+		"model":    "openai/gpt-5",
 	})
+	require.NoError(t, err)
+	assert.True(t, mode.Managed)
+	assert.False(t, mode.Required)
+	assert.Empty(t, mode.Reason)
+
+	mode, err = opencodehost.Mode(map[string]any{
+		"provider": "opencode",
+		"port":     4096,
+	})
+	require.NoError(t, err)
+	assert.False(t, mode.Managed)
+	assert.False(t, mode.Required)
+	assert.Contains(t, mode.Reason, "CLI integration")
+
+	mode, err = opencodehost.Mode(map[string]any{
+		"provider": "opencode",
+		"managed":  true,
+		"port":     4096,
+	})
+	require.Error(t, err)
+	assert.True(t, mode.Required)
+}
+
+func TestNormalizeOpenCodeMessages(t *testing.T) {
+	t.Parallel()
+
+	messages := []openCodeMessage{{
+		Info: json.RawMessage(`{"role":"assistant","id":"message-1","providerID":"openai","modelID":"gpt-5"}`),
+		Parts: []json.RawMessage{
+			json.RawMessage(`{"type":"text","text":"Done"}`),
+			json.RawMessage(`{"type":"text","text":"All tests passed"}`),
+			json.RawMessage(`{"id":"part-2","type":"tool","tool":"bash","callID":"call-1","state":{"status":"completed","input":{"command":"go test ./..."}}}`),
+			json.RawMessage(`{"id":"part-3","type":"step-finish","tokens":{"input":12,"output":8,"reasoning":3,"total":23},"cost":0.25}`),
+		},
+	}, {
+		Info: json.RawMessage(`{"role":"assistant","id":"message-2","providerID":"openai","modelID":"gpt-5"}`),
+		Parts: []json.RawMessage{
+			json.RawMessage(`{"type":"text","text":"Follow-up"}`),
+			json.RawMessage(`{"type":"step-finish","tokens":{"input":2,"output":3,"total":5},"cost":0.05}`),
+		},
+	}}
+
+	chat, events, usage := normalizeOpenCodeMessages(messages)
+
+	require.Len(t, chat, 2)
+	assert.Equal(t, ir.LLMRoleAssistant, chat[0].Role)
+	assert.Equal(t, "Done\nAll tests passed", chat[0].Content)
+	require.Len(t, chat[0].ToolCalls, 1)
+	assert.Equal(t, "bash", chat[0].ToolCalls[0].Function.Name)
+	assert.Contains(t, chat[0].ToolCalls[0].Function.Arguments, "go test ./...")
+	require.NotNil(t, chat[0].Metadata)
+	assert.Equal(t, 23, chat[0].Metadata.TotalTokens)
+	require.NotNil(t, chat[1].Metadata)
+	assert.Equal(t, 5, chat[1].Metadata.TotalTokens)
+	require.Len(t, events, 6)
+	assert.NotEqual(t, events[0].ID, events[1].ID)
+	assert.Equal(t, int64(28), usage.TotalTokens)
+	assert.Equal(t, 0.30, usage.Cost)
+}
+
+func TestManagedOpenCodeResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		messages []openCodeMessage
+		wantText string
+		wantDone bool
+		wantErr  string
+	}{
+		{
+			name: "completed response",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-old","role":"assistant","parentID":"prompt-old","finish":"stop","time":{"completed":1}}`, `{"type":"text","text":"Old result"}`),
+				openCodeTestMessage(`{"id":"assistant-new","role":"assistant","parentID":"prompt-1","finish":"stop","time":{"completed":2}}`, `{"type":"text","text":"Done"}`),
+			},
+			wantText: "Done",
+			wantDone: true,
+		},
+		{
+			name: "completed empty response",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-1","role":"assistant","parentID":"prompt-1","finish":"stop","time":{"completed":1}}`),
+			},
+			wantDone: true,
+		},
+		{
+			name: "unfinished response",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-1","role":"assistant","parentID":"prompt-1"}`, `{"type":"text","text":"Working"}`),
+			},
+		},
+		{
+			name: "response error",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-1","role":"assistant","parentID":"prompt-1","error":{"name":"ProviderModelNotFoundError","data":{"message":"Model not found"}}}`),
+			},
+			wantDone: true,
+			wantErr:  "Model not found",
+		},
+		{
+			name: "unrelated response",
+			messages: []openCodeMessage{
+				openCodeTestMessage(`{"id":"assistant-1","role":"assistant","parentID":"prompt-other","finish":"stop","time":{"completed":1}}`, `{"type":"text","text":"Wrong result"}`),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text, done, err := managedOpenCodeResult(tt.messages, "prompt-1")
+			assert.Equal(t, tt.wantText, text)
+			assert.Equal(t, tt.wantDone, done)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestOpenCodeSessionError(t *testing.T) {
+	t.Parallel()
+
+	properties := json.RawMessage(`{"sessionID":"session-1","error":{"name":"ProviderModelNotFoundError","data":{"message":"Model not found"}}}`)
+	message, ok := openCodeSessionError(properties, "session-1")
+	assert.True(t, ok)
+	assert.Equal(t, "Model not found", message)
+
+	_, ok = openCodeSessionError(properties, "session-2")
+	assert.False(t, ok)
+}
+
+func TestManagedOpenCodeRetryUsesNewSessionGeneration(t *testing.T) {
+	t.Parallel()
+
+	const providerError = "Model not found: openrouter/deepseek/deepseek-v4-flash"
+	type submission struct {
+		sessionID string
+		messageID string
+		prompt    string
+	}
+
+	var mu sync.Mutex
+	created := 0
+	messages := make(map[string][]openCodeMessage)
+	submissions := make([]submission, 0, 2)
+	promptSubmitted := []chan struct{}{make(chan struct{}), make(chan struct{})}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/config":
+			_, _ = io.WriteString(w, `{"share":"disabled"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/session":
+			mu.Lock()
+			created++
+			sessionID := "session-" + strconv.Itoa(created)
+			mu.Unlock()
+			_, _ = io.WriteString(w, `{"id":"`+sessionID+`"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/event":
+			mu.Lock()
+			generation := created
+			mu.Unlock()
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			select {
+			case <-promptSubmitted[generation-1]:
+			case <-r.Context().Done():
+				return
+			}
+			if generation == 1 {
+				_, _ = io.WriteString(w, `data: {"type":"session.error","properties":{"sessionID":"session-1","error":{"name":"ProviderModelNotFoundError","data":{"message":"`+providerError+`"}}}}`+"\n\n")
+				w.(http.Flusher).Flush()
+			}
+			_, _ = io.WriteString(w, `data: {"type":"session.idle","properties":{"sessionID":"session-`+strconv.Itoa(generation)+`"}}`+"\n\n")
+			w.(http.Flusher).Flush()
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/prompt_async"):
+			sessionID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/prompt_async")
+			var body struct {
+				MessageID string `json:"messageID"`
+				Parts     []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"parts"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			generation := created
+			submissions = append(submissions, submission{sessionID: sessionID, messageID: body.MessageID, prompt: body.Parts[0].Text})
+			messages[sessionID] = []openCodeMessage{openCodeTestMessage(`{"id":"`+body.MessageID+`","role":"user"}`, `{"type":"text","text":"`+body.Parts[0].Text+`"}`)}
+			if generation == 2 {
+				messages[sessionID] = append(messages[sessionID], openCodeTestMessage(
+					`{"id":"assistant-2","role":"assistant","parentID":"`+body.MessageID+`","finish":"stop","time":{"completed":1}}`,
+					`{"type":"text","text":"Completed on retry"}`,
+				))
+			}
+			mu.Unlock()
+			close(promptSubmitted[generation-1])
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/message"):
+			sessionID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/message")
+			mu.Lock()
+			response := append([]openCodeMessage(nil), messages[sessionID]...)
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(response)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{})
+	host := opencodehost.Config{URL: server.URL, Password: "test", InstanceID: "host-1"}
+
+	stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host)
+	require.Nil(t, stdout)
+	require.EqualError(t, err, providerError)
+	require.NotNil(t, exec.agentSession)
+	assert.Equal(t, ir.AgentSessionFailed, exec.agentSession.State)
+	assert.Equal(t, providerError, exec.agentSession.LastError)
+	assert.Equal(t, 1, exec.agentSession.Generation)
+	failedSessionID := exec.agentSession.SessionID
+	failedMessageID := exec.agentSession.PromptMessageID
+
+	stdout, err = exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host)
+	require.NoError(t, err)
+	output, readErr := io.ReadAll(stdout)
+	require.NoError(t, readErr)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	assert.Equal(t, "Completed on retry\n", string(output))
+	assert.Equal(t, ir.AgentSessionSucceeded, exec.agentSession.State)
+	assert.Empty(t, exec.agentSession.LastError)
+	assert.Equal(t, 2, exec.agentSession.Generation)
+	assert.Equal(t, "session-2", exec.agentSession.SessionID)
+	assert.Equal(t, failedSessionID, exec.agentSession.DiscardedSessionID)
+	assert.True(t, exec.agentSession.DiscardedOwned)
+	assert.NotEqual(t, failedMessageID, exec.agentSession.PromptMessageID)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, submissions, 2)
+	assert.Equal(t, "Do the work", submissions[0].prompt)
+	assert.Equal(t, submissions[0].prompt, submissions[1].prompt)
+	assert.Equal(t, "session-1", submissions[0].sessionID)
+	assert.Equal(t, "session-2", submissions[1].sessionID)
+	assert.Equal(t, failedMessageID, submissions[0].messageID)
+	assert.Equal(t, exec.agentSession.PromptMessageID, submissions[1].messageID)
+	assert.True(t, strings.HasPrefix(submissions[0].messageID, "msg_dagu_"))
+}
+
+func openCodeTestMessage(info string, parts ...string) openCodeMessage {
+	message := openCodeMessage{Info: json.RawMessage(info), Parts: make([]json.RawMessage, len(parts))}
+	for i := range parts {
+		message.Parts[i] = json.RawMessage(parts[i])
+	}
+	return message
+}
+
+func TestOpenCodeClientClassifiesNotFoundByEndpoint(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(server.Close)
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Password: "secret"}, http: server.Client()}
+
+	err := client.json(t.Context(), http.MethodGet, "/session/session-1", nil, nil)
+	require.ErrorIs(t, err, errManagedSessionUnavailable)
+	err = client.json(t.Context(), http.MethodGet, "/config", nil, nil)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, errManagedSessionUnavailable)
+}
+
+func TestHarnessStopContinuesAfterManagedAbort(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	fallbackStopped := false
+	exec := &harnessExecutor{
+		managedHost: opencodehost.Config{
+			URL: server.URL, Username: "opencode", Password: "secret", InstanceID: "host-1",
+		},
+		agentSession:          &ir.AgentSession{SessionID: "session-1"},
+		sharedContainerCancel: func() { fallbackStopped = true },
+	}
+
+	require.NoError(t, exec.Stop(cmdutil.TerminationIntent{}))
+	assert.True(t, fallbackStopped)
+}
+
+func TestManagedOpenCodeCleanRestartCreatesNewSession(t *testing.T) {
+	t.Parallel()
+
+	requestedPath := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath <- r.Method + " " + r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/config" {
+			_, _ = io.WriteString(w, `{"share":"disabled"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":"session-new"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	exec := &harnessExecutor{
+		workDir:      t.TempDir(),
+		agentSession: &ir.AgentSession{SessionID: "session-old", RestartPending: true},
+	}
+	client := &openCodeClient{
+		host:      opencodehost.Config{URL: server.URL, Password: "test", InstanceID: "host-1"},
+		directory: exec.workDir,
+		http:      server.Client(),
+	}
+
+	sessionID, err := exec.ensureManagedSession(t.Context(), client, providerConfig{
+		flags: map[string]any{"session": "session-configured", "fork": true},
+	}, true)
+
+	require.NoError(t, err)
+	assert.Equal(t, "session-new", sessionID)
+	assert.Equal(t, "GET /config", <-requestedPath)
+	assert.Equal(t, "POST /session", <-requestedPath)
+}
+
+func TestManagedOpenCodeTransportLossWaitsForRestart(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/config":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"share":"disabled"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/session":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"session-1"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/event":
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/prompt_async":
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{})
+	stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, opencodehost.Config{
+		URL: server.URL, Password: "test", InstanceID: "host-1",
+	})
+
+	require.NoError(t, err)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	require.NotNil(t, exec.agentSession)
+	assert.Equal(t, ir.AgentSessionUnavailable, exec.agentSession.State)
+	status, err := exec.DetermineNodeStatus()
+	require.NoError(t, err)
+	assert.Equal(t, ir.NodeWaiting, status)
+}
+
+func TestManagedOpenCodeRefreshUpdatesTimeline(t *testing.T) {
+	t.Parallel()
+
+	responses := make(chan string, 3)
+	responses <- `[{"info":{"role":"assistant","id":"message-1"},"parts":[{"id":"part-1","type":"text","text":"Working"}]}]`
+	responses <- `[{"info":{"role":"assistant","id":"message-1"},"parts":[{"id":"part-1","type":"text","text":"Done"}]}]`
+	responses <- `[{"info":{"role":"assistant","id":"message-1"},"parts":[{"id":"part-1","type":"text","text":"Done"}]}]`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, <-responses)
+	}))
+	t.Cleanup(server.Close)
+
+	progressUpdates := 0
+	exec := &harnessExecutor{
+		agentSession:     &ir.AgentSession{},
+		progressCallback: func() { progressUpdates++ },
+	}
+	client := &openCodeClient{
+		host: opencodehost.Config{URL: server.URL, Password: "test"},
+		http: server.Client(),
+	}
+
+	_, err := exec.refreshManagedMessages(t.Context(), client, "session-1")
+	require.NoError(t, err)
+	_, err = exec.refreshManagedMessages(t.Context(), client, "session-1")
+	require.NoError(t, err)
+	_, err = exec.refreshManagedMessages(t.Context(), client, "session-1")
+	require.NoError(t, err)
+
+	require.Len(t, exec.agentSession.Events, 1)
+	assert.Equal(t, "Done", exec.agentSession.Events[0].Content)
+	assert.Equal(t, 2, progressUpdates)
+}
+
+func TestManagedOpenCodeAttachmentLimit(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "large.txt")
+	require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", maxManagedAttachmentRawBytes+1)), 0o600))
+	_, err := managedFileParts("", path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "10 MiB")
+}
+
+func TestOpenCodeWildcardMatch(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, openCodeWildcardMatch("git status *", "git status"))
+	assert.True(t, openCodeWildcardMatch("git status *", "git status --short"))
+	assert.True(t, openCodeWildcardMatch("src/*.go", "src/main.go"))
+	assert.True(t, openCodeWildcardMatch("file?.txt", "file1.txt"))
+	assert.False(t, openCodeWildcardMatch("src/*.go", "README.md"))
+}
+
+func TestManagedOpenCodeSessionPermissionRepliesOnce(t *testing.T) {
+	t.Parallel()
+
+	replies := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Reply string `json:"reply"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		replies <- body.Reply
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	exec := &harnessExecutor{agentSession: &ir.AgentSession{Interactions: []ir.AgentInteraction{{
+		ID: "permission-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionAnswered,
+		Permission: "bash", Decision: "session", AllowForSessionPatterns: []string{"git status *"},
+	}}}}
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Password: "secret"}, http: server.Client()}
+
+	resumed, err := exec.applyManagedInteractionResponses(t.Context(), client, "session-1")
+
+	require.NoError(t, err)
+	assert.True(t, resumed)
+	assert.Equal(t, "once", <-replies)
+	require.Len(t, exec.agentSession.PermissionGrants, 1)
+	assert.Equal(t, []string{"git status *"}, exec.agentSession.PermissionGrants[0].Patterns)
 }
 
 func TestHarnessExecutorPushBackContextAugmentsPromptWithLogPath(t *testing.T) {
@@ -279,10 +762,10 @@ func TestResolveProvider(t *testing.T) {
 		assert.Equal(t, "context", mustReadAll(t, stdin))
 	})
 
-	t.Run("custom_definition", func(t *testing.T) {
+	t.Run("custom_definition_shadows_builtin", func(t *testing.T) {
 		cfg, err := resolveProvider(map[string]any{"provider": "gemini"}, ir.HarnessDefinitions{
 			"gemini": {
-				Binary:     "gemini",
+				Binary:     "custom-gemini",
 				PrefixArgs: []string{"run"},
 				PromptMode: ir.HarnessPromptModeFlag,
 				PromptFlag: "--prompt",
@@ -290,7 +773,7 @@ func TestResolveProvider(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "gemini", cfg.binaryName())
+		assert.Equal(t, "custom-gemini", cfg.binaryName())
 
 		cfg.flags = map[string]any{"provider": "gemini", "model": "gemini-2.5-pro"}
 		args, stdin, err := cfg.buildInvocation("hello", "context")
@@ -299,12 +782,23 @@ func TestResolveProvider(t *testing.T) {
 		assert.Equal(t, "context", mustReadAll(t, stdin))
 	})
 
-	t.Run("deleted_definition_is_unknown", func(t *testing.T) {
-		_, err := resolveProvider(map[string]any{"provider": "gemini"}, ir.HarnessDefinitions{
+	t.Run("deleted_definition_reveals_builtin", func(t *testing.T) {
+		cfg, err := resolveProvider(map[string]any{"provider": "gemini"}, ir.HarnessDefinitions{
 			"gemini": nil,
 		})
+		require.NoError(t, err)
+		assert.Equal(t, "gemini", cfg.binaryName())
+	})
+
+	t.Run("unknown_provider_names_are_deduplicated", func(t *testing.T) {
+		_, err := resolveProvider(map[string]any{"provider": "missing"}, ir.HarnessDefinitions{
+			"gemini": {
+				Binary:     "custom-gemini",
+				PromptMode: ir.HarnessPromptModeArg,
+			},
+		})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unknown provider")
+		assert.Equal(t, 1, strings.Count(err.Error(), "gemini"))
 	})
 
 	t.Run("templated_provider_runtime_error", func(t *testing.T) {
@@ -373,6 +867,22 @@ func TestBuildProviderConfigs(t *testing.T) {
 			"provider":            "codex",
 			"skip-git-repo-check": true,
 		}, configs[0].flags)
+	})
+
+	t.Run("custom_definition_skips_builtin_defaults", func(t *testing.T) {
+		configs, err := buildProviderConfigs(map[string]any{
+			"provider": "codex",
+		}, ir.HarnessDefinitions{
+			"codex": {
+				Binary:     "custom-codex",
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, configs, 1)
+		assert.Equal(t, "custom-codex", configs[0].binaryName())
+		assert.Equal(t, map[string]any{"provider": "codex"}, configs[0].flags)
 	})
 
 	t.Run("builtin_provider_defaults_can_be_overridden", func(t *testing.T) {
@@ -1176,7 +1686,7 @@ func TestGetProvider(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p, err := getProvider(name)
 			require.NoError(t, err)
-			assert.Equal(t, name, p.Name())
+			assert.Equal(t, name, p.name)
 		})
 	}
 }
@@ -1198,12 +1708,13 @@ func TestRegisterProviderPanicsOnDuplicate(t *testing.T) {
 		delete(providers, dupName)
 	})
 
-	registerProvider(stubProvider{name: dupName})
+	provider := &providerDescriptor{name: dupName}
+	registerProvider(provider)
 	require.PanicsWithValue(
 		t,
 		`harness: duplicate provider registration "duplicate-test-provider"`,
 		func() {
-			registerProvider(stubProvider{name: dupName})
+			registerProvider(provider)
 		},
 	)
 }
@@ -1268,13 +1779,3 @@ func newHarnessTestContext(t *testing.T, dag *ir.DAG, step ir.Step, envs ...stri
 	ctx := runtime.NewContext(context.Background(), dag, "run-1", "", runtime.WithEnvVars(envs...))
 	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
 }
-
-type stubProvider struct {
-	name string
-}
-
-func (p stubProvider) Name() string { return p.name }
-
-func (p stubProvider) BinaryName() string { return p.name }
-
-func (p stubProvider) BaseArgs(prompt string) []string { return []string{prompt} }

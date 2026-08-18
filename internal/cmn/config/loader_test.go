@@ -228,6 +228,7 @@ func TestLoad_Env(t *testing.T) {
 			Peer:                   Peer{Insecure: true}, // Default is true
 			BaseEnv:                cfg.Core.BaseEnv,     // Dynamic, copy from actual
 		},
+		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
 		Server: Server{
 			Host:         "test.example.com",
 			Port:         9876,
@@ -549,6 +550,40 @@ func TestLoad_BaseEnvIncludesConfiguredEnvPassthroughFromEnv(t *testing.T) {
 	require.NotContains(t, baseEnv, "BLOCKED_FROM_ENV=blocked-value")
 }
 
+func TestLoad_OpenCodeConfig(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "secret")
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+opencode:
+  executable: /usr/local/bin/opencode
+  env_passthrough:
+    - OPENAI_API_KEY
+`), 0o600))
+	cfg := testLoad(t, WithConfigFile(configFile))
+	require.Equal(t, "/usr/local/bin/opencode", cfg.OpenCode.Executable)
+	require.Equal(t, []string{"OPENAI_API_KEY"}, cfg.OpenCode.EnvPassthrough)
+}
+
+func TestLoad_OpenCodeConfigFromEnv(t *testing.T) {
+	t.Setenv("DAGU_OPENCODE_EXECUTABLE", "/opt/opencode")
+	t.Setenv("DAGU_OPENCODE_ENV_PASSTHROUGH", "OPENAI_API_KEY,ANTHROPIC_API_KEY")
+	cfg := testLoad(t)
+	require.Equal(t, "/opt/opencode", cfg.OpenCode.Executable)
+	require.Equal(t, []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY"}, cfg.OpenCode.EnvPassthrough)
+}
+
+func TestLoad_OpenCodeRejectsReservedPassthrough(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+opencode:
+  env_passthrough:
+    - OPENCODE_SERVER_PASSWORD
+`), 0o600))
+	err := testLoadWithError(t, WithConfigFile(configFile))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reserved variable")
+}
+
 func TestLoad_YAML(t *testing.T) {
 	cfg := loadFromYAML(t, `
 host: "0.0.0.0"
@@ -667,6 +702,7 @@ scheduler:
 			},
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
+		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
 		Server: Server{
 			Host:              "0.0.0.0",
 			Port:              9090,
@@ -1977,6 +2013,40 @@ cors_allowed_origins:
 		require.Len(t, cfg.Warnings, 1)
 		assert.Contains(t, cfg.Warnings[0], `auth.mode "none"`)
 		assert.Contains(t, cfg.Warnings[0], "execute workflows without authentication")
+	})
+}
+
+func TestLoad_IPAccess(t *testing.T) {
+	t.Run("DefaultDisabled", func(t *testing.T) {
+		cfg := loadFromYAML(t, "# empty")
+
+		assert.Empty(t, cfg.Server.IPAccess.AllowedIPs)
+		assert.Empty(t, cfg.Server.IPAccess.TrustedProxies)
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+ip_access:
+  allowed_ips:
+    - 203.0.113.10
+    - 10.0.0.0/8
+  trusted_proxies:
+    - 127.0.0.1
+    - 10.42.0.0/16
+`)
+
+		assert.Equal(t, []string{"203.0.113.10", "10.0.0.0/8"}, cfg.Server.IPAccess.AllowedIPs)
+		assert.Equal(t, []string{"127.0.0.1", "10.42.0.0/16"}, cfg.Server.IPAccess.TrustedProxies)
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_IP_ACCESS_ALLOWED_IPS":     "203.0.113.10, 2001:db8::/32",
+			"DAGU_IP_ACCESS_TRUSTED_PROXIES": "127.0.0.1, ::1",
+		})
+
+		assert.Equal(t, []string{"203.0.113.10", "2001:db8::/32"}, cfg.Server.IPAccess.AllowedIPs)
+		assert.Equal(t, []string{"127.0.0.1", "::1"}, cfg.Server.IPAccess.TrustedProxies)
 	})
 }
 

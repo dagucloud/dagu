@@ -117,6 +117,79 @@ func withCommand(command string) stepOption {
 	}
 }
 
+func sequentialGuardScript(name, lockDir string) string {
+	if windowsShellTest() {
+		return fmt.Sprintf(`
+			$lockFile = %s
+			try {
+				$lock = [System.IO.File]::Open($lockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+			} catch [System.IO.IOException] {
+				Write-Error "sequential step %s overlapped another active step"
+				exit 1
+			}
+			try {
+				%s
+			} finally {
+				$lock.Dispose()
+				Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
+			}
+		`, test.PowerShellQuote(shellTestPath(lockDir)), name,
+			test.Sleep(platformTestDuration(300*time.Millisecond, 600*time.Millisecond)))
+	}
+
+	return fmt.Sprintf(`
+		lock_dir=%s
+		if ! mkdir "$lock_dir"; then
+			echo "sequential step %s overlapped another active step" >&2
+			exit 1
+		fi
+		trap 'rmdir "$lock_dir"' EXIT
+		%s
+	`, test.PosixQuote(lockDir), name, test.Sleep(300*time.Millisecond))
+}
+
+func concurrentBarrierScript(name, readyDir string, readyCount int, timeout time.Duration) string {
+	timeoutSeconds := int(timeout / time.Second)
+	if timeout%time.Second != 0 {
+		timeoutSeconds++
+	}
+	if windowsShellTest() {
+		return fmt.Sprintf(`
+			$readyDir = %s
+			New-Item -ItemType Directory -Path $readyDir -Force | Out-Null
+			New-Item -ItemType File -Path (Join-Path $readyDir %s) -Force | Out-Null
+			$deadline = (Get-Date).AddSeconds(%d)
+			while (@(Get-ChildItem -LiteralPath $readyDir -File).Count -lt %d) {
+				if ((Get-Date) -ge $deadline) {
+					Write-Error "concurrent step %s did not observe all active steps"
+					exit 1
+				}
+				Start-Sleep -Milliseconds 50
+			}
+		`, test.PowerShellQuote(shellTestPath(readyDir)), test.PowerShellQuote(name),
+			timeoutSeconds, readyCount, name)
+	}
+
+	return fmt.Sprintf(`
+		ready_dir=%s
+		mkdir -p "$ready_dir"
+		: > "$ready_dir/%s"
+		deadline=$(( $(date +%%s) + %d ))
+		while true; do
+			ready_count=$(find "$ready_dir" -type f | wc -l | tr -d '[:space:]')
+			if [ "$ready_count" -ge %d ]; then
+				break
+			fi
+			if [ "$(date +%%s)" -ge "$deadline" ]; then
+				echo "concurrent step %s did not observe all active steps" >&2
+				exit 1
+			fi
+			%s
+		done
+	`, test.PosixQuote(readyDir), name, timeoutSeconds, readyCount, name,
+		test.Sleep(50*time.Millisecond))
+}
+
 func withID(id string) stepOption {
 	return func(step *ir.Step) {
 		step.ID = id

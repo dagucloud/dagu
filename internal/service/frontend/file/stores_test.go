@@ -51,7 +51,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "securepass123",
 		})
 
-		result, err := newBuiltinAuth(t.Context(), cfg)
+		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired, "setup should not be required after auto-provisioning")
 
@@ -78,7 +78,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 		existing := authmodel.NewUser("existinguser", "$2a$12$K8gHXqrFdFvMwJBG0VlJGuAGz3FwBmTm8xnNQblN2tCxrQgPLmwHa", authmodel.RoleAdmin)
 		require.NoError(t, store.Create(t.Context(), existing))
 
-		result, err := newBuiltinAuth(t.Context(), cfg)
+		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired)
 
@@ -91,7 +91,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 		t.Parallel()
 		cfg := storesTestConfig(t.TempDir(), config.InitialAdmin{})
 
-		result, err := newBuiltinAuth(t.Context(), cfg)
+		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 		require.NoError(t, err)
 		assert.True(t, result.setupRequired, "setup should be required when initial_admin is not configured")
 	})
@@ -103,7 +103,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "short",
 		})
 
-		_, err := newBuiltinAuth(t.Context(), cfg)
+		_, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to auto-provision initial admin user")
 	})
@@ -116,11 +116,11 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 			Password: "securepass123",
 		})
 
-		result, err := newBuiltinAuth(t.Context(), cfg)
+		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired)
 
-		result, err = newBuiltinAuth(t.Context(), cfg)
+		result, err = newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired)
 
@@ -137,7 +137,7 @@ func TestNewBuiltinAuthServiceUserCanAuthenticate(t *testing.T) {
 		Password: "mypassword123",
 	})
 
-	result, err := newBuiltinAuth(t.Context(), cfg)
+	result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 	require.NoError(t, err)
 
 	user, err := result.service.Authenticate(t.Context(), "authadmin", "mypassword123")
@@ -189,7 +189,7 @@ func TestNewStoresFailsWhenEventStorageIsUnavailable(t *testing.T) {
 		Paths:      config.PathsConfig{EventStoreDir: filepath.Join(blocker, "events")},
 	}
 
-	_, err := NewStores(t.Context(), cfg)
+	_, err := NewStores(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 	require.ErrorContains(t, err, "failed to initialize event store")
 }
 
@@ -210,7 +210,7 @@ func TestNewStoresProvidesWorkspaceBaseConfig(t *testing.T) {
 		Server: config.Server{Auth: config.Auth{Mode: config.AuthModeNone}},
 	}
 
-	stores, err := NewStores(t.Context(), cfg)
+	stores, err := NewStores(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 	require.NoError(t, err)
 	require.NotNil(t, stores.WorkspaceBaseConfig)
 

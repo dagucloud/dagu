@@ -195,6 +195,13 @@ func WithNoReuse(disabled bool) StatusOption {
 	}
 }
 
+// WithAgentSessions carries Dagu-owned provider sessions across DAG-run attempts.
+func WithAgentSessions(resources []AgentSessionResource) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.AgentSessions = append([]AgentSessionResource(nil), resources...)
+	}
+}
+
 // Create builds a DAG-run status.
 func (builder *StatusBuilder) Create(
 	dagRunID string,
@@ -212,6 +219,10 @@ func (builder *StatusBuilder) Create(
 
 	for _, opt := range opts {
 		opt(&result)
+	}
+	result.AgentSessions = MergeAgentSessionResources(result.AgentSessions, result.Nodes)
+	for _, handler := range result.handlerNodes() {
+		result.AgentSessions = MergeAgentSessionResources(result.AgentSessions, []*Node{handler.node})
 	}
 	NormalizeDAGRunConditions(&result)
 

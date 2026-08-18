@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -19,6 +20,7 @@ import (
 // Config holds the overall configuration for the application.
 type Config struct {
 	Core            Core
+	OpenCode        OpenCodeConfig
 	Server          Server
 	EventStore      EventStoreConfig
 	Webhooks        WebhooksConfig
@@ -39,6 +41,12 @@ type Config struct {
 	License         LicenseConfig
 	Notices         []string
 	Warnings        []string
+}
+
+// OpenCodeConfig configures the process-local managed OpenCode service.
+type OpenCodeConfig struct {
+	Executable     string
+	EnvPassthrough []string
 }
 
 // DAGDiscoveryConfig controls how DAG definitions are discovered.
@@ -170,6 +178,13 @@ type Server struct {
 	Terminal           TerminalConfig
 	Audit              AuditConfig
 	SSE                SSEConfig
+	IPAccess           IPAccessConfig
+}
+
+// IPAccessConfig restricts HTTP access by client network address.
+type IPAccessConfig struct {
+	AllowedIPs     []string
+	TrustedProxies []string
 }
 
 // TerminalConfig contains configuration for the web-based terminal feature.
@@ -588,6 +603,9 @@ type Peer struct {
 // Validate performs basic validation on the configuration to ensure required fields are set
 // and that numerical values fall within acceptable ranges.
 func (c *Config) Validate() error {
+	if err := c.validateOpenCode(); err != nil {
+		return err
+	}
 	if err := c.validateServer(); err != nil {
 		return err
 	}
@@ -635,6 +653,16 @@ func (c *Config) Validate() error {
 	}
 	if err := c.validateWebhooks(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (c *Config) validateOpenCode() error {
+	for _, key := range c.OpenCode.EnvPassthrough {
+		normalized := strings.ToUpper(strings.TrimSpace(key))
+		if normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
+			return fmt.Errorf("opencode.env_passthrough must not include reserved variable %q", key)
+		}
 	}
 	return nil
 }
@@ -720,6 +748,12 @@ func (c *Config) validateServer() error {
 		}
 		c.Server.PublicURL = normalized
 	}
+	if err := validateIPAccessEntries("ip_access.allowed_ips", c.Server.IPAccess.AllowedIPs); err != nil {
+		return err
+	}
+	if err := validateIPAccessEntries("ip_access.trusted_proxies", c.Server.IPAccess.TrustedProxies); err != nil {
+		return err
+	}
 
 	if c.Server.TLS != nil {
 		if c.Server.TLS.CertFile == "" || c.Server.TLS.KeyFile == "" {
@@ -755,6 +789,25 @@ func (c *Config) validateServer() error {
 		return fmt.Errorf("sse.slow_client_timeout must be >= 0")
 	}
 
+	return nil
+}
+
+func validateIPAccessEntries(path string, entries []string) error {
+	for i, entry := range entries {
+		var err error
+		if strings.Contains(entry, "/") {
+			prefix, parseErr := netip.ParsePrefix(entry)
+			err = parseErr
+			if err == nil && prefix.Addr().Is4In6() && prefix.Bits() < 96 {
+				err = fmt.Errorf("mapped IPv4 prefix length must be at least 96")
+			}
+		} else {
+			_, err = netip.ParseAddr(entry)
+		}
+		if err != nil {
+			return fmt.Errorf("invalid %s[%d] %q: %w", path, i, entry, err)
+		}
+	}
 	return nil
 }
 

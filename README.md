@@ -17,15 +17,18 @@
 
 Dagu is a local-first workflow engine for ops automation and AI-assisted operations. It is open source and self-hostable: a single binary with a built-in Web UI, no external database or message broker, running on Linux / Mac / Windows. Define [DAGs](https://en.wikipedia.org/wiki/Directed_acyclic_graph) in a declarative YAML format. It natively supports shell commands, Docker containers, Kubernetes Jobs, remote commands via SSH, external coding-agent CLIs through `harness.run`, and more through Dagu Actions.
 
-Dagu turns existing scripts, runbooks, and agent-driven jobs into production workflows with scheduling, retries, approvals, and run history. It runs where your data and credentials live: on-prem, air-gapped, edge, or cloud, and scales from a single node to a distributed worker fleet.
+Dagu turns existing scripts, runbooks, and agent-driven jobs into production workflows with scheduling, retries, human tasks, and run history. It runs where your data and credentials live: on-prem, air-gapped, edge, or cloud, and scales from a single node to a distributed worker fleet.
 
 **Highlights:**
 
 - Single binary file installation.
+- Self-contained, with no need for a DBMS or message broker.
+- Runs on Linux, macOS, and Windows.
 - Declarative YAML format for defining DAGs.
-- Web UI for visually managing, retrying, and monitoring pipelines.
-- Use existing scripts or tools without any modifications.
-- Self-contained, with no need for a DBMS.
+- Run existing shell commands, Docker containers, Kubernetes Jobs, and remote commands over SSH without modifications.
+- Compose reusable Sub-DAGs and run work in parallel with concurrency controls.
+- Schedule workflows with cron syntax, timezones, overlap policies, and catch-up windows.
+- Keep logs, run history, retries, notifications, and webhook triggers in one place.
 - Built-in MCP support for AI agents to manage workflows.
 - Run external coding-agent CLIs through `harness.run` when workflows need AI assistance.
 
@@ -55,7 +58,7 @@ Orchestration is not your main work. You have scripts and containers that alread
 
 You wanted to schedule some jobs. Now you operate a second system, and the orchestrator lives inside the code it was supposed to serve.
 
-Dagu treats workflow structure as configuration, not code. Order, dependencies, retries, schedules, and approvals go in one YAML file next to your scripts; the engine that runs them is a single process:
+Dagu treats workflow structure as configuration, not code. Order, dependencies, retries, schedules, and human tasks go in one YAML file next to your scripts; the engine that runs them is a single process:
 
 ```sh
   Traditional Orchestrator          Dagu
@@ -66,7 +69,7 @@ Dagu treats workflow structure as configuration, not code. Order, dependencies, 
   │  PostgreSQL            │        └──────────────────┘
   │  Redis / RabbitMQ      │         Single binary.
   │  Python Runtime        │         Self-hosted.
-  └────────────────────────┘         Adds scheduling, retries, and approvals around existing automation.
+  └────────────────────────┘         Adds scheduling, retries, and human tasks around existing automation.
     6+ services to manage
 ```
 
@@ -163,22 +166,6 @@ dagu start-all --dags .
 
 Visit http://localhost:8080
 
-### Connect AI agents through MCP
-
-Dagu exposes a built-in MCP server from the running HTTP server. Start Dagu, then configure MCP-capable chat or coding agents to use the Streamable HTTP endpoint:
-
-```text
-http://localhost:8080/mcp
-```
-
-Use MCP when you want an AI agent to read Dagu state and Wiki pages, preview or apply workflow and Wiki page changes, and start, enqueue, retry, or stop runs through `dagu_read`, `dagu_change`, and `dagu_execute`. See the [MCP setup guide](https://docs.dagu.sh/mcp/quickstart).
-
-For authoring-only help in Claude Code, Codex, Gemini CLI, and other AI coding tools, install the Dagu workflow authoring skill:
-
-```sh
-gh skill install dagucloud/dagu dagu
-```
-
 ## How You Run Dagu?
 
 Run Dagu on one machine, or scale out with distributed workers. See the [Deployment Models guide](https://docs.dagu.sh/overview/deployment-models).
@@ -212,12 +199,12 @@ Run Dagu on one machine, or scale out with distributed workers. See the [Deploym
 - **Language-agnostic:** No framework required. Define workflow steps using shell commands, Docker containers, Kubernetes Jobs, SQL queries, HTTP requests, and any other tool via official and third-party Dagu Actions.
 - **Build workflows:** Reuse a step's result when its command and files have not changed. Dagu can also infer dependencies from matching file paths.
 - **Reproducibility:** Reproducible runs with pinned tools, plus automatic installation and caching on workers—eliminating the need to manually install dependencies on the server or workers.
-- **Built-in Approvals:** The Human-in-the-loop steps for manual approvals, review, and intervention in any workflow.
-- **MCP Server:** Built-in MCP server for authoring and running workflows via AI agents like Claude Code, Codex, Gemini CLI, Pi, OpenCode, and more.
-- **External CLI Harness:** You can run coding-agent CLIs (Claude Code, Codex, Gemini CLI, Pi, OpenCode, etc.) with a built-in harness action or custom harness definition.
+- **Human Tasks:** Pause a workflow for acknowledgement or typed operator input, then expose the response to downstream steps.
 - **Secret management:** Built-in secret management with secure log masking, preventing credentials from leaking into logs or the Web UI.
 - **Self-hosted:** A single binary that runs on Linux, macOS, and Windows. Includes an optional distributed worker mode for scaling out execution across machines.
 - **Permission Control:** RBAC and SSO support for team environments, controlling who can view, run, and edit workflows through granular permissions and audit logging.
+- **MCP Server:** Built-in MCP server for authoring and running workflows via AI agents like Claude Code, Codex, Gemini CLI, Pi, OpenCode, and more.
+- **External CLI Harness:** You can run coding-agent CLIs (Claude Code, Codex, Gemini CLI, Pi, OpenCode, etc.) with a built-in harness action or custom harness definition.
 
 ## Architecture
 
@@ -309,6 +296,102 @@ steps:
 </div>
 
 ## Workflow Examples
+
+### Docker step
+
+```yaml
+steps:
+  - name: build
+    container:
+      image: node:20-alpine
+    run: npm run build
+```
+
+### Parallel Sub-DAG execution
+
+The parent invokes the same child DAG for multiple targets and limits concurrent child runs:
+
+```yaml
+steps:
+  - id: patch
+    action: dag.run
+    with:
+      dag: patch-host
+      params:
+        host: ${ITEM}
+    parallel:
+      items:
+        - web-1.internal
+        - web-2.internal
+        - db-1.internal
+      max_concurrent: 2
+
+---
+
+name: patch-host
+params:
+  - name: host
+    type: string
+ssh:
+  user: deploy
+  host: ${params.host}
+steps:
+  - id: apply
+    run: apt-get update -q && apt-get upgrade -y
+```
+
+### SSH remote execution
+
+```yaml
+ssh:
+  user: deploy
+  host: web-1.internal
+  key: ~/.ssh/deploy_key
+
+steps:
+  - id: health
+    run: curl -f http://localhost:8080/health
+    retry_policy:
+      limit: 3
+      interval_sec: 10
+
+  - id: restart
+    run: systemctl restart myapp
+    depends: health
+```
+
+### Scheduling with overlap control and catch-up
+
+```yaml
+schedule:
+  - "0 */6 * * *"          # Every 6 hours
+overlap_policy: skip       # Skip if previous run is still active
+catchup_window: "5h"       # Catch up missed runs when scheduler is down for up to 5 hours
+
+timeout_sec: 3600
+handler_on:
+  failure:
+    run: notify-team.sh
+  exit:
+    run: cleanup.sh
+```
+
+### Retry and error handling
+
+```yaml
+steps:
+  - name: flaky-api-call
+    run: curl -f https://api.example.com/data
+    retry_policy:
+      limit: 3
+      interval_sec: 10
+    continue_on:
+      failure: true
+```
+
+See the [Sub-DAG](https://docs.dagu.sh/writing-workflows/sub-dags), [SSH](https://docs.dagu.sh/step-types/ssh), [scheduling](https://docs.dagu.sh/writing-workflows/scheduling), and [notification](https://docs.dagu.sh/web-ui/notifications) documentation for complete configuration details.
+
+## More Workflow Examples
 
 ### Parallel executions
 
@@ -415,16 +498,6 @@ steps:
 
 A third-party Dagu Action package contains a DAG, manifest, schemas, and helper files behind an `action:` reference. See the [Dagu Actions](https://docs.dagu.sh/dagu-actions/) and [Third-Party Actions](https://docs.dagu.sh/dagu-actions/third-party) documentation for details.
 
-### Docker step
-
-```yaml
-steps:
-  - name: build
-    container:
-      image: node:20-alpine
-    run: npm run build
-```
-
 ### Kubernetes Pod execution
 
 ```yaml
@@ -441,224 +514,21 @@ steps:
       command: ./process.sh
 ```
 
-### SSH remote execution
-
-```yaml
-steps:
-  - name: deploy
-    action: ssh.run
-    with:
-      host: prod-server.example.com
-      user: deploy
-      key: ~/.ssh/id_rsa
-      command: cd /var/www && git pull && systemctl restart app
-```
-
-Declare `ssh` once at the DAG level and every `run` step executes on that host:
-
-```yaml
-ssh:
-  user: deploy
-  host: web-1.internal
-  key: ~/.ssh/deploy_key
-
-steps:
-  - id: health
-    run: curl -f http://localhost:8080/health
-    retry_policy:
-      limit: 3
-      interval_sec: 10
-
-  - id: restart
-    run: systemctl restart myapp
-    depends: health
-```
-
-### Sub-DAG composition
-
-```yaml
-steps:
-  - id: etl
-    action: dag.run
-    with:
-      dag: etl-pipeline
-      params:
-        SOURCE: s3://bucket/data.csv
-
----
-
-# You can include multiple DAGs in the same YAML file, or reference DAGs defined in separate files.
-name: etl-pipeline
-
-params:
-  - SOURCE
-
-tools:
-  - aws/aws-cli@2.11.14
-
-steps:
-  - id: download
-    run: aws s3 cp ${params.SOURCE} data.csv
-
-  - id: transform
-    run: ./transform.sh data.csv
-    depends: download
-
-  - id: load
-    run: ./load.sh transformed.csv
-    depends: transform
-```
-
-### Retry and error handling
-
-```yaml
-steps:
-  - name: flaky-api-call
-    run: curl -f https://api.example.com/data
-    retry_policy:
-      limit: 3
-      interval_sec: 10
-    continue_on:
-      failure: true
-```
-
-### Scheduling with overlap control and catch-up
-
-```yaml
-schedule:
-  - "0 */6 * * *"          # Every 6 hours
-overlap_policy: skip       # Skip if previous run is still active
-catchup_window: "5h"       # Catch up missed runs when scheduler is down for up to 5 hours
-  
-timeout_sec: 3600
-handler_on:
-  failure:
-    run: notify-team.sh
-  exit:
-    run: cleanup.sh
-```
-
-### External coding-agent CLI harness step with manual approval
-
-```yaml
-steps:
-  - id: review
-    action: harness.run
-    with:
-      provider: codex
-      prompt: Review the README.md file and return concise Markdown findings.
-    stdout:
-      artifact: review.md
-
-  - id: approval
-    action: noop
-    depends: review
-    approval:
-      prompt: Review the review.md artifact. Approve to post an issue with the findings, or reject to skip.
-
-  - id: read_review
-    action: artifact.read
-    depends: approval
-    with:
-      path: review.md
-
-  - id: post_issue
-    run: gh issue create --title "Review Findings" --body-file "${read_review.stdout}"
-    depends: read_review
-```
-
-### Scheduled agent review with human approval
-
-Runs as-is with the [Pi coding agent](https://pi.dev) installed (`npm install -g --ignore-scripts @earendil-works/pi-coding-agent`) and an `OPENROUTER_API_KEY` exported. The run pauses at `approve` until someone answers in the Web UI:
-
-```yaml
-schedule: "0 2 * * *"
-working_dir: .
-
-secrets:
-  - name: OPENROUTER_API_KEY
-    provider: env
-    key: OPENROUTER_API_KEY
-
-steps:
-  - id: review
-    action: harness.run
-    with:
-      provider: pi
-      model: openrouter/deepseek/deepseek-v4-flash
-      tools: read,bash
-      prompt: |
-        Review the most recent commit in this repository.
-        Reply with: what changed, one risk, a verdict.
-    output: REVIEW
-
-  - id: approve
-    action: human.task
-    with:
-      prompt: Publish this review?
-    depends: review
-
-  - id: publish
-    run: echo "$REVIEW"
-    depends: approve
-```
-
-### LLM-driven workflow where the model chooses each step
-
-```yaml
-type: controller
-
-env:
-  - ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-
-llm:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
-  system: |
-    If the tests fail, run the fixer and test again. Never ask for sign-off on
-    a red build.
-
-steps:
-  - name: run_tests
-    description: Run the test suite.
-    run: |
-      test -f /tmp/dagu-flaky-cleared || { echo "FAIL: flaky_test timed out"; exit 1; }
-      echo "all green"
-
-  - name: fix_flaky
-    description: Quarantine the known flaky test.
-    run: |
-      touch /tmp/dagu-flaky-cleared
-      echo "quarantined flaky_test"
-
-  - id: sign_off
-    name: sign_off
-    action: human.task
-    with:
-      prompt: Tests are green. Ship it?
-      form:
-        type: object
-        properties:
-          approved: { type: boolean }
-        required: [approved]
-
-tasks:
-  - name: tests_green
-    description: Finished when run_tests succeeded on its most recent run.
-  - name: approved
-    description: Finished when a person answered sign_off with approved=true.
-```
-
-With `type: controller` the steps stop being a plan and become a catalog of
-actions; `tasks` declares the goals and ends the run once all are settled. The
-model decides what runs next, so a failing test can be fixed and retried without
-that path being wired in advance. When it opens the human task the run releases
-its worker slot and resumes on the same run once someone answers. `llm.model`
-also accepts an array of models; the controller fails over to the next model
-when a request fails, and a successful fallback stays selected for the rest of
-the run.
-
 For more examples, see the [Examples documentation](https://docs.dagu.sh/writing-workflows/examples).
+
+## Additional Capabilities
+
+### AI and agent integrations
+
+Dagu exposes a built-in MCP server at `http://localhost:8080/mcp` for reading Dagu state, changing workflows, and controlling runs. See the [MCP setup guide](https://docs.dagu.sh/mcp/quickstart).
+
+External coding-agent CLIs can run as workflow steps through `harness.run`, and Agent DAGs can let an LLM choose the next step. The complete examples live in the [Harness examples](https://docs.dagu.sh/writing-workflows/examples/harness-run), [AI examples](https://docs.dagu.sh/writing-workflows/examples/ai), and [Agent DAG documentation](https://docs.dagu.sh/writing-workflows/agent).
+
+For authoring-only help in Claude Code, Codex, Gemini CLI, and other AI coding tools, install the Dagu workflow authoring skill:
+
+```sh
+gh skill install dagucloud/dagu dagu
+```
 
 ## Built-in Actions
 
@@ -676,7 +546,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `sftp.upload` / `sftp.download` | File transfer over SFTP |
 | `http.request` | HTTP requests with headers, auth, and request bodies |
 | `chat.completion` | Run an LLM chat completion step |
-| `harness.run` | Run external coding-agent CLIs such as Claude Code, Codex, Copilot, OpenCode, and Pi |
+| `harness.run` | Run external coding-agent CLIs such as Claude Code, Codex, Gemini CLI, Cursor, and DeepSeek Harness |
 | `postgres.query` / `postgres.import` | PostgreSQL queries and imports |
 | `sqlite.query` / `sqlite.import` | SQLite queries and imports |
 | `redis.<operation>` | Redis commands, pipelines, and Lua scripts |
@@ -907,12 +777,31 @@ The table lists the most common commands. The binary ships 31 in total, includin
 | `DAGU_CERT_FILE` | — | TLS certificate |
 | `DAGU_KEY_FILE` | — | TLS private key |
 | `DAGU_CORS_ALLOWED_ORIGINS` | — | Comma-separated list of allowed CORS origins (e.g. `https://app.example.com`). When unset, cross-origin browser access is disabled. Exact origins enable credentials. An explicit `*` allows every origin without credentials and emits a security warning. |
+| `DAGU_IP_ACCESS_ALLOWED_IPS` | — | Comma-separated IPv4/IPv6 addresses and CIDR ranges allowed to access the HTTP server. Empty disables filtering. |
+| `DAGU_IP_ACCESS_TRUSTED_PROXIES` | — | Comma-separated proxy addresses and CIDR ranges permitted to supply forwarded client IP headers. |
 | `DAGU_PUBLIC_URL` | — | External Web UI URL used in generated links, including notification and incident DAG-run links |
 | `DAGU_SERVER_METRICS` | `private` | Metrics endpoint access: `private` or `public` |
 | `DAGU_TERMINAL_ENABLED` | `false` | Enable the web-based terminal |
 | `DAGU_DEFAULT_SHELL` | `$SHELL`, then `sh` | Default shell for command steps |
 | `DAGU_ENV_PASSTHROUGH_PREFIXES` | — | Comma-separated env var prefixes forwarded to step execution |
 | `DAGU_DEBUG` | — | Enable debug mode |
+
+The equivalent YAML protects every HTTP route, including health, metrics,
+webhooks, SSE, terminal, and MCP:
+
+```yaml
+ip_access:
+  allowed_ips:
+    - 203.0.113.10
+    - 10.0.0.0/8
+  trusted_proxies:
+    - 127.0.0.1
+    - 10.42.0.0/16
+```
+
+Forwarded addresses are used only when the direct peer matches
+`trusted_proxies`. The proxy must remove client-supplied forwarding headers and
+set or append the verified client address. Keep trusted proxy ranges narrow.
 
 ### Paths
 

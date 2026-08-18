@@ -17,6 +17,11 @@ spec:
     - name: wget
       image: "{{ .Values.test.image.repository }}:{{ .Values.test.image.tag }}"
       imagePullPolicy: {{ .Values.test.image.pullPolicy }}
+{{- if .Values.config.ipAccess.allowedIPs }}
+      command: ['nc']
+      args: ['-z', '-w', '5', '{{ include "dagu.componentName" (dict "root" . "component" "ui") }}', '{{ .Values.ui.service.port }}']
+{{- else }}
       command: ['wget']
       args: ['--spider', '-T', '5', 'http://{{ include "dagu.componentName" (dict "root" . "component" "ui") }}:{{ .Values.ui.service.port }}/api/v1/health']
+{{- end }}
   restartPolicy: Never

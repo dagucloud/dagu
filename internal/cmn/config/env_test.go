@@ -93,6 +93,16 @@ func TestLoadBaseEnvWithExtras_ExactNamesAndPrefixes(t *testing.T) {
 	require.False(t, found)
 }
 
+func TestLoadBaseEnvWithExtras_NeverIncludesInternalTransport(t *testing.T) {
+	t.Setenv("_DAGU_INTERNAL_OPENCODE_PASSWORD", "secret")
+	baseEnv := config.LoadBaseEnvWithExtras(
+		[]string{"_DAGU_INTERNAL_OPENCODE_PASSWORD"},
+		[]string{"_DAGU_INTERNAL_"},
+	)
+	_, found := parseEnvSlice(baseEnv.AsSlice())["_DAGU_INTERNAL_OPENCODE_PASSWORD"]
+	require.False(t, found)
+}
+
 func TestLoadBaseEnvWithExtras_PrefixMatchingHonorsPlatformCaseRules(t *testing.T) {
 	t.Setenv("CASE_MATCH_ENV", "matched")
 

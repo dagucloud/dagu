@@ -96,15 +96,25 @@ spec:
 {{ toYaml . | nindent 12 }}
 {{- end }}
           livenessProbe:
+{{- if .Values.config.ipAccess.allowedIPs }}
+            tcpSocket:
+              port: http
+{{- else }}
             httpGet:
               path: /api/v1/health
               port: http
+{{- end }}
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
+{{- if .Values.config.ipAccess.allowedIPs }}
+            tcpSocket:
+              port: http
+{{- else }}
             httpGet:
               path: /api/v1/health
               port: http
+{{- end }}
             initialDelaySeconds: 5
             periodSeconds: 5
           resources:

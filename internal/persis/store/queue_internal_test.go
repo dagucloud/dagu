@@ -141,7 +141,7 @@ func TestPollingQueueWatcherUsesDefaultInterval(t *testing.T) {
 	assert.Equal(t, queuePollInterval, watcher.interval)
 }
 
-func TestQueueStoreNextQueueItemIDSkipsExistingTimestamp(t *testing.T) {
+func TestQueueStoreCreateQueueItemSkipsExistingTimestamp(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -158,17 +158,16 @@ func TestQueueStoreNextQueueItemIDSkipsExistingTimestamp(t *testing.T) {
 		QueuedAt: start,
 	})
 	require.NoError(t, err)
-	require.NoError(t, s.col.Put(ctx, &persis.Record{
+	require.NoError(t, s.col.Create(ctx, &persis.Record{
 		ID:        queueRecordID(queueName, firstID),
 		Data:      data,
 		CreatedAt: start,
 		UpdatedAt: start,
 	}))
 
-	gotID, gotQueuedAt, err := s.nextQueueItemID(ctx, queueName, priority, dagRun.ID, start)
+	gotID, err := s.createQueueItem(ctx, queueName, priority, dagRun, start)
 	require.NoError(t, err)
 
 	wantQueuedAt := start.Add(time.Nanosecond)
 	assert.Equal(t, newQueueItemID(priority, dagRun.ID, wantQueuedAt), gotID)
-	assert.Equal(t, wantQueuedAt, gotQueuedAt)
 }

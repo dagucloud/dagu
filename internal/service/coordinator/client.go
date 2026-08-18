@@ -105,6 +105,12 @@ type StateClient interface {
 	ListState(ctx context.Context, req *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error)
 }
 
+// AgentSessionCleanupClient exposes coordinator-backed provider cleanup RPCs.
+type AgentSessionCleanupClient interface {
+	ClaimAgentSessionCleanup(ctx context.Context, req *coordinatorv1.ClaimAgentSessionCleanupRequest) (*coordinatorv1.ClaimAgentSessionCleanupResponse, error)
+	CompleteAgentSessionCleanupTo(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.CompleteAgentSessionCleanupRequest) (*coordinatorv1.CompleteAgentSessionCleanupResponse, error)
+}
+
 // Metrics defines the metrics for the coordinator client
 type Metrics struct {
 	FailCount        int   // Total number of failures
@@ -114,9 +120,10 @@ type Metrics struct {
 }
 
 var (
-	_ Client                = (*clientImpl)(nil)
-	_ SecretReferenceClient = (*clientImpl)(nil)
-	_ dispatch.Dispatcher   = (*clientImpl)(nil)
+	_ Client                    = (*clientImpl)(nil)
+	_ AgentSessionCleanupClient = (*clientImpl)(nil)
+	_ SecretReferenceClient     = (*clientImpl)(nil)
+	_ dispatch.Dispatcher       = (*clientImpl)(nil)
 )
 
 const (
@@ -1174,6 +1181,45 @@ func (cli *clientImpl) AckTaskClaimTo(ctx context.Context, owner serviceregistry
 		}
 		if resp != nil && !resp.Accepted && resp.Error == legacyClaimOwnerEndpointRejection {
 			return status.Error(codes.Unavailable, resp.Error)
+		}
+		return nil
+	})
+	return resp, err
+}
+
+// ClaimAgentSessionCleanup reserves provider cleanup from one coordinator.
+func (cli *clientImpl) ClaimAgentSessionCleanup(
+	ctx context.Context,
+	req *coordinatorv1.ClaimAgentSessionCleanupRequest,
+) (*coordinatorv1.ClaimAgentSessionCleanupResponse, error) {
+	members, err := cli.getCoordinatorMembers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp *coordinatorv1.ClaimAgentSessionCleanupResponse
+	err = cli.attemptCall(ctx, members, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
+		var callErr error
+		resp, callErr = client.client.ClaimAgentSessionCleanup(ctx, req)
+		if callErr != nil {
+			return fmt.Errorf("claim agent session cleanup failed: %w", callErr)
+		}
+		return nil
+	})
+	return resp, err
+}
+
+// CompleteAgentSessionCleanupTo updates a cleanup claim on its owning coordinator.
+func (cli *clientImpl) CompleteAgentSessionCleanupTo(
+	ctx context.Context,
+	owner serviceregistry.HostInfo,
+	req *coordinatorv1.CompleteAgentSessionCleanupRequest,
+) (*coordinatorv1.CompleteAgentSessionCleanupResponse, error) {
+	var resp *coordinatorv1.CompleteAgentSessionCleanupResponse
+	err := cli.callOwner(ctx, owner, false, func(ctx context.Context, _ serviceregistry.HostInfo, client *client) error {
+		var callErr error
+		resp, callErr = client.client.CompleteAgentSessionCleanup(ctx, req)
+		if callErr != nil {
+			return fmt.Errorf("complete agent session cleanup failed: %w", callErr)
 		}
 		return nil
 	})

@@ -20,6 +20,8 @@ const internalSecretPrefix = "_DAGU_PRESOLVED_SECRET_" //nolint:gosec // Not a c
 // Duplicated here to avoid a circular import (eval <- buildenv).
 const internalBuildEnvFileKey = "_DAGU_PRESOLVED_BUILD_ENV_FILE"
 
+const internalTransportPrefix = "_DAGU_INTERNAL_"
+
 // EnvSource tracks where an environment variable came from (for debugging)
 type EnvSource string
 
@@ -68,7 +70,8 @@ func NewEnvScope(parent *EnvScope, includeOS bool) *EnvScope {
 				// direct os.LookupEnv; they must not appear in step environments.
 				// Must match secrets.PresolvedEnvPrefix (duplicated to avoid
 				// circular import: eval <- secrets).
-				if strings.HasPrefix(k, internalSecretPrefix) || k == internalBuildEnvFileKey {
+				normalizedKey := strings.ToUpper(k)
+				if strings.HasPrefix(normalizedKey, internalSecretPrefix) || strings.HasPrefix(normalizedKey, internalTransportPrefix) || normalizedKey == internalBuildEnvFileKey {
 					continue
 				}
 				e.entries[k] = EnvEntry{Key: k, Value: v, Source: EnvSourceOS}

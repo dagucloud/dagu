@@ -50,7 +50,7 @@ func TestNormalizeEnvVarExpr(t *testing.T) {
 	}
 }
 
-func TestEffectiveLLMConfigPreservesControllerContextLimits(t *testing.T) {
+func TestEffectiveLLMConfigPreservesAgentContextLimits(t *testing.T) {
 	t.Parallel()
 
 	maxContextTokens := 100000

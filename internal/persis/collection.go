@@ -16,6 +16,30 @@ import (
 	"time"
 )
 
+const (
+	CollectionAPIKeys               = "api_keys"
+	CollectionActiveDistributedRuns = "active_distributed_runs"
+	CollectionAgentSessionCleanups  = "agent_session_cleanups"
+	CollectionDAGRunLeases          = "dag_run_leases"
+	CollectionDAGSettings           = "dag_settings"
+	CollectionDAGState              = "dag_state"
+	CollectionDispatchTasks         = "dispatch_tasks"
+	CollectionIncidents             = "incidents"
+	CollectionLicense               = "license"
+	CollectionNotifications         = "notifications"
+	CollectionProfiles              = "profiles"
+	CollectionQueue                 = "queue"
+	CollectionRemoteNodes           = "remote_nodes"
+	CollectionSchedulerState        = "scheduler_state"
+	CollectionSecrets               = "secrets"
+	CollectionUpgradeCheck          = "upgrade_check"
+	CollectionUsers                 = "users"
+	CollectionViews                 = "views"
+	CollectionWebhooks              = "webhooks"
+	CollectionWorkerHeartbeats      = "worker_heartbeats"
+	CollectionWorkspaces            = "workspaces"
+)
+
 // Record is the storage primitive for collection-backed control-plane data.
 //
 // ID uses "/" as a hierarchy separator so that a [ListQuery.Prefix] of
@@ -34,7 +58,8 @@ type ListQuery struct {
 	// An empty Prefix returns all records in the collection.
 	Prefix string
 
-	// Since and Until bound results by Record.CreatedAt.
+	// Since is inclusive and Until is exclusive. Both bound results by
+	// Record.CreatedAt.
 	Since *time.Time
 	Until *time.Time
 
@@ -53,19 +78,23 @@ type Page struct {
 }
 
 // Collection is an isolated namespace of [Record]s.
-// All methods must be safe for concurrent use. Implementations map each
-// collection to a distinct physical namespace.
+// All methods must be safe for concurrent use. Mutations of the same record
+// must be linearizable across clients sharing the physical namespace.
+// Atomicity is per record; Collection does not define multi-record transactions.
+// ErrConflict is reserved for failed conditional mutations, not transient
+// backend write contention.
+// Implementations map each collection to a distinct physical namespace.
 type Collection interface {
 	// Get returns the record identified by id.
 	// Returns [ErrNotFound] if no record with that id exists.
 	Get(ctx context.Context, id string) (*Record, error)
 
-	// Put creates or replaces a record.
+	// Put atomically creates or replaces a record.
 	Put(ctx context.Context, rec *Record) error
 
 	// Create atomically inserts rec. Returns [ErrConflict] when a record with
 	// rec.ID already exists. Implementations must guarantee the check-and-insert
-	// is atomic with respect to concurrent Put, CompareAndSwap, and Create calls.
+	// is atomic with respect to every concurrent mutation of the same record.
 	Create(ctx context.Context, rec *Record) error
 
 	// Delete removes the record with the given id.
@@ -73,21 +102,24 @@ type Collection interface {
 	Delete(ctx context.Context, id string) error
 
 	// CompareAndDelete atomically removes expected.ID only when the current
-	// record still matches expected. Returns [ErrConflict] when it does not.
+	// record still matches expected. Returns [ErrConflict] when it does not and
+	// [ErrNotFound] when the record does not exist.
 	CompareAndDelete(ctx context.Context, expected *Record) error
 
-	// List returns a page of records matching q, ordered by CreatedAt ascending.
+	// List returns a page of records matching q, ordered by CreatedAt and then ID,
+	// both ascending.
 	List(ctx context.Context, q ListQuery) (*Page, error)
 
 	// CompareAndSwap atomically replaces record id only when its current Data
-	// bytes equal expected. Returns [ErrConflict] when they do not match.
+	// bytes equal expected. Returns [ErrConflict] when they do not match and
+	// [ErrNotFound] when the record does not exist.
 	CompareAndSwap(ctx context.Context, id string, expected, next []byte) error
 }
 
-// LockingCollection runs operations under a storage-wide lock scoped by key.
-// Implementations must serialize the same key across all clients sharing the
-// collection's physical namespace.
-type LockingCollection interface {
-	Collection
-	WithLock(ctx context.Context, key string, fn func() error) error
+// Backend provides isolated, named control-plane collections. Collection names
+// must be non-empty portable identifiers containing only ASCII letters, digits,
+// hyphens, and underscores. Passing any other name is a programmer error and
+// may panic.
+type Backend interface {
+	Collection(name string) Collection
 }

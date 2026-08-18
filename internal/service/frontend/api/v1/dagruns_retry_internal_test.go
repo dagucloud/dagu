@@ -38,6 +38,34 @@ func (c *retryCoordinatorRecorder) Dispatch(_ context.Context, req dispatch.Disp
 	return c.dispatchErr
 }
 
+func TestResumeManagedAttemptTargetsOwningWorker(t *testing.T) {
+	dag := &ir.DAG{
+		Name: "managed_resume", YamlData: []byte("name: managed_resume"),
+		WorkerSelector: map[string]string{"region": "apac"},
+	}
+	status := &ir.DAGRunStatus{
+		Name: dag.Name, DAGRunID: "run-1", Status: ir.Waiting,
+		Nodes: []*ir.Node{{
+			Status: ir.NodeWaiting,
+			AgentSession: &ir.AgentSession{
+				Provider: "opencode", State: ir.AgentSessionWaiting, OwnerWorkerID: "worker-1",
+			},
+		}},
+	}
+	recorder := &retryCoordinatorRecorder{}
+	api := &API{
+		config: &config.Config{}, coordinatorCli: recorder,
+		defaultExecMode: config.ExecutionModeLocal,
+	}
+
+	require.NoError(t, api.resumeManagedAttempt(t.Context(), dag, status, status.DAGRunID))
+	require.Len(t, recorder.dispatched, 1)
+	task := recorder.dispatched[0]
+	require.Equal(t, dispatch.DispatchOperationRetry, task.Operation)
+	require.Equal(t, "worker-1", task.TargetWorkerID)
+	require.Same(t, status, task.PreviousStatus)
+}
+
 func TestRetryDAGRun_DispatchesRetryToCoordinator(t *testing.T) {
 	ctx := auth.WithUser(context.Background(), &auth.User{Username: "alice"})
 	tmpDir := t.TempDir()

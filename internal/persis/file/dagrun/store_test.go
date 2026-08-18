@@ -93,7 +93,6 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	rootWorkDir := filepath.Join(workRoot, "compat-dag", workDirName(rootRef.ID))
 	attemptDir := filepath.Join(runDir, "a_20260527_010203_456Z_attempt-compat")
 	statusFile := filepath.Join(attemptDir, JSONLStatusFile)
-	assert.Equal(t, statusFile, parentAttempt.(*Attempt).file)
 	assert.Equal(t, filepath.Join(rootWorkDir, "root"), parentWorkDir)
 	require.DirExists(t, runDir)
 	require.DirExists(t, attemptDir)
@@ -246,7 +245,7 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 		Location: filepath.Join(baseDir, "child-dag.yaml"),
 	}
 	childTS := time.Date(2026, 5, 27, 1, 2, 4, 789_000_000, time.UTC)
-	childAttempt, err := repository.CreateAttempt(ctx, childDAG, childTS, "child-run", persis.DAGRunCreateAttemptOptions{
+	_, err = repository.CreateAttempt(ctx, childDAG, childTS, "child-run", persis.DAGRunCreateAttemptOptions{
 		RootDAGRun: rootRef,
 		Retry:      true,
 		AttemptID:  "child-retry",
@@ -254,7 +253,6 @@ func TestStoreRetriesLegacySubDAGRunInSameDirectory(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedAttemptDir := filepath.Join(legacyChildDir, "a_20260527_010204_789Z_child-retry")
-	assert.Equal(t, filepath.Join(expectedAttemptDir, JSONLStatusFile), childAttempt.(*Attempt).file)
 	require.DirExists(t, expectedAttemptDir)
 	require.NoDirExists(t, filepath.Join(runDir, SubDAGRunsDir, "child-run"))
 

@@ -1,0 +1,7 @@
+{
+  "name": "dagu-ci-opencode",
+  "private": true,
+  "dependencies": {
+    "opencode-ai": "1.18.11"
+  }
+}

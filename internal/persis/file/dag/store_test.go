@@ -375,6 +375,32 @@ steps:
 	assert.Equal(t, `batch_size="10" debug="false"`, dag.DefaultParams)
 }
 
+func TestGetMetadataCachesSharedSymlinkTargetsByEntry(t *testing.T) {
+	dagDir := t.TempDir()
+	targetPath := filepath.Join(t.TempDir(), "shared.yaml")
+	require.NoError(t, os.WriteFile(targetPath, []byte("steps: []\n"), 0600))
+	for _, name := range []string{"first", "second"} {
+		if err := os.Symlink(targetPath, filepath.Join(dagDir, name+".yaml")); err != nil {
+			t.Skipf("symlink creation is unavailable: %v", err)
+		}
+	}
+
+	store := newRepository(
+		dagDir,
+		WithFileCache(fileutil.NewCache[*ir.DAG]("dag_definition", 16, time.Hour)),
+		WithSkipExamples(true),
+		WithSymlinks(true),
+	)
+	ctx := context.Background()
+
+	first, err := store.GetMetadata(ctx, "first")
+	require.NoError(t, err)
+	second, err := store.GetMetadata(ctx, "second")
+	require.NoError(t, err)
+	assert.Equal(t, "first", first.Name)
+	assert.Equal(t, "second", second.Name)
+}
+
 func TestGetDetails(t *testing.T) {
 	tmpDir := fileutil.MustTempDir("test-get-details")
 	defer func() {
@@ -533,7 +559,7 @@ func TestGetSpecRejectsSymlinkOutsideConfiguredDirectories(t *testing.T) {
 func TestExternalDAGFileSymlink(t *testing.T) {
 	baseDir := t.TempDir()
 	targetDir := t.TempDir()
-	const dagContent = "name: external\nsteps:\n  - run: echo external\n"
+	const dagContent = "steps:\n  - run: echo external\n"
 	targetPath := filepath.Join(targetDir, "source.yaml")
 	require.NoError(t, os.WriteFile(targetPath, []byte(dagContent), 0600))
 	linkPath := filepath.Join(baseDir, "external.yaml")
@@ -560,12 +586,18 @@ func TestExternalDAGFileSymlink(t *testing.T) {
 		require.Empty(t, issues)
 		require.Len(t, result.Items, 1)
 		assert.Equal(t, "external", result.Items[0].Name)
+		assert.Empty(t, result.Items[0].BuildErrors)
+
+		metadata, err := store.GetMetadata(context.Background(), "external")
+		require.NoError(t, err)
+		assert.Equal(t, "external", metadata.Name)
 
 		spec, err := store.GetSpec(context.Background(), "external")
 		require.NoError(t, err)
 		assert.Equal(t, dagContent, spec)
-		_, err = store.GetDetails(context.Background(), "external", persis.DAGLoadOptions{})
+		details, err := store.GetDetails(context.Background(), "external", persis.DAGLoadOptions{})
 		require.NoError(t, err)
+		assert.Equal(t, "external", details.Name)
 
 		assert.ErrorIs(t, store.UpdateSpec(context.Background(), "external", []byte(dagContent)), persis.ErrDAGReadOnly)
 		assert.ErrorIs(t, store.Delete(context.Background(), "external"), persis.ErrDAGReadOnly)
@@ -584,8 +616,8 @@ func TestListRebuildsIndexAfterSymlinkRepoint(t *testing.T) {
 	targetDir := t.TempDir()
 	firstPath := filepath.Join(targetDir, "first.yaml")
 	secondPath := filepath.Join(targetDir, "second.yaml")
-	firstSpec := []byte("name: first\nsteps:\n  - run: echo one\n")
-	secondSpec := []byte("name: other\nsteps:\n  - run: echo two\n")
+	firstSpec := []byte("description: first\nsteps:\n  - run: echo one\n")
+	secondSpec := []byte("description: other\nsteps:\n  - run: echo two\n")
 	require.Len(t, secondSpec, len(firstSpec))
 	require.NoError(t, os.WriteFile(firstPath, firstSpec, 0600))
 	require.NoError(t, os.WriteFile(secondPath, secondSpec, 0600))
@@ -602,7 +634,8 @@ func TestListRebuildsIndexAfterSymlinkRepoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, issues)
 	require.Len(t, result.Items, 1)
-	assert.Equal(t, "first", result.Items[0].Name)
+	assert.Equal(t, "linked", result.Items[0].Name)
+	assert.Equal(t, "first", result.Items[0].Description)
 
 	require.NoError(t, os.Remove(linkPath))
 	require.NoError(t, os.Symlink(secondPath, linkPath))
@@ -610,7 +643,8 @@ func TestListRebuildsIndexAfterSymlinkRepoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, issues)
 	require.Len(t, result.Items, 1)
-	assert.Equal(t, "other", result.Items[0].Name)
+	assert.Equal(t, "linked", result.Items[0].Name)
+	assert.Equal(t, "other", result.Items[0].Description)
 }
 
 func TestGetSpecAllowsExplicitSearchPaths(t *testing.T) {

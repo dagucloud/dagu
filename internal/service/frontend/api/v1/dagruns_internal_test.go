@@ -1081,3 +1081,194 @@ func TestGetDAGRunDetailsReturnsClientClosedRequestWhenReadCanceled(t *testing.T
 	require.Equal(t, openapiv1.ErrorCodeInternalError, canceledResp.Body.Code)
 	require.Equal(t, "dag-run details request canceled", canceledResp.Body.Message)
 }
+
+func TestApplyAgentInteractionResponse(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status: ir.NodeWaiting,
+		AgentSession: &ir.AgentSession{
+			Provider: "opencode",
+			State:    ir.AgentSessionWaiting,
+			Interactions: []ir.AgentInteraction{{
+				ID: "permission-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+				AllowForSessionPatterns: []string{"git status *"},
+			}},
+		},
+	}
+	decision := openapiv1.AgentInteractionResponseRequestDecision("session")
+	ctx := auth.WithUser(t.Context(), &auth.User{ID: "user-1", Username: "alice"})
+
+	err := applyAgentInteractionResponse(ctx, node, "permission-1", &openapiv1.AgentInteractionResponseRequest{Decision: &decision})
+
+	require.NoError(t, err)
+	assert.Equal(t, ir.NodeNotStarted, node.Status)
+	interaction := node.AgentSession.Interactions[0]
+	assert.Equal(t, ir.AgentInteractionAnswered, interaction.Status)
+	assert.Equal(t, "session", interaction.Decision)
+	assert.Equal(t, "alice", interaction.RespondedBy)
+	assert.Equal(t, "user-1", interaction.RespondedByID)
+}
+
+func TestApplyAgentQuestionResponseTrimsAnswers(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status: ir.NodeWaiting,
+		AgentSession: &ir.AgentSession{State: ir.AgentSessionWaiting, Interactions: []ir.AgentInteraction{{
+			ID: "question-1", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionPending,
+			Questions: []ir.AgentQuestion{{Options: []ir.AgentQuestionOption{{Label: "A"}}}},
+		}}},
+	}
+	answers := [][]string{{" A "}}
+	require.NoError(t, applyAgentInteractionResponse(t.Context(), node, "question-1", &openapiv1.AgentInteractionResponseRequest{Answers: &answers}))
+	assert.Equal(t, [][]string{{"A"}}, node.AgentSession.Interactions[0].Answers)
+}
+
+func TestApplyAgentSessionRestart(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status:       ir.NodeWaiting,
+		ChatMessages: []ir.LLMMessage{{Role: ir.LLMRoleAssistant, Content: "old"}},
+		AgentSession: &ir.AgentSession{
+			Provider: "opencode", SessionID: "session-old", Generation: 2,
+			OwnerWorkerID: "worker-a", State: ir.AgentSessionUnavailable, PromptSent: true, SessionOwned: true,
+			PromptMessageID: "message-old", Usage: ir.AgentUsage{TotalTokens: 100},
+			Interactions:     []ir.AgentInteraction{{ID: "old"}},
+			PermissionGrants: []ir.AgentPermissionGrant{{Permission: "bash", Patterns: []string{"git *"}}},
+		},
+	}
+
+	err := applyAgentSessionRestart(node)
+
+	require.NoError(t, err)
+	assert.Equal(t, ir.NodeNotStarted, node.Status)
+	assert.Equal(t, 3, node.AgentSession.Generation)
+	assert.Empty(t, node.AgentSession.SessionID)
+	assert.Equal(t, "session-old", node.AgentSession.DiscardedSessionID)
+	assert.True(t, node.AgentSession.DiscardedOwned)
+	assert.Empty(t, node.AgentSession.OwnerWorkerID)
+	assert.False(t, node.AgentSession.PromptSent)
+	assert.Empty(t, node.AgentSession.PromptMessageID)
+	assert.True(t, node.AgentSession.RestartPending)
+	assert.Empty(t, node.AgentSession.Interactions)
+	assert.Empty(t, node.AgentSession.PermissionGrants)
+	assert.Zero(t, node.AgentSession.Usage)
+	assert.Empty(t, node.ChatMessages)
+}
+
+func TestApplyAgentSessionRestartAfterCompletion(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status: ir.NodeSucceeded,
+		AgentSession: &ir.AgentSession{
+			Provider: "opencode", SessionID: "session-old", Generation: 1,
+			State: ir.AgentSessionSucceeded, SessionOwned: true,
+		},
+	}
+
+	require.NoError(t, applyAgentSessionRestart(node))
+	assert.Equal(t, ir.NodeNotStarted, node.Status)
+	assert.True(t, node.AgentSession.RestartPending)
+	assert.Equal(t, "session-old", node.AgentSession.DiscardedSessionID)
+}
+
+func TestValidateAgentQuestionResponse(t *testing.T) {
+	t.Parallel()
+
+	interaction := ir.AgentInteraction{
+		Kind: ir.AgentInteractionQuestion,
+		Questions: []ir.AgentQuestion{
+			{Multiple: true, Custom: true, Options: []ir.AgentQuestionOption{{Label: "A"}, {Label: "B"}}},
+			{Options: []ir.AgentQuestionOption{{Label: "Only"}}},
+		},
+	}
+	valid := [][]string{{"A", "custom"}, {"Only"}}
+	require.NoError(t, validateAgentInteractionResponse(interaction, &openapiv1.AgentInteractionResponseRequest{Answers: &valid}))
+
+	invalid := [][]string{{"A"}, {"Other"}}
+	err := validateAgentInteractionResponse(interaction, &openapiv1.AgentInteractionResponseRequest{Answers: &invalid})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not an offered option")
+
+	tests := []struct {
+		name        string
+		interaction ir.AgentInteraction
+		body        *openapiv1.AgentInteractionResponseRequest
+	}{
+		{name: "nil body", interaction: interaction},
+		{
+			name:        "session permission without scope",
+			interaction: ir.AgentInteraction{Kind: ir.AgentInteractionPermission},
+			body: func() *openapiv1.AgentInteractionResponseRequest {
+				decision := openapiv1.AgentInteractionResponseRequestDecisionSession
+				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
+			}(),
+		},
+		{
+			name:        "unsupported permission decision",
+			interaction: ir.AgentInteraction{Kind: ir.AgentInteractionPermission},
+			body: func() *openapiv1.AgentInteractionResponseRequest {
+				decision := openapiv1.AgentInteractionResponseRequestDecision("always")
+				return &openapiv1.AgentInteractionResponseRequest{Decision: &decision}
+			}(),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Error(t, validateAgentInteractionResponse(test.interaction, test.body))
+		})
+	}
+}
+
+func TestApplyAgentInteractionRejectsPermission(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{Status: ir.NodeWaiting, AgentSession: &ir.AgentSession{
+		State: ir.AgentSessionWaiting,
+		Interactions: []ir.AgentInteraction{{
+			ID: "permission-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+		}},
+	}}
+	decision := openapiv1.AgentInteractionResponseRequestDecisionReject
+	require.NoError(t, applyAgentInteractionResponse(t.Context(), node, "permission-1", &openapiv1.AgentInteractionResponseRequest{Decision: &decision}))
+	assert.Equal(t, ir.AgentInteractionRejected, node.AgentSession.Interactions[0].Status)
+}
+
+func TestApplyAgentSessionRestartGuards(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		node *ir.Node
+	}{
+		{
+			name: "running step",
+			node: &ir.Node{Status: ir.NodeRunning, AgentSession: &ir.AgentSession{Provider: "opencode"}},
+		},
+		{
+			name: "unsupported provider",
+			node: &ir.Node{Status: ir.NodeWaiting, AgentSession: &ir.AgentSession{Provider: "other"}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Error(t, applyAgentSessionRestart(test.node))
+		})
+	}
+}
+
+func TestAppendAgentAPIEventCapsHistory(t *testing.T) {
+	t.Parallel()
+
+	session := &ir.AgentSession{Generation: 1}
+	for range maxAgentSessionAPIEvents + 1 {
+		appendAgentAPIEvent(session, "lifecycle", "running", "Working")
+	}
+
+	require.Len(t, session.Events, maxAgentSessionAPIEvents)
+	assert.Equal(t, int64(2), session.Events[0].Sequence)
+	assert.Equal(t, int64(maxAgentSessionAPIEvents+1), session.Events[len(session.Events)-1].Sequence)
+}

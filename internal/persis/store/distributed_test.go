@@ -112,14 +112,7 @@ func TestDAGRunLeaseStore_ConcurrentTouchPreservesLatestHeartbeat(t *testing.T) 
 	lease, err := s.Get(ctx, "attempt-key-concurrent")
 	require.NoError(t, err)
 	require.NotNil(t, lease)
-	// Under CAS-retry the last writer wins; assert the final value equals
-	// one of the requested timestamps (no silent fold to an unrelated value).
-	candidates := map[int64]struct{}{}
-	for _, ts := range observed {
-		candidates[ts.UnixMilli()] = struct{}{}
-	}
-	_, ok := candidates[lease.LastHeartbeatAt]
-	assert.True(t, ok, "lease.LastHeartbeatAt must equal one of the requested observedAt values; got %d", lease.LastHeartbeatAt)
+	assert.Equal(t, observed[len(observed)-1].UnixMilli(), lease.LastHeartbeatAt)
 }
 
 func TestDAGRunLeaseStore_RejectsWorkerTransfer(t *testing.T) {
@@ -267,9 +260,6 @@ func TestDAGRunLeaseStore_ListAllRemovesStaleCorruptRecord(t *testing.T) {
 
 	_, err = os.Stat(path)
 	assert.ErrorIs(t, err, os.ErrNotExist)
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	assert.Empty(t, entries)
 }
 
 func TestActiveDistributedRunStore_UpsertListGetAndDelete(t *testing.T) {
@@ -450,9 +440,6 @@ func TestActiveDistributedRunStore_ListAllRemovesStaleCorruptRecord(t *testing.T
 
 	_, err = os.Stat(path)
 	assert.ErrorIs(t, err, os.ErrNotExist)
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	assert.Empty(t, entries)
 }
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
@@ -527,6 +514,26 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 
 	_, err = s.GetClaim(ctx, claimed.ClaimToken)
 	assert.ErrorIs(t, err, dispatch.ErrDispatchTaskNotFound)
+}
+
+func TestDispatchTaskStore_ClaimsTaskOnlyOnTargetWorker(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
+		DAGRunID: "run-a", Target: "dag-a", AttemptID: "attempt-a", AttemptKey: "key-a",
+		TargetWorkerID: "worker-a",
+	}))
+
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-b", PollerID: "poller-b"})
+	require.NoError(t, err)
+	assert.Nil(t, claimed)
+
+	claimed, err = s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-a", PollerID: "poller-a"})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-a", claimed.Task.DAGRunID)
 }
 
 func TestDispatchTaskStore_ClaimsLegacyProtoJSONTaskRecord(t *testing.T) {

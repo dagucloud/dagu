@@ -23,7 +23,7 @@ const (
 	// IndexFileName is the name of the DAG definition index file.
 	IndexFileName = ".dag.index"
 	// IndexVersion is the current index format version.
-	IndexVersion = 3
+	IndexVersion = 4
 )
 
 // YAMLFileMeta holds stat metadata for a single YAML file.
@@ -126,9 +126,10 @@ func buildEntry(
 	flags SuspendFlags,
 	loadOpts ...spec.LoadOption,
 ) {
-	opts := make([]spec.LoadOption, 0, len(loadOpts)+4)
+	opts := make([]spec.LoadOption, 0, len(loadOpts)+5)
 	opts = append(opts, loadOpts...)
 	opts = append(opts,
+		spec.WithDefaultName(entryFileName(entry.FilePath)),
 		spec.OnlyMetadata(),
 		spec.WithoutEval(),
 		spec.SkipSchemaValidation(),

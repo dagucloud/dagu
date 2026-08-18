@@ -16,9 +16,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/service/frontend"
+	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -109,10 +113,13 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	// Create a signal-aware context for services (used for auth init and all service operations)
 	serviceCtx := ctx.WithContext(signalCtx)
-	if _, err := persisfile.NewDAGSettingsStore(serviceCtx.Config); err != nil {
+	if _, err := persisfile.NewDAGSettingsStore(
+		serviceCtx.Config,
+		serviceCtx.backend.Collection(persis.CollectionDAGSettings),
+	); err != nil {
 		return fmt.Errorf("failed to initialize DAG settings store: %w", err)
 	}
-	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config)
+	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.backend)
 	if err != nil {
 		return err
 	}
@@ -143,6 +150,16 @@ func runStartAll(ctx *Context, _ []string) error {
 		NewIncidentLease:     stores.NewIncidentLease,
 	}
 
+	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
+	cleanupCancel, cleanupDone := startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
+	defer func() {
+		cleanupCancel()
+		<-cleanupDone
+		if err := openCodeHost.Close(ctx); err != nil {
+			logger.Error(ctx, "Failed to stop OpenCode host", tag.Error(err))
+		}
+	}()
+
 	// Initialize all services using the signal-aware context
 	scheduler, err := newScheduler(serviceCtx, schedulerDeps)
 	if err != nil {
@@ -150,12 +167,13 @@ func runStartAll(ctx *Context, _ []string) error {
 	}
 	// Disable health server when running from start-all
 	scheduler.DisableHealthServer()
+	scheduler.SetOpenCodeHost(openCodeHost)
 
 	// Initialize resource monitoring service
 	resourceService := resource.NewService(ctx.Config)
 
 	// Use serviceCtx so auth initialization can respond to termination signals
-	server, err := newServer(serviceCtx, resourceService, stores)
+	server, err := newServer(serviceCtx, resourceService, stores, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}

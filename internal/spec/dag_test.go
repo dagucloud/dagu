@@ -500,9 +500,9 @@ func TestBuildType(t *testing.T) {
 			expected: ir.TypeChain,
 		},
 		{
-			name:     "ControllerType",
-			input:    "controller",
-			expected: ir.TypeController,
+			name:     "AgentType",
+			input:    "agent",
+			expected: ir.TypeAgent,
 		},
 		{
 			name:    "InvalidType",
@@ -539,7 +539,7 @@ func TestBuildName(t *testing.T) {
 		{
 			name:     "FromDAGName",
 			dag:      &dag{Name: "  my-dag  "},
-			ctx:      testBuildContext(),
+			ctx:      buildContext{opts: buildOpts{DefaultName: "default-name"}},
 			expected: "my-dag",
 		},
 		{
@@ -551,6 +551,12 @@ func TestBuildName(t *testing.T) {
 				index: 0,
 			},
 			expected: "override-name",
+		},
+		{
+			name:     "FromDefaultName",
+			dag:      &dag{},
+			ctx:      buildContext{file: "/test/target.yaml", opts: buildOpts{DefaultName: "entry-name"}},
+			expected: "entry-name",
 		},
 		{
 			name:     "FallbackToFilenameForIndex0",

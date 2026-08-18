@@ -20,17 +20,13 @@ import (
 func newViewStore(t *testing.T) *store.ViewStore {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("views")
-	s, err := store.NewViewStore(col)
-	require.NoError(t, err)
-	return s
+	return store.NewViewStore(col)
 }
 
 func newViewStoreWithCollection(t *testing.T) (*store.ViewStore, persis.Collection) {
 	t.Helper()
 	col := testutil.NewMemoryBackend().Collection("views")
-	s, err := store.NewViewStore(col)
-	require.NoError(t, err)
-	return s, col
+	return store.NewViewStore(col), col
 }
 
 func newView(id string, createdAt time.Time) *view.View {

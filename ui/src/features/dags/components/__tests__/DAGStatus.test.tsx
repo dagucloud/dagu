@@ -12,6 +12,7 @@ import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  AgentSessionState,
   components,
   NodeStatus,
   NodeStatusLabel,
@@ -209,6 +210,36 @@ function waitingHumanTaskRun(
       },
     ],
   } as components['schemas']['DAGRunDetails'];
+}
+
+function agentSessionRun(): components['schemas']['DAGRunDetails'] {
+  return {
+    ...dagRun,
+    status: Status.Running,
+    statusLabel: StatusLabel.running,
+    nodes: [
+      {
+        step: { name: 'analyze' },
+        status: NodeStatus.Success,
+        statusLabel: NodeStatusLabel.succeeded,
+        agentSession: {
+          provider: 'opencode',
+          state: AgentSessionState.succeeded,
+          events: [],
+        },
+      },
+      {
+        step: { name: 'implement' },
+        status: NodeStatus.Running,
+        statusLabel: NodeStatusLabel.running,
+        agentSession: {
+          provider: 'opencode',
+          state: AgentSessionState.running,
+          events: [],
+        },
+      },
+    ],
+  } as unknown as components['schemas']['DAGRunDetails'];
 }
 
 function dagStatusView(
@@ -592,6 +623,51 @@ describe('DAGStatus', () => {
       screen.queryByRole('button', { name: 'Mark failed' })
     ).not.toBeInTheDocument();
     expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the selected agent conversation when switching status tabs', () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+      POST: vi.fn(),
+    } as unknown as ReturnType<typeof useClient>);
+    render(dagStatusView(agentSessionRun()));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+    const analyzeTab = screen.getByRole('tab', { name: /analyze/ });
+    fireEvent.click(analyzeTab);
+    expect(analyzeTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+
+    expect(screen.getByRole('tab', { name: /analyze/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  it('resets the selected agent conversation when the DAG run changes', () => {
+    vi.mocked(useClient).mockReturnValue({
+      PATCH: patchMock,
+      POST: vi.fn(),
+    } as unknown as ReturnType<typeof useClient>);
+    const { rerender } = render(dagStatusView(agentSessionRun()));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+    fireEvent.click(screen.getByRole('tab', { name: /analyze/ }));
+
+    rerender(
+      dagStatusView({
+        ...agentSessionRun(),
+        dagRunId: 'run-2',
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+
+    expect(screen.getByRole('tab', { name: /implement/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
   });
 
   it('disables graph status mutation while waiting for approval', () => {

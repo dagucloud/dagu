@@ -96,6 +96,12 @@ type DAGRunRepositoryOptions struct {
 	LatestStatusToday bool
 	Location          *time.Location
 	Now               func() time.Time
+	RemovalEnqueuer   DAGRunRemovalEnqueuer
+}
+
+// DAGRunRemovalEnqueuer durably records resources before their DAG-run history is removed.
+type DAGRunRemovalEnqueuer interface {
+	EnqueueDAGRunRemoval(ctx context.Context, root ir.DAGRunRef, resources []ir.AgentSessionResource) error
 }
 
 // DAGRunCreateAttemptOptions configures creation of a run attempt.

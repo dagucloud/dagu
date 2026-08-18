@@ -50,8 +50,8 @@ The root `type:` controls how the workflow executes:
   parallel.
 - `graph` is the default when `type:` is omitted.
 - `chain` runs steps in order.
-- `controller` turns `steps:` into a catalog of actions and lets the configured
-  LLM choose which one runs next until every entry in `tasks:` is complete. It
+- `agent` creates an Agent DAG: `steps:` becomes a catalog of actions and the configured
+  LLM chooses which one runs next until every entry in `tasks:` is complete. It
   requires `llm:` and `tasks:`, and forbids `depends:`.
 
 Do not confuse root `type:` with legacy step-level `type:`. Step-level
@@ -370,9 +370,8 @@ steps:
 ```
 
 Prefer `action: harness.run` for new workflows. Compatibility note: a
-top-level `harness:` config still causes steps without an explicit executor type
-to infer the harness executor. Do not mix top-level `harness:` with ordinary
-shell `run:` steps unless prompt inference is intended.
+top-level `harness:` config supplies defaults only to explicit harness steps. It
+does not change ordinary `run:`, `exec:`, or `script:` steps into harness steps.
 
 ## Reusable Custom Actions
 

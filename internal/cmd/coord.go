@@ -214,6 +214,7 @@ func newCoordinator(
 		ActiveDistributedRunStore: persistence.ActiveDistributedRunStore,
 		DAGRepository:             persistence.DAGRepository,
 		SecretStore:               secretStore,
+		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
 	})

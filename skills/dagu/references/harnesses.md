@@ -1,18 +1,32 @@
 # External CLI Harnesses
 
-Use `action: harness.run` to invoke external coding-agent CLIs from DAG steps. Dagu selects and invokes the configured CLI; the CLI itself must be installed on the host or available in the selected container.
+Use `action: harness.run` to invoke external coding agents from DAG steps. Dagu selects the configured provider; its executable must be installed on the host or available in the selected container.
 
 ## Supported Providers
 
-| Provider | Binary | Invocation |
-|----------|---------|------------|
-| `claude` | `claude` | `claude -p "<prompt>" [flags]` |
-| `codex` | `codex` | `codex exec "<prompt>" [flags]` |
-| `copilot` | `copilot` | `copilot -p "<prompt>" [flags]` |
-| `opencode` | `opencode` | `opencode run "<prompt>" [flags]` |
-| `pi` | `pi` | `pi -p "<prompt>" [flags]` |
+| Provider | Binary | Invocation | Supplementary input |
+|----------|--------|------------|---------------------|
+| `aider` | `aider` | `aider --message "<prompt>" [flags]` | Folded into the prompt |
+| `amp` | `amp` | `amp -x "<prompt>" [flags]` | Piped to stdin |
+| `claude` | `claude` | `claude -p "<prompt>" [flags]` | Piped to stdin |
+| `cline` | `cline` | `cline [flags] "<prompt>"` | Piped to stdin |
+| `codex` | `codex` | `codex exec "<prompt>" [flags]` | Piped to stdin |
+| `copilot` | `copilot` | `copilot -p "<prompt>" [flags]` | Piped to stdin |
+| `cursor` | `cursor-agent` | `cursor-agent -p "<prompt>" [flags]` | Folded into the prompt |
+| `deepseek` | `dsh` | `dsh --profile headless [flags] "<prompt>"` | Folded into the prompt |
+| `droid` | `droid` | `droid exec "<prompt>" [flags]` | Folded into the prompt |
+| `gemini` | `gemini` | `gemini -p "<prompt>" [flags]` | Piped to stdin |
+| `goose` | `goose` | `goose run --text "<prompt>" [flags]` | Folded into the prompt |
+| `kiro` | `kiro-cli` | `kiro-cli chat --no-interactive "<prompt>" [flags]` | Piped to stdin |
+| `opencode` | `opencode` | Managed session or `opencode run "<prompt>" [flags]` | Piped to stdin on the CLI path |
+| `pi` | `pi` | `pi -p "<prompt>" [flags]` | Piped to stdin |
+| `qwen` | `qwen` | `qwen -p "<prompt>" [flags]` | Piped to stdin |
 
 Codex defaults to `skip_git_repo_check: true`, so its default invocation includes `--skip-git-repo-check`. Set `skip_git_repo_check: false` or `skip-git-repo-check: false` to omit it.
+
+Cursor defaults to `output_format: text`, and Goose defaults to `quiet: true`. Explicit values in `with` override these defaults.
+
+The `deepseek` adapter targets the official DeepSeek Harness `dsh` CLI and its headless profile. It does not select DeepSeek as the model backend for another harness.
 
 Claude's `bare` flag skips keychain reads among other things, so a subscription login is invisible to the step and the run fails with `Not logged in`. Set it only when the credential comes from `ANTHROPIC_API_KEY` in the step environment.
 
@@ -21,12 +35,39 @@ For host subprocess runs, built-in provider adapters resolve binaries through `P
 ## Feature Reference
 
 - `with.prompt` is required and is passed to the selected provider according to its built-in adapter or custom harness definition. Multiline prompt text is preserved.
-- `with.stdin` is optional supplementary stdin for host subprocess runs. Containerized harness runs reject stdin.
-- Built-in provider adapters are `claude`, `codex`, `copilot`, `opencode`, and `pi`. Non-reserved `with` keys become CLI flags.
-- Custom providers must be declared under top-level `harnesses:`. Custom names cannot collide with built-in provider names.
+- `with.stdin` is optional supplementary input for host subprocess runs. Each built-in adapter either pipes it to stdin or folds it into the prompt as shown above. Containerized harness runs reject it.
+- Built-in provider adapters are `aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kiro`, `opencode`, `pi`, and `qwen`. Non-reserved `with` keys become CLI flags.
+- Custom providers must be declared under top-level `harnesses:`. A non-null custom definition shadows a built-in provider with the same name; deleting the custom definition exposes the built-in again.
 - `fallback` is an ordered list of provider configs. Dagu tries the next config only when the previous attempt fails and the run context is still active. Fallback configs cannot contain another `fallback`.
 - `provider` may use value references only if they resolve to a concrete provider string before executor creation. If `${...}` remains unresolved at runtime, the harness fails with an unresolved provider template error.
 - `provider` and `fallback` are harness control keys. They are not passed as CLI flags.
+
+### Managed OpenCode Sessions
+
+Built-in `provider: opencode` steps use a managed OpenCode server session by default when they run from a standalone Dagu server, from `dagu start-all`, or on a distributed worker. The run page shows the agent timeline and lets an operator answer permission requests and questions. Each managed step has its own conversation by default; runs with multiple managed steps provide a step selector in the Agent tab. A waiting answer suspends the step durably; Dagu resumes the same OpenCode session on the host that owns it. The final assistant text becomes step stdout.
+
+Managed mode starts one process-local OpenCode server under the Dagu service identity. Install a compatible `opencode` executable for that service and authenticate it with `opencode auth login` (normally stored in `~/.local/share/opencode/auth.json`) or pass selected provider credentials through the service configuration:
+
+```yaml
+opencode:
+  executable: opencode
+  env_passthrough:
+    - OPENAI_API_KEY
+```
+
+The equivalent environment variables are `DAGU_OPENCODE_EXECUTABLE` and `DAGU_OPENCODE_ENV_PASSTHROUGH`. A DAG-level `tools:` or `secrets:` declaration affects step subprocesses and supplies only the CLI integration, not the long-lived managed server.
+
+Managed mode forces OpenCode sharing off and does not support `share`; explicit sharing uses the CLI integration and may publish the conversation at a public URL.
+
+Managed options are `agent`, `model`, `variant`, `session`, `fork`, `title`, `file`, `command`, and `format: default`. Set `managed: false` to force the one-shot CLI. Options outside that set, `share`, non-default formats, containers, standalone scheduler launches, embedded-engine runs, and direct Dagu CLI execution use the CLI integration. Set `managed: true` to require managed mode and fail clearly when the current execution topology or provider capabilities cannot support it. Automatic mode may fall back only before a managed session is created.
+
+“Allow for this Dagu session” applies only provider-proposed wildcard patterns to the current Dagu session generation; Dagu never grants OpenCode's process-wide `always` permission. Dagu-created and forked sessions are retained until the DAG run is cleaned up, which also removes their provider resources. Sessions supplied with `session:` remain externally owned and are retained.
+
+If the owning worker or OpenCode server disappears, the step remains waiting and the run page offers a clean-session restart. A clean restart discards the conversation and pending interaction, then submits the original prompt to a new session. A retry after a terminal session error also submits the original prompt in a new session generation. Previous Dagu-owned sessions remain available until DAG-run cleanup, and files already changed in the shared workspace are not reverted.
+
+OpenCode persists managed conversations in the Dagu service user's OpenCode data directory; run `opencode debug paths` as that user to locate it. Dagu stores the session reference and UI timeline with the DAG run. If OpenCode's session data is lost, Dagu remains running and marks the affected step unavailable. Use **Start clean session** to create a new conversation and submit the original prompt again.
+
+The managed server is a shared service-identity boundary for trusted workflows. Use separate Dagu workers or containerized CLI execution when workflows require isolation from one another. Managed compatibility is capability-checked at startup; OpenCode v1.18.11 is the currently tested release.
 
 ## How `with` Works
 
@@ -44,7 +85,7 @@ For built-in provider adapters and custom providers, non-reserved `with` keys ar
 - Arrays repeat the flag once per item
 - Built-in provider adapters also normalize `snake_case` keys to kebab-case flags, so `max_turns` becomes `--max-turns`
 
-Reserved keys are `prompt`, `stdin`, `provider`, and `fallback`.
+Reserved keys are `prompt`, `stdin`, `provider`, `fallback`, and `managed`.
 
 ## Custom Harness Registry
 
@@ -52,9 +93,8 @@ Define reusable custom harness adapters once at the DAG level:
 
 ```yaml
 harnesses:
-  gemini:
+  gemini-custom:
     binary: gemini
-    prefix_args: ["run"]
     prompt_mode: flag
     prompt_flag: --prompt
     option_flags:
@@ -65,7 +105,7 @@ steps:
     action: harness.run
     with:
       prompt: "Review the current branch"
-      provider: gemini
+      provider: gemini-custom
       model: gemini-2.5-pro
 ```
 
@@ -188,23 +228,37 @@ Container rules:
 - Provider flags still belong under `with:`. For example, Codex `sandbox: workspace-write` configures Codex inside the outer container boundary.
 - Docker or Podman is selected by the Dagu service process. This is not configured in the DAG YAML.
 
-## Pattern 1: Single Harness Step
+## Pattern 1: Checkout a Repository and Run a Harness
 
 ```yaml
-params:
-  - PROMPT: "Explain the main function in this project"
+name: review-repository
+type: graph
 
-harness:
-  provider: claude
-  model: sonnet
+params:
+  - REPOSITORY: https://github.com/dagucloud/dagu.git
+  - REF: main
+  - PROMPT: "Review this repository and identify the highest-impact improvement."
 
 steps:
-  - id: run_cli
+  - id: checkout
+    action: git.checkout
+    with:
+      repository: "${params.REPOSITORY}"
+      ref: "${params.REF}"
+      path: "${context.paths.work_dir}/repo"
+
+  - id: review
+    depends: [checkout]
+    working_dir: "${context.paths.work_dir}/repo"
     action: harness.run
     with:
+      provider: opencode
+      model: openrouter/deepseek/deepseek-v4-flash
       prompt: "${params.PROMPT}"
-    output: RESULT
+    timeout_sec: 600
 ```
+
+`git.checkout` clones the repository when the target is absent and refreshes an existing checkout otherwise. The per-run work directory gives concurrent DAG runs separate checkouts, keeps the workspace available for retries, and removes it when the DAG run is cleaned up.
 
 ## Pattern 2: Multiple Harness Steps
 
@@ -256,7 +310,7 @@ steps:
     output: REFINED
 ```
 
-`with.prompt` is the prompt. For host subprocess runs, built-in provider adapters and custom `arg`/`flag` harnesses receive `with.stdin` on stdin as supplementary context. For host subprocess custom `stdin` harnesses, stdin receives the prompt, then a blank line, then `with.stdin` when both are present.
+`with.prompt` is the prompt. For host subprocess runs, built-in adapters handle `with.stdin` according to the provider table. Custom `arg`/`flag` harnesses receive it on stdin. For custom `stdin` harnesses, stdin receives the prompt, then a blank line, then `with.stdin` when both are present.
 
 ## Pattern 3: Parameterized
 
@@ -339,7 +393,7 @@ steps:
     with:
       prompt: "Refactor the database layer"
       provider: opencode
-      format: json
+      model: openrouter/deepseek/deepseek-v4-flash
     timeout_sec: 300
 ```
 
@@ -354,6 +408,18 @@ steps:
       provider: pi
       thinking: high
       tools: read,bash
+    timeout_sec: 300
+```
+
+### DeepSeek Harness
+
+```yaml
+steps:
+  - id: task
+    action: harness.run
+    with:
+      prompt: "Review the current branch and fix the failing tests"
+      provider: deepseek
     timeout_sec: 300
 ```
 

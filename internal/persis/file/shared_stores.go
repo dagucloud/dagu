@@ -14,7 +14,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/notification"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -22,7 +25,7 @@ import (
 )
 
 // NewSecretStore wires the encrypted file-backed secret store from config paths.
-func NewSecretStore(ctx context.Context, cfg *config.Config) secret.Store {
+func NewSecretStore(ctx context.Context, cfg *config.Config, col persis.Collection) secret.Store {
 	if cfg == nil || cfg.Paths.DataDir == "" {
 		return nil
 	}
@@ -30,9 +33,7 @@ func NewSecretStore(ctx context.Context, cfg *config.Config) secret.Store {
 		logger.Warn(ctx, "Failed to resolve encryption key for secret store", tag.Error(encErr))
 	} else if enc, encErr := crypto.NewEncryptor(encKey); encErr != nil {
 		logger.Warn(ctx, "Failed to create encryptor for secret store", tag.Error(encErr))
-	} else if secretStore, storeErr := store.NewSecretStore(
-		NewCollection(filepath.Join(cfg.Paths.DataDir, "secrets"), WithIndentedJSON()), enc,
-	); storeErr != nil {
+	} else if secretStore, storeErr := store.NewSecretStore(col, enc); storeErr != nil {
 		logger.Warn(ctx, "Failed to create secret store", tag.Error(storeErr))
 	} else {
 		return secretStore
@@ -41,13 +42,11 @@ func NewSecretStore(ctx context.Context, cfg *config.Config) secret.Store {
 }
 
 // NewProfileStore wires the file-backed runtime profile store from config paths.
-func NewProfileStore(ctx context.Context, cfg *config.Config) profile.Store {
+func NewProfileStore(ctx context.Context, cfg *config.Config, col persis.Collection) profile.Store {
 	if cfg == nil || cfg.Paths.DataDir == "" {
 		return nil
 	}
-	profileStore, err := store.NewProfileStore(
-		NewCollection(filepath.Join(cfg.Paths.DataDir, "profiles"), WithIndentedJSON()),
-	)
+	profileStore, err := store.NewProfileStore(col)
 	if err != nil {
 		logger.Warn(ctx, "Failed to create profile store", tag.Error(err))
 		return nil
@@ -55,37 +54,84 @@ func NewProfileStore(ctx context.Context, cfg *config.Config) profile.Store {
 	return profileStore
 }
 
-func NewDAGSettingsStore(cfg *config.Config) (dagsettings.Store, error) {
+func NewDAGSettingsStore(cfg *config.Config, col persis.Collection) (dagsettings.Store, error) {
 	if cfg == nil || cfg.Paths.DataDir == "" {
 		return nil, fmt.Errorf("DAG settings store: DataDir cannot be empty")
 	}
-	dir := filepath.Join(cfg.Paths.DataDir, "dag-settings")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("DAG settings store: create directory %s: %w", dir, err)
+	if err := createCollectionDirs(col, "DAG settings store", 0o750, ""); err != nil {
+		return nil, err
 	}
-	return store.NewDAGSettingsStore(NewCollection(dir, WithIndentedJSON()))
+	return store.NewDAGSettingsStore(col)
 }
 
-func NewLicenseStore(cfg *config.Config) license.ActivationStore {
-	dir := LicenseDir(cfg)
-	// Pre-create at 0o700 so the directory ends up with the stricter perm.
-	// Collection.Put falls back to MkdirAll(0o750) when the dir is missing,
-	// which would otherwise relax the bit on fresh installs.
-	_ = os.MkdirAll(dir, 0o700)
-	return store.NewLicenseStore(NewCollection(dir, WithIndentedJSON()))
+// NewIncidentStore creates an incident store backed by col.
+func NewIncidentStore(col persis.Collection, enc *crypto.Encryptor) (incident.Store, error) {
+	if err := createCollectionDirs(
+		col,
+		"incident store",
+		0o750,
+		"",
+		"providers",
+		"policies/workspaces",
+		"policies/dags",
+		"states",
+	); err != nil {
+		return nil, err
+	}
+	return store.NewIncidentStore(col, enc)
+}
+
+// NewNotificationStore creates a notification store backed by col.
+func NewNotificationStore(col persis.Collection, enc *crypto.Encryptor) (notification.Store, error) {
+	if err := createCollectionDirs(
+		col,
+		"notification store",
+		0o750,
+		"",
+		"dags",
+		"channels",
+		"routes/workspaces",
+	); err != nil {
+		return nil, err
+	}
+	return store.NewNotificationStore(col, enc)
+}
+
+func NewLicenseStore(ctx context.Context, col persis.Collection) license.ActivationStore {
+	// License data requires an owner-only collection directory.
+	if err := createCollectionDirs(col, "license store", 0o700, ""); err != nil {
+		logger.Warn(ctx, "Failed to create license store directory", tag.Error(err))
+	}
+	return store.NewLicenseStore(col)
 }
 
 func LicenseDir(cfg *config.Config) string {
 	return filepath.Join(cfg.Paths.DataDir, "license")
 }
 
-func NewUpgradeCheckStore(cfg *config.Config) (upgrade.CacheStore, error) {
+func NewUpgradeCheckStore(cfg *config.Config, col persis.Collection) (upgrade.CacheStore, error) {
 	if cfg.Paths.DataDir == "" {
 		return nil, fmt.Errorf("upgrade check store: data directory cannot be empty")
 	}
-	dir := filepath.Join(cfg.Paths.DataDir, "upgrade")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("upgrade check store: create directory %s: %w", dir, err)
+	if err := createCollectionDirs(col, "upgrade check store", 0o750, ""); err != nil {
+		return nil, err
 	}
-	return store.NewUpgradeCheckStore(NewCollection(dir, WithIndentedJSON())), nil
+	return store.NewUpgradeCheckStore(col), nil
+}
+
+func createCollectionDirs(col persis.Collection, storeName string, perm os.FileMode, relativePaths ...string) error {
+	fileCol, ok := col.(*Collection)
+	if !ok {
+		return nil
+	}
+	if fileCol.dir == "" {
+		return fmt.Errorf("%s: directory cannot be empty", storeName)
+	}
+	for _, relativePath := range relativePaths {
+		path := filepath.Join(fileCol.dir, filepath.FromSlash(relativePath))
+		if err := os.MkdirAll(path, perm); err != nil {
+			return fmt.Errorf("%s: create directory %s: %w", storeName, path, err)
+		}
+	}
+	return nil
 }

@@ -50,7 +50,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.26.5"
+  GO_VERSION: "1.26.6"
   NODE_VERSION: "20"
 
 jobs:
@@ -263,6 +263,22 @@ jobs:
       - name: Build
         run: |
           make bin
+
+      - name: Install tested OpenCode release
+        if: ${{ matrix.suite == 'unit' }}
+        run: |
+          npm ci --ignore-scripts --prefix .github/opencode
+          mkdir -p .github/opencode/bin
+          cp .github/opencode/node_modules/opencode-linux-x64-baseline/bin/opencode .github/opencode/bin/opencode
+          chmod 0755 .github/opencode/bin/opencode
+          echo "${GITHUB_WORKSPACE}/.github/opencode/bin" >> "${GITHUB_PATH}"
+
+      - name: Test managed OpenCode capabilities
+        if: ${{ matrix.suite == 'unit' }}
+        env:
+          DAGU_TEST_OPENCODE_EXECUTABLE: opencode
+          DAGU_TEST_OPENCODE_VERSION: 1.18.11
+        run: go test ./internal/opencodehost -run '^TestRealOpenCodeCapabilities$' -count=1
 
       - name: Test
         run: |

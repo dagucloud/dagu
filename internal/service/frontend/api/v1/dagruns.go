@@ -37,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -335,7 +336,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		}
 	}
 
-	if err := a.enqueueDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), ir.TriggerTypeManual, "", profileName, valueOf(request.Body.NoReuse)); err != nil {
+	if err := a.enqueueDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), ir.TriggerTypeManual, "", profileName, valueOf(request.Body.NoReuse), ""); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
 	}
 
@@ -3001,6 +3002,9 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 			executor.WithPreviousStatus(prevStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig)),
 		}
+		if workerID := ir.RetryAgentOwnerWorkerID(prevStatus, stepName != ""); workerID != "" {
+			opts = append(opts, executor.WithTargetWorkerID(workerID))
+		}
 		if dag.SourceFile != "" {
 			opts = append(opts, executor.WithSourceFile(dag.SourceFile))
 		}
@@ -3050,6 +3054,7 @@ func (a *API) retryDAGRun(ctx context.Context, dagName, dagRunID, retryDagRunID,
 		RetryPath:    retryPath,
 		TriggerActor: triggerActorFromContext(ctx),
 	})
+	spec.Env = append(spec.Env, a.managedOpenCodeEnv(ctx, prepared)...)
 	if err := launcher.Start(ctx, spec); err != nil {
 		return retryDAGRunResult{}, fmt.Errorf("error retrying DAG: %w", err)
 	}
@@ -3489,7 +3494,7 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	}
 	var enqueueErr error
 	if opts.useCurrentDAGFile {
-		enqueueErr = a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", ir.TriggerTypeManual, "", profileName, status.NoReuse)
+		enqueueErr = a.enqueueDAGRun(ctx, dag, paramsToUse, newDagRunID, "", ir.TriggerTypeManual, "", profileName, status.NoReuse, status.DAGDefinitionID())
 	} else {
 		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse)
 	}
@@ -3859,16 +3864,7 @@ func (a *API) resumeDAGRun(ctx context.Context, ref ir.DAGRunRef, dagRunID strin
 		return fmt.Errorf("read status: %w", err)
 	}
 
-	prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, status)
-	if err != nil {
-		return fmt.Errorf("prepare DAG retry env: %w", err)
-	}
-
-	retrySpec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
-		DAGRunID:     dagRunID,
-		TriggerActor: status.TriggerActor,
-	})
-	return launcher.Start(ctx, retrySpec)
+	return a.resumeManagedAttempt(ctx, dag, status, dagRunID)
 }
 
 func (a *API) resumeSubDAGRun(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) error {
@@ -3887,19 +3883,73 @@ func (a *API) resumeSubDAGRun(ctx context.Context, rootRef ir.DAGRunRef, subDAGR
 		return fmt.Errorf("read sub-DAG status: %w", err)
 	}
 
-	prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, status)
-	if err != nil {
-		return fmt.Errorf("prepare sub-DAG retry env: %w", err)
+	return a.resumeManagedAttempt(ctx, dag, status, subDAGRunID)
+}
+
+func (a *API) resumeManagedAttempt(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, runID string) error {
+	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+		options := []executor.TaskOption{
+			executor.WithWorkerSelector(dag.WorkerSelector),
+			executor.WithPreviousStatus(status),
+			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig)),
+		}
+		if workerID := ir.RetryAgentOwnerWorkerID(status, false); workerID != "" {
+			options = append(options, executor.WithTargetWorkerID(workerID))
+		}
+		if dag.SourceFile != "" {
+			options = append(options, executor.WithSourceFile(dag.SourceFile))
+		}
+		if status.ProfileName != "" {
+			options = append(options, executor.WithProfileName(status.ProfileName))
+		}
+		if status.TriggerActor != "" {
+			options = append(options, executor.WithTriggerActor(status.TriggerActor))
+		}
+		if status.DefinitionID != "" {
+			options = append(options, executor.WithDefinitionID(status.DefinitionID))
+		}
+		if !status.Root.Zero() {
+			options = append(options, executor.WithRootDagRun(status.Root))
+		}
+		if !status.Parent.Zero() {
+			options = append(options, executor.WithParentDagRun(status.Parent))
+		}
+		if len(status.ParamsList) == 0 && status.Params != "" {
+			options = append(options, executor.WithTaskParams(status.Params))
+		}
+		task := executor.CreateTask(dag.Name, string(dag.YamlData), dispatch.DispatchOperationRetry, runID, options...)
+		if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
+			return fmt.Errorf("dispatch managed-agent resume: %w", err)
+		}
+		return nil
 	}
 
-	opts := launcher.RetryOptions{
-		DAGRunID:     subDAGRunID,
-		TriggerActor: status.TriggerActor,
+	prepared, err := a.prepareRetryDAGForSubprocess(ctx, dag, status)
+	if err != nil {
+		return fmt.Errorf("prepare DAG retry env: %w", err)
 	}
-	if !status.Root.Zero() && status.Root.ID != subDAGRunID {
+	opts := launcher.RetryOptions{DAGRunID: runID, TriggerActor: status.TriggerActor}
+	if !status.Root.Zero() && status.Root.ID != runID {
 		opts.Root = status.Root
 	}
-	return launcher.Start(ctx, a.subCmdBuilder.Retry(prepared, opts))
+	retrySpec := a.subCmdBuilder.Retry(prepared, opts)
+	retrySpec.Env = append(retrySpec.Env, a.managedOpenCodeEnv(ctx, prepared)...)
+	return launcher.Start(ctx, retrySpec)
+}
+
+func (a *API) managedOpenCodeEnv(ctx context.Context, dag *ir.DAG) []string {
+	if !opencodehost.DAGUsesManaged(dag) {
+		return nil
+	}
+	if a.openCodeHost == nil {
+		return opencodehost.UnavailableEnv(errors.New("managed OpenCode is not available in this server process"))
+	}
+	hostConfig, err := a.openCodeHost.Ensure()
+	if err != nil {
+		logger.Warn(ctx, "Managed OpenCode host is unavailable; the harness will apply its configured compatibility policy", tag.Error(err))
+		return opencodehost.UnavailableEnv(err)
+	}
+	return hostConfig.Env()
 }
 
 func (a *API) prepareRetryDAGForSubprocess(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) (*ir.DAG, error) {

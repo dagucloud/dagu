@@ -57,6 +57,19 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 	assert.Equal(t, "item-1", got.ParallelItem)
 }
 
+func TestDispatchTaskTargetWorkerRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	task := &dispatch.DispatchTask{TargetWorkerID: "worker-a"}
+	protoTask, err := convert.DispatchTaskToProto(task)
+	require.NoError(t, err)
+	assert.Equal(t, "worker-a", protoTask.TargetWorkerId)
+
+	got, err := convert.ProtoToDispatchTask(protoTask)
+	require.NoError(t, err)
+	assert.Equal(t, "worker-a", got.TargetWorkerID)
+}
+
 func TestDispatchTaskToProtoValidatesOwnerPort(t *testing.T) {
 	t.Parallel()
 

@@ -17,6 +17,14 @@ type DAGRunRepositoryOption func(*dagRunRepositoryOptions)
 type dagRunRepositoryOptions struct {
 	HistoryFileCache  *fileutil.Cache[*ir.DAGRunStatus]
 	LatestStatusToday bool
+	RemovalEnqueuer   persis.DAGRunRemovalEnqueuer
+}
+
+// WithDAGRunRemovalEnqueuer records provider resources before DAG-run removal.
+func WithDAGRunRemovalEnqueuer(enqueuer persis.DAGRunRemovalEnqueuer) DAGRunRepositoryOption {
+	return func(o *dagRunRepositoryOptions) {
+		o.RemovalEnqueuer = enqueuer
+	}
 }
 
 // WithDAGRunHistoryFileCache sets the cache used for reading DAG-run history files.
@@ -55,5 +63,6 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 	return persis.NewDAGRunRepository(store, workDirs, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
 		Location:          cfg.Core.Location,
+		RemovalEnqueuer:   options.RemovalEnqueuer,
 	})
 }

@@ -27,6 +27,7 @@ type Context struct {
 	RootDAGRun           ir.DAGRunRef
 	RetryPath            dagrun.RetryPath
 	AttemptID            string
+	WorkerID             string
 	TriggerType          ir.TriggerType
 	TriggerActor         string
 	RunStartedAt         string
@@ -143,6 +144,13 @@ func WithRetryPath(path dagrun.RetryPath) ContextOption {
 func WithAttemptID(attemptID string) ContextOption {
 	return func(o *contextOptions) {
 		o.AttemptID = attemptID
+	}
+}
+
+// WithWorkerID records the execution host that owns the run.
+func WithWorkerID(workerID string) ContextOption {
+	return func(o *contextOptions) {
+		o.WorkerID = workerID
 	}
 }
 

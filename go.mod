@@ -1,6 +1,6 @@
 module github.com/dagucloud/dagu/v2
 
-go 1.26.5
+go 1.26.6
 
 require (
 	cloud.google.com/go/secretmanager v1.20.0

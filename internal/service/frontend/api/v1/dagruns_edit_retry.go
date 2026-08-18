@@ -599,6 +599,7 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		TriggerActor:  seedStatus.TriggerActor,
 		QueueDispatch: true,
 	})
+	retrySpec.Env = append(retrySpec.Env, a.managedOpenCodeEnv(ctx, prepared)...)
 	if err := launcher.Start(ctx, retrySpec); err != nil {
 		return false, fmt.Errorf("error starting edit retry DAG: %w", err)
 	}
@@ -1008,6 +1009,7 @@ func skippedEditRetryNodeState(source *ir.Node) runtime.NodeState {
 		state.OutputsValue = ptrOf(*source.OutputsValue)
 	}
 	state.ChatMessages = append([]ir.LLMMessage(nil), source.ChatMessages...)
+	state.AgentSession = ir.CloneAgentSession(source.AgentSession)
 	state.ToolDefinitions = append([]ir.ToolDefinition(nil), source.ToolDefinitions...)
 	state.HumanTaskInput = append(state.HumanTaskInput, source.HumanTaskInput...)
 	if source.StepOutputsValue != nil {

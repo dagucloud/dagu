@@ -312,10 +312,10 @@ type llmConfig struct {
 	Tools []string `yaml:"tools,omitempty"`
 	// MaxToolIterations limits tool calling rounds (default: 10).
 	MaxToolIterations *int `yaml:"max_tool_iterations,omitempty"`
-	// MaxContextTokens activates controller observation aging at this prompt size.
+	// MaxContextTokens activates agent observation aging at this prompt size.
 	// Zero disables proactive aging.
 	MaxContextTokens *int `yaml:"max_context_tokens,omitempty"`
-	// ObservationMaxBytes limits one controller observation in bytes. Zero disables
+	// ObservationMaxBytes limits one agent observation in bytes. Zero disables
 	// the limit.
 	ObservationMaxBytes *int `yaml:"observation_max_bytes,omitempty"`
 	// ObservationKeepRecent controls how many recent observations remain complete.
@@ -2105,7 +2105,7 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *ir.Step) error {
 		mergeRedisConfig(ctx.dag.Redis, result.ExecutorConfig.Config)
 	}
 	if result.ExecutorConfig.Type == "harness" && ctx.dag != nil && ctx.dag.Harness != nil {
-		result.ExecutorConfig.Config = mergeHarnessConfig(ctx.dag.Harness, stepConfig)
+		result.ExecutorConfig.Config = mergeHarnessConfig(ctx.dag.Harness, ctx.dag.Harnesses, stepConfig)
 	}
 	if isKubernetesExecutorType(result.ExecutorConfig.Type) && ctx.dag != nil && ctx.dag.Kubernetes != nil {
 		result.ExecutorConfig.Config = mergeKubernetesExecutorConfig(ctx.dag.Kubernetes, result.ExecutorConfig.Config)
@@ -2180,12 +2180,12 @@ func mergeRedisConfig(dagRedis *ir.RedisConfig, stepConfig map[string]any) {
 	setIfMissing("max_retries", dagRedis.MaxRetries)
 }
 
-func mergeHarnessConfig(dagHarness *ir.HarnessConfig, stepConfig map[string]any) map[string]any {
+func mergeHarnessConfig(dagHarness *ir.HarnessConfig, defs ir.HarnessDefinitions, stepConfig map[string]any) map[string]any {
 	effectiveProvider := harnessProviderName(stepConfig)
 	if effectiveProvider == "" && dagHarness != nil {
 		effectiveProvider = harnessProviderName(dagHarness.Config)
 	}
-	if ir.IsBuiltinCLIHarnessProvider(effectiveProvider) {
+	if ir.IsEffectiveBuiltinCLIHarnessProvider(effectiveProvider, defs) {
 		stepConfig = ir.NormalizeBuiltinHarnessFlagKeys(stepConfig)
 	}
 
@@ -2199,7 +2199,7 @@ func mergeHarnessConfig(dagHarness *ir.HarnessConfig, stepConfig map[string]any)
 	}
 
 	dagConfig := dagHarness.Config
-	if ir.IsBuiltinCLIHarnessProvider(effectiveProvider) {
+	if ir.IsEffectiveBuiltinCLIHarnessProvider(effectiveProvider, defs) {
 		dagConfig = ir.NormalizeBuiltinHarnessFlagKeys(dagConfig)
 	}
 
@@ -2610,7 +2610,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
-	if err := validateControllerLLMLimits(cfg, false); err != nil {
+	if err := validateAgentLLMLimits(cfg, false); err != nil {
 		return err
 	}
 
@@ -2647,7 +2647,7 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 	return nil
 }
 
-func validateControllerLLMLimits(cfg *llmConfig, controllerRoot bool) error {
+func validateAgentLLMLimits(cfg *llmConfig, agentRoot bool) error {
 	limits := []struct {
 		path  string
 		value *int
@@ -2660,9 +2660,9 @@ func validateControllerLLMLimits(cfg *llmConfig, controllerRoot bool) error {
 		if limit.value == nil {
 			continue
 		}
-		if !controllerRoot {
+		if !agentRoot {
 			return ir.NewValidationError(limit.path, *limit.value,
-				fmt.Errorf("field is only valid in a controller DAG's root llm configuration"))
+				fmt.Errorf("field is only valid in an agent DAG's root llm configuration"))
 		}
 		if *limit.value < 0 {
 			return ir.NewValidationError(limit.path, *limit.value,

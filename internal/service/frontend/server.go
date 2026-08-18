@@ -826,6 +826,10 @@ func skipPathsMiddleware(mw func(http.Handler) http.Handler, skip map[string]str
 func (srv *Server) Serve(ctx context.Context) error {
 	r := chi.NewMux()
 	apiV1BasePath := srv.configureAPIPath(ctx)
+	ipAccessPolicy, err := newIPAccessPolicy(srv.config.Server.IPAccess)
+	if err != nil {
+		return fmt.Errorf("configure IP access: %w", err)
+	}
 	r.Use(auth.PreserveRawRemoteAddr)
 	r.Use(middleware.Compress(5))
 	if srv.config.Server.AccessLog != config.AccessLogNone {
@@ -858,6 +862,7 @@ func (srv *Server) Serve(ctx context.Context) error {
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeadersMiddleware(srv.config.Server.TLS != nil))
+	r.Use(ipAccessPolicy.middleware)
 	r.Use(corsPolicy{
 		allowedOrigins: srv.config.Server.CORSAllowedOrigins,
 		publicURL:      srv.config.Server.PublicURL,

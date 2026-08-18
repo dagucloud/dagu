@@ -358,6 +358,13 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 		BaseEnv:                baseEnv,
 		Peer:                   l.loadPeerConfig(def.Peer),
 	}
+	cfg.OpenCode = OpenCodeConfig{
+		Executable:     strings.TrimSpace(l.v.GetString("opencode.executable")),
+		EnvPassthrough: normalizeEnvEntries(parseStringList(l.v.Get("opencode.env_passthrough"))),
+	}
+	if cfg.OpenCode.Executable == "" {
+		cfg.OpenCode.Executable = "opencode"
+	}
 	cfg.DAGDiscovery = DAGDiscoveryConfig{
 		Recursive: l.v.GetBool("dag_discovery.recursive"),
 		Symlinks:  l.v.GetBool("dag_discovery.symlinks"),
@@ -1160,6 +1167,10 @@ func (l *ConfigLoader) loadServerDefaults(cfg *Config, def Definition) {
 	cfg.Server.BasePath = cleanServerBasePath(cfg.Server.BasePath)
 	cfg.Server.CheckUpdates = l.v.GetBool("check_updates")
 	cfg.Server.CORSAllowedOrigins = parseStringList(l.v.Get("cors_allowed_origins"))
+	cfg.Server.IPAccess = IPAccessConfig{
+		AllowedIPs:     parseStringList(l.v.Get("ip_access.allowed_ips")),
+		TrustedProxies: parseStringList(l.v.Get("ip_access.trusted_proxies")),
+	}
 	for _, origin := range cfg.Server.CORSAllowedOrigins {
 		if strings.TrimSpace(origin) != "*" {
 			continue
@@ -2052,6 +2063,8 @@ var envBindings = []envBinding{
 	{key: "headless", env: "HEADLESS"},
 	{key: "check_updates", env: "CHECK_UPDATES"},
 	{key: "cors_allowed_origins", env: "CORS_ALLOWED_ORIGINS"},
+	{key: "ip_access.allowed_ips", env: "IP_ACCESS_ALLOWED_IPS", requires: SectionServer},
+	{key: "ip_access.trusted_proxies", env: "IP_ACCESS_TRUSTED_PROXIES", requires: SectionServer},
 	{key: "latest_status_today", env: "LATEST_STATUS_TODAY"},
 	{key: "metrics", env: "SERVER_METRICS"},
 	{key: "cache", env: "CACHE"},
@@ -2076,6 +2089,8 @@ var envBindings = []envBinding{
 	{key: "dag_discovery.symlinks", env: "DAG_DISCOVERY_SYMLINKS"},
 	{key: "env_passthrough", env: "ENV_PASSTHROUGH"},
 	{key: "env_passthrough_prefixes", env: "ENV_PASSTHROUGH_PREFIXES"},
+	{key: "opencode.executable", env: "OPENCODE_EXECUTABLE"},
+	{key: "opencode.env_passthrough", env: "OPENCODE_ENV_PASSTHROUGH"},
 
 	// Secrets
 	{key: "secrets.vault.address", env: "SECRETS_VAULT_ADDRESS"},

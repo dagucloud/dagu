@@ -119,8 +119,10 @@ type buildOpts struct {
 	Parameters string
 	// ParametersList specifies the parameters to the DAG.
 	ParametersList []string
-	// Name of the ir.DAG if it's not defined in the spec
+	// Name overrides the entrypoint DAG name.
 	Name string
+	// DefaultName is used when the entrypoint manifest omits a name.
+	DefaultName string
 	// DAGsDir is the directory containing the ir.DAG files.
 	DAGsDir string
 	// DefaultWorkingDir is the default working directory for DAGs without explicit workingDir.

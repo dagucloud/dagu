@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/spf13/cobra"
 )
@@ -37,19 +38,10 @@ func licenseActivate() *cobra.Command {
 		}, nil, func(ctx *Context, args []string) error {
 			key := args[0]
 
-			pubKey, err := license.PublicKey()
+			mgr, err := newLicenseManager(ctx, key)
 			if err != nil {
-				return fmt.Errorf("failed to load license public key: %w", err)
+				return err
 			}
-
-			licenseDir := file.LicenseDir(ctx.Config)
-			store := file.NewLicenseStore(ctx.Config)
-
-			mgr := license.NewManager(license.ManagerConfig{
-				LicenseDir: licenseDir,
-				ConfigKey:  key,
-				CloudURL:   ctx.Config.License.CloudURL,
-			}, pubKey, store, slog.Default())
 
 			result, err := mgr.ActivateWithKey(ctx, key)
 			if err != nil {
@@ -75,19 +67,10 @@ func licenseDeactivate() *cobra.Command {
 			Use:   "deactivate",
 			Short: "Remove the local license activation",
 		}, nil, func(ctx *Context, _ []string) error {
-			pubKey, err := license.PublicKey()
+			mgr, err := newLicenseManager(ctx, ctx.Config.License.Key)
 			if err != nil {
-				return fmt.Errorf("failed to load license public key: %w", err)
+				return err
 			}
-
-			licenseDir := file.LicenseDir(ctx.Config)
-			store := file.NewLicenseStore(ctx.Config)
-
-			mgr := license.NewManager(license.ManagerConfig{
-				LicenseDir: licenseDir,
-				ConfigKey:  ctx.Config.License.Key,
-				CloudURL:   ctx.Config.License.CloudURL,
-			}, pubKey, store, slog.Default())
 
 			if err := mgr.Start(ctx); err != nil {
 				return err
@@ -110,19 +93,10 @@ func licenseCheck() *cobra.Command {
 			Use:   "check",
 			Short: "Display current license status",
 		}, nil, func(ctx *Context, _ []string) error {
-			pubKey, err := license.PublicKey()
+			mgr, err := newLicenseManager(ctx, ctx.Config.License.Key)
 			if err != nil {
-				return fmt.Errorf("failed to load license public key: %w", err)
+				return err
 			}
-
-			licenseDir := file.LicenseDir(ctx.Config)
-			store := file.NewLicenseStore(ctx.Config)
-
-			mgr := license.NewManager(license.ManagerConfig{
-				LicenseDir: licenseDir,
-				ConfigKey:  ctx.Config.License.Key,
-				CloudURL:   ctx.Config.License.CloudURL,
-			}, pubKey, store, slog.Default())
 
 			if err := mgr.Start(ctx); err != nil {
 				return err
@@ -152,4 +126,19 @@ func licenseCheck() *cobra.Command {
 			return nil
 		},
 	)
+}
+
+func newLicenseManager(ctx *Context, configKey string) (*license.Manager, error) {
+	pubKey, err := license.PublicKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load license public key: %w", err)
+	}
+
+	licenseDir := file.LicenseDir(ctx.Config)
+	store := file.NewLicenseStore(ctx, ctx.backend.Collection(persis.CollectionLicense))
+	return license.NewManager(license.ManagerConfig{
+		LicenseDir: licenseDir,
+		ConfigKey:  configKey,
+		CloudURL:   ctx.Config.License.CloudURL,
+	}, pubKey, store, slog.Default()), nil
 }

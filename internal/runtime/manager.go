@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -202,16 +203,19 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 				return err
 			}
 		}
-		addr := proc.DAGSocketAddr(dag, dagRunID)
-		if fileutil.FileExists(addr) {
-			// In case the socket exists, we try to send a stop request
+		for _, addr := range dagSocketCandidates(runRef, dag) {
+			if !fileutil.FileExists(addr) {
+				continue
+			}
 			client := sock.NewClient(addr)
-			if _, err := client.Request("POST", "/stop"); err == nil {
+			_, requestErr := client.Request("POST", "/stop")
+			if requestErr == nil {
 				logger.Info(ctx, "Successfully stopped DAG via socket")
 				return nil
 			}
-			logger.Debug(ctx, "Socket stop request failed, will use abort flag",
-				tag.Error(err))
+			logger.Debug(ctx, "Socket stop request failed",
+				tag.Addr(addr),
+				tag.Error(requestErr))
 		}
 	}
 
@@ -235,7 +239,8 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 // IsRunning checks if a dag-run is currently running. It prefers the live socket
 // status and falls back to a fresh proc heartbeat plus persisted running status.
 func (m *Manager) IsRunning(ctx context.Context, dag *ir.DAG, dagRunID string) bool {
-	st, _ := m.currentStatus(ctx, dag, dagRunID)
+	runRef := ir.NewDAGRunRef(dag.Name, dagRunID)
+	st, _ := m.currentStatus(ctx, runRef, dag)
 	if st != nil && st.DAGRunID == dagRunID && st.Status == ir.Running {
 		return true
 	}
@@ -243,7 +248,6 @@ func (m *Manager) IsRunning(ctx context.Context, dag *ir.DAG, dagRunID string) b
 		return false
 	}
 
-	runRef := ir.NewDAGRunRef(dag.Name, dagRunID)
 	if alive, err := m.procRepository.IsRunAlive(ctx, dag.ProcGroup(), runRef); err == nil && alive {
 		st, err := m.getPersistedOrCurrentStatus(ctx, dag, dagRunID)
 		if err != nil {
@@ -271,7 +275,7 @@ func (m *Manager) GetCurrentStatus(ctx context.Context, dag *ir.DAG, dagRunID st
 	if err == nil {
 		return status, nil
 	}
-	currentStatus, currentErr := m.currentStatus(ctx, dag, dagRunID)
+	currentStatus, currentErr := m.currentStatus(ctx, ir.NewDAGRunRef(dag.Name, dagRunID), dag)
 	if currentErr == nil {
 		return currentStatus, nil
 	}
@@ -363,20 +367,34 @@ func (m *Manager) FindSubDAGRunStatus(ctx context.Context, rootDAGRun ir.DAGRunR
 
 // currentStatus retrieves the current status of a running DAG by querying its socket.
 // This is a private method used internally by other status-related methods.
-func (*Manager) currentStatus(_ context.Context, dag *ir.DAG, dagRunID string) (*ir.DAGRunStatus, error) {
-	client := sock.NewClient(proc.DAGSocketAddr(dag, dagRunID))
-
-	// Check if the socket file exists
-	if !fileutil.FileExists(client.SocketAddr()) {
-		return nil, fmt.Errorf("socket file does not exist for dag-run ID %s", dagRunID)
+func (*Manager) currentStatus(_ context.Context, dagRun ir.DAGRunRef, dag *ir.DAG) (*ir.DAGRunStatus, error) {
+	for _, addr := range dagSocketCandidates(dagRun, dag) {
+		if !fileutil.FileExists(addr) {
+			continue
+		}
+		statusJSON, err := sock.NewClient(addr).Request("GET", "/status")
+		if err != nil {
+			if errors.Is(err, sock.ErrTransport) {
+				continue
+			}
+			return nil, fmt.Errorf("failed to get current status: %w", err)
+		}
+		return ir.StatusFromJSON(statusJSON)
 	}
+	return nil, fmt.Errorf("socket file does not exist for dag-run ID %s", dagRun.ID)
+}
 
-	statusJSON, err := client.Request("GET", "/status")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current status: %w", err)
+func dagSocketCandidates(dagRun ir.DAGRunRef, dag *ir.DAG) []string {
+	canonical := proc.DAGSocketAddr(dagRun)
+	addrs := []string{canonical}
+	if dag == nil || dag.Location == "" {
+		return addrs
 	}
-
-	return ir.StatusFromJSON(statusJSON)
+	legacy := sock.Addr(dag.Location, dagRun.ID)
+	if legacy != canonical {
+		addrs = append(addrs, legacy)
+	}
+	return addrs
 }
 
 func isLocalWorkerID(workerID string) bool {
@@ -402,7 +420,7 @@ func (m *Manager) resolveRunningStatus(
 	}
 
 	if isRoot {
-		currentStatus, err := m.currentStatus(ctx, dag, status.DAGRunID)
+		currentStatus, err := m.currentStatus(ctx, status.DAGRun(), dag)
 		if err == nil {
 			return currentStatus
 		}
@@ -495,8 +513,15 @@ func (m *Manager) repairStaleLocalRunIfDead(
 	if m.procRepository == nil {
 		return st, nil
 	}
+	procGroup := st.ProcGroup
+	if procGroup == "" && dag != nil {
+		procGroup = dag.ProcGroup()
+	}
+	if procGroup == "" {
+		return st, nil
+	}
 
-	alive, err := m.procRepository.IsAttemptAlive(ctx, dag.ProcGroup(), st.DAGRun(), st.AttemptID)
+	alive, err := m.procRepository.IsAttemptAlive(ctx, procGroup, st.DAGRun(), st.AttemptID)
 	if err != nil {
 		return nil, fmt.Errorf("check alive: %w", err)
 	}
@@ -504,7 +529,7 @@ func (m *Manager) repairStaleLocalRunIfDead(
 		return st, nil
 	}
 
-	runAlive, err := m.procRepository.IsRunAlive(ctx, dag.ProcGroup(), st.DAGRun())
+	runAlive, err := m.procRepository.IsRunAlive(ctx, procGroup, st.DAGRun())
 	if err != nil {
 		return nil, fmt.Errorf("check run alive: %w", err)
 	}

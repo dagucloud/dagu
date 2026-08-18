@@ -6,6 +6,7 @@ package frontend
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -460,6 +461,61 @@ func TestServerAuthRoutesUseEvaluatedBasePathAndKeepProxyHeadersScoped(t *testin
 	assert.Equal(t, http.StatusFound, proxyRecorder.Code)
 	assert.Equal(t, "/dagu/login?welcome=true#token=proxy-token", proxyRecorder.Header().Get("Location"))
 	assert.Equal(t, int64(1), proxyProvision.calls.Load())
+}
+
+func TestServerIPAccessProtectsAllRoutes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	cfg := &config.Config{
+		DefaultExecMode: config.ExecutionModeLocal,
+		Server: config.Server{
+			APIBasePath: "/api/v1",
+			Auth:        config.Auth{Mode: config.AuthModeNone},
+			AccessLog:   config.AccessLogNone,
+			IPAccess: config.IPAccessConfig{
+				AllowedIPs: []string{"192.0.2.10"},
+			},
+			Terminal: config.TerminalConfig{MaxSessions: 5},
+			SSE: config.SSEConfig{
+				MaxTopicsPerConnection: 20,
+				MaxClients:             100,
+				HeartbeatInterval:      time.Hour,
+			},
+		},
+		UI:       config.UI{MaxDashboardPageLimit: 100},
+		Webhooks: config.WebhooksConfig{MaxPayloadSize: config.DefaultWebhookMaxPayloadSize},
+	}
+	srv, err := NewServer(ServerConfig{Context: ctx, Config: cfg}, WithListener(listener))
+	require.NoError(t, err)
+	srv.RegisterRoutes(func(_ context.Context, router chi.Router, _ string) {
+		router.Get("/extension", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+	})
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- srv.Serve(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-serveDone:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Error("server did not shut down")
+		}
+	})
+
+	client := &http.Client{Timeout: time.Second}
+	for _, requestPath := range []string{"/api/v1/health", "/extension"} {
+		resp, err := client.Get("http://" + listener.Addr().String() + requestPath)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		require.NoError(t, resp.Body.Close())
+	}
 }
 
 func TestEvaluateConfiguredBasePathKeepsRedirectsLocal(t *testing.T) {
