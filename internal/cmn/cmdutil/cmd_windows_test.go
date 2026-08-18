@@ -30,10 +30,15 @@ func TestKillProcessTree_Integration(t *testing.T) {
 	pid := uint32(cmd.Process.Pid)
 	t.Logf("Started test process with PID %d", pid)
 
-	// Give it a moment to fully start and spawn its child
-	time.Sleep(500 * time.Millisecond)
-
-	children := childProcessIDs(t, pid)
+	// Wait for cmd.exe to spawn ping.exe so the root has a child to recurse
+	// into. Poll rather than sleep a fixed amount: CI runners can be slow to
+	// spawn the child and reflect the parent relationship in the snapshot.
+	var children []uint32
+	deadline := time.Now().Add(5 * time.Second)
+	for len(children) == 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		children = childProcessIDs(t, pid)
+	}
 	if len(children) == 0 {
 		t.Fatalf("test process %d spawned no children, so the tree walk would not be exercised", pid)
 	}
