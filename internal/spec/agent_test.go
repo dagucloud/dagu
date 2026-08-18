@@ -402,3 +402,32 @@ func TestReservedAgentNamesAreRejectedInGraphDAGs(t *testing.T) {
 		})
 	}
 }
+
+// type: agent was called type: controller before the rename. Existing DAG files
+// still using the old spelling must keep loading as agent DAGs.
+func TestLegacyControllerTypeLoadsAsAgent(t *testing.T) {
+	t.Parallel()
+
+	const legacy = `
+type: controller
+llm:
+  provider: anthropic
+  model: claude-opus-5
+steps:
+  - name: design
+    run: echo design
+tasks:
+  - name: ship
+    description: done when design ran
+`
+
+	dag, err := spec.LoadYAML(t.Context(), []byte(legacy))
+	require.NoError(t, err)
+
+	assert.Equal(t, ir.TypeAgent, dag.Type)
+	require.True(t, dag.IsAgent())
+	require.NotNil(t, dag.AgentStep(), "an agent DAG carries a synthesized agent step")
+
+	warnings := spec.DeprecatedSyntaxWarnings([]byte(legacy))
+	assert.Contains(t, warnings, "Deprecated DAG syntax: type: controller is deprecated; use type: agent")
+}

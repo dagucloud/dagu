@@ -593,3 +593,60 @@ func TestNodeStatusMappingIsExhaustive(t *testing.T) {
 	assert.Len(t, nodeStatusMapping, len(expected))
 	assert.Equal(t, expected, nodeStatusMapping)
 }
+
+// Agent DAGs were previously called controller DAGs. Run status files written
+// before the rename name the synthesized step __controller__ and store its
+// progress under controllerState; the agent detail view must still populate
+// from them.
+func TestToDAGRunDetailsReadsLegacyControllerRunState(t *testing.T) {
+	legacyStatus := `{
+		"name": "cleanup",
+		"dagRunId": "run-1",
+		"nodes": [{
+			"step": {"name": "__controller__", "executorConfig": {"type": "controller"}},
+			"controllerState": {
+				"tasks": [{"name": "vocabulary", "description": "Completed when clean.", "status": "done"}],
+				"events": [{"turn": 1, "kind": "action", "name": "check_vocabulary", "status": "succeeded"}]
+			}
+		}]
+	}`
+
+	status, err := ir.StatusFromJSON(legacyStatus)
+	require.NoError(t, err)
+
+	details := ToDAGRunDetails(*status)
+
+	require.NotNil(t, details.AgentTasks)
+	require.Len(t, *details.AgentTasks, 1)
+	assert.Equal(t, "vocabulary", (*details.AgentTasks)[0].Name)
+
+	require.NotNil(t, details.AgentEvents)
+	require.Len(t, *details.AgentEvents, 1)
+	assert.Equal(t, "check_vocabulary", *(*details.AgentEvents)[0].Name)
+}
+
+// A node may carry agentState written as an explicit JSON null. That is no more
+// a value than a missing field, so legacy progress recorded alongside it still
+// has to reach the detail view.
+func TestToDAGRunDetailsPrefersLegacyStateOverNullAgentState(t *testing.T) {
+	legacyStatus := `{
+		"name": "cleanup",
+		"dagRunId": "run-1",
+		"nodes": [{
+			"step": {"name": "__controller__"},
+			"agentState": null,
+			"controllerState": {
+				"tasks": [{"name": "vocabulary", "description": "Completed when clean.", "status": "done"}]
+			}
+		}]
+	}`
+
+	status, err := ir.StatusFromJSON(legacyStatus)
+	require.NoError(t, err)
+
+	details := ToDAGRunDetails(*status)
+
+	require.NotNil(t, details.AgentTasks)
+	require.Len(t, *details.AgentTasks, 1)
+	assert.Equal(t, "vocabulary", (*details.AgentTasks)[0].Name)
+}

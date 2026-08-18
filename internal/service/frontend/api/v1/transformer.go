@@ -734,7 +734,7 @@ func declaredAgentTasks(dag *ir.DAG) *[]api.AgentTask {
 // agentTimeline reports the ordered decisions an agent DAG-run made.
 func agentTimeline(nodes []*ir.Node) *[]api.AgentEvent {
 	for _, node := range nodes {
-		if node == nil || node.Step.Name != ir.AgentStepName {
+		if node == nil || !ir.IsPersistedAgentStepName(node.Step.Name) {
 			continue
 		}
 		recorded := agentloop.EventsFromState(node.AgentState)
@@ -765,7 +765,7 @@ func agentTimeline(nodes []*ir.Node) *[]api.AgentEvent {
 // of an agent DAG-run.
 func agentTaskProgress(nodes []*ir.Node) *[]api.AgentTask {
 	for _, node := range nodes {
-		if node == nil || node.Step.Name != ir.AgentStepName {
+		if node == nil || !ir.IsPersistedAgentStepName(node.Step.Name) {
 			continue
 		}
 		states := agentloop.TasksFromState(node.AgentState)

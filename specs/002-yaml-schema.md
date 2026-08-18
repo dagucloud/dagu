@@ -55,10 +55,12 @@ Output:
 
 | Condition | Exit code | Stdout | Stderr |
 | --- | --- | --- | --- |
-| Success | `0` | Empty. | Empty. |
+| Success | `0` | Empty. | Empty, or deprecation warnings. |
 | Failure | Non-zero | Empty. | Validation error. |
 
-Validation failures must not print command usage text.
+Validation failures must not print command usage text. A successful validation
+writes nothing to stderr beyond one deprecation warning for each deprecated
+construct the file uses, and each warning must name the replacement.
 
 ## Documents
 
@@ -93,7 +95,7 @@ Accepted root fields:
 | `consts` | No | Immutable literal values. |
 | `defaults` | No | Default step settings. |
 | `steps` | Yes | Executable steps. |
-| `type` | No | Step scheduling mode: `graph`, `chain`, or `agent`. |
+| `type` | No | Step scheduling mode: `graph`, `chain`, or `agent`. `controller` is a deprecated alias for `agent`. |
 | `tasks` | Only with `type: agent` | Goals an Agent DAG run must satisfy. |
 | `handler_on` | No | Lifecycle handler steps. |
 | `preconditions` | No | Workflow start conditions. |
