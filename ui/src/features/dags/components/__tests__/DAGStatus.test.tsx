@@ -765,4 +765,26 @@ describe('DAGStatus', () => {
       expect(await screen.findByLabelText('Human task draft')).toHaveValue('');
     }
   );
+
+  // Agent steps recorded before the rename carry the 'controller' executor
+  // type, and their LLM transcript still belongs on the Chat tab.
+  it('offers the chat transcript for a legacy controller step', () => {
+    const legacyRun = {
+      ...dagRun,
+      nodes: [
+        {
+          step: {
+            name: '__controller__',
+            executorConfig: { type: 'controller' },
+          },
+          status: NodeStatus.Success,
+          statusLabel: NodeStatusLabel.succeeded,
+        },
+      ],
+    } as unknown as components['schemas']['DAGRunDetails'];
+
+    render(dagStatusView(legacyRun));
+
+    expect(screen.getByRole('button', { name: 'Chat' })).toBeVisible();
+  });
 });
