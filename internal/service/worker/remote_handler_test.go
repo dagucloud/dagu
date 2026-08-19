@@ -2498,7 +2498,8 @@ steps:
     run: echo child
 `
 
-	dispatched := false
+	root := ir.NewDAGRunRef(rootDAG.Name, "run-remote-subdag-dispatch")
+	var dispatchedTask *dispatch.DispatchTask
 	client := newMockRemoteCoordinatorClient()
 	client.GetDAGFunc = func(_ context.Context, name string) (string, error) {
 		require.Equal(t, "worker-child", name)
@@ -2507,13 +2508,20 @@ steps:
 	client.DispatchFunc = func(_ context.Context, task *dispatch.DispatchTask) error {
 		require.Equal(t, "worker-child", task.Target)
 		require.Equal(t, map[string]string{"os": "windows"}, task.WorkerSelector)
-		dispatched = true
+		require.Equal(t, root.Name, task.RootDAGRunName)
+		require.Equal(t, root.ID, task.RootDAGRunID)
+		require.Equal(t, root.Name, task.ParentDAGRunName)
+		require.Equal(t, root.ID, task.ParentDAGRunID)
+		dispatchedTask = task
 		return nil
 	}
-	client.GetDAGRunStatusFunc = func(_ context.Context, dagName, dagRunID string, _ *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
-		if !dispatched {
+	client.GetDAGRunStatusFunc = func(_ context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+		if dispatchedTask == nil {
 			return &dispatch.DAGRunStatusResult{Found: false}, nil
 		}
+		require.Equal(t, dispatchedTask.Target, dagName)
+		require.Equal(t, dispatchedTask.DAGRunID, dagRunID)
+		require.Equal(t, &root, rootRef)
 		return &dispatch.DAGRunStatusResult{
 			Found: true,
 			Status: &ir.DAGRunStatus{
@@ -2531,7 +2539,6 @@ steps:
 		config:            th.Config,
 	}
 
-	root := ir.NewDAGRunRef(rootDAG.Name, "run-remote-subdag-dispatch")
 	run := remoteRun{
 		task: &coordinatorv1.Task{DagRunId: root.ID},
 		root: root,
@@ -2540,7 +2547,7 @@ steps:
 
 	err := handler.executeDAGRun(th.Context, rootDAG.DAG, run)
 	require.NoError(t, err)
-	require.True(t, dispatched)
+	require.NotNil(t, dispatchedTask)
 }
 
 func TestExecuteDAGRun_LocalSubDAGKeepsRemoteLoaderForNestedDispatch(t *testing.T) {
@@ -2568,7 +2575,8 @@ steps:
     run: echo child
 `
 
-	dispatched := false
+	root := ir.NewDAGRunRef(rootDAG.Name, "run-nested-remote-subdag")
+	var dispatchedTask *dispatch.DispatchTask
 	client := newMockRemoteCoordinatorClient()
 	client.GetDAGFunc = func(_ context.Context, name string) (string, error) {
 		switch name {
@@ -2583,13 +2591,21 @@ steps:
 	client.DispatchFunc = func(_ context.Context, task *dispatch.DispatchTask) error {
 		require.Equal(t, "worker-child", task.Target)
 		require.Equal(t, map[string]string{"os": "windows"}, task.WorkerSelector)
-		dispatched = true
+		require.Equal(t, root.Name, task.RootDAGRunName)
+		require.Equal(t, root.ID, task.RootDAGRunID)
+		require.Equal(t, "worker-stage", task.ParentDAGRunName)
+		require.NotEmpty(t, task.ParentDAGRunID)
+		require.NotEqual(t, root.ID, task.ParentDAGRunID)
+		dispatchedTask = task
 		return nil
 	}
-	client.GetDAGRunStatusFunc = func(_ context.Context, dagName, dagRunID string, _ *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
-		if !dispatched {
+	client.GetDAGRunStatusFunc = func(_ context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+		if dispatchedTask == nil {
 			return &dispatch.DAGRunStatusResult{Found: false}, nil
 		}
+		require.Equal(t, dispatchedTask.Target, dagName)
+		require.Equal(t, dispatchedTask.DAGRunID, dagRunID)
+		require.Equal(t, &root, rootRef)
 		return &dispatch.DAGRunStatusResult{
 			Found: true,
 			Status: &ir.DAGRunStatus{
@@ -2607,7 +2623,6 @@ steps:
 		config:            th.Config,
 	}
 
-	root := ir.NewDAGRunRef(rootDAG.Name, "run-nested-remote-subdag")
 	run := remoteRun{
 		task: &coordinatorv1.Task{DagRunId: root.ID},
 		root: root,
@@ -2616,7 +2631,7 @@ steps:
 
 	err := handler.executeDAGRun(th.Context, rootDAG.DAG, run)
 	require.NoError(t, err)
-	require.True(t, dispatched)
+	require.NotNil(t, dispatchedTask)
 }
 
 func TestExecuteDAGRun_FinalSchedulerLogUsesChildMetadataForLocalSubDAG(t *testing.T) {
