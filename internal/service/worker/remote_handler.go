@@ -673,23 +673,6 @@ func (h *remoteTaskHandler) executeDAGRun(
 	}
 	extraEnvs := append(taskExtraEnvs(task), toolEnvs...)
 
-	subWorkflowRunnerFactory := coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
-		DAGRunMgr:         h.dagRunMgr,
-		DAGRepository:     h.dagRepository,
-		StateStore:        h.stateStore,
-		SecretStore:       runtimeStores.SecretStore,
-		ProfileStore:      runtimeStores.ProfileStore,
-		ServiceRegistry:   h.serviceRegistry,
-		PeerConfig:        h.peerConfig,
-		DefaultExecMode:   h.config.DefaultExecMode,
-		StatusPusher:      statusPusher,
-		LogWriterFactory:  logStreamer,
-		ArtifactFinalizer: artifactUploader,
-		WorkerID:          h.workerID,
-		DAGRunLogDir:      h.config.Paths.LogDir,
-		DAGRunArtifactDir: h.config.Paths.ArtifactDir,
-	})
-
 	// Create a remote DAG loader that fetches DAG definitions from the coordinator
 	// as a fallback when the local DAG repository misses.
 	remoteDAGLoader := rtagent.RemoteDAGLoader(func(ctx context.Context, name string) (*ir.DAG, error) {
@@ -705,6 +688,25 @@ func (h *remoteTaskHandler) executeDAGRun(
 			return nil, fmt.Errorf("failed to parse DAG from remote: %w", loadErr)
 		}
 		return dag, nil
+	})
+
+	subWorkflowRunnerFactory := coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
+		Dispatcher:        h.coordinatorClient,
+		DAGRunMgr:         h.dagRunMgr,
+		DAGRepository:     h.dagRepository,
+		StateStore:        h.stateStore,
+		SecretStore:       runtimeStores.SecretStore,
+		ProfileStore:      runtimeStores.ProfileStore,
+		ServiceRegistry:   h.serviceRegistry,
+		PeerConfig:        h.peerConfig,
+		DefaultExecMode:   h.config.DefaultExecMode,
+		StatusPusher:      statusPusher,
+		LogWriterFactory:  logStreamer,
+		ArtifactFinalizer: artifactUploader,
+		RemoteDAGLoader:   remoteDAGLoader,
+		WorkerID:          h.workerID,
+		DAGRunLogDir:      h.config.Paths.LogDir,
+		DAGRunArtifactDir: h.config.Paths.ArtifactDir,
 	})
 
 	// Build agent options

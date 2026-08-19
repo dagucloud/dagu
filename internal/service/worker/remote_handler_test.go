@@ -2480,6 +2480,145 @@ steps:
 	require.Equal(t, 1, terminalStatusReports)
 }
 
+func TestExecuteDAGRun_DispatchesRemoteSubDAGThroughCoordinatorClient(t *testing.T) {
+	th := test.Setup(t)
+
+	rootDAG := th.DAG(t, `name: worker-parent
+steps:
+  - name: run-child
+    action: dag.run
+    with:
+      dag: worker-child
+`)
+	childDAG := `name: worker-child
+worker_selector:
+  os: windows
+steps:
+  - name: child-step
+    run: echo child
+`
+
+	dispatched := false
+	client := newMockRemoteCoordinatorClient()
+	client.GetDAGFunc = func(_ context.Context, name string) (string, error) {
+		require.Equal(t, "worker-child", name)
+		return childDAG, nil
+	}
+	client.DispatchFunc = func(_ context.Context, task *dispatch.DispatchTask) error {
+		require.Equal(t, "worker-child", task.Target)
+		require.Equal(t, map[string]string{"os": "windows"}, task.WorkerSelector)
+		dispatched = true
+		return nil
+	}
+	client.GetDAGRunStatusFunc = func(_ context.Context, dagName, dagRunID string, _ *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+		if !dispatched {
+			return &dispatch.DAGRunStatusResult{Found: false}, nil
+		}
+		return &dispatch.DAGRunStatusResult{
+			Found: true,
+			Status: &ir.DAGRunStatus{
+				Name:     dagName,
+				DAGRunID: dagRunID,
+				Status:   ir.Succeeded,
+			},
+		}, nil
+	}
+
+	handler := &remoteTaskHandler{
+		workerID:          "integration-test-worker",
+		coordinatorClient: client,
+		dagRunMgr:         th.DAGRunMgr,
+		config:            th.Config,
+	}
+
+	root := ir.NewDAGRunRef(rootDAG.Name, "run-remote-subdag-dispatch")
+	run := remoteRun{
+		task: &coordinatorv1.Task{DagRunId: root.ID},
+		root: root,
+	}
+	run.handlers = handler.createRemoteHandlers(run, rootDAG.Name)
+
+	err := handler.executeDAGRun(th.Context, rootDAG.DAG, run)
+	require.NoError(t, err)
+	require.True(t, dispatched)
+}
+
+func TestExecuteDAGRun_LocalSubDAGKeepsRemoteLoaderForNestedDispatch(t *testing.T) {
+	th := test.Setup(t)
+
+	rootDAG := th.DAG(t, `name: worker-root
+steps:
+  - name: run-stage
+    action: dag.run
+    with:
+      dag: worker-stage
+`)
+	stageDAG := `name: worker-stage
+steps:
+  - name: run-child
+    action: dag.run
+    with:
+      dag: worker-child
+`
+	childDAG := `name: worker-child
+worker_selector:
+  os: windows
+steps:
+  - name: child-step
+    run: echo child
+`
+
+	dispatched := false
+	client := newMockRemoteCoordinatorClient()
+	client.GetDAGFunc = func(_ context.Context, name string) (string, error) {
+		switch name {
+		case "worker-stage":
+			return stageDAG, nil
+		case "worker-child":
+			return childDAG, nil
+		default:
+			return "", fmt.Errorf("unexpected DAG %q", name)
+		}
+	}
+	client.DispatchFunc = func(_ context.Context, task *dispatch.DispatchTask) error {
+		require.Equal(t, "worker-child", task.Target)
+		require.Equal(t, map[string]string{"os": "windows"}, task.WorkerSelector)
+		dispatched = true
+		return nil
+	}
+	client.GetDAGRunStatusFunc = func(_ context.Context, dagName, dagRunID string, _ *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+		if !dispatched {
+			return &dispatch.DAGRunStatusResult{Found: false}, nil
+		}
+		return &dispatch.DAGRunStatusResult{
+			Found: true,
+			Status: &ir.DAGRunStatus{
+				Name:     dagName,
+				DAGRunID: dagRunID,
+				Status:   ir.Succeeded,
+			},
+		}, nil
+	}
+
+	handler := &remoteTaskHandler{
+		workerID:          "integration-test-worker",
+		coordinatorClient: client,
+		dagRunMgr:         th.DAGRunMgr,
+		config:            th.Config,
+	}
+
+	root := ir.NewDAGRunRef(rootDAG.Name, "run-nested-remote-subdag")
+	run := remoteRun{
+		task: &coordinatorv1.Task{DagRunId: root.ID},
+		root: root,
+	}
+	run.handlers = handler.createRemoteHandlers(run, rootDAG.Name)
+
+	err := handler.executeDAGRun(th.Context, rootDAG.DAG, run)
+	require.NoError(t, err)
+	require.True(t, dispatched)
+}
+
 func TestExecuteDAGRun_FinalSchedulerLogUsesChildMetadataForLocalSubDAG(t *testing.T) {
 	th := test.Setup(t)
 

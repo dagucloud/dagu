@@ -49,6 +49,7 @@ type Local struct {
 	logWriterFactory         runctx.LogWriterFactory
 	artifactFinalizer        runtime.ArtifactFinalizer
 	subWorkflowRunnerFactory rtagent.SubWorkflowRunnerFactory
+	remoteDAGLoader          rtagent.RemoteDAGLoader
 	workerID                 string
 	dagRunLogDir             string
 	dagRunArtifactDir        string
@@ -145,6 +146,13 @@ func WithLocalArtifactFinalizer(finalizer runtime.ArtifactFinalizer) LocalOption
 func WithLocalSubWorkflowRunnerFactory(factory rtagent.SubWorkflowRunnerFactory) LocalOption {
 	return func(r *Local) {
 		r.subWorkflowRunnerFactory = factory
+	}
+}
+
+// WithLocalRemoteDAGLoader sets the remote fallback used by nested child workflows.
+func WithLocalRemoteDAGLoader(loader rtagent.RemoteDAGLoader) LocalOption {
+	return func(r *Local) {
+		r.remoteDAGLoader = loader
 	}
 }
 
@@ -449,6 +457,7 @@ func (r *Local) newAgent(
 	opts.WorkerID = r.workerID
 	opts.StatusPusher = r.statusPusher
 	opts.SubWorkflowRunnerFactory = r.subWorkflowRunnerFactory
+	opts.RemoteDAGLoader = r.remoteDAGLoader
 	opts.LogWriterFactory = r.logWriterFactory
 	opts.RunStateStore = r.runStateStoreFromContext(ctx)
 	opts.StateStore = r.stateStoreFromContext(ctx)

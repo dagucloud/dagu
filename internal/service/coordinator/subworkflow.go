@@ -8,11 +8,13 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -22,6 +24,7 @@ import (
 
 // SubWorkflowRunnerConfig contains dependencies for child workflow execution.
 type SubWorkflowRunnerConfig struct {
+	Dispatcher        dispatch.Dispatcher
 	DAGRunMgr         runtime.Manager
 	DAGRepository     *persis.DAGRepository
 	DAGRunRepository  *persis.DAGRunRepository
@@ -36,6 +39,7 @@ type SubWorkflowRunnerConfig struct {
 	StatusPusher      runtime.StatusPusher
 	LogWriterFactory  runctx.LogWriterFactory
 	ArtifactFinalizer runtime.ArtifactFinalizer
+	RemoteDAGLoader   rtagent.RemoteDAGLoader
 	WorkerID          string
 	DAGRunLogDir      string
 	DAGRunArtifactDir string
@@ -45,9 +49,13 @@ type SubWorkflowRunnerConfig struct {
 func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	var factory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
 	factory = func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
-		dispatcher, err := NewRuntimeDispatcher(cfg.ServiceRegistry, cfg.PeerConfig)
-		if err != nil {
-			return nil, err
+		dispatcher := cfg.Dispatcher
+		if dispatcher == nil {
+			var err error
+			dispatcher, err = NewRuntimeDispatcher(cfg.ServiceRegistry, cfg.PeerConfig)
+			if err != nil {
+				return nil, err
+			}
 		}
 		return subflow.NewRouter(
 			subflow.New(dispatcher, cfg.DefaultExecMode),
@@ -65,6 +73,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 				subflow.WithLocalLogWriterFactory(cfg.LogWriterFactory),
 				subflow.WithLocalArtifactFinalizer(cfg.ArtifactFinalizer),
 				subflow.WithLocalSubWorkflowRunnerFactory(factory),
+				subflow.WithLocalRemoteDAGLoader(cfg.RemoteDAGLoader),
 				subflow.WithLocalWorkerID(cfg.WorkerID),
 				subflow.WithLocalDAGRunDirs(cfg.DAGRunLogDir, cfg.DAGRunArtifactDir),
 			),
