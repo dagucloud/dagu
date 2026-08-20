@@ -292,11 +292,11 @@ func toViewResponse(v *view.View) api.View {
 		IntervalDays: v.IntervalDays,
 		CreatedAt:    v.CreatedAt,
 		UpdatedAt:    v.UpdatedAt,
-	}
-	resp.Workspace = ptrOf(v.Workspace)
-	resp.DagName = ptrOf(v.DAGName)
-	resp.Pinned = ptrOf(v.Pinned)
-	resp.CreatedBy = ptrOf(v.CreatedBy)
+
+		Workspace: ptrOf(v.Workspace),
+		DagName:   ptrOf(v.DAGName),
+		Pinned:    ptrOf(v.Pinned),
+		CreatedBy: ptrOf(v.CreatedBy)}
 	columns := make([]api.ViewColumn, len(v.Columns))
 	for i, column := range v.Columns {
 		columns[i] = api.ViewColumn(column)

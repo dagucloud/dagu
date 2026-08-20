@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -107,8 +108,8 @@ func resolveExistingAncestor(path string) (string, error) {
 	for {
 		resolved, err := filepath.EvalSymlinks(current)
 		if err == nil {
-			for idx := len(suffix) - 1; idx >= 0; idx-- {
-				resolved = filepath.Join(resolved, suffix[idx])
+			for _, s := range slices.Backward(suffix) {
+				resolved = filepath.Join(resolved, s)
 			}
 			return filepath.Clean(resolved), nil
 		}

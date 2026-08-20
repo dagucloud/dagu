@@ -515,14 +515,14 @@ func toSecretResponse(sec *secretpkg.Secret) api.SecretResponse {
 		Status:         api.SecretStatus(sec.Status),
 		UpdatedAt:      sec.UpdatedAt,
 		Workspace:      secretWorkspaceToAPI(sec.Workspace),
-	}
-	resp.Description = ptrOf(sec.Description)
-	resp.ProviderConnectionId = ptrOf(sec.ProviderConnectionID)
-	resp.ProviderRef = ptrOf(sec.ProviderRef)
-	resp.ProviderRefFingerprint = ptrOf(sec.ProviderRefFingerprint)
-	resp.LastCheckedAt = cloneTimePtr(sec.LastCheckedAt)
-	resp.LastResolvedAt = cloneTimePtr(sec.LastResolvedAt)
-	resp.LastRotatedAt = cloneTimePtr(sec.LastRotatedAt)
+
+		Description:            ptrOf(sec.Description),
+		ProviderConnectionId:   ptrOf(sec.ProviderConnectionID),
+		ProviderRef:            ptrOf(sec.ProviderRef),
+		ProviderRefFingerprint: ptrOf(sec.ProviderRefFingerprint),
+		LastCheckedAt:          cloneTimePtr(sec.LastCheckedAt),
+		LastResolvedAt:         cloneTimePtr(sec.LastResolvedAt),
+		LastRotatedAt:          cloneTimePtr(sec.LastRotatedAt)}
 	return resp
 }
 

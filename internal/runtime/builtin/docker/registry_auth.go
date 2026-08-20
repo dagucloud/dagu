@@ -160,7 +160,7 @@ func getAuthFromDockerConfig(configJSON string, imageName string) (*registry.Aut
 
 	// Try without port if present
 	if strings.Contains(registryHost, ":") {
-		hostWithoutPort := strings.Split(registryHost, ":")[0]
+		hostWithoutPort, _, _ := strings.Cut(registryHost, ":")
 		if auth, ok := config.Auths[hostWithoutPort]; ok {
 			auth.ServerAddress = registryHost
 			return &auth, nil

@@ -207,8 +207,7 @@ func mapAbortQueuedDAGRunError(dagRun ir.DAGRunRef, err error) error {
 		return fmt.Errorf("failed to find the record for dag-run ID %s: %w", dagRun.ID, err)
 	}
 
-	var notQueuedErr *queue.DAGRunNotQueuedError
-	if errors.As(err, &notQueuedErr) {
+	if notQueuedErr, ok := errors.AsType[*queue.DAGRunNotQueuedError](err); ok {
 		if notQueuedErr.HasStatus {
 			return fmt.Errorf("dag-run %s is not in queued status but %s", dagRun.ID, notQueuedErr.Status)
 		}

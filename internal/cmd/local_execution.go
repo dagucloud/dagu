@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -40,8 +41,8 @@ func dagDefinitionIDFromEnv() string {
 
 func parallelItemFromEnv(env []string) string {
 	prefix := runenv.EnvKeyParallelItem + "="
-	for i := len(env) - 1; i >= 0; i-- {
-		if after, ok := strings.CutPrefix(env[i], prefix); ok {
+	for _, e := range slices.Backward(env) {
+		if after, ok := strings.CutPrefix(e, prefix); ok {
 			return after
 		}
 	}

@@ -258,8 +258,7 @@ func validateBaseConfig(ctx context.Context, yamlSpec string) []string {
 		spec.WithoutEval(),
 	)
 
-	var loadErrs ir.ErrorList
-	if errors.As(err, &loadErrs) {
+	if loadErrs, ok := errors.AsType[ir.ErrorList](err); ok {
 		return loadErrs.ToStringList()
 	}
 	if err != nil {

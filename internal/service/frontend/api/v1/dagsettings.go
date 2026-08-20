@@ -160,9 +160,8 @@ func (a *API) defaultRunProfileName(ctx context.Context, dagName string, workspa
 }
 
 func (a *API) defaultRunProfileError(err error) error {
-	var refErr *dagsettings.ProfileReferenceError
 	name := ""
-	if errors.As(err, &refErr) {
+	if refErr, ok := errors.AsType[*dagsettings.ProfileReferenceError](err); ok {
 		name = refErr.Name
 	}
 	if errors.Is(err, profilepkg.ErrInvalidName) {

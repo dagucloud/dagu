@@ -49,8 +49,7 @@ func runtimeProfileConflict(message string) api.Error {
 }
 
 func serviceAPIError(err error) *api.Error {
-	var serviceErr *Error
-	if errors.As(err, &serviceErr) {
+	if serviceErr, ok := errors.AsType[*Error](err); ok {
 		return &api.Error{
 			Code:    serviceErr.Code,
 			Message: serviceErr.Message,

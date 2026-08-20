@@ -5,6 +5,7 @@ package agentloop
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -22,8 +23,8 @@ type decisionReference struct {
 // LatestPromptTokens returns the most recent prompt size reported by the
 // provider. Zero means no decision reported usage.
 func (s *State) LatestPromptTokens() int {
-	for i := len(s.messages) - 1; i >= 0; i-- {
-		msg := s.messages[i]
+	for _, msg := range slices.Backward(s.messages) {
+
 		if msg.Role == ir.LLMRoleAssistant && msg.Metadata != nil && msg.Metadata.PromptTokens > 0 {
 			return msg.Metadata.PromptTokens
 		}

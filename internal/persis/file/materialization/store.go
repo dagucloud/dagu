@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
@@ -47,8 +48,8 @@ func (l *heldLock) Release() error {
 	}
 	l.released = true
 	var result error
-	for idx := len(l.locks) - 1; idx >= 0; idx-- {
-		result = errors.Join(result, l.locks[idx].Unlock())
+	for _, v := range slices.Backward(l.locks) {
+		result = errors.Join(result, v.Unlock())
 	}
 	return result
 }

@@ -845,8 +845,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 			err := d.dagExecutor.ExecuteDAGWithAdmission(ctx, dag, dispatch.DispatchOperationRetry,
 				runID, dagStatus, dagStatus.TriggerType, dagStatus.ScheduleTime, admissionReservationToken)
 			if err != nil {
-				var staleErr *queuedomain.StaleQueueDispatchError
-				if errors.As(err, &staleErr) {
+				if _, ok := errors.AsType[*queuedomain.StaleQueueDispatchError](err); ok {
 					return backoff.PermanentError(err)
 				}
 				if errors.Is(err, backoff.ErrPermanent) {
@@ -872,8 +871,7 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 
 	if err := backoff.Retry(retryCtx, operation, policy, nil); err != nil {
 		d.releaseAdmissionToken(ctx, admissionReservationToken)
-		var staleErr *queuedomain.StaleQueueDispatchError
-		if errors.As(err, &staleErr) {
+		if staleErr, ok := errors.AsType[*queuedomain.StaleQueueDispatchError](err); ok {
 			logger.Info(ctx, "Discarding stale distributed queue dispatch",
 				tag.DAG(runRef.Name),
 				tag.RunID(runRef.ID),
@@ -1104,8 +1102,7 @@ func localStartupFailedPermanently(err error) bool {
 }
 
 func startupFailureMessage(err error) string {
-	var startupErr startupExecutionError
-	if errors.As(err, &startupErr) {
+	if startupErr, ok := errors.AsType[startupExecutionError](err); ok {
 		return startupErr.Error()
 	}
 	return err.Error()
@@ -1117,8 +1114,7 @@ func localLaunchFailed(err error) bool {
 		errors.Is(err, errExecutionExitedBeforeStartup) {
 		return false
 	}
-	var startupErr startupExecutionError
-	if !errors.As(err, &startupErr) {
+	if _, ok := errors.AsType[startupExecutionError](err); !ok {
 		return false
 	}
 	var exitErr *osexec.ExitError

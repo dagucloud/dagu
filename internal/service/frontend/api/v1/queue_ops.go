@@ -39,8 +39,7 @@ func mapAbortQueuedDAGRunAPIError(dagName, dagRunID string, err error) error {
 		}
 	}
 
-	var notQueuedErr *queue.DAGRunNotQueuedError
-	if errors.As(err, &notQueuedErr) {
+	if notQueuedErr, ok := errors.AsType[*queue.DAGRunNotQueuedError](err); ok {
 		message := "DAGRun status is not queued"
 		if notQueuedErr.HasStatus {
 			message = fmt.Sprintf("DAGRun status is not queued: %s", notQueuedErr.Status)

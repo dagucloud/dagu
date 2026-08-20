@@ -767,8 +767,7 @@ func (a *API) handleError(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func (a *API) resolveError(err error) (api.ErrorCode, string, int) {
-	var apiErr *Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*Error](err); ok {
 		return apiErr.Code, apiErr.Message, apiErr.HTTPStatus
 	}
 

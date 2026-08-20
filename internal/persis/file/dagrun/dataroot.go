@@ -59,8 +59,8 @@ func NewDataRoot(baseDir, dagName string) DataRoot {
 
 // NewDataRootWithArtifactDir creates a new DataRoot with an explicit trusted artifact root.
 func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
-	root := DataRoot{baseDir: baseDir, artifactDir: artifactDir}
-	root.prefix = dagDirName(dagName)
+	root := DataRoot{baseDir: baseDir, artifactDir: artifactDir,
+		prefix: dagDirName(dagName)}
 	root.dagRunsDir = filepath.Join(baseDir, root.prefix, "dag-runs")
 	root.globPattern = filepath.Join(root.dagRunsDir, "*", "*", "*", DAGRunDirPrefix+"*")
 	root.DirLock = dirlock.New(root.dagRunsDir, &dirlock.LockOptions{
@@ -145,11 +145,11 @@ func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string)
 		return nil, err
 	}
 
-	for i := len(entries) - 1; i >= 0; i-- {
+	for _, entry := range slices.Backward(entries) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		entry := entries[i]
+
 		if !entry.IsDir() {
 			continue
 		}

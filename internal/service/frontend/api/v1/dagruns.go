@@ -3238,8 +3238,7 @@ func (a *API) TerminateDAGRun(ctx context.Context, request api.TerminateDAGRunRe
 			return nil, failedAutoRetryCancelError(savedStatus)
 		}
 		if err := a.dagRunRepository.CancelFailedAutoRetryPendingRun(ctx, savedStatus); err != nil {
-			var stateChangedErr *dagrun.FailedAutoRetryCancelStateChangedError
-			if errors.As(err, &stateChangedErr) {
+			if stateChangedErr, ok := errors.AsType[*dagrun.FailedAutoRetryCancelStateChangedError](err); ok {
 				return nil, failedAutoRetryCancelStateChangedError(stateChangedErr.CurrentStatus)
 			}
 			return nil, err

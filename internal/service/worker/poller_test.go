@@ -122,12 +122,12 @@ func TestPollerTaskDispatch(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		var pollCount int32
-		var executionCount int32
+		var pollCount atomic.Int32
+		var executionCount atomic.Int32
 
 		mockCoordinatorCli := newMockCoordinatorCli()
 		mockCoordinatorCli.PollFunc = func(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
-			count := atomic.AddInt32(&pollCount, 1)
+			count := pollCount.Add(1)
 
 			// Return tasks for first 3 polls
 			if count <= 3 {
@@ -147,7 +147,7 @@ func TestPollerTaskDispatch(t *testing.T) {
 
 		mockHandler := &mockHandler{
 			ExecuteFunc: func(_ context.Context, _ *coordinatorv1.Task) error {
-				atomic.AddInt32(&executionCount, 1)
+				executionCount.Add(1)
 				return nil
 			},
 		}
@@ -160,13 +160,13 @@ func TestPollerTaskDispatch(t *testing.T) {
 
 		// Wait for all 3 tasks to be executed
 		require.Eventually(t, func() bool {
-			return atomic.LoadInt32(&executionCount) >= 3
+			return executionCount.Load() >= 3
 		}, 5*time.Second, 10*time.Millisecond)
 		cancel()
 
 		// Should have executed 3 tasks
-		assert.Equal(t, int32(3), atomic.LoadInt32(&executionCount))
-		assert.GreaterOrEqual(t, atomic.LoadInt32(&pollCount), int32(3))
+		assert.Equal(t, int32(3), executionCount.Load())
+		assert.GreaterOrEqual(t, pollCount.Load(), int32(3))
 	})
 }
 
@@ -224,12 +224,12 @@ func TestPollerErrorHandling(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		var pollAttempts int32
+		var pollAttempts atomic.Int32
 		pollError := status.Error(codes.Unavailable, "poll failed")
 
 		mockCoordinatorCli := newMockCoordinatorCli()
 		mockCoordinatorCli.PollFunc = func(_ context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
-			count := atomic.AddInt32(&pollAttempts, 1)
+			count := pollAttempts.Add(1)
 
 			if count <= 3 {
 				// Fail first 3 attempts
@@ -257,7 +257,7 @@ func TestPollerErrorHandling(t *testing.T) {
 
 		// Should have retried and eventually succeeded
 		assert.True(t, taskExecuted.Load())
-		assert.GreaterOrEqual(t, atomic.LoadInt32(&pollAttempts), int32(4))
+		assert.GreaterOrEqual(t, pollAttempts.Load(), int32(4))
 	})
 }
 

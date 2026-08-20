@@ -1086,8 +1086,7 @@ func normalizeRunDetails(raw any, fallbackName, fallbackDAGRunID string) (map[st
 }
 
 func classifyReadToolError(input readInput, err error) *readToolError {
-	var readErr *readToolError
-	if errors.As(err, &readErr) {
+	if readErr, ok := errors.AsType[*readToolError](err); ok {
 		return readErr
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -1098,8 +1097,7 @@ func classifyReadToolError(input readInput, err error) *readToolError {
 			URI:     resourceURIForReadError(input),
 		}
 	}
-	var apiErr *frontendapi.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*frontendapi.Error](err); ok {
 		code := readErrorResourceUnavailable
 		switch apiErr.HTTPStatus {
 		case http.StatusBadRequest:

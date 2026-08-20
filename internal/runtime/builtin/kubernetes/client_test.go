@@ -22,12 +22,10 @@ import (
 
 func TestWaitForPodUsesCurrentState(t *testing.T) {
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "job-pod",
-			Namespace: "default",
-			Labels: map[string]string{
-				"job-name": "job-1",
-			},
+		Name:      "job-pod",
+		Namespace: "default",
+		Labels: map[string]string{
+			"job-name": "job-1",
 		},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodRunning,
@@ -47,12 +45,10 @@ func TestWaitForPodUsesCurrentState(t *testing.T) {
 
 func TestWaitForPodReturnsSchedulingFailure(t *testing.T) {
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "job-pod",
-			Namespace: "default",
-			Labels: map[string]string{
-				"job-name": "job-1",
-			},
+		Name:      "job-pod",
+		Namespace: "default",
+		Labels: map[string]string{
+			"job-name": "job-1",
 		},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodPending,
@@ -84,7 +80,7 @@ func TestWaitForCompletionUsesCurrentState(t *testing.T) {
 		{
 			name: "Completed",
 			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{Name: "job-1", Namespace: "default"},
+				Name: "job-1", Namespace: "default",
 				Status: batchv1.JobStatus{
 					Conditions: []batchv1.JobCondition{{
 						Type:   batchv1.JobComplete,
@@ -96,7 +92,7 @@ func TestWaitForCompletionUsesCurrentState(t *testing.T) {
 		{
 			name: "Failed",
 			job: &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{Name: "job-1", Namespace: "default"},
+				Name: "job-1", Namespace: "default",
 				Status: batchv1.JobStatus{
 					Conditions: []batchv1.JobCondition{{
 						Type:    batchv1.JobFailed,
@@ -143,26 +139,22 @@ func TestDeleteJobIgnoresNotFound(t *testing.T) {
 
 func TestCurrentPodNamePrefersPendingRetryOverFailedPod(t *testing.T) {
 	failedPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "job-pod-attempt-1",
-			Namespace:         "default",
-			CreationTimestamp: metav1.NewTime(time.Unix(1, 0)),
-			Labels: map[string]string{
-				"job-name": "job-1",
-			},
+		Name:              "job-pod-attempt-1",
+		Namespace:         "default",
+		CreationTimestamp: metav1.NewTime(time.Unix(1, 0)),
+		Labels: map[string]string{
+			"job-name": "job-1",
 		},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodFailed,
 		},
 	}
 	retryPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "job-pod-attempt-2",
-			Namespace:         "default",
-			CreationTimestamp: metav1.NewTime(time.Unix(2, 0)),
-			Labels: map[string]string{
-				"job-name": "job-1",
-			},
+		Name:              "job-pod-attempt-2",
+		Namespace:         "default",
+		CreationTimestamp: metav1.NewTime(time.Unix(2, 0)),
+		Labels: map[string]string{
+			"job-name": "job-1",
 		},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodPending,
@@ -182,12 +174,10 @@ func TestCurrentPodNamePrefersPendingRetryOverFailedPod(t *testing.T) {
 
 func TestCurrentPodNameReturnsFailedPodWhenNoRetryExists(t *testing.T) {
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "job-pod",
-			Namespace: "default",
-			Labels: map[string]string{
-				"job-name": "job-1",
-			},
+		Name:      "job-pod",
+		Namespace: "default",
+		Labels: map[string]string{
+			"job-name": "job-1",
 		},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodFailed,

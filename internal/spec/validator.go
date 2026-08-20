@@ -561,8 +561,7 @@ func validateStepWithValidator(step ir.Step) error {
 		return validateHumanTaskStep(step)
 	}
 	if err := registry.ValidateStep(step); err != nil {
-		var ve *ir.ValidationError
-		if errors.As(err, &ve) {
+		if _, ok := errors.AsType[*ir.ValidationError](err); ok {
 			return err
 		}
 		return ir.NewValidationError("type", nil, err)

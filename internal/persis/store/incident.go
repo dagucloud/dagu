@@ -35,8 +35,8 @@ func NewIncidentStore(col persis.Collection, enc *crypto.Encryptor) (*IncidentSt
 		return nil, errors.New("incident store: collection cannot be nil")
 	}
 	return &IncidentStore{
-		recordHelper: recordHelper{col: col, name: "incident store"},
-		encryptor:    enc,
+		col: col, name: "incident store",
+		encryptor: enc,
 	}, nil
 }
 

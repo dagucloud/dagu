@@ -967,8 +967,7 @@ func dispatchErrorCode(err error) codes.Code {
 }
 
 func prepareAttemptErrorCode(err error) codes.Code {
-	var staleErr *queue.StaleQueueDispatchError
-	if errors.As(err, &staleErr) {
+	if _, ok := errors.AsType[*queue.StaleQueueDispatchError](err); ok {
 		return codes.FailedPrecondition
 	}
 	return codes.Internal

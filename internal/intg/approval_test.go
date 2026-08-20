@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -527,8 +528,8 @@ func requirePushBackPayload(t *testing.T, stepName, raw, expectedUser string) {
 
 func lastLabeledOutputValue(output, prefix string) string {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
+	for _, line := range slices.Backward(lines) {
+		line := strings.TrimSpace(line)
 		if after, ok := strings.CutPrefix(line, prefix); ok {
 			return after
 		}

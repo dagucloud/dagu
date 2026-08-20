@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -161,10 +160,10 @@ func TestUniqueToken_Fallback(t *testing.T) {
 	const base = "__DAGU_DOLLAR_ESC__"
 	const maxTokenAttempts = 1024
 
-	prev := atomic.LoadUint64(&dollarEscapeSeq)
-	atomic.StoreUint64(&dollarEscapeSeq, 0)
+	prev := dollarEscapeSeq.Load()
+	dollarEscapeSeq.Store(0)
 	t.Cleanup(func() {
-		atomic.StoreUint64(&dollarEscapeSeq, prev)
+		dollarEscapeSeq.Store(prev)
 	})
 
 	var b strings.Builder

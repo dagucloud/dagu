@@ -124,8 +124,7 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		CompletedByID: completedByID,
 	})
 	if err != nil {
-		var resumeErr *humantask.ResumeError
-		if errors.As(err, &resumeErr) {
+		if _, ok := errors.AsType[*humantask.ResumeError](err); ok {
 			return fmt.Errorf("%w; run the same completion command again to retry", err)
 		}
 		return err

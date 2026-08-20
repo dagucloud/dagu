@@ -461,8 +461,7 @@ func (a *API) DeleteSyncItem(ctx context.Context, req api.DeleteSyncItemRequestO
 				Message: err.Error(),
 			}, nil
 		}
-		var validationErr *gitsync.ValidationError
-		if errors.As(err, &validationErr) {
+		if _, ok := errors.AsType[*gitsync.ValidationError](err); ok {
 			return api.DeleteSyncItem400JSONResponse{
 				Code:    api.ErrorCodeBadRequest,
 				Message: err.Error(),
@@ -566,8 +565,7 @@ func (a *API) SyncDeleteBatch(ctx context.Context, req api.SyncDeleteBatchReques
 				Message: err.Error(),
 			}, nil
 		}
-		var validationErr *gitsync.ValidationError
-		if errors.As(err, &validationErr) {
+		if _, ok := errors.AsType[*gitsync.ValidationError](err); ok {
 			return api.SyncDeleteBatch400JSONResponse{
 				Code:    api.ErrorCodeBadRequest,
 				Message: err.Error(),
@@ -627,15 +625,13 @@ func (a *API) MoveSyncItem(ctx context.Context, req api.MoveSyncItemRequestObjec
 				Message: err.Error(),
 			}, nil
 		}
-		var validationErr *gitsync.ValidationError
-		if errors.As(err, &validationErr) {
+		if _, ok := errors.AsType[*gitsync.ValidationError](err); ok {
 			return api.MoveSyncItem400JSONResponse{
 				Code:    api.ErrorCodeBadRequest,
 				Message: err.Error(),
 			}, nil
 		}
-		var conflictErr *gitsync.ConflictError
-		if errors.As(err, &conflictErr) {
+		if conflictErr, ok := errors.AsType[*gitsync.ConflictError](err); ok {
 			return api.MoveSyncItem409JSONResponse{
 				ItemId:        conflictErr.DAGID,
 				RemoteCommit:  ptrOf(conflictErr.RemoteCommit),
@@ -894,8 +890,7 @@ func extractPublishOptions(body *api.PublishSyncItemJSONRequestBody) (message st
 
 // handlePublishError handles errors from the publish operation.
 func handlePublishError(err error) (api.PublishSyncItemResponseObject, error) {
-	var conflictErr *gitsync.ConflictError
-	if errors.As(err, &conflictErr) {
+	if conflictErr, ok := errors.AsType[*gitsync.ConflictError](err); ok {
 		return api.PublishSyncItem409JSONResponse{
 			ItemId:        conflictErr.DAGID,
 			RemoteCommit:  ptrOf(conflictErr.RemoteCommit),

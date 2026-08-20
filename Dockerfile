@@ -13,7 +13,7 @@ COPY ui/ ./
 RUN pnpm build
 
 # Stage 2: Go Builder
-FROM --platform=$TARGETPLATFORM golang:1.26 AS go-builder
+FROM --platform=$TARGETPLATFORM golang:1.27 AS go-builder
 ARG LDFLAGS
 ARG TARGETOS
 ARG TARGETARCH

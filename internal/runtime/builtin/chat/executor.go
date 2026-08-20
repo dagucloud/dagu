@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -769,9 +770,9 @@ func (e *Executor) handleMaxIterationsReached(
 	lastContent := fmt.Sprintf("[Max tool iterations (%d) reached. The LLM may not have provided a complete response.]", maxIterations)
 
 	// Try to find the last assistant message
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == ir.LLMRoleAssistant {
-			lastContent = msgs[i].Content
+	for _, msg := range slices.Backward(msgs) {
+		if msg.Role == ir.LLMRoleAssistant {
+			lastContent = msg.Content
 			break
 		}
 	}

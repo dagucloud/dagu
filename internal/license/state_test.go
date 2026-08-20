@@ -158,11 +158,9 @@ func TestState_IsFeatureEnabled(t *testing.T) {
 		t.Parallel()
 		var s State
 		claims := &LicenseClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-			},
-			Plan:     "pro",
-			Features: []string{FeatureRBAC},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			Plan:      "pro",
+			Features:  []string{FeatureRBAC},
 		}
 		s.Update(claims, "tok")
 		assert.False(t, s.IsFeatureEnabled(FeatureAudit))
@@ -192,11 +190,9 @@ func TestState_IsFeatureEnabled(t *testing.T) {
 		t.Parallel()
 		var s State
 		claims := &LicenseClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: nil,
-			},
-			Plan:     "pro",
-			Features: []string{FeatureAudit, FeatureRBAC, FeatureSSO},
+			ExpiresAt: nil,
+			Plan:      "pro",
+			Features:  []string{FeatureAudit, FeatureRBAC, FeatureSSO},
 		}
 		s.Update(claims, "tok")
 		assert.True(t, s.IsFeatureEnabled(FeatureAudit))
@@ -211,9 +207,7 @@ func TestState_IsFeatureEnabled(t *testing.T) {
 		var s State
 		zero := 0
 		claims := &LicenseClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
-			},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
 			Plan:      "trial",
 			Features:  []string{FeatureAudit},
 			GraceDays: &zero,
@@ -247,11 +241,9 @@ func TestState_IsGracePeriod(t *testing.T) {
 		// Expired exactly (14d - 1s) ago — still within grace window.
 		expiry := time.Now().Add(-(gracePeriod - time.Second))
 		claims := &LicenseClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(expiry),
-			},
-			Plan:     "pro",
-			Features: []string{FeatureAudit},
+			ExpiresAt: jwt.NewNumericDate(expiry),
+			Plan:      "pro",
+			Features:  []string{FeatureAudit},
 		}
 		s.Update(claims, "tok")
 		assert.True(t, s.IsGracePeriod())
@@ -263,11 +255,9 @@ func TestState_IsGracePeriod(t *testing.T) {
 		// Expired (14d + 1s) ago — just past the grace window.
 		expiry := time.Now().Add(-(gracePeriod + time.Second))
 		claims := &LicenseClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(expiry),
-			},
-			Plan:     "pro",
-			Features: []string{FeatureAudit},
+			ExpiresAt: jwt.NewNumericDate(expiry),
+			Plan:      "pro",
+			Features:  []string{FeatureAudit},
 		}
 		s.Update(claims, "tok")
 		assert.False(t, s.IsGracePeriod())
@@ -283,11 +273,9 @@ func TestState_IsGracePeriod(t *testing.T) {
 		t.Parallel()
 		var s State
 		claims := &LicenseClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: nil,
-			},
-			Plan:     "pro",
-			Features: []string{FeatureAudit},
+			ExpiresAt: nil,
+			Plan:      "pro",
+			Features:  []string{FeatureAudit},
 		}
 		s.Update(claims, "tok")
 		assert.False(t, s.IsGracePeriod())

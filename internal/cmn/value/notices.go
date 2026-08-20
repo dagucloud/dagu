@@ -151,9 +151,8 @@ func addUnresolvedReferenceNotice(sink ValueReferenceNoticeSink, field, token st
 	if err != nil {
 		message += " " + err.Error() + "."
 	}
-	var reasonErr noticeReasonError
 	var reason ValueReferenceNoticeReason
-	if errors.As(err, &reasonErr) {
+	if reasonErr, ok := errors.AsType[noticeReasonError](err); ok {
 		reason = reasonErr.reason
 	}
 	sink.Report(ValueReferenceNotice{

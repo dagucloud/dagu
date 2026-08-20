@@ -250,15 +250,15 @@ func (s *State) RecordEvent(e Event) {
 // reached. The step name supports state written before tool-call IDs were kept.
 func (s *State) FinalizeEvent(toolCallID, step, status, finishedAt, reason string) {
 	match := -1
-	for i := len(s.Events) - 1; i >= 0; i-- {
-		if toolCallID != "" && s.Events[i].ToolCallID == toolCallID {
+	for i, v := range slices.Backward(s.Events) {
+		if toolCallID != "" && v.ToolCallID == toolCallID {
 			match = i
 			break
 		}
 	}
 	if match < 0 {
-		for i := len(s.Events) - 1; i >= 0; i-- {
-			if s.Events[i].Name == step && (toolCallID == "" || s.Events[i].ToolCallID == "") {
+		for i, v := range slices.Backward(s.Events) {
+			if v.Name == step && (toolCallID == "" || v.ToolCallID == "") {
 				match = i
 				break
 			}

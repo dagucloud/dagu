@@ -50,7 +50,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.26.6"
+  GO_VERSION: "1.27.0"
   NODE_VERSION: "20"
 
 jobs:
@@ -163,7 +163,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
         with:
-          version: v2.12.2
+          version: v2.13.0
           args: --timeout=10m
 
       # Files behind //go:build windows are invisible to a linter running at the
@@ -173,7 +173,7 @@ jobs:
         env:
           GOOS: windows
         with:
-          version: v2.12.2
+          version: v2.13.0
           args: --timeout=10m
 
   test-ubuntu:

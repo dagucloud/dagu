@@ -402,8 +402,7 @@ func classifyProcessExit(err error) runEvent {
 		}
 	}
 
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if _, ok := errors.AsType[*exec.ExitError](err); ok {
 		return runEvent{
 			reason:        terminalEndReasonShellExit,
 			sendError:     "Shell closed: " + err.Error(),

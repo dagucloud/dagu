@@ -49,7 +49,7 @@ type Error struct {
 }
 
 // Error returns the error message.
-func (e Error) Error() string {
+func (e *Error) Error() string {
 	if e.Message == "" {
 		return string(e.Code)
 	}

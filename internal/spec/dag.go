@@ -661,8 +661,7 @@ func runTransformerStages(ctx buildContext, spec *dag, out *ir.DAG, stages []tra
 
 // wrapTransformError wraps an error with the transformer name if it's not already a ValidationError
 func wrapTransformError(name string, err error) error {
-	var ve *ir.ValidationError
-	if errors.As(err, &ve) {
+	if _, ok := errors.AsType[*ir.ValidationError](err); ok {
 		return err
 	}
 	return ir.NewValidationError(name, nil, err)

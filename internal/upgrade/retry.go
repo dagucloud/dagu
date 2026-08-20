@@ -51,12 +51,10 @@ func (e *nonRetriableError) Unwrap() error { return e.err }
 //   - httpError other (4xx) → never retry
 //   - everything else (network, io) → retry
 func isRetriableError(err error) bool {
-	var nre *nonRetriableError
-	if errors.As(err, &nre) {
+	if _, ok := errors.AsType[*nonRetriableError](err); ok {
 		return false
 	}
-	var he *httpError
-	if errors.As(err, &he) {
+	if he, ok := errors.AsType[*httpError](err); ok {
 		return he.statusCode == 429 || (he.statusCode >= 500 && he.statusCode <= 504)
 	}
 	return true

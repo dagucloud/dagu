@@ -44,8 +44,7 @@ func (e *Error) Unwrap() error { return e.Err }
 
 // KindOf returns the classified kind of err.
 func KindOf(err error) ErrorKind {
-	var target *Error
-	if errors.As(err, &target) {
+	if target, ok := errors.AsType[*Error](err); ok {
 		return target.Kind
 	}
 	return ErrorInternal

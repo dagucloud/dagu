@@ -203,8 +203,7 @@ func findNodeByID(nodes []*ir.Node, stepID string) (*ir.Node, error) {
 }
 
 func classifyMutationError(prefix string, err error) error {
-	var classified *Error
-	if errors.As(err, &classified) {
+	if _, ok := errors.AsType[*Error](err); ok {
 		return err
 	}
 	return errorf(ErrorInternal, "%s: %v", prefix, err)

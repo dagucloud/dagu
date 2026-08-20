@@ -105,8 +105,7 @@ func (a *API) ValidateDAGSpec(ctx context.Context, request api.ValidateDAGSpecRe
 	)
 
 	var errs []string
-	var loadErrs ir.ErrorList
-	if errors.As(err, &loadErrs) {
+	if loadErrs, ok := errors.AsType[ir.ErrorList](err); ok {
 		errs = loadErrs.ToStringList()
 	} else if err != nil {
 		// Unexpected fatal error
@@ -155,8 +154,7 @@ func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestO
 		)
 
 		if err != nil {
-			var verrs ir.ErrorList
-			if errors.As(err, &verrs) {
+			if verrs, ok := errors.AsType[ir.ErrorList](err); ok {
 				return nil, &Error{
 					HTTPStatus: http.StatusBadRequest,
 					Code:       api.ErrorCodeBadRequest,
@@ -255,8 +253,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 	}
 	var errs []string
 
-	var loadErrs ir.ErrorList
-	if errors.As(err, &loadErrs) {
+	if loadErrs, ok := errors.AsType[ir.ErrorList](err); ok {
 		errs = loadErrs.ToStringList()
 	} else if err != nil {
 		return nil, err
@@ -347,11 +344,10 @@ func (a *API) UpdateDAGSpec(ctx context.Context, request api.UpdateDAGSpecReques
 
 	err = a.dagRepository.UpdateSpec(ctx, request.FileName, []byte(request.Body.Spec))
 
-	var loadErrs ir.ErrorList
 	var errs []string
 
 	if err != nil {
-		if errors.As(err, &loadErrs) {
+		if loadErrs, ok := errors.AsType[ir.ErrorList](err); ok {
 			errs = loadErrs.ToStringList()
 		} else {
 			return nil, err
@@ -468,8 +464,7 @@ func (a *API) buildDAGRunHistoryResponse(
 func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsRequestObject) (api.GetDAGDetailsResponseObject, error) {
 	resp, err := a.getDAGDetailsData(ctx, request.FileName)
 	if err != nil {
-		var apiErr *Error
-		if errors.As(err, &apiErr) {
+		if apiErr, ok := errors.AsType[*Error](err); ok {
 			return nil, apiErr
 		}
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, persis.ErrDAGNotFound) {

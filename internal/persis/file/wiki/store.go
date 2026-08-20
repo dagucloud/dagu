@@ -214,8 +214,8 @@ func (s *Store) safePath(p string, id string) (string, error) {
 			if resolveErr != nil {
 				return "", fmt.Errorf("filewiki: cannot resolve path for id %q: %w", id, resolveErr)
 			}
-			for i := len(missing) - 1; i >= 0; i-- {
-				resolved = filepath.Join(resolved, missing[i])
+			for _, m := range slices.Backward(missing) {
+				resolved = filepath.Join(resolved, m)
 			}
 			if !pathWithinDir(resolvedBase, resolved) {
 				return "", fmt.Errorf("filewiki: path traversal detected for id %q", id)

@@ -16,7 +16,7 @@ type dollarEscapeToken struct {
 
 type dollarEscapeKey struct{}
 
-var dollarEscapeSeq uint64
+var dollarEscapeSeq atomic.Uint64
 
 // withDollarEscapes replaces \$ with sentinel tokens so Dagu expansion won't
 // treat them as variable prefixes. Only an unescaped backslash directly
@@ -91,13 +91,13 @@ func isEscapedDollar(input string, dollarIndex int) bool {
 func uniqueToken(input, base string) string {
 	const maxTokenAttempts = 1024
 	for range maxTokenAttempts {
-		id := atomic.AddUint64(&dollarEscapeSeq, 1)
+		id := dollarEscapeSeq.Add(1)
 		token := fmt.Sprintf("%s%d__", base, id)
 		if !strings.Contains(input, token) {
 			return token
 		}
 	}
 	// Fallback to ensure termination even if input is pathological.
-	id := atomic.AddUint64(&dollarEscapeSeq, 1)
+	id := dollarEscapeSeq.Add(1)
 	return fmt.Sprintf("%s%d__fallback__", base, id)
 }

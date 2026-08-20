@@ -355,9 +355,7 @@ func (cli *clientImpl) Metrics() Metrics {
 
 func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistry.HostInfo, callback func(ctx context.Context, member serviceregistry.HostInfo, client *client) error) error {
 	// Shuffle members to distribute load evenly
-	rand.Shuffle(len(members), func(i, j int) {
-		members[i], members[j] = members[j], members[i]
-	})
+	shuffleCoordinatorMembers(members)
 
 	// Try each coordinator in order (round-robin style)
 	var lastErr error
@@ -1136,9 +1134,7 @@ func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.Heartbe
 		return resp, heartbeatContextError(ctx, err)
 	}
 
-	rand.Shuffle(len(members), func(i, j int) {
-		members[i], members[j] = members[j], members[i]
-	})
+	shuffleCoordinatorMembers(members)
 
 	var lastErr error
 	for i := range members {
@@ -1323,9 +1319,7 @@ func openStreamWithFailover[T any](
 		return zero, err
 	}
 
-	rand.Shuffle(len(members), func(i, j int) {
-		members[i], members[j] = members[j], members[i]
-	})
+	shuffleCoordinatorMembers(members)
 
 	var lastErr error
 	for _, member := range members {
@@ -1356,6 +1350,13 @@ func openStreamWithFailover[T any](
 		lastErr = fmt.Errorf("no healthy coordinators available")
 	}
 	return zero, fmt.Errorf("failed to create %s stream: %w", streamType, lastErr)
+}
+
+func shuffleCoordinatorMembers(members []serviceregistry.HostInfo) {
+	//nolint:gosec // Coordinator ordering is not security-sensitive.
+	rand.Shuffle(len(members), func(i, j int) {
+		members[i], members[j] = members[j], members[i]
+	})
 }
 
 // GetDAGRunStatus retrieves the status of a DAG run from the coordinator.

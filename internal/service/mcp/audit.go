@@ -150,8 +150,7 @@ func logMCPAudit(ctx context.Context, api *frontendapi.API, action string, detai
 }
 
 func isAuthorizationFailure(err error) bool {
-	var apiErr *frontendapi.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*frontendapi.Error](err); ok {
 		return apiErr.HTTPStatus == http.StatusUnauthorized || apiErr.HTTPStatus == http.StatusForbidden
 	}
 	return false

@@ -678,8 +678,7 @@ func classifyChangeToolError(input changeInput, err error) *changeToolError {
 		out.WikiPageURI = wikiPageURI(input.Workspace, input.Path)
 	}
 
-	var apiErr *frontendapi.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*frontendapi.Error](err); ok {
 		out.Message = apiErr.Message
 		switch apiErr.HTTPStatus {
 		case http.StatusUnauthorized:

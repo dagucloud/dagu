@@ -749,8 +749,7 @@ func gitCommandError(err error, output []byte) error {
 }
 
 func gitExitCode(err error) int {
-	var exitErr *osExec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*osExec.ExitError](err); ok {
 		return exitErr.ExitCode()
 	}
 	return -1

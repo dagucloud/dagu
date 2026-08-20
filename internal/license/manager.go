@@ -385,8 +385,7 @@ func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
 		ClientVersion:   config.Version,
 	})
 	if err != nil {
-		var cloudErr *CloudError
-		if errors.As(err, &cloudErr) {
+		if cloudErr, ok := errors.AsType[*CloudError](err); ok {
 			switch cloudErr.StatusCode {
 			case 410: // Gone - license revoked
 				m.logger.Error("License has been revoked, clearing in-memory state")

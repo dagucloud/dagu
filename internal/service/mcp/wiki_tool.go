@@ -315,11 +315,12 @@ func (svc *Service) wikiPageNodes(ctx context.Context, workspace string) (map[st
 }
 
 func wikiPagePathNotFoundError() error {
-	return fmt.Errorf("%w: %w", errWikiPagePathNotFound, &frontendapi.Error{
+	apiErr := &frontendapi.Error{
 		Code:       daguapi.ErrorCodeNotFound,
 		Message:    "Wiki page not found",
 		HTTPStatus: http.StatusNotFound,
-	})
+	}
+	return fmt.Errorf("%w: %w", errWikiPagePathNotFound, apiErr)
 }
 
 func ensureWikiPagePathAvailable(nodes map[string]wikiPageNodeInfo, path string) error {

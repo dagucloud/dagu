@@ -107,8 +107,7 @@ func (r *awsSecretsManagerResolver) Resolve(ctx context.Context, ref secretref.R
 	}
 	output, err := client.GetSecretValue(ctx, input, options...)
 	if err != nil {
-		var notFound *types.ResourceNotFoundException
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*types.ResourceNotFoundException](err); ok {
 			return "", fmt.Errorf("AWS Secrets Manager secret %q was not found: %w", parsed.key, err)
 		}
 		return "", fmt.Errorf("failed to read AWS Secrets Manager secret %q: %w", parsed.key, err)

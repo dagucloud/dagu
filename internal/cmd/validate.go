@@ -311,8 +311,7 @@ func collectDeprecatedSyntaxWarnings(dag *ir.DAG) []string {
 func formatValidationErrors(file string, err error) string {
 	// Collect message strings
 	var msgs []string
-	var list ir.ErrorList
-	if errors.As(err, &list) {
+	if list, ok := errors.AsType[ir.ErrorList](err); ok {
 		msgs = list.ToStringList()
 	} else {
 		msgs = []string{err.Error()}

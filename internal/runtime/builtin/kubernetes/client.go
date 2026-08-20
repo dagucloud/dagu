@@ -200,12 +200,10 @@ func (c *Client) buildJob(stepName string, command []string) (*batchv1.Job, erro
 
 	// Build Job spec
 	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: namePrefix,
-			Namespace:    c.namespace,
-			Labels:       c.cfg.Labels,
-			Annotations:  c.cfg.Annotations,
-		},
+		GenerateName: namePrefix,
+		Namespace:    c.namespace,
+		Labels:       c.cfg.Labels,
+		Annotations:  c.cfg.Annotations,
 		Spec: batchv1.JobSpec{
 			BackoffLimit:     c.cfg.BackoffLimit,
 			PodFailurePolicy: podFailurePolicy,

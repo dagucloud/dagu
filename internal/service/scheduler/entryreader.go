@@ -271,11 +271,9 @@ func (er *entryReaderImpl) applyDAGFileSnapshot(ctx context.Context, fileName st
 	// If the DAG name changed, emit delete for the old name first
 	if oldDAGName != "" {
 		er.sendEvent(ctx, DAGChangeEvent{
-			Type: DAGChangeDeleted,
-			DAGEntry: DAGEntry{
-				DefinitionID: definitionIDForFile(fileName),
-				DAG:          oldDAG,
-			},
+			Type:         DAGChangeDeleted,
+			DefinitionID: definitionIDForFile(fileName),
+			DAG:          oldDAG,
 		})
 	}
 
@@ -284,11 +282,9 @@ func (er *entryReaderImpl) applyDAGFileSnapshot(ctx context.Context, fileName st
 		changeType = DAGChangeUpdated
 	}
 	er.sendEvent(ctx, DAGChangeEvent{
-		Type: changeType,
-		DAGEntry: DAGEntry{
-			DefinitionID: definitionIDForFile(fileName),
-			DAG:          dag,
-		},
+		Type:         changeType,
+		DefinitionID: definitionIDForFile(fileName),
+		DAG:          dag,
 	})
 }
 
@@ -302,11 +298,9 @@ func (er *entryReaderImpl) removeDAGFile(ctx context.Context, fileName string) {
 
 	if existed && dag != nil {
 		er.sendEvent(ctx, DAGChangeEvent{
-			Type: DAGChangeDeleted,
-			DAGEntry: DAGEntry{
-				DefinitionID: definitionIDForFile(fileName),
-				DAG:          dag,
-			},
+			Type:         DAGChangeDeleted,
+			DefinitionID: definitionIDForFile(fileName),
+			DAG:          dag,
 		})
 	}
 	logger.Info(ctx, "DAG removed", tag.Name(fileName))
@@ -502,11 +496,9 @@ func (er *entryReaderImpl) replaceRegistry(state registryState) []DAGChangeEvent
 		}
 		if oldDAG := er.registry[key]; oldDAG != nil {
 			events = append(events, DAGChangeEvent{
-				Type: DAGChangeDeleted,
-				DAGEntry: DAGEntry{
-					DefinitionID: definitionIDForFile(key),
-					DAG:          oldDAG,
-				},
+				Type:         DAGChangeDeleted,
+				DefinitionID: definitionIDForFile(key),
+				DAG:          oldDAG,
 			})
 		}
 	}
@@ -515,28 +507,24 @@ func (er *entryReaderImpl) replaceRegistry(state registryState) []DAGChangeEvent
 		oldDAG, existed := er.registry[key]
 		if !existed {
 			events = append(events, DAGChangeEvent{
-				Type: DAGChangeAdded,
-				DAGEntry: DAGEntry{
-					DefinitionID: definitionIDForFile(key),
-					DAG:          dag,
-				},
+				Type:         DAGChangeAdded,
+				DefinitionID: definitionIDForFile(key),
+				DAG:          dag,
 			})
 			continue
 		}
 		if oldDAG.Name != dag.Name {
 			events = append(events,
-				DAGChangeEvent{Type: DAGChangeDeleted, DAGEntry: DAGEntry{DefinitionID: definitionIDForFile(key), DAG: oldDAG}},
-				DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DefinitionID: definitionIDForFile(key), DAG: dag}},
+				DAGChangeEvent{Type: DAGChangeDeleted, DefinitionID: definitionIDForFile(key), DAG: oldDAG},
+				DAGChangeEvent{Type: DAGChangeAdded, DefinitionID: definitionIDForFile(key), DAG: dag},
 			)
 			continue
 		}
 		if er.stamps[key] != state.stamps[key] {
 			events = append(events, DAGChangeEvent{
-				Type: DAGChangeUpdated,
-				DAGEntry: DAGEntry{
-					DefinitionID: definitionIDForFile(key),
-					DAG:          dag,
-				},
+				Type:         DAGChangeUpdated,
+				DefinitionID: definitionIDForFile(key),
+				DAG:          dag,
 			})
 		}
 	}

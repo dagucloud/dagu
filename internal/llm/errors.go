@@ -153,8 +153,7 @@ func IsRetryable(err error) bool {
 	}
 
 	// Check for APIError
-	var apiErr *APIError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*APIError](err); ok {
 		return apiErr.Retryable
 	}
 
@@ -176,8 +175,7 @@ func IsAuthError(err error) bool {
 		return false
 	}
 
-	var apiErr *APIError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*APIError](err); ok {
 		return apiErr.StatusCode == 401 || apiErr.StatusCode == 403
 	}
 
@@ -190,8 +188,7 @@ func IsRateLimitError(err error) bool {
 		return false
 	}
 
-	var apiErr *APIError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*APIError](err); ok {
 		return apiErr.StatusCode == 429
 	}
 
@@ -205,8 +202,7 @@ func WrapError(provider string, err error) error {
 	}
 
 	// Don't double-wrap APIErrors
-	var apiErr *APIError
-	if errors.As(err, &apiErr) {
+	if _, ok := errors.AsType[*APIError](err); ok {
 		return err
 	}
 

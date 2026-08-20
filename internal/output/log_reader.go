@@ -172,8 +172,8 @@ func cleanLogLine(line string) []string {
 	if strings.Contains(line, "\r") {
 		segments := strings.Split(line, "\r")
 		// Get the last non-empty segment (the final state of the line)
-		for i := len(segments) - 1; i >= 0; i-- {
-			segment := strings.TrimRightFunc(segments[i], unicode.IsSpace)
+		for _, segment := range slices.Backward(segments) {
+			segment := strings.TrimRightFunc(segment, unicode.IsSpace)
 			if segment != "" {
 				return []string{cleanControlChars(segment)}
 			}

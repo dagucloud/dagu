@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -653,16 +654,16 @@ func (i *Installer) lockResources(ctx context.Context, paths tools.CacheLayout, 
 	for _, key := range keys {
 		unlock, err := i.lockResource(ctx, paths, kind, key)
 		if err != nil {
-			for idx := len(unlocks) - 1; idx >= 0; idx-- {
-				unlocks[idx]()
+			for _, unlock := range slices.Backward(unlocks) {
+				unlock()
 			}
 			return nil, err
 		}
 		unlocks = append(unlocks, unlock)
 	}
 	return func() {
-		for idx := len(unlocks) - 1; idx >= 0; idx-- {
-			unlocks[idx]()
+		for _, unlock := range slices.Backward(unlocks) {
+			unlock()
 		}
 	}, nil
 }

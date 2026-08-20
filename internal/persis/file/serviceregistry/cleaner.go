@@ -20,7 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
-var quarantineSeq uint64
+var quarantineSeq atomic.Uint64
 
 const (
 	quarantineMarker    = ".gc"
@@ -181,7 +181,7 @@ func (q *quarantine) shouldQuarantine(ctx context.Context, path string, observed
 
 // generateQuarantinePath creates a unique quarantine path for a file
 func (q *quarantine) generateQuarantinePath(path string) string {
-	return fmt.Sprintf("%s%s.%d.%d.%d", path, quarantineMarker, os.Getpid(), time.Now().UnixNano(), atomic.AddUint64(&quarantineSeq, 1))
+	return fmt.Sprintf("%s%s.%d.%d.%d", path, quarantineMarker, os.Getpid(), time.Now().UnixNano(), quarantineSeq.Add(1))
 }
 
 // isQuarantinedFile checks if a filename indicates it's quarantined

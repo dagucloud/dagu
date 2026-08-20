@@ -42,8 +42,7 @@ func humanTaskInputMiddlewareWithLimit(mountedAPIPath string, maxBodyBytes int64
 			raw, err := io.ReadAll(limitedBody)
 			_ = limitedBody.Close()
 			if err != nil {
-				var maxBytesErr *http.MaxBytesError
-				if errors.As(err, &maxBytesErr) {
+				if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 					WriteErrorResponse(w, &Error{
 						HTTPStatus: http.StatusRequestEntityTooLarge,
 						Code:       api.ErrorCodePayloadTooLarge,
@@ -194,8 +193,7 @@ func (a *API) humanTaskService() *humantask.Service {
 }
 
 func completeHumanTaskErrorResponse(ctx context.Context, err error) (api.CompleteHumanTaskResponseObject, error) {
-	var resumeErr *humantask.ResumeError
-	if errors.As(err, &resumeErr) {
+	if resumeErr, ok := errors.AsType[*humantask.ResumeError](err); ok {
 		logger.Error(ctx, "Failed to queue DAG-run after human-task completion",
 			tag.Error(resumeErr.Err),
 			tag.DAG(resumeErr.Result.DAGName),
@@ -228,8 +226,7 @@ func completeHumanTaskErrorResponse(ctx context.Context, err error) (api.Complet
 }
 
 func resumeHumanTaskErrorResponse(ctx context.Context, err error) (api.ResumeHumanTaskDAGRunResponseObject, error) {
-	var resumeErr *humantask.ResumeError
-	if errors.As(err, &resumeErr) {
+	if resumeErr, ok := errors.AsType[*humantask.ResumeError](err); ok {
 		logger.Error(ctx, "Failed to queue human-task DAG-run resume",
 			tag.Error(resumeErr.Err),
 			tag.DAG(resumeErr.Result.DAGName),
@@ -274,8 +271,7 @@ func (a *API) logHumanTaskCompletion(
 	}
 	if err != nil {
 		details["outcome"] = "failed"
-		var resumeErr *humantask.ResumeError
-		if errors.As(err, &resumeErr) {
+		if _, ok := errors.AsType[*humantask.ResumeError](err); ok {
 			details["outcome"] = "completion_stored_resume_pending"
 		}
 	}

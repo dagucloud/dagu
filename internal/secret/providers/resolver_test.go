@@ -336,14 +336,14 @@ func TestRegistry_Close(t *testing.T) {
 	closed := 0
 	registry := &Registry{resolvers: map[string]Resolver{
 		"one": &mockClosableResolver{
-			mockResolver: mockResolver{mockName: "one"},
+			mockName: "one",
 			closeFunc: func() error {
 				closed++
 				return errOne
 			},
 		},
 		"two": &mockClosableResolver{
-			mockResolver: mockResolver{mockName: "two"},
+			mockName: "two",
 			closeFunc: func() error {
 				closed++
 				return errTwo

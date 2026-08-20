@@ -116,7 +116,7 @@ Distributed mode: Scheduler → Queue → dispatch policy → Coordinator (gRPC)
 
 ## Tech Stack Summary
 
-- **Go 1.26**, chi router, Cobra CLI, gRPC, goccy/go-yaml
+- **Go 1.27**, chi router, Cobra CLI, gRPC, goccy/go-yaml
 - SQLite (modernc) and pgx appear only as `sql` step-executor drivers — the OSS control plane is file-based, no SQL database
 - **Frontend**: React 19, TypeScript, pnpm, Webpack 5, Tailwind CSS 4, Vitest, Playwright
 - **Linting**: golangci-lint v2 (errcheck, govet, staticcheck, gosec, revive, etc.)
