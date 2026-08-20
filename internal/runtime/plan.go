@@ -33,12 +33,18 @@ type Plan struct {
 	nodeByID      map[int]*Node
 	nodeByName    map[string]*Node
 	inferredEdges map[[2]int]struct{}
+	stepRetry     *stepRetrySelection
 
 	// Adjacency lists (immutable after planning; exposed for unit tests)
 	DependencyMap map[int][]int // node ID -> list of dependency node IDs (upstream)
 	DependantMap  map[int][]int // node ID -> list of dependent node IDs (downstream)
 
 	mu sync.RWMutex
+}
+
+type stepRetrySelection struct {
+	targetID int
+	resetIDs map[int]struct{}
 }
 
 // NewPlan creates a new execution plan from the given steps.
@@ -173,37 +179,45 @@ func CreateStepRetryPlanWithOptions(dag *ir.DAG, nodes []*Node, stepName string,
 	if targetNode == nil {
 		return nil, fmt.Errorf("%w: %s", ErrMissingNode, stepName)
 	}
-	if err := resetStepRetryNode(targetNode, steps, targetNode.State().Status == ir.NodeRetrying); err != nil {
-		return nil, err
-	}
+	resetStepRetryNode(targetNode, targetNode.State().Status == ir.NodeRetrying)
 
 	if opts.IncludeDownstream {
-		resetIDs := map[int]struct{}{targetNode.id: {}}
-		for _, node := range p.reachableDescendants(targetNode) {
-			resetIDs[node.id] = struct{}{}
-			if err := resetStepRetryNode(node, steps, false); err != nil {
-				return nil, err
-			}
+		p.stepRetry = &stepRetrySelection{
+			targetID: targetNode.id,
+			resetIDs: map[int]struct{}{targetNode.id: {}},
 		}
-		p.markSkippedSidePrerequisites(resetIDs)
+		p.expandStepRetrySelection()
 	}
 
 	return p, nil
 }
 
-func resetStepRetryNode(node *Node, steps map[string]ir.Step, preserveRetryBudget bool) error {
-	step, err := retryStepForNode(node, steps)
-	if err != nil {
-		return err
-	}
-
+func resetStepRetryNode(node *Node, preserveRetryBudget bool) {
 	retryCount := node.GetRetryCount()
-	clearNodeForRetry(node, step)
+	clearNodeForRetry(node, node.Step())
 	node.SetRetryCount(retryCount)
 	if !preserveRetryBudget {
 		node.retryPolicy = RetryPolicy{} // manual step retries start with a fresh retry budget
 	}
-	return nil
+}
+
+func (p *Plan) expandStepRetrySelection() {
+	if p.stepRetry == nil {
+		return
+	}
+	for _, node := range p.reachableDescendants(p.nodeByID[p.stepRetry.targetID]) {
+		if _, reset := p.stepRetry.resetIDs[node.id]; reset {
+			continue
+		}
+		resetStepRetryNode(node, false)
+		p.stepRetry.resetIDs[node.id] = struct{}{}
+	}
+	p.markSkippedSidePrerequisites(p.stepRetry.resetIDs)
+}
+
+func (p *Plan) finalizeStepRetrySelection() {
+	p.expandStepRetrySelection()
+	p.stepRetry = nil
 }
 
 // reachableDescendants returns nodes reachable from the given node through

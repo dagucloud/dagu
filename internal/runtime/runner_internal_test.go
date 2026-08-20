@@ -193,6 +193,58 @@ func TestPrepareBuildPlanInfersFileDependency(t *testing.T) {
 	assert.Equal(t, producerNode.Step().Outputs[0].Path, consumerNode.Step().Inputs[0].Path)
 }
 
+func TestRunner_StepRetryWithDownstreamIncludesInferredBuildDescendant(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	producer := ir.Step{
+		ID:       "producer",
+		Name:     "producer",
+		Commands: []ir.CommandEntry{{Command: "echo", Args: []string{"producer"}}},
+		Outputs:  []ir.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
+	}
+	consumer := ir.Step{
+		ID:       "consumer",
+		Name:     "consumer",
+		Commands: []ir.CommandEntry{{Command: "echo", Args: []string{"consumer"}}},
+		Inputs:   []ir.StepInputDeclaration{{Name: "artifact", Path: "artifact.txt"}},
+	}
+	dag := &ir.DAG{
+		Name:               "build-test",
+		Type:               ir.TypeBuild,
+		WorkingDir:         workingDir,
+		WorkingDirExplicit: true,
+		Steps:              []ir.Step{producer, consumer},
+	}
+	nodes := []*Node{
+		NodeWithData(NodeData{Step: producer, State: NodeState{Status: ir.NodeSucceeded}}),
+		NodeWithData(NodeData{Step: consumer, State: NodeState{Status: ir.NodeSucceeded}}),
+	}
+	plan, err := CreateStepRetryPlanWithOptions(dag, nodes, producer.Name, StepRetryPlanOptions{
+		IncludeDownstream: true,
+	})
+	require.NoError(t, err)
+
+	runner := New(&Config{
+		DAGRunID:             "run-1",
+		Dry:                  true,
+		NoReuse:              true,
+		MaterializationStore: filematerialization.New(filepath.Join(t.TempDir(), "materializations")),
+	})
+	ctx := NewContext(
+		context.Background(),
+		dag,
+		"run-1",
+		filepath.Join(workingDir, "dag.log"),
+		WithAttemptID("attempt-1"),
+	)
+	require.NoError(t, runner.Run(ctx, plan, nil))
+
+	consumerBuild := plan.GetNodeByName(consumer.Name).State().Build
+	require.NotNil(t, consumerBuild)
+	assert.Equal(t, ir.BuildDecisionDeferred, consumerBuild.Decision)
+}
+
 func TestPrepareBuildPlanRejectsRedirectAlias(t *testing.T) {
 	t.Parallel()
 

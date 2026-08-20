@@ -150,6 +150,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 	if err := prepareBuildPlan(ctx, plan); err != nil {
 		return err
 	}
+	plan.finalizeStepRetrySelection()
 	r.resetRunState(plan)
 
 	// Create a cancellable context for the entire execution
