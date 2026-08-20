@@ -411,6 +411,30 @@ func TestRunnerCancelRequestsDispatcherCancel(t *testing.T) {
 	assert.Equal(t, root, *cancel.root)
 }
 
+func TestRunnerCleanupDispatcherOwnership(t *testing.T) {
+	t.Parallel()
+
+	t.Run("owned dispatcher", func(t *testing.T) {
+		dispatcher := &mockDispatcher{}
+		runner := subflow.New(dispatcher, config.ExecutionModeDistributed)
+
+		require.NoError(t, runner.Cleanup(context.Background()))
+		assert.Equal(t, 1, dispatcher.cleanupCalls)
+	})
+
+	t.Run("caller-owned dispatcher", func(t *testing.T) {
+		dispatcher := &mockDispatcher{}
+		runner := subflow.New(
+			dispatcher,
+			config.ExecutionModeDistributed,
+			subflow.WithoutDispatcherCleanup(),
+		)
+
+		require.NoError(t, runner.Cleanup(context.Background()))
+		assert.Zero(t, dispatcher.cleanupCalls)
+	})
+}
+
 func newFastRunner(dispatcher dispatch.Dispatcher) *subflow.Runner {
 	return subflow.New(
 		dispatcher,
@@ -421,9 +445,10 @@ func newFastRunner(dispatcher dispatch.Dispatcher) *subflow.Runner {
 }
 
 type mockDispatcher struct {
-	dispatches []*dispatch.DispatchTask
-	statuses   []*dispatch.DAGRunStatusResult
-	cancels    []cancelRequest
+	dispatches   []*dispatch.DispatchTask
+	statuses     []*dispatch.DAGRunStatusResult
+	cancels      []cancelRequest
+	cleanupCalls int
 }
 
 type cancelRequest struct {
@@ -438,6 +463,7 @@ func (m *mockDispatcher) Dispatch(_ context.Context, req dispatch.DispatchReques
 }
 
 func (m *mockDispatcher) Cleanup(context.Context) error {
+	m.cleanupCalls++
 	return nil
 }
 

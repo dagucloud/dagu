@@ -48,6 +48,7 @@ var _ executor.SubWorkflowRunner = (*Runner)(nil)
 // Runner executes child workflows through Dagu's distributed coordinator.
 type Runner struct {
 	dispatcher           dispatch.Dispatcher
+	cleanupDispatcher    bool
 	defaultMode          config.ExecutionMode
 	pollInterval         time.Duration
 	logInterval          time.Duration
@@ -79,10 +80,18 @@ func WithCancellationTimeout(timeout time.Duration) Option {
 	}
 }
 
+// WithoutDispatcherCleanup marks the dispatcher as caller-owned.
+func WithoutDispatcherCleanup() Option {
+	return func(r *Runner) {
+		r.cleanupDispatcher = false
+	}
+}
+
 // New creates a coordinator-backed child workflow runner.
 func New(dispatcher dispatch.Dispatcher, defaultMode config.ExecutionMode, opts ...Option) *Runner {
 	r := &Runner{
 		dispatcher:           dispatcher,
+		cleanupDispatcher:    true,
 		defaultMode:          defaultMode,
 		pollInterval:         defaultPollInterval,
 		logInterval:          defaultLogInterval,
@@ -203,7 +212,7 @@ func (r *Runner) Cancel(ctx context.Context, req executor.SubWorkflowCancelReque
 
 // Cleanup releases resources held by the underlying dispatcher.
 func (r *Runner) Cleanup(ctx context.Context) error {
-	if r == nil || r.dispatcher == nil {
+	if r == nil || r.dispatcher == nil || !r.cleanupDispatcher {
 		return nil
 	}
 	return r.dispatcher.Cleanup(ctx)

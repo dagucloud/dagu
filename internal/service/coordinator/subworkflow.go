@@ -24,6 +24,7 @@ import (
 
 // SubWorkflowRunnerConfig contains dependencies for child workflow execution.
 type SubWorkflowRunnerConfig struct {
+	// Dispatcher is caller-owned and remains live after a child runner is cleaned up.
 	Dispatcher        dispatch.Dispatcher
 	DAGRunMgr         runtime.Manager
 	DAGRepository     *persis.DAGRepository
@@ -50,15 +51,18 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 	var factory func(context.Context) (runtimeexec.SubWorkflowRunner, error)
 	factory = func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 		dispatcher := cfg.Dispatcher
+		var runnerOpts []subflow.Option
 		if dispatcher == nil {
 			var err error
 			dispatcher, err = NewRuntimeDispatcher(cfg.ServiceRegistry, cfg.PeerConfig)
 			if err != nil {
 				return nil, err
 			}
+		} else {
+			runnerOpts = append(runnerOpts, subflow.WithoutDispatcherCleanup())
 		}
 		return subflow.NewRouter(
-			subflow.New(dispatcher, cfg.DefaultExecMode),
+			subflow.New(dispatcher, cfg.DefaultExecMode, runnerOpts...),
 			subflow.NewLocal(
 				cfg.DAGRunMgr,
 				cfg.DAGRepository,
