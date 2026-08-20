@@ -509,7 +509,12 @@ func TestServerIPAccessProtectsAllRoutes(t *testing.T) {
 		}
 	})
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Close each connection with its response so server cleanup does not wait
+	// on an unrelated idle connection from this routing-policy test.
+	client := &http.Client{
+		Transport: &http.Transport{DisableKeepAlives: true},
+		Timeout:   5 * time.Second,
+	}
 
 	// The listener is bound before Serve runs, so a connection is accepted by
 	// the kernel backlog while the serving goroutine may not have reached its
