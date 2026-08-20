@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -536,6 +537,203 @@ func createTestStatus(st ir.Status) ir.DAGRunStatus {
 		PID:       ir.PID(12345),
 		StartedAt: stringutil.FormatTime(time.Now()),
 		Nodes:     ir.NewNodesFromSteps(dag.Steps),
+	}
+}
+
+func BenchmarkDAGRunJSON(b *testing.B) {
+	fixture := createDAGRunJSONBenchmarkData()
+	cases := []struct {
+		name      string
+		value     any
+		newTarget func() any
+	}{
+		{
+			name:      "Status",
+			value:     fixture.status,
+			newTarget: func() any { return new(ir.DAGRunStatus) },
+		},
+		{
+			name:      "DAG",
+			value:     fixture.dag,
+			newTarget: func() any { return new(ir.DAG) },
+		},
+		{
+			name:      "Outputs",
+			value:     fixture.outputs,
+			newTarget: func() any { return new(ir.DAGRunOutputs) },
+		},
+		{
+			name:      "StepMessages",
+			value:     fixture.messages,
+			newTarget: func() any { return new([]ir.LLMMessage) },
+		},
+		{
+			name: "RetryCandidate",
+			value: retryCandidateFile{
+				RunTimestampUnix: 1784505600,
+				Status:           retryCandidateStatus(fixture.status),
+			},
+			newTarget: func() any { return new(retryCandidateFile) },
+		},
+		{
+			name: "LatestAttemptPointer",
+			value: latestAttemptPointer{
+				StatusFile: "2026/07/20/dag-run_20260720_000000Z_run-benchmark/attempt_20260720_000000_000Z_000001/status.jsonl",
+			},
+			newTarget: func() any { return new(latestAttemptPointer) },
+		},
+		{
+			name: "QueryCursor",
+			value: queryCursorPayload{
+				Version:    queryCursorVersion,
+				FilterHash: "267ea072a7c8443529ba567a1c54282bf75c77c10f35f255fd6cb2f63eb323f3",
+				Timestamp:  "2026-07-20T00:00:00.123456789Z",
+				Name:       "benchmark-dag",
+				DAGRunID:   "run-benchmark",
+			},
+			newTarget: func() any { return new(queryCursorPayload) },
+		},
+	}
+
+	for _, tc := range cases {
+		data, err := json.Marshal(tc.value)
+		require.NoError(b, err)
+
+		b.Run(tc.name+"/Marshal", func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(data)))
+			for range b.N {
+				if _, err := json.Marshal(tc.value); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+
+		b.Run(tc.name+"/Unmarshal", func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(data)))
+			for range b.N {
+				if err := json.Unmarshal(data, tc.newTarget()); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+type dagRunJSONBenchmarkData struct {
+	dag      *ir.DAG
+	status   ir.DAGRunStatus
+	outputs  *ir.DAGRunOutputs
+	messages []ir.LLMMessage
+}
+
+func createDAGRunJSONBenchmarkData() dagRunJSONBenchmarkData {
+	const stepCount = 50
+
+	dag := createTestDAG()
+	dag.Name = "benchmark-dag"
+	dag.Description = "Representative workflow used to measure persisted DAG-run JSON encoding."
+	dag.DefaultParams = `{"environment":"production","region":"ap-northeast-1"}`
+	dag.PresolvedBuildEnv = map[string]string{
+		"DAGU_ENV":    "production",
+		"DAGU_REGION": "ap-northeast-1",
+	}
+	dag.Steps = make([]ir.Step, stepCount)
+	for i := range stepCount {
+		name := fmt.Sprintf("step-%02d", i+1)
+		step := ir.Step{
+			ID:          name,
+			Name:        name,
+			Description: "Process one stage of the benchmark workflow.",
+			Command:     fmt.Sprintf("process --stage=%d --input=${INPUT_FILE}", i+1),
+			Env: []string{
+				fmt.Sprintf("STAGE=%d", i+1),
+				"INPUT_FILE=/var/lib/dagu/input.json",
+			},
+			Output:  "RESULT",
+			Timeout: 5 * time.Minute,
+		}
+		if i > 0 {
+			step.Depends = []string{dag.Steps[i-1].Name}
+		}
+		dag.Steps[i] = step
+	}
+
+	messages := make([]ir.LLMMessage, 0, 16)
+	for i := range 8 {
+		messages = append(messages,
+			ir.LLMMessage{
+				Role:    ir.LLMRoleUser,
+				Content: fmt.Sprintf("Inspect workflow stage %d and summarize its output.", i+1),
+			},
+			ir.LLMMessage{
+				Role:    ir.LLMRoleAssistant,
+				Content: fmt.Sprintf("Stage %d completed successfully with validated output.", i+1),
+				Metadata: &ir.LLMMessageMetadata{
+					Provider:         "openai",
+					Model:            "benchmark-model",
+					PromptTokens:     1200 + i,
+					CompletionTokens: 180 + i,
+					TotalTokens:      1380 + 2*i,
+					Cost:             0.0123,
+				},
+			},
+		)
+	}
+
+	status := ir.InitialStatus(dag)
+	status.DAGRunID = "run-benchmark"
+	status.AttemptID = "attempt-benchmark"
+	status.AttemptKey = "benchmark-dag:run-benchmark:attempt-benchmark"
+	status.Status = ir.Succeeded
+	status.TriggerType = ir.TriggerTypeScheduler
+	status.TriggerActor = "scheduler"
+	status.WorkerID = "worker-01"
+	status.PID = ir.PID(12345)
+	status.PIDStartedAt = 1784505600000
+	status.CreatedAt = 1784505600000
+	status.QueuedAt = "2026-07-20T00:00:00Z"
+	status.StartedAt = "2026-07-20T00:00:01Z"
+	status.FinishedAt = "2026-07-20T00:02:31Z"
+	status.WorkingDir = "/var/lib/dagu/benchmark-dag"
+	status.Params = `environment=production region=ap-northeast-1`
+	status.ParamsList = []string{"environment=production", "region=ap-northeast-1"}
+	status.Labels = []string{"environment=production", "team=platform"}
+	for i, node := range status.Nodes {
+		node.Status = ir.NodeSucceeded
+		node.Stdout = fmt.Sprintf("/var/log/dagu/benchmark-dag/step-%02d.out", i+1)
+		node.Stderr = fmt.Sprintf("/var/log/dagu/benchmark-dag/step-%02d.err", i+1)
+		node.StartedAt = "2026-07-20T00:00:01Z"
+		node.FinishedAt = "2026-07-20T00:00:04Z"
+		output := fmt.Sprintf(`{"stage":%d,"status":"succeeded"}`, i+1)
+		node.OutputValue = &output
+		if i == len(status.Nodes)-1 {
+			node.ChatMessages = messages
+		}
+	}
+
+	outputValues := make(map[string]string, stepCount)
+	for i := range stepCount {
+		outputValues[fmt.Sprintf("step_%02d", i+1)] = fmt.Sprintf("result-%02d", i+1)
+	}
+	outputs := &ir.DAGRunOutputs{
+		Metadata: ir.OutputsMetadata{
+			DAGName:     dag.Name,
+			DAGRunID:    status.DAGRunID,
+			AttemptID:   status.AttemptID,
+			Status:      status.Status.String(),
+			CompletedAt: status.FinishedAt,
+			Params:      status.Params,
+		},
+		Outputs: outputValues,
+	}
+
+	return dagRunJSONBenchmarkData{
+		dag:      dag,
+		status:   status,
+		outputs:  outputs,
+		messages: messages,
 	}
 }
 
