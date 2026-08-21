@@ -786,6 +786,25 @@ steps:
 
 Connection fields: `region`, `endpoint`, `access_key_id`, `secret_access_key`, `session_token`, `profile`, `force_path_style`.
 
+Custom endpoints may include a path prefix. Dagu preserves the prefix when constructing and signing S3 requests. For example, Supabase can be configured at the DAG level:
+
+```yaml
+s3:
+  endpoint: "${SUPABASE_API_URL}/storage/v1/s3"
+  region: "${SUPABASE_S3_REGION}"
+  access_key_id: "${SUPABASE_S3_ACCESS_KEY_ID}"
+  secret_access_key: "${SUPABASE_S3_SECRET_ACCESS_KEY}"
+  force_path_style: true
+
+steps:
+  - id: upload
+    action: s3.upload
+    with:
+      bucket: reports
+      key: daily/output.csv
+      source: /local/output.csv
+```
+
 ## mail.send
 
 Send email.
