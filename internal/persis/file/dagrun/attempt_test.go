@@ -611,9 +611,10 @@ func BenchmarkDAGRunJSON(b *testing.B) {
 		data = bytes.Clone(data)
 
 		b.Run(tc.name+"/Encode", func(b *testing.B) {
+			encoder := newEncoder()
+			b.ResetTimer()
 			b.ReportAllocs()
 			b.SetBytes(int64(len(data)))
-			encoder := newEncoder()
 			for range b.N {
 				if _, err := encoder(tc.value); err != nil {
 					b.Fatal(err)
