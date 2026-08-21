@@ -37,6 +37,7 @@ It must not be treated as product behavior until implementation catches up.
 | [032: Agent DAGs](032-agent-dag.md) | Implemented |
 | [033: Build Workflows](033-build-workflows.md) | Implemented |
 | [034: Wiki Page File Format](034-wiki-page-format.md) | Implemented |
+| [035: File Dependencies](035-file-dependencies.md) | Implemented |
 
 **Writing guidelines:**
 

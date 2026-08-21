@@ -2278,6 +2278,19 @@ func TestDAGSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
 	require.Equal(t, string(DAGSchemaJSON), string(repoSchemaJSON))
 }
 
+func TestDAGSchemaAcceptsFileDependencies(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+	for _, spec := range []string{
+		"steps:\n  - run: echo scalar\n    dependencies: scripts/run.sh\n",
+		"steps:\n  - run: echo array\n    dependencies: [scripts/**, config/app.yaml]\n",
+	} {
+		doc := mustParseYAMLDocument(t, spec)
+		require.NoError(t, resolved.Validate(doc))
+	}
+}
+
 func TestDAGSchemaRequiresIDForBuildDeclarations(t *testing.T) {
 	t.Parallel()
 

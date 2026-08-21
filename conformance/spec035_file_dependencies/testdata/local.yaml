@@ -1,0 +1,13 @@
+name: local-file-dependencies
+
+steps:
+  - id: scalar
+    run: test ! -e missing-scalar.txt
+    dependencies: missing-scalar.txt
+
+  - id: array
+    depends: scalar
+    run: test ! -e missing-array.txt
+    dependencies:
+      - missing-array.txt
+      - missing-dir/**

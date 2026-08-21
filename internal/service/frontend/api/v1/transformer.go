@@ -132,6 +132,9 @@ func toStep(obj ir.Step) api.Step {
 		}
 		step.Inputs = &inputs
 	}
+	if len(obj.Dependencies) > 0 {
+		step.Dependencies = ptrOf(obj.Dependencies)
+	}
 	if len(obj.Outputs) > 0 {
 		outputs := make([]api.StepOutputDeclaration, len(obj.Outputs))
 		for i, output := range obj.Outputs {

@@ -5422,6 +5422,8 @@ export interface components {
             outputs?: components["schemas"]["StepOutputDeclaration"][];
             /** @description Named regular-file inputs used for build fingerprints and inferred dependencies. Steps that declare inputs must also define id. */
             inputs?: components["schemas"]["StepInputDeclaration"][];
+            /** @description DAG-local files, directories, or glob patterns to snapshot for distributed execution */
+            dependencies?: string[];
             /** @description The name of the DAG to execute as a sub DAG-run */
             call?: string;
             /** @description Parameters to pass to the sub DAG-run in JSON format */

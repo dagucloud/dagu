@@ -544,10 +544,11 @@ func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 		NoReuse:  true,
 		Nodes: []*ir.Node{{
 			Step: ir.Step{
-				ID:      "build",
-				Name:    "build",
-				Inputs:  []ir.StepInputDeclaration{{Name: "source", Path: "/data/source.txt"}},
-				Outputs: []ir.StepOutputDeclaration{{Name: "artifact", Path: "/data/artifact.txt"}},
+				ID:           "build",
+				Name:         "build",
+				Inputs:       []ir.StepInputDeclaration{{Name: "source", Path: "/data/source.txt"}},
+				Outputs:      []ir.StepOutputDeclaration{{Name: "artifact", Path: "/data/artifact.txt"}},
+				Dependencies: []string{"scripts/**", "config/app.yaml"},
 			},
 			Status: ir.NodeSucceeded,
 			Build: &ir.BuildExecution{
@@ -569,6 +570,8 @@ func TestToDAGRunDetailsIncludesBuildMetadata(t *testing.T) {
 	assert.Equal(t, "run-1", *details.Nodes[0].Build.ProducerRun.Id)
 	require.NotNil(t, details.Nodes[0].Step.Inputs)
 	assert.Equal(t, "/data/source.txt", (*details.Nodes[0].Step.Inputs)[0].Path)
+	require.NotNil(t, details.Nodes[0].Step.Dependencies)
+	assert.Equal(t, []string{"scripts/**", "config/app.yaml"}, *details.Nodes[0].Step.Dependencies)
 	require.NotNil(t, details.Nodes[0].Step.Outputs)
 	require.NotNil(t, (*details.Nodes[0].Step.Outputs)[0].Path)
 	assert.Equal(t, "/data/artifact.txt", *(*details.Nodes[0].Step.Outputs)[0].Path)

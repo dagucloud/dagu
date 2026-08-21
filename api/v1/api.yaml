@@ -13583,6 +13583,12 @@ components:
           description: "Named regular-file inputs used for build fingerprints and inferred dependencies. Steps that declare inputs must also define id."
           items:
             $ref: "#/components/schemas/StepInputDeclaration"
+        dependencies:
+          type: array
+          minItems: 1
+          description: "DAG-local files, directories, or glob patterns to snapshot for distributed execution"
+          items:
+            type: string
         call:
           type: string
           description: "The name of the DAG to execute as a sub DAG-run"

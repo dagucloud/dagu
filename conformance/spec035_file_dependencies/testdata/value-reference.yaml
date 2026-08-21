@@ -1,0 +1,7 @@
+params:
+  file: input.txt
+
+steps:
+  - id: invalid
+    run: echo invalid
+    dependencies: ${params.file}
