@@ -52,6 +52,18 @@ func ValidateSteps(dag *ir.DAG) error {
 		errs = append(errs, validateStep(step)...)
 		validateForeachConfig(step, stepNames, stepIDs, &errs)
 	}
+	for _, handler := range []*ir.Step{
+		dag.HandlerOn.Init,
+		dag.HandlerOn.Failure,
+		dag.HandlerOn.Success,
+		dag.HandlerOn.Abort,
+		dag.HandlerOn.Exit,
+		dag.HandlerOn.Wait,
+	} {
+		if handler != nil {
+			errs = append(errs, validateFileDependencies(*handler)...)
+		}
+	}
 
 	if len(errs) == 0 {
 		return nil
@@ -460,12 +472,7 @@ func validateStep(step ir.Step) ir.ErrorList {
 		}
 	}
 
-	for _, dependency := range step.Dependencies {
-		if cmnvalue.HasValueReference(dependency) {
-			errs = append(errs, ir.NewValidationError("dependencies", dependency,
-				fmt.Errorf("file dependency paths must be literal")))
-		}
-	}
+	errs = append(errs, validateFileDependencies(step)...)
 
 	errs = append(errs, validateParallelConfig(step)...)
 
@@ -473,6 +480,17 @@ func validateStep(step ir.Step) ir.ErrorList {
 		errs = append(errs, err)
 	}
 
+	return errs
+}
+
+func validateFileDependencies(step ir.Step) ir.ErrorList {
+	var errs ir.ErrorList
+	for _, dependency := range step.Dependencies {
+		if cmnvalue.HasValueReference(dependency) {
+			errs = append(errs, ir.NewValidationError("dependencies", dependency,
+				fmt.Errorf("file dependency paths must be literal")))
+		}
+	}
 	return errs
 }
 

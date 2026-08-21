@@ -57,6 +57,27 @@ func TestPackDirectorySelectsDependenciesAndInjectsDAGSnapshot(t *testing.T) {
 	assert.Equal(t, dagData, actualDAG)
 }
 
+func TestPackDirectorySelectedFilesIncludeDAGFromDisk(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "dag.yaml"), []byte("steps: []\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "dependency.txt"), []byte("dependency"), 0o644))
+
+	desc, data, err := PackDirectory(root, PackOptions{
+		DAGPath:  "dag.yaml",
+		Includes: []string{"dependency.txt"},
+	})
+	require.NoError(t, err)
+
+	dest := filepath.Join(t.TempDir(), "workspace")
+	require.NoError(t, Extract(data, dest, *desc, DefaultLimits()))
+
+	actualDAG, err := os.ReadFile(filepath.Join(dest, "dag.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, "steps: []\n", string(actualDAG))
+}
+
 func TestPackDirectoryRejectsInvalidDependencies(t *testing.T) {
 	t.Parallel()
 

@@ -113,11 +113,9 @@ func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if opts.DAGData != nil {
-		files = appendUniquePath(files, dagPath)
-		if len(files) > limits.MaxFiles {
-			return nil, nil, fmt.Errorf("workspace bundle exceeds file count limit %d", limits.MaxFiles)
-		}
+	files = appendUniquePath(files, dagPath)
+	if len(files) > limits.MaxFiles {
+		return nil, nil, fmt.Errorf("workspace bundle exceeds file count limit %d", limits.MaxFiles)
 	}
 
 	var buf bytes.Buffer

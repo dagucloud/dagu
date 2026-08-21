@@ -2433,16 +2433,46 @@ steps:
 func TestLoadStepFileDependenciesRejectsValueReferences(t *testing.T) {
 	t.Parallel()
 
-	_, err := spec.LoadYAML(context.Background(), []byte(`
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "Step",
+			yaml: `
 params:
   script: backup.sh
 steps:
   - name: backup
     run: echo backup
     dependencies: ./scripts/${params.script}
-`))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "dependencies")
+`,
+		},
+		{
+			name: "LifecycleHandler",
+			yaml: `
+params:
+  script: cleanup.sh
+handler_on:
+  success:
+    run: echo success
+    dependencies: ./scripts/${params.script}
+steps:
+  - name: backup
+    run: echo backup
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "dependencies")
+		})
+	}
 }
 
 func TestLoadWithLoaderOptions(t *testing.T) {
