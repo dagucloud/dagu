@@ -15,4 +15,6 @@ docker build -f Dockerfile.alpine -t dagu:alpine .
 docker compose -f deploy/docker/compose.minimal.yaml up -d
 ```
 
+The standard Ubuntu image includes `curl` for shell-based HTTP requests. The Alpine image remains minimal, while the development image includes the broader build and language toolchain.
+
 The Compose stacks mount `deploy/docker/dags/` read-write so Dagu can seed first-run examples and save DAG edits. Add `:ro` to that mount only when using immutable DAG sources.

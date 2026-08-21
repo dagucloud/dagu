@@ -71,6 +71,7 @@ RUN set -eux; \
       sudo \
       tini \
       tzdata \
+      curl \
       jq \
       && break; \
       if [ "$attempt" = 5 ]; then exit 1; fi; \
