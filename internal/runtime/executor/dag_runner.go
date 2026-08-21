@@ -63,6 +63,8 @@ type SubDAGExecutor struct {
 	externalStepRetry bool
 }
 
+// WorkspaceSeed contains workspace contents shared across a DAG-run hierarchy.
+// The seed and its archive must not be mutated after being passed to an executor.
 type WorkspaceSeed struct {
 	Descriptor workspacebundle.Descriptor
 	Archive    []byte
@@ -147,10 +149,7 @@ func (e *SubDAGExecutor) SetWorkerSelector(selector map[string]string) {
 }
 
 func (e *SubDAGExecutor) SetWorkspaceSeed(seed WorkspaceSeed) {
-	e.workspaceSeed = &WorkspaceSeed{
-		Descriptor: seed.Descriptor,
-		Archive:    append([]byte(nil), seed.Archive...),
-	}
+	e.workspaceSeed = &seed
 }
 
 func (e *SubDAGExecutor) effectiveWorkerSelector() map[string]string {

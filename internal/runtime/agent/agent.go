@@ -422,7 +422,7 @@ func New(
 		registry:                 opts.ServiceRegistry,
 		extraEnvs:                append([]string{}, opts.ExtraEnvs...),
 		workDir:                  opts.WorkDir,
-		workspaceSeed:            cloneWorkspaceSeed(opts.WorkspaceSeed),
+		workspaceSeed:            opts.WorkspaceSeed,
 		profileName:              opts.ProfileName,
 		definitionID:             opts.DAGDefinitionID,
 		stepRetry:                opts.StepRetry,
@@ -1198,16 +1198,6 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 
 	// Return the last error on the dag-run.
 	return lastErr
-}
-
-func cloneWorkspaceSeed(seed *runtimeexec.WorkspaceSeed) *runtimeexec.WorkspaceSeed {
-	if seed == nil {
-		return nil
-	}
-	return &runtimeexec.WorkspaceSeed{
-		Descriptor: seed.Descriptor,
-		Archive:    append([]byte(nil), seed.Archive...),
-	}
 }
 
 func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {

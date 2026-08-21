@@ -17,7 +17,6 @@ type workspaceSeedKey struct{}
 
 // WithWorkspaceSeed carries an immutable workspace through inline child workflows.
 func WithWorkspaceSeed(ctx context.Context, seed WorkspaceSeed) context.Context {
-	seed.Archive = append([]byte(nil), seed.Archive...)
 	return context.WithValue(ctx, workspaceSeedKey{}, seed)
 }
 
