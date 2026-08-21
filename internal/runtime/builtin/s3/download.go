@@ -6,12 +6,15 @@ package s3
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/minio/minio-go/v7"
 )
 
 // DownloadResult contains the result of a download operation.
@@ -35,26 +38,33 @@ func (e *executorImpl) runDownload(ctx context.Context) error {
 		return fmt.Errorf("%w: failed to create destination directory: %v", ErrDownloadFailed, err)
 	}
 
-	objInfo, err := e.client.StatObject(ctx, e.cfg.Bucket, e.cfg.Key, minio.StatObjectOptions{})
+	output, err := e.client.GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: aws.String(e.cfg.Bucket),
+		Key:    aws.String(e.cfg.Key),
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDownloadFailed, err)
 	}
+	defer func() { _ = output.Body.Close() }()
 
-	// Download to temp file for atomic write
-	tmpFile := e.cfg.Destination + ".tmp"
-	defer func() { _ = fileutil.Remove(tmpFile) }()
+	tmpFile, err := os.CreateTemp(filepath.Dir(e.cfg.Destination), "."+filepath.Base(e.cfg.Destination)+".*")
+	if err != nil {
+		return fmt.Errorf("%w: failed to create temporary file: %v", ErrDownloadFailed, err)
+	}
+	tmpPath := tmpFile.Name()
+	defer func() { _ = fileutil.Remove(tmpPath) }()
 
-	if err := e.client.FGetObject(ctx, e.cfg.Bucket, e.cfg.Key, tmpFile, minio.GetObjectOptions{}); err != nil {
-		return fmt.Errorf("%w: %v", ErrDownloadFailed, err)
+	size, copyErr := io.Copy(tmpFile, output.Body)
+	closeErr := tmpFile.Close()
+	if copyErr != nil {
+		return fmt.Errorf("%w: failed to write destination file: %v", ErrDownloadFailed, copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("%w: failed to close destination file: %v", ErrDownloadFailed, closeErr)
 	}
 
-	if err := fileutil.ReplaceFile(tmpFile, e.cfg.Destination); err != nil {
+	if err := fileutil.ReplaceFile(tmpPath, e.cfg.Destination); err != nil {
 		return fmt.Errorf("%w: failed to move file to destination: %v", ErrDownloadFailed, err)
-	}
-
-	fileInfo, err := os.Stat(e.cfg.Destination)
-	if err != nil {
-		return fmt.Errorf("%w: failed to stat destination file: %v", ErrDownloadFailed, err)
 	}
 
 	return e.writeResult(DownloadResult{
@@ -64,9 +74,9 @@ func (e *executorImpl) runDownload(ctx context.Context) error {
 		Key:         e.cfg.Key,
 		URI:         fmt.Sprintf("s3://%s/%s", e.cfg.Bucket, e.cfg.Key),
 		Destination: e.cfg.Destination,
-		Size:        fileInfo.Size(),
-		ContentType: objInfo.ContentType,
-		ETag:        objInfo.ETag,
+		Size:        size,
+		ContentType: aws.ToString(output.ContentType),
+		ETag:        strings.Trim(aws.ToString(output.ETag), `"`),
 		Duration:    time.Since(start).Round(time.Millisecond).String(),
 	})
 }

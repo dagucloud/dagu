@@ -7,11 +7,16 @@ import (
 	"context"
 	"fmt"
 	"mime"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/minio/minio-go/v7"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 // UploadResult contains the result of an upload operation.
@@ -44,14 +49,43 @@ func (e *executorImpl) runUpload(ctx context.Context) error {
 
 	contentType := e.resolveContentType()
 
-	opts := minio.PutObjectOptions{
-		ContentType:  contentType,
-		UserMetadata: e.cfg.Metadata,
-		StorageClass: e.cfg.StorageClass,
-		UserTags:     e.cfg.Tags,
+	source, err := os.Open(e.cfg.Source)
+	if err != nil {
+		return fmt.Errorf("%w: cannot open source file %q: %v", ErrSourceNotFound, e.cfg.Source, err)
+	}
+	defer func() { _ = source.Close() }()
+
+	input := &awss3.PutObjectInput{
+		Bucket:        aws.String(e.cfg.Bucket),
+		Key:           aws.String(e.cfg.Key),
+		Body:          source,
+		ContentLength: aws.Int64(sourceInfo.Size()),
+		ContentType:   aws.String(contentType),
+		Metadata:      e.cfg.Metadata,
+		StorageClass:  types.StorageClass(e.cfg.StorageClass),
+	}
+	if len(e.cfg.Tags) > 0 {
+		tags := url.Values{}
+		for key, value := range e.cfg.Tags {
+			tags.Set(key, value)
+		}
+		input.Tagging = aws.String(tags.Encode())
+	}
+	if e.cfg.ACL != "" {
+		input.ACL = types.ObjectCannedACL(e.cfg.ACL)
+	}
+	if e.cfg.ServerSideEncryption != "" {
+		input.ServerSideEncryption = types.ServerSideEncryption(e.cfg.ServerSideEncryption)
+	}
+	if e.cfg.SSEKMSKeyId != "" {
+		input.SSEKMSKeyId = aws.String(e.cfg.SSEKMSKeyId)
 	}
 
-	info, err := e.client.FPutObject(ctx, e.cfg.Bucket, e.cfg.Key, e.cfg.Source, opts)
+	uploader := manager.NewUploader(e.client, func(uploader *manager.Uploader) {
+		uploader.PartSize = e.cfg.PartSize * 1024 * 1024
+		uploader.Concurrency = e.cfg.Concurrency
+	})
+	output, err := uploader.Upload(ctx, input)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUploadFailed, err)
 	}
@@ -62,8 +96,8 @@ func (e *executorImpl) runUpload(ctx context.Context) error {
 		Bucket:       e.cfg.Bucket,
 		Key:          e.cfg.Key,
 		URI:          fmt.Sprintf("s3://%s/%s", e.cfg.Bucket, e.cfg.Key),
-		ETag:         info.ETag,
-		Size:         info.Size,
+		ETag:         strings.Trim(aws.ToString(output.ETag), `"`),
+		Size:         sourceInfo.Size(),
 		ContentType:  contentType,
 		StorageClass: e.cfg.StorageClass,
 		Duration:     time.Since(start).Round(time.Millisecond).String(),

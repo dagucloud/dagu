@@ -4,8 +4,15 @@
 package s3
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -13,6 +20,243 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUpload_PathPrefixedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	type observedRequest struct {
+		method        string
+		path          string
+		authorization string
+	}
+
+	requests := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- observedRequest{
+			method:        r.Method,
+			path:          r.URL.Path,
+			authorization: r.Header.Get("Authorization"),
+		}
+		w.Header().Set("ETag", `"test-etag"`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	source := filepath.Join(t.TempDir(), "report.txt")
+	require.NoError(t, os.WriteFile(source, []byte("daily report"), 0o600))
+
+	impl := newS3TestExecutor(t, server.URL+"/storage/v1/s3", opUpload, map[string]any{
+		"source": source,
+		"key":    "daily/report.txt",
+	})
+
+	var stdout bytes.Buffer
+	impl.SetStdout(&stdout)
+	require.NoError(t, impl.Run(context.Background()))
+
+	request := <-requests
+	assert.Equal(t, http.MethodPut, request.method)
+	assert.Equal(t, "/storage/v1/s3/reports/daily/report.txt", request.path)
+	assert.NotEmpty(t, request.authorization)
+
+	var result UploadResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	assert.Equal(t, "test-etag", result.ETag)
+	assert.Equal(t, int64(len("daily report")), result.Size)
+}
+
+func TestUpload_AppliesConfiguredHeaders(t *testing.T) {
+	t.Parallel()
+
+	headers := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers <- r.Header.Clone()
+		w.Header().Set("ETag", `"test-etag"`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	source := filepath.Join(t.TempDir(), "report.txt")
+	require.NoError(t, os.WriteFile(source, []byte("daily report"), 0o600))
+	impl := newS3TestExecutor(t, server.URL, opUpload, map[string]any{
+		"source":         source,
+		"key":            "daily/report.txt",
+		"content_type":   "text/plain",
+		"storage_class":  "STANDARD_IA",
+		"metadata":       map[string]string{"owner": "finance"},
+		"tags":           map[string]string{"environment": "test", "owner": "finance"},
+		"acl":            "bucket-owner-full-control",
+		"sse":            "aws:kms",
+		"sse_kms_key_id": "test-key-id",
+	})
+	impl.SetStdout(&bytes.Buffer{})
+	require.NoError(t, impl.Run(context.Background()))
+
+	requestHeaders := <-headers
+	assert.Equal(t, "text/plain", requestHeaders.Get("Content-Type"))
+	assert.Equal(t, "STANDARD_IA", requestHeaders.Get("X-Amz-Storage-Class"))
+	assert.Equal(t, "finance", requestHeaders.Get("X-Amz-Meta-Owner"))
+	assert.Equal(t, "environment=test&owner=finance", requestHeaders.Get("X-Amz-Tagging"))
+	assert.Equal(t, "bucket-owner-full-control", requestHeaders.Get("X-Amz-Acl"))
+	assert.Equal(t, "aws:kms", requestHeaders.Get("X-Amz-Server-Side-Encryption"))
+	assert.Equal(t, "test-key-id", requestHeaders.Get("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id"))
+}
+
+func TestDownload_PathPrefixedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	type observedRequest struct {
+		method string
+		path   string
+	}
+
+	requests := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- observedRequest{method: r.Method, path: r.URL.Path}
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("ETag", `"download-etag"`)
+		_, _ = w.Write([]byte("daily report"))
+	}))
+	t.Cleanup(server.Close)
+
+	destination := filepath.Join(t.TempDir(), "downloads", "report.txt")
+	impl := newS3TestExecutor(t, server.URL+"/storage/v1/s3", opDownload, map[string]any{
+		"key":         "daily/report.txt",
+		"destination": destination,
+	})
+
+	var stdout bytes.Buffer
+	impl.SetStdout(&stdout)
+	require.NoError(t, impl.Run(context.Background()))
+
+	request := <-requests
+	assert.Equal(t, http.MethodGet, request.method)
+	assert.Equal(t, "/storage/v1/s3/reports/daily/report.txt", request.path)
+	contents, err := os.ReadFile(destination)
+	require.NoError(t, err)
+	assert.Equal(t, "daily report", string(contents))
+
+	var result DownloadResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	assert.Equal(t, "download-etag", result.ETag)
+	assert.Equal(t, int64(len("daily report")), result.Size)
+}
+
+func TestList_PathPrefixedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	type observedRequest struct {
+		path      string
+		listType  string
+		prefix    string
+		delimiter string
+	}
+
+	requests := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- observedRequest{
+			path:      r.URL.Path,
+			listType:  r.URL.Query().Get("list-type"),
+			prefix:    r.URL.Query().Get("prefix"),
+			delimiter: r.URL.Query().Get("delimiter"),
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Name>reports</Name>
+  <Prefix>daily/</Prefix>
+  <KeyCount>1</KeyCount>
+  <MaxKeys>1000</MaxKeys>
+  <IsTruncated>false</IsTruncated>
+  <Contents>
+    <Key>daily/report.txt</Key>
+    <LastModified>2026-08-21T00:00:00Z</LastModified>
+    <ETag>&quot;list-etag&quot;</ETag>
+    <Size>12</Size>
+    <StorageClass>STANDARD</StorageClass>
+  </Contents>
+</ListBucketResult>`))
+	}))
+	t.Cleanup(server.Close)
+
+	impl := newS3TestExecutor(t, server.URL+"/storage/v1/s3", opList, map[string]any{
+		"prefix": "daily/",
+	})
+
+	var stdout bytes.Buffer
+	impl.SetStdout(&stdout)
+	require.NoError(t, impl.Run(context.Background()))
+
+	request := <-requests
+	assert.Equal(t, "/storage/v1/s3/reports", request.path)
+	assert.Equal(t, "2", request.listType)
+	assert.Equal(t, "daily/", request.prefix)
+	assert.Equal(t, "/", request.delimiter)
+
+	var result ListResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	require.Len(t, result.Objects, 1)
+	assert.Equal(t, "daily/report.txt", result.Objects[0].Key)
+	assert.Equal(t, "list-etag", result.Objects[0].ETag)
+}
+
+func TestDelete_PathPrefixedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	type observedRequest struct {
+		method string
+		path   string
+	}
+
+	requests := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- observedRequest{method: r.Method, path: r.URL.Path}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+
+	impl := newS3TestExecutor(t, server.URL+"/storage/v1/s3", opDelete, map[string]any{
+		"key": "daily/report.txt",
+	})
+
+	var stdout bytes.Buffer
+	impl.SetStdout(&stdout)
+	require.NoError(t, impl.Run(context.Background()))
+
+	request := <-requests
+	assert.Equal(t, http.MethodDelete, request.method)
+	assert.Equal(t, "/storage/v1/s3/reports/daily/report.txt", request.path)
+
+	var result DeleteResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	assert.Equal(t, 1, result.DeletedCount)
+	assert.Equal(t, []string{"daily/report.txt"}, result.DeletedKeys)
+}
+
+func newS3TestExecutor(t *testing.T, endpoint, operation string, config map[string]any) *executorImpl {
+	t.Helper()
+
+	mergedConfig := map[string]any{
+		"endpoint":          endpoint,
+		"region":            "local",
+		"bucket":            "reports",
+		"access_key_id":     "test-key",
+		"secret_access_key": "test-secret",
+		"force_path_style":  true,
+	}
+	maps.Copy(mergedConfig, config)
+
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Name:     operation,
+		Commands: []ir.CommandEntry{{Command: operation}},
+		ExecutorConfig: ir.ExecutorConfig{
+			Type:   "s3",
+			Config: mergedConfig,
+		},
+	})
+	require.NoError(t, err)
+	return exec.(*executorImpl)
+}
 
 func TestContextInjection(t *testing.T) {
 	t.Parallel()

@@ -8,7 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/minio/minio-go/v7"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // DeleteResult contains the result of a delete operation.
@@ -38,7 +39,10 @@ func (e *executorImpl) runDelete(ctx context.Context) error {
 }
 
 func (e *executorImpl) deleteSingleObject(ctx context.Context, start time.Time) error {
-	err := e.client.RemoveObject(ctx, e.cfg.Bucket, e.cfg.Key, minio.RemoveObjectOptions{})
+	_, err := e.client.DeleteObject(ctx, &awss3.DeleteObjectInput{
+		Bucket: aws.String(e.cfg.Bucket),
+		Key:    aws.String(e.cfg.Key),
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDeleteFailed, err)
 	}
@@ -64,20 +68,20 @@ func (e *executorImpl) deleteByPrefix(ctx context.Context, start time.Time) erro
 	var deletedKeys []string
 	var deleteErrors []string
 
-	opts := minio.ListObjectsOptions{
-		Prefix:    e.cfg.Prefix,
-		Recursive: true,
-	}
-
-	for object := range e.client.ListObjects(ctx, e.cfg.Bucket, opts) {
-		if object.Err != nil {
-			return fmt.Errorf("%w: failed to list objects: %v", ErrDeleteFailed, object.Err)
-		}
-		if err := e.client.RemoveObject(ctx, e.cfg.Bucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+	err := e.visitObjects(ctx, true, 0, func(object ListObject) error {
+		_, err := e.client.DeleteObject(ctx, &awss3.DeleteObjectInput{
+			Bucket: aws.String(e.cfg.Bucket),
+			Key:    aws.String(object.Key),
+		})
+		if err != nil {
 			deleteErrors = append(deleteErrors, fmt.Sprintf("%s: %v", object.Key, err))
 		} else {
 			deletedKeys = append(deletedKeys, object.Key)
 		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("%w: failed to list objects: %v", ErrDeleteFailed, err)
 	}
 
 	hasErrors := len(deleteErrors) > 0

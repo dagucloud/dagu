@@ -13,9 +13,9 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
-	"github.com/minio/minio-go/v7"
 )
 
 const (
@@ -62,7 +62,7 @@ type executorImpl struct {
 
 	cfg       *Config
 	operation string
-	client    *minio.Client
+	client    *awss3.Client
 	closed    bool
 }
 
@@ -103,7 +103,6 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 
 	rCtx, cancel := context.WithCancel(ctx)
 
-	// Create MinIO client (works with AWS S3 and S3-compatible services)
 	client, err := createClient(rCtx, cfg)
 	if err != nil {
 		cancel()
@@ -185,7 +184,6 @@ func (e *executorImpl) Close() error {
 		return nil
 	}
 	e.closed = true
-	// MinIO clients don't need explicit close
 	return nil
 }
 
