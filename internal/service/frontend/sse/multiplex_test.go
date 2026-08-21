@@ -112,15 +112,17 @@ func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) 
 	t.Cleanup(mux.Shutdown)
 
 	started := make(chan struct{})
+	bootstrapFetchesRegistered := make(chan struct{})
 	releaseBootstrap := make(chan struct{})
 	var dayLoads atomic.Int32
+	var registeredFetches atomic.Int32
 	var dayLoadGroup singleflight.Group
 	mux.RegisterFetcher(TopicTypeDAGRuns, func(ctx context.Context, identifier string) (any, error) {
 		batchID, ok := persis.DAGRunListReadBatchID(ctx)
 		if !ok {
 			return nil, errors.New("missing DAG-run list read batch")
 		}
-		value, err, _ := dayLoadGroup.Do(strconv.FormatUint(batchID, 10), func() (any, error) {
+		load := dayLoadGroup.DoChan(strconv.FormatUint(batchID, 10), func() (any, error) {
 			revision := dayLoads.Add(1)
 			if revision == 1 {
 				close(started)
@@ -132,10 +134,14 @@ func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) 
 			}
 			return revision, nil
 		})
-		if err != nil {
-			return nil, err
+		if registeredFetches.Add(1) == 2 {
+			close(bootstrapFetchesRegistered)
 		}
-		return map[string]any{"id": identifier, "revision": value}, nil
+		result := <-load
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		return map[string]any{"id": identifier, "revision": result.Val}, nil
 	})
 	mux.SetRefreshMode(TopicTypeDAGRuns, TopicRefreshModeOnDemand)
 
@@ -159,6 +165,11 @@ func TestStreamSessionKeepsWakeNewerThanConcurrentDAGRunBootstrap(t *testing.T) 
 	case <-started:
 	case <-time.After(timeout):
 		require.FailNow(t, "DAG-run snapshot bootstrap did not start")
+	}
+	select {
+	case <-bootstrapFetchesRegistered:
+	case <-time.After(timeout):
+		require.FailNow(t, "DAG-run snapshot fetches did not join the read batch")
 	}
 
 	mux.WakeTopic(TopicTypeDAGRuns, "status=4")
