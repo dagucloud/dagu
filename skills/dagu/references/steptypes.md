@@ -430,7 +430,24 @@ steps:
       timeout: 30
 ```
 
-`with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `silent`, `debug`, `json`, `skip_tls_verify`.
+Upload files as multipart form data by mapping server field names to local paths. Relative paths resolve from the step working directory:
+
+```yaml
+steps:
+  - id: upload
+    action: http.request
+    with:
+      method: POST
+      url: https://api.example.com/uploads
+      form:
+        description: nightly-report
+      files:
+        document: ./report.pdf
+```
+
+Do not set the multipart `Content-Type` header manually. `body` cannot be combined with `form` or `files`.
+
+`with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `form`, `files`, `silent`, `debug`, `format`, `output`, `json`, `skip_tls_verify`.
 
 ## jq.filter
 

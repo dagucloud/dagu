@@ -43,6 +43,8 @@ type httpConfig struct {
 	Headers       map[string]string `json:"headers" mapstructure:"headers"`
 	Query         map[string]string `json:"query" mapstructure:"query"`
 	Body          string            `json:"body" mapstructure:"body"`
+	Form          map[string]string `json:"form" mapstructure:"form"`
+	Files         map[string]string `json:"files" mapstructure:"files"`
 	Silent        bool              `json:"silent" mapstructure:"silent"`
 	Debug         bool              `json:"debug" mapstructure:"debug"`
 	Format        string            `json:"format" mapstructure:"format"`
@@ -105,9 +107,13 @@ func newHTTP(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if method == "" {
 		return nil, fmt.Errorf("http executor: method is required (set via command or with.method)")
 	}
+	if reqCfg.Body != "" && (len(reqCfg.Form) > 0 || len(reqCfg.Files) > 0) {
+		return nil, fmt.Errorf("http executor: body cannot be combined with form or files")
+	}
 	if err := prepareHTTPOutputConfig(ctx, &reqCfg); err != nil {
 		return nil, err
 	}
+	prepareHTTPFilePaths(ctx, &reqCfg)
 
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -130,7 +136,15 @@ func newHTTP(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if len(reqCfg.Query) > 0 {
 		req = req.SetQueryParams(reqCfg.Query)
 	}
-	req = req.SetBody([]byte(reqCfg.Body))
+	if len(reqCfg.Form) > 0 {
+		req = req.SetMultipartFormData(reqCfg.Form)
+	}
+	if len(reqCfg.Files) > 0 {
+		req = req.SetFiles(reqCfg.Files)
+	}
+	if len(reqCfg.Form) == 0 && len(reqCfg.Files) == 0 {
+		req = req.SetBody([]byte(reqCfg.Body))
+	}
 	if reqCfg.Output != "" {
 		req = req.SetDoNotParseResponse(true)
 	}
@@ -354,6 +368,15 @@ func prepareHTTPOutputConfig(ctx context.Context, cfg *httpConfig) error {
 	}
 	cfg.Output = filepath.Clean(output)
 	return nil
+}
+
+func prepareHTTPFilePaths(ctx context.Context, cfg *httpConfig) {
+	for field, path := range cfg.Files {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(runtime.GetEnv(ctx).WorkingDir, path)
+		}
+		cfg.Files[field] = filepath.Clean(path)
+	}
 }
 
 func decodeHTTPConfig(dat map[string]any, cfg *httpConfig) error {

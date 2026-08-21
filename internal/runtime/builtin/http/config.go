@@ -24,6 +24,16 @@ var configSchema = &jsonschema.Schema{
 			AdditionalProperties: &jsonschema.Schema{Type: "string"},
 			Description:          "Query parameters",
 		},
+		"form": {
+			Type:                 "object",
+			AdditionalProperties: &jsonschema.Schema{Type: "string"},
+			Description:          "Multipart form fields keyed by field name",
+		},
+		"files": {
+			Type:                 "object",
+			AdditionalProperties: &jsonschema.Schema{Type: "string"},
+			Description:          "Multipart file paths keyed by field name",
+		},
 		"body":            {Type: "string", Description: "Request body content"},
 		"silent":          {Type: "boolean", Description: "Suppress headers/status output on success"},
 		"debug":           {Type: "boolean", Description: "Enable debug mode"},
