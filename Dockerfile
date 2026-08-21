@@ -72,7 +72,10 @@ RUN set -eux; \
       tini \
       tzdata \
       curl \
+      git \
       jq \
+      openssh-client \
+      unzip \
       && break; \
       if [ "$attempt" = 5 ]; then exit 1; fi; \
       apt-get clean; \
