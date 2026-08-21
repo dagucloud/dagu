@@ -23,8 +23,8 @@ type taskWorkspace struct {
 	archive []byte
 }
 
-func taskWorkspaceDir(workDir string) string {
-	return filepath.Join(workDir, "workspace")
+func taskWorkspaceDir(runDir string) string {
+	return filepath.Join(runDir, "workspace")
 }
 
 func taskWorkspaceDescriptor(task *coordinatorv1.Task) (workspacebundle.Descriptor, bool, error) {

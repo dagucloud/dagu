@@ -21,7 +21,7 @@ type stubWorkspaceBundleClient struct {
 	err  error
 }
 
-func (c stubWorkspaceBundleClient) PutWorkspaceBundle(context.Context, workspacebundle.Descriptor, []byte) error {
+func (stubWorkspaceBundleClient) PutWorkspaceBundle(context.Context, workspacebundle.Descriptor, []byte) error {
 	return nil
 }
 
