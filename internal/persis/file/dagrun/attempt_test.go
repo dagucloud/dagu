@@ -4,6 +4,7 @@
 package dagrun
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -543,14 +544,16 @@ func createTestStatus(st ir.Status) ir.DAGRunStatus {
 func BenchmarkDAGRunJSON(b *testing.B) {
 	fixture := createDAGRunJSONBenchmarkData()
 	cases := []struct {
-		name      string
-		value     any
-		newTarget func() any
+		name       string
+		value      any
+		newEncoder func() benchmarkJSONEncoder
+		newTarget  func() any
 	}{
 		{
-			name:      "Status",
-			value:     fixture.status,
-			newTarget: func() any { return new(ir.DAGRunStatus) },
+			name:       "Status",
+			value:      fixture.status,
+			newEncoder: newStatusJSONBenchmarkEncoder,
+			newTarget:  func() any { return new(ir.DAGRunStatus) },
 		},
 		{
 			name:      "DAG",
@@ -558,14 +561,16 @@ func BenchmarkDAGRunJSON(b *testing.B) {
 			newTarget: func() any { return new(ir.DAG) },
 		},
 		{
-			name:      "Outputs",
-			value:     fixture.outputs,
-			newTarget: func() any { return new(ir.DAGRunOutputs) },
+			name:       "Outputs",
+			value:      fixture.outputs,
+			newEncoder: newIndentedJSONBenchmarkEncoder,
+			newTarget:  func() any { return new(ir.DAGRunOutputs) },
 		},
 		{
-			name:      "StepMessages",
-			value:     fixture.messages,
-			newTarget: func() any { return new([]ir.LLMMessage) },
+			name:       "StepMessages",
+			value:      fixture.messages,
+			newEncoder: newIndentedJSONBenchmarkEncoder,
+			newTarget:  func() any { return new([]ir.LLMMessage) },
 		},
 		{
 			name: "RetryCandidate",
@@ -596,14 +601,21 @@ func BenchmarkDAGRunJSON(b *testing.B) {
 	}
 
 	for _, tc := range cases {
-		data, err := json.Marshal(tc.value)
+		newEncoder := tc.newEncoder
+		if newEncoder == nil {
+			newEncoder = func() benchmarkJSONEncoder { return json.Marshal }
+		}
+		encoder := newEncoder()
+		data, err := encoder(tc.value)
 		require.NoError(b, err)
+		data = bytes.Clone(data)
 
-		b.Run(tc.name+"/Marshal", func(b *testing.B) {
+		b.Run(tc.name+"/Encode", func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(len(data)))
+			encoder := newEncoder()
 			for range b.N {
-				if _, err := json.Marshal(tc.value); err != nil {
+				if _, err := encoder(tc.value); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -618,6 +630,27 @@ func BenchmarkDAGRunJSON(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+type benchmarkJSONEncoder func(any) ([]byte, error)
+
+func newStatusJSONBenchmarkEncoder() benchmarkJSONEncoder {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	return func(value any) ([]byte, error) {
+		buffer.Reset()
+		if err := encoder.Encode(value); err != nil {
+			return nil, err
+		}
+		return buffer.Bytes(), nil
+	}
+}
+
+func newIndentedJSONBenchmarkEncoder() benchmarkJSONEncoder {
+	return func(value any) ([]byte, error) {
+		return json.MarshalIndent(value, "", "  ")
 	}
 }
 
