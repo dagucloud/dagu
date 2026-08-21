@@ -637,16 +637,10 @@ func inProcessLoadOptions(
 		loadOpts = append(loadOpts, spec.WithDefaultWorkingDir(workDir))
 	}
 
-	if req.Workspace == nil {
-		baseConfig := req.DAG.BaseConfigData
-		if len(baseConfig) == 0 && req.ParentDAG != nil {
-			baseConfig = req.ParentDAG.BaseConfigData
-		}
-		if len(baseConfig) > 0 {
-			loadOpts = append(loadOpts, spec.WithBaseConfigContent(baseConfig))
-		} else if cfg != nil && cfg.Paths.BaseConfig != "" {
-			loadOpts = append(loadOpts, spec.WithBaseConfig(cfg.Paths.BaseConfig))
-		}
+	if baseConfig := subWorkflowBaseConfig(req); len(baseConfig) > 0 {
+		loadOpts = append(loadOpts, spec.WithBaseConfigContent(baseConfig))
+	} else if req.Workspace == nil && cfg != nil && cfg.Paths.BaseConfig != "" {
+		loadOpts = append(loadOpts, spec.WithBaseConfig(cfg.Paths.BaseConfig))
 	}
 	return loadOpts
 }

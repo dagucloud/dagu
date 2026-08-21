@@ -366,11 +366,6 @@ func (r *Runner) taskOptions(
 	req executor.SubWorkflowRequest,
 	extra ...executor.TaskOption,
 ) ([]executor.TaskOption, error) {
-	baseConfig := string(req.DAG.BaseConfigData)
-	if baseConfig == "" && req.ParentDAG != nil {
-		baseConfig = string(req.ParentDAG.BaseConfigData)
-	}
-
 	options := []executor.TaskOption{
 		executor.WithRootDagRun(req.RootDAGRun),
 		executor.WithParentDagRun(req.ParentDAGRun),
@@ -379,8 +374,8 @@ func (r *Runner) taskOptions(
 	if req.ParallelItem != "" {
 		options = append(options, executor.WithParallelItem(req.ParallelItem))
 	}
-	if req.Workspace == nil {
-		options = append(options, executor.WithBaseConfig(baseConfig))
+	if baseConfig := subWorkflowBaseConfig(req); len(baseConfig) > 0 {
+		options = append(options, executor.WithBaseConfig(string(baseConfig)))
 	}
 	if req.DAG.SourceFile != "" {
 		options = append(options, executor.WithSourceFile(req.DAG.SourceFile))
@@ -404,6 +399,16 @@ func (r *Runner) taskOptions(
 
 	options = append(options, extra...)
 	return options, nil
+}
+
+func subWorkflowBaseConfig(req executor.SubWorkflowRequest) []byte {
+	if len(req.DAG.BaseConfigData) > 0 {
+		return req.DAG.BaseConfigData
+	}
+	if req.Workspace == nil && req.ParentDAG != nil {
+		return req.ParentDAG.BaseConfigData
+	}
+	return nil
 }
 
 func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {

@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator/subflow"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -211,6 +212,55 @@ steps:
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, ir.Succeeded, result.Status)
+}
+
+func TestLocalRunPreservesDAGBaseConfigWithWorkspace(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	rootDir := t.TempDir()
+	outputFile := filepath.Join(t.TempDir(), "base-value.txt")
+	definition := []byte(`name: workspace-base-config
+steps:
+  - id: write
+    action: file.write
+    with:
+      path: "` + filepath.ToSlash(outputFile) + `"
+      content: ${env.BASE_VALUE}
+`)
+	baseConfig := []byte("env:\n  BASE_VALUE: base\n")
+	dag, err := spec.LoadYAMLAt(
+		th.Context,
+		definition,
+		filepath.Join(rootDir, "dag.yaml"),
+		spec.WithBaseConfigContent(baseConfig),
+	)
+	require.NoError(t, err)
+	desc, archive, err := workspacebundle.PackDirectory(rootDir, workspacebundle.PackOptions{
+		DAGPath: "dag.yaml",
+		DAGData: definition,
+	})
+	require.NoError(t, err)
+
+	root := ir.NewDAGRunRef("parent", uuid.Must(uuid.NewV7()).String())
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGRepository)
+	result, err := runner.Run(th.Context, executor.SubWorkflowRequest{
+		DAG:          dag,
+		RootDAGRun:   root,
+		ParentDAGRun: root,
+		RunID:        uuid.Must(uuid.NewV7()).String(),
+		Workspace: &executor.SubWorkflowWorkspace{
+			Descriptor: *desc,
+			Archive:    archive,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, ir.Succeeded, result.Status)
+	content, err := os.ReadFile(outputFile)
+	require.NoError(t, err)
+	require.Equal(t, "base", string(content))
 }
 
 func TestLocalRunPreservesBuildPathBaseFromCopiedDefinition(t *testing.T) {

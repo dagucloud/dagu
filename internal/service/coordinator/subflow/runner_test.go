@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator/subflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -187,6 +188,38 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	assert.Equal(t, ir.Succeeded, result.Status)
 	assert.Equal(t, "ok", result.Outputs["RESULT"])
 	assert.Equal(t, true, result.OutputValues["typed"])
+}
+
+func TestRunnerRunPreservesDAGBaseConfigWithWorkspace(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &mockDispatcher{
+		statuses: []*dispatch.DAGRunStatusResult{
+			{Found: false},
+			{Found: true, Status: &ir.DAGRunStatus{Status: ir.Succeeded}},
+		},
+	}
+	runner := newFastRunner(dispatcher)
+	baseConfig := []byte("env:\n  BASE_VALUE: base\n")
+
+	_, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
+		DAG: &ir.DAG{
+			Name:           "child",
+			YamlData:       []byte("name: child\nsteps: []\n"),
+			BaseConfigData: baseConfig,
+		},
+		RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
+		RunID:      "child-1",
+		Workspace: &runtimeexec.SubWorkflowWorkspace{
+			Descriptor: workspacebundle.Descriptor{
+				Digest:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				DAGPath: "dag.yaml",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, dispatcher.dispatches, 1)
+	assert.Equal(t, string(baseConfig), dispatcher.dispatches[0].BaseConfig)
 }
 
 func TestRunnerRunRejectsBuildWorkflow(t *testing.T) {
@@ -460,6 +493,14 @@ type cancelRequest struct {
 func (m *mockDispatcher) Dispatch(_ context.Context, req dispatch.DispatchRequest) error {
 	m.dispatches = append(m.dispatches, req.Task)
 	return nil
+}
+
+func (m *mockDispatcher) PutWorkspaceBundle(context.Context, workspacebundle.Descriptor, []byte) error {
+	return nil
+}
+
+func (m *mockDispatcher) GetWorkspaceBundle(context.Context, string) ([]byte, error) {
+	return nil, nil
 }
 
 func (m *mockDispatcher) Cleanup(context.Context) error {
