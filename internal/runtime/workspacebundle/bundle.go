@@ -457,7 +457,7 @@ func collectSelectedFiles(root string, includes []string, limits Limits) ([]stri
 			return nil, fmt.Errorf("workspace include %q matched no files", include)
 		}
 		for _, match := range matches {
-			if err := collectSelectedPath(root, match, selected); err != nil {
+			if err := collectSelectedPath(root, match, selected, limits.MaxFiles); err != nil {
 				return nil, fmt.Errorf("collect workspace include %q: %w", include, err)
 			}
 		}
@@ -474,7 +474,7 @@ func collectSelectedFiles(root string, includes []string, limits Limits) ([]stri
 	return files, nil
 }
 
-func collectSelectedPath(root, rel string, selected map[string]struct{}) error {
+func collectSelectedPath(root, rel string, selected map[string]struct{}, maxFiles int) error {
 	rel, err := NormalizeRelativePath(rel)
 	if err != nil {
 		return err
@@ -490,7 +490,9 @@ func collectSelectedPath(root, rel string, selected map[string]struct{}) error {
 	if err := validatePackFile(rel, info); err != nil {
 		return err
 	}
-	selected[rel] = struct{}{}
+	if err := addSelectedPath(selected, rel, maxFiles); err != nil {
+		return err
+	}
 	if !info.IsDir() {
 		return nil
 	}
@@ -516,9 +518,16 @@ func collectSelectedPath(root, rel string, selected map[string]struct{}) error {
 		if err := validatePackFile(child, childInfo); err != nil {
 			return err
 		}
-		selected[child] = struct{}{}
-		return nil
+		return addSelectedPath(selected, child, maxFiles)
 	})
+}
+
+func addSelectedPath(selected map[string]struct{}, rel string, maxFiles int) error {
+	selected[rel] = struct{}{}
+	if len(selected) > maxFiles {
+		return fmt.Errorf("workspace bundle exceeds file count limit %d", maxFiles)
+	}
+	return nil
 }
 
 func appendUniquePath(paths []string, rel string) []string {

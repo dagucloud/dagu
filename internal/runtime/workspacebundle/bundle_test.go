@@ -135,3 +135,22 @@ func TestPackDirectorySelectedBundleIsDeterministic(t *testing.T) {
 	assert.Equal(t, first.Digest, second.Digest)
 	assert.Equal(t, firstData, secondData)
 }
+
+func TestPackDirectoryStopsSelectedTraversalAtFileLimit(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dependencies := filepath.Join(root, "dependencies")
+	require.NoError(t, os.Mkdir(dependencies, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dependencies, "a.txt"), []byte("a"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dependencies, "b.txt"), []byte("b"), 0o644))
+	require.NoError(t, os.Symlink("a.txt", filepath.Join(dependencies, "z-link")))
+
+	_, _, err := PackDirectory(root, PackOptions{
+		DAGPath:  "dag.yaml",
+		DAGData:  []byte("steps: []\n"),
+		Includes: []string{"dependencies"},
+		Limits:   Limits{MaxFiles: 2},
+	})
+	require.ErrorContains(t, err, "workspace bundle exceeds file count limit 2")
+}
