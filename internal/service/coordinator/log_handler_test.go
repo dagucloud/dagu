@@ -633,10 +633,10 @@ func TestLogHandler_HandleStream(t *testing.T) {
 			Data:       []byte("live\n"),
 		}
 		stream := &blockingStreamLogsServer{
-			ctx:     context.Background(),
-			chunk:   chunk,
-			waiting: make(chan struct{}),
-			release: make(chan struct{}),
+			mockStreamLogsServer: mockStreamLogsServer{ctx: context.Background()},
+			chunk:                chunk,
+			waiting:              make(chan struct{}),
+			release:              make(chan struct{}),
 		}
 
 		errCh := make(chan error, 1)

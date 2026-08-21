@@ -32,10 +32,12 @@ func newTestManager(expiresAt time.Time, graceDays *int, features ...string) *Ma
 	}
 
 	claims := &LicenseClaims{
-		ExpiresAt:     jwt.NewNumericDate(expiresAt),
-		IssuedAt:      jwt.NewNumericDate(time.Now()),
-		Issuer:        "dagu-test",
-		Subject:       "test-license",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "dagu-test",
+			Subject:   "test-license",
+		},
 		ClaimsVersion: 1,
 		Plan:          "pro",
 		Features:      features,

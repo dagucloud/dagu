@@ -33,10 +33,12 @@ func signToken(t *testing.T, privKey ed25519.PrivateKey, claims *LicenseClaims) 
 // validClaims returns claims for a pro plan with all 3 features, expiring in 24h.
 func validClaims() *LicenseClaims {
 	return &LicenseClaims{
-		ExpiresAt:     jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-		IssuedAt:      jwt.NewNumericDate(time.Now()),
-		Issuer:        "dagu-test",
-		Subject:       "test-license",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "dagu-test",
+			Subject:   "test-license",
+		},
 		ClaimsVersion: 1,
 		Plan:          "pro",
 		Features:      []string{FeatureAudit, FeatureRBAC, FeatureSSO},
@@ -47,10 +49,12 @@ func validClaims() *LicenseClaims {
 // expiredInGraceClaims returns claims that expired 1 day ago (within 14-day grace period).
 func expiredInGraceClaims() *LicenseClaims {
 	return &LicenseClaims{
-		ExpiresAt:     jwt.NewNumericDate(time.Now().Add(-24 * time.Hour)),
-		IssuedAt:      jwt.NewNumericDate(time.Now().Add(-48 * time.Hour)),
-		Issuer:        "dagu-test",
-		Subject:       "test-license",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-48 * time.Hour)),
+			Issuer:    "dagu-test",
+			Subject:   "test-license",
+		},
 		ClaimsVersion: 1,
 		Plan:          "pro",
 		Features:      []string{FeatureAudit, FeatureRBAC, FeatureSSO},
@@ -61,10 +65,12 @@ func expiredInGraceClaims() *LicenseClaims {
 // expiredPastGraceClaims returns claims that expired 15 days ago (past 14-day grace period).
 func expiredPastGraceClaims() *LicenseClaims {
 	return &LicenseClaims{
-		ExpiresAt:     jwt.NewNumericDate(time.Now().Add(-15 * 24 * time.Hour)),
-		IssuedAt:      jwt.NewNumericDate(time.Now().Add(-30 * 24 * time.Hour)),
-		Issuer:        "dagu-test",
-		Subject:       "test-license",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-15 * 24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-30 * 24 * time.Hour)),
+			Issuer:    "dagu-test",
+			Subject:   "test-license",
+		},
 		ClaimsVersion: 1,
 		Plan:          "pro",
 		Features:      []string{FeatureAudit, FeatureRBAC, FeatureSSO},

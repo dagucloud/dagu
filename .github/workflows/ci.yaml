@@ -153,7 +153,7 @@ jobs:
 
       - name: Check modernize (go fix)
         run: |
-          diff=$(go fix -diff ./... 2>&1) || true
+          diff=$(go fix -embedlit=false -diff ./... 2>&1) || true
           if [ -n "$diff" ]; then
             echo "Go files need modernization. Please run 'make fmt'"
             echo "$diff"

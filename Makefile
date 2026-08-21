@@ -433,7 +433,7 @@ clean-ui:
 .PHONY: fmt
 fmt:
 	@printf '%b\n' "${COLOR_GREEN}Running go fix...${COLOR_RESET}"
-	@go fix ./...
+	@go fix -embedlit=false ./...
 	@printf '%b\n' "${COLOR_GREEN}Running go fmt...${COLOR_RESET}"
 	@go fmt ./...
 	@printf '%b\n' "${COLOR_GREEN}Running linter with --fix...${COLOR_RESET}"
@@ -446,7 +446,7 @@ fmt:
 .PHONY: check
 check:
 	@printf '%b\n' "${COLOR_GREEN}Checking go fix...${COLOR_RESET}"
-	@diff=$$(go fix -diff ./... 2>&1); if [ -n "$$diff" ]; then echo "$$diff"; printf '%b\n' "${COLOR_RED}Run 'make fmt'${COLOR_RESET}"; exit 1; fi
+	@diff=$$(go fix -embedlit=false -diff ./... 2>&1); if [ -n "$$diff" ]; then echo "$$diff"; printf '%b\n' "${COLOR_RED}Run 'make fmt'${COLOR_RESET}"; exit 1; fi
 	@printf '%b\n' "${COLOR_GREEN}Checking go fmt...${COLOR_RESET}"
 	@go fmt ./...
 	@git diff --exit-code || (printf '%b\n' "${COLOR_RED}Run 'make fmt'${COLOR_RESET}" && exit 1)

@@ -204,9 +204,11 @@ func (s *Service) GenerateToken(user *auth.User) (*TokenResult, error) {
 		pwdChangedAt = user.PasswordChangedAt.UnixNano()
 	}
 	claims := &Claims{
-		Subject:           user.ID,
-		IssuedAt:          jwt.NewNumericDate(now),
-		ExpiresAt:         jwt.NewNumericDate(expiresAt),
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   user.ID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+		},
 		UserID:            user.ID,
 		Username:          user.Username,
 		Role:              user.Role,

@@ -547,14 +547,14 @@ func (cfg *Config) toK8sEnvVars() []corev1.EnvVar {
 			ev.ValueFrom = &corev1.EnvVarSource{}
 			if e.ValueFrom.SecretKeyRef != nil {
 				ev.ValueFrom.SecretKeyRef = &corev1.SecretKeySelector{
-					Name: e.ValueFrom.SecretKeyRef.Name,
-					Key:  e.ValueFrom.SecretKeyRef.Key,
+					LocalObjectReference: corev1.LocalObjectReference{Name: e.ValueFrom.SecretKeyRef.Name},
+					Key:                  e.ValueFrom.SecretKeyRef.Key,
 				}
 			}
 			if e.ValueFrom.ConfigMapKeyRef != nil {
 				ev.ValueFrom.ConfigMapKeyRef = &corev1.ConfigMapKeySelector{
-					Name: e.ValueFrom.ConfigMapKeyRef.Name,
-					Key:  e.ValueFrom.ConfigMapKeyRef.Key,
+					LocalObjectReference: corev1.LocalObjectReference{Name: e.ValueFrom.ConfigMapKeyRef.Name},
+					Key:                  e.ValueFrom.ConfigMapKeyRef.Key,
 				}
 			}
 			if e.ValueFrom.FieldRef != nil {
@@ -580,12 +580,12 @@ func (cfg *Config) toK8sEnvFromSources() []corev1.EnvFromSource {
 		}
 		if ef.ConfigMapRef != nil {
 			s.ConfigMapRef = &corev1.ConfigMapEnvSource{
-				Name: ef.ConfigMapRef.Name,
+				LocalObjectReference: corev1.LocalObjectReference{Name: ef.ConfigMapRef.Name},
 			}
 		}
 		if ef.SecretRef != nil {
 			s.SecretRef = &corev1.SecretEnvSource{
-				Name: ef.SecretRef.Name,
+				LocalObjectReference: corev1.LocalObjectReference{Name: ef.SecretRef.Name},
 			}
 		}
 		sources = append(sources, s)
@@ -1336,7 +1336,7 @@ func (cfg *Config) toK8sVolumes() ([]corev1.Volume, error) {
 		case v.ConfigMap != nil:
 			vol.VolumeSource = corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					Name: v.ConfigMap.Name,
+					LocalObjectReference: corev1.LocalObjectReference{Name: v.ConfigMap.Name},
 				},
 			}
 		case v.Secret != nil:

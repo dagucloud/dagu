@@ -126,7 +126,11 @@ func (c *capturingStateClient) PutState(_ context.Context, req *coordinatorv1.Pu
 	c.putValue = append([]byte(nil), req.GetValue()...)
 	return &coordinatorv1.PutStateResponse{
 		Entry: stateEntryToProto(&dagrun.StateEntry{
-			Scope: dagrun.StateScope(req.GetRef().GetScope()), Namespace: req.GetRef().GetNamespace(), Key: req.GetRef().GetKey(),
+			StateRef: dagrun.StateRef{
+				Scope:     dagrun.StateScope(req.GetRef().GetScope()),
+				Namespace: req.GetRef().GetNamespace(),
+				Key:       req.GetRef().GetKey(),
+			},
 			Value:   append(json.RawMessage(nil), req.GetValue()...),
 			Version: 1,
 			Hash:    dagrun.HashStateValue(req.GetValue()),

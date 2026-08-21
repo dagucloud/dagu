@@ -84,48 +84,53 @@ type namedOutputsCollectionCase struct {
 var outputsCollectionCases = []namedOutputsCollectionCase{
 	{
 		name: "SimpleStringOutput",
-		dagYAML: `
+		outputsCollectionCase: outputsCollectionCase{
+			dagYAML: `
 steps:
   - name: produce-output
     run: echo "RESULT=42"
     output: RESULT
 `,
-		runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
-			agent.RunSuccess(t)
-		},
-		validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
-			require.Equal(t, ir.Succeeded, status.Status)
-			require.Len(t, status.Nodes, 1)
-			require.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status)
-		},
-		validateOutputs: func(t *testing.T, outputs map[string]string) {
-			require.NotNil(t, outputs)
-			assert.Equal(t, "RESULT=42", outputs["result"])
+			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
+				agent.RunSuccess(t)
+			},
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
+				require.Equal(t, ir.Succeeded, status.Status)
+				require.Len(t, status.Nodes, 1)
+				require.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status)
+			},
+			validateOutputs: func(t *testing.T, outputs map[string]string) {
+				require.NotNil(t, outputs)
+				assert.Equal(t, "RESULT=42", outputs["result"])
+			},
 		},
 	},
 	{
 		name: "StructuredObjectOutputCollected",
-		dagYAML: `
+		outputsCollectionCase: outputsCollectionCase{
+			dagYAML: `
 steps:
   - id: publish
     output:
       version: v1.2.3
 `,
-		runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
-			agent.RunSuccess(t)
-		},
-		validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
-			require.Equal(t, ir.Succeeded, status.Status)
-			require.Len(t, status.Nodes, 1)
-		},
-		validateOutputs: func(t *testing.T, outputs map[string]string) {
-			require.NotNil(t, outputs)
-			assert.Equal(t, "v1.2.3", outputs["version"])
+			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
+				agent.RunSuccess(t)
+			},
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
+				require.Equal(t, ir.Succeeded, status.Status)
+				require.Len(t, status.Nodes, 1)
+			},
+			validateOutputs: func(t *testing.T, outputs map[string]string) {
+				require.NotNil(t, outputs)
+				assert.Equal(t, "v1.2.3", outputs["version"])
+			},
 		},
 	},
 	{
 		name: "MultipleStepsWithOutputs",
-		dagYAML: `
+		outputsCollectionCase: outputsCollectionCase{
+			dagYAML: `
 steps:
   - name: step1
     run: echo "COUNT=10"
@@ -139,24 +144,26 @@ steps:
     run: echo "STATUS=completed"
     output: STATUS
 `,
-		runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
-			agent.RunSuccess(t)
-		},
-		validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
-			require.Equal(t, ir.Succeeded, status.Status)
-			require.Len(t, status.Nodes, 3)
-		},
-		validateOutputs: func(t *testing.T, outputs map[string]string) {
-			require.NotNil(t, outputs)
-			assert.Len(t, outputs, 3)
-			assert.Equal(t, "COUNT=10", outputs["count"])
-			assert.Equal(t, "TOTAL=100", outputs["total"])
-			assert.Equal(t, "STATUS=completed", outputs["status"])
+			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
+				agent.RunSuccess(t)
+			},
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
+				require.Equal(t, ir.Succeeded, status.Status)
+				require.Len(t, status.Nodes, 3)
+			},
+			validateOutputs: func(t *testing.T, outputs map[string]string) {
+				require.NotNil(t, outputs)
+				assert.Len(t, outputs, 3)
+				assert.Equal(t, "COUNT=10", outputs["count"])
+				assert.Equal(t, "TOTAL=100", outputs["total"])
+				assert.Equal(t, "STATUS=completed", outputs["status"])
+			},
 		},
 	},
 	{
 		name: "LastOneWinsForDuplicateKeys",
-		dagYAML: `
+		outputsCollectionCase: outputsCollectionCase{
+			dagYAML: `
 type: graph
 steps:
   - name: step1
@@ -168,56 +175,62 @@ steps:
     run: echo "VALUE=second"
     output: VALUE
 `,
-		runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
-			agent.RunSuccess(t)
-		},
-		validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
-			require.Equal(t, ir.Succeeded, status.Status)
-		},
-		validateOutputs: func(t *testing.T, outputs map[string]string) {
-			require.NotNil(t, outputs)
-			assert.Equal(t, "VALUE=second", outputs["value"])
+			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
+				agent.RunSuccess(t)
+			},
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
+				require.Equal(t, ir.Succeeded, status.Status)
+			},
+			validateOutputs: func(t *testing.T, outputs map[string]string) {
+				require.NotNil(t, outputs)
+				assert.Equal(t, "VALUE=second", outputs["value"])
+			},
 		},
 	},
 	{
 		name: "NoOutputsProduced",
-		dagYAML: `
+		outputsCollectionCase: outputsCollectionCase{
+			dagYAML: `
 steps:
   - name: step1
     run: echo "hello"
 `,
-		runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
-			agent.RunSuccess(t)
-		},
-		validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
-			require.Equal(t, ir.Succeeded, status.Status)
-		},
-		validateOutputs: func(t *testing.T, outputs map[string]string) {
-			assert.Nil(t, outputs)
+			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
+				agent.RunSuccess(t)
+			},
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
+				require.Equal(t, ir.Succeeded, status.Status)
+			},
+			validateOutputs: func(t *testing.T, outputs map[string]string) {
+				assert.Nil(t, outputs)
+			},
 		},
 	},
 	{
 		name: "OutputWithDollarPrefix",
-		dagYAML: `
+		outputsCollectionCase: outputsCollectionCase{
+			dagYAML: `
 steps:
   - name: step1
     run: echo "MY_VAR=value123"
     output: $MY_VAR
 `,
-		runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
-			agent.RunSuccess(t)
-		},
-		validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
-			require.Equal(t, ir.Succeeded, status.Status)
-		},
-		validateOutputs: func(t *testing.T, outputs map[string]string) {
-			require.NotNil(t, outputs)
-			assert.Equal(t, "MY_VAR=value123", outputs["myVar"])
+			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
+				agent.RunSuccess(t)
+			},
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
+				require.Equal(t, ir.Succeeded, status.Status)
+			},
+			validateOutputs: func(t *testing.T, outputs map[string]string) {
+				require.NotNil(t, outputs)
+				assert.Equal(t, "MY_VAR=value123", outputs["myVar"])
+			},
 		},
 	},
 	{
 		name: "MixedStringAndStructuredOutputs",
-		dagYAML: `
+		outputsCollectionCase: outputsCollectionCase{
+			dagYAML: `
 steps:
   - name: simple
     run: echo "SIMPLE_OUT=simple_value"
@@ -227,17 +240,18 @@ steps:
     output:
       version: v1.2.3
 `,
-		runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
-			agent.RunSuccess(t)
-		},
-		validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
-			require.Equal(t, ir.Succeeded, status.Status)
-		},
-		validateOutputs: func(t *testing.T, outputs map[string]string) {
-			require.NotNil(t, outputs)
-			assert.Len(t, outputs, 2)
-			assert.Equal(t, "SIMPLE_OUT=simple_value", outputs["simpleOut"])
-			assert.Equal(t, "v1.2.3", outputs["version"])
+			runFunc: func(t *testing.T, _ context.Context, agent *test.Agent) {
+				agent.RunSuccess(t)
+			},
+			validateFunc: func(t *testing.T, status ir.DAGRunStatus) {
+				require.Equal(t, ir.Succeeded, status.Status)
+			},
+			validateOutputs: func(t *testing.T, outputs map[string]string) {
+				require.NotNil(t, outputs)
+				assert.Len(t, outputs, 2)
+				assert.Equal(t, "SIMPLE_OUT=simple_value", outputs["simpleOut"])
+				assert.Equal(t, "v1.2.3", outputs["version"])
+			},
 		},
 	},
 }

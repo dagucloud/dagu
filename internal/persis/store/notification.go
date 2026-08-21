@@ -32,8 +32,8 @@ func NewNotificationStore(col persis.Collection, enc *crypto.Encryptor) (*Notifi
 		return nil, errors.New("notification store: collection cannot be nil")
 	}
 	return &NotificationStore{
-		col: col, name: "notification store",
-		encryptor: enc,
+		recordHelper: recordHelper{col: col, name: "notification store"},
+		encryptor:    enc,
 	}, nil
 }
 

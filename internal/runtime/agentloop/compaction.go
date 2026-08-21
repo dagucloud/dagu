@@ -24,7 +24,6 @@ type decisionReference struct {
 // provider. Zero means no decision reported usage.
 func (s *State) LatestPromptTokens() int {
 	for _, msg := range slices.Backward(s.messages) {
-
 		if msg.Role == ir.LLMRoleAssistant && msg.Metadata != nil && msg.Metadata.PromptTokens > 0 {
 			return msg.Metadata.PromptTokens
 		}

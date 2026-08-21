@@ -85,10 +85,12 @@ func TestMain(m *testing.M) {
 // testStepBuildContext creates a stepBuildContext for testing
 func testStepBuildContext() stepBuildContext {
 	return stepBuildContext{
-		ctx:   context.Background(),
-		file:  "/test/dag.yaml",
-		opts:  buildOpts{},
-		index: 0,
+		buildContext: buildContext{
+			ctx:   context.Background(),
+			file:  "/test/dag.yaml",
+			opts:  buildOpts{},
+			index: 0,
+		},
 	}
 }
 
@@ -3478,8 +3480,8 @@ func TestBuildStepLLM(t *testing.T) {
 
 			// Build executor first to set the type
 			ctx := stepBuildContext{
-				ctx: context.Background(),
-				dag: tt.dag,
+				buildContext: buildContext{ctx: context.Background()},
+				dag:          tt.dag,
 			}
 			_ = buildStepExecutor(ctx, tt.step, result)
 

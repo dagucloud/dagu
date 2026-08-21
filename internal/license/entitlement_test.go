@@ -49,7 +49,9 @@ func TestHasActiveLicense(t *testing.T) {
 		t.Parallel()
 		var s State
 		s.Update(&LicenseClaims{
-			ExpiresAt:     nil,
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: nil,
+			},
 			ClaimsVersion: 1,
 			Plan:          "pro",
 			ActivationID:  "act-test",
@@ -62,7 +64,9 @@ func TestHasActiveLicense(t *testing.T) {
 		var s State
 		zero := 0
 		s.Update(&LicenseClaims{
-			ExpiresAt:     jwt.NewNumericDate(time.Now().Add(-time.Minute)),
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
+			},
 			ClaimsVersion: 1,
 			Plan:          "trial",
 			GraceDays:     &zero,

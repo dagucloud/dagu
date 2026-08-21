@@ -172,15 +172,17 @@ func TestLoadConfigFromMap(t *testing.T) {
 				Host: &container.HostConfig{
 					NetworkMode: "bridge",
 					SecurityOpt: []string{"seccomp=unconfined"},
-					CPUShares:   512,
-					Memory:      536870912,
-					NanoCPUs:    1_000_000_000,
-					Devices: []container.DeviceMapping{{
-						PathOnHost:        "/dev/fuse",
-						PathInContainer:   "/dev/fuse",
-						CgroupPermissions: "rwm",
-					}},
-					PidsLimit: &pidsLimit,
+					Resources: container.Resources{
+						CPUShares: 512,
+						Memory:    536870912,
+						NanoCPUs:  1_000_000_000,
+						Devices: []container.DeviceMapping{{
+							PathOnHost:        "/dev/fuse",
+							PathInContainer:   "/dev/fuse",
+							CgroupPermissions: "rwm",
+						}},
+						PidsLimit: &pidsLimit,
+					},
 				},
 				Network:     &network.NetworkingConfig{},
 				ExecOptions: &client.ExecCreateOptions{},
@@ -201,7 +203,7 @@ func TestLoadConfigFromMap(t *testing.T) {
 				Pull:      ir.PullPolicyMissing,
 				Container: &container.Config{},
 				Host: &container.HostConfig{
-					Memory: 268435456,
+					Resources: container.Resources{Memory: 268435456},
 				},
 				Network:     &network.NetworkingConfig{},
 				ExecOptions: &client.ExecCreateOptions{},
@@ -224,8 +226,10 @@ func TestLoadConfigFromMap(t *testing.T) {
 				Pull:      ir.PullPolicyMissing,
 				Container: &container.Config{},
 				Host: &container.HostConfig{
-					CPUShares: 256,
-					Memory:    128,
+					Resources: container.Resources{
+						CPUShares: 256,
+						Memory:    128,
+					},
 				},
 				Network:     &network.NetworkingConfig{},
 				ExecOptions: &client.ExecCreateOptions{},

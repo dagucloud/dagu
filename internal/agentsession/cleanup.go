@@ -130,8 +130,8 @@ func (q *CleanupQueue) EnqueueDAGRunRemoval(ctx context.Context, root ir.DAGRunR
 		if resource.Provider == "" || resource.SessionID == "" {
 			continue
 		}
-		job := CleanupJob{Root: root, Resource: resource,
-			ID: cleanupJobID(root, resource)}
+		job := CleanupJob{Root: root, Resource: resource}
+		job.ID = cleanupJobID(root, resource)
 		data, err := persis.Encode(job)
 		if err != nil {
 			return err

@@ -176,7 +176,9 @@ func TestDefaultFunctionsExposeLicenseGraceEndsAt(t *testing.T) {
 		var checker license.State
 		graceDays := 30
 		checker.Update(&license.LicenseClaims{
-			ExpiresAt: jwt.NewNumericDate(expiry),
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(expiry),
+			},
 			GraceDays: &graceDays,
 		}, "tok")
 
@@ -190,7 +192,9 @@ func TestDefaultFunctionsExposeLicenseGraceEndsAt(t *testing.T) {
 	t.Run("falls back to the default grace period", func(t *testing.T) {
 		var checker license.State
 		checker.Update(&license.LicenseClaims{
-			ExpiresAt: jwt.NewNumericDate(expiry),
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(expiry),
+			},
 		}, "tok")
 
 		funcs := defaultFunctions(&funcsConfig{LicenseChecker: &checker})

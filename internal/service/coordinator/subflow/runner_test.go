@@ -343,14 +343,16 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 	runner := newFastRunner(dispatcher)
 
 	result, err := runner.Retry(context.Background(), runtimeexec.SubWorkflowRetryRequest{
-		DAG: &ir.DAG{
-			Name:     "child",
-			YamlData: []byte("name: child"),
+		SubWorkflowRequest: runtimeexec.SubWorkflowRequest{
+			DAG: &ir.DAG{
+				Name:     "child",
+				YamlData: []byte("name: child"),
+			},
+			RootDAGRun:   ir.NewDAGRunRef("parent", "root-1"),
+			ParentDAGRun: ir.NewDAGRunRef("parent", "parent-1"),
+			RunID:        "child-1",
 		},
-		RootDAGRun:   ir.NewDAGRunRef("parent", "root-1"),
-		ParentDAGRun: ir.NewDAGRunRef("parent", "parent-1"),
-		RunID:        "child-1",
-		StepName:     "flaky",
+		StepName: "flaky",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -371,12 +373,14 @@ func TestRunnerRetryRejectsEmptyStepName(t *testing.T) {
 	runner := newFastRunner(dispatcher)
 
 	result, err := runner.Retry(context.Background(), runtimeexec.SubWorkflowRetryRequest{
-		DAG: &ir.DAG{
-			Name:     "child",
-			YamlData: []byte("name: child"),
+		SubWorkflowRequest: runtimeexec.SubWorkflowRequest{
+			DAG: &ir.DAG{
+				Name:     "child",
+				YamlData: []byte("name: child"),
+			},
+			RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
+			RunID:      "child-1",
 		},
-		RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
-		RunID:      "child-1",
 	})
 
 	require.Error(t, err)

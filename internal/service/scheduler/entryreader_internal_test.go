@@ -31,8 +31,8 @@ func TestSendEvent_UnblocksOnQuit(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		er.sendEvent(context.Background(), DAGChangeEvent{
-			Type: DAGChangeAdded,
-			DAG:  &ir.DAG{Name: "test"},
+			Type:     DAGChangeAdded,
+			DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "test"}},
 		})
 		close(done)
 	}()
@@ -65,8 +65,8 @@ func TestSendEvent_UnblocksOnContextCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		er.sendEvent(ctx, DAGChangeEvent{
-			Type: DAGChangeAdded,
-			DAG:  &ir.DAG{Name: "test"},
+			Type:     DAGChangeAdded,
+			DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "test"}},
 		})
 		close(done)
 	}()
@@ -97,8 +97,8 @@ func TestSendEvent_NilChannelReturnsImmediately(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		er.sendEvent(context.Background(), DAGChangeEvent{
-			Type: DAGChangeAdded,
-			DAG:  &ir.DAG{Name: "test"},
+			Type:     DAGChangeAdded,
+			DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "test"}},
 		})
 		close(done)
 	}()

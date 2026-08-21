@@ -459,8 +459,8 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 					}
 					return toOIDCPolicy(policy), nil
 				},
-
-				WorkspaceExists: workspaceExists}
+			}
+			provisionCfg.WorkspaceExists = workspaceExists
 			provisionSvc, err := oidcprovision.New(stores.UserStore, provisionCfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create OIDC provisioning service: %w", err)

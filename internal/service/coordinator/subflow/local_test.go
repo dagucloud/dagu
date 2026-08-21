@@ -102,10 +102,12 @@ func TestLocalRetryRejectsMissingRunStateStore(t *testing.T) {
 	runner := subflow.NewLocal(runtime.Manager{}, nil)
 
 	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
-		DAG:        &ir.DAG{Name: "child"},
-		RootDAGRun: root,
-		RunID:      "child-run",
-		StepName:   "step-1",
+		SubWorkflowRequest: executor.SubWorkflowRequest{
+			DAG:        &ir.DAG{Name: "child"},
+			RootDAGRun: root,
+			RunID:      "child-run",
+		},
+		StepName: "step-1",
 	})
 
 	require.Nil(t, result)
@@ -173,10 +175,12 @@ func TestLocalRetryReadsStoredChildAttemptStatus(t *testing.T) {
 	runner := subflow.NewLocal(runtime.Manager{}, nil, subflow.WithLocalDAGRunRepository(persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})))
 
 	result, err := runner.Retry(ctx, executor.SubWorkflowRetryRequest{
-		DAG:        &ir.DAG{Name: "child"},
-		RootDAGRun: root,
-		RunID:      "child-run",
-		StepName:   "step-1",
+		SubWorkflowRequest: executor.SubWorkflowRequest{
+			DAG:        &ir.DAG{Name: "child"},
+			RootDAGRun: root,
+			RunID:      "child-run",
+		},
+		StepName: "step-1",
 	})
 
 	require.Nil(t, result)
