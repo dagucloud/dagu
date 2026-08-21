@@ -74,7 +74,8 @@ var (
 // 3. Handle the HTTP request via the unix socket.
 // 4. Write the log and status to the data store.
 type Agent struct {
-	lock sync.RWMutex
+	lock          sync.RWMutex
+	statusWriteMu sync.Mutex
 
 	// dry indicates if the agent is running in dry-run mode.
 	dry     bool
@@ -993,10 +994,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	go execWithRecovery(ctx, func() {
 		defer close(progressDone)
 		for node := range progressCh {
-			status := a.Status(ctx)
-			if !a.shouldDelayTerminalStatus(status.Status) {
-				a.writeStatus(ctx, attempt, status)
-			}
+			status := a.recordCurrentStatus(ctx, attempt)
 			if err := a.reporter.reportStep(ctx, a.dag, status, node); err != nil {
 				logger.Error(ctx, "Failed to report step", tag.Error(err))
 			}
@@ -1027,11 +1025,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		case <-timer.C:
 		}
 
-		status := a.Status(ctx)
-		if a.finished.Load() || a.shouldDelayTerminalStatus(status.Status) {
-			return
-		}
-		a.writeStatus(ctx, attempt, status)
+		a.recordCurrentStatus(ctx, attempt)
 	})
 
 	// Start the dag-run.
@@ -1591,6 +1585,18 @@ func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, statu
 		return a.pushStatus(ctx, status)
 	}
 	return a.writeStatusLocally(ctx, attempt, status)
+}
+
+func (a *Agent) recordCurrentStatus(ctx context.Context, attempt runstate.Attempt) ir.DAGRunStatus {
+	a.statusWriteMu.Lock()
+	defer a.statusWriteMu.Unlock()
+
+	status := a.Status(ctx)
+	if a.finished.Load() || a.shouldDelayTerminalStatus(status.Status) {
+		return status
+	}
+	a.writeStatus(ctx, attempt, status)
+	return status
 }
 
 func (a *Agent) pushStatus(ctx context.Context, status ir.DAGRunStatus) error {
