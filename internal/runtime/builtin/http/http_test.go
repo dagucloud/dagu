@@ -376,9 +376,10 @@ func TestHTTPExecutor_CrossPlatform(t *testing.T) {
 	t.Run("BehaviorConsistencyAcrossPlatforms", func(t *testing.T) {
 		// Test data that should behave the same on all platforms
 		testCases := []struct {
-			name   string
-			method string
-			config map[string]any
+			name         string
+			method       string
+			config       map[string]any
+			expectedBody string
 		}{
 			{
 				name:   "SimpleGET",
@@ -386,8 +387,9 @@ func TestHTTPExecutor_CrossPlatform(t *testing.T) {
 				config: map[string]any{"silent": true},
 			},
 			{
-				name:   "POSTWithJSON",
-				method: "POST",
+				name:         "POSTWithJSON",
+				method:       "POST",
+				expectedBody: `{"test": "data"}`,
 				config: map[string]any{
 					"headers": map[string]string{"Content-Type": "application/json"},
 					"body":    `{"test": "data"}`,
@@ -411,8 +413,15 @@ func TestHTTPExecutor_CrossPlatform(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+					body, err := io.ReadAll(r.Body)
+					if err != nil {
+						nethttp.Error(w, err.Error(), nethttp.StatusInternalServerError)
+						return
+					}
+
 					// Echo back some request info
 					response := map[string]any{
+						"body":     string(body),
 						"method":   r.Method,
 						"platform": runtime.GOOS,
 						"headers":  r.Header,
@@ -449,6 +458,7 @@ func TestHTTPExecutor_CrossPlatform(t *testing.T) {
 				var response map[string]any
 				err = json.Unmarshal([]byte(out.String()), &response)
 				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedBody, response["body"])
 				assert.Equal(t, tc.method, response["method"])
 				assert.Equal(t, runtime.GOOS, response["platform"])
 
