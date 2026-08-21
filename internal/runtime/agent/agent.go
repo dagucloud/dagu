@@ -227,6 +227,8 @@ type Agent struct {
 
 	// workDir is the per-run work directory (for DAG_RUN_WORK_DIR).
 	workDir string
+	// workspaceSeed carries the immutable workspace into inline child workflows.
+	workspaceSeed *runtimeexec.WorkspaceSeed
 	// extraEnvs are additional execution-scoped env vars injected into the DAG run context.
 	extraEnvs []string
 	// profileName is the selected runtime profile name for this run.
@@ -303,6 +305,10 @@ type Options struct {
 	ProgressDisplay bool
 	// ExtraEnvs are additional execution-scoped env vars injected into the DAG run context.
 	ExtraEnvs []string
+	// WorkDir sets the existing per-run work directory.
+	WorkDir string
+	// WorkspaceSeed carries the workspace into inline child workflows.
+	WorkspaceSeed *runtimeexec.WorkspaceSeed
 	// StepRetry is the name of the step to retry, if specified.
 	StepRetry string
 	// IncludeDownstream resets the selected step and every reachable descendant.
@@ -415,6 +421,8 @@ func New(
 		profileStore:             opts.ProfileStore,
 		registry:                 opts.ServiceRegistry,
 		extraEnvs:                append([]string{}, opts.ExtraEnvs...),
+		workDir:                  opts.WorkDir,
+		workspaceSeed:            cloneWorkspaceSeed(opts.WorkspaceSeed),
 		profileName:              opts.ProfileName,
 		definitionID:             opts.DAGDefinitionID,
 		stepRetry:                opts.StepRetry,
@@ -701,6 +709,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
+	if a.workspaceSeed != nil {
+		ctx = runtimeexec.WithWorkspaceSeed(ctx, *a.workspaceSeed)
+	}
 	ctx, closeSubDAGRunSchedulerLog, replacedLogger := a.withSubDAGRunSchedulerLogWriter(ctx)
 	defer closeSubDAGRunSchedulerLog()
 
@@ -1189,6 +1200,16 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	return lastErr
 }
 
+func cloneWorkspaceSeed(seed *runtimeexec.WorkspaceSeed) *runtimeexec.WorkspaceSeed {
+	if seed == nil {
+		return nil
+	}
+	return &runtimeexec.WorkspaceSeed{
+		Descriptor: seed.Descriptor,
+		Archive:    append([]byte(nil), seed.Archive...),
+	}
+}
+
 func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {
 	switch status {
 	case ir.Waiting:
@@ -1540,6 +1561,9 @@ func contextTimeString(t time.Time) string {
 }
 
 func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (func(), error) {
+	if a.workDir != "" {
+		return nil, nil
+	}
 	if attempt == nil {
 		return nil, nil
 	}

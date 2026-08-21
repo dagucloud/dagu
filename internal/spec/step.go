@@ -71,6 +71,8 @@ type step struct {
 	Outputs any `yaml:"outputs,omitempty"`
 	// Inputs declares named regular-file inputs for build execution.
 	Inputs any `yaml:"inputs,omitempty"`
+	// Dependencies declares DAG-local files required by the step.
+	Dependencies types.StringOrArray `yaml:"dependencies,omitempty"`
 	// Depends is the list of steps to depend on.
 	Depends types.StringOrArray `yaml:"depends,omitempty"`
 	// ContinueOn is the condition to continue on.
@@ -451,6 +453,7 @@ var stepStructuredOutputStage = stepTransformStage{
 	stepField("output_schema", buildStepOutputSchema, func(out *ir.Step, v map[string]any) { out.OutputSchema = v }),
 	stepField("outputs", buildStepDeclaredOutputs, func(out *ir.Step, v []ir.StepOutputDeclaration) { out.Outputs = v }),
 	stepField("inputs", buildStepDeclaredInputs, func(out *ir.Step, v []ir.StepInputDeclaration) { out.Inputs = v }),
+	stepField("dependencies", buildStepFileDependencies, func(out *ir.Step, v []string) { out.Dependencies = v }),
 }
 
 var stepEnvConditionStage = stepTransformStage{
@@ -840,6 +843,19 @@ func buildStepTimeout(_ stepBuildContext, s *step) (time.Duration, error) {
 
 func buildStepDepends(_ stepBuildContext, s *step) ([]string, error) {
 	return s.Depends.Values(), nil
+}
+
+func buildStepFileDependencies(_ stepBuildContext, s *step) ([]string, error) {
+	if s.Dependencies.IsEmpty() {
+		return nil, fmt.Errorf("must not be empty")
+	}
+	dependencies := s.Dependencies.Values()
+	for i, dependency := range dependencies {
+		if strings.TrimSpace(dependency) == "" {
+			return nil, fmt.Errorf("item %d must not be empty", i)
+		}
+	}
+	return dependencies, nil
 }
 
 func buildStepExplicitlyNoDeps(_ stepBuildContext, s *step) (bool, error) {

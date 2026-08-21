@@ -2386,6 +2386,65 @@ steps:
 	})
 }
 
+func TestLoadStepFileDependencies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+		want []string
+	}{
+		{
+			name: "Scalar",
+			yaml: `
+steps:
+  - name: backup
+    run: echo backup
+    dependencies: ./scripts/backup.sh
+`,
+			want: []string{"./scripts/backup.sh"},
+		},
+		{
+			name: "Array",
+			yaml: `
+steps:
+  - name: backup
+    run: echo backup
+    dependencies:
+      - ./scripts/**
+      - ./config/app.yaml
+`,
+			want: []string{"./scripts/**", "./config/app.yaml"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
+			require.NoError(t, err)
+			require.Len(t, dag.Steps, 1)
+			assert.Equal(t, tt.want, dag.Steps[0].Dependencies)
+		})
+	}
+}
+
+func TestLoadStepFileDependenciesRejectsValueReferences(t *testing.T) {
+	t.Parallel()
+
+	_, err := spec.LoadYAML(context.Background(), []byte(`
+params:
+  script: backup.sh
+steps:
+  - name: backup
+    run: echo backup
+    dependencies: ./scripts/${params.script}
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dependencies")
+}
+
 func TestLoadWithLoaderOptions(t *testing.T) {
 	t.Parallel()
 

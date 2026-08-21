@@ -522,6 +522,37 @@ func TestBuildStepDepends(t *testing.T) {
 	}
 }
 
+func TestBuildStepFileDependencies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		dependencies types.StringOrArray
+		expected     []string
+		wantErr      bool
+	}{
+		{name: "Single", dependencies: stringOrArray("scripts/run.sh"), expected: []string{"scripts/run.sh"}},
+		{name: "Multiple", dependencies: stringOrArrayList([]string{"scripts/**", "config/app.yaml"}), expected: []string{"scripts/**", "config/app.yaml"}},
+		{name: "Omitted", dependencies: types.StringOrArray{}, expected: nil},
+		{name: "EmptyArray", dependencies: stringOrArrayList(nil), wantErr: true},
+		{name: "EmptyItem", dependencies: stringOrArray(" "), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := buildStepFileDependencies(testStepBuildContext(), &step{Dependencies: tt.dependencies})
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestBuildStepExplicitlyNoDeps(t *testing.T) {
 	t.Parallel()
 

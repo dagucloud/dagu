@@ -16,13 +16,14 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
-type actionWorkspace struct {
+type taskWorkspace struct {
 	dir     string
 	dagFile string
 	desc    workspacebundle.Descriptor
+	archive []byte
 }
 
-func actionWorkspaceDir(workDir string) string {
+func taskWorkspaceDir(workDir string) string {
 	return filepath.Join(workDir, "workspace")
 }
 
@@ -54,7 +55,7 @@ func materializeTaskWorkspace(
 	task *coordinatorv1.Task,
 	client workspacebundle.Client,
 	workDir string,
-) (*actionWorkspace, error) {
+) (*taskWorkspace, error) {
 	desc, ok, err := taskWorkspaceDescriptor(task)
 	if err != nil || !ok {
 		return nil, err
@@ -76,14 +77,15 @@ func materializeTaskWorkspace(
 		}
 		return nil, extractErr
 	}
-	return &actionWorkspace{
+	return &taskWorkspace{
 		dir:     workDir,
 		dagFile: filepath.Join(workDir, filepath.FromSlash(desc.DAGPath)),
 		desc:    desc,
+		archive: data,
 	}, nil
 }
 
-func remoteActionWorkDir(task *coordinatorv1.Task) string {
+func remoteWorkspaceWorkDir(task *coordinatorv1.Task) string {
 	return filepath.Join(
 		os.TempDir(),
 		fmt.Sprintf("dagu_%s_%s", fileutil.SafeName(task.Target), task.DagRunId),

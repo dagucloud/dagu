@@ -7,6 +7,8 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -18,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -60,6 +63,68 @@ func TestClientNew(t *testing.T) {
 
 func TestClientDispatch(t *testing.T) {
 	t.Parallel()
+
+	t.Run("UploadsDeclaredFileDependencies", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(root, "input.txt"), []byte("input"), 0o644))
+		dagFile := filepath.Join(root, "dag.yaml")
+		definition := "name: test\nsteps:\n  - name: consume\n    run: cat input.txt\n    dependencies: input.txt\n"
+
+		var uploaded []byte
+		mockCoord := &mockCoordinatorService{
+			hasWorkspaceBundleFunc: func(_ context.Context, _ *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error) {
+				return &coordinatorv1.HasWorkspaceBundleResponse{}, nil
+			},
+			putWorkspaceBundleFunc: func(stream coordinatorv1.CoordinatorService_PutWorkspaceBundleServer) error {
+				for {
+					chunk, err := stream.Recv()
+					if err == io.EOF {
+						return stream.SendAndClose(&coordinatorv1.PutWorkspaceBundleResponse{Accepted: true})
+					}
+					require.NoError(t, err)
+					uploaded = append(uploaded, chunk.Data...)
+				}
+			},
+			dispatchFunc: func(_ context.Context, req *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
+				assert.NotEmpty(t, req.Task.WorkspaceBundleDigest)
+				assert.Equal(t, int64(len(uploaded)), req.Task.WorkspaceBundleSize)
+				assert.Equal(t, "dag.yaml", req.Task.WorkspaceBundleDagPath)
+				if req.Task.WorkspaceBundleDigest == "" {
+					return &coordinatorv1.DispatchResponse{}, nil
+				}
+				dest := filepath.Join(t.TempDir(), "workspace")
+				require.NoError(t, workspacebundle.Extract(uploaded, dest, workspacebundle.Descriptor{
+					Digest:  req.Task.WorkspaceBundleDigest,
+					Size:    req.Task.WorkspaceBundleSize,
+					DAGPath: req.Task.WorkspaceBundleDagPath,
+				}, workspacebundle.DefaultLimits()))
+				assert.FileExists(t, filepath.Join(dest, "input.txt"))
+				actualDAG, err := os.ReadFile(filepath.Join(dest, "dag.yaml"))
+				require.NoError(t, err)
+				assert.Equal(t, definition, string(actualDAG))
+				return &coordinatorv1.DispatchResponse{}, nil
+			},
+		}
+
+		server, addr := startMockServer(t, mockCoord)
+		defer server.Stop()
+		host, port := parseHostPort(addr)
+		config := coordinator.DefaultConfig()
+		config.MaxRetries = 0
+		client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
+			ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+		}}}, config)
+
+		err := client.Dispatch(context.Background(), dispatch.DispatchRequest{Task: &dispatch.DispatchTask{
+			DAGRunID:   "run-1",
+			Target:     "test",
+			Definition: definition,
+			SourceFile: dagFile,
+		}})
+		require.NoError(t, err)
+	})
 
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
@@ -2037,18 +2102,20 @@ var _ coordinatorv1.CoordinatorServiceServer = (*mockCoordinatorService)(nil)
 type mockCoordinatorService struct {
 	coordinatorv1.UnimplementedCoordinatorServiceServer
 
-	dispatchFunc     func(context.Context, *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error)
-	pollFunc         func(context.Context, *coordinatorv1.PollRequest) (*coordinatorv1.PollResponse, error)
-	ackTaskClaimFunc func(context.Context, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error)
-	getWorkersFunc   func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error)
-	heartbeatFunc    func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
-	reportStatusFunc func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
-	getRunStatusFunc func(context.Context, *coordinatorv1.GetDAGRunStatusRequest) (*coordinatorv1.GetDAGRunStatusResponse, error)
-	streamLogsFunc   func(coordinatorv1.CoordinatorService_StreamLogsServer) error
-	getStateFunc     func(context.Context, *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error)
-	putStateFunc     func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error)
-	deleteStateFunc  func(context.Context, *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error)
-	listStateFunc    func(context.Context, *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error)
+	dispatchFunc           func(context.Context, *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error)
+	pollFunc               func(context.Context, *coordinatorv1.PollRequest) (*coordinatorv1.PollResponse, error)
+	ackTaskClaimFunc       func(context.Context, *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error)
+	getWorkersFunc         func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error)
+	heartbeatFunc          func(context.Context, *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error)
+	reportStatusFunc       func(context.Context, *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error)
+	getRunStatusFunc       func(context.Context, *coordinatorv1.GetDAGRunStatusRequest) (*coordinatorv1.GetDAGRunStatusResponse, error)
+	streamLogsFunc         func(coordinatorv1.CoordinatorService_StreamLogsServer) error
+	getStateFunc           func(context.Context, *coordinatorv1.GetStateRequest) (*coordinatorv1.GetStateResponse, error)
+	putStateFunc           func(context.Context, *coordinatorv1.PutStateRequest) (*coordinatorv1.PutStateResponse, error)
+	deleteStateFunc        func(context.Context, *coordinatorv1.DeleteStateRequest) (*coordinatorv1.DeleteStateResponse, error)
+	listStateFunc          func(context.Context, *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error)
+	hasWorkspaceBundleFunc func(context.Context, *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error)
+	putWorkspaceBundleFunc func(coordinatorv1.CoordinatorService_PutWorkspaceBundleServer) error
 }
 
 type stallFirstHealthCheckServer struct {
@@ -2146,6 +2213,20 @@ func (m *mockCoordinatorService) ListState(ctx context.Context, req *coordinator
 		return m.listStateFunc(ctx, req)
 	}
 	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (m *mockCoordinatorService) HasWorkspaceBundle(ctx context.Context, req *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error) {
+	if m.hasWorkspaceBundleFunc != nil {
+		return m.hasWorkspaceBundleFunc(ctx, req)
+	}
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (m *mockCoordinatorService) PutWorkspaceBundle(stream coordinatorv1.CoordinatorService_PutWorkspaceBundleServer) error {
+	if m.putWorkspaceBundleFunc != nil {
+		return m.putWorkspaceBundleFunc(stream)
+	}
+	return status.Error(codes.Unimplemented, "not implemented")
 }
 
 // Helper to start a mock gRPC server

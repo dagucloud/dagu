@@ -460,6 +460,13 @@ func validateStep(step ir.Step) ir.ErrorList {
 		}
 	}
 
+	for _, dependency := range step.Dependencies {
+		if cmnvalue.HasValueReference(dependency) {
+			errs = append(errs, ir.NewValidationError("dependencies", dependency,
+				fmt.Errorf("file dependency paths must be literal")))
+		}
+	}
+
 	errs = append(errs, validateParallelConfig(step)...)
 
 	if err := validateStepWithValidator(step); err != nil {

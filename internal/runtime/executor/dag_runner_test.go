@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate/memstore"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,11 @@ func TestNewSubDAGExecutor_LocalDAG(t *testing.T) {
 		DAGRunID:   "parent-456",
 	}
 	ctx = runctx.WithContext(ctx, dagCtx)
+	seed := WorkspaceSeed{
+		Descriptor: workspacebundle.Descriptor{Digest: "abc", DAGPath: "dag.yaml"},
+		Archive:    []byte("archive"),
+	}
+	ctx = WithWorkspaceSeed(ctx, seed)
 
 	// Test creating executor for local DAG
 	executor, err := NewSubDAGExecutor(ctx, "local-child")
@@ -61,6 +67,9 @@ func TestNewSubDAGExecutor_LocalDAG(t *testing.T) {
 	assert.NotEmpty(t, executor.tempFile)
 	assert.Contains(t, executor.tempFile, "local-child")
 	assert.Contains(t, executor.tempFile, ".yaml")
+	require.NotNil(t, executor.workspaceSeed)
+	assert.Equal(t, seed.Descriptor, executor.workspaceSeed.Descriptor)
+	assert.Equal(t, seed.Archive, executor.workspaceSeed.Archive)
 
 	// Verify the temp file was created
 	assert.FileExists(t, executor.tempFile)

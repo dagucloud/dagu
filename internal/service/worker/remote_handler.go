@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
@@ -155,14 +156,16 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 		profileName: task.ProfileName,
 	}
 
-	dag, cleanup, err := h.loadDAG(ctx, task)
+	loaded, err := h.loadDAG(ctx, task)
 	if err != nil {
 		h.reportTaskLoadFailure(ctx, run, err)
 		return fmt.Errorf("failed to load DAG: %w", err)
 	}
-	if cleanup != nil {
-		defer cleanup()
+	if loaded.cleanup != nil {
+		defer loaded.cleanup()
 	}
+	dag := loaded.dag
+	run.workspaceSeed = loaded.workspaceSeed
 
 	run.handlers = h.createRemoteHandlers(run, dag.Name)
 	err = h.executeDAGRun(ctx, dag, run)
@@ -212,14 +215,16 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		tag.RunID(task.DagRunId),
 		slog.Int("nodes", len(status.Nodes)))
 
-	dag, cleanup, err := h.loadDAG(ctx, task)
+	loaded, err := h.loadDAG(ctx, task)
 	if err != nil {
 		h.reportTaskLoadFailure(ctx, run, err)
 		return fmt.Errorf("failed to load DAG: %w", err)
 	}
-	if cleanup != nil {
-		defer cleanup()
+	if loaded.cleanup != nil {
+		defer loaded.cleanup()
 	}
+	dag := loaded.dag
+	run.workspaceSeed = loaded.workspaceSeed
 
 	run.handlers = h.createRemoteHandlers(run, dag.Name)
 	err = h.executeDAGRun(ctx, dag, run)
@@ -356,14 +361,15 @@ type runHandlers struct {
 }
 
 type remoteRun struct {
-	task        *coordinatorv1.Task
-	root        ir.DAGRunRef
-	parent      ir.DAGRunRef
-	owner       serviceregistry.HostInfo
-	handlers    runHandlers
-	queued      bool
-	retry       *retryConfig
-	profileName string
+	task          *coordinatorv1.Task
+	root          ir.DAGRunRef
+	parent        ir.DAGRunRef
+	owner         serviceregistry.HostInfo
+	handlers      runHandlers
+	queued        bool
+	retry         *retryConfig
+	profileName   string
+	workspaceSeed *runtimeexec.WorkspaceSeed
 }
 
 type taskInitError struct {
@@ -430,13 +436,18 @@ func (h *remoteTaskHandler) createRemoteHandlers(run remoteRun, dagName string) 
 	}
 }
 
+type loadedTaskDAG struct {
+	dag           *ir.DAG
+	workspaceSeed *runtimeexec.WorkspaceSeed
+	cleanup       func()
+}
+
 // loadDAG loads the DAG from task definition.
-// Returns the loaded DAG and a cleanup function that should be called after task execution.
-func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Task) (*ir.DAG, func(), error) {
+func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Task) (*loadedTaskDAG, error) {
 	if _, ok, err := taskWorkspaceDescriptor(task); err != nil {
-		return nil, nil, err
+		return nil, err
 	} else if ok {
-		return h.loadActionWorkspaceDAG(ctx, task)
+		return h.loadWorkspaceDAG(ctx, task)
 	}
 
 	logger.Info(ctx, "Creating temporary DAG file from definition",
@@ -445,7 +456,7 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 
 	tempFile, err := fileutil.CreateTempDAGFile("worker-dags", task.Target, []byte(task.Definition))
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create temp DAG file: %w", err)
+		return nil, fmt.Errorf("failed to create temp DAG file: %w", err)
 	}
 	cleanupFunc := func() {
 		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
@@ -475,7 +486,7 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 		loadOpts = append(loadOpts, spec.WithParams(task.Params))
 	} else if params, err := previousStatusParams(task); err != nil {
 		cleanupFunc()
-		return nil, nil, err
+		return nil, err
 	} else if len(params) > 0 {
 		loadOpts = append(loadOpts, spec.WithParams(spec.QuoteRuntimeParams(params, nil)))
 	}
@@ -483,41 +494,41 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 	dag, err := spec.Load(ctx, tempFile, loadOpts...)
 	if err != nil {
 		cleanupFunc()
-		return nil, nil, fmt.Errorf("failed to load DAG from %s: %w", tempFile, err)
+		return nil, fmt.Errorf("failed to load DAG from %s: %w", tempFile, err)
 	}
 	dag.SourceFile = task.SourceFile
 
-	return dag, cleanupFunc, nil
+	return &loadedTaskDAG{dag: dag, cleanup: cleanupFunc}, nil
 }
 
-func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task) (*ir.DAG, func(), error) {
+func (h *remoteTaskHandler) loadWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task) (*loadedTaskDAG, error) {
 	client, ok := h.coordinatorClient.(workspacebundle.Client)
 	if !ok {
-		return nil, nil, fmt.Errorf("coordinator client does not support workspace bundles")
+		return nil, fmt.Errorf("coordinator client does not support workspace bundles")
 	}
 
-	workDir := remoteActionWorkDir(task)
-	workspace, err := materializeTaskWorkspace(ctx, task, client, actionWorkspaceDir(workDir))
+	workDir := remoteWorkspaceWorkDir(task)
+	workspace, err := materializeTaskWorkspace(ctx, task, client, taskWorkspaceDir(workDir))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	cleanupFunc := func() {
 		if err := os.RemoveAll(workDir); err != nil {
-			logger.Warn(ctx, "Failed to remove action workspace",
+			logger.Warn(ctx, "Failed to remove task workspace",
 				slog.String("path", workDir),
 				tag.Error(err))
 		}
 	}
 
-	loadOpts := []spec.LoadOption{
-		spec.WithName(task.Target),
-		spec.WithDefaultWorkingDir(workspace.dir),
+	loadOpts := []spec.LoadOption{spec.WithDefaultWorkingDir(workspace.dir)}
+	if task.BaseConfig != "" {
+		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
 	}
 	if task.Params != "" {
 		loadOpts = append(loadOpts, spec.WithParams(task.Params))
 	} else if params, err := previousStatusParams(task); err != nil {
 		cleanupFunc()
-		return nil, nil, err
+		return nil, err
 	} else if len(params) > 0 {
 		loadOpts = append(loadOpts, spec.WithParams(spec.QuoteRuntimeParams(params, nil)))
 	}
@@ -525,17 +536,29 @@ func (h *remoteTaskHandler) loadActionWorkspaceDAG(ctx context.Context, task *co
 	dag, err := spec.Load(ctx, workspace.dagFile, loadOpts...)
 	if err != nil {
 		cleanupFunc()
-		return nil, nil, fmt.Errorf("failed to load action DAG from workspace: %w", err)
+		return nil, fmt.Errorf("failed to load DAG from workspace: %w", err)
+	}
+	if localDAG, ok := dag.LocalDAGs[task.Target]; ok {
+		dag = localDAG.Clone()
+	} else {
+		dag.Name = task.Target
 	}
 	dag.SourceFile = task.SourceFile
 
-	logger.Info(ctx, "Materialized action workspace",
+	logger.Info(ctx, "Materialized task workspace",
 		tag.Target(task.Target),
 		tag.File(workspace.dagFile),
 		slog.String("workspace", workspace.dir),
 		slog.String("digest", workspace.desc.Digest))
 
-	return dag, cleanupFunc, nil
+	return &loadedTaskDAG{
+		dag: dag,
+		workspaceSeed: &runtimeexec.WorkspaceSeed{
+			Descriptor: workspace.desc,
+			Archive:    workspace.archive,
+		},
+		cleanup: cleanupFunc,
+	}, nil
 }
 
 // agentEnv holds temporary directories and cleanup function for agent execution.
@@ -737,6 +760,10 @@ func (h *remoteTaskHandler) executeDAGRun(
 		ScheduleTime:             task.ScheduleTime,
 		ArtifactDir:              env.artifactDir,
 		ArtifactFinalizer:        artifactUploader,
+		WorkspaceSeed:            run.workspaceSeed,
+	}
+	if run.workspaceSeed != nil {
+		opts.WorkDir = taskWorkspaceDir(remoteWorkspaceWorkDir(task))
 	}
 
 	if run.retry != nil {

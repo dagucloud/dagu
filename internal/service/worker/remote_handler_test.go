@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	dagruntime "github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -481,6 +482,19 @@ type mockRemoteCoordinatorClient struct {
 	RequestCancelFunc     func(ctx context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) error
 }
 
+type workspaceRemoteCoordinatorClient struct {
+	*mockRemoteCoordinatorClient
+	data []byte
+}
+
+func (c *workspaceRemoteCoordinatorClient) PutWorkspaceBundle(context.Context, workspacebundle.Descriptor, []byte) error {
+	return nil
+}
+
+func (c *workspaceRemoteCoordinatorClient) GetWorkspaceBundle(context.Context, string) ([]byte, error) {
+	return c.data, nil
+}
+
 func newMockRemoteCoordinatorClient() *mockRemoteCoordinatorClient {
 	return &mockRemoteCoordinatorClient{
 		ReportStatusFunc: func(_ context.Context, _ *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
@@ -920,9 +934,11 @@ steps:
 			Definition: dagDefinition,
 		}
 
-		dag, cleanup, err := handler.loadDAG(context.Background(), task)
+		loaded, err := handler.loadDAG(context.Background(), task)
 
 		require.NoError(t, err)
+		dag := loaded.dag
+		cleanup := loaded.cleanup
 		require.NotNil(t, dag)
 		assert.Equal(t, "inline-dag", dag.Name) // Name comes from task.Target when Definition is provided
 		require.NotNil(t, cleanup, "cleanup should be set for inline definitions")
@@ -950,11 +966,10 @@ steps:
 			Definition: invalidDefinition,
 		}
 
-		dag, cleanup, err := handler.loadDAG(context.Background(), task)
+		loaded, err := handler.loadDAG(context.Background(), task)
 
 		require.Error(t, err)
-		require.Nil(t, dag)
-		assert.Nil(t, cleanup, "cleanup should be nil after error (already cleaned up)")
+		require.Nil(t, loaded)
 		require.Contains(t, err.Error(), "failed to load DAG")
 	})
 }
@@ -1629,6 +1644,51 @@ func TestCreateAgentEnv_MkdirAllError(t *testing.T) {
 	}
 }
 
+func TestLoadDAGSelectsInlineTargetFromWorkspace(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "input.txt"), []byte("input"), 0o600))
+	definition := []byte(`name: root
+steps:
+  - name: root-step
+    run: echo root
+---
+name: child
+steps:
+  - name: child-step
+    run: cat input.txt
+    dependencies: input.txt
+`)
+	desc, archive, err := workspacebundle.PackDirectory(root, workspacebundle.PackOptions{
+		DAGPath:  "dag.yaml",
+		DAGData:  definition,
+		Includes: []string{"input.txt"},
+	})
+	require.NoError(t, err)
+	client := &workspaceRemoteCoordinatorClient{
+		mockRemoteCoordinatorClient: newMockRemoteCoordinatorClient(),
+		data:                        archive,
+	}
+	handler := &remoteTaskHandler{coordinatorClient: client, config: &config.Config{}}
+	task := &coordinatorv1.Task{
+		Target:                     "child",
+		DagRunId:                   "run-1",
+		WorkspaceBundleDigest:      desc.Digest,
+		WorkspaceBundleSize:        desc.Size,
+		WorkspaceBundleDagPath:     desc.DAGPath,
+		WorkspaceBundleOriginalRef: desc.OriginalRef,
+		WorkspaceBundleResolvedRef: desc.ResolvedRef,
+	}
+
+	loaded, err := handler.loadDAG(context.Background(), task)
+	require.NoError(t, err)
+	defer loaded.cleanup()
+	require.NotNil(t, loaded.workspaceSeed)
+	require.Len(t, loaded.dag.Steps, 1)
+	assert.Equal(t, "child-step", loaded.dag.Steps[0].Name)
+}
+
 func TestLoadDAG_CleanupErrorLogged(t *testing.T) {
 	t.Parallel()
 
@@ -1655,19 +1715,19 @@ steps:
 		Definition: dagDefinition,
 	}
 
-	dag, cleanup, err := handler.loadDAG(context.Background(), task)
+	loaded, err := handler.loadDAG(context.Background(), task)
 
 	require.NoError(t, err)
-	require.NotNil(t, dag)
-	require.NotNil(t, cleanup)
+	require.NotNil(t, loaded.dag)
+	require.NotNil(t, loaded.cleanup)
 
 	// Call cleanup - this exercises the cleanup path even though
 	// we can't easily make it fail
-	cleanup()
+	loaded.cleanup()
 
 	// Calling cleanup again should not panic (handles IsNotExist)
 	require.NotPanics(t, func() {
-		cleanup()
+		loaded.cleanup()
 	})
 }
 
@@ -1700,10 +1760,11 @@ steps:
 		Target:     "exec-env-error",
 		Definition: dagContent,
 	}
-	dag, cleanup, loadErr := handler.loadDAG(context.Background(), task)
+	loaded, loadErr := handler.loadDAG(context.Background(), task)
 	require.NoError(t, loadErr)
-	require.NotNil(t, dag)
-	defer cleanup()
+	require.NotNil(t, loaded.dag)
+	defer loaded.cleanup()
+	dag := loaded.dag
 
 	// Create remote handlers
 	root := ir.DAGRunRef{Name: "root", ID: "root-1"}

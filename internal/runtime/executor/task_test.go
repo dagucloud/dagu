@@ -4,13 +4,67 @@
 package executor_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestPrepareDAGWorkspace(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "scripts"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "config"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "root.txt"), []byte("root"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "scripts", "handler.sh"), []byte("handler"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config", "foreach.yaml"), []byte("foreach"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "child.txt"), []byte("child"), 0o644))
+
+	dagData := []byte("name: root\nsteps:\n  - run: echo root\n")
+	dag := &ir.DAG{
+		Name:       "root",
+		SourceFile: filepath.Join(root, "dag.yaml"),
+		YamlData:   dagData,
+		Steps: []ir.Step{
+			{Dependencies: []string{"root.txt"}},
+			{Foreach: &ir.ForeachConfig{Steps: []ir.Step{{Dependencies: []string{"config/**"}}}}},
+		},
+		HandlerOn: ir.HandlerOn{
+			Failure: &ir.Step{Dependencies: []string{"scripts/handler.sh"}},
+		},
+		LocalDAGs: map[string]*ir.DAG{
+			"child": {Steps: []ir.Step{{Dependencies: []string{"child.txt"}}}},
+		},
+	}
+
+	seed, err := executor.PrepareDAGWorkspace(dag)
+	require.NoError(t, err)
+	require.NotNil(t, seed)
+	assert.Equal(t, "dag.yaml", seed.Descriptor.DAGPath)
+
+	dest := filepath.Join(t.TempDir(), "workspace")
+	require.NoError(t, workspacebundle.Extract(seed.Archive, dest, seed.Descriptor, workspacebundle.DefaultLimits()))
+	assert.FileExists(t, filepath.Join(dest, "root.txt"))
+	assert.FileExists(t, filepath.Join(dest, "scripts", "handler.sh"))
+	assert.FileExists(t, filepath.Join(dest, "config", "foreach.yaml"))
+	assert.FileExists(t, filepath.Join(dest, "child.txt"))
+	actualDAG, err := os.ReadFile(filepath.Join(dest, "dag.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, dagData, actualDAG)
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "root.txt"), []byte("updated"), 0o644))
+	updatedSeed, err := executor.PrepareDAGWorkspace(dag)
+	require.NoError(t, err)
+	require.NotNil(t, updatedSeed)
+	assert.NotEqual(t, seed.Descriptor.Digest, updatedSeed.Descriptor.Digest)
+}
 
 func TestDAG_CreateTask(t *testing.T) {
 	t.Parallel()

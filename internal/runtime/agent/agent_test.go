@@ -1115,6 +1115,20 @@ steps:
 	require.Equal(t, sock.Addr("child-dag", childRunID), socketAddr)
 }
 
+func TestAgentUsesProvidedWorkDir(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "input.txt"), []byte("input"), 0o600))
+	dag := th.DAG(t, `name: workspace-dag
+steps:
+  - run: test -f "$DAG_RUN_WORK_DIR/input.txt"
+`)
+
+	dag.Agent(test.WithAgentOptions(agent.Options{WorkDir: workDir})).RunSuccess(t)
+}
+
 // Assert that mockResponseWriter implements http.ResponseWriter
 var _ http.ResponseWriter = (*mockResponseWriter)(nil)
 

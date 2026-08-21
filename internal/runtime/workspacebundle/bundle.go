@@ -17,9 +17,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
@@ -53,6 +56,8 @@ type Limits struct {
 
 type PackOptions struct {
 	DAGPath     string
+	DAGData     []byte
+	Includes    []string
 	OriginalRef string
 	ResolvedRef string
 	Limits      Limits
@@ -95,13 +100,24 @@ func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
 
 	dagPath, err := NormalizeRelativePath(opts.DAGPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("invalid action DAG path: %w", err)
+		return nil, nil, fmt.Errorf("invalid workspace DAG path: %w", err)
 	}
 
 	limits := normalizeLimits(opts.Limits)
-	files, err := collectFiles(root, limits)
+	var files []string
+	if len(opts.Includes) > 0 {
+		files, err = collectSelectedFiles(root, opts.Includes, limits)
+	} else {
+		files, err = collectFiles(root, limits)
+	}
 	if err != nil {
 		return nil, nil, err
+	}
+	if opts.DAGData != nil {
+		files = appendUniquePath(files, dagPath)
+		if len(files) > limits.MaxFiles {
+			return nil, nil, fmt.Errorf("workspace bundle exceeds file count limit %d", limits.MaxFiles)
+		}
 	}
 
 	var buf bytes.Buffer
@@ -113,6 +129,35 @@ func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
 
 	var unpacked int64
 	for _, rel := range files {
+		if rel == dagPath && opts.DAGData != nil {
+			unpacked += int64(len(opts.DAGData))
+			if unpacked > limits.MaxUncompressedSize {
+				_ = tw.Close()
+				_ = gz.Close()
+				return nil, nil, fmt.Errorf("workspace bundle exceeds uncompressed size limit %d", limits.MaxUncompressedSize)
+			}
+			header := &tar.Header{
+				Name:       rel,
+				Mode:       0o644,
+				Size:       int64(len(opts.DAGData)),
+				Typeflag:   tar.TypeReg,
+				ModTime:    zeroTime,
+				AccessTime: zeroTime,
+				ChangeTime: zeroTime,
+				Format:     tar.FormatPAX,
+			}
+			if err := tw.WriteHeader(header); err != nil {
+				_ = tw.Close()
+				_ = gz.Close()
+				return nil, nil, fmt.Errorf("write tar header for %q: %w", rel, err)
+			}
+			if _, err := tw.Write(opts.DAGData); err != nil {
+				_ = tw.Close()
+				_ = gz.Close()
+				return nil, nil, fmt.Errorf("write bundle file %q: %w", rel, err)
+			}
+			continue
+		}
 		abs := filepath.Join(root, filepath.FromSlash(rel))
 		info, err := os.Lstat(abs)
 		if err != nil {
@@ -393,6 +438,98 @@ func collectFiles(root string, limits Limits) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func collectSelectedFiles(root string, includes []string, limits Limits) ([]string, error) {
+	selected := make(map[string]struct{})
+	rootFS := os.DirFS(root)
+	for _, include := range includes {
+		pattern, err := NormalizeRelativePath(include)
+		if err != nil {
+			return nil, fmt.Errorf("invalid workspace include %q: %w", include, err)
+		}
+		if !doublestar.ValidatePattern(pattern) {
+			return nil, fmt.Errorf("invalid workspace include pattern %q", include)
+		}
+		matches, err := doublestar.Glob(rootFS, pattern, doublestar.WithFailOnIOErrors())
+		if err != nil {
+			return nil, fmt.Errorf("match workspace include %q: %w", include, err)
+		}
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("workspace include %q matched no files", include)
+		}
+		for _, match := range matches {
+			if err := collectSelectedPath(root, match, selected); err != nil {
+				return nil, fmt.Errorf("collect workspace include %q: %w", include, err)
+			}
+		}
+	}
+
+	files := make([]string, 0, len(selected))
+	for rel := range selected {
+		files = append(files, rel)
+	}
+	sort.Strings(files)
+	if len(files) > limits.MaxFiles {
+		return nil, fmt.Errorf("workspace bundle exceeds file count limit %d", limits.MaxFiles)
+	}
+	return files, nil
+}
+
+func collectSelectedPath(root, rel string, selected map[string]struct{}) error {
+	rel, err := NormalizeRelativePath(rel)
+	if err != nil {
+		return err
+	}
+	abs := filepath.Join(root, filepath.FromSlash(rel))
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return err
+	}
+	if shouldSkip(rel, fs.FileInfoToDirEntry(info)) {
+		return fmt.Errorf("workspace bundle does not support .git path %q", rel)
+	}
+	if err := validatePackFile(rel, info); err != nil {
+		return err
+	}
+	selected[rel] = struct{}{}
+	if !info.IsDir() {
+		return nil
+	}
+	return filepath.WalkDir(abs, func(pathname string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		child, err := filepath.Rel(root, pathname)
+		if err != nil {
+			return err
+		}
+		child = filepath.ToSlash(child)
+		if shouldSkip(child, entry) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		childInfo, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if err := validatePackFile(child, childInfo); err != nil {
+			return err
+		}
+		selected[child] = struct{}{}
+		return nil
+	})
+}
+
+func appendUniquePath(paths []string, rel string) []string {
+	if slices.Contains(paths, rel) {
+		return paths
+	}
+	paths = append(paths, rel)
+	sort.Strings(paths)
+	return paths
 }
 
 func validatePackFile(rel string, info fs.FileInfo) error {

@@ -119,7 +119,7 @@ type Handler struct {
 	logDir                    string                             // For log storage
 	artifactDir               string                             // For artifact storage
 	stateStore                dagrun.StateStore                  // For persistent DAG state shared across DAG runs
-	workspaceBundleStore      *workspacebundle.Store             // For immutable action workspace bundles
+	workspaceBundleStore      *workspacebundle.Store             // For immutable task workspace bundles
 	dispatchTaskStore         dispatch.DispatchTaskStore         // Shared distributed dispatch queue
 	dispatchAdmissionStore    dispatch.DispatchAdmissionStore    // Shared distributed admission state
 	workerHeartbeatStore      dispatch.WorkerHeartbeatStore      // Shared worker presence
@@ -170,7 +170,7 @@ type HandlerConfig struct {
 	// StateStore is the persistent DAG state store used by state RPCs.
 	StateStore dagrun.StateStore
 
-	// WorkspaceBundleDir stores immutable action workspace bundles by digest.
+	// WorkspaceBundleDir stores immutable task workspace bundles by digest.
 	WorkspaceBundleDir string
 
 	// Owner identifies this coordinator instance for shared task ownership.

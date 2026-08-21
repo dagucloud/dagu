@@ -27,9 +27,9 @@ func materializeLocalWorkspace(req executor.SubWorkflowRequest) (string, string,
 	}
 	desc.DAGPath = dagPath
 
-	tmp, err := os.MkdirTemp("", "dagu-action-workspace-*")
+	tmp, err := os.MkdirTemp("", "dagu-workspace-*")
 	if err != nil {
-		return "", "", nil, fmt.Errorf("create local action workspace: %w", err)
+		return "", "", nil, fmt.Errorf("create local workspace: %w", err)
 	}
 	cleanup := func() {
 		_ = fileutil.RemoveAll(tmp)
@@ -37,7 +37,7 @@ func materializeLocalWorkspace(req executor.SubWorkflowRequest) (string, string,
 	dest := filepath.Join(tmp, "workspace")
 	if err := workspacebundle.Extract(req.Workspace.Archive, dest, desc, workspacebundle.DefaultLimits()); err != nil {
 		cleanup()
-		return "", "", nil, fmt.Errorf("materialize action workspace for run %q: %w", req.RunID, err)
+		return "", "", nil, fmt.Errorf("materialize workspace for run %q: %w", req.RunID, err)
 	}
 	target := filepath.Join(dest, filepath.FromSlash(dagPath))
 	if !workspacebundle.IsPathWithin(dest, target) {

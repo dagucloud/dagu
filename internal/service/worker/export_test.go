@@ -85,5 +85,9 @@ func LoadRemoteTaskDAGForTest(ctx context.Context, cfg *config.Config, task *coo
 		cfg = &config.Config{}
 	}
 	handler := &remoteTaskHandler{config: cfg}
-	return handler.loadDAG(ctx, task)
+	loaded, err := handler.loadDAG(ctx, task)
+	if err != nil {
+		return nil, nil, err
+	}
+	return loaded.dag, loaded.cleanup, nil
 }

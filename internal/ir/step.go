@@ -74,6 +74,8 @@ type Step struct {
 	Outputs []StepOutputDeclaration `json:"outputs,omitempty"`
 	// Inputs declares named regular-file inputs for build execution.
 	Inputs []StepInputDeclaration `json:"inputs,omitempty"`
+	// Dependencies declares DAG-local files required by the step.
+	Dependencies []string `json:"dependencies,omitempty"`
 	// Depends contains the list of step names to depend on.
 	Depends []string `json:"depends,omitempty"`
 	// ExplicitlyNoDeps indicates the depends field was explicitly set to empty

@@ -29,8 +29,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -236,6 +238,9 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 	if task == nil {
 		return fmt.Errorf("dispatch task is nil")
 	}
+	if err := cli.prepareTaskWorkspace(ctx, task); err != nil {
+		return err
+	}
 	protoTask, err := convert.DispatchTaskToProto(task)
 	if err != nil {
 		return err
@@ -310,6 +315,44 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 			return nil
 		})
 	}, policy, nil)
+}
+
+func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.DispatchTask) error {
+	if task.WorkspaceBundleDigest != "" || strings.TrimSpace(task.Definition) == "" {
+		return nil
+	}
+
+	loadOpts := []spec.LoadOption{
+		spec.WithName(task.Target),
+	}
+	if task.BaseConfig != "" {
+		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
+	}
+	if task.Params != "" {
+		loadOpts = append(loadOpts, spec.WithParams(task.Params))
+	}
+	var dag *ir.DAG
+	var err error
+	if task.SourceFile != "" {
+		dag, err = spec.LoadYAMLAt(ctx, []byte(task.Definition), task.SourceFile, loadOpts...)
+	} else {
+		dag, err = spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
+	}
+	if err != nil {
+		return fmt.Errorf("load DAG for file dependency snapshot: %w", err)
+	}
+	seed, err := runtimeexec.PrepareDAGWorkspace(dag)
+	if err != nil {
+		return err
+	}
+	if seed == nil {
+		return nil
+	}
+	if err := cli.PutWorkspaceBundle(ctx, seed.Descriptor, seed.Archive); err != nil {
+		return fmt.Errorf("upload DAG file dependencies: %w", err)
+	}
+	runtimeexec.WithWorkspaceBundle(seed.Descriptor)(task)
+	return nil
 }
 
 // Poll implements Client.
