@@ -3558,6 +3558,20 @@
     "httpExecutorConfig": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "$comment": "body cannot be combined with the multipart fields; the executor rejects that combination at runtime.",
+          "if": {
+            "anyOf": [
+              { "required": ["form"] },
+              { "required": ["files"] }
+            ]
+          },
+          "then": {
+            "not": { "required": ["body"] }
+          }
+        }
+      ],
       "properties": {
         "method": {
           "type": "string",

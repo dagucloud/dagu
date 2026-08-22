@@ -2422,6 +2422,35 @@ steps:
 `,
 		},
 		{
+			// The executor rejects body combined with the multipart fields;
+			// the schema mirrors that (#2602 review).
+			name: "RejectHTTPRequestBodyWithForm",
+			spec: `
+steps:
+  - id: upload
+    action: http.request
+    with:
+      method: POST
+      url: https://api.example.com/uploads
+      body: '{"key": "value"}'
+      form:
+        description: nightly-report
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "HTTPRequestBodyOnly",
+			spec: `
+steps:
+  - id: fetch
+    action: http.request
+    with:
+      method: POST
+      url: https://api.example.com/data
+      body: '{"key": "value"}'
+`,
+		},
+		{
 			name: "HTTPRequestOutputOnly",
 			spec: `
 steps:
@@ -2440,7 +2469,13 @@ steps:
 			t.Parallel()
 
 			doc := mustParseYAMLDocument(t, tt.spec)
-			require.NoError(t, resolved.Validate(doc))
+			err := resolved.Validate(doc)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
 }
