@@ -3586,6 +3586,16 @@
           "type": "string",
           "description": "Request body content. Can be JSON, XML, or plain text depending on Content-Type header."
         },
+        "form": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Multipart form fields mapping server field names to values. Cannot be combined with body."
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Files to upload as multipart form data, mapping server field names to local paths. Relative paths resolve from the step working directory. Cannot be combined with body."
+        },
         "silent": {
           "type": "boolean",
           "description": "When true, suppresses response headers and status in output on success."
@@ -3606,6 +3616,11 @@
         "skip_tls_verify": {
           "type": "boolean",
           "description": "Skip TLS certificate verification. WARNING: Only use for testing with self-signed certificates."
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to write the response body to (file output mode)."
         }
       },
       "description": "Configuration options for HTTP executor requests."

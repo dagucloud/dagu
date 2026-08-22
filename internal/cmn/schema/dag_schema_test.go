@@ -2391,3 +2391,56 @@ func firstStepConfig(t *testing.T, doc map[string]any) map[string]any {
 	require.True(t, ok)
 	return config
 }
+
+func TestDAGSchemaHTTPRequestWithFields(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr string
+	}{
+		{
+			// Regression (#2602): output, form and files are documented `with`
+			// fields of http.request and supported by the executor, but the
+			// schema rejected them (additionalProperties: false).
+			name: "HTTPRequestOutputFormFiles",
+			spec: `
+steps:
+  - id: fetch
+    action: http.request
+    with:
+      method: POST
+      url: https://api.example.com/uploads
+      form:
+        description: nightly-report
+      files:
+        document: ./report.pdf
+      output: ./response.json
+`,
+		},
+		{
+			name: "HTTPRequestOutputOnly",
+			spec: `
+steps:
+  - id: fetch
+    action: http.request
+    with:
+      method: GET
+      url: https://api.example.com/data
+      output: ./data.json
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := mustParseYAMLDocument(t, tt.spec)
+			require.NoError(t, resolved.Validate(doc))
+		})
+	}
+}
