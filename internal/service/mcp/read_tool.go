@@ -298,7 +298,19 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		output["uri"] = input.URI
 	}
 
-	return resultWithLinks("Dagu read completed.", readResourceLinks(input.URI)...), output, nil
+	return resultWithLinks(readResultMessage(input, data), readResourceLinks(input.URI)...), output, nil
+}
+
+func readResultMessage(input readInput, data any) string {
+	if input.Target != readTargetDAGs {
+		return "Dagu read completed."
+	}
+
+	payload, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return "Dagu read completed."
+	}
+	return "Dagu read completed.\n\n" + string(payload)
 }
 
 func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
