@@ -4,6 +4,7 @@
 package spec021_mcp_read_tool_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"testing"
@@ -105,14 +106,20 @@ func requireResultContent(t *testing.T, result *mcpsdk.CallToolResult, uri, link
 	t.Helper()
 
 	if uri == "" {
-		require.Len(t, result.Content, 1)
-	} else {
 		require.Len(t, result.Content, 2)
+	} else {
+		require.Len(t, result.Content, 3)
 	}
 
 	text, ok := result.Content[0].(*mcpsdk.TextContent)
 	require.True(t, ok)
 	require.Equal(t, "Dagu read completed.", text.Text)
+
+	payload, ok := result.Content[len(result.Content)-1].(*mcpsdk.TextContent)
+	require.True(t, ok)
+	structured, err := json.Marshal(mcptest.StructuredMap(t, result))
+	require.NoError(t, err)
+	require.JSONEq(t, string(structured), payload.Text)
 
 	if uri == "" {
 		return

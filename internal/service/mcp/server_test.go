@@ -435,6 +435,18 @@ func TestReadToolListsAndReadsAltDAGsDir(t *testing.T) {
 	require.Contains(t, structuredJSON(t, spec), "name: alt-dag")
 }
 
+func TestReadToolReturnsPayloadAsTextContent(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	result := callTool(t, ctx, session, toolRead, readInput{Target: readTargetReferences})
+	require.False(t, result.IsError)
+
+	payload, ok := result.Content[len(result.Content)-1].(*mcpsdk.TextContent)
+	require.True(t, ok)
+	require.JSONEq(t, structuredJSON(t, result), payload.Text)
+}
+
 func TestReadToolCanReadReferenceResource(t *testing.T) {
 	ctx := context.Background()
 	session := connectTestClient(t, ctx, NewServer(nil))

@@ -174,11 +174,13 @@ Rules:
 - `references` contains exactly `dagu://reference/authoring`,
   `dagu://reference/tools`, and `dagu://reference/notifications`; order is not
   normative.
-- A result with `uri` has exactly two content items: `content[0]` is a text
-  content item with text `Dagu read completed.`, and `content[1]` is a
-  resource-link content item for that URI.
-- A result without `uri` has exactly one content item: `content[0]` is a text
-  content item with text `Dagu read completed.`.
+- A result with `uri` has exactly three content items: `content[0]` is a text
+  content item with text `Dagu read completed.`, `content[1]` is a
+  resource-link content item for that URI, and `content[2]` is a text content
+  item holding the structured output as JSON.
+- A result without `uri` has exactly two content items: `content[0]` is a text
+  content item with text `Dagu read completed.`, and `content[1]` is a text
+  content item holding the structured output as JSON.
 - URI path segments in returned URIs follow Spec 020 escaping.
 
 Resource-link content items have MCP content type `resource_link`. The required

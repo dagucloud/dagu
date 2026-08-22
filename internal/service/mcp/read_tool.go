@@ -177,6 +177,12 @@ func (svc *Service) readTool(ctx context.Context, req *mcpsdk.CallToolRequest) (
 	if err != nil {
 		return readErrorResult(classifyReadToolError(input, err)), nil
 	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		return readErrorResult(classifyReadToolError(input, err)), nil
+	}
+	// Clients that render only content items would otherwise see the status message alone.
+	result.Content = append(result.Content, &mcpsdk.TextContent{Text: string(encoded)})
 	result.StructuredContent = output
 	return result, nil
 }

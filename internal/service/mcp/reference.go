@@ -162,7 +162,7 @@ Query parameters:
 
 Output:
 
-- Successful result text is Dagu read completed.
+- Successful result text is Dagu read completed, followed by a text item holding the structured output as JSON.
 - Structured output has target, data, references, and uri when the read has a canonical resource URI.
 - Reference URIs in references point to built-in guidance resources.
 - Wiki list and search entries include canonical dagu://wiki/{workspace}/{path} URIs. Nested page paths are encoded as one URI segment.
