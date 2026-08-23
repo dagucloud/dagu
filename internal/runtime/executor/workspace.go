@@ -38,13 +38,16 @@ func PrepareDAGWorkspace(dag *ir.DAG) (*WorkspaceSeed, error) {
 	return &WorkspaceSeed{Descriptor: *descriptor, Archive: archive}, nil
 }
 
-// PrepareDAGWorkspaceFile snapshots declared files into a staged archive.
-func PrepareDAGWorkspaceFile(dag *ir.DAG, stagingDir string) (*workspacebundle.Descriptor, string, error) {
+// PrepareDAGWorkspaceFile snapshots declared files into a staged archive under bundleDir.
+func PrepareDAGWorkspaceFile(dag *ir.DAG, bundleDir string) (*workspacebundle.Descriptor, string, error) {
 	root, opts, err := dagWorkspacePackOptions(dag)
 	if err != nil || opts == nil {
 		return nil, "", err
 	}
-	descriptor, archivePath, err := workspacebundle.PackDirectoryToFile(root, stagingDir, *opts)
+	if strings.TrimSpace(bundleDir) == "" {
+		return nil, "", fmt.Errorf("workspace bundle directory is not configured")
+	}
+	descriptor, archivePath, err := workspacebundle.PackDirectoryToFile(root, filepath.Join(bundleDir, "staging"), *opts)
 	if err != nil {
 		return nil, "", fmt.Errorf("prepare DAG file dependencies: %w", err)
 	}

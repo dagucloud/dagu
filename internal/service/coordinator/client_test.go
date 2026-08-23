@@ -281,6 +281,24 @@ func TestClientDispatch(t *testing.T) {
 	})
 }
 
+func TestClientDispatchRejectsFileDependenciesWithoutWorkspaceBundleDir(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "input.txt"), []byte("input"), 0o644))
+	dagFile := filepath.Join(root, "dag.yaml")
+	definition := "name: test\nsteps:\n  - name: consume\n    run: cat input.txt\n    dependencies: input.txt\n"
+
+	client := coordinator.New(&mockServiceMonitor{}, coordinator.DefaultConfig())
+	err := client.Dispatch(context.Background(), dispatch.DispatchRequest{Task: &dispatch.DispatchTask{
+		DAGRunID:   "run-1",
+		Target:     "test",
+		Definition: definition,
+		SourceFile: dagFile,
+	}})
+	require.ErrorContains(t, err, "workspace bundle directory is not configured")
+	assert.NoDirExists(t, filepath.Join(root, "staging"))
+}
+
 func TestClientPoll(t *testing.T) {
 	t.Parallel()
 

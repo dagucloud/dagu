@@ -16,7 +16,6 @@ import (
 	"math/rand/v2"
 	"net"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -342,7 +341,7 @@ func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.
 	if err != nil {
 		return fmt.Errorf("load DAG for file dependency snapshot: %w", err)
 	}
-	desc, archivePath, err := runtimeexec.PrepareDAGWorkspaceFile(dag, filepath.Join(cli.config.WorkspaceBundleDir, "staging"))
+	desc, archivePath, err := runtimeexec.PrepareDAGWorkspaceFile(dag, cli.config.WorkspaceBundleDir)
 	if err != nil {
 		return err
 	}
