@@ -191,6 +191,20 @@ func (s *Server) CreateCompletedRun(t *testing.T, name string) string {
 	s.CreateDAG(t, name, spec)
 	dagRunID := s.StartDAG(t, name)
 	s.WaitForDAGRunStatus(t, name, dagRunID, api.StatusSuccess)
+
+	// The finish timestamp is persisted moments after the terminal status
+	// becomes visible; wait for it so fixture runs are fully recorded.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp := s.server.Client().Get(fmt.Sprintf("/api/v1/dag-runs/%s/%s", name, dagRunID)).Send(t)
+		if !assert.Equal(c, http.StatusOK, resp.Response.StatusCode()) {
+			return
+		}
+		var result api.GetDAGRunDetails200JSONResponse
+		resp.Unmarshal(t, &result)
+		assert.NotEmpty(c, result.DagRunDetails.FinishedAt)
+		assert.NotEqual(c, "-", result.DagRunDetails.FinishedAt)
+	}, Timeout, 250*time.Millisecond, "dag run %s/%s never recorded a finish timestamp", name, dagRunID)
+
 	return dagRunID
 }
 
