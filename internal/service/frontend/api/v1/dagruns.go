@@ -209,7 +209,12 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
+	cleanupOnReturn := true
+	defer func() {
+		if cleanupOnReturn {
+			cleanup()
+		}
+	}()
 
 	if err := a.requireDAGWriteForWorkspace(ctx, runtimeWorkspaceName(dag, labels)); err != nil {
 		return nil, err
@@ -230,7 +235,16 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		return nil, err
 	}
 
-	if err := a.startDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
+	started, err := a.startDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), labels, profileName, valueOf(request.Body.NoReuse))
+	if started != nil {
+		cleanupOnReturn = false
+		go func() {
+			for range started.Done {
+			}
+			cleanup()
+		}()
+	}
+	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusInternalServerError,
 			Code:       api.ErrorCodeInternalError,

@@ -1066,7 +1066,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		return nil, err
 	}
 
-	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
+	if _, err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
 	}
 
@@ -1163,7 +1163,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 		return nil, err
 	}
 
-	if err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
+	if _, err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
 	}
 
@@ -1264,7 +1264,12 @@ func (a *API) readDAGRunStatusForSync(ctx context.Context, dag *ir.DAG, dagRunID
 	return status, nil
 }
 
-func (a *API) startDAGRun(ctx context.Context, dag *ir.DAG, params, dagRunID, nameOverride, labels, profileName string, noReuse bool) error {
+func (a *API) startDAGRun(
+	ctx context.Context,
+	dag *ir.DAG,
+	params, dagRunID, nameOverride, labels, profileName string,
+	noReuse bool,
+) (*launcher.StartResult, error) {
 	return a.startDAGRunWithOptions(ctx, dag, startDAGRunOptions{
 		params:       params,
 		dagRunID:     dagRunID,
@@ -1526,12 +1531,12 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 	return nil
 }
 
-func (a *API) startDAGRunWithOptions(ctx context.Context, dag *ir.DAG, opts startDAGRunOptions) error {
+func (a *API) startDAGRunWithOptions(ctx context.Context, dag *ir.DAG, opts startDAGRunOptions) (*launcher.StartResult, error) {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, opts.params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
 	})
 	if err != nil {
-		return &Error{
+		return nil, &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,
 			Message:    err.Error(),
@@ -1540,13 +1545,13 @@ func (a *API) startDAGRunWithOptions(ctx context.Context, dag *ir.DAG, opts star
 	dag = resolvedDAG
 
 	if err := buildErrorsToAPIError(dag.BuildErrors); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := spec.ValidateStartParams(dag.DefaultParams, spec.StartParamInput{
 		RawParams: opts.params,
 	}); err != nil {
-		return &Error{
+		return nil, &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,
 			Message:    err.Error(),
@@ -1561,17 +1566,17 @@ func (a *API) startPreparedDAGRunWithOptions(
 	dag *ir.DAG,
 	opts startDAGRunOptions,
 	dispatchParams string,
-) error {
+) (*launcher.StartResult, error) {
 	// Check if this DAG should be dispatched to the coordinator for distributed execution
 	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
 		if dag.Type == ir.TypeBuild {
-			return buildRequiresLocalAPIError()
+			return nil, buildRequiresLocalAPIError()
 		}
 		timeout := 10 * time.Second
 		if osrt.GOOS == "windows" {
 			timeout = 20 * time.Second
 		}
-		return a.dispatchStartToCoordinator(ctx, dag, opts, dispatchParams, timeout)
+		return nil, a.dispatchStartToCoordinator(ctx, dag, opts, dispatchParams, timeout)
 	}
 
 	// Only pass trigger type if it's a known value (not TriggerTypeUnknown)
@@ -1585,7 +1590,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		if dag.Location == "" || fileMissing(dag.Location) {
 			tempPath, err := writeInlineRescheduleSpec(dag.Name, opts.dagRunID, dag.YamlData)
 			if err != nil {
-				return fmt.Errorf("error preparing inline dag snapshot: %w", err)
+				return nil, fmt.Errorf("error preparing inline dag snapshot: %w", err)
 			}
 			dag.Location = tempPath
 			target = tempPath
@@ -1608,7 +1613,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 	spec.Env = append(spec.Env, a.managedOpenCodeEnv(ctx, dag)...)
 	started, err := launcher.StartProcess(ctx, spec)
 	if err != nil {
-		return fmt.Errorf("error starting DAG: %w", err)
+		return nil, fmt.Errorf("error starting DAG: %w", err)
 	}
 
 	timeout := 10 * time.Second
@@ -1616,7 +1621,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		timeout = 20 * time.Second
 	}
 
-	return a.waitForLocalDAGStart(ctx, dag, opts.dagRunID, started, timeout)
+	return started, a.waitForLocalDAGStart(ctx, dag, opts.dagRunID, started, timeout)
 }
 
 func buildRequiresLocalAPIError() *Error {
