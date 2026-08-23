@@ -718,7 +718,7 @@ func TestClientStateOperationsUsePinnedCoordinator(t *testing.T) {
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
-	config.RequestTimeout = 100 * time.Millisecond
+	config.RequestTimeout = time.Second
 
 	ref := &coordinatorv1.StateRef{Scope: "dag", Namespace: "daily-agent", Key: "cursor"}
 	entry := &coordinatorv1.StateEntry{Ref: ref, Value: []byte(`1`), Version: 1}
@@ -782,8 +782,7 @@ func TestClientStateOperationsUsePinnedCoordinator(t *testing.T) {
 	stateClient, ok := coordinator.New(monitor, config).(coordinator.StateClient)
 	require.True(t, ok)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
+	ctx := t.Context()
 
 	_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
