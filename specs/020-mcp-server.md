@@ -119,6 +119,9 @@ Supported resource families:
 | Run collection | `dagu://runs` | `application/json` | DAG-run summaries visible to the caller. |
 | Run details | `dagu://runs/{name}/{dagRunId}` | `application/json` | Current DAG-run details for the named DAG run. |
 | Run logs | `dagu://runs/{name}/{dagRunId}/logs` | `application/json` | Current log data for the named DAG run. |
+| Step log | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs` | `application/json` | Current stdout and stderr data for one DAG-run step. |
+| Wiki collection | `dagu://wiki` and `dagu://wiki/{workspace}` | `application/json` | Wiki pages visible to the caller. |
+| Wiki page | `dagu://wiki/{workspace}/{path}` | `text/markdown` | Current Markdown content for the named Wiki page. |
 
 ### Resource Content
 
@@ -126,7 +129,7 @@ Rules:
 
 - Reference collection resources return the available reference resource URIs
   and titles or descriptions when available.
-- The built-in reference topic set includes `authoring`, `tools`,
+- The built-in reference topic set includes `authoring`, `tools`, `apps`,
   `read-tool`, `change-tool`, `execute-tool`, and `notifications`.
 - Reference topic resources return Markdown text owned by the Dagu MCP server.
 - DAG collection resources return a paginated or bounded list of DAG summaries
@@ -139,8 +142,8 @@ Rules:
 - Run log resources return JSON using Dagu's run-log model.
 - This spec does not freeze the exact JSON field set or generated schema for
   collection, run detail, or run log resources.
-- Run log resources may accept query parameters supported by the Dagu log
-  reader.
+- Run log and step log resources may accept query parameters supported by the
+  Dagu log reader.
 
 ## Errors
 
