@@ -23,6 +23,10 @@ var (
 	ErrWorkerHeartbeatNotFound                = errors.New("worker heartbeat not found")
 )
 
+// DefaultStaleWorkerHeartbeatThreshold is the default duration after which a
+// worker heartbeat is no longer considered healthy.
+const DefaultStaleWorkerHeartbeatThreshold = 30 * time.Second
+
 // CoordinatorEndpoint identifies a coordinator instance that owns a
 // distributed task or run.
 type CoordinatorEndpoint struct {
@@ -137,6 +141,28 @@ func (r WorkerHeartbeatRecord) LastHeartbeatTime() time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(r.LastHeartbeatAt).UTC()
+}
+
+// WorkerHeartbeatFresh reports whether a worker heartbeat is within the given freshness threshold.
+func WorkerHeartbeatFresh(record WorkerHeartbeatRecord, now time.Time, staleThreshold time.Duration) bool {
+	if staleThreshold <= 0 {
+		return false
+	}
+	lastHeartbeat := record.LastHeartbeatTime()
+	return !lastHeartbeat.IsZero() && now.Sub(lastHeartbeat) <= staleThreshold
+}
+
+// WorkerHeartbeatMatches reports whether a worker satisfies the selector and target worker requirements.
+func WorkerHeartbeatMatches(record WorkerHeartbeatRecord, selector map[string]string, targetWorkerID string) bool {
+	if targetWorkerID != "" && record.WorkerID != targetWorkerID {
+		return false
+	}
+	for key, value := range selector {
+		if record.Labels[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 // WorkerHeartbeatStore persists shared worker presence across coordinators.

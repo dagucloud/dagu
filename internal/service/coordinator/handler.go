@@ -56,7 +56,7 @@ type heartbeatInfo struct {
 }
 
 // defaultStaleHeartbeatThreshold is the default duration after which a worker's heartbeat is considered stale.
-const defaultStaleHeartbeatThreshold = 30 * time.Second
+const defaultStaleHeartbeatThreshold = dispatch.DefaultStaleWorkerHeartbeatThreshold
 
 // defaultStaleLeaseThreshold is the shared default duration after which a
 // distributed run's lease is considered stale.
@@ -1477,7 +1477,7 @@ func (h *Handler) listHealthyWorkers(ctx context.Context) ([]dispatch.WorkerHear
 	now := time.Now().UTC()
 	healthy := make([]dispatch.WorkerHeartbeatRecord, 0, len(records))
 	for _, record := range records {
-		if now.Sub(record.LastHeartbeatTime()) <= h.staleHeartbeatThreshold {
+		if dispatch.WorkerHeartbeatFresh(record, now, h.staleHeartbeatThreshold) {
 			healthy = append(healthy, record)
 		}
 	}
@@ -1592,10 +1592,7 @@ func (h *Handler) leaseRefreshWriteInterval() time.Duration {
 
 func anyWorkerMatches(workers []dispatch.WorkerHeartbeatRecord, selector map[string]string, targetWorkerID string) bool {
 	for _, worker := range workers {
-		if targetWorkerID != "" && worker.WorkerID != targetWorkerID {
-			continue
-		}
-		if matchesSelector(worker.Labels, selector) {
+		if dispatch.WorkerHeartbeatMatches(worker, selector, targetWorkerID) {
 			return true
 		}
 	}
