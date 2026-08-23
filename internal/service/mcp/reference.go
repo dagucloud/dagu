@@ -16,7 +16,7 @@ Use dagu_read for current state, Wiki pages, and trusted reference resources.
 Use dagu_change with mode=preview before mode=apply when editing DAG YAML or Wiki pages.
 Use dagu_execute for start, enqueue, retry, and stop. retry and stop are actions inside dagu_execute.
 MCP Apps hosts can render run-related dagu_read and dagu_execute results in Dagu's interactive run inspector.
-After starting or enqueueing a run, read the returned dagu://runs/... resource or subscribe to it to receive a resource update notification when the run reaches a terminal state.`
+To follow a run to completion, pass wait=true to dagu_execute, or read the returned dagu://runs/... resource, or subscribe to it to receive a resource update notification when the run reaches a terminal state.`
 
 type referenceResource struct {
 	topic       string
@@ -241,13 +241,15 @@ Fields:
 - name: DAG name. Required for stored DAG runs and run actions.
 - spec: inline DAG YAML for targetType=inline_spec.
 - dagRunId: DAG-run identifier. Required for retry and stop. Optional override for start and enqueue.
-- params: run parameters string for start and enqueue.
+- params: run parameters for start and enqueue, as a JSON object or a JSON-encoded string.
 - queue: queue name for enqueue.
 - singleton: singleton run flag for start and enqueue.
 - noReuse: when true for start or enqueue, execute eligible build steps instead of reusing prior materializations.
 - labels: labels for start and enqueue.
 - stepName: optional step name for retry.
 - includeDownstream: when true, retry the selected step and every reachable descendant. Requires stepName.
+- wait: when true, wait for the identified run to reach a terminal state before returning. Requires a name that identifies the run.
+- waitTimeoutSeconds: maximum seconds to wait, from 1 to 300. Defaults to 60.
 
 Action behavior:
 
@@ -255,18 +257,21 @@ Action behavior:
 - enqueue enqueues a stored DAG or inline spec.
 - retry retries an existing DAG-run and may target a step with stepName, optionally including downstream steps.
 - stop stops an existing DAG-run.
+- With wait=true, the call returns once the run reaches a terminal state or the timeout elapses. On timeout the run keeps executing and the output has completed=false.
 
 Output:
 
 - Successful result text is Dagu execute completed.
 - Structured output has action, targetType, dagName, dagRunId, and references.
 - When a run is identified, output includes runUri, logsUri, and subscribe guidance.
+- With wait=true, output has completed plus the last observed status and statusLabel, and a completed run includes the run detail summary under run with per-step statuses and errors.
 
 Errors:
 
 - invalid_tool_input for missing fields, unknown action, unsupported targetType, or malformed input.
 - unauthorized when the caller cannot perform the requested execution operation.
 - resource_not_found when the named DAG or DAG-run does not exist.
+- conflict when a singleton run is already running or queued.
 - resource_unavailable or internal_error for runtime failures.`,
 		},
 		{
@@ -281,7 +286,7 @@ dagu_execute returns resource links for the DAG-run and logs when a run can be i
 
 Clients that support MCP resource subscriptions can subscribe to the dagu://runs/{name}/{dagRunId} resource. Dagu sends a resource update notification when the run reaches a terminal state: success, failed, aborted, partial success, or rejected.
 
-Clients without resource subscription support should poll dagu_read target=run with the same name and dagRunId.`,
+Clients without resource subscription support have two options: pass wait=true to dagu_execute to wait for the result inside the tool call, or poll dagu_read target=run with the same name and dagRunId.`,
 		},
 	}
 }

@@ -185,28 +185,86 @@ func TestDAGChangeInputValidation(t *testing.T) {
 func TestRetryRequiresStepNameForIncludeDownstream(t *testing.T) {
 	t.Parallel()
 
-	err := requireRetry(executeInput{
-		Name:              "example",
-		DAGRunID:          "run-1",
-		IncludeDownstream: true,
-	})
-	require.EqualError(t, err, "includeDownstream requires stepName")
+	_, executeErr := parseExecuteToolInput(json.RawMessage(
+		`{"action":"retry","name":"example","dagRunId":"run-1","includeDownstream":true}`,
+	))
+	require.NotNil(t, executeErr)
+	require.Equal(t, executeErrorInvalidToolInput, executeErr.Code)
+	require.Equal(t, executeFieldStepName, executeErr.Field)
 
-	err = requireRetry(executeInput{
-		Name:              "example",
-		DAGRunID:          "run-1",
-		StepName:          "build",
-		IncludeDownstream: true,
-	})
-	require.NoError(t, err)
+	input, executeErr := parseExecuteToolInput(json.RawMessage(
+		`{"action":"retry","name":"example","dagRunId":"run-1","stepName":"build","includeDownstream":true}`,
+	))
+	require.Nil(t, executeErr)
+	require.True(t, input.IncludeDownstream)
 
 	svc := &Service{}
-	err = svc.retryDAGRun(context.Background(), executeInput{
+	err := svc.retryDAGRun(context.Background(), executeInput{
 		Name:              "example",
 		DAGRunID:          "run-1",
 		IncludeDownstream: true,
 	})
 	require.EqualError(t, err, "includeDownstream requires stepName")
+}
+
+func TestExecuteInputValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		input     string
+		wantField string
+	}{
+		{name: "missing action", input: `{}`, wantField: executeFieldAction},
+		{name: "unknown action", input: `{"action":"restart"}`, wantField: executeFieldAction},
+		{name: "unknown field", input: `{"action":"start","name":"etl","force":true}`, wantField: "force"},
+		{name: "start requires name", input: `{"action":"start"}`, wantField: executeFieldName},
+		{name: "inline spec requires spec", input: `{"action":"start","targetType":"inline_spec"}`, wantField: executeFieldSpec},
+		{name: "stop requires dagRunId", input: `{"action":"stop","name":"etl"}`, wantField: executeFieldDAGRunID},
+		{name: "run target only for run actions", input: `{"action":"start","name":"etl","targetType":"run"}`, wantField: executeFieldTargetType},
+		{name: "wait timeout requires wait", input: `{"action":"start","name":"etl","waitTimeoutSeconds":30}`, wantField: executeFieldWaitTimeoutSeconds},
+		{name: "wait timeout range", input: `{"action":"start","name":"etl","wait":true,"waitTimeoutSeconds":301}`, wantField: executeFieldWaitTimeoutSeconds},
+		{name: "wait requires identifiable run", input: `{"action":"start","spec":"steps: []","wait":true}`, wantField: executeFieldName},
+		{name: "params must be string or object", input: `{"action":"start","name":"etl","params":[1]}`, wantField: executeFieldParams},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, executeErr := parseExecuteToolInput(json.RawMessage(test.input))
+			require.NotNil(t, executeErr)
+			require.Equal(t, executeErrorInvalidToolInput, executeErr.Code)
+			require.Equal(t, test.wantField, executeErr.Field)
+		})
+	}
+}
+
+func TestExecuteInputDefaultsAndParams(t *testing.T) {
+	t.Parallel()
+
+	input, executeErr := parseExecuteToolInput(json.RawMessage(
+		`{"action":"start","name":"etl","params":{"TARGET":"orders","LIMIT":10}}`,
+	))
+	require.Nil(t, executeErr)
+	require.Equal(t, executeTargetTypeDAG, input.TargetType)
+	require.JSONEq(t, `{"TARGET":"orders","LIMIT":10}`, input.Params)
+
+	input, executeErr = parseExecuteToolInput(json.RawMessage(
+		`{"action":"start","name":"etl","params":"KEY=value"}`,
+	))
+	require.Nil(t, executeErr)
+	require.Equal(t, "KEY=value", input.Params)
+
+	input, executeErr = parseExecuteToolInput(json.RawMessage(
+		`{"action":"enqueue","spec":"steps: []"}`,
+	))
+	require.Nil(t, executeErr)
+	require.Equal(t, executeTargetTypeInlineSpec, input.TargetType)
+
+	input, executeErr = parseExecuteToolInput(json.RawMessage(
+		`{"action":"stop","name":"etl","dagRunId":"run-1"}`,
+	))
+	require.Nil(t, executeErr)
+	require.Equal(t, executeTargetTypeRun, input.TargetType)
 }
 
 func TestExecuteToolSupportsNoReuse(t *testing.T) {

@@ -109,21 +109,6 @@ type changeInput struct {
 	NewPath   string `json:"newPath,omitempty" jsonschema:"Destination Wiki page or directory path for rename_wiki_page."`
 }
 
-type executeInput struct {
-	Action            string   `json:"action" jsonschema:"Execution action: start, enqueue, retry, or stop."`
-	TargetType        string   `json:"targetType,omitempty" jsonschema:"Target type: dag, inline_spec, or run. Defaults from action and spec."`
-	Name              string   `json:"name,omitempty" jsonschema:"DAG name, or optional inline spec name."`
-	Spec              string   `json:"spec,omitempty" jsonschema:"Inline DAG YAML spec for start or enqueue with targetType inline_spec."`
-	DAGRunID          string   `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for start/enqueue override, retry, and stop."`
-	Params            string   `json:"params,omitempty" jsonschema:"Runtime parameters as a JSON string."`
-	Queue             string   `json:"queue,omitempty" jsonschema:"Queue override for enqueue."`
-	Singleton         bool     `json:"singleton,omitempty" jsonschema:"Prevent duplicate running or queued DAG-runs when supported by the action."`
-	NoReuse           bool     `json:"noReuse,omitempty" jsonschema:"Execute eligible build steps without reusing prior materializations for start or enqueue."`
-	Labels            []string `json:"labels,omitempty" jsonschema:"Additional labels, each as key=value or key-only."`
-	StepName          string   `json:"stepName,omitempty" jsonschema:"Optional step name for retry."`
-	IncludeDownstream bool     `json:"includeDownstream,omitempty" jsonschema:"When true, retry the selected step and every reachable descendant. Requires stepName."`
-}
-
 func registerTools(server *mcpsdk.Server, svc *Service) {
 	falsePtr := new(false)
 	truePtr := new(true)
@@ -153,11 +138,12 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 		},
 	}, svc.changeTool)
 
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
+	server.AddTool(&mcpsdk.Tool{
 		Meta:        runInspectorToolMeta(),
 		Name:        toolExecute,
 		Title:       "Execute, enqueue, retry, or stop DAG-runs",
-		Description: "Run control entry point. action=start or enqueue launches a DAG or inline spec; action=retry retries a DAG-run; action=stop terminates a DAG-run.",
+		Description: "Run control entry point. action=start or enqueue launches a DAG or inline spec; action=retry retries a DAG-run; action=stop terminates a DAG-run. Set wait=true to wait for the run result.",
+		InputSchema: executeToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			DestructiveHint: truePtr,
 			OpenWorldHint:   falsePtr,
@@ -337,95 +323,6 @@ func registerPrompts(server *mcpsdk.Server) {
 			{Name: "dagRunId", Description: "DAG-run ID.", Required: true},
 		},
 	}, promptDebugRun)
-}
-
-func (svc *Service) executeTool(ctx context.Context, req *mcpsdk.CallToolRequest, input executeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	return auditToolCall(ctx, svc.api, req, toolExecute, executeAuditMetadata(input), func(ctx context.Context) (*mcpsdk.CallToolResult, map[string]any, error) {
-		return svc.executeToolImpl(ctx, input)
-	})
-}
-
-func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	if err := svc.requireAPI(); err != nil {
-		return nil, nil, err
-	}
-
-	action := strings.TrimSpace(input.Action)
-	if action == "" {
-		return nil, nil, errors.New("action is required")
-	}
-
-	targetType := strings.TrimSpace(input.TargetType)
-	if targetType == "" {
-		switch {
-		case action == "retry" || action == "stop":
-			targetType = "run"
-		case strings.TrimSpace(input.Spec) != "":
-			targetType = "inline_spec"
-		default:
-			targetType = "dag"
-		}
-	}
-
-	var (
-		dagRunID string
-		err      error
-	)
-
-	switch action {
-	case "start":
-		dagRunID, err = svc.startDAG(ctx, targetType, input)
-	case "enqueue":
-		dagRunID, err = svc.enqueueDAG(ctx, targetType, input)
-	case "retry":
-		err = requireRetry(input)
-		if err == nil {
-			err = svc.retryDAGRun(ctx, input)
-			dagRunID = input.DAGRunID
-		}
-	case "stop":
-		err = requireRun(input.Name, input.DAGRunID)
-		if err == nil {
-			err = svc.stopDAGRun(ctx, input)
-			dagRunID = input.DAGRunID
-		}
-	default:
-		err = fmt.Errorf("unsupported execute action %q", action)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
-	output := map[string]any{
-		"action":     action,
-		"targetType": targetType,
-		"dagName":    input.Name,
-		"dagRunId":   dagRunID,
-		"references": defaultReferenceURIs(),
-	}
-	links := []resourceLink{}
-	if input.Name != "" && dagRunID != "" {
-		run := runURI(input.Name, dagRunID)
-		logs := runLogsURI(input.Name, dagRunID)
-		output["runUri"] = run
-		output["logsUri"] = logs
-		output["subscribe"] = "Subscribe to " + run + " to receive an MCP resource update notification when the run reaches a terminal state."
-		links = append(links, resourceLink{
-			uri:         run,
-			name:        "dag_run",
-			title:       "DAG-run details",
-			description: "Subscribe to this resource for completion notification.",
-			mimeType:    resourceMIMEJSON,
-		}, resourceLink{
-			uri:         logs,
-			name:        "dag_run_logs",
-			title:       "DAG-run logs",
-			description: "Logs for this DAG-run.",
-			mimeType:    resourceMIMEJSON,
-		})
-	}
-
-	return resultWithLinks("Dagu execute action completed.", links...), output, nil
 }
 
 func (svc *Service) getDAGSpec(ctx context.Context, name string) (map[string]any, error) {
@@ -1061,23 +958,6 @@ func requireName(name string) error {
 		return errors.New("name is required")
 	}
 	return nil
-}
-
-func requireRun(name, dagRunID string) error {
-	if err := requireName(name); err != nil {
-		return err
-	}
-	if strings.TrimSpace(dagRunID) == "" {
-		return errors.New("dagRunId is required")
-	}
-	return nil
-}
-
-func requireRetry(input executeInput) error {
-	if err := requireRun(input.Name, input.DAGRunID); err != nil {
-		return err
-	}
-	return requireIncludeDownstreamStep(input)
 }
 
 func requireIncludeDownstreamStep(input executeInput) error {
