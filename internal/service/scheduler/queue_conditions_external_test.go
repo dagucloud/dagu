@@ -396,6 +396,32 @@ func TestQueueProcessorWaitsForFreshWorkerBeforeDispatch(t *testing.T) {
 	require.Zero(t, dispatcher.callCount.Load())
 }
 
+func TestQueueProcessorUsesConfiguredWorkerHeartbeatFreshness(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &queueConditionDispatcher{}
+	heartbeatStore := store.NewWorkerHeartbeatStore(
+		file.NewCollection(filepath.Join(t.TempDir(), "worker-heartbeats")),
+	)
+	f := newQueueConditionFixtureWithDispatcher(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		dispatcher,
+		scheduler.WithWorkerHeartbeatStore(heartbeatStore),
+		scheduler.WithWorkerHeartbeatStaleThreshold(time.Minute),
+	)
+	f.enqueueRun("waiting-run", nil)
+	require.NoError(t, heartbeatStore.Upsert(f.ctx, dispatch.WorkerHeartbeatRecord{
+		WorkerID:        "worker-1",
+		LastHeartbeatAt: time.Now().Add(-45 * time.Second).UTC().UnixMilli(),
+	}))
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	require.Equal(t, int32(1), dispatcher.callCount.Load())
+}
+
 func TestQueueProcessorRecordsAssignmentUnavailableWhenWorkerHeartbeatsCannotBeRead(t *testing.T) {
 	t.Parallel()
 
@@ -444,6 +470,44 @@ func TestQueueProcessorContinuesPastItemWithoutMatchingWorker(t *testing.T) {
 	requireQueuedConditions(t, f.readStatus("gpu-run"), noMatchingWorkerConditions()...)
 	require.Equal(t, int32(1), dispatcher.callCount.Load())
 	require.Equal(t, int32(1), heartbeatStore.listCount.Load())
+}
+
+func TestQueueProcessorBatchesWorkerConditionQueueValidation(t *testing.T) {
+	t.Parallel()
+
+	var queueStore *countingQueueStore
+	heartbeatStore := store.NewWorkerHeartbeatStore(
+		file.NewCollection(filepath.Join(t.TempDir(), "worker-heartbeats")),
+	)
+	f := newQueueConditionFixtureWithConfig(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		&queueConditionDispatcher{},
+		queueConditionFixtureConfig{
+			queueStore: func(base queuedomain.QueueStore) queuedomain.QueueStore {
+				queueStore = &countingQueueStore{QueueStore: base}
+				return queueStore
+			},
+		},
+		scheduler.WithWorkerHeartbeatStore(heartbeatStore),
+	)
+	f.dag.WorkerSelector = map[string]string{"type": "gpu"}
+	for _, runID := range []string{"first-run", "second-run", "third-run"} {
+		f.enqueueRun(runID, nil)
+	}
+	require.NoError(t, heartbeatStore.Upsert(f.ctx, dispatch.WorkerHeartbeatRecord{
+		WorkerID:        "cpu-worker",
+		Labels:          map[string]string{"type": "cpu"},
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	require.Equal(t, int32(2), queueStore.listCount.Load())
+
+	queueStore.listCount.Store(0)
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	require.Equal(t, int32(2), queueStore.listCount.Load())
 }
 
 func TestQueueProcessorRecordsNoAvailableWorkerCondition(t *testing.T) {
@@ -1176,6 +1240,16 @@ type failingWorkerHeartbeatStore struct {
 
 func (s *failingWorkerHeartbeatStore) List(context.Context) ([]dispatch.WorkerHeartbeatRecord, error) {
 	return nil, s.err
+}
+
+type countingQueueStore struct {
+	queuedomain.QueueStore
+	listCount atomic.Int32
+}
+
+func (s *countingQueueStore) List(ctx context.Context, queueName string) ([]queuedomain.QueuedItemData, error) {
+	s.listCount.Add(1)
+	return s.QueueStore.List(ctx, queueName)
 }
 
 type queueConditionQueueStore struct {

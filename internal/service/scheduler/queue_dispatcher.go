@@ -34,6 +34,7 @@ type queueDispatchDeps struct {
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
 	workerHeartbeatStore   dispatch.WorkerHeartbeatStore
+	workerStaleAfter       time.Duration
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	backoffConfig          BackoffConfig
@@ -52,6 +53,7 @@ type queueDispatcher struct {
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
 	workerHeartbeatStore   dispatch.WorkerHeartbeatStore
+	workerStaleAfter       time.Duration
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	backoffConfig          BackoffConfig
@@ -331,6 +333,7 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 		dispatchTaskStore:      deps.dispatchTaskStore,
 		dispatchAdmissionStore: deps.dispatchAdmissionStore,
 		workerHeartbeatStore:   deps.workerHeartbeatStore,
+		workerStaleAfter:       deps.workerStaleAfter,
 		dagExecutor:            deps.dagExecutor,
 		isSuspended:            deps.isSuspended,
 		backoffConfig:          deps.backoffConfig,
@@ -496,11 +499,19 @@ func (s *queuedConditionStage) observe(defs ...queuedConditionDef) {
 }
 
 func (s *queuedConditionStage) flush(ctx context.Context) {
+	s.flushWithQueueCheck(ctx, true)
+}
+
+func (s *queuedConditionStage) flushWithoutQueueCheck(ctx context.Context) {
+	s.flushWithQueueCheck(ctx, false)
+}
+
+func (s *queuedConditionStage) flushWithQueueCheck(ctx context.Context, checkQueue bool) {
 	if s == nil || s.flushed || len(s.observations) == 0 {
 		return
 	}
 	s.flushed = true
-	if err := s.flushErr(ctx); err != nil {
+	if err := s.flushErr(ctx, checkQueue); err != nil {
 		logger.Warn(ctx, "Failed to update queued DAG-run condition",
 			tag.Error(err),
 			tag.RunID(s.runRef.ID),
@@ -508,8 +519,8 @@ func (s *queuedConditionStage) flush(ctx context.Context) {
 	}
 }
 
-func (s *queuedConditionStage) flushErr(ctx context.Context) error {
-	if !s.itemStillQueued(ctx) {
+func (s *queuedConditionStage) flushErr(ctx context.Context, checkQueue bool) error {
+	if checkQueue && !s.itemStillQueued(ctx) {
 		return nil
 	}
 
@@ -1251,6 +1262,10 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 
 	runnable := make([]queuedomain.QueuedItemData, 0, min(freeSlots, len(items)))
 	workerSnapshot := workerHeartbeatSnapshot{}
+	var workerConditionStages []*queuedConditionStage
+	defer func() {
+		d.flushQueuedConditionStages(ctx, queueName, workerConditionStages)
+	}()
 	for _, item := range items {
 		if len(runnable) >= freeSlots {
 			break
@@ -1275,8 +1290,17 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 				continue
 			}
 		}
-		if d.workerHeartbeatStore != nil && !d.queueItemHasEligibleWorker(ctx, queueName, item, *runRef, &workerSnapshot) {
-			continue
+		if d.workerHeartbeatStore != nil {
+			recordCondition := len(workerConditionStages) < queuedConditionRefreshBatchLimit
+			eligible, conditionStage := d.queueItemHasEligibleWorker(
+				ctx, queueName, item, *runRef, &workerSnapshot, recordCondition,
+			)
+			if !eligible {
+				if conditionStage != nil {
+					workerConditionStages = append(workerConditionStages, conditionStage)
+				}
+				continue
+			}
 		}
 		runnable = append(runnable, item)
 	}
@@ -1290,18 +1314,19 @@ func (d *queueDispatcher) queueItemHasEligibleWorker(
 	item queuedomain.QueuedItemData,
 	runRef ir.DAGRunRef,
 	workerSnapshot *workerHeartbeatSnapshot,
-) bool {
+	recordCondition bool,
+) (bool, *queuedConditionStage) {
 	attempt, err := d.dagRunRepository.FindAttempt(ctx, runRef)
 	if err != nil || attempt.Hidden() {
-		return true
+		return true, nil
 	}
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil || status.Status != ir.Queued {
-		return true
+		return true, nil
 	}
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil || !d.dagExecutor.IsDistributed(dag) {
-		return true
+		return true, nil
 	}
 
 	records, err := workerSnapshot.load(ctx, d.workerHeartbeatStore)
@@ -1309,29 +1334,75 @@ func (d *queueDispatcher) queueItemHasEligibleWorker(
 	if err != nil {
 		conditionDefs = assignmentUnavailableConditionDefs
 	} else {
-		available, defs := workerAvailableInSnapshot(records, time.Now().UTC(), dag, status)
+		available, defs := workerAvailableInSnapshot(records, time.Now().UTC(), d.workerStaleAfter, dag, status)
 		if available {
-			return true
+			return true, nil
 		}
 		conditionDefs = defs
+	}
+	if !recordCondition {
+		return false, nil
 	}
 
 	conditionStage := d.newQueuedConditionStage(runRef, queueName, item.ID(), attempt, status)
 	conditionStage.observe(conditionDefs...)
-	conditionStage.flush(ctx)
-	return false
+	return false, conditionStage
+}
+
+func (d *queueDispatcher) flushQueuedConditionStages(
+	ctx context.Context,
+	queueName string,
+	stages []*queuedConditionStage,
+) {
+	if len(stages) == 0 {
+		return
+	}
+	if d.queueStore == nil || queueName == "" {
+		for _, stage := range stages {
+			stage.flushWithoutQueueCheck(ctx)
+		}
+		return
+	}
+
+	items, err := d.queueStore.List(ctx, queueName)
+	if err != nil {
+		logger.Warn(ctx, "Failed to verify queued items before updating worker conditions", tag.Error(err))
+		return
+	}
+	stagesByItemID := make(map[string]*queuedConditionStage, len(stages))
+	for _, stage := range stages {
+		if stage != nil {
+			stagesByItemID[stage.itemID] = stage
+		}
+	}
+	for _, item := range items {
+		stage, ok := stagesByItemID[item.ID()]
+		if !ok {
+			continue
+		}
+		runRef, err := item.Data()
+		if err != nil {
+			logger.Warn(ctx, "Failed to read queued item before updating worker conditions", tag.Error(err))
+			continue
+		}
+		if runRef == nil || *runRef != stage.runRef {
+			continue
+		}
+		stage.flushWithoutQueueCheck(ctx)
+	}
 }
 
 func workerAvailableInSnapshot(
 	records []dispatch.WorkerHeartbeatRecord,
 	now time.Time,
+	staleThreshold time.Duration,
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 ) (bool, []queuedConditionDef) {
 	targetWorkerID := ir.RetryAgentOwnerWorkerID(status, false)
 	healthyWorkers := 0
 	for _, record := range records {
-		if !dispatch.WorkerHeartbeatFresh(record, now, dispatch.DefaultStaleWorkerHeartbeatThreshold) {
+		if !dispatch.WorkerHeartbeatFresh(record, now, staleThreshold) {
 			continue
 		}
 		healthyWorkers++

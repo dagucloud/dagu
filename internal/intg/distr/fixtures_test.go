@@ -333,6 +333,7 @@ func (f *testFixture) startSchedulerWithOptions(
 		DAGRunLeaseStore:     f.coord.DAGRunLeaseStore,
 		DispatchTaskStore:    f.coord.DispatchTaskStore,
 		WorkerHeartbeatStore: f.coord.WorkerHeartbeatStore,
+		WorkerStaleAfter:     f.coord.StaleHeartbeatThreshold,
 	})
 	require.NoError(f.t, err)
 	if clock != nil {

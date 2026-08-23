@@ -98,6 +98,7 @@ type QueueProcessor struct {
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
 	workerHeartbeatStore   dispatch.WorkerHeartbeatStore
+	workerStaleAfter       time.Duration
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	queues                 sync.Map // map[string]*queue
@@ -170,6 +171,13 @@ func WithWorkerHeartbeatStore(store dispatch.WorkerHeartbeatStore) QueueProcesso
 	}
 }
 
+// WithWorkerHeartbeatStaleThreshold sets the worker heartbeat freshness threshold.
+func WithWorkerHeartbeatStaleThreshold(threshold time.Duration) QueueProcessorOption {
+	return func(p *QueueProcessor) {
+		p.workerStaleAfter = threshold
+	}
+}
+
 // WithDispatchTaskStore sets the shared distributed dispatch reservation store.
 func WithDispatchTaskStore(store dispatch.DispatchTaskStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
@@ -218,6 +226,7 @@ func NewQueueProcessor(
 		prevTime:            time.Now().Add(-queueProcessMinInterval),
 		backoffConfig:       DefaultBackoffConfig(),
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
+		workerStaleAfter:    dispatch.DefaultStaleWorkerHeartbeatThreshold,
 		isSuspended:         func(context.Context, string) (bool, error) { return false, nil },
 	}
 
@@ -357,6 +366,7 @@ func (p *QueueProcessor) newQueueDispatcher() *queueDispatcher {
 		dispatchTaskStore:      p.dispatchTaskStore,
 		dispatchAdmissionStore: p.dispatchAdmissionStore,
 		workerHeartbeatStore:   p.workerHeartbeatStore,
+		workerStaleAfter:       p.workerStaleAfter,
 		dagExecutor:            p.dagExecutor,
 		isSuspended:            p.isSuspended,
 		backoffConfig:          p.backoffConfig,
