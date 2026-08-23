@@ -26,7 +26,7 @@ steps:
   - name: test-step
     run: echo "test"
 `)
-	coordinatorCli := coordinator.New(th.ServiceRegistry, coordinator.DefaultConfig())
+	coordinatorCli := coordinator.New(th.ServiceRegistry, test.CoordinatorClientConfig(th.Config.Paths.DataDir))
 
 	dagExecutor := scheduler.NewDAGExecutor(coordinatorCli, th.SubCmdBuilder, config.ExecutionModeLocal, "")
 	t.Cleanup(func() {

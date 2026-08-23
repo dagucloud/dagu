@@ -266,7 +266,7 @@ steps:
 		f.th.DAGRunRepository,
 		f.th.ProcRepository,
 		scheduler.NewDAGExecutor(
-			coordinator.New(f.th.ServiceRegistry, coordinator.DefaultConfig()),
+			coordinator.New(f.th.ServiceRegistry, test.CoordinatorClientConfig(f.th.Config.Paths.DataDir)),
 			f.th.SubCmdBuilder,
 			f.th.Config.DefaultExecMode,
 			f.th.Config.Paths.BaseConfig,

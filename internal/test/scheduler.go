@@ -70,7 +70,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	drm := runtime.NewManager(dagRunRepository, ps, helper.Config)
 
 	// Create entry reader
-	coordinatorCli := coordinator.New(helper.ServiceRegistry, coordinator.DefaultConfig())
+	coordinatorCli := coordinator.New(helper.ServiceRegistry, CoordinatorClientConfig(helper.Config.Paths.DataDir))
 	em := scheduler.NewFileEntryReader(
 		helper.Config.Paths.DAGsDir,
 		ds,

@@ -838,7 +838,7 @@ steps:
 			server.DAGRunRepository,
 			server.ProcRepository,
 			scheduler.NewDAGExecutor(
-				coordinator.New(server.ServiceRegistry, coordinator.DefaultConfig()),
+				coordinator.New(server.ServiceRegistry, test.CoordinatorClientConfig(server.Config.Paths.DataDir)),
 				server.SubCmdBuilder,
 				server.Config.DefaultExecMode,
 				server.Config.Paths.BaseConfig,

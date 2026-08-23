@@ -89,7 +89,7 @@ func SetupServer(t *testing.T, opts ...HelperOption) Server {
 
 // newFrontendServer constructs the HTTP server with the provided listener.
 func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, error) {
-	cc := coordinator.New(srv.ServiceRegistry, coordinator.DefaultConfig())
+	cc := coordinator.New(srv.ServiceRegistry, CoordinatorClientConfig(srv.Config.Paths.DataDir))
 
 	// Pass the pre-bound listener to the server to avoid port race conditions
 	serverOpts := append([]frontend.ServerOption{

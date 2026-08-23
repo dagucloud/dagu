@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -120,7 +121,10 @@ func (h *Handler) GetWorkspaceBundle(req *coordinatorv1.GetWorkspaceBundleReques
 	}
 	file, size, err := h.workspaceBundleStore.Open(stream.Context(), req.Digest)
 	if err != nil {
-		return status.Error(codes.NotFound, "workspace bundle not found: "+err.Error())
+		if errors.Is(err, fs.ErrNotExist) {
+			return status.Errorf(codes.NotFound, "workspace bundle not found: %v", err)
+		}
+		return status.Errorf(codes.Internal, "failed to open workspace bundle: %v", err)
 	}
 	defer func() { _ = file.Close() }()
 	desc := &coordinatorv1.WorkspaceBundle{

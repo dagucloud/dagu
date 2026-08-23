@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -348,7 +349,7 @@ func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.
 	if desc == nil {
 		return nil
 	}
-	defer func() { _ = os.Remove(archivePath) }()
+	defer func() { _ = fileutil.Remove(archivePath) }()
 	if err := cli.putWorkspaceBundleFile(ctx, *desc, archivePath); err != nil {
 		return fmt.Errorf("upload DAG file dependencies: %w", err)
 	}
@@ -1600,7 +1601,6 @@ func (cli *clientImpl) putWorkspaceBundle(
 		}
 		if closeErr != nil {
 			errs = append(errs, fmt.Errorf("close workspace bundle for coordinator %q: %w", member.ID, closeErr))
-			continue
 		}
 		satisfied++
 	}

@@ -240,14 +240,14 @@ func (c *Coordinator) DispatchTask(t *testing.T, task *coordinatorv1.Task) error
 // GetCoordinatorClient returns a coordinator client for this coordinator
 func (c *Coordinator) GetCoordinatorClient(t *testing.T) coordinator.Client {
 	t.Helper()
+	return coordinator.New(c.ServiceRegistry, CoordinatorClientConfig(c.Config.Paths.DataDir))
+}
 
-	// Create coordinator client config
+// CoordinatorClientConfig returns coordinator client settings backed by the test data directory.
+func CoordinatorClientConfig(dataDir string) *coordinator.Config {
 	config := coordinator.DefaultConfig()
-	config.Insecure = true
-	config.WorkspaceBundleDir = workspacebundle.StoreDir(c.Config.Paths.DataDir)
-
-	// Create coordinator client - cast to Client interface
-	return coordinator.New(c.ServiceRegistry, config)
+	config.WorkspaceBundleDir = workspacebundle.StoreDir(dataDir)
+	return config
 }
 
 // Handler returns the coordinator handler for direct testing

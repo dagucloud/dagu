@@ -9,8 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,6 +61,43 @@ func TestPutWorkspaceBundleRejectsDescriptorAfterFirstChunk(t *testing.T) {
 	err := handler.PutWorkspaceBundle(upload)
 	require.Error(t, err)
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestGetWorkspaceBundleReportsCorruptStoredBundle(t *testing.T) {
+	t.Parallel()
+
+	data := []byte("workspace")
+	digest := workspaceBundleDigest(data)
+	dir := t.TempDir()
+	store := workspacebundle.NewStore(dir, workspacebundle.DefaultLimits())
+	require.NoError(t, store.Put(t.Context(), workspacebundle.Descriptor{
+		Digest: digest,
+		Size:   int64(len(data)),
+	}, data))
+	paths, err := filepath.Glob(filepath.Join(dir, "*", "*"))
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+	require.NoError(t, os.WriteFile(paths[0], []byte("corrupt"), 0o600))
+
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: dir})
+	err = handler.GetWorkspaceBundle(
+		&coordinatorv1.GetWorkspaceBundleRequest{Digest: digest},
+		&workspaceBundleDownloadStream{ctx: context.Background()},
+	)
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+}
+
+func TestGetWorkspaceBundleReportsMissingBundle(t *testing.T) {
+	t.Parallel()
+
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir()})
+	err := handler.GetWorkspaceBundle(
+		&coordinatorv1.GetWorkspaceBundleRequest{Digest: workspaceBundleDigest([]byte("missing"))},
+		&workspaceBundleDownloadStream{ctx: context.Background()},
+	)
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
 func workspaceBundleDigest(data []byte) string {
