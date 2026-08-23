@@ -1547,14 +1547,7 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 }
 
 func (cli *clientImpl) putWorkspaceBundleFile(ctx context.Context, desc workspacebundle.Descriptor, archivePath string) error {
-	if err := workspacebundle.VerifyFile(archivePath, desc, workspacebundle.DefaultMaxCompressedSize); err != nil {
-		return err
-	}
-	info, err := os.Stat(archivePath)
-	if err != nil {
-		return fmt.Errorf("stat workspace bundle: %w", err)
-	}
-	return cli.putWorkspaceBundle(ctx, desc, info.Size(), func() (io.ReadCloser, error) {
+	return cli.putWorkspaceBundle(ctx, desc, desc.Size, func() (io.ReadCloser, error) {
 		return os.Open(archivePath) //nolint:gosec // archivePath is created by PrepareDAGWorkspaceFile.
 	})
 }

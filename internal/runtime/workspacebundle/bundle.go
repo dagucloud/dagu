@@ -402,35 +402,6 @@ func Verify(data []byte, digest string) error {
 	return nil
 }
 
-// VerifyFile verifies that a workspace bundle file matches its descriptor.
-func VerifyFile(filePath string, desc Descriptor, maxSize int64) error {
-	if !ValidDigest(desc.Digest) {
-		return fmt.Errorf("invalid workspace bundle digest %q", desc.Digest)
-	}
-	file, err := os.Open(filePath) //nolint:gosec // filePath is supplied by the caller.
-	if err != nil {
-		return fmt.Errorf("open workspace bundle: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-
-	hasher := sha256.New()
-	written, err := io.Copy(hasher, io.LimitReader(file, maxSize+1))
-	if err != nil {
-		return fmt.Errorf("read workspace bundle: %w", err)
-	}
-	if written > maxSize {
-		return fmt.Errorf("workspace bundle exceeds compressed size limit %d", maxSize)
-	}
-	if desc.Size != 0 && desc.Size != written {
-		return fmt.Errorf("workspace bundle size mismatch: got %d, want %d", written, desc.Size)
-	}
-	actual := hex.EncodeToString(hasher.Sum(nil))
-	if actual != desc.Digest {
-		return fmt.Errorf("workspace bundle digest mismatch: got %s, want %s", actual, desc.Digest)
-	}
-	return nil
-}
-
 func ValidDigest(digest string) bool {
 	if len(digest) != sha256.Size*2 {
 		return false
@@ -678,15 +649,6 @@ func NewStore(dir string, limits Limits) *Store {
 func (s *Store) Put(ctx context.Context, desc Descriptor, data []byte) error {
 	if strings.TrimSpace(s.dir) == "" {
 		return fmt.Errorf("workspace bundle store is not configured")
-	}
-	if err := Verify(data, desc.Digest); err != nil {
-		return err
-	}
-	if int64(len(data)) > s.limits.MaxCompressedSize {
-		return fmt.Errorf("workspace bundle exceeds compressed size limit %d", s.limits.MaxCompressedSize)
-	}
-	if desc.Size != 0 && desc.Size != int64(len(data)) {
-		return fmt.Errorf("workspace bundle size mismatch: got %d, want %d", len(data), desc.Size)
 	}
 	return s.PutReader(ctx, desc, bytes.NewReader(data))
 }
