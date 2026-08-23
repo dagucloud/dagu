@@ -174,7 +174,11 @@ func (svc *Service) executeTool(ctx context.Context, req *mcpsdk.CallToolRequest
 		return svc.executeToolImpl(ctx, input)
 	})
 	if err != nil {
-		return executeErrorResult(classifyExecuteToolError(input, err)), nil
+		executeErr := classifyExecuteToolError(input, err)
+		if executeErr.Details == nil && executeErr.Code == executeErrorResourceNotFound && input.TargetType == executeTargetTypeDAG {
+			executeErr.Details = svc.didYouMeanDetails(ctx, input.Name)
+		}
+		return executeErrorResult(executeErr), nil
 	}
 	result.StructuredContent = output
 	return result, nil

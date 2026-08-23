@@ -227,7 +227,7 @@ Optional field rules:
 | `target` | A valid target has been resolved, or an unsupported target value was supplied. |
 | `field` | Exactly one input field caused the failure. For an unknown field, this is the unknown field name. |
 | `uri` | URI mode supplied a non-empty `uri`, or target mode resolved a singular resource URI before lookup failed. |
-| `details` | More than one field caused the failure, or the server needs to expose structured validation details. |
+| `details` | More than one field caused the failure, or the server needs to expose structured validation details. A `resource_not_found` failure for a DAG name may carry close existing names as `details.didYouMean`. |
 
 Common conditions map to codes as follows:
 

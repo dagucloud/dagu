@@ -177,7 +177,11 @@ func (svc *Service) readTool(ctx context.Context, req *mcpsdk.CallToolRequest) (
 		return svc.readToolImpl(ctx, input)
 	})
 	if err != nil {
-		return readErrorResult(classifyReadToolError(input, err)), nil
+		readErr := classifyReadToolError(input, err)
+		if readErr.Details == nil && isDAGNotFound(err) {
+			readErr.Details = svc.didYouMeanDetails(ctx, input.Name)
+		}
+		return readErrorResult(readErr), nil
 	}
 	result.StructuredContent = output
 	return result, nil

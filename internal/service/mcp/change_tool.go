@@ -157,7 +157,11 @@ func (svc *Service) changeTool(ctx context.Context, req *mcpsdk.CallToolRequest)
 		return svc.changeToolImpl(ctx, input)
 	})
 	if err != nil {
-		return changeErrorResult(classifyChangeToolError(input, err)), nil
+		changeErr := classifyChangeToolError(input, err)
+		if changeErr.Details == nil && isDAGNotFound(err) {
+			changeErr.Details = svc.didYouMeanDetails(ctx, input.Name)
+		}
+		return changeErrorResult(changeErr), nil
 	}
 	result.StructuredContent = output
 	return result, nil

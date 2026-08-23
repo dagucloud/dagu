@@ -177,7 +177,8 @@ Errors:
 - invalid_resource_uri for malformed URI-mode input.
 - unsupported_read_target for unknown target.
 - unsupported_resource for unknown dagu:// family.
-- resource_not_found, resource_unavailable, or internal_error for runtime failures.`,
+- resource_not_found, resource_unavailable, or internal_error for runtime failures.
+- A resource_not_found error for a misspelled DAG name carries close existing names under details.didYouMean.`,
 		},
 		{
 			topic:       "change-tool",
@@ -220,7 +221,7 @@ Errors:
 
 - invalid_tool_input for missing or incompatible fields, invalid paths, unknown mode, unknown type, or malformed input.
 - unauthorized when the caller cannot perform the requested write.
-- resource_not_found when a rename or delete source does not exist.
+- resource_not_found when a rename or delete source does not exist. A misspelled DAG name carries close existing names under details.didYouMean.
 - conflict when a DAG rename destination exists or a Wiki path conflicts with another file or directory.
 - internal_error for unexpected failures.`,
 		},
@@ -270,7 +271,7 @@ Errors:
 
 - invalid_tool_input for missing fields, unknown action, unsupported targetType, or malformed input.
 - unauthorized when the caller cannot perform the requested execution operation.
-- resource_not_found when the named DAG or DAG-run does not exist.
+- resource_not_found when the named DAG or DAG-run does not exist. A misspelled stored-DAG name carries close existing names under details.didYouMean.
 - conflict when a singleton run is already running or queued.
 - resource_unavailable or internal_error for runtime failures.`,
 		},

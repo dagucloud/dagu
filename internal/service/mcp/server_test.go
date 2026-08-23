@@ -641,6 +641,35 @@ func TestWikiPagePromptsIncludeRequiredUpsertFields(t *testing.T) {
 	}
 }
 
+func TestRankNameSuggestions(t *testing.T) {
+	t.Parallel()
+
+	candidates := []string{"nightly-report", "nightly-cleanup", "billing-export", "etl"}
+
+	require.Equal(t, []string{"nightly-report"}, rankNameSuggestions("nightly-reprot", candidates))
+	// Substring matches rank ahead of larger edit distances.
+	require.Equal(t, []string{"nightly-cleanup", "nightly-report"}, rankNameSuggestions("nightly", candidates))
+	// The exact name is not suggested back and unrelated names are dropped.
+	require.Empty(t, rankNameSuggestions("etl", []string{"etl"}))
+	require.Empty(t, rankNameSuggestions("zzzz", candidates))
+}
+
+func TestReadToolNotFoundSuggestsCloseDAGNames(t *testing.T) {
+	ctx := context.Background()
+	store := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
+	require.NoError(t, store.Create(ctx, "nightly-report", []byte("name: nightly-report\nsteps: []\n")))
+	api := frontendapi.New(store, nil, nil, nil, runtime.Manager{}, &config.Config{}, nil, nil, prometheus.NewRegistry(), nil)
+	session := connectTestClient(t, ctx, NewServer(api))
+
+	result := callTool(t, ctx, session, toolRead, readInput{Target: readTargetDAGSpec, Name: "nightly-reprot"})
+	require.True(t, result.IsError)
+	output := structuredMap(t, result)
+	require.Equal(t, readErrorResourceNotFound, output["code"])
+	details, ok := output["details"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, []any{"nightly-report"}, details["didYouMean"])
+}
+
 func TestDAGSearchInputValidation(t *testing.T) {
 	t.Parallel()
 
