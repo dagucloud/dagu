@@ -160,7 +160,7 @@ Query parameters:
 - wiki: page, perPage, flat, sort, order, prefix. perPage accepts 1 to 200.
 - runs: name, dagRunId, status, fromDate, toDate, limit, cursor, labels. status may repeat.
 - run_logs: tail. Values from 1 to 10000 are honored.
-- step_log: tail, head, offset, limit, stream. stream is stdout or stderr; omitted means both.
+- step_log: tail, head, offset, limit, stream. tail, head, and limit accept 1 to 10000. Use at most one of tail, head, and offset; limit may be used alone or with offset. limit alone reads from the beginning of the log. stream is stdout or stderr; omitted means both.
 
 Output:
 
@@ -240,8 +240,8 @@ Fields:
 
 - action: required. Values are start, enqueue, retry, and stop.
 - targetType: dag, inline_spec, or run. Defaults to run for retry and stop, inline_spec when spec is present, otherwise dag.
-- name: DAG name. Required for stored DAG runs and run actions.
-- spec: inline DAG YAML for targetType=inline_spec.
+- name: DAG name. Required for every action, including inline runs.
+- spec: inline DAG YAML for start or enqueue with targetType=inline_spec; otherwise invalid.
 - dagRunId: DAG-run identifier. Required for retry and stop. Optional override for start and enqueue.
 - params: run parameters for start and enqueue, as a JSON object or a JSON-encoded string.
 - queue: queue name for enqueue.
@@ -259,6 +259,7 @@ Action behavior:
 - enqueue enqueues a stored DAG or inline spec.
 - retry retries an existing DAG-run and may target a step with stepName, optionally including downstream steps.
 - stop stops an existing DAG-run.
+- Fields unsupported by an action are invalid. params, singleton, noReuse, and labels apply only to start and enqueue; queue only to enqueue; stepName and includeDownstream only to retry.
 - With wait=true, the call returns once the run reaches a terminal state or the timeout elapses. On timeout the run keeps executing and the output has completed=false.
 
 Output:

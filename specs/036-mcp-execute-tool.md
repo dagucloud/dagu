@@ -44,17 +44,17 @@ Tool input is a JSON object. Fields outside this table fail with
 | --- | --- | --- | --- |
 | `action` | string | Required. One of `start`, `enqueue`, `retry`, `stop`. | Execution action. |
 | `targetType` | string | Optional. One of `dag`, `inline_spec`, `run`. | Target type. Defaults to `run` for `retry` and `stop`, `inline_spec` when `spec` is present, otherwise `dag`. |
-| `name` | string | Required for `targetType=dag` and for `retry` and `stop`; optional label for inline specs. | DAG name. |
-| `spec` | string | Required for `targetType=inline_spec`. | Inline DAG YAML document. |
+| `name` | string | Required. | DAG name, including the identity used for inline runs. |
+| `spec` | string | Required for `targetType=inline_spec`; otherwise forbidden. | Inline DAG YAML document for `start` and `enqueue`. |
 | `dagRunId` | string | Required for `retry` and `stop`; optional override for `start` and `enqueue`. | DAG-run identifier. |
 | `params` | string or object | Optional for `start` and `enqueue`. | Runtime parameters. An object is canonicalized to its compact JSON encoding. |
 | `queue` | string | Optional for `enqueue`. | Queue override. |
-| `singleton` | boolean | Optional. | Reject duplicate running or queued DAG-runs where the action supports it. |
+| `singleton` | boolean | Optional for `start` and `enqueue`. | Reject duplicate running or queued DAG-runs. |
 | `noReuse` | boolean | Optional for `start` and `enqueue`. | Execute eligible build steps without reusing prior materializations. |
 | `labels` | array of strings | Optional for `start` and `enqueue`. | Additional labels, each `key=value` or key-only. |
 | `stepName` | string | Optional for `retry`. | Step to retry. |
 | `includeDownstream` | boolean | Optional for `retry`. Requires `stepName`. | Retry the selected step and every reachable descendant. |
-| `wait` | boolean | Optional. Requires a `name` that identifies the run. | Wait for the identified run to reach a terminal state. |
+| `wait` | boolean | Optional. | Wait for the identified run to reach a terminal state. |
 | `waitTimeoutSeconds` | integer | Optional. Requires `wait`. From `1` through `300`; defaults to `60`. | Maximum wait duration. |
 
 Rules:
@@ -65,6 +65,11 @@ Rules:
 - String values other than `spec` are trimmed of leading and trailing
   whitespace; a string that is empty after trimming is treated as absent.
 - `targetType=run` is valid only for `retry` and `stop`.
+- `params`, `singleton`, `noReuse`, and `labels` are valid only for `start`
+  and `enqueue`; `queue` is valid only for `enqueue`; and `stepName` and
+  `includeDownstream` are valid only for `retry`.
+- Supplying a field for an action that does not support it fails with
+  `invalid_tool_input`, even when a boolean is `false` or an array is empty.
 
 ### Action contracts
 

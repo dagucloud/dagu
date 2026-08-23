@@ -71,6 +71,7 @@ const (
 	readResourceRunsCollectionURI      = "dagu://runs"
 
 	readWikiSearchMaxLimit = 50
+	readStepLogMaxLines    = 10000
 )
 
 type readInput struct {
@@ -926,6 +927,17 @@ func validateReadQuery(target, rawQuery string, uriMode bool, rawURI string) *re
 	if err != nil {
 		return readQueryError(target, uriMode, rawURI, "Query contains malformed URL encoding.")
 	}
+	if target == readTargetStepLog {
+		positioning := 0
+		for _, key := range []string{"tail", "head", "offset"} {
+			if values.Has(key) {
+				positioning++
+			}
+		}
+		if positioning > 1 || (values.Has("limit") && (values.Has("tail") || values.Has("head"))) {
+			return readQueryError(target, uriMode, rawURI, "Use only one step log positioning mode; limit may be used alone or with offset.")
+		}
+	}
 
 	for key, rawValues := range values {
 		if !isAllowedReadQueryParam(target, key) {
@@ -1033,7 +1045,9 @@ func validReadQueryValue(target, key, value string) bool {
 		}
 	case readTargetStepLog:
 		switch key {
-		case "tail", "head", "offset", "limit":
+		case "tail", "head", "limit":
+			return validIntRange(value, 1, readStepLogMaxLines)
+		case "offset":
 			return validIntRange(value, 1, 0)
 		case "stream":
 			return value == "stdout" || value == "stderr"
@@ -1378,18 +1392,9 @@ func (a runAddress) subRunAddress(subRunID string) runAddress {
 }
 
 func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
-	var run daguapi.DAGRunDetails
-	switch data := raw.(type) {
-	case daguapi.GetDAGRunDetails200JSONResponse:
-		run = data.DagRunDetails
-	case *daguapi.GetDAGRunDetails200JSONResponse:
-		run = data.DagRunDetails
-	case daguapi.GetSubDAGRunDetails200JSONResponse:
-		run = data.DagRunDetails
-	case *daguapi.GetSubDAGRunDetails200JSONResponse:
-		run = data.DagRunDetails
-	default:
-		return nil, fmt.Errorf("unexpected DAG-run details response %T", raw)
+	run, err := dagRunDetailsFromResponse(raw)
+	if err != nil {
+		return nil, err
 	}
 
 	// Canonicalize the address with the resolved run identity so returned
@@ -1458,6 +1463,21 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 		out["handlers"] = handlers
 	}
 	return out, nil
+}
+
+func dagRunDetailsFromResponse(raw any) (daguapi.DAGRunDetails, error) {
+	switch data := raw.(type) {
+	case daguapi.GetDAGRunDetails200JSONResponse:
+		return data.DagRunDetails, nil
+	case *daguapi.GetDAGRunDetails200JSONResponse:
+		return data.DagRunDetails, nil
+	case daguapi.GetSubDAGRunDetails200JSONResponse:
+		return data.DagRunDetails, nil
+	case *daguapi.GetSubDAGRunDetails200JSONResponse:
+		return data.DagRunDetails, nil
+	default:
+		return daguapi.DAGRunDetails{}, fmt.Errorf("unexpected DAG-run details response %T", raw)
+	}
 }
 
 func runStepEntries(addr runAddress, nodes []daguapi.Node) []map[string]any {

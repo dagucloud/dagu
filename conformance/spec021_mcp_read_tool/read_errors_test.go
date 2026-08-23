@@ -312,6 +312,32 @@ func TestReadInputValidationErrors(t *testing.T) {
 			field:  "query",
 		},
 		{
+			name: "step log line limit is bounded",
+			arguments: map[string]any{
+				"target":   "step_log",
+				"name":     "mcp_read_contract",
+				"dagRunId": "run-id",
+				"stepName": "main",
+				"query":    "limit=10001",
+			},
+			code:   "invalid_tool_input",
+			target: "step_log",
+			field:  "query",
+		},
+		{
+			name: "step log positioning modes conflict",
+			arguments: map[string]any{
+				"target":   "step_log",
+				"name":     "mcp_read_contract",
+				"dagRunId": "run-id",
+				"stepName": "main",
+				"query":    "tail=10&head=10",
+			},
+			code:   "invalid_tool_input",
+			target: "step_log",
+			field:  "query",
+		},
+		{
 			name: "query repeats non-repeatable parameter",
 			arguments: map[string]any{
 				"target": "dags",

@@ -180,11 +180,15 @@ outside the table below fail with `invalid_tool_input` in target mode and
 | `wiki` | `order` | One of `asc` or `desc`. |
 | `wiki` | `prefix` | Valid Wiki page path prefix. |
 | `run_logs` | `tail` | Integer greater than or equal to `1`. |
-| `step_log` | `tail` | Integer greater than or equal to `1`. |
-| `step_log` | `head` | Integer greater than or equal to `1`. |
+| `step_log` | `tail` | Integer from `1` through `10000`. |
+| `step_log` | `head` | Integer from `1` through `10000`. |
 | `step_log` | `offset` | Integer greater than or equal to `1`. |
-| `step_log` | `limit` | Integer greater than or equal to `1`. |
+| `step_log` | `limit` | Integer from `1` through `10000`. |
 | `step_log` | `stream` | One of `stdout` or `stderr`. |
+
+For `step_log`, at most one of `tail`, `head`, and `offset` may be supplied.
+`limit` may be combined only with `offset`; `limit` alone reads from the
+beginning of the log.
 
 ### Output
 

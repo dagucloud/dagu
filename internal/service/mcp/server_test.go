@@ -219,12 +219,22 @@ func TestExecuteInputValidation(t *testing.T) {
 		{name: "unknown action", input: `{"action":"restart"}`, wantField: executeFieldAction},
 		{name: "unknown field", input: `{"action":"start","name":"etl","force":true}`, wantField: "force"},
 		{name: "start requires name", input: `{"action":"start"}`, wantField: executeFieldName},
-		{name: "inline spec requires spec", input: `{"action":"start","targetType":"inline_spec"}`, wantField: executeFieldSpec},
+		{name: "inline spec requires spec", input: `{"action":"start","targetType":"inline_spec","name":"inline"}`, wantField: executeFieldSpec},
+		{name: "inline spec requires name", input: `{"action":"start","spec":"steps: []"}`, wantField: executeFieldName},
 		{name: "stop requires dagRunId", input: `{"action":"stop","name":"etl"}`, wantField: executeFieldDAGRunID},
 		{name: "run target only for run actions", input: `{"action":"start","name":"etl","targetType":"run"}`, wantField: executeFieldTargetType},
+		{name: "stored DAG rejects spec", input: `{"action":"start","targetType":"dag","name":"etl","spec":"steps: []"}`, wantField: executeFieldSpec},
+		{name: "stored DAG rejects empty spec", input: `{"action":"start","targetType":"dag","name":"etl","spec":""}`, wantField: executeFieldSpec},
+		{name: "start rejects queue", input: `{"action":"start","name":"etl","queue":"batch"}`, wantField: executeFieldQueue},
+		{name: "enqueue rejects step name", input: `{"action":"enqueue","name":"etl","stepName":"build"}`, wantField: executeFieldStepName},
+		{name: "retry rejects params", input: `{"action":"retry","name":"etl","dagRunId":"run-1","params":"x=1"}`, wantField: executeFieldParams},
+		{name: "retry rejects disabled no reuse", input: `{"action":"retry","name":"etl","dagRunId":"run-1","noReuse":false}`, wantField: executeFieldNoReuse},
+		{name: "stop rejects step name", input: `{"action":"stop","name":"etl","dagRunId":"run-1","stepName":"build"}`, wantField: executeFieldStepName},
+		{name: "stop rejects disabled downstream", input: `{"action":"stop","name":"etl","dagRunId":"run-1","includeDownstream":false}`, wantField: executeFieldIncludeDownstream},
+		{name: "stop rejects empty labels", input: `{"action":"stop","name":"etl","dagRunId":"run-1","labels":[]}`, wantField: executeFieldLabels},
 		{name: "wait timeout requires wait", input: `{"action":"start","name":"etl","waitTimeoutSeconds":30}`, wantField: executeFieldWaitTimeoutSeconds},
+		{name: "wait timeout rejects zero", input: `{"action":"start","name":"etl","wait":true,"waitTimeoutSeconds":0}`, wantField: executeFieldWaitTimeoutSeconds},
 		{name: "wait timeout range", input: `{"action":"start","name":"etl","wait":true,"waitTimeoutSeconds":301}`, wantField: executeFieldWaitTimeoutSeconds},
-		{name: "wait requires identifiable run", input: `{"action":"start","spec":"steps: []","wait":true}`, wantField: executeFieldName},
 		{name: "params must be string or object", input: `{"action":"start","name":"etl","params":[1]}`, wantField: executeFieldParams},
 	}
 
@@ -255,7 +265,7 @@ func TestExecuteInputDefaultsAndParams(t *testing.T) {
 	require.Equal(t, "KEY=value", input.Params)
 
 	input, executeErr = parseExecuteToolInput(json.RawMessage(
-		`{"action":"enqueue","spec":"steps: []"}`,
+		`{"action":"enqueue","name":"inline","spec":"steps: []"}`,
 	))
 	require.Nil(t, executeErr)
 	require.Equal(t, executeTargetTypeInlineSpec, input.TargetType)
@@ -375,7 +385,7 @@ func TestServerExposesStepLogResource(t *testing.T) {
 func TestStepLogQueryValidation(t *testing.T) {
 	t.Parallel()
 
-	valid := []string{"tail=100", "head=50", "offset=10&limit=20", "stream=stderr", "tail=5&stream=stdout"}
+	valid := []string{"tail=10000", "head=10000", "offset=10001&limit=10000", "limit=10", "stream=stderr", "tail=5&stream=stdout"}
 	for _, query := range valid {
 		input, readErr := parseReadResourceURI("dagu://runs/demo/run-1/steps/main/logs?" + query)
 		require.Nil(t, readErr, query)
@@ -383,7 +393,18 @@ func TestStepLogQueryValidation(t *testing.T) {
 		require.Equal(t, query, input.Query)
 	}
 
-	invalid := []string{"tail=0", "tail=x", "stream=both", "unknown=1"}
+	invalid := []string{
+		"tail=0",
+		"tail=x",
+		"head=10001",
+		"tail=10001",
+		"limit=10001",
+		"tail=10&head=10",
+		"tail=10&limit=10",
+		"head=10&offset=10",
+		"stream=both",
+		"unknown=1",
+	}
 	for _, query := range invalid {
 		_, readErr := parseReadResourceURI("dagu://runs/demo/run-1/steps/main/logs?" + query)
 		require.NotNil(t, readErr, query)

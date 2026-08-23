@@ -122,6 +122,16 @@ func TestExecuteInputErrorsAreStructured(t *testing.T) {
 			arguments: map[string]any{"action": "start", "name": "etl", "waitTimeoutSeconds": 10},
 			field:     "waitTimeoutSeconds",
 		},
+		{
+			name:      "inline spec requires name",
+			arguments: map[string]any{"action": "start", "spec": "steps: []"},
+			field:     "name",
+		},
+		{
+			name:      "start rejects enqueue-only field",
+			arguments: map[string]any{"action": "start", "name": "etl", "queue": "batch"},
+			field:     "queue",
+		},
 	}
 
 	for _, tt := range tests {

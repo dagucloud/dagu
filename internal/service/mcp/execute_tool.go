@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -89,7 +88,7 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"name": {
 				"type": "string",
-				"description": "DAG name. Required for stored DAG runs and run actions; optional label for inline specs."
+				"description": "DAG name. Required for every execution action."
 			},
 			"spec": {
 				"type": "string",
@@ -139,7 +138,7 @@ func executeToolInputSchema() json.RawMessage {
 				"description": "Maximum seconds to wait when wait is true. Defaults to 60. On timeout the output has completed=false and the run keeps executing."
 			}
 		},
-		"required": ["action"],
+		"required": ["action", "name"],
 		"additionalProperties": false
 	}`)
 }
@@ -270,18 +269,22 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 	for {
 		raw, err := svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+dagRunID)
 		if err == nil {
-			details, normalizeErr := normalizeRunDetails(raw, runAddress{name: input.Name, dagRunID: dagRunID})
-			if normalizeErr == nil {
-				output["status"] = details["status"]
-				output["statusLabel"] = details["statusLabel"]
-				if status, ok := details["status"].(daguapi.Status); ok && isTerminalStatus(int(status)) {
-					output["completed"] = true
-					output["run"] = details
-					if label, ok := details["statusLabel"].(daguapi.StatusLabel); ok {
-						return "Dagu execute action completed. The run finished with status " + string(label) + "."
-					}
-					return "Dagu execute action completed. The run reached a terminal state."
+			run, detailsErr := dagRunDetailsFromResponse(raw)
+			if detailsErr != nil {
+				output["waitError"] = detailsErr.Error()
+				return "Dagu execute action completed, but waiting for the run failed. Poll the runUri resource for completion."
+			}
+			output["status"] = run.Status
+			output["statusLabel"] = run.StatusLabel
+			if isTerminalStatus(int(run.Status)) {
+				details, normalizeErr := normalizeRunDetails(raw, runAddress{name: input.Name, dagRunID: dagRunID})
+				if normalizeErr != nil {
+					output["waitError"] = normalizeErr.Error()
+					return "Dagu execute action completed, but waiting for the run failed. Poll the runUri resource for completion."
 				}
+				output["completed"] = true
+				output["run"] = details
+				return "Dagu execute action completed. The run finished with status " + string(run.StatusLabel) + "."
 			}
 		} else if !isTransientWaitError(input.Action, err) {
 			output["waitError"] = err.Error()
@@ -325,6 +328,7 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 	}
 
 	var input executeInput
+	provided := make(map[string]bool, len(fields))
 	keys := make([]string, 0, len(fields))
 	for field := range fields {
 		keys = append(keys, field)
@@ -336,6 +340,7 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 		if string(value) == "null" {
 			continue
 		}
+		provided[field] = true
 		var parseErr *executeToolError
 		switch field {
 		case executeFieldAction:
@@ -378,7 +383,7 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 		}
 	}
 
-	if executeErr := validateExecuteInput(&input); executeErr != nil {
+	if executeErr := validateExecuteInput(&input, provided); executeErr != nil {
 		return executeInput{}, executeErr
 	}
 	return input, nil
@@ -421,7 +426,7 @@ func executeParamsField(value json.RawMessage) (string, *executeToolError) {
 	return string(encoded), nil
 }
 
-func validateExecuteInput(input *executeInput) *executeToolError {
+func validateExecuteInput(input *executeInput, provided map[string]bool) *executeToolError {
 	switch input.Action {
 	case "":
 		return executeInputError("The action field is required.", executeFieldAction)
@@ -450,8 +455,8 @@ func validateExecuteInput(input *executeInput) *executeToolError {
 	case executeActionStart, executeActionEnqueue:
 		switch input.TargetType {
 		case executeTargetTypeDAG:
-			if input.Name == "" {
-				return executeInputError("The name field is required.", executeFieldName)
+			if provided[executeFieldSpec] {
+				return executeInputError("The spec field is only valid for targetType inline_spec.", executeFieldSpec)
 			}
 		case executeTargetTypeInlineSpec:
 			if strings.TrimSpace(input.Spec) == "" {
@@ -464,27 +469,50 @@ func validateExecuteInput(input *executeInput) *executeToolError {
 		if input.TargetType != executeTargetTypeRun {
 			return executeInputError("The "+input.Action+" action requires targetType run.", executeFieldTargetType)
 		}
-		if input.Name == "" {
-			return executeInputError("The name field is required.", executeFieldName)
-		}
-		if input.DAGRunID == "" {
-			return executeInputError("The dagRunId field is required.", executeFieldDAGRunID)
-		}
 	}
 
+	if input.Name == "" {
+		return executeInputError("The name field is required.", executeFieldName)
+	}
+	if input.Action != executeActionEnqueue && input.Queue != "" {
+		return executeInputError("The queue field is only valid for enqueue.", executeFieldQueue)
+	}
+	launchAction := input.Action == executeActionStart || input.Action == executeActionEnqueue
+	if !launchAction {
+		switch {
+		case provided[executeFieldSpec]:
+			return executeInputError("The spec field is only valid for start and enqueue.", executeFieldSpec)
+		case input.Params != "":
+			return executeInputError("The params field is only valid for start and enqueue.", executeFieldParams)
+		case provided[executeFieldSingleton]:
+			return executeInputError("The singleton field is only valid for start and enqueue.", executeFieldSingleton)
+		case provided[executeFieldNoReuse]:
+			return executeInputError("The noReuse field is only valid for start and enqueue.", executeFieldNoReuse)
+		case provided[executeFieldLabels]:
+			return executeInputError("The labels field is only valid for start and enqueue.", executeFieldLabels)
+		}
+	}
+	if input.Action != executeActionRetry {
+		if input.StepName != "" {
+			return executeInputError("The stepName field is only valid for retry.", executeFieldStepName)
+		}
+		if provided[executeFieldIncludeDownstream] {
+			return executeInputError("The includeDownstream field is only valid for retry.", executeFieldIncludeDownstream)
+		}
+	}
+	if !launchAction && input.DAGRunID == "" {
+		return executeInputError("The dagRunId field is required.", executeFieldDAGRunID)
+	}
 	if input.IncludeDownstream && strings.TrimSpace(input.StepName) == "" {
 		return executeInputError("includeDownstream requires stepName", executeFieldStepName)
 	}
-	if input.WaitTimeoutSeconds != 0 {
+	if provided[executeFieldWaitTimeoutSeconds] {
 		if !input.Wait {
 			return executeInputError("waitTimeoutSeconds requires wait.", executeFieldWaitTimeoutSeconds)
 		}
 		if input.WaitTimeoutSeconds < 1 || input.WaitTimeoutSeconds > executeWaitMaxTimeoutSeconds {
 			return executeInputError("waitTimeoutSeconds must be between 1 and 300.", executeFieldWaitTimeoutSeconds)
 		}
-	}
-	if input.Wait && input.Name == "" {
-		return executeInputError("wait requires name so the run can be identified.", executeFieldName)
 	}
 	return nil
 }
