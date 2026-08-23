@@ -64,11 +64,10 @@ const (
 
 	readResourceScheme = "dagu"
 
-	readResourceReferenceCollectionURI  = "dagu://reference"
-	readResourceDAGsCollectionURI       = "dagu://dags"
-	readResourceWikiCollectionURI       = "dagu://wiki"
-	legacyReadResourceDocsCollectionURI = "dagu://docs"
-	readResourceRunsCollectionURI       = "dagu://runs"
+	readResourceReferenceCollectionURI = "dagu://reference"
+	readResourceDAGsCollectionURI      = "dagu://dags"
+	readResourceWikiCollectionURI      = "dagu://wiki"
+	readResourceRunsCollectionURI      = "dagu://runs"
 
 	readWikiSearchMaxLimit = 50
 )
