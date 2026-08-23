@@ -124,17 +124,17 @@ Addressing:
 
 Fields:
 
-- target: required in target mode. Values are references, reference, dags, dag, dag_spec, wiki, wiki_page, wiki_search, runs, run, run_logs, and step_log.
+- target: required in target mode. Values are references, reference, dags, dag, dag_spec, dag_search, wiki, wiki_page, wiki_search, runs, run, run_logs, and step_log.
 - name: DAG name or reference topic name. Required for dag, dag_spec, run, run_logs, and step_log. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
 - dagRunId: required for run, run_logs, and step_log. Forbidden for other targets.
 - stepName: required for step_log. Forbidden for other targets.
 - query: URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs, and step_log.
-- workspace: all, default, or a workspace name. Optional for wiki and wiki_search; omitted means all accessible workspaces. Required for wiki_page, where all is not allowed.
+- workspace: all, default, or a workspace name. Optional for wiki, wiki_search, and dag_search; omitted means all accessible workspaces. Required for wiki_page, where all is not allowed.
 - path: Wiki page path without .md. Required for wiki_page.
-- search: search text. Required for wiki_search.
+- search: search text. Required for wiki_search and dag_search.
 - prefix: Wiki page path prefix without .md. Optional for wiki and wiki_search.
-- cursor: opaque cursor returned by wiki_search. Optional for wiki_search only.
-- limit: maximum number of results from 1 to 50. Optional for wiki_search; defaults to 20.
+- cursor: opaque cursor returned by the same search target. Optional for wiki_search and dag_search.
+- limit: maximum number of results from 1 to 50. Optional for wiki_search and dag_search; defaults to 20.
 - uri: dagu:// resource URI for URI mode.
 
 Targets:
@@ -144,6 +144,7 @@ Targets:
 - dags lists DAGs.
 - dag reads DAG details.
 - dag_spec reads the current DAG YAML.
+- dag_search searches DAG definition content and returns matching DAGs with line-level snippets. Continue with nextCursor while keeping search and workspace unchanged.
 - wiki lists the Wiki tree or a flat page list. In tree mode, page and perPage select direct children of the workspace or prefix, and each returned directory includes its descendants. In flat mode, they select individual pages.
 - wiki_page reads one Markdown Wiki page.
 - wiki_search searches accessible Wiki pages in stable path order. Continue with nextCursor while keeping search, workspace, and prefix unchanged.

@@ -445,6 +445,65 @@ func (svc *Service) getDAGSpec(ctx context.Context, name string) (map[string]any
 	}
 }
 
+func (svc *Service) searchDAGs(ctx context.Context, workspace, search, cursor string, limit int) (map[string]any, error) {
+	params := daguapi.SearchDAGFeedParams{Q: search}
+	if workspace != "" {
+		value := daguapi.Workspace(workspace)
+		params.Workspace = &value
+	}
+	if cursor != "" {
+		value := daguapi.SearchCursor(cursor)
+		params.Cursor = &value
+	}
+	if limit != 0 {
+		value := daguapi.SearchLimit(limit)
+		params.Limit = &value
+	}
+
+	resp, err := svc.api.SearchDAGFeed(ctx, daguapi.SearchDAGFeedRequestObject{Params: params})
+	if err != nil {
+		return nil, err
+	}
+	var data daguapi.DAGSearchFeedResponse
+	switch result := resp.(type) {
+	case daguapi.SearchDAGFeed200JSONResponse:
+		data = daguapi.DAGSearchFeedResponse(result)
+	case *daguapi.SearchDAGFeed200JSONResponse:
+		data = daguapi.DAGSearchFeedResponse(*result)
+	default:
+		return nil, fmt.Errorf("unexpected DAG search response %T", resp)
+	}
+
+	items := make([]map[string]any, 0, len(data.Results))
+	for _, item := range data.Results {
+		name := item.FileName
+		if name == "" {
+			name = item.Name
+		}
+		entry := map[string]any{
+			"name":           name,
+			"uri":            dagSpecURI(name),
+			"matches":        item.Matches,
+			"hasMoreMatches": item.HasMoreMatches,
+		}
+		if item.Workspace != nil && *item.Workspace != "" {
+			entry["workspace"] = *item.Workspace
+		}
+		if item.NextMatchesCursor != nil && *item.NextMatchesCursor != "" {
+			entry["nextMatchesCursor"] = *item.NextMatchesCursor
+		}
+		items = append(items, entry)
+	}
+	output := map[string]any{
+		"results": items,
+		"hasMore": data.HasMore,
+	}
+	if data.NextCursor != nil && *data.NextCursor != "" {
+		output["nextCursor"] = *data.NextCursor
+	}
+	return output, nil
+}
+
 func (svc *Service) validateDAGSpec(ctx context.Context, name, spec string) (*daguapi.ValidateDAGSpec200JSONResponse, error) {
 	body := &daguapi.ValidateDAGSpecJSONRequestBody{
 		Name: &name,

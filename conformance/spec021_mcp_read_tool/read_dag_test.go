@@ -6,6 +6,7 @@ package spec021_mcp_read_tool_test
 import (
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/conformance/mcptest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,6 +53,34 @@ func TestReadDAGTargets(t *testing.T) {
 		})
 		output := requireReadSuccess(t, result, "dag_spec", dagSpecURI(fixture.dagName), "dag_spec", "application/yaml")
 		requireDAGSpecData(t, requireData(t, output), fixture.dagName)
+	})
+
+	t.Run("dag_search target", func(t *testing.T) {
+		// The fixture spec contains "echo <dagName>", so searching for the
+		// DAG name matches the definition content.
+		result := callRead(t, fixture.session, map[string]any{
+			"target": "dag_search",
+			"search": fixture.dagName,
+		})
+		output := mcptest.StructuredMap(t, result)
+		require.False(t, result.IsError)
+		require.Equal(t, "dag_search", output["target"])
+		data := requireData(t, output)
+		requireBool(t, data, "hasMore")
+
+		results, ok := data["results"].([]any)
+		require.True(t, ok)
+		item := requireItem(t, results, "name", fixture.dagName)
+		require.Equal(t, dagSpecURI(fixture.dagName), item["uri"])
+		matches, ok := item["matches"].([]any)
+		require.True(t, ok)
+		require.NotEmpty(t, matches)
+	})
+
+	t.Run("dag_search requires search text", func(t *testing.T) {
+		result := callRead(t, fixture.session, map[string]any{"target": "dag_search"})
+		output := requireReadError(t, result, "invalid_tool_input")
+		require.Equal(t, "search", output["field"])
 	})
 }
 

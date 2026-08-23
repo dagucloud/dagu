@@ -583,6 +583,30 @@ func TestWikiPagePromptsIncludeRequiredUpsertFields(t *testing.T) {
 	}
 }
 
+func TestDAGSearchInputValidation(t *testing.T) {
+	t.Parallel()
+
+	input, readErr := parseReadToolInput(json.RawMessage(`{"target":"dag_search","search":"postgres","limit":10}`))
+	require.Nil(t, readErr)
+	require.Equal(t, readTargetDAGSearch, input.Target)
+	require.Equal(t, "postgres", input.Search)
+	require.Equal(t, "all", input.Workspace)
+	require.Equal(t, 10, input.Limit)
+
+	_, readErr = parseReadToolInput(json.RawMessage(`{"target":"dag_search"}`))
+	require.NotNil(t, readErr)
+	require.Equal(t, readErrorInvalidToolInput, readErr.Code)
+	require.Equal(t, readFieldSearch, readErr.Field)
+
+	_, readErr = parseReadToolInput(json.RawMessage(`{"target":"dag_search","search":"x","prefix":"guides"}`))
+	require.NotNil(t, readErr)
+	require.Equal(t, readFieldPrefix, readErr.Field)
+
+	_, readErr = parseReadToolInput(json.RawMessage(`{"target":"dag_search","search":"x","query":"page=1"}`))
+	require.NotNil(t, readErr)
+	require.Equal(t, readFieldQuery, readErr.Field)
+}
+
 func TestNormalizeRunDetailsIncludesStepsAndFailureDetails(t *testing.T) {
 	t.Parallel()
 
