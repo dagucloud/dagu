@@ -68,10 +68,11 @@ func TestClientDispatch(t *testing.T) {
 	t.Run("UploadsDeclaredFileDependencies", func(t *testing.T) {
 		t.Parallel()
 
-		root := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(root, "input.txt"), []byte("input"), 0o644))
-		dagFile := filepath.Join(root, "dag.yaml")
-		definition := "name: test\nsteps:\n  - name: consume\n    run: cat input.txt\n    dependencies: input.txt\n"
+		dagRoot := t.TempDir()
+		dependencyRoot := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dependencyRoot, "input.txt"), []byte("input"), 0o644))
+		dagFile := filepath.Join(dagRoot, "dag.yaml")
+		definition := fmt.Sprintf("name: test\nparams:\n  WORKSPACE: %q\nworking_dir: ${params.WORKSPACE}\nsteps:\n  - name: consume\n    run: cat input.txt\n    dependencies: input.txt\n", dagRoot)
 		workspaceBundleDir := filepath.Join(t.TempDir(), "workspace-bundles")
 		stagingDir := filepath.Join(workspaceBundleDir, "staging")
 		dest := filepath.Join(t.TempDir(), "workspace")
@@ -107,8 +108,8 @@ func TestClientDispatch(t *testing.T) {
 				if req.Task.WorkspaceBundleSize != int64(len(uploaded)) {
 					return nil, fmt.Errorf("workspace bundle size is %d, want %d", req.Task.WorkspaceBundleSize, len(uploaded))
 				}
-				if req.Task.WorkspaceBundleDagPath != "dag.yaml" {
-					return nil, fmt.Errorf("workspace bundle DAG path is %q, want dag.yaml", req.Task.WorkspaceBundleDagPath)
+				if req.Task.WorkspaceBundleDagPath == "" {
+					return nil, fmt.Errorf("workspace bundle DAG path is empty")
 				}
 				if err := workspacebundle.Extract(uploaded, dest, workspacebundle.Descriptor{
 					Digest:  req.Task.WorkspaceBundleDigest,
@@ -117,7 +118,7 @@ func TestClientDispatch(t *testing.T) {
 				}, workspacebundle.DefaultLimits()); err != nil {
 					return nil, fmt.Errorf("extract uploaded workspace bundle: %w", err)
 				}
-				actualDAG, err := os.ReadFile(filepath.Join(dest, "dag.yaml"))
+				actualDAG, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash(req.Task.WorkspaceBundleDagPath)))
 				if err != nil {
 					return nil, fmt.Errorf("read uploaded DAG: %w", err)
 				}
@@ -139,10 +140,14 @@ func TestClientDispatch(t *testing.T) {
 		}}}, config)
 
 		err := client.Dispatch(context.Background(), dispatch.DispatchRequest{Task: &dispatch.DispatchTask{
+			Operation:  dispatch.DispatchOperationRetry,
 			DAGRunID:   "run-1",
 			Target:     "test",
 			Definition: definition,
 			SourceFile: dagFile,
+			PreviousStatus: &ir.DAGRunStatus{
+				ParamsList: []string{"WORKSPACE=" + dependencyRoot},
+			},
 		}})
 		require.NoError(t, err)
 		assert.FileExists(t, filepath.Join(dest, "input.txt"))

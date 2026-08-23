@@ -326,11 +326,16 @@ func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.
 	loadOpts := []spec.LoadOption{
 		spec.WithName(task.Target),
 	}
+	if task.SourceWorkDir != "" {
+		loadOpts = append(loadOpts, spec.WithDefaultWorkingDir(task.SourceWorkDir))
+	}
 	if task.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
 	}
 	if task.Params != "" {
 		loadOpts = append(loadOpts, spec.WithParams(task.Params))
+	} else if task.Operation == dispatch.DispatchOperationRetry && task.PreviousStatus != nil && len(task.PreviousStatus.ParamsList) > 0 {
+		loadOpts = append(loadOpts, spec.WithParams(spec.QuoteRuntimeParams(task.PreviousStatus.ParamsList, nil)))
 	}
 	var dag *ir.DAG
 	var err error

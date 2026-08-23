@@ -86,6 +86,13 @@ func WithSourceFile(sourceFile string) TaskOption {
 	}
 }
 
+// WithSourceWorkDir sets the source workspace for source-less DAG definitions.
+func WithSourceWorkDir(dir string) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.SourceWorkDir = dir
+	}
+}
+
 // WithWorkerSelector sets the worker selector labels for the task.
 func WithWorkerSelector(selector map[string]string) TaskOption {
 	return func(task *dispatch.DispatchTask) {

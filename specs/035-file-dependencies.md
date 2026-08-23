@@ -10,7 +10,7 @@ This spec defines:
 
 - the step-level `dependencies` field
 - dependency path matching and validation
-- distributed workspace snapshot and materialization behavior
+- local and distributed workspace snapshot and materialization behavior
 - retry and inline child-DAG behavior
 
 This spec does not define:
@@ -62,10 +62,10 @@ A DAG can use declared files from its working directory with the same isolated w
 | Failure class | Required diagnostic |
 | --- | --- |
 | Value reference in a dependency | validation error naming `dependencies` |
-| Invalid or unsafe path | dispatch rejected with the dependency path and reason |
-| Declaration with no match | dispatch rejected naming the unmatched declaration |
-| Unsupported filesystem entry | dispatch rejected naming the entry type and path |
-| Bundle limit exceeded | dispatch rejected naming the exceeded limit |
+| Invalid or unsafe path | workspace preparation fails with the dependency path and reason |
+| Declaration with no match | workspace preparation fails naming the unmatched declaration |
+| Unsupported filesystem entry | workspace preparation fails naming the entry type and path |
+| Bundle limit exceeded | workspace preparation fails naming the exceeded limit |
 | Worker download, verification, or extraction failure | DAG-run fails before step execution |
 
 ## Examples

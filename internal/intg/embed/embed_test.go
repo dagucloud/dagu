@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	osexec "os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"testing"
@@ -45,6 +46,8 @@ func TestEmbeddedLocalRunYAML(t *testing.T) {
 		require.NoError(t, engine.Close(context.Background()))
 	})
 
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "input.txt"), []byte("input"), 0o600))
 	run, err := engine.RunYAML(ctx, []byte(`
 name: embedded-intg-local
 type: graph
@@ -54,7 +57,13 @@ steps:
   - name: second
     `+embeddedDirectCommandYAML(t, "whoami")+`
     depends: [first]
-`))
+  - name: dependency
+    dependencies: input.txt
+    action: file.read
+    with:
+      path: input.txt
+    depends: [second]
+`), dagu.WithDefaultWorkingDir(workDir))
 	require.NoError(t, err)
 
 	status, err := run.Wait(ctx)
@@ -159,13 +168,18 @@ func TestEmbeddedDistributedRunYAML(t *testing.T) {
 
 	require.NoError(t, worker.WaitReady(ctx))
 
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "input.txt"), []byte("input"), 0o600))
 	run, err := engine.RunYAML(ctx, []byte(`
 name: embedded-intg-distributed
 type: graph
 steps:
   - name: worker-step
-    run: echo distributed
-`))
+    dependencies: input.txt
+    action: file.read
+    with:
+      path: input.txt
+`), dagu.WithDefaultWorkingDir(workDir))
 	require.NoError(t, err)
 
 	status, err := run.Wait(ctx)

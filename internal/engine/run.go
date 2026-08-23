@@ -536,6 +536,8 @@ func (e *Engine) runDistributed(ctx context.Context, dag *ir.DAG, runID string, 
 	}
 	if dag.SourceFile != "" {
 		taskOpts = append(taskOpts, runtimeexec.WithSourceFile(dag.SourceFile))
+	} else if dag.WorkingDir != "" {
+		taskOpts = append(taskOpts, runtimeexec.WithSourceWorkDir(dag.WorkingDir))
 	}
 	task := runtimeexec.CreateTask(
 		dag.Name,

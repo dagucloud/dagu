@@ -73,13 +73,48 @@ func TestPrepareDAGWorkspaceUsesDAGWorkingDirectory(t *testing.T) {
 	dagDir := t.TempDir()
 	workDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "input.txt"), []byte("input"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "dag.yaml"), []byte("dependency"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, ".dagu-workflow.yaml"), []byte("hidden dependency"), 0o644))
 
+	dagData := []byte("name: working-dir\nsteps:\n  - run: echo ok\n")
 	dag := &ir.DAG{
 		Name:               "working-dir",
 		SourceFile:         filepath.Join(dagDir, "dag.yaml"),
 		WorkingDir:         workDir,
 		WorkingDirExplicit: true,
-		YamlData:           []byte("name: working-dir\nsteps:\n  - run: echo ok\n"),
+		YamlData:           dagData,
+		Steps:              []ir.Step{{Dependencies: []string{"input.txt", "dag.yaml", ".dagu-workflow.yaml"}}},
+	}
+
+	seed, err := executor.PrepareDAGWorkspace(context.Background(), dag)
+	require.NoError(t, err)
+	require.NotNil(t, seed)
+
+	dest := filepath.Join(t.TempDir(), "workspace")
+	require.NoError(t, workspacebundle.Extract(seed.Archive, dest, seed.Descriptor, workspacebundle.DefaultLimits()))
+	assert.FileExists(t, filepath.Join(dest, "input.txt"))
+	dependency, err := os.ReadFile(filepath.Join(dest, "dag.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("dependency"), dependency)
+	hiddenDependency, err := os.ReadFile(filepath.Join(dest, ".dagu-workflow.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hidden dependency"), hiddenDependency)
+	transportedDAG, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash(seed.Descriptor.DAGPath)))
+	require.NoError(t, err)
+	assert.Equal(t, dagData, transportedDAG)
+}
+
+func TestPrepareDAGWorkspaceSupportsInlineDAGWithWorkingDirectory(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "input.txt"), []byte("input"), 0o644))
+	dagData := []byte("name: inline\nsteps:\n  - run: cat input.txt\n")
+	dag := &ir.DAG{
+		Name:               "inline",
+		WorkingDir:         workDir,
+		WorkingDirExplicit: true,
+		YamlData:           dagData,
 		Steps:              []ir.Step{{Dependencies: []string{"input.txt"}}},
 	}
 
@@ -90,6 +125,9 @@ func TestPrepareDAGWorkspaceUsesDAGWorkingDirectory(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "workspace")
 	require.NoError(t, workspacebundle.Extract(seed.Archive, dest, seed.Descriptor, workspacebundle.DefaultLimits()))
 	assert.FileExists(t, filepath.Join(dest, "input.txt"))
+	transportedDAG, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash(seed.Descriptor.DAGPath)))
+	require.NoError(t, err)
+	assert.Equal(t, dagData, transportedDAG)
 }
 
 func TestPrepareDAGWorkspaceRejectsEmptyResolvedWorkingDirectory(t *testing.T) {
