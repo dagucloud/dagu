@@ -413,7 +413,7 @@ func executeBoolField(field string, value json.RawMessage) (bool, *executeToolEr
 func executeParamsField(value json.RawMessage) (string, *executeToolError) {
 	var text string
 	if err := json.Unmarshal(value, &text); err == nil {
-		return text, nil
+		return strings.TrimSpace(text), nil
 	}
 	var object map[string]any
 	if err := json.Unmarshal(value, &object); err != nil {

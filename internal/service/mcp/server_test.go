@@ -259,10 +259,16 @@ func TestExecuteInputDefaultsAndParams(t *testing.T) {
 	require.JSONEq(t, `{"TARGET":"orders","LIMIT":10}`, input.Params)
 
 	input, executeErr = parseExecuteToolInput(json.RawMessage(
-		`{"action":"start","name":"etl","params":"KEY=value"}`,
+		`{"action":"start","name":"etl","params":"  KEY=value  "}`,
 	))
 	require.Nil(t, executeErr)
 	require.Equal(t, "KEY=value", input.Params)
+
+	input, executeErr = parseExecuteToolInput(json.RawMessage(
+		`{"action":"retry","name":"etl","dagRunId":"run-1","params":"  "}`,
+	))
+	require.Nil(t, executeErr)
+	require.Empty(t, input.Params)
 
 	input, executeErr = parseExecuteToolInput(json.RawMessage(
 		`{"action":"enqueue","name":"inline","spec":"steps: []"}`,
