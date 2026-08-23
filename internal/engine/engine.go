@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/spf13/viper"
@@ -185,6 +186,7 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 		return nil, fmt.Errorf("distributed execution requires at least one coordinator address")
 	}
 	cfg := coordinator.DefaultConfig()
+	cfg.WorkspaceBundleDir = workspacebundle.StoreDir(e.cfg.Paths.DataDir)
 	cfg.CAFile = opts.TLS.ClientCAFile
 	cfg.CertFile = opts.TLS.CertFile
 	cfg.KeyFile = opts.TLS.KeyFile

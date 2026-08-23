@@ -11,6 +11,8 @@ import (
 
 // Config holds configuration for the coordinator client
 type Config struct {
+	WorkspaceBundleDir string
+
 	// TLS configuration
 	Insecure      bool   // Use insecure connection (default: true)
 	CertFile      string // Client certificate

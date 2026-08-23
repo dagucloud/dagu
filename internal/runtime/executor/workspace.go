@@ -27,30 +27,51 @@ func workspaceSeedFromContext(ctx context.Context) (WorkspaceSeed, bool) {
 
 // PrepareDAGWorkspace snapshots the files declared by a DAG for distributed execution.
 func PrepareDAGWorkspace(dag *ir.DAG) (*WorkspaceSeed, error) {
-	includes := dagFileDependencies(dag)
-	if len(includes) == 0 {
-		return nil, nil
+	root, opts, err := dagWorkspacePackOptions(dag)
+	if err != nil || opts == nil {
+		return nil, err
 	}
-	if dag == nil || strings.TrimSpace(dag.SourceFile) == "" {
-		return nil, fmt.Errorf("DAG file dependencies require a source file")
-	}
-	if dag.YamlData == nil {
-		return nil, fmt.Errorf("DAG file dependencies require the dispatched definition")
-	}
-
-	sourceFile, err := filepath.Abs(dag.SourceFile)
-	if err != nil {
-		return nil, fmt.Errorf("resolve DAG source file %q: %w", dag.SourceFile, err)
-	}
-	descriptor, archive, err := workspacebundle.PackDirectory(filepath.Dir(sourceFile), workspacebundle.PackOptions{
-		DAGPath:  filepath.Base(sourceFile),
-		DAGData:  dag.YamlData,
-		Includes: includes,
-	})
+	descriptor, archive, err := workspacebundle.PackDirectory(root, *opts)
 	if err != nil {
 		return nil, fmt.Errorf("prepare DAG file dependencies: %w", err)
 	}
 	return &WorkspaceSeed{Descriptor: *descriptor, Archive: archive}, nil
+}
+
+// PrepareDAGWorkspaceFile snapshots declared files into a staged archive.
+func PrepareDAGWorkspaceFile(dag *ir.DAG, stagingDir string) (*workspacebundle.Descriptor, string, error) {
+	root, opts, err := dagWorkspacePackOptions(dag)
+	if err != nil || opts == nil {
+		return nil, "", err
+	}
+	descriptor, archivePath, err := workspacebundle.PackDirectoryToFile(root, stagingDir, *opts)
+	if err != nil {
+		return nil, "", fmt.Errorf("prepare DAG file dependencies: %w", err)
+	}
+	return descriptor, archivePath, nil
+}
+
+func dagWorkspacePackOptions(dag *ir.DAG) (string, *workspacebundle.PackOptions, error) {
+	includes := dagFileDependencies(dag)
+	if len(includes) == 0 {
+		return "", nil, nil
+	}
+	if dag == nil || strings.TrimSpace(dag.SourceFile) == "" {
+		return "", nil, fmt.Errorf("DAG file dependencies require a source file")
+	}
+	if dag.YamlData == nil {
+		return "", nil, fmt.Errorf("DAG file dependencies require the dispatched definition")
+	}
+
+	sourceFile, err := filepath.Abs(dag.SourceFile)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve DAG source file %q: %w", dag.SourceFile, err)
+	}
+	return filepath.Dir(sourceFile), &workspacebundle.PackOptions{
+		DAGPath:  filepath.Base(sourceFile),
+		DAGData:  dag.YamlData,
+		Includes: includes,
+	}, nil
 }
 
 func dagFileDependencies(dag *ir.DAG) []string {

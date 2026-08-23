@@ -71,6 +71,8 @@ func TestClientDispatch(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(root, "input.txt"), []byte("input"), 0o644))
 		dagFile := filepath.Join(root, "dag.yaml")
 		definition := "name: test\nsteps:\n  - name: consume\n    run: cat input.txt\n    dependencies: input.txt\n"
+		workspaceBundleDir := filepath.Join(t.TempDir(), "workspace-bundles")
+		stagingDir := filepath.Join(workspaceBundleDir, "staging")
 
 		var uploaded []byte
 		mockCoord := &mockCoordinatorService{
@@ -78,6 +80,9 @@ func TestClientDispatch(t *testing.T) {
 				return &coordinatorv1.HasWorkspaceBundleResponse{}, nil
 			},
 			putWorkspaceBundleFunc: func(stream coordinatorv1.CoordinatorService_PutWorkspaceBundleServer) error {
+				entries, err := os.ReadDir(stagingDir)
+				require.NoError(t, err)
+				require.Len(t, entries, 1)
 				for {
 					chunk, err := stream.Recv()
 					if err == io.EOF {
@@ -113,6 +118,7 @@ func TestClientDispatch(t *testing.T) {
 		host, port := parseHostPort(addr)
 		config := coordinator.DefaultConfig()
 		config.MaxRetries = 0
+		config.WorkspaceBundleDir = workspaceBundleDir
 		client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
 			ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
 		}}}, config)
@@ -124,6 +130,9 @@ func TestClientDispatch(t *testing.T) {
 			SourceFile: dagFile,
 		}})
 		require.NoError(t, err)
+		entries, err := os.ReadDir(stagingDir)
+		require.NoError(t, err)
+		assert.Empty(t, entries)
 	})
 
 	t.Run("Success", func(t *testing.T) {

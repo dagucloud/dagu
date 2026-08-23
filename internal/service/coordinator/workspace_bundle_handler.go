@@ -4,7 +4,6 @@
 package coordinator
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -23,57 +22,81 @@ func (h *Handler) PutWorkspaceBundle(stream coordinatorv1.CoordinatorService_Put
 		return status.Error(codes.FailedPrecondition, "workspace bundle store is not configured")
 	}
 
-	limits := workspacebundle.DefaultLimits()
-	var desc workspacebundle.Descriptor
-	var buf bytes.Buffer
-	var sequence uint64
+	first, err := stream.Recv()
+	if errors.Is(err, io.EOF) {
+		return stream.SendAndClose(&coordinatorv1.PutWorkspaceBundleResponse{
+			Accepted: false,
+			Error:    "workspace bundle descriptor is required",
+		})
+	}
+	if err != nil {
+		return status.Error(codes.Internal, "failed to receive workspace bundle: "+err.Error())
+	}
+	if first == nil || first.Sequence != 0 {
+		return status.Error(codes.InvalidArgument, "workspace bundle upload must start at sequence 0")
+	}
+	if first.Bundle == nil {
+		return status.Error(codes.InvalidArgument, "workspace bundle descriptor is required")
+	}
 
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			if desc.Digest == "" {
-				return stream.SendAndClose(&coordinatorv1.PutWorkspaceBundleResponse{
-					Accepted: false,
-					Error:    "workspace bundle descriptor is required",
-				})
-			}
-			data := buf.Bytes()
-			if err := h.workspaceBundleStore.Put(stream.Context(), desc, data); err != nil {
-				return stream.SendAndClose(&coordinatorv1.PutWorkspaceBundleResponse{
-					Accepted: false,
-					Error:    err.Error(),
-				})
-			}
-			return stream.SendAndClose(&coordinatorv1.PutWorkspaceBundleResponse{Accepted: true})
+	reader := &workspaceBundleUploadReader{
+		stream:   stream,
+		pending:  first.Data,
+		sequence: 1,
+		read:     int64(len(first.Data)),
+		max:      workspacebundle.DefaultMaxCompressedSize,
+	}
+	if reader.read > reader.max {
+		return status.Error(codes.InvalidArgument, fmt.Sprintf("workspace bundle exceeds compressed size limit %d", reader.max))
+	}
+	if err := h.workspaceBundleStore.PutReader(stream.Context(), descriptorFromProto(first.Bundle), reader); err != nil {
+		if status.Code(err) != codes.Unknown {
+			return err
 		}
+		return stream.SendAndClose(&coordinatorv1.PutWorkspaceBundleResponse{
+			Accepted: false,
+			Error:    err.Error(),
+		})
+	}
+	return stream.SendAndClose(&coordinatorv1.PutWorkspaceBundleResponse{Accepted: true})
+}
+
+type workspaceBundleUploadReader struct {
+	stream   coordinatorv1.CoordinatorService_PutWorkspaceBundleServer
+	pending  []byte
+	sequence uint64
+	read     int64
+	max      int64
+}
+
+func (r *workspaceBundleUploadReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	for len(r.pending) == 0 {
+		chunk, err := r.stream.Recv()
 		if err != nil {
-			return status.Error(codes.Internal, "failed to receive workspace bundle: "+err.Error())
+			return 0, err
 		}
 		if chunk == nil {
 			continue
 		}
-		if chunk.Sequence != sequence {
-			return status.Error(codes.InvalidArgument, fmt.Sprintf("workspace bundle sequence mismatch: got %d, want %d", chunk.Sequence, sequence))
+		if chunk.Sequence != r.sequence {
+			return 0, status.Error(codes.InvalidArgument, fmt.Sprintf("workspace bundle sequence mismatch: got %d, want %d", chunk.Sequence, r.sequence))
 		}
-		sequence++
+		r.sequence++
 		if chunk.Bundle != nil {
-			next := descriptorFromProto(chunk.Bundle)
-			if desc.Digest == "" {
-				desc = next
-			} else if desc.Digest != next.Digest {
-				return status.Error(codes.InvalidArgument, "workspace bundle descriptor changed during upload")
-			}
+			return 0, status.Error(codes.InvalidArgument, "workspace bundle descriptor is only allowed in the first chunk")
 		}
-		if len(chunk.Data) == 0 {
-			continue
+		r.read += int64(len(chunk.Data))
+		if r.read > r.max {
+			return 0, status.Error(codes.InvalidArgument, fmt.Sprintf("workspace bundle exceeds compressed size limit %d", r.max))
 		}
-		if int64(buf.Len()+len(chunk.Data)) > limits.MaxCompressedSize {
-			return status.Error(codes.InvalidArgument, fmt.Sprintf("workspace bundle exceeds compressed size limit %d", limits.MaxCompressedSize))
-		}
-		if _, err := buf.Write(chunk.Data); err != nil {
-			return status.Error(codes.Internal, "failed to buffer workspace bundle: "+err.Error())
-		}
+		r.pending = chunk.Data
 	}
+	n := copy(p, r.pending)
+	r.pending = r.pending[n:]
+	return n, nil
 }
 
 func (h *Handler) HasWorkspaceBundle(_ context.Context, req *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error) {
@@ -95,31 +118,35 @@ func (h *Handler) GetWorkspaceBundle(req *coordinatorv1.GetWorkspaceBundleReques
 	if req == nil || !workspacebundle.ValidDigest(req.Digest) {
 		return status.Error(codes.InvalidArgument, "valid workspace bundle digest is required")
 	}
-	data, err := h.workspaceBundleStore.Get(stream.Context(), req.Digest)
+	file, size, err := h.workspaceBundleStore.Open(stream.Context(), req.Digest)
 	if err != nil {
 		return status.Error(codes.NotFound, "workspace bundle not found: "+err.Error())
 	}
+	defer func() { _ = file.Close() }()
 	desc := &coordinatorv1.WorkspaceBundle{
 		Digest: req.Digest,
-		Size:   int64(len(data)),
+		Size:   size,
 	}
-	for offset, sequence := 0, uint64(0); offset < len(data) || sequence == 0; sequence++ {
-		end := min(offset+workspaceBundleChunkSize, len(data))
+	for remaining, sequence := size, uint64(0); remaining > 0 || sequence == 0; sequence++ {
+		chunkSize := min(remaining, int64(workspaceBundleChunkSize))
 		chunk := &coordinatorv1.WorkspaceBundleChunk{
 			Sequence: sequence,
-			IsFinal:  end == len(data),
+			IsFinal:  chunkSize == remaining,
 		}
 		if sequence == 0 {
 			chunk.Bundle = desc
 		}
-		if offset < len(data) {
-			chunk.Data = data[offset:end]
+		if chunkSize > 0 {
+			chunk.Data = make([]byte, chunkSize)
+			if _, err := io.ReadFull(file, chunk.Data); err != nil {
+				return status.Error(codes.Internal, "failed to read workspace bundle: "+err.Error())
+			}
 		}
 		if err := stream.Send(chunk); err != nil {
 			return status.Error(codes.Internal, "failed to send workspace bundle: "+err.Error())
 		}
-		offset = end
-		if len(data) == 0 {
+		remaining -= chunkSize
+		if size == 0 {
 			break
 		}
 	}

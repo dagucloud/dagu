@@ -4,7 +4,9 @@
 package workspacebundle
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +22,64 @@ func TestStoreRejectsEmptyDir(t *testing.T) {
 
 	err := store.Put(context.Background(), Descriptor{}, nil)
 	assert.ErrorContains(t, err, "workspace bundle store is not configured")
+}
+
+func TestPackDirectoryToFileCreatesVerifiedArchive(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "input.txt"), []byte("input"), 0o644))
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+
+	desc, archivePath, err := PackDirectoryToFile(root, stagingDir, PackOptions{
+		DAGPath:  "dag.yaml",
+		DAGData:  []byte("steps: []\n"),
+		Includes: []string{"input.txt"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.Remove(archivePath)) })
+	assert.Equal(t, stagingDir, filepath.Dir(archivePath))
+
+	archive, err := os.ReadFile(archivePath)
+	require.NoError(t, err)
+	assert.Equal(t, int64(len(archive)), desc.Size)
+	require.NoError(t, Verify(archive, desc.Digest))
+}
+
+func TestPackDirectoryToFileRemovesPartialArchive(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "input.txt"), bytes.Repeat([]byte("input"), 128), 0o644))
+	stagingDir := filepath.Join(t.TempDir(), "staging")
+
+	_, _, err := PackDirectoryToFile(root, stagingDir, PackOptions{
+		DAGPath:  "dag.yaml",
+		DAGData:  []byte("steps: []\n"),
+		Includes: []string{"input.txt"},
+		Limits:   Limits{MaxCompressedSize: 1},
+	})
+	require.ErrorContains(t, err, "compressed size limit")
+	entries, readErr := os.ReadDir(stagingDir)
+	require.NoError(t, readErr)
+	assert.Empty(t, entries)
+}
+
+func TestStorePutReaderAndOpen(t *testing.T) {
+	t.Parallel()
+
+	data := bytes.Repeat([]byte("bundle"), 1024)
+	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+	store := NewStore(t.TempDir(), DefaultLimits())
+
+	require.NoError(t, store.PutReader(context.Background(), desc, bytes.NewReader(data)))
+	file, size, err := store.Open(context.Background(), desc.Digest)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, file.Close()) })
+	actual, err := io.ReadAll(file)
+	require.NoError(t, err)
+	assert.Equal(t, int64(len(data)), size)
+	assert.Equal(t, data, actual)
 }
 
 func TestPackDirectorySelectsDependenciesAndInjectsDAGSnapshot(t *testing.T) {

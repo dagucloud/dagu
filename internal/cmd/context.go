@@ -34,6 +34,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -498,6 +499,7 @@ func (c *Context) NewCoordinatorClient() (coordinator.Client, error) {
 		return nil, nil
 	}
 	clientConfig := coordinator.ConfigFromPeer(c.Config.Core.Peer)
+	clientConfig.WorkspaceBundleDir = workspacebundle.StoreDir(c.Config.Paths.DataDir)
 	if err := clientConfig.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}

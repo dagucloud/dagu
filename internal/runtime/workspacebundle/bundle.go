@@ -86,21 +86,62 @@ func normalizeLimits(l Limits) Limits {
 }
 
 func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
+	var buf bytes.Buffer
+	desc, err := packDirectory(root, opts, &buf)
+	if err != nil {
+		return nil, nil, err
+	}
+	return desc, buf.Bytes(), nil
+}
+
+// PackDirectoryToFile creates a workspace archive in stagingDir.
+func PackDirectoryToFile(root, stagingDir string, opts PackOptions) (*Descriptor, string, error) {
+	stagingDir = filepath.Clean(strings.TrimSpace(stagingDir))
+	if stagingDir == "." || stagingDir == "" {
+		return nil, "", fmt.Errorf("workspace bundle staging directory is required")
+	}
+	if err := os.MkdirAll(stagingDir, 0o750); err != nil {
+		return nil, "", fmt.Errorf("create workspace bundle staging directory: %w", err)
+	}
+	file, err := os.CreateTemp(stagingDir, ".workspace-*.tar.gz")
+	if err != nil {
+		return nil, "", fmt.Errorf("create workspace bundle: %w", err)
+	}
+	archivePath := file.Name()
+	cleanup := true
+	defer func() {
+		_ = file.Close()
+		if cleanup {
+			_ = fileutil.Remove(archivePath)
+		}
+	}()
+	desc, err := packDirectory(root, opts, file)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := file.Close(); err != nil {
+		return nil, "", fmt.Errorf("close workspace bundle: %w", err)
+	}
+	cleanup = false
+	return desc, archivePath, nil
+}
+
+func packDirectory(root string, opts PackOptions, dest io.Writer) (*Descriptor, error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	if root == "" {
-		return nil, nil, fmt.Errorf("workspace root is required")
+		return nil, fmt.Errorf("workspace root is required")
 	}
 	info, err := os.Stat(root)
 	if err != nil {
-		return nil, nil, fmt.Errorf("stat workspace root: %w", err)
+		return nil, fmt.Errorf("stat workspace root: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, nil, fmt.Errorf("workspace root must be a directory")
+		return nil, fmt.Errorf("workspace root must be a directory")
 	}
 
 	dagPath, err := NormalizeRelativePath(opts.DAGPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("invalid workspace DAG path: %w", err)
+		return nil, fmt.Errorf("invalid workspace DAG path: %w", err)
 	}
 
 	limits := normalizeLimits(opts.Limits)
@@ -111,15 +152,16 @@ func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
 		files, err = collectFiles(root, limits)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	files = appendUniquePath(files, dagPath)
 	if len(files) > limits.MaxFiles {
-		return nil, nil, fmt.Errorf("workspace bundle exceeds file count limit %d", limits.MaxFiles)
+		return nil, fmt.Errorf("workspace bundle exceeds file count limit %d", limits.MaxFiles)
 	}
 
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&limitedBufferWriter{w: &buf, max: limits.MaxCompressedSize})
+	hasher := sha256.New()
+	written := &limitedWriter{w: io.MultiWriter(dest, hasher), max: limits.MaxCompressedSize}
+	gz := gzip.NewWriter(written)
 	gz.Name = ""
 	gz.Comment = ""
 	gz.ModTime = zeroTime
@@ -132,7 +174,7 @@ func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
 			if unpacked > limits.MaxUncompressedSize {
 				_ = tw.Close()
 				_ = gz.Close()
-				return nil, nil, fmt.Errorf("workspace bundle exceeds uncompressed size limit %d", limits.MaxUncompressedSize)
+				return nil, fmt.Errorf("workspace bundle exceeds uncompressed size limit %d", limits.MaxUncompressedSize)
 			}
 			header := &tar.Header{
 				Name:       rel,
@@ -147,12 +189,12 @@ func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
 			if err := tw.WriteHeader(header); err != nil {
 				_ = tw.Close()
 				_ = gz.Close()
-				return nil, nil, fmt.Errorf("write tar header for %q: %w", rel, err)
+				return nil, fmt.Errorf("write tar header for %q: %w", rel, err)
 			}
 			if _, err := tw.Write(opts.DAGData); err != nil {
 				_ = tw.Close()
 				_ = gz.Close()
-				return nil, nil, fmt.Errorf("write bundle file %q: %w", rel, err)
+				return nil, fmt.Errorf("write bundle file %q: %w", rel, err)
 			}
 			continue
 		}
@@ -161,24 +203,24 @@ func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
 		if err != nil {
 			_ = tw.Close()
 			_ = gz.Close()
-			return nil, nil, fmt.Errorf("stat bundle file %q: %w", rel, err)
+			return nil, fmt.Errorf("stat bundle file %q: %w", rel, err)
 		}
 		if err := validatePackFile(rel, info); err != nil {
 			_ = tw.Close()
 			_ = gz.Close()
-			return nil, nil, err
+			return nil, err
 		}
 		unpacked += info.Size()
 		if unpacked > limits.MaxUncompressedSize {
 			_ = tw.Close()
 			_ = gz.Close()
-			return nil, nil, fmt.Errorf("workspace bundle exceeds uncompressed size limit %d", limits.MaxUncompressedSize)
+			return nil, fmt.Errorf("workspace bundle exceeds uncompressed size limit %d", limits.MaxUncompressedSize)
 		}
 		header, err := tar.FileInfoHeader(info, "")
 		if err != nil {
 			_ = tw.Close()
 			_ = gz.Close()
-			return nil, nil, fmt.Errorf("create tar header for %q: %w", rel, err)
+			return nil, fmt.Errorf("create tar header for %q: %w", rel, err)
 		}
 		header.Name = rel
 		header.ModTime = zeroTime
@@ -192,7 +234,7 @@ func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
 		if err := tw.WriteHeader(header); err != nil {
 			_ = tw.Close()
 			_ = gz.Close()
-			return nil, nil, fmt.Errorf("write tar header for %q: %w", rel, err)
+			return nil, fmt.Errorf("write tar header for %q: %w", rel, err)
 		}
 		if info.IsDir() {
 			continue
@@ -201,42 +243,37 @@ func PackDirectory(root string, opts PackOptions) (*Descriptor, []byte, error) {
 		if err != nil {
 			_ = tw.Close()
 			_ = gz.Close()
-			return nil, nil, fmt.Errorf("open bundle file %q: %w", rel, err)
+			return nil, fmt.Errorf("open bundle file %q: %w", rel, err)
 		}
 		_, copyErr := io.Copy(tw, file)
 		closeErr := file.Close()
 		if copyErr != nil {
 			_ = tw.Close()
 			_ = gz.Close()
-			return nil, nil, fmt.Errorf("write bundle file %q: %w", rel, copyErr)
+			return nil, fmt.Errorf("write bundle file %q: %w", rel, copyErr)
 		}
 		if closeErr != nil {
 			_ = tw.Close()
 			_ = gz.Close()
-			return nil, nil, fmt.Errorf("close bundle file %q: %w", rel, closeErr)
+			return nil, fmt.Errorf("close bundle file %q: %w", rel, closeErr)
 		}
 	}
 
 	if err := tw.Close(); err != nil {
 		_ = gz.Close()
-		return nil, nil, fmt.Errorf("close tar writer: %w", err)
+		return nil, fmt.Errorf("close tar writer: %w", err)
 	}
 	if err := gz.Close(); err != nil {
-		return nil, nil, fmt.Errorf("close gzip writer: %w", err)
+		return nil, fmt.Errorf("close gzip writer: %w", err)
 	}
 
-	data := buf.Bytes()
-	if int64(len(data)) > limits.MaxCompressedSize {
-		return nil, nil, fmt.Errorf("workspace bundle exceeds compressed size limit %d", limits.MaxCompressedSize)
-	}
-	digest := Digest(data)
 	return &Descriptor{
-		Digest:      digest,
-		Size:        int64(len(data)),
+		Digest:      hex.EncodeToString(hasher.Sum(nil)),
+		Size:        written.written,
 		DAGPath:     dagPath,
 		OriginalRef: strings.TrimSpace(opts.OriginalRef),
 		ResolvedRef: strings.TrimSpace(opts.ResolvedRef),
-	}, data, nil
+	}, nil
 }
 
 func Extract(data []byte, dest string, desc Descriptor, limits Limits) error {
@@ -361,6 +398,35 @@ func Verify(data []byte, digest string) error {
 	actual := Digest(data)
 	if actual != digest {
 		return fmt.Errorf("workspace bundle digest mismatch: got %s, want %s", actual, digest)
+	}
+	return nil
+}
+
+// VerifyFile verifies that a workspace bundle file matches its descriptor.
+func VerifyFile(filePath string, desc Descriptor, maxSize int64) error {
+	if !ValidDigest(desc.Digest) {
+		return fmt.Errorf("invalid workspace bundle digest %q", desc.Digest)
+	}
+	file, err := os.Open(filePath) //nolint:gosec // filePath is supplied by the caller.
+	if err != nil {
+		return fmt.Errorf("open workspace bundle: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	hasher := sha256.New()
+	written, err := io.Copy(hasher, io.LimitReader(file, maxSize+1))
+	if err != nil {
+		return fmt.Errorf("read workspace bundle: %w", err)
+	}
+	if written > maxSize {
+		return fmt.Errorf("workspace bundle exceeds compressed size limit %d", maxSize)
+	}
+	if desc.Size != 0 && desc.Size != written {
+		return fmt.Errorf("workspace bundle size mismatch: got %d, want %d", written, desc.Size)
+	}
+	actual := hex.EncodeToString(hasher.Sum(nil))
+	if actual != desc.Digest {
+		return fmt.Errorf("workspace bundle digest mismatch: got %s, want %s", actual, desc.Digest)
 	}
 	return nil
 }
@@ -569,18 +635,19 @@ func modePerm(mode fs.FileMode, fallback fs.FileMode) fs.FileMode {
 	return perm
 }
 
-type limitedBufferWriter struct {
-	w       *bytes.Buffer
+type limitedWriter struct {
+	w       io.Writer
 	max     int64
 	written int64
 }
 
-func (w *limitedBufferWriter) Write(p []byte) (int, error) {
-	w.written += int64(len(p))
-	if w.written > w.max {
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	if int64(len(p)) > w.max-w.written {
 		return 0, fmt.Errorf("workspace bundle exceeds compressed size limit %d", w.max)
 	}
-	return w.w.Write(p)
+	n, err := w.w.Write(p)
+	w.written += int64(n)
+	return n, err
 }
 
 func StoreDir(dataDir string) string {
@@ -608,7 +675,7 @@ func NewStore(dir string, limits Limits) *Store {
 	}
 }
 
-func (s *Store) Put(_ context.Context, desc Descriptor, data []byte) error {
+func (s *Store) Put(ctx context.Context, desc Descriptor, data []byte) error {
 	if strings.TrimSpace(s.dir) == "" {
 		return fmt.Errorf("workspace bundle store is not configured")
 	}
@@ -621,14 +688,17 @@ func (s *Store) Put(_ context.Context, desc Descriptor, data []byte) error {
 	if desc.Size != 0 && desc.Size != int64(len(data)) {
 		return fmt.Errorf("workspace bundle size mismatch: got %d, want %d", len(data), desc.Size)
 	}
+	return s.PutReader(ctx, desc, bytes.NewReader(data))
+}
+
+// PutReader stores a workspace bundle read from reader.
+func (s *Store) PutReader(ctx context.Context, desc Descriptor, reader io.Reader) error {
+	if strings.TrimSpace(s.dir) == "" {
+		return fmt.Errorf("workspace bundle store is not configured")
+	}
 	path, err := s.path(desc.Digest)
 	if err != nil {
 		return err
-	}
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat workspace bundle: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create workspace bundle store: %w", err)
@@ -640,16 +710,37 @@ func (s *Store) Put(_ context.Context, desc Descriptor, data []byte) error {
 	tmpName := tmp.Name()
 	cleanup := true
 	defer func() {
+		_ = tmp.Close()
 		if cleanup {
 			_ = fileutil.Remove(tmpName)
 		}
 	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
+
+	hasher := sha256.New()
+	written, err := io.Copy(io.MultiWriter(tmp, hasher), io.LimitReader(reader, s.limits.MaxCompressedSize+1))
+	if err != nil {
 		return fmt.Errorf("write workspace bundle: %w", err)
+	}
+	if written > s.limits.MaxCompressedSize {
+		return fmt.Errorf("workspace bundle exceeds compressed size limit %d", s.limits.MaxCompressedSize)
+	}
+	if desc.Size != 0 && desc.Size != written {
+		return fmt.Errorf("workspace bundle size mismatch: got %d, want %d", written, desc.Size)
+	}
+	actual := hex.EncodeToString(hasher.Sum(nil))
+	if actual != desc.Digest {
+		return fmt.Errorf("workspace bundle digest mismatch: got %s, want %s", actual, desc.Digest)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close workspace bundle: %w", err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat workspace bundle: %w", err)
 	}
 	if err := fileutil.ReplaceFile(tmpName, path); err != nil {
 		return fmt.Errorf("commit workspace bundle: %w", err)
@@ -658,22 +749,59 @@ func (s *Store) Put(_ context.Context, desc Descriptor, data []byte) error {
 	return nil
 }
 
-func (s *Store) Get(_ context.Context, digest string) ([]byte, error) {
-	if strings.TrimSpace(s.dir) == "" {
-		return nil, fmt.Errorf("workspace bundle store is not configured")
-	}
-	path, err := s.path(digest)
+func (s *Store) Get(ctx context.Context, digest string) ([]byte, error) {
+	file, _, err := s.Open(ctx, digest)
 	if err != nil {
 		return nil, err
 	}
-	data, err := fileutil.ReadFile(path)
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return nil, fmt.Errorf("read workspace bundle: %w", err)
 	}
-	if err := Verify(data, digest); err != nil {
-		return nil, err
-	}
 	return data, nil
+}
+
+// Open opens a verified workspace bundle for reading.
+func (s *Store) Open(ctx context.Context, digest string) (*os.File, int64, error) {
+	if strings.TrimSpace(s.dir) == "" {
+		return nil, 0, fmt.Errorf("workspace bundle store is not configured")
+	}
+	path, err := s.path(digest)
+	if err != nil {
+		return nil, 0, err
+	}
+	file, err := os.Open(path) //nolint:gosec // path is derived from a validated digest and configured store directory.
+	if err != nil {
+		return nil, 0, fmt.Errorf("open workspace bundle: %w", err)
+	}
+	closeOnError := true
+	defer func() {
+		if closeOnError {
+			_ = file.Close()
+		}
+	}()
+
+	hasher := sha256.New()
+	size, err := io.Copy(hasher, io.LimitReader(file, s.limits.MaxCompressedSize+1))
+	if err != nil {
+		return nil, 0, fmt.Errorf("read workspace bundle: %w", err)
+	}
+	if size > s.limits.MaxCompressedSize {
+		return nil, 0, fmt.Errorf("workspace bundle exceeds compressed size limit %d", s.limits.MaxCompressedSize)
+	}
+	actual := hex.EncodeToString(hasher.Sum(nil))
+	if actual != digest {
+		return nil, 0, fmt.Errorf("workspace bundle digest mismatch: got %s, want %s", actual, digest)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, fmt.Errorf("rewind workspace bundle: %w", err)
+	}
+	closeOnError = false
+	return file, size, nil
 }
 
 func (s *Store) Has(digest string) bool {
