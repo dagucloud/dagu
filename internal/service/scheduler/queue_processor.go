@@ -97,6 +97,7 @@ type QueueProcessor struct {
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
+	workerHeartbeatStore   dispatch.WorkerHeartbeatStore
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	queues                 sync.Map // map[string]*queue
@@ -159,6 +160,13 @@ func WithLeaseStaleThreshold(threshold time.Duration) QueueProcessorOption {
 func WithDAGRunLeaseStore(store dispatch.DAGRunLeaseStore) QueueProcessorOption {
 	return func(p *QueueProcessor) {
 		p.dagRunLeaseStore = store
+	}
+}
+
+// WithWorkerHeartbeatStore sets the shared worker heartbeat store.
+func WithWorkerHeartbeatStore(store dispatch.WorkerHeartbeatStore) QueueProcessorOption {
+	return func(p *QueueProcessor) {
+		p.workerHeartbeatStore = store
 	}
 }
 
@@ -348,6 +356,7 @@ func (p *QueueProcessor) newQueueDispatcher() *queueDispatcher {
 		dagRunLeaseStore:       p.dagRunLeaseStore,
 		dispatchTaskStore:      p.dispatchTaskStore,
 		dispatchAdmissionStore: p.dispatchAdmissionStore,
+		workerHeartbeatStore:   p.workerHeartbeatStore,
 		dagExecutor:            p.dagExecutor,
 		isSuspended:            p.isSuspended,
 		backoffConfig:          p.backoffConfig,

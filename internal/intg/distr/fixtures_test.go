@@ -321,17 +321,18 @@ func (f *testFixture) startSchedulerWithOptions(
 	)
 
 	schedulerInst, err := scheduler.New(f.coord.Config, scheduler.Dependencies{
-		EntryReader:         em,
-		DAGRunManager:       f.coord.DAGRunMgr,
-		DAGRepository:       f.coord.DAGRepository,
-		DAGRunRepository:    f.coord.DAGRunRepository,
-		QueueStore:          f.coord.QueueStore,
-		ProcRepository:      f.coord.ProcRepository,
-		ServiceRegistry:     f.coord.ServiceRegistry,
-		CoordinatorClient:   f.coordinatorClient,
-		SchedulerStateStore: stateStore,
-		DAGRunLeaseStore:    f.coord.DAGRunLeaseStore,
-		DispatchTaskStore:   f.coord.DispatchTaskStore,
+		EntryReader:          em,
+		DAGRunManager:        f.coord.DAGRunMgr,
+		DAGRepository:        f.coord.DAGRepository,
+		DAGRunRepository:     f.coord.DAGRunRepository,
+		QueueStore:           f.coord.QueueStore,
+		ProcRepository:       f.coord.ProcRepository,
+		ServiceRegistry:      f.coord.ServiceRegistry,
+		CoordinatorClient:    f.coordinatorClient,
+		SchedulerStateStore:  stateStore,
+		DAGRunLeaseStore:     f.coord.DAGRunLeaseStore,
+		DispatchTaskStore:    f.coord.DispatchTaskStore,
+		WorkerHeartbeatStore: f.coord.WorkerHeartbeatStore,
 	})
 	require.NoError(f.t, err)
 	if clock != nil {

@@ -778,16 +778,33 @@ steps:
 			return true
 		}
 	}
+	require.NoError(t, f.enqueue())
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+	f.requireEventuallyNoSchedulerError(
+		"DAG should remain queued while no worker is available",
+		executionStatusTimeout(),
+		100*time.Millisecond,
+		func() bool {
+			status, err := f.latestStoredStatus()
+			if err != nil || status.Status != ir.Queued {
+				return false
+			}
+			for _, condition := range status.Conditions {
+				if condition.Type == "WorkerReady" && condition.Status == "False" && condition.Reason == "NoAvailableWorker" {
+					return true
+				}
+			}
+			return false
+		},
+	)
+
 	f.workers = append(f.workers, f.setupWorkerWithAfterAckHook(
 		"worker-1",
 		map[string]string{"test": "true"},
 		"",
 		afterTaskAck,
 	))
-
-	require.NoError(t, f.enqueue())
-	f.waitForQueued()
-	f.startScheduler(30 * time.Second)
 
 	select {
 	case <-taskClaimed:

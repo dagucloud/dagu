@@ -244,6 +244,7 @@ func (c *Coordinator) GetCoordinatorClient(t *testing.T) coordinator.Client {
 	// Create coordinator client config
 	config := coordinator.DefaultConfig()
 	config.Insecure = true
+	config.WorkspaceBundleDir = workspacebundle.StoreDir(c.Config.Paths.DataDir)
 
 	// Create coordinator client - cast to Client interface
 	return coordinator.New(c.ServiceRegistry, config)

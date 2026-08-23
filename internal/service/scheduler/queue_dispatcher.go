@@ -33,6 +33,7 @@ type queueDispatchDeps struct {
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
+	workerHeartbeatStore   dispatch.WorkerHeartbeatStore
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	backoffConfig          BackoffConfig
@@ -50,6 +51,7 @@ type queueDispatcher struct {
 	dagRunLeaseStore       dispatch.DAGRunLeaseStore
 	dispatchTaskStore      dispatch.DispatchTaskStore
 	dispatchAdmissionStore dispatch.DispatchAdmissionStore
+	workerHeartbeatStore   dispatch.WorkerHeartbeatStore
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
 	backoffConfig          BackoffConfig
@@ -67,6 +69,26 @@ type queueDispatchBatch struct {
 	maxConcurrency        int
 	aliveCount            int
 	nonAdmissionOccupancy int
+}
+
+type workerHeartbeatSnapshot struct {
+	records []dispatch.WorkerHeartbeatRecord
+	err     error
+	loaded  bool
+}
+
+func (s *workerHeartbeatSnapshot) load(
+	ctx context.Context,
+	store dispatch.WorkerHeartbeatStore,
+) ([]dispatch.WorkerHeartbeatRecord, error) {
+	if !s.loaded {
+		s.loaded = true
+		s.records, s.err = store.List(ctx)
+		if s.err != nil {
+			logger.Error(ctx, "Failed to list worker heartbeats", tag.Error(s.err))
+		}
+	}
+	return s.records, s.err
 }
 
 type dispatchAdmissionInput struct {
@@ -308,6 +330,7 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 		dagRunLeaseStore:       deps.dagRunLeaseStore,
 		dispatchTaskStore:      deps.dispatchTaskStore,
 		dispatchAdmissionStore: deps.dispatchAdmissionStore,
+		workerHeartbeatStore:   deps.workerHeartbeatStore,
 		dagExecutor:            deps.dagExecutor,
 		isSuspended:            deps.isSuspended,
 		backoffConfig:          deps.backoffConfig,
@@ -1227,6 +1250,7 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 	}
 
 	runnable := make([]queuedomain.QueuedItemData, 0, min(freeSlots, len(items)))
+	workerSnapshot := workerHeartbeatSnapshot{}
 	for _, item := range items {
 		if len(runnable) >= freeSlots {
 			break
@@ -1251,10 +1275,74 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 				continue
 			}
 		}
+		if d.workerHeartbeatStore != nil && !d.queueItemHasEligibleWorker(ctx, queueName, item, *runRef, &workerSnapshot) {
+			continue
+		}
 		runnable = append(runnable, item)
 	}
 
 	return runnable, nil
+}
+
+func (d *queueDispatcher) queueItemHasEligibleWorker(
+	ctx context.Context,
+	queueName string,
+	item queuedomain.QueuedItemData,
+	runRef ir.DAGRunRef,
+	workerSnapshot *workerHeartbeatSnapshot,
+) bool {
+	attempt, err := d.dagRunRepository.FindAttempt(ctx, runRef)
+	if err != nil || attempt.Hidden() {
+		return true
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil || status.Status != ir.Queued {
+		return true
+	}
+	dag, err := attempt.ReadDAG(ctx)
+	if err != nil || !d.dagExecutor.IsDistributed(dag) {
+		return true
+	}
+
+	records, err := workerSnapshot.load(ctx, d.workerHeartbeatStore)
+	var conditionDefs []queuedConditionDef
+	if err != nil {
+		conditionDefs = assignmentUnavailableConditionDefs
+	} else {
+		available, defs := workerAvailableInSnapshot(records, time.Now().UTC(), dag, status)
+		if available {
+			return true
+		}
+		conditionDefs = defs
+	}
+
+	conditionStage := d.newQueuedConditionStage(runRef, queueName, item.ID(), attempt, status)
+	conditionStage.observe(conditionDefs...)
+	conditionStage.flush(ctx)
+	return false
+}
+
+func workerAvailableInSnapshot(
+	records []dispatch.WorkerHeartbeatRecord,
+	now time.Time,
+	dag *ir.DAG,
+	status *ir.DAGRunStatus,
+) (bool, []queuedConditionDef) {
+	targetWorkerID := ir.RetryAgentOwnerWorkerID(status, false)
+	healthyWorkers := 0
+	for _, record := range records {
+		if !dispatch.WorkerHeartbeatFresh(record, now, dispatch.DefaultStaleWorkerHeartbeatThreshold) {
+			continue
+		}
+		healthyWorkers++
+		if dispatch.WorkerHeartbeatMatches(record, dag.WorkerSelector, targetWorkerID) {
+			return true, nil
+		}
+	}
+	if healthyWorkers == 0 {
+		return false, noAvailableWorkerConditionDefs
+	}
+	return false, noMatchingWorkerConditionDefs
 }
 
 func dispatchAdmissionWaitingCondition(decision *dispatch.DispatchAdmissionDecision) []queuedConditionDef {

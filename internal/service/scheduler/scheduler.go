@@ -108,6 +108,7 @@ type Dependencies struct {
 	SchedulerStateStore  schedulerstate.Store
 	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
 	DispatchTaskStore    dispatch.DispatchTaskStore
+	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
 	DAGSettingsStore     dagsettings.Store
 	ProfileStore         profile.Store
 	EventService         *eventstore.Service
@@ -166,6 +167,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	scheduler.queueProcessor.dagRunLeaseStore = deps.DAGRunLeaseStore
 	scheduler.queueProcessor.dispatchTaskStore = deps.DispatchTaskStore
 	scheduler.queueProcessor.dispatchAdmissionStore = dispatchAdmissionStoreFromTaskStore(deps.DispatchTaskStore)
+	scheduler.queueProcessor.workerHeartbeatStore = deps.WorkerHeartbeatStore
 	return scheduler, nil
 }
 
