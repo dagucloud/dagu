@@ -4358,10 +4358,10 @@ func (a *API) getDAGRunLogsData(ctx context.Context, identifier string) (DAGRunL
 		return DAGRunLogsResponse{}, err
 	}
 
-	// Parse tail parameter with bounds validation (100-10000, default 500)
+	// Parse tail parameter with bounds validation (1-10000, default 500)
 	tail := 500
 	if queryParams != nil {
-		tail = clampInt(parseIntParam(queryParams.Get("tail"), 500), 100, 10000)
+		tail = clampInt(parseIntParam(queryParams.Get("tail"), 500), 1, 10000)
 	}
 
 	options := fileutil.LogReadOptions{
@@ -4409,21 +4409,46 @@ func (a *API) GetStepLogData(ctx context.Context, identifier string) (any, error
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid identifier format: %s (expected 'dagName/dagRunId/stepName')", identifier)
 	}
-	return a.GetStepLogDataByRef(ctx, ir.NewDAGRunRef(parts[0], parts[1]), parts[2])
+	return a.GetStepLogDataByRef(ctx, ir.NewDAGRunRef(parts[0], parts[1]), parts[2], StepLogReadOptions{})
+}
+
+// StepLogReadOptions selects which step log streams and lines to return.
+// Zero positioning fields fall back to a tail of the last 1000 lines, and an
+// empty Stream reads both streams.
+type StepLogReadOptions struct {
+	Tail   int
+	Head   int
+	Offset int
+	Limit  int
+	Stream string
+}
+
+func (o StepLogReadOptions) logReadOptions(encoding string) fileutil.LogReadOptions {
+	options := fileutil.LogReadOptions{
+		Tail:     o.Tail,
+		Head:     o.Head,
+		Offset:   o.Offset,
+		Limit:    o.Limit,
+		Encoding: encoding,
+	}
+	if options.Tail == 0 && options.Head == 0 && options.Offset == 0 {
+		options.Tail = 1000
+	}
+	return options
 }
 
 // GetStepLogDataByRef returns log output for a step in a DAG run.
-func (a *API) GetStepLogDataByRef(ctx context.Context, ref ir.DAGRunRef, stepName string) (any, error) {
+func (a *API) GetStepLogDataByRef(ctx context.Context, ref ir.DAGRunRef, stepName string, opts StepLogReadOptions) (any, error) {
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint: "/dag-runs/{name}/{dagRunId}/logs/steps/{stepName}",
 		dagName:  ref.Name,
 		dagRunID: ref.ID,
 	}, func(readCtx context.Context) (StepLogResponse, error) {
-		return a.getStepLogData(readCtx, ref, stepName)
+		return a.getStepLogData(readCtx, ref, stepName, opts)
 	})
 }
 
-func (a *API) getStepLogData(ctx context.Context, ref ir.DAGRunRef, stepName string) (StepLogResponse, error) {
+func (a *API) getStepLogData(ctx context.Context, ref ir.DAGRunRef, stepName string, opts StepLogReadOptions) (StepLogResponse, error) {
 	dagStatus, err := a.dagRunMgr.GetSavedStatus(ctx, ref)
 	if err != nil {
 		return StepLogResponse{}, fmt.Errorf("dag-run ID %s not found for DAG %s", ref.ID, ref.Name)
@@ -4437,16 +4462,16 @@ func (a *API) getStepLogData(ctx context.Context, ref ir.DAGRunRef, stepName str
 		return StepLogResponse{}, fmt.Errorf("step %s not found in DAG %s", stepName, ref.Name)
 	}
 
-	options := fileutil.LogReadOptions{
-		Tail:     1000, // Last 1000 lines by default
-		Encoding: a.logEncodingCharset,
-	}
+	options := opts.logReadOptions(a.logEncodingCharset)
+	readStdout := opts.Stream == "" || opts.Stream == string(api.StreamStdout)
+	readStderr := opts.Stream == "" || opts.Stream == string(api.StreamStderr)
 
-	// Read stdout
+	// Read stdout. The line counters describe stdout unless only stderr is
+	// requested.
 	var stdoutContent string
 	var lineCount, totalLines int
 	var hasMore bool
-	if node.Stdout != "" {
+	if readStdout && node.Stdout != "" {
 		stdoutContent, lineCount, totalLines, hasMore, _, err = fileutil.ReadLogContent(node.Stdout, options)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return StepLogResponse{}, fmt.Errorf("error reading stdout: %w", err)
@@ -4455,8 +4480,10 @@ func (a *API) getStepLogData(ctx context.Context, ref ir.DAGRunRef, stepName str
 
 	// Read stderr
 	var stderrContent string
-	if node.Stderr != "" {
-		stderrContent, _, _, _, _, err = fileutil.ReadLogContent(node.Stderr, options)
+	if readStderr && node.Stderr != "" {
+		var stderrLineCount, stderrTotalLines int
+		var stderrHasMore bool
+		stderrContent, stderrLineCount, stderrTotalLines, stderrHasMore, _, err = fileutil.ReadLogContent(node.Stderr, options)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			// Log warning for real errors, return empty stderr
 			logger.Warn(ctx, "Failed to read stderr log",
@@ -4465,6 +4492,9 @@ func (a *API) getStepLogData(ctx context.Context, ref ir.DAGRunRef, stepName str
 				slog.String("stderrPath", node.Stderr),
 			)
 			stderrContent = ""
+		}
+		if !readStdout {
+			lineCount, totalLines, hasMore = stderrLineCount, stderrTotalLines, stderrHasMore
 		}
 	}
 

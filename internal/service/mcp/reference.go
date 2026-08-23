@@ -128,7 +128,7 @@ Fields:
 - name: DAG name or reference topic name. Required for dag, dag_spec, run, run_logs, and step_log. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
 - dagRunId: required for run, run_logs, and step_log. Forbidden for other targets.
 - stepName: required for step_log. Forbidden for other targets.
-- query: URL query string without a leading question mark. Allowed for dags, wiki, runs, and run_logs.
+- query: URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs, and step_log.
 - workspace: all, default, or a workspace name. Optional for wiki and wiki_search; omitted means all accessible workspaces. Required for wiki_page, where all is not allowed.
 - path: Wiki page path without .md. Required for wiki_page.
 - search: search text. Required for wiki_search.
@@ -151,14 +151,15 @@ Targets:
 - runs lists DAG-runs.
 - run reads one DAG-run.
 - run_logs reads scheduler and step log metadata.
-- step_log reads stdout and stderr for one DAG-run step.
+- step_log reads stdout and stderr for one DAG-run step. Use the stream, tail, head, offset, and limit query parameters to bound the returned lines; without positioning parameters the last 1000 lines are returned.
 
 Query parameters:
 
 - dags: page, perPage, name, labels, active, sort, order.
 - wiki: page, perPage, flat, sort, order, prefix. perPage accepts 1 to 200.
 - runs: name, dagRunId, status, fromDate, toDate, limit, cursor, labels. status may repeat.
-- run_logs: tail.
+- run_logs: tail. Values from 1 to 10000 are honored.
+- step_log: tail, head, offset, limit, stream. stream is stdout or stderr; omitted means both.
 
 Output:
 

@@ -109,7 +109,7 @@ func readToolInputSchema() json.RawMessage {
 			},
 			"query": {
 				"type": "string",
-				"description": "URL query string without a leading question mark."
+				"description": "URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs (tail), and step_log (tail, head, offset, limit, stream)."
 			},
 			"workspace": {
 				"type": "string",
@@ -267,6 +267,7 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 				ctx,
 				ir.NewDAGRunRef(input.Name, input.DAGRunID),
 				input.StepName,
+				stepLogReadOptions(input.Query),
 			)
 		}
 	default:
@@ -586,15 +587,16 @@ func parseReadResourceURI(rawURI string) (readInput, *readToolError) {
 				URI:      runLogsURIWithQuery(resource.segments[0], resource.segments[1], resource.query),
 			}, nil
 		case len(resource.segments) == 5 && resource.segments[2] == "steps" && resource.segments[4] == "logs":
-			if resource.query != "" {
-				return readInput{}, invalidResourceURI(rawURI, "Step log resources do not support query parameters.")
+			if err := validateReadQuery(readTargetStepLog, resource.query, true, rawURI); err != nil {
+				return readInput{}, err
 			}
 			return readInput{
 				Target:   readTargetStepLog,
 				Name:     resource.segments[0],
 				DAGRunID: resource.segments[1],
 				StepName: resource.segments[3],
-				URI:      stepLogURI(resource.segments[0], resource.segments[1], resource.segments[3]),
+				Query:    resource.query,
+				URI:      uriWithQuery(stepLogURI(resource.segments[0], resource.segments[1], resource.segments[3]), resource.query),
 			}, nil
 		default:
 			return readInput{}, invalidResourceURI(rawURI, "Unsupported DAG-run resource path.")
@@ -812,10 +814,10 @@ func validateTargetReadInput(input *readInput) *readToolError {
 		if input.StepName == "" {
 			return missingTargetField(input.Target, readFieldStepName)
 		}
-		if input.Query != "" {
-			return invalidTargetField(input.Target, readFieldQuery)
+		if err := validateReadQuery(input.Target, input.Query, false, ""); err != nil {
+			return err
 		}
-		input.URI = stepLogURI(input.Name, input.DAGRunID, input.StepName)
+		input.URI = uriWithQuery(stepLogURI(input.Name, input.DAGRunID, input.StepName), input.Query)
 	default:
 		return unsupportedReadTargetError(input.Target)
 	}
@@ -878,6 +880,11 @@ func isAllowedReadQueryParam(target, key string) bool {
 		case "tail":
 			return true
 		}
+	case readTargetStepLog:
+		switch key {
+		case "tail", "head", "offset", "limit", "stream":
+			return true
+		}
 	}
 	return false
 }
@@ -935,8 +942,39 @@ func validReadQueryValue(target, key, value string) bool {
 		case "tail":
 			return validIntRange(value, 1, 0)
 		}
+	case readTargetStepLog:
+		switch key {
+		case "tail", "head", "offset", "limit":
+			return validIntRange(value, 1, 0)
+		case "stream":
+			return value == "stdout" || value == "stderr"
+		}
 	}
 	return false
+}
+
+// stepLogReadOptions maps a validated step_log query string onto step log
+// read options. Values were already range-checked, so parse failures are
+// treated as absent.
+func stepLogReadOptions(rawQuery string) frontendapi.StepLogReadOptions {
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return frontendapi.StepLogReadOptions{}
+	}
+	intValue := func(key string) int {
+		n, err := strconv.Atoi(values.Get(key))
+		if err != nil || n < 0 {
+			return 0
+		}
+		return n
+	}
+	return frontendapi.StepLogReadOptions{
+		Tail:   intValue("tail"),
+		Head:   intValue("head"),
+		Offset: intValue("offset"),
+		Limit:  intValue("limit"),
+		Stream: values.Get("stream"),
+	}
 }
 
 func validIntRange(value string, minValue, maxValue int) bool {
@@ -1427,6 +1465,8 @@ func resourceURIForReadError(input readInput) string {
 		return runURI(input.Name, input.DAGRunID)
 	case readTargetRunLogs:
 		return runLogsURIWithQuery(input.Name, input.DAGRunID, input.Query)
+	case readTargetStepLog:
+		return uriWithQuery(stepLogURI(input.Name, input.DAGRunID, input.StepName), input.Query)
 	default:
 		return ""
 	}

@@ -260,7 +260,7 @@ func registerResources(server *mcpsdk.Server, svc *Service) {
 		URITemplate: "dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs",
 		Name:        "dag_run_step_log",
 		Title:       "DAG-run step log",
-		Description: "Standard output and standard error for a DAG-run step.",
+		Description: "Standard output and standard error for a DAG-run step. Supports tail, head, offset, limit, and stream query parameters.",
 		MIMEType:    resourceMIMEJSON,
 	}, svc.readResource)
 }
@@ -796,7 +796,7 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		if err != nil {
 			return "", "", err
 		}
-		text, err := prettyJSON(data)
+		text, err := jsonText(data)
 		if err != nil {
 			return "", "", err
 		}
@@ -805,8 +805,10 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		if !isRunResourceSegments(segments) && !isStepLogResourceSegments(segments) {
 			return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 		}
-		if isStepLogResourceSegments(segments) && parsed.RawQuery != "" {
-			return "", "", mcpsdk.ResourceNotFoundError(rawURI)
+		if isStepLogResourceSegments(segments) {
+			if readErr := validateReadQuery(readTargetStepLog, parsed.RawQuery, true, rawURI); readErr != nil {
+				return "", "", mcpsdk.ResourceNotFoundError(rawURI)
+			}
 		}
 		if err := svc.requireAPI(); err != nil {
 			return "", "", err
@@ -818,6 +820,7 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 				ctx,
 				ir.NewDAGRunRef(segments[0], segments[1]),
 				segments[3],
+				stepLogReadOptions(parsed.RawQuery),
 			)
 		} else if len(segments) == 3 {
 			if parsed.RawQuery != "" {
@@ -830,7 +833,7 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		if err != nil {
 			return "", "", err
 		}
-		text, err := prettyJSON(data)
+		text, err := jsonText(data)
 		if err != nil {
 			return "", "", err
 		}
@@ -1123,8 +1126,10 @@ func uriPathSegments(uri *url.URL) ([]string, error) {
 	return out, nil
 }
 
-func prettyJSON(v any) (string, error) {
-	data, err := json.MarshalIndent(v, "", "  ")
+// jsonText serializes resource content as compact JSON; indentation only
+// inflates payloads read by MCP clients.
+func jsonText(v any) (string, error) {
+	data, err := json.Marshal(v)
 	if err != nil {
 		return "", err
 	}

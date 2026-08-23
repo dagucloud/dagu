@@ -6,6 +6,7 @@ package spec021_mcp_read_tool_test
 import (
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/conformance/mcptest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,6 +43,55 @@ func TestReadRunTargets(t *testing.T) {
 		})
 		output := requireReadSuccess(t, result, "run_logs", runLogsURI(fixture.dagName, fixture.dagRunID, query), "dag_run_logs", "application/json")
 		requireRunLogsData(t, requireData(t, output))
+	})
+}
+
+func TestReadStepLogQueries(t *testing.T) {
+	fixture := newReadFixture(t)
+
+	callStepLog := func(t *testing.T, query string) map[string]any {
+		t.Helper()
+		arguments := map[string]any{
+			"target":   "step_log",
+			"name":     fixture.dagName,
+			"dagRunId": fixture.dagRunID,
+			"stepName": "main",
+		}
+		if query != "" {
+			arguments["query"] = query
+		}
+		result := callRead(t, fixture.session, arguments)
+		require.False(t, result.IsError)
+		output := mcptest.StructuredMap(t, result)
+		require.Equal(t, "step_log", output["target"])
+		return requireData(t, output)
+	}
+
+	t.Run("default returns stdout", func(t *testing.T) {
+		data := callStepLog(t, "")
+		require.Contains(t, requireString(t, data, "stdoutContent"), fixture.dagName)
+	})
+
+	t.Run("tail bounds returned lines", func(t *testing.T) {
+		data := callStepLog(t, "tail=1")
+		require.Contains(t, requireString(t, data, "stdoutContent"), fixture.dagName)
+		requireNumber(t, data, "lineCount")
+	})
+
+	t.Run("stream selects stderr only", func(t *testing.T) {
+		data := callStepLog(t, "stream=stderr")
+		require.Empty(t, data["stdoutContent"])
+	})
+
+	t.Run("unknown parameter is rejected", func(t *testing.T) {
+		result := callRead(t, fixture.session, map[string]any{
+			"target":   "step_log",
+			"name":     fixture.dagName,
+			"dagRunId": fixture.dagRunID,
+			"stepName": "main",
+			"query":    "unknown=1",
+		})
+		requireReadError(t, result, "invalid_tool_input")
 	})
 }
 

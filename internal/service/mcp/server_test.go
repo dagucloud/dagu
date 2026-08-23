@@ -299,9 +299,39 @@ func TestServerExposesStepLogResource(t *testing.T) {
 	}`))
 	require.Nil(t, readErr)
 	require.Equal(t, expectedURI, input.URI)
+}
 
-	_, err = session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: expectedURI + "?tail=100"})
-	require.Error(t, err)
+func TestStepLogQueryValidation(t *testing.T) {
+	t.Parallel()
+
+	valid := []string{"tail=100", "head=50", "offset=10&limit=20", "stream=stderr", "tail=5&stream=stdout"}
+	for _, query := range valid {
+		input, readErr := parseReadResourceURI("dagu://runs/demo/run-1/steps/main/logs?" + query)
+		require.Nil(t, readErr, query)
+		require.Equal(t, readTargetStepLog, input.Target)
+		require.Equal(t, query, input.Query)
+	}
+
+	invalid := []string{"tail=0", "tail=x", "stream=both", "unknown=1"}
+	for _, query := range invalid {
+		_, readErr := parseReadResourceURI("dagu://runs/demo/run-1/steps/main/logs?" + query)
+		require.NotNil(t, readErr, query)
+		require.Equal(t, readErrorInvalidResourceURI, readErr.Code, query)
+	}
+
+	input, readErr := parseReadToolInput(json.RawMessage(`{
+		"target":"step_log",
+		"name":"demo",
+		"dagRunId":"run-1",
+		"stepName":"main",
+		"query":"tail=25&stream=stderr"
+	}`))
+	require.Nil(t, readErr)
+	require.Equal(t, "dagu://runs/demo/run-1/steps/main/logs?tail=25&stream=stderr", input.URI)
+
+	opts := stepLogReadOptions(input.Query)
+	require.Equal(t, 25, opts.Tail)
+	require.Equal(t, "stderr", opts.Stream)
 }
 
 func TestReadToolValidatesDAGQuery(t *testing.T) {
