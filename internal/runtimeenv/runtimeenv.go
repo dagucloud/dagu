@@ -59,6 +59,51 @@ func Resolve(ctx context.Context, dag *ir.DAG) (Result, error) {
 	return result, nil
 }
 
+// ResolveWorkingDir resolves a DAG working directory using values available before execution.
+func ResolveWorkingDir(ctx context.Context, dag *ir.DAG) (string, error) {
+	if dag == nil || strings.TrimSpace(dag.WorkingDir) == "" {
+		return "", nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	resolvedEnv, err := Resolve(ctx, dag)
+	if err != nil {
+		return "", err
+	}
+	resolvedDAG := dag.Clone()
+	resolvedDAG.Env = resolvedEnv.Env
+	scope := dotenvEnvScope(resolvedDAG)
+	var notices cmnvalue.ValueReferenceNoticeCollector
+	resolver := cmnvalue.NewResolver(
+		cmnvalue.StaticScope{
+			Consts: cmnvalue.Values(dag.Consts),
+			Params: dag.ParamDeclarations(),
+		},
+		cmnvalue.RuntimeScope{
+			Consts:     cmnvalue.Values(dag.Consts),
+			Params:     dag.ParamValues(),
+			ParamsJSON: dag.ParamsJSON,
+			Env:        scope,
+		},
+		cmnvalue.WithValueReferenceNotices(&notices),
+	)
+	workingDir, err := resolver.String(ctx, dag.WorkingDir, cmnvalue.DAGWorkingDirField("working_dir"))
+	if err != nil {
+		return "", err
+	}
+	workingDir = scope.Expand(workingDir)
+	cmnvalue.ReportUnresolvedEnvExpansionNotices(workingDir, "working_dir", scope, &notices)
+	if unresolved := notices.Notices(); len(unresolved) > 0 {
+		return "", fmt.Errorf("working_dir %q could not be resolved: %s", dag.WorkingDir, unresolved[0].Message)
+	}
+	if strings.TrimSpace(workingDir) == "" {
+		return "", fmt.Errorf("working_dir %q resolved to an empty path", dag.WorkingDir)
+	}
+	return fileutil.ResolvePath(workingDir)
+}
+
 func dotenvEnvScope(dag *ir.DAG) *cmnvalue.EnvScope {
 	scope := cmnvalue.NewEnvScope(nil, true)
 	if params := buildenv.ToMap(dag.Params); len(params) > 0 {

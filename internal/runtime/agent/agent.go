@@ -1553,7 +1553,7 @@ func contextTimeString(t time.Time) string {
 
 func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (func(), error) {
 	if a.workDir != "" {
-		return nil, a.prepareWorkspace()
+		return nil, a.prepareWorkspace(ctx)
 	}
 	if attempt == nil {
 		return nil, nil
@@ -1565,7 +1565,7 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 		return nil, fmt.Errorf("materialize DAG-run work directory: %w", err)
 	}
 	if a.workDir != "" {
-		return nil, a.prepareWorkspace()
+		return nil, a.prepareWorkspace(ctx)
 	}
 
 	a.workDir = filepath.Join(
@@ -1583,17 +1583,17 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 			logger.Warn(ctx, "Failed to remove temp work dir", tag.Error(err))
 		}
 	}
-	if err := a.prepareWorkspace(); err != nil {
+	if err := a.prepareWorkspace(ctx); err != nil {
 		cleanup()
 		return nil, err
 	}
 	return cleanup, nil
 }
 
-func (a *Agent) prepareWorkspace() error {
+func (a *Agent) prepareWorkspace(ctx context.Context) error {
 	alreadyMaterialized := a.workspaceSeed != nil
 	if a.workspaceSeed == nil {
-		seed, err := runtimeexec.PrepareDAGWorkspace(a.dag)
+		seed, err := runtimeexec.PrepareDAGWorkspace(ctx, a.dag)
 		if err != nil {
 			return err
 		}

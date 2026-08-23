@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 )
 
 type workspaceSeedKey struct{}
@@ -27,8 +27,8 @@ func workspaceSeedFromContext(ctx context.Context) (WorkspaceSeed, bool) {
 }
 
 // PrepareDAGWorkspace snapshots the files declared by a DAG.
-func PrepareDAGWorkspace(dag *ir.DAG) (*WorkspaceSeed, error) {
-	root, opts, err := dagWorkspacePackOptions(dag)
+func PrepareDAGWorkspace(ctx context.Context, dag *ir.DAG) (*WorkspaceSeed, error) {
+	root, opts, err := dagWorkspacePackOptions(ctx, dag)
 	if err != nil || opts == nil {
 		return nil, err
 	}
@@ -40,8 +40,8 @@ func PrepareDAGWorkspace(dag *ir.DAG) (*WorkspaceSeed, error) {
 }
 
 // PrepareDAGWorkspaceFile snapshots declared files into a staged archive under bundleDir.
-func PrepareDAGWorkspaceFile(dag *ir.DAG, bundleDir string) (*workspacebundle.Descriptor, string, error) {
-	root, opts, err := dagWorkspacePackOptions(dag)
+func PrepareDAGWorkspaceFile(ctx context.Context, dag *ir.DAG, bundleDir string) (*workspacebundle.Descriptor, string, error) {
+	root, opts, err := dagWorkspacePackOptions(ctx, dag)
 	if err != nil || opts == nil {
 		return nil, "", err
 	}
@@ -55,7 +55,7 @@ func PrepareDAGWorkspaceFile(dag *ir.DAG, bundleDir string) (*workspacebundle.De
 	return descriptor, archivePath, nil
 }
 
-func dagWorkspacePackOptions(dag *ir.DAG) (string, *workspacebundle.PackOptions, error) {
+func dagWorkspacePackOptions(ctx context.Context, dag *ir.DAG) (string, *workspacebundle.PackOptions, error) {
 	includes := dagFileDependencies(dag)
 	if len(includes) == 0 {
 		return "", nil, nil
@@ -74,10 +74,11 @@ func dagWorkspacePackOptions(dag *ir.DAG) (string, *workspacebundle.PackOptions,
 	root := dag.WorkingDir
 	if strings.TrimSpace(root) == "" {
 		root = filepath.Dir(sourceFile)
-	}
-	root, err = fileutil.ResolvePath(root)
-	if err != nil {
-		return "", nil, fmt.Errorf("resolve DAG working directory %q: %w", dag.WorkingDir, err)
+	} else {
+		root, err = runtimeenv.ResolveWorkingDir(ctx, dag)
+		if err != nil {
+			return "", nil, fmt.Errorf("resolve DAG working directory %q: %w", dag.WorkingDir, err)
+		}
 	}
 	return root, &workspacebundle.PackOptions{
 		DAGPath:  filepath.Base(sourceFile),

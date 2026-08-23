@@ -4,6 +4,7 @@
 package executor_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,7 +45,7 @@ func TestPrepareDAGWorkspace(t *testing.T) {
 		},
 	}
 
-	seed, err := executor.PrepareDAGWorkspace(dag)
+	seed, err := executor.PrepareDAGWorkspace(context.Background(), dag)
 	require.NoError(t, err)
 	require.NotNil(t, seed)
 	assert.Equal(t, "dag.yaml", seed.Descriptor.DAGPath)
@@ -60,7 +61,7 @@ func TestPrepareDAGWorkspace(t *testing.T) {
 	assert.Equal(t, dagData, actualDAG)
 
 	require.NoError(t, os.WriteFile(filepath.Join(root, "root.txt"), []byte("updated"), 0o644))
-	updatedSeed, err := executor.PrepareDAGWorkspace(dag)
+	updatedSeed, err := executor.PrepareDAGWorkspace(context.Background(), dag)
 	require.NoError(t, err)
 	require.NotNil(t, updatedSeed)
 	assert.NotEqual(t, seed.Descriptor.Digest, updatedSeed.Descriptor.Digest)
@@ -82,13 +83,31 @@ func TestPrepareDAGWorkspaceUsesDAGWorkingDirectory(t *testing.T) {
 		Steps:              []ir.Step{{Dependencies: []string{"input.txt"}}},
 	}
 
-	seed, err := executor.PrepareDAGWorkspace(dag)
+	seed, err := executor.PrepareDAGWorkspace(context.Background(), dag)
 	require.NoError(t, err)
 	require.NotNil(t, seed)
 
 	dest := filepath.Join(t.TempDir(), "workspace")
 	require.NoError(t, workspacebundle.Extract(seed.Archive, dest, seed.Descriptor, workspacebundle.DefaultLimits()))
 	assert.FileExists(t, filepath.Join(dest, "input.txt"))
+}
+
+func TestPrepareDAGWorkspaceRejectsEmptyResolvedWorkingDirectory(t *testing.T) {
+	t.Setenv("DAGU_TEST_EMPTY_WORKSPACE_ROOT", "")
+
+	dagDir := t.TempDir()
+	dag := &ir.DAG{
+		Name:               "empty-working-dir",
+		SourceFile:         filepath.Join(dagDir, "dag.yaml"),
+		WorkingDir:         "$DAGU_TEST_EMPTY_WORKSPACE_ROOT",
+		WorkingDirExplicit: true,
+		YamlData:           []byte("name: empty-working-dir\nsteps:\n  - run: echo ok\n"),
+		Steps:              []ir.Step{{Dependencies: []string{"input.txt"}}},
+	}
+
+	_, err := executor.PrepareDAGWorkspace(context.Background(), dag)
+	require.ErrorContains(t, err, "working_dir")
+	require.ErrorContains(t, err, "DAGU_TEST_EMPTY_WORKSPACE_ROOT")
 }
 
 func TestDAG_CreateTask(t *testing.T) {

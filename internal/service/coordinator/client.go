@@ -342,7 +342,7 @@ func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.
 	if err != nil {
 		return fmt.Errorf("load DAG for file dependency snapshot: %w", err)
 	}
-	desc, archivePath, err := runtimeexec.PrepareDAGWorkspaceFile(dag, cli.config.WorkspaceBundleDir)
+	desc, archivePath, err := runtimeexec.PrepareDAGWorkspaceFile(ctx, dag, cli.config.WorkspaceBundleDir)
 	if err != nil {
 		return err
 	}

@@ -1140,7 +1140,9 @@ func TestAgentMaterializesLocalFileDependencies(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "input.txt"), []byte("input"), 0o600))
 	dag := th.DAG(t, fmt.Sprintf(`
 name: local-workspace
-working_dir: %q
+env:
+  SOURCE_DIR: %q
+working_dir: $SOURCE_DIR
 steps:
   - id: consume
     run: |
