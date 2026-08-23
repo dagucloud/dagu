@@ -4,8 +4,10 @@
 package spec021_mcp_read_tool_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/mcptest"
@@ -69,9 +71,8 @@ func requireReadSuccess(t *testing.T, result *mcpsdk.CallToolResult, target, uri
 	t.Helper()
 
 	require.False(t, result.IsError)
-	requireResultContent(t, result, uri, linkName, mimeType)
-
 	output := mcptest.StructuredMap(t, result)
+	requireResultContent(t, result, target, output["data"], uri, linkName, mimeType)
 	require.Equal(t, target, output["target"])
 	if uri == "" {
 		require.NotContains(t, output, "uri")
@@ -101,7 +102,7 @@ func requireReadError(t *testing.T, result *mcpsdk.CallToolResult, code string) 
 	return output
 }
 
-func requireResultContent(t *testing.T, result *mcpsdk.CallToolResult, uri, linkName, mimeType string) {
+func requireResultContent(t *testing.T, result *mcpsdk.CallToolResult, target string, data any, uri, linkName, mimeType string) {
 	t.Helper()
 
 	if uri == "" {
@@ -112,7 +113,15 @@ func requireResultContent(t *testing.T, result *mcpsdk.CallToolResult, uri, link
 
 	text, ok := result.Content[0].(*mcpsdk.TextContent)
 	require.True(t, ok)
-	require.Equal(t, "Dagu read completed.", text.Text)
+	if target == "dags" {
+		payload, found := strings.CutPrefix(text.Text, "Dagu read completed.\n\n")
+		require.True(t, found)
+		var visibleData any
+		require.NoError(t, json.Unmarshal([]byte(payload), &visibleData))
+		require.Equal(t, data, visibleData)
+	} else {
+		require.Equal(t, "Dagu read completed.", text.Text)
+	}
 
 	if uri == "" {
 		return

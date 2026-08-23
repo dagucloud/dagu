@@ -149,7 +149,7 @@ outside the table below fail with `invalid_tool_input` in target mode and
 
 A successful MCP tool result has:
 
-- A first text content item whose text is exactly `Dagu read completed.`.
+- A first text content item containing the target-specific success text described below.
 - Structured output with this exact top-level envelope:
 
 ```json
@@ -174,11 +174,14 @@ Rules:
 - `references` contains exactly `dagu://reference/authoring`,
   `dagu://reference/tools`, and `dagu://reference/notifications`; order is not
   normative.
+- For `dags`, the success text is `Dagu read completed.`, followed by a blank
+  line and indented JSON containing the same value as `data`.
+- For every other target, the success text is exactly `Dagu read completed.`.
 - A result with `uri` has exactly two content items: `content[0]` is a text
-  content item with text `Dagu read completed.`, and `content[1]` is a
+  content item with the target-specific success text, and `content[1]` is a
   resource-link content item for that URI.
 - A result without `uri` has exactly one content item: `content[0]` is a text
-  content item with text `Dagu read completed.`.
+  content item with the target-specific success text.
 - URI path segments in returned URIs follow Spec 020 escaping.
 
 Resource-link content items have MCP content type `resource_link`. The required
