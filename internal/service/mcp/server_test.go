@@ -782,6 +782,7 @@ func TestNormalizeRunDetailsIncludesRunHierarchy(t *testing.T) {
 	parentID := "parent-run"
 	parentName := "root-dag"
 	subDAGName := "child-dag"
+	repeatedSubDAGName := "repeated-child-dag"
 	raw := daguapi.GetDAGRunDetails200JSONResponse{
 		DagRunDetails: daguapi.DAGRunDetails{
 			Name:             "middle-dag",
@@ -799,6 +800,9 @@ func TestNormalizeRunDetailsIncludesRunHierarchy(t *testing.T) {
 					StatusLabel: "finished",
 					SubRuns: &[]daguapi.SubDAGRun{
 						{DagName: &subDAGName, DagRunId: "child-run"},
+					},
+					SubRunsRepeated: &[]daguapi.SubDAGRun{
+						{DagName: &repeatedSubDAGName, DagRunId: "repeated-child-run"},
 					},
 				},
 			},
@@ -818,11 +822,18 @@ func TestNormalizeRunDetailsIncludesRunHierarchy(t *testing.T) {
 	require.True(t, ok)
 	subRuns, ok := steps[0]["subRuns"].([]map[string]any)
 	require.True(t, ok)
-	require.Equal(t, []map[string]any{{
-		"dagName":  "child-dag",
-		"dagRunId": "child-run",
-		"uri":      "dagu://runs/middle-dag/run-2/sub/child-run",
-	}}, subRuns)
+	require.Equal(t, []map[string]any{
+		{
+			"dagName":  "child-dag",
+			"dagRunId": "child-run",
+			"uri":      "dagu://runs/middle-dag/run-2/sub/child-run",
+		},
+		{
+			"dagName":  "repeated-child-dag",
+			"dagRunId": "repeated-child-run",
+			"uri":      "dagu://runs/middle-dag/run-2/sub/repeated-child-run",
+		},
+	}, subRuns)
 }
 
 func TestNormalizeRunListIncludesTimestampsAndCursor(t *testing.T) {

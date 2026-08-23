@@ -179,7 +179,7 @@ outside the table below fail with `invalid_tool_input` in target mode and
 | `wiki` | `sort` | One of `name`, `type`, or `mtime`. |
 | `wiki` | `order` | One of `asc` or `desc`. |
 | `wiki` | `prefix` | Valid Wiki page path prefix. |
-| `run_logs` | `tail` | Integer greater than or equal to `1`. |
+| `run_logs` | `tail` | Integer from `1` through `10000`. |
 | `step_log` | `tail` | Integer from `1` through `10000`. |
 | `step_log` | `head` | Integer from `1` through `10000`. |
 | `step_log` | `offset` | Integer greater than or equal to `1`. |

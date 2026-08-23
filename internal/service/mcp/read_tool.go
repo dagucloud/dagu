@@ -71,7 +71,7 @@ const (
 	readResourceRunsCollectionURI      = "dagu://runs"
 
 	readWikiSearchMaxLimit = 50
-	readStepLogMaxLines    = 10000
+	readLogMaxLines        = 10000
 )
 
 type readInput struct {
@@ -1041,12 +1041,12 @@ func validReadQueryValue(target, key, value string) bool {
 	case readTargetRunLogs:
 		switch key {
 		case "tail":
-			return validIntRange(value, 1, 0)
+			return validIntRange(value, 1, readLogMaxLines)
 		}
 	case readTargetStepLog:
 		switch key {
 		case "tail", "head", "limit":
-			return validIntRange(value, 1, readStepLogMaxLines)
+			return validIntRange(value, 1, readLogMaxLines)
 		case "offset":
 			return validIntRange(value, 1, 0)
 		case "stream":
@@ -1510,9 +1510,12 @@ func runStepEntry(addr runAddress, node daguapi.Node) map[string]any {
 	if node.RetryCount > 0 {
 		entry["retryCount"] = node.RetryCount
 	}
-	if node.SubRuns != nil && len(*node.SubRuns) > 0 {
-		subRuns := make([]map[string]any, 0, len(*node.SubRuns))
-		for _, subRun := range *node.SubRuns {
+	var subRuns []map[string]any
+	for _, runs := range []*[]daguapi.SubDAGRun{node.SubRuns, node.SubRunsRepeated} {
+		if runs == nil {
+			continue
+		}
+		for _, subRun := range *runs {
 			ref := map[string]any{
 				"dagRunId": string(subRun.DagRunId),
 				"uri":      addr.subRunAddress(string(subRun.DagRunId)).uri(),
@@ -1522,6 +1525,8 @@ func runStepEntry(addr runAddress, node daguapi.Node) map[string]any {
 			}
 			subRuns = append(subRuns, ref)
 		}
+	}
+	if len(subRuns) > 0 {
 		entry["subRuns"] = subRuns
 	}
 	return entry

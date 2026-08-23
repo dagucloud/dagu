@@ -207,6 +207,7 @@ func TestReadTargetQueryValidationErrors(t *testing.T) {
 		{name: "runs labels include empty label", target: "runs", query: "labels=alpha,,beta"},
 		{name: "runs repeated non-repeatable parameter", target: "runs", query: "name=a&name=b"},
 		{name: "run_logs tail below range", target: "run_logs", query: "tail=0"},
+		{name: "run_logs tail above range", target: "run_logs", query: "tail=10001"},
 		{name: "run_logs tail not integer", target: "run_logs", query: "tail=x"},
 		{name: "run_logs unsupported head", target: "run_logs", query: "head=1"},
 		{name: "run_logs unsupported offset", target: "run_logs", query: "offset=1"},

@@ -264,9 +264,9 @@ Action behavior:
 
 Output:
 
-- Successful result text is Dagu execute completed.
+- Successful result text begins with Dagu execute action completed.
 - Structured output has action, targetType, dagName, dagRunId, and references.
-- When a run is identified, output includes runUri, logsUri, and subscribe guidance.
+- When a run is identified, output includes runUri and logsUri. Without wait, it also includes subscribe guidance.
 - With wait=true, output has completed plus the last observed status and statusLabel, and a completed run includes the run detail summary under run with per-step statuses and errors.
 
 Errors:

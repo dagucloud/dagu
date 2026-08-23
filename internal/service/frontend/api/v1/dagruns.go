@@ -4462,6 +4462,9 @@ func (a *API) getStepLogData(ctx context.Context, ref ir.DAGRunRef, stepName str
 // GetSubStepLogDataByRef returns log output for a step in a child DAG-run
 // addressed under the given root run.
 func (a *API) GetSubStepLogDataByRef(ctx context.Context, root ir.DAGRunRef, subRunID, stepName string, opts StepLogReadOptions) (any, error) {
+	if err := a.requireDAGRunVisible(ctx, root); err != nil {
+		return nil, err
+	}
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint:    "/dag-runs/{name}/{dagRunId}/sub/{subDAGRunId}/steps/{stepName}/log",
 		dagName:     root.Name,

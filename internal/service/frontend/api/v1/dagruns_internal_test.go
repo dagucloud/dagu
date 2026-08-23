@@ -1084,7 +1084,7 @@ func TestGetDAGRunDetailsReturnsClientClosedRequestWhenReadCanceled(t *testing.T
 	require.Equal(t, "dag-run details request canceled", canceledResp.Body.Message)
 }
 
-func TestGetSubDAGRunDetailsDataRequiresChildWorkspaceAccess(t *testing.T) {
+func TestSubDAGRunDataRequiresRootAndChildWorkspaceAccess(t *testing.T) {
 	ctx := t.Context()
 	repository := testutil.NewFileDAGRunRepository(t.TempDir(), persis.DAGRunRepositoryOptions{})
 	rootDAG := &ir.DAG{Name: "root", Labels: ir.NewLabels([]string{"workspace=ops"})}
@@ -1108,6 +1108,7 @@ func TestGetSubDAGRunDetailsDataRequiresChildWorkspaceAccess(t *testing.T) {
 	childStatus.Root = rootRef
 	childStatus.DAGRunID = "child-run"
 	childStatus.AttemptID = childAttempt.ID()
+	childStatus.Nodes = []*ir.Node{{Step: ir.Step{Name: "main"}}}
 	require.NoError(t, childAttempt.Write(ctx, childStatus))
 	require.NoError(t, childAttempt.Close(ctx))
 
@@ -1128,6 +1129,19 @@ func TestGetSubDAGRunDetailsDataRequiresChildWorkspaceAccess(t *testing.T) {
 	_, err = a.GetSubDAGRunDetailsData(ctx, "root/root-run/child-run")
 
 	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusNotFound, apiErr.HTTPStatus)
+
+	ctx = auth.WithUser(t.Context(), &auth.User{
+		Role: auth.RoleViewer,
+		WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+			{Workspace: "secret", Role: auth.RoleViewer},
+		}},
+	})
+
+	_, err = a.GetSubStepLogDataByRef(ctx, rootRef, "child-run", "main", StepLogReadOptions{})
+
+	apiErr = nil
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, http.StatusNotFound, apiErr.HTTPStatus)
 }

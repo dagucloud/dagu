@@ -51,6 +51,7 @@ func TestWikiPageResourceSupportsCanonicalAndLegacyURIs(t *testing.T) {
 	require.False(t, legacy.IsError)
 	legacyOutput := structuredMap(t, legacy)
 	require.Equal(t, readTargetWikiPage, legacyOutput["target"])
+	require.Equal(t, uri, legacyOutput["uri"])
 	legacyData, ok := legacyOutput["data"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "# Deploy\n\nneedle", legacyData["content"])
