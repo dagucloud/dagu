@@ -52,6 +52,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
@@ -1552,7 +1553,7 @@ func contextTimeString(t time.Time) string {
 
 func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (func(), error) {
 	if a.workDir != "" {
-		return nil, nil
+		return nil, a.prepareWorkspace()
 	}
 	if attempt == nil {
 		return nil, nil
@@ -1564,7 +1565,7 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 		return nil, fmt.Errorf("materialize DAG-run work directory: %w", err)
 	}
 	if a.workDir != "" {
-		return nil, nil
+		return nil, a.prepareWorkspace()
 	}
 
 	a.workDir = filepath.Join(
@@ -1574,14 +1575,51 @@ func (a *Agent) prepareWorkDir(ctx context.Context, attempt runstate.Attempt) (f
 	if err := os.MkdirAll(a.workDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create work directory: %w", err)
 	}
-	return func() {
+	cleanup := func() {
 		if a.workDir == "" {
 			return
 		}
 		if err := fileutil.RemoveAll(a.workDir); err != nil {
 			logger.Warn(ctx, "Failed to remove temp work dir", tag.Error(err))
 		}
-	}, nil
+	}
+	if err := a.prepareWorkspace(); err != nil {
+		cleanup()
+		return nil, err
+	}
+	return cleanup, nil
+}
+
+func (a *Agent) prepareWorkspace() error {
+	alreadyMaterialized := a.workspaceSeed != nil
+	if a.workspaceSeed == nil {
+		seed, err := runtimeexec.PrepareDAGWorkspace(a.dag)
+		if err != nil {
+			return err
+		}
+		a.workspaceSeed = seed
+	}
+	if a.workspaceSeed == nil {
+		return nil
+	}
+	if a.workDir == "" {
+		return fmt.Errorf("DAG file dependencies require a run working directory")
+	}
+	if !alreadyMaterialized {
+		if err := workspacebundle.Extract(
+			a.workspaceSeed.Archive,
+			a.workDir,
+			a.workspaceSeed.Descriptor,
+			workspacebundle.DefaultLimits(),
+		); err != nil {
+			return fmt.Errorf("materialize DAG file dependencies: %w", err)
+		}
+	}
+
+	a.dag = a.dag.Clone()
+	a.dag.WorkingDir = a.workDir
+	a.dag.WorkingDirExplicit = true
+	return nil
 }
 
 func appendDAGRunError(current string, err error) string {

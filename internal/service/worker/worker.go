@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -33,6 +35,7 @@ type Worker struct {
 	coordinatorCli coordinator.Client
 	handler        TaskHandler
 	labels         map[string]string
+	labelErr       error
 	cfg            *config.Config
 
 	// For tracking poller states and heartbeats
@@ -111,12 +114,14 @@ func NewWorker(
 		healthPort = cfg.Worker.HealthPort
 		openCodeConfig = cfg.OpenCode
 	}
+	labels, labelErr := workerLabels(labels)
 
 	return &Worker{
 		id:             workerID,
 		maxActiveRuns:  maxActiveRuns,
 		coordinatorCli: coordinatorClient,
 		labels:         labels,
+		labelErr:       labelErr,
 		cfg:            cfg,
 		runningTasks:   make(map[string]*runningTaskState),
 		pollerTasks:    make(map[string]string),
@@ -128,6 +133,9 @@ func NewWorker(
 
 // Start begins the worker's operation, launching multiple polling goroutines.
 func (w *Worker) Start(ctx context.Context) (err error) {
+	if w.labelErr != nil {
+		return w.labelErr
+	}
 	logger.Info(ctx, "Starting worker",
 		tag.WorkerID(w.id),
 		tag.MaxConcurrency(w.maxActiveRuns))
@@ -223,6 +231,30 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	<-w.stopDone
 
 	return nil
+}
+
+func workerLabels(configured map[string]string) (map[string]string, error) {
+	labels := maps.Clone(configured)
+	if labels == nil {
+		labels = make(map[string]string, 2)
+	}
+	for _, platform := range []struct {
+		key   string
+		value string
+	}{
+		{key: "os", value: runtime.GOOS},
+		{key: "arch", value: runtime.GOARCH},
+	} {
+		if configuredValue, ok := labels[platform.key]; ok && configuredValue != platform.value {
+			return nil, fmt.Errorf(
+				"worker label %q conflicts with built-in platform value %q",
+				platform.key,
+				platform.value,
+			)
+		}
+		labels[platform.key] = platform.value
+	}
+	return labels, nil
 }
 
 func (w *Worker) cleanupAgentSessions(ctx context.Context) {

@@ -1781,7 +1781,7 @@
               }
             }
           ],
-          "description": "DAG-local files, directories, or glob patterns to snapshot for distributed execution."
+          "description": "Files, directories, or glob patterns relative to the DAG working directory to snapshot for local or distributed execution."
         },
         "depends": {
           "examples": ["build", ["build", "test"]],

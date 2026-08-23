@@ -1129,6 +1129,29 @@ steps:
 	dag.Agent(test.WithAgentOptions(agent.Options{WorkDir: workDir})).RunSuccess(t)
 }
 
+func TestAgentMaterializesLocalFileDependencies(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses POSIX shell commands")
+	}
+	t.Parallel()
+
+	th := test.Setup(t)
+	sourceDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "input.txt"), []byte("input"), 0o600))
+	dag := th.DAG(t, fmt.Sprintf(`
+name: local-workspace
+working_dir: %q
+steps:
+  - id: consume
+    run: |
+      test -f input.txt
+      test "$PWD" != %s
+    dependencies: input.txt
+`, sourceDir, test.PosixQuote(sourceDir)))
+
+	dag.Agent().RunSuccess(t)
+}
+
 // Assert that mockResponseWriter implements http.ResponseWriter
 var _ http.ResponseWriter = (*mockResponseWriter)(nil)
 

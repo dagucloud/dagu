@@ -22,7 +22,7 @@ This spec does not define:
 
 ## Goal
 
-A DAG dispatched to a worker can use scripts, configuration, and other files stored beside its authored YAML without requiring a shared filesystem.
+A DAG can use declared files from its working directory with the same isolated workspace behavior in local and distributed execution.
 
 ## Behavior
 
@@ -34,29 +34,28 @@ A DAG dispatched to a worker can use scripts, configuration, and other files sto
 
 ### Matching
 
-- Paths resolve relative to the authored DAG file.
+- Paths resolve relative to the DAG working directory. When `working_dir` is omitted, the authored DAG file's directory is the source root.
 - An exact regular file selects that file.
 - An exact directory selects the directory and its descendants recursively.
 - A glob may use `*`, `?`, character classes, and `**`.
 - Overlapping selections include each filesystem entry once.
-- Every declaration must match at least one filesystem entry at dispatch time.
+- Every declaration must match at least one filesystem entry when the run workspace is prepared.
 - Absolute paths, parent traversal, `.git` paths, symlinks, special files, and invalid glob patterns are invalid.
 
-### Distributed execution
+### Workspace execution
 
-- A distributed start or retry snapshots the current matching entries before task dispatch.
+- A local or distributed start or retry snapshots the current matching entries before execution.
 - The snapshot contains the exact DAG definition carried by the dispatched task.
-- The coordinator transports an immutable content-addressed bundle to the worker.
-- The worker materializes the bundle as `DAG_RUN_WORK_DIR` and `${context.paths.work_dir}` before execution.
-- The materialized directory is the implicit process working directory. An explicit DAG working directory remains the process working directory without changing `DAG_RUN_WORK_DIR`.
+- Local execution materializes the snapshot directly. Distributed execution transports the immutable content-addressed bundle through the coordinator before the worker materializes it.
+- The snapshot is materialized as `DAG_RUN_WORK_DIR` and `${context.paths.work_dir}` before execution.
+- The materialized directory is the process working directory for the DAG. An explicit step working directory retains its normal precedence.
 - The bundle must not exceed 64 MiB compressed, 256 MiB extracted, or 8192 entries.
 
 ### Child DAGs and retries
 
 - Inline multi-document child DAGs reuse the root DAG's snapshot.
 - A separately fetched named child DAG with file dependencies cannot be dispatched from a remote worker without an available source workspace.
-- Each independently dispatched retry creates a fresh snapshot from the authored DAG directory.
-- Local execution does not stage declared files.
+- Each independently executed retry creates a fresh snapshot from the DAG working directory.
 
 ## Errors
 

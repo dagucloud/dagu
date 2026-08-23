@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -387,6 +388,24 @@ func TestWorkerWithLabels(t *testing.T) {
 	})
 }
 
+func TestWorkerRejectsConflictingPlatformLabels(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	w := worker.NewWorker(
+		"conflicting-platform",
+		1,
+		newMockCoordinatorCli(),
+		map[string]string{"os": "not-" + runtime.GOOS},
+		&config.Config{},
+	)
+	w.SetHandler(&mockHandler{})
+
+	err := w.Start(ctx)
+	require.ErrorContains(t, err, `worker label "os" conflicts with built-in platform value`)
+}
+
 func TestWorkerHeartbeat(t *testing.T) {
 	t.Run("SendsHeartbeats", func(t *testing.T) {
 		// Setup test environment
@@ -429,6 +448,8 @@ func TestWorkerHeartbeat(t *testing.T) {
 				found = true
 				assert.Equal(t, int32(3), wk.TotalPollers)
 				assert.NotZero(t, wk.LastHeartbeatAt)
+				assert.Equal(t, runtime.GOOS, wk.Labels["os"])
+				assert.Equal(t, runtime.GOARCH, wk.Labels["arch"])
 				break
 			}
 		}

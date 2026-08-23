@@ -13586,7 +13586,7 @@ components:
         dependencies:
           type: array
           minItems: 1
-          description: "DAG-local files, directories, or glob patterns to snapshot for distributed execution"
+          description: "Files, directories, or glob patterns relative to the DAG working directory to snapshot for local or distributed execution"
           items:
             type: string
         call:

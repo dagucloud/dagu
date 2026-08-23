@@ -901,7 +901,7 @@ OIDC variables: `DAGU_AUTH_OIDC_CLIENT_ID`, `DAGU_AUTH_OIDC_CLIENT_SECRET`, `DAG
 | `DAGU_WORKER_ID` | — | Worker instance ID |
 | `DAGU_WORKER_MAX_ACTIVE_RUNS` | `100` | Max concurrent runs per worker |
 | `DAGU_WORKER_HEALTH_PORT` | `8092` | Worker health check port |
-| `DAGU_WORKER_LABELS` | — | Worker labels (`key=value,key=value`) |
+| `DAGU_WORKER_LABELS` | — | Worker labels (`key=value,key=value`); `os` and `arch` are built in and cannot be overridden |
 | `DAGU_COORDINATOR_ADVERTISE` | auto-detected hostname | Address advertised in the service registry |
 | `DAGU_WORKER_COORDINATORS` | — | Explicit coordinator addresses for shared-nothing mode |
 

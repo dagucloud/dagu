@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
@@ -25,7 +26,7 @@ func workspaceSeedFromContext(ctx context.Context) (WorkspaceSeed, bool) {
 	return seed, ok
 }
 
-// PrepareDAGWorkspace snapshots the files declared by a DAG for distributed execution.
+// PrepareDAGWorkspace snapshots the files declared by a DAG.
 func PrepareDAGWorkspace(dag *ir.DAG) (*WorkspaceSeed, error) {
 	root, opts, err := dagWorkspacePackOptions(dag)
 	if err != nil || opts == nil {
@@ -70,7 +71,15 @@ func dagWorkspacePackOptions(dag *ir.DAG) (string, *workspacebundle.PackOptions,
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve DAG source file %q: %w", dag.SourceFile, err)
 	}
-	return filepath.Dir(sourceFile), &workspacebundle.PackOptions{
+	root := dag.WorkingDir
+	if strings.TrimSpace(root) == "" {
+		root = filepath.Dir(sourceFile)
+	}
+	root, err = fileutil.ResolvePath(root)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve DAG working directory %q: %w", dag.WorkingDir, err)
+	}
+	return root, &workspacebundle.PackOptions{
 		DAGPath:  filepath.Base(sourceFile),
 		DAGData:  dag.YamlData,
 		Includes: includes,

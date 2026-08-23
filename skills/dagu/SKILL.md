@@ -29,7 +29,7 @@ Load only the reference file that matches the task.
 - Prefer scoped Dagu references for named values: `${consts.NAME}`, `${params.NAME}`, and `${env.NAME}`. Avoid unscoped braced names in examples unless the example is intentionally showing shell syntax.
 - Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`. Append `#sha256:<64 hex>` to also pin the downloaded artifact content for the run platform, for example `jqlang/jq@jq-1.7.1#sha256:<hex>`.
 - For remote actions, put `tools` in the referenced action DAG file, not in `dagu-action.yaml`; caller DAG tools are not inherited across the action boundary.
-- Declare step-level `dependencies` when a distributed worker needs files stored beside the DAG. Use literal DAG-relative paths or glob patterns; do not use value references.
+- Declare step-level `dependencies` when a run needs files from the DAG working directory. Use literal working-directory-relative paths or glob patterns; do not use value references.
 - Use remote action packages (`dagu-action.yaml`) when reusable logic needs helper files, its own DAG, versioning, or an input/output schema contract.
 
 ## High-Signal Rules
@@ -61,7 +61,7 @@ Load only the reference file that matches the task.
 - Git worktree actions discover the repository from the step `working_dir`. Relative worktree paths resolve from the repository root, and the actions never fetch or push.
 - Remote action packages define `dagu-action.yaml` with `apiVersion: v1alpha1`, `name`, `dag`, and optional `inputs`/`outputs` JSON Schemas. `inputs` validates caller `with:` before the action DAG starts; `outputs` validates the final action output object after the action DAG returns.
 - Remote action manifests do not support `tools`. Declare external CLI tools in the action DAG itself so local and distributed workers prepare the right binaries for that action run.
-- `dependencies` snapshots files only for distributed execution. Local runs use the host filesystem without staging. The extracted bundle is available through `DAG_RUN_WORK_DIR` and `${context.paths.work_dir}`.
+- `dependencies` snapshots files from the DAG working directory for both local and distributed execution. The materialized bundle is available through `DAG_RUN_WORK_DIR` and `${context.paths.work_dir}` and becomes the DAG process working directory.
 - In remote action examples, prefer `dag: workflow.yaml` for the action DAG filename. The `dag` field accepts any safe relative file path, but `workflow.yaml` avoids confusing the executable DAG with the `dagu-action.yaml` manifest.
 - Object-form `output:` with `decode: json` or `decode: yaml` can act as lightweight runtime validation. Malformed data or an unresolved `select:` path fails the step, so normal `retry_policy` applies.
 - Use DAG-level `shell` and `shell_args` only when every inherited `run:` step should use the same shell invocation. Use step-level `with.shell` and `with.shell_args` for a single step.
@@ -209,5 +209,5 @@ Load only the file you need:
 - `references/cli.md` when choosing or using Dagu CLI commands, including workflow inspection, execution, and cleanup operations
 - `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`
 - `references/build.md` when creating or troubleshooting a `type: build` file workflow, path references, reuse decisions, or `--no-reuse`
-- `references/file-dependencies.md` when a distributed DAG needs scripts, configuration, or other files stored beside its YAML definition
+- `references/file-dependencies.md` when a DAG needs scripts, configuration, or other files from its working directory
 - `references/harnesses.md` only when the DAG invokes external CLI harnesses through `harness.run`

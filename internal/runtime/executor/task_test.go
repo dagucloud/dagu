@@ -66,6 +66,31 @@ func TestPrepareDAGWorkspace(t *testing.T) {
 	assert.NotEqual(t, seed.Descriptor.Digest, updatedSeed.Descriptor.Digest)
 }
 
+func TestPrepareDAGWorkspaceUsesDAGWorkingDirectory(t *testing.T) {
+	t.Parallel()
+
+	dagDir := t.TempDir()
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "input.txt"), []byte("input"), 0o644))
+
+	dag := &ir.DAG{
+		Name:               "working-dir",
+		SourceFile:         filepath.Join(dagDir, "dag.yaml"),
+		WorkingDir:         workDir,
+		WorkingDirExplicit: true,
+		YamlData:           []byte("name: working-dir\nsteps:\n  - run: echo ok\n"),
+		Steps:              []ir.Step{{Dependencies: []string{"input.txt"}}},
+	}
+
+	seed, err := executor.PrepareDAGWorkspace(dag)
+	require.NoError(t, err)
+	require.NotNil(t, seed)
+
+	dest := filepath.Join(t.TempDir(), "workspace")
+	require.NoError(t, workspacebundle.Extract(seed.Archive, dest, seed.Descriptor, workspacebundle.DefaultLimits()))
+	assert.FileExists(t, filepath.Join(dest, "input.txt"))
+}
+
 func TestDAG_CreateTask(t *testing.T) {
 	t.Parallel()
 
