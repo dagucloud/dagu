@@ -94,7 +94,8 @@ func readToolInputSchema() json.RawMessage {
 		"properties": {
 			"target": {
 				"type": "string",
-				"description": "Read target: references, reference, dags, dag, dag_spec, dag_search, wiki, wiki_page, wiki_search, runs, run, run_logs, or step_log."
+				"enum": ["references", "reference", "dags", "dag", "dag_spec", "dag_search", "wiki", "wiki_page", "wiki_search", "runs", "run", "run_logs", "step_log"],
+				"description": "Read target."
 			},
 			"name": {
 				"type": "string",

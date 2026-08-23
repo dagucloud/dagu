@@ -485,8 +485,6 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	require.Contains(t, names, "dagu_edit_dag")
 	require.Contains(t, names, "dagu_create_wiki_page")
 	require.Contains(t, names, "dagu_edit_wiki_page")
-	require.Contains(t, names, "dagu_create_doc")
-	require.Contains(t, names, "dagu_edit_doc")
 	require.Contains(t, names, "dagu_debug_failed_run")
 }
 
@@ -586,26 +584,6 @@ func TestWikiPagePromptsIncludeRequiredUpsertFields(t *testing.T) {
 		},
 		{
 			name: "dagu_edit_wiki_page",
-			arguments: map[string]string{
-				"workspace": "operations",
-				"path":      "runbooks/restart",
-				"change":    "Add the rollback steps.",
-			},
-			request:        "Add the rollback steps.",
-			wantFieldBlock: "mode=preview, type=upsert_wiki_page, workspace=operations, path=runbooks/restart, and content set to the complete edited Markdown",
-		},
-		{
-			name: "dagu_create_doc",
-			arguments: map[string]string{
-				"workspace": "operations",
-				"path":      "runbooks/restart",
-				"goal":      "Describe a safe restart.",
-			},
-			request:        "Describe a safe restart.",
-			wantFieldBlock: "mode=preview, type=upsert_wiki_page, workspace=operations, path=runbooks/restart, and content set to the complete drafted Markdown",
-		},
-		{
-			name: "dagu_edit_doc",
 			arguments: map[string]string{
 				"workspace": "operations",
 				"path":      "runbooks/restart",

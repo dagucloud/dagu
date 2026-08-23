@@ -64,15 +64,15 @@ func TestChangeToolIdentityAndInputSchema(t *testing.T) {
 			required: []any{"type", "name"},
 		},
 		"upsert_wiki_page": {
-			types:    []any{"upsert_wiki_page", "upsert_doc"},
+			types:    []any{"upsert_wiki_page"},
 			required: []any{"type", "workspace", "path", "content"},
 		},
 		"rename_wiki_page": {
-			types:    []any{"rename_wiki_page", "rename_doc"},
+			types:    []any{"rename_wiki_page"},
 			required: []any{"type", "workspace", "path", "newPath"},
 		},
 		"delete_wiki_page": {
-			types:    []any{"delete_wiki_page", "delete_doc"},
+			types:    []any{"delete_wiki_page"},
 			required: []any{"type", "workspace", "path"},
 		},
 	}

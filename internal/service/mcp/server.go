@@ -204,28 +204,6 @@ func registerResources(server *mcpsdk.Server, svc *Service) {
 		MIMEType:    resourceMIMEText,
 	}, svc.readResource)
 
-	server.AddResource(&mcpsdk.Resource{
-		URI:         legacyReadResourceDocsCollectionURI,
-		Name:        "documents_legacy",
-		Title:       "Legacy Docs (deprecated)",
-		Description: "Deprecated alias for the Wiki collection.",
-		MIMEType:    resourceMIMEJSON,
-	}, svc.readResource)
-	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
-		URITemplate: "dagu://docs/{workspace}",
-		Name:        "workspace_documents_legacy",
-		Title:       "Legacy workspace Docs (deprecated)",
-		Description: "Deprecated alias for a workspace Wiki tree.",
-		MIMEType:    resourceMIMEJSON,
-	}, svc.readResource)
-	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
-		URITemplate: "dagu://docs/{workspace}/{path}",
-		Name:        "document_legacy",
-		Title:       "Legacy Docs page (deprecated)",
-		Description: "Deprecated alias for a Wiki page.",
-		MIMEType:    resourceMIMEText,
-	}, svc.readResource)
-
 	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
 		URITemplate: "dagu://runs/{name}/{dagRunId}",
 		Name:        "dag_run",
@@ -286,27 +264,6 @@ func registerPrompts(server *mcpsdk.Server) {
 		Name:        "dagu_edit_wiki_page",
 		Title:       "Edit a Dagu Wiki page",
 		Description: "Read an existing Wiki page, make a scoped edit, preview, then apply.",
-		Arguments: []*mcpsdk.PromptArgument{
-			{Name: "workspace", Description: "default or a workspace name.", Required: true},
-			{Name: "path", Description: "Wiki page path without .md.", Required: true},
-			{Name: "change", Description: "Requested change.", Required: true},
-		},
-	}, promptEditWikiPage)
-
-	server.AddPrompt(&mcpsdk.Prompt{
-		Name:        "dagu_create_doc",
-		Title:       "Create a Dagu document (deprecated)",
-		Description: "Deprecated alias for dagu_create_wiki_page.",
-		Arguments: []*mcpsdk.PromptArgument{
-			{Name: "workspace", Description: "default or a workspace name.", Required: true},
-			{Name: "path", Description: "Wiki page path without .md.", Required: true},
-			{Name: "goal", Description: "What the Wiki page should contain.", Required: true},
-		},
-	}, promptCreateWikiPage)
-	server.AddPrompt(&mcpsdk.Prompt{
-		Name:        "dagu_edit_doc",
-		Title:       "Edit a Dagu document (deprecated)",
-		Description: "Deprecated alias for dagu_edit_wiki_page.",
 		Arguments: []*mcpsdk.PromptArgument{
 			{Name: "workspace", Description: "default or a workspace name.", Required: true},
 			{Name: "path", Description: "Wiki page path without .md.", Required: true},

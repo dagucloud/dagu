@@ -77,11 +77,13 @@ func changeToolInputSchema() json.RawMessage {
 		"properties": {
 			"mode": {
 				"type": "string",
-				"description": "Change execution mode: preview or apply. Defaults to preview."
+				"enum": ["preview", "apply"],
+				"description": "Change execution mode. Defaults to preview."
 			},
 			"type": {
 				"type": "string",
-				"description": "Change type: upsert_dag, rename_dag, delete_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. The legacy page aliases remain available for compatibility."
+				"enum": ["upsert_dag", "rename_dag", "delete_dag", "upsert_wiki_page", "rename_wiki_page", "delete_wiki_page"],
+				"description": "Change type. Defaults to upsert_dag."
 			},
 			"name": {
 				"type": "string",
@@ -126,15 +128,15 @@ func changeToolInputSchema() json.RawMessage {
 				"required": ["type", "name"]
 			},
 			{
-				"properties": {"type": {"enum": ["upsert_wiki_page", "upsert_doc"]}},
+				"properties": {"type": {"enum": ["upsert_wiki_page"]}},
 				"required": ["type", "workspace", "path", "content"]
 			},
 			{
-				"properties": {"type": {"enum": ["rename_wiki_page", "rename_doc"]}},
+				"properties": {"type": {"enum": ["rename_wiki_page"]}},
 				"required": ["type", "workspace", "path", "newPath"]
 			},
 			{
-				"properties": {"type": {"enum": ["delete_wiki_page", "delete_doc"]}},
+				"properties": {"type": {"enum": ["delete_wiki_page"]}},
 				"required": ["type", "workspace", "path"]
 			}
 		],

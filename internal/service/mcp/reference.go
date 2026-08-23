@@ -148,7 +148,6 @@ Targets:
 - wiki lists the Wiki tree or a flat page list. In tree mode, page and perPage select direct children of the workspace or prefix, and each returned directory includes its descendants. In flat mode, they select individual pages.
 - wiki_page reads one Markdown Wiki page.
 - wiki_search searches accessible Wiki pages in stable path order. Continue with nextCursor while keeping search, workspace, and prefix unchanged.
-- docs, doc, and doc_search are deprecated aliases for the Wiki targets.
 - runs lists DAG-runs.
 - run reads one DAG-run.
 - run_logs reads scheduler and step log metadata.
@@ -193,7 +192,7 @@ Purpose: validate or apply DAG definition and Markdown Wiki changes.
 Fields:
 
 - mode: preview or apply. Defaults to preview.
-- type: upsert_dag, rename_dag, delete_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. Defaults to upsert_dag. The upsert_doc, rename_doc, and delete_doc aliases are deprecated.
+- type: upsert_dag, rename_dag, delete_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. Defaults to upsert_dag.
 - name: DAG name. Required for DAG changes.
 - spec: complete DAG YAML. Required for upsert_dag.
 - newName: destination DAG name. Required for rename_dag.

@@ -28,7 +28,6 @@ func TestWikiPageResourceSupportsCanonicalAndLegacyURIs(t *testing.T) {
 	require.NoError(t, err)
 	templateURIs := resourceTemplateURIs(templates.ResourceTemplates)
 	require.Contains(t, templateURIs, "dagu://wiki/{workspace}/{path}")
-	require.Contains(t, templateURIs, "dagu://docs/{workspace}/{path}")
 
 	const uri = "dagu://wiki/operations/guides%2Fdeploy"
 	input, readErr := parseReadResourceURI(uri)
@@ -46,11 +45,15 @@ func TestWikiPageResourceSupportsCanonicalAndLegacyURIs(t *testing.T) {
 	require.Equal(t, resourceMIMEText, resource.Contents[0].MIMEType)
 	require.Equal(t, "# Deploy\n\nneedle", resource.Contents[0].Text)
 
-	legacyResource, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{
-		URI: "dagu://docs/operations/guides%2Fdeploy",
-	})
-	require.NoError(t, err)
-	require.Equal(t, resource.Contents[0].Text, legacyResource.Contents[0].Text)
+	// Legacy docs URIs stay readable through the read tool's URI mode and
+	// resolve to canonical wiki output.
+	legacy := callTool(t, ctx, session, toolRead, readInput{URI: "dagu://docs/operations/guides%2Fdeploy"})
+	require.False(t, legacy.IsError)
+	legacyOutput := structuredMap(t, legacy)
+	require.Equal(t, readTargetWikiPage, legacyOutput["target"])
+	legacyData, ok := legacyOutput["data"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "# Deploy\n\nneedle", legacyData["content"])
 }
 
 func TestReadToolListsReadsAndSearchesWikiPages(t *testing.T) {
