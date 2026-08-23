@@ -150,6 +150,9 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	if opts.FromRunID != "" {
 		args = append(args, fmt.Sprintf("--from-run-id=%s", opts.FromRunID))
 	}
+	if opts.SourceFile != nil {
+		args = append(args, fmt.Sprintf("--source-file=%s", *opts.SourceFile))
+	}
 	if opts.TriggerType != "" {
 		args = append(args, fmt.Sprintf("--trigger-type=%s", opts.TriggerType))
 	}
@@ -336,17 +339,18 @@ type StartOptions struct {
 	Quiet    bool   // Whether to run in quiet mode
 	DAGRunID string // ID for the dag-run
 
-	NameOverride string // Optional DAG name override
-	FromRunID    string // Historic dag-run ID to use as a template
-	Target       string // Optional CLI argument override (DAG name or file path)
-	TriggerType  string // How this DAG run was initiated (scheduler, manual, webhook, subdag)
-	TriggerActor string // Attributable actor that initiated the DAG run
-	Labels       string // Additional labels (comma-separated)
-	Tags         string // Deprecated: use Labels.
-	ScheduleTime string // RFC 3339 timestamp of when this run was scheduled
-	ProfileName  string // Runtime profile name
-	DefinitionID string // Stable DAG definition identity
-	NoReuse      bool   // Disable build materialization reuse
+	NameOverride string  // Optional DAG name override
+	FromRunID    string  // Historic dag-run ID to use as a template
+	Target       string  // Optional CLI argument override (DAG name or file path)
+	SourceFile   *string // Optional source provenance override, including an explicit empty value
+	TriggerType  string  // How this DAG run was initiated (scheduler, manual, webhook, subdag)
+	TriggerActor string  // Attributable actor that initiated the DAG run
+	Labels       string  // Additional labels (comma-separated)
+	Tags         string  // Deprecated: use Labels.
+	ScheduleTime string  // RFC 3339 timestamp of when this run was scheduled
+	ProfileName  string  // Runtime profile name
+	DefinitionID string  // Stable DAG definition identity
+	NoReuse      bool    // Disable build materialization reuse
 }
 
 // EnqueueOptions contains options for enqueuing a dag-run.

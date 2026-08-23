@@ -1604,6 +1604,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		NameOverride: opts.nameOverride,
 		FromRunID:    fromRunID,
 		Target:       target,
+		SourceFile:   &dag.SourceFile,
 		TriggerType:  triggerTypeStr,
 		TriggerActor: opts.triggerActor,
 		Labels:       opts.labels,

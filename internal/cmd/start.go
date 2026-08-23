@@ -403,7 +403,11 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, 
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load DAG from %s: %w", dagPath, err)
 	}
-	if sourceFile, err := ctx.StringParam("source-file"); err == nil && sourceFile != "" {
+	if ctx.Command.Flags().Changed(sourceFileFlag.name) {
+		sourceFile, err := ctx.StringParam(sourceFileFlag.name)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to get source file override: %w", err)
+		}
 		dag.SourceFile = sourceFile
 	}
 

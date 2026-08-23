@@ -57,14 +57,20 @@ func ResolveRuntimeParams(ctx context.Context, dag *ir.DAG, params any, opts Res
 		return nil, err
 	}
 
+	var resolved *ir.DAG
 	switch {
 	case dag.Location != "":
-		return Load(ctx, dag.Location, loadOpts...)
+		resolved, err = Load(ctx, dag.Location, loadOpts...)
 	case len(dag.YamlData) > 0:
-		return LoadYAML(ctx, dag.YamlData, loadOpts...)
+		resolved, err = LoadYAML(ctx, dag.YamlData, loadOpts...)
 	default:
 		return nil, fmt.Errorf("DAG source is required to resolve runtime params")
 	}
+	if err != nil {
+		return nil, err
+	}
+	resolved.SourceFile = dag.SourceFile
+	return resolved, nil
 }
 
 // ReloadRuntimeSnapshot reloads a DAG from its captured source with runtime

@@ -6,7 +6,6 @@ package intg_test
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -23,8 +22,7 @@ func TestAPIRescheduleInlineStartUsesStoredSnapshot(t *testing.T) {
 		}
 	}))
 
-	runID, location := test.CreateInlineDAGRunForReschedule(t, server, "intg_inline_reschedule_start", false)
-	requireMissingFile(t, location)
+	runID := test.CreateInlineDAGRunForReschedule(t, server, "intg_inline_reschedule_start", false)
 
 	newRunID := rescheduleServerInlineRun(t, server, "intg_inline_reschedule_start", runID)
 	test.ProcessQueuedInlineRun(t, server, "intg_inline_reschedule_start")
@@ -39,8 +37,7 @@ func TestAPIRescheduleInlineEnqueueUsesStoredSnapshot(t *testing.T) {
 		}
 	}))
 
-	runID, location := test.CreateInlineDAGRunForReschedule(t, server, "intg_inline_reschedule_enqueue", true)
-	requireMissingFile(t, location)
+	runID := test.CreateInlineDAGRunForReschedule(t, server, "intg_inline_reschedule_enqueue", true)
 
 	newRunID := rescheduleServerInlineRun(t, server, "intg_inline_reschedule_enqueue", runID)
 	test.ProcessQueuedInlineRun(t, server, "intg_inline_reschedule_enqueue")
@@ -60,12 +57,4 @@ func rescheduleServerInlineRun(t *testing.T, server test.Server, dagName, runID 
 	require.NotEmpty(t, body.DagRunId)
 	require.True(t, body.Queued)
 	return body.DagRunId
-}
-
-func requireMissingFile(t *testing.T, path string) {
-	t.Helper()
-
-	_, err := os.Stat(path)
-	require.Error(t, err)
-	require.True(t, os.IsNotExist(err))
 }

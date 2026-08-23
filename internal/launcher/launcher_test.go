@@ -400,6 +400,14 @@ func TestStart(t *testing.T) {
 		assert.Contains(t, spec.Args, "--run-id=test-run-id")
 	})
 
+	t.Run("StartWithEmptySourceFileOverride", func(t *testing.T) {
+		t.Parallel()
+		sourceFile := ""
+		spec := builder.Start(dag, launcher.StartOptions{SourceFile: &sourceFile})
+
+		assert.Contains(t, spec.Args, "--source-file=")
+	})
+
 	t.Run("StartWithAllOptions", func(t *testing.T) {
 		t.Parallel()
 		opts := launcher.StartOptions{

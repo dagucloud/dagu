@@ -160,10 +160,12 @@ params:
 	require.NoError(t, err)
 	require.NotEmpty(t, dag.Location)
 	require.NotEmpty(t, dag.YamlData)
+	dag.SourceFile = filepath.Join(dir, "authored.yaml")
 
 	resolved, err := ResolveRuntimeParams(context.Background(), dag, "region=us-east-1", ResolveRuntimeParamsOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"region=us-east-1"}, resolved.Params)
+	assert.Equal(t, dag.SourceFile, resolved.SourceFile)
 }
 
 func TestResolveRuntimeParams_LegacyNamedParamsPreservePositionalOverrides(t *testing.T) {

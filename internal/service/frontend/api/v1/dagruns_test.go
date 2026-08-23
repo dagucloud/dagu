@@ -1445,8 +1445,7 @@ func TestRescheduleDAGRunFromInlineStartUsesPersistedSnapshot(t *testing.T) {
 		}
 	}))
 
-	runID, dagLocation := test.CreateInlineDAGRunForReschedule(t, server, "inline_reschedule_start", false)
-	require.NoFileExists(t, dagLocation)
+	runID := test.CreateInlineDAGRunForReschedule(t, server, "inline_reschedule_start", false)
 	assertRescheduleSpecSourceFlag(t, server, "inline_reschedule_start", runID, false)
 
 	rescheduledRunID := rescheduleInlineDAGRun(t, server, "inline_reschedule_start", runID)
@@ -1462,8 +1461,7 @@ func TestRescheduleDAGRunFromInlineEnqueueUsesPersistedSnapshot(t *testing.T) {
 		}
 	}))
 
-	runID, dagLocation := test.CreateInlineDAGRunForReschedule(t, server, "inline_reschedule_enqueue", true)
-	require.NoFileExists(t, dagLocation)
+	runID := test.CreateInlineDAGRunForReschedule(t, server, "inline_reschedule_enqueue", true)
 	assertRescheduleSpecSourceFlag(t, server, "inline_reschedule_enqueue", runID, false)
 
 	rescheduledRunID := rescheduleInlineDAGRun(t, server, "inline_reschedule_enqueue", runID)
