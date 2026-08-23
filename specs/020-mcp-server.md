@@ -120,6 +120,8 @@ Supported resource families:
 | Run details | `dagu://runs/{name}/{dagRunId}` | `application/json` | Current DAG-run details for the named DAG run. |
 | Run logs | `dagu://runs/{name}/{dagRunId}/logs` | `application/json` | Current log data for the named DAG run. |
 | Step log | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs` | `application/json` | Current stdout and stderr data for one DAG-run step. |
+| Child run details | `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` | `application/json` | Current details for a child DAG run addressed under its root run. |
+| Child step log | `dagu://runs/{name}/{dagRunId}/sub/{subRunId}/steps/{stepName}/logs` | `application/json` | Current stdout and stderr data for one child-run step. |
 | Wiki collection | `dagu://wiki` and `dagu://wiki/{workspace}` | `application/json` | Wiki pages visible to the caller. |
 | Wiki page | `dagu://wiki/{workspace}/{path}` | `text/markdown` | Current Markdown content for the named Wiki page. |
 

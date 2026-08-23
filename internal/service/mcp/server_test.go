@@ -286,6 +286,19 @@ func TestExecuteToolSupportsNoReuse(t *testing.T) {
 	require.True(t, *enqueueBody.NoReuse)
 }
 
+func TestExecuteBodiesUseRequestedDAGName(t *testing.T) {
+	t.Parallel()
+
+	input := executeInput{Name: "renamed-dag"}
+	startBody := executeBody(input)
+	require.NotNil(t, startBody.DagName)
+	require.Equal(t, input.Name, *startBody.DagName)
+
+	enqueueBody := enqueueBody(input)
+	require.NotNil(t, enqueueBody.DagName)
+	require.Equal(t, input.Name, *enqueueBody.DagName)
+}
+
 func TestServerAdvertisesSupportedCapabilities(t *testing.T) {
 	ctx := context.Background()
 	session := connectTestClient(t, ctx, NewServer(nil))
@@ -711,7 +724,7 @@ func TestNormalizeRunDetailsIncludesStepsAndFailureDetails(t *testing.T) {
 		},
 	}
 
-	data, err := normalizeRunDetails(raw, "", "")
+	data, err := normalizeRunDetails(raw, runAddress{})
 	require.NoError(t, err)
 	require.Equal(t, "etl", data["name"])
 	require.Equal(t, "run-1", data["dagRunId"])
@@ -771,16 +784,24 @@ func TestNormalizeRunDetailsIncludesRunHierarchy(t *testing.T) {
 		},
 	}
 
-	data, err := normalizeRunDetails(raw, "", "")
+	data, err := normalizeRunDetails(raw, runAddress{})
 	require.NoError(t, err)
-	require.Equal(t, map[string]any{"name": "root-dag", "dagRunId": "root-run"}, data["rootRun"])
+	require.Equal(t, map[string]any{
+		"name":     "root-dag",
+		"dagRunId": "root-run",
+		"uri":      "dagu://runs/root-dag/root-run",
+	}, data["rootRun"])
 	require.Equal(t, map[string]any{"name": "root-dag", "dagRunId": "parent-run"}, data["parentRun"])
 
 	steps, ok := data["steps"].([]map[string]any)
 	require.True(t, ok)
 	subRuns, ok := steps[0]["subRuns"].([]map[string]any)
 	require.True(t, ok)
-	require.Equal(t, []map[string]any{{"dagName": "child-dag", "dagRunId": "child-run"}}, subRuns)
+	require.Equal(t, []map[string]any{{
+		"dagName":  "child-dag",
+		"dagRunId": "child-run",
+		"uri":      "dagu://runs/middle-dag/run-2/sub/child-run",
+	}}, subRuns)
 }
 
 func TestNormalizeRunListIncludesTimestampsAndCursor(t *testing.T) {

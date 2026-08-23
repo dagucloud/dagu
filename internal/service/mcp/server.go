@@ -227,6 +227,22 @@ func registerResources(server *mcpsdk.Server, svc *Service) {
 		Description: "Standard output and standard error for a DAG-run step. Supports tail, head, offset, limit, and stream query parameters.",
 		MIMEType:    resourceMIMEJSON,
 	}, svc.readResource)
+
+	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
+		URITemplate: "dagu://runs/{name}/{dagRunId}/sub/{subRunId}",
+		Name:        "sub_dag_run",
+		Title:       "Sub DAG-run details",
+		Description: "Current details for a child DAG-run addressed under its root run.",
+		MIMEType:    resourceMIMEJSON,
+	}, svc.readResource)
+
+	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
+		URITemplate: "dagu://runs/{name}/{dagRunId}/sub/{subRunId}/steps/{stepName}/logs",
+		Name:        "sub_dag_run_step_log",
+		Title:       "Sub DAG-run step log",
+		Description: "Standard output and standard error for a child DAG-run step. Supports tail, head, offset, limit, and stream query parameters.",
+		MIMEType:    resourceMIMEJSON,
+	}, svc.readResource)
 }
 
 func registerPrompts(server *mcpsdk.Server) {
@@ -603,7 +619,7 @@ func (svc *Service) stopDAGRun(ctx context.Context, input executeInput) error {
 }
 
 func executeBody(input executeInput) *daguapi.ExecuteDAGJSONRequestBody {
-	body := &daguapi.ExecuteDAGJSONRequestBody{}
+	body := &daguapi.ExecuteDAGJSONRequestBody{DagName: stringPtr(input.Name)}
 	if input.DAGRunID != "" {
 		body.DagRunId = &input.DAGRunID
 	}
@@ -624,7 +640,7 @@ func executeBody(input executeInput) *daguapi.ExecuteDAGJSONRequestBody {
 }
 
 func enqueueBody(input executeInput) *daguapi.EnqueueDAGDAGRunJSONRequestBody {
-	body := &daguapi.EnqueueDAGDAGRunJSONRequestBody{}
+	body := &daguapi.EnqueueDAGDAGRunJSONRequestBody{DagName: stringPtr(input.Name)}
 	if input.DAGRunID != "" {
 		body.DagRunId = &input.DAGRunID
 	}
@@ -715,10 +731,11 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		}
 		return text, resourceMIMEJSON, nil
 	case "runs":
-		if !isRunResourceSegments(segments) && !isStepLogResourceSegments(segments) {
+		if !isRunResourceSegments(segments) && !isStepLogResourceSegments(segments) &&
+			!isSubRunResourceSegments(segments) && !isSubStepLogResourceSegments(segments) {
 			return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 		}
-		if isStepLogResourceSegments(segments) {
+		if isStepLogResourceSegments(segments) || isSubStepLogResourceSegments(segments) {
 			if readErr := validateReadQuery(readTargetStepLog, parsed.RawQuery, true, rawURI); readErr != nil {
 				return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 			}
@@ -728,19 +745,33 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 		}
 		identifier := segments[0] + "/" + segments[1]
 		var data any
-		if isStepLogResourceSegments(segments) {
+		switch {
+		case isStepLogResourceSegments(segments):
 			data, err = svc.api.GetStepLogDataByRef(
 				ctx,
 				ir.NewDAGRunRef(segments[0], segments[1]),
 				segments[3],
 				stepLogReadOptions(parsed.RawQuery),
 			)
-		} else if len(segments) == 3 {
+		case isSubStepLogResourceSegments(segments):
+			data, err = svc.api.GetSubStepLogDataByRef(
+				ctx,
+				ir.NewDAGRunRef(segments[0], segments[1]),
+				segments[3],
+				segments[5],
+				stepLogReadOptions(parsed.RawQuery),
+			)
+		case isSubRunResourceSegments(segments):
+			if parsed.RawQuery != "" {
+				return "", "", mcpsdk.ResourceNotFoundError(rawURI)
+			}
+			data, err = svc.api.GetSubDAGRunDetailsData(ctx, identifier+"/"+segments[3])
+		case len(segments) == 3:
 			if parsed.RawQuery != "" {
 				identifier += "?" + parsed.RawQuery
 			}
 			data, err = svc.api.GetDAGRunLogsData(ctx, identifier)
-		} else {
+		default:
 			data, err = svc.api.GetDAGRunDetailsData(ctx, identifier)
 		}
 		if err != nil {
@@ -894,6 +925,14 @@ func isStepLogResourceSegments(segments []string) bool {
 	return len(segments) == 5 && segments[2] == "steps" && segments[4] == "logs"
 }
 
+func isSubRunResourceSegments(segments []string) bool {
+	return len(segments) == 4 && segments[2] == "sub"
+}
+
+func isSubStepLogResourceSegments(segments []string) bool {
+	return len(segments) == 7 && segments[2] == "sub" && segments[4] == "steps" && segments[6] == "logs"
+}
+
 func isTerminalStatus(status int) bool {
 	switch status {
 	case 2, 3, 4, 6, 8:
@@ -987,6 +1026,14 @@ func runURI(name, dagRunID string) string {
 
 func runLogsURI(name, dagRunID string) string {
 	return runURI(name, dagRunID) + "/logs"
+}
+
+func subRunURI(name, dagRunID, subRunID string) string {
+	return runURI(name, dagRunID) + "/sub/" + pathEscape(subRunID)
+}
+
+func subStepLogURI(name, dagRunID, subRunID, stepName string) string {
+	return subRunURI(name, dagRunID, subRunID) + "/steps/" + pathEscape(stepName) + "/logs"
 }
 
 func runLogsURIWithQuery(name, dagRunID, query string) string {

@@ -127,6 +127,7 @@ Fields:
 - target: required in target mode. Values are references, reference, dags, dag, dag_spec, dag_search, wiki, wiki_page, wiki_search, runs, run, run_logs, and step_log.
 - name: DAG name or reference topic name. Required for dag, dag_spec, run, run_logs, and step_log. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
 - dagRunId: required for run, run_logs, and step_log. Forbidden for other targets.
+- subRunId: optional child DAG-run ID for run and step_log. The name and dagRunId fields identify its root run.
 - stepName: required for step_log. Forbidden for other targets.
 - query: URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs, and step_log.
 - workspace: all, default, or a workspace name. Optional for wiki, wiki_search, and dag_search; omitted means all accessible workspaces. Required for wiki_page, where all is not allowed.
@@ -149,9 +150,9 @@ Targets:
 - wiki_page reads one Markdown Wiki page.
 - wiki_search searches accessible Wiki pages in stable path order. Continue with nextCursor while keeping search, workspace, and prefix unchanged.
 - runs lists DAG-runs.
-- run reads one DAG-run.
+- run reads one DAG-run. With subRunId, it reads the child run under the identified root run.
 - run_logs reads scheduler and step log metadata.
-- step_log reads stdout and stderr for one DAG-run step. Use the stream, tail, head, offset, and limit query parameters to bound the returned lines; without positioning parameters the last 1000 lines are returned.
+- step_log reads stdout and stderr for one DAG-run step. With subRunId, it reads a child-run step. Use the stream, tail, head, offset, and limit query parameters to bound the returned lines; without positioning parameters the last 1000 lines are returned.
 
 Query parameters:
 
@@ -166,6 +167,7 @@ Output:
 - Successful result text is Dagu read completed.
 - For dags, the result text also includes the returned data as indented JSON after a blank line.
 - Structured output has target, data, references, and uri when the read has a canonical resource URI.
+- Child run and step-log URIs use dagu://runs/{name}/{dagRunId}/sub/{subRunId} under the root run address.
 - Reference URIs in references point to built-in guidance resources.
 - Wiki list and search entries include canonical dagu://wiki/{workspace}/{path} URIs. Nested page paths are encoded as one URI segment.
 - Wiki search output includes result snippets, modification times, hasMore, and nextCursor when another page is available.

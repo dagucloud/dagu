@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1080,6 +1082,70 @@ func TestGetDAGRunDetailsReturnsClientClosedRequestWhenReadCanceled(t *testing.T
 	require.Equal(t, statusClientClosedRequest, canceledResp.StatusCode)
 	require.Equal(t, openapiv1.ErrorCodeInternalError, canceledResp.Body.Code)
 	require.Equal(t, "dag-run details request canceled", canceledResp.Body.Message)
+}
+
+func TestGetSubDAGRunDetailsDataRequiresChildWorkspaceAccess(t *testing.T) {
+	ctx := t.Context()
+	repository := testutil.NewFileDAGRunRepository(t.TempDir(), persis.DAGRunRepositoryOptions{})
+	rootDAG := &ir.DAG{Name: "root", Labels: ir.NewLabels([]string{"workspace=ops"})}
+	rootRef := ir.NewDAGRunRef(rootDAG.Name, "root-run")
+	rootAttempt, err := repository.CreateAttempt(ctx, rootDAG, time.Now(), rootRef.ID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, rootAttempt.Open(ctx))
+	rootStatus := ir.InitialStatus(rootDAG)
+	rootStatus.DAGRunID = rootRef.ID
+	rootStatus.AttemptID = rootAttempt.ID()
+	require.NoError(t, rootAttempt.Write(ctx, rootStatus))
+	require.NoError(t, rootAttempt.Close(ctx))
+
+	childDAG := &ir.DAG{Name: "child", Labels: ir.NewLabels([]string{"workspace=secret"})}
+	childAttempt, err := repository.CreateAttempt(ctx, childDAG, time.Now(), "child-run", persis.DAGRunCreateAttemptOptions{
+		RootDAGRun: rootRef,
+	})
+	require.NoError(t, err)
+	require.NoError(t, childAttempt.Open(ctx))
+	childStatus := ir.InitialStatus(childDAG)
+	childStatus.Root = rootRef
+	childStatus.DAGRunID = "child-run"
+	childStatus.AttemptID = childAttempt.ID()
+	require.NoError(t, childAttempt.Write(ctx, childStatus))
+	require.NoError(t, childAttempt.Close(ctx))
+
+	cfg := &config.Config{}
+	a := &API{
+		authService:      struct{ AuthService }{},
+		dagRunRepository: repository,
+		dagRunMgr:        runtimepkg.NewManager(repository, nil, cfg),
+		config:           cfg,
+	}
+	ctx = auth.WithUser(ctx, &auth.User{
+		Role: auth.RoleViewer,
+		WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+			{Workspace: "ops", Role: auth.RoleViewer},
+		}},
+	})
+
+	_, err = a.GetSubDAGRunDetailsData(ctx, "root/root-run/child-run")
+
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusNotFound, apiErr.HTTPStatus)
+}
+
+func TestStepLogLimitWithoutOffsetReadsFromBeginning(t *testing.T) {
+	stdoutPath := filepath.Join(t.TempDir(), "stdout.log")
+	require.NoError(t, os.WriteFile(stdoutPath, []byte("one\ntwo\nthree\n"), 0o600))
+	status := &ir.DAGRunStatus{
+		Name:  "test",
+		Nodes: []*ir.Node{{Step: ir.Step{Name: "main"}, Stdout: stdoutPath}},
+	}
+
+	result, err := (&API{}).stepLogFromStatus(t.Context(), status, "main", StepLogReadOptions{Limit: 2})
+
+	require.NoError(t, err)
+	require.Equal(t, "one\ntwo", result.StdoutContent)
+	require.Equal(t, 2, result.LineCount)
+	require.True(t, result.HasMore)
 }
 
 func TestApplyAgentInteractionResponse(t *testing.T) {

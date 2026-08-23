@@ -48,6 +48,7 @@ Tool input is a JSON object. Fields outside this table fail with
 | `target` | string | Target mode only. | Required for target mode. | Case-sensitive read target literal. |
 | `name` | string | Target mode only. | Required for `dag`, `dag_spec`, `run`, `run_logs`, and `step_log`; optional for `reference`; forbidden for the remaining targets. | DAG name or reference topic name. |
 | `dagRunId` | string | Target mode only. | Required for `run`, `run_logs`, and `step_log`; forbidden for all other targets. | DAG-run identifier. |
+| `subRunId` | string | Target mode only. | Optional for `run` and `step_log`; forbidden for all other targets. | Child DAG-run identifier addressed under the root run selected by `name` and `dagRunId`. |
 | `stepName` | string | Target mode only. | Required for `step_log`; forbidden for all other targets. | Step name inside the DAG-run. |
 | `query` | string | Target mode only. | Optional only for `dags`, `wiki`, `runs`, `run_logs`, and `step_log`; forbidden for all other targets. | URL query string without a leading `?`. |
 | `workspace` | string | Target mode only. | Required for `wiki_page`, where `all` is not allowed; optional for `wiki`, `wiki_search`, and `dag_search`, defaulting to `all`; forbidden for all other targets. | Workspace selector. |
@@ -96,6 +97,9 @@ Rules:
   - `dagu://runs/{name}/{dagRunId}/logs` resolves to `run_logs`.
   - `dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs` resolves to
     `step_log`.
+  - `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` resolves to `run`.
+  - `dagu://runs/{name}/{dagRunId}/sub/{subRunId}/steps/{stepName}/logs`
+    resolves to `step_log`.
   - Query parameters do not affect target derivation.
 
 ### Target contracts
@@ -112,9 +116,9 @@ Rules:
 | `wiki_page` | `workspace`, `path`. | None. | `dagu://wiki/{workspace}/{path}`. | Wiki page model. |
 | `wiki_search` | `search`. | `workspace`, `prefix`, `cursor`, `limit`. | Omitted. | Wiki search model. |
 | `runs` | None. | `query`. | Omitted in target mode; `dagu://runs` plus query in URI mode. | Run collection model. |
-| `run` | `name`, `dagRunId`. | None. | `dagu://runs/{name}/{dagRunId}`. | Run detail model. |
+| `run` | `name`, `dagRunId`. | `subRunId`. | `dagu://runs/{name}/{dagRunId}` or its `/sub/{subRunId}` child URI. | Run detail model. |
 | `run_logs` | `name`, `dagRunId`. | `query`. | `dagu://runs/{name}/{dagRunId}/logs`, with the supplied query appended when present. | Run-log model. |
-| `step_log` | `name`, `dagRunId`, `stepName`. | `query`. | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs`, with the supplied query appended when present. | Step-log model. |
+| `step_log` | `name`, `dagRunId`, `stepName`. | `subRunId`, `query`. | The root or child step-log URI, with the supplied query appended when present. | Step-log model. |
 
 Minimum `data` models:
 
@@ -126,7 +130,7 @@ Minimum `data` models:
 | DAG detail | `data.name` is the DAG name string. `data.specUri` is the canonical `dagu://dags/{name}/spec` URI. `data.suspended` is a boolean. When the DAG has run at least once, `data.latestRun` is an object with `dagRunId` string, `status` number, and `statusLabel` string. |
 | DAG spec | `data.name` is the DAG name string. `data.mimeType` is `application/yaml`. `data.spec` is the YAML document string. `data.errors` is an array of strings. |
 | Run collection | `data.items` is an array. Each item has `name` string, `dagRunId` string, `uri` string, `status` number, and `statusLabel` string. `uri` is the canonical `dagu://runs/{name}/{dagRunId}` URI. An item carries `startedAt` and `finishedAt` strings once those timestamps are recorded. When another page is available, `data.nextCursor` is an opaque cursor string. |
-| Run detail | `data.name` is the DAG name string. `data.dagRunId` is the DAG-run ID string. `data.uri` is the canonical `dagu://runs/{name}/{dagRunId}` URI. `data.logsUri` is the canonical `dagu://runs/{name}/{dagRunId}/logs` URI. `data.status` is a number. `data.statusLabel` is a string. The run carries `startedAt` and `finishedAt` strings once those timestamps are recorded. `data.steps` is an array with one entry per step in execution order; each entry has `name` string, `status` number, `statusLabel` string, and `logUri` string, and a failed step carries its `error` string when one was recorded. |
+| Run detail | `data.name` is the resolved DAG name string. `data.dagRunId` is the resolved DAG-run ID string. `data.uri` is the canonical root or child run URI. Root runs include the canonical `data.logsUri`. `data.status` is a number. `data.statusLabel` is a string. The run carries `startedAt` and `finishedAt` strings once those timestamps are recorded. `data.steps` is an array with one entry per step in execution order; each entry has `name` string, `status` number, `statusLabel` string, and a root- or child-addressed `logUri` string, and a failed step carries its `error` string when one was recorded. |
 | Run logs | `data.schedulerLog` is an object with `content` string, `lineCount` number, `totalLines` number, and `hasMore` boolean. `data.stepLogs` is an array. Each step-log item has `stepName` string, `status` number, `statusLabel` string, `hasStdout` boolean, and `hasStderr` boolean. |
 | Step log | `data.stdoutContent` and `data.stderrContent` are strings holding the selected log lines; a stream excluded by the `stream` parameter is empty. `data.lineCount`, `data.totalLines`, and `data.hasMore` describe the returned stream, following stdout unless only stderr was requested. |
 | DAG search | `data.results` is an array. Each result has `name` string, `uri` string set to the canonical `dagu://dags/{name}/spec` URI, `matches` array of line-level snippets, and `hasMoreMatches` boolean. `data.hasMore` is a boolean, and `data.nextCursor` is an opaque cursor string when another page is available. |
@@ -215,8 +219,8 @@ Rules:
   line and indented JSON containing the same value as `data`.
 - For every other target, the success text is exactly `Dagu read completed.`.
 - `step_log` results additionally echo `name`, `dagRunId`, and `stepName` at
-  the top level, and Wiki results echo `workspace`, `path`, and `prefix` when
-  supplied.
+  the top level, plus `subRunId` when supplied; Wiki results echo `workspace`,
+  `path`, and `prefix` when supplied.
 - A result with `uri` has exactly two content items: `content[0]` is a text
   content item with the target-specific success text, and `content[1]` is a
   resource-link content item for that URI.
@@ -238,6 +242,8 @@ such as `title` and `description`, may be present.
 | `dagu://runs/{name}/{dagRunId}` | `dag_run` | `application/json` |
 | `dagu://runs/{name}/{dagRunId}/logs` | `dag_run_logs` | `application/json` |
 | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs` | `dag_run_step_log` | `application/json` |
+| `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` | `sub_dag_run` | `application/json` |
+| `dagu://runs/{name}/{dagRunId}/sub/{subRunId}/steps/{stepName}/logs` | `sub_dag_run_step_log` | `application/json` |
 | `dagu://wiki` and `dagu://wiki/{workspace}` | `wiki` | `application/json` |
 | `dagu://wiki/{workspace}/{path}` | `wiki_page` | `text/markdown` |
 

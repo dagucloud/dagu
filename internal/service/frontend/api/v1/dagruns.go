@@ -4312,6 +4312,9 @@ func (a *API) GetSubDAGRunDetailsData(ctx context.Context, identifier string) (a
 			err,
 		)
 	}
+	if err := a.requireDAGRunStatusVisible(ctx, dagStatus); err != nil {
+		return nil, err
+	}
 
 	return api.GetSubDAGRunDetails200JSONResponse{
 		DagRunDetails: ToDAGRunDetails(*dagStatus),
@@ -4431,7 +4434,7 @@ func (o StepLogReadOptions) logReadOptions(encoding string) fileutil.LogReadOpti
 		Limit:    o.Limit,
 		Encoding: encoding,
 	}
-	if options.Tail == 0 && options.Head == 0 && options.Offset == 0 {
+	if options.Tail == 0 && options.Head == 0 && options.Offset == 0 && options.Limit == 0 {
 		options.Tail = 1000
 	}
 	return options
@@ -4453,13 +4456,34 @@ func (a *API) getStepLogData(ctx context.Context, ref ir.DAGRunRef, stepName str
 	if err != nil {
 		return StepLogResponse{}, fmt.Errorf("dag-run ID %s not found for DAG %s", ref.ID, ref.Name)
 	}
+	return a.stepLogFromStatus(ctx, dagStatus, stepName, opts)
+}
+
+// GetSubStepLogDataByRef returns log output for a step in a child DAG-run
+// addressed under the given root run.
+func (a *API) GetSubStepLogDataByRef(ctx context.Context, root ir.DAGRunRef, subRunID, stepName string, opts StepLogReadOptions) (any, error) {
+	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
+		endpoint:    "/dag-runs/{name}/{dagRunId}/sub/{subDAGRunId}/steps/{stepName}/log",
+		dagName:     root.Name,
+		dagRunID:    root.ID,
+		subDAGRunID: subRunID,
+	}, func(readCtx context.Context) (StepLogResponse, error) {
+		dagStatus, err := a.getReferencedDAGRunStatus(readCtx, root, subRunID, "")
+		if err != nil {
+			return StepLogResponse{}, fmt.Errorf("sub dag-run ID %s not found for DAG %s", subRunID, root.Name)
+		}
+		return a.stepLogFromStatus(readCtx, dagStatus, stepName, opts)
+	})
+}
+
+func (a *API) stepLogFromStatus(ctx context.Context, dagStatus *ir.DAGRunStatus, stepName string, opts StepLogReadOptions) (StepLogResponse, error) {
 	if err := a.requireDAGRunStatusVisible(ctx, dagStatus); err != nil {
 		return StepLogResponse{}, err
 	}
 
 	node, err := dagStatus.NodeByName(stepName)
 	if err != nil {
-		return StepLogResponse{}, fmt.Errorf("step %s not found in DAG %s", stepName, ref.Name)
+		return StepLogResponse{}, fmt.Errorf("step %s not found in DAG %s", stepName, dagStatus.Name)
 	}
 
 	options := opts.logReadOptions(a.logEncodingCharset)

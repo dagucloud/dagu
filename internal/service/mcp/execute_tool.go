@@ -270,7 +270,7 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 	for {
 		raw, err := svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+dagRunID)
 		if err == nil {
-			details, normalizeErr := normalizeRunDetails(raw, input.Name, dagRunID)
+			details, normalizeErr := normalizeRunDetails(raw, runAddress{name: input.Name, dagRunID: dagRunID})
 			if normalizeErr == nil {
 				output["status"] = details["status"]
 				output["statusLabel"] = details["statusLabel"]
