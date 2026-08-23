@@ -18,8 +18,12 @@ func TestReadDAGTargets(t *testing.T) {
 			"query":  "name=" + fixture.dagName + "&page=1&perPage=10&sort=name&order=asc",
 		})
 		output := requireReadSuccess(t, result, "dags", "", "", "")
-		item := requireItem(t, requireItems(t, requireData(t, output)), "name", fixture.dagName)
+		data := requireData(t, output)
+		item := requireItem(t, requireItems(t, data), "name", fixture.dagName)
 		require.Equal(t, dagSpecURI(fixture.dagName), requireString(t, item, "uri"))
+		requireBool(t, item, "suspended")
+		_, hasPagination := data["pagination"].(map[string]any)
+		require.True(t, hasPagination)
 	})
 
 	t.Run("dag target", func(t *testing.T) {
@@ -31,6 +35,14 @@ func TestReadDAGTargets(t *testing.T) {
 		data := requireData(t, output)
 		require.Equal(t, fixture.dagName, data["name"])
 		require.Equal(t, dagSpecURI(fixture.dagName), data["specUri"])
+		requireBool(t, data, "suspended")
+		// The fixture DAG has a completed run, so the latest-run summary must
+		// be present.
+		latestRun, ok := data["latestRun"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, fixture.dagRunID, latestRun["dagRunId"])
+		requireNumber(t, latestRun, "status")
+		require.NotEmpty(t, requireString(t, latestRun, "statusLabel"))
 	})
 
 	t.Run("dag_spec target", func(t *testing.T) {

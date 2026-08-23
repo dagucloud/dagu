@@ -116,6 +116,9 @@ func requireRunListItem(t *testing.T, item map[string]any, dagName, dagRunID str
 	require.Equal(t, runURI(dagName, dagRunID), item["uri"])
 	requireNumber(t, item, "status")
 	require.NotEmpty(t, requireString(t, item, "statusLabel"))
+	// The fixture run is finished, so both run timestamps must be present.
+	require.NotEmpty(t, requireString(t, item, "startedAt"))
+	require.NotEmpty(t, requireString(t, item, "finishedAt"))
 }
 
 func requireRunData(t *testing.T, data map[string]any, dagName, dagRunID string) {
@@ -124,8 +127,20 @@ func requireRunData(t *testing.T, data map[string]any, dagName, dagRunID string)
 	require.Equal(t, dagName, data["name"])
 	require.Equal(t, dagRunID, data["dagRunId"])
 	require.Equal(t, runURI(dagName, dagRunID), data["uri"])
+	require.Equal(t, runLogsURI(dagName, dagRunID, ""), data["logsUri"])
 	requireNumber(t, data, "status")
 	require.NotEmpty(t, requireString(t, data, "statusLabel"))
+	// The fixture run is finished, so both run timestamps must be present.
+	require.NotEmpty(t, requireString(t, data, "startedAt"))
+	require.NotEmpty(t, requireString(t, data, "finishedAt"))
+
+	steps, ok := data["steps"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, steps)
+	step := requireItem(t, steps, "name", "main")
+	requireNumber(t, step, "status")
+	require.NotEmpty(t, requireString(t, step, "statusLabel"))
+	require.Equal(t, runURI(dagName, dagRunID)+"/steps/main/logs", step["logUri"])
 }
 
 func requireRunLogsData(t *testing.T, data map[string]any) {

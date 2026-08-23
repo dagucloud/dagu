@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -550,6 +551,209 @@ func TestWikiPagePromptsIncludeRequiredUpsertFields(t *testing.T) {
 			require.Equal(t, test.wantFieldBlock, fieldBlock)
 		})
 	}
+}
+
+func TestNormalizeRunDetailsIncludesStepsAndFailureDetails(t *testing.T) {
+	t.Parallel()
+
+	stepError := "exit status 1"
+	queuedAt := "2026-08-23T01:00:00Z"
+	params := `{"TARGET":"orders"}`
+	raw := daguapi.GetDAGRunDetails200JSONResponse{
+		DagRunDetails: daguapi.DAGRunDetails{
+			Name:        "etl",
+			DagRunId:    "run-1",
+			Status:      2,
+			StatusLabel: "failed",
+			StartedAt:   "2026-08-23T01:00:05Z",
+			FinishedAt:  "2026-08-23T01:00:09Z",
+			QueuedAt:    &queuedAt,
+			Params:      &params,
+			Nodes: []daguapi.Node{
+				{
+					Step:        daguapi.Step{Name: "extract"},
+					Status:      4,
+					StatusLabel: "finished",
+					StartedAt:   "2026-08-23T01:00:05Z",
+					FinishedAt:  "2026-08-23T01:00:06Z",
+				},
+				{
+					Step:        daguapi.Step{Name: "load"},
+					Status:      2,
+					StatusLabel: "failed",
+					Error:       &stepError,
+				},
+			},
+			OnFailure: &daguapi.Node{
+				Step:        daguapi.Step{Name: "onFailure"},
+				Status:      4,
+				StatusLabel: "finished",
+			},
+		},
+	}
+
+	data, err := normalizeRunDetails(raw, "", "")
+	require.NoError(t, err)
+	require.Equal(t, "etl", data["name"])
+	require.Equal(t, "run-1", data["dagRunId"])
+	require.Equal(t, "dagu://runs/etl/run-1", data["uri"])
+	require.Equal(t, "dagu://runs/etl/run-1/logs", data["logsUri"])
+	require.Equal(t, "2026-08-23T01:00:05Z", data["startedAt"])
+	require.Equal(t, "2026-08-23T01:00:09Z", data["finishedAt"])
+	require.Equal(t, queuedAt, data["queuedAt"])
+	require.Equal(t, params, data["params"])
+	require.NotContains(t, data, "rootRun")
+	require.NotContains(t, data, "parentRun")
+
+	steps, ok := data["steps"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, steps, 2)
+	require.Equal(t, "extract", steps[0]["name"])
+	require.NotContains(t, steps[0], "error")
+	require.Equal(t, "load", steps[1]["name"])
+	require.Equal(t, stepError, steps[1]["error"])
+	require.Equal(t, "dagu://runs/etl/run-1/steps/load/logs", steps[1]["logUri"])
+	require.NotContains(t, steps[1], "startedAt")
+
+	handlers, ok := data["handlers"].(map[string]any)
+	require.True(t, ok)
+	require.Len(t, handlers, 1)
+	handler, ok := handlers["onFailure"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "onFailure", handler["name"])
+}
+
+func TestNormalizeRunDetailsIncludesRunHierarchy(t *testing.T) {
+	t.Parallel()
+
+	parentID := "parent-run"
+	parentName := "root-dag"
+	subDAGName := "child-dag"
+	raw := daguapi.GetDAGRunDetails200JSONResponse{
+		DagRunDetails: daguapi.DAGRunDetails{
+			Name:             "middle-dag",
+			DagRunId:         "run-2",
+			Status:           4,
+			StatusLabel:      "finished",
+			RootDAGRunId:     "root-run",
+			RootDAGRunName:   "root-dag",
+			ParentDAGRunId:   &parentID,
+			ParentDAGRunName: &parentName,
+			Nodes: []daguapi.Node{
+				{
+					Step:        daguapi.Step{Name: "call-child"},
+					Status:      4,
+					StatusLabel: "finished",
+					SubRuns: &[]daguapi.SubDAGRun{
+						{DagName: &subDAGName, DagRunId: "child-run"},
+					},
+				},
+			},
+		},
+	}
+
+	data, err := normalizeRunDetails(raw, "", "")
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"name": "root-dag", "dagRunId": "root-run"}, data["rootRun"])
+	require.Equal(t, map[string]any{"name": "root-dag", "dagRunId": "parent-run"}, data["parentRun"])
+
+	steps, ok := data["steps"].([]map[string]any)
+	require.True(t, ok)
+	subRuns, ok := steps[0]["subRuns"].([]map[string]any)
+	require.True(t, ok)
+	require.Equal(t, []map[string]any{{"dagName": "child-dag", "dagRunId": "child-run"}}, subRuns)
+}
+
+func TestNormalizeRunListIncludesTimestampsAndCursor(t *testing.T) {
+	t.Parallel()
+
+	cursor := "opaque-cursor"
+	raw := daguapi.DAGRunsPageResponse{
+		DagRuns: []daguapi.DAGRunSummary{
+			{
+				Name:        "etl",
+				DagRunId:    "run-1",
+				Status:      4,
+				StatusLabel: "finished",
+				StartedAt:   "2026-08-23T01:00:05Z",
+				FinishedAt:  "2026-08-23T01:00:09Z",
+			},
+			{
+				Name:        "etl",
+				DagRunId:    "run-0",
+				Status:      0,
+				StatusLabel: "not started",
+				StartedAt:   "-",
+				FinishedAt:  "-",
+			},
+		},
+		NextCursor: &cursor,
+	}
+
+	data, err := normalizeRunList(raw)
+	require.NoError(t, err)
+	require.Equal(t, cursor, data["nextCursor"])
+
+	items, ok := data["items"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, items, 2)
+	require.Equal(t, "2026-08-23T01:00:05Z", items[0]["startedAt"])
+	require.Equal(t, "2026-08-23T01:00:09Z", items[0]["finishedAt"])
+	require.NotContains(t, items[1], "startedAt")
+	require.NotContains(t, items[1], "finishedAt")
+}
+
+func TestNormalizeDAGListIncludesSummaryFields(t *testing.T) {
+	t.Parallel()
+
+	description := "Nightly ETL"
+	nextRun := time.Date(2026, 8, 24, 2, 0, 0, 0, time.UTC)
+	raw := daguapi.ListDAGs200JSONResponse{
+		Dags: []daguapi.DAGFile{
+			{
+				FileName: "etl",
+				Dag: daguapi.DAG{
+					Name:        "etl",
+					Description: &description,
+					Schedule:    &[]daguapi.Schedule{{Expression: "0 2 * * *"}},
+				},
+				Suspended: true,
+				NextRun:   &nextRun,
+				LatestDAGRun: daguapi.DAGRunSummary{
+					Name:        "etl",
+					DagRunId:    "run-1",
+					Status:      2,
+					StatusLabel: "failed",
+					StartedAt:   "2026-08-23T02:00:00Z",
+					FinishedAt:  "2026-08-23T02:00:05Z",
+				},
+			},
+			{FileName: "never-ran", Dag: daguapi.DAG{Name: "never-ran"}},
+		},
+		Pagination: daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 2},
+	}
+
+	data, err := normalizeDAGList(raw)
+	require.NoError(t, err)
+	require.Equal(t, daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 2}, data["pagination"])
+
+	items, ok := data["items"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, items, 2)
+
+	require.Equal(t, "etl", items[0]["name"])
+	require.Equal(t, description, items[0]["description"])
+	require.Equal(t, []string{"0 2 * * *"}, items[0]["schedule"])
+	require.Equal(t, true, items[0]["suspended"])
+	require.Equal(t, "2026-08-24T02:00:00Z", items[0]["nextRun"])
+	latest, ok := items[0]["latestRun"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "run-1", latest["dagRunId"])
+	require.Equal(t, "dagu://runs/etl/run-1", latest["uri"])
+
+	require.Equal(t, "never-ran", items[1]["name"])
+	require.NotContains(t, items[1], "latestRun")
+	require.NotContains(t, items[1], "description")
 }
 
 func TestRunLogsURIWithQueryPreservesQuery(t *testing.T) {

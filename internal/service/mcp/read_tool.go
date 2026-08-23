@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -971,49 +972,186 @@ func readReferenceCollection() map[string]any {
 }
 
 func normalizeDAGList(raw any) (map[string]any, error) {
-	var dags []daguapi.DAGFile
+	var resp daguapi.ListDAGs200JSONResponse
 	switch data := raw.(type) {
 	case daguapi.ListDAGs200JSONResponse:
-		dags = data.Dags
+		resp = data
 	case *daguapi.ListDAGs200JSONResponse:
-		dags = data.Dags
+		resp = *data
 	default:
 		return nil, fmt.Errorf("unexpected DAG list response %T", raw)
 	}
 
-	items := make([]map[string]any, 0, len(dags))
-	for _, dag := range dags {
+	items := make([]map[string]any, 0, len(resp.Dags))
+	for _, dag := range resp.Dags {
 		name := dag.FileName
 		if name == "" {
 			name = dag.Dag.Name
 		}
-		items = append(items, map[string]any{
-			"name": name,
-			"uri":  dagSpecURI(name),
-		})
+		item := map[string]any{
+			"name":      name,
+			"uri":       dagSpecURI(name),
+			"suspended": dag.Suspended,
+		}
+		if dag.Dag.Description != nil && *dag.Dag.Description != "" {
+			item["description"] = *dag.Dag.Description
+		}
+		if schedules := scheduleStrings(dag.Dag.Schedule); len(schedules) > 0 {
+			item["schedule"] = schedules
+		}
+		if dag.Dag.Labels != nil && len(*dag.Dag.Labels) > 0 {
+			item["labels"] = *dag.Dag.Labels
+		}
+		if dag.NextRun != nil {
+			item["nextRun"] = dag.NextRun.Format(time.RFC3339)
+		}
+		if latest := runSummaryEntry(
+			name,
+			string(dag.LatestDAGRun.DagRunId),
+			dag.LatestDAGRun.Status,
+			string(dag.LatestDAGRun.StatusLabel),
+			dag.LatestDAGRun.StartedAt,
+			dag.LatestDAGRun.FinishedAt,
+		); latest != nil {
+			item["latestRun"] = latest
+		}
+		if len(dag.Errors) > 0 {
+			item["errors"] = dag.Errors
+		}
+		items = append(items, item)
 	}
-	return map[string]any{"items": items}, nil
+	out := map[string]any{
+		"items":      items,
+		"pagination": resp.Pagination,
+	}
+	if len(resp.Errors) > 0 {
+		out["errors"] = resp.Errors
+	}
+	return out, nil
 }
 
 func normalizeDAGDetails(raw any, fallbackName string) (map[string]any, error) {
-	var dag *daguapi.DAGDetails
+	var resp daguapi.GetDAGDetails200JSONResponse
 	switch data := raw.(type) {
 	case daguapi.GetDAGDetails200JSONResponse:
-		dag = data.Dag
+		resp = data
 	case *daguapi.GetDAGDetails200JSONResponse:
-		dag = data.Dag
+		resp = *data
 	default:
 		return nil, fmt.Errorf("unexpected DAG details response %T", raw)
 	}
 
+	dag := resp.Dag
 	name := fallbackName
 	if dag != nil && dag.Name != "" {
 		name = dag.Name
 	}
-	return map[string]any{
-		"name":    name,
-		"specUri": dagSpecURI(name),
-	}, nil
+	out := map[string]any{
+		"name":      name,
+		"specUri":   dagSpecURI(name),
+		"suspended": resp.Suspended,
+	}
+	if dag != nil {
+		if dag.Description != nil && *dag.Description != "" {
+			out["description"] = *dag.Description
+		}
+		if schedules := scheduleStrings(dag.Schedule); len(schedules) > 0 {
+			out["schedule"] = schedules
+		}
+		if dag.Labels != nil && len(*dag.Labels) > 0 {
+			out["labels"] = *dag.Labels
+		}
+		if dag.Group != nil && *dag.Group != "" {
+			out["group"] = *dag.Group
+		}
+		if dag.Queue != nil && *dag.Queue != "" {
+			out["queue"] = *dag.Queue
+		}
+		if dag.Params != nil && len(*dag.Params) > 0 {
+			out["params"] = *dag.Params
+		}
+		if dag.DefaultParams != nil && *dag.DefaultParams != "" {
+			out["defaultParams"] = *dag.DefaultParams
+		}
+		if dag.NextRun != nil {
+			out["nextRun"] = dag.NextRun.Format(time.RFC3339)
+		}
+		if dag.Steps != nil && len(*dag.Steps) > 0 {
+			steps := make([]map[string]any, 0, len(*dag.Steps))
+			for _, step := range *dag.Steps {
+				entry := map[string]any{"name": step.Name}
+				if step.Id != nil && *step.Id != "" {
+					entry["id"] = *step.Id
+				}
+				if step.Description != nil && *step.Description != "" {
+					entry["description"] = *step.Description
+				}
+				steps = append(steps, entry)
+			}
+			out["steps"] = steps
+		}
+	}
+	if latest := runSummaryEntry(
+		name,
+		string(resp.LatestDAGRun.DagRunId),
+		resp.LatestDAGRun.Status,
+		string(resp.LatestDAGRun.StatusLabel),
+		resp.LatestDAGRun.StartedAt,
+		resp.LatestDAGRun.FinishedAt,
+	); latest != nil {
+		out["latestRun"] = latest
+	}
+	if len(resp.Errors) > 0 {
+		out["errors"] = resp.Errors
+	}
+	return out, nil
+}
+
+// scheduleStrings flattens API schedule entries into cron expressions and
+// RFC 3339 one-off timestamps.
+func scheduleStrings(schedules *[]daguapi.Schedule) []string {
+	if schedules == nil {
+		return nil
+	}
+	out := make([]string, 0, len(*schedules))
+	for _, schedule := range *schedules {
+		switch {
+		case schedule.Expression != "":
+			out = append(out, schedule.Expression)
+		case schedule.At != nil:
+			out = append(out, schedule.At.Format(time.RFC3339))
+		}
+	}
+	return out
+}
+
+// runSummaryEntry returns a compact DAG-run reference, or nil when the source
+// has no run ID (for example a DAG that has never run).
+func runSummaryEntry(name, dagRunID string, status any, statusLabel, startedAt, finishedAt string) map[string]any {
+	if dagRunID == "" {
+		return nil
+	}
+	entry := map[string]any{
+		"dagRunId":    dagRunID,
+		"status":      status,
+		"statusLabel": statusLabel,
+	}
+	if name != "" {
+		entry["uri"] = runURI(name, dagRunID)
+	}
+	if isSetTimestamp(startedAt) {
+		entry["startedAt"] = startedAt
+	}
+	if isSetTimestamp(finishedAt) {
+		entry["finishedAt"] = finishedAt
+	}
+	return entry
+}
+
+// isSetTimestamp reports whether a serialized run timestamp holds a value;
+// unset timestamps are stored as an empty string or the "-" placeholder.
+func isSetTimestamp(value string) bool {
+	return value != "" && value != "-"
 }
 
 func normalizeDAGSpec(raw map[string]any, name string) map[string]any {
@@ -1038,35 +1176,50 @@ func normalizeDAGSpec(raw map[string]any, name string) map[string]any {
 }
 
 func normalizeRunList(raw any) (map[string]any, error) {
-	var runs []daguapi.DAGRunSummary
+	var page daguapi.DAGRunsPageResponse
 	switch data := raw.(type) {
 	case daguapi.DAGRunsPageResponse:
-		runs = data.DagRuns
+		page = data
 	case *daguapi.DAGRunsPageResponse:
-		runs = data.DagRuns
+		page = *data
 	case daguapi.ListDAGRuns200JSONResponse:
-		page := daguapi.DAGRunsPageResponse(data)
-		runs = page.DagRuns
+		page = daguapi.DAGRunsPageResponse(data)
 	case *daguapi.ListDAGRuns200JSONResponse:
-		page := daguapi.DAGRunsPageResponse(*data)
-		runs = page.DagRuns
+		page = daguapi.DAGRunsPageResponse(*data)
 	default:
 		return nil, fmt.Errorf("unexpected DAG-run list response %T", raw)
 	}
 
-	items := make([]map[string]any, 0, len(runs))
-	for _, run := range runs {
+	items := make([]map[string]any, 0, len(page.DagRuns))
+	for _, run := range page.DagRuns {
 		name := string(run.Name)
 		dagRunID := string(run.DagRunId)
-		items = append(items, map[string]any{
+		item := map[string]any{
 			"name":        name,
 			"dagRunId":    dagRunID,
 			"uri":         runURI(name, dagRunID),
 			"status":      run.Status,
 			"statusLabel": run.StatusLabel,
-		})
+		}
+		if isSetTimestamp(run.StartedAt) {
+			item["startedAt"] = run.StartedAt
+		}
+		if isSetTimestamp(run.FinishedAt) {
+			item["finishedAt"] = run.FinishedAt
+		}
+		if run.QueuedAt != nil && isSetTimestamp(*run.QueuedAt) {
+			item["queuedAt"] = *run.QueuedAt
+		}
+		if run.Labels != nil && len(*run.Labels) > 0 {
+			item["labels"] = *run.Labels
+		}
+		items = append(items, item)
 	}
-	return map[string]any{"items": items}, nil
+	out := map[string]any{"items": items}
+	if page.NextCursor != nil && *page.NextCursor != "" {
+		out["nextCursor"] = *page.NextCursor
+	}
+	return out, nil
 }
 
 func normalizeRunDetails(raw any, fallbackName, fallbackDAGRunID string) (map[string]any, error) {
@@ -1088,13 +1241,112 @@ func normalizeRunDetails(raw any, fallbackName, fallbackDAGRunID string) (map[st
 	if dagRunID == "" {
 		dagRunID = fallbackDAGRunID
 	}
-	return map[string]any{
+	out := map[string]any{
 		"name":        name,
 		"dagRunId":    dagRunID,
 		"uri":         runURI(name, dagRunID),
+		"logsUri":     runLogsURI(name, dagRunID),
 		"status":      run.Status,
 		"statusLabel": run.StatusLabel,
-	}, nil
+		"steps":       runStepEntries(name, dagRunID, run.Nodes),
+	}
+	if isSetTimestamp(run.StartedAt) {
+		out["startedAt"] = run.StartedAt
+	}
+	if isSetTimestamp(run.FinishedAt) {
+		out["finishedAt"] = run.FinishedAt
+	}
+	if run.QueuedAt != nil && isSetTimestamp(*run.QueuedAt) {
+		out["queuedAt"] = *run.QueuedAt
+	}
+	if run.Params != nil && *run.Params != "" {
+		out["params"] = *run.Params
+	}
+	if run.Labels != nil && len(*run.Labels) > 0 {
+		out["labels"] = *run.Labels
+	}
+	if run.RootDAGRunId != "" && run.RootDAGRunId != dagRunID {
+		out["rootRun"] = map[string]any{
+			"name":     run.RootDAGRunName,
+			"dagRunId": run.RootDAGRunId,
+		}
+	}
+	if run.ParentDAGRunId != nil && *run.ParentDAGRunId != "" {
+		parent := map[string]any{"dagRunId": *run.ParentDAGRunId}
+		if run.ParentDAGRunName != nil && *run.ParentDAGRunName != "" {
+			parent["name"] = *run.ParentDAGRunName
+		}
+		out["parentRun"] = parent
+	}
+	if run.Conditions != nil && len(*run.Conditions) > 0 {
+		out["conditions"] = *run.Conditions
+	}
+	if handlers := runHandlerEntries(name, dagRunID, run); len(handlers) > 0 {
+		out["handlers"] = handlers
+	}
+	return out, nil
+}
+
+func runStepEntries(name, dagRunID string, nodes []daguapi.Node) []map[string]any {
+	steps := make([]map[string]any, 0, len(nodes))
+	for _, node := range nodes {
+		steps = append(steps, runStepEntry(name, dagRunID, node))
+	}
+	return steps
+}
+
+func runStepEntry(name, dagRunID string, node daguapi.Node) map[string]any {
+	entry := map[string]any{
+		"name":        node.Step.Name,
+		"status":      node.Status,
+		"statusLabel": node.StatusLabel,
+		"logUri":      stepLogURI(name, dagRunID, node.Step.Name),
+	}
+	if node.Step.Id != nil && *node.Step.Id != "" {
+		entry["id"] = *node.Step.Id
+	}
+	if isSetTimestamp(node.StartedAt) {
+		entry["startedAt"] = node.StartedAt
+	}
+	if isSetTimestamp(node.FinishedAt) {
+		entry["finishedAt"] = node.FinishedAt
+	}
+	if node.Error != nil && *node.Error != "" {
+		entry["error"] = *node.Error
+	}
+	if node.RetryCount > 0 {
+		entry["retryCount"] = node.RetryCount
+	}
+	if node.SubRuns != nil && len(*node.SubRuns) > 0 {
+		subRuns := make([]map[string]any, 0, len(*node.SubRuns))
+		for _, subRun := range *node.SubRuns {
+			ref := map[string]any{"dagRunId": string(subRun.DagRunId)}
+			if subRun.DagName != nil && *subRun.DagName != "" {
+				ref["dagName"] = *subRun.DagName
+			}
+			subRuns = append(subRuns, ref)
+		}
+		entry["subRuns"] = subRuns
+	}
+	return entry
+}
+
+func runHandlerEntries(name, dagRunID string, run daguapi.DAGRunDetails) map[string]any {
+	handlers := map[string]*daguapi.Node{
+		"onInit":    run.OnInit,
+		"onSuccess": run.OnSuccess,
+		"onFailure": run.OnFailure,
+		"onAbort":   run.OnAbort,
+		"onExit":    run.OnExit,
+		"onWait":    run.OnWait,
+	}
+	out := map[string]any{}
+	for key, node := range handlers {
+		if node != nil {
+			out[key] = runStepEntry(name, dagRunID, *node)
+		}
+	}
+	return out
 }
 
 func classifyReadToolError(input readInput, err error) *readToolError {
