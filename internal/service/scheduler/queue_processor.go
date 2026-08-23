@@ -23,6 +23,7 @@ import (
 
 const queueAgeWarningThreshold = 2 * time.Minute
 const queueProcessMinInterval = 3 * time.Second
+const maxConcurrentDispatchHandoffs = 8
 
 var (
 	errProcessorClosed              = errors.New("processor closed")
@@ -100,6 +101,7 @@ type QueueProcessor struct {
 	isSuspended            IsSuspendedFunc
 	queues                 sync.Map // map[string]*queue
 	wakeUpCh               chan struct{}
+	dispatchHandoffs       chan struct{}
 	quit                   chan struct{}
 	wg                     sync.WaitGroup
 	stopOnce               sync.Once
@@ -201,6 +203,7 @@ func NewQueueProcessor(
 		procRepository:   procRepository,
 		dagExecutor:      dagExecutor,
 		wakeUpCh:         make(chan struct{}, 1),
+		dispatchHandoffs: make(chan struct{}, maxConcurrentDispatchHandoffs),
 		quit:             make(chan struct{}),
 		// Seed prevTime in the past so Start()'s initial wake-up is not
 		// throttled by the minimum processing interval.
@@ -351,7 +354,19 @@ func (p *QueueProcessor) newQueueDispatcher() *queueDispatcher {
 		leaseStaleThreshold:    p.leaseStaleThreshold,
 		isClosed:               p.isClosed,
 		wakeUp:                 p.wakeUp,
+		acquireDispatchHandoff: p.acquireDispatchHandoff,
 	})
+}
+
+func (p *QueueProcessor) acquireDispatchHandoff(ctx context.Context) (func(), bool) {
+	select {
+	case p.dispatchHandoffs <- struct{}{}:
+		return func() { <-p.dispatchHandoffs }, true
+	case <-ctx.Done():
+		return nil, false
+	case <-p.quit:
+		return nil, false
+	}
 }
 
 // ProcessQueueItems processes items in the specified queue.

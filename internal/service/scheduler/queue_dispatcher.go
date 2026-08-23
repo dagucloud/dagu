@@ -39,6 +39,7 @@ type queueDispatchDeps struct {
 	leaseStaleThreshold    time.Duration
 	isClosed               func() bool
 	wakeUp                 func()
+	acquireDispatchHandoff func(context.Context) (func(), bool)
 }
 
 // queueDispatcher owns queue-item dispatch decisions after a queue has capacity.
@@ -55,6 +56,7 @@ type queueDispatcher struct {
 	leaseStaleThreshold    time.Duration
 	isClosed               func() bool
 	wakeUp                 func()
+	acquireDispatchHandoff func(context.Context) (func(), bool)
 
 	queuedConditionCursorMu sync.Mutex
 	queuedConditionCursor   map[string]int
@@ -294,6 +296,11 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 	if deps.wakeUp == nil {
 		deps.wakeUp = func() {}
 	}
+	if deps.acquireDispatchHandoff == nil {
+		deps.acquireDispatchHandoff = func(context.Context) (func(), bool) {
+			return func() {}, true
+		}
+	}
 	return &queueDispatcher{
 		queueStore:             deps.queueStore,
 		dagRunRepository:       deps.dagRunRepository,
@@ -307,6 +314,7 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 		leaseStaleThreshold:    deps.leaseStaleThreshold,
 		isClosed:               deps.isClosed,
 		wakeUp:                 deps.wakeUp,
+		acquireDispatchHandoff: deps.acquireDispatchHandoff,
 		queuedConditionCursor:  make(map[string]int),
 	}
 }
@@ -827,49 +835,11 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 	admissionReservationToken string,
 	conditionStage *queuedConditionStage,
 ) bool {
-	policy := backoff.NewExponentialBackoffPolicy(d.backoffConfig.InitialInterval)
-	policy.MaxInterval = d.backoffConfig.MaxInterval
-	policy.MaxRetries = d.backoffConfig.MaxRetries
-	retryCtx := backoff.WithRetryFailureLogLevel(ctx, slog.LevelInfo)
-
 	launchedAt := time.Now()
-	var started bool
-	dispatched := false
+	defer d.wakeUp()
 
-	operation := func(ctx context.Context) error {
-		if err := d.checkContextAndQuit(ctx); err != nil {
-			return err
-		}
-
-		if !dispatched {
-			err := d.dagExecutor.ExecuteDAGWithAdmission(ctx, dag, dispatch.DispatchOperationRetry,
-				runID, dagStatus, dagStatus.TriggerType, dagStatus.ScheduleTime, admissionReservationToken)
-			if err != nil {
-				if _, ok := errors.AsType[*queuedomain.StaleQueueDispatchError](err); ok {
-					return backoff.PermanentError(err)
-				}
-				if errors.Is(err, backoff.ErrPermanent) {
-					logger.Error(ctx, "Permanent dispatch failure", tag.Error(err))
-					return err
-				}
-				logger.Warn(ctx, "Transient dispatch failure, will retry", tag.Error(err))
-				return err
-			}
-			dispatched = true
-			if admissionReservationToken != "" {
-				started = true
-				return nil
-			}
-		}
-
-		var err error
-		started, err = d.checkStartupStatus(ctx, queueName, runRef, startupWaitState{
-			launchedAt: launchedAt,
-		})
-		return err
-	}
-
-	if err := backoff.Retry(retryCtx, operation, policy, nil); err != nil {
+	err := d.executeDistributedHandoff(ctx, dag, runID, dagStatus, admissionReservationToken)
+	if err != nil {
 		d.releaseAdmissionToken(ctx, admissionReservationToken)
 		if staleErr, ok := errors.AsType[*queuedomain.StaleQueueDispatchError](err); ok {
 			logger.Info(ctx, "Discarding stale distributed queue dispatch",
@@ -880,21 +850,36 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 			)
 			return true
 		}
-		logger.Error(ctx, "Failed to dispatch DAG after retries", tag.Error(err))
+		logger.Warn(ctx, "Failed to dispatch DAG; leaving it queued for the next scan", tag.Error(err))
 		if shouldRecordStartupCondition(err) {
-			if errors.Is(err, errRunLivenessUnavailable) {
-				conditionStage.observe(runLivenessUnavailableConditionDefs...)
-			} else if dispatched && startupNotObserved(err) {
-				conditionStage.observe(startupNotObservedConditionDefs...)
-			} else {
-				conditionStage.observe(queuedDispatchCondition(err)...)
-			}
+			conditionStage.observe(queuedDispatchCondition(err)...)
 			conditionStage.flush(ctx)
 		}
+		return false
 	}
 
-	defer d.wakeUp()
-	return started
+	if admissionReservationToken != "" {
+		return true
+	}
+	return d.waitForStartupWithConditions(ctx, queueName, runRef, startupWaitState{
+		launchedAt: launchedAt,
+	}, conditionStage)
+}
+
+func (d *queueDispatcher) executeDistributedHandoff(
+	ctx context.Context,
+	dag *ir.DAG,
+	runID string,
+	dagStatus *ir.DAGRunStatus,
+	admissionReservationToken string,
+) error {
+	release, acquired := d.acquireDispatchHandoff(ctx)
+	if !acquired {
+		return d.checkContextAndQuit(ctx)
+	}
+	defer release()
+	return d.dagExecutor.ExecuteDAGWithAdmission(ctx, dag, dispatch.DispatchOperationRetry,
+		runID, dagStatus, dagStatus.TriggerType, dagStatus.ScheduleTime, admissionReservationToken)
 }
 
 func (d *queueDispatcher) reserveDistributedAdmission(

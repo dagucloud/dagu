@@ -564,6 +564,31 @@ func TestQueueDispatcher_DistributedDispatchHandsOffWithAdmissionToken(t *testin
 	procRepository.AssertExpectations(t)
 }
 
+func TestQueueProcessorLimitsConcurrentDispatchHandoffs(t *testing.T) {
+	t.Parallel()
+
+	processor := NewQueueProcessor(nil, nil, nil, nil, config.Queues{})
+	releases := make([]func(), 0, maxConcurrentDispatchHandoffs)
+	for range maxConcurrentDispatchHandoffs {
+		release, acquired := processor.acquireDispatchHandoff(context.Background())
+		require.True(t, acquired)
+		releases = append(releases, release)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, acquired := processor.acquireDispatchHandoff(canceled)
+	require.False(t, acquired)
+
+	releases[0]()
+	release, acquired := processor.acquireDispatchHandoff(context.Background())
+	require.True(t, acquired)
+	release()
+	for _, release := range releases[1:] {
+		release()
+	}
+}
+
 func TestQueueProcessor_SuspendedSchedulerManagedQueuedRunsAreAbortedAndDequeued(t *testing.T) {
 	triggers := []ir.TriggerType{
 		ir.TriggerTypeScheduler,

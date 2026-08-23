@@ -328,18 +328,13 @@ func (m *mockDispatcher) RequestCancel(_ context.Context, _, _ string, _ *ir.DAG
 	return nil
 }
 
-func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *testing.T) {
-	dagRunRepository := &mockDAGRunStore{}
+func TestQueueDispatcher_DispatchFailureReturnsToQueueScan(t *testing.T) {
 	procRepository := &mockProcRepository{}
 	runRef := ir.NewDAGRunRef("test-dag", "run-1")
 
-	// Dispatcher fails twice with a transient error, then succeeds.
 	disp := &mockDispatcher{
-		errFunc: func(n int32) error {
-			if n <= 2 {
-				return errors.New("no available workers")
-			}
-			return nil
+		errFunc: func(int32) error {
+			return errors.New("no available workers")
 		},
 	}
 
@@ -347,13 +342,9 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *
 	dag := &ir.DAG{Name: "test-dag"}
 	status := &ir.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeScheduler}
 
-	// After dispatch succeeds, the process should become alive.
-	procRepository.On("IsRunAlive", mock.Anything, "test-queue", runRef).Return(true, nil).Once()
-
 	dispatcher := newQueueDispatcher(queueDispatchDeps{
-		dagRunRepository: dagRunRepository.repository(),
-		procRepository:   procRepository,
-		dagExecutor:      dagExec,
+		procRepository: procRepository,
+		dagExecutor:    dagExec,
 		backoffConfig: BackoffConfig{
 			InitialInterval:    10 * time.Millisecond,
 			MaxInterval:        50 * time.Millisecond,
@@ -363,9 +354,9 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_TransientRetryThenSuccess(t *
 	})
 
 	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status, "")
-	require.True(t, started)
-	require.GreaterOrEqual(t, disp.callCount.Load(), int32(3))
-	procRepository.AssertExpectations(t)
+	require.False(t, started)
+	require.Equal(t, int32(1), disp.callCount.Load())
+	procRepository.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded(t *testing.T) {
@@ -403,7 +394,7 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_StaleQueueDispatchIsDiscarded
 	procRepository.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRetry(t *testing.T) {
+func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchIsDiscarded(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
 	procRepository := &mockProcRepository{}
 
@@ -436,12 +427,11 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_RawStaleQueueDispatchStopsRet
 	procRepository.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *testing.T) {
+func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorLeavesRunQueued(t *testing.T) {
 	dagRunRepository := &mockDAGRunStore{}
 	procRepository := &mockProcRepository{}
 	attempt := &testutil.MockAttempt{}
 
-	// Dispatcher always returns a permanent error (selector mismatch).
 	disp := &mockDispatcher{
 		errFunc: func(_ int32) error {
 			return backoff.PermanentError(errors.New("no workers match the required selector"))
@@ -484,7 +474,6 @@ func TestQueueDispatcher_DispatchAndWaitForStartup_PermanentErrorStopsRetry(t *t
 
 	started := dispatcher.dispatchAndWaitForStartup(context.Background(), "test-queue", runRef, dag, "run-1", status, "")
 	require.False(t, started)
-	// Should have been called exactly once (permanent error stops retries).
 	require.Equal(t, int32(1), disp.callCount.Load())
 	procRepository.AssertNotCalled(t, "IsRunAlive", mock.Anything, mock.Anything, mock.Anything)
 	dagRunRepository.AssertExpectations(t)
