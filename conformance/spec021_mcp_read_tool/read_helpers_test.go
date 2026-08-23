@@ -116,6 +116,7 @@ func requireResultContent(t *testing.T, result *mcpsdk.CallToolResult, target st
 	if target == "dags" {
 		payload, found := strings.CutPrefix(text.Text, "Dagu read completed.\n\n")
 		require.True(t, found)
+		require.Contains(t, payload, "\n  ")
 		var visibleData any
 		require.NoError(t, json.Unmarshal([]byte(payload), &visibleData))
 		require.Equal(t, data, visibleData)
