@@ -6,7 +6,9 @@ package spec021_mcp_read_tool_test
 import (
 	"testing"
 
+	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/conformance/mcptest"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,6 +95,78 @@ func TestReadStepLogQueries(t *testing.T) {
 		})
 		requireReadError(t, result, "invalid_tool_input")
 	})
+}
+
+func TestReadSubRunDrillDown(t *testing.T) {
+	server := mcptest.NewServer(t)
+	server.CreateDAG(t, "mcp_sub_parent", `steps:
+  - name: call-child
+    action: dag.run
+    with:
+      dag: child
+
+---
+name: child
+steps:
+  - name: boom
+    run: "exit 1"
+`)
+	dagRunID := server.StartDAG(t, "mcp_sub_parent")
+	server.WaitForDAGRunStatus(t, "mcp_sub_parent", dagRunID, api.StatusFailed)
+	session := server.Connect(t, "")
+
+	// The parent run identifies the failing child run.
+	result := callRead(t, session, map[string]any{
+		"target":   "run",
+		"name":     "mcp_sub_parent",
+		"dagRunId": dagRunID,
+	})
+	require.False(t, result.IsError)
+	parent := requireData(t, mcptest.StructuredMap(t, result))
+	parentStep := requireItem(t, parent["steps"].([]any), "name", "call-child")
+	require.NotEmpty(t, parentStep["error"])
+	subRuns, ok := parentStep["subRuns"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, subRuns)
+	subRun, ok := subRuns[0].(map[string]any)
+	require.True(t, ok)
+	subRunID := requireString(t, subRun, "dagRunId")
+	subURI := runURI("mcp_sub_parent", dagRunID) + "/sub/" + subRunID
+	requireURIEqual(t, subURI, requireString(t, subRun, "uri"))
+
+	// The child run carries its own step statuses and error message.
+	requireChildRun := func(t *testing.T, result *mcpsdk.CallToolResult) {
+		t.Helper()
+		require.False(t, result.IsError)
+		output := mcptest.StructuredMap(t, result)
+		require.Equal(t, "run", output["target"])
+		requireURIEqual(t, subURI, requireString(t, output, "uri"))
+		child := requireData(t, output)
+		require.Equal(t, "child", child["name"])
+		require.Equal(t, subRunID, child["dagRunId"])
+		childStep := requireItem(t, child["steps"].([]any), "name", "boom")
+		require.NotEmpty(t, childStep["error"])
+		requireURIEqual(t, subURI+"/steps/boom/logs", requireString(t, childStep, "logUri"))
+	}
+	requireChildRun(t, callRead(t, session, map[string]any{
+		"target":   "run",
+		"name":     "mcp_sub_parent",
+		"dagRunId": dagRunID,
+		"subRunId": subRunID,
+	}))
+	requireChildRun(t, callRead(t, session, map[string]any{"uri": subURI}))
+
+	// The child step log resolves through the same sub addressing.
+	logResult := callRead(t, session, map[string]any{
+		"target":   "step_log",
+		"name":     "mcp_sub_parent",
+		"dagRunId": dagRunID,
+		"subRunId": subRunID,
+		"stepName": "boom",
+	})
+	require.False(t, logResult.IsError)
+	logData := requireData(t, mcptest.StructuredMap(t, logResult))
+	requireNumber(t, logData, "lineCount")
 }
 
 func TestReadRunURIMode(t *testing.T) {
