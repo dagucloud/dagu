@@ -1106,10 +1106,6 @@ func localLaunchFailed(err error) bool {
 	return !errors.As(err, &exitErr)
 }
 
-func startupNotObserved(err error) bool {
-	return errors.Is(err, errNotStarted) || errors.Is(err, errExecutionExitedBeforeStartup)
-}
-
 func shouldBoundLocalStartupError(waitState startupWaitState, err error) bool {
 	return waitState.execDone != nil &&
 		err != nil &&
