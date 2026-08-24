@@ -37,6 +37,10 @@ func TestServerCommand(t *testing.T) {
 	})
 }
 
+func TestServerSecondInterruptTerminatesBlockedCleanup(t *testing.T) {
+	assertSecondInterruptTerminatesBlockedCleanup(t, "server", "Resource monitoring service stopped")
+}
+
 // findPort finds an available port.
 func findPort(t *testing.T) string {
 	t.Helper()

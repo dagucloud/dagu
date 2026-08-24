@@ -99,6 +99,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
 	cleanupCancel, cleanupDone := startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
 	defer func() {
+		stop()
 		shutdownCtx, shutdownCancel := localAgentSessionShutdownContext(ctx)
 		defer shutdownCancel()
 		if err := stopLocalAgentSessionCleanup(shutdownCtx, cleanupCancel, cleanupDone, openCodeHost); err != nil {
