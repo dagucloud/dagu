@@ -68,6 +68,7 @@ type RunStatus struct {
 	Outputs            map[string]string
 	OutputValues       map[string]any
 	Status             Status
+	PreconditionNotMet bool `json:"-"`
 	PendingStepRetries []PendingStepRetry
 }
 

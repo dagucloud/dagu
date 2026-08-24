@@ -242,6 +242,53 @@ steps:
 	})
 }
 
+func TestSubDAG_UnmetChildPreconditionContinuesOnSkipped(t *testing.T) {
+	f := newTestFixture(t, `
+steps:
+  - id: call_child
+    action: dag.run
+    with:
+      dag: guarded-child
+    continue_on: skipped
+  - id: after_child
+    depends: [call_child]
+    run: echo "continued"
+
+---
+name: guarded-child
+worker_selector:
+  type: test-worker
+preconditions:
+  - condition: "blocked"
+    expected: "ready"
+steps:
+  - id: should_not_run
+    run: echo "should not run"
+`, withLabels(map[string]string{"type": "test-worker"}))
+
+	f.dagWrapper.Agent().RunSuccess(t)
+	parentStatus, err := f.latestStatus()
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, parentStatus.Status)
+
+	callChild := requireNodeByID(t, parentStatus, "call_child")
+	require.Equal(t, ir.NodeSkipped, callChild.Status)
+	require.Len(t, callChild.SubRuns, 1)
+	require.Equal(t, ir.NodeSucceeded, requireNodeByID(t, parentStatus, "after_child").Status)
+
+	subAttempt, err := f.coord.DAGRunRepository.FindSubAttempt(
+		f.coord.Context,
+		ir.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
+		callChild.SubRuns[0].DAGRunID,
+	)
+	require.NoError(t, err)
+
+	childStatus, err := subAttempt.ReadStatus(f.coord.Context)
+	require.NoError(t, err)
+	require.Equal(t, ir.Aborted, childStatus.Status)
+	require.Equal(t, ir.NodeNotStarted, requireNodeByID(t, *childStatus, "should_not_run").Status)
+}
+
 func TestSubDAG_NoMatchingWorker(t *testing.T) {
 	t.Run("failsWhenNoWorkerMatchesSelector", func(t *testing.T) {
 		f := newTestFixture(t, `

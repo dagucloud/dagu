@@ -566,8 +566,21 @@ func statusToRunStatus(status *ir.DAGRunStatus, runID string) *ir.RunStatus {
 		Outputs:            outputVariablesFromNodes(nodes),
 		OutputValues:       outputValuesFromNodes(nodes),
 		Status:             status.Status,
+		PreconditionNotMet: preconditionNotMet(status),
 		PendingStepRetries: ir.PendingStepRetriesFromStatus(status),
 	}
+}
+
+func preconditionNotMet(status *ir.DAGRunStatus) bool {
+	if status.Status != ir.Aborted {
+		return false
+	}
+	for _, result := range status.Preconditions {
+		if result.Error != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func outputVariablesFromNodes(nodes []*ir.Node) map[string]string {

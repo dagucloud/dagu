@@ -408,6 +408,11 @@ Rules:
   normal step.
 - If any DAG-level precondition is not met, the DAG run reaches terminal status
   `aborted`.
+- When a DAG invoked by a `dag.run` step is aborted because a DAG-level
+  precondition is not met, the child run remains `aborted` and the invoking
+  step reaches terminal status `skipped`.
+- A skipped `dag.run` invocation follows the normal skipped-step continuation
+  rules, including `continue_on: skipped`.
 - A DAG-level precondition not-met result is an abort event for lifecycle
   handler selection.
 - If a DAG-level precondition has an evaluation error, the DAG run reaches

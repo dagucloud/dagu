@@ -196,7 +196,12 @@ func (e *dagExecutor) DetermineNodeStatus() (ir.NodeStatus, error) {
 		// Sub-DAG is waiting for human approval
 		// Propagate the waiting status to the parent
 		return ir.NodeWaiting, nil
-	case ir.NotStarted, ir.Running, ir.Failed, ir.Aborted, ir.Queued:
+	case ir.Aborted:
+		if e.result.PreconditionNotMet {
+			return ir.NodeSkipped, nil
+		}
+		return ir.NodeFailed, fmt.Errorf("sub DAG run %s failed with status: %s", e.result.DAGRunID, e.result.Status)
+	case ir.NotStarted, ir.Running, ir.Failed, ir.Queued:
 		return ir.NodeFailed, fmt.Errorf("sub DAG run %s failed with status: %s", e.result.DAGRunID, e.result.Status)
 	default:
 		// This should never happen, but satisfies the exhaustive check

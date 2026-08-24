@@ -190,6 +190,68 @@ func TestRunnerRunDispatchesWorkflowRequest(t *testing.T) {
 	assert.Equal(t, true, result.OutputValues["typed"])
 }
 
+func TestRunnerRunReportsUnmetRootPrecondition(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status ir.DAGRunStatus
+		want   bool
+	}{
+		{
+			name: "aborted because precondition was not met",
+			status: ir.DAGRunStatus{
+				Status: ir.Aborted,
+				Preconditions: []ir.ConditionResult{
+					{Error: "condition was not met"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "aborted after preconditions passed",
+			status: ir.DAGRunStatus{
+				Status: ir.Aborted,
+				Preconditions: []ir.ConditionResult{
+					{Condition: ir.Condition{Condition: "ready", Expected: "ready"}},
+				},
+			},
+		},
+		{
+			name: "precondition evaluation failed",
+			status: ir.DAGRunStatus{
+				Status: ir.Failed,
+				Preconditions: []ir.ConditionResult{
+					{Error: "failed to evaluate condition"},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dispatcher := &mockDispatcher{
+				statuses: []*dispatch.DAGRunStatusResult{
+					{Found: false},
+					{Found: true, Status: &tt.status},
+				},
+			}
+			runner := newFastRunner(dispatcher)
+
+			result, err := runner.Run(context.Background(), runtimeexec.SubWorkflowRequest{
+				DAG:        &ir.DAG{Name: "child", YamlData: []byte("name: child")},
+				RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
+				RunID:      "child-1",
+			})
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.want, result.PreconditionNotMet)
+		})
+	}
+}
+
 func TestRunnerRunPreservesDAGBaseConfigWithWorkspace(t *testing.T) {
 	t.Parallel()
 
