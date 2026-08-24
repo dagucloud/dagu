@@ -613,7 +613,7 @@ function StartDAGModal({
             : 'flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px] max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none'
         }
       >
-        <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-24">
+        <DialogHeader className="min-h-12 shrink-0 border-b border-border px-6 py-3 pr-24">
           <DialogTitle>
             {forceEnqueue ? 'Enqueue the DAG' : 'Start the DAG'}
           </DialogTitle>
@@ -636,7 +636,7 @@ function StartDAGModal({
 
         <fieldset
           aria-label="Run settings"
-          className="shrink-0 border-b border-border px-6 py-4"
+          className="shrink-0 border-b border-border px-6 py-3"
         >
           <div
             className={
@@ -646,9 +646,9 @@ function StartDAGModal({
             }
           >
             {!forceEnqueue && (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <span className="text-sm font-medium">Enqueue</span>
-                <div className="flex h-9 items-center gap-2">
+                <div className="flex h-7 items-center gap-2">
                   <Checkbox
                     id="enqueue"
                     checked={enqueue}
@@ -664,7 +664,7 @@ function StartDAGModal({
               </div>
             )}
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label htmlFor="dagRun-id">DAG-Run ID (optional)</Label>
               <Input
                 id="dagRun-id"
@@ -672,7 +672,11 @@ function StartDAGModal({
                 value={dagRunId}
                 readOnly={runIdReadOnly}
                 disabled={runIdReadOnly || loading || submitting}
-                className={runIdReadOnly ? 'bg-muted cursor-not-allowed' : ''}
+                className={
+                  runIdReadOnly
+                    ? 'h-7 cursor-not-allowed bg-muted px-2'
+                    : 'h-7 px-2'
+                }
                 onChange={(event) => {
                   if (!runIdReadOnly) {
                     setDAGRunId(event.target.value);
@@ -682,7 +686,7 @@ function StartDAGModal({
             </div>
 
             {showProfileSelector && (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <Label htmlFor="runtime-profile">Profile</Label>
                 <Select
                   value={profileSelection}
@@ -694,7 +698,10 @@ function StartDAGModal({
                   }
                   onValueChange={setProfileSelection}
                 >
-                  <SelectTrigger id="runtime-profile" className="w-full">
+                  <SelectTrigger
+                    id="runtime-profile"
+                    className="h-7 w-full px-2 py-1"
+                  >
                     <SelectValue placeholder="No profile" />
                   </SelectTrigger>
                   <SelectContent>
