@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -98,8 +99,14 @@ func assertSecondInterruptTerminatesBlockedCleanup(t *testing.T, commandName, sh
 	require.NoError(t, command.Process.Signal(os.Interrupt))
 
 	select {
-	case <-waitCh:
+	case err := <-waitCh:
 		exited = true
+		exitErr, ok := err.(*exec.ExitError)
+		require.True(t, ok, "expected signal exit, got %v", err)
+		waitStatus, ok := exitErr.Sys().(syscall.WaitStatus)
+		require.True(t, ok, "expected Unix wait status, got %T", exitErr.Sys())
+		require.True(t, waitStatus.Signaled(), "expected signal exit, got %v", waitStatus)
+		require.Equal(t, syscall.SIGINT, waitStatus.Signal())
 	case <-time.After(2 * time.Second):
 		terminateTestCommand(command, waitCh)
 		exited = true

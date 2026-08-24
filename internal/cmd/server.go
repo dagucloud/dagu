@@ -98,8 +98,23 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	serviceCtx := ctx.WithContext(signalCtx)
 	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
 	cleanupCancel, cleanupDone := startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
+	var tunnelService *tunnel.Service
+	var resourceService *resource.Service
 	defer func() {
 		stop()
+		if resourceService != nil {
+			if err := resourceService.Stop(ctx); err != nil {
+				logger.Error(ctx, "Failed to stop resource service", tag.Error(err))
+			}
+		}
+		if tunnelService != nil {
+			if err := tunnelService.Stop(ctx); err != nil {
+				logger.Error(ctx, "Failed to stop tunnel service", tag.Error(err))
+			}
+		}
+		if ctx.LicenseManager != nil {
+			ctx.LicenseManager.Stop()
+		}
 		shutdownCtx, shutdownCancel := localAgentSessionShutdownContext(ctx)
 		defer shutdownCancel()
 		if err := stopLocalAgentSessionCleanup(shutdownCtx, cleanupCancel, cleanupDone, openCodeHost); err != nil {
@@ -107,11 +122,6 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		}
 	}()
 	serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
-
-	// Stop license manager on shutdown
-	if ctx.LicenseManager != nil {
-		defer ctx.LicenseManager.Stop()
-	}
 
 	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.backend)
 	if err != nil {
@@ -125,27 +135,15 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	)
 
 	// Initialize tunnel service if enabled
-	tunnelService, err := initTunnelService(ctx.Config)
+	tunnelService, err = initTunnelService(ctx.Config)
 	if err != nil {
 		return fmt.Errorf("failed to initialize tunnel: %w", err)
 	}
-	if tunnelService != nil {
-		defer func() {
-			if err := tunnelService.Stop(ctx); err != nil {
-				logger.Error(ctx, "Failed to stop tunnel service", tag.Error(err))
-			}
-		}()
-	}
 
-	// Initialize resource monitoring service (defer cleanup, but don't start yet).
+	// Initialize resource monitoring service, but don't start it yet.
 	// Resource monitoring must start AFTER server init to avoid race condition
 	// with auth provider initialization (gopsutil conflicts with net/http dial).
-	resourceService := resource.NewService(ctx.Config)
-	defer func() {
-		if err := resourceService.Stop(ctx); err != nil {
-			logger.Error(ctx, "Failed to stop resource service", tag.Error(err))
-		}
-	}()
+	resourceService = resource.NewService(ctx.Config)
 
 	serverOpts = append([]frontend.ServerOption(nil), serverOpts...)
 	if tunnelService != nil {
