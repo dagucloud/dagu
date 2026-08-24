@@ -71,7 +71,7 @@ function DetailSection({
   );
 }
 
-function resultVariant(value?: string) {
+export function resultVariant(value?: string) {
   if (value === 'succeeded') return 'success';
   if (value === 'failed') return 'error';
   if (value === 'denied') return 'warning';
@@ -118,7 +118,7 @@ export function AuditEntryDetailsDrawer({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="left-auto right-0 top-0 flex h-[100dvh] max-h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:w-[min(48rem,calc(100vw-2rem))] sm:rounded-l-md sm:rounded-r-none">
-        <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-14">
+        <DialogHeader className="shrink-0 border-b border-border px-3 py-2 pr-14">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -208,6 +208,7 @@ export function AuditEntryDetailsDrawer({
             id="audit-entry-details-panel"
             role="tabpanel"
             aria-labelledby="audit-entry-details-tab"
+            tabIndex={0}
             className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-4"
           >
             <DetailSection
@@ -262,6 +263,7 @@ export function AuditEntryDetailsDrawer({
             id="audit-entry-raw-panel"
             role="tabpanel"
             aria-labelledby="audit-entry-raw-tab"
+            tabIndex={0}
             className="min-h-0 flex-1 overflow-auto bg-muted/30 p-5"
           >
             <pre className="whitespace-pre-wrap break-words rounded-md border border-border bg-background p-4 font-mono text-xs leading-5 text-foreground">

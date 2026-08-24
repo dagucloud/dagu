@@ -27,7 +27,10 @@ import {
   ScrollText,
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AuditEntryDetailsDrawer } from './AuditEntryDetailsDrawer';
+import {
+  AuditEntryDetailsDrawer,
+  resultVariant,
+} from './AuditEntryDetailsDrawer';
 
 type AuditEntry = components['schemas']['AuditEntry'];
 
@@ -598,13 +601,6 @@ export default function AuditLogsPage() {
     return summary || '-';
   };
 
-  const resultVariant = (value?: string) => {
-    if (value === 'succeeded') return 'success';
-    if (value === 'failed') return 'error';
-    if (value === 'denied') return 'warning';
-    return 'outline';
-  };
-
   const quickFilterValue = getQuickFilterValue(
     category,
     source,
@@ -643,9 +639,13 @@ export default function AuditLogsPage() {
           onClick={() => fetchAuditLogs()}
           size="icon-sm"
           variant="outline"
-          aria-label="Refresh audit logs"
+          aria-label={
+            isLoading ? 'Refreshing audit logs' : 'Refresh audit logs'
+          }
+          aria-live="polite"
+          disabled={isLoading}
         >
-          <RefreshCw className="h-4 w-4" />
+          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
 
@@ -982,7 +982,7 @@ export default function AuditLogsPage() {
             </tr>
           </thead>
           <tbody>
-            {isLoading ? (
+            {isLoading && entries.length === 0 ? (
               <tr>
                 <td
                   colSpan={7}
@@ -1006,7 +1006,6 @@ export default function AuditLogsPage() {
                 <tr
                   key={entry.id}
                   tabIndex={0}
-                  aria-label={`Open audit entry ${entry.action}`}
                   data-state={
                     selectedEntry?.id === entry.id ? 'selected' : undefined
                   }

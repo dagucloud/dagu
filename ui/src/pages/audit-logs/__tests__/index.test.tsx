@@ -1,8 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { AuthProvider } from '@/contexts/AuthContext';
@@ -29,6 +35,10 @@ const auditEntry = {
   details: JSON.stringify({ route: 'alerts-critical', changes: 2 }),
   ipAddress: '203.0.113.45',
 };
+const originalClipboard = Object.getOwnPropertyDescriptor(
+  navigator,
+  'clipboard'
+);
 
 function makeConfig(): Config {
   return {
@@ -105,13 +115,12 @@ function renderPage() {
 }
 
 function stubAuditResponse(entry = auditEntry) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ entries: [entry], total: 1 }),
-    })
-  );
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ entries: [entry], total: 1 }),
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 describe('getQuickFilterValue', () => {
@@ -141,6 +150,23 @@ describe('AuditLogsPage', () => {
       },
     });
     stubAuditResponse();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (originalClipboard) {
+      Object.defineProperty(navigator, 'clipboard', originalClipboard);
+    } else {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
+  it('routes audit requests to the selected remote node', async () => {
+    renderPage();
+
+    await screen.findByText('notification_route_set_update');
+    const requestUrl = vi.mocked(fetch).mock.calls[0]?.[0];
+    expect(requestUrl).toEqual(expect.stringContaining('remoteNode=local'));
   });
 
   it('opens a complete audit entry from the table', async () => {
@@ -211,6 +237,38 @@ describe('AuditLogsPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('keeps existing rows visible while filters refresh', async () => {
+    renderPage();
+
+    await screen.findByText('notification_route_set_update');
+    let resolveRefresh!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        })
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Failed audit entries' })
+    );
+    await waitFor(() => expect(resolveRefresh).toBeTypeOf('function'));
+
+    expect(
+      screen.getByText('notification_route_set_update')
+    ).toBeInTheDocument();
+
+    resolveRefresh({
+      ok: true,
+      json: async () => ({ entries: [auditEntry], total: 1 }),
+    } as Response);
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Refresh audit logs' })
+      ).toBeInTheDocument()
+    );
+  });
+
   it('keeps advanced filters compact and clears their values', async () => {
     renderPage();
 
@@ -264,7 +322,7 @@ describe('AuditLogsPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('switches inspector tabs with arrow keys', async () => {
+  it('supports keyboard access to inspector tabs and scroll panels', async () => {
     renderPage();
 
     await screen.findByText('notification_route_set_update');
@@ -276,12 +334,20 @@ describe('AuditLogsPage', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Audit entry' });
     const detailsTab = within(dialog).getByRole('tab', { name: 'Details' });
+    expect(within(dialog).getByRole('tabpanel')).toHaveAttribute(
+      'tabindex',
+      '0'
+    );
     detailsTab.focus();
     fireEvent.keyDown(detailsTab, { key: 'ArrowRight' });
 
     expect(
       within(dialog).getByRole('tab', { name: 'Raw JSON' })
     ).toHaveAttribute('aria-selected', 'true');
+    expect(within(dialog).getByRole('tabpanel')).toHaveAttribute(
+      'tabindex',
+      '0'
+    );
     expect(within(dialog).getByText(/"id": "audit-001"/)).toBeInTheDocument();
   });
 });
