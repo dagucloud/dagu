@@ -179,6 +179,24 @@ func (s *QueueStore) List(ctx context.Context, name string) ([]queue.QueuedItemD
 	return queueItemsAsData(items), nil
 }
 
+// GetByItemID returns an exact queued item from the named queue.
+func (s *QueueStore) GetByItemID(ctx context.Context, name, itemID string) (queue.QueuedItemData, error) {
+	itemID = normalizeQueueItemID(itemID)
+	if name == "" || itemID == "" {
+		return nil, queue.ErrQueueItemNotFound
+	}
+
+	recordID := queueRecordID(name, itemID)
+	rec, err := s.col.Get(ctx, recordID)
+	if errors.Is(err, persis.ErrNotFound) {
+		return nil, queue.ErrQueueItemNotFound
+	}
+	if err != nil {
+		return invalidQueueItemFromRecordID(recordID, err)
+	}
+	return queueItemFromRecord(rec)
+}
+
 // ListCursor returns one forward-only page of queued items.
 func (s *QueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[queue.QueuedItemData], error) {
 	if limit <= 0 {

@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
@@ -586,6 +587,114 @@ func TestQueueProcessorLimitsConcurrentDispatchHandoffs(t *testing.T) {
 	release()
 	for _, release := range releases[1:] {
 		release()
+	}
+}
+
+func TestQueueProcessorLimitsConcurrentQueueScans(t *testing.T) {
+	t.Parallel()
+
+	const queueCount = 16
+	queueNames := make([]string, 0, queueCount)
+	for i := range queueCount {
+		queueNames = append(queueNames, fmt.Sprintf("queue-%02d", i))
+	}
+	queueStore := &blockingQueueScanStore{
+		queueNames: queueNames,
+		entered:    make(chan string, queueCount),
+		release:    make(chan struct{}, queueCount),
+	}
+	processor := NewQueueProcessor(queueStore, nil, nil, nil, config.Queues{})
+	ctx, cancel := context.WithCancel(context.Background())
+	processor.Start(ctx, nil)
+	t.Cleanup(func() {
+		for range queueCount {
+			queueStore.release <- struct{}{}
+		}
+		cancel()
+		processor.Stop()
+	})
+
+	for range maxConcurrentQueueScans {
+		select {
+		case <-queueStore.entered:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for queue scans to start")
+		}
+	}
+
+	select {
+	case queueName := <-queueStore.entered:
+		t.Fatalf("queue scan limit exceeded by %s", queueName)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestQueueProcessorRestartsBoundedScanAfterCursorInvalidation(t *testing.T) {
+	t.Parallel()
+
+	queueStore := &invalidatingCursorQueueStore{}
+	processor := NewQueueProcessor(queueStore, nil, nil, nil, config.Queues{})
+	page, err := processor.listQueueScanPage(t.Context(), "main", &queue{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "new-head", page.Items[0].ID())
+}
+
+type invalidatingCursorQueueStore struct {
+	queuedomain.QueueStore
+	calls int
+}
+
+func (s *invalidatingCursorQueueStore) ListCursor(
+	context.Context,
+	string,
+	string,
+	int,
+) (pagination.CursorResult[queuedomain.QueuedItemData], error) {
+	s.calls++
+	switch s.calls {
+	case 1:
+		return pagination.CursorResult[queuedomain.QueuedItemData]{
+			Items:      []queuedomain.QueuedItemData{testQueuedItem{id: "old-head"}},
+			HasMore:    true,
+			NextCursor: "stale-cursor",
+		}, nil
+	case 2:
+		return pagination.CursorResult[queuedomain.QueuedItemData]{}, pagination.ErrInvalidCursor
+	default:
+		return pagination.CursorResult[queuedomain.QueuedItemData]{
+			Items: []queuedomain.QueuedItemData{testQueuedItem{id: "new-head"}},
+		}, nil
+	}
+}
+
+type blockingQueueScanStore struct {
+	queuedomain.QueueStore
+	queueNames []string
+	entered    chan string
+	release    chan struct{}
+}
+
+func (s *blockingQueueScanStore) QueueList(context.Context) ([]string, error) {
+	return append([]string(nil), s.queueNames...), nil
+}
+
+func (s *blockingQueueScanStore) ListCursor(
+	ctx context.Context,
+	queueName string,
+	_ string,
+	_ int,
+) (pagination.CursorResult[queuedomain.QueuedItemData], error) {
+	select {
+	case s.entered <- queueName:
+	case <-ctx.Done():
+		return pagination.CursorResult[queuedomain.QueuedItemData]{}, ctx.Err()
+	}
+	select {
+	case <-s.release:
+		return pagination.CursorResult[queuedomain.QueuedItemData]{}, nil
+	case <-ctx.Done():
+		return pagination.CursorResult[queuedomain.QueuedItemData]{}, ctx.Err()
 	}
 }
 

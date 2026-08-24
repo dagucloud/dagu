@@ -427,7 +427,11 @@ func (att *Attempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) {
 		}
 	}
 
-	// Cache miss or disabled, perform a direct read
+	return att.ReadStatusUncached(ctx)
+}
+
+// ReadStatusUncached reads the latest status without retaining it in the shared cache.
+func (att *Attempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
 	att.mu.RLock()
 	parsed, parseErr := att.parseLocked(ctx)
 	att.mu.RUnlock()
@@ -440,7 +444,6 @@ func (att *Attempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) {
 	}
 
 	return parsed, nil
-
 }
 
 // parseLocked reads the status file and returns the last valid status.

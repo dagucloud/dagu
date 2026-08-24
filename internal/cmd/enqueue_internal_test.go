@@ -129,6 +129,10 @@ func (a *enqueueTrackingAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, 
 	return a.status, nil
 }
 
+func (a *enqueueTrackingAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return a.ReadStatus(ctx)
+}
+
 func (a *enqueueTrackingAttempt) ReadDAG(context.Context) (*ir.DAG, error) {
 	return a.dag, nil
 }
@@ -199,6 +203,10 @@ func (s *enqueueObservingQueueStore) Len(context.Context, string) (int, error) {
 
 func (s *enqueueObservingQueueStore) List(context.Context, string) ([]queue.QueuedItemData, error) {
 	return nil, nil
+}
+
+func (s *enqueueObservingQueueStore) GetByItemID(context.Context, string, string) (queue.QueuedItemData, error) {
+	return nil, queue.ErrQueueItemNotFound
 }
 
 func (s *enqueueObservingQueueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[queue.QueuedItemData], error) {

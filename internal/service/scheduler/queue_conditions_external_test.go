@@ -6,6 +6,7 @@ package scheduler_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -472,10 +474,110 @@ func TestQueueProcessorContinuesPastItemWithoutMatchingWorker(t *testing.T) {
 	require.Equal(t, int32(1), heartbeatStore.listCount.Load())
 }
 
-func TestQueueProcessorBatchesWorkerConditionQueueValidation(t *testing.T) {
+func TestQueueProcessorRotatesPastBoundedWorkerEligibilityWindow(t *testing.T) {
 	t.Parallel()
 
-	var queueStore *countingQueueStore
+	dispatcher := &queueConditionDispatcher{}
+	heartbeatStore := store.NewWorkerHeartbeatStore(
+		file.NewCollection(filepath.Join(t.TempDir(), "worker-heartbeats")),
+	)
+	f := newQueueConditionFixtureWithDispatcher(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		dispatcher,
+		scheduler.WithWorkerHeartbeatStore(heartbeatStore),
+	)
+	f.dag.WorkerSelector = map[string]string{"type": "gpu"}
+	for i := range 100 {
+		f.enqueueRun(fmt.Sprintf("gpu-run-%03d", i), nil)
+	}
+	f.dag.WorkerSelector = map[string]string{"type": "cpu"}
+	f.enqueueRun("cpu-run", nil)
+	require.NoError(t, heartbeatStore.Upsert(f.ctx, dispatch.WorkerHeartbeatRecord{
+		WorkerID:        "cpu-worker",
+		Labels:          map[string]string{"type": "cpu"},
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	require.Zero(t, dispatcher.callCount.Load())
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	require.Equal(t, int32(1), dispatcher.callCount.Load())
+}
+
+func TestQueueProcessorChecksHeadBeforeRotatingWorkerEligibilityWindow(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &queueConditionDispatcher{}
+	heartbeatStore := store.NewWorkerHeartbeatStore(
+		file.NewCollection(filepath.Join(t.TempDir(), "worker-heartbeats")),
+	)
+	f := newQueueConditionFixtureWithDispatcher(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		dispatcher,
+		scheduler.WithWorkerHeartbeatStore(heartbeatStore),
+	)
+	f.dag.WorkerSelector = map[string]string{"type": "gpu"}
+	f.enqueueRun("head-run", nil)
+	for i := range 100 {
+		f.enqueueRun(fmt.Sprintf("later-run-%03d", i), nil)
+	}
+	require.NoError(t, heartbeatStore.Upsert(f.ctx, dispatch.WorkerHeartbeatRecord{
+		WorkerID:        "cpu-worker",
+		Labels:          map[string]string{"type": "cpu"},
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	require.Empty(t, dispatcher.dispatchedRunIDs())
+
+	require.NoError(t, heartbeatStore.Upsert(f.ctx, dispatch.WorkerHeartbeatRecord{
+		WorkerID:        "gpu-worker",
+		Labels:          map[string]string{"type": "gpu"},
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	require.Equal(t, []string{"head-run"}, dispatcher.dispatchedRunIDs())
+}
+
+func TestQueueProcessorWorkerEligibilityDoesNotRetainQueuedStatuses(t *testing.T) {
+	t.Parallel()
+
+	statusCache := fileutil.NewCache[*ir.DAGRunStatus]("dag_run_status", 100, time.Hour)
+	heartbeatStore := store.NewWorkerHeartbeatStore(
+		file.NewCollection(filepath.Join(t.TempDir(), "worker-heartbeats")),
+	)
+	f := newQueueConditionFixtureWithConfig(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		&queueConditionDispatcher{},
+		queueConditionFixtureConfig{statusCache: statusCache},
+		scheduler.WithWorkerHeartbeatStore(heartbeatStore),
+	)
+	f.dag.WorkerSelector = map[string]string{"type": "gpu"}
+	for i := range 3 {
+		f.enqueueRun(fmt.Sprintf("gpu-run-%d", i), nil)
+	}
+	require.NoError(t, heartbeatStore.Upsert(f.ctx, dispatch.WorkerHeartbeatRecord{
+		WorkerID:        "cpu-worker",
+		Labels:          map[string]string{"type": "cpu"},
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	require.Zero(t, statusCache.Size())
+}
+
+func TestQueueProcessorRecordsWorkerConditionWithoutFullQueueList(t *testing.T) {
+	t.Parallel()
+
 	heartbeatStore := store.NewWorkerHeartbeatStore(
 		file.NewCollection(filepath.Join(t.TempDir(), "worker-heartbeats")),
 	)
@@ -486,16 +588,13 @@ func TestQueueProcessorBatchesWorkerConditionQueueValidation(t *testing.T) {
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
 			queueStore: func(base queuedomain.QueueStore) queuedomain.QueueStore {
-				queueStore = &countingQueueStore{QueueStore: base}
-				return queueStore
+				return &fullListFailingQueueStore{QueueStore: base}
 			},
 		},
 		scheduler.WithWorkerHeartbeatStore(heartbeatStore),
 	)
 	f.dag.WorkerSelector = map[string]string{"type": "gpu"}
-	for _, runID := range []string{"first-run", "second-run", "third-run"} {
-		f.enqueueRun(runID, nil)
-	}
+	f.enqueueRun("waiting-run", nil)
 	require.NoError(t, heartbeatStore.Upsert(f.ctx, dispatch.WorkerHeartbeatRecord{
 		WorkerID:        "cpu-worker",
 		Labels:          map[string]string{"type": "cpu"},
@@ -503,11 +602,7 @@ func TestQueueProcessorBatchesWorkerConditionQueueValidation(t *testing.T) {
 	}))
 
 	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
-	require.Equal(t, int32(2), queueStore.listCount.Load())
-
-	queueStore.listCount.Store(0)
-	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
-	require.Equal(t, int32(2), queueStore.listCount.Load())
+	requireQueuedConditions(t, f.readStatus("waiting-run"), noMatchingWorkerConditions()...)
 }
 
 func TestQueueProcessorRecordsNoAvailableWorkerCondition(t *testing.T) {
@@ -748,6 +843,7 @@ type queueConditionFixtureConfig struct {
 	executable     string
 	procRepository func(processRepository) processRepository
 	queueStore     func(queuedomain.QueueStore) queuedomain.QueueStore
+	statusCache    *fileutil.Cache[*ir.DAGRunStatus]
 }
 
 func newQueueConditionFixture(
@@ -787,7 +883,11 @@ func newQueueConditionFixtureWithConfig(
 		Steps:    []ir.Step{{Name: "test", Command: "echo hello"}},
 	}
 	ir.InitializeDefaults(dag)
-	dagRunRepository := newCountingDAGRunStore(filedagrun.NewStore(filepath.Join(tmp, "dag-runs")))
+	storeOptions := make([]filedagrun.StoreOption, 0, 1)
+	if fixtureConfig.statusCache != nil {
+		storeOptions = append(storeOptions, filedagrun.WithHistoryFileCache(fixtureConfig.statusCache))
+	}
+	dagRunRepository := newCountingDAGRunStore(filedagrun.NewStore(filepath.Join(tmp, "dag-runs"), storeOptions...))
 	var queueStore queuedomain.QueueStore = store.NewQueueStore(file.NewCollection(filepath.Join(tmp, "queue")))
 	if fixtureConfig.queueStore != nil {
 		queueStore = fixtureConfig.queueStore(queueStore)
@@ -1204,11 +1304,24 @@ func (s *queueConditionDispatchTaskStore) HasOutstandingAttempt(_ context.Contex
 type queueConditionDispatcher struct {
 	dispatchErr error
 	callCount   atomic.Int32
+	mu          sync.Mutex
+	runIDs      []string
 }
 
-func (d *queueConditionDispatcher) Dispatch(context.Context, dispatch.DispatchRequest) error {
+func (d *queueConditionDispatcher) Dispatch(_ context.Context, req dispatch.DispatchRequest) error {
 	d.callCount.Add(1)
+	d.mu.Lock()
+	if req.Task != nil {
+		d.runIDs = append(d.runIDs, req.Task.DAGRunID)
+	}
+	d.mu.Unlock()
 	return d.dispatchErr
+}
+
+func (d *queueConditionDispatcher) dispatchedRunIDs() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.runIDs...)
 }
 
 func (d *queueConditionDispatcher) Cleanup(context.Context) error {
@@ -1242,14 +1355,12 @@ func (s *failingWorkerHeartbeatStore) List(context.Context) ([]dispatch.WorkerHe
 	return nil, s.err
 }
 
-type countingQueueStore struct {
+type fullListFailingQueueStore struct {
 	queuedomain.QueueStore
-	listCount atomic.Int32
 }
 
-func (s *countingQueueStore) List(ctx context.Context, queueName string) ([]queuedomain.QueuedItemData, error) {
-	s.listCount.Add(1)
-	return s.QueueStore.List(ctx, queueName)
+func (s *fullListFailingQueueStore) List(context.Context, string) ([]queuedomain.QueuedItemData, error) {
+	return nil, errors.New("full queue listing disabled")
 }
 
 type queueConditionQueueStore struct {

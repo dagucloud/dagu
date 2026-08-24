@@ -269,6 +269,10 @@ func (a *recordingAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error)
 	return a.status, nil
 }
 
+func (a *recordingAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return a.ReadStatus(ctx)
+}
+
 func (a *recordingAttempt) ReadDAG(context.Context) (*ir.DAG, error) {
 	return a.dag, nil
 }

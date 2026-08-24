@@ -46,6 +46,10 @@ func (m *MockAttempt) ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error) 
 	return args.Get(0).(*ir.DAGRunStatus), args.Error(1)
 }
 
+func (m *MockAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return m.ReadStatus(ctx)
+}
+
 func (m *MockAttempt) ReadDAG(ctx context.Context) (*ir.DAG, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

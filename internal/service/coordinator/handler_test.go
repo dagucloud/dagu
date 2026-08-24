@@ -407,6 +407,9 @@ func (m *mockAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	cloned := *m.status
 	return &cloned, nil
 }
+func (m *mockAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return m.ReadStatus(ctx)
+}
 func (m *mockAttempt) ReadDAG(_ context.Context) (*ir.DAG, error) { return m.dag, nil }
 func (m *mockAttempt) SetDAG(dag *ir.DAG) {
 	m.mu.Lock()

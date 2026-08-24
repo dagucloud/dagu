@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -151,6 +152,21 @@ func TestAttempt_ReadStatusHonorsCanceledContext(t *testing.T) {
 
 	_, err = att.ReadStatus(ctx)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestAttempt_ReadStatusUncachedDoesNotPopulateCache(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join(createTempDir(t), "status.dat")
+	writeJSONToFile(t, file, createTestStatus(ir.Queued))
+	cache := fileutil.NewCache[*ir.DAGRunStatus]("dag_run_status", 10, time.Hour)
+	att, err := NewAttempt(file, cache)
+	require.NoError(t, err)
+
+	status, err := att.ReadStatusUncached(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, ir.Queued, status.Status)
+	assert.Zero(t, cache.Size())
 }
 
 func TestAttempt_Compact(t *testing.T) {

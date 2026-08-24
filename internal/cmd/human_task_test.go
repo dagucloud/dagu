@@ -405,6 +405,10 @@ func (a *humanTaskCompletionAttempt) ReadStatus(context.Context) (*ir.DAGRunStat
 	return a.status, nil
 }
 
+func (a *humanTaskCompletionAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return a.ReadStatus(ctx)
+}
+
 type humanTaskCompletionStore struct {
 	testutil.DAGRunStoreStub
 	attempt      *humanTaskCompletionAttempt

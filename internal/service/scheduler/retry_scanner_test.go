@@ -820,6 +820,9 @@ func (a *retryScannerAttempt) Close(context.Context) error { return nil }
 func (a *retryScannerAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return cloneRetryStatus(a.status), nil
 }
+func (a *retryScannerAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return a.ReadStatus(ctx)
+}
 func (a *retryScannerAttempt) ReadDAG(context.Context) (*ir.DAG, error) { return a.dag, nil }
 func (a *retryScannerAttempt) SetDAG(*ir.DAG)                           {}
 func (a *retryScannerAttempt) Abort(context.Context) error              { return nil }

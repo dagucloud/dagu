@@ -47,6 +47,10 @@ func (n *noopAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	return nil, ErrNoopAttemptNotSupported
 }
 
+func (n *noopAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return n.ReadStatus(ctx)
+}
+
 func (n *noopAttempt) ReadDAG(_ context.Context) (*ir.DAG, error) {
 	return n.dag, nil
 }

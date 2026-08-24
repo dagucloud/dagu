@@ -29,6 +29,8 @@ type QueueStore interface {
 	Len(ctx context.Context, name string) (int, error)
 	// List returns all items in the queue with the given name
 	List(ctx context.Context, name string) ([]QueuedItemData, error)
+	// GetByItemID returns an exact item from the named queue.
+	GetByItemID(ctx context.Context, name, itemID string) (QueuedItemData, error)
 	// ListCursor returns one forward-only page of queued items for a specific queue.
 	ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[QueuedItemData], error)
 	// All returns all items in the queue

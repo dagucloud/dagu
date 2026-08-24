@@ -423,10 +423,18 @@ func (a *sequenceAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) 
 	return status, nil
 }
 
+func (a *sequenceAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return a.ReadStatus(ctx)
+}
+
 func (a *serviceAttempt) ID() string                               { return a.status.AttemptID }
 func (a *serviceAttempt) ReadDAG(context.Context) (*ir.DAG, error) { return a.dag, nil }
 func (a *serviceAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
+}
+
+func (a *serviceAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return a.ReadStatus(ctx)
 }
 
 type serviceDAGRunStore struct {

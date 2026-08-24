@@ -75,6 +75,25 @@ func TestQueueStore_EnqueueListAndDequeue(t *testing.T) {
 	assert.Equal(t, 1, deleted)
 }
 
+func TestQueueStore_GetByItemID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newQueueStore(t)
+	want := queueRef("dag", "run")
+	require.NoError(t, s.Enqueue(ctx, "main", queue.QueuePriorityLow, want))
+	items, err := s.List(ctx, "main")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	item, err := s.GetByItemID(ctx, "main", items[0].ID())
+	require.NoError(t, err)
+	assert.Equal(t, want, requireQueuedRef(t, item))
+
+	_, err = s.GetByItemID(ctx, "main", "missing-item")
+	assert.ErrorIs(t, err, queue.ErrQueueItemNotFound)
+}
+
 func TestQueueStore_EnqueueRejectsInvalidInputs(t *testing.T) {
 	t.Parallel()
 

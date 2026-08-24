@@ -203,6 +203,9 @@ func (a *queueAttempt) Close(context.Context) error {
 func (a *queueAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error) {
 	return a.status, nil
 }
+func (a *queueAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return a.ReadStatus(ctx)
+}
 func (a *queueAttempt) ReadDAG(context.Context) (*ir.DAG, error) { return a.dag, nil }
 func (a *queueAttempt) SetDAG(dag *ir.DAG)                       { a.dag = dag }
 func (a *queueAttempt) Abort(context.Context) error              { return nil }
@@ -253,6 +256,9 @@ func (s *queueStore) DeleteByItemIDs(context.Context, string, []string) (int, er
 func (s *queueStore) Len(context.Context, string) (int, error) { return 0, nil }
 func (s *queueStore) List(context.Context, string) ([]queue.QueuedItemData, error) {
 	return nil, nil
+}
+func (s *queueStore) GetByItemID(context.Context, string, string) (queue.QueuedItemData, error) {
+	return nil, queue.ErrQueueItemNotFound
 }
 func (s *queueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[queue.QueuedItemData], error) {
 	return pagination.CursorResult[queue.QueuedItemData]{}, nil

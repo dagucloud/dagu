@@ -100,6 +100,14 @@ func (m *mockQueueStore) List(ctx context.Context, name string) ([]queue.QueuedI
 	return args.Get(0).([]queue.QueuedItemData), args.Error(1)
 }
 
+func (m *mockQueueStore) GetByItemID(ctx context.Context, name, itemID string) (queue.QueuedItemData, error) {
+	args := m.Called(ctx, name, itemID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(queue.QueuedItemData), args.Error(1)
+}
+
 func (m *mockQueueStore) ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[queue.QueuedItemData], error) {
 	args := m.Called(ctx, name, cursor, limit)
 	return args.Get(0).(pagination.CursorResult[queue.QueuedItemData]), args.Error(1)

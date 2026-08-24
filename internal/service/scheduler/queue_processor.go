@@ -6,6 +6,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -17,12 +18,16 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
 const queueAgeWarningThreshold = 2 * time.Minute
 const queueProcessMinInterval = 3 * time.Second
+const queueScanItemLimit = 100
+const queueHeadItemLimit = 1
+const maxConcurrentQueueScans = 8
 const maxConcurrentDispatchHandoffs = 8
 
 var (
@@ -116,6 +121,7 @@ type QueueProcessor struct {
 type queue struct {
 	maxConcurrency int
 	isGlobal       bool // true if this queue is defined in config (global queue)
+	scanCursor     string
 	inflight       atomic.Int32
 	mu             sync.Mutex
 }
@@ -134,6 +140,18 @@ func (q *queue) isGlobalQueue() bool {
 
 func (q *queue) getInflight() int {
 	return int(q.inflight.Load())
+}
+
+func (q *queue) getScanCursor() string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.scanCursor
+}
+
+func (q *queue) setScanCursor(cursor string) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.scanCursor = cursor
 }
 
 func (q *queue) incInflight() { q.inflight.Add(1) }
@@ -263,6 +281,7 @@ func (p *QueueProcessor) Start(ctx context.Context, notifyCh <-chan struct{}) {
 			case <-p.quit:
 				return
 			case <-notifyCh:
+				p.resetQueueScanCursors()
 				p.wakeUp()
 			}
 		}
@@ -326,26 +345,49 @@ func (p *QueueProcessor) loop(ctx context.Context) {
 		// Remove inactive non-global queues
 		p.removeInactiveQueues(activeQueues)
 
-		// Process each queue concurrently
-		var wg sync.WaitGroup
-		for name := range activeQueues {
-			wg.Add(1)
-			go func(queueName string) {
-				defer wg.Done()
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Error(ctx, "Queue processing panicked",
-							tag.Queue(queueName),
-							tag.Error(panicToError(r)),
-						)
-					}
-				}()
-				queueCtx := logger.WithValues(ctx, tag.Queue(queueName))
-				p.ProcessQueueItems(queueCtx, queueName)
-			}(name)
-		}
-		wg.Wait()
+		p.processActiveQueues(ctx, activeQueues)
 	}
+}
+
+func (p *QueueProcessor) processActiveQueues(ctx context.Context, activeQueues map[string]struct{}) {
+	workerCount := min(len(activeQueues), maxConcurrentQueueScans)
+	if workerCount == 0 {
+		return
+	}
+
+	queueNames := make(chan string)
+	var wg sync.WaitGroup
+	for range workerCount {
+		wg.Go(func() {
+			for queueName := range queueNames {
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							logger.Error(ctx, "Queue processing panicked",
+								tag.Queue(queueName),
+								tag.Error(panicToError(r)),
+							)
+						}
+					}()
+					queueCtx := logger.WithValues(ctx, tag.Queue(queueName))
+					p.ProcessQueueItems(queueCtx, queueName)
+				}()
+			}
+		})
+	}
+
+sendQueues:
+	for queueName := range activeQueues {
+		select {
+		case queueNames <- queueName:
+		case <-ctx.Done():
+			break sendQueues
+		case <-p.quit:
+			break sendQueues
+		}
+	}
+	close(queueNames)
+	wg.Wait()
 }
 
 func (p *QueueProcessor) isClosed() bool {
@@ -402,13 +444,19 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	q := v.(*queue)
 	logger.Debug(ctx, "Processing queue", tag.MaxConcurrency(q.getMaxConcurrency()))
 
-	items, err := p.queueStore.List(ctx, queueName)
+	page, err := p.listQueueScanPage(ctx, queueName, q)
 	if err != nil {
 		logger.Error(ctx, "Failed to get queued items", tag.Error(err))
 		return
 	}
+	items := page.Items
+	logger.Debug(ctx, "Loaded bounded queue scan",
+		slog.Int("scanned_count", len(items)),
+		slog.Bool("has_more", page.HasMore),
+	)
 
 	if len(items) == 0 {
+		q.setScanCursor("")
 		logger.Debug(ctx, "No item found")
 		return
 	}
@@ -422,8 +470,10 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 		return
 	}
 	if len(batch.items) == 0 {
+		q.setScanCursor(page.NextCursor)
 		return
 	}
+	q.setScanCursor("")
 	logger.Info(ctx, "Processing batch of items",
 		tag.Count(len(batch.items)),
 		tag.MaxConcurrency(batch.maxConcurrency),
@@ -449,6 +499,67 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 		}(item)
 	}
 	wg.Wait()
+}
+
+func (p *QueueProcessor) listQueueScanPage(
+	ctx context.Context,
+	queueName string,
+	q *queue,
+) (pagination.CursorResult[queuedomain.QueuedItemData], error) {
+	cursor := q.getScanCursor()
+	for attempt := range 2 {
+		head, err := p.queueStore.ListCursor(ctx, queueName, "", queueHeadItemLimit)
+		if err != nil || !head.HasMore || len(head.Items) == 0 {
+			return head, err
+		}
+
+		rotatingCursor := cursor
+		if rotatingCursor == "" {
+			rotatingCursor = head.NextCursor
+		}
+		rotating, err := p.queueStore.ListCursor(
+			ctx,
+			queueName,
+			rotatingCursor,
+			queueScanItemLimit-queueHeadItemLimit,
+		)
+		if errors.Is(err, pagination.ErrInvalidCursor) && attempt == 0 {
+			logger.Debug(ctx, "Queue scan cursor invalidated; restarting from head")
+			q.setScanCursor("")
+			cursor = ""
+			continue
+		}
+		if err != nil {
+			return pagination.CursorResult[queuedomain.QueuedItemData]{}, err
+		}
+
+		items := make([]queuedomain.QueuedItemData, 0, queueScanItemLimit)
+		items = append(items, head.Items...)
+		seen := map[string]struct{}{head.Items[0].ID(): {}}
+		for _, item := range rotating.Items {
+			if _, ok := seen[item.ID()]; ok {
+				continue
+			}
+			seen[item.ID()] = struct{}{}
+			items = append(items, item)
+		}
+		return pagination.CursorResult[queuedomain.QueuedItemData]{
+			Items:      items,
+			HasMore:    rotating.HasMore,
+			NextCursor: rotating.NextCursor,
+		}, nil
+	}
+
+	return pagination.CursorResult[queuedomain.QueuedItemData]{}, pagination.ErrInvalidCursor
+}
+
+func (p *QueueProcessor) resetQueueScanCursors() {
+	p.queues.Range(func(_, value any) bool {
+		if q, ok := value.(*queue); ok {
+			q.setScanCursor("")
+		}
+		return true
+	})
 }
 
 func currentStatusString(status *ir.DAGRunStatus) string {

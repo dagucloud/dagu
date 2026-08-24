@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	osexec "os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
@@ -61,9 +60,6 @@ type queueDispatcher struct {
 	isClosed               func() bool
 	wakeUp                 func()
 	acquireDispatchHandoff func(context.Context) (func(), bool)
-
-	queuedConditionCursorMu sync.Mutex
-	queuedConditionCursor   map[string]int
 }
 
 type queueDispatchBatch struct {
@@ -341,7 +337,6 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 		isClosed:               deps.isClosed,
 		wakeUp:                 deps.wakeUp,
 		acquireDispatchHandoff: deps.acquireDispatchHandoff,
-		queuedConditionCursor:  make(map[string]int),
 	}
 }
 
@@ -355,24 +350,11 @@ type queuedConditionStage struct {
 	flushed      bool
 }
 
-func (d *queueDispatcher) queuedConditionItemsForRefresh(
-	queueName string,
-	items []queuedomain.QueuedItemData,
-) []queuedomain.QueuedItemData {
+func queuedConditionItemsForRefresh(items []queuedomain.QueuedItemData) []queuedomain.QueuedItemData {
 	if len(items) <= queuedConditionRefreshBatchLimit {
 		return items
 	}
-
-	d.queuedConditionCursorMu.Lock()
-	start := d.queuedConditionCursor[queueName] % len(items)
-	d.queuedConditionCursor[queueName] = (start + queuedConditionRefreshBatchLimit) % len(items)
-	d.queuedConditionCursorMu.Unlock()
-
-	selected := make([]queuedomain.QueuedItemData, 0, queuedConditionRefreshBatchLimit)
-	for i := range queuedConditionRefreshBatchLimit {
-		selected = append(selected, items[(start+i)%len(items)])
-	}
-	return selected
+	return items[:queuedConditionRefreshBatchLimit]
 }
 
 func (d *queueDispatcher) newQueuedConditionStage(
@@ -463,7 +445,7 @@ func (d *queueDispatcher) readQueuedConditionStatus(
 	if attempt.Hidden() {
 		return nil, nil, false
 	}
-	status, err := attempt.ReadStatus(ctx)
+	status, err := attempt.ReadStatusUncached(ctx)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
 			return nil, nil, false
@@ -499,19 +481,11 @@ func (s *queuedConditionStage) observe(defs ...queuedConditionDef) {
 }
 
 func (s *queuedConditionStage) flush(ctx context.Context) {
-	s.flushWithQueueCheck(ctx, true)
-}
-
-func (s *queuedConditionStage) flushWithoutQueueCheck(ctx context.Context) {
-	s.flushWithQueueCheck(ctx, false)
-}
-
-func (s *queuedConditionStage) flushWithQueueCheck(ctx context.Context, checkQueue bool) {
 	if s == nil || s.flushed || len(s.observations) == 0 {
 		return
 	}
 	s.flushed = true
-	if err := s.flushErr(ctx, checkQueue); err != nil {
+	if err := s.flushErr(ctx); err != nil {
 		logger.Warn(ctx, "Failed to update queued DAG-run condition",
 			tag.Error(err),
 			tag.RunID(s.runRef.ID),
@@ -519,8 +493,8 @@ func (s *queuedConditionStage) flushWithQueueCheck(ctx context.Context, checkQue
 	}
 }
 
-func (s *queuedConditionStage) flushErr(ctx context.Context, checkQueue bool) error {
-	if checkQueue && !s.itemStillQueued(ctx) {
+func (s *queuedConditionStage) flushErr(ctx context.Context) error {
+	if !s.itemStillQueued(ctx) {
 		return nil
 	}
 
@@ -563,7 +537,10 @@ func (s *queuedConditionStage) itemStillQueued(ctx context.Context) bool {
 	if s.dispatcher.queueStore == nil || s.queueName == "" || s.itemID == "" {
 		return true
 	}
-	items, err := s.dispatcher.queueStore.List(ctx, s.queueName)
+	item, err := s.dispatcher.queueStore.GetByItemID(ctx, s.queueName, s.itemID)
+	if errors.Is(err, queuedomain.ErrQueueItemNotFound) {
+		return false
+	}
 	if err != nil {
 		logger.Warn(ctx, "Failed to verify queued item before updating condition",
 			tag.Error(err),
@@ -571,21 +548,15 @@ func (s *queuedConditionStage) itemStillQueued(ctx context.Context) bool {
 		)
 		return false
 	}
-	for _, item := range items {
-		if item.ID() != s.itemID {
-			continue
-		}
-		runRef, err := item.Data()
-		if err != nil {
-			logger.Warn(ctx, "Failed to read queued item before updating condition",
-				tag.Error(err),
-				tag.RunID(s.runRef.ID),
-			)
-			return false
-		}
-		return runRef != nil && *runRef == s.runRef
+	runRef, err := item.Data()
+	if err != nil {
+		logger.Warn(ctx, "Failed to read queued item before updating condition",
+			tag.Error(err),
+			tag.RunID(s.runRef.ID),
+		)
+		return false
 	}
-	return false
+	return runRef != nil && *runRef == s.runRef
 }
 
 func (d *queueDispatcher) selectDispatchBatch(
@@ -1264,7 +1235,7 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 	workerSnapshot := workerHeartbeatSnapshot{}
 	var workerConditionStages []*queuedConditionStage
 	defer func() {
-		d.flushQueuedConditionStages(ctx, queueName, workerConditionStages)
+		flushQueuedConditionStages(ctx, workerConditionStages)
 	}()
 	for _, item := range items {
 		if len(runnable) >= freeSlots {
@@ -1320,7 +1291,7 @@ func (d *queueDispatcher) queueItemHasEligibleWorker(
 	if err != nil || attempt.Hidden() {
 		return true, nil
 	}
-	status, err := attempt.ReadStatus(ctx)
+	status, err := attempt.ReadStatusUncached(ctx)
 	if err != nil || status.Status != ir.Queued {
 		return true, nil
 	}
@@ -1349,46 +1320,15 @@ func (d *queueDispatcher) queueItemHasEligibleWorker(
 	return false, conditionStage
 }
 
-func (d *queueDispatcher) flushQueuedConditionStages(
+func flushQueuedConditionStages(
 	ctx context.Context,
-	queueName string,
 	stages []*queuedConditionStage,
 ) {
 	if len(stages) == 0 {
 		return
 	}
-	if d.queueStore == nil || queueName == "" {
-		for _, stage := range stages {
-			stage.flushWithoutQueueCheck(ctx)
-		}
-		return
-	}
-
-	items, err := d.queueStore.List(ctx, queueName)
-	if err != nil {
-		logger.Warn(ctx, "Failed to verify queued items before updating worker conditions", tag.Error(err))
-		return
-	}
-	stagesByItemID := make(map[string]*queuedConditionStage, len(stages))
 	for _, stage := range stages {
-		if stage != nil {
-			stagesByItemID[stage.itemID] = stage
-		}
-	}
-	for _, item := range items {
-		stage, ok := stagesByItemID[item.ID()]
-		if !ok {
-			continue
-		}
-		runRef, err := item.Data()
-		if err != nil {
-			logger.Warn(ctx, "Failed to read queued item before updating worker conditions", tag.Error(err))
-			continue
-		}
-		if runRef == nil || *runRef != stage.runRef {
-			continue
-		}
-		stage.flushWithoutQueueCheck(ctx)
+		stage.flush(ctx)
 	}
 }
 
@@ -1469,7 +1409,7 @@ func (d *queueDispatcher) recordCapacityUnavailableConditions(
 	items []queuedomain.QueuedItemData,
 	checkOutstandingDispatch bool,
 ) {
-	items = d.queuedConditionItemsForRefresh(queueName, items)
+	items = queuedConditionItemsForRefresh(items)
 	for _, item := range items {
 		conditionStage := d.newQueuedConditionStageFromItem(ctx, queueName, item)
 		if conditionStage == nil {
@@ -1497,7 +1437,7 @@ func (d *queueDispatcher) recordQueueStateUnavailableConditions(
 	queueName string,
 	items []queuedomain.QueuedItemData,
 ) {
-	items = d.queuedConditionItemsForRefresh(queueName, items)
+	items = queuedConditionItemsForRefresh(items)
 	for _, item := range items {
 		conditionStage := d.newQueuedConditionStageFromItem(ctx, queueName, item)
 		conditionStage.observe(queueStateUnavailableConditionDefs...)
@@ -1679,7 +1619,7 @@ func (d *queueDispatcher) hasOutstandingDispatchReservation(ctx context.Context,
 		return false, nil
 	}
 
-	status, err := attempt.ReadStatus(ctx)
+	status, err := attempt.ReadStatusUncached(ctx)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
 			return false, nil

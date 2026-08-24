@@ -112,6 +112,10 @@ func (a *stopDAGRunAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error
 	return a.status, nil
 }
 
+func (a *stopDAGRunAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return a.ReadStatus(ctx)
+}
+
 func (a *stopDAGRunAttempt) Abort(context.Context) error {
 	a.aborted = true
 	return nil
@@ -456,6 +460,10 @@ func (a *manualStepAttempt) ReadStatus(context.Context) (*ir.DAGRunStatus, error
 	}
 	a.reads++
 	return a.statuses[idx], nil
+}
+
+func (a *manualStepAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
+	return a.ReadStatus(ctx)
 }
 
 type manualStepProcRepository struct {
