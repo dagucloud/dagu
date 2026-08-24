@@ -30,7 +30,14 @@ import type RJSFForm from '@rjsf/core';
 import Form from '@rjsf/shadcn';
 import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 import validator from '@rjsf/validator-ajv8';
-import { AlertTriangle, ListPlus, Play, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ListPlus,
+  Maximize2,
+  Minimize2,
+  Play,
+  X,
+} from 'lucide-react';
 import React from 'react';
 
 import {
@@ -336,6 +343,7 @@ function StartDAGModal({
   const [profileSelection, setProfileSelection] = React.useState(
     defaultProfile ? DAG_DEFAULT_PROFILE_VALUE : NO_PROFILE_VALUE
   );
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
   const forceEnqueue = action === 'enqueue';
   const [enqueue, setEnqueue] = React.useState(forceEnqueue);
   const [noReuse, setNoReuse] = React.useState(false);
@@ -353,6 +361,17 @@ function StartDAGModal({
     profilesLoading ||
     hasDefaultProfile ||
     activeProfiles.length > 0;
+  const parameterCount = useSchemaFields
+    ? Object.keys(paramSchema.properties ?? {}).length
+    : useTypedFields
+      ? paramDefs.length
+      : initialRawParams.length;
+
+  React.useEffect(() => {
+    if (visible) {
+      setIsFullscreen(false);
+    }
+  }, [visible]);
 
   React.useEffect(() => {
     if (
@@ -404,6 +423,13 @@ function StartDAGModal({
     RJSFSchema,
     any
   > | null>(null);
+  const submitErrorRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (submitError) {
+      submitErrorRef.current?.focus();
+    }
+  }, [submitError]);
 
   React.useEffect(() => {
     if (!visible) {
@@ -579,8 +605,15 @@ function StartDAGModal({
 
   return (
     <Dialog open={visible} onOpenChange={(open) => !open && dismissModal()}>
-      <DialogContent className="sm:max-w-[560px]">
-        <DialogHeader>
+      <DialogContent
+        fullscreen={isFullscreen}
+        className={
+          isFullscreen
+            ? 'flex flex-col'
+            : 'flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px] max-sm:left-0 max-sm:top-0 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none'
+        }
+      >
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-24">
           <DialogTitle>
             {forceEnqueue ? 'Enqueue the DAG' : 'Start the DAG'}
           </DialogTitle>
@@ -589,47 +622,134 @@ function StartDAGModal({
           </DialogDescription>
         </DialogHeader>
 
-        {(paramsReadOnly || runIdReadOnly) && (
-          <div className="bg-warning-muted border border-warning/30 rounded-md p-3">
-            <p className="text-sm text-warning">
-              <strong>Note:</strong> This DAG has restrictions:
-              {paramsReadOnly && runIdReadOnly && (
-                <span> Parameter editing and custom run IDs are disabled.</span>
-              )}
-              {paramsReadOnly && !runIdReadOnly && (
-                <span> Parameter editing is disabled.</span>
-              )}
-              {!paramsReadOnly && runIdReadOnly && (
-                <span> Custom run IDs are disabled.</span>
-              )}
-            </p>
-          </div>
-        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="absolute right-12 top-3 hidden sm:inline-flex"
+          aria-label={isFullscreen ? 'Restore dialog' : 'Maximize dialog'}
+          aria-pressed={isFullscreen}
+          onClick={() => setIsFullscreen((current) => !current)}
+        >
+          {isFullscreen ? <Minimize2 /> : <Maximize2 />}
+        </Button>
 
-        {(loadError || submitError) && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{loadError ?? submitError}</AlertDescription>
-          </Alert>
-        )}
+        <fieldset
+          aria-label="Run settings"
+          className="shrink-0 border-b border-border px-6 py-4"
+        >
+          <div
+            className={
+              !forceEnqueue && showProfileSelector
+                ? 'grid gap-4 sm:grid-cols-[minmax(120px,0.55fr)_minmax(240px,1.45fr)_minmax(180px,1fr)]'
+                : 'grid gap-4 sm:grid-cols-2'
+            }
+          >
+            {!forceEnqueue && (
+              <div className="space-y-2">
+                <span className="text-sm font-medium">Enqueue</span>
+                <div className="flex h-9 items-center gap-2">
+                  <Checkbox
+                    id="enqueue"
+                    checked={enqueue}
+                    onCheckedChange={(checked) =>
+                      setEnqueue(checked as boolean)
+                    }
+                    disabled={loading || submitting}
+                  />
+                  <Label htmlFor="enqueue" className="cursor-pointer">
+                    Enqueue
+                  </Label>
+                </div>
+              </div>
+            )}
 
-        <div className="-mx-1 max-h-[60vh] space-y-4 overflow-y-auto px-1 py-4">
-          {!forceEnqueue && (
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="enqueue"
-                checked={enqueue}
-                onCheckedChange={(checked) => setEnqueue(checked as boolean)}
-                disabled={loading || submitting}
+            <div className="space-y-2">
+              <Label htmlFor="dagRun-id">DAG-Run ID (optional)</Label>
+              <Input
+                id="dagRun-id"
+                placeholder="Enter custom DAG-Run ID"
+                value={dagRunId}
+                readOnly={runIdReadOnly}
+                disabled={runIdReadOnly || loading || submitting}
+                className={runIdReadOnly ? 'bg-muted cursor-not-allowed' : ''}
+                onChange={(event) => {
+                  if (!runIdReadOnly) {
+                    setDAGRunId(event.target.value);
+                  }
+                }}
               />
-              <Label htmlFor="enqueue" className="cursor-pointer">
-                Enqueue
-              </Label>
             </div>
-          )}
+
+            {showProfileSelector && (
+              <div className="space-y-2">
+                <Label htmlFor="runtime-profile">Profile</Label>
+                <Select
+                  value={profileSelection}
+                  disabled={
+                    loading ||
+                    submitting ||
+                    profilesLoading ||
+                    defaultProfileLoading
+                  }
+                  onValueChange={setProfileSelection}
+                >
+                  <SelectTrigger id="runtime-profile" className="w-full">
+                    <SelectValue placeholder="No profile" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {hasDefaultProfile && (
+                      <SelectItem value={DAG_DEFAULT_PROFILE_VALUE}>
+                        <span className="flex w-full items-center justify-between gap-3">
+                          <span>DAG default</span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {defaultProfile}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    )}
+                    <SelectItem value={NO_PROFILE_VALUE}>No profile</SelectItem>
+                    {activeProfiles.map((profile) => {
+                      const protectedUnavailable =
+                        profile.protected && !canUseProtectedProfiles;
+                      return (
+                        <SelectItem
+                          key={profile.id}
+                          value={profile.name}
+                          disabled={protectedUnavailable}
+                        >
+                          <span className="flex w-full items-center justify-between gap-3">
+                            <span>{profile.name}</span>
+                            <span className="flex items-center gap-1.5">
+                              {profile.protected && (
+                                <Badge
+                                  variant="outline"
+                                  className="h-4 px-1.5 text-[10px]"
+                                >
+                                  Protected
+                                </Badge>
+                              )}
+                              {protectedUnavailable && (
+                                <Badge
+                                  variant="secondary"
+                                  className="h-4 px-1.5 text-[10px]"
+                                >
+                                  Admin
+                                </Badge>
+                              )}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
 
           {isBuild && (
-            <div className="flex items-start space-x-2">
+            <div className="mt-4 flex items-start space-x-2 border-t border-border pt-4">
               <Checkbox
                 id="no-reuse"
                 checked={noReuse}
@@ -647,224 +767,188 @@ function StartDAGModal({
               </div>
             </div>
           )}
+        </fieldset>
 
-          <div className="space-y-2">
-            <Label htmlFor="dagRun-id">DAG-Run ID (optional)</Label>
-            <Input
-              id="dagRun-id"
-              placeholder="Enter custom DAG-Run ID"
-              value={dagRunId}
-              readOnly={runIdReadOnly}
-              disabled={runIdReadOnly || loading || submitting}
-              className={runIdReadOnly ? 'bg-muted cursor-not-allowed' : ''}
-              onChange={(event) => {
-                if (!runIdReadOnly) {
-                  setDAGRunId(event.target.value);
-                }
-              }}
-            />
-          </div>
-
-          {showProfileSelector && (
-            <div className="space-y-2">
-              <Label htmlFor="runtime-profile">Profile</Label>
-              <Select
-                value={profileSelection}
-                disabled={
-                  loading ||
-                  submitting ||
-                  profilesLoading ||
-                  defaultProfileLoading
-                }
-                onValueChange={setProfileSelection}
-              >
-                <SelectTrigger id="runtime-profile" className="w-full">
-                  <SelectValue placeholder="No profile" />
-                </SelectTrigger>
-                <SelectContent>
-                  {hasDefaultProfile && (
-                    <SelectItem value={DAG_DEFAULT_PROFILE_VALUE}>
-                      <span className="flex w-full items-center justify-between gap-3">
-                        <span>DAG default</span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {defaultProfile}
-                        </span>
-                      </span>
-                    </SelectItem>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          <div className="space-y-4">
+            {(paramsReadOnly || runIdReadOnly) && (
+              <div className="rounded-md border border-warning/30 bg-warning-muted p-3">
+                <p className="text-sm text-warning">
+                  <strong>Note:</strong> This DAG has restrictions:
+                  {paramsReadOnly && runIdReadOnly && (
+                    <span>
+                      {' '}
+                      Parameter editing and custom run IDs are disabled.
+                    </span>
                   )}
-                  <SelectItem value={NO_PROFILE_VALUE}>No profile</SelectItem>
-                  {activeProfiles.map((profile) => {
-                    const protectedUnavailable =
-                      profile.protected && !canUseProtectedProfiles;
+                  {paramsReadOnly && !runIdReadOnly && (
+                    <span> Parameter editing is disabled.</span>
+                  )}
+                  {!paramsReadOnly && runIdReadOnly && (
+                    <span> Custom run IDs are disabled.</span>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {(loadError || submitError) && (
+              <Alert ref={submitErrorRef} variant="destructive" tabIndex={-1}>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>{loadError ?? submitError}</AlertDescription>
+              </Alert>
+            )}
+
+            <section
+              aria-labelledby="dag-parameters-heading"
+              className="space-y-4"
+            >
+              <div className="flex items-center gap-2">
+                <h3 id="dag-parameters-heading" className="font-semibold">
+                  Parameters
+                </h3>
+                <Badge variant="secondary" className="font-normal">
+                  {parameterCount} {parameterCount === 1 ? 'field' : 'fields'}
+                </Badge>
+              </div>
+
+              {loading && (
+                <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                  Loading DAG details...
+                </div>
+              )}
+
+              {!loading && dag && paramSchema && (
+                <Form
+                  ref={schemaFormRef}
+                  tagName="div"
+                  schema={paramSchema as RJSFSchema}
+                  validator={validator}
+                  formData={schemaFormData}
+                  uiSchema={schemaFormUiSchema}
+                  templates={schemaFormTemplates}
+                  widgets={schemaFormWidgets}
+                  disabled={paramsReadOnly || submitting}
+                  readonly={paramsReadOnly}
+                  noHtml5Validate
+                  showErrorList={false}
+                  onChange={(event: IChangeEvent<SchemaFormData>) => {
+                    setSchemaFormData((event.formData ?? {}) as SchemaFormData);
+                    setSubmitError(null);
+                  }}
+                  onError={() =>
+                    setSubmitError(
+                      'Fix the highlighted parameter errors before submitting.'
+                    )
+                  }
+                />
+              )}
+
+              {!loading && dag && useTypedFields && (
+                <>
+                  {typedFields.map((field, index) => {
+                    const label = field.name || `Parameter ${index + 1}`;
+                    const error = fieldErrors[field.key];
+                    const disableField = paramsReadOnly || submitting;
+                    const showUnsetButton =
+                      !field.required && !field.hasDefault && field.hasValue;
+
                     return (
-                      <SelectItem
-                        key={profile.id}
-                        value={profile.name}
-                        disabled={protectedUnavailable}
-                      >
-                        <span className="flex w-full items-center justify-between gap-3">
-                          <span>{profile.name}</span>
-                          <span className="flex items-center gap-1.5">
-                            {profile.protected && (
-                              <Badge
-                                variant="outline"
-                                className="h-4 px-1.5 text-[10px]"
-                              >
-                                Protected
-                              </Badge>
-                            )}
-                            {protectedUnavailable && (
-                              <Badge
-                                variant="secondary"
-                                className="h-4 px-1.5 text-[10px]"
-                              >
-                                Admin
-                              </Badge>
-                            )}
-                          </span>
-                        </span>
-                      </SelectItem>
+                      <div key={field.key} className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <Label htmlFor={`param-${field.key}`}>
+                            {label}
+                            {field.required ? ' *' : ''}
+                          </Label>
+                          {showUnsetButton && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={disableField}
+                              onClick={() =>
+                                handleTypedFieldChange(field.key, {
+                                  hasValue: false,
+                                  value: '',
+                                })
+                              }
+                            >
+                              Unset
+                            </Button>
+                          )}
+                        </div>
+
+                        {renderTypedField({
+                          field,
+                          disabled: disableField,
+                          onChange: (patch) =>
+                            handleTypedFieldChange(field.key, patch),
+                        })}
+
+                        {field.description && (
+                          <p className="text-xs text-muted-foreground">
+                            {field.description}
+                          </p>
+                        )}
+                        {error && (
+                          <p className="text-xs text-destructive">{error}</p>
+                        )}
+                      </div>
                     );
                   })}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+                </>
+              )}
 
-          {loading && (
-            <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-              Loading DAG details...
-            </div>
-          )}
-
-          {!loading && dag && paramSchema && (
-            <Form
-              ref={schemaFormRef}
-              tagName="div"
-              schema={paramSchema as RJSFSchema}
-              validator={validator}
-              formData={schemaFormData}
-              uiSchema={schemaFormUiSchema}
-              templates={schemaFormTemplates}
-              widgets={schemaFormWidgets}
-              disabled={paramsReadOnly || submitting}
-              readonly={paramsReadOnly}
-              noHtml5Validate
-              showErrorList={false}
-              onChange={(event: IChangeEvent<SchemaFormData>) => {
-                setSchemaFormData((event.formData ?? {}) as SchemaFormData);
-                setSubmitError(null);
-              }}
-              onError={() =>
-                setSubmitError(
-                  'Fix the highlighted parameter errors before submitting.'
-                )
-              }
-            />
-          )}
-
-          {!loading && dag && useTypedFields && (
-            <>
-              {typedFields.map((field, index) => {
-                const label = field.name || `Parameter ${index + 1}`;
-                const error = fieldErrors[field.key];
-                const disableField = paramsReadOnly || submitting;
-                const showUnsetButton =
-                  !field.required && !field.hasDefault && field.hasValue;
-
-                return (
-                  <div key={field.key} className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <Label htmlFor={`param-${field.key}`}>
-                        {label}
-                        {field.required ? ' *' : ''}
+              {!loading && dag && !useSchemaFields && !useTypedFields && (
+                <>
+                  {rawParams.map((param, index) => (
+                    <div
+                      key={`${param.Name ?? 'pos'}-${index}`}
+                      className="space-y-2"
+                    >
+                      <Label htmlFor={`param-${index}`}>
+                        {param.Name ?? `Parameter ${index + 1}`}
                       </Label>
-                      {showUnsetButton && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          disabled={disableField}
-                          onClick={() =>
-                            handleTypedFieldChange(field.key, {
-                              hasValue: false,
-                              value: '',
-                            })
+                      <Textarea
+                        id={`param-${index}`}
+                        ref={(element) => {
+                          if (element) {
+                            autoGrowTextarea(element);
                           }
-                        >
-                          Unset
-                        </Button>
-                      )}
+                        }}
+                        rows={1}
+                        value={rawParams[index]?.Value ?? ''}
+                        readOnly={paramsReadOnly}
+                        disabled={paramsReadOnly || submitting}
+                        className={
+                          paramsReadOnly ? 'bg-muted cursor-not-allowed' : ''
+                        }
+                        onInput={(event) =>
+                          autoGrowTextarea(event.currentTarget)
+                        }
+                        onChange={(event) => {
+                          if (paramsReadOnly) {
+                            return;
+                          }
+                          setRawParams((prev) =>
+                            prev.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, Value: event.target.value }
+                                : item
+                            )
+                          );
+                          setSubmitError(null);
+                        }}
+                      />
                     </div>
-
-                    {renderTypedField({
-                      field,
-                      disabled: disableField,
-                      onChange: (patch) =>
-                        handleTypedFieldChange(field.key, patch),
-                    })}
-
-                    {field.description && (
-                      <p className="text-xs text-muted-foreground">
-                        {field.description}
-                      </p>
-                    )}
-                    {error && (
-                      <p className="text-xs text-destructive">{error}</p>
-                    )}
-                  </div>
-                );
-              })}
-            </>
-          )}
-
-          {!loading && dag && !useSchemaFields && !useTypedFields && (
-            <>
-              {rawParams.map((param, index) => (
-                <div
-                  key={`${param.Name ?? 'pos'}-${index}`}
-                  className="space-y-2"
-                >
-                  <Label htmlFor={`param-${index}`}>
-                    {param.Name ?? `Parameter ${index + 1}`}
-                  </Label>
-                  <Textarea
-                    id={`param-${index}`}
-                    ref={(element) => {
-                      if (element) {
-                        autoGrowTextarea(element);
-                      }
-                    }}
-                    rows={1}
-                    value={rawParams[index]?.Value ?? ''}
-                    readOnly={paramsReadOnly}
-                    disabled={paramsReadOnly || submitting}
-                    className={
-                      paramsReadOnly ? 'bg-muted cursor-not-allowed' : ''
-                    }
-                    onInput={(event) => autoGrowTextarea(event.currentTarget)}
-                    onChange={(event) => {
-                      if (paramsReadOnly) {
-                        return;
-                      }
-                      setRawParams((prev) =>
-                        prev.map((item, itemIndex) =>
-                          itemIndex === index
-                            ? { ...item, Value: event.target.value }
-                            : item
-                        )
-                      );
-                      setSubmitError(null);
-                    }}
-                  />
-                </div>
-              ))}
-            </>
-          )}
+                  ))}
+                </>
+              )}
+            </section>
+          </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button
             ref={cancelButtonRef}
             variant="ghost"
