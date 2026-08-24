@@ -18,8 +18,16 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { TOKEN_KEY, useCanViewAuditLogs } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import dayjs from '@/lib/dayjs';
-import { ChevronLeft, ChevronRight, RefreshCw, ScrollText } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Filter,
+  RefreshCw,
+  ScrollText,
+} from 'lucide-react';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { AuditEntryDetailsDrawer } from './AuditEntryDetailsDrawer';
 
 type AuditEntry = components['schemas']['AuditEntry'];
 
@@ -131,11 +139,13 @@ export default function AuditLogsPage() {
   const canViewAuditLogs = useCanViewAuditLogs();
   const appBarContext = useContext(AppBarContext);
   const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [selectedEntry, setSelectedEntry] = useState<AuditEntry | null>(null);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Filter states
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [category, setCategory] = useState('all');
   const [source, setSource] = useState('all');
   const [surface, setSurface] = useState('all');
@@ -572,7 +582,20 @@ export default function AuditLogsPage() {
         .join(' / ');
       return summary || entry.details || '-';
     }
-    return entry.details || '-';
+
+    const summary = Object.entries(details)
+      .slice(0, 3)
+      .map(([key, value]) => {
+        if (Array.isArray(value)) {
+          return `${key}: ${value.length} items`;
+        }
+        if (value && typeof value === 'object') {
+          return `${key}: structured data`;
+        }
+        return `${key}: ${String(value)}`;
+      })
+      .join(' • ');
+    return summary || '-';
   };
 
   const resultVariant = (value?: string) => {
@@ -588,6 +611,24 @@ export default function AuditLogsPage() {
     surface,
     result
   );
+  const activeAdvancedFilterCount = [
+    category !== 'all' && quickFilterValue !== 'mcp',
+    source !== 'all' &&
+      quickFilterValue !== 'mcp' &&
+      quickFilterValue !== 'rest',
+    surface !== 'all' &&
+      quickFilterValue !== 'mcp' &&
+      quickFilterValue !== 'rest',
+    result !== 'all' &&
+      quickFilterValue !== 'failed' &&
+      quickFilterValue !== 'denied',
+    action.trim() !== '',
+    workspace.trim() !== '',
+    credentialId.trim() !== '',
+    correlationId.trim() !== '',
+    resourceId.trim() !== '',
+    mcpTool.trim() !== '',
+  ].filter(Boolean).length;
 
   return (
     <div className="flex flex-col gap-4 max-w-7xl h-full">
@@ -598,28 +639,14 @@ export default function AuditLogsPage() {
             View system activity and security events
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger className="w-[160px] h-8">
-              <SelectValue placeholder="All Categories" />
-            </SelectTrigger>
-            <SelectContent>
-              {CATEGORIES.map((cat) => (
-                <SelectItem key={cat.value} value={cat.value}>
-                  {cat.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            onClick={() => fetchAuditLogs()}
-            size="sm"
-            variant="outline"
-            className="h-8"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
+        <Button
+          onClick={() => fetchAuditLogs()}
+          size="icon-sm"
+          variant="outline"
+          aria-label="Refresh audit logs"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
       </div>
 
       {/* Date Filter Row */}
@@ -734,130 +761,191 @@ export default function AuditLogsPage() {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-        <ToggleGroup aria-label="Audit quick filters">
-          <ToggleButton
-            value="all"
-            groupValue={quickFilterValue}
-            onClick={() => applyQuickFilter('all')}
-            position="first"
-            aria-label="All audit entries"
-          >
-            All
-          </ToggleButton>
-          <ToggleButton
-            value="mcp"
-            groupValue={quickFilterValue}
-            onClick={() => applyQuickFilter('mcp')}
-            position="middle"
-            aria-label="MCP audit entries"
-          >
-            MCP
-          </ToggleButton>
-          <ToggleButton
-            value="rest"
-            groupValue={quickFilterValue}
-            onClick={() => applyQuickFilter('rest')}
-            position="middle"
-            aria-label="REST audit entries"
-          >
-            REST
-          </ToggleButton>
-          <ToggleButton
-            value="failed"
-            groupValue={quickFilterValue}
-            onClick={() => applyQuickFilter('failed')}
-            position="middle"
-            aria-label="Failed audit entries"
-          >
-            Failed
-          </ToggleButton>
-          <ToggleButton
-            value="denied"
-            groupValue={quickFilterValue}
-            onClick={() => applyQuickFilter('denied')}
-            position="last"
-            aria-label="Denied audit entries"
-          >
-            Denied
-          </ToggleButton>
-        </ToggleGroup>
+      <div className="flex-shrink-0 overflow-hidden rounded-md border border-border bg-card shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+          <ToggleGroup aria-label="Audit quick filters">
+            <ToggleButton
+              value="all"
+              groupValue={quickFilterValue}
+              onClick={() => applyQuickFilter('all')}
+              position="first"
+              aria-label="All audit entries"
+            >
+              All
+            </ToggleButton>
+            <ToggleButton
+              value="mcp"
+              groupValue={quickFilterValue}
+              onClick={() => applyQuickFilter('mcp')}
+              position="middle"
+              aria-label="MCP audit entries"
+            >
+              MCP
+            </ToggleButton>
+            <ToggleButton
+              value="rest"
+              groupValue={quickFilterValue}
+              onClick={() => applyQuickFilter('rest')}
+              position="middle"
+              aria-label="REST audit entries"
+            >
+              REST
+            </ToggleButton>
+            <ToggleButton
+              value="failed"
+              groupValue={quickFilterValue}
+              onClick={() => applyQuickFilter('failed')}
+              position="middle"
+              aria-label="Failed audit entries"
+            >
+              Failed
+            </ToggleButton>
+            <ToggleButton
+              value="denied"
+              groupValue={quickFilterValue}
+              onClick={() => applyQuickFilter('denied')}
+              position="last"
+              aria-label="Denied audit entries"
+            >
+              Denied
+            </ToggleButton>
+          </ToggleGroup>
 
-        <Select value={source} onValueChange={setSource}>
-          <SelectTrigger className="w-[140px] h-8">
-            <SelectValue placeholder="Source" />
-          </SelectTrigger>
-          <SelectContent>
-            {SOURCES.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <Button
+            id="audit-advanced-filters-trigger"
+            type="button"
+            size="sm"
+            variant={activeAdvancedFilterCount > 0 ? 'secondary' : 'outline'}
+            aria-expanded={advancedFiltersOpen}
+            aria-controls="audit-advanced-filters"
+            aria-label={
+              activeAdvancedFilterCount > 0
+                ? `Filters (${activeAdvancedFilterCount})`
+                : 'Filters'
+            }
+            onClick={() => setAdvancedFiltersOpen((open) => !open)}
+          >
+            <Filter className="h-4 w-4" />
+            Filters
+            {activeAdvancedFilterCount > 0 ? (
+              <Badge variant="primary" className="ml-0.5">
+                {activeAdvancedFilterCount}
+              </Badge>
+            ) : null}
+          </Button>
+        </div>
 
-        <Select value={surface} onValueChange={setSurface}>
-          <SelectTrigger className="w-[150px] h-8">
-            <SelectValue placeholder="Surface" />
-          </SelectTrigger>
-          <SelectContent>
-            {SURFACES.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={result} onValueChange={setResult}>
-          <SelectTrigger className="w-[140px] h-8">
-            <SelectValue placeholder="Result" />
-          </SelectTrigger>
-          <SelectContent>
-            {RESULTS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Input
-          value={action}
-          onChange={(e) => setAction(e.target.value)}
-          placeholder="Action"
-          className="w-[170px] h-8"
-        />
-        <Input
-          value={workspace}
-          onChange={(e) => setWorkspace(e.target.value)}
-          placeholder="Workspace"
-          className="w-[140px] h-8"
-        />
-        <Input
-          value={credentialId}
-          onChange={(e) => setCredentialId(e.target.value)}
-          placeholder="Credential ID"
-          className="w-[170px] h-8"
-        />
-        <Input
-          value={correlationId}
-          onChange={(e) => setCorrelationId(e.target.value)}
-          placeholder="Correlation ID"
-          className="w-[180px] h-8"
-        />
-        <Input
-          value={resourceId}
-          onChange={(e) => setResourceId(e.target.value)}
-          placeholder="Resource ID"
-          className="w-[160px] h-8"
-        />
-        <Input
-          value={mcpTool}
-          onChange={(e) => setMcpTool(e.target.value)}
-          placeholder="MCP tool"
-          className="w-[140px] h-8"
-        />
+        {advancedFiltersOpen ? (
+          <div
+            id="audit-advanced-filters"
+            aria-labelledby="audit-advanced-filters-trigger"
+            className="border-t border-border bg-surface-variant/30 p-3"
+          >
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger className="h-8 w-full" aria-label="Category">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={source} onValueChange={setSource}>
+                <SelectTrigger className="h-8 w-full" aria-label="Source">
+                  <SelectValue placeholder="Source" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SOURCES.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={surface} onValueChange={setSurface}>
+                <SelectTrigger className="h-8 w-full" aria-label="Surface">
+                  <SelectValue placeholder="Surface" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SURFACES.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={result} onValueChange={setResult}>
+                <SelectTrigger className="h-8 w-full" aria-label="Result">
+                  <SelectValue placeholder="Result" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESULTS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={action}
+                onChange={(e) => setAction(e.target.value)}
+                placeholder="Action"
+                aria-label="Action"
+                className="h-8 w-full"
+              />
+              <Input
+                value={workspace}
+                onChange={(e) => setWorkspace(e.target.value)}
+                placeholder="Workspace"
+                aria-label="Workspace"
+                className="h-8 w-full"
+              />
+              <Input
+                value={credentialId}
+                onChange={(e) => setCredentialId(e.target.value)}
+                placeholder="Credential ID"
+                aria-label="Credential ID"
+                className="h-8 w-full"
+              />
+              <Input
+                value={correlationId}
+                onChange={(e) => setCorrelationId(e.target.value)}
+                placeholder="Correlation ID"
+                aria-label="Correlation ID"
+                className="h-8 w-full"
+              />
+              <Input
+                value={resourceId}
+                onChange={(e) => setResourceId(e.target.value)}
+                placeholder="Resource ID"
+                aria-label="Resource ID"
+                className="h-8 w-full"
+              />
+              <Input
+                value={mcpTool}
+                onChange={(e) => setMcpTool(e.target.value)}
+                placeholder="MCP tool"
+                aria-label="MCP tool"
+                className="h-8 w-full"
+              />
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label="Clear all filters"
+                onClick={() => applyQuickFilter('all')}
+              >
+                Clear all
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {error && (
@@ -866,116 +954,147 @@ export default function AuditLogsPage() {
         </div>
       )}
 
-      <div className="border border-border rounded-md flex-1 min-h-0 flex flex-col bg-background overflow-hidden">
-        <div className="flex-shrink-0 border-b border-border bg-background">
-          <table className="w-full table-fixed bg-background">
-            <thead>
+      <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border bg-card">
+        <table className="w-full min-w-[980px] border-collapse text-sm">
+          <thead className="sticky top-0 z-10 border-b border-border bg-surface-variant/95 shadow-sm">
+            <tr>
+              <th className="w-[170px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
+                Timestamp
+              </th>
+              <th className="w-[240px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
+                Event
+              </th>
+              <th className="w-[170px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
+                Actor
+              </th>
+              <th className="w-[130px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
+                Source
+              </th>
+              <th className="w-[110px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
+                Result
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
+                Summary
+              </th>
+              <th className="w-14 px-3 py-3">
+                <span className="sr-only">Details</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
               <tr>
-                <th className="w-[180px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
-                  Timestamp
-                </th>
-                <th className="w-[100px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
-                  Category
-                </th>
-                <th className="w-[120px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
-                  Action
-                </th>
-                <th className="w-[90px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
-                  Source
-                </th>
-                <th className="w-[100px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
-                  Result
-                </th>
-                <th className="w-[120px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
-                  User
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">
-                  Details
-                </th>
-                <th className="w-[120px] px-4 py-3 text-left text-sm font-medium text-muted-foreground">
-                  IP Address
-                </th>
+                <td
+                  colSpan={7}
+                  className="py-8 text-center text-muted-foreground"
+                >
+                  Loading audit logs...
+                </td>
               </tr>
-            </thead>
-          </table>
-        </div>
-        <div className="flex-1 min-h-0 overflow-auto bg-background">
-          <table className="w-full table-fixed bg-background">
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="text-center text-muted-foreground py-8"
-                  >
-                    Loading audit logs...
+            ) : entries.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="py-8 text-center text-muted-foreground"
+                >
+                  <ScrollText className="mx-auto mb-2 h-8 w-8 opacity-50" />
+                  No audit log entries found
+                </td>
+              </tr>
+            ) : (
+              entries.map((entry) => (
+                <tr
+                  key={entry.id}
+                  tabIndex={0}
+                  aria-label={`Open audit entry ${entry.action}`}
+                  data-state={
+                    selectedEntry?.id === entry.id ? 'selected' : undefined
+                  }
+                  onClick={() => setSelectedEntry(entry)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedEntry(entry);
+                    }
+                  }}
+                  className="cursor-pointer border-b border-border bg-card transition-colors hover:bg-muted/60 focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[state=selected]:bg-muted"
+                >
+                  <td className="whitespace-nowrap px-4 py-3 align-top text-xs text-muted-foreground">
+                    {config.tzOffsetInSec !== undefined
+                      ? dayjs(entry.timestamp)
+                          .utcOffset(config.tzOffsetInSec / 60)
+                          .format('MMM D, YYYY HH:mm:ss')
+                      : dayjs(entry.timestamp).format('MMM D, YYYY HH:mm:ss')}
                   </td>
-                </tr>
-              ) : entries.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="text-center text-muted-foreground py-8"
-                  >
-                    <ScrollText className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    No audit log entries found
-                  </td>
-                </tr>
-              ) : (
-                entries.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    className="border-b border-border bg-background hover:bg-muted/50"
-                  >
-                    <td className="w-[180px] px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
-                      {config.tzOffsetInSec !== undefined
-                        ? dayjs(entry.timestamp)
-                            .utcOffset(config.tzOffsetInSec / 60)
-                            .format('MMM D, YYYY HH:mm:ss')
-                        : dayjs(entry.timestamp).format('MMM D, YYYY HH:mm:ss')}
-                    </td>
-                    <td className="w-[100px] px-4 py-3">
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground capitalize">
+                  <td className="px-4 py-3 align-top">
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="capitalize">
                         {entry.category}
+                      </Badge>
+                      <span className="min-w-0 break-all font-mono text-xs leading-5">
+                        {entry.action}
                       </span>
-                    </td>
-                    <td className="w-[120px] px-4 py-3">
-                      <span className="text-xs font-mono">{entry.action}</span>
-                    </td>
-                    <td className="w-[90px] px-4 py-3">
-                      {entry.source ? (
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <div className="min-w-0">
+                      <div className="break-all text-xs font-medium">
+                        {entry.username || '—'}
+                      </div>
+                      {entry.workspace ? (
+                        <div className="mt-0.5 break-all text-xs text-muted-foreground">
+                          {entry.workspace}
+                        </div>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    {entry.source ? (
+                      <div className="space-y-1">
                         <Badge variant="outline">{entry.source}</Badge>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">-</span>
-                      )}
-                    </td>
-                    <td className="w-[100px] px-4 py-3">
-                      {entry.result ? (
-                        <Badge variant={resultVariant(entry.result)}>
-                          {entry.result}
-                        </Badge>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">-</span>
-                      )}
-                    </td>
-                    <td className="w-[120px] px-4 py-3 text-sm">
-                      {entry.username}
-                    </td>
-                    <td
-                      className="px-4 py-3 text-sm text-muted-foreground truncate"
-                      title={entry.details}
-                    >
+                        {entry.surface && entry.surface !== entry.source ? (
+                          <div className="break-all text-xs text-muted-foreground">
+                            {entry.surface}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    {entry.result ? (
+                      <Badge variant={resultVariant(entry.result)}>
+                        {entry.result}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 align-top text-xs leading-5 text-muted-foreground">
+                    <span className="line-clamp-2 whitespace-normal break-words">
                       {formatDetails(entry)}
-                    </td>
-                    <td className="w-[120px] px-4 py-3 text-sm text-muted-foreground font-mono">
-                      {entry.ipAddress || '-'}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 align-top">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`View details for ${entry.action}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedEntry(entry);
+                      }}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* Pagination */}
@@ -1012,6 +1131,15 @@ export default function AuditLogsPage() {
           </div>
         </div>
       )}
+      <AuditEntryDetailsDrawer
+        entry={selectedEntry}
+        open={selectedEntry !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedEntry(null);
+          }
+        }}
+      />
     </div>
   );
 }
