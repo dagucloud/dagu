@@ -153,10 +153,10 @@ func runStartAll(ctx *Context, _ []string) error {
 	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
 	cleanupCancel, cleanupDone := startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
 	defer func() {
-		cleanupCancel()
-		<-cleanupDone
-		if err := openCodeHost.Close(ctx); err != nil {
-			logger.Error(ctx, "Failed to stop OpenCode host", tag.Error(err))
+		shutdownCtx, shutdownCancel := localAgentSessionShutdownContext(ctx)
+		defer shutdownCancel()
+		if err := stopLocalAgentSessionCleanup(shutdownCtx, cleanupCancel, cleanupDone, openCodeHost); err != nil {
+			logger.Error(ctx, "Failed to stop local agent session services", tag.Error(err))
 		}
 	}()
 
@@ -258,8 +258,8 @@ func runStartAll(ctx *Context, _ []string) error {
 			firstErr = err
 			logger.Error(ctx, "Service failed, shutting down", tag.Error(err))
 		}
-		stop() // Cancel the signal context to trigger shutdown of other services
 	}
+	stop() // Restore default signal handling while graceful shutdown runs.
 
 	// Stop all services gracefully
 	logger.Info(ctx, "Stopping all services")
