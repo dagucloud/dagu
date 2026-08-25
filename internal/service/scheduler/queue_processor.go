@@ -400,6 +400,7 @@ func (p *QueueProcessor) processActiveQueues(ctx context.Context, activeQueues m
 		return
 	}
 	workerSnapshot := p.loadWorkerHeartbeatSnapshot(ctx)
+	workerGeneration := workerSnapshot.generation(p.workerHeartbeatStore != nil, p.workerStaleAfter)
 
 	queueNames := make(chan string)
 	var wg sync.WaitGroup
@@ -416,7 +417,7 @@ func (p *QueueProcessor) processActiveQueues(ctx context.Context, activeQueues m
 						}
 					}()
 					queueCtx := logger.WithValues(ctx, tag.Queue(queueName))
-					p.processQueueItems(queueCtx, queueName, workerSnapshot)
+					p.processQueueItems(queueCtx, queueName, workerSnapshot, workerGeneration)
 				}()
 			}
 		})
@@ -478,13 +479,20 @@ func (p *QueueProcessor) acquireDispatchHandoff(ctx context.Context) (func(), bo
 
 // ProcessQueueItems processes items in the specified queue.
 func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string) {
-	p.processQueueItems(ctx, queueName, p.loadWorkerHeartbeatSnapshot(ctx))
+	workerSnapshot := p.loadWorkerHeartbeatSnapshot(ctx)
+	p.processQueueItems(
+		ctx,
+		queueName,
+		workerSnapshot,
+		workerSnapshot.generation(p.workerHeartbeatStore != nil, p.workerStaleAfter),
+	)
 }
 
 func (p *QueueProcessor) processQueueItems(
 	ctx context.Context,
 	queueName string,
 	workerSnapshot *workerHeartbeatSnapshot,
+	workerGeneration workerEligibilityGeneration,
 ) {
 	if p.isClosed() {
 		return
@@ -507,11 +515,12 @@ func (p *QueueProcessor) processQueueItems(
 	capacity := dispatcher.queueCapacity(ctx, queueName, q.getMaxConcurrency(), q.getInflight())
 	generation := queueScanGeneration{
 		queueRevision: revision,
-		workers:       workerSnapshot.generation(p.workerHeartbeatStore != nil, p.workerStaleAfter),
+		workers:       workerGeneration,
 		capacity:      capacity.queueCapacityGeneration,
 	}
 	cursor, parked := q.scanPosition(generation)
 	if parked {
+		p.wakeUp()
 		logger.Debug(ctx, "Queue scan parked until relevant state changes")
 		return
 	}
@@ -528,7 +537,7 @@ func (p *QueueProcessor) processQueueItems(
 	)
 
 	if len(items) == 0 {
-		q.parkScan(generation)
+		p.parkQueueScan(q, generation)
 		logger.Debug(ctx, "No item found")
 		return
 	}
@@ -536,7 +545,7 @@ func (p *QueueProcessor) processQueueItems(
 	batch, err := dispatcher.selectDispatchBatch(ctx, queueName, items, capacity, workerSnapshot)
 	if err != nil {
 		if capacity.err != nil {
-			q.parkScan(generation)
+			p.parkQueueScan(q, generation)
 		}
 		return
 	}
@@ -545,7 +554,7 @@ func (p *QueueProcessor) processQueueItems(
 			q.advanceScan(generation, page.NextCursor)
 			p.wakeUp()
 		} else {
-			q.parkScan(generation)
+			p.parkQueueScan(q, generation)
 		}
 		return
 	}
@@ -575,6 +584,11 @@ func (p *QueueProcessor) processQueueItems(
 		}(item)
 	}
 	wg.Wait()
+	p.wakeUp()
+}
+
+func (p *QueueProcessor) parkQueueScan(q *queue, generation queueScanGeneration) {
+	q.parkScan(generation)
 	p.wakeUp()
 }
 

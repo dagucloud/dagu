@@ -359,6 +359,35 @@ func TestQueueProcessor_CountsFreshDistributedRunsAgainstQueueConcurrency(t *tes
 	assert.Contains(t, f.logs(), "Max concurrency reached")
 }
 
+func TestQueueProcessor_RechecksDistributedCapacityAfterLeaseRelease(t *testing.T) {
+	f := newQueueFixture(t).withDAG("distributed-recheck-dag", 1).
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
+		simulateQueue(1, false)
+	dispatcher := &mockDispatcher{}
+	f.processor.dagExecutor = NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "")
+
+	const activeAttemptKey = "active-attempt"
+	require.NoError(t, f.leaseStore.Upsert(f.ctx, dispatch.DAGRunLease{
+		AttemptKey:      activeAttemptKey,
+		QueueName:       f.dag.Name,
+		WorkerID:        "worker-1",
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+	f.enqueueRuns(1)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	require.Zero(t, dispatcher.callCount.Load())
+	select {
+	case <-f.processor.wakeUpCh:
+	default:
+		t.Fatal("parked distributed queue did not schedule a capacity recheck")
+	}
+
+	require.NoError(t, f.leaseStore.Delete(f.ctx, activeAttemptKey))
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	assert.Equal(t, int32(1), dispatcher.callCount.Load())
+}
+
 func TestQueueProcessor_ProcessQueueItems_FailsClosedOnLeaseCountError(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-count-error-dag", 1).
 		withProcessor(config.Queues{}).
@@ -664,12 +693,17 @@ func TestQueueProcessorParksCompletedBlockedScanUntilGenerationChanges(t *testin
 	assert.Equal(t, int32(4), queueStore.scanCalls.Load())
 	select {
 	case <-processor.wakeUpCh:
-		t.Fatal("completed blocked scan scheduled another pass")
 	default:
+		t.Fatal("completed blocked scan did not schedule a state recheck")
 	}
 
 	processor.ProcessQueueItems(t.Context(), "main")
 	assert.Equal(t, int32(4), queueStore.scanCalls.Load(), "unchanged parked queue should not be scanned again")
+	select {
+	case <-processor.wakeUpCh:
+	default:
+		t.Fatal("unchanged parked queue did not schedule another state recheck")
+	}
 
 	procRepository.setAlive(2)
 	processor.ProcessQueueItems(t.Context(), "main")
@@ -690,12 +724,17 @@ func TestQueueProcessorParksQueueStateErrorsUntilGenerationChanges(t *testing.T)
 	assert.Equal(t, int32(1), queueStore.scanCalls.Load())
 	select {
 	case <-processor.wakeUpCh:
-		t.Fatal("queue state error scheduled another pass")
 	default:
+		t.Fatal("queue state error did not schedule a state recheck")
 	}
 
 	processor.ProcessQueueItems(t.Context(), "main")
 	assert.Equal(t, int32(1), queueStore.scanCalls.Load(), "unchanged queue state error should stay parked")
+	select {
+	case <-processor.wakeUpCh:
+	default:
+		t.Fatal("unchanged queue state error did not schedule another state recheck")
+	}
 
 	procRepository.setState(1, nil)
 	processor.ProcessQueueItems(t.Context(), "main")
