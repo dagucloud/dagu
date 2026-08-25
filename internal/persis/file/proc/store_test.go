@@ -162,14 +162,13 @@ func TestStoreSkipsAbandonedDamagedProcFile(t *testing.T) {
 
 	ctx := context.Background()
 	root := t.TempDir()
-	s := New(root, WithHeartbeatInterval(10*time.Millisecond), WithStaleThreshold(time.Second))
+	s := New(root, WithStaleThreshold(time.Minute))
 	repository := persis.NewProcRepository(s)
 	ref := ir.NewDAGRunRef("healthy-dag", "run-1")
+	meta := testProcMeta(ref)
 
-	handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
-	require.NoError(t, err)
-	defer func() { _ = handle.Stop(ctx) }()
-	require.NotEmpty(t, waitForProcFile(t, root, "queue-a", "healthy-dag"))
+	now := time.Now().UTC()
+	require.NoError(t, writeProcFile(s.filePath("queue-a", meta, now), now.Unix(), meta))
 
 	writeDamagedProcFile(t, s, "queue-a", ir.NewDAGRunRef("healthy-dag", "abandoned-run"), time.Hour)
 
