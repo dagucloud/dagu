@@ -5,9 +5,13 @@ package scheduler
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"log/slog"
 	"runtime"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -122,8 +126,23 @@ type queue struct {
 	maxConcurrency int
 	isGlobal       bool // true if this queue is defined in config (global queue)
 	scanCursor     string
+	scanGeneration queueScanGeneration
+	generationSet  bool
+	parked         bool
 	inflight       atomic.Int32
 	mu             sync.Mutex
+}
+
+type workerEligibilityGeneration struct {
+	fingerprint [sha256.Size]byte
+	enabled     bool
+	available   bool
+}
+
+type queueScanGeneration struct {
+	queueRevision int64
+	workers       workerEligibilityGeneration
+	capacity      queueCapacityGeneration
 }
 
 func (q *queue) getMaxConcurrency() int {
@@ -142,16 +161,43 @@ func (q *queue) getInflight() int {
 	return int(q.inflight.Load())
 }
 
-func (q *queue) getScanCursor() string {
+func (q *queue) scanPosition(generation queueScanGeneration) (string, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return q.scanCursor
+	if !q.generationSet || q.scanGeneration != generation {
+		q.scanCursor = ""
+		q.scanGeneration = generation
+		q.generationSet = true
+		q.parked = false
+	}
+	return q.scanCursor, q.parked
 }
 
-func (q *queue) setScanCursor(cursor string) {
+func (q *queue) advanceScan(generation queueScanGeneration, cursor string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.scanGeneration = generation
+	q.generationSet = true
 	q.scanCursor = cursor
+	q.parked = false
+}
+
+func (q *queue) parkScan(generation queueScanGeneration) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.scanGeneration = generation
+	q.generationSet = true
+	q.scanCursor = ""
+	q.parked = true
+}
+
+func (q *queue) restartScan(generation queueScanGeneration) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.scanGeneration = generation
+	q.generationSet = true
+	q.scanCursor = ""
+	q.parked = false
 }
 
 func (q *queue) incInflight() { q.inflight.Add(1) }
@@ -281,7 +327,6 @@ func (p *QueueProcessor) Start(ctx context.Context, notifyCh <-chan struct{}) {
 			case <-p.quit:
 				return
 			case <-notifyCh:
-				p.resetQueueScanCursors()
 				p.wakeUp()
 			}
 		}
@@ -354,6 +399,7 @@ func (p *QueueProcessor) processActiveQueues(ctx context.Context, activeQueues m
 	if workerCount == 0 {
 		return
 	}
+	workerSnapshot := p.loadWorkerHeartbeatSnapshot(ctx)
 
 	queueNames := make(chan string)
 	var wg sync.WaitGroup
@@ -370,7 +416,7 @@ func (p *QueueProcessor) processActiveQueues(ctx context.Context, activeQueues m
 						}
 					}()
 					queueCtx := logger.WithValues(ctx, tag.Queue(queueName))
-					p.ProcessQueueItems(queueCtx, queueName)
+					p.processQueueItems(queueCtx, queueName, workerSnapshot)
 				}()
 			}
 		})
@@ -432,6 +478,14 @@ func (p *QueueProcessor) acquireDispatchHandoff(ctx context.Context) (func(), bo
 
 // ProcessQueueItems processes items in the specified queue.
 func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string) {
+	p.processQueueItems(ctx, queueName, p.loadWorkerHeartbeatSnapshot(ctx))
+}
+
+func (p *QueueProcessor) processQueueItems(
+	ctx context.Context,
+	queueName string,
+	workerSnapshot *workerHeartbeatSnapshot,
+) {
 	if p.isClosed() {
 		return
 	}
@@ -443,8 +497,26 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	}
 	q := v.(*queue)
 	logger.Debug(ctx, "Processing queue", tag.MaxConcurrency(q.getMaxConcurrency()))
+	dispatcher := p.newQueueDispatcher()
 
-	page, err := p.listQueueScanPage(ctx, queueName, q)
+	revision, err := p.queueStore.Revision(ctx, queueName)
+	if err != nil {
+		logger.Error(ctx, "Failed to read queue revision", tag.Error(err))
+		return
+	}
+	capacity := dispatcher.queueCapacity(ctx, queueName, q.getMaxConcurrency(), q.getInflight())
+	generation := queueScanGeneration{
+		queueRevision: revision,
+		workers:       workerSnapshot.generation(p.workerHeartbeatStore != nil, p.workerStaleAfter),
+		capacity:      capacity.queueCapacityGeneration,
+	}
+	cursor, parked := q.scanPosition(generation)
+	if parked {
+		logger.Debug(ctx, "Queue scan parked until relevant state changes")
+		return
+	}
+
+	page, err := p.listQueueScanPage(ctx, queueName, cursor)
 	if err != nil {
 		logger.Error(ctx, "Failed to get queued items", tag.Error(err))
 		return
@@ -456,24 +528,28 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 	)
 
 	if len(items) == 0 {
-		q.setScanCursor("")
+		q.parkScan(generation)
 		logger.Debug(ctx, "No item found")
 		return
 	}
 
-	defer p.wakeUp()
-	dispatcher := p.newQueueDispatcher()
-
-	maxConcurrency := q.getMaxConcurrency()
-	batch, err := dispatcher.selectDispatchBatch(ctx, queueName, items, maxConcurrency, q.getInflight())
+	batch, err := dispatcher.selectDispatchBatch(ctx, queueName, items, capacity, workerSnapshot)
 	if err != nil {
+		if capacity.err != nil {
+			q.parkScan(generation)
+		}
 		return
 	}
 	if len(batch.items) == 0 {
-		q.setScanCursor(page.NextCursor)
+		if page.HasMore && page.NextCursor != "" {
+			q.advanceScan(generation, page.NextCursor)
+			p.wakeUp()
+		} else {
+			q.parkScan(generation)
+		}
 		return
 	}
-	q.setScanCursor("")
+	q.restartScan(generation)
 	logger.Info(ctx, "Processing batch of items",
 		tag.Count(len(batch.items)),
 		tag.MaxConcurrency(batch.maxConcurrency),
@@ -499,14 +575,14 @@ func (p *QueueProcessor) ProcessQueueItems(ctx context.Context, queueName string
 		}(item)
 	}
 	wg.Wait()
+	p.wakeUp()
 }
 
 func (p *QueueProcessor) listQueueScanPage(
 	ctx context.Context,
 	queueName string,
-	q *queue,
+	cursor string,
 ) (pagination.CursorResult[queuedomain.QueuedItemData], error) {
-	cursor := q.getScanCursor()
 	for attempt := range 2 {
 		head, err := p.queueStore.ListCursor(ctx, queueName, "", queueHeadItemLimit)
 		if err != nil || !head.HasMore || len(head.Items) == 0 {
@@ -525,7 +601,6 @@ func (p *QueueProcessor) listQueueScanPage(
 		)
 		if errors.Is(err, pagination.ErrInvalidCursor) && attempt == 0 {
 			logger.Debug(ctx, "Queue scan cursor invalidated; restarting from head")
-			q.setScanCursor("")
 			cursor = ""
 			continue
 		}
@@ -553,13 +628,46 @@ func (p *QueueProcessor) listQueueScanPage(
 	return pagination.CursorResult[queuedomain.QueuedItemData]{}, pagination.ErrInvalidCursor
 }
 
-func (p *QueueProcessor) resetQueueScanCursors() {
-	p.queues.Range(func(_, value any) bool {
-		if q, ok := value.(*queue); ok {
-			q.setScanCursor("")
+func (p *QueueProcessor) loadWorkerHeartbeatSnapshot(ctx context.Context) *workerHeartbeatSnapshot {
+	snapshot := &workerHeartbeatSnapshot{observedAt: time.Now().UTC()}
+	if p.workerHeartbeatStore != nil {
+		_, _ = snapshot.load(ctx, p.workerHeartbeatStore)
+	}
+	return snapshot
+}
+
+func (s *workerHeartbeatSnapshot) generation(
+	enabled bool,
+	staleThreshold time.Duration,
+) workerEligibilityGeneration {
+	generation := workerEligibilityGeneration{enabled: enabled, available: s.err == nil}
+	if !enabled || s.err != nil {
+		return generation
+	}
+
+	entries := make([]string, 0, len(s.records))
+	for _, record := range s.records {
+		if !dispatch.WorkerHeartbeatFresh(record, s.observedAt, staleThreshold) {
+			continue
 		}
-		return true
-	})
+		keys := make([]string, 0, len(record.Labels))
+		for key := range record.Labels {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		var entry strings.Builder
+		entry.WriteString(strconv.Quote(record.WorkerID))
+		for _, key := range keys {
+			entry.WriteByte(':')
+			entry.WriteString(strconv.Quote(key))
+			entry.WriteByte('=')
+			entry.WriteString(strconv.Quote(record.Labels[key]))
+		}
+		entries = append(entries, entry.String())
+	}
+	sort.Strings(entries)
+	generation.fingerprint = sha256.Sum256([]byte(strings.Join(entries, "\n")))
+	return generation
 }
 
 func currentStatusString(status *ir.DAGRunStatus) string {

@@ -48,8 +48,22 @@ func TestQueueStore_EnqueueListAndDequeue(t *testing.T) {
 	ctx := context.Background()
 	s := newQueueStore(t)
 
+	revision, err := s.Revision(ctx, "main")
+	require.NoError(t, err)
+	assert.Zero(t, revision)
+
 	require.NoError(t, s.Enqueue(ctx, "main", queue.QueuePriorityLow, queueRef("dag-low", "run-low")))
+	firstRevision, err := s.Revision(ctx, "main")
+	require.NoError(t, err)
+	assert.Positive(t, firstRevision)
+
 	require.NoError(t, s.Enqueue(ctx, "main", queue.QueuePriorityHigh, queueRef("dag-high", "run-high")))
+	secondRevision, err := s.Revision(ctx, "main")
+	require.NoError(t, err)
+	assert.Greater(t, secondRevision, firstRevision)
+	stableRevision, err := s.Revision(ctx, "main")
+	require.NoError(t, err)
+	assert.Equal(t, secondRevision, stableRevision)
 
 	n, err := s.Len(ctx, "main")
 	require.NoError(t, err)
@@ -64,6 +78,9 @@ func TestQueueStore_EnqueueListAndDequeue(t *testing.T) {
 	deleted, err := s.DeleteByItemIDs(ctx, "main", []string{items[0].ID()})
 	require.NoError(t, err)
 	assert.Equal(t, 1, deleted)
+	thirdRevision, err := s.Revision(ctx, "main")
+	require.NoError(t, err)
+	assert.Greater(t, thirdRevision, secondRevision)
 
 	items, err = s.List(ctx, "main")
 	require.NoError(t, err)
@@ -73,6 +90,9 @@ func TestQueueStore_EnqueueListAndDequeue(t *testing.T) {
 	deleted, err = s.DeleteByItemIDs(ctx, "main", []string{items[0].ID()})
 	require.NoError(t, err)
 	assert.Equal(t, 1, deleted)
+	revision, err = s.Revision(ctx, "main")
+	require.NoError(t, err)
+	assert.Zero(t, revision)
 }
 
 func TestQueueStore_GetByItemID(t *testing.T) {

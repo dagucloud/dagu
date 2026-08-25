@@ -213,6 +213,10 @@ func (s *enqueueObservingQueueStore) ListCursor(context.Context, string, string,
 	return pagination.CursorResult[queue.QueuedItemData]{}, nil
 }
 
+func (s *enqueueObservingQueueStore) Revision(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
 func (s *enqueueObservingQueueStore) All(context.Context) ([]queue.QueuedItemData, error) {
 	return nil, nil
 }

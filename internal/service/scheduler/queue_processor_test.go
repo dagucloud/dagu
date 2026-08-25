@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -634,10 +636,118 @@ func TestQueueProcessorRestartsBoundedScanAfterCursorInvalidation(t *testing.T) 
 
 	queueStore := &invalidatingCursorQueueStore{}
 	processor := NewQueueProcessor(queueStore, nil, nil, nil, config.Queues{})
-	page, err := processor.listQueueScanPage(t.Context(), "main", &queue{})
+	page, err := processor.listQueueScanPage(t.Context(), "main", "")
 	require.NoError(t, err)
 	require.Len(t, page.Items, 1)
 	assert.Equal(t, "new-head", page.Items[0].ID())
+}
+
+func TestQueueProcessorParksCompletedBlockedScanUntilGenerationChanges(t *testing.T) {
+	t.Parallel()
+
+	queueStore := &pagedQueueScanStore{itemCount: queueScanItemLimit + 1}
+	queueStore.revision.Store(1)
+	procRepository := &queueScanProcRepository{alive: 1}
+	processor := NewQueueProcessor(queueStore, nil, procRepository, nil, config.Queues{
+		Config: []config.QueueConfig{{Name: "main", MaxActiveRuns: 1}},
+	})
+
+	processor.ProcessQueueItems(t.Context(), "main")
+	assert.Equal(t, int32(2), queueStore.scanCalls.Load())
+	select {
+	case <-processor.wakeUpCh:
+	default:
+		t.Fatal("incomplete scan did not schedule its next page")
+	}
+
+	processor.ProcessQueueItems(t.Context(), "main")
+	assert.Equal(t, int32(4), queueStore.scanCalls.Load())
+	select {
+	case <-processor.wakeUpCh:
+		t.Fatal("completed blocked scan scheduled another pass")
+	default:
+	}
+
+	processor.ProcessQueueItems(t.Context(), "main")
+	assert.Equal(t, int32(4), queueStore.scanCalls.Load(), "unchanged parked queue should not be scanned again")
+
+	procRepository.setAlive(2)
+	processor.ProcessQueueItems(t.Context(), "main")
+	assert.Equal(t, int32(6), queueStore.scanCalls.Load(), "capacity changes should restart the scan")
+}
+
+func TestQueueProcessorParksQueueStateErrorsUntilGenerationChanges(t *testing.T) {
+	t.Parallel()
+
+	queueStore := &pagedQueueScanStore{itemCount: 1}
+	queueStore.revision.Store(1)
+	procRepository := &queueScanProcRepository{err: errors.New("process store unavailable")}
+	processor := NewQueueProcessor(queueStore, nil, procRepository, nil, config.Queues{
+		Config: []config.QueueConfig{{Name: "main", MaxActiveRuns: 1}},
+	})
+
+	processor.ProcessQueueItems(t.Context(), "main")
+	assert.Equal(t, int32(1), queueStore.scanCalls.Load())
+	select {
+	case <-processor.wakeUpCh:
+		t.Fatal("queue state error scheduled another pass")
+	default:
+	}
+
+	processor.ProcessQueueItems(t.Context(), "main")
+	assert.Equal(t, int32(1), queueStore.scanCalls.Load(), "unchanged queue state error should stay parked")
+
+	procRepository.setState(1, nil)
+	processor.ProcessQueueItems(t.Context(), "main")
+	assert.Equal(t, int32(2), queueStore.scanCalls.Load(), "queue state recovery should restart the scan")
+}
+
+func TestWorkerEligibilityGenerationTracksRoutingChanges(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	record := dispatch.WorkerHeartbeatRecord{
+		WorkerID:        "worker-1",
+		Labels:          map[string]string{"region": "east", "type": "gpu"},
+		Stats:           &dispatch.WorkerStats{BusyPollers: 1},
+		LastHeartbeatAt: now.UnixMilli(),
+	}
+	base := (&workerHeartbeatSnapshot{records: []dispatch.WorkerHeartbeatRecord{record}, observedAt: now}).generation(true, time.Minute)
+
+	updatedHeartbeat := record
+	updatedHeartbeat.LastHeartbeatAt = now.Add(time.Second).UnixMilli()
+	updatedHeartbeat.Stats = &dispatch.WorkerStats{BusyPollers: 2}
+	stable := (&workerHeartbeatSnapshot{records: []dispatch.WorkerHeartbeatRecord{updatedHeartbeat}, observedAt: now}).generation(true, time.Minute)
+	assert.Equal(t, base, stable, "heartbeat timestamps and worker stats do not affect routing")
+
+	changedLabels := record
+	changedLabels.Labels = map[string]string{"region": "west", "type": "gpu"}
+	labelsGeneration := (&workerHeartbeatSnapshot{records: []dispatch.WorkerHeartbeatRecord{changedLabels}, observedAt: now}).generation(true, time.Minute)
+	assert.NotEqual(t, base, labelsGeneration)
+
+	joinedGeneration := (&workerHeartbeatSnapshot{
+		records:    []dispatch.WorkerHeartbeatRecord{record, {WorkerID: "worker-2", LastHeartbeatAt: now.UnixMilli()}},
+		observedAt: now,
+	}).generation(true, time.Minute)
+	assert.NotEqual(t, base, joinedGeneration)
+
+	staleGeneration := (&workerHeartbeatSnapshot{records: []dispatch.WorkerHeartbeatRecord{record}, observedAt: now.Add(2 * time.Minute)}).generation(true, time.Minute)
+	assert.NotEqual(t, base, staleGeneration)
+}
+
+func TestQueueScanGenerationRestartsOnlyChangedQueue(t *testing.T) {
+	t.Parallel()
+
+	first := &queue{}
+	second := &queue{}
+	base := queueScanGeneration{queueRevision: 1}
+	first.parkScan(base)
+	second.parkScan(base)
+
+	_, firstParked := first.scanPosition(queueScanGeneration{queueRevision: 2})
+	_, secondParked := second.scanPosition(base)
+	assert.False(t, firstParked)
+	assert.True(t, secondParked)
 }
 
 type invalidatingCursorQueueStore struct {
@@ -675,8 +785,82 @@ type blockingQueueScanStore struct {
 	release    chan struct{}
 }
 
+type pagedQueueScanStore struct {
+	queuedomain.QueueStore
+	revision  atomic.Int64
+	scanCalls atomic.Int32
+	itemCount int
+}
+
+func (s *pagedQueueScanStore) Revision(context.Context, string) (int64, error) {
+	return s.revision.Load(), nil
+}
+
+func (s *pagedQueueScanStore) ListCursor(
+	_ context.Context,
+	_ string,
+	cursor string,
+	limit int,
+) (pagination.CursorResult[queuedomain.QueuedItemData], error) {
+	s.scanCalls.Add(1)
+	start := 0
+	if cursor != "" {
+		var err error
+		start, err = strconv.Atoi(cursor)
+		if err != nil || start < 0 || start > s.itemCount {
+			return pagination.CursorResult[queuedomain.QueuedItemData]{}, pagination.ErrInvalidCursor
+		}
+	}
+	end := min(start+limit, s.itemCount)
+	items := make([]queuedomain.QueuedItemData, 0, end-start)
+	for i := start; i < end; i++ {
+		items = append(items, testQueuedItem{id: fmt.Sprintf("item-%03d", i)})
+	}
+	hasMore := end < s.itemCount
+	nextCursor := ""
+	if hasMore {
+		nextCursor = strconv.Itoa(end)
+	}
+	return pagination.CursorResult[queuedomain.QueuedItemData]{
+		Items:      items,
+		HasMore:    hasMore,
+		NextCursor: nextCursor,
+	}, nil
+}
+
+type queueScanProcRepository struct {
+	mu    sync.Mutex
+	alive int
+	err   error
+}
+
+func (s *queueScanProcRepository) CountAlive(context.Context, string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.alive, s.err
+}
+
+func (s *queueScanProcRepository) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
+	return false, nil
+}
+
+func (s *queueScanProcRepository) setAlive(alive int) {
+	s.setState(alive, nil)
+}
+
+func (s *queueScanProcRepository) setState(alive int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.alive = alive
+	s.err = err
+}
+
 func (s *blockingQueueScanStore) QueueList(context.Context) ([]string, error) {
 	return append([]string(nil), s.queueNames...), nil
+}
+
+func (s *blockingQueueScanStore) Revision(context.Context, string) (int64, error) {
+	return 1, nil
 }
 
 func (s *blockingQueueScanStore) ListCursor(

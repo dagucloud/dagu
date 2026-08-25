@@ -212,6 +212,21 @@ func (s *QueueStore) ListCursor(ctx context.Context, name, cursor string, limit 
 	return s.listCursorLocked(ctx, name, decoded, limit)
 }
 
+// Revision returns the current ordered membership revision of the named queue.
+func (s *QueueStore) Revision(ctx context.Context, name string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadOrRebuildQueueIndexLocked(ctx, name)
+	if err != nil {
+		return 0, err
+	}
+	if idx.total() == 0 {
+		return 0, nil
+	}
+	return idx.Revision, nil
+}
+
 // All returns all queued items across all queues.
 func (s *QueueStore) All(ctx context.Context) ([]queue.QueuedItemData, error) {
 	items, err := s.listAllQueueItems(ctx, persis.ListQuery{})

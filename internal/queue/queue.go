@@ -33,6 +33,8 @@ type QueueStore interface {
 	GetByItemID(ctx context.Context, name, itemID string) (QueuedItemData, error)
 	// ListCursor returns one forward-only page of queued items for a specific queue.
 	ListCursor(ctx context.Context, name, cursor string, limit int) (pagination.CursorResult[QueuedItemData], error)
+	// Revision returns a value that changes when the ordered queue membership changes.
+	Revision(ctx context.Context, name string) (int64, error)
 	// All returns all items in the queue
 	All(ctx context.Context) ([]QueuedItemData, error)
 	// ListByDAGName returns all items that has a specific DAG name

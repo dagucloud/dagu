@@ -65,6 +65,11 @@ func (m *MockQueueStore) ListCursor(ctx context.Context, name, cursor string, li
 	return args.Get(0).(pagination.CursorResult[queue.QueuedItemData]), args.Error(1)
 }
 
+func (m *MockQueueStore) Revision(ctx context.Context, name string) (int64, error) {
+	args := m.Called(ctx, name)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 func (m *MockQueueStore) All(ctx context.Context) ([]queue.QueuedItemData, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

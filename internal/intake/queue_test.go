@@ -263,6 +263,7 @@ func (s *queueStore) GetByItemID(context.Context, string, string) (queue.QueuedI
 func (s *queueStore) ListCursor(context.Context, string, string, int) (pagination.CursorResult[queue.QueuedItemData], error) {
 	return pagination.CursorResult[queue.QueuedItemData]{}, nil
 }
+func (s *queueStore) Revision(context.Context, string) (int64, error)     { return 0, nil }
 func (s *queueStore) All(context.Context) ([]queue.QueuedItemData, error) { return nil, nil }
 func (s *queueStore) ListByDAGName(context.Context, string, string) ([]queue.QueuedItemData, error) {
 	return nil, nil
