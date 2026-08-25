@@ -388,6 +388,25 @@ func TestQueueProcessor_RechecksDistributedCapacityAfterLeaseRelease(t *testing.
 	assert.Equal(t, int32(1), dispatcher.callCount.Load())
 }
 
+func TestQueueProcessor_DefersUnchangedDistributedDispatchFailure(t *testing.T) {
+	f := newQueueFixture(t).withDAG("distributed-dispatch-error-dag", 1).
+		withProcessor(config.Queues{}).
+		simulateQueue(1, false)
+	dispatcher := &mockDispatcher{errFunc: func(int32) error {
+		return errors.New("dispatch unavailable")
+	}}
+	f.processor.dagExecutor = NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "")
+	f.enqueueRuns(1)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	assert.Equal(t, int32(1), dispatcher.callCount.Load())
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+}
+
 func TestQueueProcessor_ProcessQueueItems_FailsClosedOnLeaseCountError(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-count-error-dag", 1).
 		withProcessor(config.Queues{}).
@@ -777,16 +796,32 @@ func TestWorkerEligibilityGenerationTracksRoutingChanges(t *testing.T) {
 func TestQueueScanGenerationRestartsOnlyChangedQueue(t *testing.T) {
 	t.Parallel()
 
+	now := time.Now()
 	first := &queue{}
 	second := &queue{}
 	base := queueScanGeneration{queueRevision: 1}
-	first.parkScan(base)
+	first.deferScan(base, now.Add(queueProcessFallbackInterval))
 	second.parkScan(base)
 
-	_, firstParked := first.scanPosition(queueScanGeneration{queueRevision: 2})
-	_, secondParked := second.scanPosition(base)
+	_, firstParked := first.scanPosition(queueScanGeneration{queueRevision: 2}, now)
+	_, secondParked := second.scanPosition(base, now)
 	assert.False(t, firstParked)
 	assert.True(t, secondParked)
+}
+
+func TestQueueScanDefersUnchangedGenerationUntilRetryDeadline(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	generation := queueScanGeneration{queueRevision: 1}
+	q := &queue{}
+	q.deferScan(generation, now.Add(queueProcessFallbackInterval))
+
+	_, parked := q.scanPosition(generation, now.Add(queueProcessFallbackInterval-time.Second))
+	assert.True(t, parked)
+
+	_, parked = q.scanPosition(generation, now.Add(queueProcessFallbackInterval))
+	assert.False(t, parked)
 }
 
 type invalidatingCursorQueueStore struct {
@@ -960,15 +995,19 @@ func TestQueueProcessor_SuspendedSchedulerManagedQueuedRunsAreAbortedAndDequeued
 
 func TestQueueProcessor_LeavesSchedulerManagedRunQueuedWhenSuspensionReadFails(t *testing.T) {
 	dagName := "suspension-read-error-dag"
+	var suspensionReads atomic.Int32
 	f := newQueueFixture(t).
 		withDAG(dagName, 1).
 		withProcessor(config.Queues{}, WithIsSuspended(func(context.Context, string) (bool, error) {
+			suspensionReads.Add(1)
 			return false, errors.New("read suspend flag")
 		})).
 		simulateQueue(1, false)
 
 	f.enqueueRunWithTrigger("run-1", ir.TriggerTypeScheduler)
 	f.processor.ProcessQueueItems(f.ctx, dagName)
+	f.processor.ProcessQueueItems(f.ctx, dagName)
+	assert.Equal(t, int32(1), suspensionReads.Load())
 
 	items, err := f.queueStore.List(f.ctx, dagName)
 	require.NoError(t, err)

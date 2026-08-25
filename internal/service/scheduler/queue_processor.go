@@ -29,6 +29,7 @@ import (
 
 const queueAgeWarningThreshold = 2 * time.Minute
 const queueProcessMinInterval = 3 * time.Second
+const queueProcessFallbackInterval = 30 * time.Second
 const queueScanItemLimit = 100
 const queueHeadItemLimit = 1
 const maxConcurrentQueueScans = 8
@@ -127,6 +128,7 @@ type queue struct {
 	isGlobal       bool // true if this queue is defined in config (global queue)
 	scanCursor     string
 	scanGeneration queueScanGeneration
+	scanRetryAt    time.Time
 	generationSet  bool
 	parked         bool
 	inflight       atomic.Int32
@@ -161,13 +163,17 @@ func (q *queue) getInflight() int {
 	return int(q.inflight.Load())
 }
 
-func (q *queue) scanPosition(generation queueScanGeneration) (string, bool) {
+func (q *queue) scanPosition(generation queueScanGeneration, now time.Time) (string, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if !q.generationSet || q.scanGeneration != generation {
 		q.scanCursor = ""
 		q.scanGeneration = generation
+		q.scanRetryAt = time.Time{}
 		q.generationSet = true
+		q.parked = false
+	} else if q.parked && !q.scanRetryAt.IsZero() && !now.Before(q.scanRetryAt) {
+		q.scanRetryAt = time.Time{}
 		q.parked = false
 	}
 	return q.scanCursor, q.parked
@@ -177,6 +183,7 @@ func (q *queue) advanceScan(generation queueScanGeneration, cursor string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.scanGeneration = generation
+	q.scanRetryAt = time.Time{}
 	q.generationSet = true
 	q.scanCursor = cursor
 	q.parked = false
@@ -186,18 +193,20 @@ func (q *queue) parkScan(generation queueScanGeneration) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.scanGeneration = generation
+	q.scanRetryAt = time.Time{}
 	q.generationSet = true
 	q.scanCursor = ""
 	q.parked = true
 }
 
-func (q *queue) restartScan(generation queueScanGeneration) {
+func (q *queue) deferScan(generation queueScanGeneration, retryAt time.Time) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.scanGeneration = generation
+	q.scanRetryAt = retryAt
 	q.generationSet = true
 	q.scanCursor = ""
-	q.parked = false
+	q.parked = true
 }
 
 func (q *queue) incInflight() { q.inflight.Add(1) }
@@ -354,7 +363,7 @@ func (p *QueueProcessor) loop(ctx context.Context) {
 		case <-p.quit:
 			return
 		case <-p.wakeUpCh:
-		case <-time.After(30 * time.Second):
+		case <-time.After(queueProcessFallbackInterval):
 			// wake up the queue processor on interval in case event is missed
 		}
 
@@ -518,7 +527,7 @@ func (p *QueueProcessor) processQueueItems(
 		workers:       workerGeneration,
 		capacity:      capacity.queueCapacityGeneration,
 	}
-	cursor, parked := q.scanPosition(generation)
+	cursor, parked := q.scanPosition(generation, time.Now())
 	if parked {
 		p.wakeUp()
 		logger.Debug(ctx, "Queue scan parked until relevant state changes")
@@ -558,7 +567,6 @@ func (p *QueueProcessor) processQueueItems(
 		}
 		return
 	}
-	q.restartScan(generation)
 	logger.Info(ctx, "Processing batch of items",
 		tag.Count(len(batch.items)),
 		tag.MaxConcurrency(batch.maxConcurrency),
@@ -584,6 +592,7 @@ func (p *QueueProcessor) processQueueItems(
 		}(item)
 	}
 	wg.Wait()
+	q.deferScan(generation, time.Now().Add(queueProcessFallbackInterval))
 	p.wakeUp()
 }
 
