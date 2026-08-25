@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	remoteSchedulerLogFinalizeTimeout = 3 * time.Minute
+	remoteSchedulerLogFinalizeTimeout = 10 * time.Second
 	remoteTerminalStatusReportTimeout = 3 * time.Minute
 )
 
