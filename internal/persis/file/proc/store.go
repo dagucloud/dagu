@@ -206,6 +206,9 @@ func (s *Store) WithLock(ctx context.Context, groupName string, fn func() error)
 	}, policy, func(_ error) bool {
 		return ctx.Err() == nil
 	}); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = ctxErr
+		}
 		return persis.NewProcLockError(err)
 	}
 	defer func() {
