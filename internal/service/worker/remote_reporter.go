@@ -23,6 +23,8 @@ import (
 )
 
 const (
+	// Remote scheduler logs are best effort. Terminal status reporting proceeds
+	// when this budget expires, and the remote log may be incomplete.
 	remoteSchedulerLogFinalizeTimeout = 10 * time.Second
 	remoteTerminalStatusReportTimeout = 3 * time.Minute
 )
