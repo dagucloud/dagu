@@ -182,12 +182,11 @@ if (-not (Test-Path marker)) {
 func TestStepRetryWithDownstreamResetsOnlyReachableDescendants(t *testing.T) {
 	th := test.SetupCommand(t)
 	workDir := t.TempDir()
-	seen := filepath.Join(workDir, "seen.txt")
 
 	appendLine := func(letter string) string {
 		return test.ForOS(
-			fmt.Sprintf("echo %s >> seen.txt", letter),
-			fmt.Sprintf("Add-Content -Path seen.txt -Value %s", letter),
+			fmt.Sprintf("echo %s >> seen-%s.txt", letter, letter),
+			fmt.Sprintf("Add-Content -Path seen-%s.txt -Value %s", letter, letter),
 		)
 	}
 	th.CreateDAGFile(t, "retry_downstream.yaml", fmt.Sprintf(`type: graph
@@ -218,17 +217,13 @@ steps:
 		Args: []string{"start", "--run-id", dagRunID, "retry_downstream"},
 	})
 
-	first, err := os.ReadFile(seen)
-	require.NoError(t, err)
-	require.Equal(t, map[string]int{"A": 1, "B": 1, "C": 1, "D": 1}, countOutputLines(string(first)))
+	require.Equal(t, map[string]int{"A": 1, "B": 1, "C": 1, "D": 1}, readStepExecutionCounts(t, workDir, "A", "B", "C", "D"))
 
 	th.RunCommand(t, cmd.Retry(), test.CmdTest{
 		Args: []string{"retry", "--run-id", dagRunID, "--step", "B", "--downstream", "retry_downstream"},
 	})
 
-	second, err := os.ReadFile(seen)
-	require.NoError(t, err)
-	require.Equal(t, map[string]int{"A": 1, "B": 2, "C": 2, "D": 1}, countOutputLines(string(second)))
+	require.Equal(t, map[string]int{"A": 1, "B": 2, "C": 2, "D": 1}, readStepExecutionCounts(t, workDir, "A", "B", "C", "D"))
 
 	ref := ir.NewDAGRunRef("retry_downstream", dagRunID)
 	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ref)
@@ -242,13 +237,14 @@ steps:
 	require.Equal(t, ir.NodeSucceeded, status.Nodes[3].Status)
 }
 
-func countOutputLines(s string) map[string]int {
+func readStepExecutionCounts(t *testing.T, workDir string, steps ...string) map[string]int {
+	t.Helper()
+
 	counts := map[string]int{}
-	for line := range strings.SplitSeq(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
-		if line == "" {
-			continue
-		}
-		counts[line]++
+	for _, step := range steps {
+		output, err := os.ReadFile(filepath.Join(workDir, "seen-"+step+".txt"))
+		require.NoError(t, err)
+		counts[step] = len(strings.Fields(string(output)))
 	}
 	return counts
 }
