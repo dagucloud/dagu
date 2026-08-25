@@ -74,11 +74,12 @@ func TestQueueDispatcher_SelectRunnableQueueItemsSkipsInvalidItems(t *testing.T)
 	dispatcher := newQueueDispatcher(queueDispatchDeps{})
 	validRef := ir.NewDAGRunRef("dag", "run-ok")
 
-	runnable, err := dispatcher.selectRunnableQueueItems(t.Context(), []queuedomain.QueuedItemData{
+	runnable, retryScan, err := dispatcher.selectRunnableQueueItemsInQueue(t.Context(), "", []queuedomain.QueuedItemData{
 		testQueuedItem{id: "bad", err: fmt.Errorf("invalid queued item")},
 		testQueuedItem{id: "ok", ref: &validRef},
-	}, 1)
+	}, 1, &workerHeartbeatSnapshot{})
 	require.NoError(t, err)
 	require.Len(t, runnable, 1)
 	assert.Equal(t, "ok", runnable[0].ID())
+	assert.True(t, retryScan)
 }

@@ -67,6 +67,7 @@ type queueDispatchBatch struct {
 	maxConcurrency        int
 	aliveCount            int
 	nonAdmissionOccupancy int
+	retryScan             bool
 }
 
 type queueCapacityAvailability uint8
@@ -616,14 +617,14 @@ func (d *queueDispatcher) selectDispatchBatch(
 		return queueDispatchBatch{}, nil
 	}
 
-	runnableItems, err := d.selectRunnableQueueItemsInQueue(ctx, queueName, items, freeSlots, workerSnapshot)
+	runnableItems, retryScan, err := d.selectRunnableQueueItemsInQueue(ctx, queueName, items, freeSlots, workerSnapshot)
 	if err != nil {
 		logger.Error(ctx, "Failed to select runnable queue items", tag.Error(err), tag.Queue(queueName))
 		return queueDispatchBatch{}, fmt.Errorf("select runnable queue items: %w", err)
 	}
 	if len(runnableItems) == 0 {
 		logger.Debug(ctx, "No queue items eligible for a new dispatch attempt")
-		return queueDispatchBatch{}, nil
+		return queueDispatchBatch{retryScan: retryScan}, nil
 	}
 
 	return queueDispatchBatch{
@@ -631,6 +632,7 @@ func (d *queueDispatcher) selectDispatchBatch(
 		maxConcurrency:        capacity.maxConcurrency,
 		aliveCount:            aliveCount,
 		nonAdmissionOccupancy: nonAdmissionOccupancy,
+		retryScan:             retryScan,
 	}, nil
 }
 
@@ -1270,7 +1272,8 @@ func (d *queueDispatcher) selectRunnableQueueItems(
 	items []queuedomain.QueuedItemData,
 	freeSlots int,
 ) ([]queuedomain.QueuedItemData, error) {
-	return d.selectRunnableQueueItemsInQueue(ctx, "", items, freeSlots, &workerHeartbeatSnapshot{})
+	runnable, _, err := d.selectRunnableQueueItemsInQueue(ctx, "", items, freeSlots, &workerHeartbeatSnapshot{})
+	return runnable, err
 }
 
 func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
@@ -1279,12 +1282,13 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 	items []queuedomain.QueuedItemData,
 	freeSlots int,
 	workerSnapshot *workerHeartbeatSnapshot,
-) ([]queuedomain.QueuedItemData, error) {
+) ([]queuedomain.QueuedItemData, bool, error) {
 	if freeSlots <= 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	runnable := make([]queuedomain.QueuedItemData, 0, min(freeSlots, len(items)))
+	retryScan := false
 	var workerConditionStages []*queuedConditionStage
 	defer func() {
 		flushQueuedConditionStages(ctx, workerConditionStages)
@@ -1296,12 +1300,13 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 		runRef, err := item.Data()
 		if err != nil {
 			logger.Error(ctx, "Failed to get item data while selecting runnable queue items", tag.Error(err))
+			retryScan = true
 			continue
 		}
 		if d.dispatchAdmissionStore == nil && d.dispatchTaskStore != nil {
 			reserved, err := d.hasOutstandingDispatchReservation(ctx, *runRef)
 			if err != nil {
-				return nil, err
+				return nil, retryScan, err
 			}
 			if reserved {
 				conditionStage := d.newQueuedConditionStageFromItem(ctx, queueName, item)
@@ -1328,7 +1333,7 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 		runnable = append(runnable, item)
 	}
 
-	return runnable, nil
+	return runnable, retryScan, nil
 }
 
 func (d *queueDispatcher) queueItemHasEligibleWorker(

@@ -124,15 +124,16 @@ type QueueProcessor struct {
 }
 
 type queue struct {
-	maxConcurrency int
-	isGlobal       bool // true if this queue is defined in config (global queue)
-	scanCursor     string
-	scanGeneration queueScanGeneration
-	scanRetryAt    time.Time
-	generationSet  bool
-	parked         bool
-	inflight       atomic.Int32
-	mu             sync.Mutex
+	maxConcurrency  int
+	isGlobal        bool // true if this queue is defined in config (global queue)
+	scanCursor      string
+	scanGeneration  queueScanGeneration
+	scanRetryAt     time.Time
+	scanRetryNeeded bool
+	generationSet   bool
+	parked          bool
+	inflight        atomic.Int32
+	mu              sync.Mutex
 }
 
 type workerEligibilityGeneration struct {
@@ -170,20 +171,26 @@ func (q *queue) scanPosition(generation queueScanGeneration, now time.Time) (str
 		q.scanCursor = ""
 		q.scanGeneration = generation
 		q.scanRetryAt = time.Time{}
+		q.scanRetryNeeded = false
 		q.generationSet = true
 		q.parked = false
 	} else if q.parked && !q.scanRetryAt.IsZero() && !now.Before(q.scanRetryAt) {
 		q.scanRetryAt = time.Time{}
+		q.scanRetryNeeded = false
 		q.parked = false
 	}
 	return q.scanCursor, q.parked
 }
 
-func (q *queue) advanceScan(generation queueScanGeneration, cursor string) {
+func (q *queue) advanceScan(generation queueScanGeneration, cursor string, retryNeeded bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if !q.generationSet || q.scanGeneration != generation {
+		q.scanRetryNeeded = false
+	}
 	q.scanGeneration = generation
 	q.scanRetryAt = time.Time{}
+	q.scanRetryNeeded = q.scanRetryNeeded || retryNeeded
 	q.generationSet = true
 	q.scanCursor = cursor
 	q.parked = false
@@ -194,6 +201,7 @@ func (q *queue) parkScan(generation queueScanGeneration) {
 	defer q.mu.Unlock()
 	q.scanGeneration = generation
 	q.scanRetryAt = time.Time{}
+	q.scanRetryNeeded = false
 	q.generationSet = true
 	q.scanCursor = ""
 	q.parked = true
@@ -204,9 +212,27 @@ func (q *queue) deferScan(generation queueScanGeneration, retryAt time.Time) {
 	defer q.mu.Unlock()
 	q.scanGeneration = generation
 	q.scanRetryAt = retryAt
+	q.scanRetryNeeded = false
 	q.generationSet = true
 	q.scanCursor = ""
 	q.parked = true
+}
+
+func (q *queue) finishScan(generation queueScanGeneration, retryNeeded bool, retryAt time.Time) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.generationSet && q.scanGeneration == generation {
+		retryNeeded = retryNeeded || q.scanRetryNeeded
+	}
+	q.scanGeneration = generation
+	q.scanRetryNeeded = false
+	q.generationSet = true
+	q.scanCursor = ""
+	q.parked = true
+	q.scanRetryAt = time.Time{}
+	if retryNeeded {
+		q.scanRetryAt = retryAt
+	}
 }
 
 func (q *queue) incInflight() { q.inflight.Add(1) }
@@ -546,7 +572,7 @@ func (p *QueueProcessor) processQueueItems(
 	)
 
 	if len(items) == 0 {
-		p.parkQueueScan(q, generation)
+		p.finishQueueScan(q, generation, false)
 		logger.Debug(ctx, "No item found")
 		return
 	}
@@ -560,10 +586,10 @@ func (p *QueueProcessor) processQueueItems(
 	}
 	if len(batch.items) == 0 {
 		if page.HasMore && page.NextCursor != "" {
-			q.advanceScan(generation, page.NextCursor)
+			q.advanceScan(generation, page.NextCursor, batch.retryScan)
 			p.wakeUp()
 		} else {
-			p.parkQueueScan(q, generation)
+			p.finishQueueScan(q, generation, batch.retryScan)
 		}
 		return
 	}
@@ -598,6 +624,11 @@ func (p *QueueProcessor) processQueueItems(
 
 func (p *QueueProcessor) parkQueueScan(q *queue, generation queueScanGeneration) {
 	q.parkScan(generation)
+	p.wakeUp()
+}
+
+func (p *QueueProcessor) finishQueueScan(q *queue, generation queueScanGeneration, retryNeeded bool) {
+	q.finishScan(generation, retryNeeded, time.Now().Add(queueProcessFallbackInterval))
 	p.wakeUp()
 }
 
