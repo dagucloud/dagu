@@ -487,6 +487,7 @@ func TestQueueProcessorRotatesPastBoundedWorkerEligibilityWindow(t *testing.T) {
 		nil,
 		dispatcher,
 		scheduler.WithWorkerHeartbeatStore(heartbeatStore),
+		scheduler.WithWorkerHeartbeatStaleThreshold(conditionTestStaleThreshold),
 	)
 	f.dag.WorkerSelector = map[string]string{"type": "gpu"}
 	for i := range 100 {
