@@ -21,6 +21,8 @@ import (
 
 var _ persis.DAGRunStore = (*Store)(nil)
 
+const defaultRetryCandidateCacheLimit = 2000
+
 // Store manages DAG run status files on the local filesystem.
 type Store struct {
 	baseDir         string
@@ -33,8 +35,9 @@ type Store struct {
 type StoreOption func(*options)
 
 type options struct {
-	fileCache   *fileutil.Cache[*ir.DAGRunStatus]
-	artifactDir string
+	fileCache                *fileutil.Cache[*ir.DAGRunStatus]
+	artifactDir              string
+	retryCandidateCacheLimit int
 }
 
 // WithHistoryFileCache sets the file cache for Store.
@@ -51,9 +54,17 @@ func WithArtifactDir(dir string) StoreOption {
 	}
 }
 
+// WithRetryCandidateCacheLimit limits retained retry candidate summaries.
+func WithRetryCandidateCacheLimit(limit int) StoreOption {
+	return func(o *options) {
+		o.retryCandidateCacheLimit = limit
+	}
+}
+
 func newOptions(baseDir string, opts []StoreOption) options {
 	cfg := options{
-		artifactDir: filepath.Join(filepath.Dir(filepath.Clean(baseDir)), "artifacts"),
+		artifactDir:              filepath.Join(filepath.Dir(filepath.Clean(baseDir)), "artifacts"),
+		retryCandidateCacheLimit: defaultRetryCandidateCacheLimit,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -67,9 +78,10 @@ func newOptions(baseDir string, opts []StoreOption) options {
 func NewStore(baseDir string, opts ...StoreOption) *Store {
 	cfg := newOptions(baseDir, opts)
 	return &Store{
-		baseDir:     baseDir,
-		artifactDir: cfg.artifactDir,
-		cache:       cfg.fileCache,
+		baseDir:         baseDir,
+		artifactDir:     cfg.artifactDir,
+		cache:           cfg.fileCache,
+		retryCandidates: retryCandidateCache{limit: cfg.retryCandidateCacheLimit},
 	}
 }
 

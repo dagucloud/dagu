@@ -35,6 +35,7 @@ type retryCandidateFile struct {
 
 type retryCandidateCache struct {
 	mu      sync.Mutex
+	limit   int
 	entries map[string]retryCandidateCacheEntry
 }
 
@@ -44,6 +45,7 @@ type retryCandidateCacheEntry struct {
 }
 
 type retryCandidateScan struct {
+	limit    int
 	previous map[string]retryCandidateCacheEntry
 	current  map[string]retryCandidateCacheEntry
 }
@@ -286,9 +288,14 @@ func (cache *retryCandidateCache) begin() *retryCandidateScan {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
+	if cache.limit <= 0 {
+		return &retryCandidateScan{}
+	}
+
 	return &retryCandidateScan{
+		limit:    cache.limit,
 		previous: cache.entries,
-		current:  make(map[string]retryCandidateCacheEntry, len(cache.entries)),
+		current:  make(map[string]retryCandidateCacheEntry, min(len(cache.entries), cache.limit)),
 	}
 }
 
@@ -306,7 +313,7 @@ func (scan *retryCandidateScan) read(dir string, entry os.DirEntry) (*retryCandi
 		return nil, err
 	}
 	if cached, ok := scan.previous[path]; ok && sameRetryCandidateFile(cached.info, info) {
-		scan.current[path] = cached
+		scan.remember(path, cached)
 		candidate := cached.candidate
 		return &candidate, nil
 	}
@@ -315,11 +322,21 @@ func (scan *retryCandidateScan) read(dir string, entry os.DirEntry) (*retryCandi
 	if err != nil {
 		return nil, err
 	}
-	scan.current[path] = retryCandidateCacheEntry{
+	scan.remember(path, retryCandidateCacheEntry{
 		info:      info,
 		candidate: *candidate,
-	}
+	})
 	return candidate, nil
+}
+
+func (scan *retryCandidateScan) remember(path string, entry retryCandidateCacheEntry) {
+	if scan.limit <= 0 {
+		return
+	}
+	if _, exists := scan.current[path]; !exists && len(scan.current) >= scan.limit {
+		return
+	}
+	scan.current[path] = entry
 }
 
 func sameRetryCandidateFile(cached, current os.FileInfo) bool {

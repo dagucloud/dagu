@@ -200,6 +200,46 @@ func TestStoreListRetryCandidatesCachesUnchangedFiles(t *testing.T) {
 	assert.LessOrEqual(t, warmAllocs, coldAllocs*0.75)
 }
 
+func TestStoreListRetryCandidatesBoundsCache(t *testing.T) {
+	tests := []struct {
+		name           string
+		limit          int
+		candidateCount int
+		expectedCache  int
+	}{
+		{name: "bounded", limit: 2, candidateCount: 3, expectedCache: 2},
+		{name: "disabled", limit: 0, candidateCount: 1, expectedCache: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			baseDir := t.TempDir()
+			store := filedagrun.NewStore(baseDir, filedagrun.WithRetryCandidateCacheLimit(tt.limit))
+			repository := persis.NewDAGRunRepository(
+				store,
+				filedagrun.NewWorkDirStore(filepath.Join(baseDir, ".dag-run-work"), baseDir),
+				persis.DAGRunRepositoryOptions{LatestStatusToday: true},
+			)
+
+			now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+			dag := retryCandidateDAG()
+			for i := range tt.candidateCount {
+				attempt, _ := writeRetryCandidateStatus(t, ctx, repository, dag, now.Add(time.Duration(i)*time.Second), fmt.Sprintf("failed-run-%d", i), ir.Failed)
+				require.NoError(t, attempt.Close(ctx))
+			}
+
+			from := persis.NewUTC(now.Add(-time.Hour))
+			for range 2 {
+				candidates, err := repository.ListRetryCandidates(ctx, from)
+				require.NoError(t, err)
+				assert.Len(t, candidates, tt.candidateCount)
+				assert.Equal(t, tt.expectedCache, filedagrun.RetryCandidateCacheSizeForTest(store))
+			}
+		})
+	}
+}
+
 func TestStoreListRetryCandidatesIgnoresChildAttemptStatusFiles(t *testing.T) {
 	t.Parallel()
 

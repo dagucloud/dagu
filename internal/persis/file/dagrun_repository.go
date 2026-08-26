@@ -54,6 +54,7 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 
 	storeOpts := []filedagrun.StoreOption{
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
+		filedagrun.WithRetryCandidateCacheLimit(cfg.Cache.Limits().DAGRun.Limit),
 	}
 	if options.HistoryFileCache != nil {
 		storeOpts = append(storeOpts, filedagrun.WithHistoryFileCache(options.HistoryFileCache))

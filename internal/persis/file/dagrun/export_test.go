@@ -14,3 +14,11 @@ func UpdateLatestAttemptPointerForTest(ctx context.Context, statusFile string) e
 func LatestAttemptPointerPathForTest(dagRunsDir string) string {
 	return latestAttemptPointerPath(dagRunsDir)
 }
+
+// RetryCandidateCacheSizeForTest reports retained retry candidate summaries.
+func RetryCandidateCacheSizeForTest(store *Store) int {
+	store.retryCandidates.mu.Lock()
+	defer store.retryCandidates.mu.Unlock()
+
+	return len(store.retryCandidates.entries)
+}
