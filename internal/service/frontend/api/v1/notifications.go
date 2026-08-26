@@ -21,9 +21,9 @@ import (
 )
 
 var errNotificationManagementNotAvailable = &Error{
-	HTTPStatus: http.StatusNotFound,
-	Code:       api.ErrorCodeNotFound,
-	Message:    "Notification management is not available",
+	HTTPStatus: http.StatusServiceUnavailable,
+	Code:       api.ErrorCodeInternalError,
+	Message:    "Notification delivery is unavailable; enable the event store and verify notification state storage",
 }
 
 func (a *API) GetNotificationSettings(ctx context.Context, _ api.GetNotificationSettingsRequestObject) (api.GetNotificationSettingsResponseObject, error) {

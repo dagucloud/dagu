@@ -53,11 +53,13 @@ export function useNotificationSettings({
     useState<NotificationRouteSet | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    setLoadError(null);
     try {
       const settingsRequest = fetch(
         `${apiURL}/dags/${encodeURIComponent(fileName)}/notifications${query}`,
@@ -72,13 +74,12 @@ export function useNotificationSettings({
           headers: authHeaders(),
         }
       );
-      const workspaceRoutesRequest =
-        workspaceName
-          ? fetch(
-              `${apiURL}/notification-routes/workspaces/${encodeURIComponent(workspaceName)}${query}`,
-              { headers: authHeaders() }
-            )
-          : Promise.resolve<Response | null>(null);
+      const workspaceRoutesRequest = workspaceName
+        ? fetch(
+            `${apiURL}/notification-routes/workspaces/${encodeURIComponent(workspaceName)}${query}`,
+            { headers: authHeaders() }
+          )
+        : Promise.resolve<Response | null>(null);
       const [
         settingsResponse,
         channelsResponse,
@@ -142,9 +143,10 @@ export function useNotificationSettings({
       }
       setTestResults([]);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to load notifications'
-      );
+      const message =
+        err instanceof Error ? err.message : 'Failed to load notifications';
+      setError(message);
+      setLoadError(message);
     } finally {
       setIsLoading(false);
     }
@@ -198,6 +200,7 @@ export function useNotificationSettings({
     effectiveRouteSourceLabel,
     isLoading,
     error,
+    loadError,
     setError,
     testResults,
     setTestResults,

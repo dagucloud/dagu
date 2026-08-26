@@ -156,6 +156,23 @@ afterEach(() => {
 });
 
 describe('NotificationsTab', () => {
+  it('blocks DAG controls when delivery is unavailable', async () => {
+    dagSettingsResponse = () =>
+      jsonResponse({ message: 'Notification delivery is unavailable' }, 503);
+
+    renderTab();
+
+    expect(
+      await screen.findByText('Notification delivery is unavailable')
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: /configure dag override/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /send test/i })
+    ).not.toBeInTheDocument();
+  });
+
   it('shows inherited rules instead of silently creating a DAG override', async () => {
     renderTab();
 

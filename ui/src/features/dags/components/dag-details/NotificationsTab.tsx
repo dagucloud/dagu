@@ -192,6 +192,7 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
     effectiveRouteSourceLabel,
     isLoading,
     error,
+    loadError,
     setError,
     testResults,
     setTestResults,
@@ -449,6 +450,16 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
     }));
     setDeleteSubscriptionIndex(null);
   };
+
+  if (loadError && !isLoading) {
+    return (
+      <Card>
+        <CardContent className="py-4 text-sm text-destructive">
+          {loadError}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-4">

@@ -708,6 +708,9 @@ JSON or text format logging (`DAGU_LOG_FORMAT`). Logs are stored per-run with se
 
 - Email notifications on DAG success, failure, or wait status via SMTP
 - Per-DAG webhook endpoints with token authentication
+- Delivery requires the event store and writable notification state storage
+
+Scoped notification routing is broken in v2.11.0-v2.11.2. Use v2.11.3 or later.
 
 ## Artifacts
 

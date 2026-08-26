@@ -18,7 +18,7 @@ import (
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 )
 
-func newNotificationMonitor(cfg *config.Config, deps Dependencies) func(context.Context) {
+func newNotificationMonitor(cfg *config.Config, deps Dependencies) func(context.Context, *eventstore.DAGRunCursor) {
 	if deps.NotificationStore == nil || deps.NotificationState == nil {
 		return nil
 	}
@@ -27,14 +27,18 @@ func newNotificationMonitor(cfg *config.Config, deps Dependencies) func(context.
 		lease = deps.NewNotificationLease()
 	}
 	service := newNotificationService(cfg, deps.NotificationStore, deps.DAGRepository)
-	return chatbridge.NewNotificationMonitor(
-		deps.EventService,
-		deps.NotificationState,
-		lease,
-		service,
-		slog.Default(),
-		chatbridge.DefaultNotificationMonitorConfig(),
-	).Run
+	return func(ctx context.Context, cursor *eventstore.DAGRunCursor) {
+		monitorConfig := chatbridge.DefaultNotificationMonitorConfig()
+		monitorConfig.BootstrapCursor = cursor
+		chatbridge.NewNotificationMonitor(
+			deps.EventService,
+			deps.NotificationState,
+			lease,
+			service,
+			slog.Default(),
+			monitorConfig,
+		).Run(ctx)
+	}
 }
 
 func newNotificationService(
@@ -49,7 +53,7 @@ func newNotificationService(
 	return notificationservice.New(store, dagRepository, opts...)
 }
 
-func newIncidentMonitor(cfg *config.Config, deps Dependencies) func(context.Context) {
+func newIncidentMonitor(cfg *config.Config, deps Dependencies) func(context.Context, *eventstore.DAGRunCursor) {
 	if deps.IncidentStore == nil || deps.IncidentState == nil {
 		return nil
 	}
@@ -76,12 +80,15 @@ func newIncidentMonitor(cfg *config.Config, deps Dependencies) func(context.Cont
 		eventstore.TypeDAGRunSucceeded,
 		eventstore.TypeDAGRunPartiallySucceeded,
 	}
-	return chatbridge.NewNotificationMonitor(
-		deps.EventService,
-		deps.IncidentState,
-		lease,
-		service,
-		slog.Default(),
-		monitorConfig,
-	).Run
+	return func(ctx context.Context, cursor *eventstore.DAGRunCursor) {
+		monitorConfig.BootstrapCursor = cursor
+		chatbridge.NewNotificationMonitor(
+			deps.EventService,
+			deps.IncidentState,
+			lease,
+			service,
+			slog.Default(),
+			monitorConfig,
+		).Run(ctx)
+	}
 }

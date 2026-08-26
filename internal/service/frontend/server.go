@@ -531,13 +531,15 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	}
 
 	var notificationSvc *notificationservice.Service
-	if stores.Notification != nil {
+	if stores.Notification != nil && eventSvc != nil && stores.NotificationState != nil {
 		notificationSvc = notificationservice.New(
 			stores.Notification,
 			dr,
 			notificationservice.WithPublicURL(cfg.Server.PublicURL),
 		)
 		apiOpts = append(apiOpts, apiv1.WithNotificationService(notificationSvc))
+	} else if stores.Notification != nil {
+		slog.Default().Warn("Notification delivery is unavailable because the event or state store is disabled")
 	}
 
 	var incidentSvc *incidentservice.Service
@@ -902,8 +904,9 @@ func (srv *Server) Serve(ctx context.Context) error {
 	metrics.StartUptime(ctx)
 	logger.Info(ctx, "Server is starting", tag.Addr(addr))
 
-	srv.startNotificationMonitor(ctx)
-	srv.startIncidentMonitor(ctx)
+	monitorCursor := srv.captureMonitorCursor(ctx)
+	srv.startNotificationMonitor(ctx, monitorCursor)
+	srv.startIncidentMonitor(ctx, monitorCursor)
 	srv.startPeriodicUpdateCheck(ctx)
 
 	go srv.startServer(ctx)
@@ -926,7 +929,7 @@ func trustedProxyRequestHeaders(cfg config.AuthTrustedProxy) []string {
 	return headers
 }
 
-func (srv *Server) startNotificationMonitor(ctx context.Context) {
+func (srv *Server) startNotificationMonitor(ctx context.Context, cursor *eventstore.DAGRunCursor) {
 	if srv.notificationService == nil || srv.eventService == nil {
 		return
 	}
@@ -937,18 +940,20 @@ func (srv *Server) startNotificationMonitor(ctx context.Context) {
 	if srv.newNotificationLease != nil {
 		lease = srv.newNotificationLease()
 	}
+	monitorConfig := chatbridge.DefaultNotificationMonitorConfig()
+	monitorConfig.BootstrapCursor = cursor
 	monitor := chatbridge.NewNotificationMonitor(
 		srv.eventService,
 		srv.notificationState,
 		lease,
 		srv.notificationService,
 		slog.Default(),
-		chatbridge.DefaultNotificationMonitorConfig(),
+		monitorConfig,
 	)
 	go monitor.Run(ctx)
 }
 
-func (srv *Server) startIncidentMonitor(ctx context.Context) {
+func (srv *Server) startIncidentMonitor(ctx context.Context, cursor *eventstore.DAGRunCursor) {
 	if srv.incidentService == nil || srv.eventService == nil {
 		return
 	}
@@ -959,15 +964,29 @@ func (srv *Server) startIncidentMonitor(ctx context.Context) {
 	if srv.newIncidentLease != nil {
 		lease = srv.newIncidentLease()
 	}
+	monitorConfig := incidentMonitorConfig()
+	monitorConfig.BootstrapCursor = cursor
 	monitor := chatbridge.NewNotificationMonitor(
 		srv.eventService,
 		srv.incidentState,
 		lease,
 		srv.incidentService,
 		slog.Default(),
-		incidentMonitorConfig(),
+		monitorConfig,
 	)
 	go monitor.Run(ctx)
+}
+
+func (srv *Server) captureMonitorCursor(ctx context.Context) *eventstore.DAGRunCursor {
+	if srv.eventService == nil || (srv.notificationService == nil && srv.incidentService == nil) {
+		return nil
+	}
+	cursor, err := srv.eventService.DAGRunHeadCursor(ctx)
+	if err != nil {
+		slog.Default().Warn("Failed to capture notification cursor", slog.String("error", err.Error()))
+		return nil
+	}
+	return &cursor
 }
 
 func incidentMonitorConfig() chatbridge.NotificationMonitorConfig {

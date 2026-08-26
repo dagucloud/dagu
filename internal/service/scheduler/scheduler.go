@@ -86,9 +86,10 @@ type Scheduler struct {
 	startupCancel       context.CancelFunc
 	lockHeld            atomic.Bool
 	clock               Clock // Clock function for getting current time
+	eventService        *eventstore.Service
 	eventCollector      func(context.Context)
-	notificationMonitor func(context.Context)
-	incidentMonitor     func(context.Context)
+	notificationMonitor func(context.Context, *eventstore.DAGRunCursor)
+	incidentMonitor     func(context.Context, *eventstore.DAGRunCursor)
 }
 
 type schedulerHooks struct {
@@ -161,6 +162,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 		return nil, err
 	}
 	scheduler.eventCollector = deps.EventCollector
+	scheduler.eventService = deps.EventService
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
@@ -589,6 +591,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.updateServiceStatus(ctx, serviceregistry.ServiceStatusActive, "Failed to update status to active", "Updated scheduler status to active")
+	monitorCursor := s.captureMonitorCursor(ctx)
 
 	sig := make(chan os.Signal, 1)
 
@@ -642,11 +645,11 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	})
 
 	wg.Go(func() {
-		s.startNotificationMonitor(ctx)
+		s.startNotificationMonitor(ctx, monitorCursor)
 	})
 
 	wg.Go(func() {
-		s.startIncidentMonitor(ctx)
+		s.startIncidentMonitor(ctx, monitorCursor)
 	})
 
 	wg.Go(func() {
@@ -709,18 +712,30 @@ func (s *Scheduler) startEventCollector(ctx context.Context) {
 	s.eventCollector(ctx)
 }
 
-func (s *Scheduler) startNotificationMonitor(ctx context.Context) {
+func (s *Scheduler) startNotificationMonitor(ctx context.Context, cursor *eventstore.DAGRunCursor) {
 	if s.notificationMonitor == nil {
 		return
 	}
-	s.notificationMonitor(ctx)
+	s.notificationMonitor(ctx, cursor)
 }
 
-func (s *Scheduler) startIncidentMonitor(ctx context.Context) {
+func (s *Scheduler) startIncidentMonitor(ctx context.Context, cursor *eventstore.DAGRunCursor) {
 	if s.incidentMonitor == nil {
 		return
 	}
-	s.incidentMonitor(ctx)
+	s.incidentMonitor(ctx, cursor)
+}
+
+func (s *Scheduler) captureMonitorCursor(ctx context.Context) *eventstore.DAGRunCursor {
+	if s.eventService == nil || (s.notificationMonitor == nil && s.incidentMonitor == nil) {
+		return nil
+	}
+	cursor, err := s.eventService.DAGRunHeadCursor(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to capture notification cursor", tag.Error(err))
+		return nil
+	}
+	return &cursor
 }
 
 func (s *Scheduler) startHeartbeat(ctx context.Context) {

@@ -44,6 +44,7 @@ type NotificationMonitorConfig struct {
 	UrgentWindow         time.Duration
 	SuccessWindow        time.Duration
 	InterestedEventTypes []eventstore.EventType
+	BootstrapCursor      *eventstore.DAGRunCursor
 }
 
 // DefaultNotificationMonitorConfig returns the default monitor settings.
@@ -117,6 +118,7 @@ type NotificationMonitor struct {
 	logger       *slog.Logger
 	cfg          NotificationMonitorConfig
 	interested   map[eventstore.EventType]struct{}
+	bootstrap    *eventstore.DAGRunCursor
 
 	batcherMu sync.RWMutex
 	batcher   *NotificationBatcher
@@ -146,6 +148,12 @@ func NewNotificationMonitor(
 	cfg NotificationMonitorConfig,
 ) *NotificationMonitor {
 	normalizeNotificationMonitorConfig(&cfg)
+	var bootstrap *eventstore.DAGRunCursor
+	if cfg.BootstrapCursor != nil {
+		cursor := cfg.BootstrapCursor.Normalize()
+		cursor.CommittedOffsets = maps.Clone(cursor.CommittedOffsets)
+		bootstrap = &cursor
+	}
 
 	lockDir := ""
 	if lease != nil {
@@ -161,6 +169,7 @@ func NewNotificationMonitor(
 		logger:       logger,
 		cfg:          cfg,
 		interested:   interestedEventTypeSet(cfg.InterestedEventTypes),
+		bootstrap:    bootstrap,
 		batcher:      NewNotificationBatcher(cfg.UrgentWindow, cfg.SuccessWindow),
 		state:        newNotificationMonitorState(),
 	}
@@ -422,7 +431,7 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 
 	pending := make([]NotificationEvent, 0, len(events))
 	for _, event := range events {
-		if event == nil || !m.isInterestedEventType(event.Type) {
+		if event == nil {
 			continue
 		}
 		snapshot, err := eventstore.DAGRunSnapshotFromEvent(event)
@@ -434,13 +443,20 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 			continue
 		}
 		status := snapshot.DAGRunStatus()
+		eventType := event.Type
+		if eventType == eventstore.TypeDAGRunUpdated && status.Status == ir.Waiting {
+			eventType = eventstore.TypeDAGRunWaiting
+		}
+		if !m.isInterestedEventType(eventType) {
+			continue
+		}
 		observedAt := event.RecordedAt
 		if observedAt.IsZero() {
 			observedAt = time.Now().UTC()
 		}
 		pending = append(pending, NotificationEvent{
 			Key:        NotificationSeenKey(status),
-			Type:       event.Type,
+			Type:       eventType,
 			Status:     status,
 			DAGFile:    snapshot.DAGFile,
 			ObservedAt: observedAt.UTC(),
@@ -834,10 +850,16 @@ func (m *NotificationMonitor) ensureBootstrapped(ctx context.Context) bool {
 		return true
 	}
 
-	cursor, err := m.eventService.DAGRunHeadCursor(ctx)
-	if err != nil {
-		m.recordBootstrapFailure("Failed to bootstrap notification cursor: " + err.Error())
-		return false
+	var cursor eventstore.DAGRunCursor
+	if m.bootstrap != nil {
+		cursor = m.bootstrap.Normalize()
+	} else {
+		var err error
+		cursor, err = m.eventService.DAGRunHeadCursor(ctx)
+		if err != nil {
+			m.recordBootstrapFailure("Failed to bootstrap notification cursor: " + err.Error())
+			return false
+		}
 	}
 
 	m.stateMu.Lock()
@@ -1272,6 +1294,10 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 				}
 				continue
 			}
+			if migrateWaitingDelivery(destState, event) {
+				changed = true
+				continue
+			}
 			if _, ok := destState.Delivered[event.Key]; ok {
 				continue
 			}
@@ -1310,6 +1336,24 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 	}
 
 	return queued, changed, accepted
+}
+
+func migrateWaitingDelivery(destState *notificationDestinationState, event NotificationEvent) bool {
+	if event.Status.Status != ir.Waiting {
+		return false
+	}
+	legacyKey := legacyNotificationSeenKey(event.Status)
+	if legacyKey == event.Key {
+		return false
+	}
+	deliveredAt, ok := destState.Delivered[legacyKey]
+	if !ok {
+		return false
+	}
+
+	delete(destState.Delivered, legacyKey)
+	destState.Delivered[event.Key] = deliveredAt
+	return true
 }
 
 func enqueueNotificationsByEvent(

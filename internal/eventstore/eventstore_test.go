@@ -238,6 +238,40 @@ func TestDAGRunUpdateEventIDIncludesRecordedAt(t *testing.T) {
 	assert.NotEqual(t, first, second)
 }
 
+func TestNewDAGRunEventIdentifiesWaitingOccurrences(t *testing.T) {
+	t.Parallel()
+
+	status := &ir.DAGRunStatus{
+		Name:      "briefing",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    ir.Waiting,
+		Nodes: []*ir.Node{{
+			Step:   ir.Step{Name: "approve-build"},
+			Status: ir.NodeWaiting,
+		}},
+	}
+	first := NewDAGRunEvent(Source{Service: SourceServiceServer}, TypeDAGRunWaiting, status, nil)
+	repeated := NewDAGRunEvent(Source{Service: SourceServiceServer}, TypeDAGRunWaiting, status, nil)
+
+	status.Nodes[0].ApprovalIteration = 1
+	pushedBack := NewDAGRunEvent(Source{Service: SourceServiceServer}, TypeDAGRunWaiting, status, nil)
+
+	status.Nodes = []*ir.Node{{
+		Step:   ir.Step{Name: "approve-deploy"},
+		Status: ir.NodeWaiting,
+	}}
+	second := NewDAGRunEvent(Source{Service: SourceServiceServer}, TypeDAGRunWaiting, status, nil)
+
+	require.NotNil(t, first)
+	require.NotNil(t, repeated)
+	require.NotNil(t, pushedBack)
+	require.NotNil(t, second)
+	assert.Equal(t, first.ID, repeated.ID)
+	assert.NotEqual(t, first.ID, pushedBack.ID)
+	assert.NotEqual(t, first.ID, second.ID)
+}
+
 func TestNewDAGRunEventDeepClonesData(t *testing.T) {
 	t.Parallel()
 

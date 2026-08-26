@@ -14,12 +14,7 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import {
-  type ReactElement,
-  useContext,
-  useEffect,
-  useState,
-} from 'react';
+import { type ReactElement, useContext, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -705,9 +700,7 @@ function RouteBuilder({
                   : 'border-border hover:bg-muted'
               )}
             >
-              <span className="block text-sm font-medium">
-                Inherit Global
-              </span>
+              <span className="block text-sm font-medium">Inherit Global</span>
               <span className="mt-1 block text-xs text-muted-foreground">
                 Use the Global rules for this workspace.
               </span>
@@ -1228,10 +1221,11 @@ export function NotificationRulesPage() {
     if (workspaceRoutesData) {
       setWorkspaceRoutes(routeSetDraftFromAPI(workspaceRoutesData));
     }
-  }, [
-    canConfigureWorkspaceRoutes,
-    workspaceRoutesData,
-  ]);
+  }, [canConfigureWorkspaceRoutes, workspaceRoutesData]);
+
+  if (loadError && !isLoading) {
+    return <StatusCard error={loadError} notice={null} />;
+  }
 
   const saveGlobalRoutes = async () => {
     setIsSavingGlobalRoutes(true);
@@ -1248,9 +1242,7 @@ export function NotificationRulesPage() {
         }
       );
       if (apiError) {
-        throw new Error(
-          apiError.message || 'Failed to save Global rules'
-        );
+        throw new Error(apiError.message || 'Failed to save Global rules');
       }
       if (routeSet) {
         setGlobalRoutes(routeSetDraftFromAPI(routeSet));
@@ -1259,9 +1251,7 @@ export function NotificationRulesPage() {
       setNotice('Global rules saved');
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to save Global rules'
+        err instanceof Error ? err.message : 'Failed to save Global rules'
       );
     } finally {
       setIsSavingGlobalRoutes(false);
@@ -1285,9 +1275,7 @@ export function NotificationRulesPage() {
         }
       );
       if (apiError) {
-        throw new Error(
-          apiError.message || 'Failed to save workspace rules'
-        );
+        throw new Error(apiError.message || 'Failed to save workspace rules');
       }
       if (routeSet) {
         setWorkspaceRoutes(routeSetDraftFromAPI(routeSet));
@@ -1493,6 +1481,10 @@ export function NotificationChannelsPage() {
     }
   }, [channelsData]);
 
+  if (loadError && !isLoading) {
+    return <StatusCard error={loadError} notice={null} />;
+  }
+
   const saveSettings = async () => {
     setIsSavingSettings(true);
     setError(null);
@@ -1508,9 +1500,7 @@ export function NotificationChannelsPage() {
         }
       );
       if (apiError) {
-        throw new Error(
-          apiError.message || 'Failed to save email delivery'
-        );
+        throw new Error(apiError.message || 'Failed to save email delivery');
       }
       if (settings) {
         setSMTPDraft(smtpDraftFromAPI(settings));
@@ -1622,9 +1612,7 @@ export function NotificationChannelsPage() {
   return (
     <div className="space-y-4">
       <StatusCard error={error ?? loadError} notice={notice} />
-      {isLoading && (
-        <LoadingCard label="Refreshing notification channels..." />
-      )}
+      {isLoading && <LoadingCard label="Refreshing notification channels..." />}
 
       <Card>
         <CardHeader className="grid-cols-[1fr_auto]">

@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -216,6 +218,39 @@ func DAGRunEventID(eventType EventType, dagName, dagRunID, attemptID string) str
 	return "dag_" + stableID(string(eventType), dagName, dagRunID, attemptID)
 }
 
+// DAGRunWaitingEventID identifies a waiting occurrence represented by a status snapshot.
+func DAGRunWaitingEventID(status *ir.DAGRunStatus) string {
+	if status == nil {
+		return ""
+	}
+
+	parts := []string{string(TypeDAGRunWaiting), status.Name, status.DAGRunID, status.AttemptID}
+	for _, node := range status.NodesInRunOrder() {
+		if node == nil || node.Status != ir.NodeWaiting {
+			continue
+		}
+
+		details := make([]string, 0, len(node.StatusDetails))
+		for _, detail := range node.StatusDetails {
+			if detail.Status == ir.NodeWaiting {
+				details = append(details, detail.Label)
+			}
+		}
+		slices.Sort(details)
+		parts = append(parts, stableID(
+			node.Step.ID,
+			node.Step.Name,
+			node.StartedAt,
+			strconv.Itoa(node.RetryCount),
+			strconv.Itoa(node.DoneCount),
+			strconv.Itoa(node.ApprovalIteration),
+			stableID(details...),
+		))
+	}
+
+	return "dag_" + stableID(parts...)
+}
+
 func DAGRunUpdateEventID(dagName, dagRunID, attemptID string, recordedAt time.Time) string {
 	// Same-status updates are invalidation edges. The file collector deduplicates
 	// by event ID globally, so update IDs must remain unique across writes.
@@ -239,6 +274,9 @@ func NewDAGRunEvent(source Source, eventType EventType, status *ir.DAGRunStatus,
 	source = normalizeSource(source)
 	recordedAt := time.Now().UTC()
 	eventID := DAGRunEventID(eventType, status.Name, status.DAGRunID, status.AttemptID)
+	if eventType == TypeDAGRunWaiting {
+		eventID = DAGRunWaitingEventID(status)
+	}
 	if eventType == TypeDAGRunUpdated {
 		eventID = DAGRunUpdateEventID(status.Name, status.DAGRunID, status.AttemptID, recordedAt)
 	}

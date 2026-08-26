@@ -115,6 +115,33 @@ describe('NotificationsPage', () => {
 });
 
 describe('NotificationChannelsPage', () => {
+  it('blocks channel controls when delivery is unavailable', () => {
+    mocks.useQuery.mockReturnValue({
+      data: undefined,
+      error: new Error('Notification delivery is unavailable'),
+      isLoading: false,
+      mutate: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={{ setTitle: vi.fn() } as never}>
+          <NotificationChannelsPage />
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(
+      screen.getByText('Notification delivery is unavailable')
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: /^save$/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /add channel/i })
+    ).not.toBeInTheDocument();
+  });
+
   it('preserves the configured password indicator when toggling authentication modes', async () => {
     const user = userEvent.setup();
     renderChannelsPage({

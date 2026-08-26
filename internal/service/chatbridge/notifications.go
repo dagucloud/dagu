@@ -461,6 +461,16 @@ func NotificationSeenKey(status *ir.DAGRunStatus) string {
 	if status == nil {
 		return ""
 	}
+	if status.Status == ir.Waiting {
+		return eventstore.DAGRunWaitingEventID(status)
+	}
+	return NotificationRunKey(status) + ":" + status.Status.String()
+}
+
+func legacyNotificationSeenKey(status *ir.DAGRunStatus) string {
+	if status == nil {
+		return ""
+	}
 	return NotificationRunKey(status) + ":" + status.Status.String()
 }
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	dagucrypto "github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -31,6 +32,20 @@ func TestNotificationChannels_AvailableWithoutLicense(t *testing.T) {
 	var result api.NotificationChannelListResponse
 	resp.Unmarshal(t, &result)
 	assert.Empty(t, result.Channels)
+}
+
+func TestNotificationChannels_UnavailableWithoutEventStore(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.EventStore.Enabled = false
+	}))
+	resp := server.Client().Get("/api/v1/notification-channels").
+		ExpectStatus(http.StatusServiceUnavailable).Send(t)
+
+	var result api.Error
+	resp.Unmarshal(t, &result)
+	assert.Contains(t, result.Message, "Notification delivery is unavailable")
 }
 
 func TestNotificationChannels_AcceptExistingLicenseWithoutFeatureClaim(t *testing.T) {
