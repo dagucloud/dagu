@@ -23,9 +23,10 @@ var _ persis.DAGRunStore = (*Store)(nil)
 
 // Store manages DAG run status files on the local filesystem.
 type Store struct {
-	baseDir     string
-	artifactDir string
-	cache       *fileutil.Cache[*ir.DAGRunStatus]
+	baseDir         string
+	artifactDir     string
+	cache           *fileutil.Cache[*ir.DAGRunStatus]
+	retryCandidates retryCandidateCache
 }
 
 // StoreOption configures filesystem DAG-run storage.

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -32,7 +33,26 @@ type retryCandidateFile struct {
 	Status           ir.DAGRunStatus `json:"status"`
 }
 
+type retryCandidateCache struct {
+	mu      sync.Mutex
+	entries map[string]retryCandidateCacheEntry
+}
+
+type retryCandidateCacheEntry struct {
+	info      os.FileInfo
+	candidate retryCandidateFile
+}
+
+type retryCandidateScan struct {
+	previous map[string]retryCandidateCacheEntry
+	current  map[string]retryCandidateCacheEntry
+}
+
 func (store *Store) ListRetryCandidates(ctx context.Context, from persis.TimeInUTC) ([]*ir.DAGRunStatus, error) {
+	// A fresh snapshot drops candidate files no longer observed by the scan.
+	scan := store.retryCandidates.begin()
+	defer store.retryCandidates.finish(scan)
+
 	var candidates []*ir.DAGRunStatus
 
 	roots, err := store.listRoot(ctx, "")
@@ -49,7 +69,7 @@ func (store *Store) ListRetryCandidates(ctx context.Context, from persis.TimeInU
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			dayCandidates, err := store.listRetryCandidatesForDay(ctx, dayPath, from)
+			dayCandidates, err := store.listRetryCandidatesForDay(ctx, dayPath, from, scan)
 			if err != nil {
 				return nil, err
 			}
@@ -63,11 +83,11 @@ func (store *Store) ListRetryCandidates(ctx context.Context, from persis.TimeInU
 	return candidates, nil
 }
 
-func (store *Store) listRetryCandidatesForDay(ctx context.Context, dayPath string, from persis.TimeInUTC) ([]*ir.DAGRunStatus, error) {
-	return store.listRetryCandidatesForDayAfterRebuild(ctx, dayPath, from, false)
+func (store *Store) listRetryCandidatesForDay(ctx context.Context, dayPath string, from persis.TimeInUTC, scan *retryCandidateScan) ([]*ir.DAGRunStatus, error) {
+	return store.listRetryCandidatesForDayAfterRebuild(ctx, dayPath, from, scan, false)
 }
 
-func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, dayPath string, from persis.TimeInUTC, rebuiltCorruptCandidate bool) ([]*ir.DAGRunStatus, error) {
+func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, dayPath string, from persis.TimeInUTC, scan *retryCandidateScan, rebuiltCorruptCandidate bool) ([]*ir.DAGRunStatus, error) {
 	candidateDir := filepath.Join(dayPath, retryCandidateDirName)
 	needsRebuild, err := retryCandidatesNeedRebuild(dayPath)
 	if err != nil {
@@ -94,7 +114,7 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 		}
 		candidateName := entry.Name()
 		candidatePath := filepath.Join(candidateDir, candidateName)
-		candidate, err := readRetryCandidateFile(candidateDir, candidateName)
+		candidate, err := scan.read(candidateDir, entry)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
@@ -111,13 +131,14 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 			if err := rebuildRetryCandidatesForDay(ctx, dayPath, store.cache); err != nil {
 				return nil, err
 			}
-			return store.listRetryCandidatesForDayAfterRebuild(ctx, dayPath, from, true)
+			return store.listRetryCandidatesForDayAfterRebuild(ctx, dayPath, from, scan, true)
 		}
 		exists, err := retryCandidateRunExists(dayPath, candidate)
 		if err != nil {
 			return nil, err
 		}
 		if !exists {
+			delete(scan.current, candidatePath)
 			if err := fileutil.Remove(candidatePath); err != nil && !os.IsNotExist(err) {
 				return nil, fmt.Errorf("remove stale retry candidate %s: %w", candidatePath, err)
 			}
@@ -261,13 +282,60 @@ func rebuildRetryCandidatesForDay(ctx context.Context, dayPath string, cache *fi
 	return nil
 }
 
-func readRetryCandidateFile(dir, name string) (*retryCandidateFile, error) {
+func (cache *retryCandidateCache) begin() *retryCandidateScan {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	return &retryCandidateScan{
+		previous: cache.entries,
+		current:  make(map[string]retryCandidateCacheEntry, len(cache.entries)),
+	}
+}
+
+func (cache *retryCandidateCache) finish(scan *retryCandidateScan) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	cache.entries = scan.current
+}
+
+func (scan *retryCandidateScan) read(dir string, entry os.DirEntry) (*retryCandidateFile, error) {
+	path := filepath.Join(dir, entry.Name())
+	info, err := entry.Info()
+	if err != nil {
+		return nil, err
+	}
+	if cached, ok := scan.previous[path]; ok && sameRetryCandidateFile(cached.info, info) {
+		scan.current[path] = cached
+		candidate := cached.candidate
+		return &candidate, nil
+	}
+
+	candidate, info, err := readRetryCandidateFile(dir, entry.Name())
+	if err != nil {
+		return nil, err
+	}
+	scan.current[path] = retryCandidateCacheEntry{
+		info:      info,
+		candidate: *candidate,
+	}
+	return candidate, nil
+}
+
+func sameRetryCandidateFile(cached, current os.FileInfo) bool {
+	return os.SameFile(cached, current) &&
+		cached.Size() == current.Size() &&
+		cached.Mode() == current.Mode() &&
+		cached.ModTime().Equal(current.ModTime())
+}
+
+func readRetryCandidateFile(dir, name string) (*retryCandidateFile, os.FileInfo, error) {
 	if filepath.Base(name) != name || !strings.HasSuffix(name, retryCandidateExt) {
-		return nil, fmt.Errorf("invalid retry candidate file name %q", name)
+		return nil, nil, fmt.Errorf("invalid retry candidate file name %q", name)
 	}
 	file, err := os.OpenInRoot(dir, name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() {
 		_ = file.Close()
@@ -275,13 +343,17 @@ func readRetryCandidateFile(dir, name string) (*retryCandidateFile, error) {
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var candidate retryCandidateFile
 	if err := json.Unmarshal(data, &candidate); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &candidate, nil
+	info, err := file.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	return &candidate, info, nil
 }
 
 func retryCandidatePath(dayDir string, status ir.DAGRunStatus) string {
