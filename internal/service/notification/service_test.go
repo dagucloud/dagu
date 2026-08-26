@@ -284,38 +284,38 @@ func TestService_SendTestWebhookIncludesPayloadHeadersAndSignature(t *testing.T)
 func TestService_DeliversLifecycleEvent(t *testing.T) {
 	t.Parallel()
 
-	delivered := make(chan struct{}, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		delivered <- struct{}{}
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer server.Close()
+	smtpServer := newRecordingSMTPServer(t)
 
 	settings := mustNormalizeSettings(t, &notificationmodel.Settings{
 		DAGName: "daily-report",
 		Enabled: true,
 		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
 		Targets: []notificationmodel.Target{{
-			ID:      "webhook-1",
-			Type:    notificationmodel.ProviderWebhook,
+			ID:      "email-1",
+			Type:    notificationmodel.ProviderEmail,
 			Enabled: true,
-			Webhook: &notificationmodel.WebhookTarget{
-				URL:                 server.URL,
-				AllowInsecureHTTP:   true,
-				AllowPrivateNetwork: true,
-			},
+			Email:   &notificationmodel.EmailTarget{To: []string{"ops@example.com"}},
 		}},
 	})
+	notificationStore := newMemoryStore(settings)
+	workspaceSettings, err := notificationmodel.NormalizeWorkspaceSettings(&notificationmodel.WorkspaceSettings{
+		SMTP: &notificationmodel.SMTPConfig{
+			Host: smtpServer.host,
+			Port: smtpServer.port,
+			From: "dagu@example.com",
+		},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, notificationStore.SaveWorkspaceSettings(context.Background(), workspaceSettings))
 	svc := New(
-		newMemoryStore(settings),
+		notificationStore,
 		nil,
-		WithDeliveryRetry(DeliveryRetryConfig{MaxAttempts: 1}),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	)
 
-	store, err := fileeventstore.New(t.TempDir())
+	eventStore, err := fileeventstore.New(t.TempDir())
 	require.NoError(t, err)
-	eventService := eventstore.New(store)
+	eventService := eventstore.New(eventStore)
 	cursor, err := eventService.DAGRunHeadCursor(context.Background())
 	require.NoError(t, err)
 	require.NoError(t, eventService.Emit(context.Background(), eventstore.NewDAGRunEvent(
@@ -347,11 +347,11 @@ func TestService_DeliversLifecycleEvent(t *testing.T) {
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
-	select {
-	case <-delivered:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for lifecycle notification")
-	}
+	require.Eventually(t, func() bool {
+		return smtpServer.data.Load() != nil
+	}, time.Second, 10*time.Millisecond)
+	assert.Equal(t, "dagu@example.com", smtpServer.mailFrom.Load())
+	assert.Equal(t, "ops@example.com", smtpServer.rcptTo.Load())
 }
 
 func TestService_SendTestReturnsProviderError(t *testing.T) {
