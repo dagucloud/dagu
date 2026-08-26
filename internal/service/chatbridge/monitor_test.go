@@ -468,6 +468,7 @@ func TestNotificationMonitor_PollSourceDeliversDistinctWaitingStates(t *testing.
 		return len(delivered) == 3
 	}, time.Second, 10*time.Millisecond)
 
+	status.Nodes[0].Status = ir.NodeSucceeded
 	require.NoError(t, service.Emit(context.Background(), eventstore.NewDAGRunEvent(
 		eventstore.Source{Service: eventstore.SourceServiceServer},
 		eventstore.TypeDAGRunUpdated,

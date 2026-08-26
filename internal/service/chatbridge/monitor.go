@@ -444,7 +444,10 @@ func (m *NotificationMonitor) pollSource(ctx context.Context) {
 		}
 		status := snapshot.DAGRunStatus()
 		eventType := event.Type
-		if eventType == eventstore.TypeDAGRunUpdated && status.Status == ir.Waiting {
+		if eventType == eventstore.TypeDAGRunUpdated && status.Status == ir.Waiting &&
+			slices.ContainsFunc(status.Nodes, func(node *ir.Node) bool {
+				return node != nil && node.Status == ir.NodeWaiting
+			}) {
 			eventType = eventstore.TypeDAGRunWaiting
 		}
 		if !m.isInterestedEventType(eventType) {
