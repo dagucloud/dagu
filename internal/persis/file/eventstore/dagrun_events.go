@@ -25,6 +25,20 @@ var _ eventstore.DAGRunReader = (*Store)(nil)
 func (s *Store) DAGRunHeadCursor(_ context.Context) (eventstore.DAGRunCursor, error) {
 	cursor := eventstore.DAGRunCursor{
 		CommittedOffsets: make(map[string]int64),
+		InboxEventIDs:    make(map[string]string),
+	}
+
+	inboxFiles, err := s.listInboxFilenames()
+	if err != nil {
+		return cursor, err
+	}
+	for _, name := range inboxFiles {
+		cursor.LastInboxFile = name
+		event, err := s.readInboxDAGRunEvent(name)
+		if err != nil || event == nil {
+			continue
+		}
+		cursor.InboxEventIDs[name] = event.ID
 	}
 
 	files, err := s.listCommittedLogNames()
@@ -41,12 +55,6 @@ func (s *Store) DAGRunHeadCursor(_ context.Context) (eventstore.DAGRunCursor, er
 		}
 		cursor.CommittedOffsets[name] = info.Size()
 	}
-
-	lastInbox, err := s.latestInboxFilename()
-	if err != nil {
-		return cursor, err
-	}
-	cursor.LastInboxFile = lastInbox
 	return cursor.Normalize(), nil
 }
 
@@ -55,9 +63,25 @@ func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCurs
 	nextCursor := eventstore.DAGRunCursor{
 		LastInboxFile:    cursor.LastInboxFile,
 		CommittedOffsets: make(map[string]int64),
+		InboxEventIDs:    make(map[string]string),
 	}
 
 	eventsByID := make(map[string]*eventstore.Event)
+	inboxFiles, err := s.listInboxFilenames()
+	if err != nil {
+		return nil, nextCursor, err
+	}
+	inboxNames := make(map[string]struct{}, len(inboxFiles))
+	consumedIDs := make(map[string]struct{}, len(cursor.InboxEventIDs))
+	for _, name := range inboxFiles {
+		inboxNames[name] = struct{}{}
+	}
+	for name, id := range cursor.InboxEventIDs {
+		consumedIDs[id] = struct{}{}
+		if _, ok := inboxNames[name]; ok {
+			nextCursor.InboxEventIDs[name] = id
+		}
+	}
 
 	files, err := s.listCommittedLogNames()
 	if err != nil {
@@ -71,14 +95,13 @@ func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCurs
 		}
 		nextCursor.CommittedOffsets[name] = size
 		for _, event := range events {
+			if _, ok := consumedIDs[event.ID]; ok {
+				continue
+			}
 			selectNewestDAGRunEvent(eventsByID, event)
 		}
 	}
 
-	inboxFiles, err := s.listInboxFilenames()
-	if err != nil {
-		return nil, nextCursor, err
-	}
 	for _, name := range inboxFiles {
 		if cursor.LastInboxFile != "" && name <= cursor.LastInboxFile {
 			continue
@@ -96,6 +119,9 @@ func (s *Store) ReadDAGRunEvents(_ context.Context, cursor eventstore.DAGRunCurs
 			continue
 		}
 		selectNewestDAGRunEvent(eventsByID, event)
+		if event != nil {
+			nextCursor.InboxEventIDs[name] = event.ID
+		}
 		nextCursor.LastInboxFile = name
 	}
 
@@ -156,14 +182,6 @@ func (s *Store) listInboxFilenames() ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
-}
-
-func (s *Store) latestInboxFilename() (string, error) {
-	names, err := s.listInboxFilenames()
-	if err != nil || len(names) == 0 {
-		return "", err
-	}
-	return names[len(names)-1], nil
 }
 
 func (s *Store) readCommittedEventsFromOffset(name string, offset int64) ([]*eventstore.Event, int64, error) {

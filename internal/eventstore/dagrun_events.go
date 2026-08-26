@@ -20,19 +20,25 @@ const (
 )
 
 type DAGRunCursor struct {
-	LastInboxFile    string           `json:"last_inbox_file,omitempty"`
-	CommittedOffsets map[string]int64 `json:"committed_offsets,omitempty"`
+	LastInboxFile    string            `json:"last_inbox_file,omitempty"`
+	CommittedOffsets map[string]int64  `json:"committed_offsets,omitempty"`
+	InboxEventIDs    map[string]string `json:"inbox_event_ids,omitempty"`
 }
 
 func (c DAGRunCursor) Normalize() DAGRunCursor {
 	if c.CommittedOffsets == nil {
 		c.CommittedOffsets = make(map[string]int64)
 	}
+	if c.InboxEventIDs == nil {
+		c.InboxEventIDs = make(map[string]string)
+	}
 	return c
 }
 
 func (c DAGRunCursor) Equal(other DAGRunCursor) bool {
-	return c.LastInboxFile == other.LastInboxFile && maps.Equal(c.CommittedOffsets, other.CommittedOffsets)
+	return c.LastInboxFile == other.LastInboxFile &&
+		maps.Equal(c.CommittedOffsets, other.CommittedOffsets) &&
+		maps.Equal(c.InboxEventIDs, other.InboxEventIDs)
 }
 
 type DAGRunReader interface {

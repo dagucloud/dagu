@@ -152,6 +152,7 @@ func NewNotificationMonitor(
 	if cfg.BootstrapCursor != nil {
 		cursor := cfg.BootstrapCursor.Normalize()
 		cursor.CommittedOffsets = maps.Clone(cursor.CommittedOffsets)
+		cursor.InboxEventIDs = maps.Clone(cursor.InboxEventIDs)
 		bootstrap = &cursor
 	}
 
@@ -1192,6 +1193,7 @@ func cloneNotificationMonitorState(state notificationMonitorState) notificationM
 		Destinations: make(map[string]*notificationDestinationState, len(state.Destinations)),
 	}
 	clone.SourceCursor.CommittedOffsets = maps.Clone(state.SourceCursor.CommittedOffsets)
+	clone.SourceCursor.InboxEventIDs = maps.Clone(state.SourceCursor.InboxEventIDs)
 	for destination, destState := range state.Destinations {
 		if destState == nil {
 			clone.Destinations[destination] = &notificationDestinationState{

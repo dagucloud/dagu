@@ -53,6 +53,33 @@ func TestStoreReadDAGRunEventsTracksCommittedOffsetsAndInbox(t *testing.T) {
 	assert.GreaterOrEqual(t, len(nextCursor.CommittedOffsets), len(cursor.CommittedOffsets))
 }
 
+func TestStoreReadDAGRunEventsTracksCollectedInboxEvents(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	store, err := New(baseDir)
+	require.NoError(t, err)
+	collector, err := NewCollector(baseDir, 10)
+	require.NoError(t, err)
+
+	oldEvent := testEvent("evt-old", time.Date(2026, 3, 29, 9, 0, 0, 0, time.UTC))
+	require.NoError(t, store.Emit(context.Background(), oldEvent))
+	cursor, err := store.DAGRunHeadCursor(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, collector.DrainOnce(context.Background()))
+
+	newEvent := testEvent("evt-new", time.Date(2026, 3, 29, 9, 1, 0, 0, time.UTC))
+	require.NoError(t, store.Emit(context.Background(), newEvent))
+	events, nextCursor, err := store.ReadDAGRunEvents(context.Background(), cursor)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"evt-new"}, dagRunEventIDs(events))
+
+	require.NoError(t, collector.DrainOnce(context.Background()))
+	events, _, err = store.ReadDAGRunEvents(context.Background(), nextCursor)
+	require.NoError(t, err)
+	assert.Empty(t, events)
+}
+
 func TestStoreReadDAGRunEventsQuarantinesMalformedInboxFiles(t *testing.T) {
 	t.Parallel()
 
