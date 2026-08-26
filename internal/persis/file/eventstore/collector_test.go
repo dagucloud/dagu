@@ -259,6 +259,45 @@ func TestCollectorSeenIDAllocs(t *testing.T) {
 	require.LessOrEqual(t, largeAllocs, smallAllocs*maxAllocationRate)
 }
 
+func TestCollectorPendingEventAllocs(t *testing.T) {
+	const (
+		largeFieldCount   = 512
+		maxAllocationRate = 2
+	)
+
+	newPendingEvent := func(data map[string]any) (*Collector, string) {
+		collector, err := NewCollector(t.TempDir(), 10)
+		require.NoError(t, err)
+
+		event := testEvent("evt-allocs", time.Date(2026, 3, 29, 22, 0, 0, 0, time.UTC))
+		event.Data = data
+		path := filepath.Join(collector.store.inboxDir, "pending.json")
+		require.NoError(t, os.WriteFile(path, mustMarshalEvent(t, event), filePermissions))
+
+		return collector, path
+	}
+
+	small, smallPath := newPendingEvent(map[string]any{"0": 0})
+	largeData := make(map[string]any, largeFieldCount)
+	for i := range largeFieldCount {
+		largeData[strconv.Itoa(i)] = i
+	}
+	large, largePath := newPendingEvent(largeData)
+
+	var smallErr error
+	smallAllocs := testing.AllocsPerRun(5, func() {
+		_, smallErr = small.readPendingEvent(smallPath)
+	})
+	require.NoError(t, smallErr)
+
+	var largeErr error
+	largeAllocs := testing.AllocsPerRun(5, func() {
+		_, largeErr = large.readPendingEvent(largePath)
+	})
+	require.NoError(t, largeErr)
+	require.LessOrEqual(t, largeAllocs, smallAllocs*maxAllocationRate)
+}
+
 func assertInboxCount(t *testing.T, dir string, count int) {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

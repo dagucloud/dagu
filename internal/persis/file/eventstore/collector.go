@@ -253,8 +253,12 @@ func (c *Collector) readPendingEvent(path string) (pendingInboxEvent, error) {
 	if err != nil {
 		return pendingInboxEvent{}, err
 	}
-	event := new(eventstore.Event)
-	if err := json.Unmarshal(data, event); err != nil {
+	// Draining needs event metadata; raw preserves the payload for persistence.
+	var event struct {
+		eventstore.Event
+		Data struct{} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
 		return pendingInboxEvent{}, err
 	}
 	event.Normalize()
@@ -264,7 +268,7 @@ func (c *Collector) readPendingEvent(path string) (pendingInboxEvent, error) {
 	return pendingInboxEvent{
 		path:  path,
 		raw:   data,
-		event: event,
+		event: &event.Event,
 	}, nil
 }
 
