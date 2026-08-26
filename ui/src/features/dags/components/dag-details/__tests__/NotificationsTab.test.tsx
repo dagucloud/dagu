@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -171,6 +171,50 @@ describe('NotificationsTab', () => {
     expect(
       screen.queryByRole('button', { name: /send test/i })
     ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /refresh/i })).toBeVisible();
+  });
+
+  it('ignores a stale load failure after refresh succeeds', async () => {
+    const user = userEvent.setup();
+    const defaultFetch = fetchMock.getMockImplementation();
+    let resolveFirst: (response: Response) => void = () => {};
+    const firstRequest = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let settingsRequests = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (
+        String(input) === '/api/v1/dags/example/notifications?remoteNode=local'
+      ) {
+        settingsRequests++;
+        if (settingsRequests === 1) {
+          return firstRequest;
+        }
+      }
+      return defaultFetch?.(input);
+    });
+
+    renderTab();
+    await user.click(screen.getByRole('button', { name: /refresh/i }));
+    expect(await screen.findByText('Inherited')).toBeVisible();
+
+    await act(async () => {
+      resolveFirst(
+        new Response(
+          JSON.stringify({ message: 'Notification delivery is unavailable' }),
+          {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      );
+      await firstRequest;
+    });
+
+    expect(
+      screen.queryByText('Notification delivery is unavailable')
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Inherited')).toBeVisible();
   });
 
   it('shows inherited rules instead of silently creating a DAG override', async () => {

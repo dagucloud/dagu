@@ -46,6 +46,8 @@ func TestNotificationChannels_UnavailableWithoutEventStore(t *testing.T) {
 	var result api.Error
 	resp.Unmarshal(t, &result)
 	assert.Contains(t, result.Message, "Notification delivery is unavailable")
+	assert.Contains(t, result.Message, "notification store")
+	assert.Contains(t, result.Message, "notification state")
 }
 
 func TestNotificationChannels_AcceptExistingLicenseWithoutFeatureClaim(t *testing.T) {

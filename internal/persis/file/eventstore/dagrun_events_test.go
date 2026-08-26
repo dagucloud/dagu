@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,6 +82,63 @@ func TestStoreReadDAGRunEventsQuarantinesMalformedInboxFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, events)
 	assert.NotEmpty(t, nextCursor.LastInboxFile)
+}
+
+func TestStorePreservesWaitingEventIdentity(t *testing.T) {
+	t.Parallel()
+
+	store, err := New(t.TempDir())
+	require.NoError(t, err)
+	cursor, err := store.DAGRunHeadCursor(context.Background())
+	require.NoError(t, err)
+
+	mutations := []func(*ir.Node){
+		func(node *ir.Node) { node.Step.ID = "step-b" },
+		func(node *ir.Node) { node.StartedAt = "2026-08-26T01:00:01Z" },
+		func(node *ir.Node) { node.RetryCount = 1 },
+		func(node *ir.Node) { node.DoneCount = 1 },
+		func(node *ir.Node) { node.ApprovalIteration = 1 },
+	}
+	statuses := make([]*ir.DAGRunStatus, 0, len(mutations)+1)
+	statuses = append(statuses, waitingStatus())
+	for _, mutate := range mutations {
+		status := waitingStatus()
+		mutate(status.Nodes[0])
+		statuses = append(statuses, status)
+	}
+
+	for _, status := range statuses {
+		event := eventstore.NewDAGRunEvent(
+			eventstore.Source{Service: eventstore.SourceServiceScheduler},
+			eventstore.TypeDAGRunWaiting,
+			status,
+			nil,
+		)
+		require.NoError(t, store.Emit(context.Background(), event))
+	}
+
+	events, _, err := store.ReadDAGRunEvents(context.Background(), cursor)
+	require.NoError(t, err)
+	require.Len(t, events, len(statuses))
+	for _, event := range events {
+		status, err := eventstore.DAGRunStatusFromEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, event.ID, eventstore.DAGRunWaitingEventID(status))
+	}
+}
+
+func waitingStatus() *ir.DAGRunStatus {
+	return &ir.DAGRunStatus{
+		Name:      "briefing",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    ir.Waiting,
+		Nodes: []*ir.Node{{
+			Step:      ir.Step{ID: "step-a", Name: "approve"},
+			StartedAt: "2026-08-26T01:00:00Z",
+			Status:    ir.NodeWaiting,
+		}},
+	}
 }
 
 func dagRunEventIDs(events []*eventstore.Event) []string {

@@ -512,9 +512,10 @@ func TestNotificationMonitor_MigratesDeliveredWaitingKey(t *testing.T) {
 		},
 	}
 	event := NotificationEvent{
-		Key:    NotificationSeenKey(status),
-		Type:   eventstore.TypeDAGRunWaiting,
-		Status: status,
+		Key:        NotificationSeenKey(status),
+		Type:       eventstore.TypeDAGRunWaiting,
+		Status:     status,
+		ObservedAt: deliveredAt.Add(-time.Minute),
 	}
 
 	queued, changed, accepted := enqueueNotifications(&state, []string{"dest-1"}, []NotificationEvent{event})
@@ -525,6 +526,52 @@ func TestNotificationMonitor_MigratesDeliveredWaitingKey(t *testing.T) {
 	destination := state.Destinations["dest-1"]
 	assert.NotContains(t, destination.Delivered, legacyNotificationSeenKey(status))
 	assert.Equal(t, deliveredAt, destination.Delivered[event.Key])
+}
+
+func TestNotificationMonitor_DoesNotMigrateLaterWaitingKey(t *testing.T) {
+	t.Parallel()
+
+	deliveredAt := time.Now().UTC()
+	legacyStatus := &ir.DAGRunStatus{
+		Name:      "briefing",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    ir.Waiting,
+		Nodes: []*ir.Node{{
+			Step:   ir.Step{Name: "approve-build"},
+			Status: ir.NodeWaiting,
+		}},
+	}
+	status := &ir.DAGRunStatus{
+		Name:      "briefing",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    ir.Waiting,
+		Nodes: []*ir.Node{{
+			Step:   ir.Step{Name: "approve-deploy"},
+			Status: ir.NodeWaiting,
+		}},
+	}
+	state := newNotificationMonitorState()
+	state.Destinations["dest-1"] = &notificationDestinationState{
+		Pending: make(map[string]NotificationEvent),
+		Delivered: map[string]time.Time{
+			legacyNotificationSeenKey(legacyStatus): deliveredAt,
+		},
+	}
+	event := NotificationEvent{
+		Key:        NotificationSeenKey(status),
+		Type:       eventstore.TypeDAGRunWaiting,
+		Status:     status,
+		ObservedAt: deliveredAt.Add(time.Minute),
+	}
+
+	queued, changed, accepted := enqueueNotifications(&state, []string{"dest-1"}, []NotificationEvent{event})
+
+	require.Len(t, queued, 1)
+	assert.True(t, changed)
+	assert.True(t, accepted)
+	assert.Equal(t, event.Key, queued[0].event.Key)
 }
 
 func TestNotificationMonitor_PollSourceSkipsFailedRunWithAutoRetryRemaining(t *testing.T) {

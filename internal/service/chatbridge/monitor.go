@@ -1347,7 +1347,8 @@ func migrateWaitingDelivery(destState *notificationDestinationState, event Notif
 		return false
 	}
 	deliveredAt, ok := destState.Delivered[legacyKey]
-	if !ok {
+	// A later event cannot be the occurrence recorded by the legacy delivery.
+	if !ok || event.ObservedAt.IsZero() || deliveredAt.Before(event.ObservedAt) {
 		return false
 	}
 

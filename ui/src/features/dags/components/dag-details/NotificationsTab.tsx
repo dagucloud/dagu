@@ -55,6 +55,7 @@ type NotificationsTabProps = {
 
 type DAGNotificationHeaderProps = {
   isDAGConfigured: boolean;
+  loadFailed: boolean;
   hasUnsavedChanges: boolean;
   isSaving: boolean;
   isResetting: boolean;
@@ -69,6 +70,7 @@ type DAGNotificationHeaderProps = {
 
 function DAGNotificationHeader({
   isDAGConfigured,
+  loadFailed,
   hasUnsavedChanges,
   isSaving,
   isResetting,
@@ -97,56 +99,60 @@ function DAGNotificationHeader({
             <RefreshCw className="h-4 w-4" />
             Refresh
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onTestAll}
-            disabled={
-              hasUnsavedChanges ||
-              testableDestinationCount === 0 ||
-              testingTargetId !== null
-            }
-          >
-            {testingTargetId === '__all__' ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FlaskConical className="h-4 w-4" />
-            )}
-            Send test
-          </Button>
-          {isDAGConfigured ? (
+          {!loadFailed && (
             <>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={onResetDAG}
-                disabled={isResetting || isSaving}
+                onClick={onTestAll}
+                disabled={
+                  hasUnsavedChanges ||
+                  testableDestinationCount === 0 ||
+                  testingTargetId !== null
+                }
               >
-                {isResetting ? (
+                {testingTargetId === '__all__' ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <RotateCcw className="h-4 w-4" />
+                  <FlaskConical className="h-4 w-4" />
                 )}
-                Reset to inherit
+                Send test
               </Button>
-              <Button
-                size="sm"
-                onClick={onSave}
-                disabled={!hasUnsavedChanges || isSaving}
-              >
-                {isSaving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                Save changes
-              </Button>
+              {isDAGConfigured ? (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onResetDAG}
+                    disabled={isResetting || isSaving}
+                  >
+                    {isResetting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-4 w-4" />
+                    )}
+                    Reset to inherit
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={onSave}
+                    disabled={!hasUnsavedChanges || isSaving}
+                  >
+                    {isSaving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    Save changes
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" onClick={onConfigureDAG}>
+                  <Settings className="h-4 w-4" />
+                  Configure DAG override
+                </Button>
+              )}
             </>
-          ) : (
-            <Button size="sm" onClick={onConfigureDAG}>
-              <Settings className="h-4 w-4" />
-              Configure DAG override
-            </Button>
           )}
         </div>
       </div>
@@ -451,31 +457,40 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
     setDeleteSubscriptionIndex(null);
   };
 
-  if (loadError && !isLoading) {
+  const loadFailed = !!loadError && !isLoading;
+  const header = (
+    <DAGNotificationHeader
+      isDAGConfigured={hasDAGSettings}
+      loadFailed={loadFailed}
+      hasUnsavedChanges={hasUnsavedChanges}
+      isSaving={isSaving}
+      isResetting={isResetting}
+      testingTargetId={testingTargetId}
+      testableDestinationCount={testableDestinationCount}
+      onRefresh={refreshSettings}
+      onTestAll={() => testNotifications()}
+      onConfigureDAG={configureDAGOverride}
+      onResetDAG={() => setResetVisible(true)}
+      onSave={saveSettings}
+    />
+  );
+
+  if (loadFailed) {
     return (
-      <Card>
-        <CardContent className="py-4 text-sm text-destructive">
-          {loadError}
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        {header}
+        <Card>
+          <CardContent className="py-4 text-sm text-destructive">
+            {loadError}
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <DAGNotificationHeader
-        isDAGConfigured={hasDAGSettings}
-        hasUnsavedChanges={hasUnsavedChanges}
-        isSaving={isSaving}
-        isResetting={isResetting}
-        testingTargetId={testingTargetId}
-        testableDestinationCount={testableDestinationCount}
-        onRefresh={refreshSettings}
-        onTestAll={() => testNotifications()}
-        onConfigureDAG={configureDAGOverride}
-        onResetDAG={() => setResetVisible(true)}
-        onSave={saveSettings}
-      />
+      {header}
 
       {isLoading && (
         <Card>
