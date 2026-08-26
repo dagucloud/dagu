@@ -207,9 +207,12 @@ func runRetry(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
-	workDirRef := retryWorkDirRef(status, ref, rootRun)
-	if err := restoreRetryExecutionContext(ctx.Context, ctx.Persistence.DAGRunRepository, dag, status, workDirRef); err != nil {
-		return err
+	// Fresh queue dispatches stage dependencies from the source workspace.
+	if !queueDispatchRetry || !shouldUseQueuedDispatchAttempt(status) {
+		workDirRef := retryWorkDirRef(status, ref, rootRun)
+		if err := restoreRetryExecutionContext(ctx.Context, ctx.Persistence.DAGRunRepository, dag, status, workDirRef); err != nil {
+			return err
+		}
 	}
 	if err := applyRetryDefaultWorkingDir(ctx, dag, status); err != nil {
 		return err

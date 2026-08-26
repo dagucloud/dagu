@@ -269,16 +269,22 @@ steps:
 		dagFile := th.DAG(t, `name: queue-dispatch-existing-attempt
 steps:
   - name: "1"
-    run: echo queued dispatch
+    run: cat templates/input.txt
+    dependencies: templates/**
 `)
+		templateDir := filepath.Join(dagFile.WorkingDir, "templates")
+		require.NoError(t, os.MkdirAll(templateDir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(templateDir, "input.txt"), []byte("queued dispatch"), 0o600))
 
 		runID := "queue-dispatch-run"
-		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dagFile.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+		queuedDAG := dagFile.Clone()
+		queuedDAG.Location = ""
+		attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, queuedDAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		logPath := filepath.Join(th.Config.Paths.LogDir, "queue-dispatch-test.log")
 		require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o750))
 
-		status := ir.NewStatusBuilder(dagFile.DAG).Create(
+		status := ir.NewStatusBuilder(queuedDAG).Create(
 			runID,
 			ir.Queued,
 			0,
