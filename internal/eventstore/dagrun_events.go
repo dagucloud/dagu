@@ -41,10 +41,15 @@ type DAGRunReader interface {
 }
 
 type DAGRunNodeSnapshot struct {
-	StepName      string                `json:"step_name,omitempty"`
-	Status        ir.NodeStatus         `json:"status,omitempty"`
-	Error         string                `json:"error,omitempty"`
-	StatusDetails []ir.NodeStatusDetail `json:"status_details,omitempty"`
+	StepID            string                `json:"step_id,omitempty"`
+	StepName          string                `json:"step_name,omitempty"`
+	StartedAt         string                `json:"started_at,omitempty"`
+	Status            ir.NodeStatus         `json:"status,omitempty"`
+	Error             string                `json:"error,omitempty"`
+	StatusDetails     []ir.NodeStatusDetail `json:"status_details,omitempty"`
+	RetryCount        int                   `json:"retry_count,omitempty"`
+	DoneCount         int                   `json:"done_count,omitempty"`
+	ApprovalIteration int                   `json:"approval_iteration,omitempty"`
 }
 
 func newDAGRunNodeSnapshot(node *ir.Node) *DAGRunNodeSnapshot {
@@ -52,10 +57,15 @@ func newDAGRunNodeSnapshot(node *ir.Node) *DAGRunNodeSnapshot {
 		return nil
 	}
 	return &DAGRunNodeSnapshot{
-		StepName:      node.Step.Name,
-		Status:        node.Status,
-		Error:         node.Error,
-		StatusDetails: append([]ir.NodeStatusDetail(nil), node.StatusDetails...),
+		StepID:            node.Step.ID,
+		StepName:          node.Step.Name,
+		StartedAt:         node.StartedAt,
+		Status:            node.Status,
+		Error:             node.Error,
+		StatusDetails:     append([]ir.NodeStatusDetail(nil), node.StatusDetails...),
+		RetryCount:        node.RetryCount,
+		DoneCount:         node.DoneCount,
+		ApprovalIteration: node.ApprovalIteration,
 	}
 }
 
@@ -64,10 +74,14 @@ func (s *DAGRunNodeSnapshot) Node() *ir.Node {
 		return nil
 	}
 	return &ir.Node{
-		Step:          ir.Step{Name: s.StepName},
-		Status:        s.Status,
-		Error:         s.Error,
-		StatusDetails: append([]ir.NodeStatusDetail(nil), s.StatusDetails...),
+		Step:              ir.Step{ID: s.StepID, Name: s.StepName},
+		StartedAt:         s.StartedAt,
+		Status:            s.Status,
+		Error:             s.Error,
+		StatusDetails:     append([]ir.NodeStatusDetail(nil), s.StatusDetails...),
+		RetryCount:        s.RetryCount,
+		DoneCount:         s.DoneCount,
+		ApprovalIteration: s.ApprovalIteration,
 	}
 }
 

@@ -439,11 +439,7 @@ func TestNotificationMonitor_PollSourceDeliversDistinctWaitingStates(t *testing.
 		return len(delivered) == 1
 	}, time.Second, 10*time.Millisecond)
 
-	status.Nodes = []*ir.Node{{
-		Step:              ir.Step{Name: "approve-deploy"},
-		Status:            ir.NodeWaiting,
-		ApprovalIteration: 1,
-	}}
+	status.Nodes[0].ApprovalIteration = 1
 	require.NoError(t, service.Emit(context.Background(), eventstore.NewDAGRunEvent(
 		eventstore.Source{Service: eventstore.SourceServiceServer},
 		eventstore.TypeDAGRunUpdated,
@@ -456,6 +452,22 @@ func TestNotificationMonitor_PollSourceDeliversDistinctWaitingStates(t *testing.
 		return len(delivered) == 2
 	}, time.Second, 10*time.Millisecond)
 
+	status.Nodes = []*ir.Node{{
+		Step:   ir.Step{Name: "approve-deploy"},
+		Status: ir.NodeWaiting,
+	}}
+	require.NoError(t, service.Emit(context.Background(), eventstore.NewDAGRunEvent(
+		eventstore.Source{Service: eventstore.SourceServiceServer},
+		eventstore.TypeDAGRunUpdated,
+		status,
+		nil,
+	)))
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(delivered) == 3
+	}, time.Second, 10*time.Millisecond)
+
 	require.NoError(t, service.Emit(context.Background(), eventstore.NewDAGRunEvent(
 		eventstore.Source{Service: eventstore.SourceServiceServer},
 		eventstore.TypeDAGRunUpdated,
@@ -465,15 +477,17 @@ func TestNotificationMonitor_PollSourceDeliversDistinctWaitingStates(t *testing.
 	require.Never(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(delivered) > 2
+		return len(delivered) > 3
 	}, 100*time.Millisecond, 10*time.Millisecond)
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.Len(t, delivered, 2)
+	require.Len(t, delivered, 3)
 	assert.Equal(t, eventstore.TypeDAGRunWaiting, delivered[0].Type)
 	assert.Equal(t, eventstore.TypeDAGRunWaiting, delivered[1].Type)
+	assert.Equal(t, eventstore.TypeDAGRunWaiting, delivered[2].Type)
 	assert.NotEqual(t, delivered[0].Key, delivered[1].Key)
+	assert.NotEqual(t, delivered[1].Key, delivered[2].Key)
 }
 
 func TestNotificationMonitor_MigratesDeliveredWaitingKey(t *testing.T) {
