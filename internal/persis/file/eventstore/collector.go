@@ -6,6 +6,8 @@ package eventstore
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +26,15 @@ const (
 	defaultDrainInterval = time.Second
 	defaultCleanupEvery  = time.Hour
 	defaultBatchSize     = 256
+	dagEventIDPrefix     = "dag_"
+	dagUpdateIDPrefix    = "dag_update_"
+	llmEventIDPrefix     = "llm_"
+)
+
+const (
+	dagEventIDNamespace byte = iota + 1
+	dagUpdateIDNamespace
+	llmEventIDNamespace
 )
 
 type CollectorOption func(*Collector)
@@ -59,7 +70,83 @@ type Collector struct {
 	cleanupEvery  time.Duration
 	batchSize     int
 	now           func() time.Time
-	seenIDs       map[string]struct{}
+	seenIDs       seenSet
+}
+
+type eventIDKey [1 + sha256.Size]byte
+
+// seenSet compacts generated IDs while preserving unknown IDs exactly.
+type seenSet struct {
+	compact map[eventIDKey]struct{}
+	legacy  map[string]struct{}
+}
+
+func newSeenSet() seenSet {
+	return seenSet{
+		compact: make(map[eventIDKey]struct{}),
+		legacy:  make(map[string]struct{}),
+	}
+}
+
+func (s seenSet) has(id string) bool {
+	if key, ok := compactEventID(id); ok {
+		_, ok = s.compact[key]
+		return ok
+	}
+
+	_, ok := s.legacy[id]
+	return ok
+}
+
+func (s seenSet) add(id string) {
+	if key, ok := compactEventID(id); ok {
+		s.compact[key] = struct{}{}
+		return
+	}
+
+	s.legacy[id] = struct{}{}
+}
+
+func compactEventID(id string) (eventIDKey, bool) {
+	var key eventIDKey
+	var digest string
+	switch {
+	case strings.HasPrefix(id, dagUpdateIDPrefix):
+		key[0] = dagUpdateIDNamespace
+		digest = id[len(dagUpdateIDPrefix):]
+	case strings.HasPrefix(id, dagEventIDPrefix):
+		key[0] = dagEventIDNamespace
+		digest = id[len(dagEventIDPrefix):]
+	case strings.HasPrefix(id, llmEventIDPrefix):
+		key[0] = llmEventIDNamespace
+		digest = id[len(llmEventIDPrefix):]
+	default:
+		return eventIDKey{}, false
+	}
+
+	if len(digest) != hex.EncodedLen(sha256.Size) || !isLowerHex(digest) {
+		return eventIDKey{}, false
+	}
+	if _, err := hex.Decode(key[1:], []byte(digest)); err != nil {
+		return eventIDKey{}, false
+	}
+
+	return key, true
+}
+
+func isLowerHex(value string) bool {
+	for i := range len(value) {
+		char := value[i]
+		if char >= '0' && char <= '9' {
+			continue
+		}
+		if char >= 'a' && char <= 'f' {
+			continue
+		}
+		return false
+	}
+
+	return true
 }
 
 type pendingInboxEvent struct {
@@ -80,7 +167,7 @@ func NewCollector(baseDir string, retentionDays int, opts ...CollectorOption) (*
 		cleanupEvery:  defaultCleanupEvery,
 		batchSize:     defaultBatchSize,
 		now:           time.Now,
-		seenIDs:       make(map[string]struct{}),
+		seenIDs:       newSeenSet(),
 	}
 	for _, opt := range opts {
 		opt(collector)
@@ -151,7 +238,7 @@ func (c *Collector) DrainOnce(_ context.Context) error {
 			c.quarantine(path, entry.Name(), err)
 			continue
 		}
-		if _, ok := c.seenIDs[pending.event.ID]; ok {
+		if c.seenIDs.has(pending.event.ID) {
 			if err := fileutil.Remove(path); err != nil && !os.IsNotExist(err) {
 				slog.Warn("fileeventstore: failed to delete duplicate inbox file",
 					slog.String("file", path),
@@ -201,7 +288,7 @@ func (c *Collector) appendGroup(hour string, group []pendingInboxEvent) error {
 
 	removePersistedInboxFiles := func() {
 		for _, item := range group {
-			if _, ok := c.seenIDs[item.event.ID]; !ok {
+			if !c.seenIDs.has(item.event.ID) {
 				continue
 			}
 			if err := fileutil.Remove(item.path); err != nil && !os.IsNotExist(err) {
@@ -242,7 +329,7 @@ func (c *Collector) appendGroup(hour string, group []pendingInboxEvent) error {
 	}
 
 	for _, item := range group {
-		c.seenIDs[item.event.ID] = struct{}{}
+		c.seenIDs.add(item.event.ID)
 	}
 	removePersistedInboxFiles()
 	return nil
@@ -330,7 +417,7 @@ func (c *Collector) loadSeenIDsFromFile(filePath string) error {
 			continue
 		}
 		if event.ID != "" {
-			c.seenIDs[event.ID] = struct{}{}
+			c.seenIDs.add(event.ID)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -403,7 +490,7 @@ func (c *Collector) cleanupExpired() {
 		}
 	}
 	if removedCommitted {
-		c.seenIDs = make(map[string]struct{})
+		c.seenIDs = newSeenSet()
 		if err := c.loadSeenIDs(); err != nil {
 			slog.Warn("fileeventstore: failed to rebuild seen-set after cleanup",
 				slog.String("dir", c.store.baseDir),

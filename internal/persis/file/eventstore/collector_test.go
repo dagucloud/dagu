@@ -6,8 +6,10 @@ package eventstore
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,6 +18,59 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/stretchr/testify/require"
 )
+
+const benchmarkSeenIDCount = 100_000
+
+var benchmarkSeenIDs any
+
+func BenchmarkSeenIDsRetention(b *testing.B) {
+	for range b.N {
+		benchmarkSeenIDs = nil
+		runtime.GC()
+
+		var before runtime.MemStats
+		runtime.ReadMemStats(&before)
+
+		seen := newSeenSet()
+		for i := range benchmarkSeenIDCount {
+			seen.add(fmt.Sprintf("dag_%064x", i))
+		}
+
+		runtime.GC()
+		var after runtime.MemStats
+		runtime.ReadMemStats(&after)
+		runtime.KeepAlive(seen)
+
+		bytesPerID := float64(after.HeapAlloc-before.HeapAlloc) / benchmarkSeenIDCount
+		b.ReportMetric(bytesPerID, "live-B/id")
+		benchmarkSeenIDs = seen
+	}
+}
+
+func TestSeenSetPreservesIDs(t *testing.T) {
+	t.Parallel()
+
+	digest := strings.Repeat("a", 64)
+	ids := []string{
+		"dag_" + digest,
+		"dag_update_" + digest,
+		"llm_" + digest,
+		"dag_" + strings.ToUpper(digest),
+		"dag_short",
+		"evt-legacy",
+	}
+
+	seen := newSeenSet()
+	for _, id := range ids {
+		require.False(t, seen.has(id), id)
+		seen.add(id)
+		require.True(t, seen.has(id), id)
+	}
+
+	for _, id := range ids {
+		require.True(t, seen.has(id), id)
+	}
+}
 
 func TestCollectorDrainOnceAppendsByHourAndDeduplicatesAcrossRestart(t *testing.T) {
 	t.Parallel()
@@ -26,7 +81,7 @@ func TestCollectorDrainOnceAppendsByHourAndDeduplicatesAcrossRestart(t *testing.
 
 	dayOne := time.Date(2026, 3, 28, 23, 0, 0, 0, time.UTC)
 	dayTwo := time.Date(2026, 3, 29, 1, 0, 0, 0, time.UTC)
-	eventOne := testEvent("evt-1", dayOne)
+	eventOne := testEvent("dag_"+strings.Repeat("a", 64), dayOne)
 	eventTwo := testEvent("evt-2", dayTwo)
 	eventTwo.DAGRunID = "run-2"
 
@@ -45,12 +100,13 @@ func TestCollectorDrainOnceAppendsByHourAndDeduplicatesAcrossRestart(t *testing.
 	require.NoError(t, err)
 	require.NoError(t, restarted.loadSeenIDs())
 
-	duplicate := testEvent("evt-1", dayOne)
-	require.NoError(t, store.Emit(context.Background(), duplicate))
+	require.NoError(t, store.Emit(context.Background(), testEvent(eventOne.ID, dayOne)))
+	require.NoError(t, store.Emit(context.Background(), testEvent(eventTwo.ID, dayTwo)))
 	require.NoError(t, restarted.DrainOnce(context.Background()))
 
 	assertInboxCount(t, store.inboxDir, 0)
 	assertLogLineCount(t, filepath.Join(baseDir, "_2026032823.jsonl"), 1)
+	assertLogLineCount(t, filepath.Join(baseDir, "_2026032901.jsonl"), 1)
 }
 
 func TestCollectorDrainOncePreservesInboxAfterMalformedCommittedEvent(t *testing.T) {
@@ -75,8 +131,7 @@ func TestCollectorDrainOncePreservesInboxAfterMalformedCommittedEvent(t *testing
 	collector, err := NewCollector(baseDir, 10)
 	require.NoError(t, err)
 	require.NoError(t, collector.loadSeenIDs())
-	_, seen := collector.seenIDs[event.ID]
-	require.False(t, seen)
+	require.False(t, collector.seenIDs.has(event.ID))
 
 	require.NoError(t, collector.DrainOnce(context.Background()))
 	assertInboxCount(t, store.inboxDir, 0)
@@ -190,15 +245,15 @@ func TestCollectorCleanupExpiredRebuildsSeenIDs(t *testing.T) {
 	writeCommittedEvents(t, baseDir, recentEvent.OccurredAt, [][]byte{mustMarshalEvent(t, recentEvent)})
 
 	require.NoError(t, collector.loadSeenIDs())
-	_, hasExpired := collector.seenIDs[expiredEvent.ID]
-	_, hasRecent := collector.seenIDs[recentEvent.ID]
+	hasExpired := collector.seenIDs.has(expiredEvent.ID)
+	hasRecent := collector.seenIDs.has(recentEvent.ID)
 	require.True(t, hasExpired)
 	require.True(t, hasRecent)
 
 	collector.cleanupExpired()
 
-	_, hasExpired = collector.seenIDs[expiredEvent.ID]
-	_, hasRecent = collector.seenIDs[recentEvent.ID]
+	hasExpired = collector.seenIDs.has(expiredEvent.ID)
+	hasRecent = collector.seenIDs.has(recentEvent.ID)
 	require.False(t, hasExpired)
 	require.True(t, hasRecent)
 }
@@ -217,8 +272,7 @@ func TestCollectorLoadSeenIDsReadsLargeCommittedEventLine(t *testing.T) {
 	writeCommittedEvents(t, baseDir, event.OccurredAt, [][]byte{mustMarshalEvent(t, event)})
 
 	require.NoError(t, collector.loadSeenIDs())
-	_, ok := collector.seenIDs[event.ID]
-	require.True(t, ok)
+	require.True(t, collector.seenIDs.has(event.ID))
 }
 
 func TestCollectorSeenIDAllocs(t *testing.T) {
