@@ -4,6 +4,7 @@
 package intg_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -246,6 +247,80 @@ steps:
 			dag.AssertLatestStatus(t, tc.expectedStatus)
 			if tc.expectedOutputs != nil {
 				dag.AssertOutputs(t, tc.expectedOutputs)
+			}
+		})
+	}
+}
+
+func TestRouterLogsResolvedValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		dagYAML string
+	}{
+		{
+			name: "DAGRunID",
+			dagYAML: `
+type: graph
+steps:
+  - id: route
+    action: router.route
+    with:
+      value: ${env.DAG_RUN_ID}
+      routes:
+        "TEST_ROUTE": [target]
+
+  - id: target
+    run: echo routed
+`,
+		},
+		{
+			name: "DeclaredStepOutput",
+			dagYAML: `
+type: graph
+steps:
+  - id: extract_properties
+    run: ` + test.ForOS(
+				`printf 'routing_value=TEST_ROUTE\n' >> "$DAGU_OUTPUT_FILE"`,
+				`Set-Content -Path $env:DAGU_OUTPUT_FILE -Value 'routing_value=TEST_ROUTE'`,
+			) + `
+    outputs:
+      - name: routing_value
+
+  - id: route
+    depends: [extract_properties]
+    action: router.route
+    with:
+      value: ${steps.extract_properties.outputs.routing_value}
+      routes:
+        "TEST_ROUTE": [target]
+
+  - id: target
+    run: echo routed
+`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			th := test.Setup(t)
+			dag := th.DAG(t, tc.dagYAML)
+			agent := dag.Agent(test.WithDAGRunID("TEST_ROUTE"))
+			agent.RunSuccess(t)
+
+			status := agent.Status(agent.Context)
+			for _, node := range status.Nodes {
+				switch node.Step.ID {
+				case "route":
+					stdout, err := os.ReadFile(node.Stdout)
+					require.NoError(t, err)
+					require.Contains(t, string(stdout), "Router evaluating: TEST_ROUTE\n")
+				case "target":
+					require.Equal(t, ir.NodeSucceeded, node.Status)
+				}
 			}
 		})
 	}
