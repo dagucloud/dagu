@@ -266,12 +266,12 @@ steps:
 		th := test.SetupCommand(t)
 		t.Setenv(runenv.EnvKeyQueueDispatchRetry, "1")
 
-		dagFile := th.DAG(t, `name: queue-dispatch-existing-attempt
+		dagFile := th.DAG(t, fmt.Sprintf(`name: queue-dispatch-existing-attempt
 steps:
   - name: "1"
-    run: cat templates/input.txt
+    run: %s
     dependencies: templates/**
-`)
+`, test.ForOS("cat templates/input.txt", "type templates/input.txt")))
 		templateDir := filepath.Join(dagFile.WorkingDir, "templates")
 		require.NoError(t, os.MkdirAll(templateDir, 0o750))
 		require.NoError(t, os.WriteFile(filepath.Join(templateDir, "input.txt"), []byte("queued dispatch"), 0o600))
