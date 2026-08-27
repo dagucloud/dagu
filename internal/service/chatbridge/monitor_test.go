@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -338,13 +339,32 @@ func TestNotificationMonitor_PollSourceRoutesEventsPerDestination(t *testing.T) 
 	assert.ElementsMatch(t, []string{"dest-a", "dest-b"}, destinations)
 }
 
-func TestNotificationMonitor_BootstrapCursorDeliversStartupEvent(t *testing.T) {
+func TestNotificationMonitor_BootstrapDeliversStartupEvent(t *testing.T) {
 	t.Parallel()
 
 	store := &stubNotificationStore{}
 	service := eventstore.New(store)
-	cursor, err := service.DAGRunHeadCursor(context.Background())
-	require.NoError(t, err)
+
+	delivered := make(chan struct{}, 1)
+	transport := &fakeNotificationTransport{
+		destinations: []string{"dest-1"},
+		flushFn: func(context.Context, string, NotificationBatch, bool) bool {
+			delivered <- struct{}{}
+			return true
+		},
+	}
+	cfg := DefaultNotificationMonitorConfig()
+	cfg.PollInterval = 10 * time.Millisecond
+	cfg.SeenEvictInterval = time.Hour
+	cfg.UrgentWindow = 10 * time.Millisecond
+	monitor := newFileBackedMonitor(
+		service,
+		filepath.Join(t.TempDir(), "state.json"),
+		transport,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cfg,
+	)
+	require.NoError(t, monitor.Bootstrap(context.Background()))
 
 	status := &ir.DAGRunStatus{
 		Name:      "briefing",
@@ -360,21 +380,6 @@ func TestNotificationMonitor_BootstrapCursorDeliversStartupEvent(t *testing.T) {
 		nil,
 	)))
 
-	delivered := make(chan struct{}, 1)
-	transport := &fakeNotificationTransport{
-		destinations: []string{"dest-1"},
-		flushFn: func(context.Context, string, NotificationBatch, bool) bool {
-			delivered <- struct{}{}
-			return true
-		},
-	}
-	cfg := DefaultNotificationMonitorConfig()
-	cfg.BootstrapCursor = &cursor
-	cfg.PollInterval = 10 * time.Millisecond
-	cfg.SeenEvictInterval = time.Hour
-	cfg.UrgentWindow = 10 * time.Millisecond
-
-	monitor := NewNotificationMonitor(service, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 

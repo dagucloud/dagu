@@ -86,10 +86,9 @@ type Scheduler struct {
 	startupCancel       context.CancelFunc
 	lockHeld            atomic.Bool
 	clock               Clock // Clock function for getting current time
-	eventService        *eventstore.Service
 	eventCollector      func(context.Context)
-	notificationMonitor func(context.Context, *eventstore.DAGRunCursor)
-	incidentMonitor     func(context.Context, *eventstore.DAGRunCursor)
+	notificationMonitor *chatbridge.NotificationMonitor
+	incidentMonitor     *chatbridge.NotificationMonitor
 }
 
 type schedulerHooks struct {
@@ -162,7 +161,6 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 		return nil, err
 	}
 	scheduler.eventCollector = deps.EventCollector
-	scheduler.eventService = deps.EventService
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
@@ -591,7 +589,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.updateServiceStatus(ctx, serviceregistry.ServiceStatusActive, "Failed to update status to active", "Updated scheduler status to active")
-	monitorCursor := s.captureMonitorCursor(ctx)
+	if err := s.BootstrapMonitors(ctx); err != nil {
+		return err
+	}
 
 	sig := make(chan os.Signal, 1)
 
@@ -645,11 +645,11 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	})
 
 	wg.Go(func() {
-		s.startNotificationMonitor(ctx, monitorCursor)
+		s.startNotificationMonitor(ctx)
 	})
 
 	wg.Go(func() {
-		s.startIncidentMonitor(ctx, monitorCursor)
+		s.startIncidentMonitor(ctx)
 	})
 
 	wg.Go(func() {
@@ -712,30 +712,34 @@ func (s *Scheduler) startEventCollector(ctx context.Context) {
 	s.eventCollector(ctx)
 }
 
-func (s *Scheduler) startNotificationMonitor(ctx context.Context, cursor *eventstore.DAGRunCursor) {
+// BootstrapMonitors persists the shared event boundary before producers start.
+func (s *Scheduler) BootstrapMonitors(ctx context.Context) error {
+	if s.notificationMonitor != nil {
+		if err := s.notificationMonitor.Bootstrap(ctx); err != nil {
+			return fmt.Errorf("bootstrap notification monitor: %w", err)
+		}
+	}
+
+	if s.incidentMonitor != nil {
+		if err := s.incidentMonitor.Bootstrap(ctx); err != nil {
+			return fmt.Errorf("bootstrap incident monitor: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Scheduler) startNotificationMonitor(ctx context.Context) {
 	if s.notificationMonitor == nil {
 		return
 	}
-	s.notificationMonitor(ctx, cursor)
+	s.notificationMonitor.Run(ctx)
 }
 
-func (s *Scheduler) startIncidentMonitor(ctx context.Context, cursor *eventstore.DAGRunCursor) {
+func (s *Scheduler) startIncidentMonitor(ctx context.Context) {
 	if s.incidentMonitor == nil {
 		return
 	}
-	s.incidentMonitor(ctx, cursor)
-}
-
-func (s *Scheduler) captureMonitorCursor(ctx context.Context) *eventstore.DAGRunCursor {
-	if s.eventService == nil || (s.notificationMonitor == nil && s.incidentMonitor == nil) {
-		return nil
-	}
-	cursor, err := s.eventService.DAGRunHeadCursor(ctx)
-	if err != nil {
-		logger.Warn(ctx, "Failed to capture notification cursor", tag.Error(err))
-		return nil
-	}
-	return &cursor
+	s.incidentMonitor.Run(ctx)
 }
 
 func (s *Scheduler) startHeartbeat(ctx context.Context) {

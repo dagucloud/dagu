@@ -192,6 +192,11 @@ func runStartAll(ctx *Context, _ []string) error {
 		logger.Info(serviceCtx, "Coordinator disabled via configuration")
 	}
 
+	// Persist monitor boundaries before any bundled service can emit DAG-run events.
+	if err := scheduler.BootstrapMonitors(serviceCtx); err != nil {
+		return fmt.Errorf("failed to bootstrap monitors: %w", err)
+	}
+
 	// Start resource monitoring service (starts its own goroutine internally)
 	if err := resourceService.Start(serviceCtx); err != nil {
 		return fmt.Errorf("failed to start resource service: %w", err)

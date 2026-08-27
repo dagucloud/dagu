@@ -5,12 +5,15 @@ package chatbridge
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -46,7 +49,6 @@ type NotificationMonitorConfig struct {
 	SuccessWindow        time.Duration
 	PendingLimit         int
 	InterestedEventTypes []eventstore.EventType
-	BootstrapCursor      *eventstore.DAGRunCursor
 }
 
 // DefaultNotificationMonitorConfig returns the default monitor settings.
@@ -104,6 +106,7 @@ type StateStore interface {
 
 // Lease coordinates a single active monitor across processes.
 type Lease interface {
+	TryLock() error
 	Lock(ctx context.Context) error
 	Unlock() error
 	Heartbeat(ctx context.Context) error
@@ -121,7 +124,6 @@ type NotificationMonitor struct {
 	logger       *slog.Logger
 	cfg          NotificationMonitorConfig
 	interested   map[eventstore.EventType]struct{}
-	bootstrap    *eventstore.DAGRunCursor
 
 	batcherMu sync.RWMutex
 	batcher   *NotificationBatcher
@@ -153,13 +155,6 @@ func NewNotificationMonitor(
 	cfg NotificationMonitorConfig,
 ) *NotificationMonitor {
 	normalizeNotificationMonitorConfig(&cfg)
-	var bootstrap *eventstore.DAGRunCursor
-	if cfg.BootstrapCursor != nil {
-		cursor := cfg.BootstrapCursor.Normalize()
-		cursor.CommittedOffsets = maps.Clone(cursor.CommittedOffsets)
-		cursor.InboxEventIDs = maps.Clone(cursor.InboxEventIDs)
-		bootstrap = &cursor
-	}
 
 	lockDir := ""
 	if lease != nil {
@@ -175,10 +170,84 @@ func NewNotificationMonitor(
 		logger:       logger,
 		cfg:          cfg,
 		interested:   interestedEventTypeSet(cfg.InterestedEventTypes),
-		bootstrap:    bootstrap,
 		batcher:      NewNotificationBatcher(cfg.UrgentWindow, cfg.SuccessWindow),
 		state:        newNotificationMonitorState(),
 	}
+}
+
+// Bootstrap persists the shared event boundary before producers start.
+func (m *NotificationMonitor) Bootstrap(ctx context.Context) error {
+	if m.stateStore == nil {
+		return errors.New("notification monitor state store is not configured")
+	}
+	if m.lock == nil {
+		return m.bootstrapOwned(ctx)
+	}
+
+	ticker := time.NewTicker(DefaultNotificationLockRetryInterval)
+	defer ticker.Stop()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if m.stateStore.IsBootstrapped(ctx) {
+			return nil
+		}
+
+		if err := m.lock.TryLock(); err == nil {
+			bootstrapErr := m.bootstrapOwned(ctx)
+			unlockErr := m.lock.Unlock()
+			if unlockErr != nil {
+				unlockErr = fmt.Errorf("release notification bootstrap lock: %w", unlockErr)
+			}
+			return errors.Join(bootstrapErr, unlockErr)
+		} else if !errors.Is(err, dirlock.ErrLockConflict) {
+			return fmt.Errorf("acquire notification bootstrap lock: %w", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (m *NotificationMonitor) bootstrapOwned(ctx context.Context) error {
+	loadResult := m.stateStore.Load(ctx)
+	if loadResult.Warning != nil {
+		attrs := []any{slog.String("error", loadResult.Warning.Error())}
+		if loadResult.QuarantinedPath != "" {
+			attrs = append(attrs, slog.String("quarantined_path", loadResult.QuarantinedPath))
+		}
+		m.logger.Warn("Notification state was invalid; starting fresh", attrs...)
+	}
+	if loadResult.State.Bootstrapped {
+		return nil
+	}
+
+	var cursor eventstore.DAGRunCursor
+	if m.eventService != nil {
+		var err error
+		cursor, err = m.eventService.DAGRunHeadCursor(ctx)
+		if err != nil {
+			return fmt.Errorf("capture notification bootstrap cursor: %w", err)
+		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	state := loadResult.State
+	state.SourceCursor = cursor.Normalize()
+	state.Bootstrapped = true
+
+	if err := m.stateStore.Save(ctx, state); err != nil {
+		return fmt.Errorf("persist notification bootstrap state: %w", err)
+	}
+	return nil
 }
 
 // Run starts the shared notification monitor loop.
@@ -876,16 +945,10 @@ func (m *NotificationMonitor) ensureBootstrapped(ctx context.Context) bool {
 		return true
 	}
 
-	var cursor eventstore.DAGRunCursor
-	if m.bootstrap != nil {
-		cursor = m.bootstrap.Normalize()
-	} else {
-		var err error
-		cursor, err = m.eventService.DAGRunHeadCursor(ctx)
-		if err != nil {
-			m.recordBootstrapFailure("Failed to bootstrap notification cursor: " + err.Error())
-			return false
-		}
+	cursor, err := m.eventService.DAGRunHeadCursor(ctx)
+	if err != nil {
+		m.recordBootstrapFailure("Failed to bootstrap notification cursor: " + err.Error())
+		return false
 	}
 
 	m.stateMu.Lock()

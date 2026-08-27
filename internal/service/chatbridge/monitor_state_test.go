@@ -6,6 +6,7 @@ package chatbridge
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type failingBootstrapStateStore struct{}
+
+func (failingBootstrapStateStore) Load(context.Context) ([]byte, bool, error) {
+	return nil, false, nil
+}
+
+func (failingBootstrapStateStore) Save(context.Context, []byte) error {
+	return errors.New("save failed")
+}
+
+func (failingBootstrapStateStore) Quarantine(context.Context) (string, error) {
+	return "", nil
+}
 
 func newTestNotificationMonitorConfig() NotificationMonitorConfig {
 	cfg := DefaultNotificationMonitorConfig()
@@ -158,6 +173,143 @@ func TestNotificationMonitor_BootstrapsFromCurrentHeadAndOnlyDeliversFutureEvent
 	require.Eventually(t, func() bool {
 		return !monitor.IsDelivered("dest-1", oldStatus) && monitor.IsDelivered("dest-1", newStatus)
 	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+}
+
+func TestNotificationMonitor_CompetingBootstrapPreservesStartupEvent(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	store, err := fileeventstore.New(baseDir)
+	require.NoError(t, err)
+	service := eventstore.New(store)
+
+	delivered := make(chan string, 1)
+	transport := &fakeNotificationTransport{
+		destinations: []string{"dest-1"},
+		flushFn: func(_ context.Context, _ string, batch NotificationBatch, _ bool) bool {
+			for _, event := range batch.Events {
+				if event.Status != nil {
+					delivered <- event.Status.DAGRunID
+				}
+			}
+			return true
+		},
+	}
+	stateFile := filepath.Join(t.TempDir(), "state.json")
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	earlierMonitor := newFileBackedMonitor(service, stateFile, transport, logger, newTestNotificationMonitorConfig())
+	require.NoError(t, earlierMonitor.Bootstrap(context.Background()))
+
+	status := &ir.DAGRunStatus{
+		Name:       "briefing",
+		DAGRunID:   "run-startup",
+		AttemptID:  "attempt-startup",
+		Status:     ir.Failed,
+		Error:      "startup failure",
+		FinishedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	require.NoError(t, service.Emit(context.Background(), eventstore.NewDAGRunEvent(
+		eventstore.Source{Service: eventstore.SourceServiceScheduler, Instance: "test"},
+		eventstore.TypeDAGRunFailed,
+		status,
+		nil,
+	)))
+
+	laterMonitor := newFileBackedMonitor(service, stateFile, transport, logger, newTestNotificationMonitorConfig())
+	require.NoError(t, laterMonitor.Bootstrap(context.Background()))
+	stopLaterMonitor := testutil.StartContextRunner(t, laterMonitor)
+	defer stopLaterMonitor()
+
+	select {
+	case runID := <-delivered:
+		assert.Equal(t, status.DAGRunID, runID)
+	case <-time.After(notificationMonitorEventuallyTimeout(time.Second)):
+		t.Fatal("timed out waiting for startup event delivery")
+	}
+}
+
+func TestNotificationMonitor_ConcurrentBootstrapCapturesHeadOnce(t *testing.T) {
+	t.Parallel()
+
+	store := &stubNotificationStore{}
+	service := eventstore.New(store)
+	stateFile := filepath.Join(t.TempDir(), "state.json")
+	transport := &fakeNotificationTransport{destinations: []string{"dest-1"}}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	monitors := []*NotificationMonitor{
+		newFileBackedMonitor(service, stateFile, transport, logger, newTestNotificationMonitorConfig()),
+		newFileBackedMonitor(service, stateFile, transport, logger, newTestNotificationMonitorConfig()),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), notificationMonitorEventuallyTimeout(time.Second))
+	defer cancel()
+	start := make(chan struct{})
+	errs := make(chan error, len(monitors))
+	for _, monitor := range monitors {
+		go func() {
+			<-start
+			errs <- monitor.Bootstrap(ctx)
+		}()
+	}
+	close(start)
+
+	for range monitors {
+		require.NoError(t, <-errs)
+	}
+	headCalls, _ := store.stats()
+	assert.Equal(t, 1, headCalls)
+}
+
+func TestNotificationMonitor_BootstrapReturnsErrors(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	transport := &fakeNotificationTransport{destinations: []string{"dest-1"}}
+
+	t.Run("head", func(t *testing.T) {
+		store := &stubNotificationStore{failHead: true}
+		stateFile := filepath.Join(t.TempDir(), "state.json")
+		monitor := newFileBackedMonitor(eventstore.New(store), stateFile, transport, logger, newTestNotificationMonitorConfig())
+
+		err := monitor.Bootstrap(context.Background())
+
+		require.ErrorContains(t, err, "capture notification bootstrap cursor")
+		assert.False(t, newNotificationStateStore(filemonitor.NewStateStore(stateFile)).IsBootstrapped(context.Background()))
+	})
+
+	t.Run("save", func(t *testing.T) {
+		monitor := NewNotificationMonitor(
+			eventstore.New(&stubNotificationStore{}),
+			failingBootstrapStateStore{},
+			nil,
+			transport,
+			logger,
+			newTestNotificationMonitorConfig(),
+		)
+
+		err := monitor.Bootstrap(context.Background())
+
+		require.ErrorContains(t, err, "persist notification bootstrap state")
+	})
+
+	t.Run("lease", func(t *testing.T) {
+		blockedPath := filepath.Join(t.TempDir(), "blocked")
+		require.NoError(t, os.WriteFile(blockedPath, []byte("file"), 0o600))
+		stateFile := filepath.Join(t.TempDir(), "state.json")
+		leaseFile := filepath.Join(blockedPath, "state.json")
+		monitor := NewNotificationMonitor(
+			eventstore.New(&stubNotificationStore{}),
+			filemonitor.NewStateStore(stateFile),
+			filemonitor.NewLease(leaseFile, &dirlock.LockOptions{}),
+			transport,
+			logger,
+			newTestNotificationMonitorConfig(),
+		)
+
+		err := monitor.Bootstrap(context.Background())
+
+		require.ErrorContains(t, err, "acquire notification bootstrap lock")
+	})
 }
 
 func TestNotificationMonitor_RestartRequeuesPersistedPending(t *testing.T) {
