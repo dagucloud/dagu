@@ -270,8 +270,9 @@ func TestCollectorDrainOnceReadsLargeCommittedEventLine(t *testing.T) {
 
 func TestCollectorCommittedIDAllocs(t *testing.T) {
 	const (
-		largeFieldCount   = 512
-		maxAllocationRate = 2
+		baselineFieldCount = 64
+		largeFieldCount    = 512
+		maxAllocationRate  = 2
 	)
 
 	newCollector := func(data map[string]any) (*Collector, string, map[string]struct{}) {
@@ -286,12 +287,8 @@ func TestCollectorCommittedIDAllocs(t *testing.T) {
 		return collector, path, map[string]struct{}{event.ID: {}}
 	}
 
-	small, smallPath, smallIDs := newCollector(map[string]any{"0": 0})
-	largeData := make(map[string]any, largeFieldCount)
-	for i := range largeFieldCount {
-		largeData[strconv.Itoa(i)] = i
-	}
-	large, largePath, largeIDs := newCollector(largeData)
+	small, smallPath, smallIDs := newCollector(testEventData(baselineFieldCount))
+	large, largePath, largeIDs := newCollector(testEventData(largeFieldCount))
 
 	var smallErr error
 	smallAllocs := testing.AllocsPerRun(5, func() {
@@ -309,8 +306,9 @@ func TestCollectorCommittedIDAllocs(t *testing.T) {
 
 func TestCollectorPendingEventAllocs(t *testing.T) {
 	const (
-		largeFieldCount   = 512
-		maxAllocationRate = 2
+		baselineFieldCount = 64
+		largeFieldCount    = 512
+		maxAllocationRate  = 2
 	)
 
 	newPendingEvent := func(data map[string]any) (*Collector, string) {
@@ -325,12 +323,8 @@ func TestCollectorPendingEventAllocs(t *testing.T) {
 		return collector, path
 	}
 
-	small, smallPath := newPendingEvent(map[string]any{"0": 0})
-	largeData := make(map[string]any, largeFieldCount)
-	for i := range largeFieldCount {
-		largeData[strconv.Itoa(i)] = i
-	}
-	large, largePath := newPendingEvent(largeData)
+	small, smallPath := newPendingEvent(testEventData(baselineFieldCount))
+	large, largePath := newPendingEvent(testEventData(largeFieldCount))
 
 	var smallErr error
 	smallAllocs := testing.AllocsPerRun(5, func() {
@@ -344,6 +338,14 @@ func TestCollectorPendingEventAllocs(t *testing.T) {
 	})
 	require.NoError(t, largeErr)
 	require.LessOrEqual(t, largeAllocs, smallAllocs*maxAllocationRate)
+}
+
+func testEventData(fieldCount int) map[string]any {
+	data := make(map[string]any, fieldCount)
+	for i := range fieldCount {
+		data[strconv.Itoa(i)] = i
+	}
+	return data
 }
 
 func assertInboxCount(t *testing.T, dir string, count int) {
