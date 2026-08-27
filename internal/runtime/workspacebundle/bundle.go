@@ -34,7 +34,8 @@ const (
 	DefaultMaxUncompressedSize int64 = 256 << 20
 	DefaultMaxFiles                  = 8192
 
-	archiveExt = ".tar.gz"
+	archiveExt                 = ".tar.gz"
+	storeLockHeartbeatInterval = 10 * time.Second
 )
 
 var (
@@ -629,10 +630,11 @@ func StoreDir(dataDir string) string {
 }
 
 type Store struct {
-	dir    string
-	limits Limits
-	lock   dirlock.DirLock
-	mu     sync.Mutex
+	dir                   string
+	limits                Limits
+	lock                  dirlock.DirLock
+	lockHeartbeatInterval time.Duration
+	mu                    sync.Mutex
 }
 
 type Client interface {
@@ -646,9 +648,10 @@ func NewStore(dir string, limits Limits) *Store {
 		dir = filepath.Clean(dir)
 	}
 	return &Store{
-		dir:    dir,
-		limits: normalizeLimits(limits),
-		lock:   dirlock.New(dir, nil),
+		dir:                   dir,
+		limits:                normalizeLimits(limits),
+		lock:                  dirlock.New(dir, nil),
+		lockHeartbeatInterval: storeLockHeartbeatInterval,
 	}
 }
 

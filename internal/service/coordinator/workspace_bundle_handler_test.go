@@ -14,6 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -126,6 +129,51 @@ func TestHasWorkspaceBundleRefreshesExpiration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, removed)
 	assert.True(t, handler.workspaceBundleStore.Has(digest))
+}
+
+func TestWorkspaceBundleCleanupPreservesOutstandingTask(t *testing.T) {
+	ctx := t.Context()
+	now := time.Now().UTC()
+	backend := testutil.NewMemoryBackend()
+	dispatchStore := store.NewDispatchTaskStore(backend.Collection("dispatch_tasks"))
+	bundleDir := t.TempDir()
+	handler := NewHandler(HandlerConfig{
+		WorkspaceBundleDir: bundleDir,
+		DispatchTaskStore:  dispatchStore,
+	})
+	data := []byte("queued workspace")
+	digest := workspaceBundleDigest(data)
+	require.NoError(t, handler.workspaceBundleStore.Put(ctx, workspacebundle.Descriptor{
+		Digest: digest,
+		Size:   int64(len(data)),
+	}, data))
+	paths, err := filepath.Glob(filepath.Join(bundleDir, "*", "*"))
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+	require.NoError(t, os.Chtimes(paths[0], now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+	require.NoError(t, dispatchStore.Enqueue(ctx, &dispatch.DispatchTask{
+		DAGRunID:              "run-1",
+		Target:                "task",
+		WorkspaceBundleDigest: digest,
+	}))
+
+	handler.cleanupWorkspaceBundles(ctx, now)
+
+	assert.True(t, handler.workspaceBundleStore.Has(digest))
+}
+
+func TestDispatchRejectsMissingWorkspaceBundle(t *testing.T) {
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir()})
+
+	_, err := handler.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: &coordinatorv1.Task{
+		Target:                "task",
+		DagRunId:              "run-1",
+		Definition:            "name: task\nsteps: []\n",
+		WorkspaceBundleDigest: workspaceBundleDigest([]byte("missing")),
+	}})
+
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
 func workspaceBundleDigest(data []byte) string {

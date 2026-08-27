@@ -10,9 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -321,6 +324,83 @@ func TestStoreCleanupAndTouchAreConsistent(t *testing.T) {
 			assert.True(t, first.Has(desc.Digest))
 		}
 	}
+}
+
+func TestStoreRenewsLockDuringLongOperation(t *testing.T) {
+	lock := &heartbeatLock{heartbeat: make(chan struct{}, 1)}
+	store := NewStore(t.TempDir(), DefaultLimits())
+	store.lock = lock
+	store.lockHeartbeatInterval = time.Millisecond
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- store.withLock(t.Context(), func() error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	select {
+	case <-lock.heartbeat:
+	case <-time.After(time.Second):
+		t.Fatal("workspace bundle store lock was not renewed")
+	}
+	close(release)
+	require.NoError(t, <-done)
+	assert.Equal(t, int32(1), lock.unlocks.Load())
+}
+
+type heartbeatLock struct {
+	heartbeat chan struct{}
+	locked    atomic.Bool
+	unlocks   atomic.Int32
+	mu        sync.Mutex
+}
+
+var _ dirlock.DirLock = (*heartbeatLock)(nil)
+
+func (l *heartbeatLock) TryLock() error {
+	if !l.locked.CompareAndSwap(false, true) {
+		return dirlock.ErrLockConflict
+	}
+	return nil
+}
+
+func (l *heartbeatLock) Lock(context.Context) error {
+	return l.TryLock()
+}
+
+func (l *heartbeatLock) Unlock() error {
+	l.locked.Store(false)
+	l.unlocks.Add(1)
+	return nil
+}
+
+func (l *heartbeatLock) IsLocked() bool {
+	return l.locked.Load()
+}
+
+func (l *heartbeatLock) IsHeldByMe() bool {
+	return l.locked.Load()
+}
+
+func (l *heartbeatLock) Info() (*dirlock.LockInfo, error) {
+	return nil, nil
+}
+
+func (l *heartbeatLock) Heartbeat(context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	select {
+	case l.heartbeat <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 func TestPackDirectorySelectsDependenciesAndInjectsDAGSnapshot(t *testing.T) {
