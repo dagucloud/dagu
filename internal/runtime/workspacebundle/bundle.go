@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -28,6 +29,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 )
 
 const (
@@ -752,10 +755,10 @@ func (s *Store) PutReader(ctx context.Context, desc Descriptor, reader io.Reader
 func (s *Store) Retain(ctx context.Context, attemptKey, digest string) (bool, error) {
 	attemptKey = strings.TrimSpace(attemptKey)
 	if attemptKey == "" {
-		return false, fmt.Errorf("workspace bundle attempt key is required")
+		return false, fmt.Errorf("%w: workspace bundle attempt key is required", os.ErrInvalid)
 	}
 	if !ValidDigest(digest) {
-		return false, fmt.Errorf("invalid workspace bundle digest %q", digest)
+		return false, fmt.Errorf("%w: invalid workspace bundle digest %q", os.ErrInvalid, digest)
 	}
 
 	var retained bool
@@ -773,10 +776,10 @@ func (s *Store) Retain(ctx context.Context, attemptKey, digest string) (bool, er
 		switch {
 		case err == nil:
 			if existing.AttemptKey != attemptKey {
-				return fmt.Errorf("workspace bundle reference key mismatch")
+				return fmt.Errorf("%w: workspace bundle reference key mismatch", os.ErrExist)
 			}
 			if existing.Digest != digest {
-				return fmt.Errorf("workspace bundle attempt %q already references %s", attemptKey, existing.Digest)
+				return fmt.Errorf("%w: workspace bundle attempt %q already references %s", os.ErrExist, attemptKey, existing.Digest)
 			}
 			return nil
 		case !os.IsNotExist(err):
@@ -880,10 +883,18 @@ func (s *Store) CleanupUnreferenced(ctx context.Context, before time.Time) (int,
 			metadataPath := filepath.Join(s.dir, "managed", entry.Name())
 			var metadata managedBundle
 			if err := readJSONFile(metadataPath, &metadata); err != nil {
-				return fmt.Errorf("read managed workspace bundle: %w", err)
+				logger.Warn(ctx, "Skipping unreadable workspace bundle metadata",
+					slog.String("path", metadataPath),
+					tag.Error(err),
+				)
+				continue
 			}
 			if !ValidDigest(metadata.Digest) {
-				return fmt.Errorf("invalid managed workspace bundle digest %q", metadata.Digest)
+				logger.Warn(ctx, "Skipping workspace bundle metadata with invalid digest",
+					slog.String("path", metadataPath),
+					slog.String("digest", metadata.Digest),
+				)
+				continue
 			}
 			if _, ok := retained[metadata.Digest]; ok || !time.UnixMilli(metadata.CreatedAt).Before(before) {
 				continue

@@ -575,7 +575,10 @@ func workspaceBundleRetainErrorCode(err error) codes.Code {
 	if errors.Is(err, os.ErrNotExist) {
 		return codes.NotFound
 	}
-	return codes.FailedPrecondition
+	if errors.Is(err, os.ErrExist) || errors.Is(err, os.ErrInvalid) {
+		return codes.FailedPrecondition
+	}
+	return codes.Unavailable
 }
 
 func (h *Handler) validateWorkspaceBundleOwner(task *coordinatorv1.Task) error {

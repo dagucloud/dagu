@@ -107,6 +107,7 @@ func TestStoreReferenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.Retain(ctx, "attempt-a", secondDesc.Digest)
 	require.ErrorContains(t, err, "already references")
+	assert.ErrorIs(t, err, os.ErrExist)
 
 	references, err := store.ListReferences(ctx)
 	require.NoError(t, err)
@@ -134,7 +135,7 @@ func TestStoreReleaseDoesNotLeaveDanglingReference(t *testing.T) {
 	_, err := first.Retain(ctx, "attempt-a", desc.Digest)
 	require.NoError(t, err)
 
-	// Release pauses after WalkDir snapshots the original reference directory.
+	// The second Err call checks the first reference after WalkDir snapshots refs.
 	releaseCtx := newBlockingErrContext(ctx, 2)
 	t.Cleanup(releaseCtx.unblock)
 	releaseDone := make(chan error, 1)
@@ -171,7 +172,7 @@ func TestStoreCleanupDoesNotLeaveDanglingReference(t *testing.T) {
 	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
 	require.NoError(t, first.Put(ctx, desc, data))
 
-	// Cleanup pauses after snapshotting references and managed bundle entries.
+	// The first Err call checks the first managed entry after ReadDir snapshots it.
 	cleanupCtx := newBlockingErrContext(ctx, 1)
 	t.Cleanup(cleanupCtx.unblock)
 	cleanupDone := make(chan error, 1)
@@ -220,6 +221,36 @@ func TestStoreCleanupUnreferencedPreservesLegacyBundle(t *testing.T) {
 	assert.Equal(t, 1, removed)
 	assert.False(t, store.Has(managedDesc.Digest))
 	assert.True(t, store.Has(legacyDigest))
+}
+
+func TestStoreCleanupSkipsUnusableMetadata(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"invalid JSON":   "{",
+		"invalid digest": `{"digest":"invalid","createdAt":0}`,
+	}
+	for name, metadata := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			dir := t.TempDir()
+			store := NewStore(dir, DefaultLimits())
+			data := []byte("managed bundle")
+			desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+			require.NoError(t, store.Put(ctx, desc, data))
+
+			metadataPath := filepath.Join(dir, "managed", "-unusable.json")
+			require.NoError(t, os.WriteFile(metadataPath, []byte(metadata), 0o600))
+
+			removed, err := store.CleanupUnreferenced(ctx, time.Now().Add(time.Hour))
+			require.NoError(t, err)
+			assert.Equal(t, 1, removed)
+			assert.False(t, store.Has(desc.Digest))
+			assert.FileExists(t, metadataPath)
+		})
+	}
 }
 
 type retainResult struct {

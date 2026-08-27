@@ -60,6 +60,15 @@ func TestDispatchBindErrorCode(t *testing.T) {
 	assert.Equal(t, codes.Internal, dispatchBindErrorCode(errors.New("disk full")))
 }
 
+func TestWorkspaceBundleRetainErrorCode(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, codes.NotFound, workspaceBundleRetainErrorCode(os.ErrNotExist))
+	assert.Equal(t, codes.FailedPrecondition, workspaceBundleRetainErrorCode(os.ErrExist))
+	assert.Equal(t, codes.FailedPrecondition, workspaceBundleRetainErrorCode(os.ErrInvalid))
+	assert.Equal(t, codes.Unavailable, workspaceBundleRetainErrorCode(errors.New("disk unavailable")))
+}
+
 type mockDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	repository          *persis.DAGRunRepository
