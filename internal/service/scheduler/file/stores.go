@@ -36,7 +36,11 @@ func NewDependencies(ctx context.Context, cfg *config.Config, backend persis.Bac
 		}
 	}
 	if deps.EventService != nil {
-		collector, err := fileeventstore.NewCollector(cfg.Paths.EventStoreDir, cfg.EventStore.RetentionDays)
+		collector, err := fileeventstore.NewCollector(
+			cfg.Paths.EventStoreDir,
+			cfg.EventStore.RetentionDays,
+			fileeventstore.WithDedupeCacheBytes(cfg.Cache.Limits().EventStoreBytes),
+		)
 		if err != nil {
 			logger.Warn(ctx, "Failed to initialize event collector; continuing without collection", tag.Error(err))
 		} else {

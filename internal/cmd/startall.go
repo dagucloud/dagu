@@ -130,6 +130,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		eventCollector, err := fileeventstore.NewCollector(
 			serviceCtx.Config.Paths.EventStoreDir,
 			serviceCtx.Config.EventStore.RetentionDays,
+			fileeventstore.WithDedupeCacheBytes(serviceCtx.Config.Cache.Limits().EventStoreBytes),
 		)
 		if err != nil {
 			logger.Warn(serviceCtx, "Failed to initialize event collector; continuing without collection", tag.Error(err))

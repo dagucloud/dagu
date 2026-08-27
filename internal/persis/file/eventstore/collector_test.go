@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	coreeventstore "github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,13 +45,85 @@ func TestCollectorDrainOnceAppendsByHourAndDeduplicatesAcrossRestart(t *testing.
 	restarted, err := NewCollector(baseDir, 0)
 	require.NoError(t, err)
 
-	require.NoError(t, store.Emit(context.Background(), testEvent(eventOne.ID, dayOne)))
+	require.NoError(t, store.Emit(context.Background(), testEvent(eventOne.ID, dayOne.Add(time.Hour))))
 	require.NoError(t, store.Emit(context.Background(), testEvent(eventTwo.ID, dayTwo)))
 	require.NoError(t, restarted.DrainOnce(context.Background()))
 
 	assertInboxCount(t, store.inboxDir, 0)
 	assertLogLineCount(t, filepath.Join(baseDir, "_2026032823.jsonl"), 1)
+	assertFileExists(t, filepath.Join(baseDir, "_2026032900.jsonl"), false)
 	assertLogLineCount(t, filepath.Join(baseDir, "_2026032901.jsonl"), 1)
+	result, err := store.Query(context.Background(), coreeventstore.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 2)
+}
+
+func TestCollectorDrainOnceDeduplicatesAcrossHours(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	store, err := New(baseDir)
+	require.NoError(t, err)
+	collector, err := NewCollector(baseDir, 0)
+	require.NoError(t, err)
+
+	firstHour := time.Date(2026, 3, 29, 10, 59, 0, 0, time.UTC)
+	event := testEvent("evt-cross-hour", firstHour)
+	require.NoError(t, store.Emit(context.Background(), event))
+	require.NoError(t, collector.DrainOnce(context.Background()))
+
+	require.NoError(t, store.Emit(context.Background(), testEvent(event.ID, firstHour.Add(time.Hour))))
+	require.NoError(t, collector.DrainOnce(context.Background()))
+
+	result, err := store.Query(context.Background(), coreeventstore.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 1)
+	assertFileExists(t, filepath.Join(baseDir, "_2026032911.jsonl"), false)
+}
+
+func TestCollectorDrainOnceVerifiesFilterMatches(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	hour := time.Date(2026, 3, 29, 10, 0, 0, 0, time.UTC)
+	committed := testEvent("evt-committed", hour)
+	writeCommittedEvents(t, baseDir, hour, [][]byte{mustMarshalEvent(t, committed)})
+
+	store, err := New(baseDir)
+	require.NoError(t, err)
+	collector, err := NewCollector(baseDir, 0, WithDedupeCacheBytes(1))
+	require.NoError(t, err)
+	require.NoError(t, collector.ensureCommittedIDs())
+
+	var unique *coreeventstore.Event
+	for i := range 1000 {
+		candidate := testEvent("evt-unique-"+strconv.Itoa(i), hour.Add(time.Hour))
+		if collector.committedIDs.mayContain(candidate.ID) {
+			unique = candidate
+			break
+		}
+	}
+	require.NotNil(t, unique)
+
+	require.NoError(t, store.Emit(context.Background(), unique))
+	require.NoError(t, collector.DrainOnce(context.Background()))
+
+	result, err := store.Query(context.Background(), coreeventstore.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 2)
+}
+
+func TestEventIDFilterUsesBudget(t *testing.T) {
+	t.Parallel()
+
+	const budget = 128
+	collector, err := NewCollector(t.TempDir(), 0, WithDedupeCacheBytes(budget))
+	require.NoError(t, err)
+	require.NoError(t, collector.ensureCommittedIDs())
+	collector.committedIDs.add("evt-filtered")
+
+	require.Len(t, collector.committedIDs.bits, budget)
+	require.True(t, collector.committedIDs.mayContain("evt-filtered"))
 }
 
 func TestCollectorDrainOncePreservesInboxAfterMalformedCommittedEvent(t *testing.T) {

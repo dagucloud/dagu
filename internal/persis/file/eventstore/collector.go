@@ -6,6 +6,8 @@ package eventstore
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,9 +23,11 @@ import (
 )
 
 const (
-	defaultDrainInterval = time.Second
-	defaultCleanupEvery  = time.Hour
-	defaultBatchSize     = 256
+	defaultDrainInterval    = time.Second
+	defaultCleanupEvery     = time.Hour
+	defaultBatchSize        = 256
+	defaultDedupeCacheBytes = 16 << 20
+	dedupeHashCount         = 7
 )
 
 type CollectorOption func(*Collector)
@@ -52,13 +56,59 @@ func WithNow(now func() time.Time) CollectorOption {
 	}
 }
 
+func WithDedupeCacheBytes(size int) CollectorOption {
+	return func(c *Collector) {
+		if size > 0 {
+			c.dedupeCacheBytes = size
+		}
+	}
+}
+
 type Collector struct {
-	store         *Store
-	retentionDays int
-	drainInterval time.Duration
-	cleanupEvery  time.Duration
-	batchSize     int
-	now           func() time.Time
+	store            *Store
+	retentionDays    int
+	drainInterval    time.Duration
+	cleanupEvery     time.Duration
+	batchSize        int
+	dedupeCacheBytes int
+	now              func() time.Time
+	committedIDs     *eventIDFilter
+}
+
+type eventIDFilter struct {
+	bits []byte
+}
+
+func newEventIDFilter(size int) *eventIDFilter {
+	return &eventIDFilter{bits: make([]byte, max(size, 1))}
+}
+
+func (f *eventIDFilter) add(id string) {
+	for _, bit := range f.positions(id) {
+		f.bits[bit/8] |= 1 << uint(bit%8)
+	}
+}
+
+func (f *eventIDFilter) mayContain(id string) bool {
+	for _, bit := range f.positions(id) {
+		if f.bits[bit/8]&(1<<uint(bit%8)) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (f *eventIDFilter) positions(id string) [dedupeHashCount]uint64 {
+	sum := sha256.Sum256([]byte(id))
+	first := binary.LittleEndian.Uint64(sum[:8])
+	second := binary.LittleEndian.Uint64(sum[8:16]) | 1
+	bitCount := uint64(len(f.bits)) * 8
+
+	var positions [dedupeHashCount]uint64
+	for i := range positions {
+		positions[i] = (first + uint64(i)*second) % bitCount
+	}
+	return positions
 }
 
 type pendingInboxEvent struct {
@@ -73,12 +123,13 @@ func NewCollector(baseDir string, retentionDays int, opts ...CollectorOption) (*
 		return nil, err
 	}
 	collector := &Collector{
-		store:         store,
-		retentionDays: retentionDays,
-		drainInterval: defaultDrainInterval,
-		cleanupEvery:  defaultCleanupEvery,
-		batchSize:     defaultBatchSize,
-		now:           time.Now,
+		store:            store,
+		retentionDays:    retentionDays,
+		drainInterval:    defaultDrainInterval,
+		cleanupEvery:     defaultCleanupEvery,
+		batchSize:        defaultBatchSize,
+		dedupeCacheBytes: defaultDedupeCacheBytes,
+		now:              time.Now,
 	}
 	for _, opt := range opts {
 		opt(collector)
@@ -116,6 +167,10 @@ func (c *Collector) Start(ctx context.Context) {
 }
 
 func (c *Collector) DrainOnce(_ context.Context) error {
+	if err := c.ensureCommittedIDs(); err != nil {
+		return err
+	}
+
 	entries, err := os.ReadDir(c.store.inboxDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -124,7 +179,7 @@ func (c *Collector) DrainOnce(_ context.Context) error {
 		return fmt.Errorf("read inbox directory: %w", err)
 	}
 
-	var pendingByHour = make(map[string][]pendingInboxEvent)
+	var pendingEvents []pendingInboxEvent
 	queuedIDs := make(map[string]struct{})
 	processed := 0
 	for _, entry := range entries {
@@ -152,13 +207,41 @@ func (c *Collector) DrainOnce(_ context.Context) error {
 			}
 			continue
 		}
-		hour := pending.event.OccurredAt.UTC().Format(hourFormat)
-		pendingByHour[hour] = append(pendingByHour[hour], pending)
+		pendingEvents = append(pendingEvents, pending)
 		queuedIDs[pending.event.ID] = struct{}{}
 	}
 
-	if len(pendingByHour) == 0 {
+	if len(pendingEvents) == 0 {
 		return nil
+	}
+
+	// Filter matches require exact verification because false positives are possible.
+	possibleDuplicates := make(map[string]struct{})
+	for _, item := range pendingEvents {
+		if c.committedIDs.mayContain(item.event.ID) {
+			possibleDuplicates[item.event.ID] = struct{}{}
+		}
+	}
+	committedIDs := make(map[string]struct{})
+	if len(possibleDuplicates) > 0 {
+		files, err := c.store.listCommittedFiles(time.Time{}, time.Time{})
+		if err != nil {
+			return err
+		}
+		committedIDs, err = c.findCommittedIDsInFiles(files, possibleDuplicates)
+		if err != nil {
+			return err
+		}
+	}
+
+	pendingByHour := make(map[string][]pendingInboxEvent)
+	for _, item := range pendingEvents {
+		if _, ok := committedIDs[item.event.ID]; ok {
+			c.removeInboxFile(item.path)
+			continue
+		}
+		hour := item.event.OccurredAt.UTC().Format(hourFormat)
+		pendingByHour[hour] = append(pendingByHour[hour], item)
 	}
 
 	hours := make([]string, 0, len(pendingByHour))
@@ -183,23 +266,6 @@ func (c *Collector) appendGroup(hour string, group []pendingInboxEvent) error {
 		pendingIDs[item.event.ID] = struct{}{}
 	}
 
-	// Deduplication stays bounded by the current batch and its hourly log.
-	committedIDs, err := c.findCommittedIDs(logPath, pendingIDs)
-	if err != nil {
-		return err
-	}
-	remaining := group[:0]
-	for _, item := range group {
-		if _, ok := committedIDs[item.event.ID]; ok {
-			c.removeInboxFile(item.path)
-			continue
-		}
-		remaining = append(remaining, item)
-	}
-	if len(remaining) == 0 {
-		return nil
-	}
-
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, filePermissions) //nolint:gosec // controlled path
 	if err != nil {
 		return fmt.Errorf("open event log %s: %w", logPath, err)
@@ -209,20 +275,22 @@ func (c *Collector) appendGroup(hour string, group []pendingInboxEvent) error {
 	removePersistedInboxFiles := func() {
 		ids, err := c.findCommittedIDs(logPath, pendingIDs)
 		if err != nil {
+			c.committedIDs = nil
 			slog.Warn("fileeventstore: failed to check persisted events after append error",
 				slog.String("file", logPath),
 				slog.String("error", err.Error()))
 			return
 		}
-		for _, item := range remaining {
+		for _, item := range group {
 			if _, ok := ids[item.event.ID]; ok {
+				c.committedIDs.add(item.event.ID)
 				c.removeInboxFile(item.path)
 			}
 		}
 	}
 
 	writer := bufio.NewWriter(f)
-	for _, item := range remaining {
+	for _, item := range group {
 		if _, err := writer.Write(item.raw); err != nil {
 			removePersistedInboxFiles()
 			return fmt.Errorf("append event log %s: %w", logPath, err)
@@ -241,20 +309,44 @@ func (c *Collector) appendGroup(hour string, group []pendingInboxEvent) error {
 		return fmt.Errorf("sync event log %s: %w", logPath, err)
 	}
 
-	for _, item := range remaining {
+	for _, item := range group {
+		c.committedIDs.add(item.event.ID)
 		c.removeInboxFile(item.path)
 	}
 	return nil
 }
 
 func (c *Collector) findCommittedIDs(filePath string, pendingIDs map[string]struct{}) (map[string]struct{}, error) {
+	return c.findCommittedIDsInFiles([]string{filePath}, pendingIDs)
+}
+
+func (c *Collector) findCommittedIDsInFiles(filePaths []string, pendingIDs map[string]struct{}) (map[string]struct{}, error) {
 	committedIDs := make(map[string]struct{}, len(pendingIDs))
+	for _, filePath := range filePaths {
+		err := c.scanCommittedIDs(filePath, func(id string) bool {
+			if _, ok := pendingIDs[id]; !ok {
+				return true
+			}
+			committedIDs[id] = struct{}{}
+			return len(committedIDs) < len(pendingIDs)
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(committedIDs) == len(pendingIDs) {
+			break
+		}
+	}
+	return committedIDs, nil
+}
+
+func (c *Collector) scanCommittedIDs(filePath string, visit func(string) bool) error {
 	f, err := os.Open(filePath) //nolint:gosec // controlled path
 	if err != nil {
 		if os.IsNotExist(err) {
-			return committedIDs, nil
+			return nil
 		}
-		return nil, fmt.Errorf("open event log %s: %w", filePath, err)
+		return fmt.Errorf("open event log %s: %w", filePath, err)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -274,18 +366,39 @@ func (c *Collector) findCommittedIDs(filePath string, pendingIDs map[string]stru
 				slog.String("error", err.Error()))
 			continue
 		}
-		if _, ok := pendingIDs[event.ID]; !ok {
-			continue
-		}
-		committedIDs[event.ID] = struct{}{}
-		if len(committedIDs) == len(pendingIDs) {
+		if event.ID != "" && !visit(event.ID) {
 			break
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan event log %s: %w", filePath, err)
+		return fmt.Errorf("scan event log %s: %w", filePath, err)
 	}
-	return committedIDs, nil
+	return nil
+}
+
+func (c *Collector) ensureCommittedIDs() error {
+	if c.committedIDs != nil {
+		return nil
+	}
+	return c.rebuildCommittedIDs()
+}
+
+func (c *Collector) rebuildCommittedIDs() error {
+	files, err := c.store.listCommittedFiles(time.Time{}, time.Time{})
+	if err != nil {
+		return err
+	}
+	filter := newEventIDFilter(c.dedupeCacheBytes)
+	for _, filePath := range files {
+		if err := c.scanCommittedIDs(filePath, func(id string) bool {
+			filter.add(id)
+			return true
+		}); err != nil {
+			return err
+		}
+	}
+	c.committedIDs = filter
+	return nil
 }
 
 func (c *Collector) removeInboxFile(path string) {
@@ -344,6 +457,7 @@ func (c *Collector) cleanupExpired() {
 	now := c.now().UTC()
 	cutoff := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).
 		AddDate(0, 0, -c.retentionDays)
+	removedCommitted := false
 	baseEntries, err := os.ReadDir(c.store.baseDir)
 	if err == nil {
 		for _, entry := range baseEntries {
@@ -359,12 +473,22 @@ func (c *Collector) cleanupExpired() {
 				slog.Warn("fileeventstore: failed to remove expired event log",
 					slog.String("file", path),
 					slog.String("error", err.Error()))
+			} else {
+				removedCommitted = true
 			}
 		}
 	} else if !os.IsNotExist(err) {
 		slog.Warn("fileeventstore: failed to read event store directory for cleanup",
 			slog.String("dir", c.store.baseDir),
 			slog.String("error", err.Error()))
+	}
+
+	if removedCommitted {
+		if err := c.rebuildCommittedIDs(); err != nil {
+			slog.Warn("fileeventstore: failed to rebuild committed event filter after cleanup",
+				slog.String("dir", c.store.baseDir),
+				slog.String("error", err.Error()))
+		}
 	}
 
 	quarantineEntries, err := os.ReadDir(c.store.quarantineDir)
