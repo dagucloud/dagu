@@ -254,6 +254,10 @@ func (s *claimReleaseStore) DeleteClaim(context.Context, string) error {
 	return nil
 }
 
+func (s *claimReleaseStore) ListBundleDigests(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 func (s *claimReleaseStore) CountOutstandingByQueue(context.Context, string, time.Duration) (int, error) {
 	return 0, nil
 }
@@ -286,6 +290,10 @@ func (s *pollingDispatchStore) ReleaseClaim(context.Context, string) error {
 
 func (s *pollingDispatchStore) DeleteClaim(context.Context, string) error {
 	return nil
+}
+
+func (s *pollingDispatchStore) ListBundleDigests(context.Context) ([]string, error) {
+	return nil, nil
 }
 
 func (s *pollingDispatchStore) CountOutstandingByQueue(context.Context, string, time.Duration) (int, error) {
