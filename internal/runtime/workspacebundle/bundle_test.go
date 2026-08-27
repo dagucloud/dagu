@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -80,6 +81,24 @@ func TestStorePutReaderAndOpen(t *testing.T) {
 	actual, err := io.ReadAll(file)
 	require.NoError(t, err)
 	assert.Equal(t, int64(len(data)), size)
+	assert.Equal(t, data, actual)
+}
+
+func TestStorePutReplacesCorruptBundle(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	data := []byte("valid bundle")
+	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+	store := NewStore(t.TempDir(), DefaultLimits())
+	require.NoError(t, store.Put(ctx, desc, data))
+	bundlePath, err := store.path(desc.Digest)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(bundlePath, []byte("bad"), 0o600))
+
+	require.NoError(t, store.Put(ctx, desc, data))
+	actual, err := store.Get(ctx, desc.Digest)
+	require.NoError(t, err)
 	assert.Equal(t, data, actual)
 }
 
@@ -173,6 +192,33 @@ func TestStoreCleanupIgnoresForeignPath(t *testing.T) {
 	assert.Zero(t, removed)
 	assert.True(t, store.Has(desc.Digest))
 	assert.FileExists(t, foreignPath)
+}
+
+func TestStoreCleanupContinuesAfterEntryError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission behavior is Unix-specific")
+	}
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	dir := t.TempDir()
+	blockedDir := filepath.Join(dir, "!blocked")
+	require.NoError(t, os.Mkdir(blockedDir, 0o700))
+	require.NoError(t, os.Chmod(blockedDir, 0))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(blockedDir, 0o700)) })
+
+	store := NewStore(dir, DefaultLimits())
+	data := []byte("expired bundle")
+	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+	require.NoError(t, store.Put(ctx, desc, data))
+	bundlePath, err := store.path(desc.Digest)
+	require.NoError(t, err)
+	require.NoError(t, os.Chtimes(bundlePath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+
+	removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
+	require.Error(t, err)
+	assert.Equal(t, 1, removed)
+	assert.False(t, store.Has(desc.Digest))
 }
 
 func TestStoreCleanupAndTouchAreConsistent(t *testing.T) {

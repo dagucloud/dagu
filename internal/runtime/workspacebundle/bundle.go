@@ -704,13 +704,19 @@ func (s *Store) PutReader(ctx context.Context, desc Descriptor, reader io.Reader
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close workspace bundle: %w", err)
 	}
+	existingMatches := fileMatchesDigest(path, desc.Digest, s.limits.MaxCompressedSize)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	return s.withLock(ctx, func() error {
 		if _, err := os.Stat(path); err == nil {
-			if err := touch(path); err != nil {
-				return fmt.Errorf("refresh workspace bundle: %w", err)
+			if existingMatches {
+				if err := touch(path); err != nil {
+					return fmt.Errorf("refresh workspace bundle: %w", err)
+				}
+				return nil
 			}
-			return nil
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("stat workspace bundle: %w", err)
 		}
@@ -800,6 +806,18 @@ func (s *Store) Has(digest string) bool {
 	return err == nil
 }
 
+func fileMatchesDigest(path, digest string, maxSize int64) bool {
+	file, err := os.Open(path) //nolint:gosec // path is derived from a validated digest and configured store directory.
+	if err != nil {
+		return false
+	}
+	defer func() { _ = file.Close() }()
+
+	hasher := sha256.New()
+	size, err := io.Copy(hasher, io.LimitReader(file, maxSize+1))
+	return err == nil && size <= maxSize && hex.EncodeToString(hasher.Sum(nil)) == digest
+}
+
 // Touch reports whether a bundle exists and refreshes its expiration time.
 func (s *Store) Touch(ctx context.Context, digest string) (bool, error) {
 	if strings.TrimSpace(s.dir) == "" {
@@ -829,12 +847,17 @@ func (s *Store) Cleanup(ctx context.Context, before time.Time) (int, error) {
 		return 0, fmt.Errorf("workspace bundle store is not configured")
 	}
 	var removed int
-	err := filepath.WalkDir(s.dir, func(bundlePath string, entry fs.DirEntry, err error) error {
+	var cleanupErrs []error
+	walkErr := filepath.WalkDir(s.dir, func(bundlePath string, entry fs.DirEntry, err error) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		if err != nil {
-			return err
+			if bundlePath == s.dir {
+				return err
+			}
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("inspect workspace bundle entry %q: %w", bundlePath, err))
+			return nil
 		}
 		if err := ctx.Err(); err != nil {
 			return err
@@ -859,14 +882,15 @@ func (s *Store) Cleanup(ctx context.Context, before time.Time) (int, error) {
 			return nil
 		}
 		if err != nil {
-			return err
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("inspect workspace bundle entry %q: %w", bundlePath, err))
+			return nil
 		}
 		if !info.Mode().IsRegular() || !info.ModTime().Before(before) {
 			return nil
 		}
 
 		// Recheck under the shared lock so a concurrent cache hit stays live.
-		return s.withLock(ctx, func() error {
+		if err := s.withLock(ctx, func() error {
 			info, err := os.Lstat(bundlePath)
 			if os.IsNotExist(err) {
 				return nil
@@ -882,9 +906,18 @@ func (s *Store) Cleanup(ctx context.Context, before time.Time) (int, error) {
 			}
 			removed++
 			return nil
-		})
+		}); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			cleanupErrs = append(cleanupErrs, err)
+		}
+		return nil
 	})
-	if err != nil {
+	if walkErr != nil {
+		cleanupErrs = append(cleanupErrs, walkErr)
+	}
+	if err := errors.Join(cleanupErrs...); err != nil {
 		return removed, fmt.Errorf("clean workspace bundles: %w", err)
 	}
 	return removed, nil
