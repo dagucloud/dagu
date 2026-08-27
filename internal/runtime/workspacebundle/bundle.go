@@ -896,6 +896,13 @@ func (s *Store) CleanupUnreferenced(ctx context.Context, before time.Time) (int,
 				)
 				continue
 			}
+			if entry.Name() != metadata.Digest+metadataExt || metadata.CreatedAt <= 0 {
+				logger.Warn(ctx, "Skipping workspace bundle metadata with invalid identity",
+					slog.String("path", metadataPath),
+					slog.Int64("createdAt", metadata.CreatedAt),
+				)
+				continue
+			}
 			if _, ok := retained[metadata.Digest]; ok || !time.UnixMilli(metadata.CreatedAt).Before(before) {
 				continue
 			}

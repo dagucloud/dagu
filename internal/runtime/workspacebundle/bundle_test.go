@@ -6,6 +6,7 @@ package workspacebundle
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -248,6 +249,40 @@ func TestStoreCleanupSkipsUnusableMetadata(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 1, removed)
 			assert.False(t, store.Has(desc.Digest))
+			assert.FileExists(t, metadataPath)
+		})
+	}
+
+	identityTests := map[string]struct {
+		foreign   bool
+		createdAt int64
+	}{
+		"foreign name":           {foreign: true, createdAt: 1},
+		"non-positive timestamp": {createdAt: 0},
+	}
+	for name, test := range identityTests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			dir := t.TempDir()
+			store := NewStore(dir, DefaultLimits())
+			data := []byte("managed bundle")
+			desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+			require.NoError(t, store.Put(ctx, desc, data))
+
+			metadataPath := store.managedPath(desc.Digest)
+			if test.foreign {
+				metadataPath = filepath.Join(dir, "managed", "-foreign.json")
+			}
+			metadata, err := json.Marshal(managedBundle{Digest: desc.Digest, CreatedAt: test.createdAt})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(metadataPath, metadata, 0o600))
+
+			removed, err := store.CleanupUnreferenced(ctx, time.Now().Add(-time.Hour))
+			require.NoError(t, err)
+			assert.Zero(t, removed)
+			assert.True(t, store.Has(desc.Digest))
 			assert.FileExists(t, metadataPath)
 		})
 	}
