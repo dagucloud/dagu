@@ -20,7 +20,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -634,7 +633,7 @@ type Store struct {
 	limits                Limits
 	lock                  dirlock.DirLock
 	lockHeartbeatInterval time.Duration
-	mu                    sync.Mutex
+	gate                  chan struct{}
 }
 
 type Client interface {
@@ -647,11 +646,14 @@ func NewStore(dir string, limits Limits) *Store {
 	if dir != "" {
 		dir = filepath.Clean(dir)
 	}
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
 	return &Store{
 		dir:                   dir,
 		limits:                normalizeLimits(limits),
 		lock:                  dirlock.New(dir, nil),
 		lockHeartbeatInterval: storeLockHeartbeatInterval,
+		gate:                  gate,
 	}
 }
 
@@ -864,66 +866,68 @@ func (s *Store) Touch(ctx context.Context, digest string) (bool, error) {
 
 // Cleanup removes unprotected canonical bundles unused since before.
 func (s *Store) Cleanup(ctx context.Context, before time.Time, protected map[string]struct{}) (int, error) {
+	return s.CleanupReferenced(ctx, before, func(context.Context) (map[string]struct{}, error) {
+		return protected, nil
+	})
+}
+
+// CleanupReferenced removes expired bundles while preventing reference
+// transitions. references must return every currently protected digest.
+func (s *Store) CleanupReferenced(
+	ctx context.Context,
+	before time.Time,
+	references func(context.Context) (map[string]struct{}, error),
+) (int, error) {
 	if strings.TrimSpace(s.dir) == "" {
 		return 0, fmt.Errorf("workspace bundle store is not configured")
 	}
 	var removed int
-	var cleanupErrs []error
-	walkErr := filepath.WalkDir(s.dir, func(bundlePath string, entry fs.DirEntry, err error) error {
-		if os.IsNotExist(err) {
-			return nil
-		}
+	err := s.withLock(ctx, func(lockCtx context.Context) error {
+		protected, err := references(lockCtx)
 		if err != nil {
-			if bundlePath == s.dir {
-				return err
-			}
-			cleanupErrs = append(cleanupErrs, fmt.Errorf("inspect workspace bundle entry %q: %w", bundlePath, err))
-			return nil
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if bundlePath != s.dir && (entry.Name() == "staging" || dirlock.IsLockDirectoryName(entry.Name())) {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(entry.Name(), archiveExt) {
-			return nil
+			return fmt.Errorf("list protected workspace bundles: %w", err)
 		}
 
-		digest := strings.TrimSuffix(entry.Name(), archiveExt)
-		canonicalPath, pathErr := s.path(digest)
-		if pathErr != nil || filepath.Clean(bundlePath) != canonicalPath {
-			return nil
-		}
-		if _, ok := protected[digest]; ok {
-			return nil
-		}
-		info, err := entry.Info()
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if err != nil {
-			cleanupErrs = append(cleanupErrs, fmt.Errorf("inspect workspace bundle entry %q: %w", bundlePath, err))
-			return nil
-		}
-		if !info.Mode().IsRegular() || !info.ModTime().Before(before) {
-			return nil
-		}
-
-		// Recheck under the shared lock so a concurrent cache hit stays live.
-		if err := s.withLock(ctx, func(lockCtx context.Context) error {
-			if _, ok := protected[digest]; ok {
-				return nil
-			}
-			info, err := os.Lstat(bundlePath)
+		var cleanupErrs []error
+		walkErr := filepath.WalkDir(s.dir, func(bundlePath string, entry fs.DirEntry, err error) error {
 			if os.IsNotExist(err) {
 				return nil
 			}
 			if err != nil {
-				return fmt.Errorf("stat workspace bundle for cleanup: %w", err)
+				if bundlePath == s.dir {
+					return err
+				}
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("inspect workspace bundle entry %q: %w", bundlePath, err))
+				return nil
+			}
+			if cause := context.Cause(lockCtx); cause != nil {
+				return cause
+			}
+			if entry.IsDir() {
+				if bundlePath != s.dir && (entry.Name() == "staging" || dirlock.IsLockDirectoryName(entry.Name())) {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(entry.Name(), archiveExt) {
+				return nil
+			}
+
+			digest := strings.TrimSuffix(entry.Name(), archiveExt)
+			canonicalPath, pathErr := s.path(digest)
+			if pathErr != nil || filepath.Clean(bundlePath) != canonicalPath {
+				return nil
+			}
+			if _, ok := protected[digest]; ok {
+				return nil
+			}
+			info, err := entry.Info()
+			if os.IsNotExist(err) {
+				return nil
+			}
+			if err != nil {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("inspect workspace bundle entry %q: %w", bundlePath, err))
+				return nil
 			}
 			if !info.Mode().IsRegular() || !info.ModTime().Before(before) {
 				return nil
@@ -936,26 +940,30 @@ func (s *Store) Cleanup(ctx context.Context, before time.Time, protected map[str
 			}
 			removed++
 			return nil
-		}); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			cleanupErrs = append(cleanupErrs, err)
+		})
+		if walkErr != nil {
+			cleanupErrs = append(cleanupErrs, walkErr)
 		}
-		return nil
+		return errors.Join(cleanupErrs...)
 	})
-	if walkErr != nil {
-		cleanupErrs = append(cleanupErrs, walkErr)
-	}
-	if err := errors.Join(cleanupErrs...); err != nil {
+	if err != nil {
 		return removed, fmt.Errorf("clean workspace bundles: %w", err)
 	}
 	return removed, nil
 }
 
+// WithLock runs fn while holding the shared bundle-store lock.
+func (s *Store) WithLock(ctx context.Context, fn func(context.Context) error) error {
+	return s.withLock(ctx, fn)
+}
+
 func (s *Store) withLock(ctx context.Context, fn func(context.Context) error) (retErr error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.gate:
+	}
+	defer func() { s.gate <- struct{}{} }()
 
 	if err := s.lock.Lock(ctx); err != nil {
 		return fmt.Errorf("lock workspace bundle store: %w", err)

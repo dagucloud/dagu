@@ -395,6 +395,16 @@ func NewDispatchTaskStore(col persis.Collection, opts ...DispatchTaskStoreOption
 	return s
 }
 
+func (s *DispatchTaskStore) withTransitionLock(
+	ctx context.Context,
+	fn func(context.Context) error,
+) error {
+	if s.transitionLock == nil {
+		return fn(ctx)
+	}
+	return s.transitionLock(ctx, fn)
+}
+
 func (s *DispatchTaskStore) ensureDispatchIndex(ctx context.Context) error {
 	if s.index == nil {
 		return s.rebuildDispatchIndex(ctx)
@@ -518,14 +528,20 @@ func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *dispatch.Dispatch
 	if err != nil {
 		return err
 	}
-	if err := s.col.Put(ctx, rec); err != nil {
-		return err
+	write := func(lockCtx context.Context) error {
+		if err := s.col.Put(lockCtx, rec); err != nil {
+			return err
+		}
+		if s.index == nil {
+			s.index = newDispatchTaskIndex()
+		}
+		s.index.addPending(rec, payload)
+		return nil
 	}
-	if s.index == nil {
-		s.index = newDispatchTaskIndex()
+	if task.WorkspaceBundleDigest == "" {
+		return write(ctx)
 	}
-	s.index.addPending(rec, payload)
-	return nil
+	return s.withTransitionLock(ctx, write)
 }
 
 // ClaimNext atomically transitions one matching pending record into a
@@ -620,44 +636,56 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 			continue
 		}
 
-		claimToken := uuid.NewString()
-		claimedAt := now
-		task, err := applyDispatchTaskClaim(payload.Task, claim.Owner, claimToken)
-		if err != nil {
-			return nil, false, err
-		}
-		payload.Task = task
-		payload.ClaimToken = claimToken
-		payload.ClaimedAt = claimedAt.UnixMilli()
-		payload.WorkerID = claim.WorkerID
-		payload.PollerID = claim.PollerID
-		payload.Owner = claim.Owner
-
-		claimRec, err := s.newDispatchRecord(claimDispatchRecordID(claimToken), payload, rec.CreatedAt, claimedAt)
-		if err != nil {
-			return nil, false, err
-		}
-		if err := s.col.Put(ctx, claimRec); err != nil {
-			return nil, false, err
-		}
-		if err := s.col.CompareAndDelete(ctx, rec); err != nil {
-			_ = s.col.CompareAndDelete(context.WithoutCancel(ctx), claimRec)
-			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
-				s.index.removePending(id)
-				return nil, true, nil
+		var claimed *dispatch.ClaimedDispatchTask
+		var stale bool
+		transition := func(lockCtx context.Context) error {
+			claimToken := uuid.NewString()
+			claimedAt := time.Now().UTC()
+			task, err := applyDispatchTaskClaim(payload.Task, claim.Owner, claimToken)
+			if err != nil {
+				return err
 			}
-			return nil, false, err
-		}
-		s.index.replacePendingWithClaim(id, claimRec, payload)
+			payload.Task = task
+			payload.ClaimToken = claimToken
+			payload.ClaimedAt = claimedAt.UnixMilli()
+			payload.WorkerID = claim.WorkerID
+			payload.PollerID = claim.PollerID
+			payload.Owner = claim.Owner
 
-		return &dispatch.ClaimedDispatchTask{
-			Task:       cloneDispatchTask(task),
-			ClaimToken: claimToken,
-			ClaimedAt:  claimedAt,
-			WorkerID:   claim.WorkerID,
-			PollerID:   claim.PollerID,
-			Owner:      claim.Owner,
-		}, false, nil
+			claimRec, err := s.newDispatchRecord(claimDispatchRecordID(claimToken), payload, rec.CreatedAt, claimedAt)
+			if err != nil {
+				return err
+			}
+			if err := s.col.Put(lockCtx, claimRec); err != nil {
+				return err
+			}
+			if err := s.col.CompareAndDelete(lockCtx, rec); err != nil {
+				_ = s.col.CompareAndDelete(context.WithoutCancel(lockCtx), claimRec)
+				if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
+					s.index.removePending(id)
+					stale = true
+					return nil
+				}
+				return err
+			}
+			s.index.replacePendingWithClaim(id, claimRec, payload)
+
+			claimed = &dispatch.ClaimedDispatchTask{
+				Task:       cloneDispatchTask(task),
+				ClaimToken: claimToken,
+				ClaimedAt:  claimedAt,
+				WorkerID:   claim.WorkerID,
+				PollerID:   claim.PollerID,
+				Owner:      claim.Owner,
+			}
+			return nil
+		}
+		if payload.Task.WorkspaceBundleDigest != "" {
+			err = s.withTransitionLock(ctx, transition)
+		} else {
+			err = transition(ctx)
+		}
+		return claimed, stale, err
 	}
 	s.index.rememberNoMatch(claim.WorkerID, claim.Labels)
 	return nil, false, nil
@@ -721,30 +749,31 @@ func (s *DispatchTaskStore) ReleaseClaim(ctx context.Context, claimToken string)
 	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 {
 		return dispatch.ErrDispatchTaskNotFound
 	}
-	return s.releaseClaimRecord(ctx, rec, payload, time.Now().UTC())
+	return s.releaseClaim(ctx, rec, payload, time.Now().UTC())
 }
 
 func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	claimID := claimDispatchRecordID(claimToken)
-	if err := s.col.Delete(ctx, claimID); err != nil && !errors.Is(err, persis.ErrNotFound) {
-		return err
-	}
-	if s.index != nil {
-		s.index.removeClaim(claimID)
-	}
-	return nil
+	return s.withTransitionLock(ctx, func(lockCtx context.Context) error {
+		claimID := claimDispatchRecordID(claimToken)
+		if err := s.col.Delete(lockCtx, claimID); err != nil && !errors.Is(err, persis.ErrNotFound) {
+			return err
+		}
+		if s.index != nil {
+			s.index.removeClaim(claimID)
+		}
+		return nil
+	})
 }
 
 // ListBundleDigests returns bundle digests referenced by outstanding tasks.
 func (s *DispatchTaskStore) ListBundleDigests(ctx context.Context) ([]string, error) {
 	digests := make(map[string]struct{})
 
-	// Transitions create the destination before deleting the source. Scanning
-	// pending records twice covers both claim and release transitions.
-	for _, prefix := range []string{dispatchPendingPrefix, dispatchClaimsPrefix, dispatchPendingPrefix} {
+	// Cleanup holds the shared transition lock while taking this snapshot.
+	for _, prefix := range []string{dispatchPendingPrefix, dispatchClaimsPrefix} {
 		recs, err := s.listDispatchRecords(ctx, prefix)
 		if err != nil {
 			return nil, err
@@ -894,7 +923,7 @@ func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 			continue
 		}
 
-		if err := s.releaseClaimRecord(ctx, rec, payload, now); err != nil {
+		if err := s.releaseClaim(ctx, rec, payload, now); err != nil {
 			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
 				s.index.removeClaim(id)
 				continue
@@ -903,6 +932,21 @@ func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *DispatchTaskStore) releaseClaim(
+	ctx context.Context,
+	rec *persis.Record,
+	payload dispatchTaskPayload,
+	now time.Time,
+) error {
+	transition := func(lockCtx context.Context) error {
+		return s.releaseClaimRecord(lockCtx, rec, payload, now)
+	}
+	if payload.Task == nil || payload.Task.WorkspaceBundleDigest == "" {
+		return transition(ctx)
+	}
+	return s.withTransitionLock(ctx, transition)
 }
 
 func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.Record, payload dispatchTaskPayload, now time.Time) error {

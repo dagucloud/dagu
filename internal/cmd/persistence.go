@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
@@ -75,9 +76,14 @@ func newFilePersistence(
 		backend.Collection(persis.CollectionSchedulerState),
 	)
 	serviceRegistry := file.NewServiceRegistry(cfg)
+	bundleStore := workspacebundle.NewStore(
+		workspacebundle.StoreDir(cfg.Paths.DataDir),
+		workspacebundle.DefaultLimits(),
+	)
 	dispatchTaskStore := store.NewDispatchTaskStore(
 		backend.Collection(persis.CollectionDispatchTasks),
 		store.WithDispatchAdmissionLiveness(dagRunLeaseStore, activeDistributedRunStore),
+		store.WithDispatchTransitionLock(bundleStore.WithLock),
 	)
 	workerHeartbeatStore := store.NewWorkerHeartbeatStore(
 		backend.Collection(persis.CollectionWorkerHeartbeats),

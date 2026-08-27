@@ -567,7 +567,20 @@ func (s *DispatchTaskStore) createAdmissionPendingRecord(
 ) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if task.WorkspaceBundleDigest == "" {
+		return s.createPendingRecord(ctx, attempt, task, taskFingerprint)
+	}
+	return s.withTransitionLock(ctx, func(lockCtx context.Context) error {
+		return s.createPendingRecord(lockCtx, attempt, task, taskFingerprint)
+	})
+}
 
+func (s *DispatchTaskStore) createPendingRecord(
+	ctx context.Context,
+	attempt dispatchAdmissionAttemptPayload,
+	task *dispatch.DispatchTask,
+	taskFingerprint string,
+) error {
 	now := time.Now().UTC()
 	payload := dispatchTaskPayload{
 		Version:                   dispatchTaskStoreVersion,

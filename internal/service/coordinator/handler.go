@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -554,12 +555,27 @@ func (h *Handler) ensureWorkspaceBundle(ctx context.Context, task *coordinatorv1
 	}
 	exists, err := h.workspaceBundleStore.Touch(ctx, digest)
 	if err != nil {
-		return status.Error(codes.Internal, "failed to verify workspace bundle: "+err.Error())
+		return status.Error(workspaceBundleTouchErrorCode(err), "failed to verify workspace bundle: "+err.Error())
 	}
 	if !exists {
 		return status.Error(codes.NotFound, "workspace bundle is missing or corrupt")
 	}
 	return nil
+}
+
+func workspaceBundleTouchErrorCode(err error) codes.Code {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return codes.Canceled
+	case errors.Is(err, context.DeadlineExceeded):
+		return codes.DeadlineExceeded
+	case errors.Is(err, dirlock.ErrLockConflict),
+		errors.Is(err, dirlock.ErrNotLocked),
+		errors.Is(err, dirlock.ErrLockNotHeld):
+		return codes.Unavailable
+	default:
+		return codes.Internal
+	}
 }
 
 func dispatchBindErrorCode(err error) codes.Code {
@@ -2577,12 +2593,11 @@ func (h *Handler) cleanupWorkspaceBundles(ctx context.Context, now time.Time) {
 	if h.workspaceBundleStore == nil {
 		return
 	}
-	protected, err := h.bundleDigests(ctx)
-	if err != nil {
-		logger.Warn(ctx, "Failed to list referenced workspace bundles; skipping cleanup", tag.Error(err))
-		return
-	}
-	if _, err := h.workspaceBundleStore.Cleanup(ctx, now.Add(-workspaceBundleTTL), protected); err != nil {
+	if _, err := h.workspaceBundleStore.CleanupReferenced(
+		ctx,
+		now.Add(-workspaceBundleTTL),
+		h.bundleDigests,
+	); err != nil {
 		logger.Warn(ctx, "Failed to clean expired workspace bundles", tag.Error(err))
 	}
 }
