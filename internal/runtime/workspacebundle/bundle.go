@@ -39,6 +39,7 @@ const (
 
 var (
 	errPathEscapesBundle = errors.New("path escapes workspace bundle")
+	errInvalidBundle     = errors.New("invalid workspace bundle")
 	zeroTime             = time.Unix(0, 0).UTC()
 )
 
@@ -792,11 +793,11 @@ func openVerified(path, digest string, maxSize int64) (*os.File, int64, error) {
 		return nil, 0, fmt.Errorf("read workspace bundle: %w", err)
 	}
 	if size > maxSize {
-		return nil, 0, fmt.Errorf("workspace bundle exceeds compressed size limit %d", maxSize)
+		return nil, 0, fmt.Errorf("workspace bundle exceeds compressed size limit %d: %w", maxSize, errInvalidBundle)
 	}
 	actual := hex.EncodeToString(hasher.Sum(nil))
 	if actual != digest {
-		return nil, 0, fmt.Errorf("workspace bundle digest mismatch: got %s, want %s", actual, digest)
+		return nil, 0, fmt.Errorf("workspace bundle digest mismatch: got %s, want %s: %w", actual, digest, errInvalidBundle)
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, 0, fmt.Errorf("rewind workspace bundle: %w", err)
@@ -828,7 +829,10 @@ func (s *Store) Touch(ctx context.Context, digest string) (bool, error) {
 		if ctx.Err() != nil {
 			return false, ctx.Err()
 		}
-		return false, nil
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, errInvalidBundle) {
+			return false, nil
+		}
+		return false, err
 	}
 	defer func() { _ = file.Close() }()
 	return s.refreshVerified(ctx, path, file)

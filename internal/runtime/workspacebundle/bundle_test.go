@@ -212,6 +212,20 @@ func TestStoreCorruptAccessDoesNotRefreshExpiration(t *testing.T) {
 	}
 }
 
+func TestStoreTouchReturnsStorageError(t *testing.T) {
+	t.Parallel()
+
+	store := NewStore(t.TempDir(), DefaultLimits())
+	digest := Digest([]byte("bundle"))
+	bundlePath, err := store.path(digest)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(bundlePath, 0o700))
+
+	exists, err := store.Touch(context.Background(), digest)
+	assert.False(t, exists)
+	require.Error(t, err)
+}
+
 func TestStoreCleanupIgnoresForeignPath(t *testing.T) {
 	t.Parallel()
 
