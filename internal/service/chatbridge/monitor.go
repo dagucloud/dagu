@@ -196,12 +196,7 @@ func (m *NotificationMonitor) Bootstrap(ctx context.Context) error {
 		}
 
 		if err := m.lock.TryLock(); err == nil {
-			bootstrapErr := m.bootstrapOwned(ctx)
-			unlockErr := m.lock.Unlock()
-			if unlockErr != nil {
-				unlockErr = fmt.Errorf("release notification bootstrap lock: %w", unlockErr)
-			}
-			return errors.Join(bootstrapErr, unlockErr)
+			return m.bootstrapLocked(ctx)
 		} else if !errors.Is(err, dirlock.ErrLockConflict) {
 			return fmt.Errorf("acquire notification bootstrap lock: %w", err)
 		}
@@ -212,6 +207,23 @@ func (m *NotificationMonitor) Bootstrap(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (m *NotificationMonitor) bootstrapLocked(ctx context.Context) error {
+	bootstrapCtx, cancel := context.WithCancel(ctx)
+	m.beginNotificationSession(cancel)
+	heartbeatDone := m.startNotificationLockHeartbeat(bootstrapCtx)
+
+	bootstrapErr := m.bootstrapOwned(bootstrapCtx)
+	cancel()
+	<-heartbeatDone
+	m.endNotificationSession()
+
+	unlockErr := m.lock.Unlock()
+	if unlockErr != nil {
+		unlockErr = fmt.Errorf("release notification bootstrap lock: %w", unlockErr)
+	}
+	return errors.Join(bootstrapErr, unlockErr)
 }
 
 func (m *NotificationMonitor) bootstrapOwned(ctx context.Context) error {
@@ -236,6 +248,14 @@ func (m *NotificationMonitor) bootstrapOwned(ctx context.Context) error {
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if m.lock != nil {
+		if err := m.lock.Heartbeat(ctx); err != nil {
+			return fmt.Errorf("renew notification bootstrap lock: %w", err)
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

@@ -43,6 +43,22 @@ func (failingBootstrapStateStore) Quarantine(context.Context) (string, error) {
 	return "", nil
 }
 
+type blockingHeadStore struct {
+	*stubNotificationStore
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingHeadStore) DAGRunHeadCursor(ctx context.Context) (eventstore.DAGRunCursor, error) {
+	close(s.started)
+	select {
+	case <-ctx.Done():
+		return eventstore.DAGRunCursor{}, ctx.Err()
+	case <-s.release:
+		return s.stubNotificationStore.DAGRunHeadCursor(ctx)
+	}
+}
+
 func newTestNotificationMonitorConfig() NotificationMonitorConfig {
 	cfg := DefaultNotificationMonitorConfig()
 	cfg.PollInterval = 10 * time.Millisecond
@@ -258,6 +274,42 @@ func TestNotificationMonitor_ConcurrentBootstrapCapturesHeadOnce(t *testing.T) {
 	}
 	headCalls, _ := store.stats()
 	assert.Equal(t, 1, headCalls)
+}
+
+func TestNotificationMonitor_BootstrapDoesNotPersistAfterLeaseLoss(t *testing.T) {
+	t.Parallel()
+
+	store := &blockingHeadStore{
+		stubNotificationStore: &stubNotificationStore{},
+		started:               make(chan struct{}),
+		release:               make(chan struct{}),
+	}
+	stateFile := filepath.Join(t.TempDir(), "state.json")
+	lease := filemonitor.NewLease(stateFile, &dirlock.LockOptions{})
+	monitor := NewNotificationMonitor(
+		eventstore.New(store),
+		filemonitor.NewStateStore(stateFile),
+		lease,
+		&fakeNotificationTransport{destinations: []string{"dest-1"}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newTestNotificationMonitorConfig(),
+	)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- monitor.Bootstrap(context.Background())
+	}()
+	<-store.started
+	require.NoError(t, os.RemoveAll(filepath.Join(lease.Location(), dirlock.LockDirectoryName)))
+	replacement := filemonitor.NewLease(stateFile, &dirlock.LockOptions{})
+	require.NoError(t, replacement.TryLock())
+	defer func() {
+		require.NoError(t, replacement.Unlock())
+	}()
+	close(store.release)
+
+	require.Error(t, <-errCh)
+	assert.False(t, newNotificationStateStore(filemonitor.NewStateStore(stateFile)).IsBootstrapped(context.Background()))
 }
 
 func TestNotificationMonitor_BootstrapReturnsErrors(t *testing.T) {
