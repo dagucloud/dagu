@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
 
@@ -304,9 +305,10 @@ func TestParallel_MixedLocalAndDistributed(t *testing.T) {
 		startedDir := t.TempDir()
 		localStartedFile := filepath.Join(startedDir, "local-started")
 		distributedStartedFile := filepath.Join(startedDir, "distributed-started")
-		releasePath := filepath.ToSlash(releaseFile)
-		localStartedPath := filepath.ToSlash(localStartedFile)
-		distributedStartedPath := filepath.ToSlash(distributedStartedFile)
+		commands := intgharness.PortableCommands()
+		waitStepScript := func(startedFile string) string {
+			return indentYAMLBlock(commands.WriteFile(startedFile, "started")+"\n"+commands.WaitForFile(releaseFile), 6)
+		}
 		f := newTestFixture(t, `
 type: graph
 steps:
@@ -330,32 +332,18 @@ steps:
 ---
 name: child-local
 steps:
-  - name: mark-started
-    action: file.write
-    with:
-      path: "`+localStartedPath+`"
-      content: started
-      overwrite: true
   - name: wait
-    action: wait.file
-    with:
-      path: "`+releasePath+`"
+    run: |
+`+waitStepScript(localStartedFile)+`
 
 ---
 name: child-distributed
 worker_selector:
   type: test-worker
 steps:
-  - name: mark-started
-    action: file.write
-    with:
-      path: "`+distributedStartedPath+`"
-      content: started
-      overwrite: true
   - name: wait
-    action: wait.file
-    with:
-      path: "`+releasePath+`"
+    run: |
+`+waitStepScript(distributedStartedFile)+`
 `, withLabels(map[string]string{"type": "test-worker"}), withDAGsDir(tmpDir), withLogPersistence())
 
 		agent := f.dagWrapper.Agent()

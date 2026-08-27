@@ -96,7 +96,6 @@ type dispatchTaskPayload struct {
 	WorkerID                  string                       `json:"workerId,omitempty"`
 	PollerID                  string                       `json:"pollerId,omitempty"`
 	Owner                     dispatch.CoordinatorEndpoint `json:"owner,omitzero"`
-	WorkspaceOwnerPinned      bool                         `json:"workspaceOwnerPinned,omitempty"`
 	AdmissionReservationToken string                       `json:"admissionReservationToken,omitempty"`
 }
 
@@ -499,8 +498,6 @@ func (s *DispatchTaskStore) Enqueue(ctx context.Context, task *dispatch.Dispatch
 		Task:         cloneDispatchTask(task),
 		TaskFileName: fileName,
 		EnqueuedAt:   enqueuedAt.UnixMilli(),
-		WorkspaceOwnerPinned: task.WorkspaceBundleDigest != "" &&
-			task.Owner != (dispatch.CoordinatorEndpoint{}),
 	}
 	pendingID, err := pendingDispatchRecordID(fileName)
 	if err != nil {
@@ -614,11 +611,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 
 		claimToken := uuid.NewString()
 		claimedAt := now
-		owner := claim.Owner
-		if payload.WorkspaceOwnerPinned {
-			owner = payload.Task.Owner
-		}
-		task, err := applyDispatchTaskClaim(payload.Task, owner, claimToken)
+		task, err := applyDispatchTaskClaim(payload.Task, claim.Owner, claimToken)
 		if err != nil {
 			return nil, false, err
 		}
@@ -627,7 +620,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 		payload.ClaimedAt = claimedAt.UnixMilli()
 		payload.WorkerID = claim.WorkerID
 		payload.PollerID = claim.PollerID
-		payload.Owner = owner
+		payload.Owner = claim.Owner
 
 		claimRec, err := s.newDispatchRecord(claimDispatchRecordID(claimToken), payload, rec.CreatedAt, claimedAt)
 		if err != nil {
@@ -652,7 +645,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 			ClaimedAt:  claimedAt,
 			WorkerID:   claim.WorkerID,
 			PollerID:   claim.PollerID,
-			Owner:      owner,
+			Owner:      claim.Owner,
 		}, false, nil
 	}
 	s.index.rememberNoMatch(claim.WorkerID, claim.Labels)
@@ -883,7 +876,7 @@ func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.
 	payload.WorkerID = ""
 	payload.PollerID = ""
 	payload.Owner = dispatch.CoordinatorEndpoint{}
-	payload.Task = clearDispatchTaskClaim(payload.Task, payload.WorkspaceOwnerPinned)
+	payload.Task = clearDispatchTaskClaim(payload.Task)
 
 	pendingID, err := pendingDispatchRecordID(payload.TaskFileName)
 	if err != nil {
@@ -1255,14 +1248,12 @@ func applyDispatchTaskClaim(task *dispatch.DispatchTask, owner dispatch.Coordina
 	return task, nil
 }
 
-func clearDispatchTaskClaim(task *dispatch.DispatchTask, ownerPinned bool) *dispatch.DispatchTask {
+func clearDispatchTaskClaim(task *dispatch.DispatchTask) *dispatch.DispatchTask {
 	task = cloneDispatchTask(task)
 	if task == nil {
 		return nil
 	}
-	if !ownerPinned {
-		task.Owner = dispatch.CoordinatorEndpoint{}
-	}
+	task.Owner = dispatch.CoordinatorEndpoint{}
 	task.ClaimToken = ""
 	task.WorkerID = ""
 	return task

@@ -33,10 +33,6 @@ import (
 const grpcMaxMsgSize = 16 * 1024 * 1024
 
 func CmdCoordinator() *cobra.Command {
-	return cmdCoordinator(nil)
-}
-
-func cmdCoordinator(listener net.Listener) *cobra.Command {
 	return NewCommand(
 		&cobra.Command{
 			Use:   "coordinator [flags]",
@@ -81,9 +77,7 @@ Example:
 
 This process runs continuously in the foreground until terminated.
 `,
-		}, coordinatorFlags, func(ctx *Context, args []string) error {
-			return runCoordinator(ctx, args, listener)
-		},
+		}, coordinatorFlags, runCoordinator,
 	)
 }
 
@@ -100,10 +94,10 @@ var coordinatorFlags = []commandLineFlag{
 	peerSkipTLSVerifyFlag,
 }
 
-func runCoordinator(ctx *Context, _ []string, listener net.Listener) error {
+func runCoordinator(ctx *Context, _ []string) error {
 	coordCtx := ctx.WithEventSource(eventstore.SourceServiceCoordinator)
 	stores := coordCtx.runtimeStores()
-	svc, _, err := newCoordinator(coordCtx, stores.SecretStore, listener)
+	svc, _, err := newCoordinator(coordCtx, stores.SecretStore)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
 	}
@@ -127,7 +121,6 @@ func runCoordinator(ctx *Context, _ []string, listener net.Listener) error {
 func newCoordinator(
 	ctx *Context,
 	secretStore secret.Store,
-	listener net.Listener,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	cfg := ctx.Config
 	persistence := ctx.Persistence
@@ -200,12 +193,11 @@ func newCoordinator(
 	// Create dedicated HTTP health server
 	httpHealthServer := healthcheck.NewServer("coordinator", cfg.Coordinator.HealthPort)
 
-	if listener == nil {
-		addr := fmt.Sprintf("%s:%d", cfg.Coordinator.Host, cfg.Coordinator.Port)
-		listener, err = net.Listen("tcp", addr)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create listener on %s: %w", addr, err)
-		}
+	// Create listener
+	addr := fmt.Sprintf("%s:%d", cfg.Coordinator.Host, cfg.Coordinator.Port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create listener on %s: %w", addr, err)
 	}
 
 	// Create the handler with DAG-run status persistence and streamed log storage.

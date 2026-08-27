@@ -100,15 +100,19 @@ func (r *workspaceBundleUploadReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func (h *Handler) HasWorkspaceBundle(_ context.Context, req *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error) {
+func (h *Handler) HasWorkspaceBundle(ctx context.Context, req *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error) {
 	if h.workspaceBundleStore == nil {
 		return nil, status.Error(codes.FailedPrecondition, "workspace bundle store is not configured")
 	}
 	if req == nil || !workspacebundle.ValidDigest(req.Digest) {
 		return nil, status.Error(codes.InvalidArgument, "valid workspace bundle digest is required")
 	}
+	exists, err := h.workspaceBundleStore.Touch(ctx, req.Digest)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to refresh workspace bundle: "+err.Error())
+	}
 	return &coordinatorv1.HasWorkspaceBundleResponse{
-		Exists: h.workspaceBundleStore.Has(req.Digest),
+		Exists: exists,
 	}, nil
 }
 

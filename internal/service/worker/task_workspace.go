@@ -53,17 +53,17 @@ func taskWorkspaceDescriptor(task *coordinatorv1.Task) (workspacebundle.Descript
 func materializeTaskWorkspace(
 	ctx context.Context,
 	task *coordinatorv1.Task,
-	fetch func(context.Context, string) ([]byte, error),
+	client workspacebundle.Client,
 	workDir string,
 ) (*taskWorkspace, error) {
 	desc, ok, err := taskWorkspaceDescriptor(task)
 	if err != nil || !ok {
 		return nil, err
 	}
-	if fetch == nil {
+	if client == nil {
 		return nil, fmt.Errorf("coordinator client does not support workspace bundles")
 	}
-	data, err := fetch(ctx, desc.Digest)
+	data, err := client.GetWorkspaceBundle(ctx, desc.Digest)
 	if err != nil {
 		return nil, fmt.Errorf("download workspace bundle %s: %w", desc.Digest, err)
 	}

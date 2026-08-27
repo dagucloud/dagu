@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -351,11 +350,7 @@ func (c *Collector) scanCommittedIDs(filePath string, visit func(string) bool) e
 	}
 	defer func() { _ = f.Close() }()
 
-	return scanCommittedIDStream(f, filePath, visit)
-}
-
-func scanCommittedIDStream(reader io.Reader, source string, visit func(string) bool) error {
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(f)
 	fileutil.ConfigureScanner(scanner)
 	lineNum := 0
 	for scanner.Scan() {
@@ -366,7 +361,7 @@ func scanCommittedIDStream(reader io.Reader, source string, visit func(string) b
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
 			slog.Warn("fileeventstore: skipping malformed committed event while checking duplicates",
-				slog.String("file", source),
+				slog.String("file", filePath),
 				slog.Int("line", lineNum),
 				slog.String("error", err.Error()))
 			continue
@@ -376,7 +371,7 @@ func scanCommittedIDStream(reader io.Reader, source string, visit func(string) b
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scan event log %s: %w", source, err)
+		return fmt.Errorf("scan event log %s: %w", filePath, err)
 	}
 	return nil
 }
@@ -419,10 +414,6 @@ func (c *Collector) readPendingEvent(path string) (pendingInboxEvent, error) {
 	if err != nil {
 		return pendingInboxEvent{}, err
 	}
-	return decodePendingEvent(path, data)
-}
-
-func decodePendingEvent(path string, data []byte) (pendingInboxEvent, error) {
 	// Draining needs event metadata; raw preserves the payload for persistence.
 	var event struct {
 		eventstore.Event

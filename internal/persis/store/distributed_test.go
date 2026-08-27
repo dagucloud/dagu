@@ -516,39 +516,6 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	assert.ErrorIs(t, err, dispatch.ErrDispatchTaskNotFound)
 }
 
-func TestDispatchTaskStore_ClaimPreservesTaskOwner(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
-	owner := dispatch.CoordinatorEndpoint{ID: "coord-upload", Host: "upload.example.test", Port: 50055}
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID: "run-a", Target: "dag-a", AttemptID: "attempt-a", AttemptKey: "key-a",
-		WorkspaceBundleDigest: "bundle-a", Owner: owner,
-	}))
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-a",
-		PollerID: "poller-a",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-poll", Host: "poll.example.test", Port: 50056},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, claimed)
-	assert.Equal(t, owner, claimed.Task.Owner)
-	assert.Equal(t, owner, claimed.Owner)
-	require.NoError(t, s.ReleaseClaim(ctx, claimed.ClaimToken))
-
-	reclaimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-b",
-		PollerID: "poller-b",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-other", Host: "other.example.test", Port: 50057},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, reclaimed)
-	assert.Equal(t, owner, reclaimed.Task.Owner)
-	assert.Equal(t, owner, reclaimed.Owner)
-}
-
 func TestDispatchTaskStore_ClaimsTaskOnlyOnTargetWorker(t *testing.T) {
 	t.Parallel()
 

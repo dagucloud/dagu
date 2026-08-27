@@ -45,10 +45,6 @@ const (
 
 var _ executor.SubWorkflowRunner = (*Runner)(nil)
 
-type workspaceDispatcher interface {
-	DispatchWorkspace(context.Context, dispatch.DispatchRequest, workspacebundle.Descriptor, []byte) error
-}
-
 // Runner executes child workflows through Dagu's distributed coordinator.
 type Runner struct {
 	dispatcher           dispatch.Dispatcher
@@ -242,6 +238,16 @@ func (r *Runner) validate(req executor.SubWorkflowRequest) error {
 }
 
 func (r *Runner) dispatchStart(ctx context.Context, req executor.SubWorkflowRequest) error {
+	if req.Workspace != nil {
+		client, ok := r.dispatcher.(workspacebundle.Client)
+		if !ok {
+			return fmt.Errorf("dispatcher does not support workspace bundles")
+		}
+		if err := client.PutWorkspaceBundle(ctx, req.Workspace.Descriptor, req.Workspace.Archive); err != nil {
+			return fmt.Errorf("upload workspace bundle: %w", err)
+		}
+	}
+
 	task, err := r.buildStartTask(req)
 	if err != nil {
 		return fmt.Errorf("failed to build coordinator task: %w", err)
@@ -255,7 +261,7 @@ func (r *Runner) dispatchStart(ctx context.Context, req executor.SubWorkflowRequ
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
-	if err := r.dispatchTask(ctx, dispatch.DispatchRequest{Task: task}, req.Workspace); err != nil {
+	if err := r.dispatcher.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch task: %w", err)
 	}
 	return nil
@@ -290,31 +296,10 @@ func (r *Runner) dispatchRetryWithStatus(
 		slog.Any("worker-selector", task.WorkerSelector),
 	)
 
-	if err := r.dispatchTask(ctx, dispatch.DispatchRequest{Task: task}, req.Workspace); err != nil {
+	if err := r.dispatcher.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
 		return fmt.Errorf("failed to dispatch retry task: %w", err)
 	}
 	return nil
-}
-
-func (r *Runner) dispatchTask(
-	ctx context.Context,
-	req dispatch.DispatchRequest,
-	workspace *executor.SubWorkflowWorkspace,
-) error {
-	if workspace == nil {
-		return r.dispatcher.Dispatch(ctx, req)
-	}
-	if dispatcher, ok := r.dispatcher.(workspaceDispatcher); ok {
-		return dispatcher.DispatchWorkspace(ctx, req, workspace.Descriptor, workspace.Archive)
-	}
-	client, ok := r.dispatcher.(workspacebundle.Client)
-	if !ok {
-		return fmt.Errorf("dispatcher does not support workspace bundles")
-	}
-	if err := client.PutWorkspaceBundle(ctx, workspace.Descriptor, workspace.Archive); err != nil {
-		return fmt.Errorf("upload workspace bundle: %w", err)
-	}
-	return r.dispatcher.Dispatch(ctx, req)
 }
 
 func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*dispatch.DispatchTask, error) {

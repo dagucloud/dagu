@@ -9,14 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/dispatch"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -78,7 +75,7 @@ func TestGetWorkspaceBundleReportsCorruptStoredBundle(t *testing.T) {
 		Digest: digest,
 		Size:   int64(len(data)),
 	}, data))
-	paths, err := filepath.Glob(filepath.Join(dir, "*", "*.tar.gz"))
+	paths, err := filepath.Glob(filepath.Join(dir, "*", "*"))
 	require.NoError(t, err)
 	require.Len(t, paths, 1)
 	require.NoError(t, os.WriteFile(paths[0], []byte("corrupt"), 0o600))
@@ -104,231 +101,31 @@ func TestGetWorkspaceBundleReportsMissingBundle(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
-func TestDispatchRetainsWorkspaceBundle(t *testing.T) {
+func TestHasWorkspaceBundleRefreshesExpiration(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	now := time.Now().UTC()
+	dir := t.TempDir()
 	data := []byte("workspace")
-	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir(), Owner: workspaceTestOwner()})
-	received := make(chan *coordinatorv1.Task, 1)
-	handler.waitingPollers["poller-1"] = &workerInfo{workerID: "worker-1", taskChan: received}
-	require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
-
-	_, err := handler.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: workspaceDispatchTask(desc)})
+	digest := workspaceBundleDigest(data)
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: dir})
+	require.NoError(t, handler.workspaceBundleStore.Put(ctx, workspacebundle.Descriptor{
+		Digest: digest,
+		Size:   int64(len(data)),
+	}, data))
+	paths, err := filepath.Glob(filepath.Join(dir, "*", "*"))
 	require.NoError(t, err)
-	task := <-received
-	references, err := handler.workspaceBundleStore.ListReferences(ctx)
+	require.Len(t, paths, 1)
+	require.NoError(t, os.Chtimes(paths[0], now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+
+	resp, err := handler.HasWorkspaceBundle(ctx, &coordinatorv1.HasWorkspaceBundleRequest{Digest: digest})
 	require.NoError(t, err)
-	require.Len(t, references, 1)
-	assert.Equal(t, task.AttemptKey, references[0].AttemptKey)
-	assert.Equal(t, desc.Digest, references[0].Digest)
-}
-
-func TestDispatchReportsMissingWorkspaceBundle(t *testing.T) {
-	t.Parallel()
-
-	data := []byte("missing")
-	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir(), Owner: workspaceTestOwner()})
-	handler.waitingPollers["poller-1"] = &workerInfo{workerID: "worker-1", taskChan: make(chan *coordinatorv1.Task, 1)}
-
-	_, err := handler.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: workspaceDispatchTask(desc)})
-	require.Error(t, err)
-	assert.Equal(t, codes.NotFound, status.Code(err))
-}
-
-func TestDispatchRejectsInvalidWorkspaceOwner(t *testing.T) {
-	t.Parallel()
-
-	tests := map[string]dispatch.CoordinatorEndpoint{
-		"missing ID":   {Host: "127.0.0.1", Port: 50055},
-		"missing host": {ID: "coord-1", Port: 50055},
-		"zero port":    {ID: "coord-1", Host: "127.0.0.1"},
-		"overflow":     {ID: "coord-1", Host: "127.0.0.1", Port: math.MaxUint16 + 1},
-	}
-	for name, owner := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := context.Background()
-			data := []byte("workspace")
-			desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-			dagRunStore := newMockDAGRunStore()
-			handler := NewHandler(HandlerConfig{
-				DAGRunRepository:   dagRunStore.repository,
-				WorkspaceBundleDir: t.TempDir(),
-				Owner:              owner,
-			})
-			handler.waitingPollers["poller-1"] = &workerInfo{workerID: "worker-1", taskChan: make(chan *coordinatorv1.Task, 1)}
-			require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
-
-			_, err := handler.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: workspaceDispatchTask(desc)})
-			require.Error(t, err)
-			assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-			dagRunStore.mu.Lock()
-			assert.Empty(t, dagRunStore.attempts)
-			dagRunStore.mu.Unlock()
-			references, listErr := handler.workspaceBundleStore.ListReferences(ctx)
-			require.NoError(t, listErr)
-			assert.Empty(t, references)
-			assert.True(t, handler.workspaceBundleStore.Has(desc.Digest))
-		})
-	}
-}
-
-func TestDispatchRetryKeepsAdmissionForMissingWorkspace(t *testing.T) {
-	t.Parallel()
-	registerCommandExecutorCapsForCoordinatorTest()
-
-	ctx := context.Background()
-	data := []byte("workspace")
-	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	baseDir := filepath.Join(t.TempDir(), "distributed")
-	dispatchStore, leaseStore, activeStore := newTestDispatchAdmissionTaskStore(baseDir)
-	heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
-	require.NoError(t, heartbeatStore.Upsert(ctx, dispatch.WorkerHeartbeatRecord{
-		WorkerID: "worker-1", LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-	}))
-	handler := NewHandler(HandlerConfig{
-		DAGRunRepository:          newMockDAGRunStore().repository,
-		DispatchTaskStore:         dispatchStore,
-		WorkerHeartbeatStore:      heartbeatStore,
-		DAGRunLeaseStore:          leaseStore,
-		ActiveDistributedRunStore: activeStore,
-		WorkspaceBundleDir:        t.TempDir(),
-		Owner:                     workspaceTestOwner(),
-	})
-	runRef := ir.NewDAGRunRef("test", "run-1")
-	attemptID := "test-attempt"
-	decision, err := dispatchStore.ReserveAdmission(ctx, dispatch.DispatchAdmissionRequest{
-		QueueName: "test-queue", MaxConcurrency: 1,
-		AttemptKey: ir.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID),
-		AttemptID:  attemptID, DAGRun: runRef, StaleThreshold: time.Minute,
-	})
+	assert.True(t, resp.Exists)
+	removed, err := handler.workspaceBundleStore.Cleanup(ctx, now.Add(-time.Hour))
 	require.NoError(t, err)
-	require.True(t, decision.Reserved)
-	task := workspaceDispatchTask(desc)
-	task.Operation = coordinatorv1.Operation_OPERATION_RETRY
-	task.QueueName = "test-queue"
-	req := &coordinatorv1.DispatchRequest{AdmissionReservationToken: decision.ReservationToken, Task: task}
-
-	_, err = handler.Dispatch(ctx, req)
-	require.Error(t, err)
-	assert.Equal(t, codes.NotFound, status.Code(err))
-	require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
-	_, err = handler.Dispatch(ctx, req)
-	require.NoError(t, err)
-
-	claimed, err := dispatchStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1"})
-	require.NoError(t, err)
-	require.NotNil(t, claimed)
-}
-
-func TestDispatchPinsWorkspaceBundleOwner(t *testing.T) {
-	t.Parallel()
-	registerCommandExecutorCapsForCoordinatorTest()
-
-	ctx := context.Background()
-	data := []byte("workspace")
-	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	baseDir := filepath.Join(t.TempDir(), "distributed")
-	dispatchStore := newTestDispatchTaskStore(baseDir)
-	heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
-	require.NoError(t, heartbeatStore.Upsert(ctx, dispatch.WorkerHeartbeatRecord{
-		WorkerID: "worker-1", LastHeartbeatAt: time.Now().UTC().UnixMilli(),
-	}))
-	owner := dispatch.CoordinatorEndpoint{ID: "coord-upload", Host: "upload.example.test", Port: 50055}
-	handler := NewHandler(HandlerConfig{
-		DAGRunRepository:     newMockDAGRunStore().repository,
-		DispatchTaskStore:    dispatchStore,
-		WorkerHeartbeatStore: heartbeatStore,
-		WorkspaceBundleDir:   t.TempDir(),
-		Owner:                owner,
-	})
-	require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
-
-	_, err := handler.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: workspaceDispatchTask(desc)})
-	require.NoError(t, err)
-	claimed, err := dispatchStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-1",
-		PollerID: "poller-1",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-poll", Host: "poll.example.test", Port: 50056},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, claimed)
-	assert.Equal(t, owner, claimed.Task.Owner)
-}
-
-func TestDispatchRollsBackWorkspaceBundleAfterFailedHandoff(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	data := []byte("workspace")
-	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir(), Owner: workspaceTestOwner()})
-	handler.waitingPollers["poller-1"] = &workerInfo{workerID: "worker-1", taskChan: make(chan *coordinatorv1.Task)}
-	require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
-
-	_, err := handler.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: workspaceDispatchTask(desc)})
-	require.Error(t, err)
-	references, listErr := handler.workspaceBundleStore.ListReferences(ctx)
-	require.NoError(t, listErr)
-	assert.Empty(t, references)
-	assert.False(t, handler.workspaceBundleStore.Has(desc.Digest))
-}
-
-func TestTerminalStatusReleasesWorkspaceBundle(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	data := []byte("workspace")
-	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir()})
-	require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
-	_, err := handler.workspaceBundleStore.Retain(ctx, "attempt-1", desc.Digest)
-	require.NoError(t, err)
-
-	handler.finalizeAttemptForStatus(ctx, &ir.DAGRunStatus{
-		AttemptKey: "attempt-1",
-		Status:     ir.Succeeded,
-	}, "")
-
-	assert.False(t, handler.workspaceBundleStore.Has(desc.Digest))
-}
-
-func TestWorkspaceBundleReconciliationReleasesOrphan(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	data := []byte("workspace")
-	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	handler := NewHandler(HandlerConfig{
-		WorkspaceBundleDir:  t.TempDir(),
-		DispatchTaskStore:   &failingDispatchTaskStore{},
-		StaleLeaseThreshold: -time.Second,
-	})
-	require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
-	_, err := handler.workspaceBundleStore.Retain(ctx, "attempt-1", desc.Digest)
-	require.NoError(t, err)
-
-	handler.reconcileWorkspaceBundles(ctx, time.Now().UTC())
-
-	assert.False(t, handler.workspaceBundleStore.Has(desc.Digest))
-}
-
-func workspaceDispatchTask(desc workspacebundle.Descriptor) *coordinatorv1.Task {
-	return &coordinatorv1.Task{
-		DagRunId:              "run-1",
-		Target:                "test",
-		Definition:            "name: test\nsteps: []\n",
-		WorkspaceBundleDigest: desc.Digest,
-		WorkspaceBundleSize:   desc.Size,
-	}
-}
-
-func workspaceTestOwner() dispatch.CoordinatorEndpoint {
-	return dispatch.CoordinatorEndpoint{ID: "coord-1", Host: "127.0.0.1", Port: 50055}
+	assert.Zero(t, removed)
+	assert.True(t, handler.workspaceBundleStore.Has(digest))
 }
 
 func workspaceBundleDigest(data []byte) string {

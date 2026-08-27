@@ -6,11 +6,9 @@ package workspacebundle
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -85,312 +83,142 @@ func TestStorePutReaderAndOpen(t *testing.T) {
 	assert.Equal(t, data, actual)
 }
 
-func TestStoreReferenceLifecycle(t *testing.T) {
+func TestStoreCleanupRemovesExpiredBundle(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	dir := t.TempDir()
-	store := NewStore(dir, DefaultLimits())
-	first := []byte("first bundle")
-	firstDesc := Descriptor{Digest: Digest(first), Size: int64(len(first))}
-	second := []byte("second bundle")
-	secondDesc := Descriptor{Digest: Digest(second), Size: int64(len(second))}
-	require.NoError(t, store.Put(ctx, firstDesc, first))
-	require.NoError(t, store.Put(ctx, secondDesc, second))
-
-	retained, err := store.Retain(ctx, "attempt-a", firstDesc.Digest)
+	now := time.Now().UTC()
+	store := NewStore(t.TempDir(), DefaultLimits())
+	oldData := []byte("old bundle")
+	oldDesc := Descriptor{Digest: Digest(oldData), Size: int64(len(oldData))}
+	freshData := []byte("fresh bundle")
+	freshDesc := Descriptor{Digest: Digest(freshData), Size: int64(len(freshData))}
+	require.NoError(t, store.Put(ctx, oldDesc, oldData))
+	require.NoError(t, store.Put(ctx, freshDesc, freshData))
+	oldPath, err := store.path(oldDesc.Digest)
 	require.NoError(t, err)
-	assert.True(t, retained)
-	retained, err = store.Retain(ctx, "attempt-a", firstDesc.Digest)
-	require.NoError(t, err)
-	assert.False(t, retained)
-	_, err = store.Retain(ctx, "attempt-b", firstDesc.Digest)
-	require.NoError(t, err)
-	_, err = store.Retain(ctx, "attempt-a", secondDesc.Digest)
-	require.ErrorContains(t, err, "already references")
-	assert.ErrorIs(t, err, os.ErrExist)
+	require.NoError(t, os.Chtimes(oldPath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
 
-	references, err := store.ListReferences(ctx)
-	require.NoError(t, err)
-	require.Len(t, references, 2)
-
-	require.NoError(t, store.Release(ctx, "attempt-a"))
-	assert.True(t, store.Has(firstDesc.Digest))
-
-	restarted := NewStore(dir, DefaultLimits())
-	require.NoError(t, restarted.Release(ctx, "attempt-b"))
-	assert.False(t, restarted.Has(firstDesc.Digest))
-	require.NoError(t, restarted.Release(ctx, "attempt-b"))
-}
-
-func TestStoreReleaseDoesNotLeaveDanglingReference(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	dir := t.TempDir()
-	first := NewStore(dir, DefaultLimits())
-	second := NewStore(dir, DefaultLimits())
-	data := []byte("shared bundle")
-	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
-	require.NoError(t, first.Put(ctx, desc, data))
-	_, err := first.Retain(ctx, "attempt-a", desc.Digest)
-	require.NoError(t, err)
-
-	// The second Err call checks the first reference after WalkDir snapshots refs.
-	releaseCtx := newBlockingErrContext(ctx, 2)
-	t.Cleanup(releaseCtx.unblock)
-	releaseDone := make(chan error, 1)
-	go func() {
-		releaseDone <- first.Release(releaseCtx, "attempt-a")
-	}()
-	waitForSignal(t, releaseCtx.blocked, "release did not reach the reference snapshot")
-
-	retainCtx := newObservedDoneContext(ctx)
-	retainDone := make(chan retainResult, 1)
-	go func() {
-		retained, err := second.Retain(retainCtx, "attempt-b", desc.Digest)
-		retainDone <- retainResult{retained: retained, err: err}
-	}()
-	result, completed := waitForRetainOrLock(t, retainDone, retainCtx.waiting)
-
-	releaseCtx.unblock()
-	require.NoError(t, waitForResult(t, releaseDone, "release did not finish"))
-	if !completed {
-		result = waitForResult(t, retainDone, "retain did not finish")
-	}
-
-	assertRetainConsistency(t, second, desc.Digest, result)
-}
-
-func TestStoreCleanupDoesNotLeaveDanglingReference(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	dir := t.TempDir()
-	first := NewStore(dir, DefaultLimits())
-	second := NewStore(dir, DefaultLimits())
-	data := []byte("shared bundle")
-	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
-	require.NoError(t, first.Put(ctx, desc, data))
-
-	// The first Err call checks the first managed entry after ReadDir snapshots it.
-	cleanupCtx := newBlockingErrContext(ctx, 1)
-	t.Cleanup(cleanupCtx.unblock)
-	cleanupDone := make(chan error, 1)
-	go func() {
-		_, err := first.CleanupUnreferenced(cleanupCtx, time.Now().Add(time.Hour))
-		cleanupDone <- err
-	}()
-	waitForSignal(t, cleanupCtx.blocked, "cleanup did not reach the managed bundle snapshot")
-
-	retainCtx := newObservedDoneContext(ctx)
-	retainDone := make(chan retainResult, 1)
-	go func() {
-		retained, err := second.Retain(retainCtx, "attempt-b", desc.Digest)
-		retainDone <- retainResult{retained: retained, err: err}
-	}()
-	result, completed := waitForRetainOrLock(t, retainDone, retainCtx.waiting)
-
-	cleanupCtx.unblock()
-	require.NoError(t, waitForResult(t, cleanupDone, "cleanup did not finish"))
-	if !completed {
-		result = waitForResult(t, retainDone, "retain did not finish")
-	}
-
-	assertRetainConsistency(t, second, desc.Digest, result)
-}
-
-func TestStoreCleanupUnreferencedPreservesLegacyBundle(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	dir := t.TempDir()
-	store := NewStore(dir, DefaultLimits())
-	managed := []byte("managed bundle")
-	managedDesc := Descriptor{Digest: Digest(managed), Size: int64(len(managed))}
-	require.NoError(t, store.Put(ctx, managedDesc, managed))
-
-	legacy := []byte("legacy bundle")
-	legacyDigest := Digest(legacy)
-	legacyPath, err := store.path(legacyDigest)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Dir(legacyPath), 0o750))
-	require.NoError(t, os.WriteFile(legacyPath, legacy, 0o600))
-
-	removed, err := store.CleanupUnreferenced(ctx, time.Now().Add(time.Hour))
+	removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
 	require.NoError(t, err)
 	assert.Equal(t, 1, removed)
-	assert.False(t, store.Has(managedDesc.Digest))
-	assert.True(t, store.Has(legacyDigest))
+	assert.False(t, store.Has(oldDesc.Digest))
+	assert.True(t, store.Has(freshDesc.Digest))
 }
 
-func TestStoreCleanupSkipsUnusableMetadata(t *testing.T) {
+func TestStoreAccessRefreshesExpiration(t *testing.T) {
 	t.Parallel()
 
-	tests := map[string]string{
-		"invalid JSON":   "{",
-		"invalid digest": `{"digest":"invalid","createdAt":0}`,
-	}
-	for name, metadata := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := context.Background()
-			dir := t.TempDir()
-			store := NewStore(dir, DefaultLimits())
-			data := []byte("managed bundle")
-			desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
-			require.NoError(t, store.Put(ctx, desc, data))
-
-			metadataPath := filepath.Join(dir, "managed", "-unusable.json")
-			require.NoError(t, os.WriteFile(metadataPath, []byte(metadata), 0o600))
-
-			removed, err := store.CleanupUnreferenced(ctx, time.Now().Add(time.Hour))
-			require.NoError(t, err)
-			assert.Equal(t, 1, removed)
-			assert.False(t, store.Has(desc.Digest))
-			assert.FileExists(t, metadataPath)
-		})
-	}
-
-	identityTests := map[string]struct {
-		foreign   bool
-		createdAt int64
-	}{
-		"foreign name":           {foreign: true, createdAt: 1},
-		"non-positive timestamp": {createdAt: 0},
-	}
-	for name, test := range identityTests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := context.Background()
-			dir := t.TempDir()
-			store := NewStore(dir, DefaultLimits())
-			data := []byte("managed bundle")
-			desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
-			require.NoError(t, store.Put(ctx, desc, data))
-
-			metadataPath := store.managedPath(desc.Digest)
-			if test.foreign {
-				metadataPath = filepath.Join(dir, "managed", "-foreign.json")
+	tests := map[string]func(context.Context, *Store, Descriptor, []byte) error{
+		"touch": func(ctx context.Context, store *Store, desc Descriptor, _ []byte) error {
+			exists, err := store.Touch(ctx, desc.Digest)
+			if !exists && err == nil {
+				return os.ErrNotExist
 			}
-			metadata, err := json.Marshal(managedBundle{Digest: desc.Digest, CreatedAt: test.createdAt})
-			require.NoError(t, err)
-			require.NoError(t, os.WriteFile(metadataPath, metadata, 0o600))
+			return err
+		},
+		"open": func(ctx context.Context, store *Store, desc Descriptor, _ []byte) error {
+			file, _, err := store.Open(ctx, desc.Digest)
+			if err != nil {
+				return err
+			}
+			return file.Close()
+		},
+		"duplicate put": func(ctx context.Context, store *Store, desc Descriptor, data []byte) error {
+			return store.Put(ctx, desc, data)
+		},
+	}
+	for name, access := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-			removed, err := store.CleanupUnreferenced(ctx, time.Now().Add(-time.Hour))
+			ctx := context.Background()
+			now := time.Now().UTC()
+			store := NewStore(t.TempDir(), DefaultLimits())
+			data := []byte("cached bundle")
+			desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+			require.NoError(t, store.Put(ctx, desc, data))
+			bundlePath, err := store.path(desc.Digest)
+			require.NoError(t, err)
+			require.NoError(t, os.Chtimes(bundlePath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+
+			require.NoError(t, access(ctx, store, desc, data))
+			removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
 			require.NoError(t, err)
 			assert.Zero(t, removed)
 			assert.True(t, store.Has(desc.Digest))
-			assert.FileExists(t, metadataPath)
 		})
 	}
 }
 
-type retainResult struct {
-	retained bool
-	err      error
-}
+func TestStoreCleanupIgnoresForeignPath(t *testing.T) {
+	t.Parallel()
 
-type blockingErrContext struct {
-	context.Context
-	blocked    chan struct{}
-	resume     chan struct{}
-	resumeOnce sync.Once
-	blockAt    int
-	calls      int
-}
+	ctx := context.Background()
+	now := time.Now().UTC()
+	dir := t.TempDir()
+	store := NewStore(dir, DefaultLimits())
+	data := []byte("fresh bundle")
+	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+	require.NoError(t, store.Put(ctx, desc, data))
 
-func newBlockingErrContext(ctx context.Context, blockAt int) *blockingErrContext {
-	return &blockingErrContext{
-		Context: ctx,
-		blocked: make(chan struct{}),
-		resume:  make(chan struct{}),
-		blockAt: blockAt,
-	}
-}
+	foreignDir := filepath.Join(dir, "foreign")
+	require.NoError(t, os.MkdirAll(foreignDir, 0o750))
+	foreignPath := filepath.Join(foreignDir, desc.Digest+archiveExt)
+	require.NoError(t, os.WriteFile(foreignPath, data, 0o600))
+	require.NoError(t, os.Chtimes(foreignPath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
 
-func (c *blockingErrContext) Err() error {
-	c.calls++
-	if c.calls == c.blockAt {
-		close(c.blocked)
-		<-c.resume
-	}
-	return c.Context.Err()
-}
-
-func (c *blockingErrContext) unblock() {
-	c.resumeOnce.Do(func() {
-		close(c.resume)
-	})
-}
-
-type observedDoneContext struct {
-	context.Context
-	waiting chan struct{}
-	once    sync.Once
-}
-
-func newObservedDoneContext(ctx context.Context) *observedDoneContext {
-	return &observedDoneContext{
-		Context: ctx,
-		waiting: make(chan struct{}),
-	}
-}
-
-func (c *observedDoneContext) Done() <-chan struct{} {
-	c.once.Do(func() {
-		close(c.waiting)
-	})
-	return c.Context.Done()
-}
-
-func waitForSignal(t *testing.T, signal <-chan struct{}, message string) {
-	t.Helper()
-	select {
-	case <-signal:
-	case <-time.After(5 * time.Second):
-		t.Fatal(message)
-	}
-}
-
-func waitForRetainOrLock(t *testing.T, result <-chan retainResult, waiting <-chan struct{}) (retainResult, bool) {
-	t.Helper()
-	select {
-	case value := <-result:
-		return value, true
-	case <-waiting:
-		return retainResult{}, false
-	case <-time.After(5 * time.Second):
-		t.Fatal("retain neither completed nor waited for the store lock")
-		return retainResult{}, false
-	}
-}
-
-func waitForResult[T any](t *testing.T, result <-chan T, message string) T {
-	t.Helper()
-	select {
-	case value := <-result:
-		return value
-	case <-time.After(5 * time.Second):
-		t.Fatal(message)
-		var zero T
-		return zero
-	}
-}
-
-func assertRetainConsistency(t *testing.T, store *Store, digest string, result retainResult) {
-	t.Helper()
-	if result.err == nil {
-		assert.True(t, result.retained)
-		assert.True(t, store.Has(digest), "successful retain must preserve its bundle")
-		return
-	}
-	require.ErrorIs(t, result.err, os.ErrNotExist)
-	references, err := store.ListReferences(context.Background())
+	removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
 	require.NoError(t, err)
-	assert.Empty(t, references)
+	assert.Zero(t, removed)
+	assert.True(t, store.Has(desc.Digest))
+	assert.FileExists(t, foreignPath)
+}
+
+func TestStoreCleanupAndTouchAreConsistent(t *testing.T) {
+	t.Parallel()
+
+	for range 10 {
+		ctx := context.Background()
+		now := time.Now().UTC()
+		dir := t.TempDir()
+		first := NewStore(dir, DefaultLimits())
+		second := NewStore(dir, DefaultLimits())
+		data := []byte("shared bundle")
+		desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+		require.NoError(t, first.Put(ctx, desc, data))
+		bundlePath, err := first.path(desc.Digest)
+		require.NoError(t, err)
+		require.NoError(t, os.Chtimes(bundlePath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+
+		start := make(chan struct{})
+		cleanupDone := make(chan error, 1)
+		touchDone := make(chan struct {
+			exists bool
+			err    error
+		}, 1)
+		go func() {
+			<-start
+			_, err := first.Cleanup(ctx, now.Add(-time.Hour))
+			cleanupDone <- err
+		}()
+		go func() {
+			<-start
+			exists, err := second.Touch(ctx, desc.Digest)
+			touchDone <- struct {
+				exists bool
+				err    error
+			}{exists: exists, err: err}
+		}()
+		close(start)
+
+		require.NoError(t, <-cleanupDone)
+		touched := <-touchDone
+		require.NoError(t, touched.err)
+		if touched.exists {
+			assert.True(t, first.Has(desc.Digest))
+		}
+	}
 }
 
 func TestPackDirectorySelectsDependenciesAndInjectsDAGSnapshot(t *testing.T) {

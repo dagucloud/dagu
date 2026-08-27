@@ -21,6 +21,10 @@ type stubWorkspaceBundleClient struct {
 	err  error
 }
 
+func (stubWorkspaceBundleClient) PutWorkspaceBundle(context.Context, workspacebundle.Descriptor, []byte) error {
+	return nil
+}
+
 func (c stubWorkspaceBundleClient) GetWorkspaceBundle(context.Context, string) ([]byte, error) {
 	if c.err != nil {
 		return nil, c.err
@@ -42,8 +46,7 @@ func TestMaterializeTaskWorkspaceCleansWorkDirOnExtractFailure(t *testing.T) {
 		WorkspaceBundleDagPath: "workflow.yaml",
 	}
 
-	client := stubWorkspaceBundleClient{data: data}
-	workspace, err := materializeTaskWorkspace(context.Background(), task, client.GetWorkspaceBundle, workDir)
+	workspace, err := materializeTaskWorkspace(context.Background(), task, stubWorkspaceBundleClient{data: data}, workDir)
 
 	require.Error(t, err)
 	assert.Nil(t, workspace)

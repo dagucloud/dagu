@@ -239,48 +239,9 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 	if task == nil {
 		return fmt.Errorf("dispatch task is nil")
 	}
-	upload, archivePath, err := cli.prepareTaskWorkspace(ctx, task)
-	if err != nil {
+	if err := cli.prepareTaskWorkspace(ctx, task); err != nil {
 		return err
 	}
-	if archivePath != "" {
-		defer func() { _ = fileutil.Remove(archivePath) }()
-	}
-	return cli.dispatch(ctx, req, upload)
-}
-
-// DispatchWorkspace uploads a workspace and dispatches its task to one coordinator.
-func (cli *clientImpl) DispatchWorkspace(
-	ctx context.Context,
-	req dispatch.DispatchRequest,
-	desc workspacebundle.Descriptor,
-	data []byte,
-) error {
-	if req.Task == nil {
-		return fmt.Errorf("dispatch task is nil")
-	}
-	if err := workspacebundle.Verify(data, desc.Digest); err != nil {
-		return err
-	}
-	runtimeexec.WithWorkspaceBundle(desc)(req.Task)
-	upload := &workspaceUpload{
-		desc: desc,
-		size: int64(len(data)),
-		open: func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(data)), nil
-		},
-	}
-	return cli.dispatch(ctx, req, upload)
-}
-
-type workspaceUpload struct {
-	desc workspacebundle.Descriptor
-	size int64
-	open func() (io.ReadCloser, error)
-}
-
-func (cli *clientImpl) dispatch(ctx context.Context, req dispatch.DispatchRequest, upload *workspaceUpload) error {
-	task := req.Task
 	protoTask, err := convert.DispatchTaskToProto(task)
 	if err != nil {
 		return err
@@ -311,39 +272,18 @@ func (cli *clientImpl) dispatch(ctx context.Context, req dispatch.DispatchReques
 		}
 
 		return cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
-			if upload != nil {
-				callCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
-				err := cli.ensureWorkspaceBundle(callCtx, client, upload)
-				cancel()
-				if err != nil {
-					return fmt.Errorf("prepare workspace bundle on coordinator %s: %w", member.ID, err)
-				}
-			}
-
 			// Create request
 			protoReq := &coordinatorv1.DispatchRequest{
 				Task:                      protoTask,
 				AdmissionReservationToken: req.AdmissionReservationToken,
 			}
 
-			dispatchTask := func() error {
-				dispatchCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
-				defer cancel()
-				_, err := client.client.Dispatch(dispatchCtx, protoReq)
-				return err
-			}
-			err := dispatchTask()
-			if upload != nil && status.Code(err) == codes.NotFound {
-				callCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
-				err = cli.ensureWorkspaceBundle(callCtx, client, upload)
-				cancel()
-				if err != nil {
-					return fmt.Errorf("restore workspace bundle on coordinator %s: %w", member.ID, err)
-				}
-				err = dispatchTask()
-			}
+			// Apply request timeout
+			dispatchCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
+			defer cancel()
 
-			if err != nil {
+			// Try to dispatch
+			if _, err := client.client.Dispatch(dispatchCtx, protoReq); err != nil {
 				logger.Warn(ctx, "Failed to dispatch task to coordinator",
 					tag.RunID(task.DAGRunID),
 					tag.Target(task.Target),
@@ -378,9 +318,9 @@ func (cli *clientImpl) dispatch(ctx context.Context, req dispatch.DispatchReques
 	}, policy, nil)
 }
 
-func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.DispatchTask) (*workspaceUpload, string, error) {
+func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.DispatchTask) error {
 	if task.WorkspaceBundleDigest != "" || strings.TrimSpace(task.Definition) == "" {
-		return nil, "", nil
+		return nil
 	}
 
 	loadOpts := []spec.LoadOption{
@@ -405,23 +345,21 @@ func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.
 		dag, err = spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("load DAG for file dependency snapshot: %w", err)
+		return fmt.Errorf("load DAG for file dependency snapshot: %w", err)
 	}
 	desc, archivePath, err := runtimeexec.PrepareDAGWorkspaceFile(ctx, dag, cli.config.WorkspaceBundleDir)
 	if err != nil {
-		return nil, "", err
+		return err
 	}
 	if desc == nil {
-		return nil, "", nil
+		return nil
+	}
+	defer func() { _ = fileutil.Remove(archivePath) }()
+	if err := cli.putWorkspaceBundleFile(ctx, *desc, archivePath); err != nil {
+		return fmt.Errorf("upload DAG file dependencies: %w", err)
 	}
 	runtimeexec.WithWorkspaceBundle(*desc)(task)
-	return &workspaceUpload{
-		desc: *desc,
-		size: desc.Size,
-		open: func() (io.ReadCloser, error) {
-			return os.Open(archivePath) //nolint:gosec // archivePath is created by PrepareDAGWorkspaceFile.
-		},
-	}, archivePath, nil
+	return nil
 }
 
 // Poll implements Client.
@@ -1613,6 +1551,12 @@ func (cli *clientImpl) PutWorkspaceBundle(ctx context.Context, desc workspacebun
 	})
 }
 
+func (cli *clientImpl) putWorkspaceBundleFile(ctx context.Context, desc workspacebundle.Descriptor, archivePath string) error {
+	return cli.putWorkspaceBundle(ctx, desc, desc.Size, func() (io.ReadCloser, error) {
+		return os.Open(archivePath) //nolint:gosec // archivePath is created by PrepareDAGWorkspaceFile.
+	})
+}
+
 func (cli *clientImpl) putWorkspaceBundle(
 	ctx context.Context,
 	desc workspacebundle.Descriptor,
@@ -1636,15 +1580,32 @@ func (cli *clientImpl) putWorkspaceBundle(
 			continue
 		}
 		callCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
-		err = cli.ensureWorkspaceBundle(callCtx, memberClient, &workspaceUpload{
-			desc: desc,
-			size: size,
-			open: open,
-		})
+		exists, err := hasWorkspaceBundleInMember(callCtx, memberClient, desc.Digest)
 		cancel()
 		if err != nil {
-			errs = append(errs, fmt.Errorf("store workspace bundle on coordinator %q: %w", member.ID, err))
+			errs = append(errs, fmt.Errorf("check workspace bundle on coordinator %q: %w", member.ID, err))
 			continue
+		}
+		if exists {
+			satisfied++
+			continue
+		}
+
+		reader, err := open()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("open workspace bundle for coordinator %q: %w", member.ID, err))
+			continue
+		}
+		callCtx, cancel = context.WithTimeout(ctx, cli.config.RequestTimeout)
+		err = putWorkspaceBundleToMember(callCtx, memberClient, desc, reader, size)
+		cancel()
+		closeErr := reader.Close()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("upload workspace bundle to coordinator %q: %w", member.ID, err))
+			continue
+		}
+		if closeErr != nil {
+			errs = append(errs, fmt.Errorf("close workspace bundle for coordinator %q: %w", member.ID, closeErr))
 		}
 		satisfied++
 	}
@@ -1653,23 +1614,6 @@ func (cli *clientImpl) putWorkspaceBundle(
 			errs = append(errs, fmt.Errorf("no healthy coordinators available"))
 		}
 		return fmt.Errorf("failed to upload workspace bundle: %w", errors.Join(errs...))
-	}
-	return nil
-}
-
-func (cli *clientImpl) ensureWorkspaceBundle(ctx context.Context, memberClient *client, upload *workspaceUpload) error {
-	exists, err := hasWorkspaceBundleInMember(ctx, memberClient, upload.desc.Digest)
-	if err != nil || exists {
-		return err
-	}
-	reader, err := upload.open()
-	if err != nil {
-		return fmt.Errorf("open workspace bundle: %w", err)
-	}
-	uploadErr := putWorkspaceBundleToMember(ctx, memberClient, upload.desc, reader, upload.size)
-	closeErr := reader.Close()
-	if uploadErr != nil || closeErr != nil {
-		return errors.Join(uploadErr, closeErr)
 	}
 	return nil
 }
@@ -1738,24 +1682,6 @@ func (cli *clientImpl) GetWorkspaceBundle(ctx context.Context, digest string) ([
 		var callErr error
 		data, callErr = getWorkspaceBundleFromMember(ctx, client, digest)
 		return callErr
-	})
-	return data, err
-}
-
-// GetWorkspaceBundleFrom downloads a bundle from its owner coordinator.
-func (cli *clientImpl) GetWorkspaceBundleFrom(
-	ctx context.Context,
-	owner serviceregistry.HostInfo,
-	digest string,
-) ([]byte, error) {
-	if !workspacebundle.ValidDigest(digest) {
-		return nil, fmt.Errorf("invalid workspace bundle digest %q", digest)
-	}
-	var data []byte
-	err := cli.callOwner(ctx, owner, true, func(ctx context.Context, _ serviceregistry.HostInfo, memberClient *client) error {
-		var err error
-		data, err = getWorkspaceBundleFromMember(ctx, memberClient, digest)
-		return err
 	})
 	return data, err
 }
