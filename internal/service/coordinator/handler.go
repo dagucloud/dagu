@@ -65,6 +65,7 @@ const defaultStaleLeaseThreshold = dagrun.DefaultStaleLeaseThreshold
 const (
 	defaultDispatchPollInitialWait = 250 * time.Millisecond
 	defaultDispatchPollMaxWait     = time.Second
+	workspaceBundleUploadTTL       = time.Hour
 )
 
 // defaultLeaseRefreshWriteInterval is the maximum interval between persisted
@@ -491,8 +492,15 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		} else {
 			h.ensureTaskAttemptMetadata(req.Task)
 		}
+		h.assignWorkspaceBundleOwner(req.Task)
+		workspaceRetained, err := h.retainWorkspaceBundle(ctx, req.Task)
+		if err != nil {
+			h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
+			return nil, status.Error(codes.FailedPrecondition, "failed to retain workspace bundle: "+err.Error())
+		}
 
 		if err := h.dispatchToWaitingPoller(req.Task); err != nil {
+			h.rollbackWorkspaceBundle(ctx, req.Task, workspaceRetained)
 			h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
 			return nil, status.Error(dispatchErrorCode(err), err.Error())
 		}
@@ -521,19 +529,71 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		h.releaseAdmissionToken(ctx, admissionToken)
 		return nil, status.Error(prepareAttemptErrorCode(err), "failed to prepare attempt: "+err.Error())
 	}
+	h.assignWorkspaceBundleOwner(req.Task)
+	workspaceRetained, err := h.retainWorkspaceBundle(ctx, req.Task)
+	if err != nil {
+		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
+		h.releaseAdmissionToken(ctx, admissionToken)
+		return nil, status.Error(codes.FailedPrecondition, "failed to retain workspace bundle: "+err.Error())
+	}
 	dispatchTask, err := convert.ProtoToDispatchTask(req.Task)
 	if err != nil {
+		h.rollbackWorkspaceBundle(ctx, req.Task, workspaceRetained)
 		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
 		h.releaseAdmissionToken(ctx, admissionToken)
 		return nil, status.Error(codes.Internal, "failed to encode task: "+err.Error())
 	}
 	if err := h.enqueueOrBindDispatchTask(ctx, admissionToken, dispatchTask); err != nil {
+		h.rollbackWorkspaceBundle(ctx, req.Task, workspaceRetained)
 		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
 		h.releaseAdmissionToken(ctx, admissionToken)
 		return nil, status.Error(dispatchBindErrorCode(err), "failed to enqueue task: "+err.Error())
 	}
 	h.notifyDispatchAvailable()
 	return &coordinatorv1.DispatchResponse{}, nil
+}
+
+func (h *Handler) retainWorkspaceBundle(ctx context.Context, task *coordinatorv1.Task) (bool, error) {
+	if task == nil || task.WorkspaceBundleDigest == "" {
+		return false, nil
+	}
+	if h.workspaceBundleStore == nil {
+		return false, fmt.Errorf("workspace bundle store is not configured")
+	}
+	return h.workspaceBundleStore.Retain(ctx, task.AttemptKey, task.WorkspaceBundleDigest)
+}
+
+func (h *Handler) assignWorkspaceBundleOwner(task *coordinatorv1.Task) {
+	if task == nil || task.WorkspaceBundleDigest == "" {
+		return
+	}
+	task.OwnerCoordinatorId = h.owner.ID
+	task.OwnerCoordinatorHost = h.owner.Host
+	task.OwnerCoordinatorPort = int32(h.owner.Port) //nolint:gosec // Configured network ports fit in int32.
+}
+
+func (h *Handler) rollbackWorkspaceBundle(ctx context.Context, task *coordinatorv1.Task, retained bool) {
+	if !retained || task == nil || h.workspaceBundleStore == nil {
+		return
+	}
+	if err := h.workspaceBundleStore.Release(context.WithoutCancel(ctx), task.AttemptKey); err != nil {
+		logger.Warn(ctx, "Failed to roll back workspace bundle reference",
+			tag.AttemptKey(task.AttemptKey),
+			tag.Error(err),
+		)
+	}
+}
+
+func (h *Handler) releaseWorkspaceBundle(ctx context.Context, attemptKey, message string) {
+	if h.workspaceBundleStore == nil || attemptKey == "" {
+		return
+	}
+	if err := h.workspaceBundleStore.Release(context.WithoutCancel(ctx), attemptKey); err != nil {
+		logger.Warn(ctx, message,
+			tag.AttemptKey(attemptKey),
+			tag.Error(err),
+		)
+	}
 }
 
 func dispatchBindErrorCode(err error) codes.Code {
@@ -569,13 +629,19 @@ func (h *Handler) releaseAdmissionToken(ctx context.Context, token string) {
 	)
 }
 
-func (h *Handler) finalizeAdmissionForStatus(ctx context.Context, status *ir.DAGRunStatus, attemptID string) {
-	if h.dispatchAdmissionStore == nil || status == nil ||
-		(status.Status != ir.Waiting && !isTerminalRunStatus(status.Status)) {
+func (h *Handler) finalizeAttemptForStatus(ctx context.Context, status *ir.DAGRunStatus, attemptID string) {
+	if status == nil {
 		return
 	}
 	attemptKey := dispatch.AttemptKeyForStatus(status, attemptID)
 	if attemptKey == "" {
+		return
+	}
+	if h.workspaceBundleStore != nil && workspaceBundleStatusDone(status.Status) {
+		h.releaseWorkspaceBundle(ctx, attemptKey, "Failed to release workspace bundle reference")
+	}
+	if h.dispatchAdmissionStore == nil ||
+		(status.Status != ir.Waiting && !isTerminalRunStatus(status.Status)) {
 		return
 	}
 	if err := h.dispatchAdmissionStore.FinalizeAdmissionAttempt(context.WithoutCancel(ctx), attemptKey); err != nil {
@@ -586,8 +652,8 @@ func (h *Handler) finalizeAdmissionForStatus(ctx context.Context, status *ir.DAG
 	}
 }
 
-func (h *Handler) finalizeAdmissionForAttempt(ctx context.Context, attempt dagrun.Attempt) {
-	if h.dispatchAdmissionStore == nil || attempt == nil {
+func (h *Handler) finalizeAttempt(ctx context.Context, attempt dagrun.Attempt) {
+	if attempt == nil {
 		return
 	}
 	status, err := attempt.ReadStatus(ctx)
@@ -597,7 +663,17 @@ func (h *Handler) finalizeAdmissionForAttempt(ctx context.Context, attempt dagru
 		)
 		return
 	}
-	h.finalizeAdmissionForStatus(ctx, status, attempt.ID())
+	h.finalizeAttemptForStatus(ctx, status, attempt.ID())
+}
+
+func workspaceBundleStatusDone(status ir.Status) bool {
+	switch status {
+	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:
+		return true
+	case ir.NotStarted, ir.Running, ir.Queued, ir.Waiting:
+		return false
+	}
+	return false
 }
 
 func queueDispatchStatusForTask(task *coordinatorv1.Task) (*ir.DAGRunStatus, error) {
@@ -1764,13 +1840,14 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 			// Live tracking must complete after the status write even if the
 			// reporting worker disconnects.
 			ownership.syncFromStatus(context.WithoutCancel(ctx), req.WorkerId, dagRunStatus, bootstrappedAttempt.ID())
-			h.finalizeAdmissionForStatus(ctx, dagRunStatus, bootstrappedAttempt.ID())
+			h.finalizeAttemptForStatus(ctx, dagRunStatus, bootstrappedAttempt.ID())
 			h.closeCachedWaitingAttempt(ctx, dagRunStatus, bootstrappedAttempt)
 
 			return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
 		}
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
 			logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, nil, remoteAttemptRejectedLeaseInactive)
+			h.releaseWorkspaceBundle(ctx, dagRunStatus.AttemptKey, "Failed to release inactive workspace bundle reference")
 			return &coordinatorv1.ReportStatusResponse{
 				Accepted: false,
 				Error:    remoteAttemptRejectedLeaseInactive,
@@ -1782,6 +1859,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	ownership := h.attemptOwnership()
 	if leaseMissing && latestStatus.Status != ir.NotStarted && !isTerminalRunStatus(latestStatus.Status) {
 		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, remoteAttemptRejectedLeaseInactive)
+		h.releaseWorkspaceBundle(ctx, dagRunStatus.AttemptKey, "Failed to release inactive workspace bundle reference")
 		return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: remoteAttemptRejectedLeaseInactive}, nil
 	}
 	accepted, rejectReason := ownership.statusDecision(ctx, latestStatus, dagRunStatus, statusDecisionOptions{
@@ -1790,6 +1868,9 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	})
 	if !accepted {
 		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, rejectReason)
+		if rejectReason != remoteAttemptRejectedManualAction {
+			h.releaseWorkspaceBundle(ctx, dagRunStatus.AttemptKey, "Failed to release rejected workspace bundle reference")
+		}
 		return &coordinatorv1.ReportStatusResponse{
 			Accepted: false,
 			Error:    rejectReason,
@@ -1830,6 +1911,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 		}
 		if !swapped {
 			logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, persisted, remoteAttemptRejectedSuperseded)
+			h.releaseWorkspaceBundle(ctx, dagRunStatus.AttemptKey, "Failed to release superseded workspace bundle reference")
 			return &coordinatorv1.ReportStatusResponse{
 				Accepted: false,
 				Error:    remoteAttemptRejectedSuperseded,
@@ -1852,7 +1934,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	// Live tracking must complete after the status write even if the reporting
 	// worker disconnects.
 	ownership.syncFromStatus(context.WithoutCancel(ctx), req.WorkerId, dagRunStatus, attempt.ID())
-	h.finalizeAdmissionForStatus(ctx, dagRunStatus, attempt.ID())
+	h.finalizeAttemptForStatus(ctx, dagRunStatus, attempt.ID())
 	h.closeCachedWaitingAttempt(ctx, dagRunStatus, attempt)
 
 	// Note: We don't close the attempt immediately on terminal status because
@@ -2540,6 +2622,72 @@ func (h *Handler) detectAndCleanupZombies(ctx context.Context) {
 	// stopped reporting owner-bound run heartbeats, including after coordinator
 	// restarts or owner coordinator loss.
 	h.detectStaleLeases(ctx)
+	h.reconcileWorkspaceBundles(ctx, time.Now().UTC())
+}
+
+func (h *Handler) reconcileWorkspaceBundles(ctx context.Context, now time.Time) {
+	if h.workspaceBundleStore == nil {
+		return
+	}
+
+	if h.dispatchTaskStore != nil || h.dagRunLeaseStore != nil {
+		references, err := h.workspaceBundleStore.ListReferences(ctx)
+		if err != nil {
+			logger.Error(ctx, "Failed to list workspace bundle references", tag.Error(err))
+			return
+		}
+		staleBefore := now.Add(-h.staleLeaseThreshold)
+		for _, reference := range references {
+			if time.UnixMilli(reference.RetainedAt).After(staleBefore) {
+				continue
+			}
+			alive, err := h.workspaceBundleReferenceAlive(ctx, reference.AttemptKey, now)
+			if err != nil {
+				logger.Warn(ctx, "Failed to reconcile workspace bundle reference",
+					tag.AttemptKey(reference.AttemptKey),
+					tag.Error(err),
+				)
+				continue
+			}
+			if alive {
+				continue
+			}
+			if err := h.workspaceBundleStore.Release(context.WithoutCancel(ctx), reference.AttemptKey); err != nil {
+				logger.Warn(ctx, "Failed to release orphaned workspace bundle reference",
+					tag.AttemptKey(reference.AttemptKey),
+					tag.Error(err),
+				)
+			}
+		}
+	}
+
+	if _, err := h.workspaceBundleStore.CleanupUnreferenced(ctx, now.Add(-workspaceBundleUploadTTL)); err != nil {
+		logger.Warn(ctx, "Failed to clean unreferenced workspace bundles", tag.Error(err))
+	}
+}
+
+func (h *Handler) workspaceBundleReferenceAlive(ctx context.Context, attemptKey string, now time.Time) (bool, error) {
+	if h.dispatchTaskStore != nil {
+		outstanding, err := h.dispatchTaskStore.HasOutstandingAttempt(ctx, attemptKey, h.staleLeaseThreshold)
+		if err != nil {
+			return false, err
+		}
+		if outstanding {
+			return true, nil
+		}
+	}
+	if h.dagRunLeaseStore == nil {
+		return false, nil
+	}
+	lease, err := h.dagRunLeaseStore.Get(ctx, attemptKey)
+	switch {
+	case err == nil:
+		return lease.IsFresh(now, h.staleLeaseThreshold), nil
+	case errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
+		return false, nil
+	default:
+		return false, err
+	}
 }
 
 // detectStaleLeases reconciles durable distributed-run leases and marks stale
@@ -3212,7 +3360,7 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 			tag.DAG(dagName), tag.RunID(dagRunID), tag.Error(err))
 		return
 	}
-	h.finalizeAdmissionForStatus(ctx, dagRunStatus, attempt.ID())
+	h.finalizeAttemptForStatus(ctx, dagRunStatus, attempt.ID())
 
 	logger.Warn(ctx, "Marked zombie run as FAILED",
 		tag.DAG(dagName), tag.RunID(dagRunID), slog.String("reason", reason))
@@ -3291,7 +3439,7 @@ func (h *Handler) RequestCancel(ctx context.Context, req *coordinatorv1.RequestC
 			Error:    fmt.Sprintf("failed to finalize cancellation: %v", err),
 		}, nil
 	}
-	h.finalizeAdmissionForAttempt(ctx, attempt)
+	h.finalizeAttempt(ctx, attempt)
 
 	logger.Info(ctx, "DAG run cancellation requested successfully")
 	return &coordinatorv1.RequestCancelResponse{Accepted: true}, nil

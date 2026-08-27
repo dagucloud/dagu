@@ -495,6 +495,10 @@ func (c *workspaceRemoteCoordinatorClient) GetWorkspaceBundle(context.Context, s
 	return c.data, nil
 }
 
+func (c *workspaceRemoteCoordinatorClient) GetWorkspaceBundleFrom(context.Context, serviceregistry.HostInfo, string) ([]byte, error) {
+	return c.data, nil
+}
+
 func newMockRemoteCoordinatorClient() *mockRemoteCoordinatorClient {
 	return &mockRemoteCoordinatorClient{
 		ReportStatusFunc: func(_ context.Context, _ *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {

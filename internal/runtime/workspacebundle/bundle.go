@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -32,7 +34,8 @@ const (
 	DefaultMaxUncompressedSize int64 = 256 << 20
 	DefaultMaxFiles                  = 8192
 
-	archiveExt = ".tar.gz"
+	archiveExt  = ".tar.gz"
+	metadataExt = ".json"
 )
 
 var (
@@ -628,6 +631,19 @@ func StoreDir(dataDir string) string {
 type Store struct {
 	dir    string
 	limits Limits
+	mu     sync.Mutex
+}
+
+// Reference records one attempt's ownership of a workspace bundle.
+type Reference struct {
+	AttemptKey string `json:"attemptKey"`
+	Digest     string `json:"digest"`
+	RetainedAt int64  `json:"retainedAt"`
+}
+
+type managedBundle struct {
+	Digest    string `json:"digest"`
+	CreatedAt int64  `json:"createdAt"`
 }
 
 type Client interface {
@@ -658,6 +674,10 @@ func (s *Store) PutReader(ctx context.Context, desc Descriptor, reader io.Reader
 	if strings.TrimSpace(s.dir) == "" {
 		return fmt.Errorf("workspace bundle store is not configured")
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	path, err := s.path(desc.Digest)
 	if err != nil {
 		return err
@@ -700,7 +720,7 @@ func (s *Store) PutReader(ctx context.Context, desc Descriptor, reader io.Reader
 		return fmt.Errorf("close workspace bundle: %w", err)
 	}
 	if _, err := os.Stat(path); err == nil {
-		return nil
+		return s.markManaged(ctx, desc.Digest)
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("stat workspace bundle: %w", err)
 	}
@@ -708,6 +728,276 @@ func (s *Store) PutReader(ctx context.Context, desc Descriptor, reader io.Reader
 		return fmt.Errorf("commit workspace bundle: %w", err)
 	}
 	cleanup = false
+	if err := s.markManaged(ctx, desc.Digest); err != nil {
+		_ = fileutil.Remove(path)
+		return err
+	}
+	return nil
+}
+
+// Retain associates an attempt with an existing workspace bundle.
+func (s *Store) Retain(ctx context.Context, attemptKey, digest string) (bool, error) {
+	attemptKey = strings.TrimSpace(attemptKey)
+	if attemptKey == "" {
+		return false, fmt.Errorf("workspace bundle attempt key is required")
+	}
+	if !ValidDigest(digest) {
+		return false, fmt.Errorf("invalid workspace bundle digest %q", digest)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	bundlePath, err := s.path(digest)
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Stat(bundlePath); err != nil {
+		return false, fmt.Errorf("stat workspace bundle: %w", err)
+	}
+
+	referencePath := s.referencePath(attemptKey)
+	existing, err := readReference(referencePath)
+	switch {
+	case err == nil:
+		if existing.AttemptKey != attemptKey {
+			return false, fmt.Errorf("workspace bundle reference key mismatch")
+		}
+		if existing.Digest != digest {
+			return false, fmt.Errorf("workspace bundle attempt %q already references %s", attemptKey, existing.Digest)
+		}
+		return false, nil
+	case !os.IsNotExist(err):
+		return false, err
+	}
+
+	if err := s.markManaged(ctx, digest); err != nil {
+		return false, err
+	}
+	if err := writeJSONFile(ctx, referencePath, Reference{
+		AttemptKey: attemptKey,
+		Digest:     digest,
+		RetainedAt: time.Now().UTC().UnixMilli(),
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Release removes an attempt reference and its now-unreferenced bundle.
+func (s *Store) Release(ctx context.Context, attemptKey string) error {
+	attemptKey = strings.TrimSpace(attemptKey)
+	if attemptKey == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	references, err := s.listReferences(ctx)
+	if err != nil {
+		return err
+	}
+	var released *Reference
+	for i := range references {
+		if references[i].AttemptKey == attemptKey {
+			released = &references[i]
+			break
+		}
+	}
+	if released == nil {
+		return nil
+	}
+	if err := fileutil.Remove(s.referencePath(attemptKey)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove workspace bundle reference: %w", err)
+	}
+	for _, reference := range references {
+		if reference.AttemptKey != attemptKey && reference.Digest == released.Digest {
+			return nil
+		}
+	}
+	return s.removeManagedBundle(released.Digest)
+}
+
+// ListReferences returns all managed workspace bundle references.
+func (s *Store) ListReferences(ctx context.Context) ([]Reference, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.listReferences(ctx)
+}
+
+// CleanupUnreferenced removes old managed bundles without references.
+func (s *Store) CleanupUnreferenced(ctx context.Context, before time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	references, err := s.listReferences(ctx)
+	if err != nil {
+		return 0, err
+	}
+	retained := make(map[string]struct{}, len(references))
+	for _, reference := range references {
+		retained[reference.Digest] = struct{}{}
+	}
+
+	entries, err := os.ReadDir(filepath.Join(s.dir, "managed"))
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("list managed workspace bundles: %w", err)
+	}
+	var removed int
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != metadataExt {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return removed, err
+		}
+		metadataPath := filepath.Join(s.dir, "managed", entry.Name())
+		var metadata managedBundle
+		if err := readJSONFile(metadataPath, &metadata); err != nil {
+			return removed, fmt.Errorf("read managed workspace bundle: %w", err)
+		}
+		if !ValidDigest(metadata.Digest) {
+			return removed, fmt.Errorf("invalid managed workspace bundle digest %q", metadata.Digest)
+		}
+		if _, ok := retained[metadata.Digest]; ok || !time.UnixMilli(metadata.CreatedAt).Before(before) {
+			continue
+		}
+		if err := s.removeManagedBundle(metadata.Digest); err != nil {
+			return removed, err
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+func (s *Store) listReferences(ctx context.Context) ([]Reference, error) {
+	root := filepath.Join(s.dir, "refs")
+	var references []Reference
+	err := filepath.WalkDir(root, func(referencePath string, entry fs.DirEntry, err error) error {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != metadataExt {
+			return nil
+		}
+		reference, err := readReference(referencePath)
+		if err != nil {
+			return err
+		}
+		if reference.AttemptKey == "" || !ValidDigest(reference.Digest) {
+			return fmt.Errorf("invalid workspace bundle reference %q", referencePath)
+		}
+		references = append(references, *reference)
+		return nil
+	})
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list workspace bundle references: %w", err)
+	}
+	sort.Slice(references, func(i, j int) bool {
+		return references[i].AttemptKey < references[j].AttemptKey
+	})
+	return references, nil
+}
+
+func (s *Store) markManaged(ctx context.Context, digest string) error {
+	metadataPath := s.managedPath(digest)
+	if _, err := os.Stat(metadataPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat managed workspace bundle: %w", err)
+	}
+	return writeJSONFile(ctx, metadataPath, managedBundle{
+		Digest:    digest,
+		CreatedAt: time.Now().UTC().UnixMilli(),
+	})
+}
+
+func (s *Store) removeManagedBundle(digest string) error {
+	bundlePath, err := s.path(digest)
+	if err != nil {
+		return err
+	}
+	if err := fileutil.Remove(bundlePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove workspace bundle: %w", err)
+	}
+	if err := fileutil.Remove(s.managedPath(digest)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove managed workspace bundle metadata: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) referencePath(attemptKey string) string {
+	digest := sha256.Sum256([]byte(attemptKey))
+	name := hex.EncodeToString(digest[:])
+	return filepath.Join(s.dir, "refs", name[:2], name+metadataExt)
+}
+
+func (s *Store) managedPath(digest string) string {
+	return filepath.Join(s.dir, "managed", digest+metadataExt)
+}
+
+func readReference(path string) (*Reference, error) {
+	var reference Reference
+	if err := readJSONFile(path, &reference); err != nil {
+		return nil, err
+	}
+	return &reference, nil
+}
+
+func readJSONFile(path string, dest any) error {
+	data, err := os.ReadFile(path) //nolint:gosec // Paths are derived from configured storage and hashed keys.
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, dest); err != nil {
+		return fmt.Errorf("decode %q: %w", path, err)
+	}
+	return nil
+}
+
+func writeJSONFile(ctx context.Context, path string, value any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("encode %q: %w", path, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("create metadata directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".metadata-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create metadata file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = fileutil.Remove(tmpPath)
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		return fmt.Errorf("write metadata file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close metadata file: %w", err)
+	}
+	if err := fileutil.ReplaceFile(tmpPath, path); err != nil {
+		return fmt.Errorf("commit metadata file: %w", err)
+	}
 	return nil
 }
 

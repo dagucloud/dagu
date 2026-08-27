@@ -156,6 +156,65 @@ func TestClientDispatch(t *testing.T) {
 		assert.Empty(t, entries)
 	})
 
+	t.Run("UploadsWorkspaceOnlyToDispatchOwner", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(root, "input.txt"), []byte("input"), 0o644))
+		definition := "name: test\nworking_dir: " + root + "\nsteps:\n  - name: consume\n    run: cat input.txt\n    dependencies: input.txt\n"
+		var uploads atomic.Int32
+		members := make([]serviceregistry.HostInfo, 0, 2)
+		servers := make([]*grpc.Server, 0, 2)
+		for i := range 2 {
+			var uploaded atomic.Bool
+			mockCoord := &mockCoordinatorService{
+				hasWorkspaceBundleFunc: func(context.Context, *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error) {
+					return &coordinatorv1.HasWorkspaceBundleResponse{}, nil
+				},
+				putWorkspaceBundleFunc: func(stream coordinatorv1.CoordinatorService_PutWorkspaceBundleServer) error {
+					for {
+						_, err := stream.Recv()
+						if err == io.EOF {
+							uploaded.Store(true)
+							uploads.Add(1)
+							return stream.SendAndClose(&coordinatorv1.PutWorkspaceBundleResponse{Accepted: true})
+						}
+						if err != nil {
+							return err
+						}
+					}
+				},
+				dispatchFunc: func(context.Context, *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
+					if !uploaded.Load() {
+						return nil, fmt.Errorf("workspace was uploaded to another coordinator")
+					}
+					return &coordinatorv1.DispatchResponse{}, nil
+				},
+			}
+			server, addr := startMockServer(t, mockCoord)
+			servers = append(servers, server)
+			host, port := parseHostPort(addr)
+			members = append(members, serviceregistry.HostInfo{
+				ID: fmt.Sprintf("coord-%d", i), Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+			})
+		}
+		defer func() {
+			for _, server := range servers {
+				server.Stop()
+			}
+		}()
+
+		config := coordinator.DefaultConfig()
+		config.MaxRetries = 0
+		config.WorkspaceBundleDir = filepath.Join(t.TempDir(), "workspace-bundles")
+		client := coordinator.New(&mockServiceMonitor{members: members}, config)
+		err := client.Dispatch(t.Context(), dispatch.DispatchRequest{Task: &dispatch.DispatchTask{
+			DAGRunID: "run-1", Target: "test", Definition: definition,
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, int32(1), uploads.Load())
+	})
+
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 		config := coordinator.DefaultConfig()
@@ -1966,6 +2025,46 @@ func TestClientReportStatus(t *testing.T) {
 	})
 }
 
+func TestClientGetWorkspaceBundleFromOwner(t *testing.T) {
+	t.Parallel()
+
+	data := []byte("owner bundle")
+	digest := workspacebundle.Digest(data)
+	ownerServer, ownerAddr := startMockServer(t, &mockCoordinatorService{
+		getWorkspaceBundleFunc: func(_ *coordinatorv1.GetWorkspaceBundleRequest, stream coordinatorv1.CoordinatorService_GetWorkspaceBundleServer) error {
+			return stream.Send(&coordinatorv1.WorkspaceBundleChunk{
+				Bundle:   &coordinatorv1.WorkspaceBundle{Digest: digest, Size: int64(len(data))},
+				Data:     data,
+				Sequence: 0,
+				IsFinal:  true,
+			})
+		},
+	})
+	defer ownerServer.Stop()
+	otherServer, otherAddr := startMockServer(t, &mockCoordinatorService{
+		getWorkspaceBundleFunc: func(*coordinatorv1.GetWorkspaceBundleRequest, coordinatorv1.CoordinatorService_GetWorkspaceBundleServer) error {
+			return status.Error(codes.NotFound, "wrong coordinator")
+		},
+	})
+	defer otherServer.Stop()
+
+	ownerHost, ownerPort := parseHostPort(ownerAddr)
+	otherHost, otherPort := parseHostPort(otherAddr)
+	owner := serviceregistry.HostInfo{ID: "coord-owner", Host: ownerHost, Port: ownerPort, Status: serviceregistry.ServiceStatusActive}
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{
+		{ID: "coord-other", Host: otherHost, Port: otherPort, Status: serviceregistry.ServiceStatusActive},
+		owner,
+	}}, coordinator.DefaultConfig())
+	ownerClient, ok := client.(interface {
+		GetWorkspaceBundleFrom(context.Context, serviceregistry.HostInfo, string) ([]byte, error)
+	})
+	require.True(t, ok)
+
+	actual, err := ownerClient.GetWorkspaceBundleFrom(t.Context(), owner, digest)
+	require.NoError(t, err)
+	assert.Equal(t, data, actual)
+}
+
 func TestClientGetDAGRunStatusReturnsResponseError(t *testing.T) {
 	t.Parallel()
 
@@ -2163,6 +2262,7 @@ type mockCoordinatorService struct {
 	listStateFunc          func(context.Context, *coordinatorv1.ListStateRequest) (*coordinatorv1.ListStateResponse, error)
 	hasWorkspaceBundleFunc func(context.Context, *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error)
 	putWorkspaceBundleFunc func(coordinatorv1.CoordinatorService_PutWorkspaceBundleServer) error
+	getWorkspaceBundleFunc func(*coordinatorv1.GetWorkspaceBundleRequest, coordinatorv1.CoordinatorService_GetWorkspaceBundleServer) error
 }
 
 type stallFirstHealthCheckServer struct {
@@ -2272,6 +2372,13 @@ func (m *mockCoordinatorService) HasWorkspaceBundle(ctx context.Context, req *co
 func (m *mockCoordinatorService) PutWorkspaceBundle(stream coordinatorv1.CoordinatorService_PutWorkspaceBundleServer) error {
 	if m.putWorkspaceBundleFunc != nil {
 		return m.putWorkspaceBundleFunc(stream)
+	}
+	return status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (m *mockCoordinatorService) GetWorkspaceBundle(req *coordinatorv1.GetWorkspaceBundleRequest, stream coordinatorv1.CoordinatorService_GetWorkspaceBundleServer) error {
+	if m.getWorkspaceBundleFunc != nil {
+		return m.getWorkspaceBundleFunc(req, stream)
 	}
 	return status.Error(codes.Unimplemented, "not implemented")
 }

@@ -574,6 +574,7 @@ func (s *DispatchTaskStore) createAdmissionPendingRecord(
 		Task:                      cloneDispatchTask(task),
 		TaskFileName:              attempt.PendingFileName,
 		EnqueuedAt:                now.UnixMilli(),
+		WorkspaceOwnerPinned:      task.WorkspaceBundleDigest != "" && task.Owner != (dispatch.CoordinatorEndpoint{}),
 		AdmissionReservationToken: attempt.ReservationToken,
 	}
 	rec, err := s.newDispatchRecord(attempt.PendingRecordID, payload, now, now)

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,6 +81,67 @@ func TestStorePutReaderAndOpen(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(len(data)), size)
 	assert.Equal(t, data, actual)
+}
+
+func TestStoreReferenceLifecycle(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := NewStore(dir, DefaultLimits())
+	first := []byte("first bundle")
+	firstDesc := Descriptor{Digest: Digest(first), Size: int64(len(first))}
+	second := []byte("second bundle")
+	secondDesc := Descriptor{Digest: Digest(second), Size: int64(len(second))}
+	require.NoError(t, store.Put(ctx, firstDesc, first))
+	require.NoError(t, store.Put(ctx, secondDesc, second))
+
+	retained, err := store.Retain(ctx, "attempt-a", firstDesc.Digest)
+	require.NoError(t, err)
+	assert.True(t, retained)
+	retained, err = store.Retain(ctx, "attempt-a", firstDesc.Digest)
+	require.NoError(t, err)
+	assert.False(t, retained)
+	_, err = store.Retain(ctx, "attempt-b", firstDesc.Digest)
+	require.NoError(t, err)
+	_, err = store.Retain(ctx, "attempt-a", secondDesc.Digest)
+	require.ErrorContains(t, err, "already references")
+
+	references, err := store.ListReferences(ctx)
+	require.NoError(t, err)
+	require.Len(t, references, 2)
+
+	require.NoError(t, store.Release(ctx, "attempt-a"))
+	assert.True(t, store.Has(firstDesc.Digest))
+
+	restarted := NewStore(dir, DefaultLimits())
+	require.NoError(t, restarted.Release(ctx, "attempt-b"))
+	assert.False(t, restarted.Has(firstDesc.Digest))
+	require.NoError(t, restarted.Release(ctx, "attempt-b"))
+}
+
+func TestStoreCleanupUnreferencedPreservesLegacyBundle(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := NewStore(dir, DefaultLimits())
+	managed := []byte("managed bundle")
+	managedDesc := Descriptor{Digest: Digest(managed), Size: int64(len(managed))}
+	require.NoError(t, store.Put(ctx, managedDesc, managed))
+
+	legacy := []byte("legacy bundle")
+	legacyDigest := Digest(legacy)
+	legacyPath, err := store.path(legacyDigest)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacyPath), 0o750))
+	require.NoError(t, os.WriteFile(legacyPath, legacy, 0o600))
+
+	removed, err := store.CleanupUnreferenced(ctx, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, 1, removed)
+	assert.False(t, store.Has(managedDesc.Digest))
+	assert.True(t, store.Has(legacyDigest))
 }
 
 func TestPackDirectorySelectsDependenciesAndInjectsDAGSnapshot(t *testing.T) {

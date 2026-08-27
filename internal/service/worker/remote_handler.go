@@ -32,7 +32,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
-	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -74,6 +73,10 @@ type RemoteTaskHandlerConfig struct {
 type runtimeStores struct {
 	SecretStore  secret.Store
 	ProfileStore profile.Store
+}
+
+type ownerWorkspaceBundleClient interface {
+	GetWorkspaceBundleFrom(context.Context, serviceregistry.HostInfo, string) ([]byte, error)
 }
 
 // NewRemoteTaskHandler creates a new TaskHandler that runs tasks in-process
@@ -502,13 +505,19 @@ func (h *remoteTaskHandler) loadDAG(ctx context.Context, task *coordinatorv1.Tas
 }
 
 func (h *remoteTaskHandler) loadWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task) (*loadedTaskDAG, error) {
-	client, ok := h.coordinatorClient.(workspacebundle.Client)
+	client, ok := h.coordinatorClient.(ownerWorkspaceBundleClient)
 	if !ok {
 		return nil, fmt.Errorf("coordinator client does not support workspace bundles")
 	}
+	owner, err := taskOwner(task)
+	if err != nil {
+		return nil, fmt.Errorf("invalid task owner coordinator metadata: %w", err)
+	}
 
 	workDir := remoteWorkspaceWorkDir(task)
-	workspace, err := materializeTaskWorkspace(ctx, task, client, taskWorkspaceDir(workDir))
+	workspace, err := materializeTaskWorkspace(ctx, task, func(ctx context.Context, digest string) ([]byte, error) {
+		return client.GetWorkspaceBundleFrom(ctx, owner, digest)
+	}, taskWorkspaceDir(workDir))
 	if err != nil {
 		return nil, err
 	}
