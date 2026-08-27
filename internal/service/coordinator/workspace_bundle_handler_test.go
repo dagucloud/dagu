@@ -124,6 +124,66 @@ func TestDispatchRetainsWorkspaceBundle(t *testing.T) {
 	assert.Equal(t, desc.Digest, references[0].Digest)
 }
 
+func TestDispatchReportsMissingWorkspaceBundle(t *testing.T) {
+	t.Parallel()
+
+	data := []byte("missing")
+	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir()})
+	handler.waitingPollers["poller-1"] = &workerInfo{workerID: "worker-1", taskChan: make(chan *coordinatorv1.Task, 1)}
+
+	_, err := handler.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: workspaceDispatchTask(desc)})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestDispatchRetryKeepsAdmissionForMissingWorkspace(t *testing.T) {
+	t.Parallel()
+	registerCommandExecutorCapsForCoordinatorTest()
+
+	ctx := context.Background()
+	data := []byte("workspace")
+	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
+	baseDir := filepath.Join(t.TempDir(), "distributed")
+	dispatchStore, leaseStore, activeStore := newTestDispatchAdmissionTaskStore(baseDir)
+	heartbeatStore := newTestWorkerHeartbeatStore(baseDir)
+	require.NoError(t, heartbeatStore.Upsert(ctx, dispatch.WorkerHeartbeatRecord{
+		WorkerID: "worker-1", LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+	}))
+	handler := NewHandler(HandlerConfig{
+		DAGRunRepository:          newMockDAGRunStore().repository,
+		DispatchTaskStore:         dispatchStore,
+		WorkerHeartbeatStore:      heartbeatStore,
+		DAGRunLeaseStore:          leaseStore,
+		ActiveDistributedRunStore: activeStore,
+		WorkspaceBundleDir:        t.TempDir(),
+	})
+	runRef := ir.NewDAGRunRef("test", "run-1")
+	attemptID := "test-attempt"
+	decision, err := dispatchStore.ReserveAdmission(ctx, dispatch.DispatchAdmissionRequest{
+		QueueName: "test-queue", MaxConcurrency: 1,
+		AttemptKey: ir.GenerateAttemptKey(runRef.Name, runRef.ID, runRef.Name, runRef.ID, attemptID),
+		AttemptID:  attemptID, DAGRun: runRef, StaleThreshold: time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, decision.Reserved)
+	task := workspaceDispatchTask(desc)
+	task.Operation = coordinatorv1.Operation_OPERATION_RETRY
+	task.QueueName = "test-queue"
+	req := &coordinatorv1.DispatchRequest{AdmissionReservationToken: decision.ReservationToken, Task: task}
+
+	_, err = handler.Dispatch(ctx, req)
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+	require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
+	_, err = handler.Dispatch(ctx, req)
+	require.NoError(t, err)
+
+	claimed, err := dispatchStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1"})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+}
+
 func TestDispatchPinsWorkspaceBundleOwner(t *testing.T) {
 	t.Parallel()
 	registerCommandExecutorCapsForCoordinatorTest()

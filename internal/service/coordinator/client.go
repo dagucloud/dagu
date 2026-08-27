@@ -326,12 +326,24 @@ func (cli *clientImpl) dispatch(ctx context.Context, req dispatch.DispatchReques
 				AdmissionReservationToken: req.AdmissionReservationToken,
 			}
 
-			// Apply request timeout
-			dispatchCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
-			defer cancel()
+			dispatchTask := func() error {
+				dispatchCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
+				defer cancel()
+				_, err := client.client.Dispatch(dispatchCtx, protoReq)
+				return err
+			}
+			err := dispatchTask()
+			if upload != nil && status.Code(err) == codes.NotFound {
+				callCtx, cancel := context.WithTimeout(ctx, cli.config.RequestTimeout)
+				err = cli.ensureWorkspaceBundle(callCtx, client, upload)
+				cancel()
+				if err != nil {
+					return fmt.Errorf("restore workspace bundle on coordinator %s: %w", member.ID, err)
+				}
+				err = dispatchTask()
+			}
 
-			// Try to dispatch
-			if _, err := client.client.Dispatch(dispatchCtx, protoReq); err != nil {
+			if err != nil {
 				logger.Warn(ctx, "Failed to dispatch task to coordinator",
 					tag.RunID(task.DAGRunID),
 					tag.Target(task.Target),

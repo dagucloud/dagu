@@ -495,8 +495,9 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		h.assignWorkspaceBundleOwner(req.Task)
 		workspaceRetained, err := h.retainWorkspaceBundle(ctx, req.Task)
 		if err != nil {
+			code := workspaceBundleRetainErrorCode(err)
 			h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
-			return nil, status.Error(codes.FailedPrecondition, "failed to retain workspace bundle: "+err.Error())
+			return nil, status.Error(code, "failed to retain workspace bundle: "+err.Error())
 		}
 
 		if err := h.dispatchToWaitingPoller(req.Task); err != nil {
@@ -532,9 +533,12 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	h.assignWorkspaceBundleOwner(req.Task)
 	workspaceRetained, err := h.retainWorkspaceBundle(ctx, req.Task)
 	if err != nil {
-		h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
-		h.releaseAdmissionToken(ctx, admissionToken)
-		return nil, status.Error(codes.FailedPrecondition, "failed to retain workspace bundle: "+err.Error())
+		code := workspaceBundleRetainErrorCode(err)
+		if code != codes.NotFound || admissionToken == "" {
+			h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
+			h.releaseAdmissionToken(ctx, admissionToken)
+		}
+		return nil, status.Error(code, "failed to retain workspace bundle: "+err.Error())
 	}
 	dispatchTask, err := convert.ProtoToDispatchTask(req.Task)
 	if err != nil {
@@ -561,6 +565,13 @@ func (h *Handler) retainWorkspaceBundle(ctx context.Context, task *coordinatorv1
 		return false, fmt.Errorf("workspace bundle store is not configured")
 	}
 	return h.workspaceBundleStore.Retain(ctx, task.AttemptKey, task.WorkspaceBundleDigest)
+}
+
+func workspaceBundleRetainErrorCode(err error) codes.Code {
+	if errors.Is(err, os.ErrNotExist) {
+		return codes.NotFound
+	}
+	return codes.FailedPrecondition
 }
 
 func (h *Handler) assignWorkspaceBundleOwner(task *coordinatorv1.Task) {

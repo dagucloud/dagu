@@ -215,6 +215,63 @@ func TestClientDispatch(t *testing.T) {
 		assert.Equal(t, int32(1), uploads.Load())
 	})
 
+	t.Run("ReuploadsWorkspaceAfterDispatchNotFound", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte("workspace")
+		desc := workspacebundle.Descriptor{Digest: workspacebundle.Digest(data), Size: int64(len(data))}
+		var hasCalls atomic.Int32
+		var uploads atomic.Int32
+		var dispatches atomic.Int32
+		mockCoord := &mockCoordinatorService{
+			hasWorkspaceBundleFunc: func(context.Context, *coordinatorv1.HasWorkspaceBundleRequest) (*coordinatorv1.HasWorkspaceBundleResponse, error) {
+				return &coordinatorv1.HasWorkspaceBundleResponse{Exists: hasCalls.Add(1) == 1}, nil
+			},
+			putWorkspaceBundleFunc: func(stream coordinatorv1.CoordinatorService_PutWorkspaceBundleServer) error {
+				for {
+					_, err := stream.Recv()
+					if err == io.EOF {
+						uploads.Add(1)
+						return stream.SendAndClose(&coordinatorv1.PutWorkspaceBundleResponse{Accepted: true})
+					}
+					if err != nil {
+						return err
+					}
+				}
+			},
+			dispatchFunc: func(context.Context, *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
+				if dispatches.Add(1) == 1 {
+					return nil, status.Error(codes.NotFound, "workspace bundle disappeared")
+				}
+				if uploads.Load() != 1 {
+					return nil, fmt.Errorf("workspace bundle was not reuploaded")
+				}
+				return &coordinatorv1.DispatchResponse{}, nil
+			},
+		}
+
+		server, addr := startMockServer(t, mockCoord)
+		defer server.Stop()
+		host, port := parseHostPort(addr)
+		config := coordinator.DefaultConfig()
+		config.MaxRetries = 0
+		client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
+			ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+		}}}, config)
+		workspaceClient, ok := client.(interface {
+			DispatchWorkspace(context.Context, dispatch.DispatchRequest, workspacebundle.Descriptor, []byte) error
+		})
+		require.True(t, ok)
+
+		err := workspaceClient.DispatchWorkspace(t.Context(), dispatch.DispatchRequest{
+			Task: &dispatch.DispatchTask{DAGRunID: "run-1", Target: "test", Definition: "name: test\nsteps: []\n"},
+		}, desc, data)
+		require.NoError(t, err)
+		assert.Equal(t, int32(2), hasCalls.Load())
+		assert.Equal(t, int32(1), uploads.Load())
+		assert.Equal(t, int32(2), dispatches.Load())
+	})
+
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 		config := coordinator.DefaultConfig()
