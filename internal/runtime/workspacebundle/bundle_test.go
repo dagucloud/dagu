@@ -285,6 +285,9 @@ func TestStoreCleanupContinuesAfterEntryError(t *testing.T) {
 	require.NoError(t, os.Mkdir(blockedDir, 0o700))
 	require.NoError(t, os.Chmod(blockedDir, 0))
 	t.Cleanup(func() { require.NoError(t, os.Chmod(blockedDir, 0o700)) })
+	if _, err := os.ReadDir(blockedDir); err == nil {
+		t.Skip("filesystem permissions do not block traversal")
+	}
 
 	store := NewStore(dir, DefaultLimits())
 	data := []byte("expired bundle")
@@ -374,6 +377,43 @@ func TestStoreRenewsLockDuringLongOperation(t *testing.T) {
 	close(release)
 	require.NoError(t, <-done)
 	assert.Equal(t, int32(1), lock.unlocks.Load())
+}
+
+func TestStoreLockWaitHonorsContext(t *testing.T) {
+	store := NewStore(t.TempDir(), DefaultLimits())
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- store.withLock(t.Context(), func(context.Context) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- store.withLock(ctx, func(context.Context) error {
+			return nil
+		})
+	}()
+
+	select {
+	case err := <-secondDone:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(100 * time.Millisecond):
+		close(release)
+		require.NoError(t, <-firstDone)
+		require.ErrorIs(t, <-secondDone, context.Canceled)
+		t.Fatal("local workspace bundle lock ignored cancellation")
+	}
+
+	close(release)
+	require.NoError(t, <-firstDone)
 }
 
 func TestStoreStopsOperationAfterHeartbeatFailure(t *testing.T) {

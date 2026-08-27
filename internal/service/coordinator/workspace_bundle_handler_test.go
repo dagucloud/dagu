@@ -250,6 +250,54 @@ func TestDispatchRejectsMissingWorkspaceBundle(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
+func TestDispatchPreservesBundleContextStatus(t *testing.T) {
+	data := []byte("workspace")
+	digest := workspaceBundleDigest(data)
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir()})
+	require.NoError(t, handler.workspaceBundleStore.Put(t.Context(), workspacebundle.Descriptor{
+		Digest: digest,
+		Size:   int64(len(data)),
+	}, data))
+
+	tests := []struct {
+		name string
+		ctx  func() context.Context
+		code codes.Code
+	}{
+		{
+			name: "canceled",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(t.Context())
+				cancel()
+				return ctx
+			},
+			code: codes.Canceled,
+		},
+		{
+			name: "deadline exceeded",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+				cancel()
+				return ctx
+			},
+			code: codes.DeadlineExceeded,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := handler.Dispatch(tc.ctx(), &coordinatorv1.DispatchRequest{Task: &coordinatorv1.Task{
+				Target:                "task",
+				DagRunId:              "run-" + tc.name,
+				Definition:            "name: task\nsteps: []\n",
+				WorkspaceBundleDigest: digest,
+			}})
+
+			require.Error(t, err)
+			assert.Equal(t, tc.code, status.Code(err))
+		})
+	}
+}
+
 type bundleListErrorStore struct {
 	dispatch.DispatchTaskStore
 }
