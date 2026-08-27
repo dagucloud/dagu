@@ -26,6 +26,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
@@ -36,6 +37,10 @@ const (
 
 	archiveExt  = ".tar.gz"
 	metadataExt = ".json"
+
+	storeLockStaleThreshold  = 30 * time.Second
+	storeLockRetryInterval   = 50 * time.Millisecond
+	storeLockHeartbeatPeriod = 10 * time.Second
 )
 
 var (
@@ -631,6 +636,7 @@ func StoreDir(dataDir string) string {
 type Store struct {
 	dir    string
 	limits Limits
+	lock   dirlock.DirLock
 	mu     sync.Mutex
 }
 
@@ -659,6 +665,10 @@ func NewStore(dir string, limits Limits) *Store {
 	return &Store{
 		dir:    dir,
 		limits: normalizeLimits(limits),
+		lock: dirlock.New(dir, &dirlock.LockOptions{
+			StaleThreshold: storeLockStaleThreshold,
+			RetryInterval:  storeLockRetryInterval,
+		}),
 	}
 }
 
@@ -674,9 +684,6 @@ func (s *Store) PutReader(ctx context.Context, desc Descriptor, reader io.Reader
 	if strings.TrimSpace(s.dir) == "" {
 		return fmt.Errorf("workspace bundle store is not configured")
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	path, err := s.path(desc.Digest)
 	if err != nil {
@@ -719,20 +726,26 @@ func (s *Store) PutReader(ctx context.Context, desc Descriptor, reader io.Reader
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close workspace bundle: %w", err)
 	}
-	if _, err := os.Stat(path); err == nil {
-		return s.markManaged(ctx, desc.Digest)
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat workspace bundle: %w", err)
-	}
-	if err := fileutil.ReplaceFile(tmpName, path); err != nil {
-		return fmt.Errorf("commit workspace bundle: %w", err)
-	}
-	cleanup = false
-	if err := s.markManaged(ctx, desc.Digest); err != nil {
-		_ = fileutil.Remove(path)
-		return err
-	}
-	return nil
+
+	return s.withLock(ctx, func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := os.Stat(path); err == nil {
+			return s.markManaged(ctx, desc.Digest)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("stat workspace bundle: %w", err)
+		}
+		if err := fileutil.ReplaceFile(tmpName, path); err != nil {
+			return fmt.Errorf("commit workspace bundle: %w", err)
+		}
+		cleanup = false
+		if err := s.markManaged(ctx, desc.Digest); err != nil {
+			_ = fileutil.Remove(path)
+			return err
+		}
+		return nil
+	})
 }
 
 // Retain associates an attempt with an existing workspace bundle.
@@ -745,43 +758,45 @@ func (s *Store) Retain(ctx context.Context, attemptKey, digest string) (bool, er
 		return false, fmt.Errorf("invalid workspace bundle digest %q", digest)
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	bundlePath, err := s.path(digest)
-	if err != nil {
-		return false, err
-	}
-	if _, err := os.Stat(bundlePath); err != nil {
-		return false, fmt.Errorf("stat workspace bundle: %w", err)
-	}
-
-	referencePath := s.referencePath(attemptKey)
-	existing, err := readReference(referencePath)
-	switch {
-	case err == nil:
-		if existing.AttemptKey != attemptKey {
-			return false, fmt.Errorf("workspace bundle reference key mismatch")
+	var retained bool
+	err := s.withLock(ctx, func(ctx context.Context) error {
+		bundlePath, err := s.path(digest)
+		if err != nil {
+			return err
 		}
-		if existing.Digest != digest {
-			return false, fmt.Errorf("workspace bundle attempt %q already references %s", attemptKey, existing.Digest)
+		if _, err := os.Stat(bundlePath); err != nil {
+			return fmt.Errorf("stat workspace bundle: %w", err)
 		}
-		return false, nil
-	case !os.IsNotExist(err):
-		return false, err
-	}
 
-	if err := s.markManaged(ctx, digest); err != nil {
-		return false, err
-	}
-	if err := writeJSONFile(ctx, referencePath, Reference{
-		AttemptKey: attemptKey,
-		Digest:     digest,
-		RetainedAt: time.Now().UTC().UnixMilli(),
-	}); err != nil {
-		return false, err
-	}
-	return true, nil
+		referencePath := s.referencePath(attemptKey)
+		existing, err := readReference(referencePath)
+		switch {
+		case err == nil:
+			if existing.AttemptKey != attemptKey {
+				return fmt.Errorf("workspace bundle reference key mismatch")
+			}
+			if existing.Digest != digest {
+				return fmt.Errorf("workspace bundle attempt %q already references %s", attemptKey, existing.Digest)
+			}
+			return nil
+		case !os.IsNotExist(err):
+			return err
+		}
+
+		if err := s.markManaged(ctx, digest); err != nil {
+			return err
+		}
+		if err := writeJSONFile(ctx, referencePath, Reference{
+			AttemptKey: attemptKey,
+			Digest:     digest,
+			RetainedAt: time.Now().UTC().UnixMilli(),
+		}); err != nil {
+			return err
+		}
+		retained = true
+		return nil
+	})
+	return retained, err
 }
 
 // Release removes an attempt reference and its now-unreferenced bundle.
@@ -791,88 +806,144 @@ func (s *Store) Release(ctx context.Context, attemptKey string) error {
 		return nil
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	references, err := s.listReferences(ctx)
-	if err != nil {
-		return err
-	}
-	var released *Reference
-	for i := range references {
-		if references[i].AttemptKey == attemptKey {
-			released = &references[i]
-			break
+	return s.withLock(ctx, func(ctx context.Context) error {
+		references, err := s.listReferences(ctx)
+		if err != nil {
+			return err
 		}
-	}
-	if released == nil {
-		return nil
-	}
-	if err := fileutil.Remove(s.referencePath(attemptKey)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove workspace bundle reference: %w", err)
-	}
-	for _, reference := range references {
-		if reference.AttemptKey != attemptKey && reference.Digest == released.Digest {
+		var released *Reference
+		for i := range references {
+			if references[i].AttemptKey == attemptKey {
+				released = &references[i]
+				break
+			}
+		}
+		if released == nil {
 			return nil
 		}
-	}
-	return s.removeManagedBundle(released.Digest)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := fileutil.Remove(s.referencePath(attemptKey)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove workspace bundle reference: %w", err)
+		}
+		for _, reference := range references {
+			if reference.AttemptKey != attemptKey && reference.Digest == released.Digest {
+				return nil
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return s.removeManagedBundle(released.Digest)
+	})
 }
 
 // ListReferences returns all managed workspace bundle references.
 func (s *Store) ListReferences(ctx context.Context) ([]Reference, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.listReferences(ctx)
+	var references []Reference
+	err := s.withLock(ctx, func(ctx context.Context) error {
+		var err error
+		references, err = s.listReferences(ctx)
+		return err
+	})
+	return references, err
 }
 
 // CleanupUnreferenced removes old managed bundles without references.
 func (s *Store) CleanupUnreferenced(ctx context.Context, before time.Time) (int, error) {
+	var removed int
+	err := s.withLock(ctx, func(ctx context.Context) error {
+		references, err := s.listReferences(ctx)
+		if err != nil {
+			return err
+		}
+		retained := make(map[string]struct{}, len(references))
+		for _, reference := range references {
+			retained[reference.Digest] = struct{}{}
+		}
+
+		entries, err := os.ReadDir(filepath.Join(s.dir, "managed"))
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("list managed workspace bundles: %w", err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != metadataExt {
+				continue
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			metadataPath := filepath.Join(s.dir, "managed", entry.Name())
+			var metadata managedBundle
+			if err := readJSONFile(metadataPath, &metadata); err != nil {
+				return fmt.Errorf("read managed workspace bundle: %w", err)
+			}
+			if !ValidDigest(metadata.Digest) {
+				return fmt.Errorf("invalid managed workspace bundle digest %q", metadata.Digest)
+			}
+			if _, ok := retained[metadata.Digest]; ok || !time.UnixMilli(metadata.CreatedAt).Before(before) {
+				continue
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := s.removeManagedBundle(metadata.Digest); err != nil {
+				return err
+			}
+			removed++
+		}
+		return nil
+	})
+	return removed, err
+}
+
+func (s *Store) withLock(ctx context.Context, fn func(context.Context) error) (retErr error) {
+	if strings.TrimSpace(s.dir) == "" {
+		return fmt.Errorf("workspace bundle store is not configured")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	references, err := s.listReferences(ctx)
-	if err != nil {
-		return 0, err
-	}
-	retained := make(map[string]struct{}, len(references))
-	for _, reference := range references {
-		retained[reference.Digest] = struct{}{}
+	if err := s.lock.Lock(ctx); err != nil {
+		return fmt.Errorf("lock workspace bundle store: %w", err)
 	}
 
-	entries, err := os.ReadDir(filepath.Join(s.dir, "managed"))
-	if os.IsNotExist(err) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("list managed workspace bundles: %w", err)
-	}
-	var removed int
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != metadataExt {
-			continue
+	// Keep the lease live while shared-storage scans hold the lock.
+	heartbeatDone := make(chan error, 1)
+	stopHeartbeat := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(storeLockHeartbeatPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				heartbeatDone <- nil
+				return
+			case <-stopHeartbeat:
+				heartbeatDone <- nil
+				return
+			case <-ticker.C:
+				if err := s.lock.Heartbeat(ctx); err != nil {
+					heartbeatDone <- fmt.Errorf("heartbeat workspace bundle store lock: %w", err)
+					return
+				}
+			}
 		}
-		if err := ctx.Err(); err != nil {
-			return removed, err
+	}()
+	defer func() {
+		close(stopHeartbeat)
+		retErr = errors.Join(retErr, <-heartbeatDone)
+		if err := s.lock.Unlock(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("unlock workspace bundle store: %w", err))
 		}
-		metadataPath := filepath.Join(s.dir, "managed", entry.Name())
-		var metadata managedBundle
-		if err := readJSONFile(metadataPath, &metadata); err != nil {
-			return removed, fmt.Errorf("read managed workspace bundle: %w", err)
-		}
-		if !ValidDigest(metadata.Digest) {
-			return removed, fmt.Errorf("invalid managed workspace bundle digest %q", metadata.Digest)
-		}
-		if _, ok := retained[metadata.Digest]; ok || !time.UnixMilli(metadata.CreatedAt).Before(before) {
-			continue
-		}
-		if err := s.removeManagedBundle(metadata.Digest); err != nil {
-			return removed, err
-		}
-		removed++
-	}
-	return removed, nil
+	}()
+
+	return fn(ctx)
 }
 
 func (s *Store) listReferences(ctx context.Context) ([]Reference, error) {

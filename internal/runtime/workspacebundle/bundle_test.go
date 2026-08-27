@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,6 +121,83 @@ func TestStoreReferenceLifecycle(t *testing.T) {
 	require.NoError(t, restarted.Release(ctx, "attempt-b"))
 }
 
+func TestStoreReleaseDoesNotLeaveDanglingReference(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	first := NewStore(dir, DefaultLimits())
+	second := NewStore(dir, DefaultLimits())
+	data := []byte("shared bundle")
+	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+	require.NoError(t, first.Put(ctx, desc, data))
+	_, err := first.Retain(ctx, "attempt-a", desc.Digest)
+	require.NoError(t, err)
+
+	// Release pauses after WalkDir snapshots the original reference directory.
+	releaseCtx := newBlockingErrContext(ctx, 2)
+	t.Cleanup(releaseCtx.unblock)
+	releaseDone := make(chan error, 1)
+	go func() {
+		releaseDone <- first.Release(releaseCtx, "attempt-a")
+	}()
+	waitForSignal(t, releaseCtx.blocked, "release did not reach the reference snapshot")
+
+	retainCtx := newObservedDoneContext(ctx)
+	retainDone := make(chan retainResult, 1)
+	go func() {
+		retained, err := second.Retain(retainCtx, "attempt-b", desc.Digest)
+		retainDone <- retainResult{retained: retained, err: err}
+	}()
+	result, completed := waitForRetainOrLock(t, retainDone, retainCtx.waiting)
+
+	releaseCtx.unblock()
+	require.NoError(t, waitForResult(t, releaseDone, "release did not finish"))
+	if !completed {
+		result = waitForResult(t, retainDone, "retain did not finish")
+	}
+
+	assertRetainConsistency(t, second, desc.Digest, result)
+}
+
+func TestStoreCleanupDoesNotLeaveDanglingReference(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	first := NewStore(dir, DefaultLimits())
+	second := NewStore(dir, DefaultLimits())
+	data := []byte("shared bundle")
+	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+	require.NoError(t, first.Put(ctx, desc, data))
+
+	// Cleanup pauses after snapshotting references and managed bundle entries.
+	cleanupCtx := newBlockingErrContext(ctx, 1)
+	t.Cleanup(cleanupCtx.unblock)
+	cleanupDone := make(chan error, 1)
+	go func() {
+		_, err := first.CleanupUnreferenced(cleanupCtx, time.Now().Add(time.Hour))
+		cleanupDone <- err
+	}()
+	waitForSignal(t, cleanupCtx.blocked, "cleanup did not reach the managed bundle snapshot")
+
+	retainCtx := newObservedDoneContext(ctx)
+	retainDone := make(chan retainResult, 1)
+	go func() {
+		retained, err := second.Retain(retainCtx, "attempt-b", desc.Digest)
+		retainDone <- retainResult{retained: retained, err: err}
+	}()
+	result, completed := waitForRetainOrLock(t, retainDone, retainCtx.waiting)
+
+	cleanupCtx.unblock()
+	require.NoError(t, waitForResult(t, cleanupDone, "cleanup did not finish"))
+	if !completed {
+		result = waitForResult(t, retainDone, "retain did not finish")
+	}
+
+	assertRetainConsistency(t, second, desc.Digest, result)
+}
+
 func TestStoreCleanupUnreferencedPreservesLegacyBundle(t *testing.T) {
 	t.Parallel()
 
@@ -142,6 +220,111 @@ func TestStoreCleanupUnreferencedPreservesLegacyBundle(t *testing.T) {
 	assert.Equal(t, 1, removed)
 	assert.False(t, store.Has(managedDesc.Digest))
 	assert.True(t, store.Has(legacyDigest))
+}
+
+type retainResult struct {
+	retained bool
+	err      error
+}
+
+type blockingErrContext struct {
+	context.Context
+	blocked    chan struct{}
+	resume     chan struct{}
+	resumeOnce sync.Once
+	blockAt    int
+	calls      int
+}
+
+func newBlockingErrContext(ctx context.Context, blockAt int) *blockingErrContext {
+	return &blockingErrContext{
+		Context: ctx,
+		blocked: make(chan struct{}),
+		resume:  make(chan struct{}),
+		blockAt: blockAt,
+	}
+}
+
+func (c *blockingErrContext) Err() error {
+	c.calls++
+	if c.calls == c.blockAt {
+		close(c.blocked)
+		<-c.resume
+	}
+	return c.Context.Err()
+}
+
+func (c *blockingErrContext) unblock() {
+	c.resumeOnce.Do(func() {
+		close(c.resume)
+	})
+}
+
+type observedDoneContext struct {
+	context.Context
+	waiting chan struct{}
+	once    sync.Once
+}
+
+func newObservedDoneContext(ctx context.Context) *observedDoneContext {
+	return &observedDoneContext{
+		Context: ctx,
+		waiting: make(chan struct{}),
+	}
+}
+
+func (c *observedDoneContext) Done() <-chan struct{} {
+	c.once.Do(func() {
+		close(c.waiting)
+	})
+	return c.Context.Done()
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, message string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatal(message)
+	}
+}
+
+func waitForRetainOrLock(t *testing.T, result <-chan retainResult, waiting <-chan struct{}) (retainResult, bool) {
+	t.Helper()
+	select {
+	case value := <-result:
+		return value, true
+	case <-waiting:
+		return retainResult{}, false
+	case <-time.After(5 * time.Second):
+		t.Fatal("retain neither completed nor waited for the store lock")
+		return retainResult{}, false
+	}
+}
+
+func waitForResult[T any](t *testing.T, result <-chan T, message string) T {
+	t.Helper()
+	select {
+	case value := <-result:
+		return value
+	case <-time.After(5 * time.Second):
+		t.Fatal(message)
+		var zero T
+		return zero
+	}
+}
+
+func assertRetainConsistency(t *testing.T, store *Store, digest string, result retainResult) {
+	t.Helper()
+	if result.err == nil {
+		assert.True(t, result.retained)
+		assert.True(t, store.Has(digest), "successful retain must preserve its bundle")
+		return
+	}
+	require.ErrorIs(t, result.err, os.ErrNotExist)
+	references, err := store.ListReferences(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, references)
 }
 
 func TestPackDirectorySelectsDependenciesAndInjectsDAGSnapshot(t *testing.T) {
