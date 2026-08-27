@@ -5,6 +5,7 @@ package eventstore
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -270,74 +271,65 @@ func TestCollectorDrainOnceReadsLargeCommittedEventLine(t *testing.T) {
 
 func TestCollectorCommittedIDAllocs(t *testing.T) {
 	const (
-		baselineFieldCount = 64
-		largeFieldCount    = 512
-		maxAllocationRate  = 2
+		baselineFieldCount  = 64
+		largeFieldCount     = 4096
+		maxAllocationGrowth = 32
 	)
 
-	newCollector := func(data map[string]any) (*Collector, string, map[string]struct{}) {
-		baseDir := t.TempDir()
+	newEventLine := func(data map[string]any) []byte {
 		event := testEvent("evt-allocs", time.Date(2026, 3, 29, 22, 0, 0, 0, time.UTC))
 		event.Data = data
-		writeCommittedEvents(t, baseDir, event.OccurredAt, [][]byte{mustMarshalEvent(t, event)})
-
-		collector, err := NewCollector(baseDir, 10)
-		require.NoError(t, err)
-		path := filepath.Join(baseDir, "_2026032922.jsonl")
-		return collector, path, map[string]struct{}{event.ID: {}}
+		return append(mustMarshalEvent(t, event), '\n')
 	}
 
-	small, smallPath, smallIDs := newCollector(testEventData(baselineFieldCount))
-	large, largePath, largeIDs := newCollector(testEventData(largeFieldCount))
+	small := newEventLine(testEventData(baselineFieldCount))
+	large := newEventLine(testEventData(largeFieldCount))
+	visit := func(string) bool { return true }
 
 	var smallErr error
 	smallAllocs := testing.AllocsPerRun(5, func() {
-		_, smallErr = small.findCommittedIDs(smallPath, smallIDs)
+		smallErr = scanCommittedIDStream(bytes.NewReader(small), "small", visit)
 	})
 	require.NoError(t, smallErr)
 
 	var largeErr error
 	largeAllocs := testing.AllocsPerRun(5, func() {
-		_, largeErr = large.findCommittedIDs(largePath, largeIDs)
+		largeErr = scanCommittedIDStream(bytes.NewReader(large), "large", visit)
 	})
 	require.NoError(t, largeErr)
-	require.LessOrEqual(t, largeAllocs, smallAllocs*maxAllocationRate)
+	// Scanner buffers may grow with the line, but skipped payload fields must not allocate individually.
+	require.LessOrEqual(t, largeAllocs, smallAllocs+maxAllocationGrowth)
 }
 
 func TestCollectorPendingEventAllocs(t *testing.T) {
 	const (
-		baselineFieldCount = 64
-		largeFieldCount    = 512
-		maxAllocationRate  = 2
+		baselineFieldCount  = 64
+		largeFieldCount     = 4096
+		maxAllocationGrowth = 32
 	)
 
-	newPendingEvent := func(data map[string]any) (*Collector, string) {
-		collector, err := NewCollector(t.TempDir(), 10)
-		require.NoError(t, err)
-
+	newPendingEvent := func(data map[string]any) []byte {
 		event := testEvent("evt-allocs", time.Date(2026, 3, 29, 22, 0, 0, 0, time.UTC))
 		event.Data = data
-		path := filepath.Join(collector.store.inboxDir, "pending.json")
-		require.NoError(t, os.WriteFile(path, mustMarshalEvent(t, event), filePermissions))
-
-		return collector, path
+		return mustMarshalEvent(t, event)
 	}
 
-	small, smallPath := newPendingEvent(testEventData(baselineFieldCount))
-	large, largePath := newPendingEvent(testEventData(largeFieldCount))
+	small := newPendingEvent(testEventData(baselineFieldCount))
+	large := newPendingEvent(testEventData(largeFieldCount))
 
 	var smallErr error
 	smallAllocs := testing.AllocsPerRun(5, func() {
-		_, smallErr = small.readPendingEvent(smallPath)
+		_, smallErr = decodePendingEvent("small", small)
 	})
 	require.NoError(t, smallErr)
 
 	var largeErr error
 	largeAllocs := testing.AllocsPerRun(5, func() {
-		_, largeErr = large.readPendingEvent(largePath)
+		_, largeErr = decodePendingEvent("large", large)
 	})
 	require.NoError(t, largeErr)
-	require.LessOrEqual(t, largeAllocs, smallAllocs*maxAllocationRate)
+	// Raw payload retention is constant; skipped payload fields must not allocate individually.
+	require.LessOrEqual(t, largeAllocs, smallAllocs+maxAllocationGrowth)
 }
 
 func testEventData(fieldCount int) map[string]any {
