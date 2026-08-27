@@ -5,6 +5,7 @@ package monitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/gofrs/flock"
 )
 
 // StateStore persists encoded monitor state in a file.
@@ -84,10 +86,12 @@ func (s *StateStore) Quarantine(_ context.Context) (string, error) {
 	return quarantinedPath, nil
 }
 
-// Lease coordinates one active monitor through a directory lock.
+// Lease coordinates one active monitor across processes.
 type Lease struct {
 	dirlock.DirLock
-	location string
+	processLock *flock.Flock
+	location    string
+	opts        *dirlock.LockOptions
 }
 
 // NewLease creates a file-backed monitor lease for a state file.
@@ -95,10 +99,82 @@ func NewLease(stateFile string, opts *dirlock.LockOptions) *Lease {
 	if stateFile == "" {
 		return nil
 	}
+	if opts == nil {
+		opts = &dirlock.LockOptions{}
+	}
 	location := filepath.Clean(stateFile) + ".lock"
-	return &Lease{DirLock: dirlock.New(location, opts), location: location}
+	return &Lease{
+		DirLock:     dirlock.New(location, opts),
+		processLock: flock.New(location + ".flock"),
+		location:    location,
+		opts:        opts,
+	}
 }
 
 func (l *Lease) Location() string {
 	return l.location
+}
+
+func (l *Lease) TryLock() error {
+	if err := fileutil.MkdirAll(filepath.Dir(l.location), 0o750); err != nil {
+		return fmt.Errorf("create monitor lock directory: %w", err)
+	}
+
+	// Prevent stale recovery from replacing a lease held by a live process.
+	locked, err := l.processLock.TryLock()
+	if err != nil {
+		return fmt.Errorf("acquire monitor process lock: %w", err)
+	}
+	if !locked {
+		return dirlock.ErrLockConflict
+	}
+
+	if err := l.DirLock.TryLock(); err != nil {
+		unlockErr := l.processLock.Unlock()
+		if unlockErr != nil {
+			unlockErr = fmt.Errorf("release monitor process lock: %w", unlockErr)
+		}
+		return errors.Join(err, unlockErr)
+	}
+	return nil
+}
+
+func (l *Lease) Lock(ctx context.Context) error {
+	if err := l.TryLock(); err == nil {
+		return nil
+	} else if !errors.Is(err, dirlock.ErrLockConflict) {
+		return err
+	}
+	if l.opts.OnWait != nil {
+		l.opts.OnWait()
+	}
+
+	ticker := time.NewTicker(l.opts.RetryInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if err := l.TryLock(); err == nil {
+				return nil
+			} else if !errors.Is(err, dirlock.ErrLockConflict) {
+				return err
+			}
+		}
+	}
+}
+
+func (l *Lease) Unlock() error {
+	directoryErr := l.DirLock.Unlock()
+	processErr := l.processLock.Unlock()
+	if processErr != nil {
+		processErr = fmt.Errorf("release monitor process lock: %w", processErr)
+	}
+	return errors.Join(directoryErr, processErr)
+}
+
+func (l *Lease) IsHeldByMe() bool {
+	return l.processLock.Locked() && l.DirLock.IsHeldByMe()
 }

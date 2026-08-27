@@ -276,7 +276,7 @@ func TestNotificationMonitor_ConcurrentBootstrapCapturesHeadOnce(t *testing.T) {
 	assert.Equal(t, 1, headCalls)
 }
 
-func TestNotificationMonitor_BootstrapDoesNotPersistAfterLeaseLoss(t *testing.T) {
+func TestNotificationMonitor_BootstrapLeaseCannotBeReplaced(t *testing.T) {
 	t.Parallel()
 
 	store := &blockingHeadStore{
@@ -285,7 +285,11 @@ func TestNotificationMonitor_BootstrapDoesNotPersistAfterLeaseLoss(t *testing.T)
 		release:               make(chan struct{}),
 	}
 	stateFile := filepath.Join(t.TempDir(), "state.json")
-	lease := filemonitor.NewLease(stateFile, &dirlock.LockOptions{})
+	lockOpts := &dirlock.LockOptions{
+		StaleThreshold: time.Millisecond,
+		RetryInterval:  DefaultNotificationLockRetryInterval,
+	}
+	lease := filemonitor.NewLease(stateFile, lockOpts)
 	monitor := NewNotificationMonitor(
 		eventstore.New(store),
 		filemonitor.NewStateStore(stateFile),
@@ -300,16 +304,19 @@ func TestNotificationMonitor_BootstrapDoesNotPersistAfterLeaseLoss(t *testing.T)
 		errCh <- monitor.Bootstrap(context.Background())
 	}()
 	<-store.started
-	require.NoError(t, os.RemoveAll(filepath.Join(lease.Location(), dirlock.LockDirectoryName)))
-	replacement := filemonitor.NewLease(stateFile, &dirlock.LockOptions{})
-	require.NoError(t, replacement.TryLock())
+	stale := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(filepath.Join(lease.Location(), dirlock.LockDirectoryName), stale, stale))
+	replacement := filemonitor.NewLease(stateFile, lockOpts)
+	replacementErr := replacement.TryLock()
 	defer func() {
 		require.NoError(t, replacement.Unlock())
 	}()
 	close(store.release)
 
-	require.Error(t, <-errCh)
-	assert.False(t, newNotificationStateStore(filemonitor.NewStateStore(stateFile)).IsBootstrapped(context.Background()))
+	bootstrapErr := <-errCh
+	require.ErrorIs(t, replacementErr, dirlock.ErrLockConflict)
+	require.NoError(t, bootstrapErr)
+	assert.True(t, newNotificationStateStore(filemonitor.NewStateStore(stateFile)).IsBootstrapped(context.Background()))
 }
 
 func TestNotificationMonitor_BootstrapReturnsErrors(t *testing.T) {
