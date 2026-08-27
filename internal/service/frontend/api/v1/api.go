@@ -62,6 +62,8 @@ import (
 
 var _ api.StrictServerInterface = (*API)(nil)
 
+var loadBaseOpenAPISpec = sync.OnceValues(api.GetSwagger)
+
 type API struct {
 	dagRepository        *persis.DAGRepository
 	dagRunRepository     *persis.DAGRunRepository
@@ -662,15 +664,17 @@ func (a *API) evaluateMountedAPIPath(ctx context.Context) string {
 }
 
 func (a *API) loadOpenAPISpec(ctx context.Context) (*openapi3.T, error) {
-	swagger, err := api.GetSwagger()
+	base, err := loadBaseOpenAPISpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get swagger: %w", err)
 	}
 
+	// The parsed schema is shared; each API owns its mounted server definition.
+	swagger := *base
 	swagger.Servers = openapi3.Servers{
 		&openapi3.Server{URL: a.evaluateMountedAPIPath(ctx)},
 	}
-	return swagger, nil
+	return &swagger, nil
 }
 
 func (a *API) createValidatorMiddleware(swagger *openapi3.T) func(http.Handler) http.Handler {
