@@ -11,7 +11,7 @@ import (
 
 // DefaultStaleLeaseThreshold is the default interval after which an
 // unobserved distributed run is considered stale.
-const DefaultStaleLeaseThreshold = 30 * time.Second
+const DefaultStaleLeaseThreshold = 90 * time.Second
 
 // IsLeaseActive reports whether the coordinator has observed the run within
 // the stale threshold. A run without a lease timestamp is stale.
