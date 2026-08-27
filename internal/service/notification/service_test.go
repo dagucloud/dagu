@@ -16,17 +16,20 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	notificationmodel "github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -316,8 +319,25 @@ func TestService_DeliversLifecycleEvent(t *testing.T) {
 	eventStore, err := fileeventstore.New(t.TempDir())
 	require.NoError(t, err)
 	eventService := eventstore.New(eventStore)
-	cursor, err := eventService.DAGRunHeadCursor(context.Background())
-	require.NoError(t, err)
+
+	monitorConfig := chatbridge.DefaultNotificationMonitorConfig()
+	monitorConfig.PollInterval = 10 * time.Millisecond
+	monitorConfig.UrgentWindow = 10 * time.Millisecond
+	monitorConfig.SeenEvictInterval = time.Hour
+	stateFile := filepath.Join(t.TempDir(), "monitor-state.json")
+	monitor := chatbridge.NewNotificationMonitor(
+		eventService,
+		filemonitor.NewStateStore(stateFile),
+		filemonitor.NewLease(stateFile, &dirlock.LockOptions{
+			StaleThreshold: chatbridge.DefaultNotificationLockStaleThreshold,
+			RetryInterval:  chatbridge.DefaultNotificationLockRetryInterval,
+		}),
+		svc,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		monitorConfig,
+	)
+	require.NoError(t, monitor.Bootstrap(context.Background()))
+
 	require.NoError(t, eventService.Emit(context.Background(), eventstore.NewDAGRunEvent(
 		eventstore.Source{Service: eventstore.SourceServiceScheduler},
 		eventstore.TypeDAGRunFailed,
@@ -331,19 +351,6 @@ func TestService_DeliversLifecycleEvent(t *testing.T) {
 		nil,
 	)))
 
-	monitorConfig := chatbridge.DefaultNotificationMonitorConfig()
-	monitorConfig.BootstrapCursor = &cursor
-	monitorConfig.PollInterval = 10 * time.Millisecond
-	monitorConfig.UrgentWindow = 10 * time.Millisecond
-	monitorConfig.SeenEvictInterval = time.Hour
-	monitor := chatbridge.NewNotificationMonitor(
-		eventService,
-		nil,
-		nil,
-		svc,
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		monitorConfig,
-	)
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 

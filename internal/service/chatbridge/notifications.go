@@ -364,6 +364,63 @@ func (b *NotificationBatcher) DiscardDestinations(destinations []string) {
 	}
 }
 
+func (b *NotificationBatcher) discardEvents(destination string, keys map[string]struct{}) {
+	if destination == "" || len(keys) == 0 {
+		return
+	}
+
+	b.mu.Lock()
+	if b.stopped {
+		b.mu.Unlock()
+		return
+	}
+
+	var timers []*time.Timer
+	for bucketKey, bucket := range b.buckets {
+		if bucket == nil || bucket.destination != destination {
+			continue
+		}
+		for runKey, event := range bucket.events {
+			if _, ok := keys[event.Key]; !ok {
+				continue
+			}
+			delete(bucket.events, runKey)
+			delete(b.runIndex, notificationDestinationRunKey(destination, runKey))
+		}
+		if len(bucket.events) == 0 {
+			if bucket.timer != nil {
+				timers = append(timers, bucket.timer)
+			}
+			delete(b.buckets, bucketKey)
+		}
+	}
+
+	filteredReady := b.ready[:0]
+	for _, pending := range b.ready {
+		if pending.Destination != destination {
+			filteredReady = append(filteredReady, pending)
+			continue
+		}
+		filteredEvents := pending.Batch.Events[:0]
+		for _, event := range pending.Batch.Events {
+			if _, ok := keys[event.Key]; ok {
+				continue
+			}
+			filteredEvents = append(filteredEvents, event)
+		}
+		pending.Batch.Events = filteredEvents
+		if len(filteredEvents) > 0 {
+			filteredReady = append(filteredReady, pending)
+		}
+	}
+	b.ready = filteredReady
+	b.mu.Unlock()
+
+	for _, timer := range timers {
+		timer.Stop()
+	}
+}
+
 // flushBucketsLocked synchronously moves buffered buckets of the given class
 // to the ready queue, stopping any pending timers. It is safe to call when the
 // batcher has not been stopped.

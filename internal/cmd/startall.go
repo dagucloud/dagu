@@ -130,6 +130,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		eventCollector, err := fileeventstore.NewCollector(
 			serviceCtx.Config.Paths.EventStoreDir,
 			serviceCtx.Config.EventStore.RetentionDays,
+			fileeventstore.WithDedupeCacheBytes(serviceCtx.Config.Cache.Limits().EventStoreBytes),
 		)
 		if err != nil {
 			logger.Warn(serviceCtx, "Failed to initialize event collector; continuing without collection", tag.Error(err))
@@ -190,6 +191,11 @@ func runStartAll(ctx *Context, _ []string) error {
 		coord.DisableHealthServer()
 	} else {
 		logger.Info(serviceCtx, "Coordinator disabled via configuration")
+	}
+
+	// Persist monitor boundaries before any bundled service can emit DAG-run events.
+	if err := scheduler.BootstrapMonitors(serviceCtx); err != nil {
+		return fmt.Errorf("failed to bootstrap monitors: %w", err)
 	}
 
 	// Start resource monitoring service (starts its own goroutine internally)

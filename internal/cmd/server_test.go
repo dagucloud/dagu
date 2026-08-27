@@ -6,6 +6,7 @@ package cmd_test
 import (
 	"fmt"
 	"net"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
@@ -29,9 +30,9 @@ func TestServerCommand(t *testing.T) {
 		th := test.SetupCommand(t)
 		listener, port := test.ReserveServerListener(t)
 		configFile := th.TempFile(t, "server-config.yaml", fmt.Appendf(nil, "host: 127.0.0.1\nport: %s\n", port))
-		cancelWhenLogContains(t, th, port)
+		cancelWhenLogContains(t, th, "Server is starting")
 		th.RunCommand(t, cmd.Server(frontend.WithListener(listener)), test.CmdTest{
-			Args:        []string{"server", "--config", configFile},
+			Args:        []string{"server", "--config", configFile, "--dagu-home", filepath.Dir(th.Config.Paths.DataDir)},
 			ExpectedOut: []string{port},
 		})
 	})

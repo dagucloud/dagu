@@ -240,6 +240,51 @@ func TestNotificationBatcher_DiscardDestinationsRemovesReadyAndBufferedBatches(t
 	}, 200*time.Millisecond, 20*time.Millisecond)
 }
 
+func TestNotificationBatcher_DiscardEventsRemovesReadyAndBufferedEvents(t *testing.T) {
+	t.Parallel()
+
+	batcher := NewNotificationBatcher(80*time.Millisecond, 20*time.Millisecond)
+	defer batcher.Stop()
+
+	readyEvent := testNotificationEvent(&ir.DAGRunStatus{
+		Name:      "ready",
+		DAGRunID:  "run-ready",
+		AttemptID: "a1",
+		Status:    ir.Succeeded,
+	})
+	bufferedDrop := testNotificationEvent(&ir.DAGRunStatus{
+		Name:      "buffered-drop",
+		DAGRunID:  "run-buffered-drop",
+		AttemptID: "a1",
+		Status:    ir.Failed,
+	})
+	bufferedKeep := testNotificationEvent(&ir.DAGRunStatus{
+		Name:      "buffered-keep",
+		DAGRunID:  "run-buffered-keep",
+		AttemptID: "a1",
+		Status:    ir.Failed,
+	})
+
+	require.True(t, batcher.Enqueue("dest-1", readyEvent))
+	batcher.flushBucketsLocked(NotificationClassSuccessDigest)
+	require.True(t, batcher.Enqueue("dest-1", bufferedDrop))
+	require.True(t, batcher.Enqueue("dest-1", bufferedKeep))
+
+	batcher.discardEvents("dest-1", map[string]struct{}{
+		readyEvent.Key:   {},
+		bufferedDrop.Key: {},
+	})
+
+	assert.Empty(t, batcher.TakeReady())
+	select {
+	case <-batcher.ReadyC():
+	default:
+	}
+	ready := waitForReadyBatch(t, batcher)
+	require.Len(t, ready.Batch.Events, 1)
+	assert.Equal(t, bufferedKeep.Key, ready.Batch.Events[0].Key)
+}
+
 func TestFormatNotificationBatch_CapsVisibleGroups(t *testing.T) {
 	t.Parallel()
 

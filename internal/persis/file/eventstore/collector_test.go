@@ -6,71 +6,17 @@ package eventstore
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	coreeventstore "github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/stretchr/testify/require"
 )
-
-const benchmarkSeenIDCount = 100_000
-
-var benchmarkSeenIDs any
-
-func BenchmarkSeenIDsRetention(b *testing.B) {
-	for range b.N {
-		benchmarkSeenIDs = nil
-		runtime.GC()
-
-		var before runtime.MemStats
-		runtime.ReadMemStats(&before)
-
-		seen := newSeenSet()
-		for i := range benchmarkSeenIDCount {
-			seen.add(fmt.Sprintf("dag_%064x", i))
-		}
-
-		runtime.GC()
-		var after runtime.MemStats
-		runtime.ReadMemStats(&after)
-		runtime.KeepAlive(seen)
-
-		bytesPerID := float64(after.HeapAlloc-before.HeapAlloc) / benchmarkSeenIDCount
-		b.ReportMetric(bytesPerID, "live-B/id")
-		benchmarkSeenIDs = seen
-	}
-}
-
-func TestSeenSetPreservesIDs(t *testing.T) {
-	t.Parallel()
-
-	digest := strings.Repeat("a", 64)
-	ids := []string{
-		"dag_" + digest,
-		"dag_update_" + digest,
-		"llm_" + digest,
-		"dag_" + strings.ToUpper(digest),
-		"dag_short",
-		"evt-legacy",
-	}
-
-	seen := newSeenSet()
-	for _, id := range ids {
-		require.False(t, seen.has(id), id)
-		seen.add(id)
-		require.True(t, seen.has(id), id)
-	}
-
-	for _, id := range ids {
-		require.True(t, seen.has(id), id)
-	}
-}
 
 func TestCollectorDrainOnceAppendsByHourAndDeduplicatesAcrossRestart(t *testing.T) {
 	t.Parallel()
@@ -88,7 +34,7 @@ func TestCollectorDrainOnceAppendsByHourAndDeduplicatesAcrossRestart(t *testing.
 	require.NoError(t, store.Emit(context.Background(), eventOne))
 	require.NoError(t, store.Emit(context.Background(), eventTwo))
 
-	collector, err := NewCollector(baseDir, 10)
+	collector, err := NewCollector(baseDir, 0)
 	require.NoError(t, err)
 	require.NoError(t, collector.DrainOnce(context.Background()))
 
@@ -96,17 +42,88 @@ func TestCollectorDrainOnceAppendsByHourAndDeduplicatesAcrossRestart(t *testing.
 	assertLogLineCount(t, filepath.Join(baseDir, "_2026032823.jsonl"), 1)
 	assertLogLineCount(t, filepath.Join(baseDir, "_2026032901.jsonl"), 1)
 
-	restarted, err := NewCollector(baseDir, 10)
+	restarted, err := NewCollector(baseDir, 0)
 	require.NoError(t, err)
-	require.NoError(t, restarted.loadSeenIDs())
 
-	require.NoError(t, store.Emit(context.Background(), testEvent(eventOne.ID, dayOne)))
+	require.NoError(t, store.Emit(context.Background(), testEvent(eventOne.ID, dayOne.Add(time.Hour))))
 	require.NoError(t, store.Emit(context.Background(), testEvent(eventTwo.ID, dayTwo)))
 	require.NoError(t, restarted.DrainOnce(context.Background()))
 
 	assertInboxCount(t, store.inboxDir, 0)
 	assertLogLineCount(t, filepath.Join(baseDir, "_2026032823.jsonl"), 1)
+	assertFileExists(t, filepath.Join(baseDir, "_2026032900.jsonl"), false)
 	assertLogLineCount(t, filepath.Join(baseDir, "_2026032901.jsonl"), 1)
+	result, err := store.Query(context.Background(), coreeventstore.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 2)
+}
+
+func TestCollectorDrainOnceDeduplicatesAcrossHours(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	store, err := New(baseDir)
+	require.NoError(t, err)
+	collector, err := NewCollector(baseDir, 0)
+	require.NoError(t, err)
+
+	firstHour := time.Date(2026, 3, 29, 10, 59, 0, 0, time.UTC)
+	event := testEvent("evt-cross-hour", firstHour)
+	require.NoError(t, store.Emit(context.Background(), event))
+	require.NoError(t, collector.DrainOnce(context.Background()))
+
+	require.NoError(t, store.Emit(context.Background(), testEvent(event.ID, firstHour.Add(time.Hour))))
+	require.NoError(t, collector.DrainOnce(context.Background()))
+
+	result, err := store.Query(context.Background(), coreeventstore.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 1)
+	assertFileExists(t, filepath.Join(baseDir, "_2026032911.jsonl"), false)
+}
+
+func TestCollectorDrainOnceVerifiesFilterMatches(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	hour := time.Date(2026, 3, 29, 10, 0, 0, 0, time.UTC)
+	committed := testEvent("evt-committed", hour)
+	writeCommittedEvents(t, baseDir, hour, [][]byte{mustMarshalEvent(t, committed)})
+
+	store, err := New(baseDir)
+	require.NoError(t, err)
+	collector, err := NewCollector(baseDir, 0, WithDedupeCacheBytes(1))
+	require.NoError(t, err)
+	require.NoError(t, collector.ensureCommittedIDs())
+
+	var unique *coreeventstore.Event
+	for i := range 1000 {
+		candidate := testEvent("evt-unique-"+strconv.Itoa(i), hour.Add(time.Hour))
+		if collector.committedIDs.mayContain(candidate.ID) {
+			unique = candidate
+			break
+		}
+	}
+	require.NotNil(t, unique)
+
+	require.NoError(t, store.Emit(context.Background(), unique))
+	require.NoError(t, collector.DrainOnce(context.Background()))
+
+	result, err := store.Query(context.Background(), coreeventstore.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 2)
+}
+
+func TestEventIDFilterUsesBudget(t *testing.T) {
+	t.Parallel()
+
+	const budget = 128
+	collector, err := NewCollector(t.TempDir(), 0, WithDedupeCacheBytes(budget))
+	require.NoError(t, err)
+	require.NoError(t, collector.ensureCommittedIDs())
+	collector.committedIDs.add("evt-filtered")
+
+	require.Len(t, collector.committedIDs.bits, budget)
+	require.True(t, collector.committedIDs.mayContain("evt-filtered"))
 }
 
 func TestCollectorDrainOncePreservesInboxAfterMalformedCommittedEvent(t *testing.T) {
@@ -130,8 +147,6 @@ func TestCollectorDrainOncePreservesInboxAfterMalformedCommittedEvent(t *testing
 
 	collector, err := NewCollector(baseDir, 10)
 	require.NoError(t, err)
-	require.NoError(t, collector.loadSeenIDs())
-	require.False(t, collector.seenIDs.has(event.ID))
 
 	require.NoError(t, collector.DrainOnce(context.Background()))
 	assertInboxCount(t, store.inboxDir, 0)
@@ -231,37 +246,13 @@ func TestCollectorCleanupExpiredPreservesInbox(t *testing.T) {
 	assertFileExists(t, inboxFile, true)
 }
 
-func TestCollectorCleanupExpiredRebuildsSeenIDs(t *testing.T) {
+func TestCollectorDrainOnceReadsLargeCommittedEventLine(t *testing.T) {
 	t.Parallel()
 
 	baseDir := t.TempDir()
-	now := time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC)
-	collector, err := NewCollector(baseDir, 10, WithNow(func() time.Time { return now }))
+	store, err := New(baseDir)
 	require.NoError(t, err)
 
-	expiredEvent := testEvent("evt-expired", now.AddDate(0, 0, -20))
-	recentEvent := testEvent("evt-recent", now.Add(-time.Hour))
-	writeCommittedEvents(t, baseDir, expiredEvent.OccurredAt, [][]byte{mustMarshalEvent(t, expiredEvent)})
-	writeCommittedEvents(t, baseDir, recentEvent.OccurredAt, [][]byte{mustMarshalEvent(t, recentEvent)})
-
-	require.NoError(t, collector.loadSeenIDs())
-	hasExpired := collector.seenIDs.has(expiredEvent.ID)
-	hasRecent := collector.seenIDs.has(recentEvent.ID)
-	require.True(t, hasExpired)
-	require.True(t, hasRecent)
-
-	collector.cleanupExpired()
-
-	hasExpired = collector.seenIDs.has(expiredEvent.ID)
-	hasRecent = collector.seenIDs.has(recentEvent.ID)
-	require.False(t, hasExpired)
-	require.True(t, hasRecent)
-}
-
-func TestCollectorLoadSeenIDsReadsLargeCommittedEventLine(t *testing.T) {
-	t.Parallel()
-
-	baseDir := t.TempDir()
 	collector, err := NewCollector(baseDir, 10)
 	require.NoError(t, err)
 
@@ -270,18 +261,21 @@ func TestCollectorLoadSeenIDsReadsLargeCommittedEventLine(t *testing.T) {
 		"payload": strings.Repeat("x", 128*1024),
 	}
 	writeCommittedEvents(t, baseDir, event.OccurredAt, [][]byte{mustMarshalEvent(t, event)})
+	require.NoError(t, store.Emit(context.Background(), event))
 
-	require.NoError(t, collector.loadSeenIDs())
-	require.True(t, collector.seenIDs.has(event.ID))
+	require.NoError(t, collector.DrainOnce(context.Background()))
+	assertInboxCount(t, store.inboxDir, 0)
+	assertLogLineCount(t, filepath.Join(baseDir, "_2026032922.jsonl"), 1)
 }
 
-func TestCollectorSeenIDAllocs(t *testing.T) {
+func TestCollectorCommittedIDAllocs(t *testing.T) {
 	const (
-		largeFieldCount   = 512
-		maxAllocationRate = 2
+		baselineFieldCount = 64
+		largeFieldCount    = 512
+		maxAllocationRate  = 2
 	)
 
-	newCollector := func(data map[string]any) *Collector {
+	newCollector := func(data map[string]any) (*Collector, string, map[string]struct{}) {
 		baseDir := t.TempDir()
 		event := testEvent("evt-allocs", time.Date(2026, 3, 29, 22, 0, 0, 0, time.UTC))
 		event.Data = data
@@ -289,25 +283,22 @@ func TestCollectorSeenIDAllocs(t *testing.T) {
 
 		collector, err := NewCollector(baseDir, 10)
 		require.NoError(t, err)
-		return collector
+		path := filepath.Join(baseDir, "_2026032922.jsonl")
+		return collector, path, map[string]struct{}{event.ID: {}}
 	}
 
-	small := newCollector(map[string]any{"0": 0})
-	largeData := make(map[string]any, largeFieldCount)
-	for i := range largeFieldCount {
-		largeData[strconv.Itoa(i)] = i
-	}
-	large := newCollector(largeData)
+	small, smallPath, smallIDs := newCollector(testEventData(baselineFieldCount))
+	large, largePath, largeIDs := newCollector(testEventData(largeFieldCount))
 
 	var smallErr error
 	smallAllocs := testing.AllocsPerRun(5, func() {
-		smallErr = small.loadSeenIDs()
+		_, smallErr = small.findCommittedIDs(smallPath, smallIDs)
 	})
 	require.NoError(t, smallErr)
 
 	var largeErr error
 	largeAllocs := testing.AllocsPerRun(5, func() {
-		largeErr = large.loadSeenIDs()
+		_, largeErr = large.findCommittedIDs(largePath, largeIDs)
 	})
 	require.NoError(t, largeErr)
 	require.LessOrEqual(t, largeAllocs, smallAllocs*maxAllocationRate)
@@ -315,8 +306,9 @@ func TestCollectorSeenIDAllocs(t *testing.T) {
 
 func TestCollectorPendingEventAllocs(t *testing.T) {
 	const (
-		largeFieldCount   = 512
-		maxAllocationRate = 2
+		baselineFieldCount = 64
+		largeFieldCount    = 512
+		maxAllocationRate  = 2
 	)
 
 	newPendingEvent := func(data map[string]any) (*Collector, string) {
@@ -331,12 +323,8 @@ func TestCollectorPendingEventAllocs(t *testing.T) {
 		return collector, path
 	}
 
-	small, smallPath := newPendingEvent(map[string]any{"0": 0})
-	largeData := make(map[string]any, largeFieldCount)
-	for i := range largeFieldCount {
-		largeData[strconv.Itoa(i)] = i
-	}
-	large, largePath := newPendingEvent(largeData)
+	small, smallPath := newPendingEvent(testEventData(baselineFieldCount))
+	large, largePath := newPendingEvent(testEventData(largeFieldCount))
 
 	var smallErr error
 	smallAllocs := testing.AllocsPerRun(5, func() {
@@ -350,6 +338,14 @@ func TestCollectorPendingEventAllocs(t *testing.T) {
 	})
 	require.NoError(t, largeErr)
 	require.LessOrEqual(t, largeAllocs, smallAllocs*maxAllocationRate)
+}
+
+func testEventData(fieldCount int) map[string]any {
+	data := make(map[string]any, fieldCount)
+	for i := range fieldCount {
+		data[strconv.Itoa(i)] = i
+	}
+	return data
 }
 
 func assertInboxCount(t *testing.T, dir string, count int) {

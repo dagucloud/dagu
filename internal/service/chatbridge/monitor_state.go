@@ -92,23 +92,28 @@ func (s *notificationStateStore) Load(ctx context.Context) notificationStateLoad
 		return result
 	}
 
-	state := newNotificationMonitorState()
-	if err := json.Unmarshal(data, &state); err != nil {
+	state, err := decodeNotificationMonitorState(data)
+	if err != nil {
 		result.Recovered = true
-		result.QuarantinedPath, result.Warning = s.recoverUnreadableState(ctx, fmt.Errorf("decode notification state: %w", err))
+		result.QuarantinedPath, result.Warning = s.recoverUnreadableState(ctx, err)
 		return result
 	}
-	switch state.Version {
-	case 0, notificationMonitorStateVersion:
-	default:
-		result.Recovered = true
-		result.QuarantinedPath, result.Warning = s.recoverUnreadableState(ctx, fmt.Errorf("unsupported notification state version %d", state.Version))
-		return result
-	}
-
-	state.normalize()
 	result.State = state
 	return result
+}
+
+func (s *notificationStateStore) IsBootstrapped(ctx context.Context) bool {
+	if s == nil {
+		return false
+	}
+
+	data, found, err := s.store.Load(ctx)
+	if err != nil || !found {
+		return false
+	}
+
+	state, err := decodeNotificationMonitorState(data)
+	return err == nil && state.Bootstrapped
 }
 
 func (s *notificationStateStore) Save(ctx context.Context, state notificationMonitorState) error {
@@ -131,4 +136,19 @@ func (s *notificationStateStore) recoverUnreadableState(ctx context.Context, err
 		return "", fmt.Errorf("%w (quarantine failed: %v)", err, quarantineErr)
 	}
 	return quarantinedPath, err
+}
+
+func decodeNotificationMonitorState(data []byte) (notificationMonitorState, error) {
+	state := newNotificationMonitorState()
+	if err := json.Unmarshal(data, &state); err != nil {
+		return state, fmt.Errorf("decode notification state: %w", err)
+	}
+	switch state.Version {
+	case 0, notificationMonitorStateVersion:
+	default:
+		return state, fmt.Errorf("unsupported notification state version %d", state.Version)
+	}
+
+	state.normalize()
+	return state, nil
 }
