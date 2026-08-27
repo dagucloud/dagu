@@ -47,6 +47,16 @@ var _ dispatch.DispatchAdmissionStore = (*DispatchTaskStore)(nil)
 // DispatchTaskStoreOption configures a DispatchTaskStore.
 type DispatchTaskStoreOption func(*DispatchTaskStore)
 
+// WithDispatchTransitionLock serializes task transitions with external users
+// of the same shared lock.
+func WithDispatchTransitionLock(
+	lock func(context.Context, func(context.Context) error) error,
+) DispatchTaskStoreOption {
+	return func(store *DispatchTaskStore) {
+		store.transitionLock = lock
+	}
+}
+
 // DispatchTaskStore implements [dispatch.DispatchTaskStore] on top of a
 // [persis.Collection]. Record IDs use "pending/" and "claims/" prefixes so a
 // file collection rooted at the distributed directory uses the existing
@@ -58,6 +68,7 @@ type DispatchTaskStore struct {
 	admissionActiveRunStore  dispatch.ActiveDistributedRunStore
 	lastReservationCleanupAt time.Time
 	index                    *dispatchTaskIndex
+	transitionLock           func(context.Context, func(context.Context) error) error
 	// mu protects the in-memory index and serializes dispatch transitions;
 	// per-record CompareAndDelete provides cross-process safety.
 	mu sync.Mutex
