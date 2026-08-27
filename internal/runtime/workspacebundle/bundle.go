@@ -750,50 +750,18 @@ func (s *Store) Open(ctx context.Context, digest string) (*os.File, int64, error
 	if err != nil {
 		return nil, 0, err
 	}
-	var file *os.File
-	err = s.withLock(ctx, func() error {
-		var openErr error
-		file, openErr = os.Open(path) //nolint:gosec // path is derived from a validated digest and configured store directory.
-		if openErr != nil {
-			return fmt.Errorf("open workspace bundle: %w", openErr)
-		}
-		if err := touch(path); err != nil {
-			return fmt.Errorf("refresh workspace bundle: %w", err)
-		}
-		return nil
-	})
+	file, size, err := openVerified(path, digest, s.limits.MaxCompressedSize)
 	if err != nil {
-		if file != nil {
-			_ = file.Close()
-		}
 		return nil, 0, err
-	}
-	closeOnError := true
-	defer func() {
-		if closeOnError {
-			_ = file.Close()
-		}
-	}()
-
-	hasher := sha256.New()
-	size, err := io.Copy(hasher, io.LimitReader(file, s.limits.MaxCompressedSize+1))
-	if err != nil {
-		return nil, 0, fmt.Errorf("read workspace bundle: %w", err)
-	}
-	if size > s.limits.MaxCompressedSize {
-		return nil, 0, fmt.Errorf("workspace bundle exceeds compressed size limit %d", s.limits.MaxCompressedSize)
-	}
-	actual := hex.EncodeToString(hasher.Sum(nil))
-	if actual != digest {
-		return nil, 0, fmt.Errorf("workspace bundle digest mismatch: got %s, want %s", actual, digest)
 	}
 	if err := ctx.Err(); err != nil {
+		_ = file.Close()
 		return nil, 0, err
 	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, 0, fmt.Errorf("rewind workspace bundle: %w", err)
+	if _, err := s.refreshVerified(ctx, path, file); err != nil {
+		_ = file.Close()
+		return nil, 0, err
 	}
-	closeOnError = false
 	return file, size, nil
 }
 
@@ -806,16 +774,44 @@ func (s *Store) Has(digest string) bool {
 	return err == nil
 }
 
-func fileMatchesDigest(path, digest string, maxSize int64) bool {
+func openVerified(path, digest string, maxSize int64) (*os.File, int64, error) {
 	file, err := os.Open(path) //nolint:gosec // path is derived from a validated digest and configured store directory.
 	if err != nil {
-		return false
+		return nil, 0, fmt.Errorf("open workspace bundle: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+	closeOnError := true
+	defer func() {
+		if closeOnError {
+			_ = file.Close()
+		}
+	}()
 
 	hasher := sha256.New()
 	size, err := io.Copy(hasher, io.LimitReader(file, maxSize+1))
-	return err == nil && size <= maxSize && hex.EncodeToString(hasher.Sum(nil)) == digest
+	if err != nil {
+		return nil, 0, fmt.Errorf("read workspace bundle: %w", err)
+	}
+	if size > maxSize {
+		return nil, 0, fmt.Errorf("workspace bundle exceeds compressed size limit %d", maxSize)
+	}
+	actual := hex.EncodeToString(hasher.Sum(nil))
+	if actual != digest {
+		return nil, 0, fmt.Errorf("workspace bundle digest mismatch: got %s, want %s", actual, digest)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, fmt.Errorf("rewind workspace bundle: %w", err)
+	}
+	closeOnError = false
+	return file, size, nil
+}
+
+func fileMatchesDigest(path, digest string, maxSize int64) bool {
+	file, _, err := openVerified(path, digest, maxSize)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
 }
 
 // Touch reports whether a bundle exists and refreshes its expiration time.
@@ -827,18 +823,41 @@ func (s *Store) Touch(ctx context.Context, digest string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	var exists bool
+	file, _, err := openVerified(path, digest, s.limits.MaxCompressedSize)
+	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		return false, nil
+	}
+	defer func() { _ = file.Close() }()
+	return s.refreshVerified(ctx, path, file)
+}
+
+func (s *Store) refreshVerified(ctx context.Context, path string, file *os.File) (bool, error) {
+	verifiedInfo, err := file.Stat()
+	if err != nil {
+		return false, fmt.Errorf("stat verified workspace bundle: %w", err)
+	}
+	var refreshed bool
 	err = s.withLock(ctx, func() error {
+		currentInfo, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("stat workspace bundle: %w", err)
+		}
+		if !os.SameFile(verifiedInfo, currentInfo) || verifiedInfo.Size() != currentInfo.Size() {
+			return nil
+		}
 		if err := touch(path); err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
 			return fmt.Errorf("refresh workspace bundle: %w", err)
 		}
-		exists = true
+		refreshed = true
 		return nil
 	})
-	return exists, err
+	return refreshed, err
 }
 
 // Cleanup removes canonical bundles that have not been used since before.

@@ -62,6 +62,35 @@ func TestClientNew(t *testing.T) {
 	assert.Nil(t, metrics.LastError)
 }
 
+func TestClientRepairsCorruptWorkspaceBundle(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	data := []byte("valid workspace bundle")
+	desc := workspacebundle.Descriptor{Digest: workspacebundle.Digest(data), Size: int64(len(data))}
+	dir := t.TempDir()
+	store := workspacebundle.NewStore(dir, workspacebundle.DefaultLimits())
+	require.NoError(t, store.Put(ctx, desc, data))
+	paths, err := filepath.Glob(filepath.Join(dir, "*", "*"))
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+	require.NoError(t, os.WriteFile(paths[0], []byte("corrupt"), 0o600))
+
+	server, addr := startMockServer(t, coordinator.NewHandler(coordinator.HandlerConfig{WorkspaceBundleDir: dir}))
+	t.Cleanup(server.Stop)
+	host, port := parseHostPort(addr)
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
+		ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+	}}}, coordinator.DefaultConfig())
+	bundleClient, ok := client.(workspacebundle.Client)
+	require.True(t, ok)
+
+	require.NoError(t, bundleClient.PutWorkspaceBundle(ctx, desc, data))
+	actual, err := bundleClient.GetWorkspaceBundle(ctx, desc.Digest)
+	require.NoError(t, err)
+	assert.Equal(t, data, actual)
+}
+
 func TestClientDispatch(t *testing.T) {
 	t.Parallel()
 

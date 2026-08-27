@@ -170,6 +170,48 @@ func TestStoreAccessRefreshesExpiration(t *testing.T) {
 	}
 }
 
+func TestStoreCorruptAccessDoesNotRefreshExpiration(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(*testing.T, context.Context, *Store, Descriptor){
+		"touch": func(t *testing.T, ctx context.Context, store *Store, desc Descriptor) {
+			t.Helper()
+
+			exists, err := store.Touch(ctx, desc.Digest)
+			require.NoError(t, err)
+			assert.False(t, exists)
+		},
+		"open": func(t *testing.T, ctx context.Context, store *Store, desc Descriptor) {
+			t.Helper()
+
+			_, _, err := store.Open(ctx, desc.Digest)
+			require.ErrorContains(t, err, "digest mismatch")
+		},
+	}
+	for name, access := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			now := time.Now().UTC()
+			store := NewStore(t.TempDir(), DefaultLimits())
+			data := []byte("valid bundle")
+			desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+			require.NoError(t, store.Put(ctx, desc, data))
+			bundlePath, err := store.path(desc.Digest)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(bundlePath, []byte("corrupt"), 0o600))
+			require.NoError(t, os.Chtimes(bundlePath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+
+			access(t, ctx, store, desc)
+			removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
+			require.NoError(t, err)
+			assert.Equal(t, 1, removed)
+			assert.False(t, store.Has(desc.Digest))
+		})
+	}
+}
+
 func TestStoreCleanupIgnoresForeignPath(t *testing.T) {
 	t.Parallel()
 
