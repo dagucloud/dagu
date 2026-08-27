@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -467,6 +468,9 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if req.Task.Definition == "" {
 		return nil, status.Error(codes.InvalidArgument, "task.Definition is required for distributed execution")
 	}
+	if err := h.validateWorkspaceBundleOwner(req.Task); err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
 
 	logger.Info(ctx, "Handler Dispatch called",
 		tag.RunID(req.Task.DagRunId),
@@ -572,6 +576,17 @@ func workspaceBundleRetainErrorCode(err error) codes.Code {
 		return codes.NotFound
 	}
 	return codes.FailedPrecondition
+}
+
+func (h *Handler) validateWorkspaceBundleOwner(task *coordinatorv1.Task) error {
+	if task == nil || task.WorkspaceBundleDigest == "" {
+		return nil
+	}
+	if strings.TrimSpace(h.owner.ID) == "" || strings.TrimSpace(h.owner.Host) == "" ||
+		h.owner.Port < 1 || h.owner.Port > math.MaxUint16 {
+		return fmt.Errorf("workspace bundle owner coordinator requires an ID, host, and valid port")
+	}
+	return nil
 }
 
 func (h *Handler) assignWorkspaceBundleOwner(task *coordinatorv1.Task) {

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -109,7 +110,7 @@ func TestDispatchRetainsWorkspaceBundle(t *testing.T) {
 	ctx := context.Background()
 	data := []byte("workspace")
 	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir()})
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir(), Owner: workspaceTestOwner()})
 	received := make(chan *coordinatorv1.Task, 1)
 	handler.waitingPollers["poller-1"] = &workerInfo{workerID: "worker-1", taskChan: received}
 	require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
@@ -129,12 +130,51 @@ func TestDispatchReportsMissingWorkspaceBundle(t *testing.T) {
 
 	data := []byte("missing")
 	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir()})
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir(), Owner: workspaceTestOwner()})
 	handler.waitingPollers["poller-1"] = &workerInfo{workerID: "worker-1", taskChan: make(chan *coordinatorv1.Task, 1)}
 
 	_, err := handler.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: workspaceDispatchTask(desc)})
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestDispatchRejectsInvalidWorkspaceOwner(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]dispatch.CoordinatorEndpoint{
+		"missing ID":   {Host: "127.0.0.1", Port: 50055},
+		"missing host": {ID: "coord-1", Port: 50055},
+		"zero port":    {ID: "coord-1", Host: "127.0.0.1"},
+		"overflow":     {ID: "coord-1", Host: "127.0.0.1", Port: math.MaxUint16 + 1},
+	}
+	for name, owner := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			data := []byte("workspace")
+			desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
+			dagRunStore := newMockDAGRunStore()
+			handler := NewHandler(HandlerConfig{
+				DAGRunRepository:   dagRunStore.repository,
+				WorkspaceBundleDir: t.TempDir(),
+				Owner:              owner,
+			})
+			handler.waitingPollers["poller-1"] = &workerInfo{workerID: "worker-1", taskChan: make(chan *coordinatorv1.Task, 1)}
+			require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
+
+			_, err := handler.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: workspaceDispatchTask(desc)})
+			require.Error(t, err)
+			assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+			dagRunStore.mu.Lock()
+			assert.Empty(t, dagRunStore.attempts)
+			dagRunStore.mu.Unlock()
+			references, listErr := handler.workspaceBundleStore.ListReferences(ctx)
+			require.NoError(t, listErr)
+			assert.Empty(t, references)
+			assert.True(t, handler.workspaceBundleStore.Has(desc.Digest))
+		})
+	}
 }
 
 func TestDispatchRetryKeepsAdmissionForMissingWorkspace(t *testing.T) {
@@ -157,6 +197,7 @@ func TestDispatchRetryKeepsAdmissionForMissingWorkspace(t *testing.T) {
 		DAGRunLeaseStore:          leaseStore,
 		ActiveDistributedRunStore: activeStore,
 		WorkspaceBundleDir:        t.TempDir(),
+		Owner:                     workspaceTestOwner(),
 	})
 	runRef := ir.NewDAGRunRef("test", "run-1")
 	attemptID := "test-attempt"
@@ -225,7 +266,7 @@ func TestDispatchRollsBackWorkspaceBundleAfterFailedHandoff(t *testing.T) {
 	ctx := context.Background()
 	data := []byte("workspace")
 	desc := workspacebundle.Descriptor{Digest: workspaceBundleDigest(data), Size: int64(len(data))}
-	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir()})
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir(), Owner: workspaceTestOwner()})
 	handler.waitingPollers["poller-1"] = &workerInfo{workerID: "worker-1", taskChan: make(chan *coordinatorv1.Task)}
 	require.NoError(t, handler.workspaceBundleStore.Put(ctx, desc, data))
 
@@ -284,6 +325,10 @@ func workspaceDispatchTask(desc workspacebundle.Descriptor) *coordinatorv1.Task 
 		WorkspaceBundleDigest: desc.Digest,
 		WorkspaceBundleSize:   desc.Size,
 	}
+}
+
+func workspaceTestOwner() dispatch.CoordinatorEndpoint {
+	return dispatch.CoordinatorEndpoint{ID: "coord-1", Host: "127.0.0.1", Port: 50055}
 }
 
 func workspaceBundleDigest(data []byte) string {
