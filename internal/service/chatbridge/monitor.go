@@ -21,6 +21,7 @@ const (
 	DefaultNotificationSeenEvictInterval     = 10 * time.Minute
 	DefaultNotificationSeenTTL               = 2 * time.Hour
 	DefaultNotificationFlushTimeout          = 30 * time.Second
+	DefaultNotificationPendingLimit          = 1000
 	DefaultNotificationLockHeartbeatInterval = time.Second
 	DefaultNotificationLockRetryInterval     = 50 * time.Millisecond
 	DefaultNotificationLockStaleThreshold    = 45 * time.Second
@@ -43,6 +44,7 @@ type NotificationMonitorConfig struct {
 	FlushTimeout         time.Duration
 	UrgentWindow         time.Duration
 	SuccessWindow        time.Duration
+	PendingLimit         int
 	InterestedEventTypes []eventstore.EventType
 	BootstrapCursor      *eventstore.DAGRunCursor
 }
@@ -56,6 +58,7 @@ func DefaultNotificationMonitorConfig() NotificationMonitorConfig {
 		FlushTimeout:         DefaultNotificationFlushTimeout,
 		UrgentWindow:         DefaultUrgentNotificationWindow,
 		SuccessWindow:        DefaultSuccessNotificationWindow,
+		PendingLimit:         DefaultNotificationPendingLimit,
 		InterestedEventTypes: append([]eventstore.EventType(nil), defaultInterestedNotificationEventTypes...),
 	}
 }
@@ -137,6 +140,8 @@ type queuedNotification struct {
 	destination string
 	event       NotificationEvent
 }
+
+type pendingEvictions map[string]map[string]struct{}
 
 // NewNotificationMonitor creates a shared notification monitor.
 func NewNotificationMonitor(
@@ -265,13 +270,17 @@ func (m *NotificationMonitor) initializeSession(ctx context.Context) {
 	m.loadPersistedState(ctx)
 
 	destinations := m.transport.NotificationDestinations()
-	var removed []string
+	var (
+		removed []string
+		evicted pendingEvictions
+	)
 
 	m.stateMu.Lock()
 	persisted := m.applyStateTransitionLocked(ctx, func(candidate *notificationMonitorState) bool {
 		var changed bool
 		removed, changed = reconcileDestinations(candidate, destinations)
-		return changed
+		evicted = trimPendingNotifications(candidate, m.cfg.PendingLimit)
+		return changed || len(evicted) > 0
 	})
 	m.stateMu.Unlock()
 	if !persisted {
@@ -280,6 +289,7 @@ func (m *NotificationMonitor) initializeSession(ctx context.Context) {
 	if len(removed) > 0 {
 		m.discardPendingDestinations(removed)
 	}
+	m.discardEvictedNotifications(evicted)
 
 	m.ensureBootstrapped(ctx)
 	m.requeuePending(ctx, destinations)
@@ -554,8 +564,11 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 		return false
 	}
 
-	var queued []queuedNotification
-	accepted := false
+	var (
+		queued   []queuedNotification
+		evicted  pendingEvictions
+		accepted bool
+	)
 
 	m.stateMu.Lock()
 	persisted := m.applyStateTransitionLocked(ctx, func(candidate *notificationMonitorState) bool {
@@ -566,13 +579,17 @@ func (m *NotificationMonitor) enqueueEvents(ctx context.Context, destinations []
 		} else {
 			queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
 		}
-		return changed || enqueueChanged
+		evicted = trimPendingNotifications(candidate, m.cfg.PendingLimit)
+		queued = filterEvictedNotifications(queued, evicted)
+		accepted = len(queued) > 0
+		return changed || enqueueChanged || len(evicted) > 0
 	})
 	m.stateMu.Unlock()
 	if !persisted {
 		return false
 	}
 
+	m.discardEvictedNotifications(evicted)
 	for _, item := range queued {
 		m.enqueueBatch(item.destination, item.event)
 	}
@@ -595,7 +612,10 @@ func (m *NotificationMonitor) requeuePending(ctx context.Context, destinations [
 		allowed[destination] = struct{}{}
 	}
 
-	var queued []queuedNotification
+	var (
+		queued  []queuedNotification
+		evicted pendingEvictions
+	)
 
 	m.stateMu.Lock()
 	persisted := m.applyStateTransitionLocked(ctx, func(candidate *notificationMonitorState) bool {
@@ -611,7 +631,8 @@ func (m *NotificationMonitor) requeuePending(ctx context.Context, destinations [
 				}
 			}
 		}
-		return changed
+		evicted = trimPendingNotifications(candidate, m.cfg.PendingLimit)
+		return changed || len(evicted) > 0
 	})
 	if !persisted {
 		m.stateMu.Unlock()
@@ -636,6 +657,7 @@ func (m *NotificationMonitor) requeuePending(ctx context.Context, destinations [
 	}
 	m.stateMu.Unlock()
 
+	m.discardEvictedNotifications(evicted)
 	slices.SortFunc(queued, func(a, b queuedNotification) int {
 		if !a.event.ObservedAt.Equal(b.event.ObservedAt) {
 			if a.event.ObservedAt.Before(b.event.ObservedAt) {
@@ -915,6 +937,7 @@ func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinat
 
 	var (
 		queued   []queuedNotification
+		evicted  pendingEvictions
 		accepted bool
 	)
 	persisted := m.applyStateTransitionLocked(ctx, func(candidate *notificationMonitorState) bool {
@@ -927,11 +950,15 @@ func (m *NotificationMonitor) commitSourceProgress(ctx context.Context, destinat
 		} else {
 			queued, enqueueChanged, accepted = enqueueNotifications(candidate, destinations, events)
 		}
-		return changed || cursorChanged || enqueueChanged
+		evicted = trimPendingNotifications(candidate, m.cfg.PendingLimit)
+		queued = filterEvictedNotifications(queued, evicted)
+		accepted = len(queued) > 0
+		return changed || cursorChanged || enqueueChanged || len(evicted) > 0
 	})
 	if !persisted {
 		return nil, false
 	}
+	m.discardEvictedNotifications(evicted)
 	if !accepted {
 		return nil, true
 	}
@@ -1160,6 +1187,17 @@ func (m *NotificationMonitor) discardPendingDestinations(destinations []string) 
 	m.currentBatcher().DiscardDestinations(destinations)
 }
 
+func (m *NotificationMonitor) discardEvictedNotifications(evicted pendingEvictions) {
+	for destination, keys := range evicted {
+		m.currentBatcher().discardEvents(destination, keys)
+		m.logger.Warn("Dropped pending notifications after backlog limit",
+			slog.String("destination", destination),
+			slog.Int("dropped_count", len(keys)),
+			slog.Int("limit", m.cfg.PendingLimit),
+		)
+	}
+}
+
 func normalizeNotificationMonitorConfig(cfg *NotificationMonitorConfig) {
 	defaults := DefaultNotificationMonitorConfig()
 	if cfg.PollInterval <= 0 {
@@ -1179,6 +1217,9 @@ func normalizeNotificationMonitorConfig(cfg *NotificationMonitorConfig) {
 	}
 	if cfg.SuccessWindow <= 0 {
 		cfg.SuccessWindow = defaults.SuccessWindow
+	}
+	if cfg.PendingLimit <= 0 {
+		cfg.PendingLimit = defaults.PendingLimit
 	}
 	if cfg.InterestedEventTypes == nil {
 		cfg.InterestedEventTypes = append([]eventstore.EventType(nil), defaults.InterestedEventTypes...)
@@ -1341,6 +1382,72 @@ func enqueueNotifications(state *notificationMonitorState, destinations []string
 	}
 
 	return queued, changed, accepted
+}
+
+func trimPendingNotifications(state *notificationMonitorState, limit int) pendingEvictions {
+	if state == nil || limit <= 0 {
+		return nil
+	}
+
+	type candidate struct {
+		key        string
+		observedAt time.Time
+	}
+
+	evicted := make(pendingEvictions)
+	for destination, destState := range state.Destinations {
+		if destState == nil || len(destState.Pending) <= limit {
+			continue
+		}
+
+		candidates := make([]candidate, 0, len(destState.Pending))
+		for key, event := range destState.Pending {
+			candidates = append(candidates, candidate{key: key, observedAt: event.ObservedAt})
+		}
+		slices.SortFunc(candidates, func(a, b candidate) int {
+			if !a.observedAt.Equal(b.observedAt) {
+				if a.observedAt.Before(b.observedAt) {
+					return -1
+				}
+				return 1
+			}
+			switch {
+			case a.key < b.key:
+				return -1
+			case a.key > b.key:
+				return 1
+			default:
+				return 0
+			}
+		})
+
+		keys := make(map[string]struct{}, len(candidates)-limit)
+		for _, candidate := range candidates[:len(candidates)-limit] {
+			delete(destState.Pending, candidate.key)
+			keys[candidate.key] = struct{}{}
+		}
+		evicted[destination] = keys
+	}
+	if len(evicted) == 0 {
+		return nil
+	}
+	return evicted
+}
+
+func filterEvictedNotifications(queued []queuedNotification, evicted pendingEvictions) []queuedNotification {
+	if len(queued) == 0 || len(evicted) == 0 {
+		return queued
+	}
+
+	filtered := queued[:0]
+	for _, item := range queued {
+		keys := evicted[item.destination]
+		if _, ok := keys[item.event.Key]; ok {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
 }
 
 func migrateWaitingDelivery(destState *notificationDestinationState, event NotificationEvent) bool {

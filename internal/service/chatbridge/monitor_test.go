@@ -6,6 +6,7 @@ package chatbridge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -670,6 +671,58 @@ func TestEnqueueNotificationsByEventFiltersUnknownAndDuplicateRoutes(t *testing.
 	assert.Equal(t, "dest-a", queued[0].destination)
 	assert.Contains(t, state.Destinations, "dest-a")
 	assert.NotContains(t, state.Destinations, "unknown")
+}
+
+func TestNotificationMonitor_CommitSourceProgressDropsOldestPendingEvent(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultNotificationMonitorConfig()
+	cfg.PendingLimit = 2
+	monitor := NewNotificationMonitor(
+		nil,
+		nil,
+		nil,
+		&fakeNotificationTransport{destinations: []string{"dest-1"}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cfg,
+	)
+	monitor.state.Bootstrapped = true
+
+	base := time.Now().UTC()
+	events := make([]NotificationEvent, 0, 3)
+	for i := 1; i <= 3; i++ {
+		status := &ir.DAGRunStatus{
+			Name:      "briefing",
+			DAGRunID:  fmt.Sprintf("run-%d", i),
+			AttemptID: fmt.Sprintf("attempt-%d", i),
+			Status:    ir.Failed,
+		}
+		event := testNotificationEvent(status)
+		event.ObservedAt = base.Add(time.Duration(i) * time.Second)
+		events = append(events, event)
+	}
+	nextCursor := eventstore.DAGRunCursor{CommittedOffsets: map[string]int64{"events": 3}}
+
+	queued, committed := monitor.commitSourceProgress(context.Background(), nil, nextCursor, events)
+
+	require.True(t, committed)
+	require.Len(t, queued, 2)
+	assert.True(t, monitor.state.SourceCursor.Equal(nextCursor))
+	pending := monitor.state.Destinations["dest-1"].Pending
+	require.Len(t, pending, 2)
+	assert.NotContains(t, pending, events[0].Key)
+	assert.Contains(t, pending, events[1].Key)
+	assert.Contains(t, pending, events[2].Key)
+}
+
+func TestNormalizeNotificationMonitorConfig_DefaultsPendingLimit(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultNotificationMonitorConfig()
+	cfg.PendingLimit = 0
+	normalizeNotificationMonitorConfig(&cfg)
+
+	assert.Equal(t, DefaultNotificationPendingLimit, cfg.PendingLimit)
 }
 
 func TestNotificationMonitor_RequeuePendingDropsFailedRunWithAutoRetryRemaining(t *testing.T) {

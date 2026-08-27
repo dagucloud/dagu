@@ -4,13 +4,16 @@
 package chatbridge
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -220,6 +223,116 @@ func TestNotificationMonitor_RestartRequeuesPersistedPending(t *testing.T) {
 	defer mu.Unlock()
 	assert.GreaterOrEqual(t, calls, 1)
 	assert.True(t, secondMonitor.IsDelivered("dest-1", status))
+}
+
+func TestNotificationMonitor_BoundsFailedDeliveryBacklog(t *testing.T) {
+	t.Parallel()
+
+	stateFile := filepath.Join(t.TempDir(), "state.json")
+	var (
+		mu    sync.Mutex
+		calls int
+	)
+	transport := &fakeNotificationTransport{
+		destinations: []string{"dest-1"},
+		flushFn: func(_ context.Context, _ string, _ NotificationBatch, _ bool) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			return false
+		},
+	}
+	cfg := newTestNotificationMonitorConfig()
+	cfg.PendingLimit = 2
+	monitor := newFileBackedMonitor(nil, stateFile, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	stopMonitor := testutil.StartContextRunner(t, monitor)
+	defer stopMonitor()
+	require.Eventually(t, func() bool {
+		monitor.stateMu.Lock()
+		defer monitor.stateMu.Unlock()
+		return monitor.state.Bootstrapped
+	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+
+	base := time.Now().UTC()
+	events := make([]NotificationEvent, 0, 3)
+	for i := 1; i <= 3; i++ {
+		status := &ir.DAGRunStatus{
+			Name:      "briefing",
+			DAGRunID:  fmt.Sprintf("run-%d", i),
+			AttemptID: fmt.Sprintf("attempt-%d", i),
+			Status:    ir.Failed,
+			Error:     "boom",
+		}
+		event := testNotificationEvent(status)
+		event.ObservedAt = base.Add(time.Duration(i) * time.Second)
+		events = append(events, event)
+	}
+	require.True(t, monitor.enqueueEvents(context.Background(), nil, events))
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls > 0
+	}, notificationMonitorEventuallyTimeout(time.Second), 10*time.Millisecond)
+
+	result := newNotificationStateStore(filemonitor.NewStateStore(stateFile)).Load(context.Background())
+	require.NoError(t, result.Warning)
+	pending := result.State.Destinations["dest-1"].Pending
+	require.Len(t, pending, 2)
+	assert.NotContains(t, pending, events[0].Key)
+	assert.Contains(t, pending, events[1].Key)
+	assert.Contains(t, pending, events[2].Key)
+}
+
+func TestNotificationMonitor_TrimsPersistedBacklogBeforeRequeue(t *testing.T) {
+	t.Parallel()
+
+	stateFile := filepath.Join(t.TempDir(), "state.json")
+	base := time.Now().UTC()
+	events := []NotificationEvent{
+		{Key: "event-a", Status: &ir.DAGRunStatus{Name: "a", DAGRunID: "run-a", AttemptID: "a1", Status: ir.Failed}, ObservedAt: base},
+		{Key: "event-b", Status: &ir.DAGRunStatus{Name: "b", DAGRunID: "run-b", AttemptID: "a1", Status: ir.Failed}, ObservedAt: base},
+		{Key: "event-c", Status: &ir.DAGRunStatus{Name: "c", DAGRunID: "run-c", AttemptID: "a1", Status: ir.Failed}, ObservedAt: base.Add(time.Second)},
+	}
+	state := newNotificationMonitorState()
+	state.Bootstrapped = true
+	state.Destinations["dest-1"] = &notificationDestinationState{
+		Pending: map[string]NotificationEvent{
+			events[0].Key: events[0],
+			events[1].Key: events[1],
+			events[2].Key: events[2],
+		},
+		Delivered: make(map[string]time.Time),
+	}
+	store := newNotificationStateStore(filemonitor.NewStateStore(stateFile))
+	require.NoError(t, store.Save(context.Background(), state))
+
+	var logs bytes.Buffer
+	cfg := newTestNotificationMonitorConfig()
+	cfg.PendingLimit = 2
+	cfg.UrgentWindow = time.Hour
+	monitor := newFileBackedMonitor(
+		nil,
+		stateFile,
+		&fakeNotificationTransport{destinations: []string{"dest-1"}},
+		slog.New(slog.NewTextHandler(&logs, nil)),
+		cfg,
+	)
+	monitor.lock = nil
+	defer monitor.currentBatcher().Stop()
+
+	monitor.initializeSession(context.Background())
+
+	result := store.Load(context.Background())
+	require.NoError(t, result.Warning)
+	pending := result.State.Destinations["dest-1"].Pending
+	require.Len(t, pending, 2)
+	assert.NotContains(t, pending, "event-a")
+	assert.Contains(t, pending, "event-b")
+	assert.Contains(t, pending, "event-c")
+	assert.Equal(t, 1, strings.Count(logs.String(), "Dropped pending notifications after backlog limit"))
+	assert.Contains(t, logs.String(), "destination=dest-1")
+	assert.Contains(t, logs.String(), "dropped_count=1")
+	assert.Contains(t, logs.String(), "limit=2")
 }
 
 func TestNotificationMonitor_StateLockAllowsSingleWriterAndTakeover(t *testing.T) {
