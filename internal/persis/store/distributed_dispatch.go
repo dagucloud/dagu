@@ -727,6 +727,37 @@ func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) 
 	return nil
 }
 
+// ListBundleDigests returns bundle digests referenced by outstanding tasks.
+func (s *DispatchTaskStore) ListBundleDigests(ctx context.Context) ([]string, error) {
+	digests := make(map[string]struct{})
+
+	// Transitions create the destination before deleting the source. Scanning
+	// pending records twice covers both claim and release transitions.
+	for _, prefix := range []string{dispatchPendingPrefix, dispatchClaimsPrefix, dispatchPendingPrefix} {
+		recs, err := s.listDispatchRecords(ctx, prefix)
+		if err != nil {
+			return nil, err
+		}
+		for _, rec := range recs {
+			payload, err := dispatchTaskPayloadFromRecord(rec)
+			if err != nil {
+				return nil, err
+			}
+			if payload.Task == nil || payload.Task.WorkspaceBundleDigest == "" {
+				continue
+			}
+			digests[payload.Task.WorkspaceBundleDigest] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(digests))
+	for digest := range digests {
+		result = append(result, digest)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
 // CountOutstandingByQueue returns the number of pending+claimed dispatch
 // records matching queueName. External store changes can be invisible until the
 // lazy ID reconciliation interval elapses. A task transitioning between pending

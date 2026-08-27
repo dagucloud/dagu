@@ -104,6 +104,7 @@ type DispatchTaskStore interface {
 	GetClaim(ctx context.Context, claimToken string) (*ClaimedDispatchTask, error)
 	ReleaseClaim(ctx context.Context, claimToken string) error
 	DeleteClaim(ctx context.Context, claimToken string) error
+	ListBundleDigests(ctx context.Context) ([]string, error)
 	CountOutstandingByQueue(ctx context.Context, queueName string, claimTimeout time.Duration) (int, error)
 	HasOutstandingAttempt(ctx context.Context, attemptKey string, claimTimeout time.Duration) (bool, error)
 }
@@ -175,16 +176,17 @@ type WorkerHeartbeatStore interface {
 
 // DAGRunLease is the shared liveness record for an accepted worker claim.
 type DAGRunLease struct {
-	AttemptKey      string              `json:"attemptKey"`
-	DAGRun          ir.DAGRunRef        `json:"dagRun"`
-	Root            ir.DAGRunRef        `json:"root,omitzero"`
-	AttemptID       string              `json:"attemptId"`
-	QueueName       string              `json:"queueName"`
-	WorkerID        string              `json:"workerId"`
-	Owner           CoordinatorEndpoint `json:"owner"`
-	ClaimToken      string              `json:"claimToken,omitempty"`
-	ClaimedAt       int64               `json:"claimedAt"`
-	LastHeartbeatAt int64               `json:"lastHeartbeatAt"`
+	AttemptKey            string              `json:"attemptKey"`
+	DAGRun                ir.DAGRunRef        `json:"dagRun"`
+	Root                  ir.DAGRunRef        `json:"root,omitzero"`
+	AttemptID             string              `json:"attemptId"`
+	QueueName             string              `json:"queueName"`
+	WorkerID              string              `json:"workerId"`
+	Owner                 CoordinatorEndpoint `json:"owner"`
+	ClaimToken            string              `json:"claimToken,omitempty"`
+	WorkspaceBundleDigest string              `json:"workspaceBundleDigest,omitempty"`
+	ClaimedAt             int64               `json:"claimedAt"`
+	LastHeartbeatAt       int64               `json:"lastHeartbeatAt"`
 }
 
 // MatchesClaim reports whether the lease identifies the worker claim.

@@ -130,7 +130,8 @@ func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLe
 		(!current.Root.Zero() && !incoming.Root.Zero() && current.Root != incoming.Root) ||
 		(current.AttemptID != "" && incoming.AttemptID != "" && current.AttemptID != incoming.AttemptID) ||
 		(current.WorkerID != "" && incoming.WorkerID != "" && current.WorkerID != incoming.WorkerID) ||
-		(current.ClaimToken != "" && incoming.ClaimToken != "" && current.ClaimToken != incoming.ClaimToken) {
+		(current.ClaimToken != "" && incoming.ClaimToken != "" && current.ClaimToken != incoming.ClaimToken) ||
+		(current.WorkspaceBundleDigest != "" && incoming.WorkspaceBundleDigest != "" && current.WorkspaceBundleDigest != incoming.WorkspaceBundleDigest) {
 		return dispatch.DAGRunLease{}, dispatch.ErrDAGRunLeaseConflict
 	}
 	if current.DAGRun == (ir.DAGRunRef{}) {
@@ -157,6 +158,9 @@ func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLe
 	}
 	if current.ClaimToken == "" {
 		current.ClaimToken = incoming.ClaimToken
+	}
+	if current.WorkspaceBundleDigest == "" {
+		current.WorkspaceBundleDigest = incoming.WorkspaceBundleDigest
 	}
 	if current.ClaimedAt == 0 {
 		current.ClaimedAt = incoming.ClaimedAt

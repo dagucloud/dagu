@@ -1291,6 +1291,10 @@ func (s *queueConditionDispatchTaskStore) DeleteClaim(context.Context, string) e
 	return nil
 }
 
+func (s *queueConditionDispatchTaskStore) ListBundleDigests(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 func (s *queueConditionDispatchTaskStore) CountOutstandingByQueue(_ context.Context, queueName string, _ time.Duration) (int, error) {
 	if s.queueName == queueName && s.attemptKey != "" {
 		return 1, nil

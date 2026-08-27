@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -125,7 +126,7 @@ func TestHasWorkspaceBundleRefreshesExpiration(t *testing.T) {
 	resp, err := handler.HasWorkspaceBundle(ctx, &coordinatorv1.HasWorkspaceBundleRequest{Digest: digest})
 	require.NoError(t, err)
 	assert.True(t, resp.Exists)
-	removed, err := handler.workspaceBundleStore.Cleanup(ctx, now.Add(-time.Hour))
+	removed, err := handler.workspaceBundleStore.Cleanup(ctx, now.Add(-time.Hour), nil)
 	require.NoError(t, err)
 	assert.Zero(t, removed)
 	assert.True(t, handler.workspaceBundleStore.Has(digest))
@@ -136,26 +137,85 @@ func TestWorkspaceBundleCleanupPreservesOutstandingTask(t *testing.T) {
 	now := time.Now().UTC()
 	backend := testutil.NewMemoryBackend()
 	dispatchStore := store.NewDispatchTaskStore(backend.Collection("dispatch_tasks"))
+	leaseStore := store.NewDAGRunLeaseStore(backend.Collection("leases"))
 	bundleDir := t.TempDir()
 	handler := NewHandler(HandlerConfig{
 		WorkspaceBundleDir: bundleDir,
 		DispatchTaskStore:  dispatchStore,
+		DAGRunLeaseStore:   leaseStore,
 	})
-	data := []byte("queued workspace")
+	putExpired := func(name string) string {
+		t.Helper()
+
+		data := []byte(name)
+		digest := workspaceBundleDigest(data)
+		require.NoError(t, handler.workspaceBundleStore.Put(ctx, workspacebundle.Descriptor{
+			Digest: digest,
+			Size:   int64(len(data)),
+		}, data))
+		path := filepath.Join(bundleDir, digest[:2], digest+".tar.gz")
+		require.NoError(t, os.Chtimes(path, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+		return digest
+	}
+
+	pendingDigest := putExpired("pending workspace")
+	claimedDigest := putExpired("claimed workspace")
+	leaseDigest := putExpired("running workspace")
+	unreferencedDigest := putExpired("unreferenced workspace")
+	require.NoError(t, dispatchStore.Enqueue(ctx, &dispatch.DispatchTask{
+		DAGRunID:              "run-pending",
+		Target:                "pending",
+		WorkerSelector:        map[string]string{"state": "pending"},
+		WorkspaceBundleDigest: pendingDigest,
+	}))
+	require.NoError(t, dispatchStore.Enqueue(ctx, &dispatch.DispatchTask{
+		DAGRunID:              "run-claimed",
+		Target:                "claimed",
+		WorkerSelector:        map[string]string{"state": "claimed"},
+		WorkspaceBundleDigest: claimedDigest,
+	}))
+	claimed, err := dispatchStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{
+		WorkerID: "worker-1",
+		Labels:   map[string]string{"state": "claimed"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey:            "running-attempt",
+		WorkspaceBundleDigest: leaseDigest,
+	}))
+
+	handler.cleanupWorkspaceBundles(ctx, now)
+
+	assert.True(t, handler.workspaceBundleStore.Has(pendingDigest))
+	assert.True(t, handler.workspaceBundleStore.Has(claimedDigest))
+	assert.True(t, handler.workspaceBundleStore.Has(leaseDigest))
+	assert.False(t, handler.workspaceBundleStore.Has(unreferencedDigest))
+
+	require.NoError(t, leaseStore.Delete(ctx, "running-attempt"))
+	handler.cleanupWorkspaceBundles(ctx, now)
+	assert.False(t, handler.workspaceBundleStore.Has(leaseDigest))
+}
+
+func TestWorkspaceBundleCleanupFailsClosed(t *testing.T) {
+	ctx := t.Context()
+	now := time.Now().UTC()
+	bundleDir := t.TempDir()
+	baseStore := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	handler := NewHandler(HandlerConfig{
+		WorkspaceBundleDir: bundleDir,
+		DispatchTaskStore: &bundleListErrorStore{
+			DispatchTaskStore: baseStore,
+		},
+	})
+	data := []byte("preserved workspace")
 	digest := workspaceBundleDigest(data)
 	require.NoError(t, handler.workspaceBundleStore.Put(ctx, workspacebundle.Descriptor{
 		Digest: digest,
 		Size:   int64(len(data)),
 	}, data))
-	paths, err := filepath.Glob(filepath.Join(bundleDir, "*", "*"))
-	require.NoError(t, err)
-	require.Len(t, paths, 1)
-	require.NoError(t, os.Chtimes(paths[0], now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
-	require.NoError(t, dispatchStore.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:              "run-1",
-		Target:                "task",
-		WorkspaceBundleDigest: digest,
-	}))
+	path := filepath.Join(bundleDir, digest[:2], digest+".tar.gz")
+	require.NoError(t, os.Chtimes(path, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
 
 	handler.cleanupWorkspaceBundles(ctx, now)
 
@@ -163,17 +223,39 @@ func TestWorkspaceBundleCleanupPreservesOutstandingTask(t *testing.T) {
 }
 
 func TestDispatchRejectsMissingWorkspaceBundle(t *testing.T) {
-	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: t.TempDir()})
+	dir := t.TempDir()
+	handler := NewHandler(HandlerConfig{WorkspaceBundleDir: dir})
+	digest := workspaceBundleDigest([]byte("missing"))
 
 	_, err := handler.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: &coordinatorv1.Task{
 		Target:                "task",
 		DagRunId:              "run-1",
 		Definition:            "name: task\nsteps: []\n",
-		WorkspaceBundleDigest: workspaceBundleDigest([]byte("missing")),
+		WorkspaceBundleDigest: digest,
 	}})
 
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(err))
+
+	path := filepath.Join(dir, digest[:2], digest+".tar.gz")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("corrupt"), 0o600))
+	_, err = handler.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: &coordinatorv1.Task{
+		Target:                "task",
+		DagRunId:              "run-2",
+		Definition:            "name: task\nsteps: []\n",
+		WorkspaceBundleDigest: digest,
+	}})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+type bundleListErrorStore struct {
+	dispatch.DispatchTaskStore
+}
+
+func (*bundleListErrorStore) ListBundleDigests(context.Context) ([]string, error) {
+	return nil, errors.New("list failed")
 }
 
 func workspaceBundleDigest(data []byte) string {

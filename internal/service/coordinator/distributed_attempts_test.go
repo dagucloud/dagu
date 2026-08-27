@@ -254,13 +254,14 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	})
 
 	task := &coordinatorv1.Task{
-		Target:               "test-dag",
-		DagRunId:             "run-1",
-		AttemptId:            "attempt-1",
-		AttemptKey:           "attempt-key-1",
-		OwnerCoordinatorId:   "coord-a",
-		OwnerCoordinatorHost: "127.0.0.1",
-		OwnerCoordinatorPort: 1234,
+		Target:                "test-dag",
+		DagRunId:              "run-1",
+		AttemptId:             "attempt-1",
+		AttemptKey:            "attempt-key-1",
+		WorkspaceBundleDigest: "bundle-digest",
+		OwnerCoordinatorId:    "coord-a",
+		OwnerCoordinatorHost:  "127.0.0.1",
+		OwnerCoordinatorPort:  1234,
 	}
 	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
 	require.NoError(t, ownership.recordTaskClaim(ctx, task, "worker-1"))
@@ -274,6 +275,7 @@ func TestAttemptOwnershipTaskClaimTracking(t *testing.T) {
 	assert.Equal(t, ir.NewDAGRunRef("test-dag", "run-1"), lease.Root)
 	assert.Equal(t, "test-dag", lease.QueueName)
 	assert.Equal(t, "worker-1", lease.WorkerID)
+	assert.Equal(t, task.WorkspaceBundleDigest, lease.WorkspaceBundleDigest)
 	assert.Equal(t, dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234}, lease.Owner)
 	assert.Equal(t, now.UnixMilli(), lease.ClaimedAt)
 	assert.Equal(t, now.UnixMilli(), lease.LastHeartbeatAt)

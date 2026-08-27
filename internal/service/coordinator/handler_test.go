@@ -1142,6 +1142,10 @@ func (s *failingDispatchTaskStore) DeleteClaim(context.Context, string) error {
 	return nil
 }
 
+func (s *failingDispatchTaskStore) ListBundleDigests(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 func (s *failingDispatchTaskStore) CountOutstandingByQueue(context.Context, string, time.Duration) (int, error) {
 	return 0, nil
 }

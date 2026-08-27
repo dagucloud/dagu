@@ -203,6 +203,7 @@ func (o *attemptOwnership) upsertLeaseFromStatus(
 	}
 	if existing, err := o.leaseStore.Get(ctx, attemptKey); err == nil && existing != nil {
 		lease.ClaimedAt = existing.ClaimedAt
+		lease.WorkspaceBundleDigest = existing.WorkspaceBundleDigest
 		if existing.Owner != (dispatch.CoordinatorEndpoint{}) {
 			lease.Owner = existing.Owner
 		}
@@ -390,14 +391,15 @@ func (o *attemptOwnership) leaseFromTask(
 			Name: task.Target,
 			ID:   task.DagRunId,
 		},
-		Root:            root,
-		AttemptID:       task.AttemptId,
-		QueueName:       queueName,
-		WorkerID:        workerID,
-		Owner:           owner,
-		ClaimToken:      task.ClaimToken,
-		ClaimedAt:       now.UnixMilli(),
-		LastHeartbeatAt: now.UnixMilli(),
+		Root:                  root,
+		AttemptID:             task.AttemptId,
+		QueueName:             queueName,
+		WorkerID:              workerID,
+		Owner:                 owner,
+		ClaimToken:            task.ClaimToken,
+		WorkspaceBundleDigest: task.WorkspaceBundleDigest,
+		ClaimedAt:             now.UnixMilli(),
+		LastHeartbeatAt:       now.UnixMilli(),
 	}
 }
 

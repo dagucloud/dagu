@@ -6,6 +6,7 @@ package workspacebundle
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -121,11 +122,30 @@ func TestStoreCleanupRemovesExpiredBundle(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.Chtimes(oldPath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
 
-	removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
+	removed, err := store.Cleanup(ctx, now.Add(-time.Hour), nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, removed)
 	assert.False(t, store.Has(oldDesc.Digest))
 	assert.True(t, store.Has(freshDesc.Digest))
+}
+
+func TestStoreCleanupPreservesProtectedBundle(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	store := NewStore(t.TempDir(), DefaultLimits())
+	data := []byte("protected bundle")
+	desc := Descriptor{Digest: Digest(data), Size: int64(len(data))}
+	require.NoError(t, store.Put(ctx, desc, data))
+	bundlePath, err := store.path(desc.Digest)
+	require.NoError(t, err)
+	require.NoError(t, os.Chtimes(bundlePath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+
+	removed, err := store.Cleanup(ctx, now.Add(-time.Hour), map[string]struct{}{desc.Digest: {}})
+	require.NoError(t, err)
+	assert.Zero(t, removed)
+	assert.True(t, store.Has(desc.Digest))
 }
 
 func TestStoreAccessRefreshesExpiration(t *testing.T) {
@@ -165,7 +185,7 @@ func TestStoreAccessRefreshesExpiration(t *testing.T) {
 			require.NoError(t, os.Chtimes(bundlePath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
 
 			require.NoError(t, access(ctx, store, desc, data))
-			removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
+			removed, err := store.Cleanup(ctx, now.Add(-time.Hour), nil)
 			require.NoError(t, err)
 			assert.Zero(t, removed)
 			assert.True(t, store.Has(desc.Digest))
@@ -207,7 +227,7 @@ func TestStoreCorruptAccessDoesNotRefreshExpiration(t *testing.T) {
 			require.NoError(t, os.Chtimes(bundlePath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
 
 			access(t, ctx, store, desc)
-			removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
+			removed, err := store.Cleanup(ctx, now.Add(-time.Hour), nil)
 			require.NoError(t, err)
 			assert.Equal(t, 1, removed)
 			assert.False(t, store.Has(desc.Digest))
@@ -246,7 +266,7 @@ func TestStoreCleanupIgnoresForeignPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(foreignPath, data, 0o600))
 	require.NoError(t, os.Chtimes(foreignPath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
 
-	removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
+	removed, err := store.Cleanup(ctx, now.Add(-time.Hour), nil)
 	require.NoError(t, err)
 	assert.Zero(t, removed)
 	assert.True(t, store.Has(desc.Digest))
@@ -274,7 +294,7 @@ func TestStoreCleanupContinuesAfterEntryError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.Chtimes(bundlePath, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
 
-	removed, err := store.Cleanup(ctx, now.Add(-time.Hour))
+	removed, err := store.Cleanup(ctx, now.Add(-time.Hour), nil)
 	require.Error(t, err)
 	assert.Equal(t, 1, removed)
 	assert.False(t, store.Has(desc.Digest))
@@ -304,7 +324,7 @@ func TestStoreCleanupAndTouchAreConsistent(t *testing.T) {
 		}, 1)
 		go func() {
 			<-start
-			_, err := first.Cleanup(ctx, now.Add(-time.Hour))
+			_, err := first.Cleanup(ctx, now.Add(-time.Hour), nil)
 			cleanupDone <- err
 		}()
 		go func() {
@@ -336,7 +356,7 @@ func TestStoreRenewsLockDuringLongOperation(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- store.withLock(t.Context(), func() error {
+		done <- store.withLock(t.Context(), func(context.Context) error {
 			close(entered)
 			<-release
 			return nil
@@ -347,6 +367,8 @@ func TestStoreRenewsLockDuringLongOperation(t *testing.T) {
 	select {
 	case <-lock.heartbeat:
 	case <-time.After(time.Second):
+		close(release)
+		require.NoError(t, <-done)
 		t.Fatal("workspace bundle store lock was not renewed")
 	}
 	close(release)
@@ -354,11 +376,86 @@ func TestStoreRenewsLockDuringLongOperation(t *testing.T) {
 	assert.Equal(t, int32(1), lock.unlocks.Load())
 }
 
+func TestStoreStopsOperationAfterHeartbeatFailure(t *testing.T) {
+	lock := &heartbeatLock{
+		heartbeat:    make(chan struct{}, 1),
+		heartbeatErr: errors.New("lock ownership lost"),
+	}
+	store := NewStore(t.TempDir(), DefaultLimits())
+	store.lock = lock
+	store.lockHeartbeatInterval = time.Millisecond
+
+	err := store.withLock(t.Context(), func(ctx context.Context) error {
+		<-lock.heartbeat
+		<-ctx.Done()
+		return context.Cause(ctx)
+	})
+
+	require.ErrorContains(t, err, "lock ownership lost")
+	assert.Equal(t, int32(1), lock.unlocks.Load())
+}
+
+func TestStoreHeartbeatPreventsLockSteal(t *testing.T) {
+	dir := t.TempDir()
+	first := NewStore(dir, DefaultLimits())
+	second := NewStore(dir, DefaultLimits())
+	first.lock = dirlock.New(dir, &dirlock.LockOptions{
+		StaleThreshold: 100 * time.Millisecond,
+		RetryInterval:  time.Millisecond,
+	})
+	second.lock = dirlock.New(dir, &dirlock.LockOptions{
+		StaleThreshold: 100 * time.Millisecond,
+		RetryInterval:  time.Millisecond,
+	})
+	first.lockHeartbeatInterval = 10 * time.Millisecond
+	second.lockHeartbeatInterval = 10 * time.Millisecond
+
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- first.withLock(t.Context(), func(context.Context) error {
+			close(firstEntered)
+			<-releaseFirst
+			return nil
+		})
+	}()
+	<-firstEntered
+
+	secondEntered := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- second.withLock(t.Context(), func(context.Context) error {
+			close(secondEntered)
+			return nil
+		})
+	}()
+
+	select {
+	case <-secondEntered:
+		close(releaseFirst)
+		require.NoError(t, <-firstDone)
+		require.NoError(t, <-secondDone)
+		t.Fatal("second store stole a live lock")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(releaseFirst)
+	require.NoError(t, <-firstDone)
+	select {
+	case <-secondEntered:
+	case <-time.After(time.Second):
+		t.Fatal("second store did not acquire the released lock")
+	}
+	require.NoError(t, <-secondDone)
+}
+
 type heartbeatLock struct {
-	heartbeat chan struct{}
-	locked    atomic.Bool
-	unlocks   atomic.Int32
-	mu        sync.Mutex
+	heartbeat    chan struct{}
+	heartbeatErr error
+	locked       atomic.Bool
+	unlocks      atomic.Int32
+	mu           sync.Mutex
 }
 
 var _ dirlock.DirLock = (*heartbeatLock)(nil)
@@ -400,7 +497,7 @@ func (l *heartbeatLock) Heartbeat(context.Context) error {
 	case l.heartbeat <- struct{}{}:
 	default:
 	}
-	return nil
+	return l.heartbeatErr
 }
 
 func TestPackDirectorySelectsDependenciesAndInjectsDAGSnapshot(t *testing.T) {

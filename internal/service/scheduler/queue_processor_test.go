@@ -1180,6 +1180,10 @@ func (m *mockDispatchTaskStore) DeleteClaim(context.Context, string) error {
 	return nil
 }
 
+func (m *mockDispatchTaskStore) ListBundleDigests(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 func (m *mockDispatchTaskStore) CountOutstandingByQueue(ctx context.Context, queueName string, claimTimeout time.Duration) (int, error) {
 	if m.countOutstandingByQueueFunc != nil {
 		return m.countOutstandingByQueueFunc(ctx, queueName, claimTimeout)
