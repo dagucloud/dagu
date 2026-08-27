@@ -6,8 +6,6 @@ package eventstore
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,15 +24,6 @@ const (
 	defaultDrainInterval = time.Second
 	defaultCleanupEvery  = time.Hour
 	defaultBatchSize     = 256
-	dagEventIDPrefix     = "dag_"
-	dagUpdateIDPrefix    = "dag_update_"
-	llmEventIDPrefix     = "llm_"
-)
-
-const (
-	dagEventIDNamespace byte = iota + 1
-	dagUpdateIDNamespace
-	llmEventIDNamespace
 )
 
 type CollectorOption func(*Collector)
@@ -70,83 +59,6 @@ type Collector struct {
 	cleanupEvery  time.Duration
 	batchSize     int
 	now           func() time.Time
-	seenIDs       seenSet
-}
-
-type eventIDKey [1 + sha256.Size]byte
-
-// seenSet compacts generated IDs while preserving unknown IDs exactly.
-type seenSet struct {
-	compact map[eventIDKey]struct{}
-	legacy  map[string]struct{}
-}
-
-func newSeenSet() seenSet {
-	return seenSet{
-		compact: make(map[eventIDKey]struct{}),
-		legacy:  make(map[string]struct{}),
-	}
-}
-
-func (s seenSet) has(id string) bool {
-	if key, ok := compactEventID(id); ok {
-		_, ok = s.compact[key]
-		return ok
-	}
-
-	_, ok := s.legacy[id]
-	return ok
-}
-
-func (s seenSet) add(id string) {
-	if key, ok := compactEventID(id); ok {
-		s.compact[key] = struct{}{}
-		return
-	}
-
-	s.legacy[id] = struct{}{}
-}
-
-func compactEventID(id string) (eventIDKey, bool) {
-	var key eventIDKey
-	var digest string
-	switch {
-	case strings.HasPrefix(id, dagUpdateIDPrefix):
-		key[0] = dagUpdateIDNamespace
-		digest = id[len(dagUpdateIDPrefix):]
-	case strings.HasPrefix(id, dagEventIDPrefix):
-		key[0] = dagEventIDNamespace
-		digest = id[len(dagEventIDPrefix):]
-	case strings.HasPrefix(id, llmEventIDPrefix):
-		key[0] = llmEventIDNamespace
-		digest = id[len(llmEventIDPrefix):]
-	default:
-		return eventIDKey{}, false
-	}
-
-	if len(digest) != hex.EncodedLen(sha256.Size) || !isLowerHex(digest) {
-		return eventIDKey{}, false
-	}
-	if _, err := hex.Decode(key[1:], []byte(digest)); err != nil {
-		return eventIDKey{}, false
-	}
-
-	return key, true
-}
-
-func isLowerHex(value string) bool {
-	for i := range len(value) {
-		char := value[i]
-		if char >= '0' && char <= '9' {
-			continue
-		}
-		if char >= 'a' && char <= 'f' {
-			continue
-		}
-		return false
-	}
-
-	return true
 }
 
 type pendingInboxEvent struct {
@@ -167,7 +79,6 @@ func NewCollector(baseDir string, retentionDays int, opts ...CollectorOption) (*
 		cleanupEvery:  defaultCleanupEvery,
 		batchSize:     defaultBatchSize,
 		now:           time.Now,
-		seenIDs:       newSeenSet(),
 	}
 	for _, opt := range opts {
 		opt(collector)
@@ -177,11 +88,6 @@ func NewCollector(baseDir string, retentionDays int, opts ...CollectorOption) (*
 
 func (c *Collector) Start(ctx context.Context) {
 	c.cleanupExpired()
-	if err := c.loadSeenIDs(); err != nil {
-		slog.Warn("fileeventstore: failed to initialize seen-set",
-			slog.String("dir", c.store.baseDir),
-			slog.String("error", err.Error()))
-	}
 	if err := c.DrainOnce(ctx); err != nil {
 		slog.Warn("fileeventstore: initial drain failed",
 			slog.String("dir", c.store.baseDir),
@@ -238,14 +144,6 @@ func (c *Collector) DrainOnce(_ context.Context) error {
 			c.quarantine(path, entry.Name(), err)
 			continue
 		}
-		if c.seenIDs.has(pending.event.ID) {
-			if err := fileutil.Remove(path); err != nil && !os.IsNotExist(err) {
-				slog.Warn("fileeventstore: failed to delete duplicate inbox file",
-					slog.String("file", path),
-					slog.String("error", err.Error()))
-			}
-			continue
-		}
 		if _, ok := queuedIDs[pending.event.ID]; ok {
 			if err := fileutil.Remove(path); err != nil && !os.IsNotExist(err) {
 				slog.Warn("fileeventstore: failed to delete duplicate inbox file",
@@ -280,6 +178,28 @@ func (c *Collector) DrainOnce(_ context.Context) error {
 
 func (c *Collector) appendGroup(hour string, group []pendingInboxEvent) error {
 	logPath := filepath.Join(c.store.baseDir, logPrefix+hour+logSuffix)
+	pendingIDs := make(map[string]struct{}, len(group))
+	for _, item := range group {
+		pendingIDs[item.event.ID] = struct{}{}
+	}
+
+	// Deduplication stays bounded by the current batch and its hourly log.
+	committedIDs, err := c.findCommittedIDs(logPath, pendingIDs)
+	if err != nil {
+		return err
+	}
+	remaining := group[:0]
+	for _, item := range group {
+		if _, ok := committedIDs[item.event.ID]; ok {
+			c.removeInboxFile(item.path)
+			continue
+		}
+		remaining = append(remaining, item)
+	}
+	if len(remaining) == 0 {
+		return nil
+	}
+
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, filePermissions) //nolint:gosec // controlled path
 	if err != nil {
 		return fmt.Errorf("open event log %s: %w", logPath, err)
@@ -287,52 +207,93 @@ func (c *Collector) appendGroup(hour string, group []pendingInboxEvent) error {
 	defer func() { _ = f.Close() }()
 
 	removePersistedInboxFiles := func() {
-		for _, item := range group {
-			if !c.seenIDs.has(item.event.ID) {
-				continue
-			}
-			if err := fileutil.Remove(item.path); err != nil && !os.IsNotExist(err) {
-				slog.Warn("fileeventstore: failed to delete processed inbox file",
-					slog.String("file", item.path),
-					slog.String("error", err.Error()))
-			}
-		}
-	}
-	reloadSeenIDs := func() {
-		if err := c.loadSeenIDsFromFile(logPath); err != nil {
-			slog.Warn("fileeventstore: failed to reload seen-set after append error",
+		ids, err := c.findCommittedIDs(logPath, pendingIDs)
+		if err != nil {
+			slog.Warn("fileeventstore: failed to check persisted events after append error",
 				slog.String("file", logPath),
 				slog.String("error", err.Error()))
 			return
 		}
-		removePersistedInboxFiles()
+		for _, item := range remaining {
+			if _, ok := ids[item.event.ID]; ok {
+				c.removeInboxFile(item.path)
+			}
+		}
 	}
 
 	writer := bufio.NewWriter(f)
-	for _, item := range group {
+	for _, item := range remaining {
 		if _, err := writer.Write(item.raw); err != nil {
-			reloadSeenIDs()
+			removePersistedInboxFiles()
 			return fmt.Errorf("append event log %s: %w", logPath, err)
 		}
 		if err := writer.WriteByte('\n'); err != nil {
-			reloadSeenIDs()
+			removePersistedInboxFiles()
 			return fmt.Errorf("append newline %s: %w", logPath, err)
 		}
 	}
 	if err := writer.Flush(); err != nil {
-		reloadSeenIDs()
+		removePersistedInboxFiles()
 		return fmt.Errorf("flush event log %s: %w", logPath, err)
 	}
 	if err := f.Sync(); err != nil {
-		reloadSeenIDs()
+		removePersistedInboxFiles()
 		return fmt.Errorf("sync event log %s: %w", logPath, err)
 	}
 
-	for _, item := range group {
-		c.seenIDs.add(item.event.ID)
+	for _, item := range remaining {
+		c.removeInboxFile(item.path)
 	}
-	removePersistedInboxFiles()
 	return nil
+}
+
+func (c *Collector) findCommittedIDs(filePath string, pendingIDs map[string]struct{}) (map[string]struct{}, error) {
+	committedIDs := make(map[string]struct{}, len(pendingIDs))
+	f, err := os.Open(filePath) //nolint:gosec // controlled path
+	if err != nil {
+		if os.IsNotExist(err) {
+			return committedIDs, nil
+		}
+		return nil, fmt.Errorf("open event log %s: %w", filePath, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	fileutil.ConfigureScanner(scanner)
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		var event struct {
+			eventstore.Event
+			Data struct{} `json:"data"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			slog.Warn("fileeventstore: skipping malformed committed event while checking duplicates",
+				slog.String("file", filePath),
+				slog.Int("line", lineNum),
+				slog.String("error", err.Error()))
+			continue
+		}
+		if _, ok := pendingIDs[event.ID]; !ok {
+			continue
+		}
+		committedIDs[event.ID] = struct{}{}
+		if len(committedIDs) == len(pendingIDs) {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan event log %s: %w", filePath, err)
+	}
+	return committedIDs, nil
+}
+
+func (c *Collector) removeInboxFile(path string) {
+	if err := fileutil.Remove(path); err != nil && !os.IsNotExist(err) {
+		slog.Warn("fileeventstore: failed to delete processed inbox file",
+			slog.String("file", path),
+			slog.String("error", err.Error()))
+	}
 }
 
 func (c *Collector) readPendingEvent(path string) (pendingInboxEvent, error) {
@@ -375,57 +336,6 @@ func (c *Collector) quarantine(path, name string, parseErr error) {
 		slog.String("error", parseErr.Error()))
 }
 
-func (c *Collector) loadSeenIDs() error {
-	files, err := c.store.listCommittedFiles(time.Time{}, time.Time{})
-	if err != nil {
-		return err
-	}
-
-	for _, file := range files {
-		if err := c.loadSeenIDsFromFile(file); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (c *Collector) loadSeenIDsFromFile(filePath string) error {
-	f, err := os.Open(filePath) //nolint:gosec // controlled path
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("open event log %s: %w", filePath, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	scanner := bufio.NewScanner(f)
-	fileutil.ConfigureScanner(scanner)
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		// Deduplication only needs the ID, so historical payloads stay unmaterialized.
-		var event struct {
-			eventstore.Event
-			Data struct{} `json:"data"`
-		}
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			slog.Warn("fileeventstore: skipping malformed committed event while loading seen-set",
-				slog.String("file", filePath),
-				slog.Int("line", lineNum),
-				slog.String("error", err.Error()))
-			continue
-		}
-		if event.ID != "" {
-			c.seenIDs.add(event.ID)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scan event log %s: %w", filePath, err)
-	}
-	return nil
-}
-
 func (c *Collector) cleanupExpired() {
 	if c.retentionDays <= 0 {
 		return
@@ -434,8 +344,6 @@ func (c *Collector) cleanupExpired() {
 	now := c.now().UTC()
 	cutoff := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).
 		AddDate(0, 0, -c.retentionDays)
-	removedCommitted := false
-
 	baseEntries, err := os.ReadDir(c.store.baseDir)
 	if err == nil {
 		for _, entry := range baseEntries {
@@ -451,8 +359,6 @@ func (c *Collector) cleanupExpired() {
 				slog.Warn("fileeventstore: failed to remove expired event log",
 					slog.String("file", path),
 					slog.String("error", err.Error()))
-			} else {
-				removedCommitted = true
 			}
 		}
 	} else if !os.IsNotExist(err) {
@@ -486,14 +392,6 @@ func (c *Collector) cleanupExpired() {
 		if err := fileutil.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			slog.Warn("fileeventstore: failed to remove expired quarantined event file",
 				slog.String("file", path),
-				slog.String("error", err.Error()))
-		}
-	}
-	if removedCommitted {
-		c.seenIDs = newSeenSet()
-		if err := c.loadSeenIDs(); err != nil {
-			slog.Warn("fileeventstore: failed to rebuild seen-set after cleanup",
-				slog.String("dir", c.store.baseDir),
 				slog.String("error", err.Error()))
 		}
 	}
