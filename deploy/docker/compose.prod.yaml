@@ -110,8 +110,6 @@ services:
       # OTel: point DAGs to collector via per-DAG otel.endpoint: "otel-collector:4317"
     depends_on:
       - dagu-coordinator
-    volumes:
-      - dagu-data:/var/lib/dagu
     networks: [dagu-net]
 
   # Grafana: visualize Prometheus metrics

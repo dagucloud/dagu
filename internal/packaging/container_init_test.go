@@ -151,7 +151,7 @@ func TestDockerComposeWorkerUsesCoordinatorRPC(t *testing.T) {
 
 	worker := compose.Services["dagu-worker"]
 	require.Contains(t, worker.Environment, "DAGU_WORKER_COORDINATORS=dagu-coordinator:50055")
-	require.Equal(t, []string{"dagu-data:/var/lib/dagu"}, worker.Volumes)
+	require.Empty(t, worker.Volumes)
 }
 
 func repoRoot(t *testing.T) string {
