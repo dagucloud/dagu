@@ -50,6 +50,18 @@ func TestResolveSecretReference(t *testing.T) {
 	}))
 
 	dagRunRepository := runtestutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	dagRepository := runtestutil.NewFileDAGRepository(filepath.Join(t.TempDir(), "dags"))
+	require.NoError(t, dagRepository.Create(ctx, "external-child", []byte(`
+name: external-child
+labels:
+  - workspace=payments
+secrets:
+  - name: MY_SECRET
+    ref: prod/my-secret
+steps:
+  - name: noop
+    run: "true"
+`)))
 	leaseStore := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("leases"))
 	dag := &ir.DAG{
 		Name:   "registry-secret-dag",
@@ -58,6 +70,17 @@ func TestResolveSecretReference(t *testing.T) {
 			Name: "MY_SECRET",
 			Ref:  "prod/my-secret",
 		}},
+		LocalDAGs: map[string]*ir.DAG{
+			"inline": {
+				Name: "inline",
+				Steps: []ir.Step{{
+					Name: "external",
+					SubDAG: &ir.SubDAG{
+						Name: "external-child",
+					},
+				}},
+			},
+		},
 	}
 	attempt, err := dagRunRepository.CreateAttempt(ctx, dag, now, "run-1", persis.DAGRunCreateAttemptOptions{AttemptID: "attempt-1"})
 	require.NoError(t, err)
@@ -86,6 +109,7 @@ func TestResolveSecretReference(t *testing.T) {
 
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		SecretStore:         secretStore,
+		DAGRepository:       dagRepository,
 		DAGRunRepository:    dagRunRepository,
 		DAGRunLeaseStore:    leaseStore,
 		StaleLeaseThreshold: time.Minute,
@@ -113,6 +137,18 @@ func TestResolveSecretReference(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Empty(t, checkResp.GetValue())
+
+	nestedResp, err := handler.ResolveSecretReference(ctx, &coordinatorv1.ResolveSecretReferenceRequest{
+		Name:       "MY_SECRET",
+		Ref:        "prod/my-secret",
+		Workspace:  "payments",
+		WorkerId:   "worker-1",
+		AttemptKey: attemptKey,
+		AttemptId:  attempt.ID(),
+		DagName:    "external-child",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "secret-value", nestedResp.GetValue())
 
 	_, err = handler.ResolveSecretReference(ctx, &coordinatorv1.ResolveSecretReferenceRequest{
 		Name:       "MY_SECRET",

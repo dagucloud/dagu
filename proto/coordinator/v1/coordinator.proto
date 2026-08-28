@@ -549,6 +549,7 @@ message ResolveRuntimeProfileRequest {
   string attempt_id = 3;
   string profile_name = 4;
   string workspace = 5;
+  string dag_name = 6;
 }
 
 message RuntimeProfileEntry {

@@ -136,6 +136,7 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 		DAGRun:          run,
 		Root:            run,
 		AttemptID:       "attempt-1",
+		ProfileName:     "prod",
 		QueueName:       "existing-queue",
 		WorkerID:        "worker-1",
 		Owner:           dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234},
@@ -144,13 +145,14 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	}))
 
 	status := &ir.DAGRunStatus{
-		Name:       run.Name,
-		DAGRunID:   run.ID,
-		Root:       run,
-		AttemptID:  "attempt-1",
-		AttemptKey: "attempt-key-1",
-		Status:     ir.Running,
-		WorkerID:   "worker-1",
+		Name:        run.Name,
+		DAGRunID:    run.ID,
+		Root:        run,
+		AttemptID:   "attempt-1",
+		AttemptKey:  "attempt-key-1",
+		Status:      ir.Running,
+		WorkerID:    "worker-1",
+		ProfileName: "other",
 	}
 	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
 	ownership.syncFromStatus(ctx, "", status, "")
@@ -162,6 +164,7 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.Equal(t, now.UnixMilli(), lease.LastHeartbeatAt)
 	assert.Equal(t, "existing-queue", lease.QueueName)
 	assert.Equal(t, "worker-1", lease.WorkerID)
+	assert.Equal(t, "prod", lease.ProfileName)
 	assert.Equal(t, dispatch.CoordinatorEndpoint{ID: "coord-a", Host: "127.0.0.1", Port: 1234}, lease.Owner)
 
 	record, err := activeStore.Get(ctx, "attempt-key-1")

@@ -295,6 +295,11 @@ func declaresSubDAG(dag *ir.DAG, name string) bool {
 			return true
 		}
 	}
+	for _, child := range dag.LocalDAGs {
+		if declaresSubDAG(child, name) {
+			return true
+		}
+	}
 	return false
 }
 

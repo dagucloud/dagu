@@ -37,7 +37,7 @@ type SubWorkflowRunnerConfig struct {
 	SecretStore       secret.Store
 	SecretResolver    func(*ir.DAG) providers.ReferenceResolver
 	ProfileStore      profile.Store
-	ProfileResolver   profile.RuntimeResolver
+	ProfileResolver   func(*ir.DAG) profile.RuntimeResolver
 	ServiceRegistry   serviceregistry.ServiceRegistry
 	PeerConfig        config.Peer
 	DefaultExecMode   config.ExecutionMode

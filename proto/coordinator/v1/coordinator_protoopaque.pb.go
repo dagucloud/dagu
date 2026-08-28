@@ -5561,6 +5561,7 @@ type ResolveRuntimeProfileRequest struct {
 	xxx_hidden_AttemptId   string                 `protobuf:"bytes,3,opt,name=attempt_id,json=attemptId,proto3"`
 	xxx_hidden_ProfileName string                 `protobuf:"bytes,4,opt,name=profile_name,json=profileName,proto3"`
 	xxx_hidden_Workspace   string                 `protobuf:"bytes,5,opt,name=workspace,proto3"`
+	xxx_hidden_DagName     string                 `protobuf:"bytes,6,opt,name=dag_name,json=dagName,proto3"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -5625,6 +5626,13 @@ func (x *ResolveRuntimeProfileRequest) GetWorkspace() string {
 	return ""
 }
 
+func (x *ResolveRuntimeProfileRequest) GetDagName() string {
+	if x != nil {
+		return x.xxx_hidden_DagName
+	}
+	return ""
+}
+
 func (x *ResolveRuntimeProfileRequest) SetWorkerId(v string) {
 	x.xxx_hidden_WorkerId = v
 }
@@ -5645,6 +5653,10 @@ func (x *ResolveRuntimeProfileRequest) SetWorkspace(v string) {
 	x.xxx_hidden_Workspace = v
 }
 
+func (x *ResolveRuntimeProfileRequest) SetDagName(v string) {
+	x.xxx_hidden_DagName = v
+}
+
 type ResolveRuntimeProfileRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -5653,6 +5665,7 @@ type ResolveRuntimeProfileRequest_builder struct {
 	AttemptId   string
 	ProfileName string
 	Workspace   string
+	DagName     string
 }
 
 func (b0 ResolveRuntimeProfileRequest_builder) Build() *ResolveRuntimeProfileRequest {
@@ -5664,6 +5677,7 @@ func (b0 ResolveRuntimeProfileRequest_builder) Build() *ResolveRuntimeProfileReq
 	x.xxx_hidden_AttemptId = b.AttemptId
 	x.xxx_hidden_ProfileName = b.ProfileName
 	x.xxx_hidden_Workspace = b.Workspace
+	x.xxx_hidden_DagName = b.DagName
 	return m0
 }
 
@@ -6236,7 +6250,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"attempt_id\x18\a \x01(\tR\tattemptId\x12\x19\n" +
 	"\bdag_name\x18\b \x01(\tR\adagName\"6\n" +
 	"\x1eResolveSecretReferenceResponse\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\tR\x05value\"\xbc\x01\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\"\xd7\x01\n" +
 	"\x1cResolveRuntimeProfileRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1f\n" +
 	"\vattempt_key\x18\x02 \x01(\tR\n" +
@@ -6244,7 +6258,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\n" +
 	"attempt_id\x18\x03 \x01(\tR\tattemptId\x12!\n" +
 	"\fprofile_name\x18\x04 \x01(\tR\vprofileName\x12\x1c\n" +
-	"\tworkspace\x18\x05 \x01(\tR\tworkspace\"Q\n" +
+	"\tworkspace\x18\x05 \x01(\tR\tworkspace\x12\x19\n" +
+	"\bdag_name\x18\x06 \x01(\tR\adagName\"Q\n" +
 	"\x13RuntimeProfileEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +

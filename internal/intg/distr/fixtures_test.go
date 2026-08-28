@@ -259,6 +259,12 @@ func (f *testFixture) setupWorkerMode(
 		pathsCopy.ArtifactDir = filepath.Join(workerDataDir, "artifacts")
 		pathsCopy.ToolsDir = filepath.Join(workerDataDir, "tools")
 		pathsCopy.DAGRunWorkDir = filepath.Join(workerDataDir, "work")
+		for _, dir := range []string{
+			pathsCopy.DataDir, pathsCopy.LogDir, pathsCopy.ArtifactDir,
+			pathsCopy.ToolsDir, pathsCopy.DAGRunWorkDir,
+		} {
+			require.NoError(f.t, os.MkdirAll(dir, 0755))
+		}
 		cfgCopy.Paths = pathsCopy
 		workerConfig = &cfgCopy
 	}
@@ -275,7 +281,7 @@ func (f *testFixture) setupWorkerMode(
 		handlerCfg.ServiceRegistry = f.coord.ServiceRegistry
 	}
 
-	w := worker.NewWorker(workerID, f.workerMaxActiveRuns, f.coordinatorClient, labels, f.coord.Config)
+	w := worker.NewWorker(workerID, f.workerMaxActiveRuns, f.coordinatorClient, labels, workerConfig)
 	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
 	if afterAckHook != nil {
 		w.SetAfterTaskAckHook(afterAckHook)

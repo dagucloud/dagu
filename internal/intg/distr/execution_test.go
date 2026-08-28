@@ -389,7 +389,7 @@ steps:
 ---
 name: shared-nothing-child
 labels:
-  - workspace=ops
+  - workspace=child-ops
 worker_selector: local
 secrets:
   - name: CHILD_SECRET
@@ -414,7 +414,7 @@ steps:
 	require.NotNil(t, secretStore)
 	now := time.Now().UTC()
 	childSecret, err := secretpkg.New(secretpkg.CreateInput{
-		Workspace: "ops", Ref: "prod/child", ProviderType: secretpkg.ProviderDaguManaged,
+		Workspace: "child-ops", Ref: "prod/child", ProviderType: secretpkg.ProviderDaguManaged,
 	}, now)
 	require.NoError(t, err)
 	require.NoError(t, secretStore.Create(f.coord.Context, childSecret, &secretpkg.WriteValueInput{
@@ -428,6 +428,7 @@ steps:
 	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
 	require.Len(t, status.Nodes, 1)
 	require.Len(t, status.Nodes[0].SubRuns, 1)
+	require.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status)
 }
 
 func sharedNothingChildCommand() string {

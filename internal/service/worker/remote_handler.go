@@ -679,11 +679,11 @@ func (h *remoteTaskHandler) executeDAGRun(
 	ctx = logger.WithLogger(ctx, logger.NewLogger(logger.WithWriter(logWriter)))
 
 	runtimeStores := h.runtimeStores
-	profileResolver := h.profileResolver(run.owner, coordinator.RuntimeProfileRun{
-		WorkerID:   h.workerID,
-		AttemptKey: task.AttemptKey,
-		AttemptID:  attemptID,
-	})
+	profileResolver := func(current *ir.DAG) profile.RuntimeResolver {
+		return h.profileResolver(current, run.owner, coordinator.RuntimeProfileRun{
+			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID,
+		})
+	}
 	secretResolver := func(current *ir.DAG) providers.ReferenceResolver {
 		return h.secretReferenceResolver(current, run.owner, coordinator.SecretReferenceRun{
 			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID,
@@ -759,7 +759,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		SecretStore:              runtimeStores.SecretStore,
 		SecretReferenceResolver:  secretResolver(dag),
 		ProfileStore:             runtimeStores.ProfileStore,
-		ProfileResolver:          profileResolver,
+		ProfileResolver:          profileResolver(dag),
 		ProfileName:              run.profileName,
 		DAGDefinitionID:          task.DefinitionId,
 		TriggerActor:             task.TriggerActor,
@@ -828,9 +828,13 @@ func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner servicere
 }
 
 func (h *remoteTaskHandler) profileResolver(
+	dag *ir.DAG,
 	owner serviceregistry.HostInfo,
 	run coordinator.RuntimeProfileRun,
 ) profile.RuntimeResolver {
+	if dag != nil {
+		run.DAGName = dag.Name
+	}
 	var fallback profile.RuntimeResolver
 	if h.runtimeStores.ProfileStore != nil {
 		fallback = profile.NewResolver(h.runtimeStores.ProfileStore, h.runtimeStores.SecretStore)

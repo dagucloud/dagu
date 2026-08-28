@@ -26,6 +26,7 @@ type RuntimeProfileRun struct {
 	WorkerID   string
 	AttemptKey string
 	AttemptID  string
+	DAGName    string
 }
 
 type runtimeProfileResolver struct {
@@ -121,6 +122,7 @@ func runtimeProfileRequest(req profilepkg.RuntimeRequest, run RuntimeProfileRun)
 		AttemptId:   run.AttemptID,
 		ProfileName: req.ProfileName,
 		Workspace:   req.Workspace,
+		DagName:     run.DAGName,
 	}
 }
 
@@ -170,7 +172,7 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 		return status.Error(codes.PermissionDenied, "runtime profile access denied")
 	}
 
-	dag, err := h.secretReferenceDAG(ctx, lease, "")
+	dag, err := h.secretReferenceDAG(ctx, lease, req.GetDagName())
 	if err != nil {
 		return err
 	}

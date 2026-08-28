@@ -46,7 +46,7 @@ type Local struct {
 	secretStore              secretpkg.Store
 	secretResolver           func(*ir.DAG) providers.ReferenceResolver
 	profileStore             profilepkg.Store
-	profileResolver          profilepkg.RuntimeResolver
+	profileResolver          func(*ir.DAG) profilepkg.RuntimeResolver
 	serviceRegistry          serviceregistry.ServiceRegistry
 	statusPusher             runtime.StatusPusher
 	logWriterFactory         runctx.LogWriterFactory
@@ -125,7 +125,7 @@ func WithLocalProfileStore(store profilepkg.Store) LocalOption {
 }
 
 // WithLocalProfileResolver sets the runtime profile resolver used by child agents.
-func WithLocalProfileResolver(resolver profilepkg.RuntimeResolver) LocalOption {
+func WithLocalProfileResolver(resolver func(*ir.DAG) profilepkg.RuntimeResolver) LocalOption {
 	return func(r *Local) {
 		r.profileResolver = resolver
 	}
@@ -501,7 +501,9 @@ func (r *Local) newAgent(
 		opts.SecretReferenceResolver = r.secretResolver(dag)
 	}
 	opts.ProfileStore = r.profileStore
-	opts.ProfileResolver = r.profileResolver
+	if r.profileResolver != nil {
+		opts.ProfileResolver = r.profileResolver(dag)
+	}
 	opts.ProfileName = req.ProfileName
 	opts.ServiceRegistry = r.serviceRegistry
 	opts.DefaultExecMode = rCtx.DefaultExecMode
