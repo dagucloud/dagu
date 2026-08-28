@@ -108,6 +108,7 @@ services:
       # - DAGU_WORKER_MAX_ACTIVE_RUNS=100
       # - DAGU_WORKER_LABELS=region=us-east-1,instance-type=m5.large
       # OTel: point DAGs to collector via per-DAG otel.endpoint: "otel-collector:4317"
+    # No Dagu data volume: DAGs and control-plane state flow through the coordinator.
     depends_on:
       - dagu-coordinator
     networks: [dagu-net]
