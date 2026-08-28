@@ -1814,6 +1814,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 				return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
 			}
 			if err := bootstrappedAttempt.Write(ctx, *dagRunStatus); err != nil {
+				h.closeCachedAttemptForRun(ctx, context.WithoutCancel(ctx), dagRunStatus.DAGRunID, bootstrappedAttempt.ID())
 				return nil, status.Error(codes.Internal, "failed to write status: "+err.Error())
 			}
 
@@ -1901,6 +1902,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 			return nil, status.Error(codes.Internal, "failed to get/open latest attempt: "+err.Error())
 		}
 		if err := attempt.Write(ctx, *dagRunStatus); err != nil {
+			h.closeCachedAttemptForRun(ctx, context.WithoutCancel(ctx), dagRunStatus.DAGRunID, attempt.ID())
 			return nil, status.Error(codes.Internal, "failed to write status: "+err.Error())
 		}
 	}
@@ -3273,6 +3275,9 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 		}
 		attempt = foundAttempt
 		needsOpen = true
+	}
+	if !needsOpen {
+		defer h.closeCachedAttemptForRun(ctx, storeCtx, dagRunID, attempt.ID())
 	}
 
 	dagRunStatus, err := attempt.ReadStatus(storeCtx)

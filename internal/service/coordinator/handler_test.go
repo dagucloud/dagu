@@ -2039,6 +2039,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 			},
 		}
 		attempt := store.addAttempt(ref, initialStatus)
+		require.NoError(t, attempt.Open(ctx))
+		h.openAttempts[ref.ID] = attempt
 
 		// Mark the run as failed
 		h.markRunFailed(ctx, "test-dag", "run-123", "worker crashed")
@@ -2047,6 +2049,8 @@ func TestHandler_ZombieDetection(t *testing.T) {
 		require.True(t, attempt.WasOpened())
 		require.True(t, attempt.WasWritten())
 		require.True(t, attempt.WasClosed())
+		_, cached := h.openAttempts[ref.ID]
+		assert.False(t, cached)
 
 		// Check the status
 		status, err := attempt.ReadStatus(ctx)
@@ -3868,6 +3872,47 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.False(t, cached)
 	})
 
+	t.Run("ClosesBootstrappedAttemptAfterWriteError", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		store.attemptWriteErr = errors.New("status write failed")
+		h := NewHandler(HandlerConfig{DAGRunRepository: store.repository})
+		ctx := context.Background()
+
+		rootRef := ir.NewDAGRunRef("root-dag", "root-run-123")
+		store.addAttempt(rootRef, &ir.DAGRunStatus{
+			Name:     rootRef.Name,
+			DAGRunID: rootRef.ID,
+			Status:   ir.Running,
+		})
+		incoming, convErr := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
+			Name:      "child-dag",
+			DAGRunID:  "child-run-123",
+			Root:      rootRef,
+			AttemptID: "child-attempt-1",
+			WorkerID:  "worker-1",
+			Status:    ir.Failed,
+		})
+		require.NoError(t, convErr)
+
+		_, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+			Status:   incoming,
+			WorkerId: "worker-1",
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.Internal, status.Code(err))
+
+		attempt := store.subAttempts[rootRef.ID+":child-run-123"]
+		require.NotNil(t, attempt)
+		assert.True(t, attempt.WasClosed())
+
+		h.attemptsMu.RLock()
+		_, cached := h.openAttempts["child-run-123"]
+		h.attemptsMu.RUnlock()
+		assert.False(t, cached)
+	})
+
 	t.Run("RejectsMissingSubAttemptWithoutRootLease", func(t *testing.T) {
 		t.Parallel()
 
@@ -4278,6 +4323,42 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		_, err = activeStore.Get(ctx, "attempt-key-1")
 		assert.ErrorIs(t, err, dispatch.ErrActiveRunNotFound)
+	})
+
+	t.Run("ClosesAttemptAfterStatusWriteError", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunRepository: store.repository})
+		ctx := context.Background()
+
+		ref := ir.NewDAGRunRef("test-dag", "run-123")
+		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     ir.Running,
+		})
+		attempt.writeError = errors.New("status write failed")
+		incoming, convErr := convert.DAGRunStatusToProto(&ir.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     ir.Failed,
+		})
+		require.NoError(t, convErr)
+
+		_, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{Status: incoming})
+		require.Error(t, err)
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.True(t, attempt.WasClosed())
+
+		h.attemptsMu.RLock()
+		_, cached := h.openAttempts[ref.ID]
+		h.attemptsMu.RUnlock()
+		assert.False(t, cached)
 	})
 
 	t.Run("MissingStatusReturnsError", func(t *testing.T) {
