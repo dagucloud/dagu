@@ -152,6 +152,14 @@ steps:
 		WorkerId: "worker-1", AttemptKey: attemptKey, AttemptId: attempt.ID(),
 		ProfileName: "prod", Workspace: "payments",
 	}
+	missingRepositoryHandler := coordinator.NewHandler(coordinator.HandlerConfig{
+		DAGRunLeaseStore: leaseStore, ProfileStore: profileStore, SecretStore: secretStore,
+		StaleLeaseThreshold: time.Minute,
+	})
+	_, err = missingRepositoryHandler.ResolveRuntimeProfile(ctx, valid)
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+
 	resp, err := handler.ResolveRuntimeProfile(ctx, valid)
 	require.NoError(t, err)
 	require.Len(t, resp.GetSelected().GetEntries(), 2)

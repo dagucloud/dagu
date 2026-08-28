@@ -160,6 +160,9 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 	if h.dagRunLeaseStore == nil {
 		return status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
 	}
+	if h.dagRunRepository == nil {
+		return status.Error(codes.FailedPrecondition, "DAG-run repository is not configured")
+	}
 
 	lease, err := h.dagRunLeaseStore.Get(ctx, req.GetAttemptKey())
 	if err != nil {
