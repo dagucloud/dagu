@@ -49,6 +49,15 @@ func TestReadContextInput_RequiresServerAndAPIKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "--api-key is required")
 }
 
+func TestContextServerFlagDescribesAPIBaseURL(t *testing.T) {
+	t.Parallel()
+
+	command := contextAddCommand()
+	flag := command.Flags().Lookup("server")
+	require.NotNil(t, flag)
+	assert.Contains(t, flag.Usage, "API base URL")
+}
+
 func TestContextUpdate_CanClearDescriptionWithoutOverwritingOtherFields(t *testing.T) {
 	t.Parallel()
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/require"
 )
 
@@ -113,7 +114,7 @@ func TestDockerComposeDAGMountsStayWritable(t *testing.T) {
 
 	expectedMountCounts := map[string]int{
 		"deploy/docker/compose.minimal.yaml": 1,
-		"deploy/docker/compose.prod.yaml":    4,
+		"deploy/docker/compose.prod.yaml":    3,
 	}
 
 	root := repoRoot(t)
@@ -127,6 +128,30 @@ func TestDockerComposeDAGMountsStayWritable(t *testing.T) {
 			require.Equal(t, expectedCount, strings.Count(content, "./dags:/var/lib/dagu/dags"), "%s must keep DAG mounts on all expected services", file)
 		})
 	}
+}
+
+func TestDockerComposeWorkerUsesCoordinatorRPC(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	content := readFile(t, filepath.Join(root, "deploy/docker/compose.prod.yaml"))
+	var compose struct {
+		Services map[string]struct {
+			Environment []string `yaml:"environment"`
+			Ports       []string `yaml:"ports"`
+			Volumes     []string `yaml:"volumes"`
+		} `yaml:"services"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(content), &compose))
+
+	coordinator := compose.Services["dagu-coordinator"]
+	require.Contains(t, coordinator.Environment, "DAGU_COORDINATOR_HOST=0.0.0.0")
+	require.Contains(t, coordinator.Environment, "DAGU_COORDINATOR_ADVERTISE=dagu-coordinator")
+	require.Empty(t, coordinator.Ports)
+
+	worker := compose.Services["dagu-worker"]
+	require.Contains(t, worker.Environment, "DAGU_WORKER_COORDINATORS=dagu-coordinator:50055")
+	require.Empty(t, worker.Volumes)
 }
 
 func repoRoot(t *testing.T) string {

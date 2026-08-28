@@ -746,10 +746,11 @@ Operational detail for the [distributed workers](#how-you-run-dagu) topology:
 
 ```sh
 # Start coordinator
-dagu coordinator
+dagu coordinator --coordinator.host=0.0.0.0 --coordinator.advertise=coordinator.internal
 
 # Start workers (on separate machines)
-DAGU_WORKER_LABELS=gpu=true,memory=64G dagu worker
+DAGU_WORKER_COORDINATORS=coordinator.internal:50055 \
+  DAGU_WORKER_LABELS=gpu=true,memory=64G dagu worker
 ```
 
 See the [distributed execution documentation](https://docs.dagu.sh/server-admin/distributed/) for setup details.
@@ -906,7 +907,7 @@ OIDC variables: `DAGU_AUTH_OIDC_CLIENT_ID`, `DAGU_AUTH_OIDC_CLIENT_SECRET`, `DAG
 | `DAGU_WORKER_HEALTH_PORT` | `8092` | Worker health check port |
 | `DAGU_WORKER_LABELS` | — | Worker labels (`key=value,key=value`); `os` and `arch` are built in and cannot be overridden |
 | `DAGU_COORDINATOR_ADVERTISE` | auto-detected hostname | Address advertised in the service registry |
-| `DAGU_WORKER_COORDINATORS` | — | Explicit coordinator addresses for shared-nothing mode |
+| `DAGU_WORKER_COORDINATORS` | — | Coordinator addresses required by `dagu worker` (`host:port,...`) |
 
 ### Peer TLS (gRPC)
 

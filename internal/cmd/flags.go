@@ -276,7 +276,7 @@ var (
 
 	workerCoordinatorsFlag = commandLineFlag{
 		name:      "worker.coordinators",
-		usage:     "Coordinator addresses for static discovery (format: host1:port1,host2:port2)",
+		usage:     "Required coordinator addresses (format: host1:port1,host2:port2)",
 		bindViper: true,
 	}
 )

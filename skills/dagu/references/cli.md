@@ -263,7 +263,7 @@ Start gRPC coordinator: `dagu coordinator [--coordinator.host/-H <host>] [--coor
 
 ### dagu worker
 
-Start distributed worker: `dagu worker [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,...>] [--worker.coordinators <addrs>] [--peer.*]`. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels.
+Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,...>] [--peer.*]`. Coordinator addresses are required. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels.
 
 ## Git Sync
 

@@ -40,7 +40,7 @@ var contextManageFlags = []commandLineFlag{
 }
 
 var (
-	contextServerFlag        = commandLineFlag{name: "server", usage: "Base URL of the remote Dagu server"}
+	contextServerFlag        = commandLineFlag{name: "server", usage: "API base URL of the remote Dagu server (for example, https://dagu.example.com/api/v1)"}
 	contextAPIKeyFlag        = commandLineFlag{name: "api-key", usage: "API key to use for the context"}
 	contextDescriptionFlag   = commandLineFlag{name: "description", usage: "Optional human-readable description"}
 	contextSkipTLSVerifyFlag = commandLineFlag{name: "skip-tls-verify", usage: "Skip TLS certificate verification", isBool: true}

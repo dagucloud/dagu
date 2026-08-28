@@ -36,6 +36,9 @@ func TestWorkerCommand(t *testing.T) {
 		// The actual flag names depend on how they're registered
 		assert.NotEmpty(t, cli.Long, "Long description should be set")
 		require.NotNil(t, flags.Lookup("worker.health-port"))
+		coordinatorsFlag := flags.Lookup("worker.coordinators")
+		require.NotNil(t, coordinatorsFlag)
+		assert.Contains(t, coordinatorsFlag.Usage, "Required")
 	})
 
 	t.Run("WorkerCommandLongDescriptionContainsUsageInfo", func(t *testing.T) {

@@ -1,5 +1,4 @@
 # Example production Docker Compose setup for Dagu with OpenTelemetry, Prometheus, and Grafana
-version: "3.9"
 
 services:
   # OpenTelemetry stack for tracing (from docs/features/opentelemetry-testing.md)
@@ -41,11 +40,10 @@ services:
     environment:
       # Peer config: insecure by default; set TLS envs if needed
       - DAGU_PEER_INSECURE=true
-      # Bind and advertise on container IP/DNS so workers can reach it
-      - DAGU_COORDINATOR_HOST=dagu-coordinator
+      # Bind on the container network and advertise stable Compose DNS
+      - DAGU_COORDINATOR_HOST=0.0.0.0
+      - DAGU_COORDINATOR_ADVERTISE=dagu-coordinator
       - DAGU_COORDINATOR_PORT=50055
-    ports:
-      - "50055:50055"
     volumes:
       - dagu-data:/var/lib/dagu
       - ./dags:/var/lib/dagu/dags
@@ -105,18 +103,13 @@ services:
     image: ghcr.io/dagucloud/dagu:latest
     command: ["dagu", "worker"]
     environment:
-      - DAGU_COORDINATOR_HOST=dagu-coordinator
-      - DAGU_COORDINATOR_PORT=50055
+      - DAGU_WORKER_COORDINATORS=dagu-coordinator:50055
       # Optional worker tuning and labels
       # - DAGU_WORKER_MAX_ACTIVE_RUNS=100
       # - DAGU_WORKER_LABELS=region=us-east-1,instance-type=m5.large
       # OTel: point DAGs to collector via per-DAG otel.endpoint: "otel-collector:4317"
     depends_on:
       - dagu-coordinator
-    volumes:
-      - dagu-data:/var/lib/dagu
-      # Workers typically don't need DAG definitions, but sharing is harmless
-      - ./dags:/var/lib/dagu/dags
     networks: [dagu-net]
 
   # Grafana: visualize Prometheus metrics
