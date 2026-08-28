@@ -60,6 +60,70 @@ func TestDispatchBindErrorCode(t *testing.T) {
 	assert.Equal(t, codes.Internal, dispatchBindErrorCode(errors.New("disk full")))
 }
 
+func TestRunLockSet(t *testing.T) {
+	t.Parallel()
+
+	var locks runLockSet
+	first := locks.lock("run-a")
+
+	woken := make(chan *runLock, 1)
+	go func() {
+		woken <- locks.lock("run-a")
+	}()
+	waitForRunLockRefs(t, &locks, "run-a", 2)
+
+	other := make(chan *runLock, 1)
+	go func() {
+		other <- locks.lock("run-b")
+	}()
+	select {
+	case held := <-other:
+		locks.unlock("run-b", held)
+	case <-time.After(coordinatorTestTimeout(time.Second)):
+		require.FailNow(t, "different run lock was blocked")
+	}
+
+	locks.unlock("run-a", first)
+	var second *runLock
+	select {
+	case second = <-woken:
+	case <-time.After(coordinatorTestTimeout(time.Second)):
+		require.FailNow(t, "waiting run lock was not acquired")
+	}
+
+	third := make(chan *runLock, 1)
+	go func() {
+		third <- locks.lock("run-a")
+	}()
+	waitForRunLockRefs(t, &locks, "run-a", 2)
+	select {
+	case held := <-third:
+		locks.unlock("run-a", held)
+		require.FailNow(t, "same run lock was acquired concurrently")
+	default:
+	}
+
+	locks.unlock("run-a", second)
+	select {
+	case held := <-third:
+		locks.unlock("run-a", held)
+	case <-time.After(coordinatorTestTimeout(time.Second)):
+		require.FailNow(t, "second waiting run lock was not acquired")
+	}
+}
+
+func waitForRunLockRefs(t *testing.T, locks *runLockSet, dagRunID string, want int) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		locks.mu.Lock()
+		defer locks.mu.Unlock()
+
+		entry := locks.entries[dagRunID]
+		return entry != nil && entry.refs == want
+	}, coordinatorTestTimeout(time.Second), 10*time.Millisecond)
+}
+
 type mockDAGRunStore struct {
 	testutil.DAGRunStoreStub
 	repository          *persis.DAGRunRepository
@@ -3739,6 +3803,8 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		attempt, err := store.FindSubAttempt(ctx, rootRef, "child-run-123")
 		require.NoError(t, err)
+		storedAttempt, ok := attempt.(*mockAttempt)
+		require.True(t, ok)
 		current, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
 
@@ -3794,6 +3860,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		_, err = activeStore.Get(ctx, attemptKey)
 		assert.ErrorIs(t, err, dispatch.ErrActiveRunNotFound)
+		assert.True(t, storedAttempt.WasClosed())
+
+		h.attemptsMu.RLock()
+		_, cached := h.openAttempts["child-run-123"]
+		h.attemptsMu.RUnlock()
+		assert.False(t, cached)
 	})
 
 	t.Run("RejectsMissingSubAttemptWithoutRootLease", func(t *testing.T) {
@@ -4190,6 +4262,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 		current, readErr := attempt.ReadStatus(ctx)
 		require.NoError(t, readErr)
 		assert.Equal(t, "duplicate terminal payload", current.Error)
+		assert.True(t, attempt.WasClosed())
+
+		h.attemptsMu.RLock()
+		_, cached := h.openAttempts[ref.ID]
+		h.attemptsMu.RUnlock()
+		assert.False(t, cached)
 
 		messages := attempt.GetStepMessages("chat-step")
 		require.Len(t, messages, 1)
@@ -4544,7 +4622,7 @@ func TestHandler_ReportStatus(t *testing.T) {
 		ctx := context.Background()
 
 		ref := ir.DAGRunRef{Name: "test-dag", ID: "run-123"}
-		store.addAttempt(ref, &ir.DAGRunStatus{
+		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
 			Name:       "test-dag",
 			DAGRunID:   "run-123",
 			AttemptID:  "attempt-1",
@@ -4598,6 +4676,12 @@ func TestHandler_ReportStatus(t *testing.T) {
 
 		_, err = activeStore.Get(ctx, "attempt-key-1")
 		assert.ErrorIs(t, err, dispatch.ErrActiveRunNotFound)
+		assert.True(t, attempt.WasClosed())
+
+		h.attemptsMu.RLock()
+		_, cached := h.openAttempts[ref.ID]
+		h.attemptsMu.RUnlock()
+		assert.False(t, cached)
 	})
 
 	t.Run("AckTaskClaimCreatesLeaseAndDeletesClaim", func(t *testing.T) {
