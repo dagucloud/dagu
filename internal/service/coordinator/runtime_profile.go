@@ -30,6 +30,8 @@ type RuntimeProfileRun struct {
 	DAGName    string
 }
 
+const runtimeProfileAccessDenied = "runtime profile access denied"
+
 type runtimeProfileResolver struct {
 	client   RuntimeProfileClient
 	owner    serviceregistry.HostInfo
@@ -63,10 +65,10 @@ func (cli *clientImpl) ResolveRuntimeProfile(
 	req profilepkg.RuntimeRequest,
 	run RuntimeProfileRun,
 ) (*profilepkg.RuntimeResolved, error) {
-	if owner.ID == "" && owner.Host == "" && owner.Port == 0 {
+	if emptyCoordinatorOwner(owner) {
 		return cli.resolveRuntimeProfile(ctx, runtimeProfileRequest(req, run))
 	}
-	if !completeSecretReferenceOwner(owner) {
+	if !completeCoordinatorOwner(owner) {
 		return nil, fmt.Errorf("runtime profile owner coordinator endpoint is incomplete")
 	}
 
@@ -162,49 +164,49 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 	lease, err := h.dagRunLeaseStore.Get(ctx, req.GetAttemptKey())
 	if err != nil {
 		if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
-			return status.Error(codes.PermissionDenied, "runtime profile access denied")
+			return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 		}
 		return status.Error(codes.Internal, err.Error())
 	}
 	if lease.WorkerID != req.GetWorkerId() || lease.AttemptID != req.GetAttemptId() {
-		return status.Error(codes.PermissionDenied, "runtime profile access denied")
+		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
 	if !lease.IsFresh(time.Now().UTC(), h.staleLeaseThreshold) {
-		return status.Error(codes.PermissionDenied, "runtime profile access denied")
+		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
 
-	attempt, err := h.secretReferenceAttempt(ctx, lease)
+	attempt, err := h.authorizedAttempt(ctx, lease, runtimeProfileAccessDenied)
 	if err != nil {
 		return err
 	}
-	dag, err := h.secretReferenceDAG(ctx, attempt, req.GetDagName())
+	dag, err := h.authorizedDAG(ctx, attempt, req.GetDagName(), runtimeProfileAccessDenied)
 	if err != nil {
 		return err
 	}
-	if secretpkg.NormalizeWorkspace(req.GetWorkspace()) != secretReferenceWorkspace(dag) {
-		return status.Error(codes.PermissionDenied, "runtime profile access denied")
+	if secretpkg.NormalizeWorkspace(req.GetWorkspace()) != dagWorkspace(dag) {
+		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
 
 	current, err := attempt.ReadStatus(ctx)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
-			return status.Error(codes.PermissionDenied, "runtime profile access denied")
+			return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 		}
 		return status.Error(codes.Internal, err.Error())
 	}
 	profileName, err := h.leaseProfileName(ctx, lease, current, lease.Root)
 	if errors.Is(err, errProfileMismatch) {
-		return status.Error(codes.PermissionDenied, "runtime profile access denied")
+		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
 	if profileName != req.GetProfileName() {
-		return status.Error(codes.PermissionDenied, "runtime profile access denied")
+		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
 	if err := h.pinLeaseProfile(ctx, lease, profileName); err != nil {
 		if errors.Is(err, errProfileMismatch) {
-			return status.Error(codes.PermissionDenied, "runtime profile access denied")
+			return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 		}
 		return status.Error(codes.Internal, err.Error())
 	}

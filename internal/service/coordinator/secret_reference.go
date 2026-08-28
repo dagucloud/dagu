@@ -34,6 +34,8 @@ type SecretReferenceRun struct {
 	DAGName    string
 }
 
+const secretReferenceAccessDenied = "secret reference access denied"
+
 type secretReferenceResolver struct {
 	client    SecretReferenceClient
 	workspace string
@@ -67,12 +69,12 @@ func (r *secretReferenceResolver) resolve(ctx context.Context, ref secretref.Ref
 }
 
 func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
-	if !emptySecretReferenceOwner(owner) && !completeSecretReferenceOwner(owner) {
+	if !emptyCoordinatorOwner(owner) && !completeCoordinatorOwner(owner) {
 		return "", fmt.Errorf("secret reference owner coordinator endpoint is incomplete")
 	}
 
 	req := secretReferenceRequest(ref, workspace, checkOnly, run)
-	if completeSecretReferenceOwner(owner) {
+	if completeCoordinatorOwner(owner) {
 		return cli.resolveSecretReferenceTo(ctx, owner, req)
 	}
 	return cli.resolveSecretReference(ctx, req)
@@ -109,7 +111,7 @@ func (cli *clientImpl) resolveSecretReferenceTo(ctx context.Context, owner servi
 	return resp.GetValue(), nil
 }
 
-func emptySecretReferenceOwner(owner serviceregistry.HostInfo) bool {
+func emptyCoordinatorOwner(owner serviceregistry.HostInfo) bool {
 	return owner.ID == "" && owner.Host == "" && owner.Port == 0
 }
 
@@ -124,7 +126,7 @@ func resolveSecretReferenceRPC(ctx context.Context, coordinatorID string, client
 	return resp, nil
 }
 
-func completeSecretReferenceOwner(owner serviceregistry.HostInfo) bool {
+func completeCoordinatorOwner(owner serviceregistry.HostInfo) bool {
 	return owner.Host != "" && owner.Port != 0
 }
 
@@ -200,37 +202,37 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 	lease, err := h.dagRunLeaseStore.Get(ctx, req.GetAttemptKey())
 	if err != nil {
 		if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
-			return status.Error(codes.PermissionDenied, "secret reference access denied")
+			return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 		}
 		return status.Error(codes.Internal, err.Error())
 	}
 	if lease.WorkerID != req.GetWorkerId() || lease.AttemptID != req.GetAttemptId() {
-		return status.Error(codes.PermissionDenied, "secret reference access denied")
+		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
 	if !lease.IsFresh(time.Now().UTC(), h.staleLeaseThreshold) {
-		return status.Error(codes.PermissionDenied, "secret reference access denied")
+		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
 
-	attempt, err := h.secretReferenceAttempt(ctx, lease)
+	attempt, err := h.authorizedAttempt(ctx, lease, secretReferenceAccessDenied)
 	if err != nil {
 		return err
 	}
-	dag, err := h.secretReferenceDAG(ctx, attempt, req.GetDagName())
+	dag, err := h.authorizedDAG(ctx, attempt, req.GetDagName(), secretReferenceAccessDenied)
 	if err != nil {
 		return err
 	}
-	if secretpkg.NormalizeWorkspace(req.GetWorkspace()) != secretReferenceWorkspace(dag) {
-		return status.Error(codes.PermissionDenied, "secret reference access denied")
+	if secretpkg.NormalizeWorkspace(req.GetWorkspace()) != dagWorkspace(dag) {
+		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
 	if !secretReferenceDeclared(dag, ref) {
-		return status.Error(codes.PermissionDenied, "secret reference access denied")
+		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
 	return nil
 }
 
-func (h *Handler) secretReferenceAttempt(ctx context.Context, lease *dispatch.DAGRunLease) (dagrun.Attempt, error) {
+func (h *Handler) authorizedAttempt(ctx context.Context, lease *dispatch.DAGRunLease, deniedMessage string) (dagrun.Attempt, error) {
 	if lease == nil {
-		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
+		return nil, status.Error(codes.PermissionDenied, deniedMessage)
 	}
 
 	var (
@@ -244,17 +246,17 @@ func (h *Handler) secretReferenceAttempt(ctx context.Context, lease *dispatch.DA
 	}
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
-			return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
+			return nil, status.Error(codes.PermissionDenied, deniedMessage)
 		}
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	if attempt.ID() != lease.AttemptID {
-		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
+		return nil, status.Error(codes.PermissionDenied, deniedMessage)
 	}
 	return attempt, nil
 }
 
-func (h *Handler) secretReferenceDAG(ctx context.Context, attempt dagrun.Attempt, dagName string) (*ir.DAG, error) {
+func (h *Handler) authorizedDAG(ctx context.Context, attempt dagrun.Attempt, dagName, deniedMessage string) (*ir.DAG, error) {
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
@@ -270,7 +272,7 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, attempt dagrun.Attempt
 	if child != nil {
 		return child, nil
 	}
-	return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
+	return nil, status.Error(codes.PermissionDenied, deniedMessage)
 }
 
 func localDAGByName(dag *ir.DAG, name string) *ir.DAG {
@@ -339,7 +341,7 @@ func externalSubDAGNames(dag *ir.DAG) []string {
 	return names
 }
 
-func secretReferenceWorkspace(dag *ir.DAG) string {
+func dagWorkspace(dag *ir.DAG) string {
 	if dag == nil {
 		return secretpkg.GlobalWorkspace
 	}
