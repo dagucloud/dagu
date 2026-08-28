@@ -38,8 +38,11 @@ services:
     image: ghcr.io/dagucloud/dagu:latest
     command: ["dagu", "coordinator"]
     environment:
-      # Peer config: insecure by default; set TLS envs if needed
-      - DAGU_PEER_INSECURE=true
+      # Mutual TLS for coordinator clients
+      - DAGU_PEER_INSECURE=false
+      - DAGU_PEER_CERT_FILE=/etc/dagu/tls/coordinator.crt
+      - DAGU_PEER_KEY_FILE=/etc/dagu/tls/coordinator.key
+      - DAGU_PEER_CLIENT_CA_FILE=/etc/dagu/tls/ca.crt
       # Bind on the container network and advertise stable Compose DNS
       - DAGU_COORDINATOR_HOST=0.0.0.0
       - DAGU_COORDINATOR_ADVERTISE=dagu-coordinator
@@ -47,6 +50,7 @@ services:
     volumes:
       - dagu-data:/var/lib/dagu
       - ./dags:/var/lib/dagu/dags
+      - ./tls:/etc/dagu/tls:ro
     networks: [dagu-net]
 
   # Dagu scheduler service (reads DAGs and enqueues runs)
@@ -58,6 +62,10 @@ services:
       - DAGU_COORDINATOR_PORT=50055
       - DAGU_SCHEDULER_PORT=8090
       - DAGU_DAGS_DIR=/var/lib/dagu/dags
+      - DAGU_PEER_INSECURE=false
+      - DAGU_PEER_CERT_FILE=/etc/dagu/tls/client.crt
+      - DAGU_PEER_KEY_FILE=/etc/dagu/tls/client.key
+      - DAGU_PEER_CLIENT_CA_FILE=/etc/dagu/tls/ca.crt
       # Optional: set timezone, logging, etc
       # - DAGU_TZ=UTC
       # - DAGU_LOG_FORMAT=json
@@ -68,6 +76,7 @@ services:
     volumes:
       - dagu-data:/var/lib/dagu
       - ./dags:/var/lib/dagu/dags
+      - ./tls:/etc/dagu/tls:ro
     networks: [dagu-net]
 
   # Dagu web UI / API server
@@ -80,6 +89,10 @@ services:
       - DAGU_HOST=0.0.0.0
       - DAGU_PORT=8080
       - DAGU_DAGS_DIR=/var/lib/dagu/dags
+      - DAGU_PEER_INSECURE=false
+      - DAGU_PEER_CERT_FILE=/etc/dagu/tls/client.crt
+      - DAGU_PEER_KEY_FILE=/etc/dagu/tls/client.key
+      - DAGU_PEER_CLIENT_CA_FILE=/etc/dagu/tls/ca.crt
       # Builtin authentication (RBAC) - CHANGE TOKEN_SECRET IN PRODUCTION
       - DAGU_AUTH_MODE=builtin
       # Token secret: auto-generated if not set (persisted to {dataDir}/auth/token_secret)
@@ -96,6 +109,7 @@ services:
     volumes:
       - dagu-data:/var/lib/dagu
       - ./dags:/var/lib/dagu/dags
+      - ./tls:/etc/dagu/tls:ro
     networks: [dagu-net]
 
   # Dagu worker (polls coordinator and executes tasks)
@@ -104,6 +118,10 @@ services:
     command: ["dagu", "worker"]
     environment:
       - DAGU_WORKER_COORDINATORS=dagu-coordinator:50055
+      - DAGU_PEER_INSECURE=false
+      - DAGU_PEER_CERT_FILE=/etc/dagu/tls/client.crt
+      - DAGU_PEER_KEY_FILE=/etc/dagu/tls/client.key
+      - DAGU_PEER_CLIENT_CA_FILE=/etc/dagu/tls/ca.crt
       # Optional worker tuning and labels
       # - DAGU_WORKER_MAX_ACTIVE_RUNS=100
       # - DAGU_WORKER_LABELS=region=us-east-1,instance-type=m5.large
@@ -111,6 +129,8 @@ services:
     # No Dagu data volume: DAGs and control-plane state flow through the coordinator.
     depends_on:
       - dagu-coordinator
+    volumes:
+      - ./tls:/etc/dagu/tls:ro
     networks: [dagu-net]
 
   # Grafana: visualize Prometheus metrics
