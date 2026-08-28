@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -31,6 +32,8 @@ type attemptOwnership struct {
 	staleLeaseThreshold time.Duration
 	now                 func() time.Time
 }
+
+var errProfileMismatch = errors.New("runtime profile does not match the active attempt")
 
 func newAttemptOwnership(cfg attemptOwnershipConfig) *attemptOwnership {
 	now := cfg.Now
@@ -67,9 +70,6 @@ func (o *attemptOwnership) statusDecision(
 	if !sameAttemptStatus(latest, incoming) {
 		return false, remoteAttemptRejectedSuperseded
 	}
-	if latest.ProfileName != incoming.ProfileName {
-		return false, remoteAttemptRejectedSuperseded
-	}
 	if !isTerminalRunStatus(latest.Status) {
 		return true, ""
 	}
@@ -87,6 +87,100 @@ func (o *attemptOwnership) statusDecision(
 		return true, ""
 	}
 	return false, remoteAttemptRejectedTerminal
+}
+
+func (h *Handler) reconcileStatusProfile(
+	ctx context.Context,
+	lease *dispatch.DAGRunLease,
+	current *ir.DAGRunStatus,
+	incoming *ir.DAGRunStatus,
+) error {
+	if incoming == nil {
+		return errProfileMismatch
+	}
+	profileName, err := h.leaseProfileName(ctx, lease, current, incoming.Root)
+	if err != nil {
+		return err
+	}
+	if incoming.ProfileName != "" && incoming.ProfileName != profileName {
+		return errProfileMismatch
+	}
+	incoming.ProfileName = profileName
+	return h.pinLeaseProfile(ctx, lease, profileName)
+}
+
+func (h *Handler) leaseProfileName(
+	ctx context.Context,
+	lease *dispatch.DAGRunLease,
+	current *ir.DAGRunStatus,
+	root ir.DAGRunRef,
+) (string, error) {
+	profileName := ""
+	if lease != nil {
+		profileName = lease.ProfileName
+	}
+	if current != nil && current.ProfileName != "" {
+		if profileName != "" && profileName != current.ProfileName {
+			return "", errProfileMismatch
+		}
+		profileName = current.ProfileName
+	}
+	if profileName != "" {
+		return profileName, nil
+	}
+
+	if current != nil && !current.Root.Zero() {
+		root = current.Root
+	} else if root.Zero() && lease != nil {
+		root = lease.Root
+	}
+	if root.Zero() || current != nil && root == current.DAGRun() {
+		return "", nil
+	}
+	return h.rootProfileName(ctx, root)
+}
+
+func (h *Handler) rootProfileName(ctx context.Context, root ir.DAGRunRef) (string, error) {
+	if h.dagRunRepository == nil {
+		return "", nil
+	}
+	attempt, err := h.dagRunRepository.FindAttempt(ctx, root)
+	if err != nil {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
+			return "", nil
+		}
+		return "", err
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
+			return "", nil
+		}
+		return "", err
+	}
+	if status == nil {
+		return "", nil
+	}
+	return status.ProfileName, nil
+}
+
+func (h *Handler) pinLeaseProfile(ctx context.Context, lease *dispatch.DAGRunLease, profileName string) error {
+	if lease == nil || profileName == "" || lease.ProfileName == profileName {
+		return nil
+	}
+	if lease.ProfileName != "" {
+		return errProfileMismatch
+	}
+	updated := *lease
+	updated.ProfileName = profileName
+	if err := h.dagRunLeaseStore.Upsert(ctx, updated); err != nil {
+		if errors.Is(err, dispatch.ErrDAGRunLeaseConflict) {
+			return errProfileMismatch
+		}
+		return err
+	}
+	lease.ProfileName = profileName
+	return nil
 }
 
 type statusDecisionOptions struct {

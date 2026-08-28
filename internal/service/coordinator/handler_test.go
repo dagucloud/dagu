@@ -4788,6 +4788,126 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Empty(t, lease.ProfileName)
 	})
 
+	t.Run("ReportStatusAcceptsMissingLegacyProfile", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		h := NewHandler(HandlerConfig{
+			DAGRunRepository: store.repository,
+			DAGRunLeaseStore: leaseStore,
+		})
+		ctx := context.Background()
+
+		ref := ir.NewDAGRunRef("test-dag", "run-123")
+		latest := &ir.DAGRunStatus{
+			Name:        ref.Name,
+			DAGRunID:    ref.ID,
+			AttemptID:   "attempt-1",
+			AttemptKey:  "attempt-key-1",
+			Status:      ir.Running,
+			WorkerID:    "worker-1",
+			ProfileName: "prod",
+		}
+		store.addAttempt(ref, latest)
+		require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+			AttemptKey:      latest.AttemptKey,
+			DAGRun:          ref,
+			Root:            ref,
+			AttemptID:       latest.AttemptID,
+			ProfileName:     latest.ProfileName,
+			WorkerID:        latest.WorkerID,
+			ClaimedAt:       time.Now().Add(-time.Second).UTC().UnixMilli(),
+			LastHeartbeatAt: time.Now().Add(-time.Second).UTC().UnixMilli(),
+		}))
+
+		incoming := *latest
+		incoming.ProfileName = ""
+		protoStatus, convErr := convert.DAGRunStatusToProto(&incoming)
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+			Status:   protoStatus,
+			WorkerId: latest.WorkerID,
+		})
+		require.NoError(t, err)
+		require.True(t, resp.Accepted)
+
+		persisted, err := store.repository.FindAttempt(ctx, ref)
+		require.NoError(t, err)
+		persistedStatus, err := persisted.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "prod", persistedStatus.ProfileName)
+	})
+
+	t.Run("ReportStatusRecoversLegacyChildProfile", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		h := NewHandler(HandlerConfig{
+			DAGRunRepository: store.repository,
+			DAGRunLeaseStore: leaseStore,
+		})
+		ctx := context.Background()
+
+		root := ir.NewDAGRunRef("root", "root-run")
+		rootStatus := &ir.DAGRunStatus{
+			Name:        root.Name,
+			DAGRunID:    root.ID,
+			AttemptID:   "root-attempt",
+			AttemptKey:  "claim-key",
+			Status:      ir.Running,
+			WorkerID:    "worker-1",
+			ProfileName: "prod",
+		}
+		store.addAttempt(root, rootStatus)
+
+		child := ir.NewDAGRunRef("child", "child-run")
+		childStatus := &ir.DAGRunStatus{
+			Name:       child.Name,
+			DAGRunID:   child.ID,
+			Root:       root,
+			AttemptID:  "child-attempt",
+			AttemptKey: "child-key",
+			Status:     ir.NotStarted,
+			WorkerID:   "worker-1",
+		}
+		store.addSubAttempt(root, child.ID, childStatus)
+		require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+			AttemptKey:      rootStatus.AttemptKey,
+			DAGRun:          root,
+			Root:            root,
+			AttemptID:       rootStatus.AttemptID,
+			WorkerID:        rootStatus.WorkerID,
+			ClaimedAt:       time.Now().Add(-time.Second).UTC().UnixMilli(),
+			LastHeartbeatAt: time.Now().Add(-time.Second).UTC().UnixMilli(),
+		}))
+
+		incoming := *childStatus
+		incoming.ClaimKey = rootStatus.AttemptKey
+		incoming.Status = ir.Running
+		incoming.ProfileName = rootStatus.ProfileName
+		protoStatus, convErr := convert.DAGRunStatusToProto(&incoming)
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+			Status:   protoStatus,
+			WorkerId: rootStatus.WorkerID,
+		})
+		require.NoError(t, err)
+		require.True(t, resp.Accepted)
+
+		persisted, err := store.repository.FindSubAttempt(ctx, root, child.ID)
+		require.NoError(t, err)
+		persistedStatus, err := persisted.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "prod", persistedStatus.ProfileName)
+		lease, err := leaseStore.Get(ctx, rootStatus.AttemptKey)
+		require.NoError(t, err)
+		assert.Equal(t, "prod", lease.ProfileName)
+	})
+
 	t.Run("ReportStatusSyncsActiveDistributedRunIndex", func(t *testing.T) {
 		t.Parallel()
 

@@ -1791,10 +1791,11 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if len(dagRunStatus.Labels) == 0 {
 		dagRunStatus.Labels = splitTaskLabels(req.Labels)
 	}
+	var activeLease *dispatch.DAGRunLease
 	leaseMissing := false
 	if h.dagRunLeaseStore != nil {
 		var validationErr error
-		leaseMissing, validationErr = h.validateStatusLease(ctx, req.WorkerId, dagRunStatus)
+		activeLease, leaseMissing, validationErr = h.validateStatusLease(ctx, req.WorkerId, dagRunStatus)
 		if validationErr != nil {
 			if status.Code(validationErr) == codes.FailedPrecondition {
 				return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: status.Convert(validationErr).Message()}, nil
@@ -1815,6 +1816,16 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 
 	latestAttempt, latestStatus, err := h.resolveLatestAttempt(ctx, dagRunStatus.Name, dagRunStatus.DAGRunID, dagRunStatus.Root)
 	if err != nil {
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+			profileErr := h.reconcileStatusProfile(ctx, activeLease, nil, dagRunStatus)
+			if errors.Is(profileErr, errProfileMismatch) {
+				logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, nil, remoteAttemptRejectedSuperseded)
+				return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: remoteAttemptRejectedSuperseded}, nil
+			}
+			if profileErr != nil {
+				return nil, status.Error(codes.Internal, "failed to reconcile runtime profile: "+profileErr.Error())
+			}
+		}
 		bootstrappedAttempt, bootstrapped, bootstrapErr := h.bootstrapMissingSubAttempt(ctx, req.WorkerId, req.SourceFile, dagRunStatus, err)
 		if bootstrapErr != nil {
 			return nil, status.Error(codes.Internal, "failed to bootstrap sub-attempt: "+bootstrapErr.Error())
@@ -1854,6 +1865,14 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if leaseMissing && latestStatus.Status != ir.NotStarted && !isTerminalRunStatus(latestStatus.Status) {
 		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, remoteAttemptRejectedLeaseInactive)
 		return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: remoteAttemptRejectedLeaseInactive}, nil
+	}
+	profileErr := h.reconcileStatusProfile(ctx, activeLease, latestStatus, dagRunStatus)
+	if errors.Is(profileErr, errProfileMismatch) {
+		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, remoteAttemptRejectedSuperseded)
+		return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: remoteAttemptRejectedSuperseded}, nil
+	}
+	if profileErr != nil {
+		return nil, status.Error(codes.Internal, "failed to reconcile runtime profile: "+profileErr.Error())
 	}
 	accepted, rejectReason := ownership.statusDecision(ctx, latestStatus, dagRunStatus, statusDecisionOptions{
 		CancellationRequested: h.sameAttemptCancellationRequested(ctx, latestAttempt, latestStatus, dagRunStatus),

@@ -211,7 +211,11 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 		return status.Error(codes.PermissionDenied, "secret reference access denied")
 	}
 
-	dag, err := h.secretReferenceDAG(ctx, lease, req.GetDagName())
+	attempt, err := h.secretReferenceAttempt(ctx, lease)
+	if err != nil {
+		return err
+	}
+	dag, err := h.secretReferenceDAG(ctx, attempt, req.GetDagName())
 	if err != nil {
 		return err
 	}
@@ -224,7 +228,7 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 	return nil
 }
 
-func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRunLease, dagName string) (*ir.DAG, error) {
+func (h *Handler) secretReferenceAttempt(ctx context.Context, lease *dispatch.DAGRunLease) (dagrun.Attempt, error) {
 	if lease == nil {
 		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
 	}
@@ -247,7 +251,10 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRun
 	if attempt.ID() != lease.AttemptID {
 		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
 	}
+	return attempt, nil
+}
 
+func (h *Handler) secretReferenceDAG(ctx context.Context, attempt dagrun.Attempt, dagName string) (*ir.DAG, error) {
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

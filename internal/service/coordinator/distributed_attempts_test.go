@@ -152,7 +152,7 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 		AttemptKey:  "attempt-key-1",
 		Status:      ir.Running,
 		WorkerID:    "worker-1",
-		ProfileName: "other",
+		ProfileName: "prod",
 	}
 	activeUpdatedLowerBound := time.Now().UTC().UnixMilli()
 	ownership.syncFromStatus(ctx, "", status, "")

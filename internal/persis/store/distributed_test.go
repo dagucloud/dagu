@@ -98,6 +98,28 @@ func TestDAGRunLeaseStore_PreservesBundleDigest(t *testing.T) {
 	require.ErrorIs(t, s.Upsert(ctx, conflict), dispatch.ErrDAGRunLeaseConflict)
 }
 
+func TestDAGRunLeaseStore_PinsProfileName(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("dag_run_leases"))
+	lease := dispatch.DAGRunLease{AttemptKey: "attempt-key", WorkerID: "worker-1"}
+	require.NoError(t, s.Upsert(ctx, lease))
+
+	backfill := lease
+	backfill.ProfileName = "prod"
+	require.NoError(t, s.Upsert(ctx, backfill))
+	require.NoError(t, s.Upsert(ctx, lease))
+
+	persisted, err := s.Get(ctx, lease.AttemptKey)
+	require.NoError(t, err)
+	assert.Equal(t, "prod", persisted.ProfileName)
+
+	conflict := lease
+	conflict.ProfileName = "other"
+	require.ErrorIs(t, s.Upsert(ctx, conflict), dispatch.ErrDAGRunLeaseConflict)
+}
+
 func TestDAGRunLeaseStore_ConcurrentTouchPreservesLatestHeartbeat(t *testing.T) {
 	t.Parallel()
 

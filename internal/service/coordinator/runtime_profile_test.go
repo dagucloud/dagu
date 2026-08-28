@@ -141,7 +141,7 @@ steps:
 	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
 		AttemptKey: attemptKey, DAGRun: ir.NewDAGRunRef(dag.Name, "run-1"),
 		Root: ir.NewDAGRunRef(dag.Name, "run-1"), AttemptID: attempt.ID(),
-		ProfileName: "prod", WorkerID: "worker-1", ClaimedAt: now.UnixMilli(), LastHeartbeatAt: now.UnixMilli(),
+		WorkerID: "worker-1", ClaimedAt: now.UnixMilli(), LastHeartbeatAt: now.UnixMilli(),
 	}))
 
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
@@ -156,6 +156,9 @@ steps:
 	require.NoError(t, err)
 	require.Len(t, resp.GetSelected().GetEntries(), 2)
 	assert.Equal(t, "before", runtimeProfileEntryValue(resp.GetSelected(), "ROTATED_SECRET"))
+	lease, err := leaseStore.Get(ctx, attemptKey)
+	require.NoError(t, err)
+	assert.Equal(t, "prod", lease.ProfileName)
 
 	_, err = manager.SetSecret(ctx, prof, "ROTATED_SECRET", "after", "test")
 	require.NoError(t, err)
@@ -171,9 +174,12 @@ steps:
 	}))
 	_, err = handler.ResolveRuntimeProfile(ctx, &coordinatorv1.ResolveRuntimeProfileRequest{
 		WorkerId: "worker-1", AttemptKey: nestedAttemptKey, AttemptId: attempt.ID(),
-		Workspace: "payments", DagName: "nested-local-profile",
+		ProfileName: "prod", Workspace: "payments", DagName: "nested-local-profile",
 	})
 	require.NoError(t, err)
+	nestedLease, err := leaseStore.Get(ctx, nestedAttemptKey)
+	require.NoError(t, err)
+	assert.Equal(t, "prod", nestedLease.ProfileName)
 
 	tests := []struct {
 		name   string
@@ -195,6 +201,27 @@ steps:
 			assert.Equal(t, codes.PermissionDenied, status.Code(err))
 		})
 	}
+
+	unprofiledAttempt, err := repository.CreateAttempt(ctx, dag, now, "run-2", persis.DAGRunCreateAttemptOptions{AttemptID: "attempt-2"})
+	require.NoError(t, err)
+	require.NoError(t, unprofiledAttempt.Open(ctx))
+	t.Cleanup(func() { require.NoError(t, unprofiledAttempt.Close(context.Background())) })
+	unprofiledKey := ir.GenerateAttemptKey(dag.Name, "run-2", dag.Name, "run-2", unprofiledAttempt.ID())
+	require.NoError(t, unprofiledAttempt.Write(ctx, ir.DAGRunStatus{
+		Name: dag.Name, DAGRunID: "run-2", AttemptID: unprofiledAttempt.ID(), AttemptKey: unprofiledKey,
+		Status: ir.Running, Labels: dag.Labels.Strings(),
+	}))
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey: unprofiledKey, DAGRun: ir.NewDAGRunRef(dag.Name, "run-2"),
+		Root: ir.NewDAGRunRef(dag.Name, "run-2"), AttemptID: unprofiledAttempt.ID(),
+		WorkerID: "worker-1", ClaimedAt: now.UnixMilli(), LastHeartbeatAt: now.UnixMilli(),
+	}))
+	_, err = handler.ResolveRuntimeProfile(ctx, &coordinatorv1.ResolveRuntimeProfileRequest{
+		WorkerId: "worker-1", AttemptKey: unprofiledKey, AttemptId: unprofiledAttempt.ID(),
+		ProfileName: "prod", Workspace: "payments",
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 
 	staleLeaseStore := store.NewDAGRunLeaseStore(backend.Collection("stale-leases"))
 	require.NoError(t, staleLeaseStore.Upsert(ctx, dispatch.DAGRunLease{

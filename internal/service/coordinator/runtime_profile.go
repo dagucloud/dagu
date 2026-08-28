@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
@@ -165,19 +166,47 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 		}
 		return status.Error(codes.Internal, err.Error())
 	}
-	if lease.WorkerID != req.GetWorkerId() || lease.AttemptID != req.GetAttemptId() || lease.ProfileName != req.GetProfileName() {
+	if lease.WorkerID != req.GetWorkerId() || lease.AttemptID != req.GetAttemptId() {
 		return status.Error(codes.PermissionDenied, "runtime profile access denied")
 	}
 	if !lease.IsFresh(time.Now().UTC(), h.staleLeaseThreshold) {
 		return status.Error(codes.PermissionDenied, "runtime profile access denied")
 	}
 
-	dag, err := h.secretReferenceDAG(ctx, lease, req.GetDagName())
+	attempt, err := h.secretReferenceAttempt(ctx, lease)
+	if err != nil {
+		return err
+	}
+	dag, err := h.secretReferenceDAG(ctx, attempt, req.GetDagName())
 	if err != nil {
 		return err
 	}
 	if secretpkg.NormalizeWorkspace(req.GetWorkspace()) != secretReferenceWorkspace(dag) {
 		return status.Error(codes.PermissionDenied, "runtime profile access denied")
+	}
+
+	current, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		if errors.Is(err, dagrun.ErrNoStatusData) || errors.Is(err, dagrun.ErrCorruptedStatusData) {
+			return status.Error(codes.PermissionDenied, "runtime profile access denied")
+		}
+		return status.Error(codes.Internal, err.Error())
+	}
+	profileName, err := h.leaseProfileName(ctx, lease, current, lease.Root)
+	if errors.Is(err, errProfileMismatch) {
+		return status.Error(codes.PermissionDenied, "runtime profile access denied")
+	}
+	if err != nil {
+		return status.Error(codes.Internal, err.Error())
+	}
+	if profileName != req.GetProfileName() {
+		return status.Error(codes.PermissionDenied, "runtime profile access denied")
+	}
+	if err := h.pinLeaseProfile(ctx, lease, profileName); err != nil {
+		if errors.Is(err, errProfileMismatch) {
+			return status.Error(codes.PermissionDenied, "runtime profile access denied")
+		}
+		return status.Error(codes.Internal, err.Error())
 	}
 	return nil
 }

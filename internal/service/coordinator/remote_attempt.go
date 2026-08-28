@@ -116,9 +116,9 @@ func (h *Handler) validateStatusLease(
 	ctx context.Context,
 	workerID string,
 	runStatus *ir.DAGRunStatus,
-) (bool, error) {
+) (*dispatch.DAGRunLease, bool, error) {
 	if workerID == "" {
-		return false, status.Error(codes.InvalidArgument, "worker, DAG run, and attempt identity are required")
+		return nil, false, status.Error(codes.InvalidArgument, "worker, DAG run, and attempt identity are required")
 	}
 
 	identity, identityErr := statusIdentity(workerID, runStatus)
@@ -126,51 +126,51 @@ func (h *Handler) validateStatusLease(
 		lease, err := h.dagRunLeaseStore.Get(ctx, identity.claimKey)
 		switch {
 		case err == nil:
-			return false, h.validateAttemptLease(lease, identity)
+			return lease, false, h.validateAttemptLease(lease, identity)
 		case !errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
-			return false, status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
+			return nil, false, status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
 		}
 	}
 
 	if !isSubDAGStatus(runStatus) {
 		if identityErr != nil {
-			return false, status.Error(codes.InvalidArgument, identityErr.Error())
+			return nil, false, status.Error(codes.InvalidArgument, identityErr.Error())
 		}
-		return true, nil
+		return nil, true, nil
 	}
 	if runStatus.ClaimKey != "" {
-		return false, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+		return nil, false, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
 	}
 
-	claimKey, err := h.validateSubDAGRootLease(ctx, workerID, runStatus.Root)
+	claimKey, lease, err := h.validateSubDAGRootLease(ctx, workerID, runStatus.Root)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 	runStatus.ClaimKey = claimKey
-	return false, nil
+	return lease, false, nil
 }
 
 func (h *Handler) validateSubDAGRootLease(
 	ctx context.Context,
 	workerID string,
 	rootRef ir.DAGRunRef,
-) (string, error) {
+) (string, *dispatch.DAGRunLease, error) {
 	rootAttempt, err := h.dagRunRepository.FindAttempt(ctx, rootRef)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-			return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+			return "", nil, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
 		}
-		return "", status.Error(codes.Internal, "failed to load root attempt: "+err.Error())
+		return "", nil, status.Error(codes.Internal, "failed to load root attempt: "+err.Error())
 	}
 	rootStatus, err := rootAttempt.ReadStatus(ctx)
 	if err != nil {
 		if errors.Is(err, dagrun.ErrNoStatusData) {
-			return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+			return "", nil, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
 		}
-		return "", status.Error(codes.Internal, "failed to load root status: "+err.Error())
+		return "", nil, status.Error(codes.Internal, "failed to load root status: "+err.Error())
 	}
 	if rootStatus == nil || isTerminalRunStatus(rootStatus.Status) {
-		return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+		return "", nil, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
 	}
 
 	attemptID := rootStatus.AttemptID
@@ -183,7 +183,7 @@ func (h *Handler) validateSubDAGRootLease(
 		claimKey = attemptKey
 	}
 	if attemptKey == "" || claimKey == "" {
-		return "", status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+		return "", nil, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
 	}
 	identity := attemptIdentity{
 		attemptKey: attemptKey,
@@ -193,10 +193,11 @@ func (h *Handler) validateSubDAGRootLease(
 		root:       rootRef,
 		attemptID:  attemptID,
 	}
-	if err := h.validateAttempt(ctx, identity); err != nil {
-		return "", err
+	lease, err := h.attemptLease(ctx, identity)
+	if err != nil {
+		return "", nil, err
 	}
-	return claimKey, nil
+	return claimKey, lease, nil
 }
 
 func isSubDAGStatus(runStatus *ir.DAGRunStatus) bool {
@@ -222,17 +223,25 @@ func runningTaskIdentity(workerID string, task *coordinatorv1.RunningTask) (atte
 }
 
 func (h *Handler) validateAttempt(ctx context.Context, identity attemptIdentity) error {
+	_, err := h.attemptLease(ctx, identity)
+	return err
+}
+
+func (h *Handler) attemptLease(ctx context.Context, identity attemptIdentity) (*dispatch.DAGRunLease, error) {
 	if h.dagRunLeaseStore == nil {
-		return nil
+		return nil, nil
 	}
 	lease, err := h.dagRunLeaseStore.Get(ctx, identity.claimKey)
 	if err != nil {
 		if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) || errors.Is(err, persis.ErrCorrupt) {
-			return status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
+			return nil, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
 		}
-		return status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
+		return nil, status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
 	}
-	return h.validateAttemptLease(lease, identity)
+	if err := h.validateAttemptLease(lease, identity); err != nil {
+		return nil, err
+	}
+	return lease, nil
 }
 
 func (h *Handler) validateAttemptLease(lease *dispatch.DAGRunLease, identity attemptIdentity) error {
