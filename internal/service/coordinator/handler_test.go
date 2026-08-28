@@ -408,6 +408,8 @@ type mockAttempt struct {
 	releaseWrite           chan struct{}
 	stepMessages           map[string][]ir.LLMMessage // stepName -> messages
 	writeStepMessagesError error                      // injected error for WriteStepMessages
+	requireOpenForRead     bool
+	isOpen                 bool
 	mu                     sync.Mutex
 }
 
@@ -426,6 +428,7 @@ func (m *mockAttempt) Open(_ context.Context) error {
 		return m.openError
 	}
 	m.opened = true
+	m.isOpen = true
 	return nil
 }
 func (m *mockAttempt) Write(_ context.Context, s ir.DAGRunStatus) error {
@@ -457,11 +460,15 @@ func (m *mockAttempt) Close(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.closed = true
+	m.isOpen = false
 	return nil
 }
 func (m *mockAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.requireOpenForRead && !m.isOpen {
+		return nil, errors.New("attempt is closed")
+	}
 	if m.readStatusError != nil {
 		return nil, m.readStatusError
 	}
@@ -1329,6 +1336,50 @@ func TestHandler_Heartbeat(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, attempt.WasWritten())
 		assert.Greater(t, status.LeaseAt, initialLease)
+	})
+
+	t.Run("HeartbeatKeepsAttemptOpenDuringRefresh", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		h := NewHandler(HandlerConfig{DAGRunRepository: store.repository, StaleLeaseThreshold: 10 * time.Second})
+		ctx := context.Background()
+
+		ref := ir.NewDAGRunRef("test-dag", "run-123")
+		attempt := store.addAttempt(ref, &ir.DAGRunStatus{
+			Name:       ref.Name,
+			DAGRunID:   ref.ID,
+			AttemptID:  "attempt-1",
+			AttemptKey: "attempt-key-1",
+			Status:     ir.Running,
+			WorkerID:   "worker-1",
+			LeaseAt:    time.Now().Add(-time.Minute).UnixMilli(),
+		})
+		attempt.requireOpenForRead = true
+		require.NoError(t, attempt.Open(ctx))
+		h.openAttempts[ref.ID] = attempt
+
+		held := h.runLocks.lock(ref.ID)
+		done := make(chan struct{})
+		go func() {
+			h.refreshLeaseForRunningTask(ctx, "worker-1", &coordinatorv1.RunningTask{
+				DagRunId:   ref.ID,
+				DagName:    ref.Name,
+				AttemptKey: "attempt-key-1",
+			}, time.Now())
+			close(done)
+		}()
+		waitForRunLockRefs(t, &h.runLocks, ref.ID, 2)
+
+		h.closeCachedAttemptForRun(ctx, ctx, ref.ID, attempt.ID())
+		h.runLocks.unlock(ref.ID, held)
+		select {
+		case <-done:
+		case <-time.After(coordinatorTestTimeout(time.Second)):
+			require.FailNow(t, "heartbeat lease refresh did not finish")
+		}
+
+		assert.True(t, attempt.WasWritten())
 	})
 
 	t.Run("HeartbeatRefreshesLeaseForRunningSubDAG", func(t *testing.T) {

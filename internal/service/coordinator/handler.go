@@ -1038,7 +1038,10 @@ func (h *Handler) markPreparedAttemptDispatchFailed(ctx context.Context, task *c
 	if prepared == nil || prepared.attempt == nil {
 		return
 	}
-	defer h.releasePreparedDispatchAttempt(context.WithoutCancel(ctx), task.GetDagRunId(), prepared.attempt)
+	dagRunID := task.GetDagRunId()
+	held := h.runLocks.lock(dagRunID)
+	defer h.runLocks.unlock(dagRunID, held)
+	defer h.releasePreparedDispatchAttempt(context.WithoutCancel(ctx), dagRunID, prepared.attempt)
 
 	if !prepared.newlyCreated {
 		return
@@ -1559,7 +1562,10 @@ func (h *Handler) refreshLeaseForRunningTask(ctx context.Context, workerID strin
 		return
 	}
 
-	attempt, err := h.getOrOpenAttemptForRunningTask(ctx, task)
+	held := h.runLocks.lock(task.DagRunId)
+	defer h.runLocks.unlock(task.DagRunId, held)
+
+	attempt, err := h.openRunningAttemptLocked(ctx, task)
 	if err != nil {
 		logger.Warn(ctx, "Failed to resolve running task for lease refresh",
 			tag.RunID(task.DagRunId),
@@ -1568,9 +1574,6 @@ func (h *Handler) refreshLeaseForRunningTask(ctx context.Context, workerID strin
 		)
 		return
 	}
-
-	held := h.runLocks.lock(task.DagRunId)
-	defer h.runLocks.unlock(task.DagRunId, held)
 
 	runStatus, err := attempt.ReadStatus(ctx)
 	if err != nil {
@@ -1605,7 +1608,7 @@ func (h *Handler) refreshLeaseForRunningTask(ctx context.Context, workerID strin
 	}
 }
 
-func (h *Handler) getOrOpenAttemptForRunningTask(ctx context.Context, task *coordinatorv1.RunningTask) (dagrun.Attempt, error) {
+func (h *Handler) openRunningAttemptLocked(ctx context.Context, task *coordinatorv1.RunningTask) (dagrun.Attempt, error) {
 	if task == nil {
 		return nil, fmt.Errorf("running task is nil")
 	}
@@ -1615,13 +1618,13 @@ func (h *Handler) getOrOpenAttemptForRunningTask(ctx context.Context, task *coor
 		if task.RootDagRunName == "" {
 			return nil, fmt.Errorf("missing root dag run name for sub-dag %s", task.DagRunId)
 		}
-		return h.getOrOpenSubAttempt(ctx, ir.DAGRunRef{
+		return h.getOrOpenSubLocked(ctx, ir.DAGRunRef{
 			Name: task.RootDagRunName,
 			ID:   task.RootDagRunId,
 		}, task.DagRunId)
 	}
 
-	return h.getOrOpenAttempt(ctx, task.DagName, task.DagRunId)
+	return h.getOrOpenRootLocked(ctx, task.DagName, task.DagRunId)
 }
 
 func (h *Handler) shouldThrottleLeaseRefresh(status *ir.DAGRunStatus, observedAt time.Time) bool {
@@ -2294,10 +2297,16 @@ func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.Attemp
 }
 
 // getOrOpenAttempt retrieves an open attempt from cache or opens a new one.
-// Uses double-check locking to avoid holding the mutex during blocking I/O.
 func (h *Handler) getOrOpenAttempt(ctx context.Context, dagName, dagRunID string) (dagrun.Attempt, error) {
+	held := h.runLocks.lock(dagRunID)
+	defer h.runLocks.unlock(dagRunID, held)
+
+	return h.getOrOpenRootLocked(ctx, dagName, dagRunID)
+}
+
+func (h *Handler) getOrOpenRootLocked(ctx context.Context, dagName, dagRunID string) (dagrun.Attempt, error) {
 	ref := ir.DAGRunRef{Name: dagName, ID: dagRunID}
-	return h.getOrOpenAttemptWithFinder(ctx, dagRunID, func() (dagrun.Attempt, error) {
+	return h.getOrOpenLocked(ctx, dagRunID, func() (dagrun.Attempt, error) {
 		return h.dagRunRepository.FindAttempt(ctx, ref)
 	})
 }
@@ -2379,17 +2388,20 @@ func (h *Handler) replaceOpenAttempt(
 // getOrOpenSubAttempt retrieves an open sub-attempt from cache or opens a new one.
 // This is used for sub-DAG status reporting in distributed execution.
 func (h *Handler) getOrOpenSubAttempt(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.Attempt, error) {
-	return h.getOrOpenAttemptWithFinder(ctx, subDAGRunID, func() (dagrun.Attempt, error) {
+	held := h.runLocks.lock(subDAGRunID)
+	defer h.runLocks.unlock(subDAGRunID, held)
+
+	return h.getOrOpenSubLocked(ctx, rootRef, subDAGRunID)
+}
+
+func (h *Handler) getOrOpenSubLocked(ctx context.Context, rootRef ir.DAGRunRef, subDAGRunID string) (dagrun.Attempt, error) {
+	return h.getOrOpenLocked(ctx, subDAGRunID, func() (dagrun.Attempt, error) {
 		return h.dagRunRepository.FindSubAttempt(ctx, rootRef, subDAGRunID)
 	})
 }
 
-// getOrOpenAttemptWithFinder is a generic helper that retrieves an open attempt from cache
-// or uses the provided finder function to locate and open a new one.
-// Uses per-run mutex to prevent concurrent I/O operations on the same DAG run,
-// avoiding races between ReportStatus and markRunFailed.
-func (h *Handler) getOrOpenAttemptWithFinder(ctx context.Context, cacheKey string, finder func() (dagrun.Attempt, error)) (dagrun.Attempt, error) {
-	// First check: fast path with read lock (no per-run mutex needed for cache hit)
+// getOrOpenLocked retrieves or opens an attempt while its run lock is held.
+func (h *Handler) getOrOpenLocked(ctx context.Context, cacheKey string, finder func() (dagrun.Attempt, error)) (dagrun.Attempt, error) {
 	h.attemptsMu.RLock()
 	if attempt, ok := h.openAttempts[cacheKey]; ok {
 		h.attemptsMu.RUnlock()
@@ -2397,19 +2409,6 @@ func (h *Handler) getOrOpenAttemptWithFinder(ctx context.Context, cacheKey strin
 	}
 	h.attemptsMu.RUnlock()
 
-	// Acquire per-run mutex to serialize I/O operations for this DAG run
-	held := h.runLocks.lock(cacheKey)
-	defer h.runLocks.unlock(cacheKey, held)
-
-	// Re-check cache after acquiring per-run mutex (another goroutine may have opened it)
-	h.attemptsMu.RLock()
-	if attempt, ok := h.openAttempts[cacheKey]; ok {
-		h.attemptsMu.RUnlock()
-		return attempt, nil
-	}
-	h.attemptsMu.RUnlock()
-
-	// Perform I/O with per-run mutex held
 	attempt, err := finder()
 	if err != nil {
 		return nil, err
@@ -2419,18 +2418,8 @@ func (h *Handler) getOrOpenAttemptWithFinder(ctx context.Context, cacheKey strin
 		return nil, err
 	}
 
-	// Add to cache under write lock
 	h.attemptsMu.Lock()
 	defer h.attemptsMu.Unlock()
-
-	// Final check: if somehow another goroutine got through, use theirs
-	if existing, ok := h.openAttempts[cacheKey]; ok {
-		if err := attempt.Close(ctx); err != nil {
-			logger.Warn(ctx, "Failed to close duplicate opened attempt", tag.Error(err))
-		}
-		return existing, nil
-	}
-
 	h.openAttempts[cacheKey] = attempt
 	return attempt, nil
 }
