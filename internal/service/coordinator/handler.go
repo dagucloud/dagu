@@ -2296,14 +2296,6 @@ func (h *Handler) persistChatMessages(ctx context.Context, attempt dagrun.Attemp
 	persistNode(status.OnWait, "on_wait")
 }
 
-// getOrOpenAttempt retrieves an open attempt from cache or opens a new one.
-func (h *Handler) getOrOpenAttempt(ctx context.Context, dagName, dagRunID string) (dagrun.Attempt, error) {
-	held := h.runLocks.lock(dagRunID)
-	defer h.runLocks.unlock(dagRunID, held)
-
-	return h.getOrOpenRootLocked(ctx, dagName, dagRunID)
-}
-
 func (h *Handler) getOrOpenRootLocked(ctx context.Context, dagName, dagRunID string) (dagrun.Attempt, error) {
 	ref := ir.DAGRunRef{Name: dagName, ID: dagRunID}
 	return h.getOrOpenLocked(ctx, dagRunID, func() (dagrun.Attempt, error) {
