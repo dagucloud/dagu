@@ -67,6 +67,9 @@ func (o *attemptOwnership) statusDecision(
 	if !sameAttemptStatus(latest, incoming) {
 		return false, remoteAttemptRejectedSuperseded
 	}
+	if latest.ProfileName != incoming.ProfileName {
+		return false, remoteAttemptRejectedSuperseded
+	}
 	if !isTerminalRunStatus(latest.Status) {
 		return true, ""
 	}

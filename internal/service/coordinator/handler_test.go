@@ -4738,6 +4738,56 @@ func TestHandler_ReportStatus(t *testing.T) {
 		assert.Equal(t, "queue-a", lease.QueueName)
 	})
 
+	t.Run("ReportStatusRejectsLeaseProfileChange", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockDAGRunStore()
+		leaseStore := newTestDAGRunLeaseStore(filepath.Join(t.TempDir(), "distributed"))
+		h := NewHandler(HandlerConfig{
+			DAGRunRepository: store.repository,
+			DAGRunLeaseStore: leaseStore,
+		})
+		ctx := context.Background()
+
+		ref := ir.NewDAGRunRef("test-dag", "run-123")
+		latest := &ir.DAGRunStatus{
+			Name:        ref.Name,
+			DAGRunID:    ref.ID,
+			AttemptID:   "attempt-1",
+			AttemptKey:  "attempt-key-1",
+			Status:      ir.Running,
+			WorkerID:    "worker-1",
+			ProfileName: "prod",
+		}
+		store.addAttempt(ref, latest)
+		require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+			AttemptKey:      latest.AttemptKey,
+			DAGRun:          ref,
+			Root:            ref,
+			AttemptID:       latest.AttemptID,
+			WorkerID:        latest.WorkerID,
+			ClaimedAt:       time.Now().Add(-time.Second).UTC().UnixMilli(),
+			LastHeartbeatAt: time.Now().Add(-time.Second).UTC().UnixMilli(),
+		}))
+
+		incoming := *latest
+		incoming.ProfileName = "other"
+		protoStatus, convErr := convert.DAGRunStatusToProto(&incoming)
+		require.NoError(t, convErr)
+
+		resp, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+			Status:   protoStatus,
+			WorkerId: latest.WorkerID,
+		})
+		require.NoError(t, err)
+		require.False(t, resp.Accepted)
+		assert.Equal(t, remoteAttemptRejectedSuperseded, resp.Error)
+
+		lease, err := leaseStore.Get(ctx, latest.AttemptKey)
+		require.NoError(t, err)
+		assert.Empty(t, lease.ProfileName)
+	})
+
 	t.Run("ReportStatusSyncsActiveDistributedRunIndex", func(t *testing.T) {
 		t.Parallel()
 

@@ -184,6 +184,7 @@ steps:
 		{name: "profile", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.ProfileName = "other" }},
 		{name: "workspace", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.Workspace = "other" }},
 		{name: "lease", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.AttemptKey = "other" }},
+		{name: "dag", mutate: func(req *coordinatorv1.ResolveRuntimeProfileRequest) { req.DagName = "unreachable-profile" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
