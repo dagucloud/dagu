@@ -104,7 +104,28 @@ func TestProfileRPCAuthorization(t *testing.T) {
 	_, err = manager.SetSecret(ctx, prof, "ROTATED_SECRET", "before", "test")
 	require.NoError(t, err)
 
-	dag := &ir.DAG{Name: "profile-dag", Labels: ir.NewLabels([]string{"workspace=payments"})}
+	dag := &ir.DAG{
+		Name:   "profile-dag",
+		Labels: ir.NewLabels([]string{"workspace=payments"}),
+		Steps:  []ir.Step{{SubDAG: &ir.SubDAG{Name: "external-profile"}}},
+	}
+	dagRepository := runtestutil.NewFileDAGRepository(filepath.Join(t.TempDir(), "dags"))
+	require.NoError(t, dagRepository.Create(ctx, "external-profile", []byte(`
+name: external-profile
+steps:
+  - name: child
+    action: dag.run
+    with:
+      dag: nested-local-profile
+
+---
+name: nested-local-profile
+labels:
+  - workspace=payments
+steps:
+  - name: noop
+    run: "true"
+`)))
 	repository := runtestutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
 	attempt, err := repository.CreateAttempt(ctx, dag, now, "run-1", persis.DAGRunCreateAttemptOptions{AttemptID: "attempt-1"})
 	require.NoError(t, err)
@@ -124,7 +145,7 @@ func TestProfileRPCAuthorization(t *testing.T) {
 	}))
 
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
-		DAGRunRepository: repository, DAGRunLeaseStore: leaseStore,
+		DAGRepository: dagRepository, DAGRunRepository: repository, DAGRunLeaseStore: leaseStore,
 		ProfileStore: profileStore, SecretStore: secretStore, StaleLeaseThreshold: time.Minute,
 	})
 	valid := &coordinatorv1.ResolveRuntimeProfileRequest{
@@ -141,6 +162,18 @@ func TestProfileRPCAuthorization(t *testing.T) {
 	rotated, err := handler.ResolveRuntimeProfile(ctx, valid)
 	require.NoError(t, err)
 	assert.Equal(t, "after", runtimeProfileEntryValue(rotated.GetSelected(), "ROTATED_SECRET"))
+
+	nestedAttemptKey := attemptKey + "-nested"
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey: nestedAttemptKey, DAGRun: ir.NewDAGRunRef(dag.Name, "run-1"),
+		Root: ir.NewDAGRunRef(dag.Name, "run-1"), AttemptID: attempt.ID(),
+		WorkerID: "worker-1", ClaimedAt: now.UnixMilli(), LastHeartbeatAt: now.UnixMilli(),
+	}))
+	_, err = handler.ResolveRuntimeProfile(ctx, &coordinatorv1.ResolveRuntimeProfileRequest{
+		WorkerId: "worker-1", AttemptKey: nestedAttemptKey, AttemptId: attempt.ID(),
+		Workspace: "payments", DagName: "nested-local-profile",
+	})
+	require.NoError(t, err)
 
 	tests := []struct {
 		name   string

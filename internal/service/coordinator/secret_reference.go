@@ -258,17 +258,12 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRun
 	if dagName == "" || dagName == dag.Name {
 		return dag, nil
 	}
-	if child := localDAGByName(dag, dagName); child != nil {
+	// Follow only declared DAG edges so repository contents do not grant access.
+	child := h.reachableDAG(ctx, dag, dagName, map[string]struct{}{dag.Name: {}})
+	if child != nil {
 		return child, nil
 	}
-	if !declaresSubDAG(dag, dagName) || h.dagRepository == nil {
-		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
-	}
-	child, err := h.dagRepository.GetDetails(ctx, dagName, persis.DAGLoadOptions{})
-	if err != nil {
-		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
-	}
-	return child, nil
+	return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
 }
 
 func localDAGByName(dag *ir.DAG, name string) *ir.DAG {
@@ -286,21 +281,55 @@ func localDAGByName(dag *ir.DAG, name string) *ir.DAG {
 	return nil
 }
 
-func declaresSubDAG(dag *ir.DAG, name string) bool {
+func (h *Handler) reachableDAG(ctx context.Context, dag *ir.DAG, name string, visited map[string]struct{}) *ir.DAG {
 	if dag == nil {
-		return false
+		return nil
 	}
-	for _, step := range dag.Steps {
-		if step.SubDAG != nil && step.SubDAG.Name == name {
-			return true
+	if dag.Name == name {
+		return dag
+	}
+	if child := localDAGByName(dag, name); child != nil {
+		return child
+	}
+	if h.dagRepository == nil {
+		return nil
+	}
+
+	for _, childName := range externalSubDAGNames(dag) {
+		if _, found := visited[childName]; found {
+			continue
+		}
+		visited[childName] = struct{}{}
+
+		child, err := h.dagRepository.GetDetails(ctx, childName, persis.DAGLoadOptions{})
+		if err != nil {
+			continue
+		}
+		if found := h.reachableDAG(ctx, child, name, visited); found != nil {
+			return found
 		}
 	}
-	for _, child := range dag.LocalDAGs {
-		if declaresSubDAG(child, name) {
-			return true
+	return nil
+}
+
+func externalSubDAGNames(dag *ir.DAG) []string {
+	var names []string
+	var collect func(*ir.DAG)
+	collect = func(current *ir.DAG) {
+		if current == nil {
+			return
+		}
+		for _, step := range current.Steps {
+			if step.SubDAG != nil && localDAGByName(dag, step.SubDAG.Name) == nil {
+				names = append(names, step.SubDAG.Name)
+			}
+		}
+		for _, child := range current.LocalDAGs {
+			collect(child)
 		}
 	}
-	return false
+	collect(dag)
+	return names
 }
 
 func secretReferenceWorkspace(dag *ir.DAG) string {

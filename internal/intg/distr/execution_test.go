@@ -374,12 +374,27 @@ func sharedNothingProfileCommand() string {
 }
 
 func TestExecution_LocalChild(t *testing.T) {
-	f := newTestFixture(t, fmt.Sprintf(`
+	f := newTestFixture(t, `
 name: shared-nothing-parent
 labels:
   - workspace=ops
 worker_selector:
   test: "true"
+steps:
+  - name: child
+    action: dag.run
+    with:
+      dag: shared-nothing-external
+`, withIsolatedWorker(), withConfigMutator(func(c *config.Config) {
+		c.DefaultExecMode = config.ExecutionModeDistributed
+	}))
+	defer f.cleanup()
+
+	f.coord.CreateDAGFile(t, f.coord.Config.Paths.DAGsDir, "shared-nothing-external", []byte(fmt.Sprintf(`
+name: shared-nothing-external
+labels:
+  - workspace=child-ops
+worker_selector: local
 steps:
   - name: child
     action: dag.run
@@ -398,10 +413,7 @@ steps:
   - name: verify
     run: |
 %s
-`, indentYAMLBlock(sharedNothingChildCommand(), 6)), withIsolatedWorker(), withConfigMutator(func(c *config.Config) {
-		c.DefaultExecMode = config.ExecutionModeDistributed
-	}))
-	defer f.cleanup()
+`, indentYAMLBlock(sharedNothingChildCommand(), 6))))
 
 	profileStore, err := persiststore.NewProfileStore(f.coord.Backend.Collection(persis.CollectionProfiles))
 	require.NoError(t, err)

@@ -59,6 +59,46 @@ secrets:
   - name: MY_SECRET
     ref: prod/my-secret
 steps:
+  - name: child
+    action: dag.run
+    with:
+      dag: nested-local-child
+
+---
+name: nested-local-child
+labels:
+  - workspace=payments
+secrets:
+  - name: MY_SECRET
+    ref: prod/my-secret
+steps:
+  - name: noop
+    run: "true"
+`)))
+	require.NoError(t, dagRepository.Create(ctx, "cycle-a", []byte(`
+name: cycle-a
+steps:
+  - name: child
+    action: dag.run
+    with:
+      dag: cycle-b
+`)))
+	require.NoError(t, dagRepository.Create(ctx, "cycle-b", []byte(`
+name: cycle-b
+steps:
+  - name: child
+    action: dag.run
+    with:
+      dag: cycle-a
+`)))
+	require.NoError(t, dagRepository.Create(ctx, "unrelated-child", []byte(`
+name: unrelated-child
+labels:
+  - workspace=payments
+secrets:
+  - name: MY_SECRET
+    ref: prod/my-secret
+steps:
   - name: noop
     run: "true"
 `)))
@@ -73,12 +113,20 @@ steps:
 		LocalDAGs: map[string]*ir.DAG{
 			"inline": {
 				Name: "inline",
-				Steps: []ir.Step{{
-					Name: "external",
-					SubDAG: &ir.SubDAG{
-						Name: "external-child",
+				Steps: []ir.Step{
+					{
+						Name: "external",
+						SubDAG: &ir.SubDAG{
+							Name: "external-child",
+						},
 					},
-				}},
+					{
+						Name: "cycle",
+						SubDAG: &ir.SubDAG{
+							Name: "cycle-a",
+						},
+					},
+				},
 			},
 		},
 	}
@@ -149,6 +197,30 @@ steps:
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "secret-value", nestedResp.GetValue())
+
+	localNestedResp, err := handler.ResolveSecretReference(ctx, &coordinatorv1.ResolveSecretReferenceRequest{
+		Name:       "MY_SECRET",
+		Ref:        "prod/my-secret",
+		Workspace:  "payments",
+		WorkerId:   "worker-1",
+		AttemptKey: attemptKey,
+		AttemptId:  attempt.ID(),
+		DagName:    "nested-local-child",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "secret-value", localNestedResp.GetValue())
+
+	_, err = handler.ResolveSecretReference(ctx, &coordinatorv1.ResolveSecretReferenceRequest{
+		Name:       "MY_SECRET",
+		Ref:        "prod/my-secret",
+		Workspace:  "payments",
+		WorkerId:   "worker-1",
+		AttemptKey: attemptKey,
+		AttemptId:  attempt.ID(),
+		DagName:    "unrelated-child",
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 
 	_, err = handler.ResolveSecretReference(ctx, &coordinatorv1.ResolveSecretReferenceRequest{
 		Name:       "MY_SECRET",
