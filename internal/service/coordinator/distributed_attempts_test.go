@@ -191,6 +191,30 @@ func TestAttemptOwnershipSyncFromStatus(t *testing.T) {
 	assert.GreaterOrEqual(t, record.UpdatedAt, activeUpdatedLowerBound)
 	assert.LessOrEqual(t, record.UpdatedAt, activeUpdatedUpperBound)
 
+	legacyRun := ir.NewDAGRunRef("test-dag", "run-2")
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey:      "attempt-key-2",
+		DAGRun:          legacyRun,
+		Root:            legacyRun,
+		AttemptID:       "attempt-2",
+		WorkerID:        "worker-1",
+		ClaimedAt:       oldTime.UnixMilli(),
+		LastHeartbeatAt: oldTime.UnixMilli(),
+	}))
+	ownership.syncFromStatus(ctx, "worker-1", &ir.DAGRunStatus{
+		Name:        legacyRun.Name,
+		DAGRunID:    legacyRun.ID,
+		Root:        legacyRun,
+		AttemptID:   "attempt-2",
+		AttemptKey:  "attempt-key-2",
+		Status:      ir.Running,
+		WorkerID:    "worker-1",
+		ProfileName: "prod",
+	}, "")
+	legacyLease, err := leaseStore.Get(ctx, "attempt-key-2")
+	require.NoError(t, err)
+	assert.Equal(t, "prod", legacyLease.ProfileName)
+
 	status.Status = ir.Succeeded
 	ownership.syncFromStatus(ctx, "worker-1", status, "")
 

@@ -146,6 +146,9 @@ func mergeDAGRunLease(current, incoming dispatch.DAGRunLease) (dispatch.DAGRunLe
 	if current.QueueName == "" {
 		current.QueueName = incoming.QueueName
 	}
+	if current.ProfileName == "" {
+		current.ProfileName = incoming.ProfileName
+	}
 	if current.WorkerID == "" {
 		current.WorkerID = incoming.WorkerID
 	}
