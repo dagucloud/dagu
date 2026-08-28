@@ -78,6 +78,9 @@ service CoordinatorService {
   // ResolveSecretReference resolves or checks a Dagu-managed secret registry ref.
   // Used by workers that cannot read the coordinator's secret store.
   rpc ResolveSecretReference (ResolveSecretReferenceRequest) returns (ResolveSecretReferenceResponse);
+
+  // ResolveRuntimeProfile resolves inherited and selected runtime profile layers.
+  rpc ResolveRuntimeProfile (ResolveRuntimeProfileRequest) returns (ResolveRuntimeProfileResponse);
 }
 
 // Request message for polling a task.
@@ -533,8 +536,33 @@ message ResolveSecretReferenceRequest {
   string worker_id = 5;   // Worker currently owning the dispatched attempt
   string attempt_key = 6; // Active distributed attempt lease key
   string attempt_id = 7;  // Attempt ID created by the coordinator
+  string dag_name = 8;    // Current DAG definition; empty keeps legacy root behavior
 }
 
 message ResolveSecretReferenceResponse {
   string value = 1; // Plaintext secret value; empty for check_only
+}
+
+message ResolveRuntimeProfileRequest {
+  string worker_id = 1;
+  string attempt_key = 2;
+  string attempt_id = 3;
+  string profile_name = 4;
+  string workspace = 5;
+}
+
+message RuntimeProfileEntry {
+  string key = 1;
+  string kind = 2;
+  string value = 3;
+}
+
+message RuntimeProfileLayer {
+  string name = 1;
+  repeated RuntimeProfileEntry entries = 2;
+}
+
+message ResolveRuntimeProfileResponse {
+  RuntimeProfileLayer defaults = 1;
+  RuntimeProfileLayer selected = 2;
 }

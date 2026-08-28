@@ -44,6 +44,7 @@ const (
 	CoordinatorService_ListState_FullMethodName                   = "/coordinator.v1.CoordinatorService/ListState"
 	CoordinatorService_GetDAG_FullMethodName                      = "/coordinator.v1.CoordinatorService/GetDAG"
 	CoordinatorService_ResolveSecretReference_FullMethodName      = "/coordinator.v1.CoordinatorService/ResolveSecretReference"
+	CoordinatorService_ResolveRuntimeProfile_FullMethodName       = "/coordinator.v1.CoordinatorService/ResolveRuntimeProfile"
 )
 
 // CoordinatorServiceClient is the client API for CoordinatorService service.
@@ -105,6 +106,8 @@ type CoordinatorServiceClient interface {
 	// ResolveSecretReference resolves or checks a Dagu-managed secret registry ref.
 	// Used by workers that cannot read the coordinator's secret store.
 	ResolveSecretReference(ctx context.Context, in *ResolveSecretReferenceRequest, opts ...grpc.CallOption) (*ResolveSecretReferenceResponse, error)
+	// ResolveRuntimeProfile resolves inherited and selected runtime profile layers.
+	ResolveRuntimeProfile(ctx context.Context, in *ResolveRuntimeProfileRequest, opts ...grpc.CallOption) (*ResolveRuntimeProfileResponse, error)
 }
 
 type coordinatorServiceClient struct {
@@ -353,6 +356,16 @@ func (c *coordinatorServiceClient) ResolveSecretReference(ctx context.Context, i
 	return out, nil
 }
 
+func (c *coordinatorServiceClient) ResolveRuntimeProfile(ctx context.Context, in *ResolveRuntimeProfileRequest, opts ...grpc.CallOption) (*ResolveRuntimeProfileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveRuntimeProfileResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_ResolveRuntimeProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServiceServer is the server API for CoordinatorService service.
 // All implementations must embed UnimplementedCoordinatorServiceServer
 // for forward compatibility.
@@ -412,6 +425,8 @@ type CoordinatorServiceServer interface {
 	// ResolveSecretReference resolves or checks a Dagu-managed secret registry ref.
 	// Used by workers that cannot read the coordinator's secret store.
 	ResolveSecretReference(context.Context, *ResolveSecretReferenceRequest) (*ResolveSecretReferenceResponse, error)
+	// ResolveRuntimeProfile resolves inherited and selected runtime profile layers.
+	ResolveRuntimeProfile(context.Context, *ResolveRuntimeProfileRequest) (*ResolveRuntimeProfileResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
 
@@ -487,6 +502,9 @@ func (UnimplementedCoordinatorServiceServer) GetDAG(context.Context, *GetDAGRequ
 }
 func (UnimplementedCoordinatorServiceServer) ResolveSecretReference(context.Context, *ResolveSecretReferenceRequest) (*ResolveSecretReferenceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveSecretReference not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) ResolveRuntimeProfile(context.Context, *ResolveRuntimeProfileRequest) (*ResolveRuntimeProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveRuntimeProfile not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) mustEmbedUnimplementedCoordinatorServiceServer() {}
 func (UnimplementedCoordinatorServiceServer) testEmbeddedByValue()                            {}
@@ -865,6 +883,24 @@ func _CoordinatorService_ResolveSecretReference_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoordinatorService_ResolveRuntimeProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveRuntimeProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).ResolveRuntimeProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_ResolveRuntimeProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).ResolveRuntimeProfile(ctx, req.(*ResolveRuntimeProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoordinatorService_ServiceDesc is the grpc.ServiceDesc for CoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -943,6 +979,10 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveSecretReference",
 			Handler:    _CoordinatorService_ResolveSecretReference_Handler,
+		},
+		{
+			MethodName: "ResolveRuntimeProfile",
+			Handler:    _CoordinatorService_ResolveRuntimeProfile_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

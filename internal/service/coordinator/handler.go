@@ -29,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -169,6 +170,7 @@ type Handler struct {
 	activeDistributedRunStore dispatch.ActiveDistributedRunStore // Shared active distributed attempt index
 	dagRepository             *persis.DAGRepository              // DAG definitions for the GetDAG RPC
 	secretStore               secretpkg.Store                    // Secret registry for workers
+	profileStore              profilepkg.Store                   // Runtime profiles for workers
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
 
 	// Open attempts cache for status persistence
@@ -240,6 +242,10 @@ type HandlerConfig struct {
 	// Optional - when nil, ResolveSecretReference returns FailedPrecondition.
 	SecretStore secretpkg.Store
 
+	// ProfileStore resolves runtime profiles for workers.
+	// Optional - when nil, ResolveRuntimeProfile returns FailedPrecondition.
+	ProfileStore profilepkg.Store
+
 	// AgentSessionCleanupQueue stores provider cleanup claimed by owning workers.
 	AgentSessionCleanupQueue *agentsession.CleanupQueue
 
@@ -301,6 +307,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		activeDistributedRunStore: cfg.ActiveDistributedRunStore,
 		dagRepository:             cfg.DAGRepository,
 		secretStore:               cfg.SecretStore,
+		profileStore:              cfg.ProfileStore,
 		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
@@ -911,6 +918,7 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		TriggerActor: task.TriggerActor,
 		ScheduleTime: task.ScheduleTime,
 		DefinitionID: task.DefinitionId,
+		ProfileName:  task.ProfileName,
 	}
 	return attempt.Write(ctx, initialStatus)
 }

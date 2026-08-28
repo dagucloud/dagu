@@ -5,6 +5,7 @@ package profile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -26,6 +27,20 @@ type Resolved struct {
 type ResolvedEntry struct {
 	Key  string
 	Kind EntryKind
+}
+
+type RuntimeRequest struct {
+	ProfileName string
+	Workspace   string
+}
+
+type RuntimeResolved struct {
+	Defaults *Resolved
+	Selected *Resolved
+}
+
+type RuntimeResolver interface {
+	ResolveRuntime(context.Context, RuntimeRequest) (*RuntimeResolved, error)
 }
 
 func (r *Resolved) EnvVars(kind EntryKind) []string {
@@ -106,6 +121,49 @@ func (r *Resolver) ResolveInherited(ctx context.Context, ref InheritedRef) (*Res
 		return nil, err
 	}
 	return r.resolve(ctx, p)
+}
+
+func (r *Resolver) ResolveRuntime(ctx context.Context, req RuntimeRequest) (*RuntimeResolved, error) {
+	if r == nil || r.profileStore == nil {
+		return nil, fmt.Errorf("profile store is not configured")
+	}
+
+	layers := make([]*Resolved, 0, 2)
+	global, err := r.ResolveInherited(ctx, GlobalInheritedRef())
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, fmt.Errorf("resolve global profile defaults: %w", err)
+	}
+	if global != nil {
+		layers = append(layers, global)
+	}
+
+	if req.Workspace != "" {
+		ref, err := WorkspaceInheritedRef(req.Workspace)
+		if err != nil {
+			return nil, fmt.Errorf("resolve workspace profile defaults: %w", err)
+		}
+		workspaceDefaults, err := r.ResolveInherited(ctx, ref)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("resolve workspace profile defaults %q: %w", req.Workspace, err)
+		}
+		if workspaceDefaults != nil {
+			layers = append(layers, workspaceDefaults)
+		}
+	}
+
+	var selected *Resolved
+	if req.ProfileName != "" {
+		selected, err = r.Resolve(ctx, req.ProfileName)
+		if err != nil {
+			return nil, fmt.Errorf("resolve profile %q: %w", req.ProfileName, err)
+		}
+	}
+
+	var defaults *Resolved
+	if len(layers) > 0 {
+		defaults = MergeResolved("defaults", layers...)
+	}
+	return &RuntimeResolved{Defaults: defaults, Selected: selected}, nil
 }
 
 func (r *Resolver) resolve(ctx context.Context, p *Profile) (*Resolved, error) {

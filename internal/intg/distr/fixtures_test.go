@@ -43,6 +43,7 @@ type fixtureConfig struct {
 	dagsDir                 string
 	baseConfigPath          string
 	workerBaseConfigPath    string // Override worker's base config path (for testing embedded base config)
+	isolatedWorker          bool
 	procConfig              *procConfig
 	staleHeartbeatThreshold time.Duration
 	staleLeaseThreshold     time.Duration
@@ -105,6 +106,10 @@ func withBaseConfigPath(path string) fixtureOption {
 
 func withWorkerBaseConfigPath(path string) fixtureOption {
 	return func(c *fixtureConfig) { c.workerBaseConfigPath = path }
+}
+
+func withIsolatedWorker() fixtureOption {
+	return func(c *fixtureConfig) { c.isolatedWorker = true }
 }
 
 func withProcConfig(heartbeatInterval, staleThreshold time.Duration) fixtureOption {
@@ -204,7 +209,7 @@ func newTestFixture(t *testing.T, yaml string, opts ...fixtureOption) *testFixtu
 
 	for i := range cfg.workerCount {
 		workerID := fmt.Sprintf("worker-%d", i+1)
-		w := f.setupWorker(workerID, cfg.workerLabels, cfg.workerBaseConfigPath)
+		w := f.setupWorkerMode(workerID, cfg.workerLabels, cfg.workerBaseConfigPath, cfg.isolatedWorker, nil)
 		f.workers = append(f.workers, w)
 	}
 
@@ -214,13 +219,23 @@ func newTestFixture(t *testing.T, yaml string, opts ...fixtureOption) *testFixtu
 }
 
 func (f *testFixture) setupWorker(workerID string, labels map[string]string, workerBaseConfigPath string) *worker.Worker {
-	return f.setupWorkerWithAfterAckHook(workerID, labels, workerBaseConfigPath, nil)
+	return f.setupWorkerMode(workerID, labels, workerBaseConfigPath, false, nil)
 }
 
 func (f *testFixture) setupWorkerWithAfterAckHook(
 	workerID string,
 	labels map[string]string,
 	workerBaseConfigPath string,
+	afterAckHook func(context.Context, *coordinatorv1.Task) bool,
+) *worker.Worker {
+	return f.setupWorkerMode(workerID, labels, workerBaseConfigPath, false, afterAckHook)
+}
+
+func (f *testFixture) setupWorkerMode(
+	workerID string,
+	labels map[string]string,
+	workerBaseConfigPath string,
+	isolated bool,
 	afterAckHook func(context.Context, *coordinatorv1.Task) bool,
 ) *worker.Worker {
 	f.t.Helper()
@@ -235,15 +250,29 @@ func (f *testFixture) setupWorkerWithAfterAckHook(
 		cfgCopy.Paths = pathsCopy
 		workerConfig = &cfgCopy
 	}
+	if isolated {
+		cfgCopy := *workerConfig
+		pathsCopy := cfgCopy.Paths
+		workerDataDir := filepath.Join(f.t.TempDir(), workerID)
+		pathsCopy.DataDir = workerDataDir
+		pathsCopy.LogDir = filepath.Join(workerDataDir, "logs")
+		pathsCopy.ArtifactDir = filepath.Join(workerDataDir, "artifacts")
+		pathsCopy.ToolsDir = filepath.Join(workerDataDir, "tools")
+		pathsCopy.DAGRunWorkDir = filepath.Join(workerDataDir, "work")
+		cfgCopy.Paths = pathsCopy
+		workerConfig = &cfgCopy
+	}
 
 	handlerCfg := worker.RemoteTaskHandlerConfig{
 		WorkerID:          workerID,
 		CoordinatorClient: f.coordinatorClient,
-		DAGRepository:     f.coord.DAGRepository,
-		DAGRunMgr:         f.coord.DAGRunMgr,
-		ServiceRegistry:   f.coord.ServiceRegistry,
 		PeerConfig:        f.coord.Config.Core.Peer,
 		Config:            workerConfig,
+	}
+	if !isolated {
+		handlerCfg.DAGRepository = f.coord.DAGRepository
+		handlerCfg.DAGRunMgr = f.coord.DAGRunMgr
+		handlerCfg.ServiceRegistry = f.coord.ServiceRegistry
 	}
 
 	w := worker.NewWorker(workerID, f.workerMaxActiveRuns, f.coordinatorClient, labels, f.coord.Config)
@@ -409,6 +438,16 @@ func (f *testFixture) enqueueWithParams(params string) error {
 	enqueueSpec := subCmdBuilder.Enqueue(f.dagWrapper.DAG, launcher.EnqueueOptions{
 		Quiet:  true,
 		Params: params,
+	})
+	return launcher.Run(f.coord.Context, enqueueSpec)
+}
+
+func (f *testFixture) enqueueWithProfile(name string) error {
+	f.t.Helper()
+	subCmdBuilder := launcher.NewSubCmdBuilder(f.coord.Config)
+	enqueueSpec := subCmdBuilder.Enqueue(f.dagWrapper.DAG, launcher.EnqueueOptions{
+		Quiet:       true,
+		ProfileName: name,
 	})
 	return launcher.Run(f.coord.Context, enqueueSpec)
 }

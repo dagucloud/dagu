@@ -180,6 +180,7 @@ type DAGRunLease struct {
 	DAGRun                ir.DAGRunRef        `json:"dagRun"`
 	Root                  ir.DAGRunRef        `json:"root,omitzero"`
 	AttemptID             string              `json:"attemptId"`
+	ProfileName           string              `json:"profileName,omitempty"`
 	QueueName             string              `json:"queueName"`
 	WorkerID              string              `json:"workerId"`
 	Owner                 CoordinatorEndpoint `json:"owner"`

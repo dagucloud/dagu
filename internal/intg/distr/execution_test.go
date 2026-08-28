@@ -5,6 +5,7 @@ package distr_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,8 +16,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
+	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
+	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -259,6 +266,181 @@ steps:
 		f.assertWorkerID(status, "worker-1")
 		f.assertAllNodesSucceeded(status)
 	})
+}
+
+func TestExecution_RemoteProfile(t *testing.T) {
+	f := newTestFixture(t, fmt.Sprintf(`
+name: shared-nothing-profile
+labels:
+  - workspace=ops
+worker_selector:
+  test: "true"
+secrets:
+  - name: DIRECT_SECRET
+    ref: prod/direct
+steps:
+  - name: verify
+    run: |
+%s
+`, indentYAMLBlock(sharedNothingProfileCommand(), 6)), withIsolatedWorker())
+	defer f.cleanup()
+
+	profileStore, err := persiststore.NewProfileStore(f.coord.Backend.Collection(persis.CollectionProfiles))
+	require.NoError(t, err)
+	secretStore := persisfile.NewSecretStore(f.coord.Context, f.coord.Config, f.coord.Backend.Collection(persis.CollectionSecrets))
+	require.NotNil(t, secretStore)
+	manager := profilepkg.NewManager(profileStore, secretStore)
+	now := time.Now().UTC()
+
+	global, err := profilepkg.NewInherited(profilepkg.GlobalInheritedRef(), profilepkg.InheritedCreateInput{}, now)
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Create(f.coord.Context, global))
+	_, err = manager.SetVariable(f.coord.Context, global, "GLOBAL_ONLY", "global", "test")
+	require.NoError(t, err)
+	_, err = manager.SetSecret(f.coord.Context, global, "GLOBAL_SECRET", "global-secret", "test")
+	require.NoError(t, err)
+
+	workspaceRef, err := profilepkg.WorkspaceInheritedRef("ops")
+	require.NoError(t, err)
+	workspaceDefaults, err := profilepkg.NewInherited(workspaceRef, profilepkg.InheritedCreateInput{}, now)
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Create(f.coord.Context, workspaceDefaults))
+	_, err = manager.SetVariable(f.coord.Context, workspaceDefaults, "WORKSPACE_ONLY", "workspace", "test")
+	require.NoError(t, err)
+	_, err = manager.SetVariable(f.coord.Context, workspaceDefaults, "SHARED", "workspace", "test")
+	require.NoError(t, err)
+
+	prof, err := profilepkg.New(profilepkg.CreateInput{Name: "prod"}, now)
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Create(f.coord.Context, prof))
+	_, err = manager.SetVariable(f.coord.Context, prof, "SELECTED_ONLY", "selected", "test")
+	require.NoError(t, err)
+	_, err = manager.SetVariable(f.coord.Context, prof, "SHARED", "selected", "test")
+	require.NoError(t, err)
+	_, err = manager.SetSecret(f.coord.Context, prof, "SELECTED_SECRET", "selected-secret", "test")
+	require.NoError(t, err)
+
+	direct, err := secretpkg.New(secretpkg.CreateInput{
+		Workspace: "ops", Ref: "prod/direct", ProviderType: secretpkg.ProviderDaguManaged,
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(f.coord.Context, direct, &secretpkg.WriteValueInput{
+		Value: "direct-secret", CreatedBy: "test", CreatedAt: now,
+	}))
+
+	require.NoError(t, f.enqueueWithProfile("prod"))
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
+	require.Equal(t, "prod", status.ProfileName)
+	require.ElementsMatch(t, []ir.RuntimeProfileEntry{
+		{Key: "GLOBAL_ONLY", Kind: "variable"},
+		{Key: "GLOBAL_SECRET", Kind: "secret"},
+		{Key: "WORKSPACE_ONLY", Kind: "variable"},
+		{Key: "SHARED", Kind: "variable"},
+		{Key: "SELECTED_ONLY", Kind: "variable"},
+		{Key: "SELECTED_SECRET", Kind: "secret"},
+	}, status.ProfileEntries)
+
+	statusJSON, err := json.Marshal(status)
+	require.NoError(t, err)
+	require.NotContains(t, string(statusJSON), "global-secret")
+	require.NotContains(t, string(statusJSON), "selected-secret")
+	require.NotContains(t, string(statusJSON), "direct-secret")
+}
+
+func sharedNothingProfileCommand() string {
+	if runtime.GOOS == "windows" {
+		return test.JoinLines(
+			"if ($env:GLOBAL_ONLY -ne 'global') { throw 'bad global default' }",
+			"if ($env:GLOBAL_SECRET -ne 'global-secret') { throw 'bad global secret' }",
+			"if ($env:WORKSPACE_ONLY -ne 'workspace') { throw 'bad workspace default' }",
+			"if ($env:SELECTED_ONLY -ne 'selected') { throw 'bad selected profile' }",
+			"if ($env:SELECTED_SECRET -ne 'selected-secret') { throw 'bad selected secret' }",
+			"if ($env:SHARED -ne 'selected') { throw 'bad profile precedence' }",
+			"if ($env:DIRECT_SECRET -ne 'direct-secret') { throw 'bad direct secret' }",
+		)
+	}
+	return test.JoinLines(
+		`test "$GLOBAL_ONLY" = "global"`,
+		`test "$GLOBAL_SECRET" = "global-secret"`,
+		`test "$WORKSPACE_ONLY" = "workspace"`,
+		`test "$SELECTED_ONLY" = "selected"`,
+		`test "$SELECTED_SECRET" = "selected-secret"`,
+		`test "$SHARED" = "selected"`,
+		`test "$DIRECT_SECRET" = "direct-secret"`,
+	)
+}
+
+func TestExecution_LocalChild(t *testing.T) {
+	f := newTestFixture(t, fmt.Sprintf(`
+name: shared-nothing-parent
+labels:
+  - workspace=ops
+worker_selector:
+  test: "true"
+steps:
+  - name: child
+    action: dag.run
+    with:
+      dag: shared-nothing-child
+
+---
+name: shared-nothing-child
+labels:
+  - workspace=ops
+worker_selector: local
+secrets:
+  - name: CHILD_SECRET
+    ref: prod/child
+steps:
+  - name: verify
+    run: |
+%s
+`, indentYAMLBlock(sharedNothingChildCommand(), 6)), withIsolatedWorker(), withConfigMutator(func(c *config.Config) {
+		c.DefaultExecMode = config.ExecutionModeDistributed
+	}))
+	defer f.cleanup()
+
+	profileStore, err := persiststore.NewProfileStore(f.coord.Backend.Collection(persis.CollectionProfiles))
+	require.NoError(t, err)
+	prof, err := profilepkg.New(profilepkg.CreateInput{Name: "prod"}, time.Now().UTC())
+	require.NoError(t, err)
+	require.NoError(t, prof.SetVariable("CHILD_PROFILE", "from-coordinator", "test", time.Now().UTC()))
+	require.NoError(t, profileStore.Create(f.coord.Context, prof))
+
+	secretStore := persisfile.NewSecretStore(f.coord.Context, f.coord.Config, f.coord.Backend.Collection(persis.CollectionSecrets))
+	require.NotNil(t, secretStore)
+	now := time.Now().UTC()
+	childSecret, err := secretpkg.New(secretpkg.CreateInput{
+		Workspace: "ops", Ref: "prod/child", ProviderType: secretpkg.ProviderDaguManaged,
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(f.coord.Context, childSecret, &secretpkg.WriteValueInput{
+		Value: "child-secret", CreatedBy: "test", CreatedAt: now,
+	}))
+
+	require.NoError(t, f.enqueueWithProfile("prod"))
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
+	require.Len(t, status.Nodes, 1)
+	require.Len(t, status.Nodes[0].SubRuns, 1)
+}
+
+func sharedNothingChildCommand() string {
+	if runtime.GOOS == "windows" {
+		return test.JoinLines(
+			"if ($env:CHILD_PROFILE -ne 'from-coordinator') { throw 'bad child profile' }",
+			"if ($env:CHILD_SECRET -ne 'child-secret') { throw 'bad child secret' }",
+		)
+	}
+	return test.JoinLines(
+		`test "$CHILD_PROFILE" = "from-coordinator"`,
+		`test "$CHILD_SECRET" = "child-secret"`,
+	)
 }
 
 func TestExecution_LogStreaming(t *testing.T) {

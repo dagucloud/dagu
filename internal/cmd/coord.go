@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -97,7 +98,7 @@ var coordinatorFlags = []commandLineFlag{
 func runCoordinator(ctx *Context, _ []string) error {
 	coordCtx := ctx.WithEventSource(eventstore.SourceServiceCoordinator)
 	stores := coordCtx.runtimeStores()
-	svc, _, err := newCoordinator(coordCtx, stores.SecretStore)
+	svc, _, err := newCoordinator(coordCtx, stores.SecretStore, stores.ProfileStore)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
 	}
@@ -121,6 +122,7 @@ func runCoordinator(ctx *Context, _ []string) error {
 func newCoordinator(
 	ctx *Context,
 	secretStore secret.Store,
+	profileStore profile.Store,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	cfg := ctx.Config
 	persistence := ctx.Persistence
@@ -214,6 +216,7 @@ func newCoordinator(
 		ActiveDistributedRunStore: persistence.ActiveDistributedRunStore,
 		DAGRepository:             persistence.DAGRepository,
 		SecretStore:               secretStore,
+		ProfileStore:              profileStore,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,

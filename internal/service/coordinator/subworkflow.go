@@ -9,6 +9,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -18,6 +19,7 @@ import (
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator/subflow"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
@@ -33,7 +35,9 @@ type SubWorkflowRunnerConfig struct {
 	QueueStore        queue.QueueStore
 	StateStore        dagrun.StateStore
 	SecretStore       secret.Store
+	SecretResolver    func(*ir.DAG) providers.ReferenceResolver
 	ProfileStore      profile.Store
+	ProfileResolver   profile.RuntimeResolver
 	ServiceRegistry   serviceregistry.ServiceRegistry
 	PeerConfig        config.Peer
 	DefaultExecMode   config.ExecutionMode
@@ -71,7 +75,9 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 				subflow.WithLocalQueueStore(cfg.QueueStore),
 				subflow.WithLocalStateStore(cfg.StateStore),
 				subflow.WithLocalSecretStore(cfg.SecretStore),
+				subflow.WithLocalSecretResolver(cfg.SecretResolver),
 				subflow.WithLocalProfileStore(cfg.ProfileStore),
+				subflow.WithLocalProfileResolver(cfg.ProfileResolver),
 				subflow.WithLocalServiceRegistry(cfg.ServiceRegistry),
 				subflow.WithLocalStatusPusher(cfg.StatusPusher),
 				subflow.WithLocalLogWriterFactory(cfg.LogWriterFactory),

@@ -184,7 +184,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	var coord *coordinator.Service
 	if ctx.Config.Coordinator.Enabled {
 		var err error
-		coord, _, err = newCoordinator(serviceCtx, stores.Secret)
+		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile)
 		if err != nil {
 			return fmt.Errorf("failed to initialize coordinator: %w", err)
 		}

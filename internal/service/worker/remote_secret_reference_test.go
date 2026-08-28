@@ -103,7 +103,9 @@ steps:
 	require.NoError(t, err)
 	require.Equal(t, []secretref.Ref{{Name: "MY_SECRET", Ref: "prod/my-secret"}}, client.resolvedRefs())
 	require.Equal(t, []serviceregistry.HostInfo{{ID: "coord-1", Host: "127.0.0.1", Port: 4521}}, client.resolvedOwners())
-	require.Equal(t, []coordinator.SecretReferenceRun{{WorkerID: workerID, AttemptKey: "attempt-key-1", AttemptID: "attempt-1"}}, client.resolvedRuns())
+	require.Equal(t, []coordinator.SecretReferenceRun{{
+		WorkerID: workerID, AttemptKey: "attempt-key-1", AttemptID: "attempt-1", DAGName: "registry-secret-dag",
+	}}, client.resolvedRuns())
 
 	reported := client.reportedStatuses()
 	require.NotEmpty(t, reported)

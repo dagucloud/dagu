@@ -103,6 +103,8 @@ type Agent struct {
 
 	// profileStore resolves runtime profiles selected for DAG execution.
 	profileStore profilepkg.Store
+	// profileResolver resolves runtime profiles through the active execution boundary.
+	profileResolver profilepkg.RuntimeResolver
 
 	// registry is the service registry to find the coordinator service.
 	registry serviceregistry.ServiceRegistry
@@ -348,6 +350,8 @@ type Options struct {
 	SecretReferenceResolver providers.ReferenceResolver
 	// ProfileStore resolves named runtime profiles.
 	ProfileStore profilepkg.Store
+	// ProfileResolver resolves inherited and selected runtime profile layers.
+	ProfileResolver profilepkg.RuntimeResolver
 	// ProfileName selects the runtime profile for this DAG run.
 	ProfileName string
 	// DAGDefinitionID identifies the persisted definition that started this run.
@@ -420,6 +424,7 @@ func New(
 		secretStore:              opts.SecretStore,
 		secretReferenceResolver:  secretReferenceResolverForDAG(dag, opts),
 		profileStore:             opts.ProfileStore,
+		profileResolver:          opts.ProfileResolver,
 		registry:                 opts.ServiceRegistry,
 		extraEnvs:                append([]string{}, opts.ExtraEnvs...),
 		workDir:                  opts.WorkDir,
@@ -668,20 +673,21 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
 		runtime.WithParams(a.dag.Params),
-		runtime.WithDefaultSecrets(profileValues.defaultSecrets),
-		runtime.WithSecrets(append(profileValues.selectedSecrets, secretEnvs...)),
+		runtime.WithRuntimeProfileValues(
+			profileValues.defaultEnvs,
+			profileValues.defaultSecrets,
+			profileValues.selectedEnvs,
+			profileValues.selectedSecrets,
+		),
+		runtime.WithSecrets(secretEnvs),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
 		runtime.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 	}
 	if scheduleTime := a.contextScheduleTime(); scheduleTime != "" {
 		contextOpts = append(contextOpts, runtime.WithScheduleTime(scheduleTime))
 	}
-	if len(profileValues.defaultEnvs) > 0 {
-		contextOpts = append(contextOpts, runtime.WithDefaultEnvVars(profileValues.defaultEnvs...))
-	}
-	envs := append(profileValues.selectedEnvs, a.extraEnvs...)
-	if len(envs) > 0 {
-		contextOpts = append(contextOpts, runtime.WithEnvVars(envs...))
+	if len(a.extraEnvs) > 0 {
+		contextOpts = append(contextOpts, runtime.WithEnvVars(a.extraEnvs...))
 	}
 
 	if a.workDir != "" {
@@ -1888,84 +1894,48 @@ func (v resolvedProfileValues) allSecrets() []string {
 // resolveProfile resolves inherited defaults and the selected runtime profile.
 func (a *Agent) resolveProfile(ctx context.Context) (resolvedProfileValues, error) {
 	var values resolvedProfileValues
-	if a.profileStore == nil {
+	resolver := a.profileResolver
+	if resolver == nil && a.profileStore == nil {
 		if a.profileName == "" {
 			return values, nil
 		}
 		return values, fmt.Errorf("profile store is not configured")
 	}
-
-	resolver := profilepkg.NewResolver(a.profileStore, a.secretStore)
-	defaultLayers, err := a.resolveInheritedProfiles(ctx, resolver)
-	if err != nil {
-		return values, err
+	if resolver == nil {
+		resolver = profilepkg.NewResolver(a.profileStore, a.secretStore)
 	}
-	defaults := profilepkg.MergeResolved("defaults", defaultLayers...)
-	values.defaultEnvs = defaults.EnvVars(profilepkg.EntryKindVariable)
-	values.defaultSecrets = defaults.EnvVars(profilepkg.EntryKindSecret)
 
-	var selected *profilepkg.Resolved
-	if a.profileName != "" {
-		selected, err = resolver.Resolve(ctx, a.profileName)
-		if err != nil {
-			return values, fmt.Errorf("failed to resolve profile %q: %w", a.profileName, err)
-		}
-		values.selectedEnvs = selected.EnvVars(profilepkg.EntryKindVariable)
-		values.selectedSecrets = selected.EnvVars(profilepkg.EntryKindSecret)
-		a.profileName = selected.Name
+	workspaceName, _ := workspace.WorkspaceNameFromLabels(a.dag.Labels)
+	resolved, err := resolver.ResolveRuntime(ctx, profilepkg.RuntimeRequest{
+		ProfileName: a.profileName,
+		Workspace:   workspaceName,
+	})
+	if err != nil {
+		return values, fmt.Errorf("failed to resolve runtime profile: %w", err)
+	}
+	if resolved == nil {
+		return values, nil
+	}
+
+	values.defaultEnvs = resolved.Defaults.EnvVars(profilepkg.EntryKindVariable)
+	values.defaultSecrets = resolved.Defaults.EnvVars(profilepkg.EntryKindSecret)
+	values.selectedEnvs = resolved.Selected.EnvVars(profilepkg.EntryKindVariable)
+	values.selectedSecrets = resolved.Selected.EnvVars(profilepkg.EntryKindSecret)
+	if resolved.Selected != nil {
+		a.profileName = resolved.Selected.Name
 		logger.Info(ctx, "Resolved runtime profile",
-			slog.String("profile", selected.Name),
-			tag.Count(len(selected.Entries)),
+			slog.String("profile", resolved.Selected.Name),
+			tag.Count(len(resolved.Selected.Entries)),
 		)
 	}
 
-	if len(defaultLayers) > 0 || selected != nil {
-		layers := append([]*profilepkg.Resolved{}, defaultLayers...)
-		layers = append(layers, selected)
-		effective := profilepkg.MergeResolved("effective", layers...)
+	if resolved.Defaults != nil || resolved.Selected != nil {
+		effective := profilepkg.MergeResolved("effective", resolved.Defaults, resolved.Selected)
 		a.profileResolvedAt = contextTimeString(time.Now())
 		a.profileEntries = profileEntries(effective)
 	}
 
 	return values, nil
-}
-
-func (a *Agent) resolveInheritedProfiles(
-	ctx context.Context,
-	resolver *profilepkg.Resolver,
-) ([]*profilepkg.Resolved, error) {
-	defaultLayers := make([]*profilepkg.Resolved, 0, 2)
-	globalDefaults, err := resolver.ResolveInherited(ctx, profilepkg.GlobalInheritedRef())
-	if err != nil && !errors.Is(err, profilepkg.ErrNotFound) {
-		return nil, fmt.Errorf("failed to resolve global profile defaults: %w", err)
-	}
-	if globalDefaults != nil {
-		defaultLayers = append(defaultLayers, globalDefaults)
-		logger.Info(ctx, "Resolved global runtime profile defaults",
-			tag.Count(len(globalDefaults.Entries)),
-		)
-	}
-
-	workspaceName, ok := workspace.WorkspaceNameFromLabels(a.dag.Labels)
-	if !ok {
-		return defaultLayers, nil
-	}
-	workspaceRef, err := profilepkg.WorkspaceInheritedRef(workspaceName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve workspace profile defaults: %w", err)
-	}
-	workspaceDefaults, err := resolver.ResolveInherited(ctx, workspaceRef)
-	if err != nil && !errors.Is(err, profilepkg.ErrNotFound) {
-		return nil, fmt.Errorf("failed to resolve workspace profile defaults %q: %w", workspaceName, err)
-	}
-	if workspaceDefaults != nil {
-		defaultLayers = append(defaultLayers, workspaceDefaults)
-		logger.Info(ctx, "Resolved workspace runtime profile defaults",
-			slog.String("workspace", workspaceName),
-			tag.Count(len(workspaceDefaults.Entries)),
-		)
-	}
-	return defaultLayers, nil
 }
 
 func profileEntries(resolved *profilepkg.Resolved) []ir.RuntimeProfileEntry {

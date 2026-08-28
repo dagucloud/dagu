@@ -89,6 +89,8 @@ var (
 	WithArtifactDir = runctx.WithArtifactDir
 	// WithRuntimeProfile sets selected runtime profile metadata.
 	WithRuntimeProfile = runctx.WithRuntimeProfile
+	// WithRuntimeProfileValues sets the resolved runtime profile environment.
+	WithRuntimeProfileValues = runctx.WithRuntimeProfileValues
 )
 
 // LogWriterFactory is re-exported from execution package

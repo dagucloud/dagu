@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
@@ -43,7 +44,9 @@ type Local struct {
 	queueStore               queue.QueueStore
 	stateStore               dagrun.StateStore
 	secretStore              secretpkg.Store
+	secretResolver           func(*ir.DAG) providers.ReferenceResolver
 	profileStore             profilepkg.Store
+	profileResolver          profilepkg.RuntimeResolver
 	serviceRegistry          serviceregistry.ServiceRegistry
 	statusPusher             runtime.StatusPusher
 	logWriterFactory         runctx.LogWriterFactory
@@ -107,10 +110,24 @@ func WithLocalSecretStore(store secretpkg.Store) LocalOption {
 	}
 }
 
+// WithLocalSecretResolver sets the registry resolver used by child agents.
+func WithLocalSecretResolver(factory func(*ir.DAG) providers.ReferenceResolver) LocalOption {
+	return func(r *Local) {
+		r.secretResolver = factory
+	}
+}
+
 // WithLocalProfileStore sets the runtime profile store used by child workflow agents.
 func WithLocalProfileStore(store profilepkg.Store) LocalOption {
 	return func(r *Local) {
 		r.profileStore = store
+	}
+}
+
+// WithLocalProfileResolver sets the runtime profile resolver used by child agents.
+func WithLocalProfileResolver(resolver profilepkg.RuntimeResolver) LocalOption {
+	return func(r *Local) {
+		r.profileResolver = resolver
 	}
 }
 
@@ -480,7 +497,11 @@ func (r *Local) newAgent(
 	opts.MaterializationStore = rCtx.MaterializationStore
 	opts.NoReuse = rCtx.NoReuse
 	opts.SecretStore = r.secretStore
+	if r.secretResolver != nil {
+		opts.SecretReferenceResolver = r.secretResolver(dag)
+	}
 	opts.ProfileStore = r.profileStore
+	opts.ProfileResolver = r.profileResolver
 	opts.ProfileName = req.ProfileName
 	opts.ServiceRegistry = r.serviceRegistry
 	opts.DefaultExecMode = rCtx.DefaultExecMode
@@ -646,7 +667,7 @@ func inProcessLoadOptions(
 }
 
 func inProcessExtraEnvs(rCtx runctx.Context, req executor.SubWorkflowRequest) []string {
-	envs := inheritedEnvForLocalRunner(rCtx.AllEnvs())
+	envs := inheritedEnvForLocalRunner(rCtx.InheritedEnvs())
 	if req.ParallelItem != "" {
 		envs = append(envs, ir.ParallelItemVariable+"="+req.ParallelItem)
 	}

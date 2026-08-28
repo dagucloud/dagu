@@ -126,6 +126,7 @@ var (
 	_ Client                    = (*clientImpl)(nil)
 	_ AgentSessionCleanupClient = (*clientImpl)(nil)
 	_ SecretReferenceClient     = (*clientImpl)(nil)
+	_ RuntimeProfileClient      = (*clientImpl)(nil)
 	_ dispatch.Dispatcher       = (*clientImpl)(nil)
 )
 

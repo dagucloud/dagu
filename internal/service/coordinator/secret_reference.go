@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
@@ -30,6 +31,7 @@ type SecretReferenceRun struct {
 	WorkerID   string
 	AttemptKey string
 	AttemptID  string
+	DAGName    string
 }
 
 type secretReferenceResolver struct {
@@ -135,6 +137,7 @@ func secretReferenceRequest(ref secretref.Ref, workspace string, checkOnly bool,
 		WorkerId:   run.WorkerID,
 		AttemptKey: run.AttemptKey,
 		AttemptId:  run.AttemptID,
+		DagName:    run.DAGName,
 	}
 }
 
@@ -208,7 +211,7 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 		return status.Error(codes.PermissionDenied, "secret reference access denied")
 	}
 
-	dag, err := h.secretReferenceDAG(ctx, lease)
+	dag, err := h.secretReferenceDAG(ctx, lease, req.GetDagName())
 	if err != nil {
 		return err
 	}
@@ -221,7 +224,7 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 	return nil
 }
 
-func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRunLease) (*ir.DAG, error) {
+func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRunLease, dagName string) (*ir.DAG, error) {
 	if lease == nil {
 		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
 	}
@@ -252,7 +255,47 @@ func (h *Handler) secretReferenceDAG(ctx context.Context, lease *dispatch.DAGRun
 	if dag == nil {
 		return nil, status.Error(codes.FailedPrecondition, "dag definition is not available")
 	}
-	return dag, nil
+	if dagName == "" || dagName == dag.Name {
+		return dag, nil
+	}
+	if child := localDAGByName(dag, dagName); child != nil {
+		return child, nil
+	}
+	if !declaresSubDAG(dag, dagName) || h.dagRepository == nil {
+		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
+	}
+	child, err := h.dagRepository.GetDetails(ctx, dagName, persis.DAGLoadOptions{})
+	if err != nil {
+		return nil, status.Error(codes.PermissionDenied, "secret reference access denied")
+	}
+	return child, nil
+}
+
+func localDAGByName(dag *ir.DAG, name string) *ir.DAG {
+	if dag == nil {
+		return nil
+	}
+	if child := dag.LocalDAGs[name]; child != nil {
+		return child
+	}
+	for _, child := range dag.LocalDAGs {
+		if found := localDAGByName(child, name); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func declaresSubDAG(dag *ir.DAG, name string) bool {
+	if dag == nil {
+		return false
+	}
+	for _, step := range dag.Steps {
+		if step.SubDAG != nil && step.SubDAG.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func secretReferenceWorkspace(dag *ir.DAG) string {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -82,6 +83,9 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 		cfg.StaleLeaseThreshold = helper.StaleLeaseThreshold
 	}
 	cfg.StateStore = helper.StateStore
+	cfg.DAGRepository = helper.DAGRepository
+	cfg.SecretStore = file.NewSecretStore(helper.Context, helper.Config, helper.Backend.Collection(persis.CollectionSecrets))
+	cfg.ProfileStore = file.NewProfileStore(helper.Context, helper.Config, helper.Backend.Collection(persis.CollectionProfiles))
 	cfg.DispatchTaskStore = helper.DispatchTaskStore
 	cfg.WorkerHeartbeatStore = helper.WorkerHeartbeatStore
 	cfg.DAGRunLeaseStore = helper.DAGRunLeaseStore

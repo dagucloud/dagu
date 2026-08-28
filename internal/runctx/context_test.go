@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -458,6 +459,32 @@ func TestNewContext_DefaultProfileEnvsHaveLowestUserPrecedence(t *testing.T) {
 	assert.Equal(t, "selected-profile", result["SHARED"])
 	assert.Equal(t, "default-secret", result["SECRET_ONLY"])
 	assert.Equal(t, "selected-profile", result["SECRET_SHARED"])
+}
+
+func TestInheritedEnvs(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{Name: "parent", Env: []string{"SHARED=dag", "DAG_ONLY=dag"}}
+	ctx := runctx.NewContext(context.Background(), dag, "run-1", "test.log",
+		runctx.WithRuntimeProfileValues(
+			[]string{"DEFAULT_ONLY=default"},
+			[]string{"DEFAULT_SECRET=default-secret"},
+			[]string{"SHARED=profile", "PROFILE_ONLY=profile"},
+			[]string{"PROFILE_SECRET=profile-secret"},
+		),
+		runctx.WithEnvVars("EXTRA=extra"),
+		runctx.WithSecrets([]string{"DAG_SECRET=dag-secret"}),
+	)
+
+	inherited := stringutil.KeyValuesToMap(runctx.GetContext(ctx).InheritedEnvs())
+	assert.Equal(t, "dag", inherited["SHARED"])
+	assert.Equal(t, "dag", inherited["DAG_ONLY"])
+	assert.Equal(t, "extra", inherited["EXTRA"])
+	assert.Equal(t, "dag-secret", inherited["DAG_SECRET"])
+	assert.NotContains(t, inherited, "DEFAULT_ONLY")
+	assert.NotContains(t, inherited, "DEFAULT_SECRET")
+	assert.NotContains(t, inherited, "PROFILE_ONLY")
+	assert.NotContains(t, inherited, "PROFILE_SECRET")
 }
 
 func TestNewContext_AllEnvsUsesFilteredBaseEnv(t *testing.T) {
