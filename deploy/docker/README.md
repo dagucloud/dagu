@@ -19,6 +19,6 @@ The standard Ubuntu image includes CA certificates and common runtime utilities 
 
 The Compose stacks mount `deploy/docker/dags/` read-write on server-side Dagu services so Dagu can seed first-run examples and save DAG edits. Add `:ro` to that mount only when using immutable DAG sources.
 
-Remote CLI contexts use the HTTP API on port `8080`. Include the API path in the context URL, for example `http://host:8080/api/v1`.
+Remote CLI contexts use the web/API endpoint, not the coordinator port. Prefer an HTTPS endpoint and include the API path, for example `https://dagu.example.com/api/v1`. A direct `http://host:8080/api/v1` URL sends the API key without transport encryption; use it only on a trusted or encrypted network.
 
-The production stack keeps coordinator port `50055` inside `dagu-net`. External workers require publishing that port and setting `DAGU_COORDINATOR_ADVERTISE` to a hostname or IP they can reach.
+The production stack keeps coordinator port `50055` inside `dagu-net`. Before connecting external workers, set `DAGU_COORDINATOR_ADVERTISE` to an address they can reach and configure peer TLS or mTLS on the coordinator and workers. Publish port `50055` only to the restricted worker network. See the [transport security guide](https://docs.dagu.sh/server-admin/distributed/transport-security).
