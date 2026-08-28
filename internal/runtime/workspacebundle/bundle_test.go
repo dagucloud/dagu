@@ -439,16 +439,16 @@ func TestStoreHeartbeatPreventsLockSteal(t *testing.T) {
 	dir := t.TempDir()
 	first := NewStore(dir, DefaultLimits())
 	second := NewStore(dir, DefaultLimits())
-	first.lock = dirlock.New(dir, &dirlock.LockOptions{
-		StaleThreshold: 100 * time.Millisecond,
-		RetryInterval:  time.Millisecond,
-	})
-	second.lock = dirlock.New(dir, &dirlock.LockOptions{
-		StaleThreshold: 100 * time.Millisecond,
-		RetryInterval:  time.Millisecond,
-	})
-	first.lockHeartbeatInterval = 10 * time.Millisecond
-	second.lockHeartbeatInterval = 10 * time.Millisecond
+	lockOptions := &dirlock.LockOptions{StaleThreshold: time.Minute}
+	firstLock := &gatedHeartbeatLock{
+		DirLock: dirlock.New(dir, lockOptions),
+		started: make(chan struct{}),
+		resume:  make(chan struct{}),
+		done:    make(chan error),
+	}
+	first.lock = firstLock
+	second.lock = dirlock.New(dir, lockOptions)
+	first.lockHeartbeatInterval = time.Millisecond
 
 	firstEntered := make(chan struct{})
 	releaseFirst := make(chan struct{})
@@ -462,32 +462,50 @@ func TestStoreHeartbeatPreventsLockSteal(t *testing.T) {
 	}()
 	<-firstEntered
 
-	secondEntered := make(chan struct{})
-	secondDone := make(chan error, 1)
-	go func() {
-		secondDone <- second.withLock(t.Context(), func(context.Context) error {
-			close(secondEntered)
-			return nil
-		})
-	}()
-
 	select {
-	case <-secondEntered:
+	case <-firstLock.started:
+	case <-time.After(time.Second):
 		close(releaseFirst)
 		require.NoError(t, <-firstDone)
-		require.NoError(t, <-secondDone)
-		t.Fatal("second store stole a live lock")
-	case <-time.After(300 * time.Millisecond):
+		t.Fatal("workspace bundle store heartbeat did not start")
 	}
+
+	// Force the lease stale while its heartbeat is paused.
+	lockPath := filepath.Join(dir, dirlock.LockDirectoryName)
+	staleTime := time.Now().Add(-2 * lockOptions.StaleThreshold)
+	require.NoError(t, os.Chtimes(lockPath, staleTime, staleTime))
+	close(firstLock.resume)
+	require.NoError(t, <-firstLock.done)
+	require.ErrorIs(t, second.lock.TryLock(), dirlock.ErrLockConflict)
 
 	close(releaseFirst)
 	require.NoError(t, <-firstDone)
-	select {
-	case <-secondEntered:
-	case <-time.After(time.Second):
-		t.Fatal("second store did not acquire the released lock")
+	require.NoError(t, second.lock.TryLock())
+	require.NoError(t, second.lock.Unlock())
+}
+
+type gatedHeartbeatLock struct {
+	dirlock.DirLock
+	started chan struct{}
+	resume  chan struct{}
+	done    chan error
+	once    sync.Once
+}
+
+func (l *gatedHeartbeatLock) Heartbeat(ctx context.Context) error {
+	first := false
+	l.once.Do(func() {
+		first = true
+		close(l.started)
+	})
+	if !first {
+		return l.DirLock.Heartbeat(ctx)
 	}
-	require.NoError(t, <-secondDone)
+
+	<-l.resume
+	err := l.DirLock.Heartbeat(ctx)
+	l.done <- err
+	return err
 }
 
 type heartbeatLock struct {
