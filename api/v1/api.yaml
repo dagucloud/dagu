@@ -50,7 +50,7 @@ tags:
   - name: "events"
     description: "Centralized operational event log operations (manager or admin only)"
   - name: "sync"
-    description: "Git synchronization operations for workflow definitions and Wiki pages"
+    description: "Git synchronization for workflows, Wiki content, and supporting files"
   - name: "wiki"
     description: "Wiki page management operations"
   - name: "remote-nodes"
@@ -6430,7 +6430,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The sync item identifier. Supporting file IDs include their extension."
           required: true
           schema:
             type: string
@@ -6465,7 +6465,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The sync item identifier. Supporting file IDs include their extension."
           required: true
           schema:
             type: string
@@ -6512,7 +6512,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The sync item identifier. Supporting file IDs include their extension."
           required: true
           schema:
             type: string
@@ -6547,7 +6547,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The sync item identifier. Supporting file IDs include their extension."
           required: true
           schema:
             type: string
@@ -6642,7 +6642,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The current sync item identifier (file path without extension)"
+          description: "The current sync item identifier. Supporting file IDs include their extension."
           required: true
           schema:
             type: string
@@ -15043,6 +15043,7 @@ components:
         - dag
         - doc
         - doc-asset
+        - file
 
     SyncItem:
       type: object
@@ -15050,7 +15051,7 @@ components:
       properties:
         itemId:
           type: string
-          description: "Stable sync item identifier (file path without extension)"
+          description: "Stable sync item identifier. Supporting file IDs include their extension."
         filePath:
           type: string
           description: "Relative file path with extension"
@@ -15218,6 +15219,15 @@ components:
         remoteMessage:
           type: string
           description: "Commit message of the remote version"
+        remoteDeleted:
+          type: boolean
+          description: "Whether the remote file was deleted"
+        localExecutable:
+          type: boolean
+          description: "Whether the local supporting file is executable"
+        remoteExecutable:
+          type: boolean
+          description: "Whether the remote supporting file is executable"
       required:
         - itemId
         - filePath
@@ -15236,6 +15246,11 @@ components:
           items:
             type: string
           description: "Sync item IDs that were synced"
+        deleted:
+          type: array
+          items:
+            type: string
+          description: "Sync item IDs deleted locally after remote deletion"
         modified:
           type: array
           items:

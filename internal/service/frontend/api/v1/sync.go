@@ -117,6 +117,7 @@ func (a *API) SyncPull(ctx context.Context, _ api.SyncPullRequestObject) (api.Sy
 
 	a.logAudit(ctx, audit.CategoryGitSync, "sync_pull", map[string]any{
 		"synced":    result.Synced,
+		"deleted":   result.Deleted,
 		"modified":  result.Modified,
 		"conflicts": result.Conflicts,
 	})
@@ -257,15 +258,18 @@ func (a *API) GetSyncItemDiff(ctx context.Context, req api.GetSyncItemDiffReques
 		return nil, internalError(err)
 	}
 
-	filePath := syncItemFilePath(diff.ItemID, diff.FileExtension)
+	filePath := syncItemFilePath(diff.ItemID, diff.Kind, diff.FileExtension)
 	resp := api.GetSyncItemDiff200JSONResponse{
-		ItemId:        diff.ItemID,
-		FilePath:      filePath,
-		Status:        toAPISyncStatus(diff.Status),
-		Kind:          ptrOf(toAPISyncItemKind(diff.ItemID)),
-		RemoteCommit:  ptrOf(diff.RemoteCommit),
-		RemoteAuthor:  ptrOf(diff.RemoteAuthor),
-		RemoteMessage: ptrOf(diff.RemoteMessage),
+		ItemId:           diff.ItemID,
+		FilePath:         filePath,
+		Status:           toAPISyncStatus(diff.Status),
+		Kind:             ptrOf(toAPISyncItemKind(diff.Kind)),
+		RemoteCommit:     ptrOf(diff.RemoteCommit),
+		RemoteAuthor:     ptrOf(diff.RemoteAuthor),
+		RemoteMessage:    ptrOf(diff.RemoteMessage),
+		RemoteDeleted:    ptrOf(diff.RemoteDeleted),
+		LocalExecutable:  diff.LocalExecutable,
+		RemoteExecutable: diff.RemoteExecutable,
 	}
 	if diff.Binary {
 		resp.Binary = ptrOf(true)
@@ -697,8 +701,10 @@ func toAPISyncStatus(s gitsync.SyncStatus) api.SyncStatus {
 	}
 }
 
-func syncItemFilePath(itemID, fileExtension string) string {
-	switch gitsync.SyncItemKindForID(itemID) {
+func syncItemFilePath(itemID string, kind gitsync.SyncItemKind, fileExtension string) string {
+	switch kind {
+	case gitsync.SyncItemKindFile:
+		return itemID
 	case gitsync.SyncItemKindWikiPageAsset:
 		// Asset IDs already carry their extension.
 		return itemID
@@ -725,13 +731,13 @@ func toAPISyncItems(states map[string]*gitsync.SyncItemState) []api.SyncItem {
 		if state == nil {
 			continue
 		}
-		filePath := syncItemFilePath(itemID, state.FileExtension)
+		filePath := syncItemFilePath(itemID, state.Kind, state.FileExtension)
 		item := api.SyncItem{
 			ItemId:             itemID,
 			FilePath:           filePath,
 			DisplayName:        filePath,
 			Status:             toAPISyncStatus(state.Status),
-			Kind:               toAPISyncItemKind(itemID),
+			Kind:               toAPISyncItemKind(state.Kind),
 			BaseCommit:         ptrOf(state.BaseCommit),
 			LastSyncedHash:     ptrOf(state.LastSyncedHash),
 			LastSyncedAt:       state.LastSyncedAt,
@@ -756,8 +762,10 @@ func toAPISyncItems(states map[string]*gitsync.SyncItemState) []api.SyncItem {
 	return result
 }
 
-func toAPISyncItemKind(itemID string) api.SyncItemKind {
-	switch gitsync.SyncItemKindForID(itemID) {
+func toAPISyncItemKind(kind gitsync.SyncItemKind) api.SyncItemKind {
+	switch kind {
+	case gitsync.SyncItemKindFile:
+		return api.SyncItemKindFile
 	case gitsync.SyncItemKindWikiPageAsset:
 		return api.SyncItemKindDocAsset
 	case gitsync.SyncItemKindWikiPage:
@@ -782,6 +790,7 @@ func toAPISyncResult(result *gitsync.SyncResult) api.SyncResultResponse {
 		Success:   result.Success,
 		Message:   ptrOf(result.Message),
 		Synced:    ptrOf(result.Synced),
+		Deleted:   ptrOf(result.Deleted),
 		Modified:  ptrOf(result.Modified),
 		Conflicts: ptrOf(result.Conflicts),
 		Errors:    toAPISyncErrors(result.Errors),

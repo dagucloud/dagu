@@ -16,12 +16,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { deriveSyncKindFromItemId, type SyncKind } from './sync-kind';
 
 interface MoveDialogProps {
   open: boolean;
   itemId: string;
-  itemKind: SyncKind;
   itemStatus: SyncStatus;
   isMoving: boolean;
   onConfirm: (newItemId: string, message: string, force: boolean) => void;
@@ -31,7 +29,6 @@ interface MoveDialogProps {
 export function MoveDialog({
   open,
   itemId,
-  itemKind,
   itemStatus,
   isMoving,
   onConfirm,
@@ -58,11 +55,6 @@ export function MoveDialog({
     }
     if (newItemId.trim() === itemId) {
       setValidationError('New item ID must be different from the current one');
-      return false;
-    }
-    const newKind = deriveSyncKindFromItemId(newItemId.trim());
-    if (newKind !== itemKind) {
-      setValidationError(`Cannot move a ${itemKind} item to a ${newKind} path`);
       return false;
     }
     setValidationError('');

@@ -24,6 +24,9 @@ interface DiffModalProps {
   remoteContent?: string;
   remoteCommit?: string;
   remoteAuthor?: string;
+  remoteDeleted?: boolean;
+  localExecutable?: boolean;
+  remoteExecutable?: boolean;
   canPublish?: boolean;
   canRevert?: boolean;
   onPublish?: () => void;
@@ -46,6 +49,9 @@ export function DiffModal({
   remoteContent,
   remoteCommit,
   remoteAuthor,
+  remoteDeleted,
+  localExecutable,
+  remoteExecutable,
   canPublish,
   canRevert,
   onPublish,
@@ -71,7 +77,11 @@ export function DiffModal({
         };
       case SyncStatus.conflict:
         return {
-          left: remoteAuthor ? `Remote (${remoteAuthor})` : 'Remote',
+          left: remoteDeleted
+            ? 'Remote (deleted)'
+            : remoteAuthor
+              ? `Remote (${remoteAuthor})`
+              : 'Remote',
           right: 'Local (conflicting)',
         };
       case SyncStatus.untracked:
@@ -112,10 +122,19 @@ export function DiffModal({
           </DialogClose>
         </DialogHeader>
         <div className="flex-1 overflow-auto">
+          {(remoteDeleted ||
+            (localExecutable !== undefined &&
+              remoteExecutable !== undefined)) && (
+            <div className="border-b border-border/40 px-3 py-2 text-xs text-muted-foreground">
+              {remoteDeleted
+                ? 'The remote file was deleted.'
+                : `Mode: remote ${remoteExecutable ? 'executable' : 'regular'}, local ${localExecutable ? 'executable' : 'regular'}`}
+            </div>
+          )}
           {binary ? (
             <div className="p-3 text-sm bg-muted/30">
               <div className="text-muted-foreground mb-3">
-                Binary attachment. Content comparison is not available.
+                Binary file. Content comparison is not available.
               </div>
               <table className="text-xs">
                 <tbody>

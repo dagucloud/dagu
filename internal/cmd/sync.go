@@ -19,9 +19,9 @@ func Sync() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Git sync operations",
-		Long: `Manage Git synchronization for DAG definitions and documents.
+		Long: `Manage Git synchronization for workflows, Wiki content, and supporting files.
 
-Git sync allows you to synchronize DAG definitions and Markdown documents with a remote Git repository.
+Git sync synchronizes workflows, Wiki content, and supporting files with a remote Git repository.
 This enables version control, collaboration, and backup of your workflow definitions.
 
 Available Commands:
@@ -143,8 +143,7 @@ func syncPull() *cobra.Command {
 			Short: "Pull changes from remote",
 			Long: `Pull changes from the remote Git repository.
 
-This command fetches and applies changes from the remote repository
-to your local DAG definitions and documents.
+This command applies remote workflows, Wiki content, and supporting files locally.
 
 Example:
   dagu sync pull`,
@@ -172,6 +171,9 @@ func runSyncPull(ctx *Context, _ []string) error {
 		fmt.Println("Pull completed successfully")
 		if len(result.Synced) > 0 {
 			fmt.Printf("  Synced: %d sync items\n", len(result.Synced))
+		}
+		if len(result.Deleted) > 0 {
+			fmt.Printf("  Deleted: %d sync items\n", len(result.Deleted))
 		}
 		if len(result.Modified) > 0 {
 			fmt.Printf("  Modified: %d sync items (local changes preserved)\n", len(result.Modified))

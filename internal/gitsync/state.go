@@ -52,6 +52,7 @@ type SyncItemKind string
 const (
 	SyncItemKindDAG      SyncItemKind = "dag"
 	SyncItemKindWikiPage SyncItemKind = "doc"
+	SyncItemKindFile     SyncItemKind = "file"
 	// SyncItemKindWikiPageAsset is a binary page attachment. Its ID keeps the
 	// file extension so names inside one attachment
 	// directory differ only by extension.
@@ -180,6 +181,18 @@ type SyncItemState struct {
 	// RemoteMessage is the commit message of the conflicting remote commit.
 	RemoteMessage string `json:"remoteMessage,omitempty"`
 
+	// LastSyncedExecutable is the executable bit at the last successful sync.
+	LastSyncedExecutable bool `json:"lastSyncedExecutable,omitempty"`
+
+	// LocalExecutable is the current local executable bit.
+	LocalExecutable bool `json:"localExecutable,omitempty"`
+
+	// RemoteExecutable is the executable bit of a conflicting remote file.
+	RemoteExecutable bool `json:"remoteExecutable,omitempty"`
+
+	// RemoteDeleted indicates that a conflicting remote file was deleted.
+	RemoteDeleted bool `json:"remoteDeleted,omitempty"`
+
 	// ConflictDetectedAt is when the conflict was detected.
 	ConflictDetectedAt *time.Time `json:"conflictDetectedAt,omitempty"`
 
@@ -249,12 +262,12 @@ func normalizeTrackedItems(state *State) {
 			continue
 		}
 		switch itemState.Kind {
-		case "", SyncItemKindDAG, SyncItemKindWikiPage, SyncItemKindWikiPageAsset:
+		case "":
+			itemState.Kind = SyncItemKindForID(itemID)
+		case SyncItemKindDAG, SyncItemKindWikiPage, SyncItemKindWikiPageAsset, SyncItemKindFile:
 		default:
 			delete(state.Items, itemID)
-			continue
 		}
-		itemState.Kind = SyncItemKindForID(itemID)
 	}
 }
 

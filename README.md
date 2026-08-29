@@ -947,6 +947,8 @@ OIDC variables: `DAGU_AUTH_OIDC_CLIENT_ID`, `DAGU_AUTH_OIDC_CLIENT_SECRET`, `DAG
 
 ### Git Sync
 
+Git Sync copies Git-tracked supporting files into the DAGs directory. Workflow and Wiki files retain their existing handling; supporting file IDs include their extension and preserve the executable bit.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DAGU_GITSYNC_ENABLED` | `false` | Enable Git sync |

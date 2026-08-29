@@ -5422,7 +5422,7 @@ export interface components {
             outputs?: components["schemas"]["StepOutputDeclaration"][];
             /** @description Named regular-file inputs used for build fingerprints and inferred dependencies. Steps that declare inputs must also define id. */
             inputs?: components["schemas"]["StepInputDeclaration"][];
-            /** @description DAG-local files, directories, or glob patterns to snapshot for distributed execution */
+            /** @description Files, directories, or glob patterns relative to the DAG working directory to snapshot for local or distributed execution */
             dependencies?: string[];
             /** @description The name of the DAG to execute as a sub DAG-run */
             call?: string;
@@ -6151,7 +6151,7 @@ export interface components {
         SyncItemKind: SyncItemKind;
         /** @description Sync state for a single item */
         SyncItem: {
-            /** @description Stable sync item identifier (file path without extension) */
+            /** @description Stable sync item identifier. Supporting file IDs include their extension. */
             itemId: string;
             /** @description Relative file path with extension */
             filePath: string;
@@ -6261,6 +6261,12 @@ export interface components {
             remoteAuthor?: string;
             /** @description Commit message of the remote version */
             remoteMessage?: string;
+            /** @description Whether the remote file was deleted */
+            remoteDeleted?: boolean;
+            /** @description Whether the local supporting file is executable */
+            localExecutable?: boolean;
+            /** @description Whether the remote supporting file is executable */
+            remoteExecutable?: boolean;
         };
         /** @description Result of a sync operation */
         SyncResultResponse: {
@@ -6268,6 +6274,8 @@ export interface components {
             message?: string;
             /** @description Sync item IDs that were synced */
             synced?: string[];
+            /** @description Sync item IDs deleted locally after remote deletion */
+            deleted?: string[];
             /** @description Sync item IDs that were modified */
             modified?: string[];
             /** @description Sync item IDs with conflicts */
@@ -14668,7 +14676,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The sync item identifier. Supporting file IDs include their extension. */
                 itemId: string;
             };
             cookie?: never;
@@ -14712,7 +14720,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The sync item identifier. Supporting file IDs include their extension. */
                 itemId: string;
             };
             cookie?: never;
@@ -14769,7 +14777,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The sync item identifier. Supporting file IDs include their extension. */
                 itemId: string;
             };
             cookie?: never;
@@ -14813,7 +14821,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The sync item identifier. Supporting file IDs include their extension. */
                 itemId: string;
             };
             cookie?: never;
@@ -14928,7 +14936,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The current sync item identifier (file path without extension) */
+                /** @description The current sync item identifier. Supporting file IDs include their extension. */
                 itemId: string;
             };
             cookie?: never;
@@ -19001,7 +19009,8 @@ export enum SyncSummary {
 export enum SyncItemKind {
     dag = "dag",
     doc = "doc",
-    doc_asset = "doc-asset"
+    doc_asset = "doc-asset",
+    file = "file"
 }
 export enum SyncAuthConfigType {
     token = "token",

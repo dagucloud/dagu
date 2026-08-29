@@ -5,7 +5,6 @@ import { SyncItemKind } from '@/api/v1/schema';
 import { describe, expect, it } from 'vitest';
 import {
   createSyncKindCounts,
-  deriveSyncKindFromItemId,
   normalizeSyncItemKind,
   parseSyncKind,
   syncKindFilters,
@@ -14,7 +13,7 @@ import {
 
 describe('sync-kind', () => {
   it('exposes every kind as a filter with labels and counts', () => {
-    expect(syncKindFilters).toEqual(['dag', 'doc', 'doc-asset']);
+    expect(syncKindFilters).toEqual(['dag', 'doc', 'doc-asset', 'file']);
     for (const kind of syncKindFilters) {
       expect(syncKindLabels[kind].plural).toBeTruthy();
       expect(createSyncKindCounts()[kind]).toBe(0);
@@ -32,17 +31,6 @@ describe('sync-kind', () => {
     expect(normalizeSyncItemKind(SyncItemKind.dag)).toBe('dag');
     expect(normalizeSyncItemKind(SyncItemKind.doc)).toBe('doc');
     expect(normalizeSyncItemKind(SyncItemKind.doc_asset)).toBe('doc-asset');
-  });
-
-  it('derives the kind from item IDs with attachments taking precedence', () => {
-    expect(
-      deriveSyncKindFromItemId('wiki/.attachments/guides/x/logo.png')
-    ).toBe('doc-asset');
-    expect(
-      deriveSyncKindFromItemId('docs/.attachments/guides/x/logo.png')
-    ).toBe('doc-asset');
-    expect(deriveSyncKindFromItemId('wiki/guides/x')).toBe('doc');
-    expect(deriveSyncKindFromItemId('docs/guides/x')).toBe('doc');
-    expect(deriveSyncKindFromItemId('my-dag')).toBe('dag');
+    expect(normalizeSyncItemKind(SyncItemKind.file)).toBe('file');
   });
 });

@@ -26,9 +26,7 @@ describe('DiffModal', () => {
       />
     );
 
-    expect(
-      screen.getByText(/binary attachment/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/binary file/i)).toBeInTheDocument();
     expect(screen.getByText('2,048 bytes')).toBeInTheDocument();
     expect(screen.getByText('1,024 bytes')).toBeInTheDocument();
   });
@@ -45,7 +43,45 @@ describe('DiffModal', () => {
       />
     );
 
-    expect(screen.queryByText(/binary attachment/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/binary file/i)).not.toBeInTheDocument();
     expect(screen.getByText('local')).toBeInTheDocument();
+  });
+
+  it('shows remote deletion', () => {
+    render(
+      <DiffModal
+        open
+        onOpenChange={() => {}}
+        dagId="scripts/run.sh"
+        status={SyncStatus.conflict}
+        localContent="echo local"
+        remoteDeleted
+        localExecutable
+      />
+    );
+
+    expect(
+      screen.getByText('The remote file was deleted.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Remote (deleted)')).toBeInTheDocument();
+  });
+
+  it('shows executable mode differences', () => {
+    render(
+      <DiffModal
+        open
+        onOpenChange={() => {}}
+        dagId="scripts/run.sh"
+        status={SyncStatus.modified}
+        localContent="echo ok"
+        remoteContent="echo ok"
+        localExecutable
+        remoteExecutable={false}
+      />
+    );
+
+    expect(
+      screen.getByText('Mode: remote regular, local executable')
+    ).toBeInTheDocument();
   });
 });

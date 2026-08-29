@@ -332,7 +332,9 @@ export default function GitSyncPage() {
       if (response.error) {
         showError(response.error.message || 'Pull failed');
       } else {
-        showToast(`Pulled ${response.data?.synced?.length || 0} items`);
+        showToast(
+          `Pulled ${response.data?.synced?.length || 0} items; removed ${response.data?.deleted?.length || 0}`
+        );
         mutateStatus();
       }
     } catch (err) {
@@ -1114,6 +1116,9 @@ export default function GitSyncPage() {
         remoteContent={diffData?.remoteContent}
         remoteCommit={diffData?.remoteCommit}
         remoteAuthor={diffData?.remoteAuthor}
+        remoteDeleted={diffData?.remoteDeleted}
+        localExecutable={diffData?.localExecutable}
+        remoteExecutable={diffData?.remoteExecutable}
         canPublish={
           canWrite &&
           config?.pushEnabled &&
@@ -1219,11 +1224,6 @@ export default function GitSyncPage() {
       <MoveDialog
         open={moveModal.open}
         itemId={moveModal.itemId || ''}
-        itemKind={
-          moveModal.itemId
-            ? rowByID.get(moveModal.itemId)?.kind || 'dag'
-            : 'dag'
-        }
         itemStatus={
           moveModal.itemId
             ? rowByID.get(moveModal.itemId)?.item.status || SyncStatus.synced

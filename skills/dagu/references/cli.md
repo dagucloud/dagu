@@ -267,11 +267,11 @@ Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--
 
 ## Git Sync
 
-`dagu sync <subcommand>` — Git sync operations for DAG definitions.
+`dagu sync <subcommand>` — Git sync for workflows, Wiki content, and supporting files.
 
 | Subcommand | Description |
 | ---------- | ----------- |
-| `sync status` | Show sync status (repository, branch, per-DAG status) |
+| `sync status` | Show repository, branch, and per-item status |
 | `sync pull` | Pull changes from remote |
 | `sync publish [dag] [--message/-m] [--all] [--force/-f]` | Publish local changes to remote |
 | `sync discard <dag> [--yes/-y]` | Discard local changes, restore remote version |

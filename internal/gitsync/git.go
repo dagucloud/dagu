@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -29,6 +31,12 @@ type GitClient struct {
 	repoPath string
 	repo     *git.Repository
 	mu       sync.Mutex
+}
+
+// TrackedFile describes a regular file at HEAD.
+type TrackedFile struct {
+	Path       string
+	Executable bool
 }
 
 // shallowRepairDepth asks go-git to deepen a broken shallow checkout far
@@ -518,6 +526,57 @@ func (c *GitClient) FileExists(filePath string) bool {
 // GetFilePath returns the full path to a file in the repository.
 func (c *GitClient) GetFilePath(relativePath string) string {
 	return filepath.Join(c.repoPath, relativePath)
+}
+
+// ListTrackedFiles returns regular files at HEAD below the configured path.
+func (c *GitClient) ListTrackedFiles() ([]TrackedFile, error) {
+	if err := c.requireRepo(); err != nil {
+		return nil, err
+	}
+
+	head, err := c.repo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HEAD: %w", err)
+	}
+	commit, err := c.repo.CommitObject(head.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit: %w", err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	root := path.Clean(filepath.ToSlash(c.cfg.Path))
+	if root == "." {
+		root = ""
+	}
+	if path.IsAbs(root) || root == ".." || strings.HasPrefix(root, "../") {
+		return nil, &ValidationError{Field: "path", Message: "must stay within the repository"}
+	}
+	prefix := strings.TrimSuffix(root, "/")
+	if prefix != "" {
+		prefix += "/"
+	}
+
+	var files []TrackedFile
+	err = tree.Files().ForEach(func(file *object.File) error {
+		if prefix != "" && !strings.HasPrefix(file.Name, prefix) {
+			return nil
+		}
+		switch file.Mode {
+		case filemode.Regular, filemode.Deprecated, filemode.Executable:
+			files = append(files, TrackedFile{
+				Path:       file.Name,
+				Executable: file.Mode == filemode.Executable,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tracked files: %w", err)
+	}
+	return files, nil
 }
 
 // ListFiles returns all DAG files in the repository.

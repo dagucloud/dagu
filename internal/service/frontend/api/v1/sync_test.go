@@ -782,10 +782,15 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 			Kind:       gitsync.SyncItemKindWikiPageAsset,
 			ModifiedAt: &now,
 		},
+		"scripts/run.sh": {
+			Status:     gitsync.StatusSynced,
+			Kind:       gitsync.SyncItemKindFile,
+			ModifiedAt: &now,
+		},
 	}
 
 	apiItems := toAPISyncItems(states)
-	require.Len(t, apiItems, 4)
+	require.Len(t, apiItems, 5)
 
 	assert.Equal(t, "alpha", apiItems[0].ItemId)
 	assert.Equal(t, "alpha.yml", apiItems[0].FilePath)
@@ -803,19 +808,29 @@ func TestToAPISyncItems_IncludesPath(t *testing.T) {
 	assert.Equal(t, "reports/monthly", apiItems[3].ItemId)
 	assert.Equal(t, "reports/monthly.yaml", apiItems[3].FilePath)
 	assert.Equal(t, apigen.SyncItemKindDag, apiItems[3].Kind)
+
+	assert.Equal(t, "scripts/run.sh", apiItems[4].ItemId)
+	assert.Equal(t, "scripts/run.sh", apiItems[4].FilePath)
+	assert.Equal(t, apigen.SyncItemKindFile, apiItems[4].Kind)
 }
 
 func TestGetSyncItemDiffPreservesBinarySizeAvailability(t *testing.T) {
 	t.Parallel()
 
 	zero := int64(0)
+	localExecutable := true
+	remoteExecutable := false
 	a := newSyncAPIForTest(&mockSyncService{
 		getSyncItemDiff: func(_ context.Context, itemID string) (*gitsync.SyncItemDiff, error) {
 			return &gitsync.SyncItemDiff{
-				ItemID:    itemID,
-				Status:    gitsync.StatusModified,
-				Binary:    true,
-				LocalSize: &zero,
+				ItemID:           itemID,
+				Kind:             gitsync.SyncItemKindWikiPageAsset,
+				Status:           gitsync.StatusModified,
+				Binary:           true,
+				LocalSize:        &zero,
+				RemoteDeleted:    true,
+				LocalExecutable:  &localExecutable,
+				RemoteExecutable: &remoteExecutable,
 			}, nil
 		},
 	})
@@ -829,4 +844,21 @@ func TestGetSyncItemDiffPreservesBinarySizeAvailability(t *testing.T) {
 	require.NotNil(t, diff.LocalSize)
 	assert.Zero(t, *diff.LocalSize)
 	assert.Nil(t, diff.RemoteSize)
+	require.NotNil(t, diff.RemoteDeleted)
+	assert.True(t, *diff.RemoteDeleted)
+	assert.Equal(t, &localExecutable, diff.LocalExecutable)
+	assert.Equal(t, &remoteExecutable, diff.RemoteExecutable)
+}
+
+func TestToAPISyncResultIncludesDeletedItems(t *testing.T) {
+	t.Parallel()
+
+	result := toAPISyncResult(&gitsync.SyncResult{
+		Success:   true,
+		Deleted:   []string{"scripts/run.sh"},
+		Timestamp: time.Now(),
+	})
+
+	require.NotNil(t, result.Deleted)
+	assert.Equal(t, []string{"scripts/run.sh"}, *result.Deleted)
 }
