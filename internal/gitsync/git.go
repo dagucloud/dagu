@@ -570,6 +570,8 @@ func (c *GitClient) ListTrackedFiles() ([]TrackedFile, error) {
 				Path:       file.Name,
 				Executable: file.Mode == filemode.Executable,
 			})
+		case filemode.Empty, filemode.Dir, filemode.Symlink, filemode.Submodule:
+			return nil
 		}
 		return nil
 	})

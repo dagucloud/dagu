@@ -238,7 +238,7 @@ func (s *serviceImpl) Pull(ctx context.Context) (*SyncResult, error) {
 	currentCommit, _ := s.gitClient.GetHeadCommit()
 
 	// Sync repository files to local storage and save their metadata.
-	syncedItems, deletedItems, conflicts, err := s.syncFilesToLocal(ctx, pullResult, currentCommit)
+	syncResult, err := s.syncFilesToLocal(ctx, pullResult, currentCommit)
 	if err != nil {
 		result.Success = false
 		result.Message = "Failed to sync files"
@@ -247,11 +247,11 @@ func (s *serviceImpl) Pull(ctx context.Context) (*SyncResult, error) {
 		return result, err
 	}
 
-	result.Synced = syncedItems
-	result.Deleted = deletedItems
-	result.Conflicts = conflicts
+	result.Synced = syncResult.synced
+	result.Deleted = syncResult.deleted
+	result.Conflicts = syncResult.conflicts
 	result.Success = true
-	result.Message = s.buildPullMessage(pullResult.AlreadyUpToDate, syncedItems, deletedItems, conflicts)
+	result.Message = s.buildPullMessage(pullResult.AlreadyUpToDate, syncResult.synced, syncResult.deleted, syncResult.conflicts)
 
 	return result, nil
 }
@@ -266,14 +266,20 @@ type repoSyncItem struct {
 	executable bool
 }
 
-func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult, commitHash string) ([]string, []string, []string, error) {
+type localSyncResult struct {
+	synced    []string
+	deleted   []string
+	conflicts []string
+}
+
+func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult, commitHash string) (localSyncResult, error) {
 	var synced []string
 	var deleted []string
 	var conflicts []string
 
 	trackedFiles, err := s.gitClient.ListTrackedFiles()
 	if err != nil {
-		return nil, nil, nil, err
+		return localSyncResult{}, err
 	}
 	items := make([]repoSyncItem, 0, len(trackedFiles))
 	itemByID := make(map[string]repoSyncItem, len(trackedFiles))
@@ -287,7 +293,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 			if existing.kind == SyncItemKindDAG && item.kind == SyncItemKindDAG {
 				message = "DAG exists with both .yaml and .yml extensions"
 			}
-			return nil, nil, nil, &ValidationError{Field: item.id, Message: message}
+			return localSyncResult{}, &ValidationError{Field: item.id, Message: message}
 		}
 		itemByID[item.id] = item
 		items = append(items, item)
@@ -308,19 +314,19 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 	}
 	deleted, deleteConflicts, err := s.syncRemoteFileDeletes(state, repoFileSet, pullResult.CurrentCommit)
 	if err != nil {
-		return nil, nil, nil, err
+		return localSyncResult{}, err
 	}
 	conflicts = append(conflicts, deleteConflicts...)
 
 	for _, item := range items {
 		repoFilePath, err := s.safeRepoPathToFilePath(item.repoPath)
 		if err != nil {
-			return nil, nil, nil, err
+			return localSyncResult{}, err
 		}
 
 		itemState := state.Items[item.id]
 		if itemState != nil && itemState.Kind != item.kind {
-			return nil, nil, nil, &ValidationError{Field: item.id, Message: "sync item kind conflicts with saved state"}
+			return localSyncResult{}, &ValidationError{Field: item.id, Message: "sync item kind conflicts with saved state"}
 		}
 		// Unchanged fast path: the item was synced against this exact commit
 		// and refreshLocalHashes above found no local drift, so neither side
@@ -334,7 +340,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 			previousExtension := s.syncItemFileExtension(item.id, itemState)
 			if previousExtension != item.extension {
 				if err := s.migrateLocalDAGExtension(item.id, previousExtension, item.extension); err != nil {
-					return nil, nil, nil, err
+					return localSyncResult{}, err
 				}
 				itemState.FileExtension = item.extension
 			}
@@ -342,12 +348,12 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 
 		localPath, err := s.safeItemFilePath(item.id, item.kind, localExtension)
 		if err != nil {
-			return nil, nil, nil, err
+			return localSyncResult{}, err
 		}
 
 		repoContent, err := safeReadFileWithinBase(s.gitClient.repoPath, repoFilePath)
 		if err != nil {
-			return nil, nil, nil, err
+			return localSyncResult{}, err
 		}
 		repoHash := ComputeContentHash(repoContent)
 		remoteExecutable := item.kind == SyncItemKindFile && item.executable
@@ -355,7 +361,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		localContent, err := s.readItemFile(item.id, item.kind, localPath)
 		if err != nil {
 			if !os.IsNotExist(err) {
-				return nil, nil, nil, fmt.Errorf("failed to write synced item %q: destination cannot be read: %w", item.id, err)
+				return localSyncResult{}, fmt.Errorf("failed to write synced item %q: destination cannot be read: %w", item.id, err)
 			}
 			// Before creating a new local file, check if this content matches
 			// a missing item's hash (prevents duplicates after move+pull).
@@ -373,7 +379,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 			}
 
 			if err := s.writeItemFile(item.id, item.kind, localPath, repoContent, remoteExecutable); err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to write synced item %q: %w", item.id, err)
+				return localSyncResult{}, fmt.Errorf("failed to write synced item %q: %w", item.id, err)
 			}
 			now := time.Now()
 			newState := newItemState(item, pullResult.CurrentCommit, repoHash, now)
@@ -456,7 +462,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		}
 
 		if err := s.writeItemFile(item.id, item.kind, localPath, repoContent, remoteExecutable); err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to write synced item %q: %w", item.id, err)
+			return localSyncResult{}, fmt.Errorf("failed to write synced item %q: %w", item.id, err)
 		}
 		now := time.Now()
 		newState := newItemState(item, pullResult.CurrentCommit, repoHash, now)
@@ -472,7 +478,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 	_ = s.scanLocalItems(state)
 	s.updateSuccessStateWithCommit(state, commitHash)
 
-	return synced, deleted, conflicts, nil
+	return localSyncResult{synced: synced, deleted: deleted, conflicts: conflicts}, nil
 }
 
 func newItemState(item repoSyncItem, commitHash, contentHash string, now time.Time) *SyncItemState {
@@ -980,7 +986,7 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 
 	// Update the item state to synced.
 	contentHash := ComputeContentHash(content)
-	newState := s.newSyncedItemState(dagID, dagState.Kind, fileExtension, commitHash, contentHash, executable)
+	newState := s.newSyncedItemState(dagState.Kind, fileExtension, commitHash, contentHash, executable)
 	if fi, err := os.Stat(dagFilePath); err == nil {
 		updateStatCache(newState, fi)
 	}
@@ -1099,7 +1105,7 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 		if info, err := os.Stat(dagFilePath); err == nil && dagState.Kind == SyncItemKindFile {
 			executable = isExecutable(info.Mode())
 		}
-		newState := s.newSyncedItemState(dagID, dagState.Kind, fileExtension, commitHash, contentHash, executable)
+		newState := s.newSyncedItemState(dagState.Kind, fileExtension, commitHash, contentHash, executable)
 		if fi, err := os.Stat(dagFilePath); err == nil {
 			updateStatCache(newState, fi)
 		}
@@ -1178,7 +1184,7 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 
 	// Update state
 	contentHash := ComputeContentHash(repoContent)
-	newState := s.newSyncedItemState(dagID, dagState.Kind, fileExtension, commitHash, contentHash, executable)
+	newState := s.newSyncedItemState(dagState.Kind, fileExtension, commitHash, contentHash, executable)
 	if fi, err := os.Stat(dagFilePath); err == nil {
 		updateStatCache(newState, fi)
 	}
@@ -1736,7 +1742,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 
 	// On success: update state
 	contentHash := ComputeContentHash(content)
-	newItemState := s.newSyncedItemState(newID, oldState.Kind, fileExtension, commitHash, contentHash, executable)
+	newItemState := s.newSyncedItemState(oldState.Kind, fileExtension, commitHash, contentHash, executable)
 	if fi, err := os.Stat(newLocalPath); err == nil {
 		updateStatCache(newItemState, fi)
 	}
@@ -2991,7 +2997,6 @@ func pathExists(filePath string) bool {
 
 // newSyncedItemState creates a new SyncItemState in synced status.
 func (s *serviceImpl) newSyncedItemState(
-	itemID string,
 	kind SyncItemKind,
 	fileExtension, commitHash, contentHash string,
 	executable bool,
