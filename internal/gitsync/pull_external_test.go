@@ -164,6 +164,66 @@ func TestPullSyncsTrackedSupportingFiles(t *testing.T) {
 	assert.Equal(t, int64(3), *diff.RemoteSize)
 }
 
+func TestPullHandlesRemoteKindChange(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		modifyLocal    bool
+		expectConflict bool
+	}{
+		{name: "unchanged local item"},
+		{name: "modified local item", modifyLocal: true, expectConflict: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			root := t.TempDir()
+			remotePath := filepath.Join(root, "remote")
+			remoteRepo := initPullExternalTestRepo(t, remotePath)
+			commitPullExternalTestFile(t, remoteRepo, remotePath, "task.yaml", "steps: []\n", "workflow")
+
+			dataDir := filepath.Join(root, "data")
+			clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+			dagsDir := filepath.Join(root, "dags")
+			svc := gitsync.NewService(&gitsync.Config{
+				Enabled:    true,
+				Repository: remotePath,
+				Branch:     "main",
+			}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+
+			_, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			if tc.modifyLocal {
+				require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "task.yaml"), []byte("steps:\n  - command: local\n"), 0600))
+			}
+
+			worktree, err := remoteRepo.Worktree()
+			require.NoError(t, err)
+			_, err = worktree.Remove("task.yaml")
+			require.NoError(t, err)
+			commitPullExternalTestFile(t, remoteRepo, remotePath, "task", "supporting file\n", "change kind")
+
+			result, err := svc.Pull(ctx)
+			require.NoError(t, err)
+			if tc.expectConflict {
+				assert.Contains(t, result.Conflicts, "task")
+				forgotten, err := svc.Forget(ctx, []string{"task"})
+				require.NoError(t, err)
+				assert.Equal(t, []string{"task"}, forgotten)
+				return
+			}
+
+			assert.Contains(t, result.Synced, "task")
+			_, err = os.Stat(filepath.Join(dagsDir, "task.yaml"))
+			assert.True(t, os.IsNotExist(err))
+			content, err := os.ReadFile(filepath.Join(dagsDir, "task"))
+			require.NoError(t, err)
+			assert.Equal(t, "supporting file\n", string(content))
+			status, err := svc.GetStatus(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, gitsync.SyncItemKindFile, status.Items["task"].Kind)
+		})
+	}
+}
+
 func TestPullSyncsSupportingFilesUnderConfiguredPath(t *testing.T) {
 	t.Parallel()
 

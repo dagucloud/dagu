@@ -326,7 +326,18 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 
 		itemState := state.Items[item.id]
 		if itemState != nil && itemState.Kind != item.kind {
-			return localSyncResult{}, &ValidationError{Field: item.id, Message: "sync item kind conflicts with saved state"}
+			// A remote kind change replaces the old item. Preserve local edits
+			// as a deletion conflict; unchanged items can switch immediately.
+			if itemState.Status != StatusSynced && itemState.Status != StatusMissing {
+				s.markRemoteDeleteConflict(itemState, pullResult.CurrentCommit)
+				conflicts = append(conflicts, item.id)
+				continue
+			}
+			if err := s.removeItemFile(item.id, itemState); err != nil && !os.IsNotExist(err) {
+				return localSyncResult{}, fmt.Errorf("failed to replace sync item %q: %w", item.id, err)
+			}
+			delete(state.Items, item.id)
+			itemState = nil
 		}
 		// Unchanged fast path: the item was synced against this exact commit
 		// and refreshLocalHashes above found no local drift, so neither side
@@ -556,19 +567,23 @@ func (s *serviceImpl) syncRemoteFileDeletes(state *State, repoFileSet map[string
 			deleted = append(deleted, itemID)
 			continue
 		}
-		info, _ := s.gitClient.GetCommitInfo(remoteCommit)
-		now := time.Now()
-		itemState.Status = StatusConflict
-		itemState.RemoteDeleted = true
-		itemState.RemoteCommit = remoteCommit
-		itemState.ConflictDetectedAt = &now
-		if info != nil {
-			itemState.RemoteAuthor = info.Author
-			itemState.RemoteMessage = info.Message
-		}
+		s.markRemoteDeleteConflict(itemState, remoteCommit)
 		conflicts = append(conflicts, itemID)
 	}
 	return deleted, conflicts, nil
+}
+
+func (s *serviceImpl) markRemoteDeleteConflict(itemState *SyncItemState, remoteCommit string) {
+	info, _ := s.gitClient.GetCommitInfo(remoteCommit)
+	now := time.Now()
+	itemState.Status = StatusConflict
+	itemState.RemoteDeleted = true
+	itemState.RemoteCommit = remoteCommit
+	itemState.ConflictDetectedAt = &now
+	if info != nil {
+		itemState.RemoteAuthor = info.Author
+		itemState.RemoteMessage = info.Message
+	}
 }
 
 // reconcileAfterPull removes state entries for items that are absent from both
