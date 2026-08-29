@@ -595,7 +595,7 @@ func (a *API) SyncDeleteBatch(ctx context.Context, req api.SyncDeleteBatchReques
 	}, nil
 }
 
-// MoveSyncItem atomically renames a sync item across local, remote, and state.
+// MoveSyncItem renames a tracked sync item.
 func (a *API) MoveSyncItem(ctx context.Context, req api.MoveSyncItemRequestObject) (api.MoveSyncItemResponseObject, error) {
 	if err := a.requireSyncService(); err != nil {
 		return nil, err

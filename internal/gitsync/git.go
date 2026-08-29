@@ -386,6 +386,21 @@ func (c *GitClient) AddAndCommit(filePath, message string) (string, error) {
 	return commit.String(), nil
 }
 
+func (c *GitClient) addFile(filePath string) error {
+	if err := c.requireRepo(); err != nil {
+		return err
+	}
+
+	worktree, err := c.repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %w", err)
+	}
+	if _, err := worktree.Add(filePath); err != nil {
+		return fmt.Errorf("failed to stage file: %w", err)
+	}
+	return nil
+}
+
 // RemoveFile stages a file removal (does not commit).
 func (c *GitClient) RemoveFile(filePath string) error {
 	if err := c.requireRepo(); err != nil {
@@ -451,6 +466,40 @@ func (c *GitClient) CommitStaged(message string) (string, error) {
 	}
 
 	return commit.String(), nil
+}
+
+func (c *GitClient) commitAndPush(ctx context.Context, message string, stage func() error) (string, error) {
+	if err := c.requireRepo(); err != nil {
+		return "", err
+	}
+
+	head, err := c.repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+	rollback := func(operationErr error) error {
+		worktree, worktreeErr := c.repo.Worktree()
+		if worktreeErr != nil {
+			return errors.Join(operationErr, fmt.Errorf("failed to get worktree for rollback: %w", worktreeErr))
+		}
+		if resetErr := worktree.Reset(&git.ResetOptions{Mode: git.HardReset, Commit: head.Hash()}); resetErr != nil {
+			return errors.Join(operationErr, fmt.Errorf("failed to roll back Git mutation: %w", resetErr))
+		}
+		return operationErr
+	}
+
+	if err := stage(); err != nil {
+		return "", rollback(err)
+	}
+	commitHash, err := c.CommitStaged(message)
+	if err != nil {
+		return "", rollback(err)
+	}
+	if err := c.Push(ctx); err != nil {
+		return "", rollback(err)
+	}
+
+	return commitHash, nil
 }
 
 // Push pushes commits to the remote.

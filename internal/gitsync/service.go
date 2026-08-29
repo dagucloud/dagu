@@ -7,9 +7,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -60,7 +60,7 @@ type Service interface {
 	// DeleteAllMissing removes all missing items from remote, local, and state.
 	DeleteAllMissing(ctx context.Context, message string) ([]string, error)
 
-	// Move atomically renames an item across local filesystem, remote repository, and sync state.
+	// Move renames a tracked item.
 	Move(ctx context.Context, oldID, newID, message string, force bool) error
 
 	// GetConfig returns the current configuration.
@@ -329,6 +329,17 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		if itemState != nil && itemState.Kind != item.kind {
 			// A remote kind change replaces the old item. Preserve local edits
 			// as a deletion conflict; unchanged items can switch immediately.
+			if itemState.Status == StatusSynced {
+				matchesBase, err := s.localItemMatchesBase(item.id, itemState)
+				if err != nil {
+					return localSyncResult{}, fmt.Errorf("failed to verify sync item %q before replacement: %w", item.id, err)
+				}
+				if !matchesBase {
+					s.markRemoteDeleteConflict(itemState, pullResult.CurrentCommit)
+					conflicts = append(conflicts, item.id)
+					continue
+				}
+			}
 			if itemState.Status != StatusSynced && itemState.Status != StatusMissing {
 				s.markRemoteDeleteConflict(itemState, pullResult.CurrentCommit)
 				conflicts = append(conflicts, item.id)
@@ -561,6 +572,15 @@ func (s *serviceImpl) syncRemoteFileDeletes(state *State, repoFileSet map[string
 			continue
 		}
 		if itemState.Status == StatusSynced {
+			matchesBase, err := s.localItemMatchesBase(itemID, itemState)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to verify remotely deleted file %q: %w", itemID, err)
+			}
+			if !matchesBase {
+				s.markRemoteDeleteConflict(itemState, remoteCommit)
+				conflicts = append(conflicts, itemID)
+				continue
+			}
 			if err := s.removeItemFile(itemID, itemState); err != nil && !os.IsNotExist(err) {
 				return nil, nil, fmt.Errorf("failed to remove remotely deleted file %q: %w", itemID, err)
 			}
@@ -585,6 +605,42 @@ func (s *serviceImpl) markRemoteDeleteConflict(itemState *SyncItemState, remoteC
 		itemState.RemoteAuthor = info.Author
 		itemState.RemoteMessage = info.Message
 	}
+}
+
+func (s *serviceImpl) localItemMatchesBase(itemID string, itemState *SyncItemState) (bool, error) {
+	fileExtension := s.syncItemFileExtension(itemID, itemState)
+	filePath, err := s.safeItemFilePath(itemID, itemState.Kind, fileExtension)
+	if err != nil {
+		return false, err
+	}
+
+	localHash, info, err := s.hashItemFileInfo(itemID, itemState.Kind, filePath)
+	if os.IsNotExist(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	localExecutable := itemState.Kind == SyncItemKindFile && isExecutable(info.Mode())
+	itemState.LocalHash = localHash
+	itemState.LocalExecutable = localExecutable
+	updateStatCache(itemState, info)
+
+	matchesBase := localHash == itemState.LastSyncedHash &&
+		(itemState.Kind != SyncItemKindFile || localExecutable == itemState.LastSyncedExecutable)
+	if !matchesBase && (itemState.Status == StatusSynced || itemState.Status == StatusMissing) {
+		itemState.Status = StatusModified
+		itemState.ModifiedAt = new(time.Now())
+		itemState.PreviousStatus = ""
+		itemState.MissingAt = nil
+	} else if matchesBase && itemState.Status == StatusMissing {
+		itemState.Status = StatusSynced
+		itemState.PreviousStatus = ""
+		itemState.MissingAt = nil
+	}
+
+	return matchesBase, nil
 }
 
 // reconcileAfterPull removes state entries for items that are absent from both
@@ -1309,6 +1365,17 @@ func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force 
 	if dagState.Status == StatusUntracked {
 		return ErrCannotDeleteUntracked
 	}
+	if dagState.Status == StatusSynced || dagState.Status == StatusMissing {
+		matchesBase, err := s.localItemMatchesBase(itemID, dagState)
+		if err != nil {
+			return fmt.Errorf("failed to verify sync item %q before deletion: %w", itemID, err)
+		}
+		if !matchesBase && !force {
+			if err := s.stateManager.Save(state); err != nil {
+				return err
+			}
+		}
+	}
 
 	// Reject local changes without force.
 	if (dagState.Status == StatusModified || dagState.Status == StatusConflict) && !force {
@@ -1330,39 +1397,30 @@ func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force 
 		return s.stateManager.Save(state)
 	}
 
-	// Delete local file if it exists
 	fileExtension := s.syncItemFileExtension(itemID, dagState)
-	if err := s.removeItemFile(itemID, dagState); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove local file %q: %w", itemID, err)
-	}
-
-	// Stage removal in repo
 	repoPath, err := s.safeItemRepoPath(itemID, dagState.Kind, fileExtension)
 	if err != nil {
 		return err
 	}
 
-	// For missing items the file won't exist in the repo — ignore that error.
-	// For other statuses, a real staging failure should be surfaced.
-	if err := s.gitClient.RemoveFile(repoPath); err != nil && dagState.Status != StatusMissing {
-		return fmt.Errorf("failed to stage removal of %q: %w", itemID, err)
-	}
-
-	// Commit and push
 	if message == "" {
 		message = fmt.Sprintf("Delete %s", itemID)
 	}
-	commitHash, err := s.gitClient.CommitStaged(message)
+	commitHash, err := s.gitClient.commitAndPush(ctx, message, func() error {
+		if err := s.gitClient.RemoveFile(repoPath); err != nil && dagState.Status != StatusMissing {
+			return fmt.Errorf("failed to stage removal of %q: %w", itemID, err)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-
-	if err := s.gitClient.Push(ctx); err != nil {
-		// Push failed — preserve entry for retry
-		return err
+	if err := s.removeItemFile(itemID, dagState); err != nil && !os.IsNotExist(err) {
+		s.markRemoteDeleteConflict(dagState, commitHash)
+		s.updateSuccessStateWithCommit(state, commitHash)
+		return fmt.Errorf("remote deletion committed but local file %q could not be removed: %w", itemID, err)
 	}
 
-	// On success: delete state entry
 	delete(state.Items, itemID)
 	s.updateSuccessStateWithCommit(state, commitHash)
 
@@ -1407,6 +1465,17 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 		if dagState.Status == StatusUntracked {
 			return nil, ErrCannotDeleteUntracked
 		}
+		if dagState.Status == StatusSynced || dagState.Status == StatusMissing {
+			matchesBase, err := s.localItemMatchesBase(itemID, dagState)
+			if err != nil {
+				return nil, fmt.Errorf("failed to verify sync item %q before deletion: %w", itemID, err)
+			}
+			if !matchesBase && !force {
+				if err := s.stateManager.Save(state); err != nil {
+					return nil, err
+				}
+			}
+		}
 
 		if (dagState.Status == StatusModified || dagState.Status == StatusConflict) && !force {
 			return nil, &ValidationError{
@@ -1438,23 +1507,10 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 		return nil, err
 	}
 
-	// Stage removals first so a staging failure does not already delete from disk.
 	staged := false
 	for _, t := range targets {
-		if t.remoteDeleted {
-			continue
-		}
-		if err := s.gitClient.RemoveFile(t.repoPath); err != nil && t.status != StatusMissing {
-			return nil, fmt.Errorf("failed to stage removal of %q: %w", t.itemID, err)
-		}
-		staged = true
-	}
-
-	// Delete local files after staging succeeds.
-	for _, t := range targets {
-		itemState := state.Items[t.itemID]
-		if err := s.removeItemFile(t.itemID, itemState); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("failed to remove local file %q: %w", t.itemID, err)
+		if !t.remoteDeleted {
+			staged = true
 		}
 	}
 
@@ -1463,19 +1519,33 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 		if message == "" {
 			message = fmt.Sprintf("Delete %d sync item(s)", len(targets))
 		}
-		commitHash, err = s.gitClient.CommitStaged(message)
+		commitHash, err = s.gitClient.commitAndPush(ctx, message, func() error {
+			for _, t := range targets {
+				if t.remoteDeleted {
+					continue
+				}
+				if err := s.gitClient.RemoveFile(t.repoPath); err != nil && t.status != StatusMissing {
+					return fmt.Errorf("failed to stage removal of %q: %w", t.itemID, err)
+				}
+			}
+			return nil
+		})
 		if err != nil {
-			return nil, err
-		}
-
-		if err := s.gitClient.Push(ctx); err != nil {
 			return nil, err
 		}
 	}
 
-	// On success: delete all state entries.
 	var deleted []string
+	var removeErr error
 	for _, t := range targets {
+		itemState := state.Items[t.itemID]
+		if err := s.removeItemFile(t.itemID, itemState); err != nil && !os.IsNotExist(err) {
+			if !t.remoteDeleted {
+				s.markRemoteDeleteConflict(itemState, commitHash)
+			}
+			removeErr = errors.Join(removeErr, fmt.Errorf("failed to remove local file %q: %w", t.itemID, err))
+			continue
+		}
 		delete(state.Items, t.itemID)
 		deleted = append(deleted, t.itemID)
 	}
@@ -1484,6 +1554,9 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 		s.updateSuccessStateWithCommit(state, commitHash)
 	} else if err := s.stateManager.Save(state); err != nil {
 		return nil, err
+	}
+	if removeErr != nil {
+		return deleted, fmt.Errorf("remote deletion committed but local cleanup failed: %w", removeErr)
 	}
 
 	return deleted, nil
@@ -1527,19 +1600,15 @@ func (s *serviceImpl) DeleteAllMissing(ctx context.Context, message string) ([]s
 		return nil, err
 	}
 
-	// Stage all removals — all items here are missing by definition,
-	// so files may not exist in the repo. Ignore errors from RemoveFiles.
-	_ = s.gitClient.RemoveFiles(repoPaths)
-
 	if message == "" {
 		message = fmt.Sprintf("Delete %d missing sync item(s)", len(missingIDs))
 	}
-	commitHash, err := s.gitClient.CommitStaged(message)
+	commitHash, err := s.gitClient.commitAndPush(ctx, message, func() error {
+		// Missing items may already be absent from the repository.
+		_ = s.gitClient.RemoveFiles(repoPaths)
+		return nil
+	})
 	if err != nil {
-		return nil, err
-	}
-
-	if err := s.gitClient.Push(ctx); err != nil {
 		return nil, err
 	}
 
@@ -1552,7 +1621,7 @@ func (s *serviceImpl) DeleteAllMissing(ctx context.Context, message string) ([]s
 	return missingIDs, nil
 }
 
-// Move atomically renames an item across local storage, remote repository, and sync state.
+// Move renames a tracked item.
 func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, force bool) error {
 	if err := s.validatePushEnabled(); err != nil {
 		return err
@@ -1696,6 +1765,10 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 		if readErr != nil {
 			return fmt.Errorf("failed to read destination file: %w", readErr)
 		}
+	} else if _, _, err := s.inspectItemFile(newID, oldState.Kind, newLocalPath, false); err == nil {
+		return &ValidationError{Field: "newItemId", Message: "destination file already exists"}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to inspect destination file: %w", err)
 	}
 
 	if err := s.gitClient.Open(); err != nil {
@@ -1703,48 +1776,31 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	}
 
 	executable := oldState.Kind == SyncItemKindFile && isExecutable(fileInfo.Mode())
-	if oldFileExists {
-		// Preemptive mode: source exists on disk
-		if err := s.writeItemFile(newID, oldState.Kind, newLocalPath, content, executable); err != nil {
-			return fmt.Errorf("failed to write destination file: %w", err)
-		}
-		if err := s.removeItemFile(oldID, oldState); err != nil {
-			newState := &SyncItemState{Kind: oldState.Kind, FileExtension: fileExtension}
-			if rollbackErr := s.removeItemFile(newID, newState); rollbackErr != nil {
-				return fmt.Errorf("failed to remove source file: %w (destination rollback failed: %v)", err, rollbackErr)
-			}
-			return fmt.Errorf("failed to remove source file: %w", err)
-		}
-	}
-
-	// Stage changes in repo
 	newRepoAbsPath := s.gitClient.GetFilePath(newRepoPath)
 	perm := os.FileMode(0600)
 	if executable {
 		perm = 0700
 	}
-	if err := safeWriteFileWithinBase(s.gitClient.repoPath, newRepoAbsPath, content, perm); err != nil {
-		return fmt.Errorf("failed to write to repo: %w", err)
-	}
-
-	// Stage removal of old path — may not exist in repo for edge cases.
-	_ = s.gitClient.RemoveFile(oldRepoPath)
-
-	// Stage addition of new path
 	if message == "" {
 		message = fmt.Sprintf("Move %s to %s", oldID, newID)
 	}
-	commitHash, err := s.gitClient.AddAndCommit(newRepoPath, message)
+	commitHash, err := s.gitClient.commitAndPush(ctx, message, func() error {
+		if err := safeWriteFileWithinBase(s.gitClient.repoPath, newRepoAbsPath, content, perm); err != nil {
+			return fmt.Errorf("failed to write to repo: %w", err)
+		}
+		// The source can already be absent in retroactive moves.
+		_ = s.gitClient.RemoveFile(oldRepoPath)
+		return s.gitClient.addFile(newRepoPath)
+	})
 	if err != nil {
 		return err
 	}
-
-	if err := s.gitClient.Push(ctx); err != nil {
-		// Push failed — preserve old state entry for reconciliation
-		return err
+	if oldFileExists {
+		if err := s.renameItemFile(oldID, newID, oldState.Kind, oldLocalPath, newLocalPath); err != nil {
+			return fmt.Errorf("remote move committed but local rename failed; pull to reconcile: %w", err)
+		}
 	}
 
-	// On success: update state
 	contentHash := ComputeContentHash(content)
 	newItemState := s.newSyncedItemState(oldState.Kind, fileExtension, commitHash, contentHash, executable)
 	if fi, _, err := s.inspectItemFile(newID, oldState.Kind, newLocalPath, false); err == nil {
@@ -2303,27 +2359,12 @@ func (s *serviceImpl) resolvePublishTargets(state *State, dagIDs []string) ([]st
 	return resolved, nil
 }
 
-func decodeDAGID(dagID string) (string, error) {
-	decoded, err := url.PathUnescape(strings.TrimSpace(dagID))
-	if err != nil {
-		return "", &InvalidDAGIDError{
-			DAGID:  dagID,
-			Reason: "contains invalid URL escape sequence",
-		}
-	}
-	return decoded, nil
-}
-
 func normalizeDAGID(dagID string) (string, error) {
-	decoded, err := decodeDAGID(dagID)
-	if err != nil {
-		return "", err
-	}
-	if decoded == "" {
+	if dagID == "" {
 		return "", &InvalidDAGIDError{DAGID: dagID, Reason: "cannot be empty"}
 	}
 
-	normalized := normalizeDAGIDSeparators(decoded)
+	normalized := normalizeDAGIDSeparators(dagID)
 	if path.IsAbs(normalized) || looksLikeWindowsAbsolutePath(normalized) {
 		return "", &InvalidDAGIDError{DAGID: dagID, Reason: "absolute paths are not allowed"}
 	}
@@ -2530,6 +2571,25 @@ func safeHashFileWithinBase(baseDir, targetPath string) (string, error) {
 	return computeContentHash(file)
 }
 
+func safeHashFileInfoWithinBase(baseDir, targetPath string) (string, os.FileInfo, error) {
+	file, err := safeOpenFileWithinBase(baseDir, targetPath)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+	info, err := file.Stat()
+	if err != nil {
+		return "", nil, err
+	}
+	hash, err := computeContentHash(file)
+	if err != nil {
+		return "", nil, err
+	}
+	return hash, info, nil
+}
+
 func safeOpenFileWithinBase(baseDir, targetPath string) (*os.File, error) {
 	relPath, err := relativePathWithinBase(baseDir, targetPath)
 	if err != nil {
@@ -2652,6 +2712,36 @@ func safeRemoveFileWithinBase(baseDir, targetPath string) error {
 		return err
 	}
 	return root.Remove(relPath)
+}
+
+func safeRenameFileWithinBase(baseDir, oldPath, newPath string) error {
+	oldRel, err := relativePathWithinBase(baseDir, oldPath)
+	if err != nil {
+		return err
+	}
+	newRel, err := relativePathWithinBase(baseDir, newPath)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+	if err := rejectUnsafeRootPath(root, oldRel, oldPath, "rename", false); err != nil {
+		return err
+	}
+	if err := ensureSafeRootDirPath(root, filepath.Dir(newRel), newPath, "rename", true); err != nil {
+		return err
+	}
+	if _, err := root.Lstat(newRel); err == nil {
+		return fmt.Errorf("destination file already exists: %s", newPath)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return root.Rename(oldRel, newRel)
 }
 
 func rejectUnsafeRootPath(root *os.Root, relPath, targetPath, operation string, allowNotExist bool) error {
@@ -2822,6 +2912,17 @@ func (s *serviceImpl) hashItemFile(itemID string, kind SyncItemKind, filePath st
 	return safeHashFileWithinBase(baseDir, filePath)
 }
 
+func (s *serviceImpl) hashItemFileInfo(itemID string, kind SyncItemKind, filePath string) (string, os.FileInfo, error) {
+	baseDir := s.dagsDir
+	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
+		baseDir = s.localWikiDir()
+	}
+	if _, err := normalizeItemID(itemID, kind); err != nil {
+		return "", nil, err
+	}
+	return safeHashFileInfoWithinBase(baseDir, filePath)
+}
+
 func (s *serviceImpl) copyRepoItemFile(itemID string, kind SyncItemKind, repoPath, filePath string, executable bool) error {
 	if _, err := normalizeItemID(itemID, kind); err != nil {
 		return err
@@ -2847,6 +2948,20 @@ func (s *serviceImpl) removeItemFile(itemID string, itemState *SyncItemState) er
 		baseDir = s.localWikiDir()
 	}
 	return safeRemoveFileWithinBase(baseDir, filePath)
+}
+
+func (s *serviceImpl) renameItemFile(oldID, newID string, kind SyncItemKind, oldPath, newPath string) error {
+	if _, err := normalizeItemID(oldID, kind); err != nil {
+		return err
+	}
+	if _, err := normalizeItemID(newID, kind); err != nil {
+		return err
+	}
+	baseDir := s.dagsDir
+	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
+		baseDir = s.localWikiDir()
+	}
+	return safeRenameFileWithinBase(baseDir, oldPath, newPath)
 }
 
 func (s *serviceImpl) safeItemFilePath(itemID string, kind SyncItemKind, extension string) (string, error) {
@@ -2909,14 +3024,10 @@ func normalizeItemID(itemID string, kind SyncItemKind) (string, error) {
 	if kind != SyncItemKindFile {
 		return normalizeDAGID(itemID)
 	}
-	decoded, err := decodeDAGID(itemID)
-	if err != nil {
-		return "", err
-	}
-	if decoded == "" {
+	if itemID == "" {
 		return "", &InvalidDAGIDError{DAGID: itemID, Reason: "cannot be empty"}
 	}
-	normalized := normalizeDAGIDSeparators(decoded)
+	normalized := normalizeDAGIDSeparators(itemID)
 	if path.IsAbs(normalized) || looksLikeWindowsAbsolutePath(normalized) {
 		return "", &InvalidDAGIDError{DAGID: itemID, Reason: "absolute paths are not allowed"}
 	}

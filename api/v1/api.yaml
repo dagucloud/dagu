@@ -6634,7 +6634,7 @@ paths:
   /sync/items/{itemId}/move:
     post:
       summary: "Move a sync item"
-      description: "Atomically renames a sync item across local filesystem, remote repository, and sync state"
+      description: "Renames a tracked sync item"
       operationId: "moveSyncItem"
       tags:
         - "sync"

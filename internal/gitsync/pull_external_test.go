@@ -166,12 +166,14 @@ func TestPullSyncsTrackedSupportingFiles(t *testing.T) {
 
 func TestPullHandlesRemoteKindChange(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		modifyLocal    bool
-		expectConflict bool
+		name             string
+		modifyLocal      bool
+		preserveMetadata bool
+		expectConflict   bool
 	}{
 		{name: "unchanged local item"},
 		{name: "modified local item", modifyLocal: true, expectConflict: true},
+		{name: "modified local item with unchanged metadata", modifyLocal: true, preserveMetadata: true, expectConflict: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -192,7 +194,17 @@ func TestPullHandlesRemoteKindChange(t *testing.T) {
 			_, err := svc.Pull(ctx)
 			require.NoError(t, err)
 			if tc.modifyLocal {
-				require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "task.yaml"), []byte("steps:\n  - command: local\n"), 0600))
+				localPath := filepath.Join(dagsDir, "task.yaml")
+				info, err := os.Stat(localPath)
+				require.NoError(t, err)
+				content := "steps:\n  - command: local\n"
+				if tc.preserveMetadata {
+					content = "local: []\n"
+				}
+				require.NoError(t, os.WriteFile(localPath, []byte(content), 0600))
+				if tc.preserveMetadata {
+					require.NoError(t, os.Chtimes(localPath, info.ModTime(), info.ModTime()))
+				}
 			}
 
 			worktree, err := remoteRepo.Worktree()
@@ -306,7 +318,10 @@ func TestPullPreservesModifiedSupportingFileDeletedRemotely(t *testing.T) {
 	_, err := svc.Pull(ctx)
 	require.NoError(t, err)
 	localPath := filepath.Join(dagsDir, "scripts", "run.sh")
-	require.NoError(t, os.WriteFile(localPath, []byte("echo local\n"), 0600))
+	info, err := os.Stat(localPath)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(localPath, []byte("echo edited\n"), 0600))
+	require.NoError(t, os.Chtimes(localPath, info.ModTime(), info.ModTime()))
 	removePullExternalTestFile(t, remoteRepo, "scripts/run.sh", "remove script")
 
 	result, err := svc.Pull(ctx)
@@ -314,7 +329,7 @@ func TestPullPreservesModifiedSupportingFileDeletedRemotely(t *testing.T) {
 	assert.Contains(t, result.Conflicts, "scripts/run.sh")
 	content, err := os.ReadFile(localPath)
 	require.NoError(t, err)
-	assert.Equal(t, "echo local\n", string(content))
+	assert.Equal(t, "echo edited\n", string(content))
 
 	diff, err := svc.GetSyncItemDiff(ctx, "scripts/run.sh")
 	require.NoError(t, err)
@@ -327,6 +342,162 @@ func TestPullPreservesModifiedSupportingFileDeletedRemotely(t *testing.T) {
 	status, err := svc.GetStatus(ctx)
 	require.NoError(t, err)
 	assert.NotContains(t, status.Items, "scripts/run.sh")
+}
+
+func TestPullPreservesPercentInSupportingFileNames(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote")
+	remoteRepo := initPullExternalTestRepo(t, remotePath)
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "assets/100%.txt", "percent\n", "percent")
+	commitPullExternalTestFile(t, remoteRepo, remotePath, "assets/literal%2F.txt", "escape\n", "escape")
+
+	dataDir := filepath.Join(root, "data")
+	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+	dagsDir := filepath.Join(root, "dags")
+	svc := gitsync.NewService(&gitsync.Config{
+		Enabled:    true,
+		Repository: remotePath,
+		Branch:     "main",
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+
+	result, err := svc.Pull(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, result.Synced, "assets/100%.txt")
+	assert.Contains(t, result.Synced, "assets/literal%2F.txt")
+	assert.FileExists(t, filepath.Join(dagsDir, "assets", "100%.txt"))
+	assert.FileExists(t, filepath.Join(dagsDir, "assets", "literal%2F.txt"))
+
+	status, err := svc.GetStatus(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, status.Items, "assets/100%.txt")
+	assert.Contains(t, status.Items, "assets/literal%2F.txt")
+}
+
+func TestDeleteDetectsSameMetadataEdit(t *testing.T) {
+	t.Parallel()
+
+	env := newPullExternalPushTest(t, []pullExternalTestFile{
+		{path: "scripts/run.sh", content: "echo remote\n"},
+	})
+	localPath := filepath.Join(env.dagsDir, "scripts", "run.sh")
+	info, err := os.Stat(localPath)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(localPath, []byte("echo edited\n"), 0600))
+	require.NoError(t, os.Chtimes(localPath, info.ModTime(), info.ModTime()))
+
+	err = env.svc.Delete(env.ctx, "scripts/run.sh", "delete script", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "local modifications")
+	assert.FileExists(t, localPath)
+	assert.Equal(t, "echo remote\n", pullExternalFileContent(t, env.remoteRepo, "scripts/run.sh"))
+}
+
+func TestDeleteDetectsReappearedEdit(t *testing.T) {
+	t.Parallel()
+
+	env := newPullExternalPushTest(t, []pullExternalTestFile{
+		{path: "scripts/run.sh", content: "echo remote\n"},
+	})
+	localPath := filepath.Join(env.dagsDir, "scripts", "run.sh")
+	require.NoError(t, os.Remove(localPath))
+	_, err := env.svc.GetStatus(env.ctx)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(localPath, []byte("echo edited\n"), 0600))
+
+	err = env.svc.Delete(env.ctx, "scripts/run.sh", "delete script", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "local modifications")
+	assert.Equal(t, "echo edited\n", readPullExternalTestFile(t, localPath))
+	assert.Equal(t, "echo remote\n", pullExternalFileContent(t, env.remoteRepo, "scripts/run.sh"))
+}
+
+func TestRejectedPushPreservesDestructiveTargets(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		files []pullExternalTestFile
+		run   func(t *testing.T, env *pullExternalPushTest)
+	}{
+		{
+			name: "move",
+			files: []pullExternalTestFile{
+				{path: "scripts/run.sh", content: "echo run\n"},
+			},
+			run: func(t *testing.T, env *pullExternalPushTest) {
+				err := env.svc.Move(env.ctx, "scripts/run.sh", "scripts/job.sh", "move script", false)
+				require.Error(t, err)
+				assert.Equal(t, "echo run\n", pullExternalFileContent(t, env.remoteRepo, "scripts/run.sh"))
+				assertPullExternalHeadFileMissing(t, env.remoteRepo, "scripts/job.sh")
+				assert.FileExists(t, filepath.Join(env.dagsDir, "scripts", "run.sh"))
+				assert.NoFileExists(t, filepath.Join(env.dagsDir, "scripts", "job.sh"))
+				status, statusErr := env.svc.GetStatus(env.ctx)
+				require.NoError(t, statusErr)
+				assert.Contains(t, status.Items, "scripts/run.sh")
+				assert.NotContains(t, status.Items, "scripts/job.sh")
+			},
+		},
+		{
+			name: "delete",
+			files: []pullExternalTestFile{
+				{path: "scripts/run.sh", content: "echo run\n"},
+			},
+			run: func(t *testing.T, env *pullExternalPushTest) {
+				err := env.svc.Delete(env.ctx, "scripts/run.sh", "delete script", false)
+				require.Error(t, err)
+				assert.Equal(t, "echo run\n", pullExternalFileContent(t, env.remoteRepo, "scripts/run.sh"))
+				assert.FileExists(t, filepath.Join(env.dagsDir, "scripts", "run.sh"))
+				status, statusErr := env.svc.GetStatus(env.ctx)
+				require.NoError(t, statusErr)
+				assert.Contains(t, status.Items, "scripts/run.sh")
+			},
+		},
+		{
+			name: "batch delete",
+			files: []pullExternalTestFile{
+				{path: "scripts/run.sh", content: "echo run\n"},
+				{path: "scripts/job.sh", content: "echo job\n"},
+			},
+			run: func(t *testing.T, env *pullExternalPushTest) {
+				_, err := env.svc.DeleteBatch(env.ctx, []string{"scripts/run.sh", "scripts/job.sh"}, "delete scripts", false)
+				require.Error(t, err)
+				assert.Equal(t, "echo run\n", pullExternalFileContent(t, env.remoteRepo, "scripts/run.sh"))
+				assert.Equal(t, "echo job\n", pullExternalFileContent(t, env.remoteRepo, "scripts/job.sh"))
+				assert.FileExists(t, filepath.Join(env.dagsDir, "scripts", "run.sh"))
+				assert.FileExists(t, filepath.Join(env.dagsDir, "scripts", "job.sh"))
+				status, statusErr := env.svc.GetStatus(env.ctx)
+				require.NoError(t, statusErr)
+				assert.Contains(t, status.Items, "scripts/run.sh")
+				assert.Contains(t, status.Items, "scripts/job.sh")
+			},
+		},
+		{
+			name: "delete all missing",
+			files: []pullExternalTestFile{
+				{path: "scripts/run.sh", content: "echo run\n"},
+			},
+			run: func(t *testing.T, env *pullExternalPushTest) {
+				require.NoError(t, os.Remove(filepath.Join(env.dagsDir, "scripts", "run.sh")))
+				_, err := env.svc.GetStatus(env.ctx)
+				require.NoError(t, err)
+
+				_, err = env.svc.DeleteAllMissing(env.ctx, "delete missing scripts")
+				require.Error(t, err)
+				assert.Equal(t, "echo run\n", pullExternalFileContent(t, env.remoteRepo, "scripts/run.sh"))
+				status, statusErr := env.svc.GetStatus(env.ctx)
+				require.NoError(t, statusErr)
+				assert.Contains(t, status.Items, "scripts/run.sh")
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newPullExternalPushTest(t, tc.files)
+			env.advanceRemote(t)
+			tc.run(t, env)
+			assertPullExternalCloneAt(t, env.dataDir, env.baseHead)
+		})
+	}
 }
 
 func TestSupportingFileModeChangeIsModified(t *testing.T) {
@@ -469,6 +640,16 @@ func TestSupportingFileWriteLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "echo published\n", content)
 	assert.Equal(t, filemode.Executable, file.Mode)
+
+	existingPath := filepath.Join(dagsDir, "scripts", "existing.sh")
+	require.NoError(t, os.WriteFile(existingPath, []byte("keep local\n"), 0600))
+	_, err = svc.GetStatus(ctx)
+	require.NoError(t, err)
+	err = svc.Move(ctx, "scripts/run.sh", "scripts/existing.sh", "reject existing destination", false)
+	require.Error(t, err)
+	assert.Equal(t, "keep local\n", readPullExternalTestFile(t, existingPath))
+	assert.Equal(t, "echo published\n", readPullExternalTestFile(t, localPath))
+	assertPullExternalHeadFileMissing(t, remoteRepo, "scripts/existing.sh")
 
 	require.NoError(t, svc.Move(ctx, "scripts/run.sh", "scripts/job.sh", "move script", false))
 	assertPullExternalHeadFileMissing(t, remoteRepo, "scripts/run.sh")
@@ -646,6 +827,105 @@ func TestPullSyncsWikiPageAttachments(t *testing.T) {
 	assert.Equal(t, int64(len(pngBytes)), *diff.RemoteSize)
 }
 
+type pullExternalTestFile struct {
+	path    string
+	content string
+}
+
+type pullExternalPushTest struct {
+	ctx        context.Context
+	remoteRepo *git.Repository
+	seedRepo   *git.Repository
+	seedPath   string
+	dataDir    string
+	dagsDir    string
+	svc        gitsync.Service
+	baseHead   plumbing.Hash
+}
+
+func newPullExternalPushTest(t *testing.T, files []pullExternalTestFile) *pullExternalPushTest {
+	t.Helper()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	remotePath := filepath.Join(root, "remote.git")
+	remoteRepo, err := git.PlainInit(remotePath, true)
+	require.NoError(t, err)
+	require.NoError(t, remoteRepo.Storer.SetReference(plumbing.NewSymbolicReference(
+		plumbing.HEAD,
+		plumbing.NewBranchReferenceName("main"),
+	)))
+
+	seedPath := filepath.Join(root, "seed")
+	seedRepo := initPullExternalTestRepo(t, seedPath)
+	var baseHead plumbing.Hash
+	for _, file := range files {
+		baseHead = commitPullExternalTestFile(t, seedRepo, seedPath, file.path, file.content, "add "+file.path)
+	}
+	_, err = seedRepo.CreateRemote(&gitconfig.RemoteConfig{Name: "upstream", URLs: []string{remotePath}})
+	require.NoError(t, err)
+	require.NoError(t, seedRepo.Push(&git.PushOptions{
+		RemoteName: "upstream",
+		RefSpecs: []gitconfig.RefSpec{
+			"refs/heads/main:refs/heads/main",
+		},
+	}))
+
+	dataDir := filepath.Join(root, "data")
+	clonePullExternalTestRepo(ctx, t, dataDir, remotePath)
+	dagsDir := filepath.Join(root, "dags")
+	svc := gitsync.NewService(&gitsync.Config{
+		Enabled:     true,
+		Repository:  remotePath,
+		Branch:      "main",
+		PushEnabled: true,
+		Commit: gitsync.CommitConfig{
+			AuthorName:  "Test User",
+			AuthorEmail: "test@example.com",
+		},
+	}, dagsDir, filepath.Join(dagsDir, "wiki"), dataDir)
+	_, err = svc.Pull(ctx)
+	require.NoError(t, err)
+
+	return &pullExternalPushTest{
+		ctx:        ctx,
+		remoteRepo: remoteRepo,
+		seedRepo:   seedRepo,
+		seedPath:   seedPath,
+		dataDir:    dataDir,
+		dagsDir:    dagsDir,
+		svc:        svc,
+		baseHead:   baseHead,
+	}
+}
+
+func (e *pullExternalPushTest) advanceRemote(t *testing.T) {
+	t.Helper()
+
+	commitPullExternalTestFile(t, e.seedRepo, e.seedPath, "remote.txt", "advanced\n", "advance remote")
+	require.NoError(t, e.seedRepo.Push(&git.PushOptions{
+		RemoteName: "upstream",
+		RefSpecs: []gitconfig.RefSpec{
+			"refs/heads/main:refs/heads/main",
+		},
+	}))
+}
+
+func assertPullExternalCloneAt(t *testing.T, dataDir string, want plumbing.Hash) {
+	t.Helper()
+
+	repo, err := git.PlainOpen(filepath.Join(dataDir, "gitsync", "repo"))
+	require.NoError(t, err)
+	head, err := repo.Head()
+	require.NoError(t, err)
+	assert.Equal(t, want, head.Hash())
+	worktree, err := repo.Worktree()
+	require.NoError(t, err)
+	status, err := worktree.Status()
+	require.NoError(t, err)
+	assert.True(t, status.IsClean(), status.String())
+}
+
 func initPullExternalTestRepo(t *testing.T, repoPath string) *git.Repository {
 	t.Helper()
 
@@ -758,6 +1038,14 @@ func pullExternalFileContent(t *testing.T, repo *git.Repository, filePath string
 	content, err := pullExternalHeadFile(t, repo, filePath).Contents()
 	require.NoError(t, err)
 	return content
+}
+
+func readPullExternalTestFile(t *testing.T, filePath string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	return string(content)
 }
 
 func assertPullExternalHeadFileMissing(t *testing.T, repo *git.Repository, filePath string) {

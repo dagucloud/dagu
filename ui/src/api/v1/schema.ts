@@ -2629,7 +2629,7 @@ export interface paths {
         put?: never;
         /**
          * Move a sync item
-         * @description Atomically renames a sync item across local filesystem, remote repository, and sync state
+         * @description Renames a tracked sync item
          */
         post: operations["moveSyncItem"];
         delete?: never;
