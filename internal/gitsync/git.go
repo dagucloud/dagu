@@ -673,23 +673,9 @@ func (c *GitClient) ListFilesUnder(subDir string) ([]string, error) {
 // GetFileSizeAtCommit returns the blob size of a file at a specific commit
 // without decoding its content.
 func (c *GitClient) GetFileSizeAtCommit(filePath, commitHash string) (int64, error) {
-	if err := c.requireRepo(); err != nil {
+	file, err := c.fileAtCommit(filePath, commitHash)
+	if err != nil {
 		return 0, err
-	}
-
-	commit, err := c.repo.CommitObject(plumbing.NewHash(commitHash))
-	if err != nil {
-		return 0, fmt.Errorf("failed to get commit: %w", err)
-	}
-
-	tree, err := commit.Tree()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get tree: %w", err)
-	}
-
-	file, err := tree.File(filePath)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get file: %w", err)
 	}
 	return file.Size, nil
 }
@@ -715,6 +701,42 @@ func (c *GitClient) TestConnection(_ context.Context) error {
 
 // GetFileContentAtCommit returns the content of a file at a specific commit.
 func (c *GitClient) GetFileContentAtCommit(filePath, commitHash string) ([]byte, error) {
+	file, err := c.fileAtCommit(filePath, commitHash)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := file.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file content: %w", err)
+	}
+
+	return []byte(content), nil
+}
+
+func (c *GitClient) inspectFileAtCommit(filePath, commitHash string, detectBinary bool) (int64, bool, error) {
+	file, err := c.fileAtCommit(filePath, commitHash)
+	if err != nil {
+		return 0, false, err
+	}
+	if !detectBinary {
+		return file.Size, false, nil
+	}
+	reader, err := file.Reader()
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to read file content: %w", err)
+	}
+	defer func() {
+		_ = reader.Close()
+	}()
+	binary, err := isBinaryReader(reader)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to inspect file content: %w", err)
+	}
+	return file.Size, binary, nil
+}
+
+func (c *GitClient) fileAtCommit(filePath, commitHash string) (*object.File, error) {
 	if err := c.requireRepo(); err != nil {
 		return nil, err
 	}
@@ -733,13 +755,7 @@ func (c *GitClient) GetFileContentAtCommit(filePath, commitHash string) ([]byte,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file: %w", err)
 	}
-
-	content, err := file.Contents()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file content: %w", err)
-	}
-
-	return []byte(content), nil
+	return file, nil
 }
 
 // SetupRemote ensures the remote is configured correctly.

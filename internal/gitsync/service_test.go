@@ -4,12 +4,15 @@
 package gitsync
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -153,6 +156,37 @@ func TestService_StatusReadsAreConcurrentSafe(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusSynced, freshStatus.Status)
 	assert.Equal(t, dagYMLExtension, freshStatus.FileExtension)
+}
+
+func TestIsBinaryReader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content []byte
+		binary  bool
+	}{
+		{name: "text", content: []byte("hello, 世界\n")},
+		{name: "nul", content: []byte("hello\x00world"), binary: true},
+		{name: "invalid UTF-8", content: []byte{0xff}, binary: true},
+		{name: "replacement rune", content: []byte("\ufffd")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			binary, err := isBinaryReader(iotest.OneByteReader(bytes.NewReader(tc.content)))
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.binary, binary)
+		})
+	}
+
+	readErr := errors.New("read past binary marker")
+	binary, err := isBinaryReader(io.MultiReader(
+		bytes.NewReader([]byte{0}),
+		iotest.ErrReader(readErr),
+	))
+	require.NoError(t, err)
+	assert.True(t, binary)
 }
 
 func TestService_PathHelpers(t *testing.T) {

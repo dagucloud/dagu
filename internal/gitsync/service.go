@@ -4,6 +4,7 @@
 package gitsync
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -1672,37 +1673,38 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 		}
 	}
 
-	// Determine mode: preemptive (old file exists) vs retroactive (old missing, new exists)
-	_, oldFileErr := os.Stat(oldLocalPath)
-	oldFileExists := oldFileErr == nil
-	_, newFileErr := os.Stat(newLocalPath)
-	newFileExists := newFileErr == nil
-
-	// Validate that at least one mode is possible
-	if !oldFileExists && (oldState.Status != StatusMissing || !newFileExists) {
-		return &ValidationError{
-			Field:   oldID,
-			Message: "source file does not exist on disk and destination file is not present",
+	// Read through the no-follow path before changing local or Git state.
+	content, fileInfo, readErr := s.readItemFileInfo(oldID, oldState.Kind, oldLocalPath)
+	oldFileExists := readErr == nil
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return fmt.Errorf("failed to read source file: %w", readErr)
+	}
+	if !oldFileExists {
+		if oldState.Status != StatusMissing {
+			return &ValidationError{
+				Field:   oldID,
+				Message: "source file does not exist on disk and destination file is not present",
+			}
+		}
+		content, fileInfo, readErr = s.readItemFileInfo(newID, oldState.Kind, newLocalPath)
+		if os.IsNotExist(readErr) {
+			return &ValidationError{
+				Field:   oldID,
+				Message: "source file does not exist on disk and destination file is not present",
+			}
+		}
+		if readErr != nil {
+			return fmt.Errorf("failed to read destination file: %w", readErr)
 		}
 	}
 
-	// Ensure repo is ready
 	if err := s.gitClient.Open(); err != nil {
 		return err
 	}
 
-	var content []byte
-	executable := false
-
+	executable := oldState.Kind == SyncItemKindFile && isExecutable(fileInfo.Mode())
 	if oldFileExists {
 		// Preemptive mode: source exists on disk
-		content, err = os.ReadFile(oldLocalPath) //nolint:gosec // path constructed from internal dagsDir
-		if err != nil {
-			return fmt.Errorf("failed to read source file: %w", err)
-		}
-		if info, err := os.Stat(oldLocalPath); err == nil && oldState.Kind == SyncItemKindFile {
-			executable = isExecutable(info.Mode())
-		}
 		if err := s.writeItemFile(newID, oldState.Kind, newLocalPath, content, executable); err != nil {
 			return fmt.Errorf("failed to write destination file: %w", err)
 		}
@@ -1712,15 +1714,6 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 				return fmt.Errorf("failed to remove source file: %w (destination rollback failed: %v)", err, rollbackErr)
 			}
 			return fmt.Errorf("failed to remove source file: %w", err)
-		}
-	} else {
-		// Retroactive mode: old is missing but new file already exists at destination
-		content, err = os.ReadFile(newLocalPath) //nolint:gosec // path constructed from internal dagsDir
-		if err != nil {
-			return fmt.Errorf("failed to read destination file: %w", err)
-		}
-		if info, err := os.Stat(newLocalPath); err == nil && oldState.Kind == SyncItemKindFile {
-			executable = isExecutable(info.Mode())
 		}
 	}
 
@@ -1754,7 +1747,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	// On success: update state
 	contentHash := ComputeContentHash(content)
 	newItemState := s.newSyncedItemState(oldState.Kind, fileExtension, commitHash, contentHash, executable)
-	if fi, err := os.Stat(newLocalPath); err == nil {
+	if fi, _, err := s.inspectItemFile(newID, oldState.Kind, newLocalPath, false); err == nil {
 		updateStatCache(newItemState, fi)
 	}
 
@@ -1900,44 +1893,65 @@ func (s *serviceImpl) GetSyncItemDiff(_ context.Context, itemID string) (*SyncIt
 	if err != nil {
 		return nil, err
 	}
-	var localContent []byte
-	if itemState.Status != StatusMissing {
-		localContent, err = s.readItemFile(itemID, itemState.Kind, localPath)
+
+	knownBinary := itemState.Kind == SyncItemKindWikiPageAsset
+	localPresent := itemState.Status != StatusMissing
+	var localInfo os.FileInfo
+	var localBinary bool
+	if localPresent {
+		localInfo, localBinary, err = s.inspectItemFile(itemID, itemState.Kind, localPath, !knownBinary)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read local file: %w", err)
+			return nil, fmt.Errorf("failed to inspect local file: %w", err)
 		}
 	}
 
-	var remoteContent []byte
+	var remoteSize int64
+	var remoteBinary bool
+	remotePresent := false
 	switch itemState.Status {
 	case StatusSynced:
-		remoteContent = localContent
 		diff.RemoteCommit = itemState.BaseCommit
+		remotePresent = localPresent
+		if localInfo != nil {
+			remoteSize = localInfo.Size()
+			remoteBinary = localBinary
+		}
 
 	case StatusModified:
-		remoteContent = s.fetchRemoteContent(itemID, itemState.Kind, diff.FileExtension, itemState.BaseCommit)
 		diff.RemoteCommit = itemState.BaseCommit
+		remotePresent = itemState.BaseCommit != ""
 
 	case StatusConflict:
-		if !itemState.RemoteDeleted {
-			remoteContent = s.fetchRemoteContent(itemID, itemState.Kind, diff.FileExtension, itemState.RemoteCommit)
-		}
 		diff.RemoteCommit = itemState.RemoteCommit
 		diff.RemoteAuthor = itemState.RemoteAuthor
 		diff.RemoteMessage = itemState.RemoteMessage
+		remotePresent = !itemState.RemoteDeleted && itemState.RemoteCommit != ""
 
 	case StatusUntracked:
 		// No remote version for untracked files
 
 	case StatusMissing:
-		remoteContent = s.fetchRemoteContent(itemID, itemState.Kind, diff.FileExtension, itemState.BaseCommit)
 		diff.RemoteCommit = itemState.BaseCommit
+		remotePresent = itemState.BaseCommit != ""
+	}
+
+	if remotePresent && itemState.Status != StatusSynced {
+		remoteSize, remoteBinary, err = s.inspectRemoteItem(
+			itemID,
+			itemState.Kind,
+			diff.FileExtension,
+			diff.RemoteCommit,
+			!knownBinary,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect remote file: %w", err)
+		}
 	}
 
 	if itemState.Kind == SyncItemKindFile {
 		localExecutable := itemState.LocalExecutable
-		if info, err := os.Stat(localPath); err == nil {
-			localExecutable = isExecutable(info.Mode())
+		if localInfo != nil {
+			localExecutable = isExecutable(localInfo.Mode())
 		}
 		diff.LocalExecutable = &localExecutable
 		remoteExecutable := itemState.LastSyncedExecutable
@@ -1949,18 +1963,37 @@ func (s *serviceImpl) GetSyncItemDiff(_ context.Context, itemID string) (*SyncIt
 		}
 	}
 
-	diff.Binary = itemState.Kind == SyncItemKindWikiPageAsset ||
-		isBinaryContent(localContent) || isBinaryContent(remoteContent)
+	diff.Binary = knownBinary || localBinary || remoteBinary
 	if diff.Binary {
-		if itemState.Status != StatusMissing {
-			size := int64(len(localContent))
+		if localPresent {
+			size := localInfo.Size()
 			diff.LocalSize = &size
 		}
-		if !itemState.RemoteDeleted && itemState.Status != StatusUntracked {
-			size := int64(len(remoteContent))
+		if remotePresent {
+			size := remoteSize
 			diff.RemoteSize = &size
 		}
 		return diff, nil
+	}
+
+	var localContent []byte
+	if localPresent {
+		localContent, err = s.readItemFile(itemID, itemState.Kind, localPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read local file: %w", err)
+		}
+	}
+
+	var remoteContent []byte
+	if remotePresent {
+		if itemState.Status == StatusSynced {
+			remoteContent = localContent
+		} else {
+			remoteContent, err = s.fetchRemoteContent(itemID, itemState.Kind, diff.FileExtension, diff.RemoteCommit)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read remote file: %w", err)
+			}
+		}
 	}
 	diff.LocalContent = string(localContent)
 	diff.RemoteContent = string(remoteContent)
@@ -1981,27 +2014,56 @@ func cloneSyncItemStates(states map[string]*SyncItemState) map[string]*SyncItemS
 	return cloned
 }
 
-func isBinaryContent(content []byte) bool {
-	return bytes.IndexByte(content, 0) >= 0 || !utf8.Valid(content)
+func isBinaryReader(reader io.Reader) (bool, error) {
+	buffered := bufio.NewReader(reader)
+	for {
+		r, size, err := buffered.ReadRune()
+		if err == io.EOF {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if r == 0 || r == utf8.RuneError && size == 1 {
+			return true, nil
+		}
+	}
 }
 
-// fetchRemoteContent retrieves item content from a specific commit.
-func (s *serviceImpl) fetchRemoteContent(itemID string, kind SyncItemKind, fileExtension, commitHash string) []byte {
-	if commitHash == "" {
-		return nil
-	}
+func (s *serviceImpl) inspectRemoteItem(
+	itemID string,
+	kind SyncItemKind,
+	fileExtension string,
+	commitHash string,
+	detectBinary bool,
+) (int64, bool, error) {
 	if err := s.gitClient.Open(); err != nil {
-		return nil
+		return 0, false, err
 	}
 	repoPath, err := s.safeItemRepoPath(itemID, kind, fileExtension)
 	if err != nil {
-		return nil
+		return 0, false, err
+	}
+	return s.gitClient.inspectFileAtCommit(repoPath, commitHash, detectBinary)
+}
+
+// fetchRemoteContent retrieves item content from a specific commit.
+func (s *serviceImpl) fetchRemoteContent(itemID string, kind SyncItemKind, fileExtension, commitHash string) ([]byte, error) {
+	if commitHash == "" {
+		return nil, nil
+	}
+	if err := s.gitClient.Open(); err != nil {
+		return nil, err
+	}
+	repoPath, err := s.safeItemRepoPath(itemID, kind, fileExtension)
+	if err != nil {
+		return nil, err
 	}
 	content, err := s.gitClient.GetFileContentAtCommit(repoPath, commitHash)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return content
+	return content, nil
 }
 
 // GetConfig returns the current configuration.
@@ -2389,6 +2451,74 @@ func safeReadFileWithinBase(baseDir, targetPath string) ([]byte, error) {
 	return io.ReadAll(file)
 }
 
+func safeReadFileInfoWithinBase(baseDir, targetPath string) ([]byte, os.FileInfo, error) {
+	file, err := safeOpenFileWithinBase(baseDir, targetPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return nil, nil, err
+	}
+	return content, info, nil
+}
+
+func safeInspectFileWithinBase(baseDir, targetPath string, detectBinary bool) (os.FileInfo, bool, error) {
+	if !detectBinary {
+		info, err := safeFileInfoWithinBase(baseDir, targetPath)
+		return info, false, err
+	}
+	file, err := safeOpenFileWithinBase(baseDir, targetPath)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, false, err
+	}
+	binary, err := isBinaryReader(file)
+	if err != nil {
+		return nil, false, err
+	}
+	return info, binary, nil
+}
+
+func safeFileInfoWithinBase(baseDir, targetPath string) (os.FileInfo, error) {
+	relPath, err := relativePathWithinBase(baseDir, targetPath)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+	cleanPath := filepath.Clean(relPath)
+	if err := ensureSafeRootDirPath(root, filepath.Dir(cleanPath), targetPath, "inspect", false); err != nil {
+		return nil, err
+	}
+	info, err := root.Lstat(cleanPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectUnsafeFileInfo(info, targetPath, "inspect"); err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
 func safeHashFileWithinBase(baseDir, targetPath string) (string, error) {
 	file, err := safeOpenFileWithinBase(baseDir, targetPath)
 	if err != nil {
@@ -2652,6 +2782,33 @@ func (s *serviceImpl) readItemFile(itemID string, kind SyncItemKind, filePath st
 		return nil, err
 	}
 	return safeReadFileWithinBase(baseDir, filePath)
+}
+
+func (s *serviceImpl) readItemFileInfo(itemID string, kind SyncItemKind, filePath string) ([]byte, os.FileInfo, error) {
+	baseDir := s.dagsDir
+	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
+		baseDir = s.localWikiDir()
+	}
+	if _, err := normalizeItemID(itemID, kind); err != nil {
+		return nil, nil, err
+	}
+	return safeReadFileInfoWithinBase(baseDir, filePath)
+}
+
+func (s *serviceImpl) inspectItemFile(
+	itemID string,
+	kind SyncItemKind,
+	filePath string,
+	detectBinary bool,
+) (os.FileInfo, bool, error) {
+	baseDir := s.dagsDir
+	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
+		baseDir = s.localWikiDir()
+	}
+	if _, err := normalizeItemID(itemID, kind); err != nil {
+		return nil, false, err
+	}
+	return safeInspectFileWithinBase(baseDir, filePath, detectBinary)
 }
 
 func (s *serviceImpl) hashItemFile(itemID string, kind SyncItemKind, filePath string) (string, error) {

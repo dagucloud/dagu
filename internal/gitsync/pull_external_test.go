@@ -410,6 +410,7 @@ func TestSupportingFileWriteLifecycle(t *testing.T) {
 	seedPath := filepath.Join(root, "seed")
 	seedRepo := initPullExternalTestRepo(t, seedPath)
 	commitPullExternalTestFile(t, seedRepo, seedPath, "scripts/run.sh", "echo initial\n", "script")
+	commitPullExternalTestFile(t, seedRepo, seedPath, "scripts/missing.sh", "echo missing\n", "missing script")
 	_, err = seedRepo.CreateRemote(&gitconfig.RemoteConfig{Name: "upstream", URLs: []string{remotePath}})
 	require.NoError(t, err)
 	require.NoError(t, seedRepo.Push(&git.PushOptions{
@@ -435,6 +436,26 @@ func TestSupportingFileWriteLifecycle(t *testing.T) {
 
 	_, err = svc.Pull(ctx)
 	require.NoError(t, err)
+
+	missingPath := filepath.Join(dagsDir, "scripts", "missing.sh")
+	require.NoError(t, os.Remove(missingPath))
+	_, err = svc.GetStatus(ctx)
+	require.NoError(t, err)
+
+	secretPath := filepath.Join(root, "secret")
+	require.NoError(t, os.WriteFile(secretPath, []byte("secret\n"), 0600))
+	linkPath := filepath.Join(dagsDir, "scripts", "leak.sh")
+	require.NoError(t, os.Symlink(secretPath, linkPath))
+
+	err = svc.Move(ctx, "scripts/missing.sh", "scripts/leak.sh", "reject symlink", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "symlink")
+	assert.Equal(t, "echo missing\n", pullExternalFileContent(t, remoteRepo, "scripts/missing.sh"))
+	assertPullExternalHeadFileMissing(t, remoteRepo, "scripts/leak.sh")
+	secret, err := os.ReadFile(secretPath)
+	require.NoError(t, err)
+	assert.Equal(t, "secret\n", string(secret))
+
 	localPath := filepath.Join(dagsDir, "scripts", "run.sh")
 	require.NoError(t, os.WriteFile(localPath, []byte("echo published\n"), 0700))
 	require.NoError(t, os.Chmod(localPath, 0700))
@@ -607,6 +628,12 @@ func TestPullSyncsWikiPageAttachments(t *testing.T) {
 	status, err = svc.GetStatus(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, gitsync.StatusModified, status.Items[assetID].Status)
+	if runtime.GOOS != "windows" {
+		require.NoError(t, os.Chmod(localAsset, 0000))
+		defer func() {
+			_ = os.Chmod(localAsset, 0600)
+		}()
+	}
 
 	diff, err := svc.GetSyncItemDiff(ctx, assetID)
 	require.NoError(t, err)
@@ -723,6 +750,14 @@ func pullExternalHeadFile(t *testing.T, repo *git.Repository, filePath string) *
 	file, err := tree.File(filePath)
 	require.NoError(t, err)
 	return file
+}
+
+func pullExternalFileContent(t *testing.T, repo *git.Repository, filePath string) string {
+	t.Helper()
+
+	content, err := pullExternalHeadFile(t, repo, filePath).Contents()
+	require.NoError(t, err)
+	return content
 }
 
 func assertPullExternalHeadFileMissing(t *testing.T, repo *git.Repository, filePath string) {
