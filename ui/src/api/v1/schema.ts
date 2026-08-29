@@ -14874,7 +14874,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The sync item identifier (file path without extension) */
+                /** @description The sync item identifier. Supporting file IDs include their extension. */
                 itemId: string;
             };
             cookie?: never;

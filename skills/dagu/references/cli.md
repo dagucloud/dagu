@@ -273,8 +273,8 @@ Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--
 | ---------- | ----------- |
 | `sync status` | Show repository, branch, and per-item status |
 | `sync pull` | Pull changes from remote |
-| `sync publish [dag] [--message/-m] [--all] [--force/-f]` | Publish local changes to remote |
-| `sync discard <dag> [--yes/-y]` | Discard local changes, restore remote version |
+| `sync publish [item-id] [--message/-m] [--all] [--force/-f]` | Publish local changes to remote |
+| `sync discard <item-id> [--yes/-y]` | Discard local changes, restore remote version |
 | `sync forget <id>... [--yes/-y]` | Remove state entries for missing/untracked items |
 | `sync cleanup [--dry-run] [--yes/-y]` | Remove all missing entries from sync state |
 | `sync delete <id> [--message/-m] [--force] [--all-missing] [--dry-run] [--yes/-y]` | Delete from remote, local, and sync state |

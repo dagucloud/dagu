@@ -547,6 +547,10 @@ func (c *GitClient) ListTrackedFiles() ([]TrackedFile, error) {
 		return nil, fmt.Errorf("failed to get tree: %w", err)
 	}
 
+	if filepath.IsAbs(c.cfg.Path) || filepath.VolumeName(c.cfg.Path) != "" {
+		return nil, &ValidationError{Field: "path", Message: "must stay within the repository"}
+	}
+
 	root := path.Clean(filepath.ToSlash(c.cfg.Path))
 	if root == "." {
 		root = ""

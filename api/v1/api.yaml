@@ -6588,7 +6588,7 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - name: itemId
           in: path
-          description: "The sync item identifier (file path without extension)"
+          description: "The sync item identifier. Supporting file IDs include their extension."
           required: true
           schema:
             type: string

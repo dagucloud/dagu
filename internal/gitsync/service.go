@@ -351,14 +351,13 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 			return localSyncResult{}, err
 		}
 
-		repoContent, err := safeReadFileWithinBase(s.gitClient.repoPath, repoFilePath)
+		repoHash, err := safeHashFileWithinBase(s.gitClient.repoPath, repoFilePath)
 		if err != nil {
 			return localSyncResult{}, err
 		}
-		repoHash := ComputeContentHash(repoContent)
 		remoteExecutable := item.kind == SyncItemKindFile && item.executable
 
-		localContent, err := s.readItemFile(item.id, item.kind, localPath)
+		localHash, err := s.hashItemFile(item.id, item.kind, localPath)
 		if err != nil {
 			if !os.IsNotExist(err) {
 				return localSyncResult{}, fmt.Errorf("failed to write synced item %q: destination cannot be read: %w", item.id, err)
@@ -378,7 +377,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 				}
 			}
 
-			if err := s.writeItemFile(item.id, item.kind, localPath, repoContent, remoteExecutable); err != nil {
+			if err := s.copyRepoItemFile(item.id, item.kind, repoFilePath, localPath, remoteExecutable); err != nil {
 				return localSyncResult{}, fmt.Errorf("failed to write synced item %q: %w", item.id, err)
 			}
 			now := time.Now()
@@ -391,7 +390,6 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 			continue
 		}
 
-		localHash := ComputeContentHash(localContent)
 		localExecutable := false
 		if item.kind == SyncItemKindFile {
 			if info, statErr := os.Stat(localPath); statErr == nil {
@@ -461,7 +459,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 			continue
 		}
 
-		if err := s.writeItemFile(item.id, item.kind, localPath, repoContent, remoteExecutable); err != nil {
+		if err := s.copyRepoItemFile(item.id, item.kind, repoFilePath, localPath, remoteExecutable); err != nil {
 			return localSyncResult{}, fmt.Errorf("failed to write synced item %q: %w", item.id, err)
 		}
 		now := time.Now()
@@ -796,12 +794,11 @@ func (s *serviceImpl) refreshLocalHashes(state *State) bool {
 			continue
 		}
 
-		content, err := os.ReadFile(filePath) //nolint:gosec // path constructed from internal dagsDir
+		currentHash, err := s.hashItemFile(dagID, dagState.Kind, filePath)
 		if err != nil {
 			continue
 		}
 
-		currentHash := ComputeContentHash(content)
 		updateStatCache(dagState, info)
 
 		// Update LocalHash if changed
@@ -866,11 +863,10 @@ func (s *serviceImpl) reconcile(state *State) bool {
 		case StatusMissing:
 			if fileExists {
 				// File reappeared — hash it and decide new status
-				content, err := os.ReadFile(filePath) //nolint:gosec // path constructed from internal dagsDir
+				currentHash, err := s.hashItemFile(dagID, dagState.Kind, filePath)
 				if err != nil {
 					continue
 				}
-				currentHash := ComputeContentHash(content)
 				localExecutable := dagState.Kind == SyncItemKindFile && isExecutable(info.Mode())
 				if currentHash == dagState.LastSyncedHash &&
 					(dagState.Kind != SyncItemKindFile || localExecutable == dagState.LastSyncedExecutable) {
@@ -2368,6 +2364,28 @@ func ensureExistingPathWithinBase(baseDir, targetPath string) error {
 }
 
 func safeReadFileWithinBase(baseDir, targetPath string) ([]byte, error) {
+	file, err := safeOpenFileWithinBase(baseDir, targetPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+	return io.ReadAll(file)
+}
+
+func safeHashFileWithinBase(baseDir, targetPath string) (string, error) {
+	file, err := safeOpenFileWithinBase(baseDir, targetPath)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+	return computeContentHash(file)
+}
+
+func safeOpenFileWithinBase(baseDir, targetPath string) (*os.File, error) {
 	relPath, err := relativePathWithinBase(baseDir, targetPath)
 	if err != nil {
 		return nil, err
@@ -2389,16 +2407,29 @@ func safeReadFileWithinBase(baseDir, targetPath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = file.Close()
-	}()
 	if err := validateOpenedRootFile(root, relPath, targetPath, "read", file); err != nil {
+		_ = file.Close()
 		return nil, err
 	}
-	return io.ReadAll(file)
+	return file, nil
 }
 
 func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os.FileMode) error {
+	return safeWriteStreamWithinBase(baseDir, targetPath, bytes.NewReader(content), perm)
+}
+
+func safeCopyFileWithinBases(sourceBase, sourcePath, targetBase, targetPath string, perm os.FileMode) error {
+	source, err := safeOpenFileWithinBase(sourceBase, sourcePath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = source.Close()
+	}()
+	return safeWriteStreamWithinBase(targetBase, targetPath, source, perm)
+}
+
+func safeWriteStreamWithinBase(baseDir, targetPath string, content io.Reader, perm os.FileMode) error {
 	relPath, err := relativePathWithinBase(baseDir, targetPath)
 	if err != nil {
 		return err
@@ -2449,7 +2480,7 @@ func safeWriteFileWithinBase(baseDir, targetPath string, content []byte, perm os
 		_ = file.Close()
 		return err
 	}
-	if _, err := file.Write(content); err != nil {
+	if _, err := io.Copy(file, content); err != nil {
 		_ = file.Close()
 		return err
 	}
@@ -2606,6 +2637,32 @@ func (s *serviceImpl) readItemFile(itemID string, kind SyncItemKind, filePath st
 		return nil, err
 	}
 	return safeReadFileWithinBase(baseDir, filePath)
+}
+
+func (s *serviceImpl) hashItemFile(itemID string, kind SyncItemKind, filePath string) (string, error) {
+	baseDir := s.dagsDir
+	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
+		baseDir = s.localWikiDir()
+	}
+	if _, err := normalizeItemID(itemID, kind); err != nil {
+		return "", err
+	}
+	return safeHashFileWithinBase(baseDir, filePath)
+}
+
+func (s *serviceImpl) copyRepoItemFile(itemID string, kind SyncItemKind, repoPath, filePath string, executable bool) error {
+	if _, err := normalizeItemID(itemID, kind); err != nil {
+		return err
+	}
+	baseDir := s.dagsDir
+	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
+		baseDir = s.localWikiDir()
+	}
+	perm := os.FileMode(0600)
+	if kind == SyncItemKindFile && executable {
+		perm = 0700
+	}
+	return safeCopyFileWithinBases(s.gitClient.repoPath, repoPath, baseDir, filePath, perm)
 }
 
 func (s *serviceImpl) removeItemFile(itemID string, itemState *SyncItemState) error {

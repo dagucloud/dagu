@@ -128,6 +128,27 @@ func TestGitClientListFilesUnderSkipsSymlinks(t *testing.T) {
 	require.Equal(t, []string{filepath.Join("docs", "page.md")}, files)
 }
 
+func TestGitClientListTrackedFilesRejectsWindowsVolumes(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows volume semantics are platform-specific")
+	}
+
+	repoPath := t.TempDir()
+	repo := initGitTestRepo(t, repoPath)
+	commitGitTestFile(t, repo, repoPath, "dag.yaml", "steps: []\n", "initial")
+
+	for _, repoSubpath := range []string{`C:\repo\dags`, `C:repo\dags`} {
+		t.Run(repoSubpath, func(t *testing.T) {
+			client := NewGitClient(&Config{Path: repoSubpath}, repoPath)
+			client.repo = repo
+
+			_, err := client.ListTrackedFiles()
+			var validationErr *ValidationError
+			require.ErrorAs(t, err, &validationErr)
+		})
+	}
+}
+
 func TestGitClient_AddAndCommit_NoChanges(t *testing.T) {
 	repoPath := t.TempDir()
 

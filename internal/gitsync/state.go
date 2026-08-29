@@ -4,10 +4,12 @@
 package gitsync
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -316,7 +318,14 @@ func (m *StateManager) GetState() (*State, error) {
 
 // ComputeContentHash computes the SHA256 hash of content bytes.
 func ComputeContentHash(content []byte) string {
+	hash, _ := computeContentHash(bytes.NewReader(content))
+	return hash
+}
+
+func computeContentHash(reader io.Reader) (string, error) {
 	h := sha256.New()
-	h.Write(content)
-	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+	if _, err := io.Copy(h, reader); err != nil {
+		return "", err
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
