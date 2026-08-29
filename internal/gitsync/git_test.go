@@ -5,6 +5,7 @@ package gitsync
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -216,6 +217,36 @@ func TestGitClient_CommitStaged_NoChanges(t *testing.T) {
 	hash, err := c2.CommitStaged("empty commit")
 	require.NoError(t, err)
 	require.Equal(t, firstHash, hash)
+}
+
+func TestGitClientCommitAndPushPreservesDirtyClone(t *testing.T) {
+	repoPath := t.TempDir()
+	repo := initGitTestRepo(t, repoPath)
+	commitGitTestFile(t, repo, repoPath, "dag.yaml", "base\n", "initial")
+
+	client := NewGitClient(&Config{
+		Enabled:     true,
+		Repository:  repoPath,
+		Branch:      "main",
+		PushEnabled: true,
+		Commit: CommitConfig{
+			AuthorName:  "Test User",
+			AuthorEmail: "test@example.com",
+		},
+	}, repoPath)
+	client.repo = repo
+	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "dag.yaml"), []byte("local edit\n"), 0644))
+
+	stageCalled := false
+	_, err := client.commitAndPush(context.Background(), "mutation", func() error {
+		stageCalled = true
+		return errors.New("stage failed")
+	})
+	require.Error(t, err)
+	require.False(t, stageCalled)
+	content, err := os.ReadFile(filepath.Join(repoPath, "dag.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, "local edit\n", string(content))
 }
 
 func TestGitClient_PullShallowRepoMultipleCommitsAhead(t *testing.T) {

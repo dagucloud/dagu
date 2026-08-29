@@ -607,6 +607,7 @@ func (s *serviceImpl) markRemoteDeleteConflict(itemState *SyncItemState, remoteC
 	}
 }
 
+// localItemMatchesBase refreshes itemState and reports whether the local file matches its synced content.
 func (s *serviceImpl) localItemMatchesBase(itemID string, itemState *SyncItemState) (bool, error) {
 	fileExtension := s.syncItemFileExtension(itemID, itemState)
 	filePath, err := s.safeItemFilePath(itemID, itemState.Kind, fileExtension)
@@ -1374,6 +1375,10 @@ func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force 
 			if err := s.stateManager.Save(state); err != nil {
 				return err
 			}
+			return &ValidationError{
+				Field:   itemID,
+				Message: "sync item has local modifications — use force to delete anyway",
+			}
 		}
 	}
 
@@ -1473,6 +1478,10 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 			if !matchesBase && !force {
 				if err := s.stateManager.Save(state); err != nil {
 					return nil, err
+				}
+				return nil, &ValidationError{
+					Field:   itemID,
+					Message: "sync item has local modifications — use force to delete anyway",
 				}
 			}
 		}
@@ -2852,37 +2861,25 @@ func (s *serviceImpl) writeItemFile(itemID string, kind SyncItemKind, filePath s
 	if _, err := normalizeItemID(itemID, kind); err != nil {
 		return err
 	}
-	baseDir := s.dagsDir
-	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
-		baseDir = s.localWikiDir()
-	}
 	perm := os.FileMode(0600)
 	if kind == SyncItemKindFile && executable {
 		perm = 0700
 	}
-	return safeWriteFileWithinBase(baseDir, filePath, content, perm)
+	return safeWriteFileWithinBase(s.itemBaseDir(kind), filePath, content, perm)
 }
 
 func (s *serviceImpl) readItemFile(itemID string, kind SyncItemKind, filePath string) ([]byte, error) {
-	baseDir := s.dagsDir
-	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
-		baseDir = s.localWikiDir()
-	}
 	if _, err := normalizeItemID(itemID, kind); err != nil {
 		return nil, err
 	}
-	return safeReadFileWithinBase(baseDir, filePath)
+	return safeReadFileWithinBase(s.itemBaseDir(kind), filePath)
 }
 
 func (s *serviceImpl) readItemFileInfo(itemID string, kind SyncItemKind, filePath string) ([]byte, os.FileInfo, error) {
-	baseDir := s.dagsDir
-	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
-		baseDir = s.localWikiDir()
-	}
 	if _, err := normalizeItemID(itemID, kind); err != nil {
 		return nil, nil, err
 	}
-	return safeReadFileInfoWithinBase(baseDir, filePath)
+	return safeReadFileInfoWithinBase(s.itemBaseDir(kind), filePath)
 }
 
 func (s *serviceImpl) inspectItemFile(
@@ -2891,51 +2888,35 @@ func (s *serviceImpl) inspectItemFile(
 	filePath string,
 	detectBinary bool,
 ) (os.FileInfo, bool, error) {
-	baseDir := s.dagsDir
-	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
-		baseDir = s.localWikiDir()
-	}
 	if _, err := normalizeItemID(itemID, kind); err != nil {
 		return nil, false, err
 	}
-	return safeInspectFileWithinBase(baseDir, filePath, detectBinary)
+	return safeInspectFileWithinBase(s.itemBaseDir(kind), filePath, detectBinary)
 }
 
 func (s *serviceImpl) hashItemFile(itemID string, kind SyncItemKind, filePath string) (string, error) {
-	baseDir := s.dagsDir
-	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
-		baseDir = s.localWikiDir()
-	}
 	if _, err := normalizeItemID(itemID, kind); err != nil {
 		return "", err
 	}
-	return safeHashFileWithinBase(baseDir, filePath)
+	return safeHashFileWithinBase(s.itemBaseDir(kind), filePath)
 }
 
 func (s *serviceImpl) hashItemFileInfo(itemID string, kind SyncItemKind, filePath string) (string, os.FileInfo, error) {
-	baseDir := s.dagsDir
-	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
-		baseDir = s.localWikiDir()
-	}
 	if _, err := normalizeItemID(itemID, kind); err != nil {
 		return "", nil, err
 	}
-	return safeHashFileInfoWithinBase(baseDir, filePath)
+	return safeHashFileInfoWithinBase(s.itemBaseDir(kind), filePath)
 }
 
 func (s *serviceImpl) copyRepoItemFile(itemID string, kind SyncItemKind, repoPath, filePath string, executable bool) error {
 	if _, err := normalizeItemID(itemID, kind); err != nil {
 		return err
 	}
-	baseDir := s.dagsDir
-	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
-		baseDir = s.localWikiDir()
-	}
 	perm := os.FileMode(0600)
 	if kind == SyncItemKindFile && executable {
 		perm = 0700
 	}
-	return safeCopyFileWithinBases(s.gitClient.repoPath, repoPath, baseDir, filePath, perm)
+	return safeCopyFileWithinBases(s.gitClient.repoPath, repoPath, s.itemBaseDir(kind), filePath, perm)
 }
 
 func (s *serviceImpl) removeItemFile(itemID string, itemState *SyncItemState) error {
@@ -2943,11 +2924,7 @@ func (s *serviceImpl) removeItemFile(itemID string, itemState *SyncItemState) er
 	if err != nil {
 		return err
 	}
-	baseDir := s.dagsDir
-	if itemState.Kind == SyncItemKindWikiPage || itemState.Kind == SyncItemKindWikiPageAsset {
-		baseDir = s.localWikiDir()
-	}
-	return safeRemoveFileWithinBase(baseDir, filePath)
+	return safeRemoveFileWithinBase(s.itemBaseDir(itemState.Kind), filePath)
 }
 
 func (s *serviceImpl) renameItemFile(oldID, newID string, kind SyncItemKind, oldPath, newPath string) error {
@@ -2957,11 +2934,7 @@ func (s *serviceImpl) renameItemFile(oldID, newID string, kind SyncItemKind, old
 	if _, err := normalizeItemID(newID, kind); err != nil {
 		return err
 	}
-	baseDir := s.dagsDir
-	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
-		baseDir = s.localWikiDir()
-	}
-	return safeRenameFileWithinBase(baseDir, oldPath, newPath)
+	return safeRenameFileWithinBase(s.itemBaseDir(kind), oldPath, newPath)
 }
 
 func (s *serviceImpl) safeItemFilePath(itemID string, kind SyncItemKind, extension string) (string, error) {
@@ -2969,11 +2942,10 @@ func (s *serviceImpl) safeItemFilePath(itemID string, kind SyncItemKind, extensi
 	if err != nil {
 		return "", err
 	}
-	baseDir := s.dagsDir
+	baseDir := s.itemBaseDir(kind)
 	localID := normalized
 	switch kind {
 	case SyncItemKindWikiPage, SyncItemKindWikiPageAsset:
-		baseDir = s.localWikiDir()
 		localID = strings.TrimPrefix(normalized, wikiRepoDirForID(normalized)+"/")
 	case SyncItemKindFile:
 		extension = ""
@@ -3061,6 +3033,13 @@ func (s *serviceImpl) localWikiDir() string {
 		return s.wikiDir
 	}
 	return filepath.Join(s.dagsDir, wikiDir)
+}
+
+func (s *serviceImpl) itemBaseDir(kind SyncItemKind) string {
+	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
+		return s.localWikiDir()
+	}
+	return s.dagsDir
 }
 
 func (s *serviceImpl) localBaseDir(itemID string) string {

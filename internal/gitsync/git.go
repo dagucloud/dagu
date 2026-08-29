@@ -473,15 +473,23 @@ func (c *GitClient) commitAndPush(ctx context.Context, message string, stage fun
 		return "", err
 	}
 
+	worktree, err := c.repo.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get worktree: %w", err)
+	}
+	status, err := worktree.Status()
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect worktree: %w", err)
+	}
+	if !status.IsClean() {
+		return "", errors.New("cannot mutate dirty Git sync clone; pull to reconcile")
+	}
+
 	head, err := c.repo.Head()
 	if err != nil {
 		return "", fmt.Errorf("failed to get HEAD: %w", err)
 	}
 	rollback := func(operationErr error) error {
-		worktree, worktreeErr := c.repo.Worktree()
-		if worktreeErr != nil {
-			return errors.Join(operationErr, fmt.Errorf("failed to get worktree for rollback: %w", worktreeErr))
-		}
 		if resetErr := worktree.Reset(&git.ResetOptions{Mode: git.HardReset, Commit: head.Hash()}); resetErr != nil {
 			return errors.Join(operationErr, fmt.Errorf("failed to roll back Git mutation: %w", resetErr))
 		}
